@@ -137,6 +137,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 ## Questions
 
+- [[questions/record-zoom-live-feasibility]] — can a world-record zoom be played live without post-processing? (open; estimate: yes to ~1e1000–1e3000 along a known path)
 - [[questions/apple-gpu-denormals]] — do Apple GPUs flush float32 subnormals?
 - [[questions/auto-iteration-heuristic]] — which auto-maxIter rule to use
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
