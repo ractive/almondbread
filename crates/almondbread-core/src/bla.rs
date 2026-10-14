@@ -640,6 +640,14 @@ impl BlaForecast {
     pub fn pays(&self) -> bool {
         self.covered >= 1024 && self.covered >= 64 * self.blocks
     }
+
+    /// The deep kernel's rule (M3b, kb: synthesis/benchmarks M3b): its exact steps cost ~30 %
+    /// more than plain ones and pixels there run many reference periods, each skipped again,
+    /// so blocks of 16 on average over a first run of 64 already win (measured 1.3x to 47x on
+    /// every deep benchmark location).
+    pub fn pays_deep(&self) -> bool {
+        self.covered >= 64 && self.covered >= 16 * self.blocks
+    }
 }
 
 /// Outcome of [`iterate_delta`].

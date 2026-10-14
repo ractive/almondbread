@@ -70,7 +70,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let wall: Vec<String> = walls.iter().map(|t| format!("{:.1}", t * 1000.0)).collect();
     println!(
         "{path}: {width}x{height}  zoom {}  maxIter {}  ref {} pts {:.2} ms  iterate GPU [{}] ms  wall [{}] ms  chunks {}  iters {}  steps {}  colorize {:.2} ms",
-        g(r.viewport.zoom(), 3),
+        almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
         r.max_iterations(),
         ref_len,
         ref_time * 1000.0,
@@ -596,6 +596,61 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "0.1",
         "--bla",
         "1",
+    ],
+    // M3b (kb: synthesis/benchmarks M3b): Space zoom through the f64 limit and the plain/deep
+    // kernel switch, 1.4e-10 -> 2e-31 per pixel (48 e-folds in 8 s), into the seahorse valley
+    // near the period-8007 minibrot: references computed on the worker while zooming, the
+    // final frame against the deep oracle. Float32 paints ~0.07 % of these chaotic exterior
+    // pixels interior (escapes past the limit with the interior test off), hence 0.15 %.
+    &[
+        "--history",
+        "zoom",
+        "--center",
+        "-0.743643887037158704752191506114774,0.131825904205311970493132056385139",
+        "--scale",
+        "2e-31",
+        "--ppp",
+        "1",
+        "--size",
+        "640x410",
+        "--speed",
+        "6",
+        "--seconds",
+        "8",
+        "--max-false-interior",
+        "0.15",
+    ],
+    // M3b: zoom and pan at 1e-305 per pixel around the period-255 needle minibrot (below
+    // f64's range; extended-range BLA on).
+    &[
+        "--history",
+        "zoom",
+        "--location",
+        "needle-1e305",
+        "--size",
+        "640x410",
+        "--ppp",
+        "1",
+        "--speed",
+        "3",
+        "--seconds",
+        "3",
+        "--pointer",
+        "40,20",
+    ],
+    &[
+        "--history",
+        "pan",
+        "--location",
+        "needle-1e305",
+        "--size",
+        "640x410",
+        "--ppp",
+        "1",
+        "--seconds",
+        "2",
+        "--pointer",
+        "40,20",
     ],
 ];
 

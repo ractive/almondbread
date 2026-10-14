@@ -32,6 +32,14 @@ use crate::viewport::{Center, Scale, Viewport};
 /// f64 limit (~4e-16 |c|); 1e-12 leaves room for long orbits.
 pub const DEEP_SCALE: f64 = 1e-12;
 
+/// Big references made for views below this scale per point run the deep (rescaled,
+/// extended-range) kernel; above it the plain float32 kernel, which is ~30 % faster per
+/// iteration and safe while deltas stay far above float32's squared-norm floor (~1e-19).
+pub const DEEP_KERNEL_SCALE: f64 = 1e-17;
+/// A plain-kernel big reference serves views down to this scale (below: unusable), and is
+/// replaced in the background from `DEEP_KERNEL_SCALE` on.
+pub const PLAIN_KERNEL_FLOOR: f64 = 1e-18;
+
 /// Guard bits on top of the pixel spacing (and view size) for a reference to be usable at all,
 /// and to be considered good (below: recompute in the background, keep using meanwhile).
 pub const MIN_GUARD_BITS: usize = 20;
@@ -63,6 +71,8 @@ pub struct Reference {
     pub detected_period: Option<usize>,
     pub escaped: bool,
     pub big: bool,
+    /// Iterate with the deep kernel (a big reference made below [`DEEP_KERNEL_SCALE`]).
+    pub deep_kernel: bool,
     /// Seconds: selection (period + Newton) and orbit.
     pub select_time: f64,
     pub orbit_time: f64,
@@ -123,6 +133,7 @@ impl Reference {
             detected_period: None,
             escaped,
             big: false,
+            deep_kernel: false,
             select_time: 0.0,
             orbit_time: start.elapsed().as_secs_f64(),
         }
@@ -193,6 +204,7 @@ impl Reference {
             detected_period: detected,
             escaped: r.escaped,
             big: true,
+            deep_kernel: request.scale.to_f64() < DEEP_KERNEL_SCALE,
             select_time,
             orbit_time: t1.elapsed().as_secs_f64(),
         })
@@ -233,9 +245,15 @@ impl Reference {
         if offset.is_nan() || offset > MAX_OFFSET_TEXELS {
             return Fit::No;
         }
+        let vs = viewport.scale.to_f64();
+        if !self.deep_kernel && vs < PLAIN_KERNEL_FLOOR {
+            return Fit::No;
+        }
+        let kernel_stale = !self.deep_kernel && vs < DEEP_KERNEL_SCALE;
         let short = self.period.is_none() && !self.escaped && self.points.len() - 1 < max_iter;
         let far = offset > 2.0 * size as f64;
-        if self.precision_bits < needed_bits(&self.point, texel, size, GOOD_GUARD_BITS) || short || far {
+        if self.precision_bits < needed_bits(&self.point, texel, size, GOOD_GUARD_BITS) || short || far || kernel_stale
+        {
             return Fit::Stale;
         }
         Fit::Good

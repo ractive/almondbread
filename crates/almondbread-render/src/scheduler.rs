@@ -1239,8 +1239,9 @@ impl<B: GpuBackend> Renderer<B> {
         let (Some(reference), Some(reference_buffer)) = (&self.reference, self.reference_buffer.clone()) else {
             return;
         };
-        let deep = reference.big;
+        let deep = reference.deep_kernel;
         let refx_buffer = if deep { self.refx_buffer.clone() } else { None };
+        let big = reference.big;
         let ref_len = reference.points.len() as u32;
         let reference_serial = self.reference_serial;
         let half_diag = 0.5 * (key.width as f64).hypot(key.height as f64);
@@ -1248,6 +1249,10 @@ impl<B: GpuBackend> Renderer<B> {
         // 2^scaleExp, the texel's binary exponent (kb: techniques/extended-range-floats).
         let (dre, dim) = if deep {
             (0.0, 0.0)
+        } else if big {
+            // Plain kernel on a big reference: the offset in f64 (views >= 1e-18 per point).
+            let u = Scale::from_f64(1.0);
+            viewport.center.delta_in(&reference.point, u)
         } else {
             viewport.center.delta_from(&reference.point)
         };
@@ -1443,7 +1448,12 @@ impl<B: GpuBackend> Renderer<B> {
                         if forecast.pays() { "pays" } else { "does not pay" }
                     );
                 }
-                if self.config.bla == BlaMode::Auto && !forecast.pays() {
+                let pays = if matches!(t.table, BlaCpu::Deep(_)) {
+                    forecast.pays_deep()
+                } else {
+                    forecast.pays()
+                };
+                if self.config.bla == BlaMode::Auto && !pays {
                     return BlaReady::Without;
                 }
                 job.bla = Some(t);
@@ -1533,7 +1543,7 @@ impl<B: GpuBackend> Renderer<B> {
         let Some(r) = &self.reference else { return };
         let serial = self.reference_serial;
         let eps = self.config.bla_epsilon;
-        let build: Box<dyn FnOnce() -> BlaCpu + Send> = if r.big {
+        let build: Box<dyn FnOnce() -> BlaCpu + Send> = if r.deep_kernel {
             let points = r.extended.clone();
             Box::new(move || BlaCpu::Deep(Arc::new(BlaTableX::build(&points, eps))))
         } else {
@@ -2659,7 +2669,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.bla = None;
         self.bla_build = None;
         let eps = self.config.bla_epsilon;
-        self.bla_reach_log2 = if r.big {
+        self.bla_reach_log2 = if r.deep_kernel {
             BlaTableX::reach_log2(&r.extended, eps)
         } else {
             let n = r.points.len().saturating_sub(1);
