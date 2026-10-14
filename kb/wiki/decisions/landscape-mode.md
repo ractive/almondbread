@@ -23,10 +23,20 @@ engine does ([[techniques/perturbation]], [[techniques/bla]]).
   rises. DE scales with zoom, so the terrain is self-similar at every
   depth. Candidate f: linear, or a soft log curve so plateaus do not
   dominate; decided by prototype images.
-- **Altitude is zoom:** the camera keeps a clearance above the ground
-  below it (terrain-following). Level flight = constant zoom through
-  valleys and over ridges; nose-dive = clearance shrinks = zoom in; pull up
-  = zoom out. Flight speed scales with clearance.
+- **One fixed world; zoom is just distance:** h(c) is a fixed function of
+  the location, independent of any zoom level; the terrain merely looks
+  alike at every scale. There is no separate zoom parameter: the camera
+  moves in 3D, perspective makes nearby ground larger, and each part of
+  the ground is computed at the level of detail its distance needs (LOD).
+  Sinking a little is a small zoom; a dive is a lot of sinking. New detail
+  fades in (LOD blending, no popping).
+- **Flight:** speed proportional to height above ground, so descending
+  from 1e3 to 1e300 feels uniform. Terrain-following clearance is measured
+  against the ground smoothed to the scale of the camera's altitude, so
+  small side canyons do not make the camera twitch. Level flight = constant
+  detail scale through valleys and over ridges; nose-dive = zoom in; pull
+  up = zoom out. Camera position in arbitrary precision; height stored
+  relative to the current scale.
 - **Flight recorder:** every flight is recorded (position, clearance,
   heading per sample; exact coordinates as decimal strings, kilobytes per
   flight). Uses: rewind ("go back in time") and resume flying from any
