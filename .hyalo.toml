@@ -1,0 +1,135 @@
+dir = "kb/wiki"
+format = "text"
+
+[schema.default]
+required = ["title", "type"]
+
+[schema.types.source]
+required = ["title", "type", "authors", "year", "raw", "status", "tags"]
+
+[schema.types.source.properties.status]
+type = "enum"
+values = ["unread", "skimmed", "digested"]
+
+[schema.types.source.properties.year]
+type = "number"
+
+[schema.types.source.properties.authors]
+type = "list"
+
+[schema.types.source.properties.tags]
+type = "list"
+
+[schema.types.technique]
+required = ["title", "type", "status", "sources", "tags"]
+
+[schema.types.technique.properties.status]
+type = "enum"
+values = ["stub", "draft", "reviewed"]
+
+[schema.types.technique.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+
+[schema.types.technique.properties.tags]
+type = "list"
+
+[schema.types.formula]
+required = ["title", "type", "status", "sources", "tags"]
+
+[schema.types.formula.properties.status]
+type = "enum"
+values = ["stub", "draft", "reviewed"]
+
+[schema.types.formula.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+
+[schema.types.formula.properties.tags]
+type = "list"
+
+[schema.types.implementation]
+required = ["title", "type", "status", "tags"]
+
+[schema.types.implementation.properties.status]
+type = "enum"
+values = ["stub", "draft", "reviewed"]
+
+[schema.types.implementation.properties.license]
+type = "string"
+
+[schema.types.implementation.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+
+[schema.types.implementation.properties.tags]
+type = "list"
+
+[schema.types.platform]
+required = ["title", "type", "status", "sources", "tags"]
+
+[schema.types.platform.properties.status]
+type = "enum"
+values = ["stub", "draft", "reviewed"]
+
+[schema.types.platform.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+
+[schema.types.platform.properties.tags]
+type = "list"
+
+[schema.types.question]
+required = ["title", "type", "status", "tags"]
+
+[schema.types.question.properties.status]
+type = "enum"
+values = ["open", "answered"]
+
+[schema.types.question.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+
+[schema.types.question.properties.tags]
+type = "list"
+
+[schema.types.decision]
+required = ["title", "type", "date", "status", "tags"]
+
+[schema.types.decision.properties.status]
+type = "enum"
+values = ["proposed", "accepted", "superseded"]
+
+[schema.types.decision.properties.date]
+type = "date"
+
+[schema.types.decision.properties.tags]
+type = "list"
+
+[schema.types.synthesis]
+required = ["title", "type", "date", "sources", "tags"]
+
+[schema.types.synthesis.properties.date]
+type = "date"
+
+[schema.types.synthesis.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+
+[schema.types.synthesis.properties.tags]
+type = "list"
+
+[schema.types.meta]
+required = ["title", "type"]
+
+[views.stubs]
+properties = ["status=stub"]
+
+[views.unread]
+properties = ["type=source", "status=unread"]
+
+[views.open-questions]
+properties = ["type=question", "status=open"]
+
+[views.orphans]
+orphan = true

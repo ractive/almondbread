@@ -1,0 +1,103 @@
+---
+title: "Double-float (float-float) arithmetic"
+type: technique
+status: draft
+sources: ["[[sources/thall-extended-precision]]", "[[sources/luma-gl-gpu-precision]]", "[[sources/fractalshark-readme]]", "[[sources/metal-benchmarks-readme]]", "[[sources/apple-forums-fp64-emulation]]", "[[sources/apple-metal-compile-options]]", "[[sources/swift-mandelbrot-readme]]"]
+tags: [numerics, double-float, df64, float32, metal]
+---
+
+# Double-float (float-float) arithmetic
+
+A value is an unevaluated sum of two float32s, `hi + lo` with
+`|lo| ≤ ulp(hi)/2`. It gives about 48 bits of significand with float32's
+exponent range. It is a precision fix, not a range fix
+(src: [[sources/luma-gl-gpu-precision]] §How Classic Double-Single Arithmetic Works).
+On Apple GPUs, which have no fp64, it is the cheap way to get more than 24
+bits.
+
+## Where almondbread would use it
+
+- **Direct rendering of the shallow band** before perturbation pays off.
+  A direct double-single renderer reaches about 1e13 zoom (notes:
+  gpu_apple_silicon, luma.gl Mandelbrot example). swift-mandelbrot steps
+  Float → double-float → perturbation automatically
+  (src: [[sources/swift-mandelbrot-readme]]).
+- **Repair or verification mode** if long-orbit float32 rounding shows as
+  speckle near minibrots: deltas or the stored reference in float-float plus
+  a floatexp exponent, like FractalShark's "2×32 + exponent" type, which the
+  author says gives "substantially higher performance on consumer GPUs with
+  only a modest loss of precision" (src: [[sources/fractalshark-readme]]).
+  See [[questions/float32-error-long-orbits]].
+- Not for deltas at depth: they need range, see
+  [[techniques/extended-range-floats]].
+
+## Error-free transforms
+
+From Dekker/Knuth as implemented for GPUs by Thall (src: [[sources/thall-extended-precision]] §Algorithm 1 Fast-Two-Sum; §Algorithm 2 Two-Sum; §Algorithm 3 Split):
+
+```text
+quickTwoSum(a, b):            // requires |a| >= |b|
+    s = a + b;  e = b - (s - a);  return (s, e)
+twoSum(a, b):
+    s = a + b;  v = s - a;  e = (a - (s - v)) + (b - v);  return (s, e)
+twoProd(a, b):                // with hardware fma
+    p = a * b;  e = fma(a, b, -p);  return (p, e)
+split(a):                     // only without fma; c = 4097 = 2^12 + 1 for float32
+    t = c * a;  hi = t - (t - a);  lo = a - hi
+```
+
+df64 operations built from them (our own sketch):
+
+```text
+add(x, y):  (s, e) = twoSum(x.hi, y.hi); (t, f) = twoSum(x.lo, y.lo)
+            e += t; (s, e) = quickTwoSum(s, e); e += f; return quickTwoSum(s, e)
+mul(x, y):  (p, e) = twoProd(x.hi, y.hi); e += x.hi*y.lo + x.lo*y.hi
+            return quickTwoSum(p, e)
+```
+
+Rough costs (inference): add 11 to 20 fp32 ops, mul with fma 3 to 8; a
+complex df square, the Mandelbrot hot path, 30 to 50 ops against 3 to 4 for
+plain float32, so 10 to 20× slower. Emulated extended precision costs
+"more than an order of magnitude" over fp32 (notes: gpu_apple_silicon,
+luma.gl fp64 module). The `fma` in MSL maps to native full-rate FFMA32 on
+Apple GPUs (src: [[sources/metal-benchmarks-readme]]).
+
+## Pitfalls
+
+- **Compiler reassociation.** The transforms depend on exact rounding
+  events; "a compiler that reassociates the expression can therefore erase
+  the information". Parentheses, temporaries or `fma` spelling are not
+  portable guarantees (src: [[sources/luma-gl-gpu-precision]] §Why This Is Fragile In WGSL And Metal).
+  luma.gl switches to an integer-controlled double-single path on Apple
+  adapters for this reason (src: [[sources/luma-gl-gpu-precision]] §luma.gl's Apple/Metal Path).
+- **Metal math mode.** `MTLCompileOptions.mathMode` (`.safe`, `.relaxed`,
+  `.fast`) replaces `fastMathEnabled`; whether the default permits
+  reassociation or contraction is unverified
+  (src: [[sources/apple-metal-compile-options]]). Compile the float-float
+  library with `.safe`, keep `.fast` for float32 kernels, and run a startup
+  known-answer test (does `twoSum(1, 1e-8)` keep a non-zero low part?).
+  See [[questions/metal-fast-math-defaults]].
+- **Split overflow.** `4097·a` overflows for large finite inputs
+  (src: [[sources/luma-gl-gpu-precision]] §How Classic Double-Single Arithmetic Works);
+  use fma-based `twoProd` instead.
+- **Tapering precision.** When `lo` becomes subnormal (results near 2^-126
+  to 2^-102) precision tapers towards 24 bits
+  (src: [[sources/luma-gl-gpu-precision]] §How Classic Double-Single Arithmetic Works).
+- **Register pressure.** Two registers per real, so a complex df kernel
+  uses about twice the registers; on M1/M2 that lowers occupancy for the
+  whole dispatch. Keep it in its own pipeline ([[platform/apple-gpu-architecture]]).
+
+## Contradictions
+
+Philip Turner argued on Apple's forums that integer-based fp64 emulation
+beats double-single on Apple GPUs (src: [[sources/apple-forums-fp64-emulation]]),
+while his own benchmarks show int32 multiply at 1/8 of fp32 FMA rate
+(src: [[sources/metal-benchmarks-readme]]), which favours fma-based
+float-float for speed (inference). luma.gl picks the integer path on Apple
+for correctness, not speed. Unresolved: [[questions/double-float-speed-on-m1]].
+
+## For almondbread
+
+Roadmap step 10: an optional float-float (+ exponent) pipeline under
+`.safe` math with a startup known-answer test, used for the shallow direct
+band and as a repair/verification mode. Measure its speed on M1 Pro first.

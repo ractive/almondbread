@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 James Bergamin
+"""Download the source documents listed in sources/manifest.json into raw/.
+
+Python 3.8+, standard library only. Run from anywhere:
+
+    scripts/fetch-sources            # fetch what is missing, verify sha256
+    scripts/fetch-sources --dry-run  # show what would happen, no network
+    scripts/fetch-sources --check    # HEAD every URL once, download nothing
+    scripts/fetch-sources --derive   # also make the derived .txt files
+
+One request at a time, with a pause between requests. Files already in raw/
+whose sha256 matches are skipped. 'manual' entries, and derived files that
+were not made, are listed at the end with instructions.
+"""
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+MANIFEST = ROOT / "sources" / "manifest.json"
+RAW = ROOT / "raw"
+# hpcalc.org refuses generic browser user agents; a Wget-style one works.
+USER_AGENT = "Wget/1.21 (calculator-knowledgebase fetch-sources; +https://github.com/ractive/calculator-knowledgebase)"
+PAUSE = 1.5  # seconds between requests
+TIMEOUT = 120
+
+
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class Fetcher:
+    def __init__(self):
+        self.last = 0.0
+
+    def _wait(self):
+        delay = self.last + PAUSE - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        self.last = time.monotonic()
+
+    def download(self, url, dest):
+        self._wait()
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        tmp = dest.with_name(dest.name + ".part")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp, open(tmp, "wb") as out:
+            body = resp
+            # Wayback raw (id_) fetches may arrive gzip-encoded
+            if resp.headers.get("Content-Encoding", "").lower() == "gzip":
+                body = gzip.GzipFile(fileobj=resp)
+            shutil.copyfileobj(body, out, 1 << 20)
+        tmp.replace(dest)
+
+    def head(self, url):
+        self._wait()
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.status, resp.headers.get("Content-Length")
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 405, 501):
+                # some servers refuse HEAD; ask for the first byte instead
+                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"})
+                self._wait()
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        return resp.status, resp.headers.get("Content-Range")
+                except urllib.error.HTTPError as e2:
+                    return e2.code, None
+            return e.code, None
+
+
+def check_hash(entry, path, problems):
+    got = sha256_of(path)
+    if got == entry["sha256"]:
+        return True
+    if entry["method"] == "derived":
+        kind = "differs from the library's conversion (tool version; expected)"
+    elif not entry.get("hash_stable", True):
+        kind = "changed upstream (expected for this entry)"
+    else:
+        kind = "SHA-256 MISMATCH"
+    problems.append(f"{entry['path']}: {kind}: got {got}")
+    return False
+
+
+def present(entry):
+    p = RAW / entry["path"]
+    return p.is_file() and sha256_of(p) == entry["sha256"]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dry-run", action="store_true", help="print the plan, touch nothing")
+    ap.add_argument("--check", action="store_true", help="HEAD each URL once and report dead ones")
+    ap.add_argument("--derive", action="store_true", help="run the commands of 'derived' entries")
+    ap.add_argument("--only", metavar="PREFIX", help="limit to paths starting with PREFIX")
+    args = ap.parse_args()
+
+    entries = json.loads(MANIFEST.read_text(encoding="utf-8"))["entries"]
+    if args.only:
+        entries = [e for e in entries if e["path"].startswith(args.only)]
+    by_path = {e["path"]: e for e in entries}
+    fetcher = Fetcher()
+
+    if args.check:
+        urls = []
+        for e in entries:
+            for key in ("url", "zip_url"):
+                if e.get(key) and e[key] not in urls:
+                    urls.append(e[key])
+        dead = []
+        for u in urls:
+            status, info = fetcher.head(u)
+            ok = status is not None and 200 <= status < 400
+            print(f"{'ok  ' if ok else 'DEAD'} {status} {u}" + (f" ({info})" if info else ""))
+            if not ok:
+                dead.append(u)
+        print(f"\n{len(urls)} URLs, {len(dead)} not reachable")
+        return 1 if dead else 0
+
+    problems, manual, derived_todo = [], [], []
+    done = skipped = 0
+    remote_zips = {}  # zip_url -> local temp file
+
+    def ensure_zip(entry):
+        if "zip" in entry:
+            zpath = RAW / entry["zip"]
+            if not zpath.is_file():
+                zentry = by_path.get(entry["zip"])
+                if zentry is None or zentry["method"] != "fetch":
+                    raise RuntimeError(f"zip {entry['zip']} not available")
+                print(f"fetch   {zentry['path']}")
+                fetcher.download(zentry["url"], zpath)
+                check_hash(zentry, zpath, problems)
+            return zpath
+        url = entry["zip_url"]
+        if url not in remote_zips:
+            fd, name = tempfile.mkstemp(suffix=".zip")
+            os.close(fd)
+            print(f"fetch   {url} (temporary)")
+            fetcher.download(url, Path(name))
+            remote_zips[url] = Path(name)
+        return remote_zips[url]
+
+    try:
+        for e in entries:
+            dest = RAW / e["path"]
+            method = e["method"]
+            if method == "manual":
+                if not present(e):
+                    manual.append(e)
+                continue
+            if method == "derived":
+                if present(e):
+                    skipped += 1
+                elif args.derive and e.get("command") and not args.dry_run:
+                    derived_todo.append(e)
+                else:
+                    manual.append(e)
+                continue
+            if present(e):
+                skipped += 1
+                continue
+            if args.dry_run:
+                src = e.get("url") or (f"{e.get('zip') or e.get('zip_url')} :: {e['member']}")
+                print(f"would {method:10} {e['path']}  <-  {src}")
+                continue
+            try:
+                if method == "fetch":
+                    print(f"fetch   {e['path']}")
+                    fetcher.download(e["url"], dest)
+                elif method == "zip-member":
+                    zpath = ensure_zip(e)
+                    print(f"extract {e['path']}")
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with zipfile.ZipFile(zpath) as zf, zf.open(e["member"]) as src, open(dest, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                else:
+                    problems.append(f"{e['path']}: unknown method {method}")
+                    continue
+                check_hash(e, dest, problems)
+                done += 1
+            except (urllib.error.URLError, OSError, KeyError, RuntimeError, zipfile.BadZipFile) as err:
+                problems.append(f"{e['path']}: FAILED: {err}")
+    finally:
+        for p in remote_zips.values():
+            p.unlink(missing_ok=True)
+
+    for e in derived_todo:
+        src = RAW / e["derived_from"]
+        if not src.is_file():
+            manual.append(e)
+            continue
+        tool = shlex.split(e["command"])[0]
+        if shutil.which(tool) is None:
+            manual.append(e)
+            continue
+        print(f"derive  {e['path']}")
+        subprocess.run(e["command"], shell=True, cwd=RAW, check=False)
+        if (RAW / e["path"]).is_file():
+            check_hash(e, RAW / e["path"], problems)
+            done += 1
+
+    print(f"\n{done} fetched or made, {skipped} already present")
+    if manual:
+        print(f"\nNot fetched automatically ({len(manual)}):")
+        for e in manual:
+            if e["method"] == "manual":
+                print(f"- {e['path']}\n    {e['instructions']}")
+            else:
+                how = e.get("command") or e.get("how")
+                print(f"- {e['path']} (derived from {e['derived_from']})\n    {how}"
+                      + ("" if not e.get("command") else "  [run with --derive]"))
+    if problems:
+        print(f"\nProblems ({len(problems)}):")
+        for p in problems:
+            print(f"- {p}")
+    hard = [p for p in problems if "MISMATCH" in p or "FAILED" in p]
+    return 1 if hard else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,78 @@
+# XcodeGen spec: `xcodegen` generates Almondbread.xcodeproj (not checked in).
+# The app code lives in the AlmondbreadKit package; these targets are thin shells around it.
+name: Almondbread
+options:
+  bundleIdPrefix: ch.ractive
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+packages:
+  Almondbread:
+    path: .
+targets:
+  Almondbread:
+    type: application
+    platform: macOS
+    sources: [Apps/macOS]
+    dependencies:
+      - package: Almondbread
+        product: AlmondbreadKit
+    info:
+      path: Apps/macOS/Info.plist
+      properties:
+        CFBundleDisplayName: Almondbread
+        CFBundleName: Almondbread
+        LSApplicationCategoryType: public.app-category.graphics-design
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSHighResolutionCapable: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread
+        PRODUCT_NAME: Almondbread
+        CODE_SIGN_IDENTITY: "-"        # ad-hoc: runs locally without a developer account
+        ENABLE_HARDENED_RUNTIME: NO
+  Almondbread iOS:
+    type: application
+    platform: iOS
+    sources: [Apps/iOS]
+    dependencies:
+      - package: Almondbread
+        product: AlmondbreadKit
+    info:
+      path: Apps/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Almondbread
+        CFBundleName: Almondbread
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UIStatusBarHidden: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiredDeviceCapabilities: [metal]
+        CADisableMinimumFrameDurationOnPhone: true   # allow 120 Hz on ProMotion iPhones
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread.ios
+        PRODUCT_NAME: Almondbread
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO       # simulator builds; set a team to run on a device

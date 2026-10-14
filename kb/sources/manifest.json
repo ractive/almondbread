@@ -1,0 +1,1166 @@
+{
+  "about": "Source material cited by the almondbread wiki. Large or copyrighted files are not committed; scripts/fetch-sources downloads the 'fetch' and 'zip-member' entries into raw/ and lists the rest.",
+  "methods": {
+    "fetch": "download url to path",
+    "zip-member": "extract member from zip (a path in this manifest) or from zip_url (downloaded to a temporary file)",
+    "manual": "no stable URL; follow instructions",
+    "derived": "made locally from derived_from; command if given, else see how"
+  },
+  "entries": [
+    {
+      "path": "research/deep-zoom-mandelbrot-rendering-techniques/gpu_apple_silicon.md",
+      "method": "manual",
+      "instructions": "Deep-research run notes, written 2026-10-14 by the research agents; kept in the repository, no external copy.",
+      "title": "Research notes: gpu apple silicon",
+      "authors": [
+        "Claude (deep-research run)"
+      ],
+      "year": 2026,
+      "size": 26225,
+      "sha256": "39dd10d5e5a63505ed30adaf4ef7ebe360c4f1b17a7670e552bae0fde1f1f568",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/deep-zoom-rendering-techniques"
+      ]
+    },
+    {
+      "path": "research/deep-zoom-mandelbrot-rendering-techniques/implementations_and_formulas.md",
+      "method": "manual",
+      "instructions": "Deep-research run notes, written 2026-10-14 by the research agents; kept in the repository, no external copy.",
+      "title": "Research notes: implementations and formulas",
+      "authors": [
+        "Claude (deep-research run)"
+      ],
+      "year": 2026,
+      "size": 27004,
+      "sha256": "adb2a37bd058e8e14e2e0cdcd9246e2586678e70f4125a7a347bde88cf111e2c",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/deep-zoom-rendering-techniques"
+      ]
+    },
+    {
+      "path": "research/deep-zoom-mandelbrot-rendering-techniques/iteration_skipping.md",
+      "method": "manual",
+      "instructions": "Deep-research run notes, written 2026-10-14 by the research agents; kept in the repository, no external copy.",
+      "title": "Research notes: iteration skipping",
+      "authors": [
+        "Claude (deep-research run)"
+      ],
+      "year": 2026,
+      "size": 35082,
+      "sha256": "98c155262626a943c986898cdf197a04123a72f4d052dcdb0286b27123491434",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/deep-zoom-rendering-techniques"
+      ]
+    },
+    {
+      "path": "research/deep-zoom-mandelbrot-rendering-techniques/perturbation_core.md",
+      "method": "manual",
+      "instructions": "Deep-research run notes, written 2026-10-14 by the research agents; kept in the repository, no external copy.",
+      "title": "Research notes: perturbation core",
+      "authors": [
+        "Claude (deep-research run)"
+      ],
+      "year": 2026,
+      "size": 34231,
+      "sha256": "ad364b77fb20daaf446ae61148f5c9374fd44810c305824c2db54378af4c96cd",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/deep-zoom-rendering-techniques"
+      ]
+    },
+    {
+      "path": "research/deep-zoom-mandelbrot-rendering-techniques/pixel_and_image_techniques.md",
+      "method": "manual",
+      "instructions": "Deep-research run notes, written 2026-10-14 by the research agents; kept in the repository, no external copy.",
+      "title": "Research notes: pixel and image techniques",
+      "authors": [
+        "Claude (deep-research run)"
+      ],
+      "year": 2026,
+      "size": 33519,
+      "sha256": "debf89f3e0436c35b6324178e7b42fe77774ac70fea514a351a90d6f92ae50ae",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/deep-zoom-rendering-techniques"
+      ]
+    },
+    {
+      "path": "web/mathr-deep-zoom-theory.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html",
+      "title": "Deep zoom theory and practice",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2021,
+      "size": 33707,
+      "sha256": "64e68abd336313981bcfd3e7a0a7097971b95e987ceeff2f3625d20b0fec5031",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/mathr-deep-zoom-theory"
+      ]
+    },
+    {
+      "path": "web/mathr-deep-zoom-theory.txt",
+      "method": "derived",
+      "derived_from": "web/mathr-deep-zoom-theory.html",
+      "command": "textutil -convert txt -output web/mathr-deep-zoom-theory.txt web/mathr-deep-zoom-theory.html",
+      "title": "Deep zoom theory and practice (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2021,
+      "size": 18387,
+      "sha256": "6e44030aef4cf7ba1ed42df861e708977ecf45e951dfeeb17a003ee7ad811b54",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/mathr-deep-zoom-theory"
+      ]
+    },
+    {
+      "path": "web/mathr-deep-zoom-theory-again.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/blog/2022-02-21_deep_zoom_theory_and_practice_again.html",
+      "title": "Deep zoom theory and practice (again)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2022,
+      "size": 16376,
+      "sha256": "a6ced178b9c5a1d95831134c59eebd1623277594388968d23218ae12b58c2b28",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/mathr-deep-zoom-theory-again"
+      ]
+    },
+    {
+      "path": "web/mathr-deep-zoom-theory-again.txt",
+      "method": "derived",
+      "derived_from": "web/mathr-deep-zoom-theory-again.html",
+      "command": "textutil -convert txt -output web/mathr-deep-zoom-theory-again.txt web/mathr-deep-zoom-theory-again.html",
+      "title": "Deep zoom theory and practice (again) (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2022,
+      "size": 7357,
+      "sha256": "002bba5a3ee1730f12c316a1ebd3474a0febd8ccb644b3bd0a3d863a869edd82",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/mathr-deep-zoom-theory-again"
+      ]
+    },
+    {
+      "path": "web/mathr-deep-zoom-page.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/web/deep-zoom.html",
+      "title": "Deep zoom",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2022,
+      "size": 41175,
+      "sha256": "649f4015eec8cb50312553bb5e1804eca18b6ef233bd1b9625d6055393e55b0c",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/mathr-deep-zoom-page"
+      ]
+    },
+    {
+      "path": "web/mathr-deep-zoom-page.txt",
+      "method": "derived",
+      "derived_from": "web/mathr-deep-zoom-page.html",
+      "command": "textutil -convert txt -output web/mathr-deep-zoom-page.txt web/mathr-deep-zoom-page.html",
+      "title": "Deep zoom (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2022,
+      "size": 8982,
+      "sha256": "97af1061310ceed1ff60cebc5dad635a3d1e98e0b2fc98c8ef0bbdaa3de8e838",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/mathr-deep-zoom-page"
+      ]
+    },
+    {
+      "path": "web/kf-manual.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/kf/manual.html",
+      "title": "Kalles Fraktaler 2 + manual",
+      "authors": [
+        "Claude Heiland-Allen",
+        "Karl Runmo"
+      ],
+      "year": 2022,
+      "size": 233316,
+      "sha256": "19d4290f7b086ba416548455fcfa9ee0ffef9289df84771b26551150b30ff3c1",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/kf-manual"
+      ]
+    },
+    {
+      "path": "web/kf-manual.txt",
+      "method": "derived",
+      "derived_from": "web/kf-manual.html",
+      "command": "textutil -convert txt -output web/kf-manual.txt web/kf-manual.html",
+      "title": "Kalles Fraktaler 2 + manual (text)",
+      "authors": [
+        "Claude Heiland-Allen",
+        "Karl Runmo"
+      ],
+      "year": 2022,
+      "size": 162053,
+      "sha256": "dbb727eb01ffbf7b0704a2281aa3aa2ff246c0780d8a3c10d885c7d6cf306558",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/kf-manual"
+      ]
+    },
+    {
+      "path": "web/kf-page.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/kf/kf.html",
+      "title": "Kalles Fraktaler 2 +",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2022,
+      "size": 27344,
+      "sha256": "10b6ad44b044932d3e3869e1be7be5359596033622c8cc8d0b8c05537d01c7bc",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/kf-page"
+      ]
+    },
+    {
+      "path": "web/kf-page.txt",
+      "method": "derived",
+      "derived_from": "web/kf-page.html",
+      "command": "textutil -convert txt -output web/kf-page.txt web/kf-page.html",
+      "title": "Kalles Fraktaler 2 + (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2022,
+      "size": 9933,
+      "sha256": "6ad52b5ecefcb4455495222ae310cab900346a3c68d84569a9f136444f150eae",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/kf-page"
+      ]
+    },
+    {
+      "path": "web/fraktaler-3-site.html",
+      "method": "fetch",
+      "url": "https://fraktaler.mathr.co.uk/",
+      "title": "Fraktaler 3",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2025,
+      "size": 66262,
+      "sha256": "a01f234bdbfd30415b29e8801129cb8562b3b57e6db090e72f910d3642d72a6a",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/fraktaler-3-site"
+      ]
+    },
+    {
+      "path": "web/fraktaler-3-site.txt",
+      "method": "derived",
+      "derived_from": "web/fraktaler-3-site.html",
+      "command": "textutil -convert txt -output web/fraktaler-3-site.txt web/fraktaler-3-site.html",
+      "title": "Fraktaler 3 (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2025,
+      "size": 44054,
+      "sha256": "9f6d0dc438879a40a188a7875167c8268c0095e69be9a553fd9f7623818e8656",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/fraktaler-3-site"
+      ]
+    },
+    {
+      "path": "web/zoomasm.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/zoomasm/",
+      "title": "zoomasm",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2021,
+      "size": 70673,
+      "sha256": "df37f0820fb674488b3e1968bcfb6d7ae22f8842b09880c9d0d548532c5c2612",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/zoomasm"
+      ]
+    },
+    {
+      "path": "web/zoomasm.txt",
+      "method": "derived",
+      "derived_from": "web/zoomasm.html",
+      "command": "textutil -convert txt -output web/zoomasm.txt web/zoomasm.html",
+      "title": "zoomasm (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2021,
+      "size": 48640,
+      "sha256": "a7f576df33fa7a891a78f88a9747c996f46d75b447ec1e36389acd4291b08f6b",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/zoomasm"
+      ]
+    },
+    {
+      "path": "web/mathr-interior-distance.html",
+      "method": "fetch",
+      "url": "https://mathr.co.uk/blog/2014-11-02_practical_interior_distance_rendering.html",
+      "title": "Practical interior distance rendering",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2014,
+      "size": 22040,
+      "sha256": "97da4aaac545cff739aaa6c1086cd33bd43691151bac57cbc701e9cd2b7e5de0",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/mathr-interior-distance"
+      ]
+    },
+    {
+      "path": "web/mathr-interior-distance.txt",
+      "method": "derived",
+      "derived_from": "web/mathr-interior-distance.html",
+      "command": "textutil -convert txt -output web/mathr-interior-distance.txt web/mathr-interior-distance.html",
+      "title": "Practical interior distance rendering (text)",
+      "authors": [
+        "Claude Heiland-Allen"
+      ],
+      "year": 2014,
+      "size": 7805,
+      "sha256": "ad745e29676d1ff775d4d27dbd3ad19a418450f4d32b78c6dcb2044adabb44c1",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/mathr-interior-distance"
+      ]
+    },
+    {
+      "path": "web/wikipedia-plotting-algorithms.html",
+      "method": "fetch",
+      "url": "https://en.wikipedia.org/wiki/Plotting_algorithms_for_the_Mandelbrot_set",
+      "title": "Plotting algorithms for the Mandelbrot set",
+      "authors": [
+        "Wikipedia contributors"
+      ],
+      "year": 2026,
+      "size": 523020,
+      "sha256": "2abf45fdc848ff2b80240b51b26fba6ab8dc663dca5a6589aab4c61b832715d1",
+      "terms": "CC BY-SA 4.0 (Wikipedia)",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/wikipedia-plotting-algorithms"
+      ]
+    },
+    {
+      "path": "web/wikipedia-plotting-algorithms.txt",
+      "method": "derived",
+      "derived_from": "web/wikipedia-plotting-algorithms.html",
+      "command": "textutil -convert txt -output web/wikipedia-plotting-algorithms.txt web/wikipedia-plotting-algorithms.html",
+      "title": "Plotting algorithms for the Mandelbrot set (text)",
+      "authors": [
+        "Wikipedia contributors"
+      ],
+      "year": 2026,
+      "size": 50319,
+      "sha256": "d1c14259e7fad057641a9621708b8fc1be912dd1f040bf361c50a7e73ed25f1c",
+      "terms": "CC BY-SA 4.0 (Wikipedia)",
+      "wiki": [
+        "sources/wikipedia-plotting-algorithms"
+      ]
+    },
+    {
+      "path": "web/wikipedia-xaos.html",
+      "method": "fetch",
+      "url": "https://en.wikipedia.org/wiki/XaoS",
+      "title": "XaoS",
+      "authors": [
+        "Wikipedia contributors"
+      ],
+      "year": 2026,
+      "size": 224316,
+      "sha256": "03dc64664333c5ae9b42c9b35aa4e962e16367ef37942f53d964ad83aae832f8",
+      "terms": "CC BY-SA 4.0 (Wikipedia)",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/wikipedia-xaos"
+      ]
+    },
+    {
+      "path": "web/wikipedia-xaos.txt",
+      "method": "derived",
+      "derived_from": "web/wikipedia-xaos.html",
+      "command": "textutil -convert txt -output web/wikipedia-xaos.txt web/wikipedia-xaos.html",
+      "title": "XaoS (text)",
+      "authors": [
+        "Wikipedia contributors"
+      ],
+      "year": 2026,
+      "size": 18521,
+      "sha256": "6d0c7ee506669d4856fce2f0386012f29f2b2c7e592b988f2456d6fcd7a887b3",
+      "terms": "CC BY-SA 4.0 (Wikipedia)",
+      "wiki": [
+        "sources/wikipedia-xaos"
+      ]
+    },
+    {
+      "path": "web/muency-bla.html",
+      "method": "fetch",
+      "url": "https://mrob.com/pub/muency/bivariatelinearapproximati.html",
+      "title": "Bivariate Linear Approximation (Mu-Ency)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 11631,
+      "sha256": "2dfc60f360fdc61577b6f7d724ebef06c1cec4396f0b494539241694abf88a37",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/muency-bla"
+      ]
+    },
+    {
+      "path": "web/muency-bla.txt",
+      "method": "derived",
+      "derived_from": "web/muency-bla.html",
+      "command": "textutil -convert txt -output web/muency-bla.txt web/muency-bla.html",
+      "title": "Bivariate Linear Approximation (Mu-Ency) (text)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 5606,
+      "sha256": "e0943f5fd25aa30bfc8c080c3e8bc3e227244c87278aae72295e2e8c87f91f24",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/muency-bla"
+      ]
+    },
+    {
+      "path": "web/muency-newton-raphson.html",
+      "method": "fetch",
+      "url": "https://mrob.com/pub/muency/newtonraphsonmethod.html",
+      "title": "Newton-Raphson method (Mu-Ency)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 15481,
+      "sha256": "e7f7e04054b652669dcfb11b58d358b89f67b32cc957778628c6dc83d350fa11",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/muency-newton-raphson"
+      ]
+    },
+    {
+      "path": "web/muency-newton-raphson.txt",
+      "method": "derived",
+      "derived_from": "web/muency-newton-raphson.html",
+      "command": "textutil -convert txt -output web/muency-newton-raphson.txt web/muency-newton-raphson.html",
+      "title": "Newton-Raphson method (Mu-Ency) (text)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 4462,
+      "sha256": "793a6b56d408a4bb0c5c3d2c09961f3f5fc5df5fe74036c6e38605e3cc991c80",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/muency-newton-raphson"
+      ]
+    },
+    {
+      "path": "web/muency-atom-domain.html",
+      "method": "fetch",
+      "url": "https://mrob.com/pub/muency/atomdomain.html",
+      "title": "Atom domain (Mu-Ency)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 26956,
+      "sha256": "054e64e7da3338f640b9dcda59c00a1d444d708e142b5140fd519468f72ed21a",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/muency-atom-domain"
+      ]
+    },
+    {
+      "path": "web/muency-atom-domain.txt",
+      "method": "derived",
+      "derived_from": "web/muency-atom-domain.html",
+      "command": "textutil -convert txt -output web/muency-atom-domain.txt web/muency-atom-domain.html",
+      "title": "Atom domain (Mu-Ency) (text)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 12125,
+      "sha256": "90d0aa20ac847c269fba009e7c6232e0e2cb599be6ea294fb2d1254cb0cb9f4f",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/muency-atom-domain"
+      ]
+    },
+    {
+      "path": "web/muency-floatexp.html",
+      "method": "fetch",
+      "url": "https://mrob.com/pub/muency/floatexp.html",
+      "title": "floatexp (Mu-Ency)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 4572,
+      "sha256": "51b4287d862e1f6098dc246834774209c1550e96e9f0a1a168d3fe0b6d184533",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/muency-floatexp"
+      ]
+    },
+    {
+      "path": "web/muency-floatexp.txt",
+      "method": "derived",
+      "derived_from": "web/muency-floatexp.html",
+      "command": "textutil -convert txt -output web/muency-floatexp.txt web/muency-floatexp.html",
+      "title": "floatexp (Mu-Ency) (text)",
+      "authors": [
+        "Robert Munafo"
+      ],
+      "year": 2023,
+      "size": 1408,
+      "sha256": "5b46ab5f50efd8a5a695b1160db9fa11c2badb544a7b3b15cc90f15ce7293466",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/muency-floatexp"
+      ]
+    },
+    {
+      "path": "web/cheritat-mandelbrot-rendering.html",
+      "method": "fetch",
+      "url": "https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set",
+      "title": "Mandelbrot set (wiki-draw)",
+      "authors": [
+        "Arnaud Chéritat"
+      ],
+      "year": 2020,
+      "size": 127555,
+      "sha256": "f6c7d935476dd31e8e9cdb37de101c6b1f62c062646dfb187388613ac9c104f0",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/cheritat-mandelbrot-rendering"
+      ]
+    },
+    {
+      "path": "web/cheritat-mandelbrot-rendering.txt",
+      "method": "derived",
+      "derived_from": "web/cheritat-mandelbrot-rendering.html",
+      "command": "textutil -convert txt -output web/cheritat-mandelbrot-rendering.txt web/cheritat-mandelbrot-rendering.html",
+      "title": "Mandelbrot set (wiki-draw) (text)",
+      "authors": [
+        "Arnaud Chéritat"
+      ],
+      "year": 2020,
+      "size": 42187,
+      "sha256": "49326805620793117bf7c0449a4170434ab05eae0b14b6d187ef6719b47a1e52",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/cheritat-mandelbrot-rendering"
+      ]
+    },
+    {
+      "path": "web/quilez-smooth-iteration.html",
+      "method": "fetch",
+      "url": "https://iquilezles.org/articles/msetsmooth/",
+      "title": "Smooth iteration count for generalized Mandelbrot sets",
+      "authors": [
+        "Inigo Quilez"
+      ],
+      "year": 2007,
+      "size": 16128,
+      "sha256": "cb42abdcde5cbe8fc940489135ae50fb80e6123877bd8debf8ab5f4656d80576",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/quilez-smooth-iteration"
+      ]
+    },
+    {
+      "path": "web/quilez-smooth-iteration.txt",
+      "method": "derived",
+      "derived_from": "web/quilez-smooth-iteration.html",
+      "command": "textutil -convert txt -output web/quilez-smooth-iteration.txt web/quilez-smooth-iteration.html",
+      "title": "Smooth iteration count for generalized Mandelbrot sets (text)",
+      "authors": [
+        "Inigo Quilez"
+      ],
+      "year": 2007,
+      "size": 8438,
+      "sha256": "2e94ed8eab8de68d9f3c10259fdf19fb932d56161170d4c4533153df064156cd",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/quilez-smooth-iteration"
+      ]
+    },
+    {
+      "path": "web/philthompson-bla.html",
+      "method": "fetch",
+      "url": "https://philthompson.me/2023/Faster-Mandelbrot-Set-Rendering-with-BLA-Bivariate-Linear-Approximation.html",
+      "title": "Faster Mandelbrot set rendering with BLA: bivariate linear approximation",
+      "authors": [
+        "Phil Thompson"
+      ],
+      "year": 2023,
+      "size": 64775,
+      "sha256": "ae447ceaa5663c068efbed8b4362ff5fcff1a354c29892d40c307c51eb835de9",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/philthompson-bla"
+      ]
+    },
+    {
+      "path": "web/philthompson-bla.txt",
+      "method": "derived",
+      "derived_from": "web/philthompson-bla.html",
+      "command": "textutil -convert txt -output web/philthompson-bla.txt web/philthompson-bla.html",
+      "title": "Faster Mandelbrot set rendering with BLA: bivariate linear approximation (text)",
+      "authors": [
+        "Phil Thompson"
+      ],
+      "year": 2023,
+      "size": 27413,
+      "sha256": "50af65c8bcd5a3cf52f09e2aacdc4c3e6e56195bd0245d3401e9de9347734c2d",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/philthompson-bla"
+      ]
+    },
+    {
+      "path": "web/ultrafractal-perturbation-calculations.html",
+      "method": "fetch",
+      "url": "https://www.ultrafractal.com/help/formulas/perturbationcalculations.html",
+      "title": "Perturbation calculations (Ultra Fractal help)",
+      "authors": [
+        "Frederik Slijkerman"
+      ],
+      "year": 2021,
+      "size": 5622,
+      "sha256": "6f3e545ca0299cce3d68dec820819236cfbbf45649b440932410d83993e34fd5",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/ultrafractal-perturbation-calculations"
+      ]
+    },
+    {
+      "path": "web/ultrafractal-perturbation-calculations.txt",
+      "method": "derived",
+      "derived_from": "web/ultrafractal-perturbation-calculations.html",
+      "command": "textutil -convert txt -output web/ultrafractal-perturbation-calculations.txt web/ultrafractal-perturbation-calculations.html",
+      "title": "Perturbation calculations (Ultra Fractal help) (text)",
+      "authors": [
+        "Frederik Slijkerman"
+      ],
+      "year": 2021,
+      "size": 4139,
+      "sha256": "6e01ff24652b25f457e01572426caef2f7f700e6388c44abb8fbbdc49fd21cad",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/ultrafractal-perturbation-calculations"
+      ]
+    },
+    {
+      "path": "web/ultrafractal-perturbation-equations.html",
+      "method": "fetch",
+      "url": "https://www.ultrafractal.com/help/writing/formulas/perturbationequations.html",
+      "title": "Perturbation equations (Ultra Fractal help)",
+      "authors": [
+        "Frederik Slijkerman"
+      ],
+      "year": 2021,
+      "size": 5893,
+      "sha256": "a755edb56eb49f14a63fc3b2d6389c079cc33c4f3d00c168f519a598e1a547fd",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/ultrafractal-perturbation-equations"
+      ]
+    },
+    {
+      "path": "web/ultrafractal-perturbation-equations.txt",
+      "method": "derived",
+      "derived_from": "web/ultrafractal-perturbation-equations.html",
+      "command": "textutil -convert txt -output web/ultrafractal-perturbation-equations.txt web/ultrafractal-perturbation-equations.html",
+      "title": "Perturbation equations (Ultra Fractal help) (text)",
+      "authors": [
+        "Frederik Slijkerman"
+      ],
+      "year": 2021,
+      "size": 3465,
+      "sha256": "6bdb636f3db278d53444fe4ee673474a84876339d84e51b0df6faa759f53942f",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/ultrafractal-perturbation-equations"
+      ]
+    },
+    {
+      "path": "web/gmp-m1-discuss.html",
+      "method": "fetch",
+      "url": "https://gmplib.org/list-archives/gmp-discuss/2020-November/006600.html",
+      "title": "GMP on Apple M1 (gmp-discuss)",
+      "authors": [
+        "Torbjörn Granlund"
+      ],
+      "year": 2020,
+      "size": 3411,
+      "sha256": "9166661c2c4352a39368f92b0459881af01b6be303175281cf0d954e4868b65c",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/gmp-m1-discuss"
+      ]
+    },
+    {
+      "path": "web/gmp-m1-discuss.txt",
+      "method": "derived",
+      "derived_from": "web/gmp-m1-discuss.html",
+      "command": "textutil -convert txt -output web/gmp-m1-discuss.txt web/gmp-m1-discuss.html",
+      "title": "GMP on Apple M1 (gmp-discuss) (text)",
+      "authors": [
+        "Torbjörn Granlund"
+      ],
+      "year": 2020,
+      "size": 1705,
+      "sha256": "89482307ebb0eac2ce157c2292509a010f440ad99ebd978ef2cfaebe246a7546",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/gmp-m1-discuss"
+      ]
+    },
+    {
+      "path": "web/gmp-fixed-size-mul.html",
+      "method": "fetch",
+      "url": "https://gmplib.org/list-archives/gmp-devel/2024-April/006255.html",
+      "title": "Re: How to calculate cycles/limb in assembly routines (gmp-devel, fixed-size multiplication)",
+      "authors": [
+        "Albin Ahlbäck"
+      ],
+      "year": 2024,
+      "size": 3522,
+      "sha256": "f5ae81d26bf35b0eb73b0591a936a3fea1d7becb23a1e84b1196c631949afdcd",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/gmp-fixed-size-mul"
+      ]
+    },
+    {
+      "path": "web/gmp-fixed-size-mul.txt",
+      "method": "derived",
+      "derived_from": "web/gmp-fixed-size-mul.html",
+      "command": "textutil -convert txt -output web/gmp-fixed-size-mul.txt web/gmp-fixed-size-mul.html",
+      "title": "Re: How to calculate cycles/limb in assembly routines (gmp-devel, fixed-size multiplication) (text)",
+      "authors": [
+        "Albin Ahlbäck"
+      ],
+      "year": 2024,
+      "size": 1639,
+      "sha256": "dae91c464e21d3acb8e8f9869ba9c68e07788a6b91d9a9ecca52b11267936b79",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/gmp-fixed-size-mul"
+      ]
+    },
+    {
+      "path": "web/luma-gl-gpu-precision.html",
+      "method": "fetch",
+      "url": "https://luma.gl/docs/api-guide/shaders/gpu-floating-point-precision",
+      "title": "GPU floating-point precision (luma.gl guide)",
+      "authors": [
+        "luma.gl contributors"
+      ],
+      "year": 2026,
+      "size": 58679,
+      "sha256": "5aafd670d0d24aa006253ae7f8095dd15a615c0c1747ef03111066e770688fd9",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/luma-gl-gpu-precision"
+      ]
+    },
+    {
+      "path": "web/luma-gl-gpu-precision.txt",
+      "method": "derived",
+      "derived_from": "web/luma-gl-gpu-precision.html",
+      "command": "textutil -convert txt -output web/luma-gl-gpu-precision.txt web/luma-gl-gpu-precision.html",
+      "title": "GPU floating-point precision (luma.gl guide) (text)",
+      "authors": [
+        "luma.gl contributors"
+      ],
+      "year": 2026,
+      "size": 22556,
+      "sha256": "5333695b3b27311df64591b1ce05ec65ba2248d22aad46b526c208374511f294",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/luma-gl-gpu-precision"
+      ]
+    },
+    {
+      "path": "web/fractalshark-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/mattsaccount364/FractalShark/main/README.md",
+      "title": "FractalShark README",
+      "authors": [
+        "Matt Reiman"
+      ],
+      "year": 2026,
+      "size": 27693,
+      "sha256": "817e8adb9cd026957d9a99988511f78c65d6d120cc730067019f0d476b123593",
+      "terms": "GPL-3.0 repository; README text copyright Matt Reiman",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/fractalshark-readme"
+      ]
+    },
+    {
+      "path": "web/imagina-hinfla-evaluator.h",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/5E-324/Imagina/master/HInfLAEvaluator.h",
+      "title": "Imagina HInfLAEvaluator.h",
+      "authors": [
+        "Zhuoran"
+      ],
+      "year": 2024,
+      "size": 19373,
+      "sha256": "6cbae7b6b5154f728c041948d6220ac5d4b00b8046d82036e41546f3d054a758",
+      "terms": "AGPL-3.0 code; do not copy into almondbread, read for facts only",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/imagina-hinfla-evaluator"
+      ]
+    },
+    {
+      "path": "web/imagina-hinfla-evaluator.cpp",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/5E-324/Imagina/master/HInfLAEvaluator.cpp",
+      "title": "Imagina HInfLAEvaluator.cpp",
+      "authors": [
+        "Zhuoran"
+      ],
+      "year": 2024,
+      "size": 58915,
+      "sha256": "cc128159c36e0c6d607fa61719abd7bc8b7fba39957eba9331984716098db216",
+      "terms": "AGPL-3.0 code; do not copy into almondbread, read for facts only",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/imagina-hinfla-evaluator"
+      ]
+    },
+    {
+      "path": "web/metal-benchmarks-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/philipturner/metal-benchmarks/main/README.md",
+      "title": "metal-benchmarks README",
+      "authors": [
+        "Philip Turner"
+      ],
+      "year": 2024,
+      "size": 51248,
+      "sha256": "2c3d37fb29173af69284a93e7e293f18473b791aeb652e0eca476b5e3b828419",
+      "terms": "MIT (repository licence)",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/metal-benchmarks-readme"
+      ]
+    },
+    {
+      "path": "web/desarso-mandelbrot-webgpu-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/Desarso/mandelbrot-webgpu/main/README.md",
+      "title": "mandelbrot-webgpu README",
+      "authors": [
+        "Desarso"
+      ],
+      "year": 2026,
+      "size": 17115,
+      "sha256": "97533c39ebf6e96c14a837006041b3864eb7bd99eb2aaa2b83d3e24ab184df50",
+      "terms": "GPL-3.0 repository",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/desarso-mandelbrot-webgpu-readme"
+      ]
+    },
+    {
+      "path": "web/swift-mandelbrot-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/drquicksilver/swift-mandelbrot/main/README.md",
+      "title": "swift-mandelbrot README",
+      "authors": [
+        "drquicksilver"
+      ],
+      "year": 2026,
+      "size": 7163,
+      "sha256": "72a9ccb63f9983c1109998da10c5ce864ea4337a54188c260c9e5e1c2b0c7fc0",
+      "terms": "no licence stated; all rights reserved by default",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/swift-mandelbrot-readme"
+      ]
+    },
+    {
+      "path": "web/xaos-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/xaos-project/XaoS/master/README.md",
+      "title": "XaoS README",
+      "authors": [
+        "XaoS project"
+      ],
+      "year": 2026,
+      "size": 3263,
+      "sha256": "c50ed399529007bb18448fadaf384297cca563c2c32673da3680ab0542cd2f8b",
+      "terms": "GPL-2.0 repository",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/xaos-readme"
+      ]
+    },
+    {
+      "path": "papers/thall-extended-precision.pdf",
+      "method": "fetch",
+      "url": "https://andrewthall.org/papers/df64_qf128.pdf",
+      "title": "Extended-precision floating-point numbers for GPU computation",
+      "authors": [
+        "Andrew Thall"
+      ],
+      "year": 2007,
+      "size": 255962,
+      "sha256": "30c5d486bd06746aaeeb5dde65b1e0e1c7478c412f8ed3c0550af3f5fe2be7af",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/thall-extended-precision"
+      ]
+    },
+    {
+      "path": "papers/thall-extended-precision.txt",
+      "method": "derived",
+      "derived_from": "papers/thall-extended-precision.pdf",
+      "command": "pdftotext papers/thall-extended-precision.pdf papers/thall-extended-precision.txt",
+      "title": "Extended-precision floating-point numbers for GPU computation (text)",
+      "authors": [
+        "Andrew Thall"
+      ],
+      "year": 2007,
+      "size": 58353,
+      "sha256": "6905822d4fbebd1ab4c43669fbe272a47ab0acd477616bf061660448059e08c5",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/thall-extended-precision"
+      ]
+    },
+    {
+      "path": "web/imagina-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/5E-324/Imagina/master/Readme.md",
+      "title": "Imagina README",
+      "authors": [
+        "Zhuoran"
+      ],
+      "year": 2024,
+      "size": 751,
+      "sha256": "997d8b8a1da3f20ae35ac392a241ae42833ac15650e98717213cb76de6e179c1",
+      "terms": "AGPL-3.0 code; do not copy into almondbread, read for facts only",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/imagina-readme"
+      ]
+    },
+    {
+      "path": "web/very-plotter-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/philthompson/visualize-primes/master/readme.md",
+      "title": "Very Plotter (visualize-primes) README",
+      "authors": [
+        "Phil Thompson"
+      ],
+      "year": 2023,
+      "size": 750,
+      "sha256": "1c659aa97a126a6a960df8b2d14f36e09551a5223f5193e97007804d81b4a9c4",
+      "terms": "MIT (repository licence)",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/very-plotter-readme"
+      ]
+    },
+    {
+      "path": "web/fractalshades-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/GBillotey/Fractalshades/master/README.md",
+      "title": "Fractalshades README",
+      "authors": [
+        "Geoffroy Billotey"
+      ],
+      "year": 2026,
+      "size": 1369,
+      "sha256": "fc95d154269866d31bbdddd0b76db798390e039cd36994c14818bcda5a328d4f",
+      "terms": "MIT (repository licence)",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/fractalshades-readme"
+      ]
+    },
+    {
+      "path": "web/fractalzoomer-readme.md",
+      "method": "fetch",
+      "url": "https://raw.githubusercontent.com/hrkalona/Fractal-Zoomer/master/README.md",
+      "title": "Fractal Zoomer README",
+      "authors": [
+        "Christos Kalonakis"
+      ],
+      "year": 2026,
+      "size": 1031,
+      "sha256": "dd9faba019d606cb5ccaccfd9be0611800bdf9e80f6992fca3b1db97b62b1dd2",
+      "terms": "GPL-3.0 repository",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/fractalzoomer-readme"
+      ]
+    },
+    {
+      "path": "web/mlx-watchdog-issue.html",
+      "method": "fetch",
+      "url": "https://github.com/ml-explore/mlx/issues/3302",
+      "title": "MLX issue 3302: GPU command buffer timeout",
+      "authors": [
+        "MLX contributors"
+      ],
+      "year": 2026,
+      "size": 405022,
+      "sha256": "195d63b506af518916723e3bb339c4b63ee64460d448f8137c1bfe1553d4f924",
+      "terms": "GitHub issue; copyright the posters",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/mlx-watchdog-issue"
+      ]
+    },
+    {
+      "path": "web/mlx-watchdog-issue.txt",
+      "method": "derived",
+      "derived_from": "web/mlx-watchdog-issue.html",
+      "command": "textutil -convert txt -output web/mlx-watchdog-issue.txt web/mlx-watchdog-issue.html",
+      "title": "MLX issue 3302: GPU command buffer timeout (text)",
+      "authors": [
+        "MLX contributors"
+      ],
+      "year": 2026,
+      "size": 10940,
+      "sha256": "fdf050924f09e3019b9aa819ed14f6ffd49a5e23220029f12fff9fe3c8a2faf5",
+      "terms": "GitHub issue; copyright the posters",
+      "wiki": [
+        "sources/mlx-watchdog-issue"
+      ]
+    },
+    {
+      "path": "web/fractalforums-zhuoran-rebasing-bla.html",
+      "method": "fetch",
+      "url": "https://web.archive.org/web/20230125202704/https://fractalforums.org/f/28/t/4360",
+      "title": "Another solution to perturbation glitches (fractalforums.org topic 4360, archived)",
+      "authors": [
+        "Zhuoran",
+        "fractalforums.org members"
+      ],
+      "year": 2021,
+      "size": 101251,
+      "sha256": "c649990eb21814fb9b31d93bdd586c9a8fb643ee1ae362e525ff1985ded52932",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/fractalforums-zhuoran-rebasing-bla"
+      ]
+    },
+    {
+      "path": "web/fractalforums-zhuoran-rebasing-bla.txt",
+      "method": "derived",
+      "derived_from": "web/fractalforums-zhuoran-rebasing-bla.html",
+      "command": "textutil -convert txt -output web/fractalforums-zhuoran-rebasing-bla.txt web/fractalforums-zhuoran-rebasing-bla.html",
+      "title": "Another solution to perturbation glitches (fractalforums.org topic 4360, archived) (text)",
+      "authors": [
+        "Zhuoran",
+        "fractalforums.org members"
+      ],
+      "year": 2021,
+      "size": 11738,
+      "sha256": "0a68ed6584f5e51c7d052e877eaf43fdff40195dc6b1aa42d8582cfa77e28ac5",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/fractalforums-zhuoran-rebasing-bla"
+      ]
+    },
+    {
+      "path": "web/fractalforums-interior-detection.html",
+      "method": "fetch",
+      "url": "https://web.archive.org/web/20221120133203/https://fractalforums.org/fractal-mathematics-and-new-theories/28/interior-detection-for-deep-mandelbrot-set-zooms/4802",
+      "title": "Interior detection for deep Mandelbrot set zooms (fractalforums.org topic 4802, archived)",
+      "authors": [
+        "fractalforums.org members"
+      ],
+      "year": 2022,
+      "size": 103546,
+      "sha256": "c216cbc0b2852e583d9a654b33081c3cba03ccf8142fff7a09dd37eab07de979",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/fractalforums-interior-detection"
+      ]
+    },
+    {
+      "path": "web/fractalforums-interior-detection.txt",
+      "method": "derived",
+      "derived_from": "web/fractalforums-interior-detection.html",
+      "command": "textutil -convert txt -output web/fractalforums-interior-detection.txt web/fractalforums-interior-detection.html",
+      "title": "Interior detection for deep Mandelbrot set zooms (fractalforums.org topic 4802, archived) (text)",
+      "authors": [
+        "fractalforums.org members"
+      ],
+      "year": 2022,
+      "size": 19994,
+      "sha256": "9d2aac607416f37867efd2aacf0fb4b78f0bbf5f4a6e1fb30556b54119a9214b",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/fractalforums-interior-detection"
+      ]
+    }
+  ]
+}
