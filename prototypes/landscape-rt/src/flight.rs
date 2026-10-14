@@ -156,7 +156,9 @@ impl Flight {
         // diving = zooming: S shrinks exponentially; the absolute eye height stays, so its
         // height in S units grows and the altitude spring brings it down: a smooth descent
         self.dive_rate = ease(self.dive_rate, input.dive * self.cfg.max_dive, 0.4, dt);
-        if self.dive_rate.abs() > 0.01 || input.dive != 0.0 {
+        // only a dive aims: climbing zooms out about the camera's own ground point (pos stays),
+        // so it is a pure climb rather than backing away from the aim point
+        if self.dive_rate > 0.01 || input.dive > 0.0 {
             let a = self.aim_point(ground);
             self.aim = Some(match self.aim {
                 Some(o) => {
@@ -172,7 +174,7 @@ impl Flight {
         self.s = (self.s * (-self.dive_rate * dt).exp()).clamp(self.cfg.s_min, self.cfg.s_max);
         // zoom towards the aim point: every distance (also the altitude, which stays the same in
         // units of S) scales by S_new / S_old around it
-        if let Some(a) = self.aim {
+        if let (Some(a), true) = (self.aim, self.s < s_old) {
             let f = 1.0 - self.s / s_old;
             self.pos[0] += (a[0] - self.pos[0]) * f;
             self.pos[1] += (a[1] - self.pos[1]) * f;
