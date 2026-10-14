@@ -295,7 +295,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         let v = &sim.viewport;
         let tag = if n > 1 { format!("[{}] ", i + 1) } else { String::new() };
         println!(
-            "{tag}history {mode}: {} frames, final view {}, {} texel {} (zoom {}){}, maxIter {} (hard {}), ref {} pts, level {}x{}{}, complete {:.0} ms / resolved {:.0} ms after input, unresolved {}, learned limit {}",
+            "{tag}history {mode}: {} frames, final view {}, {} texel {} (zoom {}){}, maxIter {} (hard {}), ref {} pts, level {}x{}{}, first frame {:.0} ms / complete {:.0} ms / resolved {:.0} ms after input, unresolved {}, learned limit {}",
             sim.frames,
             g(v.center.re(), 17),
             g(v.center.im(), 17),
@@ -308,6 +308,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             sim.level_width,
             sim.level_height,
             if sim.preview { " (PREVIEW)" } else { "" },
+            sim.first_after * 1000.0,
             sim.final_after * 1000.0,
             sim.done_after * 1000.0,
             sim.unresolved,

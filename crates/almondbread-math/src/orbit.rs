@@ -19,6 +19,7 @@
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::{BigComplex, make_float_exp_complex};
 use crate::floatexp::{DoubleExpComplex, FloatExpComplex};
+use crate::parallel::{self, HelperStart, PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS, Shared, StepRegs, StopGuard};
 use crate::raw::{self, Raw, Storage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -28,6 +29,21 @@ pub enum Variant {
     /// Two general multiplications per iteration.
     Multiplications,
     /// Fastest measured for the limb count.
+    #[default]
+    Automatic,
+}
+
+/// Whether the orbit squares on three cores (kb: techniques/parallel-reference-orbit).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Threads {
+    /// One thread.
+    Single,
+    /// The caller plus two helper threads (squaring form only; the multiplication form
+    /// stays single-threaded).
+    Three,
+    /// Three from [`PARALLEL_MIN_LIMBS`] limbs and [`PARALLEL_MIN_ITERATIONS`] iterations
+    /// on machines with at least eight cores, else one (a 6-core iPhone has two
+    /// performance cores: a helper on an efficiency core would set the pace).
     #[default]
     Automatic,
 }
@@ -102,6 +118,7 @@ pub struct ReferenceOrbitComputer {
     c: BigComplex,
     precision_bits: usize,
     pub variant: Variant,
+    pub threads: Threads,
 }
 
 impl ReferenceOrbitComputer {
@@ -112,12 +129,34 @@ impl ReferenceOrbitComputer {
             c: c.with_precision(bits),
             precision_bits: bits,
             variant: Variant::Automatic,
+            threads: Threads::Automatic,
         }
     }
 
     pub fn with_variant(mut self, variant: Variant) -> Self {
         self.variant = variant;
         self
+    }
+
+    pub fn with_threads(mut self, threads: Threads) -> Self {
+        self.threads = threads;
+        self
+    }
+
+    /// Whether a computation of `max_iterations` runs on three threads.
+    pub fn uses_helpers(&self, max_iterations: usize) -> bool {
+        if self.resolved_variant() != Variant::Squarings {
+            return false;
+        }
+        match self.threads {
+            Threads::Single => false,
+            Threads::Three => true,
+            Threads::Automatic => {
+                self.limb_count() >= PARALLEL_MIN_LIMBS
+                    && max_iterations >= PARALLEL_MIN_ITERATIONS
+                    && std::thread::available_parallelism().is_ok_and(|n| n.get() >= 8)
+            }
+        }
     }
 
     pub fn c(&self) -> &BigComplex {
@@ -151,6 +190,40 @@ impl ReferenceOrbitComputer {
         &self,
         max_iterations: usize,
         bailout: f64,
+        points: Option<&mut [[f32; 2]]>,
+        extended: Option<&mut [FloatExpComplex]>,
+        control: &mut Control<'_>,
+    ) -> OrbitResult {
+        self.compute_from(None, max_iterations, bailout, points, extended, control)
+    }
+
+    /// Continues a computation that stopped at `from.count - 1` iterations (a shorter
+    /// `max_iterations`, or cancelled) up to `max_iterations`, writing points
+    /// `from.count ..` into the same buffers (earlier entries are left alone). The
+    /// registers resume from `from.final_z` exactly, so the points equal those of one
+    /// `compute(max_iterations)` call (kb: techniques/parallel-reference-orbit: the
+    /// reference worker delivers a prefix early this way). An escaped `from` is returned
+    /// unchanged.
+    pub fn resume(
+        &self,
+        from: &OrbitResult,
+        max_iterations: usize,
+        bailout: f64,
+        points: Option<&mut [[f32; 2]]>,
+        extended: Option<&mut [FloatExpComplex]>,
+        control: &mut Control<'_>,
+    ) -> OrbitResult {
+        if from.escaped || from.iterations() >= max_iterations {
+            return from.clone();
+        }
+        self.compute_from(Some(from), max_iterations, bailout, points, extended, control)
+    }
+
+    fn compute_from(
+        &self,
+        from: Option<&OrbitResult>,
+        max_iterations: usize,
+        bailout: f64,
         mut points: Option<&mut [[f32; 2]]>,
         mut extended: Option<&mut [FloatExpComplex]>,
         control: &mut Control<'_>,
@@ -164,9 +237,12 @@ impl ReferenceOrbitComputer {
             assert!(e.len() >= need, "orbit extended buffer too small");
             e[0] = FloatExpComplex::ZERO;
         }
+        let first = from.map_or(0, |f| f.iterations());
         let job = Job {
             c: &self.c,
+            start: from.map(|f| (&f.final_z, first)),
             squarings: self.resolved_variant() == Variant::Squarings,
+            helpers: self.uses_helpers(max_iterations - first),
             max_iterations,
             bailout2: bailout * bailout,
         };
@@ -203,7 +279,9 @@ impl ReferenceOrbitComputer {
         let mut d = vec![DoubleExpComplex::ZERO; max_iterations + 1];
         let job = Job {
             c: &self.c,
+            start: None,
             squarings: self.resolved_variant() == Variant::Squarings,
+            helpers: self.uses_helpers(max_iterations),
             max_iterations,
             bailout2: bailout * bailout,
         };
@@ -242,7 +320,11 @@ struct Outputs<'a> {
 
 struct Job<'a> {
     c: &'a BigComplex,
+    /// Resume from Z after this many iterations (else from Z_0 = 0).
+    start: Option<(&'a BigComplex, usize)>,
     squarings: bool,
+    /// Square on three threads (squaring form only).
+    helpers: bool,
     max_iterations: usize,
     bailout2: f64,
 }
@@ -255,18 +337,64 @@ pub(crate) fn load<S: AsMut<[u64]>>(r: &mut Raw<S>, v: &BigFloat) {
 }
 
 impl Job<'_> {
-    fn run<S: Storage>(&self, n: usize, mut out: Outputs<'_>, control: &mut Control<'_>) -> OrbitResult {
+    fn run<S: Storage>(&self, n: usize, out: Outputs<'_>, control: &mut Control<'_>) -> OrbitResult {
+        if self.helpers && self.squarings {
+            let shared = Shared::new(n);
+            let regs: [Raw<Vec<u64>>; 4] = core::array::from_fn(|_| Raw::new_zero(n));
+            let [mut cx, mut cy, mut zx, mut zy] = regs;
+            load(&mut cx, &self.c.re);
+            load(&mut cy, &self.c.im);
+            if let Some((z, _)) = self.start {
+                load(&mut zx, &z.re);
+                load(&mut zy, &z.im);
+            }
+            let start = HelperStart {
+                c: [&cx, &cy],
+                z: [&zx, &zy],
+                first: self.start.map_or(0, |(_, f)| f),
+            };
+            std::thread::scope(|scope| {
+                for role in 1..3 {
+                    let (sh, st) = (&shared, &start);
+                    std::thread::Builder::new()
+                        .name("almondbread-orbit".into())
+                        .spawn_scoped(scope, move || parallel::helper::<S>(sh, role, n, st))
+                        .expect("orbit helper thread");
+                }
+                let _stop = StopGuard(&shared);
+                self.run_on::<S>(n, out, control, Some(&shared))
+            })
+        } else {
+            self.run_on::<S>(n, out, control, None)
+        }
+    }
+
+    fn run_on<S: Storage>(
+        &self,
+        n: usize,
+        mut out: Outputs<'_>,
+        control: &mut Control<'_>,
+        shared: Option<&Shared>,
+    ) -> OrbitResult {
         let reg = || Raw::<S>::new_zero(n);
         let (mut x, mut y, mut cx, mut cy) = (reg(), reg(), reg(), reg());
         load(&mut cx, &self.c.re);
         load(&mut cy, &self.c.im);
         let mut t = [reg(), reg(), reg(), reg(), reg(), reg()];
+        let mut regs = StepRegs::<S>::new(if shared.is_some() { n } else { 1 });
         let interval = control.check_interval.max(1);
         let (mut done, mut escaped, mut cancelled) = (0, false, false);
+        if let Some((z, first)) = self.start {
+            load(&mut x, &z.re);
+            load(&mut y, &z.im);
+            done = first;
+        }
         with_scratch(n, |s| {
             while done < self.max_iterations {
                 let end = self.max_iterations.min(done + interval);
-                let (reached, esc) = if self.squarings {
+                let (reached, esc) = if let Some(sh) = shared {
+                    orbit_loop_squarings_shared(&mut x, &mut y, &cx, &cy, &mut regs, s, done, end, self.bailout2, &mut out, sh)
+                } else if self.squarings {
                     orbit_loop_squarings(&mut x, &mut y, &cx, &cy, &mut t, s, done, end, self.bailout2, &mut out)
                 } else {
                     orbit_loop_multiplications(&mut x, &mut y, &cx, &cy, &mut t, s, done, end, self.bailout2, &mut out)
@@ -343,6 +471,35 @@ fn orbit_loop_squarings<S: Storage>(
     (i, false)
 }
 
+/// [`orbit_loop_squarings`] on three threads: this one squares X, the helpers of
+/// `shared` square Y and X+Y (the same operations on the same values, so the same orbit).
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn orbit_loop_squarings_shared<S: Storage>(
+    x: &mut Raw<S>,
+    y: &mut Raw<S>,
+    cx: &Raw<S>,
+    cy: &Raw<S>,
+    regs: &mut StepRegs<S>,
+    s: &mut [u64],
+    start: usize,
+    end: usize,
+    bailout2: f64,
+    out: &mut Outputs<'_>,
+    shared: &Shared,
+) -> (usize, bool) {
+    let mut i = start;
+    while i < end {
+        let ok = parallel::step(shared, 0, i as u64 + 1, x, y, cx, cy, regs, s);
+        debug_assert!(ok, "orbit helpers stopped");
+        i += 1;
+        if emit_point(x, y, i, bailout2, out) {
+            return (i, true);
+        }
+    }
+    (i, false)
+}
+
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn orbit_loop_multiplications<S: Storage>(
@@ -375,4 +532,87 @@ fn orbit_loop_multiplications<S: Storage>(
         }
     }
     (i, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Orbit = (Vec<[f32; 2]>, Vec<FloatExpComplex>, OrbitResult);
+
+    fn point(bits: usize) -> BigComplex {
+        let mut c = BigComplex::parse(
+            "-0.743643887037158704752191506114774123456789012345678901234567890123456789",
+            "0.131825904205311970493132056385139987654321098765432109876543210987654321",
+            bits,
+        )
+        .unwrap();
+        c.re += BigFloat::from_f64(0.3183098861837907, bits).times_power_of_two(-(bits as i64 - 3));
+        c
+    }
+
+    fn same(a: &Orbit, b: &Orbit) {
+        assert_eq!(a.0, b.0);
+        assert_eq!(a.1, b.1);
+        assert_eq!(a.2.count, b.2.count);
+        assert_eq!(a.2.escaped, b.2.escaped);
+        assert!(a.2.final_z.re == b.2.final_z.re && a.2.final_z.im == b.2.final_z.im);
+    }
+
+    /// Three threads give the serial orbit exactly, for fixed-size and heap registers,
+    /// through an escape and across control intervals.
+    #[test]
+    fn three_threads_match_one() {
+        for bits in [192usize, 1024, 1088, 2048] {
+            let one = ReferenceOrbitComputer::new(&point(bits), bits)
+                .with_variant(Variant::Squarings)
+                .with_threads(Threads::Single);
+            let three = one.clone().with_threads(Threads::Three);
+            assert!(three.uses_helpers(10) && !one.uses_helpers(1 << 20));
+            for iters in [1usize, 2, 5000] {
+                same(&one.compute_vec(iters, 1e10), &three.compute_vec(iters, 1e10));
+            }
+            // A point outside the set escapes.
+            let out = BigComplex::parse("0.2501", "0.0000001", bits).unwrap();
+            let one = ReferenceOrbitComputer::new(&out, bits)
+                .with_variant(Variant::Squarings)
+                .with_threads(Threads::Single);
+            let a = one.compute_vec(100_000, 2.0);
+            let b = one.clone().with_threads(Threads::Three).compute_vec(100_000, 2.0);
+            assert!(a.2.escaped);
+            same(&a, &b);
+        }
+    }
+
+    /// compute(k) then resume(n) equals compute(n), single- and multi-threaded, and a
+    /// cancelled computation resumes where it stopped.
+    #[test]
+    fn resume_continues_exactly() {
+        for (bits, threads) in [(128usize, Threads::Single), (1024, Threads::Single), (1536, Threads::Three)] {
+            let comp = ReferenceOrbitComputer::new(&point(bits), bits).with_threads(threads);
+            let n = 3000;
+            let whole = comp.compute_vec(n, 1e10);
+            let mut pts = vec![[0f32; 2]; n + 1];
+            let mut ext = vec![FloatExpComplex::ZERO; n + 1];
+            let mut r = with_no_control(64, |ctl| comp.compute(700, 1e10, Some(&mut pts), Some(&mut ext), ctl));
+            assert_eq!(r.iterations(), 700);
+            let mut polls = 0;
+            let mut cancel = || {
+                polls += 1;
+                polls == 3
+            };
+            let mut ignore = |_: usize| {};
+            let mut ctl = Control {
+                check_interval: 100,
+                is_cancelled: &mut cancel,
+                progress: &mut ignore,
+            };
+            r = comp.resume(&r, 2000, 1e10, Some(&mut pts), Some(&mut ext), &mut ctl);
+            assert!(r.cancelled && r.iterations() == 1000);
+            r = with_no_control(4096, |ctl| comp.resume(&r, n, 1e10, Some(&mut pts), Some(&mut ext), ctl));
+            pts.truncate(r.count);
+            ext.truncate(r.count);
+            same(&whole, &(pts, ext, r));
+        }
+    }
 }

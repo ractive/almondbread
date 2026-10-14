@@ -14,8 +14,10 @@ fn fnv(h: &mut u64, v: u64) {
     }
 }
 
-fn digest(c: &BigComplex, bits: usize, iters: usize, variant: Variant) -> (u64, usize) {
-    let comp = ReferenceOrbitComputer::new(c, bits).with_variant(variant);
+fn digest(c: &BigComplex, bits: usize, iters: usize, variant: Variant, threads: Threads) -> (u64, usize) {
+    let comp = ReferenceOrbitComputer::new(c, bits)
+        .with_variant(variant)
+        .with_threads(threads);
     let (pts, ext, r) = comp.compute_vec(iters, 1e10);
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     for p in &pts {
@@ -73,7 +75,12 @@ fn main() {
             };
             let iters = (40_000_000 / bits).clamp(1000, 20_000);
             for v in [Variant::Squarings, Variant::Multiplications, Variant::Automatic] {
-                let (h, count) = digest(&c, bits, iters, v);
+                let (h, count) = digest(&c, bits, iters, v, Threads::Automatic);
+                if v == Variant::Squarings {
+                    let three = digest(&c, bits, iters, v, Threads::Three);
+                    let one = digest(&c, bits, iters, v, Threads::Single);
+                    assert_eq!((three, one), ((h, count), (h, count)), "{name} {bits}: threads differ");
+                }
                 println!("{name:>9} {bits:>6} {v:?}: {count} {h:016x}");
             }
         }

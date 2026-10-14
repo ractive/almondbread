@@ -21,6 +21,7 @@ mod floatexp;
 #[doc(hidden)]
 pub mod limbs;
 mod orbit;
+mod parallel;
 #[doc(hidden)]
 pub mod raw;
 pub mod selection;
@@ -28,8 +29,9 @@ pub mod selection;
 pub use bigfloat::BigFloat;
 pub use complex::BigComplex;
 pub use floatexp::{DoubleExp, DoubleExpComplex, FloatExp, FloatExpComplex};
+pub use parallel::{PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS};
 pub use orbit::{
-    AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Variant, recommended_precision_bits,
+    AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Threads, Variant, recommended_precision_bits,
     recommended_precision_bits_with, with_no_control,
 };
 pub use selection::{

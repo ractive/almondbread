@@ -647,6 +647,9 @@ pub struct SimulationResult {
     /// which nothing was left to iterate.
     pub final_after: f64,
     pub done_after: f64,
+    /// Seconds from the last input (a jump: the start) to the first frame computed for the
+    /// current view (not the history shown while its reference computes).
+    pub first_after: f64,
     pub unresolved: usize,
     pub reference_length: usize,
 }
@@ -742,6 +745,8 @@ pub struct Renderer<B: GpuBackend> {
     last_frame_commit: f64,
     /// When the last fully refined, full-resolution frame was committed, and its size.
     pub last_final_frame: (f64, String),
+    /// When the first job frame (not history) was presented since the last reset (simulate).
+    pub first_job_frame: Option<f64>,
     /// Colorize submissions that failed on the GPU (a drawable left unpainted).
     pub failed_frames: usize,
     interior_stats: Option<InteriorStats>,
@@ -838,6 +843,7 @@ impl<B: GpuBackend> Renderer<B> {
             frames_committed: 0,
             last_frame_commit: 0.0,
             last_final_frame: (0.0, String::new()),
+            first_job_frame: None,
             failed_frames: 0,
             interior_stats: None,
             pinned_iterations: None,
@@ -1079,6 +1085,7 @@ impl<B: GpuBackend> Renderer<B> {
                 self.frames_in_flight.push((self.frames_committed, sub));
                 self.last_frame_commit = now;
                 self.last_compose = now;
+                self.first_job_frame.get_or_insert(now);
                 self.has_presented = true;
                 outcome.presented = true;
                 let job = self.job.as_mut().expect("job");
@@ -3010,6 +3017,8 @@ impl<B: GpuBackend> Renderer<B> {
             }
         };
         let mut prev = self.clock();
+        let sim_start = prev;
+        self.first_job_frame = None;
         for i in 0..input_frames {
             let now = self.clock();
             self.navigator.note_interaction(now);
@@ -3018,7 +3027,12 @@ impl<B: GpuBackend> Renderer<B> {
             prev = now;
             refresh(self, &mut tick, &mut frames);
         }
-        let input_end = self.navigator.last_interaction;
+        // A jump (no input frames) counts from the start.
+        let input_end = if input_frames == 0 {
+            sim_start
+        } else {
+            self.navigator.last_interaction
+        };
         let deadline = self.clock() + timeout;
         loop {
             let finished = self
@@ -3036,6 +3050,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let final_after = self.last_final_frame.0 - input_end;
         let done_after = self.clock() - input_end;
+        let first_after = self.first_job_frame.map_or(f64::NAN, |t| t - input_end);
         self.wait_frames();
         self.drain_in_flight();
         let mut pixels = vec![0u8; width * height * 4];
@@ -3060,6 +3075,7 @@ impl<B: GpuBackend> Renderer<B> {
             frames,
             final_after,
             done_after,
+            first_after,
             unresolved,
             reference_length: shown.params.ref_len as usize,
             iterations,

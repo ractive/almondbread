@@ -7,7 +7,7 @@
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::BigComplex;
 use crate::floatexp::{DoubleExp, DoubleExpComplex};
-use crate::orbit::load;
+use crate::orbit::{Control, ReferenceOrbitComputer, load};
 use crate::raw::{self, Raw};
 
 type Reg = Raw<Vec<u64>>;
@@ -360,16 +360,29 @@ pub fn find_nucleus(
                 delta.re.log2_magnitude().max(delta.im.log2_magnitude())
             };
         } else {
+            // The orbit through the reference-orbit code (fixed-size kernels, three threads
+            // at high precision), the derivative over its extended-range copy.
+            let comp = ReferenceOrbitComputer::new(&c, bits);
+            let mut ignore = |_: usize| {};
+            let mut ctl = Control {
+                check_interval: 4096,
+                is_cancelled: &mut *is_cancelled,
+                progress: &mut ignore,
+            };
+            let (orbit, r) = comp.compute_double_exp(period, f64::MAX, &mut ctl);
+            if r.cancelled || r.iterations() < period {
+                return None;
+            }
             let mut dz = DoubleExpComplex::ZERO;
-            for _ in 0..period {
-                dz = (complex_value(&zx, &zy) * dz).times_two() + DoubleExpComplex::ONE;
-                complex_square_add(&mut zx, &mut zy, &cx, &cy, &mut t, s);
+            for z in &orbit[..period] {
+                dz = (*z * dz).times_two() + DoubleExpComplex::ONE;
             }
             let finite = |v: DoubleExpComplex| v.re.mantissa.is_finite() && v.im.mantissa.is_finite();
             if dz.re.is_zero() && dz.im.is_zero() || !finite(dz) {
                 return None;
             }
-            let d = complex_value(&zx, &zy) / dz;
+            let zp = DoubleExpComplex::new(r.final_z.re.double_exp(), r.final_z.im.double_exp());
+            let d = zp / dz;
             if !finite(d) {
                 return None;
             }

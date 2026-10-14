@@ -22,13 +22,15 @@ fn bench_point(bits: usize) -> BigComplex {
 /// Iterations per second: calibrate to ~`MIN_SECONDS`, then the best of `BEST_OF` runs
 /// (env vars; defaults 0.4 s and 1 = the Swift tool's method). Best-of-N is robust to a
 /// loaded machine.
-fn bench_orbit(bits: usize, variant: Variant, outputs: bool) -> f64 {
+fn bench_orbit(bits: usize, variant: Variant, outputs: bool, threads: Threads) -> f64 {
     let min_t: f64 = std::env::var("MIN_SECONDS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.4);
     let best_of: usize = std::env::var("BEST_OF").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
-    let comp = ReferenceOrbitComputer::new(&bench_point(bits), bits).with_variant(variant);
+    let comp = ReferenceOrbitComputer::new(&bench_point(bits), bits)
+        .with_variant(variant)
+        .with_threads(threads);
     let run = |iters: usize| -> f64 {
         let mut pts = vec![[0f32; 2]; if outputs { iters + 1 } else { 0 }];
         let mut ext = vec![FloatExpComplex::ZERO; if outputs { iters + 1 } else { 0 }];
@@ -61,19 +63,60 @@ fn bench_orbit(bits: usize, variant: Variant, outputs: bool) -> f64 {
 }
 
 fn run_bench(sizes: &[usize]) {
-    println!("Reference orbit, iterations per second (release, single thread)");
+    println!("Reference orbit, iterations per second (release; sqr3 = squarings on three threads)");
     println!(
-        "{:>6} {:>12} {:>12} {:>12} {:>12}",
-        "bits", "sqr+out", "mul+out", "sqr", "mul"
+        "{:>6} {:>12} {:>12} {:>12} {:>12} {:>12} {:>7}",
+        "bits", "sqr+out", "mul+out", "sqr", "mul", "sqr3+out", "x"
     );
+    let one = Threads::Single;
     for &bits in sizes {
-        let a = bench_orbit(bits, Variant::Squarings, true);
-        let b = bench_orbit(bits, Variant::Multiplications, true);
-        let c = bench_orbit(bits, Variant::Squarings, false);
-        let d = bench_orbit(bits, Variant::Multiplications, false);
+        let a = bench_orbit(bits, Variant::Squarings, true, one);
+        let b = bench_orbit(bits, Variant::Multiplications, true, one);
+        let c = bench_orbit(bits, Variant::Squarings, false, one);
+        let d = bench_orbit(bits, Variant::Multiplications, false, one);
+        let e = bench_orbit(bits, Variant::Squarings, true, Threads::Three);
         println!(
-            "{bits:>6} {:>12} {:>12} {:>12} {:>12}",
-            a as u64, b as u64, c as u64, d as u64
+            "{bits:>6} {:>12} {:>12} {:>12} {:>12} {:>12} {:>7.2}",
+            a as u64,
+            b as u64,
+            c as u64,
+            d as u64,
+            e as u64,
+            e / a.max(b)
+        );
+    }
+}
+
+/// Single-threaded (fastest form) against three threads, interleaved `ROUNDS` times (env,
+/// default 7) so load from other processes hits both alike; prints best and median.
+fn run_par(sizes: &[usize]) {
+    let rounds: usize = std::env::var("ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(7);
+    println!("Reference orbit with outputs, iterations per second: best / median of {rounds}");
+    println!("{:>6} {:>21} {:>21} {:>13}", "bits", "1 thread", "3 threads", "x best/median");
+    for &bits in sizes {
+        let single_variant = if bits <= 64 * AUTOMATIC_MULTIPLICATION_LIMIT {
+            Variant::Multiplications
+        } else {
+            Variant::Squarings
+        };
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for _ in 0..rounds {
+            a.push(bench_orbit(bits, single_variant, true, Threads::Single));
+            b.push(bench_orbit(bits, Variant::Squarings, true, Threads::Three));
+        }
+        let stats = |v: &mut Vec<f64>| {
+            v.sort_by(|x, y| y.partial_cmp(x).unwrap());
+            (v[0], v[v.len() / 2])
+        };
+        let ((ab, am), (bb, bm)) = (stats(&mut a), stats(&mut b));
+        println!(
+            "{bits:>6} {:>10} {:>10} {:>10} {:>10} {:>6.2} {:>6.2}",
+            ab as u64,
+            am as u64,
+            bb as u64,
+            bm as u64,
+            bb / ab,
+            bm / am
         );
     }
 }
@@ -172,8 +215,16 @@ fn main() {
             };
             run_bench(&sizes)
         }
+        "par" => {
+            let sizes: Vec<usize> = if args.len() > 1 {
+                args[1..].iter().map(|s| s.parse().unwrap()).collect()
+            } else {
+                vec![768, 1024, 1152, 1536, 2048, 3456, 4096, 6784, 10048]
+            };
+            run_par(&sizes)
+        }
         "ops" => run_ops(),
         "nucleus" => run_nucleus(),
-        _ => println!("usage: math_check [bench [bits...]|ops|nucleus]"),
+        _ => println!("usage: math_check [bench [bits...]|par [bits...]|ops|nucleus]"),
     }
 }
