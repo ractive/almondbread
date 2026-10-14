@@ -78,11 +78,27 @@ pub fn find_period(
     check_interval: usize,
     is_cancelled: &mut dyn FnMut() -> bool,
 ) -> Option<usize> {
+    find_period_from(center, radius, 1, max_period, method, check_interval, is_cancelled)
+}
+
+/// [`find_period`] ignoring periods below `min_period` (ball methods only; the box method
+/// ignores it): the next atom touching the disc after a known one, e.g. to step from a
+/// minibrot into the structures around it (deep location search).
+pub fn find_period_from(
+    center: &BigComplex,
+    radius: &BigFloat,
+    min_period: usize,
+    max_period: usize,
+    method: PeriodMethod,
+    check_interval: usize,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<usize> {
     let ci = check_interval.max(1);
     match method {
         PeriodMethod::Ball | PeriodMethod::BallFirstOrder => ball_period(
             center,
             radius.double_exp().abs(),
+            min_period,
             max_period,
             method == PeriodMethod::BallFirstOrder,
             ci,
@@ -92,9 +108,11 @@ pub fn find_period(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ball_period(
     center: &BigComplex,
     r: DoubleExp,
+    min_period: usize,
     max_period: usize,
     first_order: bool,
     check_interval: usize,
@@ -121,7 +139,7 @@ fn ball_period(
             complex_square_add(&mut x, &mut y, &cx, &cy, &mut t, s);
             z_abs = complex_magnitude(&x, &y);
             let bound = if first_order { dz.magnitude() * r } else { radius_acc };
-            if z_abs < bound {
+            if z_abs < bound && p >= min_period {
                 return Some(p);
             }
             if escape < z_abs - bound {

@@ -268,16 +268,39 @@ impl<B: GpuBackend> Host<B> {
         }
     }
 
-    /// Centre and scale for the clipboard, full f64 precision.
+    /// Centre and scale for the clipboard, at the precision the view needs (M3b: arbitrary;
+    /// pasting it back gives the same view to a fraction of a point).
     pub fn coordinates_text(&self) -> String {
         let v = &self.renderer.viewport;
+        let (re, im) = v.center.to_strings_digits(coordinate_digits(v));
         format!(
-            "re {}\nim {}\nscale {} (zoom {}×)",
-            g(v.center.re(), 17),
-            g(v.center.im(), 17),
-            g(v.scale, 6),
-            g(v.zoom(), 6)
+            "re {re}\nim {im}\nscale {} (zoom {})",
+            v.scale.to_text(6),
+            zoom_text(v.zoom_log10())
         )
+    }
+}
+
+/// Significant digits that place the centre of `v` to about 1/1000 of a point.
+pub fn coordinate_digits(v: &Viewport) -> usize {
+    let mag = v
+        .center
+        .re()
+        .abs()
+        .max(v.center.im().abs())
+        .max(1e-300)
+        .log10()
+        .ceil()
+        .max(0.0);
+    ((mag - v.scale.log10()).ceil() as usize + 4).max(17)
+}
+
+/// "1.5e+05×" below 1e15, "10^123.4×" beyond.
+pub fn zoom_text(log10: f64) -> String {
+    if log10 < 15.0 {
+        format!("{}×", g(10f64.powf(log10), 6))
+    } else {
+        format!("10^{log10:.1}×")
     }
 }
 

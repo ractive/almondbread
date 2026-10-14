@@ -5,7 +5,7 @@
 use bytemuck::{Pod, Zeroable};
 use core::mem::{offset_of, size_of};
 
-/// Parameters of one iterate chunk (`IterateParams` in MSL), 96 bytes.
+/// Parameters of one iterate chunk (`IterateParams` in MSL), 112 bytes.
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct IterateParams {
@@ -35,6 +35,12 @@ pub struct IterateParams {
     /// 0: raster tile order, 1: the order buffer.
     pub tile_order: u32,
     pub pad0: u32,
+    /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
+    /// 2^`scale_exp`. 0 for the plain kernel.
+    pub scale_exp: i32,
+    pub pad1: u32,
+    pub pad2: u32,
+    pub pad3: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -48,6 +54,9 @@ pub struct PixelState {
     pub n: u32,
     pub m: u32,
     pub w_exp: i32,
+    /// Deep kernel: delta and DE exponents.
+    pub e: i32,
+    pub d_exp: i32,
 }
 
 /// Per-chunk counters the CPU reads back (a 64-slot ring).
@@ -172,7 +181,8 @@ pub struct AaListParams {
 
 const _: () = {
     assert!(size_of::<AaListParams>() == 32);
-    assert!(size_of::<IterateParams>() == 96);
+    assert!(size_of::<IterateParams>() == 112);
+    assert!(offset_of!(IterateParams, scale_exp) == 96);
     assert!(offset_of!(IterateParams, tiles_x) == 80);
     assert!(offset_of!(IterateParams, tile_order) == 88);
     assert!(offset_of!(IterateParams, texel_scale) == 24);
@@ -185,7 +195,8 @@ const _: () = {
     assert!(offset_of!(IterateParams, list_mode) == 72);
     assert!(offset_of!(IterateParams, list_capacity) == 76);
 
-    assert!(size_of::<PixelState>() == 40);
+    assert!(size_of::<PixelState>() == 48);
+    assert!(offset_of!(PixelState, e) == 40);
     assert!(offset_of!(PixelState, pixel) == 24);
     assert!(offset_of!(PixelState, w_exp) == 36);
 

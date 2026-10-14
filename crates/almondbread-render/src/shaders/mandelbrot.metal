@@ -29,6 +29,8 @@ using namespace metal;
 constant bool kDE       [[function_constant(0)]];   // dz/dc for distance estimate / normals
 constant bool kInterior [[function_constant(1)]];   // dz/dz1 derivative interior test
 constant bool kBLA      [[function_constant(2)]];   // BLA skip table (kb: techniques/bla)
+constant bool kDeep     [[function_constant(3)]];   // M3b: rescaled float32 deltas at any depth
+                                                    // (kb: techniques/extended-range-floats)
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -62,6 +64,12 @@ struct IterateParams {
     uint   height;        // level height in texels (padding texels of edge tiles are skipped)
     uint   tileOrder;     // 0: tiles in raster order; 1: tile = order[rank] (buffer 13)
     uint   pad0;
+    // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
+    // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
+    int    scaleExp;
+    uint   pad1;
+    uint   pad2;
+    uint   pad3;
 };
 
 // Admission index -> texel of a tiled level (kb: techniques/frame-reuse-and-progressive, FL):
@@ -83,17 +91,20 @@ static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const 
     return (r << 8) | ((s.y & 15u) << 4) | (s.x & 15u);
 }
 
-// Loop state of one live pixel. Milestone 3 adds exponents here for rescaled/floatexp deltas
-// (kb: techniques/extended-range-floats); BLA needs nothing beyond (dz, m, n), so a level may
-// switch between the BLA and the plain pipeline at any chunk boundary.
+// Loop state of one live pixel. BLA needs nothing beyond (dz, m, n), so a level may switch
+// between the BLA and the plain pipeline at any chunk boundary. The deep kernel (M3b) carries
+// the delta and the DE derivative with exponents: dz * 2^e (e = 0: a plain float32 delta) and
+// d * 2^dExp (kb: techniques/extended-range-floats).
 struct PixelState {
-    float2 dz;            // delta to the reference orbit
-    float2 d;             // dz/dc * texelScale (DE), if kDE
+    float2 dz;            // delta to the reference orbit (deep: mantissa)
+    float2 d;             // dz/dc * texelScale (DE), if kDE (deep: mantissa)
     float2 w;             // dz_n/dz_1 mantissa, if kInterior
     uint   pixel;         // scanline index into the level textures
     uint   n;             // iterations done
     uint   m;             // reference index (differs from n after rebasing)
     int    wExp;          // w = w * 2^wExp (keeps w in float range on long exterior orbits)
+    int    e;             // deep: delta exponent (0: plain regime)
+    int    dExp;          // deep: DE exponent
 };
 
 struct ChunkStats {       // per-chunk counters, read back by the CPU
@@ -131,6 +142,27 @@ struct BlaEntry {
     float  k;
 };
 
+// Deep BLA entry (M3b, kb: techniques/bla "M3b"): the same affine map and validity with every
+// quantity carrying its own exponent: A = a 2^ae, B = b 2^be (complex mantissas, max-abs in
+// [0.5, 1)), R = r 2^re, K = k 2^ke (r, k in [0.5, 1); r = 0: never valid).
+struct BlaEntryX {
+    float2 a;
+    float2 b;
+    int    ae;
+    int    be;
+    float  r;
+    int    re;
+    float  k;
+    int    ke;
+};
+
+// A reference point in floatexp (`FloatExpComplex` on the Rust side): m * 2^e, the larger
+// component's mantissa magnitude in [0.5, 1), zero as m = 0.
+struct RefX {
+    float2 m;
+    int    e;
+};
+
 // Admission state of the running level, on the GPU so admission needs no CPU round trip:
 // each chunk fills whatever live capacity the previous one freed.
 struct LevelCounters {
@@ -143,6 +175,92 @@ struct LevelCounters {
 static inline float2 cmul(float2 a, float2 b) {
     return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
+
+
+// ---------------------------------------------------------------------------------------------
+// Extended range for the deep kernel (M3b, kb: techniques/extended-range-floats). FE is a
+// complex floatexp: m * 2^e with max(|m.x|, |m.y|) in [0.5, 1); zero is m = 0 with e = FE_ZERO,
+// so it loses every alignment and comparison without special cases. Exponents stay far from
+// int overflow: products add at most a few of them.
+constant int FE_ZERO = -(1 << 28);
+
+struct FE {
+    float2 m;
+    int    e;
+};
+
+// 2^k as float, k clamped to 127 above; 0 below the normal range (fast math flushes anyway).
+static inline float pow2f(int k) {
+    return k < -126 ? 0.0f : as_type<float>(uint(min(k, 127) + 127) << 23);
+}
+
+// m * 2^k for k in about [-252, 254] (two exact steps: a single 2^k would leave the float range).
+static inline float2 scale2(float2 m, int k) {
+    int h = k >> 1;
+    return m * pow2f(h) * pow2f(k - h);
+}
+
+// a = f 2^k with f in [0.5, 1), for a normal positive float.
+static inline int expOf(float a) {
+    return int((as_type<uint>(a) >> 23) & 0xffu) - 126;
+}
+
+static inline FE feNorm(float2 m, int e) {
+    float a = max(abs(m.x), abs(m.y));
+    if (!(a > 0.0f)) return FE{float2(0.0f), FE_ZERO};
+    int k = expOf(a);
+    return FE{scale2(m, -k), e + k};
+}
+
+static inline FE feAdd(FE a, FE b) {
+    if (a.e < b.e) { FE t = a; a = b; b = t; }
+    int d = a.e - b.e;
+    return d > 40 ? a : feNorm(a.m + scale2(b.m, -d), a.e);
+}
+
+static inline FE feMul(FE a, FE b) {
+    return feNorm(cmul(a.m, b.m), a.e + b.e);
+}
+
+// |a| < |b|.
+static inline bool feLess(FE a, FE b) {
+    float na = dot(a.m, a.m), nb = dot(b.m, b.m);
+    if (!(nb > 0.0f)) return false;
+    if (!(na > 0.0f)) return true;
+    int d = a.e - b.e;
+    if (d > 2) return false;
+    if (d < -2) return true;
+    return na * pow2f(2 * d) < nb;
+}
+
+static inline float2 feFloat(FE a) {
+    return scale2(a.m, max(a.e, -300));
+}
+
+// After the delta's exponent e changed: s = 2^e and dd = c 2^-e for the scaled step. A delta
+// far below |c| (2^-60) is re-expressed relative to c's exponent `ce`, so dd stays in range.
+static inline void deepRescale(thread float2& w, thread int& e, thread float& s, thread float2& dd,
+                               float2 dc, int scaleExp, int ce) {
+    if (e != 0 && e < ce - 60) {
+        w = scale2(w, e - ce);
+        e = ce;
+    }
+    s = pow2f(e);
+    dd = dc * pow2f(min(scaleExp - e, 100));
+}
+
+static inline FE refAt(device const RefX* refx, uint m) {
+    RefX r = refx[m];
+    return FE{r.m, (r.m.x == 0.0f && r.m.y == 0.0f) ? FE_ZERO : r.e};
+}
+
+// Regime boundaries of the deep loop: a delta of at least 2^-41 is a plain float32 (squared
+// norms stay normal), below 2^-50 it is carried as mantissa and exponent.
+constant int   DEEP_PLAIN_EXP = -40;
+constant float DEEP_TINY2 = 0x1p-100f;
+// |Z| below this: the scaled step and its tests go through floatexp (the dropped S w^2 term and
+// rebases can only matter there).
+constant float DEEP_SMALL_Z = 0x1p-32f;
 
 // One thread: admits fresh pixels into free capacity, sizes the indirect dispatch for
 // live + fresh pixels and clears the counters.
@@ -236,6 +354,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const uint* order                [[buffer(13)]],
                     constant BlaParams& bla                 [[buffer(14)]],
                     device const BlaEntry* table            [[buffer(15)]],
+                    device const RefX* refx                 [[buffer(16)]],
+                    device const BlaEntryX* tableX          [[buffer(17)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -277,7 +397,268 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint iters = 0;
     uint steps = 0;
 
-    if (active) {
+    if (active && kDeep) {
+        // M3b deep loop (kb: techniques/extended-range-floats "Rescaled iterations", rebasing,
+        // bla). The pixel's delta is z = w 2^e. Two regimes:
+        //  P (e == 0): |z| >= 2^-50, w is the plain float32 delta; the loop is the plain one
+        //    (squared-norm escape and rebase tests are safe at that size).
+        //  T (e < 0): |z| < 2^-41 (hysteresis to P), w kept in [2^-16, 2^16] by renormalising.
+        //    Step w <- (2Z + s w) w + dd with s = 2^e (0 when it underflows: then |S w^2| is far
+        //    below float32 rounding of 2 Z w, since |Z| >= 2^-32 here) and dd = c 2^-e. No escape
+        //    or rebase test is needed while |Z| >= 2^-32 > 2|z|; where |Z| is smaller, at m = 0
+        //    and at the reference's end, the step and its tests run in floatexp with the
+        //    reference point's own exponent (Pauldelbrot's "full iterations"; mathr).
+        // Test, then step: a resumed pixel repeats its last test, which is idempotent.
+        // Derivatives carry exponents: d = dz/dc * texel = dm 2^dExp, w' = dz/dz1 = zw 2^wExp.
+        const FE C = feNorm(dc, p.scaleExp);
+        const FE TS = feNorm(float2(p.texelScale, 0.0f), p.scaleExp);
+        const float cAbsM = length(C.m);      // |c| = cAbsM 2^C.e
+        float2 w, dm, zw;
+        int e, dExp, wExp;
+        uint m, n;
+        if (fresh) {
+            // z_1 = c, d_1 = texel, w_1 = 1.
+            if (C.e >= DEEP_PLAIN_EXP) { w = feFloat(C); e = 0; } else { w = C.m; e = C.e; }
+            dm = TS.m; dExp = TS.e;
+            zw = float2(1.0f, 0.0f); wExp = 0;
+            m = 1; n = 1;
+            st.n = 0;   // the first iteration counts in this chunk
+            steps = 1;
+        } else {
+            w = st.dz; e = st.e; dm = st.d; dExp = st.dExp; zw = st.w; wExp = st.wExp;
+            m = st.m; n = st.n;
+        }
+        float s;
+        float2 dd;
+        deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+        float2 tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+        uint budget = p.chunkIters;
+        const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
+        uint lookedAt = 0xffffffffu;   // n of the last BLA lookup (one per lookup index visit)
+        bool done = false;
+        while (!done) {
+            // ---- BLA (both regimes): at m = 1 (mod lookupEvery), the longest valid block.
+            // Consecutive blocks need no test in between: a valid block's first step already
+            // has |z| <= 2^-24 |2 Z_m|, so no rebase or escape is due at its start.
+            if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n < p.maxIter && budget > 0 && n != lookedAt) {
+                lookedAt = n;
+                FE zx = feNorm(w, e);
+                const float zn = length(zx.m);
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                BlaEntryX best;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > last || n + l > p.maxIter) break;
+                    const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
+                    if (!(x.r > 0.0f)) break;
+                    // |z| + K |c| < R, all relative to 2^re.
+                    const int kce = x.ke + C.e - x.re;
+                    const float t = x.r - (kce < -150 ? 0.0f : x.k * cAbsM * pow2f(min(kce, 64)));
+                    if (!(t > 0.0f && zn * pow2f(clamp(zx.e - x.re, -127, 64)) < t)) break;
+                    best = x;
+                    len = l;
+                }
+                if (len != 0) {
+                    const FE A = FE{best.a, best.ae}, B = FE{best.b, best.be};
+                    zx = feAdd(feMul(A, zx), feMul(B, C));
+                    if (kDE) {
+                        FE dx = feAdd(feMul(A, feNorm(dm, dExp)), feMul(B, TS));
+                        dm = dx.m; dExp = dx.e;
+                        tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                    }
+                    if (kInterior) {
+                        FE wx = feMul(A, feNorm(zw, wExp));
+                        zw = wx.m; wExp = wx.e;
+                        // (w is now dz_{n+len}/dz_1: the n^2 guard uses n + len.)
+                        float nn = float(n + len);
+                        if (max(abs(zw.x), abs(zw.y)) * nn * nn * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            interior = true;
+                            n += len;
+                            break;
+                        }
+                    }
+                    m += len;
+                    n += len;
+                    budget--;
+                    if (zx.e >= DEEP_PLAIN_EXP) { w = feFloat(zx); e = 0; } else { w = zx.m; e = zx.e; }
+                    deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                    // Tests follow in the regime loop (a valid block keeps |z| <= 2^-24 |2Z| at
+                    // every inner step: no rebase or escape inside it).
+                }
+            }
+            if (e == 0) {
+                // ---- P regime: the plain loop (plus the BLA exit and the T entry).
+                while (true) {
+                    float2 Z = ref[m];
+                    z = Z + w;
+                    r2 = dot(z, z);
+                    if (r2 > p.bailout2) { escaped = true; done = true; break; }
+                    float w2 = dot(w, w);
+                    if (r2 < w2 || m == last) {
+                        w = z;
+                        m = 0;
+                        Z = 0.0f;
+                        w2 = r2;
+                    }
+                    if (w2 < DEEP_TINY2) {
+                        // Too small for squared tests: carry it with an exponent (T).
+                        FE t = feNorm(w, 0);
+                        w = t.m;
+                        e = t.e == FE_ZERO ? C.e : t.e;
+                        deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                        break;
+                    }
+                    if (n >= p.maxIter || budget == 0) { done = true; break; }
+                    if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
+                    if (kDE) dm = 2.0f * cmul(z, dm) + tsd;
+                    if (kInterior) zw = 2.0f * cmul(z, zw);
+                    if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f) {
+                        if (kDE) {
+                            float a = max(abs(dm.x), abs(dm.y));
+                            if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
+                                FE t = feNorm(dm, dExp);
+                                dm = t.m; dExp = t.e;
+                                tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                            }
+                        }
+                        if (kInterior) {
+                            float a = max(abs(zw.x), abs(zw.y));
+                            if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
+                                FE t = feNorm(zw, wExp);
+                                zw = t.m; wExp = t.e;
+                                a = max(abs(zw.x), abs(zw.y));
+                            }
+                            if (a * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                                interior = true;
+                                done = true;
+                                break;
+                            }
+                        }
+                    }
+                    w = cmul(2.0f * Z + w, w) + dd;
+                    m++;
+                    n++;
+                    budget--;
+                }
+            } else {
+                // ---- T regime: scaled steps; floatexp where |Z| is small.
+                while (true) {
+                    const float2 Z = ref[m];
+                    if (m == 0 || m == last || max(abs(Z.x), abs(Z.y)) < DEEP_SMALL_Z) {
+                        FE zx = feNorm(w, e);
+                        FE Zx = refAt(refx, m);
+                        FE zf = feAdd(Zx, zx);
+                        if (m == last && zf.e > 0) {
+                            // Only an escaped reference ends outside the bailout.
+                            z = feFloat(zf);
+                            r2 = dot(z, z);
+                            if (r2 > p.bailout2) { escaped = true; done = true; break; }
+                        }
+                        if (m != 0 && (m == last || feLess(zf, zx))) {
+                            zx = zf;
+                            m = 0;
+                            Zx = FE{float2(0.0f), FE_ZERO};
+                        }
+                        if (zx.e >= DEEP_PLAIN_EXP) {
+                            w = feFloat(zx); e = 0; s = 1.0f;
+                            dd = dc * pow2f(min(p.scaleExp, 100));
+                            break;
+                        }
+                        w = zx.m; e = zx.e;
+                        if (n >= p.maxIter || budget == 0) { done = true; break; }
+                        if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) {
+                            deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                            break;
+                        }
+                        // Derivatives with the full orbit value zf = Z + z (floatexp).
+                        if (kDE) {
+                            FE dx = feAdd(feMul(FE{zf.m, zf.e + 1}, feNorm(dm, dExp)), TS);
+                            dm = dx.m; dExp = dx.e;
+                            tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                        }
+                        if (kInterior) {
+                            FE wx = feMul(FE{zf.m, zf.e + 1}, feNorm(zw, wExp));
+                            zw = wx.m; wExp = wx.e;
+                        }
+                        // z <- (2Z + z) z + c in floatexp.
+                        zx = feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
+                        m++;
+                        n++;
+                        budget--;
+                        // (Tested after every full step: they happen where the orbit passes
+                        // closest to 0, the one place an interior pixel's |w| is small.)
+                        if (kInterior
+                            && max(abs(zw.x), abs(zw.y)) * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            interior = true;
+                            done = true;
+                            w = zx.m; e = zx.e;
+                            break;
+                        }
+                        if (zx.e >= DEEP_PLAIN_EXP) {
+                            w = feFloat(zx); e = 0; s = 1.0f;
+                            dd = dc * pow2f(min(p.scaleExp, 100));
+                            break;
+                        }
+                        w = zx.m;
+                        e = zx.e;
+                        deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                        continue;
+                    }
+                    if (n >= p.maxIter || budget == 0) { done = true; break; }
+                    if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
+                    const float2 sw = s * w;
+                    const float2 zf = Z + sw;
+                    if (kDE) dm = 2.0f * cmul(zf, dm) + tsd;
+                    if (kInterior) zw = 2.0f * cmul(zf, zw);
+                    if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f) {
+                        if (kDE) {
+                            float a = max(abs(dm.x), abs(dm.y));
+                            if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
+                                FE t = feNorm(dm, dExp);
+                                dm = t.m; dExp = t.e;
+                                tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                            }
+                        }
+                        if (kInterior) {
+                            float a = max(abs(zw.x), abs(zw.y));
+                            if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
+                                FE t = feNorm(zw, wExp);
+                                zw = t.m; wExp = t.e;
+                                a = max(abs(zw.x), abs(zw.y));
+                            }
+                            if (a * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                                interior = true;
+                                done = true;
+                                break;
+                            }
+                        }
+                    }
+                    w = cmul(2.0f * Z + sw, w) + dd;
+                    m++;
+                    n++;
+                    budget--;
+                    const float a = max(abs(w.x), abs(w.y));
+                    if (a > 0x1p16f || a < 0x1p-16f) {
+                        if (a > 0.0f) {
+                            const int k = expOf(a);
+                            w = scale2(w, -k);
+                            e += k;
+                            if (e >= DEEP_PLAIN_EXP) {
+                                w = scale2(w, e); e = 0; s = 1.0f;
+                                dd = dc * pow2f(min(p.scaleExp, 100));
+                                break;
+                            }
+                            deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                        }
+                    }
+                }
+            }
+        }
+        iters += n - st.n;
+        steps += p.chunkIters - min(budget, p.chunkIters);
+        st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
+    } else if (active) {
         if (fresh) {
             // First step done here, from z_0 = 0: z_1 = c, dz_1 = dc, d_1 = texelScale,
             // w_1 = 1 (the generic step would multiply w by z_0 = 0).
@@ -432,6 +813,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 float zr = sqrt(r2);
                 float dl = length(st.d);
                 float de = dl > 0.0f ? 2.0f * zr * log(zr) / dl : 0.0f;   // in texels
+                if (kDeep) de = min(de, 65000.0f) * pow2f(clamp(-st.dExp, -126, 127));
                 float2 u = cmul(z, float2(st.d.x, -st.d.y));                // direction of z / d
                 deOut.write(float4(min(de, 65000.0f), atan2(u.y, u.x), 0.0f, 0.0f), gid);
             } else {

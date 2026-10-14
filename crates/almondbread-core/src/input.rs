@@ -1047,7 +1047,7 @@ mod tests {
                     n.handle(InputEvent::KeyUp(NavKey::Zoom), &mut v, t);
                 }
                 t = run(&mut n, &mut v, t, k as f64 * 0.1, hz);
-                out.push(((v.center.re() - re0) / 1e-3, v.scale.ln()));
+                out.push(((v.center.re() - re0) / 1e-3, v.scale.to_f64().ln()));
             }
             out
         };
@@ -1090,7 +1090,7 @@ mod tests {
         n.handle(InputEvent::KeyDown(NavKey::Zoom), &mut v, 0.0);
         n.advance(&mut v, 0.05);
         let expect = 1e-3 / ease_in_distance(1.6, ZOOM_OMEGA.0, 0.05).exp();
-        assert!((v.scale - expect).abs() < 1e-15);
+        assert!((v.scale.to_f64() - expect).abs() < 1e-15);
         let (dr, di) = v.point_at_offset(100.0, 50.0).delta_from(&target);
         assert!(dr.abs() < 1e-15 && di.abs() < 1e-15);
         n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.1);
@@ -1249,9 +1249,13 @@ mod tests {
         }
         t = run(&mut n, &mut v, t, t + 1.0, 60.0);
         assert!(!n.is_moving());
-        assert!(v.scale < 1e-4);
+        assert!(v.scale.to_f64() < 1e-4);
         let (dr, di) = v.point_at_offset(p.0, p.1).delta_from(&target);
-        assert!(dr.hypot(di) / v.scale < 1e-6, "drift {} points", dr.hypot(di) / v.scale);
+        assert!(
+            dr.hypot(di) / v.scale.to_f64() < 1e-6,
+            "drift {} points",
+            dr.hypot(di) / v.scale.to_f64()
+        );
 
         // Keyboard mode after the glide: the centre is the target, for a trackpad pinch too
         // (its event position is wherever the hidden pointer is).
@@ -1272,7 +1276,7 @@ mod tests {
             t,
         );
         let (dr, di) = v.point_at_offset(0.0, 0.0).delta_from(&centre);
-        assert!(dr.hypot(di) / v.scale < 1e-6);
+        assert!(dr.hypot(di) / v.scale.to_f64() < 1e-6);
     }
 
     #[test]
@@ -1290,7 +1294,7 @@ mod tests {
         );
         // Not a jump: after one 120 Hz frame about 13 % of the step (1 − e^(−1/120/τ)).
         n.advance(&mut v, 1.0 / 120.0);
-        let frac = (1e-3 / v.scale).ln() / 2f64.ln();
+        let frac = (1e-3 / v.scale.to_f64()).ln() / 2f64.ln();
         assert!((frac - (1.0 - (-1.0 / 120.0 / STEP_TAU).exp())).abs() < 1e-9, "{frac}");
         // Two notches in quick succession add up exactly.
         n.handle(
@@ -1304,7 +1308,11 @@ mod tests {
         );
         run(&mut n, &mut v, 1.0 / 120.0, 1.0, 120.0);
         assert!(!n.is_moving());
-        assert!((v.scale - 1e-3 / 2.0 / 1.15).abs() < 1e-12, "{}", v.scale);
+        assert!(
+            (v.scale.to_f64() - 1e-3 / 2.0 / 1.15).abs() < 1e-12,
+            "{}",
+            v.scale.to_f64()
+        );
     }
 
     #[test]
@@ -1369,7 +1377,7 @@ mod tests {
         run(&mut n, &mut v, t, t + 2.0, 60.0);
         assert!(!n.is_moving());
         let (dr, di) = v.point_at_offset(c.0, c.1).delta_from(&fixed);
-        assert!(dr.hypot(di) / v.scale < 1e-6);
+        assert!(dr.hypot(di) / v.scale.to_f64() < 1e-6);
     }
 
     #[test]

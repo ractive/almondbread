@@ -22,12 +22,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use almondbread_core::autoiter::{self, InteriorStats, LevelOutcome};
-use almondbread_core::bla::{BLA_EPSILON, BlaForecast, BlaTable};
+use almondbread_core::bla::{BLA_EPSILON, BlaForecast, BlaTable, BlaTableX};
 use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::oracle::ITER_UNRESOLVED;
-use almondbread_core::reference::DoubleReference;
+use almondbread_core::reference::{DEEP_SCALE, Fit, Reference, ReferenceRequest, ReferenceWorker};
 use almondbread_core::settings::{RenderSettings, depth_iterations};
-use almondbread_core::viewport::Viewport;
+use almondbread_core::viewport::{Scale, Viewport};
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
@@ -358,8 +358,12 @@ struct Job<B: GpuBackend> {
     /// The BLA table of that reference, once built and if it is used for this view (levels
     /// started before stay without).
     bla: Option<BlaGpu<B>>,
-    /// Largest |dc| of the view's pixels (the forecast's distance from the reference).
-    max_dc: f64,
+    /// Largest |dc| of the view's pixels, log2 (the forecast's distance from the reference).
+    max_dc_log2: f64,
+    /// Iterates with the deep (rescaled, extended-range) kernel against a big reference (M3b).
+    deep: bool,
+    /// The reference's floatexp points (deep kernel).
+    refx_buffer: Option<B::Buffer>,
     /// The table's forecast for this view, once decided.
     bla_forecast: Option<BlaForecast>,
     levels: Vec<Level<B>>,
@@ -384,13 +388,30 @@ struct Job<B: GpuBackend> {
     aa_list: Option<AaList<B>>,
 }
 
+/// The CPU copy of a BLA table: float32 (plain kernel, f64 references) or extended range
+/// (deep kernel, big references; M3b).
+#[derive(Clone)]
+enum BlaCpu {
+    Plain(Arc<BlaTable>),
+    Deep(Arc<BlaTableX>),
+}
+
+impl BlaCpu {
+    fn forecast(&self, max_dc_log2: f64, max_iter: usize) -> BlaForecast {
+        match self {
+            BlaCpu::Plain(t) => t.forecast(max_dc_log2.exp2(), max_iter),
+            BlaCpu::Deep(t) => t.forecast(max_dc_log2, max_iter),
+        }
+    }
+}
+
 /// A BLA table on the GPU, for the reference with serial `serial`.
 struct BlaGpu<B: GpuBackend> {
     serial: u64,
     buffer: B::Buffer,
     params: BlaParams,
     /// The CPU copy, for the per-view forecast.
-    table: Arc<BlaTable>,
+    table: BlaCpu,
 }
 
 impl<B: GpuBackend> Clone for BlaGpu<B> {
@@ -471,7 +492,7 @@ struct PreviewColor<B: GpuBackend> {
 struct HistoryView {
     viewport: Viewport,
     /// Complex units per pixel.
-    scale: f64,
+    scale: Scale,
     width: usize,
     height: usize,
     /// Colour parameters it was coloured with (phase excluded) and the palette.
@@ -501,6 +522,21 @@ enum JobMode {
 /// offscreen targets).
 pub type FrameTarget<B> = (<B as GpuBackend>::Texture, Option<<B as GpuBackend>::Drawable>);
 
+/// One big reference computed (M3b reports: reference times per depth).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReferenceLogEntry {
+    /// log10 of the view scale per point it was made for.
+    pub scale_log10: f64,
+    pub precision_bits: usize,
+    /// Points (period + 1 for a nucleus).
+    pub length: usize,
+    pub period: Option<usize>,
+    pub select_time: f64,
+    pub orbit_time: f64,
+    /// Seconds from the request to its arrival on the render thread.
+    pub latency: f64,
+}
+
 /// Values for a HUD / inspector (the Swift model's renderer-written stats).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ShownStats {
@@ -508,6 +544,13 @@ pub struct ShownStats {
     pub max_iterations: usize,
     pub reference_time: f64,
     pub reference_length: usize,
+    /// The shown view's reference is a minibrot nucleus of this period.
+    pub reference_period: Option<usize>,
+    /// Precision of the reference in bits (53: f64), and whether a better one is computing.
+    pub reference_bits: usize,
+    pub reference_pending: bool,
+    /// The deep kernel renders the shown view.
+    pub deep: bool,
     /// Size of the shown level's texture region.
     pub render_size: (usize, usize),
     pub is_preview: bool,
@@ -529,6 +572,8 @@ pub struct FrameStats {
     /// ... and with no target available without blocking.
     pub skipped_no_target: usize,
     pub chunk_gpu: f64,
+    /// Frames that showed only the reprojected history (deep view, reference computing).
+    pub waiting_frames: usize,
     /// GPU seconds of the colorize passes that completed while measuring.
     pub colorize_gpu: f64,
 }
@@ -593,8 +638,10 @@ pub struct SimulationResult {
     /// Hard limit unresolved pixels were continued to.
     pub hard_iter: usize,
     /// Complex units per texel of the final frame's level.
-    pub texel_scale: f64,
+    pub texel_scale: Scale,
     pub preview: bool,
+    /// Rendered by the deep kernel (M3b).
+    pub deep: bool,
     pub frames: usize,
     /// Seconds from the last input to the complete (refined) frame, and to the frame after
     /// which nothing was left to iterate.
@@ -637,8 +684,8 @@ pub struct Renderer<B: GpuBackend> {
     /// Colour cycling: accumulated phase (cycles) and when it last advanced.
     cycle_phase: f64,
     cycle_time: f64,
-    /// Iterate pipelines keyed by `de | interior << 1 | bla << 2`.
-    iterate_pipelines: [Option<B::Pipeline>; 8],
+    /// Iterate pipelines keyed by `de | interior << 1 | bla << 2 | deep << 3`.
+    iterate_pipelines: [Option<B::Pipeline>; 16],
 
     full_set: Option<TextureSet<B>>,
     /// One preview allocation at the largest preview size (the output size); levels use its
@@ -656,16 +703,22 @@ pub struct Renderer<B: GpuBackend> {
     stat_slot: usize,
     ping: usize,
 
-    reference: Option<DoubleReference>,
+    reference: Option<Reference>,
     reference_time: f64,
     reference_buffer: Option<B::Buffer>,
+    /// The reference's floatexp points (big references; the deep kernel's full steps).
+    refx_buffer: Option<B::Buffer>,
     /// Counts references made (a BLA table belongs to one).
     reference_serial: u64,
+    /// Big references are computed here, off the main thread (M3b).
+    reference_worker: ReferenceWorker,
+    /// Big references computed so far and their times (selection + orbit), for reports.
+    pub reference_log: Vec<ReferenceLogEntry>,
     /// The current reference's BLA table on the GPU, or its build on a thread.
     bla: Option<BlaGpu<B>>,
-    bla_build: Option<(u64, JoinHandle<BlaTable>)>,
-    /// eps max|2 Z| of the current reference: no BLA block is valid at |dc| beyond it.
-    bla_reach: f64,
+    bla_build: Option<(u64, JoinHandle<BlaCpu>)>,
+    /// log2 of eps max|2 Z| of the current reference: no BLA block is valid at |dc| beyond it.
+    bla_reach_log2: f64,
     /// Build time (s), entries and bytes of the last table.
     bla_info: (f64, usize, usize),
 
@@ -680,6 +733,8 @@ pub struct Renderer<B: GpuBackend> {
     /// GPU seconds per texel of the last completed level.
     cost_per_texel: f64,
     has_presented: bool,
+    /// The current view waits for its (deep) reference: no job.
+    waiting_reference: bool,
     /// Colorize submissions not finished on the GPU, with their frame serial.
     frames_in_flight: Vec<(u64, B::Submission)>,
     /// Frames committed so far (serial of the last one).
@@ -759,10 +814,13 @@ impl<B: GpuBackend> Renderer<B> {
             reference: None,
             reference_time: 0.0,
             reference_buffer: None,
+            refx_buffer: None,
             reference_serial: 0,
+            reference_worker: ReferenceWorker::default(),
+            reference_log: Vec::new(),
             bla: None,
             bla_build: None,
-            bla_reach: 0.0,
+            bla_reach_log2: f64::NEG_INFINITY,
             bla_info: (0.0, 0, 0),
             palette_id: None,
             palette_buffer: None,
@@ -772,6 +830,7 @@ impl<B: GpuBackend> Renderer<B> {
             rate: 3e10,
             cost_per_texel: 0.0,
             has_presented: false,
+            waiting_reference: false,
             frames_in_flight: Vec::new(),
             frames_committed: 0,
             last_frame_commit: 0.0,
@@ -807,12 +866,12 @@ impl<B: GpuBackend> Renderer<B> {
         self.navigator.note_interaction(now);
     }
 
-    fn iterate_pipeline(&mut self, de: bool, interior: bool, bla: bool) -> Result<B::Pipeline, GpuError> {
-        let k = usize::from(de) | (usize::from(interior) << 1) | (usize::from(bla) << 2);
+    fn iterate_pipeline(&mut self, de: bool, interior: bool, bla: bool, deep: bool) -> Result<B::Pipeline, GpuError> {
+        let k = usize::from(de) | (usize::from(interior) << 1) | (usize::from(bla) << 2) | (usize::from(deep) << 3);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
-        let p = self.backend.pipeline("iterate", &[de, interior, bla])?;
+        let p = self.backend.pipeline("iterate", &[de, interior, bla, deep])?;
         self.iterate_pipelines[k] = Some(p.clone());
         Ok(p)
     }
@@ -931,6 +990,35 @@ impl<B: GpuBackend> Renderer<B> {
             // A settings change while idle: let a young first level finish before replacing it.
         } else {
             self.start_job(key.clone(), JobMode::Refine, now);
+        }
+        if self.waiting_reference {
+            // M3b: a deep view whose reference is still computing (kb:
+            // techniques/frame-reuse-and-progressive): no job yet; show the history reprojected
+            // into the current view and keep polling.
+            self.job = None;
+            outcome.animating = true;
+            if self.history_view.as_ref().is_none_or(|h| h.viewport != key.viewport)
+                && let Some((target, drawable)) = acquire(false)
+            {
+                let colors = self.color_params();
+                if let Ok(mut enc) = self.encode_history_only(&target, &colors, &key) {
+                    if let Some(d) = &drawable {
+                        enc.present(d);
+                    }
+                    let sub = enc.commit();
+                    self.frames_committed += 1;
+                    self.frames_in_flight.push((self.frames_committed, sub));
+                    self.last_frame_commit = now;
+                    self.has_presented = true;
+                    outcome.presented = true;
+                    if let Some(fs) = &mut self.frame_stats {
+                        fs.frames += 1;
+                        fs.preview_frames += 1;
+                        fs.waiting_frames += 1;
+                    }
+                }
+            }
+            return outcome;
         }
         if self.job.is_none() {
             return outcome;
@@ -1126,6 +1214,7 @@ impl<B: GpuBackend> Renderer<B> {
     // MARK: Jobs and chunks
 
     fn start_job(&mut self, key: ComputeKey, mode: JobMode, now: f64) {
+        self.waiting_reference = false;
         // Interactive views anti-alias progressively (idle AA samples); only offscreen renders
         // supersample on a grid (kb: techniques/anti-aliasing, FL).
         let ss_factor = if mode == JobMode::Offscreen {
@@ -1141,32 +1230,62 @@ impl<B: GpuBackend> Renderer<B> {
         };
         self.ensure_list_capacity(tex_w * tex_h);
         let viewport = key.viewport.clone();
-        let view_radius = viewport.scale * key.points_per_pixel * (key.width + key.height) as f64;
-        self.prepare_reference(&viewport, key.max_iter, view_radius);
+        let full_texel = viewport.scale * key.points_per_pixel / ss;
+        if !self.prepare_reference(&key, full_texel, tex_w.max(tex_h), mode == JobMode::Offscreen) {
+            // Deep view without a usable reference yet: the caller shows the history.
+            self.waiting_reference = true;
+            return;
+        }
         let (Some(reference), Some(reference_buffer)) = (&self.reference, self.reference_buffer.clone()) else {
             return;
         };
-        let (dre, dim) = viewport.center.delta_from(&reference.center);
+        let deep = reference.big;
+        let refx_buffer = if deep { self.refx_buffer.clone() } else { None };
         let ref_len = reference.points.len() as u32;
         let reference_serial = self.reference_serial;
-        let max_dc =
-            dre.hypot(dim) + viewport.scale * key.points_per_pixel * 0.5 * (key.width as f64).hypot(key.height as f64);
+        let half_diag = 0.5 * (key.width as f64).hypot(key.height as f64);
+        // Plain kernel: f64 offsets and texel sizes. Deep kernel (M3b): mantissas in units of
+        // 2^scaleExp, the texel's binary exponent (kb: techniques/extended-range-floats).
+        let (dre, dim) = if deep {
+            (0.0, 0.0)
+        } else {
+            viewport.center.delta_from(&reference.point)
+        };
+        let max_dc_log2 = if deep {
+            let (tm, te) = full_texel.parts();
+            let (ox, oy) = viewport.center.delta_in(&reference.point, Scale::pow2(te));
+            (ox.hypot(oy) + half_diag * ss * tm).log2() + te as f64
+        } else {
+            (dre.hypot(dim) + viewport.scale.to_f64() * key.points_per_pixel * half_diag).log2()
+        };
+        let ref_point = reference.point.clone();
         let live_capacity = self.config.live_capacity as u32;
-        let params = |ratio: f64, w: usize, h: usize| IterateParams {
-            // Texel (0,0) is the top-left; the kernel flips y so imaginary grows upwards.
-            half_size: [w as f32 / 2.0, h as f32 / 2.0],
-            ref_offset: [dre as f32, dim as f32],
-            jitter: [0.5, 0.5],
-            texel_scale: (viewport.scale * key.points_per_pixel / ratio) as f32,
-            bailout2: (BAILOUT * BAILOUT) as f32,
-            max_iter: key.max_iter as u32,
-            ref_len,
-            width: w as u32,
-            total: (w * h) as u32,
-            capacity: live_capacity,
-            interior_eps: INTERIOR_EPS,
-            soft_iter: key.max_iter as u32,
-            ..IterateParams::default()
+        let params = |ratio: f64, w: usize, h: usize| {
+            let texel = viewport.scale * key.points_per_pixel / ratio;
+            let (texel_scale, ref_offset, scale_exp) = if deep {
+                let (tm, te) = texel.parts();
+                let (ox, oy) = viewport.center.delta_in(&ref_point, Scale::pow2(te));
+                (tm as f32, [ox as f32, oy as f32], te as i32)
+            } else {
+                (texel.to_f64() as f32, [dre as f32, dim as f32], 0)
+            };
+            IterateParams {
+                // Texel (0,0) is the top-left; the kernel flips y so imaginary grows upwards.
+                half_size: [w as f32 / 2.0, h as f32 / 2.0],
+                ref_offset,
+                jitter: [0.5, 0.5],
+                texel_scale,
+                bailout2: (BAILOUT * BAILOUT) as f32,
+                max_iter: key.max_iter as u32,
+                ref_len,
+                width: w as u32,
+                total: (w * h) as u32,
+                capacity: live_capacity,
+                interior_eps: INTERIOR_EPS,
+                soft_iter: key.max_iter as u32,
+                scale_exp,
+                ..IterateParams::default()
+            }
         };
         let level_size = |ratio: f64| {
             (
@@ -1256,7 +1375,9 @@ impl<B: GpuBackend> Renderer<B> {
             reference_buffer,
             reference_serial,
             bla: None,
-            max_dc,
+            max_dc_log2,
+            deep,
+            refx_buffer,
             bla_forecast: None,
             levels,
             start: now,
@@ -1300,7 +1421,7 @@ impl<B: GpuBackend> Renderer<B> {
         if !building {
             // Built on demand: no block is valid for a pixel at |dc| >= eps max|2 Z| (a block's
             // R is at most a single step's eps |2 Z|), so shallow views never build one.
-            if self.config.bla == BlaMode::Auto && job.max_dc >= self.bla_reach {
+            if self.config.bla == BlaMode::Auto && job.max_dc_log2 >= self.bla_reach_log2 {
                 self.job.as_mut().expect("job").bla_forecast = Some(BlaForecast::default());
                 return BlaReady::Without;
             }
@@ -1311,12 +1432,12 @@ impl<B: GpuBackend> Renderer<B> {
             Some(t) if t.serial == serial => {
                 let t = t.clone();
                 let job = self.job.as_mut().expect("job");
-                let forecast = t.table.forecast(job.max_dc, job.key.max_iter);
+                let forecast = t.table.forecast(job.max_dc_log2, job.key.max_iter);
                 job.bla_forecast = Some(forecast);
                 if self.config.trace {
                     println!(
                         "BLA forecast: |dc| <= {} covers {} iterations in {} blocks: {}",
-                        almondbread_core::cfmt::g(job.max_dc, 3),
+                        almondbread_core::cfmt::g(job.max_dc_log2.exp2(), 3),
                         forecast.covered,
                         forecast.blocks,
                         if forecast.pays() { "pays" } else { "does not pay" }
@@ -1353,32 +1474,53 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
-    fn upload_bla(&mut self, serial: u64, table: BlaTable) {
-        self.bla_info = (table.build_time, table.entries.len(), table.bytes());
+    fn upload_bla(&mut self, serial: u64, table: BlaCpu) {
+        let (build_time, entries, bytes, min_level, max_level, offsets, data): (
+            f64,
+            usize,
+            usize,
+            u32,
+            u32,
+            [u32; 32],
+            &[u8],
+        ) = match &table {
+            BlaCpu::Plain(t) => (
+                t.build_time,
+                t.entries.len(),
+                t.bytes(),
+                t.min_level,
+                t.max_level,
+                t.offsets,
+                bytemuck::cast_slice(&t.entries),
+            ),
+            BlaCpu::Deep(t) => (
+                t.build_time,
+                t.entries.len(),
+                t.bytes(),
+                t.min_level,
+                t.max_level,
+                t.offsets,
+                bytemuck::cast_slice(&t.entries),
+            ),
+        };
+        self.bla_info = (build_time, entries, bytes);
         self.bla = None;
-        if table.entries.is_empty() {
+        if entries == 0 {
             return;
         }
-        match self
-            .backend
-            .create_buffer_with_data(bytemuck::cast_slice(&table.entries))
-        {
+        match self.backend.create_buffer_with_data(data) {
             Ok(buffer) => {
                 self.bla = Some(BlaGpu {
                     serial,
                     buffer,
                     params: BlaParams {
-                        min_level: table.min_level,
-                        max_level: table.max_level,
-                        lookup_every: self
-                            .config
-                            .bla_lookup_every
-                            .next_power_of_two()
-                            .max(1 << table.min_level),
+                        min_level,
+                        max_level,
+                        lookup_every: self.config.bla_lookup_every.next_power_of_two().max(1 << min_level),
                         pad1: 0,
-                        offset: table.offsets,
+                        offset: offsets,
                     },
-                    table: Arc::new(table),
+                    table,
                 });
             }
             Err(e) => eprintln!("almondbread: BLA table buffer: {e}"),
@@ -1386,21 +1528,26 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// Starts the BLA table of the current reference: inline when short, else on a thread.
+    /// Big references get the extended-range table (M3b).
     fn start_bla_build(&mut self) {
         let Some(r) = &self.reference else { return };
         let serial = self.reference_serial;
         let eps = self.config.bla_epsilon;
-        if r.points.len() >= self.config.bla_async_from {
+        let build: Box<dyn FnOnce() -> BlaCpu + Send> = if r.big {
+            let points = r.extended.clone();
+            Box::new(move || BlaCpu::Deep(Arc::new(BlaTableX::build(&points, eps))))
+        } else {
             let points = r.points.clone();
-            let handle = std::thread::Builder::new()
-                .name("almondbread-bla".into())
-                .spawn(move || BlaTable::build(&points, eps));
+            Box::new(move || BlaCpu::Plain(Arc::new(BlaTable::build(&points, eps))))
+        };
+        if r.points.len() >= self.config.bla_async_from {
+            let handle = std::thread::Builder::new().name("almondbread-bla".into()).spawn(build);
             match handle {
                 Ok(h) => self.bla_build = Some((serial, h)),
                 Err(e) => eprintln!("almondbread: BLA build thread: {e}"),
             }
         } else {
-            let table = BlaTable::build(&r.points, eps);
+            let table = build();
             self.upload_bla(serial, table);
         }
     }
@@ -1434,10 +1581,11 @@ impl<B: GpuBackend> Renderer<B> {
         // The history's footprint in this view's pixels.
         let covered = self.history_view.as_ref().map(|h| {
             let s = key.viewport.scale * ppp;
-            let (dre, dim) = h.viewport.center.delta_from(&key.viewport.center);
-            let cx = key.width as f64 / 2.0 + dre / s;
-            let cy = key.height as f64 / 2.0 - dim / s;
-            let (hw, hh) = (h.width as f64 * h.scale / s / 2.0, h.height as f64 * h.scale / s / 2.0);
+            let (dx, dy) = h.viewport.center.delta_in(&key.viewport.center, s);
+            let cx = key.width as f64 / 2.0 + dx;
+            let cy = key.height as f64 / 2.0 - dy;
+            let r = h.scale.ratio(s);
+            let (hw, hh) = (h.width as f64 * r / 2.0, h.height as f64 * r / 2.0);
             (cx - hw, cx + hw, cy - hh, cy + hh)
         });
         let mut keyed: Vec<(bool, f64, u32)> = (0..tx * ty)
@@ -1701,11 +1849,12 @@ impl<B: GpuBackend> Renderer<B> {
                 }
             }
         }
-        let (use_interior, use_bla) = {
-            let l = &self.job.as_ref().expect("job").levels[level_index];
-            (l.use_interior, l.use_bla)
+        let (use_interior, use_bla, deep) = {
+            let j = self.job.as_ref().expect("job");
+            let l = &j.levels[level_index];
+            (l.use_interior, l.use_bla, j.deep)
         };
-        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla) {
+        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla, deep) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("almondbread: iterate pipeline failed: {e}");
@@ -1763,13 +1912,17 @@ impl<B: GpuBackend> Renderer<B> {
         match (&job.bla, use_bla) {
             (Some(b), true) => {
                 enc.set_bytes(14, bytes_of(&b.params));
-                enc.set_buffer(15, &b.buffer, 0);
+                // Plain tables at 15, extended-range (deep) tables at 17.
+                enc.set_buffer(15, if deep { &self.dummy_buffer } else { &b.buffer }, 0);
+                enc.set_buffer(17, if deep { &b.buffer } else { &self.dummy_buffer }, 0);
             }
             _ => {
                 enc.set_bytes(14, bytes_of(&BlaParams::default()));
                 enc.set_buffer(15, &self.dummy_buffer, 0);
+                enc.set_buffer(17, &self.dummy_buffer, 0);
             }
         }
+        enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
         enc.dispatch_indirect(&self.args_buffer, 0, [ITERATE_THREADS, 1, 1]);
 
         enc.set_pipeline(&self.finish_pipeline);
@@ -2005,6 +2158,10 @@ impl<B: GpuBackend> Renderer<B> {
             max_iterations: job.key.max_iter,
             reference_time: self.reference_time,
             reference_length: self.reference.as_ref().map_or(0, |r| r.points.len()),
+            reference_period: self.reference.as_ref().and_then(|r| r.period),
+            reference_bits: self.reference.as_ref().map_or(0, |r| r.precision_bits),
+            reference_pending: self.reference_worker.pending().is_some(),
+            deep: job.deep,
             render_size: (shown.set.width, shown.set.height),
             is_preview: shown.preview,
             gpu_time: job.gpu_time,
@@ -2197,13 +2354,16 @@ impl<B: GpuBackend> Renderer<B> {
             && self.same_colors(h, colors)
             && h.width == out_w
             && h.height == out_h
+            && s.ratio(h.scale) > 1e-6
+            && s.ratio(h.scale) < 1e6
         {
-            let step = s / h.scale;
-            let (dre, dim) = key.viewport.center.delta_from(&h.viewport.center);
+            // In history pixels (any depth: offsets are taken in units of the history scale).
+            let step = s.ratio(h.scale);
+            let (dx, dy) = key.viewport.center.delta_in(&h.viewport.center, h.scale);
             q.hist_step = step as f32;
             q.hist_origin = [
-                (0.5 * step + (-(out_w as f64) / 2.0 * s + dre) / h.scale + h.width as f64 / 2.0) as f32,
-                (0.5 * step + (-(out_h as f64) / 2.0 * s - dim) / h.scale + h.height as f64 / 2.0) as f32,
+                (0.5 * step - out_w as f64 / 2.0 * step + dx + h.width as f64 / 2.0) as f32,
+                (0.5 * step - out_h as f64 / 2.0 * step - dy + h.height as f64 / 2.0) as f32,
             ];
             q.hist_size = [h.width as f32, h.height as f32];
             // Zoom-in stretches each history texel over 1/step^2 pixels: its confidence
@@ -2245,6 +2405,78 @@ impl<B: GpuBackend> Renderer<B> {
         Ok(enc)
     }
 
+    /// A frame of the reprojected history only (M3b: while a deep view's reference computes):
+    /// the compose pass in gesture mode with no new samples.
+    fn encode_history_only(
+        &mut self,
+        target: &B::Texture,
+        colors: &ColorParams,
+        key: &ComputeKey,
+    ) -> Result<B::Encoder, GpuError> {
+        self.ensure_palette()?;
+        let (out_w, out_h) = self.backend.texture_size(target);
+        self.ensure_history(out_w, out_h)?;
+        let history = self.history.clone().expect("history");
+        let mut enc = self.backend.begin("compose history")?;
+        let mut c = *colors;
+        c.ratio = 1.0;
+        c.de_scale = 1.0;
+        c.out_size = [out_w as u32, out_h as u32];
+        c.src_size = [1, 1];
+        c.has_under = 0.0;
+        let mut q = ComposeParams {
+            conf_cap: self.config.taa_conf_cap as f32,
+            base_weight: self.config.taa_base_weight as f32,
+            inv_two_sigma2: (1.0 / (2.0 * self.config.taa_sigma * self.config.taa_sigma)) as f32,
+            mode: COMPOSE_GESTURE,
+            out_centre: [out_w as f32 / 2.0, out_h as f32 / 2.0],
+            ..ComposeParams::default()
+        };
+        let s = key.viewport.scale * key.points_per_pixel;
+        if let Some(h) = &self.history_view
+            && self.same_colors(h, colors)
+            && h.width == out_w
+            && h.height == out_h
+            && s.ratio(h.scale) > 1e-6
+            && s.ratio(h.scale) < 1e6
+        {
+            let step = s.ratio(h.scale);
+            let (dx, dy) = key.viewport.center.delta_in(&h.viewport.center, h.scale);
+            q.hist_step = step as f32;
+            q.hist_origin = [
+                (0.5 * step - out_w as f64 / 2.0 * step + dx + h.width as f64 / 2.0) as f32,
+                (0.5 * step - out_h as f64 / 2.0 * step - dy + h.height as f64 / 2.0) as f32,
+            ];
+            q.hist_size = [h.width as f32, h.height as f32];
+            q.hist_decay = step.min(1.0).powi(2) as f32;
+        }
+        let (hist_in, hist_out) = (&history[self.history_ping], &history[1 - self.history_ping]);
+        enc.set_pipeline(&self.compose_pipeline);
+        enc.set_texture(0, hist_in);
+        enc.set_texture(1, hist_in);
+        enc.set_texture(2, hist_in);
+        enc.set_texture(3, hist_in);
+        enc.set_texture(4, hist_out);
+        enc.set_texture(5, target);
+        enc.set_bytes(0, bytes_of(&c));
+        enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
+        enc.set_buffer(2, &self.level_buffer, 0);
+        enc.set_buffer(3, &self.dummy_buffer, 0);
+        enc.set_bytes(4, bytes_of(&q));
+        let (tw, th) = self.threadgroup();
+        enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
+        self.history_ping = 1 - self.history_ping;
+        self.history_view = Some(HistoryView {
+            viewport: key.viewport.clone(),
+            scale: s,
+            width: out_w,
+            height: out_h,
+            colors: (*colors, self.settings.palette_id.clone()),
+            offset: colors.offset,
+        });
+        Ok(enc)
+    }
+
     /// The history images at the output size (reallocated, and forgotten, on resize).
     fn ensure_history(&mut self, width: usize, height: usize) -> Result<(), GpuError> {
         if let Some(h) = &self.history
@@ -2269,7 +2501,7 @@ impl<B: GpuBackend> Renderer<B> {
         let i = s.interior_color;
         let e = s.edge_color;
         let g = s.glow_color;
-        let depth = self.viewport.zoom().log10().max(0.0);
+        let depth = self.viewport.zoom_log10().max(0.0);
         let offset = (s.color_offset + self.cycle_phase + s.depth_tint * depth).rem_euclid(1.0);
         ColorParams {
             interior: [i[0], i[1], i[2], 1.0],
@@ -2373,49 +2605,170 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// Computes the reference orbit for `viewport` now, so a following render of a nearby view
-    /// reuses it as panning and zooming do (`verify --ref-offset`).
-    pub fn prime_reference(&mut self, viewport: &Viewport, max_iter: usize) {
+    /// reuses it as panning and zooming do (`verify --ref-offset`). Deep views: a big reference
+    /// at `viewport`'s centre (no nucleus search) with the precision a `size`-texel view at
+    /// `texel` needs.
+    pub fn prime_reference(&mut self, viewport: &Viewport, max_iter: usize, texel: Scale, size: usize) {
         self.reference = None;
-        self.prepare_reference(viewport, max_iter, 0.0);
-    }
-
-    /// Reuses the current reference while it serves the view (kb: techniques/rebasing);
-    /// in-flight chunks keep the old buffer alive.
-    fn prepare_reference(&mut self, viewport: &Viewport, max_iter: usize, view_radius: f64) {
-        if self
-            .reference
-            .as_ref()
-            .is_some_and(|r| r.serves(viewport, max_iter, view_radius))
-        {
+        if viewport.scale.to_f64() >= DEEP_SCALE {
+            let r = Reference::compute_f64(viewport, max_iter, BAILOUT);
+            self.set_reference(r);
             return;
         }
-        let start = Instant::now();
-        let r = DoubleReference::compute(viewport, max_iter, BAILOUT);
-        match self.backend.create_buffer_with_data(bytemuck::cast_slice(&r.points)) {
-            Ok(buf) => {
-                self.reference_buffer = Some(buf);
-                self.reference = Some(r);
-                self.reference_serial += 1;
-            }
+        let mut req = ReferenceRequest::for_view(viewport, texel, size, 0.0, max_iter, BAILOUT);
+        req.nucleus = false;
+        self.reference_worker.start(req);
+        if let Some(r) = self.reference_worker.poll(true) {
+            self.set_reference(r);
+        }
+    }
+
+    /// Makes `r` the current reference: GPU buffers, BLA reach (the old table goes; in-flight
+    /// chunks keep their buffers).
+    fn set_reference(&mut self, r: Reference) {
+        let buf = match self.backend.create_buffer_with_data(bytemuck::cast_slice(&r.points)) {
+            Ok(b) => b,
             Err(e) => {
                 eprintln!("almondbread: reference buffer: {e}");
-                self.reference = None;
-                self.reference_buffer = None;
+                return;
             }
-        }
-        self.reference_time = start.elapsed().as_secs_f64();
+        };
+        let refx = if r.extended.is_empty() {
+            None
+        } else {
+            // FloatExpComplex has a padding word: copy into the padded GPU form.
+            let gpu: Vec<[u32; 4]> = r
+                .extended
+                .iter()
+                .map(|z| [z.mantissa[0].to_bits(), z.mantissa[1].to_bits(), z.exponent as u32, 0])
+                .collect();
+            match self.backend.create_buffer_with_data(bytemuck::cast_slice(&gpu)) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    eprintln!("almondbread: reference buffer: {e}");
+                    return;
+                }
+            }
+        };
+        self.reference_time = r.time();
+        self.reference_buffer = Some(buf);
+        self.refx_buffer = refx;
+        self.reference_serial += 1;
         // The table of the old reference goes (in-flight chunks keep their buffer); a build
         // still running for it finishes on its thread and is dropped.
         self.bla = None;
         self.bla_build = None;
         let eps = self.config.bla_epsilon;
-        self.bla_reach = self.reference.as_ref().map_or(0.0, |r| {
+        self.bla_reach_log2 = if r.big {
+            BlaTableX::reach_log2(&r.extended, eps)
+        } else {
             let n = r.points.len().saturating_sub(1);
             r.points[1.min(n)..n]
                 .iter()
                 .map(|z| eps * 2.0 * f64::from(z[0]).hypot(f64::from(z[1])))
                 .fold(0.0, f64::max)
+                .log2()
+        };
+        if self.config.trace {
+            println!(
+                "reference: {} {} bits, {} points{}, {:.1} ms",
+                if r.big { "big" } else { "f64" },
+                r.precision_bits,
+                r.points.len(),
+                r.period.map_or(String::new(), |p| format!(" (nucleus, period {p})")),
+                r.time() * 1000.0
+            );
+        }
+        self.reference = Some(r);
+    }
+
+    /// Takes a finished background reference if it serves the view at least as well as the
+    /// current one (kb: techniques/reference-selection).
+    fn adopt_worker_reference(&mut self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize, wait: bool) {
+        let Some((started, _)) = self.reference_worker.running_for() else {
+            return;
+        };
+        let Some(r) = self.reference_worker.poll(wait) else {
+            return;
+        };
+        self.reference_log.push(ReferenceLogEntry {
+            scale_log10: r.scale.log10(),
+            precision_bits: r.precision_bits,
+            length: r.points.len(),
+            period: r.period,
+            select_time: r.select_time,
+            orbit_time: r.orbit_time,
+            latency: started,
         });
+        let new_fit = r.fit(viewport, texel, size, max_iter);
+        let old_fit = self
+            .reference
+            .as_ref()
+            .map_or(Fit::No, |c| c.fit(viewport, texel, size, max_iter));
+        let better = matches!(
+            (new_fit, old_fit),
+            (Fit::Good, _) | (Fit::Stale, Fit::No) | (Fit::Stale, Fit::Stale)
+        );
+        if better {
+            self.set_reference(r);
+        }
+    }
+
+    /// Whether a pending request will give a reference that serves this view.
+    fn pending_serves(&self, viewport: &Viewport, texel: Scale, size: usize) -> bool {
+        self.reference_worker.pending().is_some_and(|q| {
+            q.precision_bits >= almondbread_core::reference::needed_bits(&viewport.center, texel, size, 40)
+                && viewport.center.distance_in(&q.center, texel) <= size as f64
+        })
+    }
+
+    /// Makes sure a reference serving `key` is current (kb: techniques/rebasing: any nearby
+    /// reference is exact). Shallow views compute the f64 orbit at once. Deep views reuse the
+    /// current big reference while it serves, request a better one in the background when it
+    /// gets stale, and return false while none is usable (the caller shows the history). With
+    /// `wait` (offscreen renders) a missing reference is waited for.
+    fn prepare_reference(&mut self, key: &ComputeKey, texel: Scale, size: usize, wait: bool) -> bool {
+        let viewport = &key.viewport;
+        let max_iter = key.max_iter;
+        self.adopt_worker_reference(viewport, texel, size, max_iter, false);
+        let fit = self
+            .reference
+            .as_ref()
+            .map_or(Fit::No, |r| r.fit(viewport, texel, size, max_iter));
+        if viewport.scale.to_f64() >= DEEP_SCALE {
+            if fit != Fit::Good {
+                let r = Reference::compute_f64(viewport, max_iter, BAILOUT);
+                self.set_reference(r);
+            }
+            return self.reference_buffer.is_some();
+        }
+        if fit == Fit::Good {
+            return true;
+        }
+        if !self.pending_serves(viewport, texel, size) {
+            let radius = 0.5 * (key.width as f64).hypot(key.height as f64) * key.points_per_pixel;
+            let req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
+            let mut req = req;
+            req.period_limit = max_iter;
+            if self.config.trace {
+                println!(
+                    "reference request: scale {} bits {} ({})",
+                    viewport.scale,
+                    req.precision_bits,
+                    if fit == Fit::Stale { "stale" } else { "none usable" }
+                );
+            }
+            self.reference_worker.start(req);
+        }
+        if fit == Fit::Stale {
+            return true;
+        }
+        if wait {
+            self.adopt_worker_reference(viewport, texel, size, max_iter, true);
+        }
+        self.reference
+            .as_ref()
+            .is_some_and(|r| r.fit(viewport, texel, size, max_iter) != Fit::No)
     }
 
     /// Reference orbit time and length of the last view (for reports).
@@ -2424,6 +2777,11 @@ impl<B: GpuBackend> Renderer<B> {
             self.reference_time,
             self.reference.as_ref().map_or(0, |r| r.points.len()),
         )
+    }
+
+    /// The current reference (diagnostics).
+    pub fn reference(&self) -> Option<&Reference> {
+        self.reference.as_ref()
     }
 
     /// Waits for the colorize passes in flight and returns how many frames failed on the
@@ -2657,6 +3015,7 @@ impl<B: GpuBackend> Renderer<B> {
             hard_iter: shown.params.max_iter as usize,
             texel_scale: job.key.viewport.scale * job.key.points_per_pixel / shown.ratio,
             preview: shown.preview,
+            deep: job.deep,
             frames,
             final_after,
             done_after,

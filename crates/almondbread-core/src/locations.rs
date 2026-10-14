@@ -1,7 +1,7 @@
 //! The fixed benchmark set (kb: synthesis/benchmarks). Keep entries stable: the kb tables
 //! compare runs across milestones by name.
 
-use crate::viewport::Viewport;
+use crate::viewport::{Center, Scale, Viewport};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BenchmarkLocation {
@@ -145,3 +145,73 @@ pub const BENCHMARK_LOCATIONS: &[BenchmarkLocation] = &[
         "valley at the root of the 1/3 bulb",
     ),
 ];
+
+/// A deep benchmark location (M3b): centre and width as decimal strings of any precision.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeepLocation {
+    pub name: &'static str,
+    pub re: &'static str,
+    pub im: &'static str,
+    /// Complex width of the view (decimal, any exponent).
+    pub width: &'static str,
+    pub max_iterations: usize,
+    pub note: &'static str,
+}
+
+impl DeepLocation {
+    pub fn center(&self) -> Center {
+        Center::parse(self.re, self.im).expect("deep location centre")
+    }
+
+    pub fn viewport_for_width(&self, pixels: usize) -> Viewport {
+        let w = Scale::parse(self.width).expect("deep location width");
+        Viewport::with_center(self.center(), w / pixels as f64)
+    }
+}
+
+/// Either kind of location, by name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Location {
+    Shallow(&'static BenchmarkLocation),
+    Deep(&'static DeepLocation),
+}
+
+impl Location {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Location::Shallow(l) => l.name,
+            Location::Deep(l) => l.name,
+        }
+    }
+
+    pub fn max_iterations(&self) -> usize {
+        match self {
+            Location::Shallow(l) => l.max_iterations,
+            Location::Deep(l) => l.max_iterations,
+        }
+    }
+
+    pub fn viewport_for_width(&self, pixels: usize) -> Viewport {
+        match self {
+            Location::Shallow(l) => l.viewport_for_width(pixels),
+            Location::Deep(l) => l.viewport_for_width(pixels),
+        }
+    }
+}
+
+/// Every location, shallow first.
+pub fn all_locations() -> impl Iterator<Item = Location> {
+    BENCHMARK_LOCATIONS
+        .iter()
+        .map(Location::Shallow)
+        .chain(DEEP_LOCATIONS.iter().map(Location::Deep))
+}
+
+pub fn location_named(name: &str) -> Option<Location> {
+    all_locations().find(|l| l.name() == name)
+}
+
+/// Deep locations (M3b, kb: synthesis/benchmarks M3b), generated with `almondbread locate`
+/// (ball period detection + Newton nuclei at full precision): minibrots and their surroundings
+/// framed a few minibrot sizes wide.
+pub const DEEP_LOCATIONS: &[DeepLocation] = &[];

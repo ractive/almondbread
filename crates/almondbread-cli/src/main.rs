@@ -55,6 +55,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "bench" => commands::bench_command(&backend, o),
         "regress" => commands::regress_command(&backend, o),
         "fly" => fly::fly_command(&backend, o),
+        "locate" => commands::locate_command(o),
         _ => options::err(USAGE),
     })
 }

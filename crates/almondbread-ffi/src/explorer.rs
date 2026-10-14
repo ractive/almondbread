@@ -14,11 +14,10 @@
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use almondbread_core::cfmt::g;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::{self, EdgePan as CoreEdgePan, InputMode as CoreInputMode, NavKey as CoreNavKey};
 use almondbread_core::settings::{RenderSettings, Supersampling};
-use almondbread_core::viewport::{Center, Viewport};
+use almondbread_core::viewport::{Center, Scale, Viewport};
 use almondbread_render::metal::{MetalBackend, MetalLayerSurface, PresentationLog, media_time};
 use almondbread_render::{GpuError, Host, Renderer};
 
@@ -449,16 +448,20 @@ impl ExplorerSettings {
     }
 }
 
-/// A view: centre (decimal strings, f64-exact today, arbitrary precision from M3b) and scale.
+/// A view: centre (decimal strings with the digits the view needs: arbitrary precision since
+/// M3b) and scale.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ViewportInfo {
     pub re: String,
     pub im: String,
-    /// Complex units per view point.
+    /// Complex units per view point (0 beyond f64's range: use `scale_text`).
     pub scale: f64,
-    /// Magnification relative to the home view.
+    /// The scale as text at any depth ("1.234e-1000").
+    pub scale_text: String,
+    /// Magnification relative to the home view (inf beyond f64: use `zoom_log10`).
     pub zoom: f64,
-    /// Smallest scale at this centre (f64 limit until M3b).
+    pub zoom_log10: f64,
+    /// Smallest scale (0 beyond f64's range).
     pub min_scale: f64,
     /// Zoom stops here.
     pub at_precision_limit: bool,
@@ -466,12 +469,17 @@ pub struct ViewportInfo {
 
 impl From<&Viewport> for ViewportInfo {
     fn from(v: &Viewport) -> Self {
+        let (re, im) = v
+            .center
+            .to_strings_digits(almondbread_render::host::coordinate_digits(v));
         Self {
-            re: g(v.center.re(), 17),
-            im: g(v.center.im(), 17),
-            scale: v.scale,
+            re,
+            im,
+            scale: v.scale.to_f64(),
+            scale_text: v.scale.to_text(6),
             zoom: v.zoom(),
-            min_scale: v.min_scale(),
+            zoom_log10: v.zoom_log10(),
+            min_scale: v.min_scale().to_f64(),
             at_precision_limit: v.at_precision_limit(),
         }
     }
@@ -492,6 +500,14 @@ pub struct ExplorerStats {
     pub is_preview: bool,
     pub reference_time: f64,
     pub reference_length: u64,
+    /// Period of the reference when it is a minibrot nucleus (0: the view centre).
+    pub reference_period: u64,
+    /// Precision of the reference in bits (53: the f64 orbit of shallow views).
+    pub reference_bits: u32,
+    /// A better reference is being computed in the background.
+    pub reference_pending: bool,
+    /// The deep (extended-range) kernel renders the view.
+    pub deep: bool,
     /// Continuous zoom speed, e-folds per second (Q / E change it).
     pub zoom_speed: f64,
     pub held_keys: u32,
@@ -760,6 +776,10 @@ impl Explorer {
             is_preview: s.is_preview,
             reference_time: s.reference_time,
             reference_length: s.reference_length as u64,
+            reference_period: s.reference_period.unwrap_or(0) as u64,
+            reference_bits: s.reference_bits as u32,
+            reference_pending: s.reference_pending,
+            deep: s.deep,
             zoom_speed: r.navigator.zoom_speed(),
             held_keys: r.navigator.held_count() as u32,
             settled: r.is_settled(),
@@ -772,18 +792,52 @@ impl Explorer {
         ViewportInfo::from(&self.lock().host.renderer.viewport)
     }
 
-    /// Jumps to a view; `re`, `im` are decimal strings.
+    /// Jumps to a view; `re`, `im` are decimal strings (any number of digits).
     pub fn set_viewport(&self, re: String, im: String, scale: f64) -> Result<(), CoreError> {
+        if !(scale.is_finite() && scale > 0.0) {
+            return Err(invalid("viewport must be finite with a positive scale"));
+        }
+        self.set_viewport_text(re, im, format!("{scale:e}"))
+    }
+
+    /// Jumps to a view given entirely as text: `scale` may be beyond f64 ("2.5e-1000").
+    pub fn set_viewport_text(&self, re: String, im: String, scale: String) -> Result<(), CoreError> {
         let center = Center::parse(&re, &im).ok_or_else(|| CoreError::Malformed {
             text: format!("{re}, {im}"),
         })?;
-        if !(scale.is_finite() && scale > 0.0) || !center.re().is_finite() || !center.im().is_finite() {
-            return Err(invalid("viewport must be finite with a positive scale"));
+        let scale = Scale::parse(&scale).ok_or_else(|| CoreError::Malformed { text: scale.clone() })?;
+        if !center.re().is_finite() || !center.im().is_finite() {
+            return Err(invalid("viewport must be finite"));
         }
-        let mut v = Viewport { center, scale };
-        v.scale = v.scale.max(v.min_scale()).min(0.05);
+        let mut v = Viewport::with_center(center, scale);
+        v.scale = v
+            .scale
+            .max(v.min_scale())
+            .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
+        v.ensure_precision();
         self.lock().host.renderer.viewport = v;
         Ok(())
+    }
+
+    /// Parses coordinates as copied by `coordinates_text` (or `re im scale` lines) and jumps
+    /// there. Returns false if the text is not a view.
+    pub fn paste_coordinates(&self, text: String) -> bool {
+        let mut re = None;
+        let mut im = None;
+        let mut scale = None;
+        for line in text.lines() {
+            let mut parts = line.split_whitespace();
+            match (parts.next(), parts.next()) {
+                (Some("re"), Some(v)) => re = Some(v.to_string()),
+                (Some("im"), Some(v)) => im = Some(v.to_string()),
+                (Some("scale"), Some(v)) => scale = Some(v.to_string()),
+                _ => {}
+            }
+        }
+        match (re, im, scale) {
+            (Some(re), Some(im), Some(scale)) => self.set_viewport_text(re, im, scale).is_ok(),
+            _ => false,
+        }
     }
 
     /// The home view fitted to the window.
@@ -815,7 +869,7 @@ impl Explorer {
             )
         };
         if view_width > 0.0 {
-            viewport.scale *= view_width / width as f64;
+            viewport.scale = viewport.scale * (view_width / width as f64);
         }
         MetalBackend::pool(|| {
             let mut r = Renderer::new(backend).map_err(gpu)?;

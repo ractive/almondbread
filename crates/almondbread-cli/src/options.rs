@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use almondbread_core::settings::{RenderSettings, Supersampling};
-use almondbread_core::viewport::Viewport;
+use almondbread_core::viewport::{Center, Scale, Viewport};
 use almondbread_render::scheduler::BlaMode;
 use almondbread_render::{GpuBackend, Renderer};
 
@@ -84,18 +84,35 @@ impl Options {
         Ok(Some((parts[0], parts[1])))
     }
 
-    /// Viewport from `--center re,im` and `--scale s` (complex units per pixel); without a
-    /// scale, the home view's 3.0 x 2.5 complex units are fitted into the image.
+    /// Viewport from `--center re,im` (decimal strings of any length: M3b) and `--scale s`
+    /// (complex units per pixel, any exponent: `1e-1000`); without a scale, the home view's
+    /// 3.0 x 2.5 complex units are fitted into the image. `--location name` takes a benchmark
+    /// location (deep ones included) at this image width.
     pub fn viewport(&self, width: usize, height: usize) -> Result<Viewport> {
-        let mut v = Viewport::home();
-        if let Some((re, im)) = self.pair("center")? {
-            v = Viewport::new(re, im, v.scale);
+        if let Some(name) = self.get("location") {
+            let Some(l) = almondbread_core::locations::location_named(name) else {
+                return err(format!("unknown --location {name}"));
+            };
+            return Ok(l.viewport_for_width(width));
         }
-        v.scale = match self.f64("scale") {
-            Some(s) => s,
-            None => (3.0 / width as f64).max(2.5 / height as f64),
+        let mut center = Viewport::home().center;
+        if let Some(v) = self.get("center") {
+            let Some((re, im)) = v.split_once(',') else {
+                return err(format!("bad --center {v}"));
+            };
+            center = match Center::parse(re, im) {
+                Some(c) => c,
+                None => return err(format!("bad --center {v}")),
+            };
+        }
+        let scale = match self.get("scale") {
+            Some(s) => match Scale::parse(s) {
+                Some(s) => s,
+                None => return err(format!("bad --scale {s}")),
+            },
+            None => Scale::from_f64((3.0 / width as f64).max(2.5 / height as f64)),
         };
-        Ok(v)
+        Ok(Viewport::with_center(center, scale))
     }
 
     /// The rendering settings shared by all commands. Headless tools render one sample per

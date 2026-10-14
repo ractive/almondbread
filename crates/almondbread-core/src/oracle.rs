@@ -11,9 +11,13 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use almondbread_math::{DoubleExp, DoubleExpComplex, ReferenceOrbitComputer};
 use rayon::prelude::*;
 
 use crate::cfmt::g;
+use crate::viewport::{Center, Scale};
+#[cfg(test)]
+use almondbread_math::BigFloat;
 
 /// Interior (or the limit without the interior test).
 pub const ITER_INTERIOR: f32 = -1.0;
@@ -150,6 +154,281 @@ pub fn cpu_render(
             }
         });
     IterationField { width, height, n, s }
+}
+
+// ---------------------------------------------------------------------------------------------
+// M3b: the oracle at any depth (kb: synthesis/benchmarks M3b, techniques/extended-range-floats).
+
+fn pow2(k: i64) -> f64 {
+    if k < -1022 {
+        if k < -1074 { 0.0 } else { pow2(k + 64) * pow2(-64) }
+    } else if k > 1023 {
+        f64::INFINITY
+    } else {
+        f64::from_bits(((k + 1023) as u64) << 52)
+    }
+}
+
+/// `a = f 2^k` with f in [0.5, 1) (a > 0 finite).
+fn exponent_of(a: f64) -> i64 {
+    let bits = a.to_bits();
+    let be = ((bits >> 52) & 0x7ff) as i64;
+    if be == 0 {
+        return exponent_of(a * 18446744073709551616.0) - 64;
+    }
+    be - 1022
+}
+
+fn dx(re: f64, im: f64, e: i64) -> DoubleExpComplex {
+    DoubleExpComplex::new(
+        DoubleExp::from_f64(re).times_power_of_two(e),
+        DoubleExp::from_f64(im).times_power_of_two(e),
+    )
+}
+
+fn dx_exponent(z: DoubleExpComplex) -> i64 {
+    match (z.re.is_zero(), z.im.is_zero()) {
+        (true, true) => i64::MIN / 4,
+        (true, false) => z.im.exponent,
+        (false, true) => z.re.exponent,
+        (false, false) => z.re.exponent.max(z.im.exponent),
+    }
+}
+
+/// `z * 2^-e` as f64 pair.
+fn dx_scaled(z: DoubleExpComplex, e: i64) -> (f64, f64) {
+    (
+        z.re.times_power_of_two(-e).to_f64(),
+        z.im.times_power_of_two(-e).to_f64(),
+    )
+}
+
+/// Bits of the deep oracle's reference beyond what the view needs (f64 deltas carry 53 bits;
+/// the GPU's references use 40).
+const ORACLE_GUARD_BITS: usize = 64;
+
+/// The deep oracle's reference: the view centre's orbit at high precision, as f64 pairs (the
+/// hot path) and in extended range (where |Z| is tiny).
+pub struct OracleReference {
+    pub points: Vec<[f64; 2]>,
+    pub extended: Vec<DoubleExpComplex>,
+    pub precision_bits: usize,
+    pub time: f64,
+}
+
+impl OracleReference {
+    pub fn compute(center: &Center, texel: Scale, size: usize, max_iter: usize, bailout: f64) -> Self {
+        let t0 = std::time::Instant::now();
+        let bits = crate::reference::needed_bits(center, texel, size, ORACLE_GUARD_BITS) + 64;
+        let comp = ReferenceOrbitComputer::new(center.big(), bits);
+        let (extended, _) =
+            almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
+        let points = extended.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect();
+        Self {
+            points,
+            extended,
+            precision_bits: bits,
+            time: t0.elapsed().as_secs_f64(),
+        }
+    }
+}
+
+/// The CPU oracle at any depth: perturbation against the view centre's high-precision orbit
+/// with f64 deltas (53 bits against the GPU's 24), Zhuoran rebasing, no BLA, no interior test.
+/// Deltas below 2^-500 (where squared norms would underflow) are rescaled, `z = w 2^e`, with
+/// full extended-range steps where |Z| < 2^-400 (KF's "rescaled double", mathr's "full
+/// iterations"). Same pixel grid, bailout and smooth formula as the GPU kernels. Validated
+/// against direct BigFloat iteration (tests). Rows run in parallel.
+pub fn cpu_render_deep(
+    center: &Center,
+    texel: Scale,
+    width: usize,
+    height: usize,
+    max_iter: usize,
+    bailout: f64,
+) -> (IterationField, OracleReference) {
+    let reference = OracleReference::compute(center, texel, width.max(height), max_iter, bailout);
+    let field = cpu_render_deep_with(&reference, texel, width, height, max_iter, bailout, (0.0, 0.0));
+    (field, reference)
+}
+
+/// [`cpu_render_deep`] against a given reference whose point lies `offset` texels from the
+/// view centre (offset = centre - reference point, in texels).
+pub fn cpu_render_deep_with(
+    reference: &OracleReference,
+    texel: Scale,
+    width: usize,
+    height: usize,
+    max_iter: usize,
+    bailout: f64,
+    offset: (f64, f64),
+) -> IterationField {
+    let mut n = vec![0f32; width * height];
+    let mut s = vec![0f32; width * height];
+    let half_w = width as f64 / 2.0;
+    let half_h = height as f64 / 2.0;
+    let (tm, te) = texel.parts();
+    n.par_chunks_mut(width.max(1))
+        .zip(s.par_chunks_mut(width.max(1)))
+        .enumerate()
+        .for_each(|(y, (nrow, srow))| {
+            for x in 0..width {
+                let px = (x as f64 + 0.5 - half_w + offset.0) * tm;
+                let py = (-(y as f64 + 0.5 - half_h) + offset.1) * tm;
+                let (it, sm) = deep_pixel(reference, (px, py), te, max_iter, bailout * bailout);
+                nrow[x] = it;
+                srow[x] = sm;
+            }
+        });
+    IterationField { width, height, n, s }
+}
+
+/// One pixel of [`cpu_render_deep`]: `c = cm 2^ce`. Returns the field's (n, s).
+fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2: f64) -> (f32, f32) {
+    const P_MIN2: f64 = 9.332636185032189e-302; // 2^-1000: |z|^2 below -> rescaled
+    const TO_P_EXP: i64 = -480; // |z| >= 2^-481 -> plain
+    const SMALL_Z: f64 = 3.872591914849318e-121; // 2^-400
+    let pts = &r.points;
+    let ext = &r.extended;
+    let last = pts.len() - 1;
+    let c64 = (cm.0 * pow2(ce), cm.1 * pow2(ce));
+    let cx = dx(cm.0, cm.1, ce);
+    let c_exp = dx_exponent(cx);
+    let escaped = |n: usize, r2: f64| (n as f32, (1.0 - (0.5 * r2.ln()).log2()) as f32);
+    // State: plain z (e == None) or z = w 2^e.
+    let (mut z, mut w, mut e): ((f64, f64), (f64, f64), Option<i64>);
+    if c_exp >= TO_P_EXP {
+        z = c64;
+        w = (0.0, 0.0);
+        e = None;
+    } else {
+        z = (0.0, 0.0);
+        w = cm;
+        e = Some(ce);
+    }
+    let (mut m, mut n) = (1usize, 1usize);
+    let rescale = |w: &mut (f64, f64), e: &mut i64| -> (f64, (f64, f64)) {
+        if *e < c_exp - 900 {
+            let f = pow2(*e - c_exp);
+            *w = (w.0 * f, w.1 * f);
+            *e = c_exp;
+        }
+        let f = pow2((ce - *e).min(1000));
+        (pow2(*e), (cm.0 * f, cm.1 * f))
+    };
+    let (mut sc, mut dd) = (0.0, (0.0, 0.0));
+    if let Some(ee) = e.as_mut() {
+        (sc, dd) = rescale(&mut w, ee);
+    }
+    loop {
+        match e {
+            None => {
+                // Plain f64 perturbation.
+                loop {
+                    let zm = pts[m];
+                    let zf = (zm[0] + z.0, zm[1] + z.1);
+                    let r2 = zf.0 * zf.0 + zf.1 * zf.1;
+                    if r2 > b2 {
+                        return escaped(n, r2);
+                    }
+                    let mut z2 = z.0 * z.0 + z.1 * z.1;
+                    let mut zr = zm;
+                    if r2 < z2 || m == last {
+                        z = zf;
+                        m = 0;
+                        zr = [0.0, 0.0];
+                        z2 = r2;
+                    }
+                    if z2 < P_MIN2 {
+                        let a = z.0.abs().max(z.1.abs());
+                        let k = if a > 0.0 { exponent_of(a) } else { c_exp };
+                        let f = pow2(-k);
+                        w = (z.0 * f, z.1 * f);
+                        let mut ee = k;
+                        (sc, dd) = rescale(&mut w, &mut ee);
+                        e = Some(ee);
+                        break;
+                    }
+                    if n >= max_iter {
+                        return (ITER_INTERIOR, 0.0);
+                    }
+                    let t0 = 2.0 * zr[0] + z.0;
+                    let t1 = 2.0 * zr[1] + z.1;
+                    z = (t0 * z.0 - t1 * z.1 + c64.0, t0 * z.1 + t1 * z.0 + c64.1);
+                    m += 1;
+                    n += 1;
+                }
+            }
+            Some(mut ee) => {
+                let zm = pts[m];
+                if m == 0 || m == last || zm[0].abs().max(zm[1].abs()) < SMALL_Z {
+                    // Full step in extended range.
+                    let zx = dx(w.0, w.1, ee);
+                    let zrx = ext[m];
+                    let zf = zrx + zx;
+                    if m == last {
+                        let r2 = zf.magnitude_squared().to_f64();
+                        if r2 > b2 {
+                            return escaped(n, r2);
+                        }
+                    }
+                    let (mut zx, mut zrx) = (zx, zrx);
+                    if m != 0 && (m == last || zf.magnitude_squared() < zx.magnitude_squared()) {
+                        zx = zf;
+                        zrx = DoubleExpComplex::ZERO;
+                        m = 0;
+                    }
+                    let k = dx_exponent(zx);
+                    if k >= TO_P_EXP {
+                        z = dx_scaled(zx, 0);
+                        e = None;
+                        continue;
+                    }
+                    if n >= max_iter {
+                        return (ITER_INTERIOR, 0.0);
+                    }
+                    zx = (zrx.times_two() + zx) * zx + cx;
+                    m += 1;
+                    n += 1;
+                    let k = dx_exponent(zx);
+                    if k >= TO_P_EXP {
+                        z = dx_scaled(zx, 0);
+                        e = None;
+                        continue;
+                    }
+                    ee = if zx.re.is_zero() && zx.im.is_zero() { c_exp } else { k };
+                    w = dx_scaled(zx, ee);
+                    (sc, dd) = rescale(&mut w, &mut ee);
+                    e = Some(ee);
+                    continue;
+                }
+                if n >= max_iter {
+                    return (ITER_INTERIOR, 0.0);
+                }
+                let sw = (sc * w.0, sc * w.1);
+                let t0 = 2.0 * zm[0] + sw.0;
+                let t1 = 2.0 * zm[1] + sw.1;
+                w = (t0 * w.0 - t1 * w.1 + dd.0, t0 * w.1 + t1 * w.0 + dd.1);
+                m += 1;
+                n += 1;
+                let a = w.0.abs().max(w.1.abs());
+                if (a > 1.8446744073709552e19 || a < 5.421010862427522e-20) && a > 0.0 {
+                    let k = exponent_of(a);
+                    let f = pow2(-k);
+                    w = (w.0 * f, w.1 * f);
+                    ee += k;
+                    if ee >= TO_P_EXP {
+                        let f = pow2(ee);
+                        z = (w.0 * f, w.1 * f);
+                        e = None;
+                        continue;
+                    }
+                    (sc, dd) = rescale(&mut w, &mut ee);
+                    e = Some(ee);
+                }
+            }
+        }
+    }
 }
 
 /// GPU-vs-reference diff metrics.
@@ -329,5 +608,67 @@ mod tests {
         assert_eq!(r.max_error, 0.0);
         assert_eq!(img.len(), 64 * 40 * 4);
         assert_eq!(f.bitwise_differences(&back), 0);
+    }
+
+    /// The deep oracle against direct BigFloat iteration of individual pixels (no
+    /// perturbation at all) at 1e-50, 1e-300 and 1e-1000 per pixel around c = i (a Misiurewicz
+    /// point: structure at every depth) and at a period-79 needle minibrot at 1e-94.
+    #[test]
+    fn deep_oracle_matches_direct_iteration() {
+        use almondbread_math::{BigComplex, ReferenceOrbitComputer, with_no_control};
+        let cases = [
+            ("0", "1", "1e-50", 2000usize),
+            ("0", "1", "1e-300", 4000),
+            ("0", "1", "1e-1000", 8000),
+            (
+                "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",
+                "0",
+                "3e-94",
+                3000,
+            ),
+        ];
+        for (re, im, sc, it) in cases {
+            let center = Center::parse(re, im).unwrap();
+            let texel = Scale::parse(sc).unwrap();
+            let (w, h) = (24usize, 16usize);
+            let (field, _) = cpu_render_deep(&center, texel, w, h, it, 65536.0);
+            let bits = crate::reference::needed_bits(&center, texel, w, 64) + 64;
+            let (tm, te) = texel.parts();
+            let (mut same, mut worst) = (0usize, 0.0f64);
+            for y in 0..h {
+                for x in 0..w {
+                    let k = y * w + x;
+                    let dx = (x as f64 + 0.5 - w as f64 / 2.0) * tm;
+                    let dy = -(y as f64 + 0.5 - h as f64 / 2.0) * tm;
+                    let c = BigComplex::new(
+                        center.big().re.with_precision(bits) + BigFloat::from_f64(dx, 64).times_power_of_two(te),
+                        center.big().im.with_precision(bits) + BigFloat::from_f64(dy, 64).times_power_of_two(te),
+                    );
+                    let comp = ReferenceOrbitComputer::new(&c, bits);
+                    let r = with_no_control(4096, |ctl| comp.compute(it, 65536.0, None, None, ctl));
+                    let (n, mu) = if r.escaped {
+                        let r2 = r.final_z.magnitude_squared().to_f64();
+                        (
+                            r.iterations() as f32,
+                            r.iterations() as f64 + 1.0 - (0.5 * r2.ln()).log2(),
+                        )
+                    } else {
+                        (ITER_INTERIOR, 0.0)
+                    };
+                    if n == field.n[k] {
+                        same += 1;
+                        if n >= 0.0 {
+                            worst = worst.max((mu - (field.n[k] as f64 + field.s[k] as f64)).abs());
+                        }
+                    }
+                }
+            }
+            println!(
+                "deep oracle {re},{im} @ {sc}: {same}/{} same n, max |dmu| {worst:.2e}",
+                w * h
+            );
+            assert!(same * 100 >= w * h * 98, "{sc}: only {same} of {} agree", w * h);
+            assert!(worst < 1e-4, "{sc}: |dmu| {worst}");
+        }
     }
 }

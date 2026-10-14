@@ -1,35 +1,110 @@
-//! The f64 reference orbit the float32 perturbation kernel iterates against
-//! (kb: techniques/perturbation). Limits zoom to about 1e-13; M3b replaces it with the
-//! arbitrary-precision orbit of `almondbread_math` behind the same fields.
+//! Reference orbits the GPU perturbation kernels iterate against (kb: techniques/perturbation,
+//! techniques/reference-selection, techniques/rebasing).
+//!
+//! Two kinds:
+//! - **f64** (`Reference::compute_f64`): `Z_{n+1} = Z_n^2 + C` in f64 at the view centre, computed
+//!   synchronously (sub-millisecond). Serves views down to [`DEEP_SCALE`] per point, exactly as
+//!   M1–M4 did (bit-identical fields at the benchmark locations).
+//! - **big** (`Reference::compute_big`, M3b): the orbit at the precision the view needs
+//!   (`almondbread_math`, BigFloat), at a minibrot nucleus inside the view when the ball period
+//!   detector and Newton find one (orbit length = period, `Z_p = 0`, wraps by rebasing), else at
+//!   the view centre. Computed off the main thread by a [`ReferenceWorker`]; points are stored
+//!   as float32 pairs (hot path) and in shared-exponent floatexp (the kernel's full steps where
+//!   `|Z|` is tiny).
+//!
+//! Rebasing makes any reference near the view exact (one reference serves the whole image), so
+//! a reference is reused while panning and zooming as long as its precision covers the pixel
+//! spacing and it lies within float32 reach of the pixels ([`Reference::fit`]).
 
-use crate::viewport::{Center, Viewport};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread::JoinHandle;
+use std::time::Instant;
 
-/// `Z_0 = 0, Z_{n+1} = Z_n^2 + C` in f64, stored as float32 pairs for the GPU.
+use almondbread_math::{
+    BigFloat, FloatExpComplex, PeriodMethod, ReferenceOrbitComputer, recommended_precision_bits_with,
+};
+
+use crate::viewport::{Center, Scale, Viewport};
+
+/// Views with a scale per point below this use big references (and, per texel, the deep
+/// kernel when deltas leave float32's comfortable range). The f64 orbit is verified to the
+/// f64 limit (~4e-16 |c|); 1e-12 leaves room for long orbits.
+pub const DEEP_SCALE: f64 = 1e-12;
+
+/// Guard bits on top of the pixel spacing (and view size) for a reference to be usable at all,
+/// and to be considered good (below: recompute in the background, keep using meanwhile).
+pub const MIN_GUARD_BITS: usize = 20;
+pub const GOOD_GUARD_BITS: usize = 40;
+/// Extra bits a new big reference gets, so it stays good while zooming ~19 more decades.
+pub const EXTRA_BITS: usize = 64;
+/// A reference farther than this many texels from the view centre is unusable (float32
+/// texel offsets lose sub-texel resolution beyond).
+pub const MAX_OFFSET_TEXELS: f64 = 65536.0;
+
+/// A reference orbit and where it came from.
 #[derive(Clone, Debug)]
-pub struct DoubleReference {
-    pub center: Center,
-    /// Viewport scale the reference was made for.
-    pub scale: f64,
+pub struct Reference {
+    /// The reference point C (the orbit is exactly this point's).
+    pub point: Center,
+    /// The view scale (per point) it was made for.
+    pub scale: Scale,
+    /// Precision of the orbit in bits (53 for the f64 kind).
+    pub precision_bits: usize,
+    /// Iteration limit it was computed for.
     pub max_iter: usize,
+    /// Z_0 ... Z_{len-1} rounded to float32 (Z_0 = 0).
     pub points: Vec<[f32; 2]>,
+    /// The same in floatexp (big references only; empty for f64).
+    pub extended: Vec<FloatExpComplex>,
+    /// Nucleus period (then `points.len() == period + 1` and `Z_period ~ 0`).
+    pub period: Option<usize>,
+    /// The period the detector reported (also when Newton was not used).
+    pub detected_period: Option<usize>,
+    pub escaped: bool,
+    pub big: bool,
+    /// Seconds: selection (period + Newton) and orbit.
+    pub select_time: f64,
+    pub orbit_time: f64,
 }
 
-impl DoubleReference {
-    /// Iterates until the orbit escapes `bailout` or `max_iter` steps are done. Always at
-    /// least two points, so the GPU loop has a valid step. Same arithmetic as the Swift
-    /// `ReferenceOrbit` (no FMA contraction), so the points are bit-identical.
-    pub fn compute(viewport: &Viewport, max_iter: usize, bailout: f64) -> Self {
+/// How well a reference serves a view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fit {
+    /// Use it.
+    Good,
+    /// Usable (correct), but a better one should be computed in the background.
+    Stale,
+    /// Not usable for this view.
+    No,
+}
+
+/// Bits a reference needs for a view with texel spacing `texel` and `size` texels across.
+pub fn needed_bits(point: &Center, texel: Scale, size: usize, guard: usize) -> usize {
+    let mag = point.re().abs().max(point.im().abs()).max(1.0);
+    recommended_precision_bits_with(texel.log2(), size, mag, guard)
+}
+
+impl Reference {
+    /// The f64 orbit at the view centre: iterates until it escapes `bailout` or `max_iter`
+    /// steps are done. Always at least two points, so the GPU loop has a valid step. Same
+    /// arithmetic as the Swift `ReferenceOrbit` (no FMA contraction), so the points are
+    /// bit-identical to M1–M4.
+    pub fn compute_f64(viewport: &Viewport, max_iter: usize, bailout: f64) -> Self {
+        let start = Instant::now();
         let (cr, ci) = (viewport.center.re(), viewport.center.im());
         let mut pts = Vec::with_capacity(max_iter + 1);
         let (mut x, mut y) = (0.0f64, 0.0f64);
         let b2 = bailout * bailout;
         pts.push([0.0f32, 0.0]);
+        let mut escaped = false;
         for _ in 0..max_iter {
             let nx = x * x - y * y + cr;
             y = 2.0 * x * y + ci;
             x = nx;
             pts.push([x as f32, y as f32]);
             if x * x + y * y > b2 {
+                escaped = true;
                 break;
             }
         }
@@ -37,22 +112,303 @@ impl DoubleReference {
             pts.push([cr as f32, ci as f32]);
         }
         Self {
-            center: viewport.center.clone(),
+            // The orbit is of the f64-rounded centre: offsets are taken from that point.
+            point: Center::new(cr, ci),
             scale: viewport.scale,
+            precision_bits: 53,
             max_iter,
             points: pts,
+            extended: Vec::new(),
+            period: None,
+            detected_period: None,
+            escaped,
+            big: false,
+            select_time: 0.0,
+            orbit_time: start.elapsed().as_secs_f64(),
         }
     }
 
-    /// Whether this reference serves a view (rebasing makes any nearby reference valid,
-    /// kb: techniques/rebasing): long enough, within `view_radius` of the centre, and made at
-    /// a scale within 4x (coordinates are only as good as the scale they were chosen at).
-    pub fn serves(&self, viewport: &Viewport, max_iter: usize, view_radius: f64) -> bool {
-        let (dr, di) = self.center.delta_from(&viewport.center);
-        self.max_iter >= max_iter
-            && dr.abs() < view_radius
-            && di.abs() < view_radius
-            && self.scale <= viewport.scale * 4.0
-            && self.scale >= viewport.scale / 4.0
+    /// A big reference for `request` (see the module docs). `cancel` is polled every 4096
+    /// iterations; returns None when cancelled. `progress` counts orbit iterations done.
+    pub fn compute_big(request: &ReferenceRequest, cancel: &AtomicBool, progress: &AtomicUsize) -> Option<Self> {
+        let bits = request.precision_bits.div_ceil(64) * 64;
+        let center = request.center.with_min_precision(bits);
+        let t0 = Instant::now();
+        let mut is_cancelled = || cancel.load(Ordering::Relaxed);
+        let (point, period, detected) = if request.nucleus {
+            let radius = request.scale.big_times(request.radius_points, 64);
+            let choice = almondbread_math::select_reference(
+                center.big(),
+                &radius,
+                request.period_limit.max(1),
+                Some(bits),
+                PeriodMethod::Ball,
+                &mut is_cancelled,
+            );
+            if is_cancelled() {
+                return None;
+            }
+            (Center::from_big(choice.point), choice.period, choice.detected_period)
+        } else {
+            (center.clone(), None, None)
+        };
+        let select_time = t0.elapsed().as_secs_f64();
+        let t1 = Instant::now();
+        let iters = period.unwrap_or(request.max_iter).max(1);
+        let comp = ReferenceOrbitComputer::new(point.big(), bits);
+        let mut points = vec![[0.0f32; 2]; iters + 1];
+        let mut extended = vec![FloatExpComplex::ZERO; iters + 1];
+        let mut never_progress = |n: usize| progress.store(n, Ordering::Relaxed);
+        let mut ctl = almondbread_math::Control {
+            check_interval: 4096,
+            is_cancelled: &mut is_cancelled,
+            progress: &mut never_progress,
+        };
+        let r = comp.compute(iters, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl);
+        if r.cancelled {
+            return None;
+        }
+        points.truncate(r.count);
+        extended.truncate(r.count);
+        if points.len() < 2 {
+            // C itself escaped at once: still give the kernel one valid step.
+            let c = point.big().to_f32();
+            points.push(c);
+            extended.push(point.big().float_exp_complex());
+        }
+        if period.is_some() {
+            // Z_p is 0 up to rounding at this precision: make the wrap exact.
+            let p = points.len() - 1;
+            points[p] = [0.0, 0.0];
+            extended[p] = FloatExpComplex::ZERO;
+        }
+        Some(Self {
+            point,
+            scale: request.scale,
+            precision_bits: bits,
+            max_iter: request.max_iter,
+            points,
+            extended,
+            period,
+            detected_period: detected,
+            escaped: r.escaped,
+            big: true,
+            select_time,
+            orbit_time: t1.elapsed().as_secs_f64(),
+        })
+    }
+
+    /// Seconds it took in all.
+    pub fn time(&self) -> f64 {
+        self.select_time + self.orbit_time
+    }
+
+    /// How well this reference serves `viewport` rendered with texels of `texel` complex units,
+    /// `size` texels across (largest side) and `max_iter` iterations.
+    pub fn fit(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> Fit {
+        let deep = viewport.scale.to_f64() < DEEP_SCALE;
+        if !self.big {
+            // The f64 reference: as in M1–M4 (within the view, made at a scale within 4x,
+            // long enough).
+            if deep {
+                return Fit::No;
+            }
+            let radius = viewport.scale.to_f64() * size as f64;
+            let (dr, di) = self.point.delta_from(&viewport.center);
+            let ok = self.max_iter >= max_iter
+                && dr.abs() < radius
+                && di.abs() < radius
+                && self.scale <= viewport.scale * 4.0
+                && self.scale >= viewport.scale / 4.0;
+            return if ok { Fit::Good } else { Fit::No };
+        }
+        if !deep {
+            // Shallow views keep the f64 path (bit-identical with earlier milestones).
+            return Fit::No;
+        }
+        if self.precision_bits < needed_bits(&self.point, texel, size, MIN_GUARD_BITS) {
+            return Fit::No;
+        }
+        let offset = self.point.distance_in(&viewport.center, texel);
+        if offset.is_nan() || offset > MAX_OFFSET_TEXELS {
+            return Fit::No;
+        }
+        let short = self.period.is_none() && !self.escaped && self.points.len() - 1 < max_iter;
+        let far = offset > 2.0 * size as f64;
+        if self.precision_bits < needed_bits(&self.point, texel, size, GOOD_GUARD_BITS) || short || far {
+            return Fit::Stale;
+        }
+        Fit::Good
+    }
+}
+
+/// What a big reference is computed for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReferenceRequest {
+    pub center: Center,
+    /// View scale per point.
+    pub scale: Scale,
+    /// Nucleus search radius in view points (the view's half-diagonal).
+    pub radius_points: f64,
+    pub max_iter: usize,
+    /// Longest period the detector looks for.
+    pub period_limit: usize,
+    pub precision_bits: usize,
+    pub bailout: f64,
+    /// Look for a minibrot nucleus in the view (else: the centre).
+    pub nucleus: bool,
+}
+
+impl ReferenceRequest {
+    /// A request for `viewport` at texel spacing `texel`, `size` texels across.
+    pub fn for_view(
+        viewport: &Viewport,
+        texel: Scale,
+        size: usize,
+        radius_points: f64,
+        max_iter: usize,
+        bailout: f64,
+    ) -> Self {
+        let bits = needed_bits(&viewport.center, texel, size, GOOD_GUARD_BITS) + EXTRA_BITS;
+        Self {
+            center: viewport.center.clone(),
+            scale: viewport.scale,
+            radius_points,
+            max_iter,
+            period_limit: max_iter,
+            precision_bits: bits.div_ceil(64) * 64,
+            bailout,
+            nucleus: std::env::var("ALMONDBREAD_NUCLEUS").map_or(true, |v| v != "0"),
+        }
+    }
+}
+
+/// Computes big references on a background thread, one at a time; a new request cancels the
+/// running one (it stops at its next poll, within 4096 iterations).
+#[derive(Default)]
+pub struct ReferenceWorker {
+    job: Option<WorkerJob>,
+    /// Requests started so far (diagnostics).
+    pub started: usize,
+}
+
+struct WorkerJob {
+    request: ReferenceRequest,
+    cancel: Arc<AtomicBool>,
+    progress: Arc<AtomicUsize>,
+    handle: JoinHandle<Option<Reference>>,
+    start: Instant,
+}
+
+impl ReferenceWorker {
+    /// Starts computing `request` (cancelling a running computation).
+    pub fn start(&mut self, request: ReferenceRequest) {
+        self.cancel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(AtomicUsize::new(0));
+        let (c, p, r) = (cancel.clone(), progress.clone(), request.clone());
+        let handle = std::thread::Builder::new()
+            .name("almondbread-reference".into())
+            .spawn(move || Reference::compute_big(&r, &c, &p));
+        match handle {
+            Ok(handle) => {
+                self.started += 1;
+                self.job = Some(WorkerJob {
+                    request,
+                    cancel,
+                    progress,
+                    handle,
+                    start: Instant::now(),
+                })
+            }
+            Err(e) => eprintln!("almondbread: reference thread: {e}"),
+        }
+    }
+
+    pub fn cancel(&mut self) {
+        if let Some(j) = self.job.take() {
+            j.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// The running request, if any.
+    pub fn pending(&self) -> Option<&ReferenceRequest> {
+        self.job.as_ref().map(|j| &j.request)
+    }
+
+    /// Seconds the running request has taken so far, and orbit iterations done.
+    pub fn running_for(&self) -> Option<(f64, usize)> {
+        self.job
+            .as_ref()
+            .map(|j| (j.start.elapsed().as_secs_f64(), j.progress.load(Ordering::Relaxed)))
+    }
+
+    /// The finished reference, once; `wait` blocks until the running one is done.
+    pub fn poll(&mut self, wait: bool) -> Option<Reference> {
+        let finished = self.job.as_ref().is_some_and(|j| j.handle.is_finished());
+        if !finished && !wait {
+            return None;
+        }
+        let job = self.job.take()?;
+        match job.handle.join() {
+            Ok(r) => r,
+            Err(_) => {
+                eprintln!("almondbread: reference computation failed");
+                None
+            }
+        }
+    }
+}
+
+/// The nucleus search radius as a BigFloat (diagnostics and tests).
+pub fn radius_big(scale: Scale, points: f64) -> BigFloat {
+    scale.big_times(points, 64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn big_reference_finds_a_nucleus_and_serves_deeper_views() {
+        // Near the period-3 minibrot at -1.7549, at 1e-20 per point.
+        let v = Viewport::with_center(
+            Center::parse(
+                "-1.75487766624669276004950889635852869189460661777279",
+                "0.0000000000000000000001",
+            )
+            .unwrap(),
+            Scale::from_f64(1e-20),
+        );
+        let texel = v.scale;
+        let req = ReferenceRequest::for_view(&v, texel, 1000, 700.0, 5000, 65536.0);
+        let r = Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
+        assert_eq!(r.period, Some(3));
+        assert_eq!(r.points.len(), 4);
+        assert_eq!(r.points[3], [0.0, 0.0]);
+        assert_eq!(r.fit(&v, texel, 1000, 5000), Fit::Good);
+        // 30 decades deeper the precision runs out.
+        let mut deeper = v.clone();
+        deeper.zoom_by(1e30, 0.0, 0.0);
+        assert_eq!(r.fit(&deeper, deeper.scale, 1000, 5000), Fit::No);
+        // Shallow views keep the f64 path.
+        let shallow = Viewport::new(-1.75, 0.0, 1e-6);
+        assert_eq!(r.fit(&shallow, shallow.scale, 1000, 5000), Fit::No);
+    }
+
+    #[test]
+    fn worker_cancels_and_delivers() {
+        let v = Viewport::with_center(
+            Center::new(-0.743643887037151, 0.13182590420533),
+            Scale::from_f64(1e-15),
+        );
+        let mut w = ReferenceWorker::default();
+        let mut req = ReferenceRequest::for_view(&v, v.scale, 800, 500.0, 200_000, 65536.0);
+        req.nucleus = false;
+        w.start(req.clone());
+        w.start(req);
+        let r = w.poll(true).expect("reference");
+        assert!(r.big && r.points.len() > 1000);
+        assert!(w.poll(false).is_none());
     }
 }

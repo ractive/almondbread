@@ -31,6 +31,7 @@ name = "almondbread-core"
 version = "0.1.0"
 dependencies = [
  "almondbread-math",
+ "bytemuck",
  "png",
  "rayon",
 ]

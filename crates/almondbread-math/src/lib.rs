@@ -34,5 +34,5 @@ pub use orbit::{
 };
 pub use selection::{
     NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period, find_nucleus, find_period,
-    minibrot_size, minibrot_size_complex, select_reference,
+    find_period_from, minibrot_size, minibrot_size_complex, select_reference,
 };

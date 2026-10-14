@@ -149,7 +149,7 @@ impl RenderSettings {
 
 /// The depth-only part of the automatic limit: `300 + 120 · depth^1.6`, depth = log10(zoom).
 pub fn depth_iterations(viewport: &Viewport) -> usize {
-    let depth = viewport.zoom().log10().max(0.0);
+    let depth = viewport.zoom_log10().max(0.0);
     (300.0 + 120.0 * depth.powf(1.6)) as usize
 }
 

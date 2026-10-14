@@ -16,9 +16,9 @@
 //!     bits = ceil(-log2(pixelSpacing) + log2(imageSize) + log2(max(|C|, 1)) + 1) + guard
 //! with guard = 48 by default, rounded up to whole 64-bit limbs.
 
-use crate::bigfloat::{BigFloat, with_scratch};
+use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::{BigComplex, make_float_exp_complex};
-use crate::floatexp::FloatExpComplex;
+use crate::floatexp::{DoubleExpComplex, FloatExpComplex};
 use crate::raw::{self, Raw, Storage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -171,7 +171,15 @@ impl ReferenceOrbitComputer {
             bailout2: bailout * bailout,
         };
         let n = self.limb_count();
-        let out = Outputs { points, extended };
+        let out = Outputs {
+            points,
+            extended,
+            doubles: None,
+        };
+        self.dispatch(job, n, out, control)
+    }
+
+    fn dispatch(&self, job: Job<'_>, n: usize, out: Outputs<'_>, control: &mut Control<'_>) -> OrbitResult {
         macro_rules! dispatch {
             ($($k:literal)*) => {
                 match n {
@@ -181,6 +189,32 @@ impl ReferenceOrbitComputer {
             };
         }
         dispatch!(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)
+    }
+
+    /// The orbit in extended-range f64 (each component its own f64 mantissa and i64 exponent;
+    /// [`DoubleExpComplex`]), for CPU oracles that need more than float32 mantissas: one entry
+    /// per point, `max_iterations + 1` at most.
+    pub fn compute_double_exp(
+        &self,
+        max_iterations: usize,
+        bailout: f64,
+        control: &mut Control<'_>,
+    ) -> (Vec<DoubleExpComplex>, OrbitResult) {
+        let mut d = vec![DoubleExpComplex::ZERO; max_iterations + 1];
+        let job = Job {
+            c: &self.c,
+            squarings: self.resolved_variant() == Variant::Squarings,
+            max_iterations,
+            bailout2: bailout * bailout,
+        };
+        let out = Outputs {
+            points: None,
+            extended: None,
+            doubles: Some(&mut d),
+        };
+        let r = self.dispatch(job, self.limb_count(), out, control);
+        d.truncate(r.count);
+        (d, r)
     }
 
     /// Convenience: the orbit as vectors (points, extended, result).
@@ -203,6 +237,7 @@ impl ReferenceOrbitComputer {
 struct Outputs<'a> {
     points: Option<&'a mut [[f32; 2]]>,
     extended: Option<&'a mut [FloatExpComplex]>,
+    doubles: Option<&'a mut [DoubleExpComplex]>,
 }
 
 struct Job<'a> {
@@ -267,6 +302,9 @@ fn emit_point<S: AsRef<[u64]>>(x: &Raw<S>, y: &Raw<S>, i: usize, bailout2: f64, 
     }
     if let Some(e) = out.extended.as_deref_mut() {
         e[i] = make_float_exp_complex(x.view(), y.view());
+    }
+    if let Some(d) = out.doubles.as_deref_mut() {
+        d[i] = DoubleExpComplex::new(raw_double_exp(x.view()), raw_double_exp(y.view()));
     }
     xd * xd + yd * yd > bailout2
 }

@@ -44,7 +44,7 @@ use std::time::Duration;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::{InputEvent, NavKey};
 use almondbread_core::settings::{RenderSettings, Supersampling};
-use almondbread_core::viewport::{Center, Viewport};
+use almondbread_core::viewport::{Center, Scale, Viewport};
 use almondbread_render::{FrameStats, GpuBackend, Renderer, Storage, TextureFormat};
 use serde_json::Value;
 
@@ -170,12 +170,15 @@ fn start_viewport(start: Option<&Value>, w_pts: f64, h_pts: f64) -> Result<Viewp
         }
         _ => fitted.center.clone(),
     };
-    let scale = match (num(s, "scale"), num(s, "zoom")) {
+    let scale = match (
+        text("scale").and_then(|t| Scale::parse(t.trim_matches('"'))),
+        num(s, "zoom"),
+    ) {
         (Some(sc), _) => sc,
         (None, Some(z)) => fitted.scale / z,
         _ => fitted.scale,
     };
-    Ok(Viewport { center, scale })
+    Ok(Viewport::with_center(center, scale))
 }
 
 /// Feeds the events due in (t0, t1] (virtual seconds since the start) at time `now`.

@@ -437,7 +437,7 @@ mod tests {
              out[0] = sizeof(IterateParams); out[1] = sizeof(PixelState); out[2] = sizeof(ChunkStats);\n\
              out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
-             out[9] = sizeof(BlaEntry); }}\n"
+             out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -447,7 +447,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 40];
+        let mut bytes = [0u8; 48];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -468,6 +468,8 @@ mod tests {
                 size_of::<ComposeParams>() as u32,
                 size_of::<BlaParams>() as u32,
                 size_of::<almondbread_core::bla::BlaEntry>() as u32,
+                size_of::<almondbread_core::bla::BlaEntryX>() as u32,
+                size_of::<almondbread_core::math::FloatExpComplex>() as u32,
             ]
         );
     }

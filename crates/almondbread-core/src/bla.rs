@@ -38,6 +38,8 @@
 
 use std::time::Instant;
 
+use almondbread_math::FloatExpComplex;
+
 /// float32 hardware precision: dropped terms stay at the rounding level of the step.
 pub const BLA_EPSILON: f64 = 1.0 / 16_777_216.0;
 /// Largest `|A|` an entry may have: the kernel multiplies its interior derivative (rescaled
@@ -227,6 +229,400 @@ impl BlaTable {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// M3b: the same table in extended range (kb: techniques/bla "M3b", techniques/extended-range-floats).
+
+/// One deep-table entry as the GPU reads it (`BlaEntryX` in MSL, 40 bytes): `A = a 2^ae`,
+/// `B = b 2^be` (complex mantissas with max-abs in [0.5, 1)), `R = r 2^re`, `K = k 2^ke`
+/// (`r, k` in [0.5, 1); `r = 0`: never valid; `k = 0`: no `|c|` term).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BlaEntryX {
+    pub a: [f32; 2],
+    pub b: [f32; 2],
+    pub ae: i32,
+    pub be: i32,
+    pub r: f32,
+    pub re: i32,
+    pub k: f32,
+    pub ke: i32,
+}
+
+const _: () = assert!(std::mem::size_of::<BlaEntryX>() == 40);
+
+/// Exponent the kernel uses for zero (loses every alignment and comparison).
+pub const XZERO_EXP: i32 = -(1 << 28);
+
+/// `x = m 2^e` with `m` in [0.5, 1) for finite non-zero normal `x`.
+fn frexp(x: f64) -> (f64, i64) {
+    let bits = x.to_bits();
+    let be = ((bits >> 52) & 0x7ff) as i64;
+    if be == 0 {
+        if x == 0.0 {
+            return (0.0, 0);
+        }
+        let (m, e) = frexp(x * 18446744073709551616.0);
+        return (m, e - 64);
+    }
+    (f64::from_bits((bits & !(0x7ffu64 << 52)) | (1022u64 << 52)), be - 1022)
+}
+
+fn pow2(k: i64) -> f64 {
+    if k < -1022 {
+        if k < -1074 { 0.0 } else { pow2(k + 64) * pow2(-64) }
+    } else if k > 1023 {
+        f64::INFINITY
+    } else {
+        f64::from_bits(((k + 1023) as u64) << 52)
+    }
+}
+
+/// Extended-range non-negative real `m 2^e` (m in [0.5, 1), or 0).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Xr {
+    m: f64,
+    e: i64,
+}
+
+impl Xr {
+    const ZERO: Xr = Xr { m: 0.0, e: 0 };
+    fn new(x: f64, e: i64) -> Xr {
+        if x == 0.0 || !x.is_finite() {
+            return Xr::ZERO;
+        }
+        let (m, k) = frexp(x);
+        Xr { m, e: e + k }
+    }
+    fn from_f64(x: f64) -> Xr {
+        Xr::new(x, 0)
+    }
+    fn is_zero(self) -> bool {
+        self.m == 0.0
+    }
+    fn mul(self, b: Xr) -> Xr {
+        Xr::new(self.m * b.m, self.e + b.e)
+    }
+    fn div(self, b: Xr) -> Xr {
+        if b.is_zero() {
+            return Xr::ZERO;
+        }
+        Xr::new(self.m / b.m, self.e - b.e)
+    }
+    fn add(self, b: Xr) -> Xr {
+        if self.is_zero() {
+            return b;
+        }
+        if b.is_zero() {
+            return self;
+        }
+        let (x, y) = if self.e >= b.e { (self, b) } else { (b, self) };
+        let d = x.e - y.e;
+        if d > 64 {
+            return x;
+        }
+        Xr::new(x.m + y.m * pow2(-d), x.e)
+    }
+    fn lt(self, b: Xr) -> bool {
+        if self.m <= 0.0 || b.m <= 0.0 {
+            return self.m < b.m;
+        }
+        (self.e, self.m) < (b.e, b.m)
+    }
+    fn min(self, b: Xr) -> Xr {
+        if b.lt(self) { b } else { self }
+    }
+    fn max(self, b: Xr) -> Xr {
+        if self.lt(b) { b } else { self }
+    }
+    fn gpu(self) -> (f32, i32) {
+        if self.is_zero() {
+            return (0.0, XZERO_EXP);
+        }
+        let mut m = self.m as f32;
+        let mut e = self.e;
+        if m >= 1.0 {
+            m *= 0.5;
+            e += 1;
+        }
+        (m, e.clamp(-(1 << 27), 1 << 27) as i32)
+    }
+}
+
+/// Extended-range complex with one exponent: `(re + i im) 2^e`, max-abs mantissa in [0.5, 1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Xc {
+    re: f64,
+    im: f64,
+    e: i64,
+}
+
+impl Xc {
+    const ZERO: Xc = Xc { re: 0.0, im: 0.0, e: 0 };
+    const ONE: Xc = Xc { re: 0.5, im: 0.0, e: 1 };
+    fn new(re: f64, im: f64, e: i64) -> Xc {
+        let a = re.abs().max(im.abs());
+        if a == 0.0 || !a.is_finite() {
+            return Xc::ZERO;
+        }
+        let (_, k) = frexp(a);
+        let s = pow2(-k);
+        Xc {
+            re: re * s,
+            im: im * s,
+            e: e + k,
+        }
+    }
+    fn is_zero(self) -> bool {
+        self.re == 0.0 && self.im == 0.0
+    }
+    fn mul(self, b: Xc) -> Xc {
+        Xc::new(
+            self.re * b.re - self.im * b.im,
+            self.re * b.im + self.im * b.re,
+            self.e + b.e,
+        )
+    }
+    fn add(self, b: Xc) -> Xc {
+        if self.is_zero() {
+            return b;
+        }
+        if b.is_zero() {
+            return self;
+        }
+        let (x, y) = if self.e >= b.e { (self, b) } else { (b, self) };
+        let d = x.e - y.e;
+        if d > 64 {
+            return x;
+        }
+        let s = pow2(-d);
+        Xc::new(x.re + y.re * s, x.im + y.im * s, x.e)
+    }
+    fn abs(self) -> Xr {
+        Xr::new(self.re.hypot(self.im), self.e)
+    }
+    fn gpu(self) -> ([f32; 2], i32) {
+        if self.is_zero() {
+            return ([0.0, 0.0], XZERO_EXP);
+        }
+        let (mut re, mut im, mut e) = (self.re as f32, self.im as f32, self.e);
+        if re.abs().max(im.abs()) >= 1.0 {
+            re *= 0.5;
+            im *= 0.5;
+            e += 1;
+        }
+        ([re, im], e.clamp(-(1 << 27), 1 << 27) as i32)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MergedX {
+    a: Xc,
+    b: Xc,
+    r: Xr,
+    k: Xr,
+}
+
+const INVALID_X: MergedX = MergedX {
+    a: Xc::ZERO,
+    b: Xc::ZERO,
+    r: Xr::ZERO,
+    k: Xr::ZERO,
+};
+
+impl MergedX {
+    fn single(z: &FloatExpComplex, eps: f64) -> Self {
+        let a = Xc::new(
+            2.0 * f64::from(z.mantissa[0]),
+            2.0 * f64::from(z.mantissa[1]),
+            i64::from(z.exponent),
+        );
+        MergedX {
+            a,
+            b: Xc::ONE,
+            r: Xr::from_f64(eps).mul(a.abs()),
+            k: Xr::ZERO,
+        }
+    }
+
+    fn then(&self, y: &MergedX) -> MergedX {
+        let ax = self.a.abs();
+        if self.r.is_zero() || y.r.is_zero() || ax.is_zero() {
+            return INVALID_X;
+        }
+        MergedX {
+            a: y.a.mul(self.a),
+            b: y.a.mul(self.b).add(y.b),
+            r: self.r.min(y.r.div(ax)),
+            k: self.k.max(y.k.add(self.b.abs()).div(ax)),
+        }
+    }
+
+    fn entry(&self) -> BlaEntryX {
+        if self.r.is_zero() || self.e_out_of_range() {
+            return BlaEntryX {
+                ae: XZERO_EXP,
+                be: XZERO_EXP,
+                re: XZERO_EXP,
+                ke: XZERO_EXP,
+                ..BlaEntryX::default()
+            };
+        }
+        let (a, ae) = self.a.gpu();
+        let (b, be) = self.b.gpu();
+        let (r, re) = self.r.gpu();
+        let (k, ke) = self.k.gpu();
+        BlaEntryX {
+            a,
+            b,
+            ae,
+            be,
+            r,
+            re,
+            k,
+            ke,
+        }
+    }
+
+    fn e_out_of_range(&self) -> bool {
+        let big = 1i64 << 27;
+        self.a.e.abs() > big || self.b.e.abs() > big || self.r.e.abs() > big || self.k.e.abs() > big
+    }
+}
+
+/// The BLA table of a big reference in extended range (the deep kernel's table). Same layout
+/// and validity as [`BlaTable`], built from the floatexp reference points with f64 mantissas
+/// and i64 exponents, so radii of 1e-1000 and coefficients of 1e+100000 are exact to f64.
+#[derive(Clone, Debug, Default)]
+pub struct BlaTableX {
+    pub ref_len: usize,
+    pub epsilon: f64,
+    pub min_level: u32,
+    pub max_level: u32,
+    pub offsets: [u32; MAX_LEVELS],
+    pub entries: Vec<BlaEntryX>,
+    pub build_time: f64,
+}
+
+impl BlaTableX {
+    pub fn build(points: &[FloatExpComplex], epsilon: f64) -> Self {
+        let start = Instant::now();
+        let mut t = BlaTableX {
+            ref_len: points.len(),
+            epsilon,
+            min_level: MIN_LEVEL,
+            max_level: 0,
+            ..Default::default()
+        };
+        let singles = points.len().saturating_sub(2);
+        if singles < (1 << MIN_LEVEL) {
+            t.build_time = start.elapsed().as_secs_f64();
+            return t;
+        }
+        let mut level: Vec<MergedX> = points[1..1 + singles]
+            .iter()
+            .map(|z| MergedX::single(z, epsilon))
+            .collect();
+        let mut lev = 0u32;
+        let mut entries: Vec<BlaEntryX> = Vec::with_capacity(singles);
+        loop {
+            if lev >= MIN_LEVEL {
+                t.offsets[lev as usize] = entries.len() as u32;
+                entries.extend(level.iter().map(MergedX::entry));
+                t.max_level = lev;
+            }
+            if level.len() < 2 || lev as usize + 1 >= MAX_LEVELS {
+                break;
+            }
+            level = level.as_chunks::<2>().0.iter().map(|p| p[0].then(&p[1])).collect();
+            lev += 1;
+        }
+        t.entries = entries;
+        t.build_time = start.elapsed().as_secs_f64();
+        t
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.entries.len() * std::mem::size_of::<BlaEntryX>()
+    }
+
+    pub fn lookup(&self, m: usize, level: u32) -> Option<&BlaEntryX> {
+        if level < self.min_level || level > self.max_level || m == 0 {
+            return None;
+        }
+        let len = 1usize << level;
+        if !(m - 1).is_multiple_of(len) || m + len > self.ref_len - 1 {
+            return None;
+        }
+        self.entries
+            .get(self.offsets[level as usize] as usize + ((m - 1) >> level))
+    }
+
+    fn valid(e: &BlaEntryX, zn: Xr, cn: Xr) -> bool {
+        if e.r.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            return false;
+        }
+        let r = Xr::new(f64::from(e.r), i64::from(e.re));
+        let k = Xr::new(f64::from(e.k), i64::from(e.ke));
+        zn.add(k.mul(cn)).lt(r)
+    }
+
+    /// The longest valid block at `m` for `|dz| = 2^zn_log2`, `|dc| = 2^cn_log2`.
+    fn longest(&self, m: usize, n: usize, max_iter: usize, zn: Xr, cn: Xr) -> Option<(&BlaEntryX, usize)> {
+        if m == 0 {
+            return None;
+        }
+        let mut best = None;
+        for lev in self.min_level..=self.max_level {
+            let len = 1usize << lev;
+            if n + len > max_iter {
+                break;
+            }
+            let Some(e) = self.lookup(m, lev) else { break };
+            if !Self::valid(e, zn, cn) {
+                break;
+            }
+            best = Some((e, len));
+        }
+        best
+    }
+
+    /// [`BlaTable::forecast`] for a pixel `|dc| = c_abs` (log2 given, so any depth).
+    pub fn forecast(&self, c_abs_log2: f64, max_iter: usize) -> BlaForecast {
+        if !c_abs_log2.is_finite() {
+            return BlaForecast::default();
+        }
+        let whole = c_abs_log2.floor();
+        let cn = Xr::new(2f64.powf(c_abs_log2 - whole), whole as i64);
+        let (mut m, mut zn, mut covered, mut blocks) = (1usize, cn, 0usize, 0usize);
+        while let Some((e, len)) = self.longest(m, 1 + covered, max_iter, zn, cn) {
+            let a = Xr::new(f64::from(e.a[0]).hypot(f64::from(e.a[1])), i64::from(e.ae));
+            let b = Xr::new(f64::from(e.b[0]).hypot(f64::from(e.b[1])), i64::from(e.be));
+            zn = a.mul(zn).add(b.mul(cn));
+            m += len;
+            covered += len;
+            blocks += 1;
+        }
+        BlaForecast { covered, blocks }
+    }
+
+    /// `eps max |2 Z|` in log2: no block is valid for a pixel farther than this (in |c|).
+    pub fn reach_log2(points: &[FloatExpComplex], epsilon: f64) -> f64 {
+        let n = points.len().saturating_sub(1);
+        points[1.min(n)..n]
+            .iter()
+            .map(|z| {
+                let m = f64::from(z.mantissa[0]).hypot(f64::from(z.mantissa[1]));
+                if m == 0.0 {
+                    f64::NEG_INFINITY
+                } else {
+                    m.log2() + f64::from(z.exponent) + 1.0
+                }
+            })
+            .fold(f64::NEG_INFINITY, f64::max)
+            + epsilon.log2()
+    }
+}
+
 /// See [`BlaTable::forecast`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BlaForecast {
@@ -356,7 +752,7 @@ fn iterate_delta_rounded(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reference::DoubleReference;
+    use crate::reference::Reference;
     use crate::viewport::Viewport;
 
     const BAILOUT2: f64 = 65536.0 * 65536.0;
@@ -364,7 +760,7 @@ mod tests {
     const SLOW: (f64, f64) = (-1.4080321340304542, 0.13680236432900417);
 
     fn reference(re: f64, im: f64, max_iter: usize) -> Vec<[f32; 2]> {
-        DoubleReference::compute(&Viewport::new(re, im, 1e-10), max_iter, 65536.0).points
+        Reference::compute_f64(&Viewport::new(re, im, 1e-10), max_iter, 65536.0).points
     }
 
     #[test]

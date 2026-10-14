@@ -9,9 +9,10 @@ use almondbread_core::cfmt::g;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::PAN_SPEED;
 use almondbread_core::locations::BENCHMARK_LOCATIONS;
-use almondbread_core::oracle::{IterationField, VerifyReport, compare, cpu_render};
+use almondbread_core::oracle::{IterationField, VerifyReport, compare, cpu_render, cpu_render_deep};
+use almondbread_core::reference::DEEP_SCALE;
 use almondbread_core::settings::Supersampling;
-use almondbread_core::viewport::Viewport;
+use almondbread_core::viewport::{Center, Scale, Viewport};
 use almondbread_render::scheduler::BAILOUT;
 use almondbread_render::{GpuBackend, OffscreenResult, Renderer, SimulationResult};
 
@@ -99,6 +100,24 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
 
 // MARK: verify
 
+/// The CPU oracle for a view: direct f64 iteration where f64 resolves the pixels, else the
+/// deep oracle (high-precision reference, f64 rescaled perturbation; M3b).
+pub fn oracle(center: &Center, texel: Scale, width: usize, height: usize, max_iter: usize) -> IterationField {
+    if texel.to_f64() >= DEEP_SCALE {
+        cpu_render(
+            center.re(),
+            center.im(),
+            texel.to_f64(),
+            width,
+            height,
+            max_iter,
+            BAILOUT,
+        )
+    } else {
+        cpu_render_deep(center, texel, width, height, max_iter, BAILOUT).0
+    }
+}
+
 pub struct VerifyResult {
     pub report: VerifyReport,
     pub heatmap: Vec<u8>,
@@ -121,7 +140,7 @@ pub fn verify<B: GpuBackend>(
     let v = r.viewport.clone();
     let t0 = Instant::now();
     let cpu_iter = cpu_iterations.unwrap_or_else(|| r.max_iterations());
-    let cpu = cpu_render(v.center.re(), v.center.im(), v.scale, width, height, cpu_iter, BAILOUT);
+    let cpu = oracle(&v.center, v.scale, width, height, cpu_iter);
     let cpu_time = t0.elapsed().as_secs_f64();
     let (report, heatmap) = compare(&gpu, &cpu);
     Ok(VerifyResult {
@@ -167,10 +186,11 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         // Reference reuse: the orbit of a point dx,dy pixels from the centre, made at
         // `--ref-scale` times the scale (default 1).
         let mut rv = r.viewport.clone();
-        rv.center = rv.center.offset(dx * rv.scale, dy * rv.scale);
-        rv.scale *= o.f64("ref-scale").unwrap_or(1.0);
+        rv.center = rv.center.offset_scaled(dx, dy, rv.scale);
+        rv.scale = rv.scale * o.f64("ref-scale").unwrap_or(1.0);
         let max_iter = r.max_iterations();
-        r.prime_reference(&rv, max_iter);
+        let texel = r.viewport.scale;
+        r.prime_reference(&rv, max_iter, texel, width.max(height));
     }
     let v = verify(&mut r, width, height, o.usize("cpu-iterations"))?;
     println!("{}", v.report.summary());
@@ -210,7 +230,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let pointer = o.pair("pointer")?.unwrap_or((0.0, 0.0));
     // --scale is per pixel as for verify; the viewport counts view points.
     let mut end = o.viewport(width, height)?;
-    end.scale /= ppp;
+    end.scale = end.scale / ppp;
     let mut r = new_renderer(backend, o)?;
     // Deterministic for the diff: let the extension run to its limit.
     r.config.extension_budget = o.f64("extension-budget").unwrap_or(120.0);
@@ -265,12 +285,13 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         let v = &sim.viewport;
         let tag = if n > 1 { format!("[{}] ", i + 1) } else { String::new() };
         println!(
-            "{tag}history {mode}: {} frames, final view {}, {} texel {} (zoom {}), maxIter {} (hard {}), ref {} pts, level {}x{}{}, complete {:.0} ms / resolved {:.0} ms after input, unresolved {}, learned limit {}",
+            "{tag}history {mode}: {} frames, final view {}, {} texel {} (zoom {}){}, maxIter {} (hard {}), ref {} pts, level {}x{}{}, complete {:.0} ms / resolved {:.0} ms after input, unresolved {}, learned limit {}",
             sim.frames,
             g(v.center.re(), 17),
             g(v.center.im(), 17),
-            g(sim.texel_scale, 4),
-            g(v.zoom(), 3),
+            sim.texel_scale.to_text(4),
+            almondbread_render::host::zoom_text(v.zoom_log10()),
+            if sim.deep { " deep" } else { "" },
             sim.max_iter,
             sim.hard_iter,
             sim.reference_length,
@@ -284,23 +305,12 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         );
         let field = IterationField::from_texels(sim.level_width, sim.level_height, &sim.iterations);
         let cpu_iter = o.usize("cpu-iterations").unwrap_or(sim.hard_iter);
-        let cpu = cpu_render(
-            v.center.re(),
-            v.center.im(),
-            sim.texel_scale,
-            sim.level_width,
-            sim.level_height,
-            cpu_iter,
-            BAILOUT,
-        );
+        let cpu = oracle(&v.center, sim.texel_scale, sim.level_width, sim.level_height, cpu_iter);
         let (vs_cpu, heatmap) = compare(&field, &cpu);
         println!("{tag}vs CPU oracle at {cpu_iter}:  {}", vs_cpu.summary());
         // Fresh headless render of the same texel grid, settings and limits.
         let mut fresh = new_renderer(backend, o)?;
-        fresh.viewport = Viewport {
-            center: v.center.clone(),
-            scale: sim.texel_scale,
-        };
+        fresh.viewport = Viewport::with_center(v.center.clone(), sim.texel_scale);
         fresh.settings.supersampling = Supersampling::Off;
         fresh.settings.auto_iterations = false;
         fresh.settings.manual_iterations = sim.max_iter;
@@ -606,4 +616,119 @@ pub fn regress_command<B: GpuBackend + Clone>(backend: &B, extra: &Options) -> R
         }
     }
     Ok(status)
+}
+
+// MARK: locate
+
+/// `locate --center re,im --radius r [--min-period p] [--max-period N] [--bits b]
+/// [--walk k --toward re,im --shrink f]`: the reference selector's view of a point (kb:
+/// techniques/reference-selection): the lowest period >= p of an atom touching the disc (ball
+/// method), its Newton nucleus, the minibrot's size and orientation. With `--walk k` it steps k
+/// times: next centre = nucleus + size * toward (a point in the minibrot's own coordinates),
+/// radius = |size| * shrink, periods above the last. Used to make the deep benchmark locations
+/// (kb: synthesis/benchmarks M3b).
+pub fn locate_command(o: &Options) -> Result<i32> {
+    use almondbread_core::math::{
+        BigComplex, BigFloat, DoubleExp, NewtonOptions, PeriodMethod, find_nucleus, find_period_from,
+        minibrot_size_complex,
+    };
+    let Some(c) = o.get("center") else {
+        return err("missing --center re,im");
+    };
+    let Some((re, im)) = c.split_once(',') else {
+        return err("bad --center");
+    };
+    let radius = o.get("radius").unwrap_or("1e-10");
+    let max_period = o.usize("max-period").unwrap_or(200_000);
+    let mut min_period = o.usize("min-period").unwrap_or(1);
+    let walk = o.usize("walk").unwrap_or(0);
+    let shrink = o.f64("shrink").unwrap_or(0.05);
+    let toward = o.pair("toward")?.unwrap_or((-0.75, 0.1));
+    let bad = |w: &str| crate::options::CommandError(format!("bad --{w}"));
+    let mut r = Scale::parse(radius).ok_or_else(|| bad("radius"))?;
+    let bits_for = |r: Scale| {
+        o.usize("bits")
+            .unwrap_or(((-r.log2()) as usize + 128).div_ceil(64) * 64)
+    };
+    let mut bits = bits_for(r);
+    let mut center = BigComplex::parse(re, im, bits).ok_or_else(|| bad("center"))?;
+    for step in 0..=walk {
+        let t0 = Instant::now();
+        let rb = r.big_times(1.0, 64);
+        let Some(p) = find_period_from(
+            &center,
+            &rb,
+            min_period,
+            max_period,
+            PeriodMethod::Ball,
+            4096,
+            &mut || false,
+        ) else {
+            println!(
+                "step {step}: no period in [{min_period}, {max_period}] for r {}",
+                r.to_text(4)
+            );
+            return Ok(1);
+        };
+        let opts = NewtonOptions {
+            precision_bits: Some(bits),
+            max_steps: 64,
+            max_distance: Some(rb.times_power_of_two(4)),
+        };
+        let Some(mut nr) = find_nucleus(&center, p, &opts, &mut || false) else {
+            println!("step {step}: period {p}: Newton did not converge");
+            return Ok(1);
+        };
+        // The nucleus must be resolved far below the minibrot's size (often ~ radius^2 near
+        // the needle): refine at more bits until the precision covers it.
+        let mut size = minibrot_size_complex(&nr.nucleus, p);
+        loop {
+            let need = ((-size.magnitude().log2_magnitude()) as usize + 96).div_ceil(64) * 64;
+            if need <= bits {
+                break;
+            }
+            bits = need;
+            let opts = NewtonOptions {
+                precision_bits: Some(bits),
+                ..opts.clone()
+            };
+            let start = nr.nucleus.with_precision(bits);
+            let Some(better) = find_nucleus(&start, p, &opts, &mut || false) else {
+                println!("step {step}: period {p}: Newton did not converge at {bits} bits");
+                return Ok(1);
+            };
+            nr = better;
+            size = minibrot_size_complex(&nr.nucleus, p);
+        }
+        let t = t0.elapsed().as_secs_f64();
+        let dist = (&nr.nucleus - &center).magnitude_double_exp();
+        let mag = size.magnitude();
+        let size_log10 = mag.log2_magnitude() * std::f64::consts::LOG10_2;
+        let digits = ((-size_log10) as usize + 8).max(17);
+        let angle = size.im.to_f64().atan2(size.re.to_f64());
+        println!(
+            "step {step}: period {p} nucleus re {}\n        im {}\n        size 1e{size_log10:.2} angle {:.1} deg, distance {} radii, newton {} steps, {t:.2} s at {bits} bits",
+            nr.nucleus.re.to_decimal_string(Some(digits)),
+            nr.nucleus.im.to_decimal_string(Some(digits)),
+            angle.to_degrees(),
+            almondbread_core::cfmt::g((dist / rb.double_exp()).to_f64(), 3),
+            nr.steps
+        );
+        if step == walk {
+            break;
+        }
+        // Next: the point `toward` in the minibrot's coordinates: c = nucleus + size * toward.
+        let (tr, ti) = (DoubleExp::from_f64(toward.0), DoubleExp::from_f64(toward.1));
+        let dre = size.re * tr - size.im * ti;
+        let dim = size.re * ti + size.im * tr;
+        r = Scale::pow2(mag.exponent) * mag.mantissa * shrink;
+        bits = bits_for(r);
+        let to_big = |d: DoubleExp| BigFloat::from_f64(d.mantissa, bits).times_power_of_two(d.exponent);
+        center = BigComplex::new(
+            nr.nucleus.re.with_precision(bits) + to_big(dre),
+            nr.nucleus.im.with_precision(bits) + to_big(dim),
+        );
+        min_period = p + 1;
+    }
+    Ok(0)
 }

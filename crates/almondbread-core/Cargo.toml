@@ -11,6 +11,7 @@ rust-version.workspace = true
 almondbread-math.workspace = true
 rayon = "1.10"
 png = "0.18"
+bytemuck = { version = "1.16", features = ["derive"] }
 
 [lints]
 workspace = true
