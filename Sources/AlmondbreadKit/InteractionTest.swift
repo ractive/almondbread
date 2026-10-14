@@ -202,7 +202,28 @@ final class InteractionTest: NSObject {
                                                edge.panAfterExit, glide, ok ? "OK" : "FAILED"))
             }
         }
-        return [Scenario(name: "home pan", viewport: home, input: pan),
+        // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): the orbit of 200
+        // iterates following a pointer circling the seahorse view (the view itself idle: every
+        // frame is an overlay-only frame), and a zoom with orbit and three map levels on.
+        let overlayOn = { (v: FractalNSView, orbit: Bool, map: Bool) in
+            v.explorer?.setOverlay(settings: OverlaySettings(orbit: orbit, orbitLength: 200, map: map, mapLevels: 3,
+                                                             mapSize: 180, mapCorner: .bottomLeft))
+        }
+        let orbitPointer: (FractalNSView, Int, Double) -> Void = { v, i, _ in
+            if i == 0 { overlayOn(v, true, false) }
+            let a = Double(i) * 0.06
+            v.send(.pointer(x: 220 * cos(a), y: 150 * sin(a)))
+        }
+        let overlayZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                overlayOn(v, true, true)
+                v.send(.pointer(x: 120, y: -60))
+            }
+            zoom(v, i, t)
+        }
+        return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
+                Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
+                Scenario(name: "home pan", viewport: home, input: pan),
                 Scenario(name: "neck zoom", viewport: neck, input: zoom),
                 Scenario(name: "wasd 1e5", viewport: sea, input: wasd),
                 Scenario(name: "space zoom", viewport: sea, input: space),
@@ -304,6 +325,9 @@ final class InteractionTest: NSObject {
         view.send(.pointer(x: 50, y: 0))
         view.send(.pointerExited)
         explorer.setEdgePan(mode: .whileZooming)
+        // Overlays off unless a scenario turns them on (measures that off costs nothing).
+        explorer.setOverlay(settings: OverlaySettings(orbit: false, orbitLength: 50, map: false, mapLevels: 3,
+                                                      mapSize: 180, mapCorner: .bottomLeft))
         view.requestFrames()
         settling = true
         reported = false

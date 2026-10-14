@@ -16,6 +16,7 @@ use almondbread_core::input::InputEvent;
 use almondbread_core::viewport::Viewport;
 
 use crate::backend::GpuBackend;
+use crate::overlay::Overlay;
 use crate::scheduler::{FrameOutcome, FrameStats, FrameTarget, Renderer};
 
 /// What an input event did.
@@ -69,6 +70,8 @@ struct Measurement {
 
 /// The renderer plus the view it draws into.
 pub struct Host<B: GpuBackend> {
+    /// Orbit overlay and mini-map (kb: decisions/controls, "Orbit overlay and mini-map").
+    pub overlay: Overlay<B>,
     pub renderer: Renderer<B>,
     width: usize,
     height: usize,
@@ -78,7 +81,7 @@ pub struct Host<B: GpuBackend> {
     measure: Option<Measurement>,
 }
 
-impl<B: GpuBackend> Host<B> {
+impl<B: GpuBackend + Clone> Host<B> {
     pub fn new(renderer: Renderer<B>) -> Self {
         Self {
             renderer,
@@ -88,6 +91,7 @@ impl<B: GpuBackend> Host<B> {
             view_points: (0.0, 0.0),
             fitted: false,
             measure: None,
+            overlay: Overlay::default(),
         }
     }
 
@@ -141,12 +145,60 @@ impl<B: GpuBackend> Host<B> {
         // A mode change needs a frame too: the platform updates cursor and crosshair from
         // the frame's overlay state; edge panning may start on a pointer move.
         let nav = &self.renderer.navigator;
+        // The orbit overlay follows the pointer: every pointer move needs a frame then.
+        let orbit = self.overlay.settings.orbit && matches!(event, InputEvent::Pointer(_));
         let redraw = handled
             && (moved
+                || orbit
                 || nav.is_animating()
                 || nav.mode() != mode
                 || matches!(event, InputEvent::KeyDown(_) | InputEvent::Resize { .. }));
         InputOutcome { handled, redraw }
+    }
+
+    /// A click (or tap) at (x, y) view points from the centre, y up: on a mini-map panel it
+    /// starts a jump there (resolved on a thread, applied by a later `frame`; `fly`: Option
+    /// or Alt was held) and returns true (the platform then ignores the click otherwise).
+    pub fn map_click(&mut self, x: f64, y: f64, fly: bool) -> bool {
+        if self.points_per_pixel <= 0.0 {
+            return false;
+        }
+        let ppp = self.points_per_pixel;
+        let px = self.width as f64 / 2.0 + x / ppp;
+        let py = self.height as f64 / 2.0 - y / ppp;
+        self.overlay.click(&self.renderer, px, py, ppp, fly)
+    }
+
+    /// Overlay work before the renderer's frame: a resolved map click is applied (a jump
+    /// keeping the zoom), the probe and maps follow the view, the scene is rebuilt if it
+    /// changed. Cheap when the overlays are off.
+    fn overlay_before(&mut self, now: f64) {
+        self.overlay.poll_click(now);
+        if let Some(j) = self.overlay.pending_jump.take() {
+            // (A fly-to path would take `j.fly`; the autopilot is wired after merging.)
+            let mut v = Viewport::with_center(j.center, self.renderer.viewport.scale);
+            v.ensure_precision();
+            self.renderer.viewport = v;
+            self.renderer.note_interaction(now);
+        }
+        if self.overlay.settings.any() || self.renderer.overlay.is_some() {
+            let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
+            self.overlay.prepare(&mut self.renderer, (w, h), ppp, now);
+        }
+    }
+
+    /// Overlay work after the frame: about 1.5 ms of orbit analysis, and the maps' renderers
+    /// while the view is not in a gesture (they never take the gesture frame budget).
+    fn overlay_after(&mut self, now: f64, outcome: &mut FrameOutcome) {
+        if !self.overlay.settings.any() {
+            return;
+        }
+        self.overlay.step_probe(0.0015);
+        if !self.renderer.navigator.is_interacting(now) {
+            let settings = self.renderer.settings.clone();
+            self.overlay.step_maps(&settings, now);
+        }
+        outcome.animating |= self.overlay.busy();
     }
 
     /// The home view fitted to the view.
@@ -174,8 +226,9 @@ impl<B: GpuBackend> Host<B> {
             m.pending_input.get_or_insert(start);
         }
         let mut tag = 0;
+        self.overlay_before(now);
         let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
-        let outcome = self
+        let mut outcome = self
             .renderer
             .render_frame_gated(now, w, h, ppp, target_ready, &mut |final_frame| {
                 acquire(final_frame).map(|(target, t)| {
@@ -183,6 +236,7 @@ impl<B: GpuBackend> Host<B> {
                     target
                 })
             });
+        self.overlay_after(now, &mut outcome);
         if let Some(m) = &mut self.measure {
             m.draw_cpu.push(clock() - start);
             if outcome.presented {

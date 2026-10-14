@@ -1,5 +1,8 @@
 import AlmondbreadCore
 import Foundation
+#if os(macOS)
+import AppKit
+#endif
 
 /// Launch check for builds (`make selftest`): with `--selftest` or `ALMONDBREAD_SELFTEST=1`
 /// the app renders its first view through the real view and the Rust renderer, and once the
@@ -59,5 +62,70 @@ public enum SelfTest {
         print(message)
         fflush(stdout)
         exit(ok ? 0 : status)
+    }
+}
+
+/// `--ui-demo[=name]`: a background window (TestLaunch: never key, never in front) showing the
+/// control center and the overlays at a fixed view, for screenshots of the window by its
+/// number (`screencapture -l <n>` captures it behind other windows). Prints
+/// "ui-demo: window <n>" once the view settled, then quits after 20 s. Scenes: `orbit`
+/// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
+/// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels).
+public enum UIDemo {
+    public static var scene: String? {
+        let prefix = "--ui-demo"
+        guard let a = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }) else { return nil }
+        return a.hasPrefix(prefix + "=") ? String(a.dropFirst(prefix.count + 1)) : "orbit"
+    }
+    public static var enabled: Bool { scene != nil }
+
+    @MainActor
+    static func configure(_ model: ExplorerModel, explorer: Explorer) {
+        guard let scene else { return }
+        model.applyLook("aurora")
+        model.supersampling = .x9
+        switch scene {
+        case "interior":
+            try? explorer.setViewport(re: "-0.1225", im: "0.7445", scale: 0.0004)
+            model.interiorColoring = .bubbles
+            model.orbitEnabled = true
+            model.orbitLength = 60
+            model.mapEnabled = false
+            _ = explorer.input(event: .pointer(x: 40, y: 30))
+        case "deep":
+            try? explorer.setViewportText(
+                re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",
+                im: "0", scale: "1.25e-94")
+            model.interiorColoring = .period
+            model.orbitEnabled = true
+            model.orbitLength = 300
+            model.mapEnabled = true
+            model.mapLevels = 4
+            _ = explorer.input(event: .pointer(x: 10, y: 4))
+        default:
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+            model.interiorColoring = .angle
+            model.orbitEnabled = true
+            model.orbitLength = 120
+            model.mapEnabled = true
+            model.mapLevels = 3
+            _ = explorer.input(event: .pointer(x: 150, y: -80))
+        }
+        // Report the window once the view settled and the maps had time to render.
+        let start = Date()
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                model.refreshStats()
+                #if os(macOS)
+                if Date().timeIntervalSince(start) > 8, model.stats?.settled == true,
+                   let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
+                    timer.invalidate()
+                    print("ui-demo: window \(w.windowNumber) orbit: \(model.orbit?.text ?? "")")
+                    fflush(stdout)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }
+                }
+                #endif
+            }
+        }
     }
 }

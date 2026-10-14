@@ -21,6 +21,7 @@ pub use almondbread_core as core;
 pub mod backend;
 pub mod gpu_types;
 pub mod host;
+pub mod overlay;
 pub mod scheduler;
 
 #[cfg(target_vendor = "apple")]

@@ -180,3 +180,73 @@ events. Measured in [[synthesis/benchmarks]] FL and judged on the review videos.
 - **Interaction-test changes.** Edge pan expects the eased start (−2/ω of a second) and a
   glide of 2/ω_decel of speed after the pointer leaves (measured 53.0 pt vs 54.2 expected);
   the keyboard-glide fixed point is measured after the tapped key's pan has glided out.
+
+## Revision 2026-10-14: control center, orbit overlay and mini-map, as built
+
+Requested by the user ("show the c value as a dot plus the first n iterations as lines",
+interior colourings, "a settings menu or a control center", then a mini-map "where you
+actually are", with nested levels and click-to-jump). Measured in [[synthesis/benchmarks]]
+("Overlays").
+
+**Control center** (`Sources/AlmondbreadKit/ControlCenterView.swift`, replaces the inspector).
+Sections in order: Places, View & navigation, Look & colour, Lighting & outline, Interior,
+Overlays, Iterations & quality, Performance & diagnostics, Controls. A search field at the top
+filters sections by title and keywords ("dense", "orbit", "aa", ...); headers collapse
+(remembered). A trailing sidebar on the Mac and iPad, so nothing covers the image; a sheet on
+iPhone (medium/large detents, translucent material). Toggled by the toolbar button and ⌘I
+("Show Control Center"); the toolbar also has Orbit and Mini-map toggles. App-wide preferences
+are in the macOS Settings window (⌘,): restore colours and overlays at launch, HUD, zoom units
+(×-magnification or 10^n), edge panning, game controllers, reset to defaults. Per-window
+settings (look, colour, interior, quality, overlays) persist in user defaults as one JSON
+record written half a second after the last change and restored at launch (window tests
+start from the defaults). Places is a placeholder for the places catalog being built
+separately (`PlacesSection`, `PlacesProvider`); the palette picker is a swatch grid separate
+from looks, and `Explorer.setCustomPalette(stops)` takes any palette as stops for a palette
+library.
+
+**Orbit overlay.** c is the zoom target (the pointer in pointer mode, the crosshair in
+keyboard mode or during autopilot), drawn as a ring and dot; `z_1 ... z_n` (n = 1 ... 1000,
+default 50; O toggles) as dots joined by segments, warm to cool and fading along the orbit,
+each over a dark halo so it reads on any palette. The orbit is computed in Rust
+(`core::orbit`): shallow views iterate c in f64-mantissa floatexp; deep views perturb
+against the renderer's reference (`z = Z_m + δ` with rebasing), so iterates that come back
+near c (after a period, where the reference rebases to m = 1) land exactly. The fate of c is
+classified like the kernels classify pixels (derivative test, atom domain, period by
+closure among divisors of q with `|λ| < 1`, see [[techniques/coloring-methods]] "Interior
+colouring as built") in steps of ~1.5 ms per frame, and shown under the mini-map: "escapes at
+n 37", "period 3 |λ| 0.412 arg +0.250", "unresolved at n ...", with `|z_n|`.
+
+**Drawn in Rust/Metal, not SwiftUI** (`crates/almondbread-render/src/overlay.rs`, kernel
+`overlay`). The scene is vector primitives in drawable pixels (segments, discs, rings, rounded
+rects, map images, glyphs of a 5×7 bitmap font with box-filtered coverage), binned on the CPU
+into 16×16 tiles (segments are walked, so a long line touches a band of tiles); a thread per
+pixel blends its tile's primitives in order by analytic coverage (1-pixel ramp of the signed
+distance): anti-aliased and crisp at any backing scale. After a compose pass only the tiles
+with primitives run, reading the new history; when only the overlay changed (the pointer moved
+over a resting view) a full pass copies the history to the drawable with the overlay. The
+history never contains the overlay, so reprojection, shown-frame checks and exports are
+unaffected; with the overlays off nothing is encoded. Unlike the crosshair (a Core Animation
+layer, M2.5) the overlay changes the drawn frame, which is the point: a Windows or Linux UI
+gets it for free.
+
+**Mini-map** (M toggles; size, corner and levels in the control center). The whole set
+(level 0) plus up to three *breadcrumb* levels at multiples of 1000× (the deepest
+`levels − 1` that are still at least 30× shallower than the view), in a row from the chosen
+corner, each in a translucent rounded panel with its magnification as a label. Each level
+marks the next level's area (the deepest marks the view) as a rectangle, switching to a
+crosshair once the area is under ~6 points. A level keeps its centre until the view leaves the
+middle 60 % of its panel; then it is re-centred and rendered again. Each level is rendered by
+a small renderer of its own (64 K live slots, 2 ms chunks, one in flight, 4 AA samples, no
+interior analysis) at the panel's pixel size; renderers of dropped levels are reused (making
+one compiles pipelines). They are stepped only while the main view is not in a gesture.
+The orbit overlay draws the orbit at full-set scale on level 0.
+
+**Click to jump.** A click (tap on iOS) on a panel maps the pixel to c with the level's
+precision and jumps there keeping the current zoom. When the map pixel is more than 4 view
+pixels the clicked point is underdetermined; landing on an arbitrary point of the pixel usually
+shows smooth exterior. Then, on a thread, ball period detection finds the lowest-period
+minibrot touching the pixel, Newton finds its nucleus at the view's precision, and the jump
+goes to the minibrot's cusp, nucleus + size/4 along its orientation (`minibrot_size_complex`),
+a boundary point with structure at every depth; the note under the map says what was done
+("snapped to the period-p minibrot's cusp near the click"). No minibrot found: the pixel's
+centre. Option-click asks to fly there; until the autopilot's fly-to is merged it jumps.

@@ -212,6 +212,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     private var overHUD = false
     /// A mouse drag is in progress (its release may fling).
     private var dragging = false
+    /// The current mouse press landed on a mini-map (no drag, no double-click zoom).
+    private var mapClicked = false
     private var gamepad: GamepadInput?
 
     init(model: ExplorerModel) {
@@ -222,8 +224,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         base.attach(host: self)
         base.onModeChange = { [weak self] mode in self?.modeChanged(mode) }
         if InteractionTest.enabled { InteractionTest.shared.attach(view: self) }
+        if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
         // Window tests never read the user's controller.
-        if !TestLaunch.enabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
+        if !TestLaunch.enabled && Preferences.gamepadEnabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -404,6 +407,16 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // Menu shortcuts and text fields keep their keys.
         if event.modifierFlags.contains(.command) { return false }
         if window?.firstResponder is NSText { return false }
+        // O / M: orbit overlay, mini-map (toggled on key-down; their key-ups are swallowed).
+        switch (event.charactersIgnoringModifiers ?? "").lowercased() {
+        case "o":
+            if event.type == .keyDown && !event.isARepeat { model.toggleOrbit() }
+            return true
+        case "m":
+            if event.type == .keyDown && !event.isARepeat { model.toggleMap() }
+            return true
+        default: break
+        }
         guard let key = Self.navKey(event) else { return false }
         if event.type == .keyUp { return send(.keyUp(key: key)).handled }
         send(.shift(down: shift))
@@ -429,7 +442,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     override func mouseMoved(with event: NSEvent) {
         // The interaction test drives the pointer itself; the user's real mouse over the
         // background test window must not interfere.
-        guard !InteractionTest.enabled else { return }
+        guard !InteractionTest.enabled, !UIDemo.enabled else { return }
         let p = convert(event.locationInWindow, from: nil)
         // Over the HUD the pointer is off the canvas (zooms go to the centre, no edge pan).
         if hudRect.contains(p) {
@@ -445,7 +458,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) {
-        guard !InteractionTest.enabled else { return }
+        guard !InteractionTest.enabled, !UIDemo.enabled else { return }
         overHUD = false
         send(.pointerExited)
     }
@@ -477,9 +490,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // A drag released while moving flings on (mice have no OS momentum).
         if dragging { send(.gestureEnd) }
         dragging = false
+        mapClicked = false
     }
 
     override func mouseDragged(with event: NSEvent) {
+        // A press on a mini-map jumps; it does not drag the view.
+        if mapClicked { return }
         dragging = true
         send(.pan(dx: Double(event.deltaX), dy: -Double(event.deltaY)))
         // The pointer moves with the drag: it is the zoom target afterwards.
@@ -491,6 +507,13 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if event.clickCount == 1 {
+            // A click on a mini-map panel jumps there (Option: fly, once the autopilot is wired).
+            let o = offset(event.locationInWindow)
+            mapClicked = model.mapClick(x: o.x, y: o.y, fly: event.modifierFlags.contains(.option))
+            if mapClicked { return }
+        }
+        if mapClicked { return }
         if event.clickCount == 2 {
             let o = offset(event.locationInWindow)
             send(.doubleTap(x: o.x, y: o.y, out: event.modifierFlags.contains(.option)))
@@ -543,12 +566,15 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         pan.delegate = self
         // iPad trackpad / mouse: pointer mode (zoom target = pointer, crosshair pointer).
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
-        [pinch, pan, doubleTap, twoFingerTap, hover].forEach(addGestureRecognizer)
+        // A single tap on a mini-map jumps there (waits for the double tap to fail).
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.require(toFail: doubleTap)
+        [pinch, pan, tap, doubleTap, twoFingerTap, hover].forEach(addGestureRecognizer)
         let pointer = UIPointerInteraction(delegate: self)
         addInteraction(pointer)
         pointerInteraction = pointer
         base.onModeChange = { [weak self] _ in self?.pointerInteraction?.invalidate() }
-        gamepad = GamepadInput { [weak self] e in self?.send(e) }
+        if Preferences.gamepadEnabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -652,6 +678,13 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var unhandled = Set<UIPress>()
         for press in presses {
+            if let key = press.key, key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) {
+                switch key.charactersIgnoringModifiers.lowercased() {
+                case "o": base.model.toggleOrbit(); continue
+                case "m": base.model.toggleMap(); continue
+                default: break
+                }
+            }
             guard let key = press.key, let nav = Self.navKey(key) else { unhandled.insert(press); continue }
             send(.shift(down: key.modifierFlags.contains(.shift)))
             if !send(.keyDown(key: nav)).handled { unhandled.insert(press) }
@@ -722,6 +755,11 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     @objc private func handleDoubleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
         send(.doubleTap(x: o.x, y: o.y, out: false))
+    }
+
+    @objc private func handleTap(_ g: UITapGestureRecognizer) {
+        let o = offset(g.location(in: self))
+        _ = base.model.mapClick(x: o.x, y: o.y, fly: false)
     }
 
     @objc private func handleTwoFingerTap(_ g: UITapGestureRecognizer) {

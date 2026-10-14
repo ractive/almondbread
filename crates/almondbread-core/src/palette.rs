@@ -146,44 +146,7 @@ impl Palette {
     /// Samples the gradient into `size` linear-RGB entries (rgba, a = 1): a periodic
     /// Catmull-Rom spline through the stops in OKLab, clamped to the sRGB gamut.
     pub fn table(&self, size: usize) -> Vec<[f32; 4]> {
-        let n = self.stops.len();
-        let lab: Vec<[f64; 3]> = self.stops.iter().map(|&(_, hex)| oklab_from_hex(hex)).collect();
-        let pos: Vec<f64> = self.stops.iter().map(|s| s.0).collect();
-        (0..size)
-            .map(|i| {
-                let t = i as f64 / size as f64;
-                if n == 1 {
-                    let c = linear_from_oklab(lab[0]);
-                    return [c[0] as f32, c[1] as f32, c[2] as f32, 1.0];
-                }
-                // Segment k: from stop k to stop k+1 (wrapping).
-                let mut k = n - 1;
-                for (j, &p) in pos.iter().enumerate() {
-                    if p <= t {
-                        k = j;
-                    }
-                }
-                let (a, mut b) = (pos[k], pos[(k + 1) % n]);
-                let mut tt = t;
-                if b <= a {
-                    b += 1.0;
-                    if tt < a {
-                        tt += 1.0;
-                    }
-                }
-                let u = (tt - a) / (b - a).max(1e-9);
-                let p0 = lab[(k + n - 1) % n];
-                let p1 = lab[k];
-                let p2 = lab[(k + 1) % n];
-                let p3 = lab[(k + 2) % n];
-                let mut c = [0.0; 3];
-                for d in 0..3 {
-                    c[d] = catmull_rom(p0[d], p1[d], p2[d], p3[d], u);
-                }
-                let rgb = linear_from_oklab(c);
-                [rgb[0] as f32, rgb[1] as f32, rgb[2] as f32, 1.0]
-            })
-            .collect()
+        gradient_table(&self.stops, size)
     }
 
     /// `count` evenly spaced sRGB samples of the gradient (swatches in the UI).
@@ -197,6 +160,83 @@ impl Palette {
             })
             .collect()
     }
+}
+
+/// Samples any palette given as `(position 0..1, sRGB hex)` stops into `size` linear-RGB
+/// entries (rgba, a = 1): a periodic Catmull-Rom spline through the stops in OKLab, clamped
+/// to the sRGB gamut. Works for imported or custom palettes as well as the built-in ones.
+pub fn gradient_table(stops: &[(f64, u32)], size: usize) -> Vec<[f32; 4]> {
+    let n = stops.len();
+    if n == 0 {
+        return vec![[0.0, 0.0, 0.0, 1.0]; size];
+    }
+    let lab: Vec<[f64; 3]> = stops.iter().map(|&(_, hex)| oklab_from_hex(hex)).collect();
+    let pos: Vec<f64> = stops.iter().map(|s| s.0).collect();
+    (0..size)
+        .map(|i| {
+            let t = i as f64 / size as f64;
+            if n == 1 {
+                let c = linear_from_oklab(lab[0]);
+                return [c[0] as f32, c[1] as f32, c[2] as f32, 1.0];
+            }
+            // Segment k: from stop k to stop k+1 (wrapping).
+            let mut k = n - 1;
+            for (j, &p) in pos.iter().enumerate() {
+                if p <= t {
+                    k = j;
+                }
+            }
+            let (a, mut b) = (pos[k], pos[(k + 1) % n]);
+            let mut tt = t;
+            if b <= a {
+                b += 1.0;
+                if tt < a {
+                    tt += 1.0;
+                }
+            }
+            let u = (tt - a) / (b - a).max(1e-9);
+            let p0 = lab[(k + n - 1) % n];
+            let p1 = lab[k];
+            let p2 = lab[(k + 1) % n];
+            let p3 = lab[(k + 2) % n];
+            let mut c = [0.0; 3];
+            for d in 0..3 {
+                c[d] = catmull_rom(p0[d], p1[d], p2[d], p3[d], u);
+            }
+            let rgb = linear_from_oklab(c);
+            [rgb[0] as f32, rgb[1] as f32, rgb[2] as f32, 1.0]
+        })
+        .collect()
+}
+
+/// The colours of dense regions for a palette table (kb: techniques/coloring-methods, "Dense
+/// regions"): where the palette cycles faster than a pixel, the view fades to a calm `deep`
+/// colour (the palette's darkest third, averaged, kept saturated and brought to a low
+/// luminance) with thin `filament` lines along the boundary (its brightest tenth, brought to
+/// a bright luminance), instead of the palette's mean, a grey. Linear RGB.
+pub fn dense_colors(table: &[[f32; 4]]) -> ([f32; 3], [f32; 3]) {
+    let lum = |c: &[f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let mut sorted: Vec<&[f32; 4]> = table.iter().collect();
+    sorted.sort_by(|a, b| lum(a).total_cmp(&lum(b)));
+    let avg = |s: &[&[f32; 4]]| {
+        let n = s.len().max(1) as f32;
+        let mut m = [0.0f32; 4];
+        for c in s {
+            for k in 0..3 {
+                m[k] += c[k] / n;
+            }
+        }
+        m
+    };
+    let n = sorted.len();
+    let dark = avg(&sorted[..(n / 3).max(1).min(n)]);
+    let bright = avg(&sorted[n - (n / 10).max(1).min(n)..]);
+    let to_lum = |c: [f32; 4], target: f32| {
+        let l = lum(&c).max(1e-5);
+        let f = target / l;
+        [(c[0] * f).min(1.0), (c[1] * f).min(1.0), (c[2] * f).min(1.0)]
+    };
+    (to_lum(dark, 0.012), to_lum(bright, 0.35))
 }
 
 fn catmull_rom(p0: f64, p1: f64, p2: f64, p3: f64, u: f64) -> f64 {
@@ -382,6 +422,8 @@ impl Look {
         s.edge_color = lin(self.edge_color);
         s.interior_color = lin(self.interior);
         s.palette_filter = true;
+        s.dense_calm = true;
+        s.palette_stops = None;
     }
 }
 

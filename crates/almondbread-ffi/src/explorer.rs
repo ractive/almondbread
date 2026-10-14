@@ -330,6 +330,130 @@ pub struct ExplorerSettings {
     /// Anti-aliasing: samples per axis, 1 to 4 (the view accumulates the square while idle).
     pub supersampling: u8,
     pub interactive_preview: bool,
+    /// Interior colouring (kb: techniques/coloring-methods, "Interior colouring as built").
+    pub interior_mode: InteriorMode,
+    /// Palette cycles of the interior modes.
+    pub interior_density: f64,
+    /// Angle mode: stripes per turn.
+    pub interior_stripes: f64,
+    /// Dense regions fade to a calm dark colour with thin filaments (off: the old grey).
+    pub dense_calm: bool,
+}
+
+/// How the inside of the set is coloured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InteriorMode {
+    Flat,
+    Bubbles,
+    Period,
+    Angle,
+    Distance,
+}
+
+impl From<almondbread_core::InteriorMode> for InteriorMode {
+    fn from(m: almondbread_core::InteriorMode) -> Self {
+        use almondbread_core::InteriorMode as M;
+        match m {
+            M::Flat => Self::Flat,
+            M::Bubbles => Self::Bubbles,
+            M::Period => Self::Period,
+            M::Angle => Self::Angle,
+            M::Distance => Self::Distance,
+        }
+    }
+}
+
+impl From<InteriorMode> for almondbread_core::InteriorMode {
+    fn from(m: InteriorMode) -> Self {
+        match m {
+            InteriorMode::Flat => Self::Flat,
+            InteriorMode::Bubbles => Self::Bubbles,
+            InteriorMode::Period => Self::Period,
+            InteriorMode::Angle => Self::Angle,
+            InteriorMode::Distance => Self::Distance,
+        }
+    }
+}
+
+/// Corner of the mini-map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MapCorner {
+    BottomLeft,
+    BottomRight,
+    TopLeft,
+    TopRight,
+}
+
+/// Overlays drawn by the renderer over the fractal (kb: decisions/controls, "Orbit overlay
+/// and mini-map"); never part of the image, the history or exports.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct OverlaySettings {
+    /// The orbit of the point under the pointer (keyboard mode: the crosshair).
+    pub orbit: bool,
+    /// Iterates drawn, 1 ... 1000.
+    pub orbit_length: u32,
+    /// The mini-map (whole set with the view marked; clicks jump there).
+    pub map: bool,
+    /// Nested maps at decades of zoom, 1 ... 4.
+    pub map_levels: u32,
+    /// Width of a map panel in points (80 ... 400).
+    pub map_size: f64,
+    pub map_corner: MapCorner,
+}
+
+impl From<&almondbread_core::settings::OverlaySettings> for OverlaySettings {
+    fn from(s: &almondbread_core::settings::OverlaySettings) -> Self {
+        use almondbread_core::settings::Corner;
+        Self {
+            orbit: s.orbit,
+            orbit_length: s.orbit_length as u32,
+            map: s.map,
+            map_levels: s.map_levels as u32,
+            map_size: s.map_size,
+            map_corner: match s.map_corner {
+                Corner::BottomLeft => MapCorner::BottomLeft,
+                Corner::BottomRight => MapCorner::BottomRight,
+                Corner::TopLeft => MapCorner::TopLeft,
+                Corner::TopRight => MapCorner::TopRight,
+            },
+        }
+    }
+}
+
+impl OverlaySettings {
+    fn to_core(&self) -> almondbread_core::settings::OverlaySettings {
+        use almondbread_core::settings::Corner;
+        almondbread_core::settings::OverlaySettings {
+            orbit: self.orbit,
+            orbit_length: self.orbit_length as usize,
+            map: self.map,
+            map_levels: self.map_levels as usize,
+            map_size: self.map_size,
+            map_corner: match self.map_corner {
+                MapCorner::BottomLeft => Corner::BottomLeft,
+                MapCorner::BottomRight => Corner::BottomRight,
+                MapCorner::TopLeft => Corner::TopLeft,
+                MapCorner::TopRight => Corner::TopRight,
+            },
+        }
+        .sanitized()
+    }
+}
+
+/// The probed point's orbit, for the UI (the overlay draws the same in the view).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct OrbitInfo {
+    /// "escapes at n 37", "period 3  |λ| 0.412  arg +0.250", "analysing ...", "" when off.
+    pub text: String,
+    /// Iterates drawn and |z_n| of the last.
+    pub iterates: u32,
+    pub last_abs: f64,
+    /// 0 unless an attracting cycle was found.
+    pub period: u64,
+    /// 0 unless it escaped.
+    pub escaped_at: u64,
+    /// What the last mini-map click did (empty if none recently).
+    pub map_note: String,
 }
 
 impl From<&RenderSettings> for ExplorerSettings {
@@ -367,6 +491,10 @@ impl From<&RenderSettings> for ExplorerSettings {
             depth_tint: s.depth_tint,
             supersampling: s.supersampling.factor() as u8,
             interactive_preview: s.interactive_preview,
+            interior_mode: s.interior_mode.into(),
+            interior_density: s.interior_density,
+            interior_stripes: s.interior_stripes,
+            dense_calm: s.dense_calm,
         }
     }
 }
@@ -444,6 +572,18 @@ impl ExplorerSettings {
         s.depth_tint = self.depth_tint.clamp(-1.0, 1.0);
         s.supersampling = ss;
         s.interactive_preview = self.interactive_preview;
+        s.interior_mode = self.interior_mode.into();
+        s.interior_density = if self.interior_density.is_finite() {
+            self.interior_density.clamp(0.0, 10.0)
+        } else {
+            0.25
+        };
+        s.interior_stripes = if self.interior_stripes.is_finite() {
+            self.interior_stripes.clamp(0.0, 64.0)
+        } else {
+            8.0
+        };
+        s.dense_calm = self.dense_calm;
         Ok(())
     }
 }
@@ -755,6 +895,64 @@ impl Explorer {
         settings.apply(&mut s)?;
         g.host.renderer.settings = s;
         Ok(())
+    }
+
+    /// Uses a palette given as stops (an imported or custom one, e.g. from a palette
+    /// library) instead of the built-in `palette_id`; empty: back to the built-in one.
+    pub fn set_custom_palette(&self, stops: Vec<crate::PaletteStop>) {
+        let mut g = self.lock();
+        g.host.renderer.settings.palette_stops = if stops.is_empty() {
+            None
+        } else {
+            Some(stops.iter().map(|s| (s.position.clamp(0.0, 1.0), s.rgb & 0xFF_FFFF)).collect())
+        };
+    }
+
+    pub fn overlay(&self) -> OverlaySettings {
+        OverlaySettings::from(&self.lock().host.overlay.settings)
+    }
+
+    /// Switches the orbit overlay and mini-map (a frame follows: resume the display link).
+    pub fn set_overlay(&self, settings: OverlaySettings) {
+        self.lock().host.overlay.settings = settings.to_core();
+    }
+
+    /// A click or tap at (x, y) view points from the centre (y up): on a mini-map panel it
+    /// jumps there keeping the zoom (snapping to a nearby minibrot when the map is much
+    /// coarser than the view; `orbit_info().map_note` says what was done) and returns true,
+    /// so the platform does not treat it as a drag. `fly`: Option/Alt held.
+    pub fn map_click(&self, x: f64, y: f64, fly: bool) -> bool {
+        if !(x.is_finite() && y.is_finite()) {
+            return false;
+        }
+        self.lock().host.map_click(x, y, fly)
+    }
+
+    pub fn orbit_info(&self) -> OrbitInfo {
+        use almondbread_core::orbit::OrbitClass;
+        let g = self.lock();
+        let o = &g.host.overlay;
+        let class = o.orbit_class();
+        let note = o
+            .note
+            .as_ref()
+            .filter(|(_, t)| media_time() - t < 4.0)
+            .map(|(n, _)| n.clone())
+            .unwrap_or_default();
+        OrbitInfo {
+            text: class.map(OrbitClass::text).unwrap_or_default(),
+            iterates: o.orbit_points().view.len() as u32,
+            last_abs: o.orbit_points().last_abs,
+            period: match class {
+                Some(OrbitClass::Interior { period, .. }) => *period as u64,
+                _ => 0,
+            },
+            escaped_at: match class {
+                Some(OrbitClass::Escaped { iteration }) => *iteration as u64,
+                _ => 0,
+            },
+            map_note: note,
+        }
     }
 
     pub fn stats(&self) -> ExplorerStats {

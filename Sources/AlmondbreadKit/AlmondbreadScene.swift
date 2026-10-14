@@ -20,6 +20,12 @@ public struct AlmondbreadScene: Scene {
         .defaultSize(width: 1280, height: 820)
         .commands { FractalCommands() }
         #endif
+        #if os(macOS)
+        Settings {
+            AppSettingsView()
+                .preferredColorScheme(.dark)
+        }
+        #endif
     }
 }
 
@@ -91,11 +97,22 @@ struct FractalCommands: Commands {
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(model == nil)
             Divider()
-            Button(inspectorVisible?.wrappedValue == true ? "Hide Inspector" : "Show Inspector") {
+            Button(inspectorVisible?.wrappedValue == true ? "Hide Control Center" : "Show Control Center") {
                 inspectorVisible?.wrappedValue.toggle()
             }
             .keyboardShortcut("i", modifiers: .command)
             .disabled(inspectorVisible == nil)
+            Toggle("Orbit Overlay", isOn: Binding(get: { model?.orbitEnabled ?? false },
+                                                  set: { model?.orbitEnabled = $0 }))
+                .keyboardShortcut("o", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Toggle("Mini-map", isOn: Binding(get: { model?.mapEnabled ?? false },
+                                             set: { model?.mapEnabled = $0 }))
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
+                                                   set: { model?.showHUD = $0 }))
+                .disabled(model == nil)
             Divider()
         }
     }
@@ -109,7 +126,7 @@ struct FractalCommands: Commands {
 enum TestLaunch {
     static var enabled: Bool {
         #if os(macOS)
-        SelfTest.enabled || InteractionTest.enabled
+        SelfTest.enabled || InteractionTest.enabled || UIDemo.enabled
         #else
         SelfTest.enabled
         #endif

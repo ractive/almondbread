@@ -126,6 +126,12 @@ pub struct RenderSettings {
     pub glow_width: f64,
     /// Filter the palette by each pixel's colour gradient (palette anti-aliasing).
     pub palette_filter: bool,
+    /// Dense regions (the palette cycles faster than a pixel) fade to a calm dark colour with
+    /// thin bright filaments; off: the filtered palette's mean (a grey), as before.
+    pub dense_calm: bool,
+    /// A palette given as stops (imported or custom: `(position 0..1, sRGB hex)`), used
+    /// instead of `palette_id`'s built-in one when set.
+    pub palette_stops: Option<Vec<(f64, u32)>>,
     /// Colour cycling: palette cycles per second while the view is idle (0: off).
     pub cycle_speed: f64,
     /// Depth tint: palette phase shift per decade of zoom (0: off).
@@ -177,6 +183,8 @@ impl RenderSettings {
             glow_color: [1.0, 1.0, 1.0],
             glow_width: 6.0,
             palette_filter: false,
+            dense_calm: true,
+            palette_stops: None,
             cycle_speed: 0.0,
             depth_tint: 0.0,
             supersampling: Supersampling::default(),
@@ -202,6 +210,74 @@ impl RenderSettings {
 
     pub fn palette(&self) -> Palette {
         Palette::named(&self.palette_id)
+    }
+
+    /// The palette as a `size`-entry linear-RGB table: the custom stops if set, else the
+    /// built-in palette `palette_id`.
+    pub fn palette_table(&self, size: usize) -> Vec<[f32; 4]> {
+        match &self.palette_stops {
+            Some(stops) if !stops.is_empty() => crate::palette::gradient_table(stops, size),
+            _ => self.palette().table(size),
+        }
+    }
+}
+
+/// Which corner of the view the mini-map sits in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Corner {
+    #[default]
+    BottomLeft,
+    BottomRight,
+    TopLeft,
+    TopRight,
+}
+
+/// Overlays drawn over the fractal by the renderer (kb: decisions/controls, "Orbit overlay
+/// and mini-map"). Not part of the image: they never enter the history or the exports.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OverlaySettings {
+    /// The orbit of the point under the pointer (keyboard mode: the crosshair).
+    pub orbit: bool,
+    /// Iterates drawn (1 ... 1000).
+    pub orbit_length: usize,
+    /// The mini-map: the whole set with the view marked (the orbit overlay shows one too).
+    pub map: bool,
+    /// Nested maps ("breadcrumbs"): the whole set plus up to 3 deeper levels (1 ... 4).
+    pub map_levels: usize,
+    /// Width of one map panel, view points.
+    pub map_size: f64,
+    pub map_corner: Corner,
+}
+
+impl Default for OverlaySettings {
+    fn default() -> Self {
+        Self {
+            orbit: false,
+            orbit_length: 50,
+            map: false,
+            map_levels: 3,
+            map_size: 180.0,
+            map_corner: Corner::BottomLeft,
+        }
+    }
+}
+
+impl OverlaySettings {
+    /// Anything to draw.
+    pub fn any(&self) -> bool {
+        self.orbit || self.map
+    }
+
+    /// Clamped to the supported ranges.
+    pub fn sanitized(mut self) -> Self {
+        self.orbit_length = self.orbit_length.clamp(1, crate::orbit::MAX_ORBIT_POINTS);
+        self.map_levels = self.map_levels.clamp(1, 4);
+        self.map_size = if self.map_size.is_finite() {
+            self.map_size.clamp(80.0, 400.0)
+        } else {
+            180.0
+        };
+        self
     }
 }
 

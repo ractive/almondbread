@@ -1151,6 +1151,8 @@ struct ColorParams {
     float  interiorDensity; // palette cycles of the interior modes
     float  interiorStripes; // angle mode: stripes per turn
     float2 pad2;
+    float4 deep;          // dense regions: calm colour (linear RGB), w = 1 on (0: mean grey)
+    float4 filament;      // dense regions: colour of the thin lines along the boundary
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -1187,7 +1189,7 @@ static inline float3 paletteAt(float t, float lod, constant ColorParams& c, devi
 // which is what infinite supersampling would average to. `dense` (0..1) says how far the
 // filter had to go (lod 7 -> 10: 1/8 to a whole palette cycle per pixel).
 static inline float3 paletteColor(float2 it, float deTexels, constant ColorParams& c, device const float4* pal,
-                                  float pixelsPerTexel, thread float& dense) {
+                                  float pixelsPerTexel, thread float& dense, thread float& calm) {
     float t, dtdmu;
     float mu = it.x + (c.smooth != 0 ? it.y : 0.0f);
     if (c.logScale != 0) {
@@ -1200,9 +1202,14 @@ static inline float3 paletteColor(float2 it, float deTexels, constant ColorParam
     }
     float d = max(deTexels / pixelsPerTexel, 1e-3f);
     float footprint = dtdmu / (d * 0.6931472f);
-    float lod = clamp(log2(max(footprint * float(c.paletteSize), 1.0f)), 0.0f, float(c.paletteLevels - 1));
+    float rawLod = log2(max(footprint * float(c.paletteSize), 1.0f));
+    float lod = clamp(rawLod, 0.0f, float(c.paletteLevels - 1));
     if (c.paletteFilter == 0.0f || deTexels >= 999.0f) lod = 0.0f;    // no filter, or no DE
     dense = saturate((lod - 7.0f) / 3.0f);
+    // Calm dense regions (kb: techniques/coloring-methods, "Dense regions"): from 1/16 of a
+    // palette cycle per pixel (rawLod 6) to half a cycle (9) the colour is per-pixel noise
+    // (unfiltered) or the palette's mean grey (filtered); fade to the deep colour instead.
+    calm = (c.deep.w > 0.0f && deTexels < 999.0f) ? smoothstep(6.0f, 9.0f, rawLod) : 0.0f;
     return paletteAt(t + c.offset, lod, c, pal);
 }
 
@@ -1256,9 +1263,16 @@ static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams
     // limit does not recolour it.
     if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.5f), 0.005f);
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
-    float dense;
-    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense);
+    float dense, calm;
+    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm);
     float dist = de.x / pixelsPerTexel;                            // distance in output pixels
+    if (calm > 0.0f) {
+        // Dense regions (kb: techniques/coloring-methods, "Dense regions"): a calm deep colour
+        // with thin bright filaments where the distance estimate puts the set inside the
+        // pixel (the closest fraction of the near-boundary pixels), instead of noise or grey.
+        float fil = smoothstep(0.2f, 0.7f, dist) * 0.5f;
+        col = mix(col, mix(c.deep.rgb, c.filament.rgb, fil), calm);
+    }
     if (c.outline > 0.0f) {
         // Boundary emphasis and filament coverage, before the lighting: within outlineWidth
         // pixels of the set the colour goes towards the edge colour (Chéritat's DE coverage
@@ -1266,7 +1280,7 @@ static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams
         // is a grey of the whole palette: darken that too. Filaments then read as dark lace
         // whose relief the lighting below still shows (highlights on their lit side).
         float f = smoothstep(0.0f, 1.0f, clamp(dist / c.outlineWidth, 0.0f, 1.0f));
-        float edge = max(1.0f - f, 0.75f * dense);
+        float edge = c.deep.w > 0.0f ? (1.0f - f) * (1.0f - calm) : max(1.0f - f, 0.75f * dense);
         col = mix(col, c.edge.rgb, edge * c.outline);
     }
     if (c.shading > 0.0f) {
@@ -1283,7 +1297,9 @@ static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams
         // that mean is l.z / sqrt 2): lighting redistributes brightness, it does not dim.
         float flat = max(l.z * 0.70710678f, 1e-3f);
         float lit = diffuse / flat;
-        col = col * mix(1.0f, lit, c.shading) + c.specular * c.shading * spec * float3(1.0f);
+        // (Calm dense regions keep a fifth of the relief: full lighting there is noise.)
+        float sh = c.shading * (1.0f - 0.8f * calm);
+        col = col * mix(1.0f, lit, sh) + c.specular * sh * spec * float3(1.0f);
     }
     if (c.glow > 0.0f) {
         // A soft halo along the boundary (screen-space width, so it reads at every depth).
@@ -1587,4 +1603,131 @@ kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
     if (lane == 0 && total > 0) base = atomic_fetch_add_explicit(count, total, memory_order_relaxed);
     base = simd_broadcast_first(base);
     if (want && base + off < p.capacity) list[base + off] = xy.y * p.width + xy.x;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Overlay (orbit overlay, mini-map; kb: decisions/controls "Orbit overlay and mini-map"): vector
+// primitives in output pixels, composited over the shown image without entering the history.
+// The CPU bins primitives into 16x16-pixel tiles; a thread per pixel walks its tile's list in
+// draw order and blends each primitive's analytic coverage (1-pixel ramp of the signed
+// distance: anti-aliased and crisp at any backing scale). Sparse mode runs only the tiles
+// with primitives (after a compose pass wrote the rest); full mode also copies the history to
+// the target (a refresh where only the overlay changed).
+struct OverlayPrim {
+    float4 geom;    // segment: p0, p1 | disc, ring: centre, radius, ring width | rect, image, glyph: x0, y0, x1, y1
+    float4 color0;  // premultiplied linear rgba (segment: at p0)
+    float4 color1;  // segment: at p1; rect: border colour
+    float4 clip;    // x0, y0, x1, y1 (pixel centres outside are not drawn)
+    float4 param;   // segment: half width; rect: corner radius, border width; glyph: cell size; image: opacity, corner radius
+    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph), map / glyph index
+};
+
+struct OverlayParams {
+    uint2  outSize;
+    uint   tilesX;
+    uint   full;      // 1: every pixel, copying the history; 0: listed tiles only
+};
+
+static inline float3 srgbToLinear(float3 c) {
+    return select(pow((c + 0.055f) / 1.055f, float3(2.4f)), c / 12.92f, c <= 0.04045f);
+}
+
+// A 5x7 bitmap glyph (rows top-down, bit 4 = left column) covered by the pixel square
+// [p - 0.5, p + 0.5] in glyph cells of `cell` pixels: exact box-filtered coverage.
+static inline float glyphCoverage(device const uchar* font, uint g, float2 p, float2 origin, float cell) {
+    float2 lo = (p - 0.5f - origin) / cell, hi = (p + 0.5f - origin) / cell;
+    float cov = 0.0f;
+    int x0 = max(int(floor(lo.x)), 0), x1 = min(int(floor(hi.x)), 4);
+    int y0 = max(int(floor(lo.y)), 0), y1 = min(int(floor(hi.y)), 6);
+    for (int y = y0; y <= y1; y++) {
+        uint row = font[g * 8u + uint(y)];
+        for (int x = x0; x <= x1; x++) {
+            if (((row >> uint(4 - x)) & 1u) == 0u) continue;
+            float2 a = max(lo, float2(x, y)), b = min(hi, float2(x + 1, y + 1));
+            cov += max(b.x - a.x, 0.0f) * max(b.y - a.y, 0.0f);
+        }
+    }
+    return saturate(cov * cell * cell);
+}
+
+static inline float roundedBox(float2 p, float4 r, float radius) {
+    float2 c = 0.5f * (r.xy + r.zw), h = 0.5f * (r.zw - r.xy) - radius;
+    float2 q = abs(p - c) - h;
+    return length(max(q, 0.0f)) + min(max(q.x, q.y), 0.0f) - radius;
+}
+
+kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   // linear colour (history)
+                    texture2d<float, access::write> out     [[texture(1)]],
+                    texture2d<float, access::read>  map0    [[texture(2)]],
+                    texture2d<float, access::read>  map1    [[texture(3)]],
+                    texture2d<float, access::read>  map2    [[texture(4)]],
+                    texture2d<float, access::read>  map3    [[texture(5)]],
+                    constant OverlayParams& q               [[buffer(0)]],
+                    device const OverlayPrim* prims         [[buffer(1)]],
+                    device const uint* tileStart            [[buffer(2)]],
+                    device const uint* tileList             [[buffer(3)]],
+                    device const uint* active               [[buffer(4)]],
+                    device const uchar* font                [[buffer(5)]],
+                    uint3 tid                               [[thread_position_in_grid]])
+{
+    uint2 gid;
+    uint tile;
+    if (q.full != 0) {
+        gid = tid.xy;
+        if (gid.x >= q.outSize.x || gid.y >= q.outSize.y) return;
+        tile = (gid.y >> 4) * q.tilesX + (gid.x >> 4);
+    } else {
+        tile = active[tid.z];
+        gid = uint2((tile % q.tilesX) * 16u + tid.x, (tile / q.tilesX) * 16u + tid.y);
+        if (gid.x >= q.outSize.x || gid.y >= q.outSize.y) return;
+    }
+    float3 col = max(src.read(gid).rgb, 0.0f);
+    const float2 p = float2(gid) + 0.5f;
+    for (uint i = tileStart[tile]; i < tileStart[tile + 1]; i++) {
+        const OverlayPrim pr = prims[tileList[i]];
+        if (any(p < pr.clip.xy) || any(p > pr.clip.zw)) continue;
+        float4 c = pr.color0;
+        float cov = 0.0f;
+        switch (pr.info.x) {
+            case 0: {   // segment, colour along it
+                float2 a = pr.geom.xy, b = pr.geom.zw, ab = b - a;
+                float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-6f));
+                cov = saturate(pr.param.x + 0.5f - length(p - a - ab * t));
+                c = mix(pr.color0, pr.color1, t);
+                break;
+            }
+            case 1:     // disc
+                cov = saturate(pr.geom.z + 0.5f - length(p - pr.geom.xy));
+                break;
+            case 2:     // ring
+                cov = saturate(0.5f * pr.geom.w + 0.5f - abs(length(p - pr.geom.xy) - pr.geom.z));
+                break;
+            case 3: {   // rounded rect: fill, then border
+                float d = roundedBox(p, pr.geom, pr.param.x);
+                float fill = saturate(0.5f - d);
+                float bw = pr.param.y;
+                float border = bw > 0.0f ? saturate(0.5f * bw + 0.5f - abs(d + 0.5f * bw)) : 0.0f;
+                float4 f = pr.color0 * fill;
+                f = pr.color1 * border + f * (1.0f - pr.color1.a * border);
+                col = f.rgb + col * (1.0f - f.a);
+                continue;
+            }
+            case 4: {   // map image (sRGB-encoded texture), rounded corners
+                float d = roundedBox(p, pr.geom, pr.param.y);
+                cov = saturate(0.5f - d);
+                if (cov <= 0.0f) continue;
+                uint2 t = uint2(clamp(p - pr.geom.xy, float2(0.0f), pr.geom.zw - pr.geom.xy - 1.0f));
+                float3 m = pr.info.y == 0 ? map0.read(t).rgb : pr.info.y == 1 ? map1.read(t).rgb
+                         : pr.info.y == 2 ? map2.read(t).rgb : map3.read(t).rgb;
+                c = float4(srgbToLinear(m) * pr.param.x, pr.param.x);
+                break;
+            }
+            default:    // glyph
+                cov = glyphCoverage(font, pr.info.y, p, pr.geom.xy, pr.param.x);
+                break;
+        }
+        c *= cov;
+        col = c.rgb + col * (1.0f - c.a);
+    }
+    out.write(float4(ditheredSRGB(col, gid), 1.0f), gid);
 }

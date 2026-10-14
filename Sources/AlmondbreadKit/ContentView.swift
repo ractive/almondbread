@@ -5,7 +5,8 @@ struct ContentView: View {
     // One model per window; the platform view creates the Rust explorer (it compiles the
     // kernels) once, when SwiftUI makes the view.
     @State private var model = ExplorerModel()
-    @State private var showInspector = false
+    @State private var showInspector = UIDemo.enabled
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         explorer
@@ -26,9 +27,12 @@ struct ContentView: View {
         .ignoresSafeArea()
         .background(Color.black)
         .overlay(alignment: .topLeading) {
-            HUDView(model: model)
-                .padding(12)
+            if model.showHUD {
+                HUDView(model: model)
+                    .padding(12)
+            }
         }
+        .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
         #if os(iOS)
         .overlay(alignment: .topTrailing) {
             Button {
@@ -41,27 +45,38 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .padding(12)
-            .accessibilityLabel("Inspector")
+            .accessibilityLabel("Control center")
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         #endif
+        // A trailing sidebar on the Mac and iPad (the canvas narrows: nothing covers the image),
+        // a sheet on iPhone.
         .inspector(isPresented: $showInspector) {
-            InspectorView(model: model)
-                .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
+            ControlCenterView(model: model)
+                .inspectorColumnWidth(min: 290, ideal: 330, max: 440)
                 #if os(iOS)
-                .presentationDetents([.medium, .large])
+                .presentationDetents(sizeClass == .compact ? [.medium, .large] : [.large])
+                .presentationBackground(.regularMaterial)
                 #endif
         }
         #if os(macOS)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Toggle(isOn: $model.orbitEnabled) {
+                    Label("Orbit", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                .help("Orbit of the point under the pointer (O)")
+                Toggle(isOn: $model.mapEnabled) {
+                    Label("Mini-map", systemImage: "map")
+                }
+                .help("Mini-map with nested levels; click it to jump there (M)")
                 Button {
                     showInspector.toggle()
                 } label: {
-                    Label("Inspector", systemImage: "sidebar.trailing")
+                    Label("Control Center", systemImage: "slider.horizontal.3")
                 }
-                .help("Show or hide the inspector (⌘I)")
+                .help("Show or hide the control center (⌘I)")
             }
         }
         .navigationTitle("Almondbread")
@@ -146,6 +161,7 @@ struct HUDView: View {
 enum Format {
     /// "850×", "12.5k×" style up to 1e4, then "1.2e9×" (any depth: from log10 of the zoom).
     static func zoom(log10 l: Double) -> String {
+        if Preferences.zoomUnits == .powerOfTen { return String(format: "10^%.1f", l) }
         if l < 1 { return String(format: "%.2f×", pow(10, l)) }
         if l < 4 { return String(format: "%.0f×", pow(10, l)) }
         var e = floor(l)

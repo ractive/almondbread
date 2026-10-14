@@ -3,9 +3,9 @@ import Foundation
 import Observation
 import simd
 
-/// Anti-aliasing choices of the inspector (samples per axis; the Rust settings carry the
+/// Anti-aliasing choices of the control center (samples per axis; the Rust settings carry the
 /// factor). The view accumulates factor² jittered samples progressively while idle.
-public enum Supersampling: Int, CaseIterable, Identifiable, Sendable {
+public enum Supersampling: Int, CaseIterable, Identifiable, Sendable, Codable {
     case off = 1, x4 = 2, x9 = 3, x16 = 4
     public var id: Int { rawValue }
     public var label: String {
@@ -27,7 +27,7 @@ protocol ExplorerHost: AnyObject {
     func hudFrameChanged()
 }
 
-/// Edge panning choices of the inspector (pointer mode; kb: decisions/controls).
+/// Edge panning choices (pointer mode; kb: decisions/controls). An app-wide preference.
 public enum EdgePanning: String, CaseIterable, Identifiable, Sendable {
     case off, whileZooming, always
     public var id: String { rawValue }
@@ -47,10 +47,144 @@ public enum EdgePanning: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Interior colourings (kb: techniques/coloring-methods, "Interior colouring as built").
+public enum InteriorColoring: String, CaseIterable, Identifiable, Sendable, Codable {
+    case flat, bubbles, period, angle, distance
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .flat: "Flat"
+        case .bubbles: "Bubbles"
+        case .period: "Period"
+        case .angle: "Internal angle"
+        case .distance: "Interior distance"
+        }
+    }
+    public var help: String {
+        switch self {
+        case .flat: "One colour."
+        case .bubbles: "Rings of the attracting cycle's closest approach to 0, centred on each nucleus."
+        case .period: "One colour per period of the attracting cycle, brighter towards each component's centre."
+        case .angle: "The multiplier's internal angle: stripes along the internal rays, rings of its radius."
+        case .distance: "Interior distance estimate: bright inside, dark towards the boundary."
+        }
+    }
+    var ffi: InteriorMode {
+        switch self {
+        case .flat: .flat
+        case .bubbles: .bubbles
+        case .period: .period
+        case .angle: .angle
+        case .distance: .distance
+        }
+    }
+    init(_ m: InteriorMode) {
+        switch m {
+        case .flat: self = .flat
+        case .bubbles: self = .bubbles
+        case .period: self = .period
+        case .angle: self = .angle
+        case .distance: self = .distance
+        }
+    }
+}
+
+/// Corner of the mini-map.
+public enum MapPlacement: String, CaseIterable, Identifiable, Sendable, Codable {
+    case bottomLeft, bottomRight, topLeft, topRight
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .bottomLeft: "Bottom left"
+        case .bottomRight: "Bottom right"
+        case .topLeft: "Top left"
+        case .topRight: "Top right"
+        }
+    }
+    var ffi: MapCorner {
+        switch self {
+        case .bottomLeft: .bottomLeft
+        case .bottomRight: .bottomRight
+        case .topLeft: .topLeft
+        case .topRight: .topRight
+        }
+    }
+}
+
+/// How the zoom is written in the HUD and the control center (an app-wide preference).
+public enum ZoomUnits: String, CaseIterable, Identifiable, Sendable {
+    case magnification, powerOfTen
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .magnification: "Magnification (1.2e9×)"
+        case .powerOfTen: "Power of ten (10^9.1)"
+        }
+    }
+}
+
+/// App-wide preferences (the Settings window, ⌘,), in user defaults.
+public enum Preferences {
+    public static let edgePanKey = "edgePanning"
+    public static let gamepadKey = "gamepadEnabled"
+    public static let zoomUnitsKey = "zoomUnits"
+    public static let restoreKey = "restoreSettings"
+    public static let hudKey = "showHUD"
+    static let savedSettingsKey = "almondbread.settings.v1"
+
+    static var gamepadEnabled: Bool { UserDefaults.standard.object(forKey: gamepadKey) as? Bool ?? true }
+    static var restoreSettings: Bool { UserDefaults.standard.object(forKey: restoreKey) as? Bool ?? true }
+    static var zoomUnits: ZoomUnits {
+        ZoomUnits(rawValue: UserDefaults.standard.string(forKey: zoomUnitsKey) ?? "") ?? .magnification
+    }
+}
+
+/// What persists between launches (look, colour, interior, quality and overlays; not the view).
+struct SavedSettings: Codable {
+    var autoIterations: Bool?
+    var manualIterations: Int?
+    var maxIterationsCap: Int?
+    var interiorDetection: Bool?
+    var paletteID: String?
+    var colorDensity: Double?
+    var colorOffset: Double?
+    var logColoring: Bool?
+    var smoothColoring: Bool?
+    var interiorColor: [Float]?
+    var shading: Double?
+    var lightAngle: Double?
+    var outline: Double?
+    var outlineWidth: Double?
+    var edgeColor: [Float]?
+    var specular: Double?
+    var shininess: Double?
+    var lightHeight: Double?
+    var glow: Double?
+    var glowColor: [Float]?
+    var glowWidth: Double?
+    var paletteFilter: Bool?
+    var cycleSpeed: Double?
+    var depthTint: Double?
+    var lookID: String?
+    var supersampling: Supersampling?
+    var interactivePreview: Bool?
+    var interiorColoring: InteriorColoring?
+    var interiorDensity: Double?
+    var interiorStripes: Double?
+    var denseCalm: Bool?
+    var orbitEnabled: Bool?
+    var orbitLength: Int?
+    var mapEnabled: Bool?
+    var mapLevels: Int?
+    var mapSize: Double?
+    var mapPlacement: MapPlacement?
+}
+
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
 /// to (every change is forwarded, an infrequent control-plane call) and a ~10 Hz snapshot
-/// of the renderer's stats for the HUD and inspector. Rendering, motion and all policy live
-/// in Rust (`Explorer`, kb: platform/render-architecture); nothing here runs per frame.
+/// of the renderer's stats for the HUD and control center. Rendering, motion and all policy
+/// live in Rust (`Explorer`, kb: platform/render-architecture); nothing here runs per frame.
+/// Settings persist in user defaults (restored at launch unless the preference is off).
 @MainActor
 @Observable
 public final class ExplorerModel {
@@ -85,22 +219,40 @@ public final class ExplorerModel {
     /// Palette cycles per second while the view rests (0: off).
     public var cycleSpeed = 0.0 { didSet { push() } }
     public var depthTint = 0.0 { didSet { push() } }
-    /// The look last applied (the inspector's picker); edits keep it selected.
-    public var lookID = "aurora"
+    /// Dense regions: calm dark colour with thin filaments (off: the palette's mean grey).
+    public var denseCalm = true { didSet { push() } }
+    /// The look last applied (the control center's picker); edits keep it selected.
+    public var lookID = "aurora" { didSet { save() } }
+
+    // Interior
+    public var interiorColoring = InteriorColoring.flat { didSet { push() } }
+    public var interiorDensity = 0.25 { didSet { push() } }
+    public var interiorStripes = 8.0 { didSet { push() } }
 
     // Quality
     public var supersampling = Supersampling.off { didSet { push() } }
     public var interactivePreview = true { didSet { push() } }
 
-    // Navigation (persisted; the navigator in Rust applies it)
-    public var edgePanning: EdgePanning = EdgePanning(rawValue: UserDefaults.standard.string(forKey: ExplorerModel.edgePanKey) ?? "")
+    // Overlays (drawn by Rust over the fractal; kb: decisions/controls)
+    public var orbitEnabled = false { didSet { pushOverlay() } }
+    public var orbitLength = 50 { didSet { pushOverlay() } }
+    public var mapEnabled = false { didSet { pushOverlay() } }
+    public var mapLevels = 3 { didSet { pushOverlay() } }
+    public var mapSize = 180.0 { didSet { pushOverlay() } }
+    public var mapPlacement = MapPlacement.bottomLeft { didSet { pushOverlay() } }
+    /// The status overlay (zoom, iterations, GPU time) in the top-left corner.
+    public var showHUD: Bool = UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
+    }
+
+    // Navigation (an app-wide preference; the navigator in Rust applies it)
+    public var edgePanning: EdgePanning = EdgePanning(rawValue: UserDefaults.standard.string(forKey: Preferences.edgePanKey) ?? "")
         ?? .whileZooming {
         didSet {
-            UserDefaults.standard.set(edgePanning.rawValue, forKey: Self.edgePanKey)
+            UserDefaults.standard.set(edgePanning.rawValue, forKey: Preferences.edgePanKey)
             explorer?.setEdgePan(mode: edgePanning.ffi)
         }
     }
-    static let edgePanKey = "edgePanning"
 
     /// The HUD's frame in SwiftUI's global space (the canvas shows the arrow cursor there).
     @ObservationIgnored public var hudFrame: CGRect? {
@@ -110,6 +262,8 @@ public final class ExplorerModel {
     /// Renderer stats, refreshed at ~10 Hz while the view animates (views reading these
     /// re-render at that rate, never per input event: kb synthesis/benchmarks, M2 findings).
     public private(set) var stats: ExplorerStats?
+    /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
+    public private(set) var orbit: OrbitInfo?
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
     /// Why the renderer could not be created, if it could not.
@@ -121,16 +275,35 @@ public final class ExplorerModel {
     @ObservationIgnored private(set) var explorer: Explorer?
     @ObservationIgnored private weak var host: ExplorerHost?
     @ObservationIgnored private var pulling = false
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
 
     public init() {}
 
-    /// Connects the view's explorer; the model takes over Rust's settings.
+    /// Connects the view's explorer; the model takes over Rust's settings, then restores the
+    /// saved ones (window tests start from the defaults).
     func attach(_ explorer: Explorer, host: ExplorerHost) {
         self.explorer = explorer
         self.host = host
         explorer.setEdgePan(mode: edgePanning.ffi)
         pull(explorer.settings())
+        if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
+        pushOverlay()
         refreshStats()
+        // The Settings window writes user defaults: follow edge panning and the HUD.
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                                  object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followPreferences() }
+        }
+    }
+
+    private func followPreferences() {
+        let d = UserDefaults.standard
+        if let e = EdgePanning(rawValue: d.string(forKey: Preferences.edgePanKey) ?? ""), e != edgePanning {
+            edgePanning = e
+        }
+        let hud = d.object(forKey: Preferences.hudKey) as? Bool ?? true
+        if hud != showHUD { showHUD = hud }
     }
 
     // MARK: Settings
@@ -164,6 +337,10 @@ public final class ExplorerModel {
         depthTint = s.depthTint
         supersampling = Supersampling(rawValue: Int(s.supersampling)) ?? .off
         interactivePreview = s.interactivePreview
+        interiorColoring = InteriorColoring(s.interiorMode)
+        interiorDensity = s.interiorDensity
+        interiorStripes = s.interiorStripes
+        denseCalm = s.denseCalm
     }
 
     private var settings: ExplorerSettings {
@@ -178,7 +355,15 @@ public final class ExplorerModel {
             specular: specular, shininess: shininess, lightHeight: lightHeight,
             glow: glow, glowRed: glowColor.x, glowGreen: glowColor.y, glowBlue: glowColor.z, glowWidth: glowWidth,
             paletteFilter: paletteFilter, cycleSpeed: cycleSpeed, depthTint: depthTint,
-            supersampling: UInt8(supersampling.rawValue), interactivePreview: interactivePreview)
+            supersampling: UInt8(supersampling.rawValue), interactivePreview: interactivePreview,
+            interiorMode: interiorColoring.ffi, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
+            denseCalm: denseCalm)
+    }
+
+    private var overlaySettings: OverlaySettings {
+        OverlaySettings(orbit: orbitEnabled, orbitLength: UInt32(min(max(orbitLength, 1), 1000)),
+                        map: mapEnabled, mapLevels: UInt32(min(max(mapLevels, 1), 4)),
+                        mapSize: mapSize, mapCorner: mapPlacement.ffi)
     }
 
     /// Applies a look (palette and colouring) in Rust and takes over the result.
@@ -187,6 +372,7 @@ public final class ExplorerModel {
         lookID = id
         pull(explorer.applyLook(id: id))
         host?.requestFrames()
+        save()
     }
 
     private func push() {
@@ -198,9 +384,123 @@ public final class ExplorerModel {
             pull(explorer.settings())
         }
         host?.requestFrames()
+        save()
     }
 
-    // MARK: Actions (menu commands, inspector buttons)
+    private func pushOverlay() {
+        guard !pulling, let explorer else { return }
+        explorer.setOverlay(settings: overlaySettings)
+        host?.requestFrames()
+        save()
+    }
+
+    // MARK: Persistence
+
+    /// Writes the settings to user defaults (coalesced: at most every half second).
+    private func save() {
+        guard !pulling, explorer != nil, !TestLaunch.enabled else { return }
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, let self else { return }
+            self.writeSaved()
+        }
+    }
+
+    private func writeSaved() {
+        let s = SavedSettings(
+            autoIterations: autoIterations, manualIterations: manualIterations, maxIterationsCap: maxIterationsCap,
+            interiorDetection: interiorDetection, paletteID: paletteID, colorDensity: colorDensity,
+            colorOffset: colorOffset, logColoring: logColoring, smoothColoring: smoothColoring,
+            interiorColor: [interiorColor.x, interiorColor.y, interiorColor.z], shading: shading,
+            lightAngle: lightAngle, outline: outline, outlineWidth: outlineWidth,
+            edgeColor: [edgeColor.x, edgeColor.y, edgeColor.z], specular: specular, shininess: shininess,
+            lightHeight: lightHeight, glow: glow, glowColor: [glowColor.x, glowColor.y, glowColor.z],
+            glowWidth: glowWidth, paletteFilter: paletteFilter, cycleSpeed: cycleSpeed, depthTint: depthTint,
+            lookID: lookID, supersampling: supersampling, interactivePreview: interactivePreview,
+            interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
+            denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
+            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement)
+        if let data = try? JSONEncoder().encode(s) {
+            UserDefaults.standard.set(data, forKey: Preferences.savedSettingsKey)
+        }
+    }
+
+    /// Takes over the saved settings (missing keys keep the current values) and forwards them.
+    private func restore() {
+        guard let data = UserDefaults.standard.data(forKey: Preferences.savedSettingsKey),
+              let s = try? JSONDecoder().decode(SavedSettings.self, from: data) else { return }
+        pulling = true
+        func rgb(_ v: [Float]?) -> SIMD3<Float>? { v.flatMap { $0.count == 3 ? SIMD3($0[0], $0[1], $0[2]) : nil } }
+        autoIterations = s.autoIterations ?? autoIterations
+        manualIterations = s.manualIterations ?? manualIterations
+        maxIterationsCap = s.maxIterationsCap ?? maxIterationsCap
+        interiorDetection = s.interiorDetection ?? interiorDetection
+        paletteID = s.paletteID ?? paletteID
+        colorDensity = s.colorDensity ?? colorDensity
+        colorOffset = s.colorOffset ?? colorOffset
+        logColoring = s.logColoring ?? logColoring
+        smoothColoring = s.smoothColoring ?? smoothColoring
+        interiorColor = rgb(s.interiorColor) ?? interiorColor
+        shading = s.shading ?? shading
+        lightAngle = s.lightAngle ?? lightAngle
+        outline = s.outline ?? outline
+        outlineWidth = s.outlineWidth ?? outlineWidth
+        edgeColor = rgb(s.edgeColor) ?? edgeColor
+        specular = s.specular ?? specular
+        shininess = s.shininess ?? shininess
+        lightHeight = s.lightHeight ?? lightHeight
+        glow = s.glow ?? glow
+        glowColor = rgb(s.glowColor) ?? glowColor
+        glowWidth = s.glowWidth ?? glowWidth
+        paletteFilter = s.paletteFilter ?? paletteFilter
+        cycleSpeed = s.cycleSpeed ?? cycleSpeed
+        depthTint = s.depthTint ?? depthTint
+        lookID = s.lookID ?? lookID
+        supersampling = s.supersampling ?? supersampling
+        interactivePreview = s.interactivePreview ?? interactivePreview
+        interiorColoring = s.interiorColoring ?? interiorColoring
+        interiorDensity = s.interiorDensity ?? interiorDensity
+        interiorStripes = s.interiorStripes ?? interiorStripes
+        denseCalm = s.denseCalm ?? denseCalm
+        orbitEnabled = s.orbitEnabled ?? orbitEnabled
+        orbitLength = s.orbitLength ?? orbitLength
+        mapEnabled = s.mapEnabled ?? mapEnabled
+        mapLevels = s.mapLevels ?? mapLevels
+        mapSize = s.mapSize ?? mapSize
+        mapPlacement = s.mapPlacement ?? mapPlacement
+        pulling = false
+        push()
+    }
+
+    /// Back to the defaults (the default look, overlays off) and forgets the saved settings.
+    public func resetSettings() {
+        UserDefaults.standard.removeObject(forKey: Preferences.savedSettingsKey)
+        pulling = true
+        autoIterations = true
+        manualIterations = 1000
+        maxIterationsCap = 200_000
+        interiorDetection = true
+        interiorColoring = .flat
+        interiorDensity = 0.25
+        interiorStripes = 8
+        supersampling = .x9
+        interactivePreview = true
+        cycleSpeed = 0
+        depthTint = 0
+        orbitEnabled = false
+        orbitLength = 50
+        mapEnabled = false
+        mapLevels = 3
+        mapSize = 180
+        mapPlacement = .bottomLeft
+        pulling = false
+        push()
+        pushOverlay()
+        applyLook("aurora")
+    }
+
+    // MARK: Actions (menu commands, control center buttons)
 
     /// Sends an event as if it came from the view (menu zoom commands).
     @discardableResult
@@ -221,6 +521,18 @@ public final class ExplorerModel {
         host?.requestFrames()
     }
 
+    public func toggleOrbit() { orbitEnabled.toggle() }
+    public func toggleMap() { mapEnabled.toggle() }
+
+    /// A click on the canvas at (x, y) points from the centre, y up: true if a mini-map panel
+    /// took it (a jump follows).
+    func mapClick(x: Double, y: Double, fly: Bool) -> Bool {
+        guard let explorer, mapEnabled || orbitEnabled else { return false }
+        let taken = explorer.mapClick(x: x, y: y, fly: fly)
+        if taken { host?.requestFrames() }
+        return taken
+    }
+
     /// Centre and scale for the clipboard, full precision (as many digits as the depth needs).
     public var coordinatesText: String { explorer?.coordinatesText() ?? "" }
 
@@ -233,11 +545,18 @@ public final class ExplorerModel {
         return true
     }
 
+    /// Uses a palette given as stops (e.g. from a palette library); empty: the built-in one.
+    public func setCustomPalette(_ stops: [PaletteStop]) {
+        explorer?.setCustomPalette(stops: stops)
+        host?.requestFrames()
+    }
+
     // MARK: Stats
 
     /// Reads the renderer's stats (called by the view at ~10 Hz while animating, and once
     /// when it stops). Assigns only on change, so idle views do not re-render.
     func refreshStats() {
+        if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         guard let new = explorer?.stats(), new != stats else { return }
         if let old = stats, old.zoomSpeed != new.zoomSpeed { zoomSpeedChanged = Date() }
         stats = new

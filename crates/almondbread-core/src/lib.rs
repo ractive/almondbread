@@ -18,6 +18,7 @@ pub mod image;
 pub mod input;
 pub mod locations;
 pub mod oracle;
+pub mod orbit;
 pub mod palette;
 pub mod reference;
 pub mod settings;

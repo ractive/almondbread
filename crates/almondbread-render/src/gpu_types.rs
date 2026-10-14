@@ -130,7 +130,7 @@ pub struct BlaParams {
 /// Admission state of the running level (GPU only), 16 bytes.
 pub const LEVEL_COUNTERS_SIZE: usize = 16;
 
-/// Colorize parameters (`ColorParams` in MSL), 192 bytes.
+/// Colorize parameters (`ColorParams` in MSL), 224 bytes.
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ColorParams {
@@ -169,6 +169,10 @@ pub struct ColorParams {
     pub interior_density: f32,
     pub interior_stripes: f32,
     pub pad2: [f32; 2],
+    /// Dense regions (calm look): the deep colour (linear RGB, w = 1 on, 0 the old mean grey)
+    /// and the filament colour.
+    pub deep: [f32; 4],
+    pub filament: [f32; 4],
 }
 
 /// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
@@ -243,7 +247,8 @@ const _: () = {
     assert!(offset_of!(PixelStateIC, dcdz) == 32);
     assert!(offset_of!(PixelStateIC, cap_flags) == 44);
 
-    assert!(size_of::<ColorParams>() == 192);
+    assert!(size_of::<ColorParams>() == 224);
+    assert!(offset_of!(ColorParams, deep) == 192);
     assert!(offset_of!(ColorParams, interior_mode) == 172);
     assert!(offset_of!(ColorParams, pad2) == 184);
     assert!(offset_of!(ColorParams, edge) == 16);

@@ -58,6 +58,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let mut walls = Vec::new();
     let mut out = None;
     let analyse = r.settings.interior_mode.needs_analysis() || o.has("interior-stats");
+    // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): `--orbit x,y` (view
+    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`.
+    let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
         times.push(res.iterate_gpu_time);
@@ -115,6 +118,68 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         );
     }
     Ok(0)
+}
+
+/// Sets up the orbit overlay and mini-map for a still: probes the orbit to its end and renders
+/// the maps (their own renderers) before the main render composites them.
+fn overlay_for_still<B: GpuBackend + Clone>(
+    r: &mut Renderer<B>,
+    o: &Options,
+    width: usize,
+    height: usize,
+) -> Result<Option<almondbread_render::overlay::Overlay<B>>> {
+    use almondbread_core::input::InputEvent;
+    let orbit = o.pair("orbit")?;
+    let map = o.get("map").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map {
+        return Ok(None);
+    }
+    let mut ov = almondbread_render::overlay::Overlay::<B>::default();
+    ov.settings.orbit = orbit.is_some();
+    ov.settings.map = map;
+    if let Some(n) = o.usize("orbit-length") {
+        ov.settings.orbit_length = n;
+    }
+    if let Some(n) = o.usize("map-levels") {
+        ov.settings.map_levels = n;
+    }
+    if let Some(v) = o.f64("map-size") {
+        ov.settings.map_size = v;
+    }
+    let now = r.clock();
+    r.handle_input(
+        InputEvent::Resize {
+            width: width as f64,
+            height: height as f64,
+        },
+        now,
+    );
+    if let Some((x, y)) = orbit {
+        r.handle_input(InputEvent::Pointer(Some((x, y))), now);
+    }
+    // The reference first (the probe perturbs against it at depth).
+    r.render_offscreen(width.min(64), height.min(64), false)?;
+    ov.prepare(r, (width, height), 1.0, now);
+    let deadline = r.clock() + 30.0;
+    while r.clock() < deadline {
+        ov.step_probe(0.05);
+        ov.step_maps(&r.settings, r.clock());
+        if !ov.busy() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(4));
+    }
+    let now = r.clock();
+    ov.prepare(r, (width, height), 1.0, now);
+    if let Some(c) = ov.orbit_class() {
+        println!(
+            "orbit: {} ({} iterates drawn, |z_n| {})",
+            c.text(),
+            ov.orbit_points().view.len(),
+            g(ov.orbit_points().last_abs, 4)
+        );
+    }
+    Ok(Some(ov))
 }
 
 // MARK: verify

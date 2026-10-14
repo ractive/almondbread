@@ -673,6 +673,12 @@ pub struct Renderer<B: GpuBackend> {
     colorize_pipeline: B::Pipeline,
     compose_pipeline: B::Pipeline,
     aa_list_pipeline: B::Pipeline,
+    /// Overlay scene to composite over presented frames (orbit, maps; see `overlay`), its font,
+    /// the pipeline (made on first use) and the version last presented (None: none shown).
+    pub overlay: Option<crate::overlay::OverlayDraw<B>>,
+    pub overlay_font: Option<B::Buffer>,
+    overlay_pipeline: Option<B::Pipeline>,
+    overlay_shown: Option<u64>,
     /// The adaptive AA list (texel indices) and its capacity.
     aa_list_buffer: Option<(B::Buffer, usize)>,
     /// Ping-pong history images (linear colour + confidence) at the output size (FL).
@@ -734,6 +740,8 @@ pub struct Renderer<B: GpuBackend> {
     bla_info: (f64, usize, usize),
 
     palette_id: Option<String>,
+    /// Dense-region colours of the palette (key, deep, filament).
+    dense_cache: std::cell::RefCell<Option<(String, [f32; 3], [f32; 3])>>,
     palette_buffer: Option<B::Buffer>,
 
     job: Option<Job<B>>,
@@ -801,6 +809,10 @@ impl<B: GpuBackend> Renderer<B> {
             colorize_pipeline,
             compose_pipeline,
             aa_list_pipeline,
+            overlay: None,
+            overlay_font: None,
+            overlay_pipeline: None,
+            overlay_shown: None,
             aa_list_buffer: None,
             history: None,
             history_ping: 0,
@@ -839,6 +851,7 @@ impl<B: GpuBackend> Renderer<B> {
             bla_reach_log2: f64::NEG_INFINITY,
             bla_info: (0.0, 0, 0),
             palette_id: None,
+            dense_cache: std::cell::RefCell::new(None),
             palette_buffer: None,
             job: None,
             generation: 0,
@@ -1155,9 +1168,33 @@ impl<B: GpuBackend> Renderer<B> {
         {
             job.final_presented = true;
         }
+        // Only the overlay changed (the pointer moved the orbit, a map finished): present the
+        // shown image again with it, from the history (no recolouring, ~0.2 ms GPU).
+        let mut overlay_pending = false;
+        if !outcome.presented && self.overlay_stale() {
+            overlay_pending = true;
+            if self.frames_in_flight.len() < self.config.max_frames_in_flight
+                && let Some((target, drawable)) = acquire(false)
+                && let Ok(mut enc) = self.encode_overlay_only(&target)
+            {
+                if let Some(d) = &drawable {
+                    enc.present(d);
+                }
+                let sub = enc.commit();
+                self.frames_committed += 1;
+                self.frames_in_flight.push((self.frames_committed, sub));
+                self.last_frame_commit = now;
+                outcome.presented = true;
+                overlay_pending = false;
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.frames += 1;
+                }
+            }
+        }
         self.publish_stats();
         let job = self.job.as_ref().expect("job");
-        let busy = interacting
+        let busy = overlay_pending
+            || interacting
             || !job.final_presented
             || job.key != key
             || self.retry_pending
@@ -1213,7 +1250,7 @@ impl<B: GpuBackend> Renderer<B> {
     fn same_colors(&self, h: &HistoryView, colors: &ColorParams) -> bool {
         let mut a = h.colors.0;
         a.offset = colors.offset;
-        a == *colors && h.colors.1 == self.settings.palette_id
+        a == *colors && h.colors.1 == self.palette_key()
     }
 
     fn make_key(&mut self, width: usize, height: usize, points_per_pixel: f64, offscreen: bool) -> ComputeKey {
@@ -2251,7 +2288,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// supersamples, sRGB). A preview level is first coloured at its own resolution into its
     /// colour texture (linear light), which the final pass samples bilinearly wherever the
     /// shown level is unfinished, or everywhere when the preview itself is shown.
-    fn encode_colorize(&mut self, target: &B::Texture) -> Result<B::Encoder, GpuError> {
+    fn encode_colorize(&mut self, target: &B::Texture, linear: bool) -> Result<B::Encoder, GpuError> {
         self.ensure_palette()?;
         let colors = self.color_params();
         let job = self.job.as_ref().expect("job");
@@ -2275,6 +2312,7 @@ impl<B: GpuBackend> Renderer<B> {
         let mut c = colors;
         c.ratio = shown.ratio as f32;
         c.has_under = if under.is_some() { 1.0 } else { 0.0 };
+        c.linear_out = u32::from(linear);
         if let Some(l) = level {
             self.level_admission(l, &mut c);
             c.de_scale = l.ratio as f32;
@@ -2477,13 +2515,15 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_bytes(4, bytes_of(&q));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
+        let hist_new = hist_out.clone();
+        self.encode_overlay(&mut enc, &hist_new, target, false);
         self.history_ping = 1 - self.history_ping;
         self.history_view = Some(HistoryView {
             viewport: key.viewport.clone(),
             scale: s,
             width: out_w,
             height: out_h,
-            colors: (*colors, self.settings.palette_id.clone()),
+            colors: (*colors, self.palette_key()),
             offset: colors.offset,
         });
         Ok(enc)
@@ -2550,15 +2590,109 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_bytes(4, bytes_of(&q));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
+        let hist_new = hist_out.clone();
+        self.encode_overlay(&mut enc, &hist_new, target, false);
         self.history_ping = 1 - self.history_ping;
         self.history_view = Some(HistoryView {
             viewport: key.viewport.clone(),
             scale: s,
             width: out_w,
             height: out_h,
-            colors: (*colors, self.settings.palette_id.clone()),
+            colors: (*colors, self.palette_key()),
             offset: colors.offset,
         });
+        Ok(enc)
+    }
+
+    /// Composites the overlay scene over `target` (kb: decisions/controls, "Orbit overlay and
+    /// mini-map"): sparse after a compose pass (only the tiles with primitives, from the new
+    /// history `src`), full when only the overlay changed (every pixel from the history).
+    /// Without a scene a full pass copies the clean history (an overlay was switched off).
+    fn encode_overlay(&mut self, enc: &mut B::Encoder, src: &B::Texture, target: &B::Texture, full: bool) {
+        let (w, h) = self.backend.texture_size(target);
+        // No scene, or one built for another size (a resize in between): nothing to add.
+        if self.overlay.is_none() || self.overlay.as_ref().is_some_and(|d| d.size != (w, h)) {
+            self.overlay_shown = None;
+            if !full {
+                return;
+            }
+        }
+        if self.overlay_pipeline.is_none() {
+            match self.backend.pipeline("overlay", &[]) {
+                Ok(p) => self.overlay_pipeline = Some(p),
+                Err(e) => {
+                    eprintln!("almondbread: overlay pipeline: {e}");
+                    return;
+                }
+            }
+        }
+        if self.overlay_font.is_none() {
+            self.overlay_font = self
+                .backend
+                .create_buffer_with_data(&crate::overlay::font_bytes())
+                .ok();
+        }
+        let empty;
+        let d = match &self.overlay {
+            Some(d) if d.size == (w, h) => d,
+            _ => {
+                let Ok(e) = crate::overlay::OverlayDraw::upload(
+                    &self.backend,
+                    &crate::overlay::Scene::default(),
+                    (w, h),
+                    Vec::new(),
+                    0,
+                ) else {
+                    return;
+                };
+                empty = e;
+                &empty
+            }
+        };
+        if !full && d.active_count == 0 {
+            self.overlay_shown = self.overlay.as_ref().map(|d| d.version);
+            return;
+        }
+        let (Some(pipeline), Some(font)) = (&self.overlay_pipeline, &self.overlay_font) else {
+            return;
+        };
+        let (tx, _) = tiles(w, h);
+        let params = crate::overlay::OverlayParams {
+            out_size: [w as u32, h as u32],
+            tiles_x: tx as u32,
+            full: u32::from(full),
+        };
+        enc.set_pipeline(pipeline);
+        enc.set_texture(0, src);
+        enc.set_texture(1, target);
+        for i in 0..4 {
+            enc.set_texture(2 + i, d.maps.get(i).unwrap_or(src));
+        }
+        enc.set_bytes(0, bytes_of(&params));
+        enc.set_buffer(1, &d.prims, 0);
+        enc.set_buffer(2, &d.tile_start, 0);
+        enc.set_buffer(3, &d.tile_list, 0);
+        enc.set_buffer(4, &d.active, 0);
+        enc.set_buffer(5, font, 0);
+        if full {
+            enc.dispatch_threads([w, h, 1], [16, 16, 1]);
+        } else {
+            enc.dispatch_threads([16, 16, d.active_count], [16, 16, 1]);
+        }
+        self.overlay_shown = self.overlay.as_ref().filter(|d| d.size == (w, h)).map(|d| d.version);
+    }
+
+    /// The overlay changed (or went away) since the last presented frame while nothing else
+    /// needs composing: present the latest history with the current overlay.
+    fn overlay_stale(&self) -> bool {
+        self.overlay.as_ref().map(|d| d.version) != self.overlay_shown && self.history_view.is_some()
+    }
+
+    fn encode_overlay_only(&mut self, target: &B::Texture) -> Result<B::Encoder, GpuError> {
+        let history = self.history.clone().ok_or_else(|| GpuError("no history".into()))?;
+        let mut enc = self.backend.begin("overlay")?;
+        let src = history[self.history_ping].clone();
+        self.encode_overlay(&mut enc, &src, target, true);
         Ok(enc)
     }
 
@@ -2588,6 +2722,7 @@ impl<B: GpuBackend> Renderer<B> {
         let g = s.glow_color;
         let depth = self.viewport.zoom_log10().max(0.0);
         let offset = (s.color_offset + self.cycle_phase + s.depth_tint * depth).rem_euclid(1.0);
+        let (deep, filament) = self.dense_colors();
         ColorParams {
             interior: [i[0], i[1], i[2], 1.0],
             edge: [e[0], e[1], e[2], 1.0],
@@ -2619,18 +2754,43 @@ impl<B: GpuBackend> Renderer<B> {
             },
             interior_density: s.interior_density as f32,
             interior_stripes: s.interior_stripes as f32,
+            deep: [deep[0], deep[1], deep[2], if s.dense_calm { 1.0 } else { 0.0 }],
+            filament: [filament[0], filament[1], filament[2], 1.0],
             ..ColorParams::default()
         }
     }
 
     fn ensure_palette(&mut self) -> Result<(), GpuError> {
-        if self.palette_id.as_deref() == Some(self.settings.palette_id.as_str()) && self.palette_buffer.is_some() {
+        let key = self.palette_key();
+        if self.palette_id.as_deref() == Some(key.as_str()) && self.palette_buffer.is_some() {
             return Ok(());
         }
-        let table = almondbread_core::palette::mip_chain(&self.settings.palette().table(PALETTE_SIZE));
+        let table = almondbread_core::palette::mip_chain(&self.settings.palette_table(PALETTE_SIZE));
         self.palette_buffer = Some(self.backend.create_buffer_with_data(bytemuck::cast_slice(&table))?);
-        self.palette_id = Some(self.settings.palette_id.clone());
+        self.palette_id = Some(key);
         Ok(())
+    }
+
+    /// Identifies the palette in use: the built-in id, or the custom stops.
+    fn palette_key(&self) -> String {
+        match &self.settings.palette_stops {
+            Some(stops) if !stops.is_empty() => format!("stops:{stops:?}"),
+            _ => self.settings.palette_id.clone(),
+        }
+    }
+
+    /// The dense-region colours of the current palette (cached per palette).
+    fn dense_colors(&self) -> ([f32; 3], [f32; 3]) {
+        let key = self.palette_key();
+        let mut cache = self.dense_cache.borrow_mut();
+        if let Some((k, d, f)) = cache.as_ref()
+            && *k == key
+        {
+            return (*d, *f);
+        }
+        let (d, f) = almondbread_core::palette::dense_colors(&self.settings.palette_table(256));
+        *cache = Some((key, d, f));
+        (d, f)
     }
 
     /// The full-level textures, reused while the size holds.
@@ -2914,6 +3074,11 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// The current view's refined frame has been presented and nothing is left to iterate.
+    /// Serial of the current reference (changes whenever a new one is adopted).
+    pub fn reference_serial(&self) -> u64 {
+        self.reference_serial
+    }
+
     pub fn is_settled(&self) -> bool {
         self.job
             .as_ref()
@@ -3027,7 +3192,15 @@ impl<B: GpuBackend> Renderer<B> {
         if !finished {
             return Err(GpuError("offscreen render failed".into()));
         }
-        let enc = self.encode_colorize(&target)?;
+        // With an overlay (CLI `--orbit`, `--map`): colour into linear light, then composite.
+        let enc = if self.overlay.is_some() {
+            let lin = self.backend.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?;
+            let mut enc = self.encode_colorize(&lin, true)?;
+            self.encode_overlay(&mut enc, &lin, &target, true);
+            enc
+        } else {
+            self.encode_colorize(&target, false)?
+        };
         let sub = enc.commit();
         sub.wait();
         if let SubmissionStatus::Failed(e) = sub.status() {

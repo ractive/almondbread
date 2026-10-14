@@ -2,8 +2,8 @@
 title: "Colouring methods"
 type: technique
 status: draft
-sources: ["[[sources/wikipedia-plotting-algorithms]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/wikibooks-triangle-inequality]]", "[[sources/wikibooks-mandelbrot-interior]]", "[[sources/kf-manual]]", "[[sources/zoomasm]]", "[[sources/philthompson-bla]]"]
-tags: [coloring, histogram, stripe-average, lighting, palette]
+sources: ["[[sources/wikipedia-plotting-algorithms]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/wikibooks-triangle-inequality]]", "[[sources/wikibooks-mandelbrot-interior]]", "[[sources/kf-manual]]", "[[sources/zoomasm]]", "[[sources/philthompson-bla]]", "[[sources/mathr-interior-distance]]", "[[sources/muency-atom-domain]]"]
+tags: [coloring, histogram, stripe-average, lighting, palette, interior-coloring]
 ---
 
 # Colouring methods
@@ -139,6 +139,91 @@ kernels). Our design; the OKLab matrices are Björn Ottosson's (unverified, not 
   rests (cycles per second, off by default); depth tint shifts the phase per decade of zoom.
 - **Headless tools** (render, bench, verify, regress) keep the plain M2.5 colouring unless
   `--look` is given, so benchmark timings stay comparable (lighting needs DE: +30–50 % ALU).
+
+## Interior colouring as built
+
+Built 2026-10-14 (`crates/almondbread-render/src/shaders/mandelbrot.metal`, `kInteriorColor`;
+CLI `--inside flat|bubbles|period|angle|distance`, control center → Interior). Every mode but
+flat needs the attracting cycle of each interior pixel, so the iterate kernel analyses it.
+
+**Atom domain during iteration.** The pipeline with the analysis tracks the iteration `q` of
+the smallest `|z_n|` (the atom domain: the `N` minimising `|Z_N|`, Peitgen and Richter;
+src: [[sources/muency-atom-domain]] §Definition) with one compare per exact step, in floatexp
+where `|Z|` is tiny (deep kernel). BLA blocks are not looked into; they are never valid where
+`|Z|` is small, which is where the minimum is (inference).
+
+**Cycle analysis after the interior test.** A pixel proven interior (`|w| n² < 1e-3`, see
+[[techniques/interior-detection]]), or at the limit with the test off, keeps iterating from
+its current point `z_s`, now close to the cycle, with exact perturbation steps in floatexp
+(any depth, no BLA). The period `p` is the first `k` that **divides q** at which the orbit
+closes, `|z_{s+k} − z_s| ≤ 1e-3 |z_s|`, **and** whose multiplier is attracting,
+`|λ_k| = |∏ 2 z| < 1`. Our design; mathr takes new minima of `|z_n|` as period candidates and
+verifies each by Newton (src: [[sources/mathr-interior-distance]] §atom domain partials). Two
+pitfalls found while building it:
+
+- *Closure alone is wrong at depth.* At sea-8007 (period 8007) 1501 of 1502 interior pixels
+  reported period 39: near a repelling or parabolic cycle a deep orbit returns within any
+  fixed relative tolerance, and near the parabolic seahorse points even `|λ_39| < 1` holds.
+  Restricting candidates to divisors of `q` fixed it (8007, with bulbs at 16014, 24021, …);
+  the needle-1e305 minibrot gives 255 and its bulbs 510, 765, … (measured 2026-10-14, M1 Pro).
+- *Off by one.* Checking closure only below `k = q` misses period `q` itself (12 336 of
+  70 540 home-view interior pixels had no period); the check at `k = q` comes before the
+  restart.
+
+No closure by `q`: restart from where it stopped (the start may not have settled: slow
+convergence near a component's boundary), up to `max(2q, q + 4096)` steps in all, then give
+up (period 0: drawn flat). Near a component's boundary `q` is a multiple `b·p` (the orbit
+comes closest when `λ^b ≈ 1`), which still contains `p`.
+
+Along the period it accumulates (old values on the right, `dz = λ` from 1, the others from 0;
+src: [[sources/mathr-interior-distance]] §Practical interior distance rendering):
+
+```text
+dcdz <- 2 (z dcdz + dc dz)
+dzdz <- 2 (dz^2 + z dzdz)
+dc   <- 2 z dc + texel          // per texel, so the DE comes out in texels
+dz   <- 2 z dz                  // the multiplier lambda after p steps
+```
+
+and the interior distance `(1 − |λ|²) / |dcdz + dzdz dc / (1 − λ)|`
+(src: [[sources/wikipedia-plotting-algorithms]] §Interior distance estimation), plus
+`log2 min |z|` over the cycle. Mathematically any cycle point serves as `z0`; ours is the
+settled orbit point, accurate to the closure tolerance (inference).
+
+**Storage, cost, unresolved.** The analysis state lives in a separate 48-byte-per-slot buffer
+parallel to the live list, bound only in `kInteriorColor` pipelines, so the others are
+unchanged (bit-identical). Interior texels write `.y = p` in the iteration texture,
+`(|λ|, arg λ / 2π)` in the DE texture and `(distance in texels, log2 min |z|)` in an extra
+rg32f texture allocated on first use. The class never changes (shown-frame checks and verify
+compare classes). Unresolved pixels keep the outline colour, distinct from every mode.
+Switching between non-flat modes only recolours; flat ↔ analysed renders again.
+
+**Modes** (colorize): *bubbles* palette by `−log2 |z*| · density` (rings around each nucleus,
+where `z*` → 0); *period* golden-ratio steps through the palette per period, brightened by
+`√(1 − |λ|²)`; *angle* palette once around `arg λ` with stripes `cos(2π s arg λ)` along the
+internal rays (faded where they converge) and rings of equal `log(1 − |λ|)`; *distance* palette
+by `log2(1 + d_px)`, dark within ~6 px of the boundary.
+
+**Cost** (measured 2026-10-14, M1 Pro, release, 960×600, `--extend 16`): see
+[[synthesis/benchmarks]] "Interior colouring". At home the analysis adds about 1 % of
+iterations; deep views pay at most one period of floatexp steps per interior pixel.
+
+## Dense regions (as built)
+
+Reported by the user: the default look filled the near-boundary band with grey noise where
+a reference renderer shows calm dark blue with thin bright filaments. Cause: where the palette
+phase changes by more than ~1/16 cycle per pixel (`footprint = density / (d ln 2)` cycles per
+pixel at DE distance `d`, see palette anti-aliasing above), point lookups are per-pixel noise
+and the filtered palette is its mean, a grey. Fix (2026-10-14, `shade`, setting
+`dense_calm`, on by default, "Calm dense regions" in the control center): from 1/16 to 1/2
+cycle per pixel the colour fades to a per-palette *deep* colour (the palette's darkest third,
+averaged and brought to luminance 0.012, so it keeps the palette's hue), with a lift towards a
+*filament* colour (its brightest tenth at luminance 0.35) for the farthest of those pixels
+(`smoothstep(0.2, 0.7, d_px) · 0.5`); the outline and 80 % of the lighting are faded out
+there, since both are noise at that density. Unresolved pixels (outline colour, near black)
+and interior stay distinguishable from the deep colour. Works for any palette given as stops
+(`palette::dense_colors`). Off restores the old look. Before/after stills:
+`scripts/render-dense-looks.sh`.
 
 ## For almondbread
 
