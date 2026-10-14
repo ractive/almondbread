@@ -119,8 +119,10 @@ final class InteractionTest: NSObject {
                 glide.last = d
                 let now = CACurrentMediaTime() - glide.start
                 if glide.pct1 == nil && d < 0.01 * hypot(target.x, target.y) { glide.pct1 = now }
-                if glide.arrived == nil && d == 0 {
-                    glide.arrived = now
+                if glide.arrived == nil && d == 0 { glide.arrived = now }
+                // The fixed point is measured once the tapped key's pan has glided out too
+                // (FL: released keys ease out over ~0.5 s instead of stopping dead).
+                if c0 == nil && glide.arrived != nil && now >= 0.9 {
                     c0 = InteractionTest.point(v, 0, 0)
                     zoomStart = CACurrentMediaTime()
                 }
@@ -180,11 +182,17 @@ final class InteractionTest: NSObject {
             once("up", t >= 2.5) {
                 InteractionTest.key(v, " ", down: false)
                 let rate = edge.pan / max(edge.panSeconds, 1e-3) / Double(v.bounds.width)
-                let ok = !edge.idleMoved && abs(rate - edge.expected) <= 0.1 * edge.expected && abs(edge.panAfterExit) < 1
+                // FL motion feel: the pan eases in (critically damped, ω = 30/s: the average
+                // over the run loses 2/ω s of speed) and glides out after the pointer left
+                // (2/ω = 1/9 s of speed at ω = 18/s).
+                let expected = edge.expected * (1 - (2.0 / 30) / max(edge.panSeconds, 0.1))
+                let glide = edge.expected * Double(v.bounds.width) * 2 / 18
+                let ok = !edge.idleMoved && abs(rate - expected) <= 0.1 * expected
+                    && abs(edge.panAfterExit - glide) <= 0.35 * glide
                 if !ok { self.failures += 1 }
-                self.refineLines.append(String(format: "edge pan: pointer %.0f pt right of centre: %.3f view widths/s while zooming (expected %.3f), moved without zoom %@, %.2f pt after the pointer left %@",
-                                               edge.x, rate, edge.expected, edge.idleMoved ? "YES" : "no",
-                                               edge.panAfterExit, ok ? "OK" : "FAILED"))
+                self.refineLines.append(String(format: "edge pan: pointer %.0f pt right of centre: %.3f view widths/s while zooming (expected %.3f with the eased start), moved without zoom %@, glided %.1f pt after the pointer left (expected %.1f) %@",
+                                               edge.x, rate, expected, edge.idleMoved ? "YES" : "no",
+                                               edge.panAfterExit, glide, ok ? "OK" : "FAILED"))
             }
         }
         return [Scenario(name: "home pan", viewport: home, input: pan),

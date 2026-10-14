@@ -210,6 +210,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     private var sentInsets: NSEdgeInsets?
     /// The pointer is over the HUD (the canvas's arrow-cursor hole): reported as exited.
     private var overHUD = false
+    /// A mouse drag is in progress (its release may fling).
+    private var dragging = false
+    private var gamepad: GamepadInput?
 
     init(model: ExplorerModel) {
         base = FractalHostBase(model: model, scale: NSScreen.main?.backingScaleFactor ?? 2)
@@ -219,6 +222,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         base.attach(host: self)
         base.onModeChange = { [weak self] mode in self?.modeChanged(mode) }
         if InteractionTest.enabled { InteractionTest.shared.attach(view: self) }
+        // Window tests never read the user's controller.
+        if !TestLaunch.enabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -447,22 +452,35 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func scrollWheel(with event: NSEvent) {
         let zoomModifier = event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option)
+        let o = offset(event.locationInWindow)
         if event.hasPreciseScrollingDeltas && !zoomModifier {
-            // Trackpad: two-finger scroll pans; content follows the fingers.
+            // Trackpad: two-finger scroll pans 1:1; content follows the fingers. After the
+            // fingers lift, the OS keeps sending momentum-phase scrolls: that is the fling.
             send(.pan(dx: Double(event.scrollingDeltaX), dy: -Double(event.scrollingDeltaY)))
+        } else if event.hasPreciseScrollingDeltas {
+            // Precise scroll zoom (trackpad or Magic Mouse with a modifier): 1:1.
+            send(.wheelZoom(delta: Double(event.scrollingDeltaY) / 40, x: o.x, y: o.y))
         } else {
-            let delta = event.hasPreciseScrollingDeltas ? Double(event.scrollingDeltaY) / 40 : Double(event.scrollingDeltaY)
-            let o = offset(event.locationInWindow)
-            send(.wheelZoom(delta: delta, x: o.x, y: o.y))
+            // A wheel notch: an animated step (Rust eases it in over ~0.1 s).
+            send(.wheelNotch(delta: Double(event.scrollingDeltaY), x: o.x, y: o.y))
         }
     }
 
     override func magnify(with event: NSEvent) {
         let o = offset(event.locationInWindow)
         send(.magnify(magnification: Double(event.magnification), x: o.x, y: o.y))
+        // Fingers lifted while zooming: a zoom fling (no OS momentum for magnify).
+        if event.phase == .ended { send(.gestureEnd) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // A drag released while moving flings on (mice have no OS momentum).
+        if dragging { send(.gestureEnd) }
+        dragging = false
     }
 
     override func mouseDragged(with event: NSEvent) {
+        dragging = true
         send(.pan(dx: Double(event.deltaX), dy: -Double(event.deltaY)))
         // The pointer moves with the drag: it is the zoom target afterwards.
         if !InteractionTest.enabled {
@@ -503,6 +521,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var lastPinchCenter: CGPoint = .zero
     private var pointerInteraction: UIPointerInteraction?
     private var sentInsets: UIEdgeInsets?
+    private var gamepad: GamepadInput?
 
     // The base creates the layer before the view exists; UIKit asks the class for its layer,
     // so the view's own layer is a plain one hosting the Metal layer as a sublayer.
@@ -529,6 +548,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         addInteraction(pointer)
         pointerInteraction = pointer
         base.onModeChange = { [weak self] _ in self?.pointerInteraction?.invalidate() }
+        gamepad = GamepadInput { [weak self] e in self?.send(e) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -670,6 +690,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                         dx: Double(center.x - lastPinchCenter.x), dy: -Double(center.y - lastPinchCenter.y)))
             lastPinchScale = g.scale
             lastPinchCenter = center
+        case .ended:
+            send(.gestureEnd)
         default: break
         }
     }
@@ -693,6 +715,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         let t = g.translation(in: self)
         send(.pan(dx: Double(t.x), dy: -Double(t.y)))
         g.setTranslation(.zero, in: self)
+        // Lifted while moving: the view flings on (Rust measures the velocity).
+        if g.state == .ended { send(.gestureEnd) }
     }
 
     @objc private func handleDoubleTap(_ g: UITapGestureRecognizer) {

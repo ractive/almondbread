@@ -180,9 +180,30 @@ pub enum InputEvent {
         y: f64,
         out: bool,
     },
-    /// Zoom by `factor` at the zoom target (menu commands).
+    /// Zoom by `factor` at the zoom target (menu commands), animated.
     ZoomBy {
         factor: f64,
+    },
+    /// A mouse wheel notch (not a precise scroll): zoom by 1.15^delta at the zoom target,
+    /// animated ((x, y) in pointer mode).
+    WheelNotch {
+        delta: f64,
+        x: f64,
+        y: f64,
+    },
+    /// The drag, touch pan, pinch or trackpad magnify that drove the view ended: it flings on
+    /// if it was still moving. Not for trackpad scrolling (the OS sends momentum scrolls).
+    GestureEnd,
+    /// Game controller state, sent when it changes: sticks −1...1 (y up), triggers 0...1,
+    /// `boost` (a face button) speeds motion up. Dead zones and curves are Rust's.
+    Gamepad {
+        lx: f64,
+        ly: f64,
+        rx: f64,
+        ry: f64,
+        lt: f64,
+        rt: f64,
+        boost: bool,
     },
 }
 
@@ -219,6 +240,26 @@ impl InputEvent {
             }
             Self::DoubleTap { x, y, out } if ok(&[x, y]) => E::DoubleTap { x, y, out },
             Self::ZoomBy { factor } if ok(&[factor]) && factor > 0.0 => E::ZoomBy { factor },
+            Self::WheelNotch { delta, x, y } if ok(&[delta, x, y]) => E::WheelNotch { delta, x, y },
+            Self::GestureEnd => E::GestureEnd,
+            // Non-finite axes read as centred (handled in the navigator).
+            Self::Gamepad {
+                lx,
+                ly,
+                rx,
+                ry,
+                lt,
+                rt,
+                boost,
+            } => E::Gamepad {
+                lx,
+                ly,
+                rx,
+                ry,
+                lt,
+                rt,
+                boost,
+            },
             _ => return None,
         })
     }
