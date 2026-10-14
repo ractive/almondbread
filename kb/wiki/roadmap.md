@@ -9,6 +9,12 @@ Milestone status for almondbread. Derived from the ranked roadmap in
 [[synthesis/deep-zoom-rendering-techniques]]; updated by the driver session
 as milestones start and finish.
 
+> **Priority (user, 2026-10-14):** feel and look first. Flying must feel
+> and look stunning at shallow depth before any more depth or game work;
+> if it does not, the game makes no sense. Order: M2.5 → FL (feel & look)
+> and L0 → user review gate → L1 (real-time landscape prototype, if L0
+> convinces) → user review gate → M3b, M4, M6, product and game features.
+
 | Milestone | Scope | Roadmap steps | Status |
 | --- | --- | --- | --- |
 | M1 | float32 perturbation + rebasing, Double reference, DE, lighting, UI, macOS + iOS targets | 1 (partial), 4 (partial) | done 2026-10-14 |
@@ -19,6 +25,8 @@ as milestones start and finish.
 | R2b | switch the apps to the Rust renderer; Swift UI only; interaction parity; delete the Swift renderer and AlmondbreadMath | — | done 2026-10-14 (`Explorer` over UniFFI, one `frame` call per refresh, 2–7 µs FFI per frame; interaction parity or better, 9.4 ms drawable stall gone; [[platform/render-architecture]], [[synthesis/benchmarks]]) |
 | L0 | landscape-mode prototype: still images, height-function variants ([[decisions/landscape-mode]]) | — | in progress (parallel to R2b) |
 | M2.5 | interaction polish: pointer/keyboard modes, crosshair zoom target, spring glide, edge panning ([[decisions/controls]] revision) | 8 (partial) | planned, after the wedge bug fix |
+| FL | feel & look: inertia/easing, gamepad, frame reprojection while zooming, exposed-area-first refinement, progressive AA, designed colour presets, DE colouring and lighting by default, colour cycling; recorded flight videos for review | 8 | next, after M2.5 |
+| L1 | real-time landscape flight prototype (only if L0 convinces) | — | planned, after FL |
 | M3b | integrate: big viewport, background reference, rescaled float32 / floatexp deltas | 1, 6 | planned |
 | M4 | BLA tree with ε = 2^-24, extended-range coefficients, skip-off diff | 5 | planned |
 | M5 | nucleus reference reuse, frame reprojection, progressive jittered AA, statistics-driven max iterations | 7, 8 | planned |
