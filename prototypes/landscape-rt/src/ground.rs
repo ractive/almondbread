@@ -12,9 +12,9 @@ pub struct Ground {
     cache: HashMap<(i32, i64, i64), f32>,
     pub max_iter: u32,
     pub evals: u64,
-    /// height curve: h/S = sigma·ln(1 + k_over_sigma·DE/S)
-    pub sigma: f64,
-    pub k_over_sigma: f64,
+    /// height curve h = σ·ln(1 + k·DE/σ), absolute (complex units)
+    sigma: f64,
+    k: f64,
 }
 
 fn bspline(t: f64) -> [f64; 4] {
@@ -29,8 +29,12 @@ fn bspline(t: f64) -> [f64; 4] {
 }
 
 impl Ground {
-    pub fn new(c0: (f64, f64), sigma: f64, k_over_sigma: f64) -> Self {
-        Ground { c0, cache: HashMap::new(), max_iter: 6000, evals: 0, sigma, k_over_sigma }
+    pub fn new(c0: (f64, f64), sigma: f64, k: f64) -> Self {
+        Ground { c0, cache: HashMap::new(), max_iter: 6000, evals: 0, sigma, k }
+    }
+
+    pub fn set_sigma(&mut self, sigma: f64) {
+        self.sigma = sigma;
     }
 
     /// DE (complex units, 0 = interior/unresolved) at sample (i, j) of level l.
@@ -53,12 +57,12 @@ impl Ground {
         v as f64
     }
 
-    fn h(&self, de: f64, s: f64) -> f64 {
-        self.sigma * (1.0 + self.k_over_sigma * de / s).ln()
+    fn h(&self, de: f64) -> f64 {
+        self.sigma * (1.0 + self.k * de / self.sigma).ln()
     }
 
-    /// B-spline smoothed height (units of S) at offset p on level l.
-    fn smooth_level(&mut self, p: [f64; 2], l: i32, s: f64) -> f64 {
+    /// B-spline smoothed height (complex units) at offset p on level l.
+    fn smooth_level(&mut self, p: [f64; 2], l: i32) -> f64 {
         let sp = (l as f64).exp2();
         let gx = p[0] / sp;
         let gy = p[1] / sp;
@@ -71,39 +75,23 @@ impl Ground {
         for b in 0..4 {
             for a in 0..4 {
                 let de = self.de(l, ix + a as i64 - 1, iy + b as i64 - 1);
-                acc += wx[a] * wy[b] * self.h(de, s);
+                acc += wx[a] * wy[b] * self.h(de);
             }
         }
         acc
     }
 
-    /// Ground height (units of S) at offset p, smoothed to `scale` (complex units), blended
+    /// Ground height (complex units) at offset p, smoothed to `scale` (complex units), blended
     /// continuously between the two neighbouring power-of-two grids.
-    pub fn smooth(&mut self, p: [f64; 2], scale: f64, s: f64) -> f64 {
+    pub fn smooth(&mut self, p: [f64; 2], scale: f64) -> f64 {
         let lam = scale.log2();
         let l0 = lam.floor();
         let f = lam - l0;
-        let a = self.smooth_level(p, l0 as i32, s);
+        let a = self.smooth_level(p, l0 as i32);
         if f < 1e-6 {
             return a;
         }
-        let b = self.smooth_level(p, l0 as i32 + 1, s);
+        let b = self.smooth_level(p, l0 as i32 + 1);
         a + (b - a) * f
-    }
-
-    /// B-spline smoothed DE (complex units) at offset p on the power-of-two grid nearest `scale`.
-    pub fn de_smooth(&mut self, p: [f64; 2], scale: f64) -> f64 {
-        let l = scale.log2().round() as i32;
-        let sp = (l as f64).exp2();
-        let (gx, gy) = (p[0] / sp, p[1] / sp);
-        let (fx, fy) = (gx.floor(), gy.floor());
-        let (wx, wy) = (bspline(gx - fx), bspline(gy - fy));
-        let mut acc = 0.0;
-        for b in 0..4 {
-            for a in 0..4 {
-                acc += wx[a] * wy[b] * self.de(l, fx as i64 + a as i64 - 1, fy as i64 + b as i64 - 1);
-            }
-        }
-        acc
     }
 }

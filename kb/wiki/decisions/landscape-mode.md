@@ -218,7 +218,7 @@ the second difference is larger than the first, which is noise, not motion.
   ones. Budget 2.5 GPU-ms per frame, with a fast-rise / slow-decay cost estimate.
 - *Priority*: fallback error `spacing / distance`, tiles ahead before behind.
 
-**Flight model** (all in units of S): W/S throttle (cruise speed 0.08–8 S/s, persists),
+**Flight model, first version (superseded below by the 3D nose-flying model)** (all in units of S): W/S throttle (cruise speed 0.08–8 S/s, persists),
 A/D turn with banking, Space or ↑ dive, Shift or ↓ climb (stick convention: push dives, pull climbs), Page Up/Down look, F autopilot. Every input is eased
 (first order, τ 0.2–0.6 s). The altitude follows the cubic-B-spline-smoothed ground (CPU f64
 DE at S/3, looking up to 1.8 s ahead) through a critically damped spring (ω = 2.2 /s), with a
@@ -278,7 +278,99 @@ steep/flat shoulder moves with it. That is the remaining cost of layered σ.
 `--colour legacy` keeps the old colouring. Clips: `review/landscape/l1-dive-colour-before.mp4`
 / `-after.mp4`, `rings-before-after.png`. 120 Hz unchanged (dive 119.8 fps, tour 119.3).
 
-**Results.** Frame pacing at 120 Hz in [[synthesis/benchmarks]] (L1): 117.9–119.6 fps
+**Lake flicker (user feedback 3).** Ground was painted over minibrot lakes in 16×16-tile
+staircases and ring-shaped L-blocks, and it flickered. Cause: the fragment shader blended level ℓ
+with level ℓ+1 by vertex-interpolated weights only. Where ℓ+1 was not valid (tile not
+computed yet, or a stale texel of another place in the toroidal texture), its data was mixed
+in, and lake coverage fell to 0 where both weights vanished. The bug was there from the
+first build (it reproduces at 4b1c040, 9.3 % of pixels > 24/255 in one frame); flying over
+lakes exposed it. Fix: the fragment checks validity (tag + fade) of ℓ, ℓ+1 and ℓ+2 itself,
+blends normalized weights, and falls back to the geometry (lake when the surface sits at lake
+level). Same-camera check over the minibrot3 tour: worst frame 17.4 % → 0.009 % of pixels
+> 24/255; lake pixels (mask) 0.000–0.002 in level flight and the rigid phase. GPU cost was
++1 ms at 1080p; a 3-tap gradient (centre + forward differences) and skipping zero-weight
+levels brought the render to 2.4 ms p50 (before the fix 3.6).
+
+**R32F data.** Flying low exposed f16 precision. log2(DE/spacing) is about 14 on plateaus at
+the finest levels, where an f16 step is 2^-7: height terraces of about 0.002 S, which showed
+as regular zig-zag stripes 0.04 S below the eye. The data is now R32Float (4 MB per level,
+filterable on M1).
+
+**Controls redesign (user feedback 4–6): fly the nose, zoom separately.** Users found the
+first model unsteerable. It held altitude (terrain following), clamped the pitch, and dived
+by zooming towards a coast-snapped aim point. "You can't fly into a valley, it keeps
+zooming in." New model (`flight.rs`):
+- The nose is the flight path. W/↑ push and S/↓ pull (rate control, down to −90°), A/D/←/→
+  bank-turn, Q/E throttle (cruise, persists).
+- With the zoom held, the world is rigid: σ is fixed, so the terrain is a fixed 3D shape and
+  nothing melts by construction. The terrain is only a collision floor (0.04 S); there is no
+  altitude hold.
+- Zoom is explicit. Shift+W/↑ zooms in about the crosshair point (the nose ray's ground hit,
+  fixed on screen); Shift+S/↓ zooms out about the camera's ground point. Eased, 1 e-fold/s.
+- Auto-zoom mode (Z, `--auto-zoom`): a nose steeper than 45° zooms in (smoothstep to the
+  maximum at 85°), and a height above ground over 1.5 S zooms out (full at 4 S). Pitch-up
+  does not zoom out, so the pilot never has to stare at the sky.
+- Speed is S·throttle·clamp(1.5·height/S, 0.05, 1). With √ scaling (≥ 0.25) the ground at
+  0.04 S rushed past at about 7 rad/s, mean frame difference 19–23/255; linear keeps low flight
+  readable.
+- Detail follows the eye: the finest clipmap level follows min(S, 2·height above ground),
+  down to 4 octaves below the zoom's finest (11 → 15 levels when low).
+- A crosshair at the screen centre (the flight path) turns amber while zooming in and blue
+  while zooming out.
+
+Target dive (`record --script target[-auto] --loc …`): a closed-loop pilot uses the same stick
+and zoom inputs. It points the nose at the location's centre, flies down to it at fixed zoom
+(with a 1.2 S altitude hold in auto mode until the target is more than 55° below, and slowing
+near it so it does not orbit), then zooms in: Shift+↑ in manual mode, the steep nose in auto.
+Final build, 45 s budget, fill-limited zoom:
+
+| target | manual zoom | auto zoom |
+| --- | --- | --- |
+| seahorse spiral centre (≈ 5e-3 away) | 1e-7 in 40 s, 0.000 S off | 1.7e-7 at 45 s, 0.4 S off |
+| minibrot3 lake centre (period-3 nucleus) | 9.6e-7 at 45 s, 0.9 S off, over the lake | 6.4e-8 in 31 s, 0.000 S off |
+
+Before the fill limit the manual seahorse dive took 13 s, but the end was tile soup.
+
+Which feels better: manual for exploring (you choose when the world rescales; flying at a
+fixed zoom is the calm part), auto for a quick plunge onto one spot. Auto zoom only triggers
+in steep dives, which a pilot does deliberately. Its zoom-out-by-height prevents flying "up
+and away" at a fixed zoom, but it also means you cannot climb high to look around: that is
+the trade-off. (This verdict is from the scripted flights and the videos, not from flying it
+by hand.)
+Weak: the target pilot banks hard at the start and skims the lake at the clearance floor
+(visually dull). Collision is a floor, not an avoidance, so flying into a wall slides you up
+the face of the wall.
+
+**Reference orbit must follow the zoom (correction).** The first version kept one nucleus
+reference for the whole session ("a periodic reference never escapes, so rebasing makes it
+universal"). That is wrong for float32 deltas. In a seahorse dive with the start's reference
+(period 25, 6e-3 away), 6–55 % of the computed samples at the fine levels were wrong at
+S ≈ 8e-8 (spikes): `record --check-end` compares the clipmap's computed tiles with CPU f64.
+The CPU check must skip tiles that are not computed yet; the first in-session numbers
+included them and overstated the errors. Two effects:
+- dc = c − c_ref is a float32 per tile, rounded at |dc|·2^-24, which must stay well below the
+  finest spacing (S/32768).
+- A nucleus picked at a coarser scale does not serve finer ones: period 39 picked at 6e-6
+  failed at 1e-7, where a nearby period-624 nucleus is exact.
+
+Rule now: re-reference when the camera is more than 48 S from the reference or S has shrunk
+4× since it was chosen. The new reference is the highest-period nucleus within 24 S found by
+ball-period searches at radii 0.5–32 S; this takes 0–0.4 ms. In-flight tiles finish; tiles
+waiting to resume are dropped and requested again. Result: 0 errors on all computed tiles of
+11 levels at 8e-8. Window pacing in the dive script with re-references: 119.5 fps.
+
+**Fill-limited zoom.** Zooming in at 1 e-fold/s onto a minibrot shore (slow tiles) outruns the
+DE budget. Several levels in a row go missing, and the fallback showed tile-shaped water
+holes (height 0) or, with a longer fallback chain, tile-shaped slabs. Fixes:
+- The vertex fallback chain now reaches ℓ+5.
+- While zooming, detail follows S only (the eye-height levels would be obsolete within a second).
+- The zoom-in rate yields to the backlog: × (1 − missing ahead beyond 800 / 3500), at least
+  0.15, and × (1 − missing within 3 S / 60), at least 0.1.
+
+The seahorse target dive is then clean, at the price of speed: 1e-3 → 2.8e-7 in 30 s instead of
+→ 8e-8 in 13 s.
+
+**Results.** Frame pacing at 120 Hz in [[synthesis/benchmarks]] (L1): first version 117.9–119.6 fps; after the controls redesign hover 119.3, cruise 119.2, dive 117.2, tour 118.8 fps (render 3.8–4.6 ms p50, ≤ 7.7 ms p99; measured with no other GPU load; with another agent's dense-sampling job and a second landscape-rt instance running it drops to 65–106 fps)
 presented, 0.2–1.8 % refreshes missed, render 3.5–4.4 ms p50 / ≤ 9 ms p99, DE ≤ 3 ms p99.
 Review videos 1080p60 in `review/landscape/` (gitignored): `l1-tour.mp4` (35 s, 1e-3 → 9e-8),
 `l1-dive.mp4`, `l1-dive-continuous-sigma.mp4` (before/after of the melting fix),

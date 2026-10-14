@@ -1,7 +1,7 @@
 // L1 landscape: Mandelbrot terrain as a geometry clipmap (kb: decisions/landscape-mode, L1).
 //
 // Data: per clipmap level ℓ (absolute sample spacing 2^ℓ in the complex plane) an N×N toroidal
-// R16Float slice holding DE / spacing at camera-independent sample positions c = origin +
+// R32Float slice holding log2(DE / spacing) at camera-independent sample positions c = origin +
 // (i, j)·2^ℓ (−0.5 = interior or unresolved = lake), and a (N/16)² RG32Float meta slice per
 // 16×16 tile: (birth time, tag). The tag names the level and the wrap cycle of the tile, so a
 // texel is valid only if it really holds the sample the ring wants; the birth time fades new
@@ -60,7 +60,7 @@ constant uint DONE = 0xFFFFFFFFu;
 // the whole tile is done, so the renderer never sees a partly computed tile. This bounds the
 // GPU time of a frame's batch: one tile with slow pixels (near-parabolic interior) used to take
 // 10 ms by itself.
-kernel void deTiles(texture2d_array<half, access::write>  dataTex [[texture(0)]],
+kernel void deTiles(texture2d_array<float, access::write> dataTex [[texture(0)]],
                     texture2d_array<float, access::write> metaTex [[texture(1)]],
                     constant DeParams& p                    [[buffer(0)]],
                     device const float2* ref                [[buffer(1)]],
@@ -127,7 +127,7 @@ kernel void deTiles(texture2d_array<half, access::write>  dataTex [[texture(0)]]
                 float v = log2(2.0f * zr * log(zr)) - log2(length(d)) - float(dExp);
                 lde = isfinite(v) ? clamp(v, -50.0f, 60.0f) : -50.0f;
             }
-            dataTex.write(half4(half(lde)), job.texel + lt.xy, job.slot);
+            dataTex.write(float4(lde), job.texel + lt.xy, job.slot);
             st.n = DONE;
         } else {
             st.dz = dz; st.d = d; st.w = w; st.m = m; st.n = n; st.wExp = wExp; st.dExp = dExp; st.sdScaled = sdScaled;
@@ -160,8 +160,22 @@ struct Globals {
     float4 misc;            // x: 1/N, y: strata shift, z: debug mode, w: profile/measurement mode
     float4 shade;           // x: log2(S_shade / S) (pop check: previous S), y: log2 S,
                             // z: σ_lo / S, w: σ_hi / S (colour layers)
-    float4 shade2;          // x: cross-fade σ_lo → σ_hi
+    float4 shade2;          // x: cross-fade σ_lo → σ_hi, y: legacy colour, z: lake mask
+    float4 overlay;         // xy: crosshair centre (px), z: radius (0: off), w: zoom rate
 };
+
+// Crosshair: a thin ring with a gap and a centre dot; amber while zooming in, blue out.
+static inline float3 crosshair(float3 c, float2 px, constant Globals& g) {
+    if (g.overlay.z <= 0.0f) return c;
+    float2 d = px - g.overlay.xy;
+    float r = length(d);
+    float R = g.overlay.z * (1.0f + 0.25f * abs(g.overlay.w));
+    float ring = saturate(1.5f - abs(r - R)) * (abs(d.x) > 0.35f * R || abs(d.y) > 0.35f * R ? 1.0f : 0.0f);
+    float dot_ = saturate(2.0f - r);
+    float a = max(ring, dot_) * 0.85f;
+    float3 tint = g.overlay.w > 0.05f ? float3(1.0, 0.75, 0.3) : (g.overlay.w < -0.05f ? float3(0.5, 0.75, 1.0) : float3(1.0));
+    return mix(c, tint, a);
+}
 
 struct LevelRef {           // one data level as seen from a ring (32 bytes)
     int2  dataMod;          // data origin mod N (texel of data-local sample 0)
@@ -172,8 +186,8 @@ struct LevelRef {           // one data level as seen from a ring (32 bytes)
 };
 
 struct RingParams {
-    LevelRef lv[4];         // ℓ, ℓ+1, ℓ+2, ℓ+3
-    uint4  levelBits;       // ((ℓ+k & 63) + 1) << 16 for k = 0..3 (0xFFFFFFFF: no such level)
+    LevelRef lv[6];         // ℓ .. ℓ+5 (ℓ+3.. only as fallbacks where data is missing)
+    uint   levelBits[8];    // ((ℓ+k & 63) + 1) << 16 for k = 0..5 (0xFFFFFFFF: no such level)
     float2 pos0;            // ring vertex (0,0) relative to the camera, S units
     float  gS;              // vertex spacing / S
     int    K;               // vertex stride in level-ℓ samples
@@ -231,9 +245,15 @@ static inline float coarse2(texture2d_array<float, access::sample> dataTex,
     Fetch f2 = fetch(dataTex, metaTex, g, rp, 2, rp.lv[2].ringOrigin + (q * rp.K) / 4);
     float h2 = heightS(f2.de, rp.lv[2].spOverS, g);
     if (f2.valid >= 1.0f) return h2;
-    Fetch f3 = fetch(dataTex, metaTex, g, rp, 3, rp.lv[3].ringOrigin + (q * rp.K) / 8);
-    float h3 = f3.valid > 0.0f ? heightS(f3.de, rp.lv[3].spOverS, g) : 0.0f;
-    return mix(h3, h2, f2.valid);
+    // fallback chain to ℓ+5 (fast zooms leave several fine levels missing; height 0 here
+    // showed as tile-shaped "lake" holes with land blocks popping out)
+    float h = 0.0f;
+    for (int k = 5; k >= 3; k--) {
+        int div = 1 << k;
+        Fetch f = fetch(dataTex, metaTex, g, rp, k, rp.lv[k].ringOrigin + (q * rp.K) / div);
+        if (f.valid > 0.0f) h = mix(h, heightS(f.de, rp.lv[k].spOverS, g), f.valid);
+    }
+    return mix(h, h2, f2.valid);
 }
 
 // Surface of ring ℓ+1 at a ring-(ℓ+1) vertex u (ring-ℓ vertex units, even): its own sample
@@ -317,19 +337,17 @@ struct Grad { float3 n; float de; };
 static inline Grad gradAt(texture2d_array<float, access::sample> dataTex, sampler smp,
                           constant Globals& g, constant LevelRef& L, float2 s)
 {
+    // centre and forward differences: 3 filtered taps (the centre also gives the DE)
     const float invN = g.misc.x;
     float2 base = (float2(L.dataMod) + s + 0.5f) * invN;
-    float e = invN;
-    float dxp = dataTex.sample(smp, base + float2(e, 0), L.slot).x;
-    float dxm = dataTex.sample(smp, base - float2(e, 0), L.slot).x;
-    float dyp = dataTex.sample(smp, base + float2(0, e), L.slot).x;
-    float dym = dataTex.sample(smp, base - float2(0, e), L.slot).x;
-    float hxp = heightS(dxp, L.spOverS, g), hxm = heightS(dxm, L.spOverS, g);
-    float hyp = heightS(dyp, L.spOverS, g), hym = heightS(dym, L.spOverS, g);
-    float step2 = 2.0f * L.spOverS;
+    float dc = dataTex.sample(smp, base, L.slot).x;
+    float dxp = dataTex.sample(smp, base + float2(invN, 0), L.slot).x;
+    float dyp = dataTex.sample(smp, base + float2(0, invN), L.slot).x;
+    float hc = heightS(dc, L.spOverS, g);
+    float hx = heightS(dxp, L.spOverS, g), hy = heightS(dyp, L.spOverS, g);
     Grad r;
-    r.n = normalize(float3(-(hxp - hxm) / step2, -(hyp - hym) / step2, 1.0f));
-    r.de = 0.25f * (dxp + dxm + dyp + dym);
+    r.n = normalize(float3(-(hx - hc) / L.spOverS, -(hy - hc) / L.spOverS, 1.0f));
+    r.de = dc;
     return r;
 }
 
@@ -407,8 +425,10 @@ fragment float4 terrainFragment(VOut in                                    [[sta
     rem -= w2;
 
     Grad g0 = gradAt(dataTex, smp, g, rp.lv[0], in.s0);
-    Grad g1 = gradAt(dataTex, smp, g, rp.lv[1], in.s1);
-    Grad g2 = gradAt(dataTex, smp, g, rp.lv[2], in.s2);
+    // coarser levels only where they carry weight (most fragments: level ℓ alone)
+    Grad g1 = { float3(0, 0, 1), 0.0f }, g2 = { float3(0, 0, 1), 0.0f };
+    if (w1 > 0.0f) g1 = gradAt(dataTex, smp, g, rp.lv[1], in.s1);
+    if (w2 > 0.0f) g2 = gradAt(dataTex, smp, g, rp.lv[2], in.s2);
     // normals: also fade out detail the pixel cannot resolve (footprint in samples)
     float fp = max(length(dfdx(in.s0)), length(dfdy(in.s0)));
     float f0 = saturate(2.0f - fp), f1 = saturate(2.0f - 0.5f * fp), f2 = saturate(2.0f - 0.25f * fp);
@@ -504,7 +524,7 @@ fragment float4 terrainFragment(VOut in                                    [[sta
     if (g.misc.w == 5.0f) return float4(lightOnly, hill);           // measurement: lighting only
     float fd = 1.0f - exp(-dist / g.sun.w);
     col = mix(col, fogColor(vd, sun), saturate(fd));
-    return float4(tonemap(col, in.pos.xy), hill);
+    return float4(crosshair(tonemap(col, in.pos.xy), in.pos.xy, g), hill);
 }
 
 // ---------------------------------------------------------------- sky (fullscreen)
@@ -525,5 +545,5 @@ fragment float4 skyFragment(SkyOut in [[stage_in]], constant Globals& g [[buffer
     float3 c = skyColor(d, g.sun.xyz);
     float haze = saturate(1.0f - max(d.z, 0.0f) * 6.0f);
     c = mix(c, fogColor(d, g.sun.xyz), 0.6f * haze * haze);
-    return float4(tonemap(c, in.pos.xy), 0.0f);
+    return float4(crosshair(tonemap(c, in.pos.xy), in.pos.xy, g), 0.0f);
 }

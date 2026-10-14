@@ -11,6 +11,8 @@ use crate::gpu::{LevelRef, RingDraw, RingParams, TileJob};
 
 pub const TILE: i64 = 16;
 pub const BLOCK: i64 = 16;
+/// Finer levels added below the zoom's finest when the eye is low over the ground.
+pub const EXTRA_LEVELS: usize = 4;
 
 /// (level, world tile x, world tile y)
 pub type TileKey = (i32, i64, i64);
@@ -38,7 +40,7 @@ impl ClipConfig {
         while m > 0 && m * k + 32 * k + TILE + 4 > n {
             m -= 2 * BLOCK;
         }
-        let c = ClipConfig { n, k, m, levels, slots: levels + 1, detail };
+        let c = ClipConfig { n, k, m, levels, slots: levels + EXTRA_LEVELS + 1, detail };
         assert!(c.m >= 4 * BLOCK, "data window too small for the ring");
         assert!(c.n % (TILE * 8) == 0);
         c
@@ -100,12 +102,15 @@ pub struct Candidate {
 pub struct Clipmap {
     pub cfg: ClipConfig,
     pub finest: Option<i32>,
+    base_finest: Option<i32>,
     pub levels: Vec<Level>,
     status: Vec<Vec<u32>>,
     slot_level: Vec<Option<i32>>,
     pub missing: usize,
     /// missing tiles ahead of the camera (within ±60° of the heading) and inside 2× the fog
     pub missing_ahead: usize,
+    /// missing tiles within 3 S of the camera (any level)
+    pub missing_near: usize,
     cands: Vec<Candidate>,
 }
 
@@ -137,27 +142,34 @@ impl Clipmap {
         Clipmap {
             cfg,
             finest: None,
+            base_finest: None,
             levels: Vec::new(),
             status: vec![vec![u32::MAX; t]; cfg.slots],
             slot_level: vec![None; cfg.slots],
             missing: 0,
             missing_ahead: 0,
+            missing_near: 0,
             cands: Vec::new(),
         }
     }
 
-    /// Picks the active levels for scale `s` (with hysteresis) and places rings and data windows.
-    pub fn update(&mut self, cam: [f64; 2], s: f64) {
-        let want = (s / self.cfg.detail).log2();
-        let finest = match self.finest {
+    /// Picks the active levels (with hysteresis) and places rings and data windows: the
+    /// coarsest follows the zoom `s` (far coverage, fog), the finest follows `s_detail` (the
+    /// eye's distance to the ground; ≤ s), at most EXTRA_LEVELS below the zoom's finest.
+    pub fn update(&mut self, cam: [f64; 2], s_detail: f64, s: f64) {
+        let hyst = |cur: Option<i32>, want: f64| match cur {
             None => want.floor() as i32,
             Some(f) if want < f as f64 - 0.15 || want > f as f64 + 1.15 => want.floor() as i32,
             Some(f) => f,
         };
+        let base = hyst(self.base_finest, (s / self.cfg.detail).log2());
+        self.base_finest = Some(base);
+        let finest = hyst(self.finest, (s_detail / self.cfg.detail).log2()).clamp(base - EXTRA_LEVELS as i32, base);
         self.finest = Some(finest);
         let cfg = self.cfg;
         self.levels.clear();
-        for i in 0..cfg.levels {
+        let count = cfg.levels + (base - finest) as usize;
+        for i in 0..count {
             let l = finest + i as i32;
             let slot = l.rem_euclid(cfg.slots as i32) as usize;
             if self.slot_level[slot] != Some(l) {
@@ -183,6 +195,7 @@ impl Clipmap {
         let tn = cfg.tiles();
         self.cands.clear();
         self.missing_ahead = 0;
+        self.missing_near = 0;
         let (hx, hy) = (ctx.heading.cos(), ctx.heading.sin());
         for (li, lv) in self.levels.iter().enumerate() {
             let sp = spacing(lv.l);
@@ -206,6 +219,9 @@ impl Clipmap {
                     let mut score = sp_s / d.max(sp_s * TILE as f64);
                     let facing = if d > 1e-9 { (cx * hx + cy * hy) / d } else { 1.0 };
                     score *= 0.3 + 0.7 * ((facing + 0.3) / 0.8).clamp(0.0, 1.0);
+                    if d < 3.0 {
+                        self.missing_near += 1;
+                    }
                     if facing > 0.5 && d < 2.0 * ctx.fog {
                         self.missing_ahead += 1;
                     }
@@ -268,7 +284,8 @@ impl Clipmap {
             if i + 1 == self.levels.len() {
                 p.alpha_start = 1e30; // no coarser ring
             }
-            for k in 0..4 {
+            p.level_bits = [0xFFFF_FFFF; 8];
+            for k in 0..6 {
                 if let Some(c) = self.levels.get(i + k) {
                     let n = cfg.n;
                     let shift = k as u32;
@@ -320,6 +337,23 @@ impl Clipmap {
             out.push(RingDraw { params: p, first_block: first, blocks: blocks.len() - first });
         }
         out
+    }
+
+    /// Whether the tile holding level-l sample (i, j) has been requested for this window.
+    pub fn requested(&self, l: i32, i: i64, j: i64) -> bool {
+        self.still_wanted((l, i.div_euclid(TILE), j.div_euclid(TILE)))
+    }
+
+    /// Marks a requested tile as missing again (its job was dropped).
+    pub fn forget(&mut self, key: TileKey) {
+        let (l, tx, ty) = key;
+        let tn = self.cfg.tiles();
+        for lv in &self.levels {
+            if lv.l == l {
+                let idx = (ty.rem_euclid(tn) * tn + tx.rem_euclid(tn)) as usize;
+                self.status[lv.slot][idx] = u32::MAX;
+            }
+        }
     }
 
     /// Whether a tile (level, world tile coords) is still in an active data window and marked

@@ -1,36 +1,51 @@
-//! Flight model (kb: decisions/landscape-mode, L1). Everything is in units of the camera scale
-//! S (the zoom): speed in S per second, altitude in S above the smoothed ground. All inputs go
-//! through first-order easing (frame-rate independent, `1 − e^(−dt/τ)`), so a key press ramps
-//! in and a release glides out, like the app's Navigator. The altitude follows the smoothed
-//! ground with a critically damped spring, looking ahead along the flight path.
+//! Flight model (kb: decisions/landscape-mode, L1 controls). The camera flies its nose freely in
+//! 3D through a rigid world; the zoom S (the world's scale relative to the pilot) is a separate
+//! control. With S held, nothing in the world changes: σ is fixed, so the terrain is a fixed
+//! 3D shape you can fly into, down to the valley floors. Zooming in shrinks the pilot about
+//! the point the nose points at (it stays under the crosshair); zooming out grows the pilot
+//! about its own ground point.
+//!
+//! Units: positions in complex units (f64 offsets from the world origin; z absolute), speed in
+//! S per second, scaled down near the ground. Every input is eased (first order,
+//! frame-rate independent), so presses ramp in and releases glide out.
 
 use crate::ground::Ground;
 
-/// Analog input, each in −1..1 (keys give ±1, the model eases them).
+/// Analog input, each in −1..1.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Input {
-    /// + faster, − slower
-    pub throttle: f64,
-    /// + turn left, − right
-    pub turn: f64,
-    /// + dive (zoom in), − climb (zoom out)
-    pub dive: f64,
-    /// + look up, − look down
+    /// stick: + push (nose down), − pull (nose up)
     pub pitch: f64,
+    /// + turn left, − right (banked)
+    pub turn: f64,
+    /// + faster, − slower (cruise control, persists)
+    pub throttle: f64,
+    /// + zoom in (towards the crosshair), − zoom out (about the camera)
+    pub zoom: f64,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct FlightCfg {
-    pub clearance: f64,
     pub max_turn: f64,
-    pub max_dive: f64,
+    pub max_pitch_rate: f64,
+    /// zoom rate at full input, e-folds per second
+    pub max_zoom: f64,
+    /// collision floor above the ground, in S
+    pub clearance: f64,
     pub s_min: f64,
     pub s_max: f64,
 }
 
 impl Default for FlightCfg {
     fn default() -> Self {
-        FlightCfg { clearance: 1.0, max_turn: 50f64.to_radians(), max_dive: 0.9, s_min: 1e-12, s_max: 0.5 }
+        FlightCfg {
+            max_turn: 55f64.to_radians(),
+            max_pitch_rate: 55f64.to_radians(),
+            max_zoom: 1.0,
+            clearance: 0.04,
+            s_min: 1e-12,
+            s_max: 0.5,
+        }
     }
 }
 
@@ -39,29 +54,37 @@ pub struct Flight {
     pub cfg: FlightCfg,
     /// Camera ground position: complex offset from the world origin.
     pub pos: [f64; 2],
-    /// Camera scale (complex units): the zoom; target altitude = clearance·S.
+    /// Eye height, complex units (absolute: the world is rigid while S is held).
+    pub z: f64,
+    /// The zoom: camera scale in complex units.
     pub s: f64,
-    /// Eye height in units of S, and its rate (S/s).
-    pub y: f64,
-    pub vy: f64,
     pub heading: f64,
+    /// Nose pitch (radians, + up), −90° = straight down.
+    pub pitch: f64,
+    pub pitch_rate: f64,
     pub yaw_rate: f64,
+    pub bank: f64,
     pub speed: f64,
     pub speed_target: f64,
-    pub dive_rate: f64,
-    pub pitch_user: f64,
-    pub pitch_user_target: f64,
-    pub pitch: f64,
-    pub bank: f64,
-    /// last ground height under the camera (S units), for the HUD
-    pub ground_here: f64,
-    /// Dive target (world offset): the ground point the view centre aims at, snapped towards
-    /// the nearest boundary. Diving zooms towards it (it stays fixed on screen).
-    pub aim: Option<[f64; 2]>,
+    /// Current zoom rate, e-folds per second (+ in).
+    pub zoom_rate: f64,
+    /// Auto-zoom mode: steep nose-down zooms in, height above ground zooms out.
+    pub auto_zoom: bool,
+    /// Height of the eye above the (finely smoothed) ground, in S.
+    pub hag: f64,
+    /// Where the nose ray meets the ground (world offset, absolute z), if it does within reach.
+    pub marker: Option<[f64; 3]>,
+    /// 0..1: scales the zoom-in rate (set from the DE backlog)
+    pub zoom_limit: f64,
 }
 
 fn ease(x: f64, target: f64, tau: f64, dt: f64) -> f64 {
     x + (target - x) * (1.0 - (-dt / tau).exp())
+}
+
+fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 impl Flight {
@@ -69,161 +92,156 @@ impl Flight {
         Flight {
             cfg: FlightCfg::default(),
             pos: [0.0, 0.0],
+            z: s,
             s,
-            y: 1.0,
-            vy: 0.0,
             heading,
+            pitch: (-12f64).to_radians(),
+            pitch_rate: 0.0,
             yaw_rate: 0.0,
+            bank: 0.0,
             speed,
             speed_target: speed,
-            dive_rate: 0.0,
-            pitch_user: (-14f64).to_radians(),
-            pitch_user_target: (-14f64).to_radians(),
-            pitch: (-14f64).to_radians(),
-            bank: 0.0,
-            ground_here: 0.0,
-            aim: None,
+            zoom_rate: 0.0,
+            auto_zoom: false,
+            hag: 1.0,
+            marker: None,
+            zoom_limit: 1.0,
         }
     }
 
-    /// Places the eye at the target altitude with no vertical motion (start, teleport).
-    pub fn settle(&mut self, ground: &mut Ground) {
-        let (target, _) = self.targets(ground);
-        self.y = target;
-        self.vy = 0.0;
+    /// Absolute ground height under p, smoothed at `scale` (complex units).
+    fn ground_at(ground: &mut Ground, p: [f64; 2], scale: f64) -> f64 {
+        ground.smooth(p, scale)
     }
 
-    fn dir(&self) -> [f64; 2] {
-        [self.heading.cos(), self.heading.sin()]
+    fn fine_scale(&self) -> f64 {
+        (self.hag * self.s * 0.5).clamp(self.s / 256.0, self.s / 8.0)
     }
 
-    /// (altitude target, hard floor) in S units.
-    fn targets(&self, ground: &mut Ground) -> (f64, f64) {
+    /// Places the eye `alt` S above the ground (start, reset).
+    pub fn settle(&mut self, ground: &mut Ground, alt: f64) {
+        let g = Self::ground_at(ground, self.pos, self.s / 8.0);
+        self.z = g + alt * self.s;
+        self.hag = alt;
+    }
+
+    pub fn dir(&self) -> [f64; 3] {
+        let (ch, sh) = (self.heading.cos(), self.heading.sin());
+        let (cp, sp) = (self.pitch.cos(), self.pitch.sin());
+        [ch * cp, sh * cp, sp]
+    }
+
+    /// March the nose ray against the smoothed ground (up to 60 S).
+    pub fn nose_hit(&self, ground: &mut Ground) -> Option<[f64; 3]> {
         let d = self.dir();
+        if d[2] > 0.02 {
+            return None;
+        }
         let s = self.s;
-        let mut g_max = f64::MIN;
-        // look ahead along the path (seconds); later points count a little less
-        for (k, t) in [0.0, 0.5, 1.0, 1.8].iter().enumerate() {
-            let p = [self.pos[0] + d[0] * self.speed * s * t, self.pos[1] + d[1] * self.speed * s * t];
-            let g = ground.smooth(p, 0.35 * s, s) - 0.04 * k as f64;
-            g_max = g_max.max(g);
-        }
-        let here_fine = ground.smooth(self.pos, s / 16.0, s);
-        (g_max + self.cfg.clearance, here_fine + 0.3 * self.cfg.clearance)
-    }
-
-    /// Where the view centre meets the (smoothed, flat-approximated) ground, then up to three
-    /// steps down the DE towards the nearest boundary (at most 3 S in all).
-    fn aim_point(&self, ground: &mut Ground) -> [f64; 2] {
-        let s = self.s;
-        let down = (-self.pitch).max(0.12);
-        let dist = ((self.y - self.ground_here).max(0.3) / down.tan()).min(8.0);
-        let d = self.dir();
-        let mut a = [self.pos[0] + d[0] * dist * s, self.pos[1] + d[1] * dist * s];
-        let sc = s / 8.0;
-        let mut moved = 0.0;
-        for _ in 0..3 {
-            let de = ground.de_smooth(a, sc);
-            if de < 0.05 * s || moved > 3.0 * s {
-                break;
-            }
-            let e = 0.25 * s;
-            let gx = ground.de_smooth([a[0] + e, a[1]], sc) - ground.de_smooth([a[0] - e, a[1]], sc);
-            let gy = ground.de_smooth([a[0], a[1] + e], sc) - ground.de_smooth([a[0], a[1] - e], sc);
-            let gl = (gx * gx + gy * gy).sqrt();
-            if gl == 0.0 {
-                break;
-            }
-            let step = (0.9 * de).min(1.5 * s);
-            a = [a[0] - gx / gl * step, a[1] - gy / gl * step];
-            moved += step;
-        }
-        a
-    }
-
-    pub fn update(&mut self, dt: f64, input: Input, ground: &mut Ground) {
-        let dt = dt.clamp(0.0, 0.1);
-        // throttle: multiplicative, persists (cruise control)
-        if input.throttle != 0.0 {
-            self.speed_target = (self.speed_target * (input.throttle * 0.9 * dt).exp()).clamp(0.08, 8.0);
-        }
-        self.speed = ease(self.speed, self.speed_target, 0.6, dt);
-        // turning with banking
-        self.yaw_rate = ease(self.yaw_rate, input.turn * self.cfg.max_turn, 0.35, dt);
-        self.heading += self.yaw_rate * dt;
-        let bank_target = (self.yaw_rate * 0.6 * (self.speed / 1.5).clamp(0.3, 1.5)).clamp(-0.6, 0.6);
-        self.bank = ease(self.bank, bank_target, 0.3, dt);
-        // diving = zooming: S shrinks exponentially; the absolute eye height stays, so its
-        // height in S units grows and the altitude spring brings it down: a smooth descent
-        self.dive_rate = ease(self.dive_rate, input.dive * self.cfg.max_dive, 0.4, dt);
-        // only a dive aims: climbing zooms out about the camera's own ground point (pos stays),
-        // so it is a pure climb rather than backing away from the aim point
-        if self.dive_rate > 0.01 || input.dive > 0.0 {
-            let a = self.aim_point(ground);
-            self.aim = Some(match self.aim {
-                Some(o) => {
-                    let k = 1.0 - (-dt / 0.25).exp();
-                    [o[0] + (a[0] - o[0]) * k, o[1] + (a[1] - o[1]) * k]
+        let sc = (self.fine_scale() * 2.0).min(s / 8.0);
+        let (mut t, mut tp) = (0.0f64, 0.0f64);
+        for _ in 0..240 {
+            let p = [self.pos[0] + d[0] * t, self.pos[1] + d[1] * t];
+            let zr = self.z + d[2] * t;
+            let gap = zr - Self::ground_at(ground, p, sc);
+            if gap <= 0.0 {
+                // bisect between tp and t
+                let (mut a, mut b) = (tp, t);
+                for _ in 0..8 {
+                    let m = 0.5 * (a + b);
+                    let q = [self.pos[0] + d[0] * m, self.pos[1] + d[1] * m];
+                    if self.z + d[2] * m - Self::ground_at(ground, q, sc) <= 0.0 {
+                        b = m;
+                    } else {
+                        a = m;
+                    }
                 }
-                None => a,
-            });
-        } else {
-            self.aim = None;
+                let m = 0.5 * (a + b);
+                return Some([self.pos[0] + d[0] * m, self.pos[1] + d[1] * m, self.z + d[2] * m]);
+            }
+            tp = t;
+            t += (0.6 * gap / (-d[2]).max(0.05)).clamp(0.01 * s, 2.0 * s);
+            if t > 60.0 * s {
+                break;
+            }
         }
+        None
+    }
+
+    /// `sigma_of(S)` gives the height curve's σ for the ground (it depends on the zoom).
+    pub fn update(&mut self, dt: f64, input: Input, ground: &mut Ground, sigma_of: &dyn Fn(f64) -> f64) {
+        let dt = dt.clamp(0.0, 0.1);
+        // throttle (Q/E): multiplicative, persists
+        if input.throttle != 0.0 {
+            let base = self.speed_target.max(0.05);
+            self.speed_target = (base * (input.throttle * 0.9 * dt).exp()).clamp(0.05, 8.0);
+        }
+        self.speed = ease(self.speed, self.speed_target, 0.5, dt);
+        // bank-turn
+        self.yaw_rate = ease(self.yaw_rate, input.turn * self.cfg.max_turn, 0.3, dt);
+        self.heading += self.yaw_rate * dt;
+        self.bank = ease(self.bank, (self.yaw_rate * 0.7).clamp(-0.6, 0.6), 0.25, dt);
+        // stick pitch: rate control, down to straight down
+        self.pitch_rate = ease(self.pitch_rate, -input.pitch * self.cfg.max_pitch_rate, 0.15, dt);
+        self.pitch += self.pitch_rate * dt;
+        let (lo, hi) = ((-90f64).to_radians(), 70f64.to_radians());
+        if self.pitch < lo || self.pitch > hi {
+            self.pitch = self.pitch.clamp(lo, hi);
+            self.pitch_rate = 0.0;
+        }
+
+        ground.set_sigma(sigma_of(self.s));
+        let g_here = Self::ground_at(ground, self.pos, self.fine_scale());
+        self.hag = (self.z - g_here) / self.s;
+
+        // zoom: manual (Shift) plus, in auto mode, steep nose-down zooms in (beyond 45°) and
+        // height above ground zooms out (keeps the terrain's apparent size while you look ahead)
+        let mut want = input.zoom * self.cfg.max_zoom;
+        if self.auto_zoom {
+            let down = (-self.pitch).to_degrees();
+            want += self.cfg.max_zoom * smoothstep(45.0, 85.0, down);
+            want -= self.cfg.max_zoom * smoothstep(1.5, 4.0, self.hag);
+        }
+        if want > 0.0 {
+            want *= self.zoom_limit;
+        }
+        self.zoom_rate = ease(self.zoom_rate, want, 0.3, dt);
+        self.marker = self.nose_hit(ground);
         let s_old = self.s;
-        self.s = (self.s * (-self.dive_rate * dt).exp()).clamp(self.cfg.s_min, self.cfg.s_max);
-        // zoom towards the aim point: every distance (also the altitude, which stays the same in
-        // units of S) scales by S_new / S_old around it
-        if let (Some(a), true) = (self.aim, self.s < s_old) {
-            let f = 1.0 - self.s / s_old;
-            self.pos[0] += (a[0] - self.pos[0]) * f;
-            self.pos[1] += (a[1] - self.pos[1]) * f;
-            // and turn gently towards it
-            let want = (a[1] - self.pos[1]).atan2(a[0] - self.pos[0]);
-            let d = (want - self.heading + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
-            self.heading += d.clamp(-0.5, 0.5) * self.dive_rate.abs().min(1.0) * dt * 0.8;
+        self.s = (self.s * (-self.zoom_rate * dt).exp()).clamp(self.cfg.s_min, self.cfg.s_max);
+        let f = self.s / s_old;
+        if f < 1.0 && self.marker.is_some() {
+            // zoom in: shrink about the crosshair point, which stays fixed on screen
+            let p = self.marker.unwrap();
+            self.pos = [p[0] + (self.pos[0] - p[0]) * f, p[1] + (self.pos[1] - p[1]) * f];
+            self.z = p[2] + (self.z - p[2]) * f;
+        } else if f != 1.0 {
+            // zoom out (or nothing ahead): about the camera's own ground point
+            self.z = g_here + (self.z - g_here) * f;
         }
-        // move
+        ground.set_sigma(sigma_of(self.s));
+
+        // fly the nose; speed ∝ S, and ∝ height above ground below 2/3 S, so the ground's angular
+        // speed stays bounded (√ scaling measured 7 rad/s at 0.04 S: a blur)
         let d = self.dir();
-        self.pos[0] += d[0] * self.speed * self.s * dt;
-        self.pos[1] += d[1] * self.speed * self.s * dt;
-        // altitude: critically damped spring towards the smoothed ground ahead (semi-implicit)
-        let (target, floor) = self.targets(ground);
-        let w = 2.2;
-        let sub = (dt / (1.0 / 240.0)).ceil().max(1.0) as usize;
-        let h = dt / sub as f64;
-        for _ in 0..sub {
-            let a = -w * w * (self.y - target) - 2.0 * w * self.vy;
-            self.vy += a * h;
-            self.y += self.vy * h;
+        let v = self.speed * self.s * (1.5 * self.hag.max(0.0)).clamp(0.05, 1.0);
+        self.pos[0] += d[0] * v * dt;
+        self.pos[1] += d[1] * v * dt;
+        self.z += d[2] * v * dt;
+        // collision floor: the ground (finely smoothed) plus a small clearance
+        let g = Self::ground_at(ground, self.pos, self.fine_scale());
+        let floor = g + self.cfg.clearance * self.s;
+        if self.z < floor {
+            self.z = floor;
         }
-        if self.y < floor {
-            self.y += (floor - self.y) * (1.0 - (-dt * 14.0).exp());
-            self.vy = self.vy.max(0.0);
-        }
-        self.ground_here = floor - 0.3 * self.cfg.clearance;
-        // view pitch: user look + nose down while diving + flight-path angle
-        if input.pitch != 0.0 {
-            self.pitch_user_target = (self.pitch_user_target + input.pitch * 40f64.to_radians() * dt).clamp((-75f64).to_radians(), 8f64.to_radians());
-        }
-        self.pitch_user = ease(self.pitch_user, self.pitch_user_target, 0.2, dt);
-        let path = (self.vy / self.speed.max(0.4)).atan() * 0.6;
-        let want = (self.pitch_user - 0.28 * self.dive_rate + path).clamp((-80f64).to_radians(), 15f64.to_radians());
-        self.pitch = ease(self.pitch, want, 0.25, dt);
+        self.hag = (self.z - g) / self.s;
     }
 
     /// Camera basis (forward, right, up) with bank, in world axes (x = Re, y = Im, z = up).
     pub fn basis(&self) -> ([f64; 3], [f64; 3], [f64; 3]) {
-        let (ch, sh) = (self.heading.cos(), self.heading.sin());
-        let (cp, sp) = (self.pitch.cos(), self.pitch.sin());
-        let f = [ch * cp, sh * cp, sp];
-        // right = f × z, normalised
-        let r0 = {
-            let v = [f[1], -f[0], 0.0];
-            let l = (v[0] * v[0] + v[1] * v[1]).sqrt();
-            [v[0] / l, v[1] / l, 0.0]
-        };
-        // up = right × f
+        let f = self.dir();
+        // right = f × z (heading-based, also valid looking straight down)
+        let r0 = [self.heading.sin(), -self.heading.cos(), 0.0];
         let u0 = [r0[1] * f[2] - r0[2] * f[1], r0[2] * f[0] - r0[0] * f[2], r0[0] * f[1] - r0[1] * f[0]];
         let (cb, sb) = (self.bank.cos(), self.bank.sin());
         let r = [r0[0] * cb + u0[0] * sb, r0[1] * cb + u0[1] * sb, r0[2] * cb + u0[2] * sb];
@@ -238,8 +256,10 @@ pub struct Script {
     pub name: String,
     pub segs: Vec<(f64, Input)>,
     pub start_speed: f64,
-    /// steer with the coast-following assist (script turns become small offsets)
-    pub autopilot: bool,
+    /// closed loop: point the nose at the start location's centre (a lake), fly down to it,
+    /// then zoom in on it (manual zoom, or the auto-zoom mode's pitch rule)
+    pub target: bool,
+    pub auto_zoom: bool,
 }
 
 impl Script {
@@ -259,39 +279,57 @@ impl Script {
     }
 
     pub fn named(name: &str) -> Option<Script> {
-        let i = |throttle: f64, turn: f64, dive: f64, pitch: f64| Input { throttle, turn, dive, pitch };
-        let segs = match name {
-            // level flight with S-turns
-            "cruise" => vec![(2.0, i(0., 0., 0., 0.)), (3.0, i(0., 0.6, 0., 0.)), (3.5, i(0., -0.6, 0., 0.)), (3.5, i(0., 0., 0., 0.))],
-            // a long dive with a gentle turn: five octaves of zoom
-            "dive" => vec![(1.5, i(0., 0., 0., 0.)), (8.0, i(0., 0.25, 1.0, 0.)), (3.0, i(0., -0.3, 0., 0.))],
-            // hard turns at speed
-            "turns" => vec![(1.0, i(0.3, 0., 0., 0.)), (2.5, i(0., 1.0, 0., 0.)), (2.5, i(0., -1.0, 0., 0.)), (2.0, i(0., 0., 0., 0.))],
-            // camera held still: any frame-to-frame change is shimmer
-            "hover" => vec![(6.0, i(0., 0., 0., 0.))],
-            // look steeply down onto the ground (minibrot lakes) and hold still
-            "lakelook" => vec![(2.0, i(0., 0., 0., -1.0)), (4.0, i(0., 0., 0., 0.))],
-            "lakedive" => vec![(1.5, i(0., 0., 0., -1.0)), (8.0, i(0., 0., 1.0, 0.))],
-            // coast following: autopilot steering, scripted speed and dives
-            "coast" => vec![(3.0, i(0., 0., 0., 0.)), (8.0, i(0., 0., 1.0, 0.)), (4.0, i(0., 0., 0., 0.)), (3.0, i(0., 0., -1.0, 0.))],
-            // the review flight: cruise, turns, look around, dive deep, climb, dive again
-            "tour" => vec![
-                (2.5, i(0., 0., 0., 0.)),
-                (3.0, i(0., 0.5, 0., 0.)),
-                (2.0, i(0.5, -0.4, 0., 0.)),
-                (6.0, i(0., -0.2, 1.0, 0.)),
-                (2.0, i(0., 0.6, 0., 0.3)),
-                (2.0, i(0., 0., 0., -0.3)),
-                (3.0, i(0., -0.8, 0., 0.)),
-                (3.0, i(0., 0., -1.0, 0.)),
-                (6.0, i(0., 0.3, 1.0, 0.)),
-                (2.5, i(-0.4, 0., 0., 0.)),
-                (3.0, i(0., -0.6, 0.5, 0.)),
-            ],
+        // i(pitch stick, turn, throttle, zoom)
+        let i = |pitch: f64, turn: f64, throttle: f64, zoom: f64| Input { pitch, turn, throttle, zoom };
+        let (segs, speed, target, auto) = match name {
+            // level flight with S-turns at fixed zoom
+            "cruise" => (vec![(2.0, i(0., 0., 0., 0.)), (3.0, i(0., 0.6, 0., 0.)), (3.5, i(0., -0.6, 0., 0.)), (3.5, i(0., 0., 0., 0.))], 1.0, false, false),
+            // zoom in while flying (Shift+↑ held): five octaves
+            "dive" => (vec![(1.5, i(0., 0., 0., 0.)), (0.6, i(0.6, 0., 0., 0.)), (8.0, i(0., 0.25, 0., 1.0)), (3.0, i(0., -0.3, 0., 0.))], 1.0, false, false),
+            "turns" => (vec![(1.0, i(0., 0., 0.3, 0.)), (2.5, i(0., 1.0, 0., 0.)), (2.5, i(0., -1.0, 0., 0.)), (2.0, i(0., 0., 0., 0.))], 1.0, false, false),
+            "hover" => (vec![(6.0, i(0., 0., 0., 0.))], 0.0, false, false),
+            "lakelook" => (vec![(1.2, i(1.0, 0., 0., 0.)), (4.0, i(0., 0., 0., 0.))], 0.0, false, false),
+            // fixed zoom: nose down into a valley, fly low along it, pull up over the ridge
+            "valley" => (
+                vec![
+                    (1.0, i(0., 0., 0., 0.)),
+                    (0.9, i(1.0, 0., 0., 0.)),
+                    (2.2, i(0., 0., 0., 0.)),
+                    (0.8, i(-1.0, 0., 0., 0.)),
+                    (4.0, i(0., 0.4, 0., 0.)),
+                    (0.5, i(-1.0, 0., 0., 0.)),
+                    (2.5, i(0., 0., 0., 0.)),
+                ],
+                1.0,
+                false,
+                false,
+            ),
+            // the review flight: cruise, turns, down into the canyons, zoom in, climb, zoom out
+            "tour" => (
+                vec![
+                    (2.0, i(0., 0., 0., 0.)),
+                    (2.5, i(0., 0.5, 0., 0.)),
+                    (0.8, i(1.0, 0., 0., 0.)),
+                    (2.5, i(0., -0.4, 0., 0.)),
+                    (0.6, i(-1.0, 0., 0., 0.)),
+                    (5.0, i(0., 0.2, 0., 1.0)),
+                    (2.0, i(0., -0.7, 0., 0.)),
+                    (0.7, i(1.0, 0., 0., 0.)),
+                    (2.0, i(0., 0., 0., 0.)),
+                    (0.7, i(-1.0, 0., 0., 0.)),
+                    (4.0, i(0., 0.3, 0., 1.0)),
+                    (2.0, i(0., -0.5, 0.5, 0.)),
+                    (3.0, i(0., 0., 0., -1.0)),
+                    (4.0, i(0., 0.4, 0., 1.0)),
+                ],
+                1.0,
+                false,
+                false,
+            ),
+            "target" => (vec![(45.0, Input::default())], 1.0, true, false),
+            "target-auto" => (vec![(45.0, Input::default())], 1.0, true, true),
             _ => return None,
         };
-        let start_speed = if matches!(name, "hover" | "lakelook" | "lakedive") { 0.0 } else { 1.0 };
-        let autopilot = matches!(name, "tour" | "coast");
-        Some(Script { name: name.into(), segs, start_speed, autopilot })
+        Some(Script { name: name.into(), segs, start_speed: speed, target, auto_zoom: auto })
     }
 }

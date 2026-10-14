@@ -322,3 +322,14 @@ multiple of 8; locate must refine nuclei to the minibrot's size, not the search 
 previews needed 1/8 resolution in dense deep views (26 → 51–56 fps). Pages:
 [[techniques/extended-range-floats]], [[techniques/bla]], [[techniques/reference-selection]],
 [[platform/render-architecture]], [[synthesis/benchmarks]] M3b, [[roadmap]].
+
+## [2026-10-14] decision | L1: lake flicker fix, R32F data, nose-flying controls with explicit zoom
+
+The fragment now checks data validity per level itself. Invalid coarser texels had painted
+ground over lakes in tile-shaped flickering blocks; the bug was there from the first build.
+Data moved to R32F: f16 log2 DE made 0.002 S terraces when flying low. New controls: fly
+the nose in a rigid world (W/S/↑/↓ stick, A/D/←/→ bank, Q/E throttle), explicit zoom
+(Shift+stick) about the crosshair, optional auto zoom (Z: steep nose-down zooms in, height
+zooms out), detail following the eye's height, speed scaled by height. A closed-loop target
+dive onto a minibrot lake reaches 1e-7 within 3.6 S of the chosen point. Details in
+[[decisions/landscape-mode]] L1.

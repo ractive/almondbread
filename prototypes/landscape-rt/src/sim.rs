@@ -70,6 +70,10 @@ pub struct Settings {
     /// (strata by DE/σ, terms by DE/S: they slide while diving).
     #[arg(long, default_value = "world")]
     pub colour: String,
+    /// Start in the auto-zoom mode (steep nose-down zooms in, height above ground zooms out);
+    /// Z toggles at runtime.
+    #[arg(long)]
+    pub auto_zoom: bool,
     /// Debug colouring (validity weights).
     #[arg(long)]
     pub debug: bool,
@@ -119,6 +123,8 @@ pub struct Sim {
     /// world origin (absolute c of offset 0)
     pub c0: (f64, f64),
     pub ref_off: [f64; 2],
+    /// the scale at which the reference was chosen
+    pub ref_s: f64,
     pub ref_note: String,
     pub time: f64,
     pub serial: u64,
@@ -131,9 +137,6 @@ pub struct Sim {
     blocks: Vec<[u16; 2]>,
     pub recs: Vec<FrameRec>,
     pub last_blocks: usize,
-    /// coast-following steering assist
-    pub autopilot: bool,
-    ap_side: f64,
     /// σ of the previous frame (pop check renders the previous world)
     prev_sigma: Option<f64>,
     prev_s: f64,
@@ -141,13 +144,13 @@ pub struct Sim {
     resume: Vec<(TileJob, TileKey)>,
     inflight: Vec<(CommandBuffer, Buffer, Vec<(TileJob, TileKey)>)>,
     pub resumed_total: u64,
+    pub rereferences: u64,
     /// When set, each frame first renders its camera with the previous world state into it.
     pub popcheck: Option<crate::gpu::Texture>,
 }
 
 const SIGMA: f64 = 0.1;
 const K_HEIGHT: f64 = 4.0;
-const K_OVER_SIGMA: f64 = 40.0;
 
 /// Colour layers at scale `s`: (σ of the layer, σ of the next finer layer, cross-fade 0..1).
 /// Same staircase as `sigma_at`, but hard steps: colour is keyed to a σ that stays put and
@@ -192,12 +195,13 @@ impl Sim {
         let mut sim = Sim {
             clip: Clipmap::new(cfg),
             flight: Flight::new(set.scale, heading, start_speed),
-            ground: Ground::new(c0, SIGMA, K_OVER_SIGMA),
+            ground: Ground::new(c0, sigma_at(&set, set.scale).0, K_HEIGHT),
             prev_sigma: None,
             prev_s: 0.0,
             gpu,
             c0,
             ref_off: [0.0, 0.0],
+            ref_s: 1.0,
             ref_note: String::new(),
             time: 0.0,
             serial: 0,
@@ -208,18 +212,17 @@ impl Sim {
             blocks: Vec::new(),
             recs: Vec::new(),
             last_blocks: 0,
-            autopilot: false,
-            ap_side: 1.0,
             popcheck: None,
             free_states: (0..crate::gpu::STATE_SLOTS as u32).rev().collect(),
             resume: Vec::new(),
             inflight: Vec::new(),
             resumed_total: 0,
+            rereferences: 0,
             set,
         };
         sim.choose_reference()?;
-        sim.set_ground_sigma();
-        sim.flight.settle(&mut sim.ground);
+        sim.flight.auto_zoom = sim.set.auto_zoom;
+        sim.flight.settle(&mut sim.ground, 1.0);
         Ok(sim)
     }
 
@@ -228,17 +231,17 @@ impl Sim {
     pub fn choose_reference(&mut self) -> Result<(), String> {
         let c = (self.c0.0 + self.flight.pos[0], self.c0.1 + self.flight.pos[1]);
         let s = self.flight.s;
-        let mut chosen = None;
-        let mut r = 4.0 * s;
-        for _ in 0..8 {
+        // candidates from ball-period searches at a few radii; the highest period within 24 S
+        // wins (the deepest minibrot nearby: the orbits at this scale follow it). The lowest
+        // period near the camera (e.g. 78 where 624 governs at 1e-7) left most fine samples wrong.
+        let mut chosen: Option<((f64, f64), u32)> = None;
+        for r in [0.5 * s, 2.0 * s, 8.0 * s, 32.0 * s] {
             if let Some((nuc, period, _size)) = mandel::find_minibrot(c, r, 300_000) {
                 let d = (nuc.0 - c.0).hypot(nuc.1 - c.1);
-                if d < 4.0 * r && period >= 1 {
+                if d < 24.0 * s && period >= 1 && chosen.is_none_or(|ch| period > ch.1) {
                     chosen = Some((nuc, period));
-                    break;
                 }
             }
-            r *= 4.0;
         }
         let (cref, orbit, note) = match chosen {
             Some((nuc, p)) => {
@@ -252,6 +255,7 @@ impl Sim {
             }
         };
         self.ref_off = [cref.0 - self.c0.0, cref.1 - self.c0.1];
+        self.ref_s = s;
         self.ref_note = note;
         self.gpu.set_reference(&orbit)
     }
@@ -275,7 +279,7 @@ impl Sim {
 
     /// Computes every missing tile now (cold start), already faded in.
     pub fn prefill(&mut self) -> usize {
-        self.clip.update(self.flight.pos, self.flight.s);
+        self.clip.update(self.flight.pos, self.detail_scale(), self.flight.s);
         let mut total = 0;
         loop {
             let ctx = self.sched_ctx();
@@ -325,6 +329,49 @@ impl Sim {
         }
     }
 
+    /// The scale the finest clipmap level follows: the zoom S, or less when the eye is lower
+    /// than S above the ground (detail follows the eye's distance, at most 4 octaves below S).
+    pub fn detail_scale(&self) -> f64 {
+        let f = &self.flight;
+        // while zooming, extra levels would be obsolete within a second: follow S only
+        if f.zoom_rate.abs() > 0.1 {
+            return f.s;
+        }
+        (2.0 * f.hag.max(0.0) * f.s).clamp(f.s / 16.0, f.s)
+    }
+
+    /// Keeps the reference orbit near the camera. Tiles store dc = c − c_ref in float32; its
+    /// rounding (|dc|·2^-24) must stay well below the finest sample spacing (S/32768), so the
+    /// reference may be at most ~48 S away. At 1e-7 with the start's reference 6e-3 away, 4–66 %
+    /// of the fine samples were wrong (spikes). Unfinished tiles hold loop state relative to the
+    /// old reference: they are dropped and requested again.
+    fn maybe_rereference(&mut self) {
+        if std::env::var("LRT_NO_REREF").is_ok() {
+            return;
+        }
+        let d = ((self.flight.pos[0] - self.ref_off[0]).powi(2) + (self.flight.pos[1] - self.ref_off[1]).powi(2)).sqrt();
+        // also by scale: a nucleus picked at a coarser scale (period 39 at 6e-6) failed for the
+        // samples at 1e-7 (66 % wrong) where a nearby nucleus of that scale (period 624) is exact
+        if d < 48.0 * self.flight.s && self.flight.s > self.ref_s / 4.0 {
+            return;
+        }
+        let t0 = std::time::Instant::now();
+        for (cb, _, _) in &self.inflight {
+            cb.waitUntilCompleted();
+        }
+        self.poll_inflight();
+        for (j, k) in std::mem::take(&mut self.resume) {
+            self.clip.forget(k);
+            self.free_states.push(j.state & 0x7FFF_FFFF);
+        }
+        if self.choose_reference().is_ok() {
+            self.rereferences += 1;
+            if std::env::var("LRT_TRACE").is_ok() {
+                eprintln!("re-reference at S {:.2e} ({:.1} S away): {} in {:.1} ms", self.flight.s, d / self.flight.s, self.ref_note, t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+    }
+
     /// Collects finished DE batches: tiles with samples left go to the resume queue (with the
     /// resume bit), finished tiles free their state slot.
     fn poll_inflight(&mut self) {
@@ -353,13 +400,14 @@ impl Sim {
     pub fn frame(&mut self, dt: f64, input: Input, target: &ProtocolObject<dyn MTLTexture>) -> CommandBuffer {
         let t0 = std::time::Instant::now();
         self.serial += 1;
-        let mut input = input;
-        if self.autopilot {
-            input.turn = (self.autopilot_turn() + 0.35 * input.turn).clamp(-1.0, 1.0);
-        }
-        self.set_ground_sigma();
-        self.flight.update(dt, input, &mut self.ground);
-        self.set_ground_sigma();
+        // zoom-in yields to the visible DE backlog: past 800 missing tiles ahead it slows down
+        // (to 15 % at ~3800), so the terrain keeps up: with three missing levels in a row the
+        // fallback is flat (tile-shaped blocks popping out of the "lake" on fast zooms)
+        let m = self.clip.missing_ahead as f64;
+        let near = self.clip.missing_near as f64;
+        self.flight.zoom_limit = (1.0 - (m - 800.0) / 3500.0).clamp(0.15, 1.0).min((1.0 - near / 60.0).clamp(0.1, 1.0));
+        let set = &self.set;
+        self.flight.update(dt, input, &mut self.ground, &|s| sigma_at(set, s).0);
         // pop check: this camera with the previous frame's world (rings, levels, data, fades)
         if let Some(t) = self.popcheck.take() {
             let prev = self.prev_sigma.map(|sg| (sg, self.prev_s));
@@ -370,13 +418,14 @@ impl Sim {
         self.prev_sigma = Some(sigma_at(&self.set, self.flight.s).0);
         self.prev_s = self.flight.s;
         self.time += dt;
-        self.clip.update(self.flight.pos, self.flight.s);
+        self.clip.update(self.flight.pos, self.detail_scale(), self.flight.s);
 
         // DE tiles within the GPU budget
         self.drain_times();
         let want = (self.set.budget_ms / self.ms_per_tile.max(1e-4)) as usize;
         self.tiles_per_frame = want.clamp(16, 6000);
         self.poll_inflight();
+        self.maybe_rereference();
         // unfinished tiles first (oldest work), then new ones, within the budget and the state pool
         let mut batch: Vec<(TileJob, TileKey)> = Vec::new();
         let resume = std::mem::take(&mut self.resume);
@@ -432,16 +481,10 @@ impl Sim {
             missing_ahead: self.clip.missing_ahead,
             s: self.flight.s,
             riser: sigma_at(&self.set, self.flight.s).1,
-            dive_rate: self.flight.dive_rate,
+            dive_rate: self.flight.zoom_rate,
             blocks: self.blocks.len(),
         });
         cb
-    }
-
-    fn set_ground_sigma(&mut self) {
-        let sr = sigma_at(&self.set, self.flight.s).0 / self.flight.s;
-        self.ground.sigma = sr;
-        self.ground.k_over_sigma = K_HEIGHT / sr;
     }
 
     fn encode_view(&mut self, target: &ProtocolObject<dyn MTLTexture>, time: f64) -> CommandBuffer {
@@ -464,7 +507,7 @@ impl Sim {
         let aspect = w / h;
         let tan_half = (self.set.fov.to_radians() * 0.5).tan();
         let (f, r, u) = self.flight.basis();
-        let eye_z = self.flight.y;
+        let eye_z = self.flight.z / self.flight.s;
         let inv_2r = 1.0 / (2.0 * self.set.curvature);
         let view = ViewCtx {
             cam: self.flight.pos,
@@ -513,6 +556,13 @@ impl Sim {
                 (lo / self.flight.s) as f32,
                 (hi / self.flight.s) as f32,
             ],
+            // crosshair at the screen centre (the nose = the flight path); radius grows while zooming
+            overlay: [
+                (w * 0.5) as f32,
+                (h * 0.5) as f32,
+                (h * 0.012) as f32,
+                self.flight.zoom_rate.clamp(-1.0, 1.0) as f32,
+            ],
             shade2: [
                 fade as f32,
                 if self.set.colour == "legacy" { 1.0 } else { 0.0 },
@@ -533,50 +583,21 @@ impl Sim {
         cb
     }
 
-    /// Steering that keeps the camera near the boundary: straight towards the set when far
-    /// (DE ≫ S), along the coast (set on one side) when close. Smoothed DE on the CPU grid.
-    fn autopilot_turn(&mut self) -> f64 {
-        let s = self.flight.s;
-        let p = self.flight.pos;
-        let sc = 0.25 * s;
-        let x = self.ground.de_smooth(p, sc) / s;
-        let e = 0.5 * s;
-        let gx = self.ground.de_smooth([p[0] + e, p[1]], sc) - self.ground.de_smooth([p[0] - e, p[1]], sc);
-        let gy = self.ground.de_smooth([p[0], p[1] + e], sc) - self.ground.de_smooth([p[0], p[1] - e], sc);
-        if gx == 0.0 && gy == 0.0 {
-            return 0.0;
-        }
-        let inward = (-gy).atan2(-gx);
-        let off = 80f64.to_radians() * ((0.9 - x) / 0.7).clamp(0.0, 1.0);
-        let wrap = |a: f64| (a + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
-        let h = self.flight.heading;
-        // keep the side unless the other one is much closer to the current heading
-        let a = wrap(inward + self.ap_side * off - h);
-        let b = wrap(inward - self.ap_side * off - h);
-        if b.abs() + 2.0 < a.abs() {
-            self.ap_side = -self.ap_side;
-        }
-        let d = wrap(inward + self.ap_side * off - h);
-        if std::env::var("LRT_TRACE").is_ok() && self.serial.is_multiple_of(30) {
-            eprintln!("t {:.1} S {:.2e} x {:.3} inward {:.0} heading {:.0} d {:.0} y {:.2}", self.time, s, x, inward.to_degrees(), h.to_degrees(), d.to_degrees(), self.flight.y);
-        }
-        (d * 1.2).clamp(-1.0, 1.0)
-    }
-
     pub fn hud(&self) -> String {
         let last = self.gpu_ms.iter().rev().take(30).collect::<Vec<_>>();
         let n = last.len().max(1) as f64;
         let c: f64 = last.iter().map(|g| g.1).sum::<f64>() / n;
         let r: f64 = last.iter().map(|g| g.2).sum::<f64>() / n;
+        let f = &self.flight;
         format!(
-            "{}S={:.2e}  speed {:.2} S/s  alt {:.2} S  GPU de {:.1} + draw {:.1} ms  tiles {}/frame  missing {} (ahead {})",
-            if self.autopilot { "[auto] " } else { "" },
-            self.flight.s,
-            self.flight.speed,
-            self.flight.y - self.flight.ground_here,
+            "{} zoom  S={:.2e}  speed {:.2} (Q/E)  alt {:.2} S  pitch {:.0}°  GPU {:.1}+{:.1} ms  missing {} (ahead {})",
+            if f.auto_zoom { "AUTO" } else { "manual" },
+            f.s,
+            f.speed_target,
+            f.hag,
+            f.pitch.to_degrees(),
             c,
             r,
-            self.tiles_per_frame,
             self.clip.missing,
             self.clip.missing_ahead
         )
@@ -594,21 +615,6 @@ fn place(set: &Settings) -> ((f64, f64), f64) {
     (start, heading)
 }
 
-fn f16_to_f32(h: u16) -> f32 {
-    let s = (h >> 15) as u32;
-    let e = ((h >> 10) & 0x1f) as u32;
-    let m = (h & 0x3ff) as u32;
-    let bits = if e == 0 {
-        if m == 0 { s << 31 } else {
-            // subnormal
-            let mut e2 = 127 - 15 + 1;
-            let mut m2 = m;
-            while m2 & 0x400 == 0 { m2 <<= 1; e2 -= 1; }
-            (s << 31) | ((e2 as u32) << 23) | ((m2 & 0x3ff) << 13)
-        }
-    } else if e == 31 { (s << 31) | 0x7f80_0000 | (m << 13) } else { (s << 31) | ((e + 127 - 15) << 23) | (m << 13) };
-    f32::from_bits(bits)
-}
 
 impl Sim {
     /// Compares GPU DE samples with the CPU f64 iteration at `per_level` random texels of every
@@ -622,6 +628,12 @@ impl Sim {
             rng ^= rng << 17;
             rng
         };
+        // only tiles that are computed: requested, not waiting to resume, GPU done
+        for (cb, _, _) in &self.inflight {
+            cb.waitUntilCompleted();
+        }
+        self.poll_inflight();
+        let pending: std::collections::HashSet<TileKey> = self.resume.iter().map(|r| r.1).collect();
         for lv in self.clip.levels.clone() {
             let data = self.gpu.read_data_slot(lv.slot, n);
             let sp = crate::clipmap::spacing(lv.l);
@@ -629,8 +641,12 @@ impl Sim {
             for _ in 0..per_level {
                 let s = [(next() % n as u64) as i64, (next() % n as u64) as i64];
                 let a = [lv.data[0] + s[0], lv.data[1] + s[1]];
+                let key = (lv.l, a[0].div_euclid(16), a[1].div_euclid(16));
+                if !self.clip.requested(lv.l, a[0], a[1]) || pending.contains(&key) {
+                    continue;
+                }
                 let texel = [a[0].rem_euclid(n as i64) as usize, a[1].rem_euclid(n as i64) as usize];
-                let g = f16_to_f32(data[texel[1] * n + texel[0]]) as f64;
+                let g = data[texel[1] * n + texel[0]] as f64;
                 let c = (self.c0.0 + a[0] as f64 * sp, self.c0.1 + a[1] as f64 * sp);
                 let e = mandel::eval(c.0, c.1, self.set.max_iter);
                 cnt += 1;

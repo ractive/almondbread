@@ -64,6 +64,7 @@ pub struct Globals {
     pub misc: [f32; 4],
     pub shade: [f32; 4],
     pub shade2: [f32; 4],
+    pub overlay: [f32; 4],
 }
 
 #[repr(C)]
@@ -79,8 +80,8 @@ pub struct LevelRef {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Default, Debug)]
 pub struct RingParams {
-    pub lv: [LevelRef; 4],
-    pub level_bits: [u32; 4],
+    pub lv: [LevelRef; 6],
+    pub level_bits: [u32; 8],
     pub pos0: [f32; 2],
     pub g_s: f32,
     pub k: i32,
@@ -92,8 +93,8 @@ pub struct RingParams {
 
 const _: () = assert!(std::mem::size_of::<TileJob>() == 32);
 const _: () = assert!(std::mem::size_of::<LevelRef>() == 32);
-const _: () = assert!(std::mem::size_of::<RingParams>() == 176);
-const _: () = assert!(std::mem::size_of::<Globals>() == 208);
+const _: () = assert!(std::mem::size_of::<RingParams>() == 256);
+const _: () = assert!(std::mem::size_of::<Globals>() == 224);
 
 /// One ring's draw: its parameters and its visible blocks (offset/count into the frame's block list).
 pub struct RingDraw {
@@ -199,7 +200,12 @@ impl Gpu {
                 d.setUsage(usage);
                 device.newTextureWithDescriptor(&d).ok_or_else(|| "texture alloc".to_string())
             };
-            let data_tex = tex(MTLPixelFormat::R16Float, n, true)?;
+            // R32Float: R16F quantised log2(DE/spacing) in steps of 2^-7 at the finest levels, which
+            // showed as terraces of ~0.002 S when flying low over plateaus
+            if !device.supports32BitFloatFiltering() {
+                return Err("this GPU cannot filter 32-bit float textures".into());
+            }
+            let data_tex = tex(MTLPixelFormat::R32Float, n, true)?;
             let meta_tex = tex(MTLPixelFormat::RG32Float, n / 16, true)?;
 
             // one block: block_verts² quads over (block_verts+1)² vertices, diagonal (0,0)-(1,1)
@@ -463,9 +469,9 @@ pub fn read_texture(tex: &ProtocolObject<dyn MTLTexture>, out: &mut Vec<u8>) {
 }
 
 impl Gpu {
-    /// Copies one slot of the data texture (R16Float) into host memory.
-    pub fn read_data_slot(&self, slot: usize, n: usize) -> Vec<u16> {
-        let buf = new_buffer(&self.device, &vec![0u8; n * n * 2]).expect("readback buffer");
+    /// Copies one slot of the data texture (R32Float) into host memory.
+    pub fn read_data_slot(&self, slot: usize, n: usize) -> Vec<f32> {
+        let buf = new_buffer(&self.device, &vec![0u8; n * n * 4]).expect("readback buffer");
         let cb = self.command_buffer();
         let blit = cb.blitCommandEncoder().expect("blit");
         // SAFETY: the buffer holds the whole slice.
@@ -478,16 +484,16 @@ impl Gpu {
                 size3(n, n, 1),
                 &buf,
                 0,
-                n * 2,
-                n * n * 2,
+                n * 4,
+                n * n * 4,
             );
         }
         blit.endEncoding();
         cb.commit();
         cb.waitUntilCompleted();
-        let mut out = vec![0u16; n * n];
-        // SAFETY: shared buffer of n*n*2 bytes, GPU done.
-        unsafe { std::ptr::copy_nonoverlapping(buf.contents().as_ptr() as *const u16, out.as_mut_ptr(), n * n) };
+        let mut out = vec![0f32; n * n];
+        // SAFETY: shared buffer of n*n*4 bytes, GPU done.
+        unsafe { std::ptr::copy_nonoverlapping(buf.contents().as_ptr() as *const f32, out.as_mut_ptr(), n * n) };
         out
     }
 }

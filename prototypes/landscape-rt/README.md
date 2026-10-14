@@ -12,32 +12,51 @@ cargo run --release -- fly --script tour --background      # test window: 120 Hz
 cargo run --release -- record --script tour -o out/tour.mp4 --popcheck   # 1080p60 offscreen video
 cargo run --release -- check --scale 1e-9  # GPU DE samples vs CPU f64
 cargo run --release -- framestats some.mp4 # temporal metrics of any video
+cargo run --release -- record --script target --loc minibrot3   # closed-loop dive onto a lake, prints the miss
 ```
 
 ## Controls
 
+You fly the nose through a rigid world; the zoom is a separate control.
+
 | Key | Action |
 | --- | --- |
-| W / S | throttle up / down (cruise speed in S per second, 0.08–8, persists) |
-| A / D or ← / → | turn (eased yaw rate, the camera banks) |
-| Space | dive = zoom in towards the aim point (view centre on the ground, snapped to the nearest coast) |
-| Shift | climb = zoom out from it |
-| ↑ / ↓ | dive / climb (stick: push dives, pull climbs) |
-| Page Up / Page Down | look up / down |
-| F | toggle the coast-following autopilot (steers; you keep throttle and dive) |
+| W / ↑ | push: nose down (rate control, down to straight down) |
+| S / ↓ | pull: nose up |
+| A / D or ← / → | bank-turn |
+| Q / E | slower / faster (cruise speed, eased, persists; shown in the title) |
+| Shift + W / ↑ | zoom in, towards the point under the crosshair (it stays fixed on screen) |
+| Shift + S / ↓ | zoom out, about the camera |
+| Z | toggle zoom mode: manual (default) / auto (`--auto-zoom` starts in auto) |
 | R | restart at the start location |
 | Esc | quit |
 
-Altitude is automatic: the eye follows the B-spline-smoothed ground ahead at 1 S, through a
-critically damped spring. Speed is in units of S, so every depth feels the same. The window
-title shows S, speed, altitude, GPU ms and the DE tile backlog.
+- **Manual zoom** (default): with the zoom held, the world is a fixed 3D terrain. You can fly
+  down into valleys and lakes, low over the ground and up over ridges. The terrain is only a
+  floor (0.04 S clearance), not an altitude hold.
+- **Auto zoom** (Z): a nose-down steeper than 45° zooms in (rate rising to the maximum at 85°),
+  and a height above the ground of more than 1.5 S zooms out (fully at 4 S). Shallow
+  descents keep the zoom. Shift zoom works in both modes.
+- **Crosshair**: the screen centre is the flight path, since you fly the nose. It turns amber
+  while zooming in and blue while zooming out.
+- **Speed**: in S per second, scaled by the height above the ground below 2/3 S (×1.5·height,
+  at least 0.05), so the ground does not rush past when you fly low.
+- **Detail**: the finest clipmap level follows the eye's distance to the ground, down to 4
+  octaves below the zoom's own finest level (not while zooming).
+- **Fill-limited zoom**: zoom-in slows down while the DE tiles ahead and near the camera are
+  missing, so the terrain keeps up instead of showing coarse blocks.
+- **Reference orbit**: re-chosen (highest-period nucleus within 24 S) when the camera is more
+  than 48 S from it or the zoom has shrunk 4× (float32 deltas need a near, scale-matched
+  reference).
+- **Title bar**: zoom mode, S, speed setting, height above ground in S, pitch, GPU ms and the
+  DE backlog.
 
 ## How it works
 
 - **World**: complex offsets from a fixed origin (f64). Level ℓ samples sit at `origin +
   (i, j)·2^ℓ` and never move. L0 put its sample grid on the camera's ground point and on S
   every frame, so every frame resampled the terrain. That was the jitter in its dive video.
-- **Data**: 11 clipmap levels, each a 1024² toroidal R16F slice of `log2(DE/spacing)` (lake
+- **Data**: 11 clipmap levels (+ up to 4 finer ones when low), each a 1024² toroidal R32F slice of `log2(DE/spacing)` (lake
   = −128), plus a per-16×16-tile meta texel `(birth time, tag)`. The tag names level and
   wrap cycle, so a stale texel is never used. Tiles fade in over 0.3 s.
 - **DE**: GPU float32 perturbation against a nucleus reference (f64, Newton), with Zhuoran

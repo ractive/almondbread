@@ -108,13 +108,16 @@ pub fn run(args: FlyArgs) -> Result<(), String> {
 impl App {
     fn input(&self) -> Input {
         let k = |c: KeyCode| self.keys.contains(&c) as i32 as f64;
+        let shift = k(KeyCode::ShiftLeft).max(k(KeyCode::ShiftRight));
+        // W / ↑ push (nose down), S / ↓ pull (nose up); with Shift they zoom in / out
+        let push = k(KeyCode::KeyW).max(k(KeyCode::ArrowUp));
+        let pull = k(KeyCode::KeyS).max(k(KeyCode::ArrowDown));
+        let stick = push - pull;
         Input {
-            throttle: k(KeyCode::KeyW) - k(KeyCode::KeyS),
-            turn: k(KeyCode::KeyA) + k(KeyCode::ArrowLeft) - k(KeyCode::KeyD) - k(KeyCode::ArrowRight),
-            // stick convention: push (↑) dives, pull (↓) climbs
-            dive: (k(KeyCode::Space) + k(KeyCode::ArrowUp)).min(1.0)
-                - k(KeyCode::ShiftLeft).max(k(KeyCode::ShiftRight)).max(k(KeyCode::ArrowDown)),
-            pitch: k(KeyCode::PageUp) - k(KeyCode::PageDown),
+            pitch: if shift > 0.0 { 0.0 } else { stick },
+            zoom: if shift > 0.0 { stick } else { 0.0 },
+            turn: k(KeyCode::KeyA).max(k(KeyCode::ArrowLeft)) - k(KeyCode::KeyD).max(k(KeyCode::ArrowRight)),
+            throttle: k(KeyCode::KeyE) - k(KeyCode::KeyQ),
         }
     }
 
@@ -122,7 +125,9 @@ impl App {
         let (w, h) = parse_size(&self.args.size);
         let start_speed = self.script.as_ref().map(|s| s.start_speed).unwrap_or(1.0);
         let mut sim = Sim::new(self.args.set.clone(), start_speed)?;
-        sim.autopilot = self.script.as_ref().map(|s| s.autopilot).unwrap_or(false);
+        if let Some(sc) = &self.script {
+            sim.flight.auto_zoom = sim.flight.auto_zoom || sc.auto_zoom;
+        }
         eprintln!("{}", sim.ref_note);
         let t = Instant::now();
         let n = sim.prefill();
@@ -311,9 +316,9 @@ impl ApplicationHandler for App {
                         ElementState::Pressed => {
                             match code {
                                 KeyCode::Escape => el.exit(),
-                                KeyCode::KeyF if !event.repeat => {
+                                KeyCode::KeyZ if !event.repeat => {
                                     if let Some(sim) = &mut self.sim {
-                                        sim.autopilot = !sim.autopilot;
+                                        sim.flight.auto_zoom = !sim.flight.auto_zoom;
                                     }
                                 }
                                 KeyCode::KeyR if !event.repeat => {

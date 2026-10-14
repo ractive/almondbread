@@ -37,6 +37,9 @@ pub struct RecordArgs {
     /// difference (popping from LOD/data changes, independent of camera motion).
     #[arg(long)]
     pub popcheck: bool,
+    /// After the flight, check the clipmap's DE samples against CPU f64 (same reference orbit).
+    #[arg(long)]
+    pub check_end: bool,
     /// Write the pop-check difference image of the worst frame here (PNG via ffmpeg).
     #[arg(long)]
     pub worst: Option<PathBuf>,
@@ -70,7 +73,14 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
     let mut set = args.set.clone();
     set.budget_ms *= args.live_hz / args.fps as f64;
     let mut sim = Sim::new(set, script.start_speed)?;
-    sim.autopilot = script.autopilot;
+    sim.flight.auto_zoom = sim.flight.auto_zoom || script.auto_zoom;
+    // closed-loop target dive: the start location's centre (minibrot3: the period-3 nucleus,
+    // the middle of the lake), as a world offset
+    let goal = {
+        let c = crate::sim::loc_center(&args.set.loc);
+        [c.0 - sim.c0.0, c.1 - sim.c0.1]
+    };
+    let mut target_done = None::<usize>;
     eprintln!("{}", sim.ref_note);
     let t = std::time::Instant::now();
     let n = sim.prefill();
@@ -101,7 +111,18 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
     let mut stab = Stability::default();
     let t = std::time::Instant::now();
     for i in 0..frames {
-        let input = script.input_at(i as f64 * dt);
+        let input = if script.target {
+            let (inp, done) = target_input(&sim, goal, script.auto_zoom);
+            if done && target_done.is_none() {
+                target_done = Some(i);
+            }
+            if target_done.is_some_and(|d| i > d + 30) {
+                break;
+            }
+            inp
+        } else {
+            script.input_at(i as f64 * dt)
+        };
         let cb = sim.frame(dt, input, &target);
         cb.commit();
         cb.waitUntilCompleted();
@@ -166,6 +187,25 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
         stats::pct(&ahead, 1.0)
     );
     stab.report(&script.name);
+    if args.check_end {
+        sim.check(600);
+    }
+    if script.target {
+        let f = &sim.flight;
+        let miss = ((f.pos[0] - goal[0]).powi(2) + (f.pos[1] - goal[1]).powi(2)).sqrt();
+        let c = (sim.c0.0 + f.pos[0], sim.c0.1 + f.pos[1]);
+        let e = crate::mandel::eval(c.0, c.1, 50_000);
+        println!(
+            "  target: reached S {:.2e} at frame {:?} ({:.1} s); camera ground point {:.3} S = {:.2e} from the target; over the lake (interior): {}; height {:.2} S",
+            f.s,
+            target_done,
+            target_done.unwrap_or(0) as f64 * dt,
+            miss / f.s,
+            miss,
+            e.interior,
+            f.hag
+        );
+    }
     if !pops.is_empty() {
         let m: Vec<f64> = pops.iter().map(|p| p.0).collect();
         let a: Vec<f64> = pops.iter().map(|p| p.1).collect();
@@ -241,4 +281,35 @@ pub fn framestats(path: &PathBuf) -> Result<(), String> {
     let _ = child.wait();
     stab.report(&path.display().to_string());
     Ok(())
+}
+
+/// A pilot for the target dive, through the same stick: point the nose at the target (turn,
+/// push/pull), fly down to it; once the eye is within 0.6 S of the ground or the target is
+/// within 25° of straight down, hold Shift+↑ (manual mode) until S ≤ 1e-7. In the auto-zoom
+/// mode it only steers: the steep nose does the zooming. Returns (input, reached).
+fn target_input(sim: &Sim, t: [f64; 2], auto: bool) -> (crate::flight::Input, bool) {
+    let f = &sim.flight;
+    let dx = t[0] - f.pos[0];
+    let dy = t[1] - f.pos[1];
+    let horiz = (dx * dx + dy * dy).sqrt();
+    let want_h = dy.atan2(dx);
+    let wrap = |a: f64| (a + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
+    let dh = wrap(want_h - f.heading);
+    // the target lies on the lake surface (height 0); pitch to look at it
+    let mut want_p = (-f.z).atan2(horiz.max(1e-300));
+    // auto-zoom pilot: hold the altitude until the target is steeply below (> 55°), then put
+    // the nose on it; the steep nose does the zooming
+    if auto && want_p > (-55f64).to_radians() {
+        want_p = ((1.2 - f.hag) * 0.5).clamp(-0.3, 0.3); // hold ~1.2 S above the ground
+    }
+    let dp = want_p - f.pitch;
+    let close = horiz < 1e-3 * f.s;
+    let turn = if close { 0.0 } else { (dh * 2.0).clamp(-1.0, 1.0) * (horiz / f.s).min(1.0) };
+    let pitch = (-dp * 3.0).clamp(-1.0, 1.0);
+    let steep = f.pitch < (-65f64).to_radians();
+    let zoom = if !auto && (f.hag < 0.6 || steep) && f.s > 1e-7 { 1.0 } else { 0.0 };
+    let done = f.s <= 1.05e-7;
+    // near the target, slow down (Q) so the turn radius does not make the pilot orbit it
+    let throttle = if horiz < 2.0 * f.s && f.speed_target > 0.25 { -1.0 } else { 0.0 };
+    (crate::flight::Input { pitch, turn, throttle, zoom }, done)
 }
