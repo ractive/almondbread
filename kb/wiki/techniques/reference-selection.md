@@ -146,3 +146,18 @@ code deleted in R2b):
   period 2 gives 0.5, the period-3 minibrot 0.0190 (its cardioid spans about 0.0185 on
   the real axis, unverified), seahorse period 8007 gives 8.9e-33. The complex value also gives the
   minibrot's rotation, which the deep-zoom test uses to step into minibrots of minibrots.
+
+## In almondbread (M3b, as built)
+
+`Reference::compute_big` (`crates/almondbread-core/src/reference.rs`) runs on a worker thread
+(`ReferenceWorker`; a new request cancels the running one within 4096 iterations): ball
+period over the view's half-diagonal (periods up to the iteration limit), Newton, the nucleus
+if it lies in the disc (orbit length = period, `Z_p` set to exactly 0), else the view centre to
+2× the iteration limit. Precision: view bits (texel, size, 40 guard bits) + 64, so a reference
+stays good for ~19 decades of further zoom. Reuse (`Reference::fit`): unusable below
+view bits + 20 or beyond 65 536 texels from the view centre; stale (used, replacement computed
+in the background) below + 40 bits, beyond 2 view widths, shorter than the limit, or a
+plain-kernel reference below 1e-17 per point. With no usable reference the frame shows the
+reprojected history. A Space zoom from 1e-12 to 4e-39 needed two background references (a
+centre reference, then the period-998 nucleus near the seahorse point). Times in
+[[synthesis/benchmarks]] M3b.

@@ -243,6 +243,27 @@ frame call with a `target_ready` gate and an `acquire(final_frame)` closure, and
 measurements. A new platform supplies a backend, a surface with a non-blocking readiness
 check and presentation timestamps, and the event decoding.
 
+## M3b: any depth
+
+- **Viewport** (`core::viewport`): `Center` is a `BigComplex` whose precision follows the zoom
+  (point spacing + 96 guard bits); `Scale` is an f64 mantissa with an i64 exponent and rounds like
+  f64 inside f64's range. Pans and zooms add `dx · scale` exactly; offsets between centres are
+  taken in units of a scale (`delta_in`), which history reprojection, tile priority and kernel
+  parameters use. Coordinates cross the FFI as decimal strings with the digits the depth needs;
+  `set_viewport_text`, `paste_coordinates` and the "Go to Copied Coordinates" menu take them back.
+- **References**: f64 orbit (synchronous) above 1e-12 per point; big references from a
+  `ReferenceWorker` thread below ([[techniques/reference-selection]] M3b). The renderer adopts a
+  finished one when it serves the view at least as well as the current one; a deep view without
+  a usable reference has no job, and each refresh composes the history reprojected into the
+  current view (`encode_history_only`, counted as `waiting_frames`) until it arrives. Offscreen
+  renders wait for it.
+- **Kernels**: the iterate pipeline gains `kDeep` (function constant 3; buffers 16: floatexp
+  reference points, 17: extended-range BLA table); `IterateParams` 112 B (`scaleExp`),
+  `PixelState` 48 B (delta and DE exponents; the plain kernel ignores them).
+  [[techniques/extended-range-floats]] "As built (M3b)".
+- **Gesture previews** may drop to 1/8 resolution (was 1/4): dense deep views need 10^4+
+  iterations per texel.
+
 ## Pitfalls
 
 - `nextDrawable` blocking is invisible in GPU timings; measure draw CPU per phase.

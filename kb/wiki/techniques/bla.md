@@ -306,3 +306,22 @@ Roadmap step 5 done as above (M4). Next: M3b (rescaled deltas, floatexp coeffici
 radii past ~1e−30) is what makes the table pay; keep BLA for non-Mandelbrot formulas even
 after [[techniques/linear-approximation-imagina]] lands. Benchmarks:
 [[questions/bla-vs-la-benchmark]].
+
+## M3b: the table in extended range (2026-10-14)
+
+`BlaTableX` in `crates/almondbread-core/src/bla.rs`: the same layout, validity and merge as M4,
+built from the floatexp reference points with f64 mantissas and i64 exponents; each GPU entry
+(`BlaEntryX`, 40 B) stores `A`, `B` as complex mantissas with their own exponents and `R`, `K` as
+mantissa + exponent, so the M4 cap `|A| ≤ 2^40` is gone. The kernel tests
+`|z| + K|c| < R` relative to `R`'s exponent (no squared test, so the ~1e-19 underflow of M4 is
+gone; exponent differences clamped where the outcome is already decided). Blocks apply in
+floatexp (`z ← A z + B c`, `d ← A d + B texel`, `w ← A w`), then the regime is chosen anew.
+Consecutive blocks need no test in between (a valid block's first step has
+`|z| ≤ 2^-24 |2 Z_m|`).
+
+Forecast for the deep kernel: pays when the first run covers ≥ 64 iterations in blocks of ≥ 16
+on average (`BlaForecast::pays_deep`): exact deep steps cost more and pixels run many periods
+of short nucleus references, each skipped again. Measured 1.5× to 26× at every deep benchmark
+location, 125× fewer steps at `needle-1e1004` ([[synthesis/benchmarks]] M3b). Fields with and
+without the table differ only by float32 noise (class mismatch 0.264 % vs 0.270 % against the
+oracle at the densest view).

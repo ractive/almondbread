@@ -650,3 +650,95 @@ difference 0.000. L0's dive video (640×360 at 30 fps): first difference 17.5, s
 (second > first: per-frame noise). L1's videos have second/first ≈ 1.45–1.57 at 60 fps,
 dominated by fast low-altitude motion over fine texture, with no spike frames. The pop check
 is the meaningful number for L1.
+
+## M3b: unlimited depth, 2026-10-14
+
+Measured 2026-10-14, M1 Pro, release, with the user's app and another agent running (GPU
+timings vary ±50 % between runs; best of 3 given). Design: [[techniques/extended-range-floats]]
+"As built (M3b)", [[techniques/bla]] "M3b", [[platform/render-architecture]] "M3b".
+
+**Deep benchmark locations** (`almondbread locate`; `DEEP_LOCATIONS` in
+`crates/almondbread-core/src/locations.rs`): `sea-1e20` (seahorse valley, 1e-20/px),
+`sea-8007` (the period-8007 minibrot near the seahorse point, 2e-34/px), `needle-1e94`,
+`needle-1e305`, `needle-1e1004` (needle minibrots of periods 79, 255, 834 near −2),
+`dendrite-1e50/1e300/1e1000` (the Misiurewicz point c = i, self-similar at every depth).
+`deep-5e-14` and `dense-5e-14` now use big references (below 1e-12 per point).
+
+**Correctness.** The deep CPU oracle (`cpu_render_deep`: centre reference at view bits + 64,
+f64 rescaled perturbation, rebasing, no BLA) agrees with direct BigFloat iteration of every
+pixel tested (384/384 escape counts, max |Δμ| 1.2e-7 = float32 storage of s) at 1e-50,
+1e-300, 1e-1000 (c = i) and at the period-79 needle minibrot (test
+`deep_oracle_matches_direct_iteration`). GPU against it (`bench --sizes 1600x1000`, verify
+400×259, interior test off as in bench):
+
+| location | escape-n differs | class mismatch | GPU-int/CPU-ext | median |Δμ| | >0.05 |
+|---|---:|---:|---:|---:|---:|
+| deep-5e-14 | 8.9 % | 0.005 % | 0.002 % | 6.9e-5 | 13.1 % |
+| dense-5e-14 | 12.7 % | 0.010 % | 0.005 % | 5.8e-3 | 24.5 % |
+| sea-1e20 | 10.5 % | 0 | 0 | 1.7e-4 | 15.6 % |
+| sea-8007 | 23.3 % | 0.053 % | 0 | 9.7e-2 | 33.1 % |
+| needle-1e94 | 0.05 % | 0 | 0 | 9.5e-6 | 0.12 % |
+| needle-1e305 | 0.11 % | 0 | 0 | 2.3e-5 | 0.18 % |
+| needle-1e1004 | 0.09 % | 0 | 0 | 1.4e-4 | 0.17 % |
+| dendrite-1e50 / 1e300 / 1e1000 | 0.004–0.005 % | 0 | 0 | 2–5e-7 | 0.01 % |
+
+Escape-n differences are the chaotic boundary pixels float32 cannot resolve (the M2 caveat,
+[[questions/float32-error-long-orbits]]); they are independent of BLA and of the reference
+(at the sea view 1.36e-31/px, 1280×820: class mismatch 0.264 % with BLA, 0.270 % without,
+0.266 % with a centre instead of a nucleus reference, all GPU-ext/CPU-int ⇄ GPU-unresolved/CPU-ext
+symmetric). Smooth views (needle, dendrite) match to 1e-5 or better at every depth, also at
+1e-2900 per pixel (c = i, 300×200: median 4.8e-7).
+
+**`make regress`** adds three sessions through the interactive scheduler: Space zoom
+1.4e-10 → 2e-31 per pixel in 8 s (crosses the f64 reference limit, the plain→deep kernel
+switch and two background references; vs oracle class mismatch 0.136 %, GPU-int/CPU-ext 0.063 %,
+threshold 0.15 % as for the float32 noise above; vs fresh render 0.039 %), and zoom and pan at
+1e-305 per pixel around `needle-1e305` (vs oracle mismatch 0.002 % / 0.001 %, vs fresh 0).
+All 8 sessions pass.
+
+**GPU time at 1600×1000, BLA off → auto** (`render --bla 0` vs default; ms; "fewer steps" =
+iterations / loop steps):
+
+| location | maxIter | off | auto | speed-up | fewer steps |
+|---|---:|---:|---:|---:|---:|
+| sea-1e20 | 20 000 | 478 | 270 | 1.8× | 6.3× |
+| sea-8007 | 40 000 | 2242 | 560 | 4.0× | 30× |
+| needle-1e94 | 20 000 | 63 | 29 | 2.2× | 10× |
+| needle-1e305 | 50 000 | 173 | 48 | 3.6× | 25× |
+| needle-1e1004 | 100 000 | 673 | 62 | 11× | 125× |
+| dendrite-1e50 | 20 000 | 10.3 | 6.8 | 1.5× | 4.5× |
+| dendrite-1e300 | 20 000 | 60 | 7.6 | 8× | 27× |
+| dendrite-1e1000 | 20 000 | 156 | 5.9 | 26× | 88× |
+
+At 1e-12…1e-17 per point big references run the plain kernel (deep-5e-14 35 ms, dense-5e-14
+75 ms; the deep kernel took 51 and 115 ms there, M4's f64 path 38–40 and 84 ms). BLA there
+stays off (M4 result unchanged).
+
+**Reference times** (orbit of c = i, 100 001 points, no escape; precision = view bits + 104):
+1e-20 3.2 ms, 1e-50 5.0 ms, 1e-100 10 ms, 1e-300 72 ms, 1e-1000 597 ms, 1e-2000 1686 ms.
+Nucleus selection (ball period + Newton): period 8007 at 256 bits 10 ms in all, period 255 at
+1152 bits 1.5 ms, period 834 at 3456 bits 8 ms. Centre references are computed to 2 × the
+iteration limit (auto limit at 1e-300: 200 000 → 400 001 points, ~290 ms at 1152 bits); the
+view shows the reprojected history until it arrives.
+
+**Interaction** (`make interaction-test`, 60 Hz callbacks, 2560×1640 px; fps / latency p50 /
+full-res final frame after input / shown frame vs fresh render):
+
+| scenario | fps | latency p50 | final frame | vs fresh |
+|---|---:|---:|---:|---|
+| deep zoom 1e-12 to 1e-40 (0.36 e-folds per frame, to 3.9e-39/pt) | 51–56 | 50 ms | 217 ms | 0 px |
+| 1e-100 pan (c = i) | 58.7 | 41.5 ms | 250 ms | 0 px |
+| 1e-300 zoom (c = i) | 59.0 | 41.3 ms | 217 ms | 0 px |
+| limit zoom (1e-14 → 3e-18, formerly clamped) | 53.0 | 43 ms | 550 ms | 0 px |
+
+The first version of the deep zoom ran at 26 fps (33 ms GPU per gesture frame: the
+dynamic preview could not go below 1/4 resolution while previews in the dense seahorse
+valley need 25 000 iterations per texel); allowing 1/8 previews gave 51–56 fps. The shallow
+scenarios are within the noise of a same-day run of the M4 build (neck zoom 48–52 vs 48,
+home zoom 49–54 vs 55–57, keyboard glide 55–56 vs 52–55, edge pan 48 vs 44–49 fps).
+FFI per frame 2.6–4 µs; `stats()` 19 µs (decimal coordinates; 0.1 ms for 1010 digits).
+
+**Depth reached.** Interactively: zoom and pan at 1e-300 per point at 59 fps; stills and
+verify to 1e-2900 per pixel; the zoom stops at 2^-10000 ≈ 1e-3010 per point
+(`MIN_SCALE_LOG2`), where references need 10 000+ bits (≈0.5 M iterations/s single thread
+at 4096 bits).

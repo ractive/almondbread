@@ -50,3 +50,7 @@ test-only benchmark. It beats GMP `mpf` on the reference orbit up to 1024 bits (
 1.55x) and loses from 4096 bits (0.56x at 16384); see
 [[platform/mpfr-gmp-on-apple-silicon]] and [[synthesis/benchmarks]] (measured
 2026-10-14, M1 Pro, release). The correctness risk is covered by bit-exact oracle tests.
+
+M3b (2026-10-14): the same library carries the app's viewport centre and every deep
+reference; reference orbits take 3 ms (1e-20) to 0.6 s (1e-1000) per 100 000 iterations on one
+core ([[synthesis/benchmarks]] M3b).

@@ -75,3 +75,10 @@ the CPU), 400×259; full table in [[synthesis/benchmarks]].
 - Not yet measured: deeper than 1e−13 (needs the arbitrary-precision reference of
   milestone 3), iteration counts above 2e5 against the oracle, DE error, and the split
   between delta rounding and reference rounding (step 4 of "How to resolve").
+- M3b (2026-10-14, M1 Pro): deeper than 1e-13, against the deep oracle (f64 perturbation
+  on a high-precision centre reference, itself checked against direct BigFloat). Smooth views
+  match to median |Δμ| 1e-7…1e-4 at 1e-50…1e-1004 per pixel. Chaotic views near deep minibrots
+  do not: at 1.36e-31/px next to the period-8007 minibrot, 20 % of escape counts differ and
+  0.26 % of pixels change class in each direction, identical with and without BLA and with a
+  centre instead of a nucleus reference, so it is float32 rounding over 10^4-iteration orbits,
+  not the reference. Remedy is M7 (float-float repair mode) ([[synthesis/benchmarks]] M3b).

@@ -307,3 +307,18 @@ cycles per σ transition (colour-only change 5.7/255 per frame, 21 % of pixels >
 now keyed to the absolute DE; layer-relative terms cross-fade between σ layers. Colour change
 in transitions 0.28, 0 % of pixels > 8. What remains on hilltops is lighting from the real shape
 change. Details in [[decisions/landscape-mode]] L1.
+
+## [2026-10-14] decision | M3b: unlimited depth
+
+Arbitrary-precision viewport centre and extended-range scale end to end (FFI as decimal
+strings, paste back); big references with ball-period + Newton nucleus selection on a worker
+thread, reused while precision and offset allow, history shown while one computes; the deep
+kernel (rescaled float32 deltas with P/T regimes, floatexp full steps where |Z| < 2^-32,
+exponent-carrying DE and interior derivatives); extended-range BLA table (1.5–26× at depth); a
+deep CPU oracle validated against direct BigFloat; deep benchmark locations made with
+`almondbread locate` (needle minibrots to 1e-1004, c = i dendrites); deep regress sessions and
+interaction scenarios. Found: the interior test missed nucleus returns whose period is not a
+multiple of 8; locate must refine nuclei to the minibrot's size, not the search radius; gesture
+previews needed 1/8 resolution in dense deep views (26 → 51–56 fps). Pages:
+[[techniques/extended-range-floats]], [[techniques/bla]], [[techniques/reference-selection]],
+[[platform/render-architecture]], [[synthesis/benchmarks]] M3b, [[roadmap]].

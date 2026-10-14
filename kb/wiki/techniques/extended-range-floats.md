@@ -190,3 +190,35 @@ Roadmap step 6: float32 perturbation to about 1e-25, then rescaled float32
 with floatexp scale and full steps, floatexp per-quantity skip tables,
 selected by depth (later by measured speed, like Fraktaler's wisdom).
 [[techniques/double-float]] is a separate precision fix, not a range fix.
+
+## As built (M3b, 2026-10-14)
+
+Our own design on the pattern above (mathr's rescaling, KF's "rescaled" types); code:
+`iterate` with function constant `kDeep` in `crates/almondbread-render/src/shaders/mandelbrot.metal`,
+CPU twin `cpu_render_deep` in `crates/almondbread-core/src/oracle.rs`.
+
+- **Frame exponent.** The texel is `texelScale · 2^scaleExp` with `texelScale` in [1, 2);
+  `refOffset` is in the same units, so the pixel's `c` is a float32 mantissa (as in the plain
+  kernel) plus one integer exponent per view.
+- **Two regimes per pixel.** P: `|z| ≥ 2^-50`, the plain float32 loop (squared-norm escape and
+  rebase tests are safe). T: `z = w · 2^e` with `|w|` kept in [2^-16, 2^16] by renormalising every
+  step; the step is `w ← (2Z + s w) w + c·2^-e` with `s = 2^e` (0 below float32's range). Enter T
+  below 2^-50, leave it at 2^-41 (hysteresis). In T no escape or rebase test runs while
+  `|Z| ≥ 2^-32`: a rebase needs `|Z| < 2|z| < 2^-40`, an escape needs the reference's last point.
+- **Full steps** in floatexp (complex mantissa, shared int exponent) where `|Z| < 2^-32`, at `m = 0`
+  and at the reference's end: the step, the exact rebase test `|Z + z| < |z|` and the escape test
+  use the reference point's own exponent from a second buffer (`FloatExpComplex`, 16 B per
+  point). For a nucleus reference these are exactly the near-0 returns of each period.
+- **Derivatives** carry exponents: DE `d = dz/dc · texel = dm · 2^dExp`, interior
+  `w' = dz/dz₁ = zw · 2^wExp`, renormalised every 8 steps and whenever `|z_full| < 2^-16`; the
+  interior test uses the true magnitude `|zw| n² 2^wExp`, and runs after every full step (the one
+  place an interior pixel's derivative is small: with periods ≢ 0 mod 8 the every-8th-step test
+  never saw it).
+- **Kernel choice by depth.** f64 references (unchanged M1–M4 path) above 1e-12 per point; big
+  references with the plain kernel down to 1e-17 (~30 % faster than the deep kernel per
+  iteration there); the deep kernel below.
+
+Pitfall found: a reference's precision must cover the *minibrot* it serves, not the search
+radius: near the needle a period-255 nucleus found in a 1e-152 disc has size 1e-303; computed at
+640 bits it was no nucleus at all (`|z_255|` = 1e-160 only after refining to 1152 bits).
+`almondbread locate` refines until bits ≥ −log2(size) + 96.

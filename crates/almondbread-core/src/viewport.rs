@@ -459,4 +459,20 @@ mod tests {
         let (px, py) = v.center.delta_in(&before, v.scale);
         assert!((px + 1.0).abs() < 1e-12 && py.abs() < 1e-12);
     }
+
+    #[test]
+    fn coordinate_text_at_1e1000_is_cheap() {
+        // The HUD formats the centre at ~10 Hz with the digits the depth needs.
+        let mut v = Viewport::with_center(Center::new(-1.25, 0.1), Scale::pow2(-3330));
+        v.pan_by_points(0.3, 0.7);
+        let t = std::time::Instant::now();
+        let (re, im) = v.center.to_strings_digits(1010);
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        println!("1010-digit centre text: {ms:.2} ms");
+        assert!(re.len() > 1000 && im.len() > 1000);
+        let back = Center::parse(&re, &im).unwrap();
+        let (dx, dy) = back.delta_in(&v.center, v.scale);
+        assert!(dx.abs() < 1e-3 && dy.abs() < 1e-3);
+        assert!(ms < 50.0, "{ms} ms");
+    }
 }
