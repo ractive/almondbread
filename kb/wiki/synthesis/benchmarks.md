@@ -244,3 +244,58 @@ the Rust core through the Swift bindings against AlmondbreadMath bit for bit
 None with sources. Chéritat's "about 2× per iteration" for the derivative test
 matched our first kernel (seahorse 30 → 66 ms); testing every 8th iteration brought
 it to ~1.5× (48 ms), and the adaptive switch removes it where no interior is in view.
+
+## Interior test `|w| n²`, unresolved pixels, extension passes (2026-10-14)
+
+The fix for the −3/4 neck wedge (see [[techniques/interior-detection]] Pitfalls and
+[[techniques/auto-iterations]]). `--bench`, best of 2, iterate GPU ms. *Before* is
+the same tree with the previous kernel and renderer (built side by side, run back to
+back).
+
+| location | size | before | after | detected before → after |
+|---|---|---:|---:|---|
+| home | 3456×2234 | 14.7 | 17.8 | 14.9 → 14.2 % |
+| home | 1600×1000 | 5.2 | 5.4 | |
+| home-100k | 3456×2234 | 63.7 | 54.3 | 15.3 → 15.3 % |
+| home-100k | 1600×1000 | 24.5 | 26.2 | |
+| seahorse-1e5 | 3456×2234 | 32.3 | 32.8 | 0 (test off) |
+| elephant | 3456×2234 | 101 | 162–177 | 26.9 → 23.3 % |
+| elephant | 1600×1000 | 28.9 | 35–39 | |
+| minibrot-p4 | 3456×2234 | 53.1 | 78–81 | 11.1 → 11.1 % |
+| minibrot-p4 | 1600×1000 | 17.4 | 23–28 | |
+| deep-5e-14 | 3456×2234 | 192 | 190–197 | 0 |
+| feigenbaum | 3456×2234 | 8 334 | 14 517–14 811 | 24.4 → 15.0 % |
+| feigenbaum | 1600×1000 | 1 528 | 2 474–2 503 | |
+
+The slowdown is the price of correctness: near-parabolic interior can no longer be
+"proven" in the regime where an exterior passage looks the same. GPU-int/CPU-ext
+(400×259 verify) dropped to 0 at elephant (0.042 %), feigenbaum (0.073 %) and home
+(0.004 %). Those had been exterior pixels painted interior, not float noise. New
+regression locations (all now 0.000 % GPU-int/CPU-ext; before: neck-2e5 20.85 %,
+cusp-1e5 1.69 %):
+
+| location | size | GPU ms | CPU interior | unresolved |
+|---|---|---:|---:|---:|
+| neck-2e5 | 3456×2234 | 391 | 67.0 % | 67.0 % |
+| neck-7e6 | 3456×2234 | 599 | 99.3 % | 99.3 % |
+| cusp-1e5 | 3456×2234 | 606 | 97.8 % | 90.9 % |
+| root-third | 3456×2234 | 548 | 73.1 % | 73.1 % |
+
+Interactive pipeline at the reported views, 2560×1640, `--verify --history zoom`
+(Space zoom 2 s at 1.6 e-folds/s, then one 1.3225× wheel step), extension budget 2 s.
+*Complete* is the refined frame after input stopped, *resolved* is after the last
+extension pass:
+
+| view | limit (hard) | complete | resolved |
+|---|---|---:|---:|
+| neck 2.2e5 | 2 053–2 766 (32 848–44 256) | 0.40–0.46 s | 1.7–3.1 s |
+| neck 2.9e5, after a step | 8 216 (learned; 131 456) | 0.73 s | 2.2 s |
+| neck 7.1e6 (A) | 8 452 (learned; 33 808) | 1.04 s | 3.0 s |
+| neck 9.4e6 (B) | 11 632 (learned; 46 528) | 1.32 s | 4.0 s |
+
+Before, the neck at 2.2e5 completed in 0.2 s, with the wedge. A first version that
+continued unresolved pixels inside the level took 2.9 s to complete (live-list
+starvation, [[platform/gpu-watchdog-and-chunking]] Pitfalls). The final frames of
+these sessions are identical in class to a fresh headless render (0.000 %).
+`--interaction-test` (60 Hz display) with the new "neck zoom" scenario: 58.5 fps,
+final frame 407 ms after input, shown frame vs fresh render 0 pixels differing.

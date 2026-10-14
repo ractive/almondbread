@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim render selftest bench clean rust rust-check core-check
+.PHONY: run build project app ios-sim render selftest bench regress clean rust rust-check core-check
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -66,6 +66,17 @@ rust-check:
 ## plus FFI call overhead
 core-check: rust
 	swift run -c release almondbread-core-check
+
+## Headless sessions through the interactive scheduler (Space zoom, then one wheel step) at the
+## -3/4 neck views of the wedge report; each fails on exterior painted as interior or on a
+## final frame that differs from a fresh render (kb: techniques/interior-detection, Pitfalls)
+regress: build
+	.build/release/AlmondbreadMac --verify --history zoom --center -0.7500016386523336,-0.0021073424656852589 \
+		--scale 3.38526e-8 --ppp 2 --size 640x410 --then 1.3225
+	.build/release/AlmondbreadMac --verify --history zoom --center -0.75000661155604931,-0.0021104008406531076 \
+		--scale 1.062288e-9 --ppp 2 --size 640x410 --pointer 0,-58.5 --then 1.3225
+	.build/release/AlmondbreadMac --verify --history zoom --center -0.743643887037151,0.13182590420533 \
+		--scale 8.5e-9 --size 1280x820 --pointer 200,100
 
 clean:
 	rm -rf .build Almondbread.xcodeproj

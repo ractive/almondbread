@@ -143,6 +143,44 @@ The multiplier test `|d| ≤ 1` alone (without the distance) is the cheap part
 - Periodicity tolerances in float32 at depth.
 - On GPU, a history-dependent "biased" strategy increases divergence; a fixed
   per-iteration test is simpler (inference).
+- **A fixed ε is wrong at any value near parabolic points, and the error has
+  straight edges** (found 2026-10-14 from a user report; measured M1 Pro, release).
+  An exterior orbit with `c` close to a bulb root passes slowly through the
+  parabolic gate. Mid-passage, `|dz/dz₁|` dips to about `C/n²` and then recovers.
+  For `z → z + z² + δ` the product of `(1 + 2w_k)` over the passage is
+  `(w_k² + δ)/(w_0² + δ)`. It is smallest (`≈ δ/a²`) in the middle, `n ≈ π/(2√δ)`,
+  which is half the escape time. Direct Double iteration gives:
+  - `c = 0.2501` (cusp): minimum 1.1e−3 at n = 150, escape at 315.
+  - `c = −0.75 + 0.0021i` (the −3/4 neck): minimum 9.9e−4 at n = 724, escape at
+    1500.
+
+  So the dip is right at Chéritat's 1e−3, and it gets deeper the closer `c` is
+  to the root. In the app at the neck, zoom 2.2e5, auto maxIter 2053, Chéritat's
+  test painted 20.9 % of the frame black (pixels that escape before 2053). Their
+  outline was a union of rotated squares with sharp concave corners. The
+  max-norm test `max(|w.x|, |w.y|) < ε` is a square in `w`. Over a 2e−5-wide view
+  `w(c)` at the checked iteration is nearly linear, so its preimage is a rotated
+  square. A wedge of black with straight edges came out of a smooth exterior
+  basin. The cusp view (0.25005, width 1e−4) had 1.7 % false interior. The
+  benchmark set had 0.04 % (elephant) and 0.07 % (feigenbaum) GPU-int/CPU-ext,
+  which had been taken for float noise.
+  **Fix:** test `|w| n² < ε`. Interior `w` decays geometrically and beats `n²`
+  within a few periods. The passage dip is `≈ C/n²` with C ≈ 27 at the cusp
+  (`dip × n_dip²`). At the neck it is larger and grows like 1/δ. ε = 1e−3 leaves a
+  margin of more than 10⁴. ε = 30 brings the elephant wedges back (15 % false
+  interior), and ε = 1 is already clean. The cost is that slow, near-parabolic
+  *interior* converges like `C/n²` at first, the same as the exterior dip, so it
+  cannot be proven before the geometric phase. Those pixels are not interior
+  failures but unresolved, see [[techniques/auto-iterations]]. Elephant
+  (detected 26.9 % → 23.3 %) and feigenbaum (24.4 % → 15.0 %) get slower; see
+  [[synthesis/benchmarks]].
+  Shortcuts that confirm a candidate by "no escape for k·n more iterations" or
+  "`|w| n²` non-increasing" fail on an orbit that enters a second, much longer
+  gate early. Its `|w| n²` grows only slowly there (inference from the gate model
+  above). Do not reintroduce them without a regression view.
+  Regressions: bench locations `neck-2e5`, `neck-7e6`, `cusp-1e5` and
+  `root-third`. `--bench` fails above 0.02 % GPU-int/CPU-ext, and `make regress`
+  runs the scripted zoom sessions.
 
 ## Measured in almondbread (milestone 2)
 
@@ -155,7 +193,10 @@ Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
   towards false interior.
 - **Accuracy:** with ε = 1e−3, full-resolution results (7.7 M pixels) are bit-identical
   to running every interior pixel to maxIter, at all seven benchmark locations: the test
-  produced **no** extra boundary pixels classified interior. 0.5–5 points of the CPU's
+  produced **no** extra boundary pixels classified interior. **Superseded:** that
+  comparison was against maxIter, not against escape. Against the CPU it was wrong near
+  parabolic points (see Pitfalls); since 2026-10-14 the test is `|w| n² < 1e−3`.
+  0.5–5 points of the CPU's
   interior pixels are not caught before maxIter (slow, near-parabolic components:
   elephant 26.9 % detected vs 28.6 % interior, feigenbaum 24.4 % vs 29.5 %).
 - **Cost:** testing every iteration doubled the per-iteration cost (seahorse 30 → 66 ms,

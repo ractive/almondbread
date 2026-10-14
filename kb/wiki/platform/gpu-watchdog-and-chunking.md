@@ -107,6 +107,28 @@ Points:
 - Register-heavy kernels lose occupancy on M1/M2 ([[platform/apple-gpu-architecture]]);
   chunking does not fix that, specialisation does ([[platform/metal-compute]]).
 
+- **Pixels that keep iterating past the frame's limit must not hold live capacity**
+  (found 2026-10-14, M1 Pro, release). A first version of unresolved-pixel extension
+  ([[techniques/auto-iterations]]) let pixels continue past the nominal limit inside
+  the level. Slow pixels (half the frame at the −3/4 neck) filled the 1 M live slots,
+  `prepareChunk` admitted only 3 to 9 K fresh pixels per chunk, and the complete frame
+  took 2.9 s instead of 0.40 s. Now the level stops at the limit, collects unresolved
+  pixel indices into a list (threadgroup-aggregated append), and separate extension
+  levels admit from that list. They restart those pixels from n = 0, which repeats
+  1/4 of the work per ×4 pass.
+- **A budget that stops a scanline-ordered pass leaves a straight edge.** Stopping an
+  extension pass on a GPU-time budget showed the resolved top rows above a horizontal
+  line. Decide from an estimate *before* a pass (`count × limit / rate`) and always
+  finish it. Likewise, never extend a truncated list.
+- **Lesson from the wedge report:** a long straight edge in a fractal image is a
+  pipeline or test artefact. But "never written" and "stale" are not the only
+  causes: here the culprit was a max-norm test on a nearly linear function of `c`
+  ([[techniques/interior-detection]] Pitfalls). `--verify --history` drives the real
+  scheduler (`Renderer.renderFrame`, the code the view runs per refresh) headlessly
+  through scripted Space/wheel/pan sessions and diffs the final frame against the
+  CPU oracle and a fresh render. `--interaction-test` checks the shown frame against
+  a fresh render after every scenario.
+
 ## As built in almondbread (milestone 2)
 
 Measured 2026-10-14, M1 Pro, release; numbers in [[synthesis/benchmarks]].

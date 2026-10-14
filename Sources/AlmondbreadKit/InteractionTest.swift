@@ -22,6 +22,7 @@ final class InteractionTest: NSObject {
     private var reported = false
     private var startViewport: Viewport?
     private var refineLines: [String] = []
+    private var failures = 0
 
     private struct Scenario {
         let name: String
@@ -63,7 +64,10 @@ final class InteractionTest: NSObject {
             once("e", t >= 1.25) { InteractionTest.key(v, "e", down: true); InteractionTest.key(v, "e", down: false) }
             once("up", t >= 2.5) { InteractionTest.key(v, " ", down: false) }
         }
+        // The -3/4 neck of the wedge report (zoom 2.2e5): wheel-like zoom in and out.
+        let neck = Viewport(centerRe: -0.7500016386523336, centerIm: -0.0021073424656852589, scale: 1.69263e-8)
         return [Scenario(name: "home pan", viewport: home, input: pan),
+                Scenario(name: "neck zoom", viewport: neck, input: zoom),
                 Scenario(name: "wasd 1e5", viewport: sea, input: wasd),
                 Scenario(name: "space zoom", viewport: sea, input: space),
                 Scenario(name: "home zoom", viewport: home, input: zoom),
@@ -109,9 +113,9 @@ final class InteractionTest: NSObject {
         guard scenario < scenarios.count, let view, let renderer = view.renderer else {
             link?.invalidate()
             refineLines.forEach { print($0) }
-            print("interaction-test: done")
+            print(failures == 0 ? "interaction-test: done" : "interaction-test: FAILED (\(failures) frame checks)")
             fflush(stdout)
-            exit(0)
+            exit(failures == 0 ? 0 : 1)
         }
         renderer.frameStats = nil
         renderer.model.viewport = scenarios[scenario].viewport
@@ -171,6 +175,15 @@ final class InteractionTest: NSObject {
         if final.time > lastInput && now - inputEnd > 0.05 {
             refineLines.append(String(format: "%@: full-res %@ final frame %.0f ms after input stopped",
                                       scenarios[scenario].name, final.size, (final.time - lastInput) * 1000))
+            // The shown frame must match a fresh headless render of the same view: no stale,
+            // unfinished or misclassified pixels from the live pipeline (wedge bug, kb:
+            // techniques/interior-detection, Pitfalls).
+            if let m = renderer.displayedFrameMismatch() {
+                let ok = m.percent <= 0.05
+                if !ok { failures += 1 }
+                refineLines.append(String(format: "%@: shown %@ frame vs fresh render: %d pixels (%.3f%%) differ in class %@",
+                                          scenarios[scenario].name, m.size, m.pixels, m.percent, ok ? "OK" : "FAILED"))
+            }
             if let v0 = startViewport {
                 let v = renderer.model.viewport
                 refineLines.append(String(format: "limit zoom: centre drift during clamped zoom %.3g / %.3g (scale units %.3g)",

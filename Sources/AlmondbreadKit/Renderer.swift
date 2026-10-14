@@ -53,6 +53,17 @@ public final class Renderer: NSObject, MTKViewDelegate {
     private let statsBuffer: MTLBuffer       // ChunkStats ring, read by the CPU
     private let argsBuffer: MTLBuffer        // indirect dispatch arguments
     private let levelBuffer: MTLBuffer       // LevelCounters of the running level (GPU-side admission)
+    /// Pixels left unresolved by a level (scanline indices) and their count, for its extension.
+    private var listBuffers: [MTLBuffer] = []   // ping-ponged between extension passes
+    private let listCountBuffer: MTLBuffer
+    private var listCapacity = 0
+    /// Upper bound on list entries (4 bytes each, two buffers): a view with more unresolved
+    /// pixels gets no extension rather than a partial one (a partial list ends at a scanline).
+    #if os(macOS)
+    private let maxListCapacity = 1 << 22
+    #else
+    private let maxListCapacity = 1 << 21
+    #endif
     private static let statSlots = 64
     private var statSlot = 0
     private var ping = 0
@@ -136,15 +147,28 @@ public final class Renderer: NSObject, MTKViewDelegate {
         var admitted = 0             // pixels admitted
         var live = 0                 // pixels still iterating
         var encoded = 0              // chunks encoded
-        var done = false
+        var done = false             // nothing left to iterate (or the extension budget is spent)
+        /// Every pixel escaped, was proven interior or passed the nominal limit: the frame is
+        /// complete; unresolved pixels may still be iterating towards the hard limit.
+        var complete = false
+        var crossed = 0              // pixels that reached the level's limit unresolved
+        var maxEscape = 0            // largest escape iteration seen
+        var escapedPast = [0, 0, 0, 0]   // escapes at n >= softIter << k
+        /// Hard limit to continue unresolved pixels to in an extension level, if this level runs
+        /// the interior test (without it, interior pixels would burn the whole extension).
+        var extendTo = 0
+        /// An extension level: re-iterates the unresolved pixels the level before collected.
+        var isExtension: Bool { params.listMode == 2 }
+        var listIn = 0               // unresolved-list buffers read (extension) and written
+        var listOut = 0
         var gpuTime = 0.0
         var iterations = 0.0         // executed, from the chunk counters
         var interiorPixels = 0       // finished as interior (derivative test or maxIter)
         var useInterior = false      // derivative test on; decided when the level starts
         let preview: Bool            // a coarse level shown until the full level is done
-        init(set: TextureSet, ratio: Double, preview: Bool, params: IterateParams) {
+        init(set: TextureSet, ratio: Double, preview: Bool, params: IterateParams, total: Int? = nil) {
             self.set = set; self.ratio = ratio; self.preview = preview; self.params = params
-            total = set.width * set.height
+            self.total = total ?? set.width * set.height
         }
         var started: Bool { encoded > 0 }
     }
@@ -162,12 +186,14 @@ public final class Renderer: NSObject, MTKViewDelegate {
         var chunks = 0
         var iterations = 0.0
         var failed = false
-        var finalPresented = false
+        var finalPresented = false   // shown after the last pixel resolved (or the budget ran out)
+        var completePresented = false
         init(generation: Int, key: ComputeKey, referenceBuffer: MTLBuffer, levels: [Level]) {
             self.generation = generation; self.key = key
             self.referenceBuffer = referenceBuffer; self.levels = levels
         }
         var done: Bool { levels.allSatisfy(\.done) }
+        var complete: Bool { levels.allSatisfy(\.complete) }
         var current: Level? { levels.first { !$0.done } }
         /// The level to show: the furthest one that has started.
         var display: Level { levels.last { $0.started } ?? levels[0] }
@@ -219,7 +245,9 @@ public final class Renderer: NSObject, MTKViewDelegate {
               let stats = device.makeBuffer(length: Renderer.statSlots * MemoryLayout<ChunkStats>.stride,
                                             options: .storageModeShared),
               let args = device.makeBuffer(length: 16, options: .storageModePrivate),
-              let level = device.makeBuffer(length: 16, options: .storageModePrivate) else { return nil }
+              let level = device.makeBuffer(length: 16, options: .storageModePrivate),
+              let listCount = device.makeBuffer(length: 4, options: .storageModePrivate) else { return nil }
+        listCountBuffer = listCount
         stateBuffers = [s0, s1]
         countBuffers = [c0, c1]
         statsBuffer = stats
@@ -367,7 +395,7 @@ public final class Renderer: NSObject, MTKViewDelegate {
         } else if let j = job, j.key == key {
             // Input idle: refine the gesture's last frame at full resolution over its preview.
             if j.interactive { extendForRefinement(j) }
-        } else if let j = job, !j.interactive, !j.levels[0].done, now - j.start < 0.25 {
+        } else if let j = job, !j.interactive, !j.levels[0].complete, now - j.start < 0.25 {
             // A settings change while idle: let a young first level finish before replacing
             // it, so the next slider step does not discard nearly finished work.
         } else {
@@ -389,7 +417,7 @@ public final class Renderer: NSObject, MTKViewDelegate {
         // While refining, hold the previous image for a moment until the first level is
         // complete, so cheap views appear finished in one step instead of flashing unfinished
         // pixels. Gesture frames are complete by construction and always shown.
-        let present = (job.interactive && (!job.presented || !job.done)) || !hasPresented || job.levels[0].done || now - job.start > 0.15
+        let present = (job.interactive && (!job.presented || !job.done)) || !hasPresented || job.levels[0].complete || now - job.start > 0.15
         if present, let (target, presentHook, drawable) = acquire(),
            let cb = encodeColorize(job: job, target: target) {
             presentHook(cb)
@@ -415,7 +443,7 @@ public final class Renderer: NSObject, MTKViewDelegate {
                     DispatchQueue.main.async { stats.colorizeGPU += g }
                 }
             }
-            if job.done && !job.finalPresented && SelfTest.enabled {
+            if job.complete && !job.completePresented && SelfTest.enabled {
                 let size = "\(target.width)x\(target.height)"
                 let gpu = job.gpuTime, chunks = job.chunks
                 cb.addCompletedHandler { cb in
@@ -437,21 +465,29 @@ public final class Renderer: NSObject, MTKViewDelegate {
             cb.commit()
             hasPresented = true
             job.presented = true
-            if job.done && !job.interactive {
-                job.finalPresented = true
-                if !job.display.preview {
+            if job.complete && !job.interactive {
+                // The refined frame: unresolved pixels may keep resolving in later frames.
+                if !job.completePresented && !job.display.preview {
                     lastFinalFrame = (now, "\(job.display.set.width)x\(job.display.set.height)")
                 }
+                job.completePresented = true
+                if job.done { job.finalPresented = true }
             }
         }
-        publishStats(job: job, force: job.done && !job.interactive)
+        publishStats(job: job, force: job.complete && !job.interactive)
 
         let busy = interacting || !job.finalPresented || job.key != key
         setAnimating?(keepGoing || busy)
     }
 
     private func makeKey(width: Int, height: Int, pointsPerPixel: Double) -> ComputeKey {
-        ComputeKey(viewport: model.viewport, maxIter: model.maxIterations, pointsPerPixel: pointsPerPixel,
+        var maxIter = model.maxIterations
+        // A learned limit applies from the next view on: the view it was learned at is already
+        // resolved by the extension, re-rendering it would only repeat the work.
+        if let pin = pinnedIterations {
+            if pin.viewport == model.viewport && model.autoIterations { maxIter = pin.maxIter } else { pinnedIterations = nil }
+        }
+        return ComputeKey(viewport: model.viewport, maxIter: maxIter, pointsPerPixel: pointsPerPixel,
                    de: model.deNeeded, interior: model.interiorDetection, width: width, height: height,
                    supersampling: model.supersampling.rawValue)
     }
@@ -465,6 +501,7 @@ public final class Renderer: NSObject, MTKViewDelegate {
         let texW = key.width * key.supersampling, texH = key.height * key.supersampling
         guard let full = textureSet(width: texW, height: texH, preview: false) else { return }
 
+        ensureListCapacity(texW * texH)
         let viewport = key.viewport
         let viewRadius = viewport.scale * key.pointsPerPixel * Double(key.width + key.height)
         prepareReference(viewport: viewport, maxIter: key.maxIter, viewRadius: viewRadius)
@@ -484,7 +521,8 @@ public final class Renderer: NSObject, MTKViewDelegate {
                 width: UInt32(w),
                 total: UInt32(w * h),
                 capacity: UInt32(liveCapacity),
-                interiorEps: 1e-3)   // Chéritat's ε (kb: techniques/interior-detection)
+                interiorEps: 1e-3,   // on |w| n², not |w| (kb: techniques/interior-detection, Pitfalls)
+                softIter: UInt32(key.maxIter))
         }
 
         func level(ratio: Double, preview: Bool) -> Level? {
@@ -523,12 +561,24 @@ public final class Renderer: NSObject, MTKViewDelegate {
         case .offscreen:
             levels.append(Level(set: full, ratio: ss, preview: false, params: params(ratio: ss, w: texW, h: texH)))
         }
+        // The full level keeps iterating unresolved pixels past the nominal limit (not gesture
+        // frames: they are superseded every refresh).
+        let factor = mode == .offscreen ? offscreenExtension : extensionFactor
+        if mode != .interactive, factor > 1, let last = levels.last, !last.preview {
+            last.extendTo = min(key.maxIter * factor, max(key.maxIter, model.maxIterationsCap))
+            last.params.listCapacity = UInt32(listCapacity)
+        }
         guard !levels.isEmpty else { return }
         generation += 1
         job = Job(generation: generation, key: key, referenceBuffer: referenceBuffer, levels: levels)
         job?.interactive = mode == .interactive
-        job?.fullLevel = {
-            Level(set: full, ratio: ss, preview: false, params: params(ratio: ss, w: texW, h: texH))
+        let extendTo = min(key.maxIter * extensionFactor, max(key.maxIter, model.maxIterationsCap))
+        let listCapacity = self.listCapacity
+        job?.fullLevel = { [extensionFactor] in
+            let l = Level(set: full, ratio: ss, preview: false, params: params(ratio: ss, w: texW, h: texH))
+            if extensionFactor > 1 { l.extendTo = extendTo }
+            l.params.listCapacity = UInt32(listCapacity)
+            return l
         }
     }
 
@@ -590,7 +640,13 @@ public final class Renderer: NSObject, MTKViewDelegate {
     /// command buffer, and its GPU time measures this chunk alone).
     @discardableResult
     private func encodeChunk(job: Job, level: Level, k: Int, adaptive: Bool = false) -> Bool {
-        if !level.started { level.useInterior = shouldUseInteriorTest(key: job.key) }
+        if !level.started {
+            if !level.isExtension {
+                level.useInterior = shouldUseInteriorTest(key: job.key)
+                // Collect unresolved pixels for extension passes.
+                if level.useInterior && level.extendTo > Int(level.params.softIter) { level.params.listMode = 1 }
+            }
+        }
         guard let pipeline = iteratePipeline(de: job.key.de, interior: level.useInterior) else {
         job.failed = true
         return false
@@ -612,6 +668,10 @@ public final class Renderer: NSObject, MTKViewDelegate {
         enc.setBuffer(argsBuffer, offset: 0, index: 7)
         enc.setBytes(&tg, length: 4, index: 8)
         enc.setBuffer(levelBuffer, offset: 0, index: 9)
+        // (No lists allocated: listCapacity is 0 and nothing is collected; bind a placeholder.)
+        enc.setBuffer(listBuffers.isEmpty ? listCountBuffer : listBuffers[level.listIn], offset: 0, index: 10)
+        enc.setBuffer(listCountBuffer, offset: 0, index: 11)
+        enc.setBuffer(listBuffers.isEmpty ? listCountBuffer : listBuffers[level.listOut], offset: 0, index: 12)
         enc.dispatchThreads(MTLSize(width: 1, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
 
         enc.setComputePipelineState(pipeline)
@@ -671,13 +731,19 @@ public final class Renderer: NSObject, MTKViewDelegate {
             level.interiorPixels += Int(stats.interior)
             level.admitted = Int(stats.admitted)
             level.live = Int(stats.liveOut)
+            level.crossed += Int(stats.crossed)
+            level.maxEscape = max(level.maxEscape, Int(stats.maxEscape))
+            let past = stats.escapedPast
+            for (k, v) in [past.0, past.1, past.2, past.3].enumerated() { level.escapedPast[k] += Int(v) }
             if level.live == 0 && level.admitted == level.total { finishLevel(level) }
         }
     }
 
-    private func finishLevel(_ level: Level) {
-        guard !level.done else { return }
-        level.done = true
+    /// The level's frame is complete (every pixel escaped, proven interior or unresolved at the
+    /// limit): cost and interior statistics for the next decisions.
+    private func completeLevel(_ level: Level) {
+        guard !level.complete else { return }
+        level.complete = true
         if level.gpuTime > 0 { costPerTexel = level.gpuTime / Double(level.total) }
         // Interior statistics for the next level's decision. Without the test, interior pixels
         // ran to maxIter: take them out of the exterior iteration count.
@@ -686,6 +752,82 @@ public final class Renderer: NSObject, MTKViewDelegate {
         var exterior = level.iterations
         if !level.useInterior { exterior -= Double(level.interiorPixels) * Double(level.params.maxIter) }
         interiorStats = (interiorFraction, max(0, exterior) / n)
+    }
+
+    private func finishLevel(_ level: Level) {
+        guard !level.done else { return }
+        completeLevel(level)
+        level.done = true
+        guard !level.preview else { return }
+        if Renderer.trace {
+            print("finish level: mode \(level.params.listMode) maxIter \(level.params.maxIter) total \(level.total) crossed \(level.crossed) gpu \(level.gpuTime)")
+        }
+        if level.params.listMode != 0, level.crossed > 0, level.crossed <= listCapacity,
+           Int(level.params.maxIter) < level.extendTo,
+           let job, job.levels.last === level {
+            // Extension: continue the unresolved pixels in the background, in passes of x4
+            // (or x2) the limit, each from the start (the repeated iterations cost 1/4; keeping their
+            // state would hold live capacity and starve the admission of fresh pixels, which
+            // made complete frames 6x slower at the -3/4 neck). A pass runs only if its
+            // estimated cost fits the budget, and is never cut short: stopping inside a pass
+            // left a straight edge where the list order (scanline) was cut.
+            let count = level.crossed
+            let spent = job.levels.filter(\.isExtension).reduce(0) { $0 + $1.gpuTime }
+            // x4 if it fits the budget, else x2 (finer steps fit more often, repeat more work).
+            let fits = { (n: Int) in spent + Double(count) * Double(n) / self.rate <= self.extensionBudget }
+            var next = min(level.extendTo, Int(level.params.maxIter) * 4)
+            if !fits(next) { next = min(level.extendTo, Int(level.params.maxIter) * 2) }
+            if fits(next) {
+                var p = level.params
+                p.maxIter = UInt32(next)
+                p.listMode = 2
+                p.total = UInt32(count)
+                let ext = Level(set: level.set, ratio: level.ratio, preview: false, params: p, total: count)
+                ext.useInterior = true
+                ext.complete = true      // the frame already is; this only resolves more pixels
+                ext.extendTo = level.extendTo
+                ext.listIn = level.listOut
+                ext.listOut = 1 - level.listOut
+                ext.escapedPast = level.escapedPast
+                ext.maxEscape = level.maxEscape
+                job.levels.append(ext)
+                job.finalPresented = false
+                return
+            }
+        }
+        learnIterations(from: level)
+    }
+
+    /// Statistics-driven auto iterations (kb: techniques/auto-iterations): when the extension
+    /// found escapes beyond the nominal limit in a noticeable fraction of pixels, later views
+    /// start from the smallest power-of-two multiple of the limit (at most x4 per step) that
+    /// leaves fewer than `unresolvedTolerance` of the pixels escaping beyond it. Not the
+    /// maximum: near parabolic points escape counts have a heavy tail (~π/|c − c₀|; measured
+    /// at the -3/4 neck: the fraction escaping beyond N roughly halves per doubling of N), so
+    /// "cover every pixel" ran away to the cap. With no pixel near the limit, the learned floor
+    /// decays slowly (hysteresis: zooming never drops it abruptly).
+    private func learnIterations(from level: Level) {
+        guard model.autoIterations else { return }
+        let soft = Int(level.params.softIter)
+        let old = model.learnedIterations
+        var learned = old
+        let tolerance = unresolvedTolerance * Double(level.set.width * level.set.height)
+        if Double(level.escapedPast[0]) >= tolerance {
+            var k = 1
+            while k < 2 && Double(level.escapedPast[k]) >= tolerance { k += 1 }
+            learned = max(old, soft << k)
+        } else if level.crossed == 0 && level.maxEscape < soft / 4 {
+            learned = Int(Double(old) * 0.7)
+        }
+        // At most 4x the depth heuristic: past that the nominal pass itself gets slow (the
+        // extension still resolves the tail in the background).
+        learned = min(learned, model.maxIterationsCap, 4 * model.depthIterations)
+        if Renderer.trace {
+            print("learn: soft \(soft) total \(level.total) crossed \(level.crossed) escapedPast \(level.escapedPast) maxEscape \(level.maxEscape) unresolved \(level.live) -> \(learned)")
+        }
+        guard learned != old else { return }
+        if let job { pinnedIterations = (job.key.viewport, job.key.maxIter) }
+        model.learnedIterations = learned
     }
 
     /// Interior fraction and exterior iterations per pixel of the last completed level.
@@ -702,6 +844,16 @@ public final class Renderer: NSObject, MTKViewDelegate {
         return saved > interiorTestOverhead * s.exteriorIterations
     }
     private let interiorTestOverhead = 0.6
+
+    /// Hard limit for unresolved pixels as a multiple of the nominal one (view refinement), and
+    /// for offscreen renders (1: none, so `--verify` diffs against the CPU at the same limit).
+    public var extensionFactor = 16
+    public var offscreenExtension = 1
+    /// Estimated GPU seconds the extension passes of a view may take in all.
+    public var extensionBudget = 2.0
+    private var pinnedIterations: (viewport: Viewport, maxIter: Int)?
+    /// Fraction of pixels allowed to escape beyond the learned limit.
+    private let unresolvedTolerance = 0.01
 
     private func publishStats(job: Job, force: Bool) {
         let now = CACurrentMediaTime()
@@ -744,6 +896,11 @@ public final class Renderer: NSObject, MTKViewDelegate {
                 // The running level's admission count lives on the GPU, ahead of the CPU's copy.
                 c.admitted = UInt32(level.done ? level.total : 0)
                 c.admittedOnGPU = level.started && !level.done ? 1 : 0
+                if level.isExtension {
+                    // Every texel is written: the extension only replaces unresolved ones.
+                    c.admitted = UInt32(level.set.width * level.set.height)
+                    c.admittedOnGPU = 0
+                }
                 c.deScale = Float(level.ratio)
             }
             c.hasUnder = under == nil ? 0 : 1
@@ -806,6 +963,13 @@ public final class Renderer: NSObject, MTKViewDelegate {
     /// Reuses the current reference orbit while it stays near the view and is long enough;
     /// rebasing makes any nearby reference valid, so panning needs no CPU work
     /// (kb: techniques/rebasing). In-flight chunks keep the old buffer alive (Metal retains it).
+    /// Computes the reference orbit for `viewport` now, so a following render of a nearby
+    /// view reuses it as panning and zooming do (`--verify --ref-offset`).
+    public func primeReference(viewport: Viewport, maxIter: Int) {
+        reference = nil
+        prepareReference(viewport: viewport, maxIter: maxIter, viewRadius: 0)
+    }
+
     private func prepareReference(viewport: Viewport, maxIter: Int, viewRadius: Double) {
         if let r = reference, r.maxIter >= maxIter,
            abs(r.centerRe - viewport.centerRe) < viewRadius,
@@ -928,12 +1092,18 @@ public final class Renderer: NSObject, MTKViewDelegate {
         /// The view and settings of the final frame.
         public let viewport: Viewport
         public let maxIter: Int
+        /// Hard limit unresolved pixels were continued to.
+        public let hardIter: Int
         /// Complex units per texel of the final frame's level.
         public let texelScale: Double
         public let preview: Bool
         public let frames: Int
-        /// Seconds from the last input to the refined final frame.
+        /// Seconds from the last input to the complete (refined) frame, and to the frame after
+        /// which nothing was left to iterate.
         public let finalAfter: Double
+        public let doneAfter: Double
+        /// Pixels still unresolved at the end.
+        public let unresolved: Int
         public let referenceLength: Int
     }
 
@@ -974,12 +1144,13 @@ public final class Renderer: NSObject, MTKViewDelegate {
         }
         let inputEnd = lastInteraction
         let deadline = CACurrentMediaTime() + timeout
-        while !(job.map { $0.finalPresented && !$0.interactive } ?? false) {
+        while !(job.map { $0.finalPresented && !$0.interactive && $0.key.viewport == model.viewport } ?? false) {
             guard CACurrentMediaTime() < deadline else { return nil }
             refresh()
         }
         guard let job else { return nil }
         let finalAfter = lastFinalFrame.time - inputEnd
+        let doneAfter = CACurrentMediaTime() - inputEnd
         lastColorize?.waitUntilCompleted()
         drainInFlight()
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -991,9 +1162,48 @@ public final class Renderer: NSObject, MTKViewDelegate {
         guard let iters = readIterations(shown.set.iter) else { return nil }
         return SimulationResult(pixels: pixels, width: width, height: height, iterations: iters,
                                 levelWidth: shown.set.width, levelHeight: shown.set.height,
-                                viewport: job.key.viewport, maxIter: job.key.maxIter,
+                                viewport: job.key.viewport, maxIter: job.key.maxIter, hardIter: Int(shown.params.maxIter),
                                 texelScale: job.key.viewport.scale * job.key.pointsPerPixel / shown.ratio, preview: shown.preview,
-                                frames: frames, finalAfter: finalAfter, referenceLength: Int(shown.params.refLen))
+                                frames: frames, finalAfter: finalAfter, doneAfter: doneAfter,
+                                unresolved: iters.reduce(0) { $0 + ($1.x == -3 ? 1 : 0) }, referenceLength: Int(shown.params.refLen))
+    }
+
+    /// Unresolved lists sized for the full level (allocated on first need, grown with it).
+    private func ensureListCapacity(_ texels: Int) {
+        let want = min(texels, maxListCapacity)
+        guard want > listCapacity else { return }
+        guard let a = device.makeBuffer(length: want * 4, options: .storageModePrivate),
+              let b = device.makeBuffer(length: want * 4, options: .storageModePrivate) else { return }
+        listBuffers = [a, b]
+        listCapacity = want
+    }
+
+    /// Diffs the iteration texture of the level the view shows against a fresh headless
+    /// render of the same texel grid, view and limit (a new Renderer, so no shared state):
+    /// pixels whose class (escaped / interior) differs, as a percentage. Unresolved pixels on
+    /// either side are not counted. For `--interaction-test`: stale, unfinished or
+    /// misclassified pixels in the live pipeline show up here; nil if nothing is shown yet.
+    func displayedFrameMismatch() -> (percent: Double, pixels: Int, size: String)? {
+        guard let job, !job.interactive else { return nil }
+        let shown = job.display
+        guard !shown.preview, let mine = readIterations(shown.set.iter) else { return nil }
+        let v = job.key.viewport
+        let fresh = FractalModel(viewport: Viewport(centerRe: v.centerRe, centerIm: v.centerIm,
+                                                    scale: v.scale * job.key.pointsPerPixel / shown.ratio))
+        fresh.autoIterations = false
+        fresh.manualIterations = job.key.maxIter
+        fresh.maxIterationsCap = max(model.maxIterationsCap, job.key.maxIter)
+        fresh.interiorDetection = job.key.interior
+        guard let other = Renderer(model: fresh),
+              let r = other.renderOffscreen(width: shown.set.width, height: shown.set.height, readback: true),
+              let theirs = r.iterations else { return nil }
+        var differ = 0
+        for k in 0..<min(mine.count, theirs.count) {
+            let a = mine[k].x, b = theirs[k].x
+            if a == -3 || b == -3 { continue }
+            if (a < 0) != (b < 0) { differ += 1 }
+        }
+        return (100 * Double(differ) / Double(max(1, mine.count)), differ, "\(shown.set.width)x\(shown.set.height)")
     }
 
     private func drainInFlight() {

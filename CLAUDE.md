@@ -53,7 +53,11 @@ and quit by themselves):
 - `AlmondbreadMac --verify --center re,im --scale s --size WxH --iterations N
   [--heatmap d.png]`, `--verify --fields a.iter --against b.iter` (before/after).
 - `AlmondbreadMac --interaction-test`: frame pacing and latency of pans, zooms and
-  keys in a background window (`ALMONDBREAD_SCENARIOS=` to pick some).
+  keys in a background window (`ALMONDBREAD_SCENARIOS=` to pick some); fails if a
+  shown frame differs from a fresh headless render.
+- `AlmondbreadMac --verify --history zoom|out|pan --center re,im --scale s [--then f]`:
+  a scripted session through the real per-refresh scheduler, headless, diffed against
+  the CPU oracle and a fresh render; `make regress` runs the -3/4 neck regressions.
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms).
 
 ## Working mode

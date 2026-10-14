@@ -74,6 +74,9 @@ public final class FractalModel {
     public var autoIterations = true
     public var manualIterations = 1000
     public var maxIterationsCap = 200_000
+    /// Floor the renderer learned from escapes past the nominal limit (statistics-driven auto
+    /// iterations, kb: techniques/auto-iterations); applies from the next view on.
+    @ObservationIgnored public var learnedIterations = 0
     /// Stop pixels whose orbit derivative shows an attracting cycle (kb: techniques/interior-detection).
     public var interiorDetection = true
 
@@ -128,12 +131,17 @@ public final class FractalModel {
 
     public var palette: Palette { Palette.named(paletteID) }
 
-    /// Iteration limit: manual, or a heuristic that grows with zoom depth.
+    /// Iteration limit: manual, or automatic: a heuristic that grows with zoom depth, raised to
+    /// what the renderer learned from the last views' escape statistics.
     public var maxIterations: Int {
         if !autoIterations { return min(manualIterations, maxIterationsCap) }
+        return min(max(depthIterations, learnedIterations), maxIterationsCap)
+    }
+
+    /// The depth-only part of the automatic limit.
+    public var depthIterations: Int {
         let depth = max(0, log10(viewport.zoom))
-        let auto = 300 + 120 * pow(depth, 1.6)
-        return min(Int(auto), maxIterationsCap)
+        return Int(300 + 120 * pow(depth, 1.6))
     }
 
     public var deNeeded: Bool { shading > 0 || outline > 0 }

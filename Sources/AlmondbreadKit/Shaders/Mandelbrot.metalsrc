@@ -25,8 +25,10 @@ constant bool kDE       [[function_constant(0)]];   // dz/dc for distance estima
 constant bool kInterior [[function_constant(1)]];   // dz/dz1 derivative interior test
 
 // Iteration-texture codes in .x besides n >= 0.
-constant float ITER_INTERIOR = -1.0f;   // .y = 1: derivative test, 0: reached maxIter
-constant float ITER_PENDING  = -2.0f;   // admitted but still iterating
+constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
+constant float ITER_PENDING    = -2.0f;   // admitted but still iterating
+constant float ITER_UNRESOLVED = -3.0f;   // past the nominal limit, neither escaped nor proven
+                                          // interior (.y = the nominal limit); may still resolve
 
 struct IterateParams {
     float2 halfSize;      // iteration texture size / 2, in texels
@@ -34,18 +36,20 @@ struct IterateParams {
     float2 jitter;        // sample position inside the texel, 0..1 (0.5 = centre)
     float  texelScale;    // complex units per texel
     float  bailout2;      // squared escape radius
-    uint   maxIter;
+    uint   maxIter;       // hard limit: unresolved pixels keep iterating up to here
     uint   refLen;        // number of valid entries in ref[] (>= 2)
     uint   chunkIters;    // iteration budget per pixel in this dispatch
     uint   width;         // texture width, for fresh pixel index -> (x, y)
     uint   total;         // texels in the level
     uint   capacity;      // live-list capacity (state buffer slots)
     uint   statSlot;      // ChunkStats ring slot of this chunk
-    float  interiorEps;   // derivative test threshold on max(|w.x|, |w.y|)
+    float  interiorEps;   // derivative test threshold on max(|w.x|, |w.y|) * n^2
     uint   firstChunk;    // 1: no live list yet (level start)
-    uint   pad0;
-    uint   pad1;
-    uint   pad2;
+    uint   softIter;      // nominal limit (escapedPast buckets, unresolved marker)
+    uint   listMode;      // 0: scanline admission; 1: scanline, and collect the pixels left
+                          // unresolved at maxIter into listOut; 2: admit from listIn (an
+                          // extension pass to a higher maxIter), collect into listOut
+    uint   listCapacity;  // entries of the unresolved list
 };
 
 // Loop state of one live pixel. Milestone 3 adds exponents here for rescaled/floatexp deltas
@@ -68,7 +72,10 @@ struct ChunkStats {       // per-chunk counters, read back by the CPU
     uint        fresh;          // pixels admitted by this chunk
     uint        admitted;       // pixels admitted in the level after this chunk
     atomic_uint interior;       // pixels finished as interior (derivative test or maxIter)
+    atomic_uint crossed;        // pixels that reached maxIter unresolved in this chunk
+    atomic_uint maxEscape;      // largest escape iteration in this chunk
     uint        pad1;
+    atomic_uint escapedPast[4]; // escapes at n >= softIter << k (k = 0..3), for auto iterations
 };
 
 // Admission state of the running level, on the GPU so admission needs no CPU round trip:
@@ -92,11 +99,13 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
                          device ChunkStats* stats            [[buffer(6)]],
                          device uint* indirectArgs           [[buffer(7)]],
                          constant uint& threadsPerGroup      [[buffer(8)]],
-                         device LevelCounters& level         [[buffer(9)]])
+                         device LevelCounters& level         [[buffer(9)]],
+                         device uint* listCount              [[buffer(11)]])
 {
     if (p.firstChunk != 0) {
         *countIn = 0;
         level.admitted = 0;
+        if (p.listMode != 0) *listCount = 0;
     }
     uint live = *countIn;
     uint fresh = min(p.total - level.admitted, p.capacity - live);
@@ -112,6 +121,9 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
     stats[p.statSlot].fresh = fresh;
     stats[p.statSlot].admitted = level.admitted;
     atomic_store_explicit(&stats[p.statSlot].interior, 0u, memory_order_relaxed);
+    atomic_store_explicit(&stats[p.statSlot].crossed, 0u, memory_order_relaxed);
+    atomic_store_explicit(&stats[p.statSlot].maxEscape, 0u, memory_order_relaxed);
+    for (uint k = 0; k < 4; k++) atomic_store_explicit(&stats[p.statSlot].escapedPast[k], 0u, memory_order_relaxed);
     atomic_store_explicit(&stats[p.statSlot].iterationsLo, 0u, memory_order_relaxed);
     atomic_store_explicit(&stats[p.statSlot].iterationsHi, 0u, memory_order_relaxed);
 }
@@ -134,7 +146,11 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
 //
 // Interior (kb: techniques/interior-detection): w = dz_n/dz_1 of the full orbit z = Z + dz
 // (not the delta's own derivative, which is only right for a periodic nucleus reference),
-// w_1 = 1, w_{n+1} = 2 z_n w_n updated before z. Interior when |w| < eps (Chéritat 1e-3).
+// w_1 = 1, w_{n+1} = 2 z_n w_n updated before z. Interior when |w| n^2 < eps (eps = 1e-3).
+// Not Chéritat's fixed |w| < eps: an exterior orbit passing slowly through a parabolic gate
+// (c near a bulb root, e.g. the -3/4 neck) has |w| dip to ~ C / n^2 mid-passage and recover
+// afterwards, so a fixed threshold paints exterior wedges black at depth; interior w decays
+// geometrically and beats n^2 within a few periods (kb: techniques/interior-detection, Pitfalls).
 // The test uses max(|w.x|, |w.y|): no squared norm to underflow, and at most sqrt(2) looser.
 // Exterior w grows without bound on long orbits, so it carries a power-of-two exponent:
 // rescaling by 2^±60 is exact and never biases the test towards "interior".
@@ -148,6 +164,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device atomic_uint* countOut            [[buffer(5)]],
                     device ChunkStats* stats                [[buffer(6)]],
                     device const LevelCounters& level       [[buffer(9)]],
+                    device const uint* listIn               [[buffer(10)]],
+                    device atomic_uint* listCount           [[buffer(11)]],
+                    device uint* listOut                    [[buffer(12)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -166,7 +185,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         st = stateIn[tid];
     } else if (tid - liveIn < freshCount) {
         fresh = true;
-        st.pixel = freshStart + (tid - liveIn);
+        st.pixel = p.listMode == 2 ? listIn[freshStart + (tid - liveIn)] : freshStart + (tid - liveIn);
     } else {
         active = false;
         st.pixel = 0;
@@ -226,7 +245,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 } else if (wExp > 0 && a < 0x1p-60f) {
                     w *= 0x1p60f;
                     wExp -= 60;
-                } else if (wExp == 0 && a < p.interiorEps) {
+                } else if (wExp == 0 && a * (float(n) * float(n)) < p.interiorEps) {
                     interior = true;
                     break;
                 }
@@ -247,6 +266,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     }
 
     bool alive = active && !escaped && !interior && st.n < p.maxIter;
+    // Reached the limit neither escaped nor proven interior: unresolved, never drawn as
+    // interior (with the test on), and collected for an extension pass.
+    bool crossed = active && !alive && !escaped && !interior;
     if (active && !alive) {
         if (escaped) {
             // Smooth iteration count n + s with s = 1 - log2(log|z|), stored split: the exact
@@ -264,13 +286,21 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             } else {
                 deOut.write(float4(1000.0f, 0.0f, 0.0f, 0.0f), gid);
             }
-        } else {
+        } else if (interior || !kInterior) {
+            // Proven interior, or the hard limit without the test (no way to tell: interior).
             iterOut.write(float4(ITER_INTERIOR, interior ? 1.0f : 0.0f, 0.0f, 0.0f), gid);
             deOut.write(float4(0.0f), gid);
+        } else {
+            iterOut.write(float4(ITER_UNRESOLVED, float(p.softIter), 0.0f, 0.0f), gid);
+            deOut.write(float4(0.0f), gid);
         }
-    } else if (alive && fresh) {
+    } else if (alive && fresh && p.listMode != 2) {
+        // (An extension pixel keeps showing "unresolved" until it resolves.)
         iterOut.write(float4(ITER_PENDING, 0.0f, 0.0f, 0.0f), gid);
     }
+    // Unresolved at the limit: remembered for the extension level (one atomic per
+    // threadgroup, like the live-list compaction below).
+    bool collect = p.listMode != 0 && crossed && kInterior;
 
     // Compaction: one atomic per threadgroup appends its live pixels contiguously, in thread
     // order. Threadgroups start roughly in index order, so survivors stay roughly in scanline
@@ -280,28 +310,61 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     threadgroup uint sgLive[32];
     threadgroup uint sgIters[32];
     threadgroup uint sgInterior[32];
+    threadgroup uint sgCrossed[32];
+    threadgroup uint sgMaxEscape[32];
+    threadgroup uint4 sgPast[32];
+    threadgroup uint sgCollect[32];
+    threadgroup uint tgListBase;
     threadgroup uint tgBase;
     uint live = alive ? 1u : 0u;
     uint offset = simd_prefix_exclusive_sum(live);
     uint total = simd_sum(live);
     uint simdIters = simd_sum(iters);
     uint simdInterior = simd_sum((active && !alive && !escaped) ? 1u : 0u);
+    uint simdCrossed = simd_sum(crossed ? 1u : 0u);
+    uint collectOffset = simd_prefix_exclusive_sum(collect ? 1u : 0u);
+    uint simdCollect = simd_sum(collect ? 1u : 0u);
+    uint escN = (active && escaped) ? st.n : 0u;
+    uint simdMaxEscape = simd_max(escN);
+    // Escapes past the nominal limit: only the extension produces them, so these sums are
+    // nonzero in few chunks; packed 4 x 8 bits per SIMD-group would overflow, so 4 sums.
+    uint4 past = uint4(escN >= p.softIter && escN > 0u, escN >= (p.softIter << 1) && escN > 0u,
+                       escN >= (p.softIter << 2) && escN > 0u, escN >= (p.softIter << 3) && escN > 0u);
+    uint4 simdPast = uint4(simd_sum(past.x), simd_sum(past.y), simd_sum(past.z), simd_sum(past.w));
     if (lane == 0) {
         sgLive[sg] = total;
         sgIters[sg] = simdIters;
         sgInterior[sg] = simdInterior;
+        sgCrossed[sg] = simdCrossed;
+        sgMaxEscape[sg] = simdMaxEscape;
+        sgPast[sg] = simdPast;
+        sgCollect[sg] = simdCollect;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tidInGroup == 0) {
-        uint sum = 0, itSum = 0, intSum = 0;
+        uint sum = 0, itSum = 0, intSum = 0, crossSum = 0, escMax = 0;
+        uint4 pastSum = 0;
+        uint collectSum = 0;
         for (uint i = 0; i < sgCount; i++) {
             uint t = sgLive[i];
             sgLive[i] = sum;
             sum += t;
             itSum += sgIters[i];
             intSum += sgInterior[i];
+            crossSum += sgCrossed[i];
+            escMax = max(escMax, sgMaxEscape[i]);
+            pastSum += sgPast[i];
+            uint c = sgCollect[i];
+            sgCollect[i] = collectSum;
+            collectSum += c;
         }
+        tgListBase = collectSum > 0 ? atomic_fetch_add_explicit(listCount, collectSum, memory_order_relaxed) : 0;
+        for (uint k = 0; k < 4; k++) {
+            if (pastSum[k] > 0) atomic_fetch_add_explicit(&stats[p.statSlot].escapedPast[k], pastSum[k], memory_order_relaxed);
+        }
+        if (escMax > 0) atomic_fetch_max_explicit(&stats[p.statSlot].maxEscape, escMax, memory_order_relaxed);
         if (intSum > 0) atomic_fetch_add_explicit(&stats[p.statSlot].interior, intSum, memory_order_relaxed);
+        if (crossSum > 0) atomic_fetch_add_explicit(&stats[p.statSlot].crossed, crossSum, memory_order_relaxed);
         tgBase = sum > 0 ? atomic_fetch_add_explicit(countOut, sum, memory_order_relaxed) : 0;
         // 64-bit count from two native uint atomics: every add that wraps the low word
         // carries exactly once. (A float atomic here cost ~25 ms per million-pixel chunk on
@@ -313,6 +376,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (alive) stateOut[tgBase + sgLive[sg] + offset] = st;
+    if (collect) {
+        uint slot = tgListBase + sgCollect[sg] + collectOffset;
+        if (slot < p.listCapacity) listOut[slot] = st.pixel;   // overflow: stays unresolved
+    }
 }
 
 struct ColorParams {
@@ -352,6 +419,12 @@ static inline float3 paletteColor(float2 it, constant ColorParams& c, device con
 
 static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel) {
+    // Unresolved is not interior: the interior colour lifted slightly towards a neutral grey
+    // (linear 3%, about 0.18 in sRGB over black), the same in every view so stepping the
+    // limit does not recolour it. Most such pixels are slow-converging interior near
+    // parabolic points (unprovable in reasonable time), the rest slow exterior that an
+    // extension pass may still resolve.
+    if (it.x == ITER_UNRESOLVED) return mix(c.interior.rgb, float3(0.5f), 0.03f);
     if (it.x < 0.0f) return c.interior.rgb;
     float3 col = paletteColor(it, c, pal);
     if (c.shading > 0.0f) {

@@ -130,3 +130,22 @@ parity with Swift through the bindings). Measured (M1 Pro, release): reference o
 [[platform/mpfr-gmp-on-apple-silicon]]; FFI call costs and rules on the new
 [[platform/rust-swift-ffi]] with source [[sources/uniffi-user-guide]]; table in
 [[synthesis/benchmarks]]; R1 marked done in [[roadmap]].
+
+## [2026-10-14] decision | Wedge bug: derivative interior test false positives near parabolic points
+
+User report: a black polygon with straight edges and a sharp concave corner cutting
+through smooth exterior at zoom 2.2e5 near c = −3/4 − 0.0021i (auto limit 2 053). It
+was reproduced headlessly at that view: 20.9 % of the pixels were GPU-interior and
+CPU-exterior, the same wedge. With the test off it was 0.001 %. The cause is not the
+pipeline (a new headless driver of the real scheduler, `--verify --history`, found
+final frames bit-identical to fresh renders across ~700 zoom/pan sessions). It is
+Chéritat's fixed `|dz/dz₁| < 1e−3`: exterior orbits passing slowly through a
+parabolic gate dip to about `C/n²` mid-passage. The max-norm test turns the nearly
+linear `w(c)` into rotated squares. Fix: `|w| n² < 1e−3`. Also: unresolved ≠ interior
+(own colour), background extension passes over the collected unresolved pixels, and
+a statistics-learned auto limit with hysteresis. Regressions in `--bench` (fails
+above 0.02 % false interior), `make regress` and `--interaction-test` (shown frame
+vs fresh render). Cost: elephant, minibrot-p4 and feigenbaum are 1.5 to 1.8× slower
+(near-parabolic interior is slower to prove). Pages: [[techniques/interior-detection]]
+(Pitfalls), [[techniques/auto-iterations]], [[platform/gpu-watchdog-and-chunking]]
+(Pitfalls), [[synthesis/benchmarks]].

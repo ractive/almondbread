@@ -4,10 +4,12 @@ import simd
 // Layouts (MSL float2/SIMD2<Float>: size 8, align 8; float4/SIMD4<Float>: size 16, align 16):
 //   IterateParams: 3 x float2 @0,8,16; texelScale 24, bailout2 28, maxIter 32, refLen 36,
 //                  chunkIters 40, width 44, total 48, capacity 52, statSlot 56,
-//                  interiorEps 60, firstChunk 64, pad0..2 68..76 -> 80 bytes.
+//                  interiorEps 60, firstChunk 64, softIter 68, listMode 72, listCapacity 76
+//                  -> 80 bytes.
 //   PixelState:    dz @0, d 8, w 16, pixel 24, n 28, m 32, wExp 36 -> 40 bytes.
 //   ChunkStats:    liveIn 0, liveOut 4, iterationsLo 8, iterationsHi 12, fresh 16,
-//                  admitted 20, interior 24, pad1 28 -> 32 bytes.
+//                  admitted 20, interior 24, crossed 28, maxEscape 32, pad1 36,
+//                  escapedPast[4] 40..52 -> 56 bytes.
 //   LevelCounters: admitted 0, freshStart 4, freshCount 8, pad 12 -> 16 bytes (GPU only).
 //   ColorParams:   interior @0, edge @16, light @32, density 40, offset 44, ratio 48,
 //                  shading 52, outline 56, outlineWidth 60, paletteSize 64, logScale 68,
@@ -19,12 +21,14 @@ func checkGPULayouts() {
     assert(MemoryLayout<IterateParams>.stride == 80 && MemoryLayout<IterateParams>.offset(of: \.texelScale) == 24
            && MemoryLayout<IterateParams>.offset(of: \.chunkIters) == 40
            && MemoryLayout<IterateParams>.offset(of: \.firstChunk) == 64
-           && MemoryLayout<IterateParams>.offset(of: \.pad2) == 76)
+           && MemoryLayout<IterateParams>.offset(of: \.softIter) == 68
+           && MemoryLayout<IterateParams>.offset(of: \.listCapacity) == 76)
     assert(MemoryLayout<PixelState>.stride == 40 && MemoryLayout<PixelState>.offset(of: \.pixel) == 24
            && MemoryLayout<PixelState>.offset(of: \.wExp) == 36)
-    assert(MemoryLayout<ChunkStats>.stride == 32 && MemoryLayout<ChunkStats>.offset(of: \.iterationsHi) == 12
+    assert(MemoryLayout<ChunkStats>.stride == 56 && MemoryLayout<ChunkStats>.offset(of: \.iterationsHi) == 12
            && MemoryLayout<ChunkStats>.offset(of: \.admitted) == 20
-           && MemoryLayout<ChunkStats>.offset(of: \.interior) == 24)
+           && MemoryLayout<ChunkStats>.offset(of: \.interior) == 24
+           && MemoryLayout<ChunkStats>.offset(of: \.escapedPast) == 40)
     assert(MemoryLayout<ColorParams>.stride == 96 && MemoryLayout<ColorParams>.offset(of: \.light) == 32
            && MemoryLayout<ColorParams>.offset(of: \.paletteSize) == 64
            && MemoryLayout<ColorParams>.offset(of: \.admitted) == 76
@@ -38,7 +42,7 @@ struct IterateParams {
     var jitter: SIMD2<Float>
     var texelScale: Float
     var bailout2: Float
-    var maxIter: UInt32
+    var maxIter: UInt32           // the level's limit (an extension level: the hard limit)
     var refLen: UInt32
     var chunkIters: UInt32 = 0
     var width: UInt32
@@ -47,9 +51,9 @@ struct IterateParams {
     var statSlot: UInt32 = 0
     var interiorEps: Float
     var firstChunk: UInt32 = 0
-    var pad0: UInt32 = 0
-    var pad1: UInt32 = 0
-    var pad2: UInt32 = 0
+    var softIter: UInt32 = 0      // nominal limit
+    var listMode: UInt32 = 0      // 0 scanline, 1 scanline + collect unresolved, 2 admit from the list
+    var listCapacity: UInt32 = 0
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -71,7 +75,10 @@ struct ChunkStats {
     var fresh: UInt32
     var admitted: UInt32
     var interior: UInt32
+    var crossed: UInt32           // finished at maxIter unresolved
+    var maxEscape: UInt32
     var pad1: UInt32
+    var escapedPast: (UInt32, UInt32, UInt32, UInt32)   // escapes at n >= softIter << k
     var iterations: UInt64 { UInt64(iterationsHi) << 32 | UInt64(iterationsLo) }
 }
 

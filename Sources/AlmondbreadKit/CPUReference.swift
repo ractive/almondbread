@@ -98,7 +98,12 @@ public struct VerifyReport: Sendable {
     /// Both exterior, escape iteration n differs.
     public var escapeDiffers = 0
     /// GPU says interior, CPU escapes (derivative-test false positives or float error).
+    /// Unresolved GPU pixels (n = -3, drawn as unresolved, not as interior) are not counted.
     public var falseInterior = 0
+    /// GPU unresolved (past the nominal limit, not proven interior) where the CPU escapes.
+    public var unresolvedExterior = 0
+    /// GPU unresolved pixels.
+    public var unresolved = 0
     /// GPU escapes, CPU says interior.
     public var falseExterior = 0
     /// GPU interior pixels found by the derivative test (s == 1) rather than maxIter.
@@ -115,21 +120,25 @@ public struct VerifyReport: Sendable {
     public var escapeDiffersPct: Double { pct(escapeDiffers) }
     public var mismatchPct: Double { pct(falseInterior + falseExterior) }
     public var falseInteriorPct: Double { pct(falseInterior) }
+    public var unresolvedPct: Double { pct(unresolved) }
     public var falseExteriorPct: Double { pct(falseExterior) }
     public var over005Pct: Double { pct(over005) }
 
     public var summary: String {
         String(format: "pixels %d  escape-n differs %.3f%%  class mismatch %.3f%% (GPU-int/CPU-ext %.3f%%, GPU-ext/CPU-int %.3f%%)  "
-               + "|Δmu| max %.3g median %.3g p99 %.3g  >0.05: %.3f%%  interior CPU %.1f%%, GPU detected %.1f%%",
+               + "|Δmu| max %.3g median %.3g p99 %.3g  >0.05: %.3f%%  interior CPU %.1f%%, GPU detected %.1f%%  "
+               + "unresolved %.3f%% (CPU escapes %.3f%%)",
                pixels, escapeDiffersPct, mismatchPct, falseInteriorPct, falseExteriorPct,
-               maxError, medianError, p99Error, over005Pct, pct(cpuInterior), pct(detectedInterior))
+               maxError, medianError, p99Error, over005Pct, pct(cpuInterior), pct(detectedInterior),
+               unresolvedPct, pct(unresolvedExterior))
     }
 }
 
 public enum Verifier {
     /// Compares `gpu` against `cpu` and renders a heatmap (BGRA8, sRGB): exterior pixels in a
     /// log ramp of |Δmu| from 1e-4 (black) through red to yellow-white at ≥1, false interior
-    /// magenta, false exterior cyan, agreed interior dark grey.
+    /// magenta, false exterior cyan, agreed interior dark grey; GPU unresolved blue (CPU
+    /// escapes) or dark blue (CPU interior).
     public static func compare(gpu: IterationField, cpu: IterationField) -> (VerifyReport, [UInt8]) {
         precondition(gpu.width == cpu.width && gpu.height == cpu.height)
         let count = gpu.width * gpu.height
@@ -147,6 +156,18 @@ public enum Verifier {
         for k in 0..<count {
             let gIn = gpu.n[k] < 0, cIn = cpu.n[k] < 0
             if cIn { r.cpuInterior += 1 }
+            if cpu.n[k] == -3 {
+                // The reference field is a GPU render too (`--fields`, fresh renders): its
+                // unresolved pixels are unknown, not a class.
+                put(k, 0.05, 0.05, 0.35)
+                continue
+            }
+            if gpu.n[k] == -3 {
+                // Unresolved: not drawn as interior, so neither a false interior nor exterior.
+                r.unresolved += 1
+                if !cIn { r.unresolvedExterior += 1; put(k, 0.2, 0.3, 1) } else { put(k, 0.05, 0.05, 0.35) }
+                continue
+            }
             if gIn && gpu.s[k] == 1 { r.detectedInterior += 1 }
             switch (gIn, cIn) {
             case (true, true):

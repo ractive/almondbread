@@ -76,6 +76,49 @@ after each completed frame (or coarse refinement level):
 Open: thresholds and whether to use per-tile statistics; see
 [[questions/auto-iteration-heuristic]].
 
+## As built in almondbread (2026-10-14)
+
+From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers in
+[[synthesis/benchmarks]]).
+
+- **Unresolved is not interior.** A pixel that reaches the limit without being
+  proven interior by the derivative test ([[techniques/interior-detection]]) is
+  stored as *unresolved* (iteration code −3). It is drawn as the interior colour
+  lifted 3 % (linear) towards neutral grey: the same in every view, distinguishable
+  from interior, and still reading as "inside" at a glance. Most such pixels are
+  slow-converging interior near parabolic points. Without the test (the adaptive
+  switch turned it off) nothing can be told apart, and limit pixels are drawn as
+  interior as before.
+- **Extension passes.** After the full level completes, the unresolved pixels
+  (scanline indices collected by the kernel, one atomic per threadgroup) are
+  re-iterated *from the start* in background passes to 4× (or 2×) the previous
+  limit, up to 16× the nominal limit, the iteration cap and an estimated 2 GPU
+  seconds per view. Each pass collects what is still unresolved for the next.
+  A pass is never cut short, because the list is in scanline order and stopping
+  inside it left a straight horizontal edge. An extension is all-or-nothing for
+  the same reason (a view with more unresolved pixels than the list holds gets
+  none). See [[platform/gpu-watchdog-and-chunking]] for why the passes restart
+  instead of keeping state.
+- **Learned limit.** When the passes found escapes past the nominal limit in at
+  least 1 % of the pixels, later views start from the smallest of 2× or 4× the
+  limit that leaves fewer than 1 % escaping beyond it. The learned limit is capped
+  at 4× the depth heuristic and at the iteration cap. It decays by 0.7 per completed
+  view that has no unresolved pixels and no escape above a quarter of the limit.
+  It applies from the *next* view on: the view it was learned at is already
+  resolved by the passes, and re-rendering it would repeat the work.
+- **Why not "cover the maximum"**: near parabolic points escape counts have a heavy
+  tail (`n ≈ π/|c − c₀|` at the neck). At the neck (zoom 9 000, limit 1 703) the
+  fraction of pixels escaping beyond 1×, 2×, 4× and 8× the limit was 3.4, 2.3, 1.4
+  and 0.56 %, roughly halving per doubling. "Cover every escape" ran to the 200 000
+  cap within three views, and "cover all but 0.05 %" did too. The neck at 7e6
+  (auto limit 2 907) still has 29 % of pixels escaping beyond 33 808, so no
+  affordable limit resolves it. The passes plus the unresolved colour are the
+  answer there.
+- **Depth-only limits make the picture jump.** In the user's report, one wheel
+  notch (7.06e6× → 9.34e6×, auto 2 907 → 2 981) made a large region appear. Those
+  were pixels escaping between the two limits. With the passes, both views show
+  the same structure (`make regress` runs exactly that step).
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,

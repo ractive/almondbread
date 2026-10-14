@@ -5,6 +5,7 @@ import Foundation
 /// table of timings plus GPU-vs-CPU verify metrics at a small size (kb: synthesis/benchmarks).
 ///   AlmondbreadMac --bench [--sizes 3456x2234,1600x1000] [--verify-size 400x259]
 ///                  [--only home,feigenbaum] [--repeat 2] [--out dir] [--interior 0|1] [--no-verify 1]
+/// Exits 1 if any location paints more than 0.02 % CPU-exterior pixels as interior.
 @MainActor
 enum BenchCommand {
     static func run(arguments: [String]) -> Int32 {
@@ -28,6 +29,7 @@ enum BenchCommand {
             print("| location | size | maxIter | GPU ms | total ms | chunks | px-iter | done-iter | Giter/s | ref ms |")
             print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|")
             var verifyRows: [String] = []
+            var falseInterior: [String] = []
             for loc in BenchmarkLocation.all where only?.contains(loc.name) ?? true {
                 model.manualIterations = loc.maxIterations
                 model.maxIterationsCap = max(model.maxIterationsCap, loc.maxIterations)
@@ -63,6 +65,11 @@ enum BenchCommand {
                     model.viewport = Viewport(centerRe: loc.centerRe, centerIm: loc.centerIm, scale: loc.scale(forWidth: w))
                     let v = try VerifyCommand.verify(renderer: renderer, width: w, height: h)
                     let m = v.report
+                    // Exterior painted as interior is a bug, not float noise (which splits
+                    // evenly both ways): fail the run (kb: techniques/interior-detection).
+                    if m.falseInteriorPct > 0.02 {
+                        falseInterior.append(String(format: "%@ %.3f%%", loc.name, m.falseInteriorPct))
+                    }
                     verifyRows.append(String(format: "| %@ | %dx%d | %.3f | %.3f | %.3f | %.3f | %.3g | %.3g | %.3g | %.3f | %.1f | %.1f |",
                                              loc.name, w, h, m.escapeDiffersPct, m.mismatchPct, m.falseInteriorPct,
                                              m.falseExteriorPct, m.maxError, m.medianError, m.p99Error, m.over005Pct,
@@ -79,6 +86,11 @@ enum BenchCommand {
                 print("| location | verify size | escape-n differs % | class mismatch % | GPU-int/CPU-ext % | GPU-ext/CPU-int % | max abs Δmu | median | p99 | >0.05 % | CPU interior % | GPU detected % |")
                 print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
                 verifyRows.forEach { print($0) }
+            }
+            if !falseInterior.isEmpty {
+                fail("bench FAILED: exterior pixels painted interior (GPU-int/CPU-ext > 0.02%): "
+                     + falseInterior.joined(separator: ", "))
+                return 1
             }
             return 0
         } catch {

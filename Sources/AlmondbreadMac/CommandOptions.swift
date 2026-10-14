@@ -45,6 +45,8 @@ struct CommandOptions {
     @MainActor
     func apply(to renderer: Renderer) {
         if let v = values["chunk-ms"].flatMap(Double.init) { renderer.chunkTarget = v / 1000 }
+        // `--extend k`: unresolved pixels continue to k x the limit (offscreen default 1).
+        if let v = values["extend"].flatMap(Int.init) { renderer.offscreenExtension = max(1, v) }
     }
 
     func viewport(width: Int, height: Int) throws -> Viewport {
