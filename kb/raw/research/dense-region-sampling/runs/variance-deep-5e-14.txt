@@ -1,0 +1,46 @@
+# deep-5e-14  centre -0.7436438870371587 0.13182590420531198  px 1.0800e-13  800x500  maxIter 6000  lattice 4000x2500 (10.0 M samples, 24.0 s CPU wall)
+1 spp: 5.562e8 iterations, 1391 per pixel
+  exterior DE < 0.25 px     41.0% of pixels,  49.1% of iterations
+  exterior DE 0.25-1 px     11.7% of pixels,  11.3% of iterations
+  exterior DE 1-4 px        14.1% of pixels,  12.4% of iterations
+  exterior DE >= 4 px       33.2% of pixels,  27.2% of iterations
+  interior                   0.0% of pixels,   0.0% of iterations
+  unresolved                 0.0% of pixels,   0.0% of iterations
+  footprint cut T=0.001  texture 100.0% of pixels (100.0% of iterations); cut keeps  90.0% of their iterations; all pixels  90.0% of iterations
+  footprint cut T=0.01   texture 100.0% of pixels (100.0% of iterations); cut keeps  93.7% of their iterations; all pixels  93.7% of iterations
+  footprint cut T=0.1    texture 100.0% of pixels (100.0% of iterations); cut keeps  95.8% of their iterations; all pixels  95.8% of iterations
+  footprint cut T=1      texture 100.0% of pixels (100.0% of iterations); cut keeps  97.3% of their iterations; all pixels  97.3% of iterations
+strategy (frame 0)                          iters/1spp samples/px  error vs converged reference                            minibrot px lost
+  reference noise                                  -         -  dE mean  1.51 p95  5.39 p99  7.80 max  19.5 >2  28.9% >5   6.3%  (8 vs 8 samples; the 16-sample reference ≈ 0.7x this)
+  A1: 1 spp centre (refined frame)             1.000     1.000  dE mean  3.40 p95 11.73 p99 16.78 max  36.3 >2  46.4% >5  29.6%  0/0
+  A9: FL adaptive 3x3 AA (settled)             6.826     6.347  dE mean  1.24 p95  4.47 p99  6.44 max  15.9 >2  24.5% >5   3.3%  0/0
+  V: variance-stopped AA, tau 1.5              6.087     5.614  dE mean  1.36 p95  5.00 p99  7.90 max  19.4 >2  26.0% >5   5.0%  0/0
+  V: variance-stopped AA, tau 3                4.549     4.293  dE mean  1.63 p95  6.06 p99  9.13 max  20.1 >2  30.8% >5   8.3%  0/0
+  L: AA off pixel orbit eps 0.000000001        6.676     6.347  dE mean  1.24 p95  4.48 p99  6.43 max  15.9 >2  24.5% >5   3.3%  0/0
+                                                                vs exact A9: dE mean  0.29 p95  1.59 p99  2.59 max   8.8 >2   2.5% >5   0.0%  branch at 2.8% of n, escape n differs 11.7%, mean dn -0.0 dDE -0.0000
+  L: AA off pixel orbit eps 0.001              2.947     6.347  dE mean  1.24 p95  4.48 p99  6.44 max  15.3 >2  24.5% >5   3.4%  0/0
+                                                                vs exact A9: dE mean  0.47 p95  2.17 p99  3.42 max   9.3 >2   6.1% >5   0.1%  branch at 73.3% of n, escape n differs 23.4%, mean dn +0.1 dDE -0.0000
+  L: AA off pixel orbit eps 0.01               2.567     6.347  dE mean  1.24 p95  4.48 p99  6.45 max  15.2 >2  24.6% >5   3.4%  0/0
+                                                                vs exact A9: dE mean  0.47 p95  2.16 p99  3.42 max   9.4 >2   6.1% >5   0.1%  branch at 80.3% of n, escape n differs 23.4%, mean dn +0.0 dDE -0.0000
+  L: tile 4x4 eps 0.001                        0.327     1.000  dE mean  3.40 p95 11.73 p99 16.76 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.13 p99 15.15 max  18.5 >2  10.6% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.1 dDE -0.0000
+  L: tile 8x8 eps 0.001                        0.293     1.000  dE mean  3.39 p95 11.72 p99 16.79 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.11 p99 15.15 max  18.5 >2  10.6% >5   6.7%  branch at 77.5% of n, escape n differs 15.6%, mean dn -0.2 dDE +0.0000
+  L: tile 16x16 eps 0.001                      0.285     1.000  dE mean  3.40 p95 11.75 p99 16.81 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.11 p99 15.16 max  18.5 >2  10.5% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.0 dDE -0.0000
+  L: tile 16x16 eps 0.01                       0.285     1.000  dE mean  3.40 p95 11.75 p99 16.81 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.11 p99 15.16 max  18.5 >2  10.5% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.0 dDE -0.0000
+  L: tile 32x32 eps 0.01                       0.283     1.000  dE mean  3.40 p95 11.73 p99 16.77 max  36.1 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.17 p99 15.11 max  18.5 >2  10.6% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.0 dDE -0.0000
+  Q: quadtree 16 eps 0.01                      0.245     1.000  dE mean  3.40 p95 11.73 p99 16.81 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.90 p95  7.07 p99 15.14 max  18.5 >2  10.6% >5   6.7%  pixel branch at 82.7% of n, escape n differs 15.6%, seed-mode iterations 3.8%
+  Q: quadtree 32 eps 0.01                      0.243     1.000  dE mean  3.40 p95 11.73 p99 16.78 max  36.1 >2  46.3% >5  29.6%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.12 p99 15.14 max  18.5 >2  10.6% >5   6.7%  pixel branch at 82.7% of n, escape n differs 15.7%, seed-mode iterations 3.0%
+  Q: quadtree 64 eps 0.01                      0.242     1.000  dE mean  3.40 p95 11.73 p99 16.79 max  36.3 >2  46.3% >5  29.6%  0/0
+                                                                vs exact A1: dE mean  0.90 p95  7.05 p99 15.12 max  18.5 >2  10.5% >5   6.6%  pixel branch at 82.7% of n, escape n differs 15.6%, seed-mode iterations 2.8%
+  Q: quadtree 32 eps 0.001                     0.283     1.000  dE mean  3.40 p95 11.73 p99 16.76 max  36.1 >2  46.3% >5  29.6%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.12 p99 15.14 max  18.5 >2  10.6% >5   6.7%  pixel branch at 77.5% of n, escape n differs 15.7%, seed-mode iterations 0.3%
+  Q: quadtree 32 eps 0.01 +AA                  1.811     6.347  dE mean  1.23 p95  4.48 p99  6.45 max  15.3 >2  24.5% >5   3.3%  0/0
+                                                                vs exact A9: dE mean  0.50 p95  2.29 p99  3.59 max  10.3 >2   6.9% >5   0.1%  pixel branch at 82.7% of n, escape n differs 15.7%, seed-mode iterations 1.7%
+  N: tile 16 -> pixel -> AA, eps 0.01          1.853     6.347  dE mean  1.24 p95  4.49 p99  6.47 max  14.8 >2  24.5% >5   3.4%  0/0
+                                                                vs exact A9: dE mean  0.50 p95  2.28 p99  3.56 max   8.6 >2   6.9% >5   0.1%  centre escape n differs 15.7%, seed-mode iterations 3.0%

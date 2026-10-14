@@ -2,7 +2,7 @@
 title: "Guessing, border tracing and rectangle subdivision"
 type: technique
 status: draft
-sources: ["[[sources/wikipedia-plotting-algorithms]]", "[[sources/kf-manual]]", "[[sources/xaos-readme]]"]
+sources: ["[[sources/wikipedia-plotting-algorithms]]", "[[sources/kf-manual]]", "[[sources/xaos-readme]]", "[[sources/fractint-passes-help]]", "[[sources/muency-adjacency-optimization]]", "[[sources/xaos-algorithms]]"]
 tags: [guessing, mariani-silver, border-tracing, performance, gpu]
 ---
 
@@ -69,9 +69,31 @@ pass 3: dispatchThreadgroups(indirectBuffer:) over the work list,
 The KF OpenCL result (1.5×) suggests the gain is capped by divergence and the
 extra passes. No GPU benchmark for perturbation deep zoom was found.
 
+## Measured (R3, CPU f64, 2026-10-14, M1 Pro)
+
+From `prototypes/dense-sampling` ([[synthesis/dense-region-sampling]]): 800 × 500 crops,
+default look, cost = iterations relative to exact 1 spp, error = OKLab ΔE × 100 against a
+converged reference.
+
+- **Interior-only Mariani–Silver** (32 px tiles, split to 4 px, border pixels computed, filled
+  only when the whole border is interior): elephant 0.63 (8.9 % of pixels filled), minibrot-p4
+  0.76 (37 %), seahorse 0.994; nothing at the dense, deep, filament, neck and root-third views.
+  **Zero** filled pixels were exterior anywhere. The derivative test leaves parabolic regions
+  (neck, root-third) unresolved rather than interior, so the fill never fires there.
+- **Colour guessing in OKLab** (grid 8 → 1, guess a pixel from its cell corners or edge ends
+  when they share a class and differ by ≤ τ): at the dense view τ 5 saves 4 %, τ 10 saves 27 %
+  and changes colours (p99 vs exact 16.7); elsewhere τ 10 costs 0.24–0.61 with growing p99 and
+  max errors (neck: max ΔE 83). Exterior guessing confirms the KF note "guessing exterior gives
+  poor quality" (src: [[sources/kf-manual]]).
+- Guessing failure modes in the literature: islands inside uniform borders
+  (src: [[sources/fractint-passes-help]]), sub-pixel cusps and thin channels
+  (src: [[sources/muency-adjacency-optimization]]), connections thinner than the sampling
+  (src: [[sources/xaos-algorithms]] §Calculating New Pixels).
+
 ## For almondbread
 
-Not in v1. If profiling shows interior-heavy frames still dominate after
+Not in v1. After [[techniques/local-series-approximation]] (which cannot shorten interior
+detection), interior-only tile fill is the measured lever for interior-heavy views. If profiling shows interior-heavy frames still dominate after
 derivative interior detection, add tile guessing restricted to tiles whose
 entire border is interior (never exterior guessing), via indirect dispatch.
 Related: [[techniques/frame-reuse-and-progressive]].

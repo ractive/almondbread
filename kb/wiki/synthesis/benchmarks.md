@@ -742,3 +742,30 @@ FFI per frame 2.6–4 µs; `stats()` 19 µs (decimal coordinates; 0.1 ms for 101
 verify to 1e-2900 per pixel; the zoom stops at 2^-10000 ≈ 1e-3010 per point
 (`MIN_SCALE_LOG2`), where references need 10 000+ bits (≈0.5 M iterations/s single thread
 at 4096 bits).
+
+## R3: dense-region sampling (CPU study), 2026-10-14
+
+Measured 2026-10-14, M1 Pro, release, CPU only (`prototypes/dense-sampling`, f64 direct
+iteration, CPU port of the default look); deterministic iteration counts and OKLab ΔE × 100
+against an independent 16-sample-per-pixel reference, no timing. 800 × 500 crops at each
+location's 1600-wide pixel size (Feigenbaum 400 × 250), limit 4 × the location's. Method,
+all strategies and the motion numbers: [[synthesis/dense-region-sampling]].
+
+Iterations relative to the exact 1 spp render; ΔE mean / p99:
+
+| location | exact 1 spp ΔE | FL AA (settled): cost, ΔE | local SA 1 spp | local SA + AA: cost, ΔE | interior-only Mariani–Silver |
+|---|---|---|---:|---|---:|
+| dense-5e-14 | 5.41 / 18.1 | 8.94, 1.96 / 7.1 | 0.194 | 1.24, 1.96 / 7.1 | 1.000 |
+| deep-5e-14 | 3.40 / 16.8 | 6.83, 1.24 / 6.4 | 0.243 | 1.81, 1.23 / 6.5 | 1.000 |
+| filament-1e6 | 1.60 / 14.7 | 4.43, 0.59 / 5.7 | 0.177 | 1.10, 0.60 / 5.7 | 1.000 |
+| minibrots-5e-12 | 5.20 / 19.7 | 5.56, 2.04 / 11.5 | 0.674 | 2.22, 2.04 / 11.3 | 1.000 |
+| seahorse-1e5 | 2.31 / 15.7 | 5.83, 0.85 / 6.1 | 0.540 | 3.36, 0.85 / 6.1 | 0.994 |
+| neck-2e5 | 1.20 / 23.8 | 2.40, 0.92 / 23.4 | 0.516 | 1.41, 0.90 / 23.0 | 1.000 |
+| root-third | 1.93 / 26.3 | 2.51, 1.47 / 26.1 | 0.643 | 1.70, 1.42 / 25.4 | 1.000 |
+| elephant | 1.48 / 15.2 | 1.86, 0.57 / 6.0 | 0.963 | 1.75, 0.57 / 5.9 | 0.628 |
+| minibrot-p4 | 0.76 / 13.2 | 5.01, 0.31 / 5.3 | 0.873 | 4.48, 0.31 / 5.3 | 0.757 |
+| feigenbaum | 4.22 / 12.8 | 2.27, 1.59 / 7.1 | 0.937 | 1.94, 1.60 / 7.2 | 0.736 |
+
+Local SA: quadtree from 32 × 32 tiles, ε = 1e−2, AA samples from pixel seeds
+([[techniques/local-series-approximation]]). Not GPU numbers: the GPU check is
+[[questions/local-sa-float32]].
