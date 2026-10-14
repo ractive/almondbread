@@ -145,6 +145,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted; R1, R2a, R2b done: Rust maths 1.05x to 4x the Swift orbit speed, renderer bit-identical, apps on Rust with interaction parity, Swift renderer and maths deleted)
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; flight recorder with rewind (proposed)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
+- [[decisions/distribution]] — stores and order: Apple first, Steam (+ itch.io) for the game edition, others only with traction (proposed)
 - [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls (accepted)
 
 ## Questions
