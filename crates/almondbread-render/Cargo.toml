@@ -1,6 +1,6 @@
 [package]
 name = "almondbread-render"
-description = "GPU-backend trait, chunked scheduler and Metal backend for almondbread (R2)"
+description = "GPU-backend trait, chunked progressive scheduler, MSL kernels and Metal backend for almondbread"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,16 @@ rust-version.workspace = true
 
 [dependencies]
 almondbread-core.workspace = true
+bytemuck = { version = "1.16", features = ["derive"] }
+
+# The Metal backend (kb: platform/render-architecture). Other targets build without a backend.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-metal = { version = "0.3", features = ["block2"] }
+objc2-quartz-core = "0.3"
+objc2-core-foundation = "0.3"
+block2 = "0.6"
 
 [lints]
 workspace = true

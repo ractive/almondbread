@@ -19,10 +19,17 @@ kernels (float32 only), reference orbits on the CPU.
   port; deleted once the Rust core reaches parity, kb: decisions/rust-core).
 - Rust workspace (`Cargo.toml`, `crates/`, kb: decisions/rust-core):
   `almondbread-math` (BigFloat, floatexp, reference orbit, reference selection;
-  oracle fixtures in `tests/fixtures`), `almondbread-core` (platform-neutral core),
-  `almondbread-render` (R2 skeleton: backend trait, scheduler, Metal backend),
+  oracle fixtures in `tests/fixtures`), `almondbread-core` (platform-neutral: viewport,
+  render settings, palettes, f64 reference, auto-iteration learning, CPU oracle and verify
+  metrics, benchmark locations, PNG, the `Navigator` input/motion model every UI forwards
+  events to), `almondbread-render` (`GpuBackend` trait, the chunked scheduler
+  `Renderer<B>`, MSL kernels in `src/shaders/`, Metal backend + `CAMetalLayer` surface in
+  `src/metal/` behind `cfg(target_vendor = "apple")`; kb: platform/render-architecture),
+  `almondbread-cli` (binary `almondbread`: headless render/verify/bench/regress),
   `almondbread-ffi` (UniFFI exports), `uniffi-bindgen`. math and core stay free of
-  platform code. `Sources/AlmondbreadCore/` is the Swift face of the Rust core
+  platform code. Until R2b the app still runs the Swift renderer
+  (`Sources/AlmondbreadKit/Renderer.swift`, `Shaders/Mandelbrot.metalsrc`); kernel changes
+  go into both copies. `Sources/AlmondbreadCore/` is the Swift face of the Rust core
   (`Generated/` is written by `make rust`, never edit it);
   `Sources/almondbread-core-check/` checks it against AlmondbreadMath.
 
@@ -39,7 +46,11 @@ simulator), the UniFFI Swift bindings and `build/rust/AlmondbreadCoreFFI.xcframe
 platform/rust-swift-ffi). `make rust-check` = `cargo test --workspace --release`,
 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
 `make core-check` runs the Rust core through the Swift bindings and compares it
-bit for bit with AlmondbreadMath, plus FFI call costs. Orbit benchmark against Swift:
+bit for bit with AlmondbreadMath, plus FFI call costs. The Rust renderer's tools take the
+same options and print the same output as the Swift ones: `make rust-bench [ARGS=...]`,
+`make rust-regress`, `target/release/almondbread render out.png|verify|bench|regress ...`
+(`verify --fields a.iter --against b.iter` also reports bitwise-identical texels, so a Swift
+dump diffs against a Rust one). Orbit benchmark against Swift:
 `cargo run --release -p almondbread-math --example math_check -- bench [bits...]`
 (same output as `swift run -c release almondbread-math-check bench`; `BEST_OF=n`
 for loaded machines); `cargo bench -p almondbread-math` for criterion.

@@ -1,0 +1,19 @@
+[package]
+name = "almondbread-cli"
+description = "Headless almondbread tools: render, verify (incl. --history, --fields), bench, regress"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "almondbread"
+path = "src/main.rs"
+
+[dependencies]
+almondbread-core.workspace = true
+almondbread-render.workspace = true
+
+[lints]
+workspace = true

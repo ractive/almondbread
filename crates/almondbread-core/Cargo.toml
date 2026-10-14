@@ -1,6 +1,6 @@
 [package]
 name = "almondbread-core"
-description = "Platform-neutral core of almondbread: viewport, settings, formulas, BLA, CPU oracle (grows in R2+)"
+description = "Platform-neutral core of almondbread: viewport, settings, palettes, navigation, CPU oracle, verify metrics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,8 @@ rust-version.workspace = true
 
 [dependencies]
 almondbread-math.workspace = true
+rayon = "1.10"
+png = "0.18"
 
 [lints]
 workspace = true

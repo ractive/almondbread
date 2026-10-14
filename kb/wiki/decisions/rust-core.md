@@ -86,3 +86,20 @@ scheduler, verification harness, arbitrary-precision library
 - Open for R2: the render crate with the `objc2-metal` backend and the MSL kernels,
   the chunked scheduler port, Swift reduced to UI, then deletion of AlmondbreadMath
   and the Swift renderer.
+
+## Outcome (R2a, 2026-10-14)
+
+- `almondbread-render`: the `GpuBackend` trait, the chunked progressive scheduler written
+  once against it (a decision-for-decision port of the Swift `Renderer`), the MSL kernels
+  (`include_str!`, same compile options), the Metal backend on objc2-metal and a
+  `CAMetalLayer` surface; no backend on Linux/Windows yet (the crates still `cargo check`
+  there). `almondbread-core` gained viewport, settings, palettes, the navigation model,
+  CPU oracle and verify metrics; `almondbread-cli` has render/verify/bench/regress
+  ([[platform/render-architecture]]).
+- Acceptance met headlessly: iteration fields bit-identical to Swift at every benchmark
+  location and the regress views (extension passes included), GPU ms per location within
+  noise (geomean 0.998), regress sessions pass the same guards ([[synthesis/benchmarks]]).
+- Open for R2b: export the engine through UniFFI (layer pointer, per-frame call, input
+  events), switch both apps, measure interaction parity (including the drawable-pool
+  predictor that replaces the blocking `nextDrawable` wait), delete the Swift renderer and
+  AlmondbreadMath.

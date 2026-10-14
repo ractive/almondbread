@@ -299,3 +299,71 @@ starvation, [[platform/gpu-watchdog-and-chunking]] Pitfalls). The final frames o
 these sessions are identical in class to a fresh headless render (0.000 %).
 `--interaction-test` (60 Hz display) with the new "neck zoom" scenario: 58.5 fps,
 final frame 407 ms after input, shown frame vs fresh render 0 pixels differing.
+
+## R2a: Rust renderer vs Swift renderer, 2026-10-14
+
+The Rust scheduler and Metal backend ([[platform/render-architecture]]) against the Swift
+`Renderer`, same machine, same session: three interleaved rounds of
+`AlmondbreadMac --bench --out dir` and `almondbread bench --out dir` (each best of 2 after a
+warm-up), load average 9–17 from other work. Iterate GPU ms (measured 2026-10-14, M1 Pro,
+release, Rust LTO fat):
+
+| location | size | Swift best / median | Rust best / median | Rust / Swift (best) |
+|---|---|---:|---:|---:|
+| home | 3456×2234 | 17.9 / 18.0 | 17.8 / 18.0 | 0.99 |
+| home | 1600×1000 | 5.4 / 5.4 | 5.3 / 5.5 | 0.98 |
+| home-100k | 3456×2234 | 56.1 / 56.2 | 53.1 / 54.3 | 0.95 |
+| home-100k | 1600×1000 | 26.1 / 26.1 | 26.7 / 26.7 | 1.02 |
+| seahorse-1e5 | 3456×2234 | 33.3 / 34.8 | 32.4 / 33.4 | 0.97 |
+| seahorse-1e5 | 1600×1000 | 7.6 / 7.8 | 7.6 / 7.6 | 1.00 |
+| elephant | 3456×2234 | 158.4 / 159.0 | 156.9 / 162.2 | 0.99 |
+| elephant | 1600×1000 | 34.7 / 34.8 | 33.9 / 36.4 | 0.98 |
+| minibrot-p4 | 3456×2234 | 76.5 / 77.2 | 79.8 / 80.6 | 1.04 |
+| minibrot-p4 | 1600×1000 | 20.9 / 21.9 | 21.0 / 21.9 | 1.00 |
+| deep-5e-14 | 3456×2234 | 191.9 / 193.0 | 189.2 / 193.6 | 0.99 |
+| deep-5e-14 | 1600×1000 | 40.7 / 40.9 | 38.8 / 40.3 | 0.95 |
+| feigenbaum | 3456×2234 | 14 212 / 14 230 | 14 299 / 14 313 | 1.01 |
+| feigenbaum | 1600×1000 | 2 443 / 2 466 | 2 457 / 2 474 | 1.01 |
+| neck-2e5 | 3456×2234 | 387.7 / 391.0 | 388.4 / 389.2 | 1.00 |
+| neck-2e5 | 1600×1000 | 79.6 / 80.3 | 79.9 / 80.7 | 1.00 |
+| neck-7e6 | 3456×2234 | 592.9 / 603.9 | 598.2 / 603.1 | 1.01 |
+| neck-7e6 | 1600×1000 | 123.0 / 124.3 | 123.5 / 125.4 | 1.00 |
+| cusp-1e5 | 3456×2234 | 594.2 / 605.8 | 608.9 / 610.2 | 1.02 |
+| cusp-1e5 | 1600×1000 | 124.8 / 125.1 | 125.2 / 125.5 | 1.00 |
+| root-third | 3456×2234 | 543.8 / 551.0 | 556.8 / 558.2 | 1.02 |
+| root-third | 1600×1000 | 111.7 / 113.2 | 112.7 / 113.6 | 1.01 |
+
+Geometric mean Rust / Swift 0.998; every location within ±5 %, the run-to-run spread of
+either renderer. Chunk counts differ by one or two in some rows (K follows measured GPU
+time); results do not.
+
+**Iteration fields are bit-identical.** `almondbread verify --fields rust.iter --against
+swift.iter` (which also counts bitwise-differing texels): 0 differing texels in all 33 dumps
+of round 1 (11 locations × 3456×2234, 1600×1000 and the 400×259 verify grid) and in the
+22 full-resolution dumps of rounds 2 and 3. The final PNGs and diff heatmaps are
+pixel-identical, and the GPU-vs-CPU verify tables are identical text in every round (so
+the CPU oracle, rayon-parallel in Rust, matches the Swift one too). Extension passes
+(list collection, list admission, ×4/×2 passes), not exercised by `--bench`: offscreen
+`verify --extend 16` at the three regress views and the neck at 3456×2234, 0 differing
+texels in each.
+
+**Scripted interactive sessions** (`almondbread regress` = `make regress` views): all pass
+the same guards (no exterior painted interior: 0.000 %; final frame vs fresh render 0.000 %
+class mismatch; never a preview). Rust vs Swift for the two neck sessions: complete
+184/184 ms and 200/202 ms, learned limits 8 472 and 11 928/11 924, unresolved counts within
+0.5 %. The sessions are paced in real time, so final views and timing-driven decisions vary
+run to run. One is skewed, not random: in the seahorse session the final level ran the
+interior test in 1 of 10 Rust runs and 6 of 10 Swift runs. Traces (`ALMONDBREAD_TRACE=1`)
+show the same decisions from the same inputs, but different measured GPU times for
+identical gesture chunks: Swift's small previews ran at times at ~8e9 iterations/s
+(147 840 texels, 5.1e7 iterations, 6.4 ms) against ~2.9e10 in Rust, so its cost per
+texel rose, the dynamic preview resolution settled at 0.25 instead of 0.5–0.625, and the
+interior-test switch, which reads the last preview's statistics, flipped more often. Both
+outcomes pass the guards. Whether the app sees the same effect is for the R2b interaction
+test.
+
+**Interaction (Swift, for the record):** `--interaction-test` "neck zoom" draw CPU p50
+9.5 ms (60 Hz display) is blocking in `currentDrawable` (8.9 ms), not CPU work;
+frames-in-flight 1 removes it but costs frame rate on heavy views. Analysis and the Rust
+design answer on [[platform/render-architecture]]. Interaction parity of the Rust renderer
+is measured in R2b, when the app hosts it.

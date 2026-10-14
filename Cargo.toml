@@ -1,8 +1,9 @@
 # almondbread Rust core (kb: decisions/rust-core).
 #
 #   almondbread-math    arbitrary precision, floatexp, reference orbit, reference selection
-#   almondbread-core    viewport, settings, formulas, CPU oracle (R2+; re-exports math now)
-#   almondbread-render  GPU-backend trait, scheduler, Metal backend (R2; skeleton now)
+#   almondbread-core    viewport, settings, palettes, navigation, CPU oracle, verify metrics
+#   almondbread-render  GPU-backend trait, chunked scheduler, MSL kernels, Metal backend
+#   almondbread-cli     the `almondbread` binary: headless render / verify / bench / regress
 #   almondbread-ffi     UniFFI surface for the Swift UI (staticlib in AlmondbreadCore.xcframework)
 #   uniffi-bindgen      the bindings generator binary used by scripts/build-rust-xcframework.sh
 #
@@ -13,6 +14,7 @@ members = [
     "crates/almondbread-math",
     "crates/almondbread-core",
     "crates/almondbread-render",
+    "crates/almondbread-cli",
     "crates/almondbread-ffi",
     "crates/uniffi-bindgen",
 ]
@@ -27,6 +29,7 @@ rust-version = "1.91"
 [workspace.dependencies]
 almondbread-math = { path = "crates/almondbread-math" }
 almondbread-core = { path = "crates/almondbread-core" }
+almondbread-render = { path = "crates/almondbread-render" }
 uniffi = "0.32"
 
 [workspace.lints.rust]

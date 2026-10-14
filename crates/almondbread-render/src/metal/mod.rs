@@ -1,0 +1,471 @@
+//! Metal implementation of [`GpuBackend`] on objc2-metal (kb: platform/render-architecture,
+//! platform/metal-compute). Rust owns the device, the queue, the compiled library, every
+//! buffer, texture and pipeline. The kernels are the crate's MSL source, compiled at runtime
+//! with the Swift renderer's options (MSL 3.0, fast math).
+
+mod surface;
+
+pub use surface::MetalLayerSurface;
+
+use std::ffi::c_void;
+use std::ptr::NonNull;
+
+use objc2::rc::{Retained, autoreleasepool};
+use objc2::runtime::ProtocolObject;
+use objc2_foundation::NSString;
+use objc2_metal::{
+    MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
+    MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType,
+    MTLDevice, MTLDrawable, MTLFunctionConstantValues, MTLLanguageVersion, MTLLibrary, MTLOrigin, MTLPixelFormat,
+    MTLRegion, MTLResource, MTLResourceOptions, MTLSize, MTLStorageMode, MTLTexture, MTLTextureDescriptor,
+    MTLTextureUsage,
+};
+
+use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
+
+// MTLCreateSystemDefaultDevice needs CoreGraphics linked.
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {}
+
+/// The kernel source (moved here from the Swift package; kb: platform/render-architecture).
+pub const KERNEL_SOURCE: &str = include_str!("../shaders/mandelbrot.metal");
+
+pub type MetalBuffer = Retained<ProtocolObject<dyn MTLBuffer>>;
+pub type MetalTexture = Retained<ProtocolObject<dyn MTLTexture>>;
+pub type MetalPipeline = Retained<ProtocolObject<dyn MTLComputePipelineState>>;
+pub type MetalDrawable = Retained<ProtocolObject<dyn MTLDrawable>>;
+
+/// Device, serial queue and kernel library. Cloning shares them (a cloned backend gives a
+/// second renderer on the same queue, e.g. the fresh reference render of `verify --history`).
+#[derive(Clone)]
+pub struct MetalBackend {
+    device: Retained<ProtocolObject<dyn MTLDevice>>,
+    queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    library: Retained<ProtocolObject<dyn MTLLibrary>>,
+}
+
+impl MetalBackend {
+    /// The system default GPU with the kernels compiled from [`KERNEL_SOURCE`].
+    pub fn new() -> Result<Self, GpuError> {
+        Self::with_source(KERNEL_SOURCE)
+    }
+
+    pub fn with_source(source: &str) -> Result<Self, GpuError> {
+        autoreleasepool(|_| {
+            let device = MTLCreateSystemDefaultDevice().ok_or_else(|| GpuError("no Metal device".into()))?;
+            let queue = device
+                .newCommandQueue()
+                .ok_or_else(|| GpuError("no command queue".into()))?;
+            let options = MTLCompileOptions::new();
+            options.setLanguageVersion(MTLLanguageVersion::Version3_0);
+            // Fast math (FMA contraction, approximate log/atan2 in the epilogue): the Swift
+            // renderer's setting, measured ~10 % faster than .safe on M1 Pro with no accuracy
+            // change against a Double reference (kb: platform/metal-compute). Explicit
+            // because accuracy and bit-identity with the Swift renderer depend on it.
+            #[allow(deprecated)]
+            options.setFastMathEnabled(true);
+            let library = device
+                .newLibraryWithSource_options_error(&NSString::from_str(source), Some(&options))
+                .map_err(|e| GpuError(format!("kernel compile failed: {}", e.localizedDescription())))?;
+            Ok(Self { device, queue, library })
+        })
+    }
+
+    pub fn device(&self) -> &ProtocolObject<dyn MTLDevice> {
+        &self.device
+    }
+
+    /// Runs `f` inside an autorelease pool (long headless loops call this per render, so
+    /// autoreleased Metal objects do not pile up).
+    pub fn pool<R>(f: impl FnOnce() -> R) -> R {
+        autoreleasepool(|_| f())
+    }
+
+    fn pixel_format(format: TextureFormat) -> MTLPixelFormat {
+        match format {
+            TextureFormat::Rg32Float => MTLPixelFormat::RG32Float,
+            TextureFormat::Rg16Float => MTLPixelFormat::RG16Float,
+            TextureFormat::Rgba16Float => MTLPixelFormat::RGBA16Float,
+            TextureFormat::Bgra8Unorm => MTLPixelFormat::BGRA8Unorm,
+        }
+    }
+}
+
+/// A committed command buffer.
+pub struct MetalSubmission(Retained<ProtocolObject<dyn MTLCommandBuffer>>);
+
+impl Submission for MetalSubmission {
+    fn status(&self) -> SubmissionStatus {
+        let s = self.0.status();
+        if s == MTLCommandBufferStatus::Completed {
+            SubmissionStatus::Completed
+        } else if s == MTLCommandBufferStatus::Error {
+            let msg = self
+                .0
+                .error()
+                .map(|e| e.localizedDescription().to_string())
+                .unwrap_or_else(|| "command buffer error".into());
+            SubmissionStatus::Failed(msg)
+        } else {
+            SubmissionStatus::Pending
+        }
+    }
+
+    fn gpu_time(&self) -> f64 {
+        self.0.GPUEndTime() - self.0.GPUStartTime()
+    }
+
+    fn wait(&self) {
+        self.0.waitUntilCompleted();
+    }
+}
+
+/// One command buffer with one compute pass.
+pub struct MetalEncoder {
+    cb: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    enc: Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>,
+    present: Option<MetalDrawable>,
+}
+
+fn size3(v: [usize; 3]) -> MTLSize {
+    MTLSize {
+        width: v[0],
+        height: v[1],
+        depth: v[2],
+    }
+}
+
+impl ComputeEncoder<MetalBackend> for MetalEncoder {
+    fn set_pipeline(&mut self, pipeline: &MetalPipeline) {
+        self.enc.setComputePipelineState(pipeline);
+    }
+
+    fn set_bytes(&mut self, index: usize, bytes: &[u8]) {
+        assert!(!bytes.is_empty() && bytes.len() <= 4096, "setBytes takes 1..4096 bytes");
+        // SAFETY: the pointer is valid for `bytes.len()` bytes; Metal copies them now.
+        unsafe {
+            self.enc.setBytes_length_atIndex(
+                NonNull::new(bytes.as_ptr() as *mut c_void).expect("non-null"),
+                bytes.len(),
+                index,
+            );
+        }
+    }
+
+    fn set_buffer(&mut self, index: usize, buffer: &MetalBuffer, offset: usize) {
+        assert!(offset < buffer.length().max(1), "buffer offset out of range");
+        // SAFETY: a live buffer; the kernels' accesses are bounded by the scheduler's sizes.
+        unsafe { self.enc.setBuffer_offset_atIndex(Some(buffer), offset, index) }
+    }
+
+    fn set_texture(&mut self, index: usize, texture: &MetalTexture) {
+        // SAFETY: a live texture; the command buffer retains it until completion.
+        unsafe { self.enc.setTexture_atIndex(Some(texture), index) }
+    }
+
+    fn dispatch_threads(&mut self, threads: [usize; 3], per_group: [usize; 3]) {
+        self.enc
+            .dispatchThreads_threadsPerThreadgroup(size3(threads), size3(per_group));
+    }
+
+    fn dispatch_indirect(&mut self, args: &MetalBuffer, offset: usize, per_group: [usize; 3]) {
+        assert!(offset + 12 <= args.length(), "indirect arguments out of range");
+        // SAFETY: the arguments are written by `prepareChunk` earlier in this command buffer.
+        unsafe {
+            self.enc
+                .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
+                    args,
+                    offset,
+                    size3(per_group),
+                )
+        }
+    }
+
+    fn present(&mut self, drawable: &MetalDrawable) {
+        self.present = Some(drawable.clone());
+    }
+
+    fn commit(self) -> MetalSubmission {
+        self.enc.endEncoding();
+        if let Some(d) = &self.present {
+            self.cb.presentDrawable(d);
+        }
+        self.cb.commit();
+        MetalSubmission(self.cb)
+    }
+}
+
+impl GpuBackend for MetalBackend {
+    type Buffer = MetalBuffer;
+    type Texture = MetalTexture;
+    type Pipeline = MetalPipeline;
+    type Drawable = MetalDrawable;
+    type Submission = MetalSubmission;
+    type Encoder = MetalEncoder;
+
+    fn device_name(&self) -> String {
+        self.device.name().to_string()
+    }
+
+    fn create_buffer(&self, len: usize, storage: Storage) -> Result<MetalBuffer, GpuError> {
+        let mode = match storage {
+            Storage::Private => MTLResourceOptions::StorageModePrivate,
+            Storage::Shared => MTLResourceOptions::StorageModeShared,
+        };
+        self.device
+            .newBufferWithLength_options(len.max(4), mode)
+            .ok_or_else(|| GpuError(format!("buffer of {len} bytes")))
+    }
+
+    fn create_buffer_with_data(&self, data: &[u8]) -> Result<MetalBuffer, GpuError> {
+        if data.is_empty() {
+            return self.create_buffer(4, Storage::Shared);
+        }
+        // SAFETY: `data` is valid for its length; Metal copies it.
+        unsafe {
+            self.device.newBufferWithBytes_length_options(
+                NonNull::new(data.as_ptr() as *mut c_void).expect("non-null"),
+                data.len(),
+                MTLResourceOptions::StorageModeShared,
+            )
+        }
+        .ok_or_else(|| GpuError(format!("buffer of {} bytes", data.len())))
+    }
+
+    fn read_buffer(&self, buffer: &MetalBuffer, offset: usize, out: &mut [u8]) {
+        assert!(offset + out.len() <= buffer.length(), "read past the buffer");
+        assert!(
+            buffer.storageMode() == MTLStorageMode::Shared,
+            "read_buffer needs a shared buffer"
+        );
+        // SAFETY: shared storage is CPU-visible, the range is in bounds, and the scheduler
+        // only reads stats slots of completed submissions.
+        unsafe {
+            let src = (buffer.contents().as_ptr() as *const u8).add(offset);
+            std::ptr::copy_nonoverlapping(src, out.as_mut_ptr(), out.len());
+        }
+    }
+
+    fn create_texture(
+        &self,
+        width: usize,
+        height: usize,
+        format: TextureFormat,
+        storage: Storage,
+    ) -> Result<MetalTexture, GpuError> {
+        // SAFETY: plain descriptor construction with valid sizes.
+        let d = unsafe {
+            MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+                Self::pixel_format(format),
+                width.max(1),
+                height.max(1),
+                false,
+            )
+        };
+        d.setUsage(MTLTextureUsage::ShaderRead | MTLTextureUsage::ShaderWrite);
+        d.setStorageMode(match storage {
+            Storage::Private => MTLStorageMode::Private,
+            Storage::Shared => MTLStorageMode::Shared,
+        });
+        self.device
+            .newTextureWithDescriptor(&d)
+            .ok_or_else(|| GpuError(format!("texture {width}x{height} {format:?}")))
+    }
+
+    fn texture_size(&self, texture: &MetalTexture) -> (usize, usize) {
+        (texture.width(), texture.height())
+    }
+
+    fn read_texture(
+        &self,
+        texture: &MetalTexture,
+        width: usize,
+        height: usize,
+        format: TextureFormat,
+        out: &mut [u8],
+    ) -> Result<(), GpuError> {
+        let row = width * format.bytes_per_pixel();
+        assert_eq!(out.len(), row * height, "readback size");
+        assert!(
+            width <= texture.width() && height <= texture.height(),
+            "region outside the texture"
+        );
+        let origin = MTLOrigin { x: 0, y: 0, z: 0 };
+        let size = MTLSize {
+            width,
+            height,
+            depth: 1,
+        };
+        autoreleasepool(|_| {
+            if texture.storageMode() == MTLStorageMode::Shared {
+                // Wait for any queued writer.
+                let cb = self
+                    .queue
+                    .commandBuffer()
+                    .ok_or_else(|| GpuError("command buffer".into()))?;
+                cb.commit();
+                cb.waitUntilCompleted();
+                // SAFETY: `out` holds exactly `row * height` bytes; the region is in bounds.
+                unsafe {
+                    texture.getBytes_bytesPerRow_fromRegion_mipmapLevel(
+                        NonNull::new(out.as_mut_ptr() as *mut c_void).expect("non-null"),
+                        row,
+                        MTLRegion { origin, size },
+                        0,
+                    );
+                }
+                return Ok(());
+            }
+            let staging = self.create_buffer(row * height, Storage::Shared)?;
+            let cb = self
+                .queue
+                .commandBuffer()
+                .ok_or_else(|| GpuError("command buffer".into()))?;
+            let blit = cb.blitCommandEncoder().ok_or_else(|| GpuError("blit encoder".into()))?;
+            // SAFETY: source region and destination range are in bounds.
+            unsafe {
+                blit.copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage(
+                    texture, 0, 0, origin, size, &staging, 0, row, row * height,
+                );
+            }
+            blit.endEncoding();
+            cb.commit();
+            cb.waitUntilCompleted();
+            self.read_buffer(&staging, 0, out);
+            Ok(())
+        })
+    }
+
+    fn pipeline(&self, function: &str, constants: &[bool]) -> Result<MetalPipeline, GpuError> {
+        autoreleasepool(|_| {
+            let name = NSString::from_str(function);
+            let f = if constants.is_empty() {
+                self.library
+                    .newFunctionWithName(&name)
+                    .ok_or_else(|| GpuError(format!("kernel {function} missing")))?
+            } else {
+                let values = MTLFunctionConstantValues::new();
+                for (i, &v) in constants.iter().enumerate() {
+                    let mut b = v;
+                    // SAFETY: a valid bool for MTLDataType::Bool; Metal copies the value.
+                    unsafe {
+                        values.setConstantValue_type_atIndex(NonNull::from(&mut b).cast(), MTLDataType::Bool, i);
+                    }
+                }
+                self.library
+                    .newFunctionWithName_constantValues_error(&name, &values)
+                    .map_err(|e| GpuError(format!("kernel {function}: {}", e.localizedDescription())))?
+            };
+            self.device
+                .newComputePipelineStateWithFunction_error(&f)
+                .map_err(|e| GpuError(format!("pipeline {function}: {}", e.localizedDescription())))
+        })
+    }
+
+    fn pipeline_limits(&self, pipeline: &MetalPipeline) -> (usize, usize) {
+        (
+            pipeline.threadExecutionWidth(),
+            pipeline.maxTotalThreadsPerThreadgroup(),
+        )
+    }
+
+    fn begin(&self, label: &str) -> Result<MetalEncoder, GpuError> {
+        let cb = self
+            .queue
+            .commandBuffer()
+            .ok_or_else(|| GpuError("command buffer".into()))?;
+        cb.setLabel(Some(&NSString::from_str(label)));
+        let enc = cb
+            .computeCommandEncoder()
+            .ok_or_else(|| GpuError("compute encoder".into()))?;
+        Ok(MetalEncoder { cb, enc, present: None })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gpu_types::{ChunkStats, ColorParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState};
+
+    /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
+    #[test]
+    fn msl_layouts_match() {
+        let probe = format!(
+            "{KERNEL_SOURCE}\nkernel void layoutProbe(device uint* out [[buffer(0)]]) {{\n\
+             out[0] = sizeof(IterateParams); out[1] = sizeof(PixelState); out[2] = sizeof(ChunkStats);\n\
+             out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
+             out[6] = alignof(IterateParams); }}\n"
+        );
+        let b = MetalBackend::with_source(&probe).expect("metal");
+        let p = b.pipeline("layoutProbe", &[]).unwrap();
+        let out = b.create_buffer(64, Storage::Shared).unwrap();
+        let mut enc = b.begin("probe").unwrap();
+        enc.set_pipeline(&p);
+        enc.set_buffer(0, &out, 0);
+        enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
+        enc.commit().wait();
+        let mut bytes = [0u8; 28];
+        b.read_buffer(&out, 0, &mut bytes);
+        let v: Vec<u32> = bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect();
+        assert_eq!(
+            v,
+            vec![
+                size_of::<IterateParams>() as u32,
+                size_of::<PixelState>() as u32,
+                size_of::<ChunkStats>() as u32,
+                size_of::<ColorParams>() as u32,
+                LEVEL_COUNTERS_SIZE as u32,
+                align_of::<ColorParams>() as u32,
+                align_of::<IterateParams>() as u32,
+            ]
+        );
+    }
+
+    /// The hosting path of R2b, headless: a `CAMetalLayer` (no window) as the surface, the
+    /// per-refresh `render_frame` presenting drawables, a gesture then idle refinement.
+    #[test]
+    fn layer_surface_frames() {
+        use crate::scheduler::Renderer;
+        use almondbread_core::input::InputEvent;
+        use objc2_quartz_core::CAMetalLayer;
+
+        let backend = MetalBackend::new().expect("metal");
+        let mut surface = MetalLayerSurface::new(CAMetalLayer::new(), &backend);
+        surface.set_drawable_size(320, 200);
+        let mut r = Renderer::new(backend).expect("renderer");
+        r.viewport = almondbread_core::Viewport::new(-0.75, 0.0, 3.0 / 160.0);
+        let start = std::time::Instant::now();
+        let now = || start.elapsed().as_secs_f64();
+        let mut presented = 0;
+        let mut finished = false;
+        for frame in 0..600 {
+            let t = now();
+            if frame < 20 {
+                r.handle_input(
+                    InputEvent::WheelZoom {
+                        delta: 0.2,
+                        x: 10.0,
+                        y: 5.0,
+                    },
+                    t,
+                );
+            }
+            let out = r.render_frame(t, 320, 200, 0.5, &mut || surface.next_drawable(t));
+            presented += usize::from(out.presented);
+            if frame > 20 && !out.animating {
+                finished = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(4));
+        }
+        assert!(presented > 10, "presented {presented}");
+        assert!(finished, "renderer kept animating");
+        assert!(!r.stats.is_preview && !r.stats.is_rendering);
+        assert_eq!(r.stats.render_size, (320, 200));
+    }
+}

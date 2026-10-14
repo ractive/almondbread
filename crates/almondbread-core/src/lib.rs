@@ -1,13 +1,33 @@
 //! almondbread-core: platform-neutral application core (kb: decisions/rust-core).
 //!
 //! R1 provides the reference pipeline that the FFI exposes: parse a view centre, choose
-//! the precision, select a reference (nucleus or centre) and compute its orbit. R2 adds
-//! the viewport, settings, formulas, BLA/LA tables, the CPU oracle and the benchmark
-//! locations. No platform code here: it must build for Apple, Linux and Windows.
+//! the precision, select a reference (nucleus or centre) and compute its orbit. R2a adds
+//! the viewport, render settings, palettes, the f64 reference orbit, statistics-driven
+//! iteration control, the CPU oracle and verify metrics, the benchmark locations, PNG
+//! output and the navigation (input/motion) model every UI forwards its events to.
+//! No platform code here: it must build for Apple, Linux and Windows.
 
 #![forbid(unsafe_code)]
 
 pub use almondbread_math as math;
+
+pub mod autoiter;
+pub mod cfmt;
+pub mod image;
+pub mod input;
+pub mod locations;
+pub mod oracle;
+pub mod palette;
+pub mod reference;
+pub mod settings;
+pub mod viewport;
+
+pub use input::{InputEvent, NavKey, Navigator};
+pub use locations::{BENCHMARK_LOCATIONS, BenchmarkLocation};
+pub use oracle::{IterationField, VerifyReport};
+pub use palette::Palette;
+pub use settings::{RenderSettings, Supersampling};
+pub use viewport::{Center, Viewport};
 
 use almondbread_math::{
     BigComplex, BigFloat, Control, FloatExpComplex, OrbitResult, PeriodMethod, ReferenceChoice, ReferenceOrbitComputer,

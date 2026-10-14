@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim render selftest bench regress clean rust rust-check core-check
+.PHONY: run build project app ios-sim render selftest bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -61,6 +61,20 @@ rust-check:
 	cargo test --workspace --release
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo fmt --all --check
+
+## The Rust renderer's headless tools (crates/almondbread-cli, binary `almondbread`; kb:
+## platform/render-architecture): same options and output as the Swift commands.
+RUST_CLI := target/release/almondbread
+rust-cli:
+	cargo build --release -p almondbread-cli
+
+## Benchmark set through the Rust renderer: make rust-bench [ARGS="--sizes 1600x1000 --out dir"]
+rust-bench: rust-cli
+	$(RUST_CLI) bench $(ARGS)
+
+## The neck/seahorse history regressions of `make regress` through the Rust scheduler
+rust-regress: rust-cli
+	$(RUST_CLI) regress $(ARGS)
 
 ## The Rust core through the Swift bindings, checked bit for bit against AlmondbreadMath,
 ## plus FFI call overhead

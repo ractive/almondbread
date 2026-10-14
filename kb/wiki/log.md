@@ -149,3 +149,20 @@ vs fresh render). Cost: elephant, minibrot-p4 and feigenbaum are 1.5 to 1.8× sl
 (near-parabolic interior is slower to prove). Pages: [[techniques/interior-detection]]
 (Pitfalls), [[techniques/auto-iterations]], [[platform/gpu-watchdog-and-chunking]]
 (Pitfalls), [[synthesis/benchmarks]].
+
+## [2026-10-14] decision | R2a: renderer in Rust, headless parity with Swift
+
+Implemented R2a of [[decisions/rust-core]]: `almondbread-core` (viewport with an
+M3b-ready `Center`, render settings, palettes, f64 reference, auto-iteration learning,
+rayon CPU oracle, verify metrics, benchmark locations, PNG, `Navigator` input model),
+`almondbread-render` (`GpuBackend` trait, scheduler, MSL kernels, Metal backend on
+objc2-metal, `CAMetalLayer` surface; kernel struct layouts asserted at compile time and
+probed through the Metal compiler), `almondbread-cli` (`almondbread render|verify|bench|regress`,
+Swift-identical output; `make rust-bench`, `make rust-regress`). Parity, measured on M1 Pro
+in interleaved runs: iteration fields, PNGs and verify tables bit-identical to the Swift
+renderer at all 11 locations and with extension passes; GPU ms geomean 0.998; regress passes.
+Investigated the 9.4 ms draw CPU in the Swift "neck zoom" scenario: 8.9 ms is blocking in
+`currentDrawable` (a presentation queue one frame deeper than the drawable pool), not
+texture allocation or GPU load; the Rust surface predicts the pool and skips a refresh
+instead. Preview textures are now allocated once at maximum size (sub-regions). Pages: new
+[[platform/render-architecture]], [[synthesis/benchmarks]] (R2a), [[roadmap]] (R2a done).
