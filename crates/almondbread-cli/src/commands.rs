@@ -155,7 +155,7 @@ pub fn verify<B: GpuBackend>(
 }
 
 /// `verify`: a GPU render against the CPU f64 oracle; `--fields a.iter --against b.iter`
-/// diffs two dumps (b plays the reference); `--history zoom|out|pan` runs a scripted session.
+/// diffs two dumps (b plays the reference); `--history zoom|out|pan|jump` runs a scripted session.
 pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     if let (Some(a), Some(b)) = (o.get("fields"), o.get("against")) {
         let fa = IterationField::read(a)?;
@@ -212,14 +212,16 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     Ok(0)
 }
 
-/// `verify --history zoom|out|pan`: a scripted session through the interactive scheduler
+/// `verify --history zoom|out|pan|jump`: a scripted session through the interactive scheduler
 /// (headless, the code the app runs per refresh). Holding Space: starts exp(speed x seconds)
 /// zoomed out from the view and zooms in around `--pointer x,y` (points from the centre,
 /// y up) at `--speed` e-folds/s with auto iterations, at `--ppp` view points per pixel. After
 /// the refined final frame, diffs it against the CPU oracle at the hard limit and a fresh
 /// headless render. Fails on a preview final frame, more than `--max-false-interior` %
 /// (0.05) exterior painted interior, or more than `--max-mismatch` % (0.05) differing from
-/// the fresh render. `--then f` adds a one-step zoom of factor f.
+/// the fresh render, or more than `--max-unresolved` % unresolved (off by default). `--then f`
+/// adds a one-step zoom of factor f. `jump` starts at the view itself with no history and
+/// no learned limit ("Go to coordinates").
 pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let (width, height) = o.size("size", (1280, 820))?;
     let ppp = o.f64("ppp").unwrap_or(0.5);
@@ -227,6 +229,9 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let seconds = o.f64("seconds").unwrap_or(2.0);
     let max_mismatch = o.f64("max-mismatch").unwrap_or(0.05);
     let max_false_interior = o.f64("max-false-interior").unwrap_or(0.05);
+    // Unresolved pixels of the shown frame (in %); off by default (the neck at depth is
+    // mostly unresolved by design). sea-8007 once settled entirely unresolved (uniform grey).
+    let max_unresolved = o.f64("max-unresolved");
     let pointer = o.pair("pointer")?.unwrap_or((0.0, 0.0));
     // --scale is per pixel as for verify; the viewport counts view points.
     let mut end = o.viewport(width, height)?;
@@ -247,12 +252,17 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         "zoom" => start.zoom_by((-speed * seconds).exp(), pointer.0, pointer.1),
         "out" => start.zoom_by((speed * seconds).exp(), pointer.0, pointer.1),
         "pan" => start.pan_by_points(pan.0 * pan_speed * seconds, pan.1 * pan_speed * seconds),
-        _ => return err(format!("unknown --history {mode} (zoom, out, pan)")),
+        // "Go to coordinates": a fresh view at depth, no zoom history (settled from scratch).
+        "jump" => {}
+        _ => return err(format!("unknown --history {mode} (zoom, out, pan, jump)")),
     }
     r.viewport = start;
+    let jump = mode == "jump";
     // Settle on the start view first (the session begins from a refined frame).
-    let _ = r.simulate(width, height, ppp, 120.0, 0, 30.0, &mut |_, _, _| {});
-    let frames = (seconds * 120.0) as usize;
+    if !jump {
+        let _ = r.simulate(width, height, ppp, 120.0, 0, 30.0, &mut |_, _, _| {});
+    }
+    let frames = if jump { 0 } else { (seconds * 120.0) as usize };
     let mut sessions: Vec<SimulationResult> = Vec::new();
     let m = mode.clone();
     let first = r
@@ -364,6 +374,12 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
                 vs_cpu.false_interior_pct(),
                 max_false_interior
             ));
+        }
+        let unresolved_pct = 100.0 * sim.unresolved as f64 / (sim.level_width * sim.level_height).max(1) as f64;
+        if let Some(m) = max_unresolved
+            && unresolved_pct > m
+        {
+            failed.push(format!("{tag}{unresolved_pct:.3}% unresolved (> {m:.3}%)"));
         }
         if vs_fresh.mismatch_pct() > max_mismatch {
             failed.push(format!(
@@ -624,6 +640,33 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "--max-false-interior",
         "0.15",
     ],
+    // "Go to coordinates" sea-8007 at default auto iterations (kb: techniques/auto-iterations,
+    // "Nothing escaped"): the depth limit (~29 000) is below every escape, so the first pass
+    // leaves the whole view unresolved (it showed uniform grey). With the extension passes cut
+    // (no budget, as at full Retina size where 7.5 M unresolved pixels exceed the list), the
+    // learner must raise the limit and render the view again; with them, the passes resolve it.
+    &[
+        "--history",
+        "jump",
+        "--location",
+        "sea-8007",
+        "--size",
+        "640x400",
+        "--extension-budget",
+        "0",
+        "--max-unresolved",
+        "1",
+    ],
+    &[
+        "--history",
+        "jump",
+        "--location",
+        "sea-8007",
+        "--size",
+        "640x400",
+        "--max-unresolved",
+        "1",
+    ],
     // M3b: zoom and pan at 1e-305 per pixel around the period-255 needle minibrot (below
     // f64's range; extended-range BLA on).
     &[
@@ -663,7 +706,13 @@ pub fn regress_command<B: GpuBackend + Clone>(backend: &B, extra: &Options) -> R
     for session in REGRESS_SESSIONS {
         let mut args: Vec<String> = session.iter().map(|s| s.to_string()).collect();
         // Extra options (e.g. --extension-budget) apply to every session.
-        for key in ["extension-budget", "max-mismatch", "max-false-interior", "chunk-ms"] {
+        for key in [
+            "extension-budget",
+            "max-mismatch",
+            "max-false-interior",
+            "max-unresolved",
+            "chunk-ms",
+        ] {
             if let Some(v) = extra.get(key) {
                 args.extend([format!("--{key}"), v.to_string()]);
             }

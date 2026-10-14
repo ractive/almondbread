@@ -118,6 +118,33 @@ From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers
   notch (7.06e6× → 9.34e6×, auto 2 907 → 2 981) made a large region appear. Those
   were pixels escaping between the two limits. With the passes, both views show
   the same structure (`make regress` runs exactly that step).
+- **Nothing escaped** (bug found 2026-10-14 after M3b). At `sea-8007` (period-8007
+  minibrot, 2e-34/px) the depth heuristic gives 29 575, and every escape around the
+  minibrot comes later. All 576 000 pixels were *unresolved*, none escaped and none
+  was proven interior, so the view was flat unresolved grey (RGB ≈ 0x0a). It was not false
+  interior: the kernel classified the pixels correctly. Two gaps let it stay that way.
+  (1) The learner only grew on escapes *past* the limit, and the passes never ran:
+  `render` has no passes (offscreen extension ×1), and at full Retina size the
+  7.5 M unresolved pixels overflow the 4 M-entry list (all-or-nothing) and the 2 s budget.
+  So there was no signal. (2) The "applies from the next view" pin kept the view at its
+  limit. Fix: when at least **25 %** of the pixels are unresolved (with the derivative test
+  on, not a gesture frame) and no pass looked as far as 4× the limit, the limit becomes
+  4× the nominal and the **same view renders again**, with no pin. The scheduler keeps
+  refreshing until it has, and offscreen renders loop up to 3 times. The 4×-depth cap
+  bounds it: a view whose unresolved pixels are interior settles after at most one extra
+  render. Results (measured 2026-10-14, M1 Pro, release, 960×600, `render`): sea-8007
+  29 575 → 118 300, 0.26 % unresolved, rings of seahorses visible (0.75 % at 59 150,
+  0.21 % at 200 000). A full-screen "Go to coordinates" jump (3456×2160) renders the
+  structure at 119 844. Inside the minibrot (1e-36/px) the first render is also all
+  unresolved: the test needs a few periods. The ×4 render proves every pixel interior and
+  the limit decays afterwards. Inside the main cardioid nothing changes (all proven at
+  the depth limit). Side effect, CLI `render` only: necks, the cusp and Feigenbaum are
+  56–100 % unresolved at the depth limit and now render once more at 4× (neck-7e6
+  2 831 → 11 324, 60 → 190 ms GPU). The app's refined views have the passes and do not
+  hit the rule there. Regressions: `make regress` "jump" sessions
+  (`verify --history jump --location sea-8007 --max-unresolved 1`, with and without
+  `--extension-budget 0`), Metal tests `auto_iterations_nothing_escaped` and
+  `auto_iterations_interior_view`.
 
 ## For almondbread
 

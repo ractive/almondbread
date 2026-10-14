@@ -69,7 +69,7 @@ and quit by themselves):
   draw CPU and per-frame FFI overhead of pans, zooms and keys in a background window
   (`ALMONDBREAD_SCENARIOS=` to pick some); fails if a shown frame differs from a fresh
   render.
-- `almondbread verify --history zoom|out|pan --center re,im --scale s [--then f]`:
+- `almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--then f]`:
   a scripted session through the real per-refresh scheduler, headless, diffed against
   the CPU oracle and a fresh render; `make regress` runs the -3/4 neck regressions.
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms).

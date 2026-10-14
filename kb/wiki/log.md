@@ -333,3 +333,15 @@ the nose in a rigid world (W/S/↑/↓ stick, A/D/←/→ bank, Q/E throttle), e
 zooms out), detail following the eye's height, speed scaled by height. A closed-loop target
 dive onto a minibrot lake reaches 1e-7 within 3.6 S of the chosen point. Details in
 [[decisions/landscape-mode]] L1.
+
+## [2026-10-14] decision | Auto iterations: a view where nothing escaped renders again at 4×
+
+`render --location sea-8007` came out flat grey. Every pixel reached the depth limit
+(29 575) unresolved, none escaped, and the learner only grows on escapes past the limit.
+No extension pass ran: offscreen has none, and at full Retina size the list overflows and the
+budget is too small. Now a view that is ≥ 25 % unresolved, with no pass past 4× its limit,
+raises the limit 4× (still capped at 4× depth) and renders the *same* view again (no pin;
+offscreen renders loop). sea-8007 settles at ~118 000 with the seahorse rings. Views inside
+the minibrot and the cardioid settle as before. New `verify --history jump` (Go to
+coordinates), `--max-unresolved`, two regress sessions, two Metal tests. Pages:
+[[techniques/auto-iterations]] "Nothing escaped", [[techniques/interior-detection]].

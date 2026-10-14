@@ -6,7 +6,7 @@
 //! almondbread render out.png --center re,im --scale s --size WxH [--iterations N] [--repeat n]
 //! almondbread verify --center re,im --scale s --size WxH [--iterations N] [--dump f.iter] [--heatmap d.png]
 //! almondbread verify --fields a.iter --against b.iter
-//! almondbread verify --history zoom|out|pan --center re,im --scale s [--ppp p] [--pointer x,y] [--then f]
+//! almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--ppp p] [--pointer x,y] [--then f]
 //! almondbread bench [--sizes 3456x2234,1600x1000] [--only a,b] [--repeat n] [--out dir]
 //! almondbread regress
 //! almondbread fly --script flight.json [--out review/x.mp4] [--fps 60] [--size 1920x1080] [--converged 1]

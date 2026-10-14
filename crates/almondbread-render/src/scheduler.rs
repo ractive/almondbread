@@ -746,6 +746,9 @@ pub struct Renderer<B: GpuBackend> {
     pub failed_frames: usize,
     interior_stats: Option<InteriorStats>,
     pinned_iterations: Option<(Viewport, usize)>,
+    /// The learner raised the limit for a view it left unresolved: the view renders again
+    /// (cleared when a job starts).
+    retry_pending: bool,
     epoch: Instant,
 }
 
@@ -838,6 +841,7 @@ impl<B: GpuBackend> Renderer<B> {
             failed_frames: 0,
             interior_stats: None,
             pinned_iterations: None,
+            retry_pending: false,
             epoch: Instant::now(),
         })
     }
@@ -1127,7 +1131,11 @@ impl<B: GpuBackend> Renderer<B> {
         }
         self.publish_stats();
         let job = self.job.as_ref().expect("job");
-        let busy = interacting || !job.final_presented || job.key != key || self.settings.cycle_speed != 0.0;
+        let busy = interacting
+            || !job.final_presented
+            || job.key != key
+            || self.retry_pending
+            || self.settings.cycle_speed != 0.0;
         outcome.animating = keep_going || busy;
         outcome
     }
@@ -1215,6 +1223,7 @@ impl<B: GpuBackend> Renderer<B> {
 
     fn start_job(&mut self, key: ComputeKey, mode: JobMode, now: f64) {
         self.waiting_reference = false;
+        self.retry_pending = false;
         // Interactive views anti-alias progressively (idle AA samples); only offscreen renders
         // supersample on a grid (kb: techniques/anti-aliasing, FL).
         let ss_factor = if mode == JobMode::Offscreen {
@@ -2133,9 +2142,11 @@ impl<B: GpuBackend> Renderer<B> {
             crossed: level.crossed,
             max_escape: level.max_escape,
             escaped_past: level.escaped_past,
+            reached: level.params.max_iter as usize,
+            may_retry: !job.interactive && level.use_interior,
         };
         let old = self.settings.learned_iterations;
-        let learned = autoiter::learn_iterations(
+        let autoiter::Learned { limit: learned, retry } = autoiter::learn_iterations(
             old,
             &outcome,
             self.settings.max_iterations_cap,
@@ -2143,20 +2154,29 @@ impl<B: GpuBackend> Renderer<B> {
         );
         if self.config.trace {
             println!(
-                "learn: soft {} total {} crossed {} escapedPast {:?} maxEscape {} unresolved {} -> {}",
+                "learn: soft {} reached {} total {} crossed {} escapedPast {:?} maxEscape {} unresolved {} -> {}{}",
                 outcome.soft_iter,
+                outcome.reached,
                 level.total,
                 level.crossed,
                 level.escaped_past,
                 level.max_escape,
                 level.live,
-                learned
+                learned,
+                if retry { " (render again)" } else { "" }
             );
         }
         if learned == old {
             return;
         }
-        self.pinned_iterations = Some((job.key.viewport.clone(), job.key.max_iter));
+        if retry {
+            // The view is left unresolved: render it again at the new limit (make_key no
+            // longer matches the job's key, so the next refresh starts a job).
+            self.pinned_iterations = None;
+            self.retry_pending = true;
+        } else {
+            self.pinned_iterations = Some((job.key.viewport.clone(), job.key.max_iter));
+        }
         self.settings.learned_iterations = learned;
     }
 
@@ -2879,6 +2899,10 @@ impl<B: GpuBackend> Renderer<B> {
             .create_texture(width, height, TextureFormat::Bgra8Unorm, Storage::Shared)?;
         let mut finished = false;
         let mut attempts = 0;
+        // Failed jobs are retried; so is a view the learner left unresolved and raised the
+        // limit for (kb: techniques/auto-iterations; at most one raise per view: the 4x depth
+        // cap), so an offscreen render shows the structure without a warm-up render.
+        let mut retries = 0;
         while !finished && attempts < 4 {
             attempts += 1;
             self.drain_in_flight();
@@ -2907,7 +2931,13 @@ impl<B: GpuBackend> Renderer<B> {
                 }
             }
             finished = !self.job.as_ref().expect("job").failed;
+            if finished && self.retry_pending && retries < 3 {
+                retries += 1;
+                attempts -= 1;
+                finished = false;
+            }
         }
+        self.retry_pending = false;
         if !finished {
             return Err(GpuError("offscreen render failed".into()));
         }
@@ -2994,7 +3024,8 @@ impl<B: GpuBackend> Renderer<B> {
             let finished = self
                 .job
                 .as_ref()
-                .is_some_and(|j| j.final_presented && !j.interactive && j.key.viewport == self.viewport);
+                .is_some_and(|j| j.final_presented && !j.interactive && j.key.viewport == self.viewport)
+                && !self.retry_pending;
             if finished {
                 break;
             }

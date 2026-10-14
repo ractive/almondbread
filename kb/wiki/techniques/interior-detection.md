@@ -207,6 +207,14 @@ Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
   level's statistics say `interiorFraction × maxIter > 0.6 × exteriorIterationsPerPixel`.
   Exterior-only views then run at plain speed (seahorse 32.5 ms, deep 196 ms vs 33 / 193
   off).
+- **"Interior" in the statistics is not proof.** The kernel's `interior` counter adds the
+  proven pixels and the ones that reached maxIter unresolved (`crossed`). A view that is
+  unresolved everywhere looks 100 % interior to the switch. At `sea-8007` every pixel
+  reached the depth limit without escaping and without a proof, so the view showed flat
+  unresolved grey (not false interior). The fix is in the iteration learner (see
+  [[techniques/auto-iterations]], "Nothing escaped"). After the ×4 render, the switch sees
+  ~0.3 % interior and turns the test off for the full level. The few remaining limit pixels
+  (the minibrot) are then drawn as interior, which matches the CPU.
 - **Speedups** (3456×2234, GPU): home at 100 000 iterations 2211 → 48 ms (46×),
   period-4 minibrot at 50 000 790 → 52 ms (15×), elephant 222 → 112 ms, home at 1 000
   26 → 14 ms, home at 1e7 (800×500) 11.4 s → 83 ms.

@@ -540,6 +540,49 @@ mod tests {
         assert!(rep.max_error < 1e-4, "{}", rep.summary());
     }
 
+    /// Default auto iterations at a named location, offscreen: (limit used, escaped fraction).
+    fn auto_render(location: &str, width: usize, height: usize) -> (usize, f64) {
+        use crate::scheduler::Renderer;
+        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        r.viewport = almondbread_core::locations::location_named(location)
+            .expect("location")
+            .viewport_for_width(width);
+        let out = r.render_offscreen(width, height, true).expect("render");
+        let texels = out.iterations.expect("iterations");
+        let escaped = texels.iter().filter(|t| t[0] >= 0.0).count();
+        (r.stats.max_iterations, escaped as f64 / texels.len() as f64)
+    }
+
+    /// sea-8007 at default settings (kb: techniques/auto-iterations, "Nothing escaped"): the
+    /// depth limit (~29 600) is below every escape, so the first pass leaves the whole view
+    /// unresolved (it rendered as uniform grey). The learner raises the limit 4x and renders
+    /// the view again; the rings of seahorses around the minibrot escape.
+    #[test]
+    fn auto_iterations_nothing_escaped() {
+        let (limit, escaped) = auto_render("sea-8007", 320, 200);
+        assert!(limit > 100_000, "limit {limit}");
+        assert!(escaped > 0.95, "escaped {escaped}");
+    }
+
+    /// A view entirely inside the main cardioid settles at the depth limit: the derivative test
+    /// proves every pixel interior, nothing is unresolved, no re-render.
+    #[test]
+    fn auto_iterations_interior_view() {
+        use crate::scheduler::Renderer;
+        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        r.viewport = almondbread_core::Viewport::new(-0.2, 0.0, 1e-6);
+        let depth = almondbread_core::settings::depth_iterations(&r.viewport);
+        let out = r.render_offscreen(320, 200, true).expect("render");
+        let texels = out.iterations.expect("iterations");
+        assert!(texels.iter().all(|t| t[0] == almondbread_core::oracle::ITER_INTERIOR));
+        assert_eq!(r.stats.max_iterations, depth);
+        assert_eq!(r.settings.learned_iterations, 0);
+    }
+
     /// The hosting path of R2b, headless: a `CAMetalLayer` (no window) as the surface, the
     /// per-refresh `render_frame` presenting drawables, a gesture then idle refinement.
     #[test]
