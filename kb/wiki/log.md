@@ -239,3 +239,16 @@ expected 0.381 view widths/s, no per-frame cost after replacing a UniFFI record 
 (11–18 µs → 2–3 µs); R2b's late final frame does not reproduce at 120 Hz; open: fewer gesture frames
 than Swift on heavy zooms at 120 Hz. Updated [[platform/render-architecture]],
 [[platform/rust-swift-ffi]], [[roadmap]].
+
+## [2026-10-14] decision | L0: landscape prototype results
+
+CPU prototype in `prototypes/landscape/` (own Cargo workspace): f64 iteration with
+`dz/dc` and `dz/dz1`, lazily memoised LOD tiles, height-field ray marching, soft shadows,
+AO, water, fog. Gallery of 9 JPEGs (height variants at two places, far field,
+self-similarity at 1e-3…1e-12 and at four places, an 8-frame dive, three hero shots).
+Recommendation: `h = σ·ln(1 + k·DE/σ)`, σ = 0.1 S, k = 4. It is fixed-world near
+the camera, and only the far field depends on the camera scale. Linear gives a
+horizon wall or a flat plain, and the potential is unusable. Timings: 20–50 s per
+1920×1080 2×2-SS still, 110–160 s near deep minibrots. GPU estimate: ~140 k DE
+evaluations per frame while flying and sinking. Results and open problems in
+[[decisions/landscape-mode]]; [[roadmap]] L0 done.

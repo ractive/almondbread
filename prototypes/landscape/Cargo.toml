@@ -1,0 +1,19 @@
+[package]
+name = "landscape"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "L0 prototype: the Mandelbrot set as a flyable 2.5D landscape (CPU stills)"
+
+# Own workspace root so the repository's root workspace does not claim this crate.
+[workspace]
+
+[dependencies]
+rayon = "1.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+clap = { version = "4.5", features = ["derive"] }
+
+[profile.release]
+debug = false
+codegen-units = 1
+lto = "thin"
