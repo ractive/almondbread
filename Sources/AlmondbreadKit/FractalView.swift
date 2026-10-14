@@ -240,6 +240,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         TestLaunch.placeInBackground(window)
         installKeyHandling()
         let l = displayLink(target: DisplayLinkProxy(self), selector: #selector(DisplayLinkProxy.step(_:)))
+        // Ask for the panel's full rate: without a preferred range a ProMotion Mac may drive
+        // the link at 60 Hz (measured FL: 179 calls in 3 s on a 120 Hz panel).
+        let fps = Float(window.screen?.maximumFramesPerSecond ?? 60)
+        l.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, fps), maximum: fps, preferred: fps)
         l.add(to: .main, forMode: .common)
         link = l
         layoutExplorer()
@@ -321,6 +325,11 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     func requestFrames() { link?.isPaused = false }
+
+    /// The window moved to another screen (interaction test): re-request its full rate.
+    func setPreferredFrameRate(_ fps: Float) {
+        link?.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, fps), maximum: fps, preferred: fps)
+    }
 
     func step(_ link: CADisplayLink) {
         if !base.step(timestamp: link.timestamp) { link.isPaused = true }

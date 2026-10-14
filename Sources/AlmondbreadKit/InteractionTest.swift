@@ -254,6 +254,8 @@ final class InteractionTest: NSObject {
         print("| scenario | frames | fps | interval p50 / p95 / max ms | latency p50 / p95 ms (input→draw + draw→screen p50) | draw CPU p50 / p95 ms | GPU ms/frame (iter + colorize) | preview % | skipped draws | draws / encoded |")
         print("|---|---:|---:|---|---|---|---|---:|---:|---|")
         let link = view.displayLink(target: self, selector: #selector(step(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, Float(fps)), maximum: Float(fps), preferred: Float(fps))
+        view.setPreferredFrameRate(Float(fps))
         link.add(to: .main, forMode: .common)
         self.link = link
         next()

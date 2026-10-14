@@ -128,8 +128,13 @@ enum TestLaunch {
     /// window's drawables report no presentation time): in the bottom-right corner of its
     /// screen (wholly on it, one refresh rate) and still behind every other window, it
     /// usually shows wherever the user's windows leave desktop free. Never key, never in front.
+    /// The screen with the highest refresh rate (a ProMotion panel next to a 60 Hz external
+    /// display), unless `ALMONDBREAD_TEST_SCREEN=main`: frame pacing at 120 Hz is what the
+    /// interaction test has to measure (kb: synthesis/benchmarks, FL).
     static func placeAtScreenEdge(_ window: NSWindow) {
-        guard enabled, let screen = window.screen ?? NSScreen.main else { return }
+        let useMain = ProcessInfo.processInfo.environment["ALMONDBREAD_TEST_SCREEN"] == "main"
+        let fastest = NSScreen.screens.max { $0.maximumFramesPerSecond < $1.maximumFramesPerSecond }
+        guard enabled, let screen = (useMain ? nil : fastest) ?? window.screen ?? NSScreen.main else { return }
         let f = screen.visibleFrame
         window.setFrameOrigin(NSPoint(x: f.maxX - window.frame.width, y: f.minY))
         window.orderBack(nil)

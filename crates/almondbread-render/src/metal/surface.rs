@@ -5,38 +5,70 @@
 //! in flight the presentation queue can get one frame deeper than the pool and then stays
 //! there: each refresh waits ~a refresh for a drawable (measured 2026-10-14 in the Swift
 //! renderer: "neck zoom" draw CPU p50 9.4 ms, of which 8.9 ms in `currentDrawable`; one frame
-//! in flight removed the wait but cost 15 % frame rate on heavy views). This surface predicts
-//! the pool instead (`in_use`: acquired minus presented, see there); when that reaches the
-//! pool size, `drawable_ready` is false and the scheduler skips the refresh before encoding
-//! any work instead of blocking. Presentation is counted from `addPresentedHandler`, on any
-//! thread, with an atomic.
+//! in flight removed the wait but cost 15 % frame rate on heavy views).
+//!
+//! R2b predicted the pool from presented-handler counts instead and skipped a refresh when the
+//! prediction said "empty". That prediction lags the real pool (the presented callback comes
+//! about a refresh after the drawable is free again, and Core Animation may release a
+//! drawable before it reports it presented), so heavy zooms skipped 12–21 refreshes as "no
+//! drawable" at 120 Hz where the blocking Swift renderer skipped none (kb: synthesis/benchmarks,
+//! M2.5 open issue).
+//!
+//! FL: a background thread pre-acquires the next drawable with the plain, blocking
+//! `nextDrawable` and parks it in a one-slot mailbox. The main thread never blocks;
+//! `drawable_ready` is true exactly when the real pool has handed out a drawable, so a
+//! refresh is skipped only when the blocking acquire would really have waited. The thread
+//! then waits for the next free drawable, which is the Swift renderer's behaviour minus the
+//! stall on the main thread. Presentation is still counted (interaction-test logs).
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use block2::RcBlock;
-use objc2::rc::Retained;
+use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::CGSize;
-use objc2_metal::{MTLDrawable, MTLPixelFormat};
+use objc2_metal::{MTLDrawable, MTLPixelFormat, MTLTexture};
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 
 use super::{MetalBackend, MetalDrawable};
 use crate::scheduler::FrameTarget;
 
+type LayerDrawable = Retained<ProtocolObject<dyn CAMetalDrawable>>;
+
+/// A drawable crossing from the acquire thread to the frame thread.
+struct Parked(LayerDrawable);
+// SAFETY: Metal drawables may be used from any thread (Apple: `nextDrawable` and presenting
+// are thread-safe); the mailbox hands each one to exactly one owner.
+unsafe impl Send for Parked {}
+
+/// The layer, retained by the acquire thread too.
+struct SendLayer(Retained<CAMetalLayer>);
+// SAFETY: `nextDrawable` is documented thread-safe; the thread calls nothing else on it.
+unsafe impl Send for SendLayer {}
+
+/// One-slot mailbox between the acquire thread and the frame thread.
+#[derive(Default)]
+struct Mailbox {
+    slot: Mutex<Option<Parked>>,
+    /// Signalled when the slot changes (filled or emptied) or on stop.
+    changed: Condvar,
+    stop: AtomicBool,
+}
+
 /// A `CAMetalLayer` configured for the renderer.
 pub struct MetalLayerSurface {
     layer: Retained<CAMetalLayer>,
-    acquired: u64,
+    mailbox: Arc<Mailbox>,
     presented: Arc<AtomicU64>,
-    /// When presentation counts last moved (a hidden window may never report presentation).
-    last_progress: f64,
-    last_presented: u64,
-    /// Refreshes skipped because the pool was predicted empty.
+    /// Refreshes skipped because no drawable was ready.
     pub skipped: u64,
     /// Drawables handed out so far; the tag of the last one (never reset).
     serial: u64,
+    /// The drawable size last set (parked drawables of another size are dropped).
+    size: (usize, usize),
     /// `(tag, presentedTime)` of presented drawables, while measuring (interaction tests).
     log: Option<PresentationLog>,
 }
@@ -61,15 +93,61 @@ impl MetalLayerSurface {
         layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
         // The colorize kernel writes the drawable directly.
         layer.setFramebufferOnly(false);
-        Self {
+        let mailbox = Arc::new(Mailbox::default());
+        let size = layer.drawableSize();
+        let s = Self {
             layer,
-            acquired: 0,
+            mailbox,
             presented: Arc::new(AtomicU64::new(0)),
-            last_progress: 0.0,
-            last_presented: 0,
             skipped: 0,
             serial: 0,
+            size: (size.width as usize, size.height as usize),
             log: None,
+        };
+        s.spawn_acquirer();
+        s
+    }
+
+    /// The acquire thread: whenever the slot is empty, wait (blocking, off the main thread)
+    /// for the pool's next drawable and park it. It ends when the surface is dropped (after
+    /// its current `nextDrawable`, which times out after a second at most).
+    fn spawn_acquirer(&self) {
+        let mailbox = Arc::clone(&self.mailbox);
+        let layer = SendLayer(self.layer.clone());
+        let spawned = std::thread::Builder::new()
+            .name("almondbread-drawable".into())
+            .spawn(move || {
+                let layer = layer;
+                loop {
+                    {
+                        let mut slot = mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
+                        while slot.is_some() && !mailbox.stop.load(Ordering::Acquire) {
+                            slot = mailbox.changed.wait(slot).unwrap_or_else(|e| e.into_inner());
+                        }
+                    }
+                    if mailbox.stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let size = layer.0.drawableSize();
+                    if size.width < 1.0 || size.height < 1.0 {
+                        // Not laid out yet: nextDrawable would return nil at once.
+                        std::thread::sleep(Duration::from_millis(4));
+                        continue;
+                    }
+                    let d = autoreleasepool(|_| layer.0.nextDrawable());
+                    match d {
+                        Some(d) => {
+                            let mut slot = mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
+                            *slot = Some(Parked(d));
+                            mailbox.changed.notify_all();
+                        }
+                        // Timed out (hidden window) or not displayable: try again shortly.
+                        None => std::thread::sleep(Duration::from_millis(4)),
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            eprintln!("almondbread: drawable thread: {e}");
         }
     }
 
@@ -88,6 +166,11 @@ impl MetalLayerSurface {
         &self.layer
     }
 
+    /// Frames presented so far (presented handlers).
+    pub fn presented(&self) -> u64 {
+        self.presented.load(Ordering::Acquire)
+    }
+
     /// Pixels per point (the window's backing scale); ignored unless finite and positive.
     pub fn set_contents_scale(&self, scale: f64) {
         if scale.is_finite() && scale > 0.0 {
@@ -95,61 +178,88 @@ impl MetalLayerSurface {
         }
     }
 
-    /// Drawable size in pixels (the UI calls this on resize).
-    pub fn set_drawable_size(&self, width: usize, height: usize) {
+    /// Drawable size in pixels (the UI calls this on resize). A parked drawable of the old
+    /// size is dropped (back to the pool) when it is next looked at.
+    pub fn set_drawable_size(&mut self, width: usize, height: usize) {
+        self.size = (width, height);
         self.layer.setDrawableSize(CGSize {
             width: width as f64,
             height: height as f64,
         });
     }
 
+    /// Takes the parked drawable if it has the current size; drops a stale one.
+    fn take_parked(&self) -> Option<LayerDrawable> {
+        let mut slot = self.mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
+        let fits = slot.as_ref().is_some_and(|p| {
+            let t = p.0.texture();
+            (t.width(), t.height()) == self.size
+        });
+        let taken = slot.take();
+        self.mailbox.changed.notify_all();
+        if fits { taken.map(|p| p.0) } else { None }
+    }
+
     /// Whether [`Self::next_drawable`] would return a drawable without blocking (pass it to
-    /// `render_frame_gated` before encoding a frame's work).
-    pub fn drawable_ready(&mut self, now: f64) -> bool {
-        let presented = self.presented.load(Ordering::Acquire);
-        if presented != self.last_presented {
-            self.last_presented = presented;
-            self.last_progress = now;
+    /// `render_frame_gated` before encoding a frame's work): a drawable of the current size
+    /// is parked.
+    pub fn drawable_ready(&mut self, _now: f64) -> bool {
+        let mut slot = self.mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.as_ref() {
+            Some(p) => {
+                let t = p.0.texture();
+                if (t.width(), t.height()) == self.size {
+                    true
+                } else {
+                    // Resized since it was acquired: back to the pool, fetch a new one.
+                    *slot = None;
+                    self.mailbox.changed.notify_all();
+                    false
+                }
+            }
+            None => false,
         }
-        let pool = self.layer.maximumDrawableCount() as u64;
-        self.in_use() < pool || self.stalled(now)
     }
 
-    /// Hidden or headless layers may not report presentation: after 0.25 s without progress
-    /// the plain (possibly blocking) acquire takes over.
-    fn stalled(&self, now: f64) -> bool {
-        now - self.last_progress > 0.25
+    /// The next drawable's texture and the drawable to present, or None if none is ready.
+    /// Pass it as `render_frame`'s `acquire`. With `wait` (the view's refined final frame) it
+    /// waits up to `max_wait` seconds for the acquire thread (showing that frame one or two
+    /// refreshes late measured +15–50 ms to the final frame in the neck-zoom scenario).
+    pub fn next_drawable(&mut self, _now: f64, wait: bool) -> Option<FrameTarget<MetalBackend>> {
+        self.next_drawable_within(if wait { 0.017 } else { 0.0 })
     }
 
-    /// Drawables believed in use: acquired and not yet presented. Strictly a drawable is
-    /// free again only once its successor is on screen (`acquired - (presented - 1)`), but
-    /// the presented callback arrives about a refresh after the fact, which cancels the -1:
-    /// with the strict count the interaction test skipped ~40 % of refreshes (36-38 fps at
-    /// 60 Hz) although a drawable was free; with this one, 54-59 fps and the acquire waits
-    /// at most ~1 ms (measured 2026-10-14, M1 Pro; kb: platform/render-architecture).
-    pub fn in_use(&self) -> u64 {
-        let presented = self.presented.load(Ordering::Acquire);
-        self.acquired.saturating_sub(presented)
-    }
-
-    /// The next drawable's texture and the drawable to present, or None if acquiring one
-    /// would block (see the module docs). Pass it as `render_frame`'s `acquire`.
-    /// With `wait` (the view's refined final frame) it takes the plain acquire, which may
-    /// block until a drawable is free (at most about a refresh): showing that frame one or
-    /// two refreshes late measured +15-50 ms to the final frame in the neck-zoom scenario.
-    pub fn next_drawable(&mut self, now: f64, wait: bool) -> Option<FrameTarget<MetalBackend>> {
-        if !wait && !self.drawable_ready(now) {
+    fn next_drawable_within(&mut self, max_wait: f64) -> Option<FrameTarget<MetalBackend>> {
+        let mut drawable = self.take_parked();
+        if drawable.is_none() && max_wait > 0.0 {
+            let deadline = std::time::Instant::now() + Duration::from_secs_f64(max_wait);
+            let mut slot = self.mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
+            loop {
+                if let Some(p) = slot.take() {
+                    let t = p.0.texture();
+                    self.mailbox.changed.notify_all();
+                    if (t.width(), t.height()) == self.size {
+                        drawable = Some(p.0);
+                        break;
+                    }
+                    continue;
+                }
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                slot = self
+                    .mailbox
+                    .changed
+                    .wait_timeout(slot, left)
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
+        }
+        let Some(drawable) = drawable else {
             self.skipped += 1;
             return None;
-        }
-        let stalled = self.stalled(now);
-        let drawable: Retained<ProtocolObject<dyn CAMetalDrawable>> = self.layer.nextDrawable()?;
-        if stalled {
-            // Resynchronise: count only what is outstanding from now on.
-            self.acquired = self.presented.load(Ordering::Acquire);
-            self.last_progress = now;
-        }
-        self.acquired += 1;
+        };
         let texture = drawable.texture();
         self.serial += 1;
         let tag = self.serial;
@@ -172,5 +282,16 @@ impl MetalLayerSurface {
         // SAFETY: the block is retained by the drawable and only touches an atomic.
         unsafe { generic.addPresentedHandler(RcBlock::as_ptr(&handler)) };
         Some((texture, Some(generic)))
+    }
+}
+
+impl Drop for MetalLayerSurface {
+    fn drop(&mut self) {
+        self.mailbox.stop.store(true, Ordering::Release);
+        self.mailbox.changed.notify_all();
+        // A parked drawable goes back to the pool with the slot.
+        if let Ok(mut slot) = self.mailbox.slot.lock() {
+            *slot = None;
+        }
     }
 }
