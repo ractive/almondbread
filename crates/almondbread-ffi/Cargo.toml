@@ -1,0 +1,20 @@
+[package]
+name = "almondbread-ffi"
+description = "UniFFI surface of the almondbread Rust core for the Swift UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "almondbread_ffi"
+
+[dependencies]
+almondbread-core.workspace = true
+uniffi.workspace = true
+thiserror = "2"
+
+[lints]
+workspace = true

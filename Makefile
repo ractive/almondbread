@@ -6,27 +6,27 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim render selftest bench clean
+.PHONY: run build project app ios-sim render selftest bench clean rust rust-check core-check
 
 ## swift run, release (the macOS app without an Xcode project)
-run:
+run: rust
 	swift run -c release AlmondbreadMac
 
-build:
+build: rust
 	swift build -c release
 
 project: project.yml
 	xcodegen generate --quiet
 
 ## macOS .app via the generated Xcode project (ad-hoc signed)
-app: project
+app: project rust
 	xcodebuild -project Almondbread.xcodeproj -scheme Almondbread -configuration Release -destination 'platform=macOS,arch=arm64' \
 		-derivedDataPath $(DERIVED) -quiet build
 	@echo "$(abspath $(APP))"
 
 ## iOS simulator build. Uses -sdk rather than -destination so it works without an installed
 ## simulator runtime (generic/platform=iOS Simulator needs one).
-ios-sim: project
+ios-sim: project rust
 	xcodebuild -project Almondbread.xcodeproj -target "Almondbread iOS" -sdk iphonesimulator -arch arm64 \
 		-configuration Debug SYMROOT=$(abspath .build/xcode-ios) -quiet build
 	@# The kernels are compiled at runtime from the shipped source: it must be in the bundle.
@@ -49,6 +49,23 @@ selftest: build app
 ## Benchmark set with GPU-vs-CPU verify metrics (kb: synthesis/benchmarks)
 bench: build
 	.build/release/AlmondbreadMac --bench $(ARGS)
+
+## Rust core (crates/): release static libs for macOS arm64, iOS arm64 and the iOS simulator,
+## Swift bindings (Sources/AlmondbreadCore/Generated) and build/rust/AlmondbreadCoreFFI.xcframework.
+## Incremental; build, app and ios-sim depend on it. kb: platform/rust-swift-ffi
+rust:
+	scripts/build-rust-xcframework.sh
+
+## Rust gates: tests (oracle + property), clippy, rustfmt
+rust-check:
+	cargo test --workspace --release
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo fmt --all --check
+
+## The Rust core through the Swift bindings, checked bit for bit against AlmondbreadMath,
+## plus FFI call overhead
+core-check: rust
+	swift run -c release almondbread-core-check
 
 clean:
 	rm -rf .build Almondbread.xcodeproj

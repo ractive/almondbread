@@ -25,6 +25,8 @@ targets:
     dependencies:
       - package: Almondbread
         product: AlmondbreadKit
+      - package: Almondbread
+        product: AlmondbreadCore   # Rust core via build/rust/AlmondbreadCoreFFI.xcframework (make rust)
     info:
       path: Apps/macOS/Info.plist
       properties:
@@ -46,6 +48,8 @@ targets:
     dependencies:
       - package: Almondbread
         product: AlmondbreadKit
+      - package: Almondbread
+        product: AlmondbreadCore   # Rust core via build/rust/AlmondbreadCoreFFI.xcframework (make rust)
     info:
       path: Apps/iOS/Info.plist
       properties:

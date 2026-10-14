@@ -1,0 +1,47 @@
+# almondbread Rust core (kb: decisions/rust-core).
+#
+#   almondbread-math    arbitrary precision, floatexp, reference orbit, reference selection
+#   almondbread-core    viewport, settings, formulas, CPU oracle (R2+; re-exports math now)
+#   almondbread-render  GPU-backend trait, scheduler, Metal backend (R2; skeleton now)
+#   almondbread-ffi     UniFFI surface for the Swift UI (staticlib in AlmondbreadCore.xcframework)
+#   uniffi-bindgen      the bindings generator binary used by scripts/build-rust-xcframework.sh
+#
+# math and core stay platform-neutral: they must build for Apple, Linux and Windows targets.
+[workspace]
+resolver = "3"
+members = [
+    "crates/almondbread-math",
+    "crates/almondbread-core",
+    "crates/almondbread-render",
+    "crates/almondbread-ffi",
+    "crates/uniffi-bindgen",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+rust-version = "1.91"
+
+[workspace.dependencies]
+almondbread-math = { path = "crates/almondbread-math" }
+almondbread-core = { path = "crates/almondbread-core" }
+uniffi = "0.32"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+# Limb arithmetic indexes several slices in lock-step; iterator rewrites hurt readability.
+needless_range_loop = "allow"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+# panic stays "unwind": UniFFI catches panics at the boundary and raises them as Swift
+# errors; "abort" would take the app down on any precondition failure.
+debug = "line-tables-only"
+
+[profile.bench]
+inherits = "release"

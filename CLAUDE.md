@@ -15,6 +15,16 @@ kernels (float32 only), reference orbits on the CPU.
 - `Apps/macOS`, `Apps/iOS`: thin app entry points for the Xcode project.
 - `project.yml`: XcodeGen spec; `Almondbread.xcodeproj` is generated, never
   edit or commit it.
+- `Sources/AlmondbreadMath/`: Swift arbitrary precision (reference for the Rust
+  port; deleted once the Rust core reaches parity, kb: decisions/rust-core).
+- Rust workspace (`Cargo.toml`, `crates/`, kb: decisions/rust-core):
+  `almondbread-math` (BigFloat, floatexp, reference orbit, reference selection;
+  oracle fixtures in `tests/fixtures`), `almondbread-core` (platform-neutral core),
+  `almondbread-render` (R2 skeleton: backend trait, scheduler, Metal backend),
+  `almondbread-ffi` (UniFFI exports), `uniffi-bindgen`. math and core stay free of
+  platform code. `Sources/AlmondbreadCore/` is the Swift face of the Rust core
+  (`Generated/` is written by `make rust`, never edit it);
+  `Sources/almondbread-core-check/` checks it against AlmondbreadMath.
 
 ## Build
 
@@ -22,6 +32,17 @@ kernels (float32 only), reference orbits on the CPU.
 `make render ARGS="--center re,im --scale s"`. `xcode-select` points at the
 Command Line Tools; the Makefile sets `DEVELOPER_DIR` to Xcode for
 `xcodebuild`. No iOS simulator runtime is installed yet.
+
+Rust: `make rust` builds the release static libs (macOS arm64, iOS arm64, iOS
+simulator), the UniFFI Swift bindings and `build/rust/AlmondbreadCoreFFI.xcframework`
+(incremental; `run`, `build`, `app` and `ios-sim` depend on it; kb:
+platform/rust-swift-ffi). `make rust-check` = `cargo test --workspace --release`,
+`cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`.
+`make core-check` runs the Rust core through the Swift bindings and compares it
+bit for bit with AlmondbreadMath, plus FFI call costs. Orbit benchmark against Swift:
+`cargo run --release -p almondbread-math --example math_check -- bench [bits...]`
+(same output as `swift run -c release almondbread-math-check bench`; `BEST_OF=n`
+for loaded machines); `cargo bench -p almondbread-math` for criterion.
 
 Checks (prefer headless; window tests run in the background, never take focus,
 and quit by themselves):

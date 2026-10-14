@@ -116,3 +116,17 @@ Karatsuba lost to short Comba up to 256 limbs ([[platform/mpfr-gmp-on-apple-sili
 [[synthesis/benchmarks]]). Findings on the ball recurrence and precision rule added to
 [[questions/ball-period-recurrence]] and [[questions/precision-bits-formula]] (both still
 open); Newton/period pitfalls on [[techniques/reference-selection]].
+
+## [2026-10-14] decision | R1: Rust workspace, arithmetic port, UniFFI XCFramework
+
+Implemented R1 of [[decisions/rust-core]]: Cargo workspace (`crates/`: math, core,
+render skeleton, ffi, uniffi-bindgen), the AlmondbreadMath port with all oracle tests
+bit-exact plus rational property tests, `scripts/build-rust-xcframework.sh` (`make
+rust`), `AlmondbreadCoreFFI` binary target and `AlmondbreadCore` Swift module linked by
+the swift-run, macOS and iOS-simulator builds, and `almondbread-core-check` (bit-for-bit
+parity with Swift through the bindings). Measured (M1 Pro, release): reference orbit
+1.05x to 4x the Swift build; kernel findings (const-generic storage, unrolled
+`carrying_add` chains, fused shift in addition, two-column Comba) on
+[[platform/mpfr-gmp-on-apple-silicon]]; FFI call costs and rules on the new
+[[platform/rust-swift-ffi]] with source [[sources/uniffi-user-guide]]; table in
+[[synthesis/benchmarks]]; R1 marked done in [[roadmap]].

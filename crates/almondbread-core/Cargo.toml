@@ -1,0 +1,14 @@
+[package]
+name = "almondbread-core"
+description = "Platform-neutral core of almondbread: viewport, settings, formulas, BLA, CPU oracle (grows in R2+)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+almondbread-math.workspace = true
+
+[lints]
+workspace = true

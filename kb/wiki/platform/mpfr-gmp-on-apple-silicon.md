@@ -142,6 +142,34 @@ BigFloat operators that allocate their result: mul 98 ns and add 102 ns at 128 b
 formatting and parsing 13 µs (128 bits) to 160 µs (4096 bits) (measured 2026-10-14,
 M1 Pro, release). The orbit, period and Newton loops never use them.
 
+## Rust port (R1): what changed in the kernels (measured)
+
+The Rust `almondbread-math` ([[decisions/rust-core]]) keeps the algorithms above
+(short products with exact rounding, Comba, unrolled small sizes, short Comba up to 400
+limbs) and is 1.05x to 4x faster than the Swift build ([[synthesis/benchmarks]]).
+Findings (measured 2026-10-14, M1 Pro, release, rustc 1.99):
+
+- **Const-generic storage instead of generated kernels.** Registers are `[u64; N]` for
+  1...16 limbs, so every loop sees a constant length; LLVM unrolls the 3...8-limb
+  short products itself. Above 8 limbs the product calls a non-inlined loop kernel:
+  unrolled 16-limb products spilled (orbit at 1024 bits fell to 0.8x of Swift).
+- **Carry chains unrolled by four.** A one-limb add loop keeps the carry in a register
+  (`adds`/`cset`) at ~2.5 cycles/limb; four limbs per iteration with
+  `u64::carrying_add` (stable since Rust 1.91) stay in `adcs` flags: 2.5x faster at 32
+  limbs. A two-`overflowing_add` helper compiles to `subs`/`cset`/`csinc` and gets no
+  benefit.
+- **Fused alignment shift in addition.** For an exponent difference below 64 bits the
+  shifted operand is built in one vectorised pass and the sum written straight into
+  the result (two passes instead of four); whole-limb cancellation falls back to the
+  general path. 32-limb add 55 -> 41 ns.
+- **Two-column Comba above 8 limbs.** Columns k and k+1 share the a[i] loads and run
+  two independent 128-bit accumulator pairs: 5 to 20 % faster from 9 to 256 limbs.
+  Generalising to 3, 4 or 6 columns did not help further (4 columns ~5 % at 64+ limbs,
+  worse below); at 256 limbs a product costs ~1.8 cycles, close to the multiplier
+  throughput. The same two accumulators in the unrolled 4...8-limb kernels cost 30 %.
+- `u128` products (`mul` + `umulh`) and `u128` accumulators (`adds` + `adc`) compile to
+  the same instructions as Swift's `multipliedFullWidth` chains.
+
 ## Gaps
 
 - No MPFR M1 benchmark; no published M1 Pro reference-orbit timing for any renderer.

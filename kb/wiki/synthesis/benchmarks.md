@@ -193,6 +193,52 @@ formulations; 8 nuclei (periods 3...8007, depths to 6e-300) within 1 bit of mpma
 Reference selection: period 8007 nucleus at 192 bits in 20 ms, period 250 at 2048
 bits in 7 ms ([[techniques/reference-selection]]).
 
+## R1: Rust core vs Swift AlmondbreadMath, 2026-10-14
+
+Same machine, same session, interleaved runs (Swift `almondbread-math-check bench`, Rust
+`cargo run --release -p almondbread-math --example math_check -- bench`, identical
+workload: C inside the main cardioid with all mantissa bits populated, float32 and
+floatexp output written). Best of 3 interleaved rounds (1024 and 4096 bits: best of 4)
+while another agent's builds loaded the machine (load 5 to 38), so absolute values
+are below the quiet-machine M3a table; the ratios are what counts
+(measured 2026-10-14, M1 Pro, release, Swift `-Ounchecked`, Rust LTO fat, rustc 1.99):
+
+| bits | Swift 3 sqr | Rust 3 sqr | Swift 2 mul | Rust 2 mul | Rust / Swift (best form each) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 12.8 M | 46.7 M | 15.9 M | 65.0 M | 4.1x |
+| 128 | 11.7 M | 25.4 M | 13.4 M | 30.0 M | 2.2x |
+| 192 | 8.5 M | 20.3 M | 11.9 M | 24.8 M | 2.1x |
+| 256 | 8.0 M | 19.1 M | 11.4 M | 27.2 M | 2.4x |
+| 384 | 6.2 M | 8.8 M | 8.3 M | 14.8 M | 1.8x |
+| 512 | 5.1 M | 6.4 M | 7.0 M | 11.6 M | 1.7x |
+| 768 | 2.4 M | 3.9 M | 3.6 M | 4.3 M | 1.18x |
+| 1024 | 2.27 M | 2.76 M | 2.54 M | 2.82 M | 1.11x |
+| 2048 | 0.93 M | 0.97 M | 0.89 M | 0.94 M | 1.05x |
+| 4096 | 287 k | 326 k | 242 k | 281 k | 1.14x |
+| 8192 | 72 k | 94 k | 67 k | 80 k | 1.29x |
+| 16384 | 22.4 k | 27.5 k | 19.3 k | 21.9 k | 1.23x |
+
+Acceptance of [[decisions/rust-core]] (Rust >= Swift within noise at every precision)
+met; 2048 bits is the narrowest margin. The kernel changes that got there are on
+[[platform/mpfr-gmp-on-apple-silicon]].
+
+Allocating BigFloat operators (`math_check ops` vs `almondbread-math-check ops`, same
+session): 128 bits mul 55 ns (Swift 101), add 65 ns (104), div 298 ns (594), format
+3 µs (14), parse 1 µs (14); 4096 bits mul 1.75 µs (1.83), div 7.6 µs (8.6), format
+37 µs (170), parse 18 µs (135).
+
+Correctness (`cargo test --workspace`, debug with overflow checks and release): all 17
+ported oracle tests bit-exact on the same fixtures (1500 arithmetic cases, 411 parses,
+400 formats, 7 orbits in both forms, 8 nuclei), plus property tests against exact
+rationals (num-rational): add, sub, mul, square, div, small multiply and compare
+correctly rounded at 64 to 4480 bits (2000 random cases per run, cancellation-heavy
+operands half the time), decimal parse correctly rounded and round-tripping, sqrt within
+1 ulp, and both orbit forms equal to the same iteration written with BigFloat
+operators. A deliberately broken rounding step was caught. `make core-check` matches
+the Rust core through the Swift bindings against AlmondbreadMath bit for bit
+(coordinates, 5 orbits point by point, reference selection). FFI costs:
+[[platform/rust-swift-ffi]].
+
 ## Contradictions
 
 None with sources. Chéritat's "about 2× per iteration" for the derivative test

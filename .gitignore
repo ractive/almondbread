@@ -22,3 +22,9 @@ Apps/*/Info.plist
 
 # Local agent tooling (hyalo init --claude), not part of the project
 .claude/
+
+# Rust core (kb: decisions/rust-core): cargo output, XCFramework and generated UniFFI bindings
+# (`make rust` / scripts/build-rust-xcframework.sh recreate them)
+/target/
+/build/
+/Sources/AlmondbreadCore/Generated/

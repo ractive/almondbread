@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "AlmondbreadKit", targets: ["AlmondbreadKit"]),
         .executable(name: "AlmondbreadMac", targets: ["AlmondbreadMac"]),
         .library(name: "AlmondbreadMath", targets: ["AlmondbreadMath"]),
+        .library(name: "AlmondbreadCore", targets: ["AlmondbreadCore"]),
     ],
     targets: [
         // Shared renderer, model, Metal kernels and SwiftUI views (macOS, iOS, iPadOS).
@@ -40,6 +41,26 @@ let package = Package(
         .executableTarget(
             name: "almondbread-math-check",
             dependencies: ["AlmondbreadMath"],
+            swiftSettings: [
+                .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
+            ]
+        ),
+        // Rust core (crates/, kb decisions/rust-core): static libs for macOS arm64, iOS arm64 and
+        // the iOS simulator, built by `make rust` (scripts/build-rust-xcframework.sh).
+        .binaryTarget(
+            name: "AlmondbreadCoreFFI",
+            path: "build/rust/AlmondbreadCoreFFI.xcframework"
+        ),
+        // Swift face of the Rust core: UniFFI bindings (Generated/, written by `make rust`) plus
+        // thin helpers. kb platform/rust-swift-ffi.
+        .target(
+            name: "AlmondbreadCore",
+            dependencies: ["AlmondbreadCoreFFI"]
+        ),
+        // `swift run -c release almondbread-core-check`: Rust core vs AlmondbreadMath, FFI cost.
+        .executableTarget(
+            name: "almondbread-core-check",
+            dependencies: ["AlmondbreadCore", "AlmondbreadMath"],
             swiftSettings: [
                 .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
             ]

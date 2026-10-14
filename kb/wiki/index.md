@@ -50,6 +50,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/thall-extended-precision]] — Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, expanding a SIGGRAPH 2006 poster. (digested)
 - [[sources/ultrafractal-perturbation-calculations]] — A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal program) on how its perturbation mode works and how to tune it. (digested)
 - [[sources/ultrafractal-perturbation-equations]] — The Ultra Fractal formula-writer's guide to deriving a perturbed formula and adding it to a user formula, using Mandelbrot as the worked example. (digested)
+- [[sources/uniffi-user-guide]] — Mozilla's guide to UniFFI: proc-macro interfaces, objects/records/errors, library-mode bindgen, Swift output and XCFramework packaging (skimmed)
 - [[sources/very-plotter-readme]] — The short README of Phil Thompson's GitHub repository `visualize-primes`, which hosts Very Plotter, a browser (JavaScript) Mandelbrot explorer... (digested)
 - [[sources/wikibooks-fraktaler-3]] — Wikibooks page (part of Adam Majewski's "Fractals" book) about Fraktaler 3: usage notes and examples, including the metadata found in Fraktaler 3... (unread)
 - [[sources/wikibooks-mandelbrot-interior]] — Wikibooks chapter (Adam Majewski's "Fractals" book) on the interior of the Mandelbrot set: how to detect interior points and how to colour them. (unread)
@@ -113,13 +114,14 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/gpu-watchdog-and-chunking]] — ~5 s per-command-buffer watchdog, resumable per-pixel state, compaction, chunk scheduler
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
-- [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured
+- [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
+- [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy), FFI rules
 
 ## Decisions
 
 - [[decisions/app-stack]] — Swift + SwiftUI/AppKit + Metal compute, CPU arbitrary-precision reference orbits (accepted)
 - [[decisions/arbitrary-precision]] — own multi-limb Swift arithmetic instead of LGPL GMP/MPFR, for iOS (accepted; built, beats GMP mpf to 1024 bits)
-- [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted)
+- [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted; R1 done: Rust maths 1.05x to 4x the Swift orbit speed)
 - [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls (accepted)
 
 ## Questions
