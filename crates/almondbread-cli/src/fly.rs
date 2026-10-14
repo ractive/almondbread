@@ -369,14 +369,21 @@ fn open_sink(out: &str, size: (usize, usize), fps: f64, o: &Options) -> Result<S
     }
 }
 
+/// A video frame and, for a still, where to save it as PNG.
+type Frame = (Arc<Vec<u8>>, Option<String>);
+
 /// The encoder thread: frames in order, written to ffmpeg's stdin or as PNGs.
 type WriterResult = std::result::Result<usize, String>;
 
-fn spawn_writer(mut sink: Sink, size: (usize, usize)) -> (SyncSender<Arc<Vec<u8>>>, JoinHandle<WriterResult>) {
-    let (tx, rx) = sync_channel::<Arc<Vec<u8>>>(24);
+fn spawn_writer(mut sink: Sink, size: (usize, usize)) -> (SyncSender<Frame>, JoinHandle<WriterResult>) {
+    let (tx, rx) = sync_channel::<Frame>(24);
     let handle = std::thread::spawn(move || -> WriterResult {
         let mut n = 0;
-        for frame in rx {
+        for (frame, still) in rx {
+            // Stills are encoded here, off the render loop (PNG encoding took ~60 ms).
+            if let Some(path) = still {
+                write_png_bgra(&path, &frame, size.0, size.1).map_err(|e| format!("{path}: {e}"))?;
+            }
             match &mut sink {
                 Sink::Ffmpeg(child) => {
                     let stdin = child.stdin.as_mut().ok_or("ffmpeg stdin")?;
@@ -452,15 +459,10 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let refreshes = (duration * hz).round() as usize;
     let interval = 1.0 / hz;
     let (tx, writer) = spawn_writer(open_sink(&out, size, fps, o)?, size);
-    let mut log = String::from("refresh,t,presented,preview,render_w,render_h,zoom,late_ms\n");
+    let mut log = String::from("refresh,t,presented,preview,render_w,render_h,zoom,late_ms,frame_cpu_ms\n");
     let mut pointer = (0.0, 0.0);
     let bytes = size.0 * size.1 * 4;
-    let still = |k: usize, frame: &[u8]| -> Result<()> {
-        if stills.contains(&k) {
-            write_png_bgra(format!("{stills_dir}/frame_{k:05}.png"), frame, size.0, size.1)?;
-        }
-        Ok(())
-    };
+    let still = |k: usize| stills.contains(&k).then(|| format!("{stills_dir}/frame_{k:05}.png"));
 
     if converged {
         // Same camera path (the navigator stepped at the same virtual refresh times), each
@@ -475,8 +477,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             r.navigator.advance(&mut r.viewport, now);
             if k % per_video == 0 {
                 let res = r.render_offscreen(size.0, size.1, false)?;
-                still(video, &res.pixels)?;
-                tx.send(Arc::new(res.pixels))?;
+                tx.send((Arc::new(res.pixels), still(video)))?;
                 video += 1;
                 if video % 60 == 0 {
                     eprintln!("fly: converged frame {video}");
@@ -532,8 +533,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
                 backend.read_shared_texture(&ring[slot], size.0, size.1, TextureFormat::Bgra8Unorm, &mut px);
                 *last_image = (serial, Arc::new(px));
             }
-            still(k, &last_image.1)?;
-            tx.send(Arc::clone(&last_image.1))?;
+            tx.send((Arc::clone(&last_image.1), still(k)))?;
             queue.pop_front();
         }
         Ok(())
@@ -560,7 +560,9 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             flush(&r, &mut queue, &mut last_image, true)?;
         }
         let target = ring[next_slot].clone();
+        let cpu0 = r.clock();
         let outcome = r.render_frame(now, size.0, size.1, 1.0, &mut |_| Some((target.clone(), None)));
+        let frame_cpu = r.clock() - cpu0;
         if r.navigator.last_interaction != before || r.navigator.is_moving() {
             last_input_t = t;
             final_after = None;
@@ -580,13 +582,14 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         }
         let st = &r.stats;
         log.push_str(&format!(
-            "{k},{t:.4},{},{},{},{},{:.6e},{:.2}\n",
+            "{k},{t:.4},{},{},{},{},{:.6e},{:.2},{:.3}\n",
             u8::from(outcome.presented),
             u8::from(st.is_preview),
             st.render_size.0,
             st.render_size.1,
             r.viewport.zoom(),
-            (-wait).max(0.0) * 1000.0
+            (-wait).max(0.0) * 1000.0,
+            frame_cpu * 1000.0
         ));
         flush(&r, &mut queue, &mut last_image, false)?;
     }

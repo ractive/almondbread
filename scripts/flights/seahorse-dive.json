@@ -1,7 +1,8 @@
 {
+ "_about": "Home to seahorse valley: Space held from 0.6 s (zoom at the centre), E at 6 s, released at 12 s near 1e9; then refinement and AA.",
  "size": "1920x1080",
  "fps": 60,
- "duration": 20,
+ "duration": 16,
  "start": {
   "re": "-0.743643887037151",
   "im": "0.13182590420533",
@@ -18,11 +19,7 @@
    "key": "faster"
   },
   {
-   "at": 9.0,
-   "key": "faster"
-  },
-  {
-   "at": 15.5,
+   "at": 12.0,
    "key": "zoom",
    "down": false
   }

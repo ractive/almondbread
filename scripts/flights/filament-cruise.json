@@ -1,0 +1,53 @@
+{
+ "_about": "WASD cruise along a filament of spirals at zoom 1e6 (-1.25066 + 0.02012i): D, then D+W, D, a short Space zoom while cruising, D+S, release.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 18,
+ "start": {
+  "re": "-1.25066",
+  "im": "0.02012",
+  "zoom": 1000000.0
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "key": "d",
+   "down": true
+  },
+  {
+   "at": 4.0,
+   "key": "w",
+   "down": true
+  },
+  {
+   "at": 5.5,
+   "key": "w",
+   "down": false
+  },
+  {
+   "at": 8.0,
+   "key": "zoom",
+   "down": true
+  },
+  {
+   "at": 9.5,
+   "key": "zoom",
+   "down": false
+  },
+  {
+   "at": 11.0,
+   "key": "s",
+   "down": true
+  },
+  {
+   "at": 12.5,
+   "key": "s",
+   "down": false
+  },
+  {
+   "at": 14.0,
+   "key": "d",
+   "down": false
+  }
+ ]
+}

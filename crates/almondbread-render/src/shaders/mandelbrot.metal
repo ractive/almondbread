@@ -509,12 +509,13 @@ static inline float3 paletteColor(float2 it, float deTexels, constant ColorParam
 
 static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel) {
-    // Unresolved is not interior: the interior colour lifted slightly towards a neutral grey
-    // (linear 3%, about 0.18 in sRGB over black), the same in every view so stepping the
-    // limit does not recolour it. Most such pixels are slow-converging interior near
-    // parabolic points (unprovable in reasonable time), the rest slow exterior that an
-    // extension pass may still resolve.
-    if (it.x == ITER_UNRESOLVED) return mix(c.interior.rgb, float3(0.5f), 0.03f);
+    // Unresolved (past the nominal limit, neither escaped nor proven interior): drawn in the
+    // outline colour lifted by 0.5 % towards grey. They hug the boundary (slow exterior near
+    // minibrots and parabolic points, which extension passes may still resolve), so they read
+    // as boundary; FL: M2's 3 % grey lift showed as flat grey halos around minibrots in
+    // gesture frames, which get no extension passes. The same in every view, so stepping the
+    // limit does not recolour it.
+    if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.5f), 0.005f);
     if (it.x < 0.0f) return c.interior.rgb;
     float dense;
     float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense);
