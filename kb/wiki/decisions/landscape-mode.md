@@ -169,3 +169,106 @@ unresolved slow interior near minibrots (cost and correctness); smoothed-ground
 clearance against tall plateaus (camera-height policy when a 0.8 S mesa approaches);
 the derivative under perturbation/BLA in float32 with an exponent; and keeping the
 whole stack of rings consistent while the reference orbit changes.
+
+## L1: real-time prototype (as built)
+
+Code: `prototypes/landscape-rt/` (own Cargo workspace; README there). Measured 2026-10-14,
+M1 Pro, release, 1280×800 pt window (2560×1600 px) on the 120 Hz panel, background test window.
+
+**Stack: Metal on objc2-metal + winit, not wgpu.** This is the app's own stack
+([[platform/render-architecture]]): the same MSL dialect, so the DE kernel is a cut-down copy
+of the app's `iterate` kernel, and the same crates were already in the cargo cache. It gives
+direct `CAMetalLayer` control (drawable count, `presentedTime` for pacing measurements),
+memoryless MSAA and depth targets on the tile GPU, and no shader translation layer. wgpu would
+only have bought portability, which a prototype does not need.
+
+**Why L0 jittered (verified in its code).** Each frame of `landscape dive` built a new
+`Terrain` anchored at that frame's ground point and scale. The sample grid `c0 + i·2^L·S`
+moved with the camera and S, so every frame resampled the DE field at new points (aliasing
+shimmer). The camera height also came from five samples that moved with it. L0's dive video
+measures mean |f(t) − f(t−1)| 17.5 and |f(t) − 2f(t−1) + f(t−2)| 29.3 (0..255 luma, 480×270):
+the second difference is larger than the first, which is noise, not motion.
+
+**Design.**
+- *Camera-independent samples*: level ℓ samples sit at `origin + (i, j)·2^ℓ` (absolute
+  levels, f64 offsets from a fixed origin). A sample, once computed, never changes. Hover test:
+  frame difference 0.000.
+- *Clipmap data*: 11 levels × 1024² toroidal R16F `log2(DE/spacing)` (−128 = lake), 2 MB per
+  level. A 16×16-tile meta texel holds (birth time, tag); the tag encodes level and wrap
+  cycle, so a stale texel is never read. New tiles fade in over 0.3 s. Storing log2 matters:
+  an f16 clamp of DE/spacing at 65000 made square terraces, one per level, over plateaus.
+- *Geometry clipmap* (Losasso–Hoppe, (unverified) reference; our own implementation): rings of
+  448² vertices at 2 samples spacing, origins snapped to 32·K samples so nested holes align
+  with 16×16-quad blocks. Blocks are instanced and frustum-culled on the CPU (2–3.6 k blocks).
+  Vertex heights are geomorphed to the coarser ring's triangle surface by an L∞ distance α,
+  and towards it wherever data is missing or fading. Crack-free by construction.
+- *DE on the GPU*: float32 perturbation against an f64 Newton nucleus reference (periodic, so
+  rebasing at the end wraps), Zhuoran rebasing ([[techniques/rebasing]]), derivative interior
+  test ([[techniques/interior-detection]]), maxIter 20 000. **dz/dc needs a power-of-two
+  exponent**: near the set it overflows float32, inf − inf gives NaN, and NaN became DE = 2^60
+  (needles at the horizon). After the fix, `landscape-rt check` (GPU vs CPU f64, 1000–4000
+  random samples per level) finds no DE error above a factor 2 among samples with
+  DE > spacing/64 at 1e-3, 1e-6 (elephant) and 1e-12 down to a spacing of 2.8e-14. Below that
+  the f64 oracle itself runs out of bits (|c| ≈ 0.74). Lake mismatches are 0–0.4 %.
+  **Depth limit: S ≥ 1e-12.**
+- *Resumable tiles*: one batch of 16 tiles with slow pixels took 10 ms, which caused most of
+  the missed refreshes. Now each sample gets at most 1500 iterations per frame, and its state
+  (48 B) waits in a pool for the next frame. The tag is written only when all 256 samples are
+  done. Resumed tiles get at most half of the budget; otherwise slow minibrot tiles starve new
+  ones. Budget 2.5 GPU-ms per frame, with a fast-rise / slow-decay cost estimate.
+- *Priority*: fallback error `spacing / distance`, tiles ahead before behind.
+
+**Flight model** (all in units of S): W/S throttle (cruise speed 0.08–8 S/s, persists),
+A/D turn with banking, ↑/↓ look, Space/Shift dive/climb, F autopilot. Every input is eased
+(first order, τ 0.2–0.6 s). The altitude follows the cubic-B-spline-smoothed ground (CPU f64
+DE at S/3, looking up to 1.8 s ahead) through a critically damped spring (ω = 2.2 /s), with a
+hard floor at 0.3 S above the less smoothed ground. **A dive zooms towards an aim point**: the
+view centre's ground point, moved up to 3 S down the DE gradient (snapped to the nearest
+coast). The altitude stays the same in units of S, so the descent has no spring lag. A
+straight-down dive (L0's plan) loses the set: DE/S grows by e per e-fold, and in the first L1
+tour the camera ended over featureless plateau (DE/S ≈ 2000).
+
+**"Melting" (user feedback) and the layered σ.** With σ = 0.1·S (L0), a mesa (k·DE/σ ≈ 40)
+changes its absolute height by about 73 % per e-fold of S, and the strata keyed by DE/S slide
+with it. Measured by a pop check (each frame's camera rendered with the previous and the
+current world state, mean |diff| 0..255, 1080p):
+
+| flight | σ = 0.1 S (continuous) | layered σ (2 octaves, riser 0.5) |
+| --- | --- | --- |
+| level cruise, constant S | 0.0001 p50 / 0.09 max | 0.0002 / 0.08 |
+| dive (5 octaves in 8 s) | 2.9 p50 / 5.0 max, in every frame | 0.6–1.0 p50 (detail fading in), 6.2–6.6 max in risers |
+
+So level flight is static in both modes; LOD and fade changes are negligible
+(< 0.1 % of pixels change by > 8/255). The melting is σ(S) alone. Layered σ keeps σ fixed
+within each layer of 2 octaves of S. Mesas then stay rigid and grow as you approach (a real
+zoom). σ changes over the second half of each layer as a smooth function of S: driven by S,
+not by time, so hovering mid-transition is static and climbing reverses it. A mist closes in
+(fog distance × (1 − 0.8·sin πx)), and the strata are keyed by DE/σ.
+Trade-off: the morph is concentrated, 2–3× faster per frame than the continuous one while it
+lasts, and a big mesa visibly sinks within about 0.8 s of full-speed dive. Riser 0.3 / 1 or
+3 octaves measured max 7.2–8.7, so 2 octaves with riser 0.5 is the gentlest. Alternatives
+not taken: a fixed σ (linear world, horizon walls, L0); σ per tile or per level (a
+different surface per LOD, which is seams or distance-driven morphing); σ by distance from
+the camera (melts as you approach, in every direction). `--sigma-mode continuous` keeps the
+old behaviour for comparison.
+
+**Results.** Frame pacing at 120 Hz in [[synthesis/benchmarks]] (L1): 117.9–119.6 fps
+presented, 0.2–1.8 % refreshes missed, render 3.5–4.4 ms p50 / ≤ 9 ms p99, DE ≤ 3 ms p99.
+Review videos 1080p60 in `review/landscape/` (gitignored): `l1-tour.mp4` (35 s, 1e-3 → 9e-8),
+`l1-dive.mp4`, `l1-dive-continuous-sigma.mp4` (before/after of the melting fix),
+`l1-turns.mp4`, `melt-continuous-vs-layers.png`.
+
+**Still weak (honest).**
+- Detail arrives late in dives. Each octave of dive needs a new level of 4 k tiles, about
+  1.3 octaves/s at full dive. With 2048² data the visible backlog (tiles within ±60° and
+  2 fog distances) was 15 k tiles p50 in the dive script; with 1024² it is 0.4 k p50 and
+  5.9 k p95. That is why 1024² is the default, at half the data resolution (normal detail
+  ~3–6 px).
+- The DE tile budget competes with the render: misses come from GPU frames over 8.3 ms
+  (render p99 7–9 ms at 2560×1600 with 4× MSAA, plus DE). Other GPU users (a running app
+  test, video in a browser) push it to 110–115 fps.
+- Plateaus far from the boundary are featureless (smooth DE) and fill the view when the camera
+  skims a mesa top during a dive. The look has no colour detail from the iteration count.
+- Faceted geometry at distance (vertex spacing 2 samples) and normal detail fading by the
+  pixel footprint. No shadows, AO or water reflections (out of scope for L1).
+- The autopilot zig-zags along the coast (side flips); it is a demo aid, not tuned.

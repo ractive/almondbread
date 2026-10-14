@@ -616,3 +616,37 @@ limit with the interior test switched off), the same with and without BLA. Metal
 scenarios. Under the session's GPU load fps varied run to run (neck zoom 43.7–57.0, space
 zoom 43.7–47.0, 1e5 zoom 52.4–58.7) with `ALMONDBREAD_BLA=0` and `auto` interleaved and
 indistinguishable; shown vs fresh ≤ 0.001 % in every scenario; FFI 4.3–6.2 µs per frame.
+
+## L1: real-time landscape prototype, 2026-10-14
+
+`prototypes/landscape-rt`, M1 Pro, release. Window: `fly --script NAME --background`, a
+1280×800 pt (2560×1600 px) window on the 120 Hz panel, behind other windows, App Nap off;
+pacing from `presentedTime`. Default configuration: 1024² × 11 levels, K = 2, 4× MSAA, DE
+budget 2.5 GPU-ms per frame, chunk 1500, maxIter 20 000. Final round with no other GPU-heavy
+process running:
+
+| script | fps presented | missed refreshes | frame interval p95 / p99 ms | GPU render p50 / p99 ms | GPU DE p50 / p99 ms | CPU frame p50 / p99 ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| hover (6 s) | 119.3 | 4 | — | 5.0 / 7.0 | — | — |
+| cruise (12 s, S-turns) | 119.4 | 7 | 9.6 / 11.3 | 4.4 / 7.2 | 0.8 / 2.0 | 0.5 / 2.8 |
+| turns (8 s, full turns) | 119.6 | 3 | 9.7 / 10.6 | 4.3 / 7.4 | 0.8 / 2.3 | 0.4 / 2.4 |
+| dive (12.5 s, 1e-3 → 7.5e-7) | 117.9 | 26 | 9.8 / 14.4 | 4.0 / 9.2 | 1.0 / 2.6 | 0.3 / 2.2 |
+| tour (35 s, 1e-3 → 8.6e-8) | 118.4 | 54 | 12.1 / 14.5 | 3.5 / 6.8 | 1.4 / 2.9 | 0.6 / 2.5 |
+
+History of the misses: with non-resumable DE tiles, single 16–90-tile batches took 7–12 ms
+(slow pixels to maxIter); tour 117.7–119.1 fps, DE p99 6.5–8 ms. With resumable tiles, DE p99
+is ≤ 3 ms. Runs while another agent's `AlmondbreadMac --interaction-test` and a browser video
+were using the GPU: 109–115 fps, with render p95 10–15 ms even when hovering (static scene),
+so those are external.
+
+Offscreen recorder (`record`, 1920×1080, 60 fps, budget = live × 2): render 3.0–3.6 ms p50,
+DE 2.4–3.1 ms p50. Visible DE backlog (missing tiles within ±60° and 2 fog distances) in the
+dive script: 2048² data 15 k p50 / 32 k p95; 1024² data 0.4 k p50 / 5.9 k p95.
+
+Temporal stability. Pop check: same camera, previous vs new world, mean |diff| 0..255:
+level flight 0.0002 p50 / 0.08 max. Dive with σ = 0.1 S: 2.9 p50 every frame. Layered σ:
+0.6–1.0 p50 and 6.2 max in transitions ([[decisions/landscape-mode]] L1). Hover frame
+difference 0.000. L0's dive video (640×360 at 30 fps): first difference 17.5, second 29.3
+(second > first: per-frame noise). L1's videos have second/first ≈ 1.45–1.57 at 60 fps,
+dominated by fast low-altitude motion over fine texture, with no spike frames. The pop check
+is the meaningful number for L1.

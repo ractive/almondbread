@@ -283,3 +283,18 @@ linear at ε = 2⁻²⁴, and a lookup costs several steps. AT does not apply th
 forecast from the table enables it per view (`auto`), which happens from about 1e−20/px
 (2.4×; 47× at 1e−24). Default renders bit-identical to before. Pages:
 [[techniques/bla]] (As built), [[synthesis/benchmarks]] M4, [[roadmap]].
+
+## [2026-10-14] decision | L1: real-time landscape prototype
+
+Built milestone L1 ([[roadmap]]) in `prototypes/landscape-rt/`: Metal (objc2-metal) +
+winit, geometry clipmap over camera-independent DE samples per absolute level (tagged
+toroidal tiles, fade-in, geomorph to the coarser ring), float32 perturbation DE on the GPU
+with resumable 16×16 tiles, an eased flight model in units of S with dives towards a
+coast-snapped aim point, a background 120 Hz test window and an offscreen 1080p60
+recorder with frame-difference and same-camera pop checks. Found: L0's jitter came from its
+camera-anchored sample grid. dz/dc overflows float32 near the set (NaN became needles):
+carry an exponent. A tile with slow pixels can stall a frame by 10 ms: resume tiles across
+frames. Straight-down dives lose the set: zoom towards an aim point. The "melting" the user
+saw while diving is σ = 0.1 S: fixed with a σ that is constant within layers of 2 octaves and
+changes in S-driven transitions inside a mist. 118–120 fps presented at 120 Hz. Results in
+[[decisions/landscape-mode]] L1 and [[synthesis/benchmarks]] L1.

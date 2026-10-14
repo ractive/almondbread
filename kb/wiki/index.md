@@ -144,7 +144,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/app-stack]] — Swift + SwiftUI/AppKit + Metal compute, CPU arbitrary-precision reference orbits (accepted)
 - [[decisions/arbitrary-precision]] — own multi-limb Swift arithmetic instead of LGPL GMP/MPFR, for iOS (accepted; built, beats GMP mpf to 1024 bits)
 - [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted; R1, R2a, R2b done: Rust maths 1.05x to 4x the Swift orbit speed, renderer bit-identical, apps on Rust with interaction parity, Swift renderer and maths deleted)
-- [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; flight recorder with rewind (proposed)
+- [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; L0 stills, L1 real-time prototype (geometry clipmap, layered σ)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/distribution]] — stores and order: Apple first, Steam (+ itch.io) for the game edition, others only with traction (proposed)
 - [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad
@@ -172,4 +172,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
-- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity, M2.5 and FL interaction numbers
+- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity, M2.5 and FL interaction numbers, L1 landscape frame pacing
