@@ -402,6 +402,7 @@ impl Gpu {
                 enc.setVertexTexture_atIndex(Some(&self.data_tex), 0);
                 enc.setVertexTexture_atIndex(Some(&self.meta_tex), 1);
                 enc.setFragmentTexture_atIndex(Some(&self.data_tex), 0);
+                enc.setFragmentTexture_atIndex(Some(&self.meta_tex), 1);
             }
             for r in rings {
                 if r.blocks == 0 {

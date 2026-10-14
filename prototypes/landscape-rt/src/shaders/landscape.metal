@@ -188,6 +188,7 @@ struct VOut {
     float3 world;           // camera-relative, S units (with curvature drop)
     float2 s0;              // level ℓ data-local sample coords
     float2 s1;              // level ℓ+1
+    float2 s2;              // level ℓ+2
     float  w0;              // detail weight of level ℓ (validity · (1 − α))
     float  w1;              // validity of level ℓ+1
 };
@@ -271,7 +272,7 @@ vertex VOut terrainVertex(uint vid                                   [[vertex_id
         VOut o;
         o.world = float3(p, -dot(p, p) * g.eye.w);
         o.pos = g.viewProj * float4(o.world, 1.0f);
-        o.s0 = float2(v); o.s1 = float2(v); o.w0 = 0; o.w1 = 0;
+        o.s0 = float2(v); o.s1 = float2(v); o.s2 = float2(v); o.w0 = 0; o.w1 = 0;
         return o;
     }
     int2 local = int2(int(vid) % (B + 1), int(vid) / (B + 1));
@@ -304,6 +305,7 @@ vertex VOut terrainVertex(uint vid                                   [[vertex_id
     o.world = world;
     o.s0 = float2(rp.lv[0].ringOrigin + v * rp.K);
     o.s1 = float2(rp.lv[1].ringOrigin) + float2(v * rp.K) * 0.5f;
+    o.s2 = float2(rp.lv[2].ringOrigin) + float2(v * rp.K) * 0.25f;
     o.w0 = w0;
     o.w1 = min(va, vb);
     return o;
@@ -359,10 +361,27 @@ static inline float3 tonemap(float3 c, float2 pix) {
     return s + dth / 255.0f;
 }
 
+// Fade-in weight of level k at fragment sample coords s: 0 unless the tile holding the
+// texel is the one the ring wants (tag) — the data texture may hold anything else there.
+static inline float validAt(texture2d_array<float, access::read> metaTex, constant Globals& g,
+                            constant RingParams& rp, int k, float2 s)
+{
+    if (rp.levelBits[k] == 0xFFFFFFFFu) return 0.0f;
+    constant LevelRef& L = rp.lv[k];
+    const int N = int(g.hcurve.w);
+    int2 a = L.dataMod + int2(floor(s));
+    int2 texel = a % N;
+    int2 div = L.dataDiv + a / N;
+    uint tag = rp.levelBits[k] | ((uint(div.x) & TAGMASK) << 8) | (uint(div.y) & TAGMASK);
+    float2 meta = metaTex.read(uint2(texel / 16), L.slot).xy;
+    return (meta.y == float(tag) ? 1.0f : 0.0f) * saturate((g.up.w - meta.x) / g.hcurve.z);
+}
+
 fragment float4 terrainFragment(VOut in                                    [[stage_in]],
                                 constant Globals& g                        [[buffer(0)]],
                                 constant RingParams& rp                    [[buffer(1)]],
-                                texture2d_array<float, access::sample> dataTex [[texture(0)]])
+                                texture2d_array<float, access::sample> dataTex [[texture(0)]],
+                                texture2d_array<float, access::read> metaTex   [[texture(1)]])
 {
     constexpr sampler smp(filter::linear, address::repeat);
     float3 sun = g.sun.xyz;
@@ -372,28 +391,51 @@ fragment float4 terrainFragment(VOut in                                    [[sta
     float3 ng = normalize(cross(dfdx(in.world), dfdy(in.world)));
     if (ng.z < 0.0f) ng = -ng;
 
-    // pixel footprint in level-ℓ samples: fade out detail the pixel cannot resolve
-    float fp = max(length(dfdx(in.s0)), length(dfdy(in.s0)));
-    float w0 = in.w0 * saturate(2.0f - fp);
-    float w1 = in.w1 * saturate(2.0f - 0.5f * fp);
+    // Data weights per level, checked here (not trusted from the vertices): level ℓ by its
+    // validity and (1 − α), then ℓ+1, ℓ+2 by their validity, the rest falls back to the
+    // geometry. Mixing in an invalid level painted ground over lakes in tile-shaped blocks
+    // that flickered as tiles arrived.
+    float al = saturate((max(abs(in.world.x), abs(in.world.y)) - rp.alphaStart) / rp.alphaWidth);
+    float v0 = validAt(metaTex, g, rp, 0, in.s0);
+    float v1 = validAt(metaTex, g, rp, 1, in.s1);
+    float v2 = validAt(metaTex, g, rp, 2, in.s2);
+    float w0 = v0 * (1.0f - al);
+    float rem = 1.0f - w0;
+    float w1 = rem * v1;
+    rem -= w1;
+    float w2 = rem * v2;
+    rem -= w2;
 
     Grad g0 = gradAt(dataTex, smp, g, rp.lv[0], in.s0);
     Grad g1 = gradAt(dataTex, smp, g, rp.lv[1], in.s1);
-    float3 n = normalize(mix(mix(ng, g1.n, w1), g0.n, w0));
-    // DE / S at the fragment (for colour); coarse fallback: the height inverted
-    // log2(DE/S) at the fragment (strata colour) and lake coverage
-    float l1 = g1.de + log2(rp.lv[1].spOverS);
+    Grad g2 = gradAt(dataTex, smp, g, rp.lv[2], in.s2);
+    // normals: also fade out detail the pixel cannot resolve (footprint in samples)
+    float fp = max(length(dfdx(in.s0)), length(dfdy(in.s0)));
+    float f0 = saturate(2.0f - fp), f1 = saturate(2.0f - 0.5f * fp), f2 = saturate(2.0f - 0.25f * fp);
+    float3 nsum = g0.n * (w0 * f0) + g1.n * (w1 * f1) + g2.n * (w2 * f2);
+    float nw = w0 * f0 + w1 * f1 + w2 * f2;
+    float3 n = normalize(nsum + ng * max(1.0f - nw, 0.0f));
+
+    // geometry fallback: lake if the surface sits at lake level; DE from the inverted height
+    float hS = in.world.z + dot(in.world.xy, in.world.xy) * g.eye.w;
+    float lakeGeo = hS < 2e-4f ? 1.0f : 0.0f;
+    float deSgeo = max((exp(hS / g.hcurve.x) - 1.0f) / g.hcurve.y, 1e-12f);
+    float lk0 = smoothstep(-40.0f, -80.0f, g0.de), lk1 = smoothstep(-40.0f, -80.0f, g1.de), lk2 = smoothstep(-40.0f, -80.0f, g2.de);
+    float lake = w0 * lk0 + w1 * lk1 + w2 * lk2 + rem * lakeGeo;
+    // log2(DE/S) over the non-lake part of each level
     float l0 = g0.de + log2(rp.lv[0].spOverS);
-    float lakeV = mix(g1.de, g0.de, in.w0);
-    float log2deS = mix(l1, l0, in.w0);
-    float deS = lakeV > -60.0f ? exp2(log2deS) : 0.0f;
+    float l1 = g1.de + log2(rp.lv[1].spOverS);
+    float l2 = g2.de + log2(rp.lv[2].spOverS);
+    float e0 = w0 * (1.0f - lk0), e1 = w1 * (1.0f - lk1), e2 = w2 * (1.0f - lk2), eg = rem * (1.0f - lakeGeo);
+    float esum = e0 + e1 + e2 + eg;
+    float log2deS = esum > 1e-6f ? (e0 * l0 + e1 * l1 + e2 * l2 + eg * log2(deSgeo)) / esum : -40.0f;
+    float deS = exp2(log2deS);
 
     float3 viewV = in.world - g.eye.xyz;
     float dist = length(viewV);
     float3 vd = viewV / dist;
 
     float3 col;
-    float lake = (in.w0 + in.w1 > 0.0f) ? smoothstep(-40.0f, -80.0f, lakeV) : 0.0f;
     float3 albedoOnly = 0.0f, lightOnly = 0.0f;
     if (g.misc.z == 1.0f) {
         // debug: level / validity colours
@@ -455,6 +497,9 @@ fragment float4 terrainFragment(VOut in                                    [[sta
     }
     // alpha: hilltop mask for measurements (flat ground well above the valleys)
     float hill = (n.z > 0.85f && log2deS - log2(g.hcurve.x) > 1.5f && lake < 0.5f) ? 1.0f : 0.0f;
+    // shade2.z = 1: the measurement mask is the lake (interior) instead of hilltops; the
+    // vertex height says "lake level" independently of the fragment's data blend
+    if (g.shade2.z == 1.0f) hill = (in.world.z + dot(in.world.xy, in.world.xy) * g.eye.w < 1e-4f) ? 1.0f : 0.0f;
     if (g.misc.w == 4.0f) return float4(albedoOnly, hill);          // measurement: colour only
     if (g.misc.w == 5.0f) return float4(lightOnly, hill);           // measurement: lighting only
     float fd = 1.0f - exp(-dist / g.sun.w);

@@ -513,7 +513,12 @@ impl Sim {
                 (lo / self.flight.s) as f32,
                 (hi / self.flight.s) as f32,
             ],
-            shade2: [fade as f32, if self.set.colour == "legacy" { 1.0 } else { 0.0 }, 0.0, 0.0],
+            shade2: [
+                fade as f32,
+                if self.set.colour == "legacy" { 1.0 } else { 0.0 },
+                if std::env::var("LRT_MASK").map(|v| v == "lake").unwrap_or(false) { 1.0 } else { 0.0 },
+                0.0,
+            ],
             misc: [
                 1.0 / self.set.n as f32,
                 // legacy strata: keyed by log2(DE/σ) (the constant keeps the L0 look at σ = 0.1 S)

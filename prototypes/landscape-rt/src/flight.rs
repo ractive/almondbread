@@ -269,6 +269,9 @@ impl Script {
             "turns" => vec![(1.0, i(0.3, 0., 0., 0.)), (2.5, i(0., 1.0, 0., 0.)), (2.5, i(0., -1.0, 0., 0.)), (2.0, i(0., 0., 0., 0.))],
             // camera held still: any frame-to-frame change is shimmer
             "hover" => vec![(6.0, i(0., 0., 0., 0.))],
+            // look steeply down onto the ground (minibrot lakes) and hold still
+            "lakelook" => vec![(2.0, i(0., 0., 0., -1.0)), (4.0, i(0., 0., 0., 0.))],
+            "lakedive" => vec![(1.5, i(0., 0., 0., -1.0)), (8.0, i(0., 0., 1.0, 0.))],
             // coast following: autopilot steering, scripted speed and dives
             "coast" => vec![(3.0, i(0., 0., 0., 0.)), (8.0, i(0., 0., 1.0, 0.)), (4.0, i(0., 0., 0., 0.)), (3.0, i(0., 0., -1.0, 0.))],
             // the review flight: cruise, turns, look around, dive deep, climb, dive again
@@ -287,7 +290,7 @@ impl Script {
             ],
             _ => return None,
         };
-        let start_speed = if name == "hover" { 0.0 } else { 1.0 };
+        let start_speed = if matches!(name, "hover" | "lakelook" | "lakedive") { 0.0 } else { 1.0 };
         let autopilot = matches!(name, "tour" | "coast");
         Some(Script { name: name.into(), segs, start_speed, autopilot })
     }

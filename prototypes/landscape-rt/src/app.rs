@@ -167,6 +167,8 @@ impl App {
         layer.setDevice(Some(&sim.gpu.device));
         layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
         layer.setFramebufferOnly(true);
+        // the shader writes a measurement mask into alpha: never composite with it
+        layer.setOpaque(true);
         layer.setMaximumDrawableCount(3);
         let size = window.inner_size();
         layer.setContentsScale(window.scale_factor());

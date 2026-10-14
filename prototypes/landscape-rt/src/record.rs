@@ -176,11 +176,13 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
         println!("    % pixels diff > 24     p50 {:.4}  p99 {:.4}  max {:.4}  (worst frame {})", stats::pct(&b, 0.5), stats::pct(&b, 0.99), stats::pct(&b, 1.0), worst.1);
         // hilltops only (alpha mask), split by phase while diving
         for (name, sel) in [
-            ("hilltops, level flight", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() < 0.05) as Box<dyn Fn(&(f64, f64, f64, f64, usize)) -> bool>),
-            ("hilltops, diving, rigid phase", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() >= 0.05 && h.0 == 0.0)),
-            ("hilltops, diving, transition", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() >= 0.05 && h.0 > 0.0)),
+            ("masked, level flight", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() < 0.05) as Box<dyn Fn(&(f64, f64, f64, f64, usize)) -> bool>),
+            ("masked, diving, rigid phase", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() >= 0.05 && h.0 == 0.0)),
+            ("masked, diving, transition", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() >= 0.05 && h.0 > 0.0)),
         ] {
             let v: Vec<&(f64, f64, f64, f64, usize)> = hills.iter().filter(|h| sel(h) && h.4 > 2000).collect();
+            let worst = v.iter().map(|h| h.3).fold(0.0, f64::max);
+            let _ = worst;
             let m: Vec<f64> = v.iter().map(|h| h.2).collect();
             let a: Vec<f64> = v.iter().map(|h| h.3).collect();
             println!(
