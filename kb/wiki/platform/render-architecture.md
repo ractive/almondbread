@@ -10,8 +10,9 @@ tags: [rust, metal, gpu, scheduler, chunking, architecture, objc2, interaction]
 
 How the renderer is built in Rust since R2a of [[decisions/rust-core]]: one scheduler
 written against a small GPU backend trait, a Metal backend on objc2-metal, and the
-platform-neutral pieces (viewport, settings, navigation, oracle) in the core crate. The
-Swift renderer (`Sources/AlmondbreadKit/Renderer.swift`) was the reference; the port makes
+platform-neutral pieces (viewport, settings, navigation, oracle) in the core crate; since
+R2b both apps render through it and Swift is UI only. The Swift renderer
+(`Sources/AlmondbreadKit/Renderer.swift`, deleted in R2b) was the reference; the port makes
 the same decisions with the same constants and kernel inputs, so iteration fields are
 bit-identical ([[synthesis/benchmarks]], R2a section). The scheduler's design is the one
 on [[platform/gpu-watchdog-and-chunking]] and [[techniques/frame-reuse-and-progressive]];
@@ -28,11 +29,14 @@ almondbread-core     viewport (Center type, M3b-ready), RenderSettings, palettes
 almondbread-render   backend.rs    GpuBackend / ComputeEncoder / Submission traits
                      gpu_types.rs  #[repr(C)] kernel structs + compile-time layout asserts
                      scheduler.rs  Renderer<B: GpuBackend>: jobs, chunks, colorize, offscreen,
-                                   scripted sessions
+                                   scripted sessions, shown frame vs fresh render
+                     host.rs       Host<B>: the renderer in a view (size, first fit, input,
+                                   one frame per refresh, interaction measurements)
                      shaders/mandelbrot.metal  the MSL kernels (include_str!)
                      metal/        MetalBackend (objc2-metal), MetalLayerSurface (CAMetalLayer)
                                    cfg(target_vendor = "apple"); other targets build without
 almondbread-cli      binary `almondbread`: render, verify (--fields, --history), bench, regress
+almondbread-ffi      Explorer (UniFFI): Host<MetalBackend> + MetalLayerSurface for the Swift UI
 ```
 
 Core stays `forbid(unsafe_code)` and platform-free; all `unsafe` and objc2 code sits in
@@ -122,32 +126,83 @@ counted by `addPresentedHandler` (an atomic, any thread). When `in use` reaches
 `maximumDrawableCount`, `next_drawable` returns None and the refresh skips presentation;
 the queue drains by one instead of blocking. If presentation counts stall for 0.25 s (a
 hidden window may never report), it falls back to the plain acquire. Two frames in flight
-stay. Headless, a layer without a window passes the hosting test; the real check is the
-R2b interaction test (draw CPU p50 near 0.15 ms in neck zoom, frame rate unchanged).
+stay.
 
-## Hosting in the app (R2b)
+**Outcome (R2b, measured 2026-10-14, M1 Pro, 60 Hz display, interleaved runs):** the stall
+is gone. Neck zoom draw CPU p50 Swift 8.6–8.9 ms (it shows in neck zoom every round, and in
+WASD, Space and limit zoom in some), Rust 0.1–1.0 ms, at the same frame rate
+([[synthesis/benchmarks]], R2b). Two corrections to the design were needed:
 
-The Rust side is in place; R2b wires it through the FFI crate:
+- **The strict count is too conservative.** With `in use = acquired − (presented − 1)`
+  every skip was "no drawable" and the test ran at 36–38 fps: the presented callback
+  arrives about a refresh after the drawable reached the glass, which hides the drawable
+  that is already free. `in use = acquired − presented` (the lag cancels the −1) gives
+  54–59 fps; the acquire then waits at most ~1 ms (draw CPU p50 0.8–0.9 ms in neck and
+  limit zoom), never a refresh. (The blocking reference is the Swift renderer's
+  `currentDrawable`, same fps with the 9 ms wait; a blocking-mode run of the Rust surface
+  was occluded and gave no presentation times.)
+- **Gate before encoding, but only gestures.** A gesture frame whose drawable is then
+  missing wastes its GPU work and delays the next one (the first Rust run, strict count
+  and the check only at acquire: neck zoom 38.7 fps, 17.8 GPU ms per encoded frame). So `render_frame_gated(…, target_ready, …)` skips a
+  gesture refresh before encoding when the surface predicts no drawable. Refinement keeps
+  encoding its chunks and only skips presenting; gating it too delayed the final frame by
+  ~50 ms. The view's refined final frame takes the plain acquire (`acquire(final_frame)`),
+  waiting at most about a refresh.
 
-1. **Layer handover, once:** the Swift view creates its `CAMetalLayer` (an `MTKView`'s
-   layer or a plain layer-backed view) and passes the pointer as `u64` to an exported
-   `Engine::new(layer)`; Rust retains it (`MetalLayerSurface::from_raw`), sets device,
-   `BGRA8Unorm`, `framebufferOnly = false`, and owns device, queue, buffers and pipelines.
-   `resize(width_px, height_px, points_per_pixel)` on layout changes.
-2. **Per frame, one call** from the display link: `frame(timestamp) -> { animating }`
-   runs `Navigator::advance`, `render_frame` and presentation; Swift pauses its display
-   link when `animating` is false and resumes it on the next event.
-3. **Events:** decoded platform events cross as the `InputEvent` enum (`KeyDown/KeyUp`
-   of `NavKey`, `Shift`, `FocusLost`, `Resize`, `Pointer`, `Pan`, `WheelZoom`,
-   `Magnify`, `Pinch`, `DoubleTap`). Swift keeps only decoding (key codes, gesture
-   recognisers, coordinates to points from the centre, y up) and calls
-   `input(event) -> handled`; pan speed, zoom target, zoom speed, diagonals and the
-   idle/gesture timing live in `almondbread_core::input`.
-4. **Settings and HUD:** settings as a UniFFI record set on change; `ShownStats` read
-   at ~10 Hz for the HUD (never per input event, [[synthesis/benchmarks]] M2 findings).
+## Hosting in the app (as built, R2b)
 
-Each of these is a handful of scalar calls per frame (3.6 ns each,
-[[platform/rust-swift-ffi]]); nothing per pixel crosses.
+```text
+Swift (AlmondbreadKit)                          Rust (almondbread-ffi Explorer -> render Host)
+FractalNSView / FractalUIView
+  CAMetalLayer, created in Swift  -- address, once -->  MetalLayerSurface::from_raw (retain,
+                                                        device, BGRA8, not framebuffer-only)
+  layout / backing change  -- resize(w pt, h pt, scale) --> contentsScale, drawableSize,
+                                                        Navigator Resize, first fit of home
+  display link (NSView.displayLink /
+  CADisplayLink), proxy target  -- frame(timestamp) -> animating --> pool -> Host::frame:
+                                                        Navigator::advance, render_frame_gated,
+                                                        present; false: Swift pauses the link
+  key monitor, gestures, pointer  -- input(InputEvent) -> {handled, redraw} --> Navigator
+ExplorerModel (@Observable)  -- setSettings(record) on change; stats() at ~10 Hz -->
+```
+
+1. **Layer handover, once.** The platform view creates a plain `CAMetalLayer` (macOS:
+   the view's backing layer via `makeBackingLayer`; iOS: a sublayer) and passes
+   `Unmanaged.passUnretained(layer).toOpaque()` as `u64` to `Explorer(layer:scale:)`. Rust
+   owns device, queue, pipelines, buffers and drawables.
+2. **One call per refresh.** The display link's callback calls `frame(timestamp)`; Rust
+   uses the later of the timestamp and `CACurrentMediaTime()` as "now". macOS reports the
+   last vsync, up to a refresh in the past, and scheduling on it started refinement a
+   refresh late (+15 ms to the final frame). When `frame` returns false the link pauses;
+   any `input` whose result says `redraw`, a settings change or a resize resumes it.
+   Pointer moves and Shift do not.
+3. **Events.** Swift decodes only: key codes and characters to `NavKey` (WASD/arrows,
+   Space, Q/E, +/−, R) through the window-local monitor (inspector focus keeps working,
+   handled keys are swallowed), `FocusLost` on resign-key or first-responder loss,
+   pointer moves through a tracking area (zoom target of Space), scroll/magnify/wheel,
+   double-click, iOS pinch/pan/taps and hardware keys. Positions are points from the view
+   centre, y up. Speeds, zoom target, idle timing and the precision clamp are Rust's.
+4. **Settings and HUD.** `ExplorerModel` mirrors the settings record for SwiftUI bindings
+   and forwards every change (`setSettings`). It reads `stats()` at ~10 Hz while the link
+   runs and once when it stops, assigning only on change (SwiftUI invalidation stays at
+   10 Hz, [[synthesis/benchmarks]] M2 findings).
+5. **Self-test and interaction test** run through the same path: the self-test waits for
+   `stats().settled`, `finishFrames()` (GPU completion), `displayedFrameMismatch()` and
+   writes an offscreen PNG (`renderPng`). The interaction test brackets each scenario with
+   `beginMeasurement`/`endMeasurement`. Presentation times come from the drawables'
+   presented handlers, tagged per drawable, and Swift times the `frame` call to get the
+   FFI overhead.
+
+**Per-frame FFI cost:** Swift-side time of `frame` minus the time Rust measures inside it:
+2–7 µs in the window (incl. Rust's autorelease pool and the presentation-log drain),
+0.2–1 µs on a windowless layer; `input` ~0.9 µs, `stats()` ~6 µs
+([[platform/rust-swift-ffi]]). A frame is one call; nothing per pixel crosses.
+
+**Platform-neutral split.** `Host<B>` holds everything a Windows or Linux UI needs besides
+its own surface: view size and first fit, input forwarding with the redraw decision, the
+frame call with a `target_ready` gate and an `acquire(final_frame)` closure, and
+measurements. A new platform supplies a backend, a surface with a non-blocking readiness
+check and presentation timestamps, and the event decoding.
 
 ## Pitfalls
 
@@ -157,3 +212,14 @@ Each of these is a handful of scalar calls per frame (3.6 ns each,
 - A shared texture read with `getBytes` needs the queue drained first (the backend
   commits and waits on an empty command buffer).
 - `setBytes` is limited to 4 KB; the palette and orbit go in buffers.
+- An occluded window's drawables report no presentation time (`presentedTime` 0), so
+  frame rate and latency cannot be measured behind other windows. The interaction test
+  puts its window, still rearmost and never key, in the bottom-right corner of its screen,
+  where it usually shows some uncovered desktop. It prints a warning when nothing was
+  presented.
+- Ordering a test window back when its content view moves in is too early: SwiftUI shows
+  the window afterwards, in front of the user's windows. `TestLaunch.placeInBackground`
+  orders it back again on the next run-loop turns (measured: z-index 1 before, rearmost
+  after).
+- A separate path argument to the app (`--selftest-png out.png`) makes AppKit treat it as
+  a file to open, and SwiftUI then opens no window. Use `--flag=value`.

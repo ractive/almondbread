@@ -163,8 +163,8 @@ objects are not `Send`, so the FFI crate asserts it for the mutex-guarded state 
 | --- | ---: |
 | `input(.pointer)` (enum and record through a `RustBuffer`, mutex, clock) | 0.9 µs |
 | `stats()` (record with two formatted coordinate strings) | 6.2 µs |
-| `frame()` per call: Swift-side time minus the time Rust measures inside it, in the window | 3–7 µs |
-| the same on a windowless layer (core-check) | 0.3–0.9 µs |
+| `frame()` per call: Swift-side time minus the time Rust measures inside it, in the window (interaction test, 8 scenarios x 9 runs) | 2–7 µs |
+| the same on a windowless layer (core-check; noisy, one outlier of 19 µs under load) | 0.2–1 µs |
 
 At 60–120 Hz the frame call costs < 0.1 % of a refresh; events are a few per refresh;
 `stats()` runs at 10 Hz. The window figure includes Rust's autorelease pool and the

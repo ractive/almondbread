@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Independent oracle for AlmondbreadMath tests.
+"""Independent oracle for the almondbread-math tests (tests/oracle.rs).
 
-Writes JSON fixtures into ../Fixtures. Arithmetic, parsing, formatting and the reference orbit
+Writes JSON fixtures into ../fixtures. Arithmetic, parsing, formatting and the reference orbit
 use exact Python integers/fractions with an explicit round-to-nearest-even step, so the
 expected results are bit-exact. Nuclei use mpmath (Newton at higher precision).
 
@@ -19,7 +19,7 @@ import sys
 from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "..", "Fixtures")
+OUT = os.path.join(HERE, "..", "fixtures")
 rng = random.Random(20261014)
 
 

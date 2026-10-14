@@ -7,6 +7,8 @@
 //!   admission, live lists, K adaptation, gesture previews with dynamic resolution and
 //!   bilinear upscale, refinement, unresolved-pixel extension passes, adaptive interior
 //!   test, stats ring, cancellation), written once against the trait.
+//! - [`host`]: [`Host`], the renderer hosted in an interactive view (size, input, one
+//!   frame per refresh, interaction measurements); platform UIs wrap it.
 //! - [`gpu_types`]: `#[repr(C)]` mirrors of the kernel structs with layout assertions.
 //! - `metal` (Apple targets only): the Metal backend on objc2-metal and the
 //!   `CAMetalLayer` surface. The MSL kernels live in `src/shaders/`.
@@ -18,12 +20,15 @@ pub use almondbread_core as core;
 
 pub mod backend;
 pub mod gpu_types;
+pub mod host;
 pub mod scheduler;
 
 #[cfg(target_vendor = "apple")]
 pub mod metal;
 
 pub use backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
+pub use host::{Host, InputOutcome, InteractionReport};
 pub use scheduler::{
-    FrameOutcome, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats, SimulationResult,
+    FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
+    SimulationResult,
 };

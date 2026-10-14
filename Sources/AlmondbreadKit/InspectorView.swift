@@ -1,9 +1,9 @@
+import AlmondbreadCore
 import SwiftUI
 
 /// Settings side panel (a sheet on iPhone, where `.inspector` falls back to one).
 struct InspectorView: View {
-    @Bindable var model: FractalModel
-    let renderer: Renderer
+    @Bindable var model: ExplorerModel
 
     var body: some View {
         Form {
@@ -26,7 +26,7 @@ struct InspectorView: View {
         Section {
             Toggle("Automatic", isOn: $model.autoIterations)
             if model.autoIterations {
-                LabeledContent("Current", value: model.shownMaxIterations.formatted())
+                LabeledContent("Current", value: (model.stats?.maxIterations ?? 0).formatted())
             } else {
                 // Log scale: useful values span three orders of magnitude.
                 Slider(value: logBinding(intBinding($model.manualIterations), range: 100...10_000_000), in: 0...1) {
@@ -52,7 +52,7 @@ struct InspectorView: View {
     private var colourSection: some View {
         Section {
             Picker("Palette", selection: $model.paletteID) {
-                ForEach(Palette.all) { p in
+                ForEach(ExplorerModel.palettes, id: \.id) { p in
                     HStack {
                         PaletteSwatch(palette: p).frame(width: 64, height: 12)
                         Text(p.name)
@@ -126,13 +126,14 @@ struct InspectorView: View {
 
     private var viewSection: some View {
         Section {
-            coordinateRow("Re", model.shownViewport.centerRe)
-            coordinateRow("Im", model.shownViewport.centerIm)
+            let v = model.stats?.shown
+            coordinateRow("Re", v?.re ?? "")
+            coordinateRow("Im", v?.im ?? "")
             LabeledContent("Zoom") {
-                Text(Format.zoom(model.shownViewport.zoom)).monospacedDigit()
+                Text(Format.zoom(v?.zoom ?? 1)).monospacedDigit()
             }
             LabeledContent("Scale") {
-                Text(String(format: "%.4g / pt", model.shownViewport.scale)).monospacedDigit()
+                Text(String(format: "%.4g / pt", v?.scale ?? 0)).monospacedDigit()
             }
             HStack {
                 Button {
@@ -155,9 +156,9 @@ struct InspectorView: View {
         }
     }
 
-    private func coordinateRow(_ label: String, _ value: Double) -> some View {
+    private func coordinateRow(_ label: String, _ value: String) -> some View {
         LabeledContent(label) {
-            Text(String(format: "%.17g", value))
+            Text(value)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .lineLimit(1)
@@ -235,7 +236,7 @@ struct InspectorView: View {
 
 /// The palette's gradient as a small horizontal bar.
 struct PaletteSwatch: View {
-    let palette: Palette
+    let palette: PaletteInfo
 
     var body: some View {
         RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -244,16 +245,16 @@ struct PaletteSwatch: View {
     }
 }
 
-extension Palette {
+extension PaletteInfo {
     /// One full cycle, closed back to the first stop like the GPU table.
     var swatchGradient: Gradient {
         func color(_ hex: UInt32) -> Color {
             Color(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255)
         }
-        var stops = self.stops.map { Gradient.Stop(color: color($0.1), location: $0.0) }
+        var stops = self.stops.map { Gradient.Stop(color: color($0.rgb), location: $0.position) }
         if let first = self.stops.first {
-            stops.append(Gradient.Stop(color: color(first.1), location: 1))
+            stops.append(Gradient.Stop(color: color(first.rgb), location: 1))
         }
         return Gradient(stops: stops)
     }

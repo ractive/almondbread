@@ -4,7 +4,7 @@
 // Build: clang -O3 -I/opt/homebrew/include gmp_orbit_bench.c -L/opt/homebrew/lib -lgmp -o gmp_orbit_bench
 // Run:   ./gmp_orbit_bench            (prints bits, mpf mul-form it/s, mpf sqr-form it/s, mpn floor it/s)
 //
-// mpf: the same iteration as AlmondbreadMath's ReferenceOrbitComputer (multiplication and
+// mpf: the same iteration as almondbread-math's ReferenceOrbitComputer (multiplication and
 // squaring forms), with mpf_get_d of both parts per iteration for the escape test.
 // mpn floor: 3 mpn_sqr + 6 mpn_add_n per iteration on n-limb operands, i.e. the raw cost of
 // a fixed-point orbit with no rounding, signs or exponent handling (a lower bound, not a

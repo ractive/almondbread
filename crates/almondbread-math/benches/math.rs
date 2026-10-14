@@ -1,14 +1,14 @@
 //! Criterion benchmarks: reference-orbit iterations/s per precision and operator
 //! microbenchmarks. `cargo bench -p almondbread-math [-- <filter>]`.
-//! For the Swift comparison table use the `math_check` example (same workload and output
-//! format as `almondbread-math-check bench`).
+//! For the table in kb synthesis/benchmarks use the `math_check` example (same workload and
+//! output format as the former Swift `almondbread-math-check bench`).
 
 use almondbread_math::*;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use std::time::Duration;
 
-/// A C with all mantissa bits populated inside the main cardioid (as almondbread-math-check).
+/// A C with all mantissa bits populated inside the main cardioid (as the former Swift almondbread-math-check).
 fn bench_point(bits: usize) -> BigComplex {
     let mut re = BigFloat::parse("-0.50000000000000000000123456789012345678901234567890123456789", bits).unwrap();
     let im = BigFloat::parse("0.500000000000000000000987654321098765432109876543210987654321", bits).unwrap();

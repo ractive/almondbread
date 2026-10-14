@@ -1,4 +1,4 @@
-//! User-facing render settings (the Swift `FractalModel` minus the viewport and UI state).
+//! User-facing render settings (everything that affects the image except the viewport).
 
 use crate::palette::Palette;
 use crate::viewport::Viewport;

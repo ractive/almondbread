@@ -103,3 +103,29 @@ scheduler, verification harness, arbitrary-precision library
   events), switch both apps, measure interaction parity (including the drawable-pool
   predictor that replaces the blocking `nextDrawable` wait), delete the Swift renderer and
   AlmondbreadMath.
+
+## Outcome (R2b, 2026-10-14)
+
+- Both apps render through Rust. `almondbread-ffi` exports an `Explorer` per window
+  (layer address once, `resize`, one `frame(timestamp)` per display refresh, `input`
+  with a decoded `InputEvent`, settings as one record, `stats()` at ~10 Hz, viewport,
+  coordinates text, palettes, offscreen PNG, interaction-test measurements); it wraps
+  the platform-neutral `Host<B>` in `almondbread-render`, which a Windows or Linux UI
+  reuses with its own backend and surface ([[platform/render-architecture]],
+  [[platform/rust-swift-ffi]]).
+- Swift is UI only: SwiftUI views, `ExplorerModel` (settings mirror), the platform views
+  (CAMetalLayer, display link, event decoding), self-test and interaction test. All
+  motion policy is the core `Navigator`.
+- Deleted: the Swift renderer and its helpers (Renderer, GPUTypes, Offscreen,
+  CPUReference, BenchmarkLocations, KeyControls, Palettes, ReferenceOrbit,
+  FractalModel), the Swift kernel copy (`Mandelbrot.metalsrc`), AlmondbreadMath,
+  `almondbread-math-check`, the Swift oracle tests (fixtures were already in
+  `crates/almondbread-math`; the generator moved there) and the Swift CLI commands
+  (`--render/--verify/--bench`, now `almondbread render|verify|bench|regress`).
+  `make core-check` is a slim bridge check.
+- Acceptance met: interaction frame rate, interval and latency at parity or better in all
+  eight scenarios, the 9.4 ms drawable stall gone, shown frames identical to fresh
+  renders; final refined frames 10–25 ms later in some scenarios for the same GPU work
+  ([[synthesis/benchmarks]], R2b). FFI per frame 2–7 µs.
+- The R2a pool predictor needed two corrections (count `acquired − presented`; gate only
+  gesture frames before encoding), see [[platform/render-architecture]].

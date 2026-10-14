@@ -15,26 +15,26 @@ unless a section says otherwise.
 
 ## Tools
 
-- `AlmondbreadMac --bench [--sizes WxH,...] [--interior 0|1] [--chunk-ms N] [--out dir]`
-  renders the fixed set below at 3456×2234 and 1600×1000 (best of 2 after a
-  warm-up), then GPU-vs-CPU verifies each location at 400×259. `--out` writes PNGs,
-  diff heatmaps and raw `.iter` dumps (n, smooth offset per pixel).
-- `AlmondbreadMac --verify --center re,im --scale s --size WxH --iterations N`:
-  one GPU render vs the CPU oracle (Double, direct iteration from z = 0, no
-  perturbation, `concurrentPerform` over rows; same grid, bailout 2¹⁶ and smooth
-  formula). `--fields a.iter --against b.iter` diffs two dumps, e.g. before/after
-  a renderer change.
-- `AlmondbreadMac --interaction-test`: opens the real window in the background
-  (1280×820 pt = 2560×1640 px), drives pans, zooms and keys through the view's own
-  input paths once per display refresh, and logs frame pacing and latency.
-- `make selftest`: the swift-run app and the Xcode .app each render one frame
-  through the real view and must print `renderer OK`.
+Since R2b the headless tools are the Rust CLI (`target/release/almondbread`, `make
+rust-cli`); the Swift `AlmondbreadMac --bench/--verify/--render` that older sections used
+are deleted, and the CLI prints the same lines, so tables compare 1:1.
 
-Metrics: *escape-n differs* = both exterior, integer escape iteration differs;
-*class mismatch* = interior/exterior disagree (split by direction);
-`|Δmu|` = smooth-count error over pixels exterior in both; *px-iter* = Σ n over
-pixels with interior counted at maxIter (the work without interior detection);
-*done-iter* = iterations the GPU actually ran (chunk counters).
+- `almondbread bench [--sizes WxH,...] [--interior 0|1] [--chunk-ms N] [--out dir]`
+  (`make bench`) renders the fixed set below at 3456×2234 and 1600×1000 (best of 2 after
+  a warm-up), then GPU-vs-CPU verifies each location at 400×259. `--out` writes PNGs,
+  diff heatmaps and raw `.iter` dumps (n, smooth offset per pixel).
+- `almondbread verify --center re,im --scale s --size WxH --iterations N`:
+  one GPU render vs the CPU oracle (f64, direct iteration from z = 0, no perturbation,
+  rayon over rows; same grid, bailout 2¹⁶ and smooth formula). `--fields a.iter
+  --against b.iter` diffs two dumps, e.g. before/after a renderer change.
+- `AlmondbreadMac --interaction-test` (`make interaction-test`): opens the real window in
+  the background (1280×820 pt = 2560×1640 px; since R2b in the bottom-right corner of its
+  screen, still rearmost, so presentation is measurable), drives pans, zooms and keys
+  through the view's own input paths once per display refresh, and logs frame pacing,
+  latency, draw CPU and the per-frame FFI overhead.
+- `make selftest`: the swift-run app and the Xcode .app each render their first view
+  through the real view and the Rust renderer, check it against a fresh render, write a
+  PNG and must print `renderer OK (Rust)`.
 
 ## Benchmark set
 
@@ -366,4 +366,58 @@ test.
 9.5 ms (60 Hz display) is blocking in `currentDrawable` (8.9 ms), not CPU work;
 frames-in-flight 1 removes it but costs frame rate on heavy views. Analysis and the Rust
 design answer on [[platform/render-architecture]]. Interaction parity of the Rust renderer
-is measured in R2b, when the app hosts it.
+is measured in R2b, when the app hosts it (section below).
+
+## R2b: the apps on the Rust renderer, interaction parity, 2026-10-14
+
+`--interaction-test`, Swift renderer (HEAD de0aa8e built in a worktree, test window placed
+like the Rust build's) vs Rust renderer through the `Explorer` FFI, three interleaved
+rounds each, all with the window partly visible (60 Hz display, 2560×1640 px, M1 Pro,
+release). Medians of the three rounds; draw CPU p50 with its range:
+
+| scenario | fps Swift / Rust | interval p95 ms | latency p50 ms | latency p95 ms | draw CPU p50 ms (range) | draw CPU p95 ms | skipped |
+|---|---|---|---|---|---|---|---|
+| home pan | 58.7 / 58.3 | 16.7 / 16.7 | 49.4 / 49.4 | 49.5 / 49.4 | 0.10 (0.09–0.11) / 0.09 (0.08–0.72) | 0.19 / 0.13 | 0 / 0 |
+| neck zoom | 58.7 / 59.0 | 16.7 / 16.7 | 65.1 / 65.2 | 65.4 / 65.4 | 8.61 (0.11–8.73) / 0.91 (0.84–1.04) | 9.50 / 1.20 | 0 / 0 |
+| wasd 1e5 | 53.7 / 53.7 | 16.7 / 16.7 | 40.6 / 32.8 | 41.6 / 32.8 | 0.09 / 0.07 | 0.16 / 0.11 | 0 / 0 |
+| space zoom (+E) | 55.3 / 56.0 | 16.7 / 16.7 | 40.6 / 32.8 | 57.3 / 49.5 | 0.17 / 0.14 | 8.89 / 1.09 | 8 / 7 |
+| home zoom | 58.7 / 59.0 | 16.7 / 16.7 | 49.4 / 49.3 | 49.5 / 49.4 | 0.09 / 0.08 | 0.17 / 0.13 | 0 / 0 |
+| 1e5 pan | 58.7 / 59.0 | 16.7 / 16.7 | 49.4 / 49.4 | 49.5 / 49.4 | 0.08 / 0.08 | 0.14 / 0.11 | 0 / 0 |
+| 1e5 zoom | 58.7 / 59.0 | 16.7 / 16.7 | 49.4 / 49.3 | 49.5 / 49.4 | 0.09 / 0.08 | 0.17 / 0.13 | 0 / 0 |
+| zoom into the precision limit | 58.7 / 58.3 | 16.7 / 16.7 | 49.4 / 65.3 | 49.5 / 65.5 | 0.07 / 0.82 | 0.18 / 1.09 | 0 / 0 |
+
+Full-resolution final frame after input stopped (ms, three rounds): neck Swift 341 / 392 /
+341, Rust 399 / 416 / 416; 1e5 pan 209–226 vs 233–250; home pan and zoom 192 vs 200;
+WASD 200–217 vs 200–217; Space 466–483 vs 450–483; limit 359–376 vs 366. Shown frame vs
+fresh render: 0.000–0.001 % class mismatch in all 48 checks; WASD centre moved 0.851,
+0.424 view widths with no keys held after release (identical to Swift); the precision
+clamp holds with centre drift 0.
+
+Findings:
+
+- **Frame rate, interval and latency at parity or better.** Key-driven scenarios gain a
+  refresh of latency in Rust (WASD and Space p50 32.8 vs 40.6 ms): draw→glass is a
+  refresh shorter, input→draw a half refresh longer (the view's display link runs before
+  the test's in each refresh). Limit zoom lost a refresh of latency in this set (65.3 vs
+  49.4 ms), where the acquire waits ~0.8 ms; an earlier set measured 49.4 ms for both.
+- **The 9.4 ms drawable stall is gone** (draw CPU p50 8.6–8.9 ms → 0.8–1.0 ms in neck
+  zoom, p95 ≤ 1.2 ms everywhere vs up to 9.5 ms). Two corrections to the R2a design were
+  needed (strict pool count 36–38 fps; gate refinement → final frame +50 ms), see
+  [[platform/render-architecture]].
+- **Final frame is 10–25 ms later** in some scenarios (the neck at 400–416 ms vs Swift's
+  bimodal 341/392). The refinement is chunk-for-chunk the same work (neck: 1.12e11 vs
+  1.13e11 iterations, 2862 vs 2835 GPU ms over the scenario, same K sequence); two
+  scheduling fixes closed most of the initial 50 ms (`frame` uses the current media time,
+  not the last-vsync timestamp, +15 ms; the final frame may wait for a drawable).
+- **Seahorse interior-switch skew of R2a does not appear in the app.** Traces of "1e5
+  zoom" and "neck zoom": both renderers choose the 0.25 preview floor for every gesture
+  frame, with the same median chunk rate (1.32e10 vs 1.36e10 iterations/s at the seahorse,
+  3.70e10 vs 3.66e10 at the neck). The R2a difference (Swift's small previews at ~8e9 it/s
+  in a headless 120 Hz session at 1280×820) came from the headless driver, not from the
+  renderers' decisions. The GPU-ms-per-frame column differs (neck 9.6 vs 11.4) only by
+  attribution: chunks counted inside the measuring window.
+- **FFI cost of the frame call** (Swift-side minus inside-Rust time): 2–7 µs per frame in
+  the window. `input()` 0.9 µs, `stats()` 6 µs ([[platform/rust-swift-ffi]]).
+- **Occluded test windows measure nothing.** With the window fully covered, presented
+  handlers report no times for either renderer (12 such rounds discarded). The test now
+  places its rearmost window in the screen corner and warns when nothing was presented.

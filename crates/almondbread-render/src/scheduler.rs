@@ -289,7 +289,24 @@ pub struct FrameStats {
     pub preview_frames: usize,
     /// Refreshes that encoded nothing (frames in flight, or no drawable without blocking).
     pub skipped: usize,
+    /// ... of which with `max_frames_in_flight` colorize passes still on the GPU,
+    pub skipped_in_flight: usize,
+    /// ... and with no target available without blocking.
+    pub skipped_no_target: usize,
     pub chunk_gpu: f64,
+    /// GPU seconds of the colorize passes that completed while measuring.
+    pub colorize_gpu: f64,
+}
+
+/// The shown frame against a fresh offscreen render of the same texel grid
+/// ([`Renderer::displayed_frame_mismatch`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FrameMismatch {
+    /// Pixels whose class (escaped / interior) differs; unresolved pixels are not counted.
+    pub pixels: usize,
+    pub percent: f64,
+    pub width: usize,
+    pub height: usize,
 }
 
 /// Result of one display refresh.
@@ -398,6 +415,8 @@ pub struct Renderer<B: GpuBackend> {
     last_frame_commit: f64,
     /// When the last fully refined, full-resolution frame was committed, and its size.
     pub last_final_frame: (f64, String),
+    /// Colorize submissions that failed on the GPU (a drawable left unpainted).
+    pub failed_frames: usize,
     interior_stats: Option<InteriorStats>,
     pinned_iterations: Option<(Viewport, usize)>,
     epoch: Instant,
@@ -463,6 +482,7 @@ impl<B: GpuBackend> Renderer<B> {
             frames_in_flight: Vec::new(),
             last_frame_commit: 0.0,
             last_final_frame: (0.0, String::new()),
+            failed_frames: 0,
             interior_stats: None,
             pinned_iterations: None,
             epoch: Instant::now(),
@@ -507,15 +527,32 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// One display refresh: integrate held keys, harvest, start or keep the job, encode
     /// chunks, colorize into the target `acquire` returns (with the drawable to present, if
-    /// any). `acquire` is called only when a frame will be committed; returning None (no
-    /// drawable available without blocking) skips presentation this refresh.
+    /// any). `acquire(final_frame)` is called only when a frame will be committed;
+    /// returning None (no drawable available without blocking) skips presentation this
+    /// refresh. `final_frame` marks the view's refined frame, which a surface may wait for.
     pub fn render_frame(
         &mut self,
         now: f64,
         width: usize,
         height: usize,
         points_per_pixel: f64,
-        acquire: &mut dyn FnMut() -> Option<FrameTarget<B>>,
+        acquire: &mut dyn FnMut(bool) -> Option<FrameTarget<B>>,
+    ) -> FrameOutcome {
+        self.render_frame_gated(now, width, height, points_per_pixel, true, acquire)
+    }
+
+    /// [`Renderer::render_frame`] for a surface that can tell in advance whether a target is
+    /// available without blocking: with `target_ready` false during a gesture the refresh is
+    /// skipped before any GPU work is encoded (a gesture frame that cannot be shown would
+    /// only delay the next one), like a refresh with too many frames in flight.
+    pub fn render_frame_gated(
+        &mut self,
+        now: f64,
+        width: usize,
+        height: usize,
+        points_per_pixel: f64,
+        target_ready: bool,
+        acquire: &mut dyn FnMut(bool) -> Option<FrameTarget<B>>,
     ) -> FrameOutcome {
         let keep_going = self.navigator.advance(&mut self.viewport, now);
         let mut outcome = FrameOutcome {
@@ -529,14 +566,35 @@ impl<B: GpuBackend> Renderer<B> {
 
         // Never block on the GPU: with frames still queued, skip this refresh (the next one
         // picks up the latest input). Safety: a drawable never shown might never complete.
-        self.frames_in_flight
-            .retain(|s| s.status() == SubmissionStatus::Pending);
+        let (failed, frame_stats) = (&mut self.failed_frames, &mut self.frame_stats);
+        self.frames_in_flight.retain(|s| match s.status() {
+            SubmissionStatus::Pending => true,
+            SubmissionStatus::Completed => {
+                if let Some(fs) = frame_stats.as_mut() {
+                    fs.colorize_gpu += s.gpu_time();
+                }
+                false
+            }
+            SubmissionStatus::Failed(_) => {
+                *failed += 1;
+                false
+            }
+        });
         if !self.frames_in_flight.is_empty() && now - self.last_frame_commit > 0.25 {
             self.frames_in_flight.clear();
         }
-        if self.frames_in_flight.len() >= self.config.max_frames_in_flight {
+        let busy = self.frames_in_flight.len() >= self.config.max_frames_in_flight;
+        // Without a target, a gesture frame is pointless work; refinement keeps encoding its
+        // chunks (presentation is skipped at acquire), or the final frame would arrive
+        // several refreshes later (measured: neck zoom +50 ms).
+        if busy || (!target_ready && interacting) {
             if let Some(fs) = &mut self.frame_stats {
                 fs.skipped += 1;
+                if busy {
+                    fs.skipped_in_flight += 1;
+                } else {
+                    fs.skipped_no_target += 1;
+                }
             }
             outcome.animating = true;
             return outcome;
@@ -595,7 +653,10 @@ impl<B: GpuBackend> Renderer<B> {
             || !self.has_presented
             || job.levels[0].complete
             || now - job.start > 0.15;
-        if present && let Some((target, drawable)) = acquire() {
+        // The refined frame (first presentation of a complete, non-gesture job) may wait for
+        // a target; every other frame takes one only if it is free (see `render_frame`).
+        let final_frame = !job.interactive && job.complete() && !job.complete_presented;
+        if present && let Some((target, drawable)) = acquire(final_frame) {
             if let Ok(mut enc) = self.encode_colorize(&target) {
                 if let Some(d) = &drawable {
                     enc.present(d);
@@ -628,6 +689,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
         } else if present && let Some(fs) = &mut self.frame_stats {
             fs.skipped += 1;
+            fs.skipped_no_target += 1;
         }
         self.publish_stats();
         let job = self.job.as_ref().expect("job");
@@ -1403,6 +1465,26 @@ impl<B: GpuBackend> Renderer<B> {
         )
     }
 
+    /// Waits for the colorize passes in flight and returns how many frames failed on the
+    /// GPU so far (self-tests: a committed frame is not yet a drawn one).
+    pub fn finish_frames(&mut self) -> usize {
+        for f in std::mem::take(&mut self.frames_in_flight) {
+            f.wait();
+            if let SubmissionStatus::Failed(e) = f.status() {
+                eprintln!("almondbread: frame failed on the GPU: {e}");
+                self.failed_frames += 1;
+            }
+        }
+        self.failed_frames
+    }
+
+    /// The current view's refined frame has been presented and nothing is left to iterate.
+    pub fn is_settled(&self) -> bool {
+        self.job
+            .as_ref()
+            .is_some_and(|j| j.final_presented && !j.interactive && j.key.viewport == self.viewport)
+    }
+
     fn drain_in_flight(&mut self) {
         if let Some(r) = self.in_flight.back() {
             r.submission.wait();
@@ -1534,7 +1616,7 @@ impl<B: GpuBackend> Renderer<B> {
         let refresh = |r: &mut Self, tick: &mut f64, frames: &mut usize| {
             let now = r.clock();
             let t = target.clone();
-            r.render_frame(now, width, height, points_per_pixel, &mut || Some((t.clone(), None)));
+            r.render_frame(now, width, height, points_per_pixel, &mut |_| Some((t.clone(), None)));
             *frames += 1;
             *tick += interval;
             let left = *tick - r.clock();
@@ -1594,6 +1676,48 @@ impl<B: GpuBackend> Renderer<B> {
             unresolved,
             reference_length: shown.params.ref_len as usize,
             iterations,
+        })
+    }
+}
+
+impl<B: GpuBackend + Clone> Renderer<B> {
+    /// Diffs the iteration texels of the level the view shows against a fresh offscreen
+    /// render (a new renderer on the same device, so no shared state) of the same texel grid,
+    /// view and limit: pixels whose class (escaped / interior) differs. Unresolved pixels on
+    /// either side are not counted. For interaction tests: stale, unfinished or misclassified
+    /// pixels of the live pipeline show up here (kb: techniques/interior-detection, Pitfalls).
+    /// None while a gesture or preview frame is shown.
+    pub fn displayed_frame_mismatch(&mut self) -> Option<FrameMismatch> {
+        let job = self.job.as_ref()?;
+        if job.interactive {
+            return None;
+        }
+        let shown = &job.levels[job.display()];
+        if shown.preview {
+            return None;
+        }
+        let set = shown.set.clone();
+        let scale = job.key.viewport.scale * job.key.points_per_pixel / shown.ratio;
+        let center = job.key.viewport.center.clone();
+        let (max_iter, interior) = (job.key.max_iter, job.key.interior);
+        let mine = self.read_iterations(&set).ok()?;
+        let mut fresh = Renderer::new(self.backend.clone()).ok()?;
+        fresh.viewport = Viewport { center, scale };
+        fresh.settings.auto_iterations = false;
+        fresh.settings.manual_iterations = max_iter;
+        fresh.settings.max_iterations_cap = self.settings.max_iterations_cap.max(max_iter);
+        fresh.settings.interior_detection = interior;
+        let theirs = fresh.render_offscreen(set.width, set.height, true).ok()?.iterations?;
+        let differ = mine
+            .iter()
+            .zip(&theirs)
+            .filter(|(a, b)| a[0] != ITER_UNRESOLVED && b[0] != ITER_UNRESOLVED && (a[0] < 0.0) != (b[0] < 0.0))
+            .count();
+        Some(FrameMismatch {
+            pixels: differ,
+            percent: 100.0 * differ as f64 / mine.len().max(1) as f64,
+            width: set.width,
+            height: set.height,
         })
     }
 }

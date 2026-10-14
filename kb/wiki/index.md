@@ -125,14 +125,14 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
-- [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, R2b hosting API, the drawable-wait finding (9.4 ms neck-zoom draw CPU)
-- [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy), FFI rules
+- [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) and the pool-predictor fix
+- [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy, frame call 2–7 µs), the Explorer interface (R2b), FFI rules
 
 ## Decisions
 
 - [[decisions/app-stack]] — Swift + SwiftUI/AppKit + Metal compute, CPU arbitrary-precision reference orbits (accepted)
 - [[decisions/arbitrary-precision]] — own multi-limb Swift arithmetic instead of LGPL GMP/MPFR, for iOS (accepted; built, beats GMP mpf to 1024 bits)
-- [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted; R1 done: Rust maths 1.05x to 4x the Swift orbit speed)
+- [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted; R1, R2a, R2b done: Rust maths 1.05x to 4x the Swift orbit speed, renderer bit-identical, apps on Rust with interaction parity, Swift renderer and maths deleted)
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; flight recorder with rewind (proposed)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls (accepted)
@@ -159,4 +159,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
-- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP
+- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity

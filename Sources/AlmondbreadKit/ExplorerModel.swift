@@ -1,0 +1,163 @@
+import AlmondbreadCore
+import Foundation
+import Observation
+import simd
+
+/// Supersampling choices of the inspector (samples per axis; the Rust settings carry the factor).
+public enum Supersampling: Int, CaseIterable, Identifiable, Sendable {
+    case off = 1, x4 = 2, x9 = 3
+    public var id: Int { rawValue }
+    public var label: String {
+        switch self {
+        case .off: "Off"
+        case .x4: "4× (2×2)"
+        case .x9: "9× (3×3)"
+        }
+    }
+}
+
+/// Something that runs a display link for the explorer (the platform view).
+@MainActor
+protocol ExplorerHost: AnyObject {
+    /// Resume the display link: the explorer needs frames.
+    func requestFrames()
+}
+
+/// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
+/// to (every change is forwarded, an infrequent control-plane call) and a ~10 Hz snapshot
+/// of the renderer's stats for the HUD and inspector. Rendering, motion and all policy live
+/// in Rust (`Explorer`, kb: platform/render-architecture); nothing here runs per frame.
+@MainActor
+@Observable
+public final class ExplorerModel {
+    // Iterations
+    public var autoIterations = true { didSet { push() } }
+    public var manualIterations = 1000 { didSet { push() } }
+    public var maxIterationsCap = 200_000 { didSet { push() } }
+    public var interiorDetection = true { didSet { push() } }
+
+    // Colouring
+    public var paletteID = "classic" { didSet { push() } }
+    public var colorDensity = 0.02 { didSet { push() } }
+    public var colorOffset = 0.0 { didSet { push() } }
+    public var logColoring = false { didSet { push() } }
+    public var smoothColoring = true { didSet { push() } }
+    /// Linear RGB (what the kernel blends in).
+    public var interiorColor = SIMD3<Float>(0, 0, 0) { didSet { push() } }
+    public var shading = 0.0 { didSet { push() } }
+    public var lightAngle = 45.0 { didSet { push() } }
+    public var outline = 0.0 { didSet { push() } }
+    public var outlineWidth = 1.5 { didSet { push() } }
+
+    // Quality
+    public var supersampling = Supersampling.off { didSet { push() } }
+    public var interactivePreview = true { didSet { push() } }
+
+    /// Renderer stats, refreshed at ~10 Hz while the view animates (views reading these
+    /// re-render at that rate, never per input event: kb synthesis/benchmarks, M2 findings).
+    public private(set) var stats: ExplorerStats?
+    /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
+    public private(set) var zoomSpeedChanged = Date.distantPast
+    /// Why the renderer could not be created, if it could not.
+    public internal(set) var failure: String?
+
+    public static let palettes: [PaletteInfo] = AlmondbreadCore.palettes()
+
+    @ObservationIgnored private(set) var explorer: Explorer?
+    @ObservationIgnored private weak var host: ExplorerHost?
+    @ObservationIgnored private var pulling = false
+
+    public init() {}
+
+    /// Connects the view's explorer; the model takes over Rust's settings.
+    func attach(_ explorer: Explorer, host: ExplorerHost) {
+        self.explorer = explorer
+        self.host = host
+        pull(explorer.settings())
+        refreshStats()
+    }
+
+    // MARK: Settings
+
+    private func pull(_ s: ExplorerSettings) {
+        pulling = true
+        defer { pulling = false }
+        autoIterations = s.autoIterations
+        manualIterations = Int(s.manualIterations)
+        maxIterationsCap = Int(s.maxIterationsCap)
+        interiorDetection = s.interiorDetection
+        paletteID = s.paletteId
+        colorDensity = s.colorDensity
+        colorOffset = s.colorOffset
+        logColoring = s.logColoring
+        smoothColoring = s.smoothColoring
+        interiorColor = SIMD3(s.interiorRed, s.interiorGreen, s.interiorBlue)
+        shading = s.shading
+        lightAngle = s.lightAngle
+        outline = s.outline
+        outlineWidth = s.outlineWidth
+        supersampling = Supersampling(rawValue: Int(s.supersampling)) ?? .off
+        interactivePreview = s.interactivePreview
+    }
+
+    private var settings: ExplorerSettings {
+        ExplorerSettings(
+            autoIterations: autoIterations, manualIterations: UInt64(max(1, manualIterations)),
+            maxIterationsCap: UInt64(max(1, maxIterationsCap)), interiorDetection: interiorDetection,
+            paletteId: paletteID, colorDensity: colorDensity, colorOffset: colorOffset,
+            logColoring: logColoring, smoothColoring: smoothColoring,
+            interiorRed: interiorColor.x, interiorGreen: interiorColor.y, interiorBlue: interiorColor.z,
+            shading: shading, lightAngle: lightAngle, outline: outline, outlineWidth: outlineWidth,
+            supersampling: UInt8(supersampling.rawValue), interactivePreview: interactivePreview)
+    }
+
+    private func push() {
+        guard !pulling, let explorer else { return }
+        do {
+            try explorer.setSettings(settings: settings)
+        } catch {
+            NSLog("Almondbread: settings rejected: \(error)")
+            pull(explorer.settings())
+        }
+        host?.requestFrames()
+    }
+
+    // MARK: Actions (menu commands, inspector buttons)
+
+    /// Sends an event as if it came from the view (menu zoom commands).
+    @discardableResult
+    func send(_ event: InputEvent) -> Bool {
+        guard let explorer else { return false }
+        let r = explorer.input(event: event)
+        if r.redraw { host?.requestFrames() }
+        return r.handled
+    }
+
+    public func zoomIn() { send(.doubleTap(x: 0, y: 0, out: false)) }
+    public func zoomOut() { send(.doubleTap(x: 0, y: 0, out: true)) }
+
+    public func reset() {
+        explorer?.resetViewport()
+        host?.requestFrames()
+    }
+
+    /// Centre and scale for the clipboard, full precision.
+    public var coordinatesText: String { explorer?.coordinatesText() ?? "" }
+
+    // MARK: Stats
+
+    /// Reads the renderer's stats (called by the view at ~10 Hz while animating, and once
+    /// when it stops). Assigns only on change, so idle views do not re-render.
+    func refreshStats() {
+        guard let new = explorer?.stats(), new != stats else { return }
+        if let old = stats, old.zoomSpeed != new.zoomSpeed { zoomSpeedChanged = Date() }
+        stats = new
+    }
+
+    /// Zoom speed as a magnification factor per second, for display.
+    public var zoomFactorPerSecond: Double { exp(stats?.zoomSpeed ?? 1.6) }
+
+    public var palette: PaletteInfo {
+        Self.palettes.first { $0.id == paletteID } ?? Self.palettes[0]
+    }
+}

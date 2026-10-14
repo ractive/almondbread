@@ -5,7 +5,7 @@
 
 mod surface;
 
-pub use surface::MetalLayerSurface;
+pub use surface::{MetalLayerSurface, PresentationLog};
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -382,6 +382,12 @@ impl GpuBackend for MetalBackend {
     }
 }
 
+/// Seconds on the `CACurrentMediaTime` clock (mach absolute time): the clock of display-link
+/// timestamps and `presentedTime`, so hosts and the renderer agree on "now".
+pub fn media_time() -> f64 {
+    objc2_quartz_core::CACurrentMediaTime()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,7 +461,7 @@ mod tests {
                     t,
                 );
             }
-            let out = r.render_frame(t, 320, 200, 0.5, &mut || surface.next_drawable(t));
+            let out = r.render_frame(t, 320, 200, 0.5, &mut |_| surface.next_drawable(t, false));
             presented += usize::from(out.presented);
             if frame > 20 && !out.animating {
                 finished = true;

@@ -39,6 +39,7 @@ name = "almondbread-ffi"
 version = "0.1.0"
 dependencies = [
  "almondbread-core",
+ "almondbread-render",
  "thiserror",
  "uniffi",
 ]

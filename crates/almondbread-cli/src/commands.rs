@@ -1,5 +1,6 @@
-//! The headless commands, generic over the GPU backend. Output lines are the Swift tools'
-//! (`AlmondbreadMac --render / --verify / --bench`), so results diff 1:1.
+//! The headless commands, generic over the GPU backend. Output lines are those of the former
+//! Swift tools (`AlmondbreadMac --render / --verify / --bench`, deleted in R2b), so results
+//! diff 1:1 with older records.
 
 use std::fs;
 use std::time::Instant;

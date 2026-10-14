@@ -184,3 +184,24 @@ write-up; defer Windows/Linux. New source pages: [[sources/fractal-dive-app-stor
 [[sources/revenuecat-subscription-apps-2026]], [[sources/apple-eu-terms-oct-2026]],
 [[sources/maths-town-videos]], [[sources/maths-town-kfmoviemaker-guide]],
 [[sources/mandelbrot-site]], [[sources/hn-mandelbrot-site-thread]].
+
+## [2026-10-14] decision | R2b: apps on the Rust renderer, Swift UI only
+
+Implemented R2b of [[decisions/rust-core]]: `Explorer` UniFFI object over a new
+platform-neutral `Host<B>` (layer address once, one `frame` call per display refresh,
+`input(InputEvent)`, settings record, 10 Hz stats, offscreen PNG, measurements); Swift
+reduced to SwiftUI views, an `ExplorerModel` settings mirror and the platform views
+(CAMetalLayer, display link, event decoding). Deleted the Swift renderer, kernel copy,
+AlmondbreadMath, math-check, Swift tests and Swift CLI commands. Interaction parity measured
+in three interleaved visible rounds against the Swift renderer built from de0aa8e: fps,
+interval and latency equal or better, the 9.4 ms drawable stall gone (0.8–1.0 ms). The
+R2a pool predictor was corrected twice (presented callbacks lag a refresh; gate only
+gesture frames). Final frames 10–25 ms later in some scenarios for the same GPU work. The
+R2a seahorse skew does not appear in the app. FFI 2–7 µs per frame. Pitfalls filed:
+occluded windows give no presentation times, SwiftUI shows the window after the view
+orders it back, a bare path argument suppresses the SwiftUI window. Pages:
+[[platform/render-architecture]], [[platform/rust-swift-ffi]], [[synthesis/benchmarks]] (R2b),
+[[decisions/rust-core]] (R2b outcome), [[roadmap]], [[overview]]; Swift-path notes on
+[[decisions/arbitrary-precision]], [[techniques/reference-orbit-precision]],
+[[techniques/reference-selection]], [[platform/mpfr-gmp-on-apple-silicon]],
+[[platform/metal-compute]].

@@ -1,4 +1,5 @@
-//! Rust twin of `swift run -c release almondbread-math-check`, same workloads and output:
+//! Orbit and operator benchmarks (the workloads and output of the former Swift
+//! `almondbread-math-check`, deleted in R2b, so older records compare 1:1):
 //!
 //!   cargo run --release -p almondbread-math --example math_check -- bench [bits...]
 //!   cargo run --release -p almondbread-math --example math_check -- ops

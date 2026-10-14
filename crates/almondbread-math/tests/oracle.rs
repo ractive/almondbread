@@ -1,7 +1,7 @@
-//! Oracle tests, ported from Tests/AlmondbreadMathTests (OracleTests.swift, LimbTests.swift).
+//! Oracle tests (ported in R1 from the Swift AlmondbreadMath tests, deleted in R2b).
 //!
-//! Fixtures (tests/fixtures, copied from Tests/AlmondbreadMathTests/Fixtures) come from
-//! oracle/generate_fixtures.py: exact Python integer arithmetic with explicit
+//! Fixtures (tests/fixtures) come from
+//! tests/oracle/generate_fixtures.py: exact Python integer arithmetic with explicit
 //! round-to-nearest-even, and mpmath for nuclei. Expected values are bit-exact.
 
 use almondbread_math::*;

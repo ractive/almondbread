@@ -6,8 +6,10 @@
 //! in library mode. Rule: nothing per pixel or per iteration crosses this boundary; bulk
 //! data (orbits) moves as one copy into caller memory.
 //!
-//! R1 skeleton: version, coordinate parse/format, precision rule, reference selection,
-//! reference orbit with cancellation, and a no-op call for measuring the call overhead.
+//! - R1: version, coordinate parse/format, precision rule, reference selection, reference
+//!   orbit with cancellation, and a no-op call for measuring the call overhead.
+//! - R2b: the `Explorer` (explorer.rs, Apple targets): the renderer hosted in the app's
+//!   `CAMetalLayer`, one `frame` call per display refresh; `palettes()`.
 
 use almondbread_core::math::{self, BigComplex, BigFloat, FloatExpComplex};
 use std::sync::Arc;
@@ -15,12 +17,17 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 uniffi::setup_scaffolding!();
 
+#[cfg(target_vendor = "apple")]
+mod explorer;
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {
     #[error("malformed number: {text}")]
     Malformed { text: String },
     #[error("invalid argument: {message}")]
     InvalidArgument { message: String },
+    #[error("GPU: {message}")]
+    Gpu { message: String },
 }
 
 fn invalid(message: impl Into<String>) -> CoreError {
@@ -45,6 +52,38 @@ fn check_bits(bits: u32) -> Result<usize, CoreError> {
 
 fn parse(text: &str, bits: usize) -> Result<BigFloat, CoreError> {
     BigFloat::parse(text, bits).ok_or_else(|| CoreError::Malformed { text: text.to_string() })
+}
+
+/// One colour stop of a palette: position in 0..1, sRGB `0xRRGGBB`.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PaletteStop {
+    pub position: f64,
+    pub rgb: u32,
+}
+
+/// A palette as the inspector lists it (the gradient wraps from the last stop to the first).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PaletteInfo {
+    pub id: String,
+    pub name: String,
+    pub stops: Vec<PaletteStop>,
+}
+
+/// The palettes, in menu order (the first is the default).
+#[uniffi::export]
+pub fn palettes() -> Vec<PaletteInfo> {
+    almondbread_core::palette::Palette::all()
+        .into_iter()
+        .map(|p| PaletteInfo {
+            id: p.id.to_string(),
+            name: p.name.to_string(),
+            stops: p
+                .stops
+                .iter()
+                .map(|&(position, rgb)| PaletteStop { position, rgb })
+                .collect(),
+        })
+        .collect()
 }
 
 /// "almondbread-core <version>".

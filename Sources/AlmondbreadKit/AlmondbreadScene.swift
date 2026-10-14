@@ -25,8 +25,8 @@ public struct AlmondbreadScene: Scene {
 
 // MARK: Focused values: menu commands act on the frontmost window's model.
 
-struct FractalModelKey: FocusedValueKey {
-    typealias Value = FractalModel
+struct ExplorerModelKey: FocusedValueKey {
+    typealias Value = ExplorerModel
 }
 
 struct InspectorVisibleKey: FocusedValueKey {
@@ -34,9 +34,9 @@ struct InspectorVisibleKey: FocusedValueKey {
 }
 
 extension FocusedValues {
-    var fractalModel: FractalModel? {
-        get { self[FractalModelKey.self] }
-        set { self[FractalModelKey.self] = newValue }
+    var explorerModel: ExplorerModel? {
+        get { self[ExplorerModelKey.self] }
+        set { self[ExplorerModelKey.self] = newValue }
     }
     var inspectorVisible: Binding<Bool>? {
         get { self[InspectorVisibleKey.self] }
@@ -58,7 +58,7 @@ enum Clipboard {
 
 #if os(macOS)
 struct FractalCommands: Commands {
-    @FocusedValue(\.fractalModel) private var model
+    @FocusedValue(\.explorerModel) private var model
     @FocusedValue(\.inspectorVisible) private var inspectorVisible
 
     var body: some Commands {
@@ -69,10 +69,10 @@ struct FractalCommands: Commands {
                 .disabled(model == nil)
         }
         CommandGroup(before: .toolbar) {
-            Button("Zoom In") { model?.viewport.zoom(by: 2, aroundOffset: 0, 0) }
+            Button("Zoom In") { model?.zoomIn() }
                 .keyboardShortcut("=", modifiers: .command)
                 .disabled(model == nil)
-            Button("Zoom Out") { model?.viewport.zoom(by: 0.5, aroundOffset: 0, 0) }
+            Button("Zoom Out") { model?.zoomOut() }
                 .keyboardShortcut("-", modifiers: .command)
                 .disabled(model == nil)
             Button("Reset View") { model?.reset() }
@@ -114,8 +114,24 @@ enum TestLaunch {
     }
 
     #if os(macOS)
+    /// Orders the window behind all others. SwiftUI shows the window after its content view
+    /// moved in, which would put it in front of the user's windows: order back again then.
     static func placeInBackground(_ window: NSWindow) {
         guard enabled else { return }
+        window.orderBack(nil)
+        for delay in [0.0, 0.3, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak window] in window?.orderBack(nil) }
+        }
+    }
+
+    /// Window tests that measure presentation need part of the window uncovered (an occluded
+    /// window's drawables report no presentation time): in the bottom-right corner of its
+    /// screen (wholly on it, one refresh rate) and still behind every other window, it
+    /// usually shows wherever the user's windows leave desktop free. Never key, never in front.
+    static func placeAtScreenEdge(_ window: NSWindow) {
+        guard enabled, let screen = window.screen ?? NSScreen.main else { return }
+        let f = screen.visibleFrame
+        window.setFrameOrigin(NSPoint(x: f.maxX - window.frame.width, y: f.minY))
         window.orderBack(nil)
     }
     #endif
