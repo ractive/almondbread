@@ -22,7 +22,8 @@ cargo run --release -- framestats some.mp4 # temporal metrics of any video
 | A / D or ← / → | turn (eased yaw rate, the camera banks) |
 | Space | dive = zoom in towards the aim point (view centre on the ground, snapped to the nearest coast) |
 | Shift | climb = zoom out from it |
-| ↑ / ↓ | look up / down |
+| ↑ / ↓ | dive / climb (stick: push dives, pull climbs) |
+| Page Up / Page Down | look up / down |
 | F | toggle the coast-following autopilot (steers; you keep throttle and dive) |
 | R | restart at the start location |
 | Esc | quit |

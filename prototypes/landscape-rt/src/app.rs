@@ -111,8 +111,10 @@ impl App {
         Input {
             throttle: k(KeyCode::KeyW) - k(KeyCode::KeyS),
             turn: k(KeyCode::KeyA) + k(KeyCode::ArrowLeft) - k(KeyCode::KeyD) - k(KeyCode::ArrowRight),
-            dive: k(KeyCode::Space) - k(KeyCode::ShiftLeft).max(k(KeyCode::ShiftRight)),
-            pitch: k(KeyCode::ArrowUp) - k(KeyCode::ArrowDown),
+            // stick convention: push (↑) dives, pull (↓) climbs
+            dive: (k(KeyCode::Space) + k(KeyCode::ArrowUp)).min(1.0)
+                - k(KeyCode::ShiftLeft).max(k(KeyCode::ShiftRight)).max(k(KeyCode::ArrowDown)),
+            pitch: k(KeyCode::PageUp) - k(KeyCode::PageDown),
         }
     }
 

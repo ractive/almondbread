@@ -219,7 +219,7 @@ the second difference is larger than the first, which is noise, not motion.
 - *Priority*: fallback error `spacing / distance`, tiles ahead before behind.
 
 **Flight model** (all in units of S): W/S throttle (cruise speed 0.08–8 S/s, persists),
-A/D turn with banking, ↑/↓ look, Space/Shift dive/climb, F autopilot. Every input is eased
+A/D turn with banking, Space or ↑ dive, Shift or ↓ climb (stick convention: push dives, pull climbs), Page Up/Down look, F autopilot. Every input is eased
 (first order, τ 0.2–0.6 s). The altitude follows the cubic-B-spline-smoothed ground (CPU f64
 DE at S/3, looking up to 1.8 s ahead) through a critically damped spring (ω = 2.2 /s), with a
 hard floor at 0.3 S above the less smoothed ground. **A dive zooms towards an aim point**: the
