@@ -34,6 +34,8 @@ dependencies = [
  "bytemuck",
  "png",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -19,6 +19,8 @@ pub mod input;
 pub mod locations;
 pub mod oracle;
 pub mod palette;
+pub mod palette_import;
+pub mod palette_library;
 pub mod reference;
 pub mod settings;
 pub mod viewport;

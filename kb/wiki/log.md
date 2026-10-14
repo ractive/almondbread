@@ -367,3 +367,18 @@ Recommendation: local SA in M5 after a float32 kernel check. Pages:
 [[techniques/local-series-approximation]], [[questions/local-sa-float32]]; updated
 [[techniques/guessing-and-subdivision]], [[techniques/series-approximation]],
 [[techniques/anti-aliasing]], [[synthesis/benchmarks]] R3, [[index]].
+
+## [2026-10-15] research | Fractal palettes and the palette library
+
+Research run on fractal palette design (fractalset.com viewer, Ultra Fractal
+gradients and `.ugr`, Fractint `.map`, KF palettes, cosine palettes, open
+perceptual maps and their licences, OKLab interpolation, cyclic maps, density
+mapping, dense regions, CVD safety). Notes saved unchanged under
+`raw/research/fractal-palettes/` (9 files, manifest entries added). Pages:
+[[techniques/palette-design]], [[synthesis/fractal-palettes]], and 12 source
+pages (fractalset-viewer, ultrafractal-gradients-help, fractint-map-format,
+kovesi-good-colour-maps, colorcet, crameri-scientific-colour-maps,
+bids-viridis-colormaps, cmocean, turbo-colormap, cividis-paper,
+quilez-cosine-palettes, ottosson-oklab); [[index]] updated. Built: the
+67-palette library (`almondbread-core` `palette_library`, `palette_import`)
+and `almondbread palettes` contact sheets.

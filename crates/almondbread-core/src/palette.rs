@@ -140,6 +140,8 @@ impl Palette {
         Self::all()
             .into_iter()
             .find(|p| p.id == id)
+            // Palette library and user palettes (kb: techniques/palette-design).
+            .or_else(|| crate::palette_library::find(id).map(|p| p.to_palette()))
             .unwrap_or_else(|| Self::all().swap_remove(0))
     }
 

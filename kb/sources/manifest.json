@@ -1467,6 +1467,159 @@
       "wiki": [
         "synthesis/dense-region-sampling"
       ]
+    },
+    {
+      "path": "research/fractal-palettes/cosine-palettes.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: cosine palettes",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 4284,
+      "sha256": "ca679c35871511eccaf9046e62d32c7b4406d82556d043cf197ea3d6f32f20ee",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/cyclic-and-mapping.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: cyclic and mapping",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 8536,
+      "sha256": "b37e112e34cd13987d3b247de1720f551c4aee2294852fe00271aa618473f758",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/fractalset.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: fractalset",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 5163,
+      "sha256": "39ba778f3a295474eb10aca78a7aab47555aa044f6ee51381aea97d157e6909c",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/fractint-map.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: fractint map",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 5957,
+      "sha256": "da3885bded2363579f63e3bc45b6ea8dc1a07cdc85385cdcc8893d83c5853a3d",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/index.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: index",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 3511,
+      "sha256": "7d13d7e274a269ecc687dae352c42db71a6e44b074676b239f64432badf34c15",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/kalles-fraktaler.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: kalles fraktaler",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 6495,
+      "sha256": "a91f5c3b746bc7d3d3a38917b253d1e1eac89f68c6b99cf1886626c8b459dd1d",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/oklab-interpolation.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: oklab interpolation",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 5634,
+      "sha256": "217e707016dc980c2c9cbbb574c982801be2c2700b125bc8545abbc4d8878175",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/perceptual-maps.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: perceptual maps",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 7880,
+      "sha256": "f49e8d812e514e198a6a61b07265cc76e6b179ee01c0194b448118d21c7609aa",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
+    },
+    {
+      "path": "research/fractal-palettes/ultra-fractal-gradients.md",
+      "method": "manual",
+      "instructions": "Research notes on fractal palette design, written 2026-10-14 by a research agent; kept in the repository, no external copy.",
+      "title": "Palette research notes: ultra fractal gradients",
+      "authors": [
+        "Claude (palette research run)"
+      ],
+      "year": 2026,
+      "size": 7936,
+      "sha256": "f365451271d4a059d449e561f091e62f915e95e7e1204c92b7e530ef1825e613",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/fractal-palettes",
+        "techniques/palette-design"
+      ]
     }
   ]
 }
