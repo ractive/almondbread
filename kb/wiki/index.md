@@ -21,6 +21,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
+- [[sources/beyer-mandelbrot-zoom-sequence]] — Wolfgang Beyer's 15-image Commons zoom into seahorse valley (2005): centre and width of each view, to 6e10 (digested)
 - [[sources/cheritat-mandelbrot-rendering]] — Rendering-techniques page by Arnaud Chéritat, a complex-dynamics mathematician (Toulouse), on "Techniques for computer generated pictures in... (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
 - [[sources/fractal-block-world-steam]] — Steam page and reviews of Fractal Block World: 1,652 reviews, 98% positive, 50k–100k owners; the only fractal game with traction (skimmed)
@@ -62,10 +63,12 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/muency-atom-domain]] — Glossary entry (oldest revision 1996, updated 2023-07-08) defining atom domains (dominant period regions), their computation and their size... (digested)
 - [[sources/muency-bla]] — Glossary entry in Robert Munafo's Mandelbrot Set Glossary and Encyclopedia (first version 2023-06-20, rewritten 2023-07-03, page updated... (digested)
 - [[sources/muency-floatexp]] — Very short glossary entry (2023-06-21) defining the floatexp number format. (digested)
+- [[sources/muency-named-places]] — Mu-Ency feature entries and favourite views with coordinates: valleys, medallions, embedded Julia sets, to 1.5e-27 (digested)
 - [[sources/muency-newton-raphson]] — Glossary entry (written 2010, updated 2023-06-22) on Newton's method and its use to find the nucleus of a mu-atom (hyperbolic component) of known... (digested)
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
 - [[sources/quilez-smooth-iteration]] — Short article by Inigo Quilez deriving the smooth (continuous) iteration count for polynomial fractals of any integer degree `d`, with a GLSL... (digested)
 - [[sources/revenuecat-subscription-apps-2026]] — RevenueCat 2026 benchmarks: hard paywall 10.7% vs freemium 2.1% conversion, 72% annual churn (skimmed)
+- [[sources/robotmoon-mandelbrot-set]] — Robot Moon's illustrated explorer page: named regions with coordinates and spans, deep galleries to 1e-111 (digested)
 - [[sources/schied-2017-svgf]] — Schied et al. 2017 (SVGF): temporal accumulation plus variance-guided à-trous filtering of 1 spp path tracing (digested)
 - [[sources/steam-hardware-survey-sept-2026]] — Steam survey Sept 2026 via GamingOnLinux: Windows 95.03%, Linux 3.05%, macOS 1.92% (skimmed)
 - [[sources/steamworks-leaderboards]] — Steamworks leaderboards: 10k boards per app, 64 detail ints, ghost replays via AttachLeaderboardUGC, Trusted writes need a server (skimmed)
@@ -83,6 +86,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/wikibooks-fraktaler-3]] — Wikibooks page (part of Adam Majewski's "Fractals" book) about Fraktaler 3: usage notes and examples, including the metadata found in Fraktaler 3... (unread)
 - [[sources/wikibooks-mandelbrot-interior]] — Wikibooks chapter (Adam Majewski's "Fractals" book) on the interior of the Mandelbrot set: how to detect interior points and how to colour them. (unread)
 - [[sources/wikibooks-triangle-inequality]] — Wikibooks page on averaging colouring methods, in particular Kerry Mitchell's Triangle Inequality Average (TIA) and the curvature average. (unread)
+- [[sources/wikipedia-misiurewicz-point]] — Wikipedia on Misiurewicz points M(k,n): six examples (tips, branch points, the seahorse spiral, whose label is off by one) (digested)
 - [[sources/wikipedia-plotting-algorithms]] — Encyclopedia survey of classic Mandelbrot rendering: escape time, colouring (histogram, smooth, exponential/cyclic, HSV/LCH), distance estimates,... (digested)
 - [[sources/wikipedia-xaos]] — Encyclopedia article on XaoS, the GPL real-time fractal zoomer by Jan Hubička and Thomas Marsh, mainly notable here for describing the Hubička... (digested)
 - [[sources/xaos-algorithms]] — XaoS algorithms document: frame reuse, line guessing, dynamic resolution, periodicity checking only after guessing (digested)
@@ -185,3 +189,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/dense-region-sampling]] — R3: fewer pixel-iterations in dense boundary regions; per-location numbers, recommendation (local SA in M5, interior-only tile fill), scheduler design, risks
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
+- [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use

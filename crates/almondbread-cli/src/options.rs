@@ -52,6 +52,13 @@ impl Options {
         Ok(o)
     }
 
+    /// A copy with `--key value` set.
+    pub fn with(&self, key: &str, value: &str) -> Options {
+        let mut o = self.clone();
+        o.values.insert(key.to_string(), value.to_string());
+        o
+    }
+
     pub fn get(&self, key: &str) -> Option<&str> {
         self.values.get(key).map(String::as_str)
     }
@@ -87,8 +94,15 @@ impl Options {
     /// Viewport from `--center re,im` (decimal strings of any length: M3b) and `--scale s`
     /// (complex units per pixel, any exponent: `1e-1000`); without a scale, the home view's
     /// 3.0 x 2.5 complex units are fitted into the image. `--location name` takes a benchmark
-    /// location (deep ones included) at this image width.
+    /// location (deep ones included) at this image width; `--place id` a catalogue place
+    /// (kb: synthesis/places), its span fitted to the shorter side.
     pub fn viewport(&self, width: usize, height: usize) -> Result<Viewport> {
+        if let Some(id) = self.get("place") {
+            let Some(p) = almondbread_core::places::place_named(id) else {
+                return err(format!("unknown --place {id} (see `almondbread places`)"));
+            };
+            return Ok(p.viewport(width, height));
+        }
         if let Some(name) = self.get("location") {
             let Some(l) = almondbread_core::locations::location_named(name) else {
                 return err(format!("unknown --location {name}"));
@@ -133,6 +147,18 @@ impl Options {
             s.max_iterations_cap,
             s.interior_detection,
         ) = iteration;
+        // A place brings its recommended look and iteration limit (`--look`, `--iterations`
+        // override them).
+        if let Some(p) = self.get("place").and_then(almondbread_core::places::place_named) {
+            if let Some(look) = almondbread_core::palette::Look::named(p.look) {
+                look.apply(s);
+            }
+            if let Some(n) = p.iterations {
+                s.auto_iterations = false;
+                s.manual_iterations = n;
+                s.max_iterations_cap = s.max_iterations_cap.max(n);
+            }
+        }
         if let Some(l) = self.get("look") {
             match almondbread_core::palette::Look::named(l) {
                 Some(look) => look.apply(s),

@@ -845,6 +845,37 @@ impl Explorer {
         self.lock().host.reset_viewport();
     }
 
+    /// Jumps to a catalogue place (`places()`, kb: synthesis/places): its centre, its span
+    /// fitted to the view's shorter side, its look and iteration limit (automatic unless the
+    /// place sets one). Returns the new settings for the inspector. A frame follows: resume
+    /// the display link.
+    pub fn go_to_place(&self, id: String) -> Result<ExplorerSettings, CoreError> {
+        let place = almondbread_core::places::place_named(&id).ok_or_else(|| invalid(format!("unknown place {id}")))?;
+        let mut g = self.lock();
+        let (w, h) = g.host.view_points();
+        let mut v = Viewport::with_center(place.center(), place.span_scale() / w.min(h).max(1.0));
+        v.scale = v
+            .scale
+            .max(v.min_scale())
+            .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
+        v.ensure_precision();
+        let renderer = &mut g.host.renderer;
+        renderer.viewport = v;
+        let s = &mut renderer.settings;
+        if let Some(look) = almondbread_core::palette::Look::named(place.look) {
+            look.apply(s);
+        }
+        match place.iterations {
+            Some(n) => {
+                s.auto_iterations = false;
+                s.manual_iterations = n;
+                s.max_iterations_cap = s.max_iterations_cap.max(n);
+            }
+            None => s.auto_iterations = true,
+        }
+        Ok(ExplorerSettings::from(&*s))
+    }
+
     /// Centre and scale for the clipboard.
     pub fn coordinates_text(&self) -> String {
         self.lock().host.coordinates_text()

@@ -16,7 +16,9 @@ let package = Package(
         // renderer's CAMetalLayer (macOS, iOS, iPadOS).
         .target(
             name: "AlmondbreadKit",
-            dependencies: ["AlmondbreadCore"]
+            dependencies: ["AlmondbreadCore"],
+            // Places catalogue thumbnails (`almondbread places --render-thumbs`; PlaceThumbnails).
+            resources: [.copy("Resources/Places")]
         ),
         // `swift run AlmondbreadMac`: the macOS app without an Xcode project, for quick iteration.
         .executableTarget(

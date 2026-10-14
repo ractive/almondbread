@@ -404,6 +404,103 @@ pub fn minibrot_size_complex(nucleus: &BigComplex, period: usize) -> DoubleExpCo
 }
 
 // ---------------------------------------------------------------------------------------
+// Newton's method for Misiurewicz points
+
+/// A Misiurewicz point found by [`find_misiurewicz`].
+#[derive(Clone, Debug)]
+pub struct MisiurewiczResult {
+    pub point: BigComplex,
+    pub preperiod: usize,
+    pub period: usize,
+    /// Newton steps taken.
+    pub steps: usize,
+}
+
+/// Solves z_{k+p}(c) = z_k(c) (preperiod k, period p) by Newton's method from `start`: the
+/// tips, branch points and spiral centres of the set (kb: techniques/reference-selection,
+/// Misiurewicz points). Plain Newton on f = z_{k+p} - z_k converges to the nearest root, which
+/// may have a lower preperiod when the start is poor: start within the root's basin (e.g.
+/// from a published 10+ digit approximation). Same stopping rule as [`find_nucleus`]; `None`
+/// if it does not converge in `max_steps`, the derivative vanishes or c leaves
+/// `max_distance`. Slow (BigComplex arithmetic): for catalogues, not per frame.
+pub fn find_misiurewicz(
+    start: &BigComplex,
+    preperiod: usize,
+    period: usize,
+    options: &NewtonOptions,
+) -> Option<MisiurewiczResult> {
+    assert!(period >= 1, "period must be >= 1");
+    let bits = BigFloat::limb_count_for_bits(options.precision_bits.unwrap_or(start.precision_bits())) * 64;
+    let mut c = start.with_precision(bits);
+    let one = BigComplex::from_f64(1.0, 0.0, bits);
+    let mut previous_step_log2 = f64::INFINITY;
+    for step in 1..=options.max_steps {
+        // z_i and dz_i/dc for i = 0 ..= k + p.
+        let mut zs = Vec::with_capacity(preperiod + period + 1);
+        let mut dzs = Vec::with_capacity(preperiod + period + 1);
+        let (mut z, mut dz) = (BigComplex::zero(bits), BigComplex::zero(bits));
+        zs.push(z.clone());
+        dzs.push(dz.clone());
+        for _ in 1..=preperiod + period {
+            // dz <- 2 z dz + 1 (old z), z <- z^2 + c
+            dz = &(&z * &dz).times_power_of_two(1) + &one;
+            z = &z.square() + &c;
+            zs.push(z.clone());
+            dzs.push(dz.clone());
+        }
+        // g = f / prod_{i<k} (z_{i+p} - z_i) with f = z_{k+p} - z_k (lower preperiods divided
+        // out); Newton step g/g' = 1 / (f'/f - sum_i (dz_{i+p} - dz_i) / (z_{i+p} - z_i)).
+        let f = &zs[preperiod + period] - &zs[preperiod];
+        let df = &dzs[preperiod + period] - &dzs[preperiod];
+        if f.re.is_zero() && f.im.is_zero() {
+            return Some(MisiurewiczResult {
+                point: c,
+                preperiod,
+                period,
+                steps: step,
+            });
+        }
+        let mut ratio = &df / &f;
+        for i in 0..preperiod {
+            let h = &zs[i + period] - &zs[i];
+            if h.re.is_zero() && h.im.is_zero() {
+                return None;
+            }
+            let dh = &dzs[i + period] - &dzs[i];
+            ratio = &ratio - &(&dh / &h);
+        }
+        if ratio.re.is_zero() && ratio.im.is_zero() {
+            return None;
+        }
+        let delta = &one / &ratio;
+        c = &c - &delta;
+        let step_log2 = if delta.re.is_zero() && delta.im.is_zero() {
+            f64::NEG_INFINITY
+        } else {
+            delta.re.log2_magnitude().max(delta.im.log2_magnitude())
+        };
+        if let Some(md) = &options.max_distance {
+            let off = &c - start;
+            if off.re.log2_magnitude().max(off.im.log2_magnitude()) > md.log2_magnitude() {
+                return None;
+            }
+        }
+        let c_log2 = c.re.log2_magnitude().max(c.im.log2_magnitude()).max(-(bits as f64));
+        let floor = c_log2 - bits as f64 + 16.0;
+        if step_log2 <= floor || (step_log2 < c_log2 - bits as f64 / 2.0 && step_log2 > previous_step_log2 - 1.0) {
+            return Some(MisiurewiczResult {
+                point: c,
+                preperiod,
+                period,
+                steps: step,
+            });
+        }
+        previous_step_log2 = step_log2;
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------------------
 // Reference selection policy
 
 #[derive(Clone, Debug)]
@@ -469,5 +566,27 @@ pub fn select_reference(
         minibrot_size: Some(size),
         newton_steps: nr.steps,
         detected_period: Some(p),
+    }
+}
+
+#[cfg(test)]
+mod misiurewicz_tests {
+    use super::*;
+
+    #[test]
+    fn misiurewicz_points() {
+        let opts = NewtonOptions {
+            precision_bits: Some(256),
+            ..NewtonOptions::default()
+        };
+        // M_{3,1} on the main antenna: the real root of c^3 + 2c^2 + 2c + 2 = 0 (-1.5436890126920764).
+        let r = find_misiurewicz(&BigComplex::from_f64(-1.54, 0.0, 64), 3, 1, &opts).unwrap();
+        let x = r.point.re.to_f64();
+        assert!((x + 1.543_689_012_692_076_4).abs() < 1e-15, "{x}");
+        assert!((x * x * x + 2.0 * x * x + 2.0 * x + 2.0).abs() < 1e-12);
+        // c = i (preperiod 2, period 2).
+        let r = find_misiurewicz(&BigComplex::from_f64(0.01, 0.99, 64), 2, 2, &opts).unwrap();
+        assert!(r.point.re.log2_magnitude() < -200.0);
+        assert!((r.point.im.to_f64() - 1.0).abs() < 1e-30);
     }
 }
