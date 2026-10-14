@@ -83,15 +83,15 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 ## Techniques
 
-- [[techniques/anti-aliasing]] — uniform jitter and subframe accumulation, gamma-correct resolve, DE coverage, progressive Metal design
+- [[techniques/anti-aliasing]] — uniform jitter and subframe accumulation, gamma-correct resolve, DE coverage; as built (FL): progressive adaptive AA in linear light, capped by the supersampling setting
 - [[techniques/auto-iterations]] — KF's undocumented auto iterations and zoom-out bug, Fraktaler caps, statistics + hysteresis rule (inference)
 - [[techniques/bla]] — mathr's binary-tree BLA: single-step radius variants, merge rule, table build and lookup pseudocode, matrix/abs variants, costs; contradictions on the radius
-- [[techniques/coloring-methods]] — transfer functions, log-potential palette, histogram, phase, slopes/normal maps, TIA/curvature/stripe averages
+- [[techniques/coloring-methods]] — transfer functions, log-potential palette, histogram, phase, slopes/normal maps, TIA/curvature/stripe averages; as built (FL): OKLab palettes, looks, palette anti-aliasing by DE, outline-then-light
 - [[techniques/distance-estimation]] — Milnor exterior DE, Koebe ¼, pixel-scaled dual numbers for float32, DE through skips, AA/boundary tests
 - [[techniques/double-float]] — float-float error-free transforms, costs, Metal reassociation and math-mode pitfalls; repair/shallow mode only
 - [[techniques/exponential-map]] — log-polar strips (9:1, zoom 2 per keyframe), KF/zoomasm/Fraktaler practice, geometry
 - [[techniques/extended-range-floats]] — float32/64 range limits, floatexp, rescaled iterations with full floatexp steps, skip-table exponents, depth→type table
-- [[techniques/frame-reuse-and-progressive]] — XaoS row/column reuse, KF reuse reference and interlacing, reprojection + coarse-to-fine design
+- [[techniques/frame-reuse-and-progressive]] — XaoS row/column reuse, KF reuse reference and interlacing; as built: M2 gesture previews, FL history reprojection with temporal upsampling, per-pixel refinement fade, focus-first tiles
 - [[techniques/glitch-detection]] — Pauldelbrot's |Z+z|² < G|Z|² test and KF multi-reference correction (legacy; keep as debug overlay)
 - [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); tile scheme for all-interior borders only
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
@@ -136,7 +136,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
-- [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) and the pool-predictor fix
+- [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) the pool-predictor fix, and FL's drawable pre-acquisition thread and compose pass
 - [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy, frame call 2–7 µs), the Explorer interface (R2b), FFI rules
 
 ## Decisions
@@ -147,7 +147,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; flight recorder with rewind (proposed)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/distribution]] — stores and order: Apple first, Steam (+ itch.io) for the game edition, others only with traction (proposed)
-- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5)
+- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad
 
 ## Questions
 
@@ -172,4 +172,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
-- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity
+- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity, M2.5 and FL interaction numbers

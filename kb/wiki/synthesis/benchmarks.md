@@ -486,3 +486,63 @@ Findings:
   better in Rust. Likely the drawable-pool prediction of [[platform/render-architecture]]
   (presented callbacks lag a refresh, 8 ms here) is conservative at 120 Hz; not part of
   M2.5, see [[roadmap]] FL.
+
+## FL: feel and look, 2026-10-14
+
+`--interaction-test`, 2560×1640 px window, M1 Pro, release. **60 Hz**: with the external
+60 Hz display attached, the background test window on the 120 Hz panel gets 60
+display-link callbacks per second whatever `preferredFrameRateRange` asks
+([[platform/render-architecture]] FL), so M2.5's 120 Hz rows are not directly comparable.
+Before = HEAD a54749b (M2.5) with the test placed on the fastest screen, one round; after =
+FL, two rounds. Final frame = all pixels exact; settled = faded in plus progressive AA
+(9 samples, adaptive) done. The after-look has DE lighting on by default (the before-look had
+no DE, ~30–50 % cheaper iterations), so after-rows do more work per texel.
+
+| scenario | fps before / after | interval p95 ms before / after | latency p50 ms before / after | final frame ms before / after | settled (AA) ms after |
+|---|---|---|---|---|---|
+| home pan | 58.0 / 57.7–58.3 | 25.0 / 16.7–25.0 | 47.8 / 45.0–48.4 | 200 / 200 | 567 |
+| neck zoom | 53.7 / 56.7–58.3 | 25.0 / 25.0 | 64.2 / 48.2–53.1 | 517 / 433–450 | > 3000 (extension passes first) |
+| wasd 1e5 | 53.7 / 58.7–59.0 | 25.0 / 25.0 | 22.6 / 27.8–31.2 | 200 / 200–233 | 584–617 |
+| space zoom (+E) | 50.0 / 53.3–54.0 | 33.3 / 25.0 | 30.7 / 31.0–35.9 | 483 / 500–517 | 2250–2300 |
+| home zoom | 59.0 / 58.3–59.0 | 25.0 / 25.0 | 46.9 / 43.0–47.9 | 200 / 217 | 583 |
+| 1e5 pan | 59.0 / 56.0–59.0 | 25.0 / 25.0 | 46.7 / 42.8–47.5 | 250 / 233 | 767–800 |
+| 1e5 zoom | 57.3 / 57.7–58.7 | 25.0 / 25.0 | 46.4 / 42.4–43.1 | 250 / 233–250 | 734–800 |
+| limit zoom | 58.3 / 21.0–21.7 * | 16.7 / 25.0 | 37.9 / 50.4–55.4 | 367 / 417 | 1717 / > 3000 |
+| pointer space | 54.0 / 56.7–58.0 | 25.0 / 25.0 | 29.4 / 25.2–30.1 | 217 / 217–250 | 683–717 |
+| keyboard glide | 54.0 / 56.7–58.3 | 25.0 / 16.7–25.0 | 29.2 / 25.0–29.8 | 217 / 267 | 867–1000 |
+| edge pan | 43.3 / 48.3–48.7 | 25.0 / 25.0 | 28.9 / 28.8–29.5 | 200 / 217 | 800–817 |
+
+\* At the f64 zoom clamp the view does not change, so FL presents nothing new (draws 169–176,
+encoded 64–66); M2.5 re-presented frames whose key differed by a rounding step. Not a stall
+(interval p95 25 ms).
+
+Checks: shown frame vs fresh render 0–0.001 % in all 22 checks; zoom-target drift 0 px
+(pointer space, keyboard glide after the tapped key's pan has glided out); glide 1 % after
+266 ms, no overshoot; edge pan 0.358 view widths/s (expected 0.364 with the eased start),
+glide after the pointer left 53.3 pt (expected 54.2). FFI 3.1–3.3 µs per frame.
+
+**120 Hz drawable fix** (pre-acquisition thread, [[platform/render-architecture]] FL), one
+round each at 60 Hz before the rendering changes: neck zoom 53.7 → 58.7 fps with "no
+drawable" skips 16 → 2, space zoom 50.0 → 55.0 fps (26 → 12 skips, now mostly GPU frames in
+flight). Final FL rounds: "no drawable" 0 in 9 of 11 scenarios, 8–10 in space zoom and one
+1e5 pan round.
+
+**Progressive AA** (adaptive list, 8 ms chunks, two in flight, 1.5 GPU-s per view):
+settled 0.57–0.8 s after the last input in the shallow scenarios (refined frame 0.2–0.25 s,
+fade 4τ = 0.12 s, then samples one per refresh); headless home view 0.42 s from a cold
+start. Before pipelining and the adaptive list: 0.95–1.2 s, and not within 3 s at 1e5+.
+Views whose unresolved pixels need extension passes (neck, limit) spend up to 2 GPU-s on
+those first.
+
+**Gesture budget**: half the measured refresh. At 60 Hz the seahorse dive's previews averaged
+1500 px wide in its first 5 s (M2.5: 750 px, fixed 6 ms budget); 70 % of a refresh measured
+49 fps in home zoom, 50 % gives 58–59.
+
+**Flight recorder** (`almondbread fly`, 1920×1080, 60 Hz refresh, real-time pacing, headless):
+review flights in `review/` (gitignored). Presented frames per second over the whole flight
+include idle stretches where nothing new is shown: seahorse dive 47.1 (60.0 while flying),
+filament cruise 48.7, gestures 43.0, fast dive 37.5. The filament cruise at 1e6
+(−1.25066 + 0.02012i) is heavy: previews stay at ratio 0.25 (480 px) and the temporal
+accumulation cannot fully converge at 13 px of pan per frame; it is visibly softer while
+moving than when settled. A converged rendering of the same seahorse camera path (3×3 grid,
+extension passes) took 8.5 min headless.

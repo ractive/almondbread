@@ -252,3 +252,22 @@ horizon wall or a flat plain, and the potential is unusable. Timings: 20–50 s 
 1920×1080 2×2-SS still, 110–160 s near deep minibrots. GPU estimate: ~140 k DE
 evaluations per frame while flying and sinking. Results and open problems in
 [[decisions/landscape-mode]]; [[roadmap]] L0 done.
+
+## [2026-10-14] decision | FL: feel and look
+
+Built milestone FL ([[roadmap]]). Motion: eased velocities on critically damped springs
+(closed form, frame-rate independent), drag/touch flings that respect the macOS trackpad's
+own momentum, animated zoom steps, gamepad through GameController with dead zones and
+curves in Rust ([[decisions/controls]] FL). Rendering: a `compose` pass with a reprojected
+linear-light history, Halton-jittered temporal upsampling during gestures, per-pixel fade of
+refined pixels, focus-first 16×16 tile admission, adaptive progressive AA capped by the
+supersampling setting, a gesture budget from the measured refresh, and a drawable
+pre-acquisition thread replacing the pool prediction ([[techniques/frame-reuse-and-progressive]],
+[[techniques/anti-aliasing]], [[platform/render-architecture]]). Look: OKLab palettes,
+ten looks, DE lighting with highlight and outline by default, palette anti-aliasing from the
+DE gradient, colour cycling and depth tint ([[techniques/coloring-methods]]). Review: the
+`almondbread fly` flight recorder renders scripted flights in real time through the same
+navigator and scheduler and encodes them with ffmpeg; four review flights plus a converged
+reference in `review/` (gitignored). Numbers in [[synthesis/benchmarks]] FL. Found: background
+test windows get 60 display-link callbacks/s on the 120 Hz panel while an external display is
+attached, so FL's interaction numbers are at 60 Hz.

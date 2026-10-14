@@ -109,6 +109,37 @@ escape, which dominate visually), or disable skipping for those pixels
 Cost: TIA ~2 extra `length` + a divide per iteration; stripe one `atan2` and one
 `sin` per iteration; curvature an `atan2` of a complex divide (inference).
 
+## As built in almondbread (FL: looks)
+
+Built 2026-10-14 (`crates/almondbread-core/src/palette.rs`, the `shade` function of the
+kernels). Our design; the OKLab matrices are Björn Ottosson's (unverified, not ingested).
+
+- **Palettes in OKLab.** Stops are sRGB colours joined by a periodic Catmull-Rom spline in
+  OKLab, then converted to linear RGB and clamped: perceptually even ramps, saturated hue
+  blends, no kinks at the stops. Ten curated palettes (Aurora, Classic refined, Ember,
+  Lagoon, Nebula, Dusk, Moss, Ice, Graphite, Spectrum on a dark base) plus the old simple
+  ones. Swatches in the UI sample the real table.
+- **Looks.** A look bundles a palette with density, light angle and height, highlight,
+  outline width/colour/strength, glow and interior colour; the inspector applies one in one
+  step and every value stays editable. Default: Aurora with lighting 0.75, highlight 0.35,
+  outline 0.7 at 1.6 px, 9-sample AA.
+- **Palette anti-aliasing.** The smooth count changes by ~`1/(d ln 2)` per pixel at DE
+  distance `d` pixels (`μ = −log₂ G`, `|∇G| ≈ G/d`, inference), so the palette footprint of
+  a pixel is `density/(d ln 2)` cycles. The palette is uploaded as a cyclic mip chain
+  (box-filtered halvings) and looked up at the matching level: dense regions get their band
+  average instead of noise, and moving images shimmer less before any AA sample arrives.
+- **Order: outline, then light.** The DE outline (boundary emphasis and filament coverage)
+  darkens towards the edge colour first, also where the palette filter averaged more than
+  1/8 cycle per pixel; lighting (Lambert on Chéritat's normal lifted to 3D, plus a
+  Blinn-Phong highlight, normalised so it redistributes rather than dims) comes after, so
+  dark filaments keep their relief. In very dense regions almost every pixel is within a
+  pixel of the set; their AA average of dark lace and bright background reads as a
+  metallic grey, which we kept.
+- **Cycling and depth tint.** Colour cycling animates the palette phase only while the view
+  rests (cycles per second, off by default); depth tint shifts the phase per decade of zoom.
+- **Headless tools** (render, bench, verify, regress) keep the plain M2.5 colouring unless
+  `--look` is given, so benchmark timings stay comparable (lighting needs DE: +30–50 % ALU).
+
 ## For almondbread
 
 v1: smooth `(n, frac)` → log transfer → periodic cosine palette, plus DE

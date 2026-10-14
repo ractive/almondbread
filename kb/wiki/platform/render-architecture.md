@@ -149,6 +149,39 @@ WASD, Space and limit zoom in some), Rust 0.1–1.0 ms, at the same frame rate
   ~50 ms. The view's refined final frame takes the plain acquire (`acquire(final_frame)`),
   waiting at most about a refresh.
 
+## FL: drawable pre-acquisition instead of pool prediction
+
+The presented-count prediction stayed too conservative: at 120 Hz heavy zooms skipped
+12–21 refreshes as "no drawable" where the blocking Swift renderer skipped none (M2.5), and
+at 60 Hz neck zoom still skipped 16–18 (baseline 2026-10-14). The presented callback lags
+the real pool, and Core Animation can return a drawable before reporting it presented.
+
+`MetalLayerSurface` now runs a small thread that calls the plain, blocking `nextDrawable`
+and parks the drawable in a one-slot mailbox (mutex + condvar); the main thread never
+blocks. `drawable_ready` is true exactly when a drawable of the current size is parked
+(a stale size is dropped back to the pool), so a refresh is skipped only when a blocking
+acquire would really have waited, which is the Swift renderer's behaviour minus the stall.
+The refined final frame may wait up to 17 ms for the slot. Measured at 60 Hz (the
+background test window gets 60 display-link callbacks per second even on the 120 Hz panel,
+see below): neck zoom 53.7 → 58.7 fps, "no drawable" skips 16 → 2; space zoom 50 → 55 fps.
+
+**120 Hz in background windows.** With an external 60 Hz display attached, the interaction
+test's window on the ProMotion panel reports `duration` 8.33 ms but receives 60 callbacks
+per second whatever `preferredFrameRateRange` asks for (both links; 2026-10-14, macOS 26).
+M2.5's 120 Hz runs had the panel alone. So FL's numbers are 60 Hz; the headless flight
+recorder (`almondbread fly --hz 120`) can drive 120 Hz refreshes with real budgets.
+
+## FL: compose pass, history and progressive AA
+
+Interactive frames no longer colorize the shown level directly: a `compose` pass blends a
+reprojected history image with new samples (gesture: temporal upsampling of jittered
+previews; refine: per-pixel fade; idle: adaptive AA samples) and writes both the drawable
+and the next history ([[techniques/frame-reuse-and-progressive]] FL,
+[[techniques/anti-aliasing]] FL). Offscreen renders keep `colorize` with grid supersampling.
+Levels admit 16×16 tiles in raster or priority order. `Renderer::frames_committed` /
+`frames_completed` and `GpuBackend::read_shared_texture` let headless capture read frames
+without draining the queue.
+
 ## Hosting in the app (as built, R2b)
 
 ```text

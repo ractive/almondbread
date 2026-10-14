@@ -106,8 +106,55 @@ Measured 2026-10-14, M1 Pro, 2560×1640 px window at 120 Hz, release
   hold only for idle setting changes. (2) A HUD bound to the viewport re-rendered every
   frame and throttled the Metal view to ~67 fps. (3) Re-presenting an unchanged frame at
   the zoom clamp only exhausted drawables.
-- Not done yet: reprojection of the previous full-resolution frame and coarse-to-fine
-  levels from the focus point.
+- Not done in M2 (done in FL, below): reprojection of the previous frame and
+  focus-first refinement.
+
+## As built in almondbread (FL: history reprojection and temporal upsampling)
+
+Every presented interactive frame is composed by one kernel (`compose`,
+`crates/almondbread-render/src/shaders/mandelbrot.metal`) from a **history**: the last shown
+image in linear light (rgba16f, alpha = per-pixel confidence) plus the viewport it shows
+(our design, built 2026-10-14; measured M1 Pro, release, [[synthesis/benchmarks]] FL).
+
+- **Reprojection is exact.** A pan or zoom between two views is a pure scale and
+  translation, so each output pixel's history position is `origin + pixel · step` with
+  `step = s_now / s_hist` (complex units per pixel). Sampled with 5-tap Catmull-Rom (a
+  bilinear resample per frame blurs visibly within a second of panning); identity mappings
+  read texels directly.
+- **Gesture frames: temporal upsampling.** The preview level (dynamic resolution as in M2)
+  is jittered by a Halton(2,3) offset per frame, so its texels land on new sub-pixel
+  positions every frame. Each texel is a point sample adding weight `exp(−d²/2σ²)` (σ = 0.5
+  output pixel) to nearby pixels; the history adds its confidence, decayed by `step²` on
+  zoom-in (a history texel is stretched over `1/step²` pixels) and capped at 6. Where neither
+  exists (newly exposed area) the bilinear preview shows. Result: slow pans and zooms
+  converge towards full resolution within a few frames even at preview ratio 0.25–0.5;
+  continuous zooms keep the detail the history still holds (stills in the review videos:
+  mid-dive frames are sharp where M2 showed a ratio-0.4 bilinear blur).
+- **Refinement fades in per pixel.** When input idles (150 ms) the full level iterates
+  over the history; every finished pixel moves towards its exact value by
+  `1 − e^(−dt/τ)` per presented frame (τ = 30 ms), so there is no pop and the fade is the
+  same at any refresh rate. The refined-frame time keeps M2's meaning (all pixels exact).
+- **Focus-first refinement.** Admission is in 16×16 tiles (texel index → tile rank → tile
+  via an order buffer; the inverse rank buffer tells colorize/compose what is admitted).
+  Refinement levels order tiles the history does not cover (newly exposed by a pan or a
+  zoom-out) first, then by distance from the zoom target. Tiles also replaced scanline
+  admission everywhere (raster tile order for previews and offscreen); iteration results
+  are unchanged (fresh-render class mismatch 0–0.001 % in every interaction scenario).
+- **Budget follows the display.** The gesture frame budget is half the measured refresh
+  interval (4–12 ms) instead of M2's fixed 6 ms, which assumed 120 Hz: at 60 Hz previews
+  get ~2× the texels. 70 % of the interval measured 49 fps in home zoom at 60 Hz.
+- **Colour changes and cycling.** The history stores colours, so it is valid only for the
+  colour parameters it was made with (palette phase aside: depth tint changes it slightly
+  every zoom frame). A colour change while idle recolours from the exact samples; colour
+  cycling advances only while the view rests, so flying keeps reprojection valid.
+
+Pitfalls found: (1) a jittered gesture level reused as the refined frame breaks the
+shown-frame check (the refined level must be centre samples, so gesture levels always live
+in the preview allocation, even at ratio 1). (2) The fresh-render check's renderer took the
+new 9-sample default and rendered a 3× grid (38 % "mismatch") until it was pinned to 1
+sample. (3) Unresolved pixels (past the nominal limit) form large halos around minibrots in
+gesture frames, which get no extension passes; M2's 3 % grey made them flat grey slabs, so
+they now take the outline colour.
 
 ## For almondbread
 

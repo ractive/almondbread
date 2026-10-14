@@ -146,3 +146,37 @@ the platform views decode events and present what each `frame` call returns.
   for every zoom input in both modes, the edge-pan ramp, corners, insets and setting,
   motion from idle). `--interaction-test` scenarios `pointer space`, `keyboard glide`
   and `edge pan` ([[synthesis/benchmarks]], M2.5).
+
+## Revision FL (2026-10-14): motion feel and gamepad, as built
+
+All in the core `Navigator` (`crates/almondbread-core/src/input.rs`); platforms forward raw
+events. Measured in [[synthesis/benchmarks]] FL and judged on the review videos.
+
+- **Eased velocities.** Held keys, edge panning and the gamepad set a *target* velocity (pan
+  in points/s, zoom in e-folds/s). The actual velocity follows on a critically damped spring,
+  integrated in closed form per frame together with the exact distance travelled, so motion
+  is identical at 30, 60 and 120 Hz (tests: 1e-9 for pan alone; pan coupled with zoom is
+  applied at the step's midpoint scale, second order). Speeding up ω = 30 /s (half the key
+  speed after 56 ms, 90 % after 130 ms), slowing down ω = 18 /s (a released key glides on
+  2/ω = 0.11 s worth of its speed: 4.4 % of the view width at the key speed). The zoom rate
+  uses ω = 25 / 18 /s: releasing Space zooms on by 0.18 e-folds (×1.19) at the default speed.
+- **Direct manipulation stays 1:1.** Drag, trackpad scroll and pinch move the view exactly
+  with the hand. On release (`GestureEnd`: mouse up after a drag, magnify phase ended, touch
+  pan/pinch ended) the view flings on with the velocity of the last 0.1 s, decaying with
+  τ = 0.33 s (pan) / 0.25 s (zoom); no fling if the hand rested more than 60 ms before
+  release. The macOS trackpad sends its own momentum-phase scrolls after the fingers lift;
+  those arrive as ordinary pans, so no second fling is invented (no `GestureEnd` for
+  scrolling). A new touch, drag or direction key stops a fling.
+- **Animated zoom steps.** Wheel notches (new event `WheelNotch`; precise scroll-zoom stays
+  1:1), double click/tap, + / − and menu zooms are exponential ease-outs (τ = 60 ms) at the
+  zoom target, summed when they overlap; the fixed point holds (tests: drift < 1e-6 px).
+- **Gamepad.** GameController framework on macOS and iOS (`Gamepad.swift`) sends raw state
+  (`Gamepad { lx, ly, rx, ry, lt, rt, boost }`) on every change; Rust applies a radial stick
+  dead zone of 0.15, trigger dead zone 0.06 and the response curve `0.25 m + 0.75 m³` of the
+  rescaled deflection. Left stick pans like W A S D, right trigger / left trigger zoom in /
+  out, right stick up/down zooms too, A boosts both ×2.5, the shoulders are Q / E, Y resets.
+  Deflection switches to keyboard mode (crosshair target). A disconnect sends a centred
+  state, so motion eases out. Window tests never read controllers.
+- **Interaction-test changes.** Edge pan expects the eased start (−2/ω of a second) and a
+  glide of 2/ω_decel of speed after the pointer leaves (measured 53.0 pt vs 54.2 expected);
+  the keyboard-glide fixed point is measured after the tapped key's pan has glided out.

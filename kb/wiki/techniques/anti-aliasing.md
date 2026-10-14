@@ -74,6 +74,31 @@ filter is possible but risks blurring filaments (inference).
   moiré for noise (src: [[sources/kf-manual]]).
 - Gaussian jitter wider than a pixel blurs.
 
+## As built in almondbread (FL: progressive adaptive AA)
+
+Built 2026-10-14 (measured M1 Pro, release; [[synthesis/benchmarks]] FL):
+
+- **Progressive, idle only.** After the refined frame has faded in, idle frames accumulate
+  jittered samples (Halton(2,3) positions; the refined level is the pixel-centre sample 0)
+  as a running mean in linear light in the history image (rgba16f;
+  `mean += (s − mean)/(n+1)`). The supersampling setting is the maximum: factor² samples
+  (default 9, options 1/4/9/16). Offscreen renders and exports keep the grid.
+- **Adaptive.** A GPU pass lists the pixels that gain from more samples: exterior within 4
+  pixels of the set by the distance estimate (all exterior without DE) and interior pixels
+  with an exterior neighbour. Far exterior is smooth (and palette-filtered, see
+  [[techniques/coloring-methods]]) and deep interior is flat and the most expensive to
+  iterate. AA samples iterate only the listed pixels (the unresolved-list admission of the
+  extension passes, `listMode 2`), at the nominal limit; unresolved samples do not count.
+- **Interruptible.** AA chunks are 8 ms of GPU with at most two queued, so input waits at
+  most ~16 ms; a gesture replaces the job and drops the samples. Each view's AA may take
+  1.5 GPU-s in all; heavier views settle with fewer samples.
+- **Pipelined.** The next sample is queued in the same refresh that composes the previous
+  one (one refresh per sample instead of two).
+- **Measured.** Settled (refined + faded + 9 samples) 0.95–1.2 s after the last input in
+  the shallow interaction scenarios at 60 Hz (refined frame itself 0.2–0.25 s); headless
+  home view 0.42 s from a cold start. Views with long extension passes (the -3/4 neck)
+  run their extension budget first and take longer.
+
 ## For almondbread
 
 Interactive: one centre sample, then progressive uniform low-discrepancy jitter
