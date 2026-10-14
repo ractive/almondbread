@@ -31,6 +31,9 @@ constant bool kInterior [[function_constant(1)]];   // dz/dz1 derivative interio
 constant bool kBLA      [[function_constant(2)]];   // BLA skip table (kb: techniques/bla)
 constant bool kDeep     [[function_constant(3)]];   // M3b: rescaled float32 deltas at any depth
                                                     // (kb: techniques/extended-range-floats)
+constant bool kInteriorColor [[function_constant(4)]];  // analyse interior cycles (period,
+                                                    // multiplier, interior DE) for the interior
+                                                    // colourings (kb: techniques/coloring-methods)
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -106,6 +109,25 @@ struct PixelState {
     int    e;             // deep: delta exponent (0: plain regime)
     int    dExp;          // deep: DE exponent
 };
+
+// Interior cycle analysis of one live pixel (kInteriorColor only; a buffer parallel to the
+// live state, same slots). Complex values are floatexp: mantissa, exponent.
+struct PixelStateIC {
+    float2 zs;            // orbit point the cycle search started at (full z)
+    int    zsExp;
+    uint   k;             // analysis steps done
+    float2 dzdz;          // d^2/dz^2 f^k
+    int    dzdzExp;
+    float  minLog2;       // log2 of the smallest |z| over the analysed steps
+    float2 dcdz;          // d^2/dc dz f^k, times the texel size
+    int    dcdzExp;
+    uint   capFlags;      // q (bits 0..23), tries (24..30), analysing (31)
+};
+constant uint IC_ACTIVE   = 0x80000000u;
+constant uint IC_TRY_UNIT = 0x01000000u;   // tries (bits 24..30): restarts after no closure by q
+constant uint IC_CAP_MASK = 0x00ffffffu;   // q, the atom-domain index (bits 0..23)
+// Cycle closure: |z_{s+k} - z_s| <= 1e-3 |z_s|.
+constant float IC_TAU2    = 1e-6f;
 
 struct ChunkStats {       // per-chunk counters, read back by the CPU
     uint        liveIn;
@@ -237,6 +259,22 @@ static inline float2 feFloat(FE a) {
     return scale2(a.m, max(a.e, -300));
 }
 
+// |a - b| <= tau |b| (tau^2 = IC_TAU2): the cycle search's closure test.
+static inline bool feClose(FE a, FE b) {
+    FE d = feAdd(a, FE{-b.m, b.e});
+    float nd = dot(d.m, d.m), nb = dot(b.m, b.m);
+    if (!(nd > 0.0f)) return true;
+    if (!(nb > 0.0f)) return false;
+    int k = d.e - b.e;
+    if (k > 0) return false;
+    if (k < -40) return true;
+    return nd * pow2f(2 * k) <= IC_TAU2 * nb;
+}
+
+static inline FE feTwice(FE a) {
+    return FE{a.m, a.e == FE_ZERO ? FE_ZERO : a.e + 1};
+}
+
 // After the delta's exponent e changed: s = 2^e and dd = c 2^-e for the scaled step. A delta
 // far below |c| (2^-60) is re-expressed relative to c's exponent `ce`, so dd stays in range.
 static inline void deepRescale(thread float2& w, thread int& e, thread float& s, thread float2& dd,
@@ -356,6 +394,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const BlaEntry* table            [[buffer(15)]],
                     device const RefX* refx                 [[buffer(16)]],
                     device const BlaEntryX* tableX          [[buffer(17)]],
+                    texture2d<float, access::write> auxOut  [[texture(2), function_constant(kInteriorColor)]],
+                    device const PixelStateIC* icIn         [[buffer(18), function_constant(kInteriorColor)]],
+                    device PixelStateIC* icOut              [[buffer(19), function_constant(kInteriorColor)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -397,7 +438,24 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint iters = 0;
     uint steps = 0;
 
-    if (active && kDeep) {
+    // Interior cycle analysis (kInteriorColor): a pixel proven interior continues here instead
+    // of finishing, see below; `inB` marks one already analysing (the main loop is done).
+    // Before that, the main loop tracks the orbit's closest approach to 0 (atom domain): the
+    // index q of the smallest |z_n| is a multiple of the period (Farey denominators near a
+    // component's boundary), and the analysis looks for the closure only at divisors of q.
+    // Exact steps only: BLA blocks are skipped (they are never valid where |Z| is small).
+    PixelStateIC ic;
+    ic.capFlags = 0;
+    ic.k = 0;
+    ic.minLog2 = 1e30f;
+    if (kInteriorColor && active && !fresh) ic = icIn[tid];
+    bool inB = kInteriorColor && (ic.capFlags & IC_ACTIVE) != 0;
+    float icR2 = kInteriorColor ? exp2(min(2.0f * ic.minLog2, 127.0f)) : 0.0f;
+    float icMinLog2 = ic.minLog2;
+    uint icQ = ic.k;
+#define IC_TRACK(r2v, nv) if (kInteriorColor && (r2v) < icR2) { icR2 = (r2v); icMinLog2 = 0.5f * log2(icR2); icQ = (nv); }
+
+    if (active && !inB && kDeep) {
         // M3b deep loop (kb: techniques/extended-range-floats "Rescaled iterations", rebasing,
         // bla). The pixel's delta is z = w 2^e. Two regimes:
         //  P (e == 0): |z| >= 2^-50, w is the plain float32 delta; the loop is the plain one
@@ -494,6 +552,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     z = Z + w;
                     r2 = dot(z, z);
                     if (r2 > p.bailout2) { escaped = true; done = true; break; }
+                    IC_TRACK(r2, n)
                     float w2 = dot(w, w);
                     if (r2 < w2 || m == last) {
                         w = z;
@@ -560,6 +619,11 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             m = 0;
                             Zx = FE{float2(0.0f), FE_ZERO};
                         }
+                        if (kInteriorColor) {
+                            float zl = length(zf.m);
+                            float l = zl > 0.0f ? log2(zl) + float(zf.e) : -1e30f;
+                            if (l < icMinLog2) { icMinLog2 = l; icR2 = exp2(max(2.0f * l, -160.0f)); icQ = n; }
+                        }
                         if (zx.e >= DEEP_PLAIN_EXP) {
                             w = feFloat(zx); e = 0; s = 1.0f;
                             dd = dc * pow2f(min(p.scaleExp, 100));
@@ -609,6 +673,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
                     const float2 sw = s * w;
                     const float2 zf = Z + sw;
+                    IC_TRACK(dot(zf, zf), n)
                     if (kDE) dm = 2.0f * cmul(zf, dm) + tsd;
                     if (kInterior) zw = 2.0f * cmul(zf, zw);
                     if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f) {
@@ -658,7 +723,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
-    } else if (active) {
+    } else if (active && !inB) {
         if (fresh) {
             // First step done here, from z_0 = 0: z_1 = c, dz_1 = dc, d_1 = texelScale,
             // w_1 = 1 (the generic step would multiply w by z_0 = 0).
@@ -672,6 +737,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             steps = 1;
             z = ref[1] + st.dz;
             r2 = dot(z, z);
+            IC_TRACK(r2, 1u)
             if (r2 > p.bailout2) {
                 escaped = true;
             } else if (r2 < dot(st.dz, st.dz) || st.m == last) {
@@ -742,6 +808,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     n += len;
                     z = ref[m] + dz;
                     r2 = dot(z, z);
+                    IC_TRACK(r2, n)
                     if (r2 > p.bailout2) { escaped = true; break; }
                     if (r2 < dot(dz, dz) || m == last) {
                         dz = z;
@@ -783,6 +850,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 n++;
                 z = ref[m] + dz;
                 r2 = dot(z, z);
+                IC_TRACK(r2, n)
                 if (r2 > p.bailout2) { escaped = true; break; }
                 if (r2 < dot(dz, dz) || m == last) {
                     dz = z;
@@ -797,11 +865,132 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         st.dz = dz; st.d = d; st.w = w; st.m = m; st.n = n; st.wExp = wExp;
     }
 
-    bool alive = active && !escaped && !interior && st.n < p.maxIter;
+    // ---- Interior cycle analysis (kInteriorColor; kb: techniques/coloring-methods, "Interior
+    // colouring as built"). A pixel proven interior (or at the limit without the test, which
+    // the flat colouring draws as interior) keeps iterating its orbit, now settled near the
+    // attracting cycle, from z_s: exact perturbation steps in floatexp (any depth, no BLA)
+    // for up to q steps (the atom-domain index tracked above). The period p is the first k
+    // that divides q at which the orbit closes, |z_{s+k} - z_s| <= 1e-3 |z_s|, with an
+    // attracting multiplier |lambda_k| < 1. (Closure alone is not enough at depth: near a
+    // repelling or parabolic cycle the orbit comes back that close too, e.g. after 39 steps at
+    // sea-8007, whose period is 8007; such k do not divide q.) Along the way it accumulates the
+    // multiplier lambda = (f^p)'(z_s) = prod 2 z, the derivatives dc = d f^p/dc (per texel),
+    // dzdz and dcdz for the interior distance estimate (1 - |lambda|^2) /
+    // |dcdz + dzdz dc / (1 - lambda)| (Wikipedia "Interior distance estimation"; mathr), and
+    // the smallest |z| over the cycle. No closure by k = q: one retry from where it stopped
+    // (the start may not have been settled), then it gives up (period 0: the flat interior
+    // colour). The class never changes (verify and the shown-frame checks compare classes), and
+    // the loop state lives in a separate buffer, so pipelines without the analysis are
+    // unchanged.
+    bool bDone = false;
+    uint bPeriod = 0;
+    float2 bLambda = 0.0f;
+    float bDistance = 0.0f;
+    if (kInteriorColor && active && !inB) {
+        ic.minLog2 = icMinLog2;
+        ic.k = icQ;
+    }
+    if (kInteriorColor && active && !inB && !escaped && (interior || (!kInterior && st.n >= p.maxIter))) {
+        FE dzx = feNorm(st.dz, kDeep ? st.e : 0);
+        st.dz = dzx.m; st.e = dzx.e;               // the delta as floatexp from here on
+        st.w = float2(1.0f, 0.0f); st.wExp = 0;     // lambda
+        st.d = 0.0f; st.dExp = FE_ZERO;            // dc
+        ic.k = 0;
+        ic.capFlags = IC_ACTIVE | uint(clamp(icQ, 1u, IC_CAP_MASK));
+        inB = true;
+    }
+    if (inB) {
+        const FE C = feNorm(dc, p.scaleExp);
+        const FE TS = feNorm(float2(p.texelScale, 0.0f), p.scaleExp);
+        FE dzx = feNorm(st.dz, st.e);
+        FE lam = feNorm(st.w, st.wExp);
+        FE dcx = feNorm(st.d, st.dExp);
+        FE zz = feNorm(ic.dzdz, ic.dzdzExp);
+        FE cz = feNorm(ic.dcdz, ic.dcdzExp);
+        FE zs = feNorm(ic.zs, ic.zsExp);
+        float minLog2 = ic.minLog2;
+        uint m = st.m, n = st.n, k = ic.k;
+        const uint cap = ic.capFlags & IC_CAP_MASK;
+        const uint budget = p.chunkIters > steps ? p.chunkIters - steps : 0u;
+        uint used = 0;
+        while (used < budget) {
+            FE Zx = kDeep ? refAt(refx, m) : feNorm(ref[m], 0);
+            FE zf = feAdd(Zx, dzx);
+            if (m == last || (m != 0 && feLess(zf, dzx))) {
+                dzx = zf;
+                m = 0;
+                Zx = FE{float2(0.0f), FE_ZERO};
+            }
+            // Escapes after all (a false interior, very rare): give up, keep the class.
+            if (zf.e > 16) { bDone = true; break; }
+            if (k == 0) {
+                zs = zf;
+                lam = feNorm(float2(1.0f, 0.0f), 0);
+                dcx = FE{float2(0.0f), FE_ZERO};
+                zz = dcx;
+                cz = dcx;
+                minLog2 = 1e30f;
+            } else if (cap % k == 0 && feClose(zf, zs) && feLess(lam, feNorm(float2(1.0f, 0.0f), 0))) {
+                bDone = true;
+                bPeriod = k;
+                break;
+            }
+            float zl = length(zf.m);
+            minLog2 = min(minLog2, zl > 0.0f ? log2(zl) + float(zf.e) : -1e30f);
+            const FE z2 = feTwice(zf);
+            // Old values on the right (derivatives first, then z).
+            cz = feAdd(feMul(z2, cz), feMul(feTwice(dcx), lam));
+            zz = feAdd(feMul(feTwice(lam), lam), feMul(z2, zz));
+            dcx = feAdd(feMul(z2, dcx), TS);
+            lam = feMul(z2, lam);
+            dzx = feAdd(feMul(feAdd(feTwice(Zx), dzx), dzx), C);
+            m++;
+            n++;
+            k++;
+            used++;
+            if (k > cap) {
+                // Not closed (or not yet settled: slow convergence near a component's boundary):
+                // start again from here, up to max(2q, q + 4096) steps in all.
+                uint tries = ((ic.capFlags >> 24) & 0x7fu) + 1u;
+                if (tries < 127u && tries * cap < max(cap, 4096u)) {
+                    ic.capFlags = (ic.capFlags & ~(0x7fu << 24)) | (tries << 24);
+                    k = 0;
+                } else {
+                    bDone = true;
+                    break;
+                }
+            }
+        }
+        iters += used;
+        steps += used;
+        st.dz = dzx.m; st.e = dzx.e; st.w = lam.m; st.wExp = lam.e; st.d = dcx.m; st.dExp = dcx.e;
+        st.m = m; st.n = n;
+        ic.zs = zs.m; ic.zsExp = zs.e; ic.k = k;
+        ic.dzdz = zz.m; ic.dzdzExp = zz.e; ic.dcdz = cz.m; ic.dcdzExp = cz.e; ic.minLog2 = minLog2;
+        if (bPeriod != 0) {
+            bLambda = feFloat(lam);
+            // Interior distance in texels (dc and dcdz carry the texel size).
+            float2 one = float2(1.0f, 0.0f) - bLambda;
+            float2 inv = float2(one.x, -one.y) / max(dot(one, one), 1e-30f);
+            FE den = feAdd(cz, feMul(zz, feMul(dcx, feNorm(inv, 0))));
+            float num = 1.0f - dot(bLambda, bLambda);
+            float dl = length(den.m);
+            bDistance = (num > 0.0f && dl > 0.0f)
+                ? min(num / dl * pow2f(clamp(-den.e, -126, 127)), 1e30f) : 0.0f;
+        }
+    }
+
+    bool alive = active && (inB ? !bDone : (!escaped && !interior && st.n < p.maxIter));
     // Reached the limit neither escaped nor proven interior: unresolved, never drawn as
     // interior (with the test on), and collected for an extension pass.
-    bool crossed = active && !alive && !escaped && !interior;
-    if (active && !alive) {
+    bool crossed = active && !inB && !alive && !escaped && !interior;
+    if (kInteriorColor && active && !alive && inB) {
+        // Interior with its cycle analysed: .y = period (0: none found), de = (|lambda|,
+        // arg lambda in turns), aux = (interior distance in texels, log2 min |z| over the cycle).
+        iterOut.write(float4(ITER_INTERIOR, float(bPeriod), 0.0f, 0.0f), gid);
+        deOut.write(float4(length(bLambda), atan2(bLambda.y, bLambda.x) * 0.15915494f, 0.0f, 0.0f), gid);
+        auxOut.write(float4(bDistance, bPeriod != 0 ? ic.minLog2 : 0.0f, 0.0f, 0.0f), gid);
+    } else if (active && !alive) {
         if (escaped) {
             // Smooth iteration count n + s with s = 1 - log2(log|z|), stored split: the exact
             // escape iteration n (float32 holds integers to 2^24) and the small offset s in
@@ -916,7 +1105,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (alive) stateOut[tgBase + sgLive[sg] + offset] = st;
+    if (alive) {
+        stateOut[tgBase + sgLive[sg] + offset] = st;
+        if (kInteriorColor) icOut[tgBase + sgLive[sg] + offset] = ic;
+    }
     if (collect) {
         uint slot = tgListBase + sgCollect[sg] + collectOffset;
         if (slot < p.listCapacity) listOut[slot] = st.pixel;   // overflow: stays unresolved
@@ -954,7 +1146,11 @@ struct ColorParams {
     float  glowWidth;     // glow falloff, output pixels
     uint   paletteLevels; // pre-filtered palette levels (1024, 512, ... entries), level 0 first
     float  paletteFilter; // 1: filter the palette by the colour gradient (palette anti-aliasing)
-    float  pad1;
+    uint   interiorMode;  // 0 flat, 1 bubbles, 2 period, 3 angle, 4 distance (0 unless the
+                          // textures hold the cycle analysis)
+    float  interiorDensity; // palette cycles of the interior modes
+    float  interiorStripes; // angle mode: stripes per turn
+    float2 pad2;
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -1010,7 +1206,47 @@ static inline float3 paletteColor(float2 it, float deTexels, constant ColorParam
     return paletteAt(t + c.offset, lod, c, pal);
 }
 
-static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device const float4* pal,
+// Interior colourings from the cycle analysis (kb: techniques/coloring-methods, "Interior
+// colouring as built"): it.y = period p (0: none found -> flat), de = (|lambda|, arg lambda in
+// turns), ax = (interior distance in texels, log2 of the cycle's closest approach to 0).
+static inline float3 interiorShade(float2 it, float2 de, float2 ax, constant ColorParams& c,
+                                   device const float4* pal, float pixelsPerTexel) {
+    if (c.interiorMode == 0 || it.x != ITER_INTERIOR || !(it.y >= 1.0f)) return c.interior.rgb;
+    const float r = saturate(de.x);               // |lambda|: 0 at the centre, 1 at the boundary
+    const float depth = sqrt(saturate(1.0f - r * r));
+    float3 col;
+    if (c.interiorMode == 1) {
+        // Bubbles: bands of log2 |z*| (the cycle's closest approach to 0), which vanishes at
+        // the nucleus: rings around every nucleus, self-similar at any depth.
+        float t = -ax.y * c.interiorDensity;
+        col = paletteAt(t + c.offset, 0.0f, c, pal);
+        float band = fract(t);
+        col *= mix(0.55f, 1.0f, smoothstep(0.0f, 0.12f, band) * (1.0f - 0.35f * band));
+    } else if (c.interiorMode == 2) {
+        // Period: one palette colour per period (golden-ratio steps keep neighbours apart),
+        // brighter towards the centre of each component.
+        float t = fract(it.y * 0.618034f) + c.offset;
+        col = paletteAt(t, 2.0f, c, pal) * mix(0.35f, 1.0f, depth);
+    } else if (c.interiorMode == 3) {
+        // Internal angle: the palette once around arg lambda, stripes along the internal rays
+        // (fading out at the centre, where they converge) and rings of internal radius.
+        float a = de.y;
+        float stripe = smoothstep(-0.3f, 0.3f, cos(6.2831853f * c.interiorStripes * a));
+        stripe = mix(1.0f, stripe, smoothstep(0.08f, 0.35f, r));
+        // Rings of equal |lambda|, denser towards the boundary (equal steps of log(1 - r)).
+        float ring = smoothstep(-0.6f, 0.6f, cos(6.2831853f * 1.5f * log2(max(1.0f - r, 1e-6f))));
+        col = paletteAt(a * max(round(c.interiorDensity * 4.0f), 1.0f) + c.offset, 0.0f, c, pal);
+        col *= mix(0.3f, 1.0f, stripe) * mix(0.7f, 1.0f, ring);
+    } else {
+        // Interior distance: palette by log2 of the distance in pixels, dark at the boundary.
+        float d = ax.x / pixelsPerTexel;
+        float t = log2(1.0f + d) * c.interiorDensity;
+        col = paletteAt(t + c.offset, 0.0f, c, pal) * smoothstep(0.0f, 1.0f, saturate(d / 6.0f));
+    }
+    return max(col, 0.0f);
+}
+
+static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel) {
     // Unresolved (past the nominal limit, neither escaped nor proven interior): drawn in the
     // outline colour lifted by 0.5 % towards grey. They hug the boundary (slow exterior near
@@ -1019,7 +1255,7 @@ static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device
     // gesture frames, which get no extension passes. The same in every view, so stepping the
     // limit does not recolour it.
     if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.5f), 0.005f);
-    if (it.x < 0.0f) return c.interior.rgb;
+    if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense;
     float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense);
     float dist = de.x / pixelsPerTexel;                            // distance in output pixels
@@ -1083,10 +1319,17 @@ static inline bool finished(texture2d<float, access::read> t, uint2 s, constant 
     return it.x != ITER_PENDING;
 }
 
+// The cycle analysis of an interior texel (only read when an interior mode uses it: without
+// the analysis a placeholder texture is bound).
+static inline float2 auxAt(texture2d<float, access::read> aux, uint2 s, constant ColorParams& c, float2 it) {
+    return (c.interiorMode != 0 && it.x == ITER_INTERIOR && it.y >= 1.0f) ? aux.read(s).xy : float2(0.0f);
+}
+
 kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
                      texture2d<float, access::read>  des        [[texture(1)]],
                      texture2d<float, access::write> out        [[texture(2)]],
                      texture2d<float, access::sample> under     [[texture(3)]],
+                     texture2d<float, access::read>  auxs       [[texture(4)]],
                      constant ColorParams& c                    [[buffer(0)]],
                      device const float4* pal                   [[buffer(1)]],
                      device const LevelCounters& level          [[buffer(2)]],
@@ -1109,7 +1352,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
             for (uint i = 0; i < ss; i++) {
                 uint2 s = min(base + uint2(i, j), maxSrc);
                 if (finished(iters, s, c, rank, admitted, it)) {
-                    acc += shade(it, des.read(s).xy, c, pal, c.deScale);
+                    acc += shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
                     count += 1.0f;
                 }
             }
@@ -1117,7 +1360,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
     } else {
         uint2 s = min(uint2(float2(gid) * c.ratio), maxSrc);
         if (finished(iters, s, c, rank, admitted, it)) {
-            acc = shade(it, des.read(s).xy, c, pal, c.deScale);
+            acc = shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
             count = 1.0f;
         }
     }
@@ -1211,6 +1454,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     texture2d<float, access::sample> histIn   [[texture(3)]],
                     texture2d<float, access::write>  histOut  [[texture(4)]],
                     texture2d<float, access::write>  out      [[texture(5)]],
+                    texture2d<float, access::read>   auxs     [[texture(6)]],
                     constant ColorParams& c                   [[buffer(0)]],
                     device const float4* pal                  [[buffer(1)]],
                     device const LevelCounters& level         [[buffer(2)]],
@@ -1275,10 +1519,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             // An AA sample: unresolved samples do not count (they would grey the mean), and
             // pixels off the adaptive list (ITER_SKIP) keep their mean.
             bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
-            col = use ? mix(hist, shade(it, des.read(gid).xy, c, pal, 1.0f), q.blend) : hist;
+            col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend) : hist;
             conf = q.confCap;
         } else if (done) {
-            float3 exact = shade(it, des.read(gid).xy, c, pal, 1.0f);
+            float3 exact = shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);
             col = q.mode == 1 ? mix(prior, exact, q.blend) : exact;
             conf = q.confCap;
         } else {

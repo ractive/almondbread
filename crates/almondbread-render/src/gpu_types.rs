@@ -59,6 +59,29 @@ pub struct PixelState {
     pub d_exp: i32,
 }
 
+/// Interior cycle analysis state of one live pixel (`PixelStateIC` in MSL, kInteriorColor
+/// pipelines only; a parallel buffer to the live state, same slots), 48 bytes. Complex values
+/// are floatexp (mantissa, exponent). kb: techniques/coloring-methods "Interior colouring".
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct PixelStateIC {
+    /// Orbit point the cycle search started at (full z).
+    pub zs: [f32; 2],
+    pub zs_exp: i32,
+    /// Analysis steps done.
+    pub k: u32,
+    /// d²/dz² of f^k at zs.
+    pub dzdz: [f32; 2],
+    pub dzdz_exp: i32,
+    /// log2 of the smallest |z| over the analysed steps.
+    pub min_log2: f32,
+    /// d²/dc dz of f^k (times the texel size).
+    pub dcdz: [f32; 2],
+    pub dcdz_exp: i32,
+    /// Step limit (bits 0..29), second attempt (bit 30), analysing (bit 31).
+    pub cap_flags: u32,
+}
+
 /// Per-chunk counters the CPU reads back (a 64-slot ring).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -107,7 +130,7 @@ pub struct BlaParams {
 /// Admission state of the running level (GPU only), 16 bytes.
 pub const LEVEL_COUNTERS_SIZE: usize = 16;
 
-/// Colorize parameters (`ColorParams` in MSL), 176 bytes.
+/// Colorize parameters (`ColorParams` in MSL), 192 bytes.
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ColorParams {
@@ -141,7 +164,11 @@ pub struct ColorParams {
     pub glow_width: f32,
     pub palette_levels: u32,
     pub palette_filter: f32,
-    pub pad1: f32,
+    /// Interior colouring (`InteriorMode::code`; 0 also when the textures hold no analysis).
+    pub interior_mode: u32,
+    pub interior_density: f32,
+    pub interior_stripes: f32,
+    pub pad2: [f32; 2],
 }
 
 /// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
@@ -211,7 +238,14 @@ const _: () = {
     assert!(offset_of!(ChunkStats, max_escape) == 32);
     assert!(offset_of!(ChunkStats, escaped_past) == 40);
 
-    assert!(size_of::<ColorParams>() == 176);
+    assert!(size_of::<PixelStateIC>() == 48);
+    assert!(offset_of!(PixelStateIC, dzdz) == 16);
+    assert!(offset_of!(PixelStateIC, dcdz) == 32);
+    assert!(offset_of!(PixelStateIC, cap_flags) == 44);
+
+    assert!(size_of::<ColorParams>() == 192);
+    assert!(offset_of!(ColorParams, interior_mode) == 172);
+    assert!(offset_of!(ColorParams, pad2) == 184);
     assert!(offset_of!(ColorParams, edge) == 16);
     assert!(offset_of!(ColorParams, glow_color) == 32);
     assert!(offset_of!(ColorParams, light) == 48);

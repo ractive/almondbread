@@ -31,6 +31,54 @@ impl Supersampling {
     }
 }
 
+/// How the inside of the set is coloured (kb: techniques/coloring-methods, "Interior colouring
+/// as built"). Every mode but `Flat` analyses the attracting cycle of each interior pixel on
+/// the GPU after the interior test: period by cycle closure, multiplier, interior distance and
+/// the cycle's closest approach to 0, at any depth (floatexp).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum InteriorMode {
+    /// One colour (`interior_color`).
+    #[default]
+    Flat,
+    /// Closest approach of the attracting cycle to 0, log2 |z*| ("bubbles" around each nucleus).
+    Bubbles,
+    /// One colour per period, shaded by the multiplier's magnitude.
+    Period,
+    /// Internal angle and radius of the multiplier: stripes along the internal rays.
+    Angle,
+    /// Interior distance estimate: bright inside, darkening towards the boundary.
+    Distance,
+}
+
+impl InteriorMode {
+    pub const ALL: [InteriorMode; 5] = [Self::Flat, Self::Bubbles, Self::Period, Self::Angle, Self::Distance];
+
+    /// Stable name (CLI `--inside`, FFI, persisted settings).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Flat => "flat",
+            Self::Bubbles => "bubbles",
+            Self::Period => "period",
+            Self::Angle => "angle",
+            Self::Distance => "distance",
+        }
+    }
+
+    pub fn parse(v: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.name() == v)
+    }
+
+    /// The kernel's colorize code (0: flat).
+    pub fn code(self) -> u32 {
+        self as u32
+    }
+
+    /// The iterate kernel must analyse interior cycles.
+    pub fn needs_analysis(self) -> bool {
+        self != Self::Flat
+    }
+}
+
 /// Everything that affects the image except the viewport.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderSettings {
@@ -53,6 +101,13 @@ pub struct RenderSettings {
     pub smooth_coloring: bool,
     /// Linear RGB.
     pub interior_color: [f32; 3],
+    /// Interior colouring (flat: `interior_color`).
+    pub interior_mode: InteriorMode,
+    /// Palette cycles of the interior modes (per halving of |z*| for bubbles, per doubling of
+    /// the distance for the distance mode, per turn for the angle mode).
+    pub interior_density: f64,
+    /// Angle mode: stripes per turn of the internal angle.
+    pub interior_stripes: f64,
     pub shading: f64,
     /// Degrees.
     pub light_angle: f64,
@@ -107,6 +162,9 @@ impl RenderSettings {
             log_coloring: false,
             smooth_coloring: true,
             interior_color: [0.0, 0.0, 0.0],
+            interior_mode: InteriorMode::Flat,
+            interior_density: 0.25,
+            interior_stripes: 8.0,
             shading: 0.0,
             light_angle: 45.0,
             outline: 0.0,

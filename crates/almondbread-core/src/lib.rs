@@ -27,7 +27,7 @@ pub use input::{EdgePan, InputEvent, InputMode, NavKey, Navigator};
 pub use locations::{BENCHMARK_LOCATIONS, BenchmarkLocation};
 pub use oracle::{IterationField, VerifyReport};
 pub use palette::Palette;
-pub use settings::{RenderSettings, Supersampling};
+pub use settings::{InteriorMode, RenderSettings, Supersampling};
 pub use viewport::{Center, Viewport};
 
 use almondbread_math::{

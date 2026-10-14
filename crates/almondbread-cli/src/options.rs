@@ -181,6 +181,19 @@ impl Options {
         if let Some(v) = self.get("filter") {
             s.palette_filter = v != "0";
         }
+        // Interior colouring (kb: techniques/coloring-methods): flat|bubbles|period|angle|distance.
+        if let Some(v) = self.get("inside") {
+            match almondbread_core::InteriorMode::parse(v) {
+                Some(m) => s.interior_mode = m,
+                None => eprintln!("almondbread: --inside {v}: expected flat, bubbles, period, angle or distance"),
+            }
+        }
+        if let Some(v) = self.f64("inside-density") {
+            s.interior_density = v;
+        }
+        if let Some(v) = self.f64("inside-stripes") {
+            s.interior_stripes = v;
+        }
         if let Some(v) = self.get("edge")
             && let Ok(hex) = u32::from_str_radix(v.trim_start_matches('#'), 16)
         {

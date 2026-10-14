@@ -33,6 +33,7 @@ use bytemuck::bytes_of;
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
+    PixelStateIC,
 };
 
 /// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
@@ -179,6 +180,9 @@ struct TextureSet<B: GpuBackend> {
     iter: B::Texture,
     de: B::Texture,
     color: Option<B::Texture>,
+    /// Interior cycle analysis (rg32f: interior distance, log2 closest approach), allocated
+    /// when an interior colouring first needs it.
+    aux: Option<B::Texture>,
     width: usize,
     height: usize,
 }
@@ -189,6 +193,7 @@ impl<B: GpuBackend> Clone for TextureSet<B> {
             iter: self.iter.clone(),
             de: self.de.clone(),
             color: self.color.clone(),
+            aux: self.aux.clone(),
             width: self.width,
             height: self.height,
         }
@@ -212,6 +217,8 @@ struct ComputeKey {
     points_per_pixel: f64,
     de: bool,
     interior: bool,
+    /// Interior cycle analysis for the interior colourings (kInteriorColor).
+    interior_color: bool,
     width: usize,
     height: usize,
     supersampling: usize,
@@ -685,7 +692,11 @@ pub struct Renderer<B: GpuBackend> {
     cycle_phase: f64,
     cycle_time: f64,
     /// Iterate pipelines keyed by `de | interior << 1 | bla << 2 | deep << 3`.
-    iterate_pipelines: [Option<B::Pipeline>; 16],
+    iterate_pipelines: [Option<B::Pipeline>; 32],
+    /// Interior cycle analysis state, parallel to `state_buffers` (allocated on first use).
+    ic_buffers: Option<[B::Buffer; 2]>,
+    /// Level textures carry the interior analysis texture (set per job).
+    want_aux: bool,
 
     full_set: Option<TextureSet<B>>,
     /// One preview allocation at the largest preview size (the output size); levels use its
@@ -802,6 +813,8 @@ impl<B: GpuBackend> Renderer<B> {
             cycle_phase: 0.0,
             cycle_time: 0.0,
             iterate_pipelines: Default::default(),
+            ic_buffers: None,
+            want_aux: false,
             full_set: None,
             preview_alloc: None,
             state_buffers,
@@ -870,12 +883,25 @@ impl<B: GpuBackend> Renderer<B> {
         self.navigator.note_interaction(now);
     }
 
-    fn iterate_pipeline(&mut self, de: bool, interior: bool, bla: bool, deep: bool) -> Result<B::Pipeline, GpuError> {
-        let k = usize::from(de) | (usize::from(interior) << 1) | (usize::from(bla) << 2) | (usize::from(deep) << 3);
+    fn iterate_pipeline(
+        &mut self,
+        de: bool,
+        interior: bool,
+        bla: bool,
+        deep: bool,
+        interior_color: bool,
+    ) -> Result<B::Pipeline, GpuError> {
+        let k = usize::from(de)
+            | (usize::from(interior) << 1)
+            | (usize::from(bla) << 2)
+            | (usize::from(deep) << 3)
+            | (usize::from(interior_color) << 4);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
-        let p = self.backend.pipeline("iterate", &[de, interior, bla, deep])?;
+        let p = self
+            .backend
+            .pipeline("iterate", &[de, interior, bla, deep, interior_color])?;
         self.iterate_pipelines[k] = Some(p.clone());
         Ok(p)
     }
@@ -1207,6 +1233,7 @@ impl<B: GpuBackend> Renderer<B> {
             points_per_pixel,
             de: self.settings.de_needed(),
             interior: self.settings.interior_detection,
+            interior_color: self.settings.interior_mode.needs_analysis(),
             width,
             height,
             // Interactive views anti-alias progressively at 1x (a supersampling change only
@@ -1234,6 +1261,18 @@ impl<B: GpuBackend> Renderer<B> {
         let ss = ss_factor as f64;
         let tex_w = key.width * ss_factor;
         let tex_h = key.height * ss_factor;
+        self.want_aux = key.interior_color;
+        if key.interior_color && self.ic_buffers.is_none() {
+            let bytes = self.config.live_capacity * std::mem::size_of::<PixelStateIC>();
+            if let (Ok(a), Ok(b)) = (
+                self.backend.create_buffer(bytes, Storage::Private),
+                self.backend.create_buffer(bytes, Storage::Private),
+            ) {
+                self.ic_buffers = Some([a, b]);
+            } else {
+                return;
+            }
+        }
         let Ok(full) = self.full_texture_set(tex_w, tex_h) else {
             return;
         };
@@ -1868,12 +1907,13 @@ impl<B: GpuBackend> Renderer<B> {
                 }
             }
         }
-        let (use_interior, use_bla, deep) = {
+        let (use_interior, use_bla, deep, interior_color) = {
             let j = self.job.as_ref().expect("job");
             let l = &j.levels[level_index];
-            (l.use_interior, l.use_bla, j.deep)
+            let ic = j.key.interior_color && l.set.aux.is_some() && self.ic_buffers.is_some();
+            (l.use_interior, l.use_bla, j.deep, ic)
         };
-        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla, deep) {
+        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla, deep, interior_color) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("almondbread: iterate pipeline failed: {e}");
@@ -1928,6 +1968,11 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(1, &job.reference_buffer, 0);
         enc.set_buffer(2, &self.state_buffers[src], 0);
         enc.set_buffer(3, &self.state_buffers[dst], 0);
+        if interior_color && let (Some(ic), Some(aux)) = (&self.ic_buffers, &level.set.aux) {
+            enc.set_texture(2, aux);
+            enc.set_buffer(18, &ic[src], 0);
+            enc.set_buffer(19, &ic[dst], 0);
+        }
         match (&job.bla, use_bla) {
             (Some(b), true) => {
                 enc.set_bytes(14, bytes_of(&b.params));
@@ -2251,6 +2296,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_texture(1, &src.de);
         enc.set_texture(2, target);
         enc.set_texture(3, under.map_or(target, |u| u.0));
+        enc.set_texture(4, src.aux.as_ref().unwrap_or(&src.iter));
         enc.set_bytes(0, bytes_of(&c));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([target_w, target_h, 1], [tw, th, 1]);
@@ -2295,6 +2341,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_texture(1, &p.set.de);
         enc.set_texture(2, color);
         enc.set_texture(3, color);
+        enc.set_texture(4, p.set.aux.as_ref().unwrap_or(&p.set.iter));
         enc.set_bytes(0, bytes_of(&c));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([p.set.width, p.set.height, 1], [tw, th, 1]);
@@ -2353,14 +2400,20 @@ impl<B: GpuBackend> Renderer<B> {
         c.ratio = 1.0;
         c.de_scale = 1.0;
         c.out_size = [out_w as u32, out_h as u32];
-        let (iter_tex, de_tex, rank) = match exact {
+        let (iter_tex, de_tex, aux_tex, rank) = match exact {
             Some(l) => {
                 self.level_admission(l, &mut c);
                 c.src_size = [l.set.width as u32, l.set.height as u32];
                 let rank = l.order.as_ref().map_or(self.dummy_buffer.clone(), |o| o.rank.clone());
-                (l.set.iter.clone(), l.set.de.clone(), rank)
+                let aux = l.set.aux.clone().unwrap_or_else(|| l.set.iter.clone());
+                (l.set.iter.clone(), l.set.de.clone(), aux, rank)
             }
-            None => (full.iter.clone(), full.de.clone(), self.dummy_buffer.clone()),
+            None => (
+                full.iter.clone(),
+                full.de.clone(),
+                full.iter.clone(),
+                self.dummy_buffer.clone(),
+            ),
         };
         let mut q = ComposeParams {
             conf_cap: self.config.taa_conf_cap as f32,
@@ -2416,6 +2469,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_texture(3, hist_in);
         enc.set_texture(4, hist_out);
         enc.set_texture(5, target);
+        enc.set_texture(6, &aux_tex);
         enc.set_bytes(0, bytes_of(&c));
         enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
         enc.set_buffer(2, &self.level_buffer, 0);
@@ -2488,6 +2542,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_texture(3, hist_in);
         enc.set_texture(4, hist_out);
         enc.set_texture(5, target);
+        enc.set_texture(6, hist_in);
         enc.set_bytes(0, bytes_of(&c));
         enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
         enc.set_buffer(2, &self.level_buffer, 0);
@@ -2555,6 +2610,15 @@ impl<B: GpuBackend> Renderer<B> {
             glow_width: s.glow_width as f32,
             palette_levels: almondbread_core::palette::mip_levels(PALETTE_SIZE) as u32,
             palette_filter: if s.palette_filter { 1.0 } else { 0.0 },
+            // The shown job's textures must hold the cycle analysis (a mode switch from flat
+            // starts a new job; until it shows, the interior stays flat).
+            interior_mode: if self.job.as_ref().is_some_and(|j| j.key.interior_color) {
+                s.interior_mode.code()
+            } else {
+                0
+            },
+            interior_density: s.interior_density as f32,
+            interior_stripes: s.interior_stripes as f32,
             ..ColorParams::default()
         }
     }
@@ -2571,10 +2635,16 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The full-level textures, reused while the size holds.
     fn full_texture_set(&mut self, width: usize, height: usize) -> Result<TextureSet<B>, GpuError> {
-        if let Some(s) = &self.full_set
+        if let Some(s) = &mut self.full_set
             && s.width == width
             && s.height == height
         {
+            if self.want_aux && s.aux.is_none() {
+                s.aux = Some(
+                    self.backend
+                        .create_texture(width, height, TextureFormat::Rg32Float, Storage::Private)?,
+                );
+            }
             return Ok(s.clone());
         }
         let b = &self.backend;
@@ -2582,6 +2652,11 @@ impl<B: GpuBackend> Renderer<B> {
             iter: b.create_texture(width, height, TextureFormat::Rg32Float, Storage::Private)?,
             de: b.create_texture(width, height, TextureFormat::Rg16Float, Storage::Private)?,
             color: None,
+            aux: if self.want_aux {
+                Some(b.create_texture(width, height, TextureFormat::Rg32Float, Storage::Private)?)
+            } else {
+                None
+            },
             width,
             height,
         };
@@ -2599,9 +2674,15 @@ impl<B: GpuBackend> Renderer<B> {
         width: usize,
         height: usize,
     ) -> Result<TextureSet<B>, GpuError> {
-        if let Some(s) = &self.preview_alloc {
+        if let Some(s) = &mut self.preview_alloc {
             let (aw, ah) = self.backend.texture_size(&s.iter);
             if aw >= width && ah >= height {
+                if self.want_aux && s.aux.is_none() {
+                    s.aux = Some(
+                        self.backend
+                            .create_texture(aw, ah, TextureFormat::Rg32Float, Storage::Private)?,
+                    );
+                }
                 return Ok(s.with_size(width, height));
             }
         }
@@ -2611,6 +2692,11 @@ impl<B: GpuBackend> Renderer<B> {
             iter: b.create_texture(aw, ah, TextureFormat::Rg32Float, Storage::Private)?,
             de: b.create_texture(aw, ah, TextureFormat::Rg16Float, Storage::Private)?,
             color: Some(b.create_texture(aw, ah, TextureFormat::Rgba16Float, Storage::Private)?),
+            aux: if self.want_aux {
+                Some(b.create_texture(aw, ah, TextureFormat::Rg32Float, Storage::Private)?)
+            } else {
+                None
+            },
             width: aw,
             height: ah,
         };

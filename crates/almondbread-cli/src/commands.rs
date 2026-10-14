@@ -9,7 +9,7 @@ use almondbread_core::cfmt::g;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::PAN_SPEED;
 use almondbread_core::locations::{Location, all_locations};
-use almondbread_core::oracle::{IterationField, VerifyReport, compare, cpu_render, cpu_render_deep};
+use almondbread_core::oracle::{ITER_INTERIOR, IterationField, VerifyReport, compare, cpu_render, cpu_render_deep};
 use almondbread_core::reference::DEEP_SCALE;
 use almondbread_core::settings::Supersampling;
 use almondbread_core::viewport::{Center, Scale, Viewport};
@@ -57,8 +57,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let mut times = Vec::new();
     let mut walls = Vec::new();
     let mut out = None;
+    let analyse = r.settings.interior_mode.needs_analysis() || o.has("interior-stats");
     for i in 0..repeats {
-        let res = render(&mut r, width, height, usize::from(i == 0), false)?;
+        let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
         times.push(res.iterate_gpu_time);
         walls.push(res.wall_time);
         out = Some(res);
@@ -81,6 +82,24 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         g(out.steps_done as f64, 3),
         out.colorize_gpu_time * 1000.0
     );
+    if let Some(texels) = &out.iterations {
+        // Interior cycle analysis (interior colourings): periods found, by frequency.
+        let interior: Vec<f32> = texels.iter().filter(|t| t[0] == ITER_INTERIOR).map(|t| t[1]).collect();
+        let mut periods: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+        for &p in &interior {
+            *periods.entry(p as u32).or_default() += 1;
+        }
+        let mut top: Vec<(u32, usize)> = periods.into_iter().collect();
+        top.sort_by_key(|&(p, n)| (std::cmp::Reverse(n), p));
+        let none = interior.iter().filter(|&&p| p < 1.0).count();
+        let list: Vec<String> = top.iter().take(8).map(|(p, n)| format!("{p}:{n}")).collect();
+        println!(
+            "interior: {} px, {} without a period; periods (period:pixels) {}",
+            interior.len(),
+            none,
+            list.join(" ")
+        );
+    }
     if let Some(f) = out.bla_forecast {
         let (t, entries, bytes) = r.bla_info();
         println!(

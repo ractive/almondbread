@@ -437,7 +437,8 @@ mod tests {
              out[0] = sizeof(IterateParams); out[1] = sizeof(PixelState); out[2] = sizeof(ChunkStats);\n\
              out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
-             out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX); }}\n"
+             out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX);\n\
+             out[12] = sizeof(PixelStateIC); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -447,7 +448,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 48];
+        let mut bytes = [0u8; 52];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -470,6 +471,7 @@ mod tests {
                 size_of::<almondbread_core::bla::BlaEntry>() as u32,
                 size_of::<almondbread_core::bla::BlaEntryX>() as u32,
                 size_of::<almondbread_core::math::FloatExpComplex>() as u32,
+                size_of::<crate::gpu_types::PixelStateIC>() as u32,
             ]
         );
     }
@@ -581,6 +583,52 @@ mod tests {
         assert!(texels.iter().all(|t| t[0] == almondbread_core::oracle::ITER_INTERIOR));
         assert_eq!(r.stats.max_iterations, depth);
         assert_eq!(r.settings.learned_iterations, 0);
+    }
+
+    /// Interior cycle analysis (interior colourings): the period every interior pixel reports
+    /// at the centres of known components, shallow (plain kernel) and deep (needle-1e305,
+    /// period-255 minibrot, deep kernel). Flat colouring keeps the legacy `.y` flag.
+    #[test]
+    fn interior_analysis_periods() {
+        use crate::scheduler::Renderer;
+        use almondbread_core::InteriorMode;
+        let periods = |viewport: almondbread_core::Viewport, mode: InteriorMode| -> Vec<u32> {
+            let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+            r.settings = almondbread_core::RenderSettings::plain();
+            r.settings.supersampling = almondbread_core::Supersampling::Off;
+            r.settings.interior_mode = mode;
+            r.viewport = viewport;
+            let out = r.render_offscreen(64, 40, true).expect("render");
+            let texels = out.iterations.expect("iterations");
+            texels
+                .iter()
+                .filter(|t| t[0] == almondbread_core::oracle::ITER_INTERIOR)
+                .map(|t| t[1] as u32)
+                .collect()
+        };
+        let all = |v: &[u32], p: u32| !v.is_empty() && v.iter().all(|&x| x == p);
+        let cardioid = almondbread_core::Viewport::new(-0.1, 0.05, 1e-3);
+        assert!(all(&periods(cardioid.clone(), InteriorMode::Period), 1));
+        assert!(all(
+            &periods(almondbread_core::Viewport::new(-1.0, 0.0, 1e-3), InteriorMode::Angle),
+            2
+        ));
+        assert!(all(
+            &periods(
+                almondbread_core::Viewport::new(-0.1226, 0.7449, 2e-4),
+                InteriorMode::Bubbles
+            ),
+            3
+        ));
+        // Flat: no analysis (the derivative test's flag).
+        assert!(all(&periods(cardioid, InteriorMode::Flat), 1));
+        let deep = almondbread_core::locations::location_named("needle-1e305")
+            .expect("location")
+            .viewport_for_width(64);
+        let mut zoomed = deep.clone();
+        zoomed.scale = zoomed.scale * 0.02;
+        let v = periods(zoomed, InteriorMode::Period);
+        assert!(all(&v, 255), "{:?}", &v[..v.len().min(20)]);
     }
 
     /// The hosting path of R2b, headless: a `CAMetalLayer` (no window) as the surface, the
