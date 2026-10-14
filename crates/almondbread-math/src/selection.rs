@@ -305,49 +305,82 @@ pub fn find_nucleus(
     let mut scratch = vec![0u64; raw::raw_scratch_limbs(n)];
     let s = &mut scratch[..];
     let mut previous_step_log2 = f64::INFINITY;
+    let mut previous_gain = f64::NAN;
+    // R6 (kb: techniques/reference-selection): the derivative only scales the step, so it
+    // starts in extended-range f64 (one complex f64 product per iteration instead of four
+    // big products: a step costs ~1/3). Its relative error makes the iteration converge
+    // linearly (~50-90 bits per step) once the quadratic phase is over; when the steps stop
+    // accelerating and more than two such steps remain to the precision floor (a start
+    // already very close to the nucleus), exact Newton finishes quadratically.
+    let mut exact = false;
     for step in 1..=options.max_steps {
         if is_cancelled() {
             return None;
         }
         load(&mut cx, &c.re);
         load(&mut cy, &c.im);
-        for r in [&mut zx, &mut zy, &mut dx, &mut dy] {
-            raw::set_zero(r);
-        }
-        for _ in 0..period {
-            // dz <- 2 z dz + 1 (uses the old z)
-            {
-                let [t0, t1, _, _] = &mut t;
-                raw::mul(t0, zx.view(), dx.view(), s);
-                raw::mul(t1, zy.view(), dy.view(), s);
-                raw::add(&mut u0, t0.view(), t1.view(), true, s);
-                raw::mul(t0, zx.view(), dy.view(), s);
-                raw::mul(t1, zy.view(), dx.view(), s);
-                raw::add(&mut u1, t0.view(), t1.view(), false, s);
+        raw::set_zero(&mut zx);
+        raw::set_zero(&mut zy);
+        let step_log2;
+        if exact {
+            raw::set_zero(&mut dx);
+            raw::set_zero(&mut dy);
+            for _ in 0..period {
+                // dz <- 2 z dz + 1 (uses the old z)
+                {
+                    let [t0, t1, _, _] = &mut t;
+                    raw::mul(t0, zx.view(), dx.view(), s);
+                    raw::mul(t1, zy.view(), dy.view(), s);
+                    raw::add(&mut u0, t0.view(), t1.view(), true, s);
+                    raw::mul(t0, zx.view(), dy.view(), s);
+                    raw::mul(t1, zy.view(), dx.view(), s);
+                    raw::add(&mut u1, t0.view(), t1.view(), false, s);
+                }
+                if !u0.zero {
+                    u0.exp += 1;
+                }
+                if !u1.zero {
+                    u1.exp += 1;
+                }
+                raw::add(&mut dx, u0.view(), one.view(), false, s);
+                raw::copy(&mut dy, u1.view());
+                // z <- z^2 + c
+                complex_square_add(&mut zx, &mut zy, &cx, &cy, &mut t, s);
             }
-            if !u0.zero {
-                u0.exp += 1;
+            if dx.zero && dy.zero {
+                return None;
             }
-            if !u1.zero {
-                u1.exp += 1;
-            }
-            raw::add(&mut dx, u0.view(), one.view(), false, s);
-            raw::copy(&mut dy, u1.view());
-            // z <- z^2 + c
-            complex_square_add(&mut zx, &mut zy, &cx, &cy, &mut t, s);
-        }
-        if dx.zero && dy.zero {
-            return None;
-        }
-        let z = BigComplex::new(BigFloat::from_raw(&zx), BigFloat::from_raw(&zy));
-        let dz = BigComplex::new(BigFloat::from_raw(&dx), BigFloat::from_raw(&dy));
-        let delta = &z / &dz;
-        c = &c - &delta;
-        let step_log2 = if delta.re.is_zero() && delta.im.is_zero() {
-            f64::NEG_INFINITY
+            let z = BigComplex::new(BigFloat::from_raw(&zx), BigFloat::from_raw(&zy));
+            let dz = BigComplex::new(BigFloat::from_raw(&dx), BigFloat::from_raw(&dy));
+            let delta = &z / &dz;
+            c = &c - &delta;
+            step_log2 = if delta.re.is_zero() && delta.im.is_zero() {
+                f64::NEG_INFINITY
+            } else {
+                delta.re.log2_magnitude().max(delta.im.log2_magnitude())
+            };
         } else {
-            delta.re.log2_magnitude().max(delta.im.log2_magnitude())
-        };
+            let mut dz = DoubleExpComplex::ZERO;
+            for _ in 0..period {
+                dz = (complex_value(&zx, &zy) * dz).times_two() + DoubleExpComplex::ONE;
+                complex_square_add(&mut zx, &mut zy, &cx, &cy, &mut t, s);
+            }
+            let finite = |v: DoubleExpComplex| v.re.mantissa.is_finite() && v.im.mantissa.is_finite();
+            if dz.re.is_zero() && dz.im.is_zero() || !finite(dz) {
+                return None;
+            }
+            let d = complex_value(&zx, &zy) / dz;
+            if !finite(d) {
+                return None;
+            }
+            let to_big = |v: DoubleExp| BigFloat::from_f64(v.mantissa, 64).times_power_of_two(v.exponent);
+            c = &c - &BigComplex::new(to_big(d.re), to_big(d.im));
+            step_log2 = if d.re.is_zero() && d.im.is_zero() {
+                f64::NEG_INFINITY
+            } else {
+                d.re.log2_magnitude().max(d.im.log2_magnitude())
+            };
+        }
         if let Some(md) = &options.max_distance {
             let off = &c - start;
             if off.re.log2_magnitude().max(off.im.log2_magnitude()) > md.log2_magnitude() {
@@ -363,6 +396,13 @@ pub fn find_nucleus(
                 steps: step,
                 last_step_log2: step_log2,
             });
+        }
+        if !exact && step_log2.is_finite() && previous_step_log2.is_finite() {
+            let gain = previous_step_log2 - step_log2;
+            if gain <= 1.25 * previous_gain && step_log2 - floor > 2.0 * gain {
+                exact = true;
+            }
+            previous_gain = gain;
         }
         previous_step_log2 = step_log2;
     }
