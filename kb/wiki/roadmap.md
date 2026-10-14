@@ -17,7 +17,7 @@ as milestones start and finish.
 | R1 | Rust workspace: port arbitrary precision + reference + selection, FFI/UniFFI + XCFramework build into the Swift package and Xcode project ([[decisions/rust-core]]) | — | done 2026-10-14 (bit-exact vs Swift, 1.05x to 4x orbit speed; [[platform/rust-swift-ffi]]) |
 | R2a | Rust render crate: backend trait, chunked scheduler, Metal backend (objc2-metal), MSL kernels, core input/motion model, Rust CLI (render/verify/bench/regress); headless parity with Swift | — | done 2026-10-14 (fields bit-identical at all 11 locations, GPU ms geomean 0.998 of Swift, regress passes; [[platform/render-architecture]]) |
 | R2b | switch the apps to the Rust renderer; Swift UI only; interaction parity; delete the Swift renderer and AlmondbreadMath | — | done 2026-10-14 (`Explorer` over UniFFI, one `frame` call per refresh, 3–7 µs FFI per frame; interaction parity or better, 9.4 ms drawable stall gone; [[platform/render-architecture]], [[synthesis/benchmarks]]) |
-| L0 | landscape-mode prototype: still images, height-function variants ([[decisions/landscape-mode]]) | — | planned, after R2b |
+| L0 | landscape-mode prototype: still images, height-function variants ([[decisions/landscape-mode]]) | — | in progress (parallel to R2b) |
 | M2.5 | interaction polish: pointer/keyboard modes, crosshair zoom target, spring glide, edge panning ([[decisions/controls]] revision) | 8 (partial) | planned, after the wedge bug fix |
 | M3b | integrate: big viewport, background reference, rescaled float32 / floatexp deltas | 1, 6 | planned |
 | M4 | BLA tree with ε = 2^-24, extended-range coefficients, skip-off diff | 5 | planned |
