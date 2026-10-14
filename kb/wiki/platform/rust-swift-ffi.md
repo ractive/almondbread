@@ -18,7 +18,7 @@ rustc 1.99, UniFFI 0.32).
 ```text
 crates/almondbread-math   pure Rust maths (no platform code, forbid(unsafe))
 crates/almondbread-core   platform-neutral core (re-exports math; grows in R2)
-crates/almondbread-render R2: backend trait, scheduler, Metal backend (skeleton)
+crates/almondbread-render backend trait, scheduler, Host, Metal backend + CAMetalLayer surface
 crates/almondbread-ffi    #[uniffi::export] surface; crate-type lib + staticlib + cdylib
 crates/uniffi-bindgen     the bindings generator as a workspace binary
         |
@@ -36,7 +36,9 @@ scripts/build-rust-xcframework.sh   (make rust)
         |
 Package.swift
   .binaryTarget AlmondbreadCoreFFI  (path build/rust/AlmondbreadCoreFFI.xcframework)
-  .target AlmondbreadCore           (generated bindings + thin helpers)
+  .target AlmondbreadCore           (generated bindings + thin helpers; links Metal,
+                                     QuartzCore, CoreGraphics for the Rust renderer)
+  .target AlmondbreadKit            (UI only; depends on AlmondbreadCore)
   .executableTarget almondbread-core-check
 project.yml: both app targets depend on the AlmondbreadCore product.
 ```
@@ -51,7 +53,7 @@ project.yml: both app targets depend on the AlmondbreadCore product.
   The C module Swift imports is `almondbread_ffiFFI` (from the generated modulemap).
 - `make build`, `make run`, `make app` and `make ios-sim` depend on `make rust`
   (a no-op rebuild costs ~3 s); `make rust-check` runs `cargo test`, clippy with
-  `-D warnings` and `cargo fmt --check`; `make core-check` runs the parity check.
+  `-D warnings` and `cargo fmt --check`; `make core-check` runs the bridge check.
 - Outputs are gitignored: `/target/`, `/build/`,
   `Sources/AlmondbreadCore/Generated/`.
 - The release static library is ~30 MB (all of std plus line tables); the linker
@@ -83,7 +85,8 @@ project.yml: both app targets depend on the AlmondbreadCore product.
 `FloatExpComplex` is `#[repr(C, align(8))] { mantissa: [f32; 2], exponent: i32 }`:
 16-byte stride, 8-byte alignment, the MSL `struct { float2 m; int e; }`
 ([[techniques/extended-range-floats]]). A compile-time assertion pins it in Rust and
-`almondbread-core-check` compares it with Swift's `MemoryLayout` at run time.
+`almondbread-core-check` checked it against Swift's `MemoryLayout` while the Swift maths
+existed (R1); since R2b it checks the exported size and alignment, [16, 8].
 
 ## Measured call costs
 
@@ -116,16 +119,60 @@ element, about 1700 times slower than a memcpy.
   iterations), read `progress()` for the UI.
 - Coordinates cross as decimal strings, exact at their precision: no binary
   BigFloat format leaks into Swift.
-- Bit-for-bit parity is checked through the real bindings: `make core-check`
-  compares formatted coordinates, five reference orbits (final Z, every float32 and
-  floatexp point), reference selection and cancellation with AlmondbreadMath.
+- Bit-for-bit parity with the Swift maths was checked through the real bindings in R1
+  (`make core-check` against AlmondbreadMath). Since R2b the Swift maths is gone, the
+  maths is tested in Rust (oracle fixtures, property tests) and `make core-check` is a
+  slim bridge check: coordinate round trips, an orbit copied into Swift memory,
+  cancellation, the palette list, the `Explorer` on a windowless `CAMetalLayer`
+  (settings and viewport round trips, input, frames until settled, an offscreen PNG),
+  and the call costs below.
 
-## Open for R2
+## The R2b interface: `Explorer`
 
-- Rust owns the `MTLDevice`, queues and buffers (`objc2-metal`); Swift hands over the
-  `CAMetalLayer` once. Check how the layer pointer crosses UniFFI (raw `u64` address
-  as here, or a small C ABI function).
+The app's renderer is one UniFFI object per window (`crates/almondbread-ffi/src/explorer.rs`,
+Apple targets; it wraps the platform-neutral `Host` of [[platform/render-architecture]]).
+
+| Export | Purpose |
+| --- | --- |
+| `Explorer(layer: u64, scale)` | the `CAMetalLayer`'s address, passed once (`Unmanaged.passUnretained(layer).toOpaque()`); Rust retains and configures it, creates device, queue, pipelines |
+| `resize(width, height, scale)` | view size in points, backing scale; sets `contentsScale` and the drawable size; the first size fits the home view |
+| `frame(timestamp) -> Bool` | one per display refresh (the display link's timestamp); false: pause the link |
+| `input(InputEvent) -> InputResult {handled, redraw}` | decoded events (`KeyDown/KeyUp(NavKey)`, `Shift`, `FocusLost`, `Pointer`, `PointerExited`, `Pan`, `WheelZoom`, `Magnify`, `Pinch`, `DoubleTap`); `handled`: swallow it, `redraw`: resume the link. Non-finite coordinates are rejected |
+| `settings()`, `setSettings(ExplorerSettings)` | the inspector's settings as one record (validated; the learned iteration floor is kept) |
+| `stats() -> ExplorerStats` | HUD values: shown view, limit, GPU time, chunks, size, preview/refining, reference, zoom speed, held keys, settled, failed frames |
+| `viewport()`, `setViewport(re, im, scale)`, `resetViewport()`, `coordinatesText()` | centre as decimal strings (M3b-ready) |
+| `renderPng(path, w, h)` | offscreen render of the view (separate renderer, extension passes as in the view) |
+| `beginMeasurement()`, `endMeasurement() -> InteractionReport`, `finalFrame()`, `displayedFrameMismatch()`, `finishFrames()` | interaction test and self-test |
+| `palettes()` | id, name and stops for the inspector |
+
+The Swift side (`AlmondbreadKit`) keeps decoding only: key codes to `NavKey`, gesture
+recognisers, positions to points from the view centre (y up). `ExplorerModel` mirrors the
+settings and forwards each change with `setSettings`, and reads `stats()` at ~10 Hz while
+the display link runs (assigning only on change, so idle views do not re-render).
+`Settings` was renamed `ExplorerSettings` because SwiftUI has a `Settings` scene type.
+
+Threading: Swift calls from the main thread; the state sits behind a mutex. The objc2
+objects are not `Send`, so the FFI crate asserts it for the mutex-guarded state (one
+`unsafe impl`, plus the layer-pointer `from_raw`).
+
+### Measured costs (R2b)
+
+`make core-check` and the interaction test (measured 2026-10-14, M1 Pro, release):
+
+| Call | Cost |
+| --- | ---: |
+| `input(.pointer)` (enum and record through a `RustBuffer`, mutex, clock) | 0.9 µs |
+| `stats()` (record with two formatted coordinate strings) | 6.2 µs |
+| `frame()` per call: Swift-side time minus the time Rust measures inside it, in the window | 3–7 µs |
+| the same on a windowless layer (core-check) | 0.3–0.9 µs |
+
+At 60–120 Hz the frame call costs < 0.1 % of a refresh; events are a few per refresh;
+`stats()` runs at 10 Hz. The window figure includes Rust's autorelease pool and the
+presentation-log drain; nothing per pixel crosses.
+
+## Open
+
 - Callbacks from Rust into Swift (frame finished, progress) via UniFFI callback
-  interfaces or foreign traits; measure their cost like the calls above.
-- An async export (UniFFI supports `async fn`) instead of blocking calls on a
-  Swift background queue.
+  interfaces or foreign traits, when something needs them (R2b got by with polling).
+- An async export (UniFFI supports `async fn`) instead of blocking calls on a Swift
+  background queue, once reference orbits move off the render thread (M3b).

@@ -9,9 +9,10 @@ This wiki collects what almondbread needs to know to render the Mandelbrot
 set and related escape-time fractals very fast and very deep on macOS with
 Apple Silicon: the maths, per-pixel and image-level tricks, colouring, the
 Apple GPU and Metal, arbitrary precision on the CPU, and what existing
-renderers do. The app is Swift + SwiftUI/AppKit with Metal compute kernels
-(float32 only; Apple GPUs have no fp64) and arbitrary-precision reference
-orbits on the CPU ([[decisions/app-stack]]).
+renderers do. The app is a Rust core and renderer (Metal compute kernels,
+float32 only, since Apple GPUs have no fp64; arbitrary-precision reference
+orbits on the CPU) with a Swift + SwiftUI/AppKit UI on Apple platforms
+([[decisions/app-stack]], [[decisions/rust-core]], [[platform/render-architecture]]).
 
 ## The settled pipeline (as of 2026)
 

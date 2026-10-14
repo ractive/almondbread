@@ -94,9 +94,11 @@ Measured 2026-10-14, M1 Pro, release, macOS 26 (Darwin 25.5), Xcode 26.
 - **Xcode precompiles `.metal` resources.** A SwiftPM `.copy("Shaders/x.metal")`
   resource is compiled by Xcode into `default.metallib` (with Xcode's own math options)
   and the source is dropped, so `Bundle.module.url(forResource:withExtension: "metal")`
-  returns nil in the .app. almondbread ships the source as `Mandelbrot.metalsrc` (copied
-  verbatim by both SwiftPM and Xcode, compiled at runtime with explicit options) and
-  falls back to `makeDefaultLibrary(bundle:)`.
+  returns nil in the .app. The Swift renderer shipped the source as `Mandelbrot.metalsrc`
+  (copied verbatim by both SwiftPM and Xcode, compiled at runtime with explicit options).
+  Since R2b the kernels live only in the Rust crate (`include_str!`, compiled at runtime
+  with the same options; [[platform/render-architecture]]), so no bundle resource is
+  involved.
 - **Function constants** (`kDE`, `kInterior`) select four iterate pipelines; a disabled
   feature costs nothing per iteration.
 - **Float atomics are slow**: `atomic_float` add, one per SIMD-group per chunk, cost

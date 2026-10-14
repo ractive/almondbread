@@ -16,10 +16,12 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 ## Sources
 
 - [[sources/apple-dynamic-caching-talk]] — An Apple developer tech talk (video) on the GPU in M3 and A17 Pro, mainly Dynamic Caching. (unread)
+- [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/cheritat-mandelbrot-rendering]] — Rendering-techniques page by Arnaud Chéritat, a complex-dynamics mathematician (Toulouse), on "Techniques for computer generated pictures in... (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
+- [[sources/fractal-dive-app-store]] — App Store listing of Fractal Dive (2026-09): perturbation to 4e331, Dive autopilot, free links, $1.99 Pro with 4K dive video; closest competitor (skimmed)
 - [[sources/fractalforums-interior-detection]] — Archived single-page thread started by GBy (fractalshades author) on 25 June 2022: interior detection via the derivative `dz/dZ_1` combined with... (digested)
 - [[sources/fractalforums-mandel-machine]] — Legacy fractalforums.com board for Mandel Machine, a closed-source freeware deep-zoom Mandelbrot renderer by Botond Kósa. (unread)
 - [[sources/fractalforums-zhuoran-rebasing-bla]] — Archived forum thread where Zhuoran (later author of Imagina) posted the rebasing idea on 3 Aug 2021. (digested)
@@ -27,17 +29,24 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/fractalshark-readme]] — The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, pushed 2026-10-12): a Mandelbrot-only deep-zoom renderer for NVIDIA... (digested)
 - [[sources/fractalzoomer-readme]] — The short README of Fractal Zoomer (GitHub `hrkalona/Fractal-Zoomer`, GPL-3.0, pushed 2026-10-13), a Java fractal program with hundreds of formulas. (digested)
 - [[sources/fraktaler-3-site]] — The manual of Fraktaler 3 version 3.1 (2025-12-15): a cross-platform (Linux, Windows, Android, Web) renderer for "fast deep zooming of hybrid... (digested)
+- [[sources/frax-app-store]] — App Store listing and reviews of Frax: free + $4.99 Pro, 232 US ratings, ~2e14 cap, complaints about depth, video and gyroscope (skimmed)
+- [[sources/frax-help-explore]] — Frax help page: the 64-bit limit (~2e14) is "absolute and final"; image sizes per tier (skimmed)
 - [[sources/gmp-fixed-size-mul]] — A gmp-devel reply by Albin Ahlbäck, 5 April 2024, in the thread "How to calculate cycles/limb in assembly routines". (digested)
 - [[sources/gmp-m1-discuss]] — A mailing-list post, "Surprise performance from Apple M1", by GMP's lead developer, 21 November 2020, after the project bought an M1 Mac mini. (digested)
+- [[sources/hn-mandelbrot-site-thread]] — HN thread on mandelbrot.site (2025, 86 points): "zoom forever", jerky zoom, iteration scaling, URL sharing (skimmed)
 - [[sources/imagina-hinfla-evaluator]] — The main Mandelbrot evaluator of Imagina (pre-rewrite `master`, last pushed 2024-01-23), by Zhuoran, the originator of rebasing and of this "LA"... (skimmed)
 - [[sources/imagina-readme]] — The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast fractal renderer & explorer". (digested)
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
 - [[sources/luma-gl-gpu-precision]] — A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than f32 precision on GPUs: double-single (float-float),... (digested)
+- [[sources/mandelbrot-metal-app-store]] — App Store listing of Mandelbrot Metal: GPU perturbation, progressive, subscription since v3.0 ($2.99/mo, $19.99/yr, $39.99 lifetime) (skimmed)
+- [[sources/mandelbrot-site]] — How mandelbrot.site was built: Rust/Wasm tiles, perturbation, share links, PNG with params, video recording (skimmed)
 - [[sources/mathr-deep-zoom-page]] — mathr's maintained deep-zoom reference page as used in Fraktaler 3: perturbation, rebasing, BLA build/lookup, matrix and abs BLA, DE, interior detection (digested)
-- [[sources/mathr-deep-zoom-theory-again]] — Short follow-up blog post (21 Feb 2022) explaining Zhuoran's two 2021 ideas from fractalforums.org: rebasing and bilinear approximation (BLA),... (digested)
 - [[sources/mathr-deep-zoom-theory]] — Blog post (14 May 2021) by the maintainer of Kalles Fraktaler 2+ summarising the state of deep-zoom rendering as implemented in KF just before... (digested)
+- [[sources/mathr-deep-zoom-theory-again]] — Short follow-up blog post (21 Feb 2022) explaining Zhuoran's two 2021 ideas from fractalforums.org: rebasing and bilinear approximation (BLA),... (digested)
 - [[sources/mathr-interior-distance]] — Blog post (2 Nov 2014) on computing Mandelbrot interior distance estimates in practice: find the period from atom-domain partials, find the... (digested)
+- [[sources/maths-town-kfmoviemaker-guide]] — KF Movie Maker guide: KF keyframes into paid After Effects; weeks of export, manual keyframes, crashes (skimmed)
+- [[sources/maths-town-videos]] — Maths Town video catalogue and archived descriptions: depths to 4e2656, render times of weeks to months (skimmed)
 - [[sources/metal-benchmarks-readme]] — Philip Turner's long README describing the M1/M2 (Apple GPU families 7 and 8) GPU from his own microbenchmarks: per-chip FLOPS, on-chip memory,... (digested)
 - [[sources/mlx-watchdog-issue]] — A GitHub issue in Apple's MLX machine-learning framework, opened 24 March 2026 by user Thump604, titled "GPU watchdog kills process during... (digested)
 - [[sources/muency-atom-domain]] — Glossary entry (oldest revision 1996, updated 2023-07-08) defining atom domains (dominant period regions), their computation and their size... (digested)
@@ -46,6 +55,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/muency-newton-raphson]] — Glossary entry (written 2010, updated 2023-06-22) on Newton's method and its use to find the nucleus of a mu-atom (hyperbolic component) of known... (digested)
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
 - [[sources/quilez-smooth-iteration]] — Short article by Inigo Quilez deriving the smooth (continuous) iteration count for polynomial fractals of any integer degree `d`, with a GLSL... (digested)
+- [[sources/revenuecat-subscription-apps-2026]] — RevenueCat 2026 benchmarks: hard paywall 10.7% vs freemium 2.1% conversion, 72% annual churn (skimmed)
 - [[sources/swift-mandelbrot-readme]] — The README of a SwiftUI + Metal Mandelbrot explorer for iPhone, iPad and Mac. (digested)
 - [[sources/thall-extended-precision]] — Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, expanding a SIGGRAPH 2006 poster. (digested)
 - [[sources/ultrafractal-perturbation-calculations]] — A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal program) on how its perturbation mode works and how to tune it. (digested)
@@ -145,4 +155,5 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 ## Synthesis
 
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
+- [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP

@@ -41,7 +41,9 @@ Double/floatexp and decimal strings.
 
 ## Outcome (2026-10-14)
 
-Built as `Sources/AlmondbreadMath` (pure Swift, builds for macOS 14 and iOS 17): a
+Built as `Sources/AlmondbreadMath` (pure Swift, builds for macOS 14 and iOS 17; ported
+bit-exact to Rust as `crates/almondbread-math` in R1 and deleted in R2b,
+[[decisions/rust-core]]): a
 correctly rounded floating `BigFloat` rather than fixed point, because Newton's
 derivative and the period radii need the exponent range. GMP is used only by a
 test-only benchmark. It beats GMP `mpf` on the reference orbit up to 1024 bits (1.1x to

@@ -166,3 +166,21 @@ Investigated the 9.4 ms draw CPU in the Swift "neck zoom" scenario: 8.9 ms is bl
 texture allocation or GPU load; the Rust surface predicts the pool and skips a refresh
 instead. Preview textures are now allocated once at maximum size (sub-regions). Pages: new
 [[platform/render-architecture]], [[synthesis/benchmarks]] (R2a), [[roadmap]] (R2a done).
+
+## [2026-10-14] research | Fractal app market research
+
+Deep-research run on how to position almondbread against the fractal-app market. Notes
+in `raw/research/fractal-app-market-research/` (App Store apps, desktop/Steam/web tools,
+audience and demand, market size and business models). Report:
+[[synthesis/fractal-app-market-research]]. Findings: at least six 2025–26 App Store apps
+already claim perturbation depth, and several ship autopilot, links and video (closest:
+Fractal Dive, $1.99 Pro). Only sustained real-time motion at extreme depth is unclaimed.
+The Mac lacks any native deep-zoom creator tool. The niche is small (Frax: 232 US ratings
+in 13 years). Recommendation: position as a Mac/iPad flight and video studio; free tier
+with full depth, $9.99 one-time Universal Purchase Pro gated on output, later ~$29.99 Mac
+Studio tier, no subscription; launch through depth-titled videos and a technical HN
+write-up; defer Windows/Linux. New source pages: [[sources/fractal-dive-app-store]],
+[[sources/frax-app-store]], [[sources/frax-help-explore]], [[sources/mandelbrot-metal-app-store]],
+[[sources/revenuecat-subscription-apps-2026]], [[sources/apple-eu-terms-oct-2026]],
+[[sources/maths-town-videos]], [[sources/maths-town-kfmoviemaker-guide]],
+[[sources/mandelbrot-site]], [[sources/hn-mandelbrot-site-thread]].

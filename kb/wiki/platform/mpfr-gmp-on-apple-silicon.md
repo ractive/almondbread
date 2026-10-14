@@ -91,7 +91,8 @@ P2 = X * Y                  // thread B
 
 ## AlmondbreadMath: own arithmetic vs GMP (measured)
 
-Our implementation per [[decisions/arbitrary-precision]] (`Sources/AlmondbreadMath`):
+Our implementation per [[decisions/arbitrary-precision]] (`Sources/AlmondbreadMath`, Swift,
+measured before the Rust port; deleted in R2b, the Rust port is `crates/almondbread-math`):
 floating point with UInt64 limbs, Int exponent, correctly rounded (nearest-even) add,
 sub, mul, square, div; reference orbit on preallocated registers, loop specialised for
 1...16 limbs. Reference-orbit iterations per second, one P-core, release, our build vs

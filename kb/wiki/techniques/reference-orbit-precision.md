@@ -104,7 +104,8 @@ GPU orbits only win past about 1e10000. Compression is an iOS-memory item
 
 ## In almondbread (milestone 3a, measured)
 
-`ReferenceOrbitComputer` in `Sources/AlmondbreadMath` (see
+`ReferenceOrbitComputer` in `Sources/AlmondbreadMath` (Swift; since R2b only the Rust port
+in `crates/almondbread-math` exists, [[decisions/rust-core]]; see
 [[platform/mpfr-gmp-on-apple-silicon]] for the arithmetic and the GMP comparison):
 
 - **Number format**: own binary floating point (UInt64 limbs, Int exponent),

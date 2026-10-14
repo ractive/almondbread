@@ -117,7 +117,9 @@ serves ([[techniques/frame-reuse-and-progressive]]).
 
 ## In almondbread (milestone 3a, measured)
 
-`PeriodDetection`, `NucleusFinder` and `ReferenceSelector` in `Sources/AlmondbreadMath`:
+`PeriodDetection`, `NucleusFinder` and `ReferenceSelector` in `Sources/AlmondbreadMath`
+(Swift; ported bit-exact to `crates/almondbread-math/src/selection.rs` in R1, the Swift
+code deleted in R2b):
 
 - **Period detection**: rigorous ball (`R' = 2|z|R + R² + r`, test `|z_n| < R_n`),
   first-order ball (`R_n = |dz_n/dc| r`) and box (corner quadrilateral winds around 0),
