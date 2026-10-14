@@ -52,8 +52,17 @@ title shows S, speed, altitude, GPU ms and the DE tile backlog.
   and changes over the second half of each layer (S-driven, reversible, a mist closes in).
   `--sigma-mode continuous` (σ = 0.1 S) re-shapes the whole world all the time while diving:
   the "melting" users saw.
-- **Shading**: normals from the filtered data of two levels, the L0 sandstone strata keyed by
-  log2(DE/σ), sun, sky light, fog, planet curvature (R = 300 S), 4× MSAA.
+- **Shading**: normals from the filtered data of two levels, sun, sky light, fog, planet
+  curvature (R = 300 S), 4× MSAA. Colour is a property of the world position: the L0
+  sandstone strata are keyed to log2 of the absolute DE (they never slide), and vegetation,
+  crust and valley darkening to DE/σ of a hard colour layer, cross-faded between layers.
+  `--colour legacy` restores strata by DE/σ and terms by DE/S (rings collapsing in σ
+  transitions).
+- **Measurements**: `record --popcheck` renders each frame's camera with the previous and the
+  current world and reports the difference, also for hilltops only (mask in alpha) split by
+  level flight / rigid phase / transition. `LRT_PROFILE=4` (colour only) and `=5` (lighting
+  only), and `LRT_POP_COLOUR=1` (geometry σ held, only the colour state varies), isolate the
+  terms.
 
 Depth limit: S ≥ 1e-12. The CPU f64 check stops matching below a sample spacing of ~1e-14,
 where the absolute f64 position itself runs out of bits.

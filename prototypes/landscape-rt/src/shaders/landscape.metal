@@ -157,7 +157,10 @@ struct Globals {
     float4 right;           // xyz, w: aspect (w/h)
     float4 up;              // xyz, w: time now (s)
     float4 hcurve;          // x: σ (S units), y: k/σ, z: fade seconds, w: N
-    float4 misc;            // x: 1/N, y: strata shift, z: debug mode, w: unused
+    float4 misc;            // x: 1/N, y: strata shift, z: debug mode, w: profile/measurement mode
+    float4 shade;           // x: log2(S_shade / S) (pop check: previous S), y: log2 S,
+                            // z: σ_lo / S, w: σ_hi / S (colour layers)
+    float4 shade2;          // x: cross-fade σ_lo → σ_hi
 };
 
 struct LevelRef {           // one data level as seen from a ring (32 bytes)
@@ -391,30 +394,52 @@ fragment float4 terrainFragment(VOut in                                    [[sta
 
     float3 col;
     float lake = (in.w0 + in.w1 > 0.0f) ? smoothstep(-40.0f, -80.0f, lakeV) : 0.0f;
+    float3 albedoOnly = 0.0f, lightOnly = 0.0f;
     if (g.misc.z == 1.0f) {
         // debug: level / validity colours
         col = float3(in.w0, in.w1, 0.2f + 0.6f * float(rp.lv[0].slot % 3) / 2.0f);
         return float4(col, 1.0f);
     }
     {
-        // sandstone strata keyed by log2(DE/S): self-similar at every depth (L0 albedo)
-        float x = max(log2deS, -20.0f) * 0.4f + g.misc.y;
-        float3 c = pal(x, float3(0.56, 0.36, 0.24), float3(0.24, 0.16, 0.11), float3(1.0), float3(0.0, 0.06, 0.13));
+        // Colour is a property of the world position, like rock strata:
+        // - strata keyed to log2 of the absolute DE (complex units): they never slide while
+        //   diving (L0 keyed them to DE/S, then to DE/σ: rings that contracted in every σ
+        //   transition, the user's "collapsing rings" on hilltops);
+        // - vegetation, crust and valley darkening keyed to DE/σ of the colour layer (σ fixed
+        //   per layer), cross-faded between the two layers during a transition.
+        float log2deAbs = log2deS + g.shade.y;
+        bool legacy = g.shade2.y == 1.0f;            // before the fix: strata by DE/σ, terms by DE/S
+        float x = legacy ? max(log2deS, -20.0f) * 0.4f + g.misc.y : log2deAbs * 0.4f;
+        float3 c0 = pal(x, float3(0.56, 0.36, 0.24), float3(0.24, 0.16, 0.11), float3(1.0), float3(0.0, 0.06, 0.13));
         float layer = pow(0.5f + 0.5f * cos(6.2831853f * x * 3.0f), 8.0f);
-        c = mix(c, float3(0.80, 0.72, 0.60), 0.35f * layer);
+        // the thin layers fade out where a pixel spans more than ~1/4 of their period
+        float lw = fwidth(x * 3.0f);
+        c0 = mix(c0, float3(0.80, 0.72, 0.60), 0.35f * layer * saturate(1.5f - 4.0f * lw));
         float flat = saturate((n.z - 0.82f) / 0.12f);
-        float low = saturate(1.0f - deS / 0.3f);
-        c = mix(c, float3(0.16, 0.27, 0.10), 0.8f * flat * low);
-        float high = saturate((deS - 3.0f) / 10.0f);
-        c = mix(c, float3(0.78, 0.74, 0.66), 0.5f * flat * high);
         float steep = saturate((0.6f - n.z) / 0.4f);
-        c = mix(c, c * float3(0.75, 0.6, 0.55), steep);
+        float3 cl[2];
+        float oc[2];
+        float sg[2] = { g.shade.z, g.shade.w };
+        for (int i = 0; i < 2; i++) {
+            float deR = legacy ? deS * exp2(-g.shade.x) * 10.0f : deS / sg[i];   // DE / σ_layer
+            float3 c = c0;
+            float low = saturate(1.0f - deR / 3.0f);
+            c = mix(c, float3(0.16, 0.27, 0.10), 0.8f * flat * low);
+            float high = saturate((deR - 30.0f) / 100.0f);
+            c = mix(c, float3(0.78, 0.74, 0.66), 0.5f * flat * high);
+            cl[i] = mix(c, c * float3(0.75, 0.6, 0.55), steep);
+            oc[i] = mix(0.55f, 1.0f, saturate(deR * 0.8f));
+        }
+        float3 c = mix(cl[0], cl[1], g.shade2.x);
+        float occl = mix(oc[0], oc[1], g.shade2.x);
 
         float dif = max(dot(n, sun), 0.0f);
-        float occl = mix(0.55f, 1.0f, saturate(deS * 8.0f));      // valley floors darker
         float skyL = (0.5f + 0.5f * n.z) * occl;
         float3 back = normalize(float3(-sun.x, -sun.y, 0.0f));
         float bounce = max(dot(n, back), 0.0f) * 0.12f * occl;
+        albedoOnly = c;
+        lightOnly = (float3(1.75, 1.45, 1.05) * dif + mix(float3(0.09, 0.24, 0.62), float3(0.62, 0.72, 0.84), 0.4f) * (0.42f * skyL)
+                     + float3(0.6, 0.45, 0.3) * bounce) * 0.4f;
         float3 rock = c * (float3(1.75, 1.45, 1.05) * dif + mix(float3(0.09, 0.24, 0.62), float3(0.62, 0.72, 0.84), 0.4f) * (0.42f * skyL)
                            + float3(0.6, 0.45, 0.3) * bounce);
 
@@ -428,9 +453,13 @@ fragment float4 terrainFragment(VOut in                                    [[sta
         water += float3(1.75, 1.45, 1.05) * (2.0f * pow(max(hv.z, 0.0f), 400.0f));
         col = mix(rock, water, lake);
     }
+    // alpha: hilltop mask for measurements (flat ground well above the valleys)
+    float hill = (n.z > 0.85f && log2deS - log2(g.hcurve.x) > 1.5f && lake < 0.5f) ? 1.0f : 0.0f;
+    if (g.misc.w == 4.0f) return float4(albedoOnly, hill);          // measurement: colour only
+    if (g.misc.w == 5.0f) return float4(lightOnly, hill);           // measurement: lighting only
     float fd = 1.0f - exp(-dist / g.sun.w);
     col = mix(col, fogColor(vd, sun), saturate(fd));
-    return float4(tonemap(col, in.pos.xy), 1.0f);
+    return float4(tonemap(col, in.pos.xy), hill);
 }
 
 // ---------------------------------------------------------------- sky (fullscreen)
@@ -451,5 +480,5 @@ fragment float4 skyFragment(SkyOut in [[stage_in]], constant Globals& g [[buffer
     float3 c = skyColor(d, g.sun.xyz);
     float haze = saturate(1.0f - max(d.z, 0.0f) * 6.0f);
     c = mix(c, fogColor(d, g.sun.xyz), 0.6f * haze * haze);
-    return float4(tonemap(c, in.pos.xy), 1.0f);
+    return float4(tonemap(c, in.pos.xy), 0.0f);
 }

@@ -252,6 +252,32 @@ different surface per LOD, which is seams or distance-driven morphing); σ by di
 the camera (melts as you approach, in every direction). `--sigma-mode continuous` keeps the
 old behaviour for comparison.
 
+**Collapsing rings on hilltops (second user feedback) and world-fixed colour.** With layered σ
+the user still saw "gradients on hilltops changing while diving, like rings that collapse".
+Measured with the pop check on a hilltop mask (flat, `DE/σ > 2.8`, alpha channel), dive
+script, mean |diff| per frame 0..255:
+
+| render | level flight | dive, rigid phase | dive, σ transition |
+| --- | --- | --- | --- |
+| full image (before) | 0.04 | 0.02 | 4.3 (12 % of pixels > 8) |
+| colour only (before) | 0.03 | 0.007 | 8.7 (37 %) |
+| lighting only | 0.07 | 0.004 | 2.5 |
+| colour only, geometry σ held: before / after | 0.015 / 0.000 | 0.006 / 0.000 | **5.7 (21 %) / 0.28 (0 %)** |
+
+Cause: the strata were keyed to log2(DE/σ), so every σ transition (a factor 4) shifted
+them by 0.8 colour cycles, and the thin pale layers by 2.4. The iso-DE bands around a
+mesa top contracted towards its centre. Terms keyed to DE/S (vegetation, crust, valley
+darkening) also slid continuously while diving, mostly in valleys, since they saturate
+on mesa tops. Fix: colour is now a function of the world position. Strata are keyed to
+log2 of the absolute DE (colour cycles 0.4 per octave as before, so the hue drifts with
+depth instead of repeating). The thin layers fade out where a pixel spans more than a
+quarter of their period. Vegetation, crust and darkening use DE/σ of a hard colour layer
+and cross-fade between the two layers over the transition. The rest of the change on
+hilltops in transitions is lighting (2.5): the mesa really changes shape, and its
+steep/flat shoulder moves with it. That is the remaining cost of layered σ.
+`--colour legacy` keeps the old colouring. Clips: `review/landscape/l1-dive-colour-before.mp4`
+/ `-after.mp4`, `rings-before-after.png`. 120 Hz unchanged (dive 119.8 fps, tour 119.3).
+
 **Results.** Frame pacing at 120 Hz in [[synthesis/benchmarks]] (L1): 117.9–119.6 fps
 presented, 0.2–1.8 % refreshes missed, render 3.5–4.4 ms p50 / ≤ 9 ms p99, DE ≤ 3 ms p99.
 Review videos 1080p60 in `review/landscape/` (gitignored): `l1-tour.mp4` (35 s, 1e-3 → 9e-8),

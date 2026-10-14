@@ -66,6 +66,10 @@ pub struct Settings {
     /// Fraction of a layer (in log S) spent in the transition.
     #[arg(long, default_value_t = 0.5)]
     pub riser: f64,
+    /// Surface colour: `world` (strata by absolute DE, layer terms cross-faded) or `legacy`
+    /// (strata by DE/σ, terms by DE/S: they slide while diving).
+    #[arg(long, default_value = "world")]
+    pub colour: String,
     /// Debug colouring (validity weights).
     #[arg(long)]
     pub debug: bool,
@@ -100,6 +104,9 @@ pub struct FrameRec {
     pub missing: usize,
     pub missing_ahead: usize,
     pub s: f64,
+    /// layer transition progress (0 = rigid phase), dive rate (e-folds/s)
+    pub riser: f64,
+    pub dive_rate: f64,
     pub blocks: usize,
 }
 
@@ -129,6 +136,7 @@ pub struct Sim {
     ap_side: f64,
     /// σ of the previous frame (pop check renders the previous world)
     prev_sigma: Option<f64>,
+    prev_s: f64,
     free_states: Vec<u32>,
     resume: Vec<(TileJob, TileKey)>,
     inflight: Vec<(CommandBuffer, Buffer, Vec<(TileJob, TileKey)>)>,
@@ -140,6 +148,23 @@ pub struct Sim {
 const SIGMA: f64 = 0.1;
 const K_HEIGHT: f64 = 4.0;
 const K_OVER_SIGMA: f64 = 40.0;
+
+/// Colour layers at scale `s`: (σ of the layer, σ of the next finer layer, cross-fade 0..1).
+/// Same staircase as `sigma_at`, but hard steps: colour is keyed to a σ that stays put and
+/// cross-fades instead of sliding.
+pub fn sigma_layers(set: &Settings, s: f64) -> (f64, f64, f64) {
+    if set.sigma_mode == "continuous" {
+        return (SIGMA * s, SIGMA * s, 0.0);
+    }
+    let d = set.layer_octaves;
+    let u = s.log2() / d;
+    let f = u.floor();
+    let t = u - f;
+    let r = set.riser.clamp(0.01, 0.99);
+    let x = ((t - (1.0 - r)) / r).clamp(0.0, 1.0);
+    let base = SIGMA * (d * (1.0 - r)).exp2();
+    (base * (d * f).exp2(), base * (d * (f + 1.0)).exp2(), x * x * (3.0 - 2.0 * x))
+}
 
 /// σ (complex units) of the height curve h = σ·ln(1 + k·DE/σ) at scale `s`, and the riser
 /// progress (0 outside a transition, peaks at 1 mid-transition) for the mist.
@@ -169,6 +194,7 @@ impl Sim {
             flight: Flight::new(set.scale, heading, start_speed),
             ground: Ground::new(c0, SIGMA, K_OVER_SIGMA),
             prev_sigma: None,
+            prev_s: 0.0,
             gpu,
             c0,
             ref_off: [0.0, 0.0],
@@ -336,12 +362,13 @@ impl Sim {
         self.set_ground_sigma();
         // pop check: this camera with the previous frame's world (rings, levels, data, fades)
         if let Some(t) = self.popcheck.take() {
-            let cur = self.prev_sigma;
-            let cb = self.encode_view_sigma(&t, self.time, cur);
+            let prev = self.prev_sigma.map(|sg| (sg, self.prev_s));
+            let cb = self.encode_view_sigma(&t, self.time, prev);
             cb.commit();
             self.popcheck = Some(t);
         }
         self.prev_sigma = Some(sigma_at(&self.set, self.flight.s).0);
+        self.prev_s = self.flight.s;
         self.time += dt;
         self.clip.update(self.flight.pos, self.flight.s);
 
@@ -404,6 +431,8 @@ impl Sim {
             missing: self.clip.missing,
             missing_ahead: self.clip.missing_ahead,
             s: self.flight.s,
+            riser: sigma_at(&self.set, self.flight.s).1,
+            dive_rate: self.flight.dive_rate,
             blocks: self.blocks.len(),
         });
         cb
@@ -421,9 +450,15 @@ impl Sim {
 
     /// Encodes the current camera and world state at time `time` (not committed); `sigma`
     /// overrides the height curve's σ (complex units).
-    fn encode_view_sigma(&mut self, target: &ProtocolObject<dyn MTLTexture>, time: f64, sigma: Option<f64>) -> CommandBuffer {
-        let (sig_cur, mist) = sigma_at(&self.set, self.flight.s);
-        let sr = sigma.unwrap_or(sig_cur) / self.flight.s;
+    fn encode_view_sigma(&mut self, target: &ProtocolObject<dyn MTLTexture>, time: f64, prev: Option<(f64, f64)>) -> CommandBuffer {
+        // `prev`: (σ, S) of the previous frame: the world as it was, seen by this camera
+        let world_s = prev.map(|p| p.1).unwrap_or(self.flight.s);
+        let (sig_cur, mist) = sigma_at(&self.set, world_s);
+        // LRT_POP_COLOUR: the pop check varies only the colour state (geometry σ current), so
+        // the diff isolates colour that slides over a fixed surface
+        let colour_only = std::env::var("LRT_POP_COLOUR").is_ok();
+        let sr = if colour_only { sigma_at(&self.set, self.flight.s).0 } else { prev.map(|p| p.0).unwrap_or(sig_cur) } / self.flight.s;
+        let (lo, hi, fade) = sigma_layers(&self.set, world_s);
         // camera and rings
         let (w, h) = (target.width() as f64, target.height() as f64);
         let aspect = w / h;
@@ -472,11 +507,17 @@ impl Sim {
             right: [r[0] as f32, r[1] as f32, r[2] as f32, aspect as f32],
             up: [u[0] as f32, u[1] as f32, u[2] as f32, time as f32],
             hcurve: [sr as f32, (K_HEIGHT / sr) as f32, self.set.fade as f32, self.set.n as f32],
+            shade: [
+                (world_s / self.flight.s).log2() as f32,
+                self.flight.s.log2() as f32,
+                (lo / self.flight.s) as f32,
+                (hi / self.flight.s) as f32,
+            ],
+            shade2: [fade as f32, if self.set.colour == "legacy" { 1.0 } else { 0.0 }, 0.0, 0.0],
             misc: [
                 1.0 / self.set.n as f32,
-                // strata keyed by log2(DE/σ) (σ-relative, so they slide only with σ); the
-                // constant keeps the L0 look at σ = 0.1 S
-                -(sr / SIGMA).log2() as f32 * 0.4,
+                // legacy strata: keyed by log2(DE/σ) (the constant keeps the L0 look at σ = 0.1 S)
+                -((prev.map(|p| p.0).unwrap_or(sig_cur) / self.flight.s) / SIGMA).log2() as f32 * 0.4,
                 if self.set.debug { 1.0 } else { 0.0 },
                 std::env::var("LRT_PROFILE").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0),
             ],

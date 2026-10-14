@@ -298,3 +298,12 @@ frames. Straight-down dives lose the set: zoom towards an aim point. The "meltin
 saw while diving is σ = 0.1 S: fixed with a σ that is constant within layers of 2 octaves and
 changes in S-driven transitions inside a mist. 118–120 fps presented at 120 Hz. Results in
 [[decisions/landscape-mode]] L1 and [[synthesis/benchmarks]] L1.
+
+## [2026-10-14] decision | L1: world-fixed terrain colour
+
+User feedback on layered σ: rings on hilltops collapse while diving. A same-camera
+two-state diff on a hilltop mask isolated the cause: strata keyed to DE/σ shift 0.8 colour
+cycles per σ transition (colour-only change 5.7/255 per frame, 21 % of pixels > 8). Strata are
+now keyed to the absolute DE; layer-relative terms cross-fade between σ layers. Colour change
+in transitions 0.28, 0 % of pixels > 8. What remains on hilltops is lighting from the real shape
+change. Details in [[decisions/landscape-mode]] L1.

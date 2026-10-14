@@ -81,6 +81,7 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
     }
     let mut buf_a = Vec::new();
     let mut pops: Vec<(f64, f64, f64)> = Vec::new(); // mean |diff|, % pixels > 8, % > 24
+    let mut hills: Vec<(f64, f64, f64, f64, usize)> = Vec::new(); // riser, dive rate, hilltop mean |diff|, % > 8, pixels
     let mut worst: (f64, usize, Vec<u8>, Vec<u8>) = (0.0, 0, Vec::new(), Vec::new());
     let mut ff = match &args.out {
         Some(out) => Some(
@@ -108,11 +109,17 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
         if let Some(a) = &sim.popcheck {
             read_texture(a, &mut buf_a);
             let (mut sum, mut n8, mut n24) = (0u64, 0usize, 0usize);
+            let (mut hsum, mut hn, mut h8) = (0u64, 0usize, 0usize);
             let npx = w * h;
             for p in 0..npx {
                 let mut m = 0i32;
                 for c in 0..3 {
                     m = m.max((buf[p * 4 + c] as i32 - buf_a[p * 4 + c] as i32).abs());
+                }
+                if buf[p * 4 + 3] >= 128 {
+                    hsum += m as u64;
+                    hn += 1;
+                    h8 += (m > 8) as usize;
                 }
                 sum += m as u64;
                 n8 += (m > 8) as usize;
@@ -123,6 +130,8 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
                 worst = (e.1, i, buf_a.clone(), buf.clone());
             }
             pops.push(e);
+            let r = sim.recs.last().unwrap();
+            hills.push((r.riser, r.dive_rate, hsum as f64 / hn.max(1) as f64, 100.0 * h8 as f64 / hn.max(1) as f64, hn));
         }
         stab.push(luma_quarter(&buf, w, h));
         if let Some(ff) = &mut ff {
@@ -165,6 +174,24 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
         println!("    mean |diff| (0..255)   p50 {:.4}  p99 {:.4}  max {:.4}", stats::pct(&m, 0.5), stats::pct(&m, 0.99), stats::pct(&m, 1.0));
         println!("    % pixels diff > 8      p50 {:.4}  p99 {:.4}  max {:.4}", stats::pct(&a, 0.5), stats::pct(&a, 0.99), stats::pct(&a, 1.0));
         println!("    % pixels diff > 24     p50 {:.4}  p99 {:.4}  max {:.4}  (worst frame {})", stats::pct(&b, 0.5), stats::pct(&b, 0.99), stats::pct(&b, 1.0), worst.1);
+        // hilltops only (alpha mask), split by phase while diving
+        for (name, sel) in [
+            ("hilltops, level flight", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() < 0.05) as Box<dyn Fn(&(f64, f64, f64, f64, usize)) -> bool>),
+            ("hilltops, diving, rigid phase", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() >= 0.05 && h.0 == 0.0)),
+            ("hilltops, diving, transition", Box::new(|h: &(f64, f64, f64, f64, usize)| h.1.abs() >= 0.05 && h.0 > 0.0)),
+        ] {
+            let v: Vec<&(f64, f64, f64, f64, usize)> = hills.iter().filter(|h| sel(h) && h.4 > 2000).collect();
+            let m: Vec<f64> = v.iter().map(|h| h.2).collect();
+            let a: Vec<f64> = v.iter().map(|h| h.3).collect();
+            println!(
+                "    {name:<32} frames {:4}  mean |diff| p50 {:.3} p95 {:.3}  % > 8: p50 {:.3} p95 {:.3}",
+                v.len(),
+                stats::pct(&m, 0.5),
+                stats::pct(&m, 0.95),
+                stats::pct(&a, 0.5),
+                stats::pct(&a, 0.95)
+            );
+        }
         if let Some(p) = &args.worst {
             for (suffix, data) in [("a", &worst.2), ("b", &worst.3)] {
                 let path = p.with_file_name(format!("{}-{}.png", p.file_stem().unwrap().to_string_lossy(), suffix));

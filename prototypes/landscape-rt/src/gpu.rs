@@ -62,6 +62,8 @@ pub struct Globals {
     pub up: [f32; 4],
     pub hcurve: [f32; 4],
     pub misc: [f32; 4],
+    pub shade: [f32; 4],
+    pub shade2: [f32; 4],
 }
 
 #[repr(C)]
@@ -91,7 +93,7 @@ pub struct RingParams {
 const _: () = assert!(std::mem::size_of::<TileJob>() == 32);
 const _: () = assert!(std::mem::size_of::<LevelRef>() == 32);
 const _: () = assert!(std::mem::size_of::<RingParams>() == 176);
-const _: () = assert!(std::mem::size_of::<Globals>() == 176);
+const _: () = assert!(std::mem::size_of::<Globals>() == 208);
 
 /// One ring's draw: its parameters and its visible blocks (offset/count into the frame's block list).
 pub struct RingDraw {
