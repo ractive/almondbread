@@ -357,9 +357,13 @@ final class InteractionTest: NSObject {
         // After input stops, the fully refined full-resolution frame must arrive.
         // Measured from the last real input (keyboard scenarios release keys before the phase ends).
         let final = explorer.finalFrame()
-        if final.time > final.lastInput && now - inputEnd > 0.05 {
-            refineLines.append(String(format: "%@: full-res %@ final frame %.0f ms after input stopped",
-                                      name, final.size, (final.time - final.lastInput) * 1000))
+        // Settled: refined, faded in and anti-aliased (FL's progressive AA), or 3 s at most.
+        let settled = explorer.stats().settled || now - inputEnd > 3
+        if final.time > final.lastInput && now - inputEnd > 0.05 && settled {
+            refineLines.append(String(format: "%@: full-res %@ final frame %.0f ms after input stopped, settled (AA) %@",
+                                      name, final.size, (final.time - final.lastInput) * 1000,
+                                      explorer.stats().settled
+                                        ? String(format: "%.0f ms", (now - final.lastInput) * 1000) : "NOT within 3 s"))
             // The shown frame must match a fresh headless render of the same view: no stale,
             // unfinished or misclassified pixels from the live pipeline (wedge bug, kb:
             // techniques/interior-detection, Pitfalls).

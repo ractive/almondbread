@@ -336,6 +336,40 @@ impl GpuBackend for MetalBackend {
         })
     }
 
+    fn read_shared_texture(
+        &self,
+        texture: &MetalTexture,
+        width: usize,
+        height: usize,
+        format: TextureFormat,
+        out: &mut [u8],
+    ) {
+        let row = width * format.bytes_per_pixel();
+        assert_eq!(out.len(), row * height, "readback size");
+        assert!(
+            width <= texture.width() && height <= texture.height() && texture.storageMode() == MTLStorageMode::Shared,
+            "region outside the texture or not shared"
+        );
+        let region = MTLRegion {
+            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+            size: MTLSize {
+                width,
+                height,
+                depth: 1,
+            },
+        };
+        // SAFETY: `out` holds exactly `row * height` bytes; the region is in bounds; the
+        // caller guarantees no pending writer.
+        unsafe {
+            texture.getBytes_bytesPerRow_fromRegion_mipmapLevel(
+                NonNull::new(out.as_mut_ptr() as *mut c_void).expect("non-null"),
+                row,
+                region,
+                0,
+            );
+        }
+    }
+
     fn pipeline(&self, function: &str, constants: &[bool]) -> Result<MetalPipeline, GpuError> {
         autoreleasepool(|_| {
             let name = NSString::from_str(function);
@@ -391,7 +425,7 @@ pub fn media_time() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu_types::{ChunkStats, ColorParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState};
+    use crate::gpu_types::{ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState};
 
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
     #[test]
@@ -400,7 +434,7 @@ mod tests {
             "{KERNEL_SOURCE}\nkernel void layoutProbe(device uint* out [[buffer(0)]]) {{\n\
              out[0] = sizeof(IterateParams); out[1] = sizeof(PixelState); out[2] = sizeof(ChunkStats);\n\
              out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
-             out[6] = alignof(IterateParams); }}\n"
+             out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -410,7 +444,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 28];
+        let mut bytes = [0u8; 32];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -428,6 +462,7 @@ mod tests {
                 LEVEL_COUNTERS_SIZE as u32,
                 align_of::<ColorParams>() as u32,
                 align_of::<IterateParams>() as u32,
+                size_of::<ComposeParams>() as u32,
             ]
         );
     }

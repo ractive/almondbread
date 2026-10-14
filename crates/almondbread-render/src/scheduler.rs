@@ -28,7 +28,9 @@ use almondbread_core::viewport::Viewport;
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
-use crate::gpu_types::{ChunkStats, ColorParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState};
+use crate::gpu_types::{
+    AaListParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
+};
 
 /// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
 pub const BAILOUT: f64 = 65536.0;
@@ -37,6 +39,11 @@ const PALETTE_SIZE: usize = 1024;
 /// Derivative test threshold on |w| n² (kb: techniques/interior-detection, Pitfalls).
 const INTERIOR_EPS: f32 = 1e-3;
 const ITERATE_THREADS: usize = 256;
+/// Compose modes (the `compose` kernel's `mode`).
+const COMPOSE_GESTURE: u32 = 0;
+const COMPOSE_REFINE: u32 = 1;
+const COMPOSE_AA: u32 = 2;
+const COMPOSE_EXACT: u32 = 3;
 
 /// Tunables. Defaults are the Swift renderer's.
 #[derive(Clone, Debug)]
@@ -63,6 +70,23 @@ pub struct SchedulerConfig {
     pub max_chunks_in_flight: usize,
     /// Print every harvested chunk (`ALMONDBREAD_TRACE=1`).
     pub trace: bool,
+    /// Size the gesture frame budget from the measured display refresh (about 70 % of a
+    /// refresh minus compose) instead of `interactive_frame_budget` (FL).
+    pub adaptive_budget: bool,
+    /// Time constant (s) of the per-pixel fade of refined pixels over the history (FL).
+    pub fade_tau: f64,
+    /// Temporal upsampling during gestures: confidence cap of the history (higher: smoother,
+    /// slower to take new samples), sample kernel sigma (output pixels), weight of the
+    /// bilinear preview where history or samples exist.
+    pub taa_conf_cap: f64,
+    pub taa_sigma: f64,
+    pub taa_base_weight: f64,
+    /// GPU seconds per command buffer of idle anti-aliasing passes (small: input interrupts
+    /// them at the next chunk boundary).
+    pub aa_chunk_target: f64,
+    /// GPU seconds the AA samples of one view may take in all (heavy views settle with
+    /// fewer samples).
+    pub aa_budget: f64,
 }
 
 impl Default for SchedulerConfig {
@@ -88,6 +112,13 @@ impl Default for SchedulerConfig {
             max_frames_in_flight: 2,
             max_chunks_in_flight: 3,
             trace: std::env::var("ALMONDBREAD_TRACE").is_ok_and(|v| v == "1"),
+            adaptive_budget: true,
+            fade_tau: 0.03,
+            taa_conf_cap: 6.0,
+            taa_sigma: 0.5,
+            taa_base_weight: 0.02,
+            aa_chunk_target: 0.008,
+            aa_budget: 1.5,
         }
     }
 }
@@ -164,11 +195,61 @@ struct Level<B: GpuBackend> {
     interior_pixels: usize,
     use_interior: bool,
     preview: bool,
+    /// Admission order: tile order and its inverse (None: raster tile order).
+    order: Option<TileOrder<B>>,
+    /// An idle anti-aliasing sample (index >= 1 of the pixel's samples; 0 is the full level).
+    aa: Option<u32>,
+    /// Admission list of a list level (AA samples: the adaptive list), instead of the
+    /// unresolved lists.
+    list_buffer: Option<B::Buffer>,
+}
+
+/// The adaptive AA list of a refined view: the GPU pass that builds it and its length.
+struct AaList<B: GpuBackend> {
+    count_buffer: B::Buffer,
+    submission: B::Submission,
+    len: Option<usize>,
+}
+
+/// A priority order of a level's 16x16 tiles: `order[rank] = tile`, `rank[tile] = rank`.
+struct TileOrder<B: GpuBackend> {
+    order: B::Buffer,
+    rank: B::Buffer,
+}
+
+impl<B: GpuBackend> Clone for TileOrder<B> {
+    fn clone(&self) -> Self {
+        Self {
+            order: self.order.clone(),
+            rank: self.rank.clone(),
+        }
+    }
+}
+
+/// 16x16 tiles of a w x h level: (per row, rows).
+pub fn tiles(w: usize, h: usize) -> (usize, usize) {
+    (w.div_ceil(16), h.div_ceil(16))
+}
+
+/// Halton low-discrepancy sequence, base `b`, index `i` >= 1, in (0, 1).
+pub fn halton(mut i: u32, b: u32) -> f32 {
+    let (mut f, mut r) = (1.0f32, 0.0f32);
+    while i > 0 {
+        f /= b as f32;
+        r += f * (i % b) as f32;
+        i /= b;
+    }
+    r
 }
 
 impl<B: GpuBackend> Level<B> {
-    fn new(set: TextureSet<B>, ratio: f64, preview: bool, params: IterateParams, total: Option<usize>) -> Self {
-        let total = total.unwrap_or(set.width * set.height);
+    fn new(set: TextureSet<B>, ratio: f64, preview: bool, mut params: IterateParams, total: Option<usize>) -> Self {
+        let (tx, ty) = tiles(set.width, set.height);
+        // Tiled admission: every tile has 256 slots (edge tiles' padding is skipped).
+        let total = total.unwrap_or(tx * ty * 256);
+        params.tiles_x = tx as u32;
+        params.height = set.height as u32;
+        params.total = total as u32;
         Self {
             set,
             ratio,
@@ -190,6 +271,9 @@ impl<B: GpuBackend> Level<B> {
             interior_pixels: 0,
             use_interior: false,
             preview,
+            order: None,
+            aa: None,
+            list_buffer: None,
         }
     }
 
@@ -224,9 +308,15 @@ struct Job<B: GpuBackend> {
     chunks: usize,
     iterations: f64,
     failed: bool,
-    /// Shown after the last pixel resolved (or the budget ran out).
+    /// Shown after the last pixel resolved (or the budget ran out), anti-aliasing included.
     final_presented: bool,
     complete_presented: bool,
+    /// When the complete frame was first composed (the per-pixel fade runs on from there).
+    complete_at: Option<f64>,
+    /// AA samples composed into the history (besides the full level's centre sample).
+    aa_composed: u32,
+    /// Which pixels take AA samples (built once the view is refined).
+    aa_list: Option<AaList<B>>,
 }
 
 impl<B: GpuBackend> Job<B> {
@@ -239,10 +329,60 @@ impl<B: GpuBackend> Job<B> {
     fn current(&self) -> Option<usize> {
         self.levels.iter().position(|l| !l.done)
     }
-    /// The level to show: the furthest one that has started.
+    /// The level to show: the furthest one that has started (AA samples are not shown as
+    /// levels; they are accumulated into the history).
     fn display(&self) -> usize {
-        self.levels.iter().rposition(|l| l.started()).unwrap_or(0)
+        self.levels
+            .iter()
+            .rposition(|l| l.started() && l.aa.is_none())
+            .unwrap_or(0)
     }
+    /// The finished AA sample not composed yet, if any.
+    fn aa_ready(&self) -> Option<usize> {
+        self.levels
+            .iter()
+            .position(|l| l.aa == Some(self.aa_composed + 1) && l.done)
+    }
+    fn aa_pending(&self) -> bool {
+        self.levels.iter().any(|l| l.aa.is_some() && !l.done)
+    }
+    /// Every AA sample the target asks for is composed, no pixel needs any, or the AA budget
+    /// is spent (`budget` GPU seconds over the composed samples).
+    fn aa_finished(&self, target: u32, budget: f64) -> bool {
+        let spent: f64 = self
+            .levels
+            .iter()
+            .filter(|l| l.aa.is_some_and(|n| n <= self.aa_composed))
+            .map(|l| l.gpu_time)
+            .sum();
+        self.aa_composed + 1 >= target || self.aa_list.as_ref().is_some_and(|l| l.len == Some(0)) || spent > budget
+    }
+    fn drop_aa(&mut self) {
+        self.levels.retain(|l| l.aa.is_none());
+        self.aa_composed = 0;
+    }
+}
+
+/// A preview level's colour texture as the compose pass samples it.
+struct PreviewColor<B: GpuBackend> {
+    texture: B::Texture,
+    size: (usize, usize),
+    ratio: f64,
+    jitter: [f32; 2],
+}
+
+/// The last composed image (FL): which view it shows, at what scale, with which colours.
+#[derive(Clone, Debug)]
+struct HistoryView {
+    viewport: Viewport,
+    /// Complex units per pixel.
+    scale: f64,
+    width: usize,
+    height: usize,
+    /// Colour parameters it was coloured with (phase excluded) and the palette.
+    colors: (ColorParams, String),
+    /// Palette phase it was coloured with.
+    offset: f32,
 }
 
 struct ChunkRecord<B: GpuBackend> {
@@ -376,6 +516,26 @@ pub struct Renderer<B: GpuBackend> {
     prepare_pipeline: B::Pipeline,
     finish_pipeline: B::Pipeline,
     colorize_pipeline: B::Pipeline,
+    compose_pipeline: B::Pipeline,
+    aa_list_pipeline: B::Pipeline,
+    /// The adaptive AA list (texel indices) and its capacity.
+    aa_list_buffer: Option<(B::Buffer, usize)>,
+    /// Ping-pong history images (linear colour + confidence) at the output size (FL).
+    history: Option<[B::Texture; 2]>,
+    history_ping: usize,
+    history_view: Option<HistoryView>,
+    /// When the last frame was composed (fade and AA timing).
+    last_compose: f64,
+    /// Gesture frames so far (Halton jitter index of the temporal upsampling).
+    taa_index: u32,
+    /// Measured display refresh interval (s), smoothed, and the last frame's time.
+    refresh_interval: f64,
+    last_frame_time: f64,
+    /// Placeholder bound where no tile order buffer is used.
+    dummy_buffer: B::Buffer,
+    /// Colour cycling: accumulated phase (cycles) and when it last advanced.
+    cycle_phase: f64,
+    cycle_time: f64,
     /// Iterate pipelines keyed by `de | interior << 1`.
     iterate_pipelines: [Option<B::Pipeline>; 4],
 
@@ -410,16 +570,15 @@ pub struct Renderer<B: GpuBackend> {
     /// GPU seconds per texel of the last completed level.
     cost_per_texel: f64,
     has_presented: bool,
-    /// Colorize submissions not finished on the GPU.
-    frames_in_flight: Vec<B::Submission>,
+    /// Colorize submissions not finished on the GPU, with their frame serial.
+    frames_in_flight: Vec<(u64, B::Submission)>,
+    /// Frames committed so far (serial of the last one).
+    frames_committed: u64,
     last_frame_commit: f64,
     /// When the last fully refined, full-resolution frame was committed, and its size.
     pub last_final_frame: (f64, String),
     /// Colorize submissions that failed on the GPU (a drawable left unpainted).
     pub failed_frames: usize,
-    /// Settings of the last committed frame (an idle refresh with the same job and settings
-    /// has nothing new to show, e.g. while only the keyboard crosshair glides).
-    presented_settings: Option<RenderSettings>,
     interior_stats: Option<InteriorStats>,
     pinned_iterations: Option<(Viewport, usize)>,
     epoch: Instant,
@@ -434,6 +593,9 @@ impl<B: GpuBackend> Renderer<B> {
         let prepare_pipeline = backend.pipeline("prepareChunk", &[])?;
         let finish_pipeline = backend.pipeline("finishChunk", &[])?;
         let colorize_pipeline = backend.pipeline("colorize", &[])?;
+        let compose_pipeline = backend.pipeline("compose", &[])?;
+        let aa_list_pipeline = backend.pipeline("aaList", &[])?;
+        let dummy_buffer = backend.create_buffer(16, Storage::Private)?;
         let state_bytes = config.live_capacity * std::mem::size_of::<PixelState>();
         let state_buffers = [
             backend.create_buffer(state_bytes, Storage::Private)?,
@@ -458,6 +620,19 @@ impl<B: GpuBackend> Renderer<B> {
             prepare_pipeline,
             finish_pipeline,
             colorize_pipeline,
+            compose_pipeline,
+            aa_list_pipeline,
+            aa_list_buffer: None,
+            history: None,
+            history_ping: 0,
+            history_view: None,
+            last_compose: 0.0,
+            taa_index: 0,
+            refresh_interval: 1.0 / 60.0,
+            last_frame_time: 0.0,
+            dummy_buffer,
+            cycle_phase: 0.0,
+            cycle_time: 0.0,
             iterate_pipelines: [None, None, None, None],
             full_set: None,
             preview_alloc: None,
@@ -483,10 +658,10 @@ impl<B: GpuBackend> Renderer<B> {
             cost_per_texel: 0.0,
             has_presented: false,
             frames_in_flight: Vec::new(),
+            frames_committed: 0,
             last_frame_commit: 0.0,
             last_final_frame: (0.0, String::new()),
             failed_frames: 0,
-            presented_settings: None,
             interior_stats: None,
             pinned_iterations: None,
             epoch: Instant::now(),
@@ -567,11 +742,24 @@ impl<B: GpuBackend> Renderer<B> {
             return outcome;
         }
         let interacting = self.navigator.is_interacting(now);
+        // The display's refresh interval, from consecutive frames (gesture frame budget).
+        let since = now - self.last_frame_time;
+        if since > 0.002 && since < 0.05 {
+            self.refresh_interval = 0.9 * self.refresh_interval + 0.1 * since;
+        }
+        self.last_frame_time = now;
+        // Colour cycling advances only while the view rests (flying keeps colours still, so
+        // the temporal reprojection stays valid).
+        if self.settings.cycle_speed != 0.0 && !interacting {
+            let dt = (now - self.cycle_time).clamp(0.0, 0.1);
+            self.cycle_phase = (self.cycle_phase + self.settings.cycle_speed * dt).rem_euclid(1.0);
+        }
+        self.cycle_time = now;
 
         // Never block on the GPU: with frames still queued, skip this refresh (the next one
         // picks up the latest input). Safety: a drawable never shown might never complete.
         let (failed, frame_stats) = (&mut self.failed_frames, &mut self.frame_stats);
-        self.frames_in_flight.retain(|s| match s.status() {
+        self.frames_in_flight.retain(|(_, s)| match s.status() {
             SubmissionStatus::Pending => true,
             SubmissionStatus::Completed => {
                 if let Some(fs) = frame_stats.as_mut() {
@@ -604,7 +792,7 @@ impl<B: GpuBackend> Renderer<B> {
             return outcome;
         }
         self.harvest();
-        let key = self.make_key(width, height, points_per_pixel);
+        let key = self.make_key(width, height, points_per_pixel, false);
         if self.job.as_ref().is_some_and(|j| j.failed) {
             self.job = None;
         }
@@ -629,9 +817,13 @@ impl<B: GpuBackend> Renderer<B> {
         } else {
             self.start_job(key.clone(), JobMode::Refine, now);
         }
-        let Some(job) = &self.job else {
+        if self.job.is_none() {
             return outcome;
-        };
+        }
+        let aa_target = self.aa_target();
+        self.prepare_aa_list(aa_target);
+        self.queue_aa_sample(aa_target);
+        let job = self.job.as_ref().expect("job");
         if self.config.trace {
             let d = &job.levels[job.display()];
             println!(
@@ -646,71 +838,148 @@ impl<B: GpuBackend> Renderer<B> {
         if job.interactive {
             self.encode_interactive();
         } else {
-            let budget = self.config.chunk_target;
+            let aa = job.current().is_some_and(|i| job.levels[i].aa.is_some());
+            let budget = if aa {
+                self.config.aa_chunk_target
+            } else {
+                self.config.chunk_target
+            };
             self.encode_chunks(budget);
         }
 
-        // While refining, hold the previous image for a moment until the first level is
-        // complete, so cheap views appear finished in one step. Gesture frames always show.
-        let job = self.job.as_ref().expect("job");
-        let unchanged = job.final_presented
-            && !job.interactive
-            && job.key == key
-            && self.presented_settings.as_ref() == Some(&self.settings);
-        let present = !unchanged
-            && ((job.interactive && (!job.presented || !job.done()))
-                || !self.has_presented
-                || job.levels[0].complete
-                || now - job.start > 0.15);
+        let colors = self.color_params();
+        let plan = self.plan_frame(now, &colors, aa_target);
         // The refined frame (first presentation of a complete, non-gesture job) may wait for
         // a target; every other frame takes one only if it is free (see `render_frame`).
+        let job = self.job.as_ref().expect("job");
         let final_frame = !job.interactive && job.complete() && !job.complete_presented;
-        if present && let Some((target, drawable)) = acquire(final_frame) {
-            if let Ok(mut enc) = self.encode_colorize(&target) {
+        if let Some((mode, aa_level)) = plan
+            && let Some((target, drawable)) = acquire(final_frame)
+        {
+            if let Ok(mut enc) = self.encode_compose(&target, &colors, mode, aa_level, now) {
                 if let Some(d) = &drawable {
                     enc.present(d);
                 }
                 let job = self.job.as_ref().expect("job");
                 if let Some(fs) = &mut self.frame_stats {
                     fs.frames += 1;
-                    if job.levels[job.display()].preview {
+                    if mode == COMPOSE_GESTURE || job.levels[job.display()].preview {
                         fs.preview_frames += 1;
                     }
                 }
                 let sub = enc.commit();
-                self.frames_in_flight.push(sub);
+                self.frames_committed += 1;
+                self.frames_in_flight.push((self.frames_committed, sub));
                 self.last_frame_commit = now;
+                self.last_compose = now;
                 self.has_presented = true;
-                if self.presented_settings.as_ref() != Some(&self.settings) {
-                    self.presented_settings = Some(self.settings.clone());
-                }
                 outcome.presented = true;
                 let job = self.job.as_mut().expect("job");
                 job.presented = true;
+                match mode {
+                    COMPOSE_AA => job.aa_composed += 1,
+                    COMPOSE_EXACT => {
+                        // Recoloured from the exact samples: anti-aliasing starts over.
+                        job.drop_aa();
+                        job.complete_at = Some(f64::NEG_INFINITY);
+                    }
+                    _ => {}
+                }
                 if job.complete() && !job.interactive {
                     let d = &job.levels[job.display()];
                     // The refined frame: unresolved pixels may keep resolving later.
                     if !job.complete_presented && !d.preview {
                         self.last_final_frame = (now, format!("{}x{}", d.set.width, d.set.height));
                     }
-                    job.complete_presented = true;
-                    if job.done() {
-                        job.final_presented = true;
+                    if !d.preview {
+                        job.complete_presented = true;
+                        job.complete_at.get_or_insert(now);
                     }
                 }
             }
-        } else if present && let Some(fs) = &mut self.frame_stats {
+        } else if plan.is_some()
+            && let Some(fs) = &mut self.frame_stats
+        {
             fs.skipped += 1;
             fs.skipped_no_target += 1;
         }
+        // The next AA sample right after the previous one was composed (it reuses the same
+        // textures), so a sample costs one refresh, not two.
+        if !self.job.as_ref().expect("job").interactive && plan.is_some_and(|p| p.0 == COMPOSE_AA) {
+            self.queue_aa_sample(aa_target);
+            let budget = self.config.aa_chunk_target;
+            self.encode_chunks(budget);
+        }
+        // Settled: refined, faded in, extended and anti-aliased.
+        let fade = 4.0 * self.config.fade_tau;
+        let job = self.job.as_mut().expect("job");
+        if !job.interactive
+            && job.complete_presented
+            && job.levels.iter().all(|l| l.done || l.aa.is_some())
+            && job.complete_at.is_some_and(|t| now - t >= fade)
+            && !job.aa_pending()
+            && job.aa_finished(aa_target, self.config.aa_budget)
+        {
+            job.final_presented = true;
+        }
         self.publish_stats();
         let job = self.job.as_ref().expect("job");
-        let busy = interacting || !job.final_presented || job.key != key;
+        let busy = interacting || !job.final_presented || job.key != key || self.settings.cycle_speed != 0.0;
         outcome.animating = keep_going || busy;
         outcome
     }
 
-    fn make_key(&mut self, width: usize, height: usize, points_per_pixel: f64) -> ComputeKey {
+    /// Samples per pixel the idle anti-aliasing accumulates (the supersampling setting's
+    /// factor squared; 1 while colours cycle, since every frame is recoloured).
+    fn aa_target(&self) -> u32 {
+        if self.settings.cycle_speed != 0.0 {
+            1
+        } else {
+            (self.settings.supersampling.factor() * self.settings.supersampling.factor()) as u32
+        }
+    }
+
+    /// What this refresh composes, if anything: the compose mode and, for an AA sample, its
+    /// level (kb: techniques/frame-reuse-and-progressive, FL).
+    fn plan_frame(&self, now: f64, colors: &ColorParams, aa_target: u32) -> Option<(u32, Option<usize>)> {
+        let job = self.job.as_ref()?;
+        if job.interactive {
+            return (!job.presented || !job.done()).then_some((COMPOSE_GESTURE, None));
+        }
+        let colors_changed = match &self.history_view {
+            Some(h) => !self.same_colors(h, colors) || h.offset != colors.offset,
+            None => true,
+        };
+        let exact_done = job.levels.iter().all(|l| l.done || l.aa.is_some());
+        if !job.complete_presented {
+            // While refining, hold the previous image for a moment until the first level is
+            // complete, so cheap views appear finished in one step.
+            let show = !self.has_presented || job.levels[0].complete || now - job.start > 0.15;
+            return show.then_some((COMPOSE_REFINE, None));
+        }
+        if colors_changed {
+            return Some((COMPOSE_EXACT, None));
+        }
+        let fading = job.complete_at.is_none_or(|t| now - t < 4.0 * self.config.fade_tau);
+        if fading || !exact_done {
+            return Some((COMPOSE_REFINE, None));
+        }
+        if !job.aa_finished(aa_target, self.config.aa_budget)
+            && let Some(i) = job.aa_ready()
+        {
+            return Some((COMPOSE_AA, Some(i)));
+        }
+        None
+    }
+
+    /// The history was coloured like `colors` (phase aside) with the current palette.
+    fn same_colors(&self, h: &HistoryView, colors: &ColorParams) -> bool {
+        let mut a = h.colors.0;
+        a.offset = colors.offset;
+        a == *colors && h.colors.1 == self.settings.palette_id
+    }
+
+    fn make_key(&mut self, width: usize, height: usize, points_per_pixel: f64, offscreen: bool) -> ComputeKey {
         let mut max_iter = self.max_iterations();
         // A learned limit applies from the next view on: the view it was learned at is
         // already resolved by the extension, re-rendering it would only repeat the work.
@@ -729,16 +998,29 @@ impl<B: GpuBackend> Renderer<B> {
             interior: self.settings.interior_detection,
             width,
             height,
-            supersampling: self.settings.supersampling.factor(),
+            // Interactive views anti-alias progressively at 1x (a supersampling change only
+            // changes the number of idle samples); offscreen renders use a grid.
+            supersampling: if offscreen {
+                self.settings.supersampling.factor()
+            } else {
+                1
+            },
         }
     }
 
     // MARK: Jobs and chunks
 
     fn start_job(&mut self, key: ComputeKey, mode: JobMode, now: f64) {
-        let ss = key.supersampling as f64;
-        let tex_w = key.width * key.supersampling;
-        let tex_h = key.height * key.supersampling;
+        // Interactive views anti-alias progressively (idle AA samples); only offscreen renders
+        // supersample on a grid (kb: techniques/anti-aliasing, FL).
+        let ss_factor = if mode == JobMode::Offscreen {
+            key.supersampling
+        } else {
+            1
+        };
+        let ss = ss_factor as f64;
+        let tex_w = key.width * ss_factor;
+        let tex_h = key.height * ss_factor;
         let Ok(full) = self.full_texture_set(tex_w, tex_h) else {
             return;
         };
@@ -780,24 +1062,23 @@ impl<B: GpuBackend> Renderer<B> {
         match mode {
             JobMode::Interactive => {
                 // Dynamic resolution: the largest scale (1/8 steps, 1/4 ... 1) whose measured
-                // cost fits the gesture frame budget.
+                // cost fits the gesture frame budget. Always a preview level (also at scale 1):
+                // it is jittered for the temporal upsampling, and the refined frame is computed
+                // at the pixel centres afterwards.
                 let mut ratio = 0.5;
                 if self.cost_per_texel > 0.0 {
-                    let fit = (self.config.interactive_frame_budget
-                        / (self.cost_per_texel * (key.width * key.height) as f64))
-                        .sqrt();
+                    let fit = (self.gesture_budget() / (self.cost_per_texel * (key.width * key.height) as f64)).sqrt();
                     ratio = ((fit * 8.0).floor() / 8.0).clamp(0.25, 1.0);
                 }
                 if !self.settings.interactive_preview {
-                    ratio = ss;
+                    ratio = 1.0;
                 }
-                if ratio >= ss {
-                    levels.push(full_level(&full));
-                } else {
-                    let (w, h) = level_size(ratio);
-                    if let Ok(set) = self.preview_texture_set(key.width, key.height, w, h) {
-                        levels.push(Level::new(set, ratio, true, params(ratio, w, h), None));
-                    }
+                let (w, h) = level_size(ratio);
+                if let Ok(set) = self.preview_texture_set(key.width, key.height, w, h) {
+                    self.taa_index = self.taa_index % 64 + 1;
+                    let mut p = params(ratio, w, h);
+                    p.jitter = [halton(self.taa_index, 2), halton(self.taa_index, 3)];
+                    levels.push(Level::new(set, ratio, true, p, None));
                 }
             }
             JobMode::Refine => {
@@ -805,17 +1086,16 @@ impl<B: GpuBackend> Renderer<B> {
                 // frame; quarter resolution if even half would.
                 let full_cost = self.cost_per_texel * full_texels;
                 if self.settings.interactive_preview && full_cost > 1.0 / 90.0 {
-                    let ratio = if full_cost / ss / ss * 0.25 <= 1.0 / 60.0 {
-                        0.5
-                    } else {
-                        0.25
-                    };
+                    let ratio = if full_cost * 0.25 <= 1.0 / 60.0 { 0.5 } else { 0.25 };
                     let (w, h) = level_size(ratio);
                     if let Ok(set) = self.preview_texture_set(key.width, key.height, w, h) {
                         levels.push(Level::new(set, ratio, true, params(ratio, w, h), None));
                     }
                 }
-                levels.push(full_level(&full));
+                let mut l = full_level(&full);
+                l.order = self.priority_order(&key);
+                l.params.tile_order = u32::from(l.order.is_some());
+                levels.push(l);
             }
             JobMode::Offscreen => levels.push(full_level(&full)),
         }
@@ -867,12 +1147,72 @@ impl<B: GpuBackend> Renderer<B> {
             failed: false,
             final_presented: false,
             complete_presented: false,
+            complete_at: None,
+            aa_composed: 0,
+            aa_list: None,
         });
+    }
+
+    /// GPU seconds a gesture frame's iteration may take: half the measured refresh interval
+    /// (the compose pass and the cost model's error take the rest; 70 % measured 49 fps at
+    /// 60 Hz in home zoom). M2's fixed 6 ms assumed 120 Hz, so a 60 Hz display
+    /// rendered previews at about half the affordable texels (FL).
+    fn gesture_budget(&self) -> f64 {
+        if !self.config.adaptive_budget {
+            return self.config.interactive_frame_budget;
+        }
+        (0.5 * self.refresh_interval).clamp(0.004, 0.012)
+    }
+
+    /// Admission order for a refinement level (FL, kb: techniques/frame-reuse-and-progressive):
+    /// tiles the history does not cover (newly exposed by a pan or zoom-out) first, then by
+    /// distance from the zoom target, so what the eye is on sharpens first. None when no
+    /// buffer could be made (raster order then).
+    fn priority_order(&self, key: &ComputeKey) -> Option<TileOrder<B>> {
+        let (tx, ty) = tiles(key.width, key.height);
+        let ppp = key.points_per_pixel;
+        let (fx, fy) = self.navigator.zoom_target();
+        // Focus in pixels from the top-left.
+        let focus = (key.width as f64 / 2.0 + fx / ppp, key.height as f64 / 2.0 - fy / ppp);
+        // The history's footprint in this view's pixels.
+        let covered = self.history_view.as_ref().map(|h| {
+            let s = key.viewport.scale * ppp;
+            let (dre, dim) = h.viewport.center.delta_from(&key.viewport.center);
+            let cx = key.width as f64 / 2.0 + dre / s;
+            let cy = key.height as f64 / 2.0 - dim / s;
+            let (hw, hh) = (h.width as f64 * h.scale / s / 2.0, h.height as f64 * h.scale / s / 2.0);
+            (cx - hw, cx + hw, cy - hh, cy + hh)
+        });
+        let mut keyed: Vec<(bool, f64, u32)> = (0..tx * ty)
+            .map(|t| {
+                let (x0, y0) = ((t % tx * 16) as f64, (t / tx * 16) as f64);
+                let (x1, y1) = ((x0 + 16.0).min(key.width as f64), (y0 + 16.0).min(key.height as f64));
+                let inside = covered.is_some_and(|(a, b, c, d)| x0 >= a && x1 <= b && y0 >= c && y1 <= d);
+                let (cx, cy) = (0.5 * (x0 + x1) - focus.0, 0.5 * (y0 + y1) - focus.1);
+                (inside, cx * cx + cy * cy, t as u32)
+            })
+            .collect();
+        keyed.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let order: Vec<u32> = keyed.iter().map(|k| k.2).collect();
+        let mut rank = vec![0u32; order.len()];
+        for (r, &t) in order.iter().enumerate() {
+            rank[t as usize] = r as u32;
+        }
+        let order = self
+            .backend
+            .create_buffer_with_data(bytemuck::cast_slice(&order))
+            .ok()?;
+        let rank = self.backend.create_buffer_with_data(bytemuck::cast_slice(&rank)).ok()?;
+        Some(TileOrder { order, rank })
     }
 
     /// Turns a finished gesture frame into a refinement job: same view, the full level added
     /// after the preview, which stays visible underneath while the full level fills in.
     fn extend_for_refinement(&mut self) {
+        let order = match &self.job {
+            Some(j) if !j.levels.iter().any(|l| !l.preview) => self.priority_order(&j.key),
+            _ => None,
+        };
         let Some(job) = &mut self.job else { return };
         job.interactive = false;
         if !job.levels.iter().any(|l| !l.preview)
@@ -880,9 +1220,129 @@ impl<B: GpuBackend> Renderer<B> {
         {
             let mut l = Level::new(t.set.clone(), t.ratio, false, t.params, None);
             l.extend_to = t.extend_to;
+            l.params.tile_order = u32::from(order.is_some());
+            l.order = order;
             job.levels.push(l);
             job.final_presented = false;
         }
+    }
+
+    /// Builds the adaptive AA list once the refined view is shown and everything but AA is
+    /// done (one small GPU pass), and reads its length when the pass has finished.
+    fn prepare_aa_list(&mut self, target: u32) {
+        let Some(job) = &self.job else { return };
+        if let Some(l) = &job.aa_list {
+            if l.len.is_none() && l.submission.status() != SubmissionStatus::Pending {
+                let mut bytes = [0u8; 4];
+                self.backend.read_buffer(&l.count_buffer, 0, &mut bytes);
+                let cap = self.aa_list_buffer.as_ref().map_or(0, |b| b.1);
+                let len = (u32::from_le_bytes(bytes) as usize).min(cap);
+                self.job.as_mut().expect("job").aa_list.as_mut().expect("list").len = Some(len);
+            }
+            return;
+        }
+        if target <= 1
+            || job.interactive
+            || !job.complete_presented
+            || job.failed
+            || !job.levels.iter().all(|l| l.done || l.aa.is_some())
+        {
+            return;
+        }
+        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+            return;
+        };
+        let (w, h) = (full.set.width, full.set.height);
+        let (iter, de) = (full.set.iter.clone(), full.set.de.clone());
+        let order = full.order.clone();
+        let (tx, ty) = tiles(w, h);
+        let Ok(aa_set) = self.preview_texture_set(w, h, w, h) else {
+            return;
+        };
+        if self.aa_list_buffer.as_ref().is_none_or(|b| b.1 < w * h) {
+            match self.backend.create_buffer(w * h * 4, Storage::Private) {
+                Ok(b) => self.aa_list_buffer = Some((b, w * h)),
+                Err(_) => return,
+            }
+        }
+        let (list, cap) = self.aa_list_buffer.clone().expect("list");
+        let Ok(count_buffer) = self.backend.create_buffer_with_data(&[0u8; 4]) else {
+            return;
+        };
+        let Ok(mut enc) = self.backend.begin("aa list") else {
+            return;
+        };
+        let p = AaListParams {
+            width: w as u32,
+            height: h as u32,
+            tiles_x: tx as u32,
+            tile_order: u32::from(order.is_some()),
+            total: (tx * ty * 256) as u32,
+            capacity: cap as u32,
+            de_threshold: 4.0,
+            pad: 0,
+        };
+        enc.set_pipeline(&self.aa_list_pipeline);
+        enc.set_texture(0, &iter);
+        enc.set_texture(1, &de);
+        enc.set_texture(2, &aa_set.iter);
+        enc.set_bytes(0, bytes_of(&p));
+        enc.set_buffer(1, order.as_ref().map_or(&self.dummy_buffer, |o| &o.order), 0);
+        enc.set_buffer(2, &count_buffer, 0);
+        enc.set_buffer(3, &list, 0);
+        enc.dispatch_threads([tx * ty * 256, 1, 1], [ITERATE_THREADS, 1, 1]);
+        let submission = enc.commit();
+        self.job.as_mut().expect("job").aa_list = Some(AaList {
+            count_buffer,
+            submission,
+            len: None,
+        });
+    }
+
+    /// Queues the next idle anti-aliasing sample once everything else of the refined view is
+    /// done (kb: techniques/anti-aliasing, FL): the pixels on the adaptive list again with a
+    /// Halton jitter, into the preview allocation (full size; previews are not needed while
+    /// idle), at the nominal limit. Input replaces the job, which drops the samples at once.
+    fn queue_aa_sample(&mut self, target: u32) {
+        let Some(job) = &self.job else { return };
+        let Some(len) = job.aa_list.as_ref().and_then(|l| l.len) else {
+            return;
+        };
+        if len == 0
+            || job.interactive
+            || !job.done()
+            || job.aa_pending()
+            || job.failed
+            || job.aa_finished(target, self.config.aa_budget)
+        {
+            return;
+        }
+        let next = job.aa_composed + 1;
+        if next >= target || job.levels.iter().any(|l| l.aa == Some(next)) {
+            return;
+        }
+        let Some(full_index) = job.levels.iter().position(|l| !l.preview && l.aa.is_none()) else {
+            return;
+        };
+        let (w, h) = (job.key.width, job.key.height);
+        let Ok(set) = self.preview_texture_set(w, h, w, h) else {
+            return;
+        };
+        let list = self.aa_list_buffer.as_ref().map(|b| b.0.clone());
+        let job = self.job.as_mut().expect("job");
+        let full = &job.levels[full_index];
+        let mut p = full.params;
+        p.jitter = [halton(next, 2), halton(next, 3)];
+        // Admit the listed texels; collect nothing.
+        p.list_mode = 2;
+        p.list_capacity = 0;
+        p.max_iter = full.params.soft_iter;
+        let mut l = Level::new(set, 1.0, false, p, Some(len));
+        l.list_buffer = list;
+        l.aa = Some(next);
+        l.complete = true;
+        l.use_interior = full.use_interior;
+        job.levels.push(l);
     }
 
     /// A gesture frame: the preview level in ceil(texels / capacity) chunks with K = maxIter,
@@ -920,7 +1380,10 @@ impl<B: GpuBackend> Renderer<B> {
         let mut encoded = 0;
         while let Some(job) = &self.job {
             let generation = job.generation;
-            let max = self.config.max_chunks_in_flight;
+            // Idle AA samples keep two small chunks queued: input waits for at most ~16 ms of
+            // GPU (FL: AA is interruptible).
+            let aa = job.current().is_some_and(|i| job.levels[i].aa.is_some());
+            let max = if aa { 2 } else { self.config.max_chunks_in_flight };
             if !(encoded < 8 && spent < budget)
                 || job.failed
                 || self.in_flight.iter().filter(|r| r.generation == generation).count() >= max
@@ -1000,17 +1463,22 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_bytes(8, bytes_of(&tg));
         enc.set_buffer(9, &self.level_buffer, 0);
         // (No lists allocated: listCapacity is 0 and nothing is collected; bind a placeholder.)
-        match &self.list_buffers {
-            Some(lists) => {
+        match (&level.list_buffer, &self.list_buffers) {
+            (Some(list), _) => {
+                enc.set_buffer(10, list, 0);
+                enc.set_buffer(12, list, 0);
+            }
+            (None, Some(lists)) => {
                 enc.set_buffer(10, &lists[level.list_in], 0);
                 enc.set_buffer(12, &lists[level.list_out], 0);
             }
-            None => {
+            (None, None) => {
                 enc.set_buffer(10, &self.list_count_buffer, 0);
                 enc.set_buffer(12, &self.list_count_buffer, 0);
             }
         }
         enc.set_buffer(11, &self.list_count_buffer, 0);
+        enc.set_buffer(13, level.order.as_ref().map_or(&self.dummy_buffer, |o| &o.order), 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
 
         enc.set_pipeline(&pipeline);
@@ -1131,8 +1599,8 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         level.complete = true;
-        if level.gpu_time > 0.0 {
-            self.cost_per_texel = level.gpu_time / level.total as f64;
+        if level.gpu_time > 0.0 && !level.is_extension() {
+            self.cost_per_texel = level.gpu_time / (level.set.width * level.set.height) as f64;
         }
         self.interior_stats = Some(InteriorStats::from_level(
             level.total,
@@ -1157,7 +1625,7 @@ impl<B: GpuBackend> Renderer<B> {
         let spent: f64 = job.levels.iter().filter(|l| l.is_extension()).map(|l| l.gpu_time).sum();
         let level = &mut job.levels[index];
         level.done = true;
-        if level.preview {
+        if level.preview || level.aa.is_some() {
             return;
         }
         if trace {
@@ -1259,96 +1727,271 @@ impl<B: GpuBackend> Renderer<B> {
         };
     }
 
-    // MARK: Colorize
+    // MARK: Colorize and compose
 
-    /// Colorize into `target` (its whole size). A preview level is first coloured at its own
-    /// resolution into its colour texture (linear light), which the final pass samples
-    /// bilinearly wherever the shown level is unfinished, or everywhere when the preview
-    /// itself is shown.
+    /// Colorize into `target` (offscreen renders: the whole level box-filtered over its
+    /// supersamples, sRGB). A preview level is first coloured at its own resolution into its
+    /// colour texture (linear light), which the final pass samples bilinearly wherever the
+    /// shown level is unfinished, or everywhere when the preview itself is shown.
     fn encode_colorize(&mut self, target: &B::Texture) -> Result<B::Encoder, GpuError> {
         self.ensure_palette()?;
+        let colors = self.color_params();
         let job = self.job.as_ref().expect("job");
-        let shown_index = job.display();
-        let shown = &job.levels[shown_index];
+        let shown = &job.levels[job.display()];
         let preview = if shown.preview {
             Some(shown)
         } else {
             job.levels.iter().find(|l| l.preview && l.done)
         };
         let mut enc = self.backend.begin("colorize")?;
-        enc.set_pipeline(&self.colorize_pipeline);
-        enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
-        enc.set_buffer(2, &self.level_buffer, 0);
-        let (tw, max_threads) = self.backend.pipeline_limits(&self.colorize_pipeline);
-        let th = (max_threads / tw / 2).max(1);
-        let base = self.color_params();
-        let (target_w, target_h) = self.backend.texture_size(target);
-
-        let pass = |enc: &mut B::Encoder,
-                    level: Option<&Level<B>>,
-                    out: &B::Texture,
-                    out_size: (usize, usize),
-                    ratio: f64,
-                    under: Option<(&B::Texture, (usize, usize))>,
-                    linear: bool| {
-            let mut c = base;
-            c.ratio = ratio as f32;
-            if let Some(level) = level {
-                // The running level's admission count lives on the GPU, ahead of the CPU's.
-                c.admitted = if level.done { level.total as u32 } else { 0 };
-                c.admitted_on_gpu = u32::from(level.started() && !level.done);
-                if level.is_extension() {
-                    // Every texel is written: the extension only replaces unresolved ones.
-                    c.admitted = (level.set.width * level.set.height) as u32;
-                    c.admitted_on_gpu = 0;
-                }
-                c.de_scale = level.ratio as f32;
-            }
-            c.has_under = if under.is_some() { 1.0 } else { 0.0 };
-            c.linear_out = u32::from(linear);
-            let src = &level.unwrap_or(shown).set;
-            c.src_size = [src.width as u32, src.height as u32];
-            c.out_size = [out_size.0 as u32, out_size.1 as u32];
-            if let Some((_, (uw, uh))) = under {
-                c.under_size = [uw as f32, uh as f32];
-            }
-            enc.set_texture(0, &src.iter);
-            enc.set_texture(1, &src.de);
-            enc.set_texture(2, out);
-            enc.set_texture(3, under.map_or(out, |u| u.0));
-            enc.set_bytes(0, bytes_of(&c));
-            enc.dispatch_threads([out_size.0, out_size.1, 1], [tw, th, 1]);
-        };
         let mut under = None;
         if let Some(p) = preview
             && let Some(color) = &p.set.color
         {
-            pass(&mut enc, Some(p), color, (p.set.width, p.set.height), 1.0, None, true);
+            self.encode_preview_color(&mut enc, p, color, &colors);
             under = Some((color, (p.set.width, p.set.height)));
         }
+        let (target_w, target_h) = self.backend.texture_size(target);
         // Showing the preview: no main level (nothing "finished"), every pixel samples it.
-        pass(
-            &mut enc,
-            if shown.preview { None } else { Some(shown) },
-            target,
-            (target_w, target_h),
-            shown.ratio,
-            under,
-            false,
-        );
+        let level = if shown.preview { None } else { Some(shown) };
+        let mut c = colors;
+        c.ratio = shown.ratio as f32;
+        c.has_under = if under.is_some() { 1.0 } else { 0.0 };
+        if let Some(l) = level {
+            self.level_admission(l, &mut c);
+            c.de_scale = l.ratio as f32;
+        }
+        let src = &shown.set;
+        c.src_size = [src.width as u32, src.height as u32];
+        c.out_size = [target_w as u32, target_h as u32];
+        if let Some((_, (uw, uh))) = under {
+            c.under_size = [uw as f32, uh as f32];
+        }
+        let rank = level
+            .and_then(|l| l.order.as_ref())
+            .map_or(&self.dummy_buffer, |o| &o.rank);
+        enc.set_pipeline(&self.colorize_pipeline);
+        enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
+        enc.set_buffer(2, &self.level_buffer, 0);
+        enc.set_buffer(3, rank, 0);
+        enc.set_texture(0, &src.iter);
+        enc.set_texture(1, &src.de);
+        enc.set_texture(2, target);
+        enc.set_texture(3, under.map_or(target, |u| u.0));
+        enc.set_bytes(0, bytes_of(&c));
+        let (tw, th) = self.threadgroup();
+        enc.dispatch_threads([target_w, target_h, 1], [tw, th, 1]);
         Ok(enc)
     }
 
+    fn threadgroup(&self) -> (usize, usize) {
+        let (w, max_threads) = self.backend.pipeline_limits(&self.colorize_pipeline);
+        (w, (max_threads / w / 2).max(1))
+    }
+
+    /// Admission fields of `c` for a main level: which texels are finished this frame.
+    fn level_admission(&self, l: &Level<B>, c: &mut ColorParams) {
+        if l.is_extension() {
+            // Every texel is written: the extension only replaces unresolved ones.
+            c.admitted = u32::MAX;
+            c.admitted_on_gpu = 0;
+        } else {
+            // The running level's admission count lives on the GPU, ahead of the CPU's.
+            c.admitted = if l.done { u32::MAX } else { 0 };
+            c.admitted_on_gpu = u32::from(l.started() && !l.done);
+        }
+        c.tiles_x = tiles(l.set.width, l.set.height).0 as u32;
+        c.tile_order = u32::from(l.order.is_some() && !l.is_extension());
+    }
+
+    /// Colours a preview level at its own resolution into its colour texture (linear light).
+    fn encode_preview_color(&self, enc: &mut B::Encoder, p: &Level<B>, color: &B::Texture, colors: &ColorParams) {
+        let mut c = *colors;
+        c.ratio = 1.0;
+        self.level_admission(p, &mut c);
+        c.de_scale = p.ratio as f32;
+        c.has_under = 0.0;
+        c.linear_out = 1;
+        c.src_size = [p.set.width as u32, p.set.height as u32];
+        c.out_size = c.src_size;
+        enc.set_pipeline(&self.colorize_pipeline);
+        enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
+        enc.set_buffer(2, &self.level_buffer, 0);
+        enc.set_buffer(3, &self.dummy_buffer, 0);
+        enc.set_texture(0, &p.set.iter);
+        enc.set_texture(1, &p.set.de);
+        enc.set_texture(2, color);
+        enc.set_texture(3, color);
+        enc.set_bytes(0, bytes_of(&c));
+        let (tw, th) = self.threadgroup();
+        enc.dispatch_threads([p.set.width, p.set.height, 1], [tw, th, 1]);
+    }
+
+    /// One presented interactive frame (FL, kb: techniques/frame-reuse-and-progressive): the
+    /// preview's colour pass if there is one, then `compose` into `target` and the next
+    /// history image. See the kernel for the modes.
+    fn encode_compose(
+        &mut self,
+        target: &B::Texture,
+        colors: &ColorParams,
+        mode: u32,
+        aa_level: Option<usize>,
+        now: f64,
+    ) -> Result<B::Encoder, GpuError> {
+        self.ensure_palette()?;
+        let (out_w, out_h) = self.backend.texture_size(target);
+        self.ensure_history(out_w, out_h)?;
+        let history = self.history.clone().expect("history");
+        let full = self.full_set.clone().expect("full level textures");
+        let job = self.job.as_ref().expect("job");
+        let key = job.key.clone();
+        let mut enc = self.backend.begin("compose")?;
+
+        // The preview: the gesture level, or a refinement's finished preview (its iteration
+        // texels are gone once AA samples reuse the allocation; by then nothing needs it).
+        let aa_started = job.levels.iter().any(|l| l.aa.is_some() && l.started());
+        let preview = if mode == COMPOSE_GESTURE {
+            job.levels.first().filter(|l| l.preview)
+        } else if aa_started {
+            None
+        } else {
+            job.levels.iter().find(|l| l.preview && l.done)
+        };
+        let mut under: Option<PreviewColor<B>> = None;
+        if let Some(p) = preview
+            && let Some(color) = &p.set.color
+        {
+            self.encode_preview_color(&mut enc, p, color, colors);
+            under = Some(PreviewColor {
+                texture: color.clone(),
+                size: (p.set.width, p.set.height),
+                ratio: p.ratio,
+                jitter: p.params.jitter,
+            });
+        }
+
+        // The exact samples: the shown full level (refine, exact) or an AA sample.
+        let exact = match mode {
+            COMPOSE_AA => aa_level.map(|i| &job.levels[i]),
+            COMPOSE_GESTURE => None,
+            _ => Some(&job.levels[job.display()]).filter(|l| !l.preview),
+        };
+        let mut c = *colors;
+        c.ratio = 1.0;
+        c.de_scale = 1.0;
+        c.out_size = [out_w as u32, out_h as u32];
+        let (iter_tex, de_tex, rank) = match exact {
+            Some(l) => {
+                self.level_admission(l, &mut c);
+                c.src_size = [l.set.width as u32, l.set.height as u32];
+                let rank = l.order.as_ref().map_or(self.dummy_buffer.clone(), |o| o.rank.clone());
+                (l.set.iter.clone(), l.set.de.clone(), rank)
+            }
+            None => (full.iter.clone(), full.de.clone(), self.dummy_buffer.clone()),
+        };
+        let mut q = ComposeParams {
+            conf_cap: self.config.taa_conf_cap as f32,
+            base_weight: self.config.taa_base_weight as f32,
+            inv_two_sigma2: (1.0 / (2.0 * self.config.taa_sigma * self.config.taa_sigma)) as f32,
+            mode,
+            out_centre: [out_w as f32 / 2.0, out_h as f32 / 2.0],
+            ..ComposeParams::default()
+        };
+        if let Some(u) = &under {
+            let (uw, uh) = u.size;
+            c.has_under = 1.0;
+            c.under_size = [uw as f32, uh as f32];
+            q.new_ratio = u.ratio as f32;
+            q.jitter = u.jitter;
+            q.new_centre = [uw as f32 / 2.0, uh as f32 / 2.0];
+        }
+        // Reprojection of the history into this view: pure scale + translation.
+        let s = key.viewport.scale * key.points_per_pixel;
+        if let Some(h) = &self.history_view
+            && self.same_colors(h, colors)
+            && h.width == out_w
+            && h.height == out_h
+        {
+            let step = s / h.scale;
+            let (dre, dim) = key.viewport.center.delta_from(&h.viewport.center);
+            q.hist_step = step as f32;
+            q.hist_origin = [
+                (0.5 * step + (-(out_w as f64) / 2.0 * s + dre) / h.scale + h.width as f64 / 2.0) as f32,
+                (0.5 * step + (-(out_h as f64) / 2.0 * s - dim) / h.scale + h.height as f64 / 2.0) as f32,
+            ];
+            q.hist_size = [h.width as f32, h.height as f32];
+            // Zoom-in stretches each history texel over 1/step^2 pixels: its confidence
+            // shrinks with it, and new samples take over the detail.
+            q.hist_decay = step.min(1.0).powi(2) as f32;
+        }
+        q.blend = match mode {
+            COMPOSE_REFINE => {
+                let dt = (now - self.last_compose).clamp(0.0, 0.1);
+                (1.0 - (-dt / self.config.fade_tau).exp()) as f32
+            }
+            COMPOSE_AA => 1.0 / (job.aa_composed as f32 + 2.0),
+            _ => 1.0,
+        };
+        let (hist_in, hist_out) = (&history[self.history_ping], &history[1 - self.history_ping]);
+        enc.set_pipeline(&self.compose_pipeline);
+        enc.set_texture(0, &iter_tex);
+        enc.set_texture(1, &de_tex);
+        enc.set_texture(2, under.as_ref().map_or(hist_in, |u| &u.texture));
+        enc.set_texture(3, hist_in);
+        enc.set_texture(4, hist_out);
+        enc.set_texture(5, target);
+        enc.set_bytes(0, bytes_of(&c));
+        enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
+        enc.set_buffer(2, &self.level_buffer, 0);
+        enc.set_buffer(3, &rank, 0);
+        enc.set_bytes(4, bytes_of(&q));
+        let (tw, th) = self.threadgroup();
+        enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
+        self.history_ping = 1 - self.history_ping;
+        self.history_view = Some(HistoryView {
+            viewport: key.viewport.clone(),
+            scale: s,
+            width: out_w,
+            height: out_h,
+            colors: (*colors, self.settings.palette_id.clone()),
+            offset: colors.offset,
+        });
+        Ok(enc)
+    }
+
+    /// The history images at the output size (reallocated, and forgotten, on resize).
+    fn ensure_history(&mut self, width: usize, height: usize) -> Result<(), GpuError> {
+        if let Some(h) = &self.history
+            && self.backend.texture_size(&h[0]) == (width, height)
+        {
+            return Ok(());
+        }
+        let b = &self.backend;
+        self.history = Some([
+            b.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?,
+            b.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?,
+        ]);
+        self.history_view = None;
+        Ok(())
+    }
+
+    /// Colour parameters of the current settings; the palette phase includes colour cycling
+    /// and the depth tint (FL).
     fn color_params(&self) -> ColorParams {
         let s = &self.settings;
         let a = s.light_angle * std::f64::consts::PI / 180.0;
         let i = s.interior_color;
+        let e = s.edge_color;
+        let g = s.glow_color;
+        let depth = self.viewport.zoom().log10().max(0.0);
+        let offset = (s.color_offset + self.cycle_phase + s.depth_tint * depth).rem_euclid(1.0);
         ColorParams {
             interior: [i[0], i[1], i[2], 1.0],
-            edge: [0.0, 0.0, 0.0, 1.0],
+            edge: [e[0], e[1], e[2], 1.0],
+            glow_color: [g[0], g[1], g[2], 1.0],
             light: [a.cos() as f32, a.sin() as f32],
             density: s.color_density as f32,
-            offset: s.color_offset as f32,
+            offset: offset as f32,
             ratio: 1.0,
             shading: s.shading as f32,
             outline: s.outline as f32,
@@ -1357,6 +2000,13 @@ impl<B: GpuBackend> Renderer<B> {
             log_scale: u32::from(s.log_coloring),
             smooth: u32::from(s.smooth_coloring),
             de_scale: 1.0,
+            specular: s.specular as f32,
+            shininess: s.shininess as f32,
+            light_height: s.light_height as f32,
+            glow: s.glow as f32,
+            glow_width: s.glow_width as f32,
+            palette_levels: almondbread_core::palette::mip_levels(PALETTE_SIZE) as u32,
+            palette_filter: if s.palette_filter { 1.0 } else { 0.0 },
             ..ColorParams::default()
         }
     }
@@ -1365,7 +2015,7 @@ impl<B: GpuBackend> Renderer<B> {
         if self.palette_id.as_deref() == Some(self.settings.palette_id.as_str()) && self.palette_buffer.is_some() {
             return Ok(());
         }
-        let table = self.settings.palette().table(PALETTE_SIZE);
+        let table = almondbread_core::palette::mip_chain(&self.settings.palette().table(PALETTE_SIZE));
         self.palette_buffer = Some(self.backend.create_buffer_with_data(bytemuck::cast_slice(&table))?);
         self.palette_id = Some(self.settings.palette_id.clone());
         Ok(())
@@ -1480,7 +2130,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// Waits for the colorize passes in flight and returns how many frames failed on the
     /// GPU so far (self-tests: a committed frame is not yet a drawn one).
     pub fn finish_frames(&mut self) -> usize {
-        for f in std::mem::take(&mut self.frames_in_flight) {
+        for (_, f) in std::mem::take(&mut self.frames_in_flight) {
             f.wait();
             if let SubmissionStatus::Failed(e) = f.status() {
                 eprintln!("almondbread: frame failed on the GPU: {e}");
@@ -1505,10 +2155,33 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     fn wait_frames(&mut self) {
-        for f in &self.frames_in_flight {
+        for (_, f) in &self.frames_in_flight {
             f.wait();
         }
         self.frames_in_flight.clear();
+    }
+
+    /// Serial of the last frame committed for presentation (1, 2, ...; 0: none yet).
+    pub fn frames_committed(&self) -> u64 {
+        self.frames_committed
+    }
+
+    /// Serial up to which every committed frame has finished on the GPU (the queue is in
+    /// order). Headless capture reads a frame's target once this reaches its serial.
+    pub fn frames_completed(&self) -> u64 {
+        self.frames_in_flight
+            .iter()
+            .find(|(_, s)| s.status() == SubmissionStatus::Pending)
+            .map_or(self.frames_committed, |(serial, _)| serial - 1)
+    }
+
+    /// Blocks until the frame with `serial` has finished on the GPU.
+    pub fn wait_frame(&self, serial: u64) {
+        for (s, sub) in &self.frames_in_flight {
+            if *s <= serial {
+                sub.wait();
+            }
+        }
     }
 
     fn read_iterations(&self, set: &TextureSet<B>) -> Result<Vec<[f32; 2]>, GpuError> {
@@ -1544,7 +2217,7 @@ impl<B: GpuBackend> Renderer<B> {
             self.drain_in_flight();
             self.job = None;
             let now = self.clock();
-            let key = self.make_key(width, height, 1.0);
+            let key = self.make_key(width, height, 1.0, true);
             self.start_job(key, JobMode::Offscreen, now);
             if self.job.is_none() {
                 return Err(GpuError("offscreen job could not start".into()));
@@ -1719,6 +2392,8 @@ impl<B: GpuBackend + Clone> Renderer<B> {
         fresh.settings.manual_iterations = max_iter;
         fresh.settings.max_iterations_cap = self.settings.max_iterations_cap.max(max_iter);
         fresh.settings.interior_detection = interior;
+        // The shown level is one sample per pixel (anti-aliasing accumulates separately).
+        fresh.settings.supersampling = almondbread_core::settings::Supersampling::Off;
         let theirs = fresh.render_offscreen(set.width, set.height, true).ok()?.iterations?;
         let differ = mine
             .iter()

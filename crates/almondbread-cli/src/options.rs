@@ -97,8 +97,10 @@ impl Options {
         Ok(v)
     }
 
-    /// The rendering settings shared by all commands.
+    /// The rendering settings shared by all commands. Headless tools render one sample per
+    /// pixel unless `--ss` asks for a grid (the app's default anti-aliasing is progressive).
     pub fn apply_settings(&self, s: &mut RenderSettings) {
+        s.supersampling = Supersampling::Off;
         if let Some(n) = self.usize("iterations") {
             s.auto_iterations = false;
             s.manual_iterations = n;
@@ -149,3 +151,6 @@ pub fn parse_size(s: &str) -> Result<(usize, usize)> {
     }
     Ok((parts[0], parts[1]))
 }
+
+/// Colouring ("look") settings from a JSON object (flight scripts); see `apply_json_settings`.
+pub fn apply_look_json(_v: &serde_json::Value, _s: &mut RenderSettings) {}

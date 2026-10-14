@@ -34,6 +34,7 @@ constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached
 constant float ITER_PENDING    = -2.0f;   // admitted but still iterating
 constant float ITER_UNRESOLVED = -3.0f;   // past the nominal limit, neither escaped nor proven
                                           // interior (.y = the nominal limit); may still resolve
+constant float ITER_SKIP       = -4.0f;   // AA sample textures: this pixel takes no AA samples
 
 struct IterateParams {
     float2 halfSize;      // iteration texture size / 2, in texels
@@ -55,7 +56,31 @@ struct IterateParams {
                           // unresolved at maxIter into listOut; 2: admit from listIn (an
                           // extension pass to a higher maxIter), collect into listOut
     uint   listCapacity;  // entries of the unresolved list
+    uint   tilesX;        // 16x16 tiles per row: admission index a -> tile rank a / 256, texel
+                          // a % 256 inside it (FL: spatially coherent, priority-ordered refinement)
+    uint   height;        // level height in texels (padding texels of edge tiles are skipped)
+    uint   tileOrder;     // 0: tiles in raster order; 1: tile = order[rank] (buffer 13)
+    uint   pad0;
 };
+
+// Admission index -> texel of a tiled level (kb: techniques/frame-reuse-and-progressive, FL):
+// texels are admitted tile by tile (16 x 16, row-major inside a tile); the tile order is raster
+// order or a priority list (newly exposed tiles first, then by distance from the zoom target).
+// Returns false for padding texels of edge tiles.
+static inline bool tileTexel(uint a, uint tilesX, uint width, uint height, uint tileOrder,
+                             device const uint* order, thread uint2& xy) {
+    uint rank = a >> 8, within = a & 255u;
+    uint tile = tileOrder != 0 ? order[rank] : rank;
+    xy = uint2((tile % tilesX) * 16u + (within & 15u), (tile / tilesX) * 16u + (within >> 4));
+    return xy.x < width && xy.y < height;
+}
+
+// Texel -> admission index (the inverse; rank[] is the inverse of order[]).
+static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const uint* rank) {
+    uint tile = (s.y >> 4) * tilesX + (s.x >> 4);
+    uint r = tileOrder != 0 ? rank[tile] : tile;
+    return (r << 8) | ((s.y & 15u) << 4) | (s.x & 15u);
+}
 
 // Loop state of one live pixel. Milestone 3 adds exponents here for rescaled/floatexp deltas
 // (kb: techniques/extended-range-floats); BLA needs nothing beyond (dz, m, n).
@@ -172,6 +197,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const uint* listIn               [[buffer(10)]],
                     device atomic_uint* listCount           [[buffer(11)]],
                     device uint* listOut                    [[buffer(12)]],
+                    device const uint* order                [[buffer(13)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -190,7 +216,14 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         st = stateIn[tid];
     } else if (tid - liveIn < freshCount) {
         fresh = true;
-        st.pixel = p.listMode == 2 ? listIn[freshStart + (tid - liveIn)] : freshStart + (tid - liveIn);
+        uint a = freshStart + (tid - liveIn);
+        if (p.listMode == 2) {
+            st.pixel = listIn[a];            // lists hold texel indices (y * width + x)
+        } else {
+            uint2 xy;
+            active = tileTexel(a, p.tilesX, p.width, p.height, p.tileOrder, order, xy);
+            st.pixel = xy.y * p.width + xy.x;
+        }
     } else {
         active = false;
         st.pixel = 0;
@@ -390,6 +423,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
 struct ColorParams {
     float4 interior;      // linear RGB
     float4 edge;          // linear RGB of the boundary outline
+    float4 glowColor;     // linear RGB of the glow near the boundary
     float2 light;         // unit light direction in the complex plane
     float  density;       // palette cycles per iteration (or per log unit)
     float  offset;        // palette phase, 0..1
@@ -400,7 +434,7 @@ struct ColorParams {
     uint   paletteSize;
     uint   logScale;      // 1: colour by log(mu + 1)
     uint   smooth;        // 0: banded (integer) iteration count
-    uint   admitted;      // texels (scanline order) of the main level written this frame
+    uint   admitted;      // texels (admission order) of the main level written this frame
     float  hasUnder;      // 1: unfinished pixels sample the coloured preview (bilinear)
     uint   linearOut;     // 1: write linear colour (preview colour texture), else sRGB + dither
     uint   admittedOnGPU; // 1: the main level is running, take `admitted` from LevelCounters
@@ -408,22 +442,62 @@ struct ColorParams {
     uint2  srcSize;       // used region of the iteration textures (the level size)
     uint2  outSize;       // used region of the output texture
     float2 underSize;     // used region of the preview colour texture, in texels
-    float2 pad;
+    uint   tilesX;        // tiles per row of the main level (admission order)
+    uint   tileOrder;     // 0: raster tile order; 1: rank[] (buffer 3)
+    float  specular;      // 0..1 strength of the specular highlight
+    float  shininess;     // Blinn-Phong exponent
+    float  lightHeight;   // elevation of the light (0 grazing ... large: from the front)
+    float  glow;          // 0..1 strength of the glow near the boundary
+    float  glowWidth;     // glow falloff, output pixels
+    uint   paletteLevels; // pre-filtered palette levels (1024, 512, ... entries), level 0 first
+    float  paletteFilter; // 1: filter the palette by the colour gradient (palette anti-aliasing)
+    float  pad1;
 };
 
-static inline float3 paletteColor(float2 it, constant ColorParams& c, device const float4* pal) {
-    float t;
+// Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
+// FL "palette anti-aliasing"): the smooth count changes by about 1 / (d ln 2) per pixel at
+// distance d pixels from the set (d = distance estimate, mu = -log2 G of the potential G and
+// |grad G| ~ G / d), so near the boundary the palette cycles several times per pixel and a
+// point lookup is noise. The palette is stored as a cyclic mip chain (box-filtered halvings);
+// the lookup picks the level whose texel matches the footprint. Converges to what an
+// infinitely supersampled image would show for that pixel's colour band average.
+static inline float3 paletteAt(float t, float footprint, constant ColorParams& c, device const float4* pal) {
+    t = fract(t);
+    // Footprint in entries of the full table -> mip level.
+    float lod = c.paletteFilter > 0.0f ? clamp(log2(max(footprint * float(c.paletteSize), 1.0f)), 0.0f,
+                                                float(c.paletteLevels - 1)) : 0.0f;
+    uint l0 = uint(lod);
+    uint l1 = min(l0 + 1, c.paletteLevels - 1);
+    float3 col[2];
+    for (uint k = 0; k < 2; k++) {
+        uint l = k == 0 ? l0 : l1;
+        uint size = c.paletteSize >> l;
+        uint base = 2u * c.paletteSize - (2u * c.paletteSize >> l);   // sum of the larger levels
+        float x = t * float(size) - 0.5f;
+        float fl = floor(x);
+        uint i0 = uint(int(fl) + int(size)) % size;
+        uint i1 = (i0 + 1) % size;
+        col[k] = mix(pal[base + i0].rgb, pal[base + i1].rgb, x - fl);
+    }
+    return mix(col[0], col[1], lod - float(l0));
+}
+
+static inline float3 paletteColor(float2 it, float deTexels, constant ColorParams& c, device const float4* pal,
+                                  float pixelsPerTexel) {
+    float t, dtdmu;
+    float mu = it.x + (c.smooth != 0 ? it.y : 0.0f);
     if (c.logScale != 0) {
-        float mu = it.x + (c.smooth != 0 ? it.y : 0.0f);
         t = log(mu + 1.0f) * c.density;
+        dtdmu = c.density / (mu + 1.0f);
     } else {
         // fract(n * density) first, so a large n does not swallow the fraction.
         t = fract(it.x * c.density) + (c.smooth != 0 ? it.y * c.density : 0.0f);
+        dtdmu = c.density;
     }
-    t = fract(t + c.offset) * float(c.paletteSize);
-    uint i0 = uint(t) % c.paletteSize;
-    uint i1 = (i0 + 1) % c.paletteSize;
-    return mix(pal[i0].rgb, pal[i1].rgb, fract(t));
+    // Palette cycles per output pixel: |d mu / d pixel| ~ 1 / (d ln 2), d in output pixels.
+    float d = max(deTexels / pixelsPerTexel, 1e-3f);
+    float footprint = dtdmu / (d * 0.6931472f);
+    return paletteAt(t + c.offset, footprint, c, pal);
 }
 
 static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device const float4* pal,
@@ -435,20 +509,35 @@ static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device
     // extension pass may still resolve.
     if (it.x == ITER_UNRESOLVED) return mix(c.interior.rgb, float3(0.5f), 0.03f);
     if (it.x < 0.0f) return c.interior.rgb;
-    float3 col = paletteColor(it, c, pal);
+    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel);
+    float dist = de.x / pixelsPerTexel;                            // distance in output pixels
     if (c.shading > 0.0f) {
-        // Normal-map lighting (Chéritat): normal = direction of z/(dz/dc), height h2 = 1.5.
-        const float h2 = 1.5f;
-        float2 nrm = float2(cos(de.y), sin(de.y));
-        float l = max((dot(nrm, c.light) + h2) / (1.0f + h2), 0.0f);
-        col *= mix(1.0f, l, c.shading);
+        // Normal-map lighting (Chéritat): the surface normal leans along u = z / (dz/dc), the
+        // direction away from the set, lifted into 3D (kb: techniques/coloring-methods). Lambert
+        // plus a Blinn-Phong highlight towards a viewer straight above.
+        float2 u = float2(cos(de.y), sin(de.y));
+        float3 n = normalize(float3(u, 1.0f));
+        float3 l = normalize(float3(c.light, c.lightHeight));
+        float diffuse = max(dot(n, l), 0.0f);
+        float3 h = normalize(l + float3(0.0f, 0.0f, 1.0f));
+        float spec = pow(max(dot(n, h), 0.0f), c.shininess);
+        // Normalised by the mean over normal directions (the normal is tilted 45 degrees, so
+        // that mean is l.z / sqrt 2): lighting redistributes brightness, it does not dim.
+        float flat = max(l.z * 0.70710678f, 1e-3f);
+        float lit = diffuse / flat;
+        col = col * mix(1.0f, lit, c.shading) + c.specular * c.shading * spec * float3(1.0f);
+    }
+    if (c.glow > 0.0f) {
+        // A soft halo along the boundary (screen-space width, so it reads at every depth).
+        col += c.glowColor.rgb * c.glow * exp(-dist / max(c.glowWidth, 1e-3f));
     }
     if (c.outline > 0.0f) {
-        float dist = de.x / pixelsPerTexel;                        // distance in output pixels
-        float f = clamp(dist / c.outlineWidth, 0.0f, 1.0f);
+        // Boundary emphasis and filament coverage: within outlineWidth pixels of the set the
+        // colour goes towards the edge colour (Chéritat's DE coverage when the width is ~1.4).
+        float f = smoothstep(0.0f, 1.0f, clamp(dist / c.outlineWidth, 0.0f, 1.0f));
         col = mix(col, c.edge.rgb, (1.0f - f) * c.outline);
     }
-    return col;
+    return max(col, 0.0f);
 }
 
 static inline float3 linearToSRGB(float3 c) {
@@ -458,9 +547,22 @@ static inline float3 linearToSRGB(float3 c) {
     return select(hi, lo, c <= 0.0031308f);
 }
 
-// A texel's value if it is finished in this frame: written (index < admitted) and not pending.
-static inline bool finished(texture2d<float, access::read> t, uint2 s, uint width, uint admitted, thread float2& it) {
-    if (s.y * width + s.x >= admitted) return false;
+// Dither by one 8-bit step (triangular noise from two hashes): the slow gradients of deep-zoom
+// exteriors and of the lighting otherwise show contour bands in the bgra8 drawable.
+static inline float3 ditheredSRGB(float3 linear, uint2 gid) {
+    uint h = gid.x * 1973u + gid.y * 9277u;
+    h = (h ^ (h >> 13)) * 0x5bd1e995u;
+    h ^= h >> 15;
+    float n1 = float(h & 0xffffu) * (1.0f / 65535.0f);
+    float n2 = float(h >> 16) * (1.0f / 65535.0f);
+    return saturate(linearToSRGB(linear) + (n1 + n2 - 1.0f) / 255.0f);
+}
+
+// A texel's value if it is finished in this frame: admitted (admission index < admitted) and
+// not pending.
+static inline bool finished(texture2d<float, access::read> t, uint2 s, constant ColorParams& c,
+                            device const uint* rank, uint admitted, thread float2& it) {
+    if (tileIndex(s, c.tilesX, c.tileOrder, rank) >= admitted) return false;
     it = t.read(s).xy;
     return it.x != ITER_PENDING;
 }
@@ -472,6 +574,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
                      constant ColorParams& c                    [[buffer(0)]],
                      device const float4* pal                   [[buffer(1)]],
                      device const LevelCounters& level          [[buffer(2)]],
+                     device const uint* rank                    [[buffer(3)]],
                      uint2 gid                                  [[thread_position_in_grid]])
 {
     if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
@@ -489,7 +592,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
         for (uint j = 0; j < ss; j++) {
             for (uint i = 0; i < ss; i++) {
                 uint2 s = min(base + uint2(i, j), maxSrc);
-                if (finished(iters, s, c.srcSize.x, admitted, it)) {
+                if (finished(iters, s, c, rank, admitted, it)) {
                     acc += shade(it, des.read(s).xy, c, pal, c.deScale);
                     count += 1.0f;
                 }
@@ -497,7 +600,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
         }
     } else {
         uint2 s = min(uint2(float2(gid) * c.ratio), maxSrc);
-        if (finished(iters, s, c.srcSize.x, admitted, it)) {
+        if (finished(iters, s, c, rank, admitted, it)) {
             acc = shade(it, des.read(s).xy, c, pal, c.deScale);
             count = 1.0f;
         }
@@ -525,11 +628,203 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
         out.write(float4(acc / count, 1.0f), gid);
         return;
     }
-    // Dither by one 8-bit step: the slow gradients of deep-zoom exteriors and of the lighting
-    // otherwise show contour bands in the bgra8 drawable.
-    uint h = gid.x * 1973u + gid.y * 9277u;
-    h = (h ^ (h >> 13)) * 0x5bd1e995u;
-    h ^= h >> 15;
-    float noise = float(h & 0xffffu) * (1.0f / 65535.0f) - 0.5f;
-    out.write(float4(saturate(linearToSRGB(acc / count) + noise / 255.0f), 1.0f), gid);
+    out.write(float4(ditheredSRGB(acc / count, gid), 1.0f), gid);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Compose (FL, kb: techniques/frame-reuse-and-progressive, techniques/anti-aliasing): every
+// presented interactive frame. The *history* is the last shown image in linear light with a
+// per-pixel confidence (alpha) and the viewport it belongs to. Each frame reprojects it into
+// the current view (pure scale + translation, so the reprojection is exact; Catmull-Rom keeps
+// it sharp) and writes the result as the new history and, sRGB-encoded, to the drawable.
+//
+// mode 0 (gesture): temporal upsampling. The preview level is jittered (Halton) each frame,
+//   so its texels land on different sub-pixel positions; each texel is a point sample that
+//   adds weight exp(-d^2 / 2 sigma^2) at distance d (output pixels) to the pixels around it.
+//   The reprojected history keeps the detail accumulated so far; its confidence decays with
+//   magnification (a zoom-in stretches each history texel over m^2 pixels) and is capped, so
+//   new samples keep replacing it. Pixels without history or samples (newly exposed) take the
+//   bilinear preview.
+// mode 1 (refine): exact full-resolution pixels fade in over the history, per pixel, with
+//   factor `blend` = 1 - exp(-dt / tau) per frame: no popping, frame-rate independent.
+// mode 2 (anti-aliasing): a finished jittered full-resolution sample joins the running mean
+//   (`blend` = 1 / samples).
+// mode 3 (exact): exact pixels replace the history (colour changes while idle).
+struct ComposeParams {
+    float2 histOrigin;    // history texel coordinate (texel centres at i + 0.5) of output pixel 0's centre
+    float  histStep;      // history texels per output pixel
+    float  histDecay;     // confidence multiplier (magnification penalty); 0: no history
+    float2 histSize;      // history texture size
+    float2 jitter;        // sample position of the new-sample texels inside their texel, 0..1
+    float2 newCentre;     // texel coordinate of the view centre in the new-sample level (its size / 2)
+    float  newRatio;      // new-sample texels per output pixel (0: no point samples)
+    float  confCap;       // confidence cap of the history
+    float  baseWeight;    // weight of the bilinear preview where history and samples exist
+    float  invTwoSigma2;  // 1 / (2 sigma^2) of the sample kernel, output pixels
+    float  blend;         // mode 1: fade factor; mode 2: weight of the new AA sample
+    uint   mode;
+    float2 outCentre;     // output size / 2
+    float2 pad;
+};
+
+// Catmull-Rom from five bilinear taps (the four corner taps of the 4x4 kernel dropped, their
+// weight is tiny). `p` in texel coordinates (centres at i + 0.5).
+static inline float4 catmullRom(texture2d<float, access::sample> t, sampler s, float2 p, float2 size) {
+    float2 pos1 = floor(p - 0.5f) + 0.5f;
+    float2 f = p - pos1;
+    float2 w0 = f * (-0.5f + f * (1.0f - 0.5f * f));
+    float2 w1 = 1.0f + f * f * (-2.5f + 1.5f * f);
+    float2 w2 = f * (0.5f + f * (2.0f - 1.5f * f));
+    float2 w3 = f * f * (-0.5f + 0.5f * f);
+    float2 w12 = w1 + w2;
+    float2 p12 = (pos1 + w2 / w12) / size;
+    float2 p0 = (pos1 - 1.0f) / size;
+    float2 p3 = (pos1 + 2.0f) / size;
+    float4 r = t.sample(s, float2(p12.x, p0.y)) * (w12.x * w0.y)
+             + t.sample(s, float2(p0.x, p12.y)) * (w0.x * w12.y)
+             + t.sample(s, float2(p12.x, p12.y)) * (w12.x * w12.y)
+             + t.sample(s, float2(p3.x, p12.y)) * (w3.x * w12.y)
+             + t.sample(s, float2(p12.x, p3.y)) * (w12.x * w3.y);
+    float norm = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+    return r / norm;
+}
+
+kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   // exact / AA level
+                    texture2d<float, access::read>   des      [[texture(1)]],
+                    texture2d<float, access::sample> preview  [[texture(2)]],   // preview colour (linear)
+                    texture2d<float, access::sample> histIn   [[texture(3)]],
+                    texture2d<float, access::write>  histOut  [[texture(4)]],
+                    texture2d<float, access::write>  out      [[texture(5)]],
+                    constant ColorParams& c                   [[buffer(0)]],
+                    device const float4* pal                  [[buffer(1)]],
+                    device const LevelCounters& level         [[buffer(2)]],
+                    device const uint* rank                   [[buffer(3)]],
+                    constant ComposeParams& q                 [[buffer(4)]],
+                    uint2 gid                                 [[thread_position_in_grid]])
+{
+    if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
+    constexpr sampler bilinear(coord::normalized, filter::linear, address::clamp_to_edge);
+    const float2 pc = float2(gid) + 0.5f;
+    // New-sample level: texel coordinate of this pixel's centre (texel t's sample sits at t + jitter).
+    const float2 v = (pc - q.outCentre) * q.newRatio + q.newCentre;
+
+    // The bilinear preview: the fallback where nothing better exists.
+    float3 base = c.interior.rgb;
+    if (c.hasUnder > 0.0f) {
+        float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
+        base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
+    }
+
+    // Reprojected history.
+    float3 hist = base;
+    float wh = 0.0f;
+    if (q.histDecay > 0.0f) {
+        float2 hp = q.histOrigin + float2(gid) * q.histStep;
+        if (all(hp >= 0.0f) && all(hp <= q.histSize)) {
+            float4 h = q.histStep == 1.0f && all(fract(hp) == 0.5f)
+                ? histIn.read(uint2(hp)) : catmullRom(histIn, bilinear, hp, q.histSize);
+            hist = max(h.rgb, 0.0f);
+            wh = clamp(h.a, 0.0f, q.confCap) * q.histDecay;
+        }
+    }
+
+    float3 col;
+    float conf;
+    if (q.mode == 0) {
+        // Point samples of the jittered preview within the 2 x 2 texels around this pixel.
+        float3 sum = 0.0f;
+        float wn = 0.0f;
+        if (q.newRatio > 0.0f) {
+            int2 t0 = int2(floor(v - q.jitter));
+            for (int j = 0; j < 2; j++) {
+                for (int i = 0; i < 2; i++) {
+                    int2 t = t0 + int2(i, j);
+                    if (any(t < 0) || any(float2(t) >= c.underSize)) continue;
+                    float2 d = (float2(t) + q.jitter - v) / q.newRatio;
+                    float w = exp(-dot(d, d) * q.invTwoSigma2);
+                    sum += preview.read(uint2(t)).rgb * w;
+                    wn += w;
+                }
+            }
+        }
+        float wb = wh + wn < 1e-3f ? 1.0f : q.baseWeight;
+        col = (hist * wh + sum + base * wb) / (wh + wn + wb);
+        conf = min(q.confCap, wh + wn);
+    } else {
+        float3 prior = wh > 0.0f ? (hist * wh + base * q.baseWeight) / (wh + q.baseWeight) : base;
+        const uint admitted = c.admittedOnGPU != 0 ? level.admitted : c.admitted;
+        float2 it;
+        bool done = finished(iters, gid, c, rank, admitted, it);
+        if (q.mode == 2) {
+            // An AA sample: unresolved samples do not count (they would grey the mean), and
+            // pixels off the adaptive list (ITER_SKIP) keep their mean.
+            bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
+            col = use ? mix(hist, shade(it, des.read(gid).xy, c, pal, 1.0f), q.blend) : hist;
+            conf = q.confCap;
+        } else if (done) {
+            float3 exact = shade(it, des.read(gid).xy, c, pal, 1.0f);
+            col = q.mode == 1 ? mix(prior, exact, q.blend) : exact;
+            conf = q.confCap;
+        } else {
+            col = prior;
+            conf = wh;
+        }
+    }
+    histOut.write(float4(col, conf), gid);
+    out.write(float4(ditheredSRGB(col, gid), 1.0f), gid);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adaptive anti-aliasing list (FL, kb: techniques/anti-aliasing "adaptive"): which pixels of
+// the refined frame gain from more samples. Exterior pixels within `deThreshold` pixels of the
+// set (by the distance estimate; all escaped pixels when there is none) and interior pixels
+// with an escaped neighbour (the boundary). Far exterior is smooth (and palette-filtered) and
+// deep interior is flat and the most expensive to iterate: both are skipped, marked ITER_SKIP
+// in the AA sample texture. Listed in admission (tile) order, compacted per SIMD group.
+struct AaListParams {
+    uint  width;
+    uint  height;
+    uint  tilesX;
+    uint  tileOrder;
+    uint  total;         // admission slots (tiles x 256)
+    uint  capacity;      // list entries
+    float deThreshold;   // pixels
+    uint  pad;
+};
+
+kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
+                   texture2d<float, access::read>  des    [[texture(1)]],
+                   texture2d<float, access::write> aaIter [[texture(2)]],
+                   constant AaListParams& p               [[buffer(0)]],
+                   device const uint* order               [[buffer(1)]],
+                   device atomic_uint* count              [[buffer(2)]],
+                   device uint* list                      [[buffer(3)]],
+                   uint tid                               [[thread_position_in_grid]],
+                   uint lane                              [[thread_index_in_simdgroup]])
+{
+    uint2 xy = uint2(0);
+    bool in = tid < p.total && tileTexel(tid, p.tilesX, p.width, p.height, p.tileOrder, order, xy);
+    bool want = false;
+    if (in) {
+        float2 it = iters.read(xy).xy;
+        if (it.x >= 0.0f) {
+            float d = des.read(xy).x;
+            want = d < p.deThreshold || d >= 999.0f;
+        } else if (it.x == ITER_INTERIOR) {
+            for (int j = -1; j <= 1 && !want; j++) {
+                for (int i = -1; i <= 1; i++) {
+                    int2 n = int2(xy) + int2(i, j);
+                    if (any(n < 0) || n.x >= int(p.width) || n.y >= int(p.height)) continue;
+                    if (iters.read(uint2(n)).x >= 0.0f) { want = true; break; }
+                }
+            }
+        }
+        if (!want) aaIter.write(float4(ITER_SKIP, 0.0f, 0.0f, 0.0f), xy);
+    }
+    uint off = simd_prefix_exclusive_sum(want ? 1u : 0u);
+    uint total = simd_sum(want ? 1u : 0u);
+    uint base = 0;
+    if (lane == 0 && total > 0) base = atomic_fetch_add_explicit(count, total, memory_order_relaxed);
+    base = simd_broadcast_first(base);
+    if (want && base + off < p.capacity) list[base + off] = xy.y * p.width + xy.x;
 }

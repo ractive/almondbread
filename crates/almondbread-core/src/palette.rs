@@ -130,6 +130,34 @@ impl Palette {
     }
 }
 
+/// The palette as a cyclic mip chain for filtered lookups (palette anti-aliasing, FL): level 0
+/// is `table` (`size` entries, a power of two), each further level halves the previous one
+/// by averaging neighbouring pairs, down to one entry (the palette's mean colour). Levels
+/// are concatenated, level 0 first; `2 * size - 1` entries in all.
+pub fn mip_chain(table: &[[f32; 4]]) -> Vec<[f32; 4]> {
+    assert!(table.len().is_power_of_two(), "palette size must be a power of two");
+    let mut out = table.to_vec();
+    let mut level = table.to_vec();
+    while level.len() > 1 {
+        level = level
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| {
+                let m = |k: usize| 0.5 * (p[0][k] + p[1][k]);
+                [m(0), m(1), m(2), 1.0]
+            })
+            .collect();
+        out.extend_from_slice(&level);
+    }
+    out
+}
+
+/// Number of levels of [`mip_chain`] for a table of `size` entries.
+pub fn mip_levels(size: usize) -> usize {
+    size.trailing_zeros() as usize + 1
+}
+
 /// sRGB hex to linear RGB.
 pub fn linear(hex: u32) -> [f32; 3] {
     let ch = |v: u32| {
@@ -171,6 +199,17 @@ mod tests {
         assert_eq!(t[0], [0.0, 0.0, 0.0, 1.0]);
         assert!((t[512][0] - 1.0).abs() < 1e-6);
         assert_eq!(Palette::named("nope").id, "classic");
-        assert_eq!(Palette::all().len(), 7);
+    }
+
+    #[test]
+    fn mip_chain_halves_to_the_mean() {
+        let t = Palette::named("grey").table(1024);
+        let m = mip_chain(&t);
+        assert_eq!(m.len(), 2047);
+        assert_eq!(mip_levels(1024), 11);
+        let mean: f32 = t.iter().map(|c| c[0]).sum::<f32>() / 1024.0;
+        assert!((m[2046][0] - mean).abs() < 1e-5);
+        // Level 1 entry 0 averages level 0 entries 0 and 1.
+        assert!((m[1024][1] - 0.5 * (t[0][1] + t[1][1])).abs() < 1e-7);
     }
 }

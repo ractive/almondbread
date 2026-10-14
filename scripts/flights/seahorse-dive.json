@@ -1,0 +1,30 @@
+{
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 20,
+ "start": {
+  "re": "-0.743643887037151",
+  "im": "0.13182590420533",
+  "zoom": 0.9
+ },
+ "events": [
+  {
+   "at": 0.6,
+   "key": "zoom",
+   "down": true
+  },
+  {
+   "at": 6.0,
+   "key": "faster"
+  },
+  {
+   "at": 9.0,
+   "key": "faster"
+  },
+  {
+   "at": 15.5,
+   "key": "zoom",
+   "down": false
+  }
+ ]
+}

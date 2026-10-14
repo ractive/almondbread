@@ -9,17 +9,19 @@
 //! almondbread verify --history zoom|out|pan --center re,im --scale s [--ppp p] [--pointer x,y] [--then f]
 //! almondbread bench [--sizes 3456x2234,1600x1000] [--only a,b] [--repeat n] [--out dir]
 //! almondbread regress
+//! almondbread fly --script flight.json [--out review/x.mp4] [--fps 60] [--size 1920x1080] [--converged 1]
 //! ```
 
 // The commands are generic over the backend; only Apple targets have one yet.
 #![cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
 
 mod commands;
+mod fly;
 mod options;
 
 use options::Options;
 
-const USAGE: &str = "usage: almondbread render|verify|bench|regress [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|bench|regress|fly [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -52,6 +54,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "verify" => commands::verify_command(&backend, o),
         "bench" => commands::bench_command(&backend, o),
         "regress" => commands::regress_command(&backend, o),
+        "fly" => fly::fly_command(&backend, o),
         _ => options::err(USAGE),
     })
 }

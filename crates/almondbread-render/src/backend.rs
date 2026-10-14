@@ -125,6 +125,18 @@ pub trait GpuBackend {
         out: &mut [u8],
     ) -> Result<(), GpuError>;
 
+    /// Copies the region (0, 0, width, height) of a *shared* texture into `out` without
+    /// waiting for the queue: the caller knows every submission writing it has completed
+    /// (headless capture of frames while later frames are already queued).
+    fn read_shared_texture(
+        &self,
+        texture: &Self::Texture,
+        width: usize,
+        height: usize,
+        format: TextureFormat,
+        out: &mut [u8],
+    );
+
     /// The kernel `function` specialised with boolean function constants 0, 1, ...
     fn pipeline(&self, function: &str, constants: &[bool]) -> Result<Self::Pipeline, GpuError>;
     /// (SIMD width, max threads per threadgroup) of a pipeline.

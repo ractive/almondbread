@@ -3,13 +3,16 @@
 use crate::palette::Palette;
 use crate::viewport::Viewport;
 
-/// Supersampling factor per axis (1, 2 or 3).
+/// Anti-aliasing: samples per axis (1 to 4). Offscreen renders supersample on a grid; the
+/// interactive view accumulates `factor²` jittered samples progressively while idle (FL, kb:
+/// techniques/anti-aliasing), so this is the maximum, not a cost paid before the first frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Supersampling {
-    #[default]
     Off = 1,
     X4 = 2,
+    #[default]
     X9 = 3,
+    X16 = 4,
 }
 
 impl Supersampling {
@@ -22,6 +25,7 @@ impl Supersampling {
             1 => Some(Self::Off),
             2 => Some(Self::X4),
             3 => Some(Self::X9),
+            4 => Some(Self::X16),
             _ => None,
         }
     }
@@ -54,6 +58,23 @@ pub struct RenderSettings {
     pub light_angle: f64,
     pub outline: f64,
     pub outline_width: f64,
+    /// Linear RGB of the outline (boundary emphasis).
+    pub edge_color: [f32; 3],
+    /// Strength of the specular highlight of the lighting (0..1).
+    pub specular: f64,
+    pub shininess: f64,
+    /// Elevation of the light: 0 grazing, larger is more from the front.
+    pub light_height: f64,
+    /// Soft halo along the boundary: strength, linear RGB, width in pixels.
+    pub glow: f64,
+    pub glow_color: [f32; 3],
+    pub glow_width: f64,
+    /// Filter the palette by each pixel's colour gradient (palette anti-aliasing).
+    pub palette_filter: bool,
+    /// Colour cycling: palette cycles per second while the view is idle (0: off).
+    pub cycle_speed: f64,
+    /// Depth tint: palette phase shift per decade of zoom (0: off).
+    pub depth_tint: f64,
 
     // Quality
     pub supersampling: Supersampling,
@@ -78,7 +99,17 @@ impl Default for RenderSettings {
             light_angle: 45.0,
             outline: 0.0,
             outline_width: 1.5,
-            supersampling: Supersampling::Off,
+            edge_color: [0.0, 0.0, 0.0],
+            specular: 0.0,
+            shininess: 24.0,
+            light_height: 1.0,
+            glow: 0.0,
+            glow_color: [1.0, 1.0, 1.0],
+            glow_width: 6.0,
+            palette_filter: true,
+            cycle_speed: 0.0,
+            depth_tint: 0.0,
+            supersampling: Supersampling::default(),
             interactive_preview: true,
         }
     }

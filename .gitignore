@@ -28,3 +28,6 @@ Apps/*/Info.plist
 /target/
 /build/
 /Sources/AlmondbreadCore/Generated/
+
+# Review videos from `almondbread fly` (kb: synthesis/benchmarks, FL)
+/review/

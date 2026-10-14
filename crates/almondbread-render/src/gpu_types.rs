@@ -5,7 +5,7 @@
 use bytemuck::{Pod, Zeroable};
 use core::mem::{offset_of, size_of};
 
-/// Parameters of one iterate chunk (`IterateParams` in MSL), 80 bytes.
+/// Parameters of one iterate chunk (`IterateParams` in MSL), 96 bytes.
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct IterateParams {
@@ -26,9 +26,15 @@ pub struct IterateParams {
     pub first_chunk: u32,
     /// Nominal limit.
     pub soft_iter: u32,
-    /// 0 scanline, 1 scanline + collect unresolved, 2 admit from the list.
+    /// 0 admission order, 1 the same + collect unresolved, 2 admit from the list.
     pub list_mode: u32,
     pub list_capacity: u32,
+    /// 16x16 tiles per row; admission index a -> tile rank a / 256 (FL).
+    pub tiles_x: u32,
+    pub height: u32,
+    /// 0: raster tile order, 1: the order buffer.
+    pub tile_order: u32,
+    pub pad0: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -72,12 +78,13 @@ impl ChunkStats {
 /// Admission state of the running level (GPU only), 16 bytes.
 pub const LEVEL_COUNTERS_SIZE: usize = 16;
 
-/// Colorize parameters (`ColorParams` in MSL), 128 bytes.
+/// Colorize parameters (`ColorParams` in MSL), 176 bytes.
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ColorParams {
     pub interior: [f32; 4],
     pub edge: [f32; 4],
+    pub glow_color: [f32; 4],
     pub light: [f32; 2],
     pub density: f32,
     pub offset: f32,
@@ -96,11 +103,58 @@ pub struct ColorParams {
     pub src_size: [u32; 2],
     pub out_size: [u32; 2],
     pub under_size: [f32; 2],
+    pub tiles_x: u32,
+    pub tile_order: u32,
+    pub specular: f32,
+    pub shininess: f32,
+    pub light_height: f32,
+    pub glow: f32,
+    pub glow_width: f32,
+    pub palette_levels: u32,
+    pub palette_filter: f32,
+    pub pad1: f32,
+}
+
+/// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
+/// refinement fade, AA accumulation), 80 bytes.
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct ComposeParams {
+    pub hist_origin: [f32; 2],
+    pub hist_step: f32,
+    pub hist_decay: f32,
+    pub hist_size: [f32; 2],
+    pub jitter: [f32; 2],
+    pub new_centre: [f32; 2],
+    pub new_ratio: f32,
+    pub conf_cap: f32,
+    pub base_weight: f32,
+    pub inv_two_sigma2: f32,
+    pub blend: f32,
+    pub mode: u32,
+    pub out_centre: [f32; 2],
     pub pad: [f32; 2],
 }
 
+/// Parameters of the `aaList` kernel (adaptive anti-aliasing), 32 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct AaListParams {
+    pub width: u32,
+    pub height: u32,
+    pub tiles_x: u32,
+    pub tile_order: u32,
+    pub total: u32,
+    pub capacity: u32,
+    pub de_threshold: f32,
+    pub pad: u32,
+}
+
 const _: () = {
-    assert!(size_of::<IterateParams>() == 80);
+    assert!(size_of::<AaListParams>() == 32);
+    assert!(size_of::<IterateParams>() == 96);
+    assert!(offset_of!(IterateParams, tiles_x) == 80);
+    assert!(offset_of!(IterateParams, tile_order) == 88);
     assert!(offset_of!(IterateParams, texel_scale) == 24);
     assert!(offset_of!(IterateParams, max_iter) == 32);
     assert!(offset_of!(IterateParams, chunk_iters) == 40);
@@ -122,17 +176,27 @@ const _: () = {
     assert!(offset_of!(ChunkStats, max_escape) == 32);
     assert!(offset_of!(ChunkStats, escaped_past) == 40);
 
-    assert!(size_of::<ColorParams>() == 128);
+    assert!(size_of::<ColorParams>() == 176);
     assert!(offset_of!(ColorParams, edge) == 16);
-    assert!(offset_of!(ColorParams, light) == 32);
-    assert!(offset_of!(ColorParams, density) == 40);
-    assert!(offset_of!(ColorParams, palette_size) == 64);
-    assert!(offset_of!(ColorParams, admitted) == 76);
-    assert!(offset_of!(ColorParams, has_under) == 80);
-    assert!(offset_of!(ColorParams, linear_out) == 84);
-    assert!(offset_of!(ColorParams, admitted_on_gpu) == 88);
-    assert!(offset_of!(ColorParams, de_scale) == 92);
-    assert!(offset_of!(ColorParams, src_size) == 96);
-    assert!(offset_of!(ColorParams, out_size) == 104);
-    assert!(offset_of!(ColorParams, under_size) == 112);
+    assert!(offset_of!(ColorParams, glow_color) == 32);
+    assert!(offset_of!(ColorParams, light) == 48);
+    assert!(offset_of!(ColorParams, density) == 56);
+    assert!(offset_of!(ColorParams, palette_size) == 80);
+    assert!(offset_of!(ColorParams, admitted) == 92);
+    assert!(offset_of!(ColorParams, has_under) == 96);
+    assert!(offset_of!(ColorParams, linear_out) == 100);
+    assert!(offset_of!(ColorParams, admitted_on_gpu) == 104);
+    assert!(offset_of!(ColorParams, de_scale) == 108);
+    assert!(offset_of!(ColorParams, src_size) == 112);
+    assert!(offset_of!(ColorParams, out_size) == 120);
+    assert!(offset_of!(ColorParams, under_size) == 128);
+    assert!(offset_of!(ColorParams, tiles_x) == 136);
+    assert!(offset_of!(ColorParams, specular) == 144);
+    assert!(offset_of!(ColorParams, palette_levels) == 164);
+
+    assert!(size_of::<ComposeParams>() == 80);
+    assert!(offset_of!(ComposeParams, hist_size) == 16);
+    assert!(offset_of!(ComposeParams, new_ratio) == 40);
+    assert!(offset_of!(ComposeParams, mode) == 60);
+    assert!(offset_of!(ComposeParams, out_centre) == 64);
 };
