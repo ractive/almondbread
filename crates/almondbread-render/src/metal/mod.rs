@@ -425,7 +425,9 @@ pub fn media_time() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu_types::{ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState};
+    use crate::gpu_types::{
+        BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
+    };
 
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
     #[test]
@@ -434,7 +436,8 @@ mod tests {
             "{KERNEL_SOURCE}\nkernel void layoutProbe(device uint* out [[buffer(0)]]) {{\n\
              out[0] = sizeof(IterateParams); out[1] = sizeof(PixelState); out[2] = sizeof(ChunkStats);\n\
              out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
-             out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); }}\n"
+             out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
+             out[9] = sizeof(BlaEntry); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -444,7 +447,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0u8; 40];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -463,8 +466,76 @@ mod tests {
                 align_of::<ColorParams>() as u32,
                 align_of::<IterateParams>() as u32,
                 size_of::<ComposeParams>() as u32,
+                size_of::<BlaParams>() as u32,
+                size_of::<almondbread_core::bla::BlaEntry>() as u32,
             ]
         );
+    }
+
+    /// Offscreen fields at `scale` around the M4 slow view with the given BLA mode:
+    /// (field, used, steps, iterations).
+    fn bla_render(
+        scale: f64,
+        iterations: usize,
+        mode: crate::scheduler::BlaMode,
+        async_from: usize,
+    ) -> (almondbread_core::IterationField, bool, u64, u64) {
+        use crate::scheduler::{Renderer, SchedulerConfig};
+        let config = SchedulerConfig {
+            bla: mode,
+            bla_async_from: async_from,
+            ..SchedulerConfig::default()
+        };
+        let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = iterations;
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        r.settings.shading = 0.5; // distance estimate through BLA blocks
+        r.viewport = almondbread_core::Viewport::new(-1.4080321340304542, 0.13680236432900417, scale);
+        let out = r.render_offscreen(320, 200, true).expect("render");
+        let field = almondbread_core::IterationField::from_texels(320, 200, out.iterations.as_deref().unwrap());
+        (field, out.bla_used, out.steps_done, out.iterations_done)
+    }
+
+    /// M4 regression (kb: synthesis/benchmarks M4): at the boundary-dense 4.6e-14 view BLA
+    /// would cost more than it skips, so `auto` leaves the kernel as it was (bit-identical to
+    /// BLA off); forced on, it changes no pixel's class and the smooth count far less than
+    /// float32 already does.
+    #[test]
+    fn bla_slow_view() {
+        use crate::scheduler::BlaMode;
+        use almondbread_core::oracle::compare;
+        let (off, _, _, _) = bla_render(4.615e-14 * 5.0, 5791, BlaMode::Off, 50_000);
+        let (auto, used, steps, iters) = bla_render(4.615e-14 * 5.0, 5791, BlaMode::Auto, 50_000);
+        assert!(!used);
+        assert_eq!(steps, iters);
+        assert_eq!(auto.bitwise_differences(&off), 0);
+        let (on, used, steps, iters) = bla_render(4.615e-14 * 5.0, 5791, BlaMode::On, 50_000);
+        assert!(used && steps < iters);
+        let (rep, _) = compare(&on, &off);
+        assert!(rep.mismatch_pct() < 0.05, "{}", rep.summary());
+        // (Float32 itself is off by a median 0.067 against the f64 oracle here, and 54 % of
+        // pixels by more than 0.05: boundary pixels are chaotic, any rounding moves them.)
+        assert!(rep.median_error < 0.01, "{}", rep.summary());
+    }
+
+    /// Deep (1e-20 per pixel around the same f64 reference; not the true set at that depth,
+    /// but the same orbit for both runs): `auto` takes the table, skips most steps, and the
+    /// field equals the skip-off one to float32 noise. The table builds on a thread here
+    /// (`bla_async_from` 0) and the offscreen render waits for it.
+    #[test]
+    fn bla_deep_view() {
+        use crate::scheduler::BlaMode;
+        use almondbread_core::oracle::compare;
+        let (off, used, _, _) = bla_render(1e-20, 12_000, BlaMode::Off, 0);
+        assert!(!used);
+        let (on, used, steps, iters) = bla_render(1e-20, 12_000, BlaMode::Auto, 0);
+        assert!(used);
+        assert!(steps * 4 < iters, "steps {steps} iterations {iters}");
+        let (rep, _) = compare(&on, &off);
+        assert_eq!(rep.false_interior + rep.false_exterior, 0, "{}", rep.summary());
+        assert!(rep.max_error < 1e-4, "{}", rep.summary());
     }
 
     /// The hosting path of R2b, headless: a `CAMetalLayer` (no window) as the surface, the

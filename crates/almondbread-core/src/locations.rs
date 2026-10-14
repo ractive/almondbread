@@ -125,6 +125,17 @@ pub const BENCHMARK_LOCATIONS: &[BenchmarkLocation] = &[
         3_000,
         "the cardioid cusp c = 1/4 (1.7 % false interior before)",
     ),
+    // M4 (kb: synthesis/benchmarks M4): boundary-dense view the user found slow (every pixel
+    // near the boundary, thousands of iterations each; 2x seahorse's iterations at the same
+    // depth). BLA cannot help at this depth; a regression check for the auto decision.
+    loc(
+        "dense-5e-14",
+        -1.4080321340304542,
+        0.13680236432900417,
+        7.384e-11,
+        5_791,
+        "boundary-dense filaments near a period-7 cascade, 4.6e-14/px at 1600 wide",
+    ),
     loc(
         "root-third",
         -0.1260734027823272,

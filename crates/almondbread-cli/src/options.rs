@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use almondbread_core::settings::{RenderSettings, Supersampling};
 use almondbread_core::viewport::Viewport;
+use almondbread_render::scheduler::BlaMode;
 use almondbread_render::{GpuBackend, Renderer};
 
 #[derive(Debug)]
@@ -170,14 +171,26 @@ impl Options {
         }
     }
 
-    /// `--chunk-ms` (GPU time per iterate command buffer) and `--extend k` (offscreen
-    /// unresolved pixels continue to k x the limit).
+    /// `--chunk-ms` (GPU time per iterate command buffer), `--extend k` (offscreen
+    /// unresolved pixels continue to k x the limit), `--bla 0|1|auto`, `--bla-eps e`.
     pub fn apply_renderer<B: GpuBackend>(&self, r: &mut Renderer<B>) {
         if let Some(v) = self.f64("chunk-ms") {
             r.config.chunk_target = v / 1000.0;
         }
         if let Some(v) = self.usize("extend") {
             r.config.offscreen_extension = v.max(1);
+        }
+        // BLA iteration skipping (kb: techniques/bla): `--bla 0` off (the skip-off diff),
+        // `1` whenever a table exists, `auto` (default) where the forecast says it pays;
+        // `--bla-eps e` for validity epsilon 2^-e.
+        if let Some(v) = self.get("bla") {
+            match BlaMode::parse(v) {
+                Some(m) => r.config.bla = m,
+                None => eprintln!("almondbread: --bla {v}: expected 0, 1 or auto"),
+            }
+        }
+        if let Some(e) = self.f64("bla-eps") {
+            r.config.bla_epsilon = 2f64.powf(-e);
         }
     }
 }

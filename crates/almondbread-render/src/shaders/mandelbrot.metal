@@ -28,6 +28,7 @@ using namespace metal;
 // feature costs no registers or per-iteration branches.
 constant bool kDE       [[function_constant(0)]];   // dz/dc for distance estimate / normals
 constant bool kInterior [[function_constant(1)]];   // dz/dz1 derivative interior test
+constant bool kBLA      [[function_constant(2)]];   // BLA skip table (kb: techniques/bla)
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -83,7 +84,8 @@ static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const 
 }
 
 // Loop state of one live pixel. Milestone 3 adds exponents here for rescaled/floatexp deltas
-// (kb: techniques/extended-range-floats); BLA needs nothing beyond (dz, m, n).
+// (kb: techniques/extended-range-floats); BLA needs nothing beyond (dz, m, n), so a level may
+// switch between the BLA and the plain pipeline at any chunk boundary.
 struct PixelState {
     float2 dz;            // delta to the reference orbit
     float2 d;             // dz/dc * texelScale (DE), if kDE
@@ -104,8 +106,29 @@ struct ChunkStats {       // per-chunk counters, read back by the CPU
     atomic_uint interior;       // pixels finished as interior (derivative test or maxIter)
     atomic_uint crossed;        // pixels that reached maxIter unresolved in this chunk
     atomic_uint maxEscape;      // largest escape iteration in this chunk
-    uint        pad1;
+    atomic_uint stepsLo;        // loop steps (BLA steps + perturbation steps), 64-bit split
     atomic_uint escapedPast[4]; // escapes at n >= softIter << k (k = 0..3), for auto iterations
+    atomic_uint stepsHi;
+    uint        pad2;
+};
+
+// BLA table layout (kb: techniques/bla; built by almondbread_core::bla): level `lev` holds one
+// entry per block of 2^lev reference steps starting at m = 1 + j 2^lev, at offset[lev] + j.
+// Levels minLevel ..= maxLevel are stored (a 1-step block costs as much as the exact step).
+struct BlaParams {
+    uint minLevel;
+    uint maxLevel;
+    uint lookupEvery; // lookups at m = 1 (mod lookupEvery), a power of two >= 2^minLevel
+    uint pad1;
+    uint offset[32];
+};
+
+// z_{m+l} = A z_m + B c, valid while |z| + K |c| < R.
+struct BlaEntry {
+    float2 a;
+    float2 b;
+    float  r;
+    float  k;
 };
 
 // Admission state of the running level, on the GPU so admission needs no CPU round trip:
@@ -156,6 +179,8 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
     for (uint k = 0; k < 4; k++) atomic_store_explicit(&stats[p.statSlot].escapedPast[k], 0u, memory_order_relaxed);
     atomic_store_explicit(&stats[p.statSlot].iterationsLo, 0u, memory_order_relaxed);
     atomic_store_explicit(&stats[p.statSlot].iterationsHi, 0u, memory_order_relaxed);
+    atomic_store_explicit(&stats[p.statSlot].stepsLo, 0u, memory_order_relaxed);
+    atomic_store_explicit(&stats[p.statSlot].stepsHi, 0u, memory_order_relaxed);
 }
 
 // One thread: records the live count after the chunk for the CPU scheduler.
@@ -184,6 +209,17 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
 // The test uses max(|w.x|, |w.y|): no squared norm to underflow, and at most sqrt(2) looser.
 // Exterior w grows without bound on long orbits, so it carries a power-of-two exponent:
 // rescaling by 2^±60 is exact and never biases the test towards "interior".
+//
+// BLA (kb: techniques/bla, kBLA): at reference indices m = 1 (mod lookupEvery) the pixel takes the
+// longest block starting at m whose validity |dz| + K |dc| < R holds (levels tested upwards;
+// validity is monotone in the level) and applies dz = A dz + B dc, d = A d + B texelScale,
+// w = A w; otherwise exact perturbation steps up to the next lookup index. A valid block keeps
+// |dz| <= 2^-24 |2 Z| at every inner step, so neither a rebase nor an escape can fall inside it;
+// both are tested after it as after a step. The chunk budget counts loop steps, not iterations
+// (a block is one step of GPU work), and a block never runs past maxIter. Without kBLA the
+// loop is the plain one (bit-identical fields). A lookup costs several exact steps (dependent
+// table loads, SIMD divergence): the scheduler only takes this pipeline where the table's
+// forecast promises long blocks (M4: deep views only).
 kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     texture2d<float, access::write> deOut   [[texture(1)]],
                     constant IterateParams& p               [[buffer(0)]],
@@ -198,6 +234,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device atomic_uint* listCount           [[buffer(11)]],
                     device uint* listOut                    [[buffer(12)]],
                     device const uint* order                [[buffer(13)]],
+                    constant BlaParams& bla                 [[buffer(14)]],
+                    device const BlaEntry* table            [[buffer(15)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -237,6 +275,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     float r2 = 0.0f;
     float2 z = 0.0f;
     uint iters = 0;
+    uint steps = 0;
 
     if (active) {
         if (fresh) {
@@ -249,6 +288,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             st.m = 1;
             st.n = 1;
             iters = 1;
+            steps = 1;
             z = ref[1] + st.dz;
             r2 = dot(z, z);
             if (r2 > p.bailout2) {
@@ -265,41 +305,114 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         float2 dz = st.dz, d = st.d, w = st.w;
         uint m = st.m, n = st.n;
         int wExp = st.wExp;
-        const uint stop = min(p.maxIter, n + p.chunkIters);
-        while (!escaped && n < stop) {
-            if (kDE) d = 2.0f * cmul(z, d) + tsDelta;
-            if (kInterior) {
-                w = 2.0f * cmul(z, w);
-            }
-            // Test and rescale only every 8th iteration: half the extra cost of the derivative
-            // test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4 only in the few
-            // steps before escape (|z| 2 -> 4 -> 16 -> 256 -> 65536), so 8 steps grow it by at
-            // most ~2^42 (float32 max 2^128). Detection is at most 7 iterations late.
-            if (kInterior && (n & 7u) == 0u) {
-                float a = max(abs(w.x), abs(w.y));
-                if (a > 0x1p60f) {
-                    w *= 0x1p-60f;
-                    wExp += 60;
-                } else if (wExp > 0 && a < 0x1p-60f) {
-                    w *= 0x1p60f;
-                    wExp -= 60;
-                } else if (wExp == 0 && a * (float(n) * float(n)) < p.interiorEps) {
-                    interior = true;
-                    break;
+        const float cn = kBLA ? length(dc) : 0.0f;
+        // Lookups only at m = 1 (mod bla.lookupEvery): a lookup costs several exact steps
+        // (dependent table loads, divergence), and a rule on m alone keeps results independent
+        // of how chunks cut the orbit (shown frame = fresh render).
+        const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
+        uint budget = p.chunkIters;
+        while (!escaped && !interior && n < p.maxIter && budget > 0) {
+            // BLA phase (kBLA): the longest valid block starting at m (levels lev <= ctz(m - 1)
+            // have an entry here); |dz| + K |dc| < R is tested squared. Blocks are taken while
+            // valid and aligned; then exact steps to the next lookup index follow.
+            if (kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                const float zn2 = dot(dz, dz);
+                float2 A = 0.0f, B = 0.0f;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > last || n + l > p.maxIter) break;
+                    const BlaEntry e = table[bla.offset[lev] + ((m - 1) >> lev)];
+                    const float t = e.r - e.k * cn;
+                    if (!(t > 0.0f && zn2 < t * t)) break;
+                    A = e.a;
+                    B = e.b;
+                    len = l;
+                }
+                if (len != 0) {
+                    budget--;
+                    if (kDE) d = cmul(A, d) + B * p.texelScale;
+                    if (kInterior) {
+                        // |A| <= 2^40 (table build): rescale first so |w A| stays in range,
+                        // then the usual test.
+                        float a = max(abs(w.x), abs(w.y));
+                        if (a > 0x1p60f) {
+                            w *= 0x1p-60f;
+                            wExp += 60;
+                        }
+                        w = cmul(A, w);
+                        a = max(abs(w.x), abs(w.y));
+                        if (a > 0x1p60f) {
+                            w *= 0x1p-60f;
+                            wExp += 60;
+                        } else if (wExp > 0 && a < 0x1p-60f) {
+                            w *= 0x1p60f;
+                            wExp -= 60;
+                        } else if (wExp == 0 && a * (float(n + len) * float(n + len)) < p.interiorEps) {
+                            // (w is now dz_{n+len}/dz_1: the n^2 guard against parabolic
+                            // exteriors must use n + len.)
+                            interior = true;
+                            break;
+                        }
+                    }
+                    dz = cmul(A, dz) + cmul(B, dc);
+                    m += len;
+                    n += len;
+                    z = ref[m] + dz;
+                    r2 = dot(z, z);
+                    if (r2 > p.bailout2) { escaped = true; break; }
+                    if (r2 < dot(dz, dz) || m == last) {
+                        dz = z;
+                        m = 0;
+                    }
+                    continue;
                 }
             }
-            dz = cmul(2.0f * ref[m] + dz, dz) + dc;
-            m++;
-            n++;
-            z = ref[m] + dz;
-            r2 = dot(z, z);
-            if (r2 > p.bailout2) { escaped = true; break; }
-            if (r2 < dot(dz, dz) || m == last) {
-                dz = z;
-                m = 0;
+            // Exact perturbation steps: the whole budget without BLA; with BLA up to the next
+            // lookup index (m = 0: one step), or until a rebase brings the pixel back to m = 1.
+            uint run = kBLA ? min(budget, alignMask + 1u - ((m - 1u) & alignMask)) : budget;
+            const uint stop = min(p.maxIter, n + run);
+            const uint n0 = n;
+            while (n < stop) {
+                if (kDE) d = 2.0f * cmul(z, d) + tsDelta;
+                if (kInterior) {
+                    w = 2.0f * cmul(z, w);
+                }
+                // Test and rescale only every 8th iteration: half the extra cost of the
+                // derivative test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4
+                // only in the few steps before escape (|z| 2 -> 4 -> 16 -> 256 -> 65536), so
+                // 8 steps grow it by at most ~2^42 (float32 max 2^128). Detection is at most 7
+                // iterations late.
+                if (kInterior && (n & 7u) == 0u) {
+                    float a = max(abs(w.x), abs(w.y));
+                    if (a > 0x1p60f) {
+                        w *= 0x1p-60f;
+                        wExp += 60;
+                    } else if (wExp > 0 && a < 0x1p-60f) {
+                        w *= 0x1p60f;
+                        wExp -= 60;
+                    } else if (wExp == 0 && a * (float(n) * float(n)) < p.interiorEps) {
+                        interior = true;
+                        break;
+                    }
+                }
+                dz = cmul(2.0f * ref[m] + dz, dz) + dc;
+                m++;
+                n++;
+                z = ref[m] + dz;
+                r2 = dot(z, z);
+                if (r2 > p.bailout2) { escaped = true; break; }
+                if (r2 < dot(dz, dz) || m == last) {
+                    dz = z;
+                    m = 0;
+                }
+                if (kBLA && m == 1) break;
             }
+            budget -= max(n - n0, 1u);
         }
         iters += n - st.n;
+        steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = dz; st.d = d; st.w = w; st.m = m; st.n = n; st.wExp = wExp;
     }
 
@@ -347,6 +460,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     // time on a 2e5-iteration view at 16 ms chunks on M1 Pro (kb: synthesis/benchmarks).
     threadgroup uint sgLive[32];
     threadgroup uint sgIters[32];
+    threadgroup uint sgSteps[32];
     threadgroup uint sgInterior[32];
     threadgroup uint sgCrossed[32];
     threadgroup uint sgMaxEscape[32];
@@ -358,6 +472,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint offset = simd_prefix_exclusive_sum(live);
     uint total = simd_sum(live);
     uint simdIters = simd_sum(iters);
+    uint simdSteps = simd_sum(steps);
     uint simdInterior = simd_sum((active && !alive && !escaped) ? 1u : 0u);
     uint simdCrossed = simd_sum(crossed ? 1u : 0u);
     uint collectOffset = simd_prefix_exclusive_sum(collect ? 1u : 0u);
@@ -372,6 +487,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     if (lane == 0) {
         sgLive[sg] = total;
         sgIters[sg] = simdIters;
+        sgSteps[sg] = simdSteps;
         sgInterior[sg] = simdInterior;
         sgCrossed[sg] = simdCrossed;
         sgMaxEscape[sg] = simdMaxEscape;
@@ -380,7 +496,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tidInGroup == 0) {
-        uint sum = 0, itSum = 0, intSum = 0, crossSum = 0, escMax = 0;
+        uint sum = 0, itSum = 0, stepSum = 0, intSum = 0, crossSum = 0, escMax = 0;
         uint4 pastSum = 0;
         uint collectSum = 0;
         for (uint i = 0; i < sgCount; i++) {
@@ -388,6 +504,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             sgLive[i] = sum;
             sum += t;
             itSum += sgIters[i];
+            stepSum += sgSteps[i];
             intSum += sgInterior[i];
             crossSum += sgCrossed[i];
             escMax = max(escMax, sgMaxEscape[i]);
@@ -410,6 +527,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         if (itSum > 0) {
             uint old = atomic_fetch_add_explicit(&stats[p.statSlot].iterationsLo, itSum, memory_order_relaxed);
             if (old + itSum < old) atomic_fetch_add_explicit(&stats[p.statSlot].iterationsHi, 1u, memory_order_relaxed);
+        }
+        if (stepSum > 0) {
+            uint old = atomic_fetch_add_explicit(&stats[p.statSlot].stepsLo, stepSum, memory_order_relaxed);
+            if (old + stepSum < old) atomic_fetch_add_explicit(&stats[p.statSlot].stepsHi, 1u, memory_order_relaxed);
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);

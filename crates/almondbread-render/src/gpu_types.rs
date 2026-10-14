@@ -64,15 +64,35 @@ pub struct ChunkStats {
     /// Finished at maxIter unresolved.
     pub crossed: u32,
     pub max_escape: u32,
-    pub pad1: u32,
+    /// Loop steps (BLA steps + perturbation steps): the work actually done.
+    pub steps_lo: u32,
     /// Escapes at n >= softIter << k.
     pub escaped_past: [u32; 4],
+    pub steps_hi: u32,
+    pub pad2: u32,
 }
 
 impl ChunkStats {
     pub fn iterations(&self) -> u64 {
         (u64::from(self.iterations_hi) << 32) | u64::from(self.iterations_lo)
     }
+
+    pub fn steps(&self) -> u64 {
+        (u64::from(self.steps_hi) << 32) | u64::from(self.steps_lo)
+    }
+}
+
+/// BLA table layout (`BlaParams` in MSL), 144 bytes; entries are `[f32; 6]`
+/// (`almondbread_core::bla::BlaEntry`, `BlaEntry` in MSL: A, B, R, K).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct BlaParams {
+    pub min_level: u32,
+    pub max_level: u32,
+    /// Lookups at m = 1 (mod lookup_every), a power of two >= 2^min_level.
+    pub lookup_every: u32,
+    pub pad1: u32,
+    pub offset: [u32; 32],
 }
 
 /// Admission state of the running level (GPU only), 16 bytes.
@@ -169,7 +189,11 @@ const _: () = {
     assert!(offset_of!(PixelState, pixel) == 24);
     assert!(offset_of!(PixelState, w_exp) == 36);
 
-    assert!(size_of::<ChunkStats>() == 56);
+    assert!(size_of::<ChunkStats>() == 64);
+    assert!(offset_of!(ChunkStats, steps_lo) == 36);
+    assert!(offset_of!(ChunkStats, steps_hi) == 56);
+    assert!(size_of::<BlaParams>() == 144);
+    assert!(offset_of!(BlaParams, offset) == 16);
     assert!(offset_of!(ChunkStats, iterations_hi) == 12);
     assert!(offset_of!(ChunkStats, admitted) == 20);
     assert!(offset_of!(ChunkStats, interior) == 24);

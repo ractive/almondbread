@@ -68,7 +68,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let ms: Vec<String> = times.iter().map(|t| format!("{:.2}", t * 1000.0)).collect();
     let wall: Vec<String> = walls.iter().map(|t| format!("{:.1}", t * 1000.0)).collect();
     println!(
-        "{path}: {width}x{height}  zoom {}  maxIter {}  ref {} pts {:.2} ms  iterate GPU [{}] ms  wall [{}] ms  chunks {}  iters {}  colorize {:.2} ms",
+        "{path}: {width}x{height}  zoom {}  maxIter {}  ref {} pts {:.2} ms  iterate GPU [{}] ms  wall [{}] ms  chunks {}  iters {}  steps {}  colorize {:.2} ms",
         g(r.viewport.zoom(), 3),
         r.max_iterations(),
         ref_len,
@@ -77,8 +77,23 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         wall.join(", "),
         out.chunks,
         g(out.iterations_done as f64, 3),
+        g(out.steps_done as f64, 3),
         out.colorize_gpu_time * 1000.0
     );
+    if let Some(f) = out.bla_forecast {
+        let (t, entries, bytes) = r.bla_info();
+        println!(
+            "BLA {}: {entries} entries ({} KB) built in {:.3} ms, eps 2^{:.1}; forecast {} iterations in {} blocks ({}); {:.2}x fewer steps than iterations",
+            if out.bla_used { "used" } else { "not used" },
+            bytes / 1024,
+            t * 1000.0,
+            r.config.bla_epsilon.log2(),
+            f.covered,
+            f.blocks,
+            if f.pays() { "pays" } else { "does not pay" },
+            out.iterations_done as f64 / out.steps_done.max(1) as f64
+        );
+    }
     Ok(0)
 }
 
@@ -495,8 +510,9 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
 
 // MARK: regress
 
-/// The -3/4 neck and seahorse regression sessions of `make regress` (kb:
-/// techniques/interior-detection, Pitfalls): Space zoom, then one wheel step.
+/// The -3/4 neck, seahorse and M4 dense-view regression sessions of `make regress` (kb:
+/// techniques/interior-detection, Pitfalls; synthesis/benchmarks M4): Space zoom, then
+/// (neck) one wheel step.
 pub const REGRESS_SESSIONS: &[&[&str]] = &[
     &[
         "--history",
@@ -539,6 +555,37 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "1280x820",
         "--pointer",
         "200,100",
+    ],
+    // M4: the boundary-dense view of the slow-render report (kb: synthesis/benchmarks M4),
+    // with BLA as the app decides (auto: off here) and forced on (the BLA kernel through the
+    // interactive pipeline: previews, the full level waiting for its table). Float32 alone
+    // paints 0.057 % of CPU-exterior pixels interior here (escapes just past the limit with
+    // the interior test switched off; the same before M4), hence 0.1 %.
+    &[
+        "--history",
+        "zoom",
+        "--center",
+        "-1.4080321340304542,0.13680236432900417",
+        "--scale",
+        "4.615e-14",
+        "--size",
+        "640x400",
+        "--max-false-interior",
+        "0.1",
+    ],
+    &[
+        "--history",
+        "zoom",
+        "--center",
+        "-1.4080321340304542,0.13680236432900417",
+        "--scale",
+        "4.615e-14",
+        "--size",
+        "640x400",
+        "--max-false-interior",
+        "0.1",
+        "--bla",
+        "1",
     ],
 ];
 

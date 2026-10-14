@@ -1,7 +1,7 @@
 ---
 title: "Bivariate linear approximation (BLA)"
 type: technique
-status: draft
+status: reviewed
 sources: ["[[sources/mathr-deep-zoom-theory-again]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/muency-bla]]", "[[sources/philthompson-bla]]", "[[sources/fraktaler-3-site]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/fractalforums-interior-detection]]"]
 tags: [bla, iteration-skipping, perturbation, core]
 ---
@@ -205,11 +205,104 @@ Mu-Ency says newer KF versions and contemporaneous programs use BLA and that
 it is most useful at dwell limits in the millions (src: [[sources/muency-bla]]);
 KF's own page says KF does not implement it ([[questions/kf-bla-support]]).
 
+## As built (M4, 2026-10-14)
+
+Code: `crates/almondbread-core/src/bla.rs` (table, forecast, f64 model of the kernel loop),
+`iterate` in `crates/almondbread-render/src/shaders/mandelbrot.metal` (function constant
+`kBLA`), scheduler in `crates/almondbread-render/src/scheduler.rs`. Our own design unless cited.
+
+**Validity with the pixel's own `c`.** Instead of a radius with the image's `max|c|` baked in
+(formulas 1–3 above), each entry stores two numbers `R`, `K` and is valid while
+`|z| + K |c| < R`, with `c` the pixel's own delta. Derivation: dropping `z²` at an inner step
+`k` costs no more than float32 rounding of the linear term when `|z_k| ≤ ε |2 Z_k|`
+(ε = 2⁻²⁴; this is formula 2, the "corrected" radius `ε|A|` for one step). Inside a block
+`z_k = A_k z + B_k c`, so the block is valid iff `|z| ≤ min_k (ε|2Z_k| − |B_k||c|) / |A_k|`, a
+minimum of affine functions of `|c|`. Its conservative affine bound:
+
+```text
+single step:   A = 2 Z_m, B = 1, R = ε |2 Z_m|, K = 0
+x then y:      A = A_y A_x,  B = A_y B_x + B_y
+               R = min(R_x, R_y / |A_x|),  K = max(K_x, (K_y + |B_x|) / |A_x|)
+```
+
+The merge is mathr's rule with `max|c|` left symbolic. Because the table no longer depends on
+the framing, it serves every view its reference serves (reference reuse while panning and
+zooming). `R` shrinks and `K` grows with the level, so validity is monotone and a lookup
+tests levels upwards and keeps the last valid one. Entries with `|A| > 2⁴⁰` or a radius below
+the float32 minimum are stored invalid (the interior derivative `w ≤ 2⁶⁰` is multiplied by
+`A` before it is renormalised).
+
+**Derivatives through a block:** `dz/dc ← A dz/dc + B` (distance estimate, times the texel
+scale) and `dz/dz₁ ← A dz/dz₁` (interior test), each with the block's relative error ε per
+step. The interior test after a block must use `n + len` in its `|w| n²` guard: with `n`
+alone it fired at "n = 1" for whole interior views (looser test, risk of false interior at
+parabolic points; [[techniques/interior-detection]]).
+
+**Table:** levels 1… (blocks of 2, 4, … steps from `m = 1`; level 0 is not stored, a 1-step
+block costs what the exact step costs), about one entry per reference point, 24 B each
+(`float2 A, float2 B, float R, float K`). Built in f64 from the float32 reference points the
+GPU sees, on demand: only when a view's largest `|dc|` is below `ε max|2Z|` (else no block can
+be valid), inline below 16 384 points (≈ 20 ns per point: 0.1–0.2 ms at 6 k, 1.1 ms at 50 k),
+on a thread above (4.0 ms at 200 k). Previews start without it; full levels wait for it;
+offscreen renders join the build.
+
+**Kernel:** lookups only at `m ≡ 1 (mod 8)`; between them the unchanged exact loop. A rule on
+`m` alone keeps results independent of where chunks cut the orbit; a "retry after N failed
+steps" counter reset at chunk boundaries made the shown frame differ from a fresh render
+(10.8 % of escape counts in the dense regression session). Without `kBLA` the loop compiles
+to the plain one: fields bit-identical to M2–FL at all 11 benchmark locations.
+
+**Forecast and auto mode.** `BlaTable::forecast(|dc|max, maxIter)` walks a pixel at the
+view's largest `|dc|` from `m = 1` through the longest valid blocks, bounding `|dz|` by
+`|A||dz| + |B||c|`, until no block is valid. `auto` (the default) uses the table only if that
+covers ≥ 1024 iterations in blocks of ≥ 64 on average; `ALMONDBREAD_BLA=0|1|auto` and the CLI's
+`--bla 0|1|auto`, `--bla-eps e` override.
+
+### Result: no gain at the depths the f64 reference reaches
+
+Measured 2026-10-14, M1 Pro, release ([[synthesis/benchmarks]] M4):
+
+- At the boundary-dense view of the M4 brief (−1.40803213403045 + 0.13680236432900i,
+  4.6e−14/px) only 56 % of exact steps have `|dz| < 2⁻²⁴ |2Z|` (f64 model, 1024 pixels):
+  deltas start near 1e−11 and the linear range ends at ~1e−8 after a few hundred
+  iterations; after the first rebase deltas restart at the pixel's closest approach to 0
+  (≥ 1e−5) and are never linear again. The reference returns towards 0 every 7 steps
+  (|Z₇| = 0.025, then periods 14, 28, 56, 84, 252, …), so linear runs are 5–8 steps long and
+  blocks are mostly 2–4 steps. Ceiling 2.3× fewer steps; the tree reached 1.43× (aligned),
+  1.54× with an unaligned table (a block at every `m`).
+- On the GPU a lookup costs several exact steps (dependent loads of 24 B entries, SIMD lanes
+  diverging between lookup and step): forced BLA ran 150–165 ms against 84 ms at that view,
+  and was slower at every benchmark location (e.g. elephant 37 → 62 ms, neck-2e5 82 → 102 ms).
+  The lookup structure alone, with no table loads, cost +12 %.
+- Larger ε trades accuracy for skips (f64 model at the dense view: 2⁻²⁰ 1.9×, 2⁻¹⁶ 3.1×,
+  2⁻¹² 5.0× fewer steps, with escape counts changed on 16 %, 30 %, 64 % of pixels against 8 %
+  at 2⁻²⁴) and still loses on the GPU at these block lengths. Kept at 2⁻²⁴.
+- AT ([[techniques/linear-approximation-imagina]]) does not apply there either: for every
+  candidate period the escape radius in AT coordinates `|ZCoeff|² R` is at most 3.6e−3,
+  far below the required 4.
+- Deeper, around the same reference (same f64 orbit; not the true set at that depth, but
+  identical for the skip-on and skip-off runs): 1e−20/px 202 → 82 ms (8× fewer steps),
+  1e−24/px 199 → 4.2 ms (185× fewer); neck at 1e−20 12.1 → 0.63 ms, Feigenbaum 155 → 1.9 ms;
+  skip-on vs skip-off max |Δμ| 4.8e−7, no class change. The forecast says "pays" from about
+  1e−20/px (1762 iterations in 7 blocks there; 250 in 6 at 1e−18, where forced BLA loses).
+
+So BLA in float32 is an M3b feature: it pays once deltas start tens of decades below ε|Z|.
+For dense boundary views like the one above, no linear skip helps at float32 accuracy; the
+iterations are genuinely non-linear.
+
+### Pitfalls
+
+- Per-step lookups in the hot loop cost 2–4× per step on Apple GPUs; restrict where lookups
+  happen and keep the plain loop separate.
+- The lookup policy must depend on per-pixel state that survives chunk boundaries (here `m`),
+  or results depend on chunk sizes.
+- `|w| n²` after a block: `n` is the iteration after the block.
+- Squared validity tests (`|dz|² < (R − K|c|)²`) underflow below ~1e−19; fine for M4's range,
+  M3b's rescaled deltas must test in their own scale.
+
 ## For almondbread
 
-Roadmap step 5: build the table on the CPU per reference and framing with radius formula 3 and
-ε = 2^-24 as a starting value, drop the lowest levels, store floatexp
-coefficients and radii past about 1e-30, and verify with a skip-off pixel
-diff. Keep BLA for non-Mandelbrot formulas even after
-[[techniques/linear-approximation-imagina]] lands. Benchmarks:
+Roadmap step 5 done as above (M4). Next: M3b (rescaled deltas, floatexp coefficients and
+radii past ~1e−30) is what makes the table pay; keep BLA for non-Mandelbrot formulas even
+after [[techniques/linear-approximation-imagina]] lands. Benchmarks:
 [[questions/bla-vs-la-benchmark]].

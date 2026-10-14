@@ -546,3 +546,73 @@ filament cruise 48.7, gestures 43.0, fast dive 37.5. The filament cruise at 1e6
 accumulation cannot fully converge at 13 px of pan per frame; it is visibly softer while
 moving than when settled. A converged rendering of the same seahorse camera path (3×3 grid,
 extension passes) took 8.5 min headless.
+
+## M4: BLA (2026-10-14)
+
+Measured 2026-10-14, M1 Pro (16-core GPU), macOS 26, release. The machine had other GPU
+load during parts of this session (the user's app, another agent): timings below are from
+interleaved runs (`--repeat 3`, two rounds, minimum), single runs varied by up to 2×.
+Design and analysis: [[techniques/bla]] (As built).
+
+**New benchmark location** `dense-5e-14` (−1.4080321340304542 + 0.13680236432900417i, width
+7.384e−11, maxIter 5791): the user's "everything is slower here" view. 1600×1000: 4.61e9
+iterations, 84 ms (unloaded); seahorse at the same depth needs about half the iterations.
+Verify 400×259: escape-n differs 29.9 %, median |Δμ| 0.064, >0.05 on 53 % (float32 against
+the f64 oracle; every pixel is a chaotic boundary pixel), GPU-int/CPU-ext 0.014 %.
+
+**Default (`auto`) = before.** The forecast rejects the table at every benchmark location,
+so the plain pipeline runs: iteration fields bit-identical to the pre-M4 renderer at all 11
+locations (1600×1000 dumps, `verify --fields`), verify table unchanged row for row, and GPU
+time equal within noise (dense-5e-14 84 vs 84 ms; deep-5e-14 38–40 vs 37–40 ms).
+
+**Forced BLA (`--bla 1`)** at the reachable depths, 1600×1000 GPU ms off → on:
+
+| location | off | on | steps / iterations on |
+|---|---:|---:|---:|
+| dense-5e-14 | 84 | 150–165 | 0.85 |
+| home | 4–5 | 5.5 | – |
+| seahorse-1e5 | 6.5 | 8.5 | – |
+| elephant | 36 | 62–65 | – |
+| minibrot-p4 | 22 | 28 | – |
+| deep-5e-14 | 37–39 | 54 | – |
+| neck-2e5 | 82 | 102–145 | – |
+| cusp-1e5 | 128 | 158–223 | – |
+
+(First kernel version, a lookup before every step: dense-5e-14 216–280 ms; 1.43× fewer
+steps, about 4× the cost per step.) Verify with forced BLA: identical to `off` except
+deep-5e-14 (escape-n differs 10.20 → 10.23 %, GPU-int/CPU-ext 0.003 → 0.005 %) and
+feigenbaum (class mismatch 0.079 → 0.087 %); dense-5e-14 30.30 → 30.26 % escape-n differs,
+median |Δμ| 0.0667 → 0.0662.
+
+**Depth sweep around the dense view's reference** (f64 orbit of the centre; beyond ~1e−15/px
+not the true set, but the same orbit for both runs), 1600×1000, maxIter 12 000, GPU ms
+off → on (steps off → on):
+
+| scale/px | off | on | steps | forecast (iterations / blocks) |
+|---|---:|---:|---|---|
+| 4.6e−14 | 95 | 166 | 4.62e9 → 3.92e9 | 6 / 2: off |
+| 1e−18 | 206 | 286 | 1.06e10 → 4.15e9 | 250 / 6: off |
+| 1e−20 | 202 | 82 | 1.06e10 → 1.29e9 | 1762 / 7: on |
+| 1e−24 | 199 | 4.2 | 1.06e10 → 5.7e7 | on |
+
+Skip-on vs skip-off fields at 1e−20/px, 400×260 (`verify --dump`, `--fields`): slow view max
+|Δμ| 4.8e−7 (with DE as well), neck 2.4e−7 (12.1 → 0.63 ms), Feigenbaum identical
+(155 → 1.85 ms), cardioid and minibrot interiors 100 % interior both ways; no class change
+anywhere.
+
+**Table build** (f64, single thread): 5.8 k points 0.11–0.22 ms, 50 k 1.1 ms, 200 k 4.0 ms;
+24 B per entry, about one entry per reference point (200 k: 4.7 MB). Inline below 16 k
+points, on a thread above; built only when a view's largest |dc| is below ε max|2Z|.
+
+**Regressions:** `make regress` has two new sessions at dense-5e-14 (auto, and `--bla 1`):
+shown frame = fresh render bit for bit in both. Their false-interior limit is 0.1 %: float32
+alone paints 0.054–0.057 % of CPU-exterior pixels interior there (escapes just past the
+limit with the interior test switched off), the same with and without BLA. Metal tests
+`bla_slow_view` (auto bit-identical to off; forced: no class change, median |Δμ| < 0.01) and
+`bla_deep_view` (1e−20: auto takes the table built on a thread, ≥ 4× fewer steps, max |Δμ|
+< 1e−4).
+
+**Interaction** (`make interaction-test`, 60 Hz): auto never builds a table in these
+scenarios. Under the session's GPU load fps varied run to run (neck zoom 43.7–57.0, space
+zoom 43.7–47.0, 1e5 zoom 52.4–58.7) with `ALMONDBREAD_BLA=0` and `auto` interleaved and
+indistinguishable; shown vs fresh ≤ 0.001 % in every scenario; FFI 4.3–6.2 µs per frame.

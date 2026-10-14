@@ -28,7 +28,7 @@ as milestones start and finish.
 | FL | feel & look: inertia/easing, gamepad, frame reprojection while zooming, exposed-area-first refinement, progressive AA, designed colour presets, DE colouring and lighting by default, colour cycling; recorded flight videos for review | 8 | done 2026-10-14, ready for user review (eased velocities, flings, animated zoom steps and gamepad in the `Navigator`; history reprojection with temporal upsampling, per-pixel refinement fade, focus-first tiles, adaptive progressive AA; drawable pre-acquisition thread; OKLab looks with palette anti-aliasing; `almondbread fly` review videos; [[synthesis/benchmarks]] FL) |
 | L1 | real-time landscape flight prototype (only if L0 convinces) | — | planned, after FL |
 | M3b | integrate: big viewport, background reference, rescaled float32 / floatexp deltas | 1, 6 | planned |
-| M4 | BLA tree with ε = 2^-24, extended-range coefficients, skip-off diff | 5 | planned |
+| M4 | BLA tree with ε = 2^-24, extended-range coefficients, skip-off diff | 5 | done 2026-10-14, but no gain at reachable depths (table with per-pixel `c` validity, built on demand/on a thread; kernel `kBLA` pipeline used only where the table's forecast says it pays: never at the f64 reference's depths, where lookups cost more than the 2–8-step blocks skip; 2.4× at 1e−20/px, 47× at 1e−24/px around a test reference; skip-off diff clean; plain pipeline bit-identical; floatexp coefficients left to M3b; [[techniques/bla]] As built, [[synthesis/benchmarks]] M4) |
 | M5 | nucleus reference reuse, frame reprojection, progressive jittered AA, statistics-driven max iterations | 7, 8 | planned |
 | M6 | Imagina-style LA + AT for power-2 Mandelbrot | 9 | planned |
 | M7 | float-float repair mode | 10 | planned |

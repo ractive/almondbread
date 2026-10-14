@@ -271,3 +271,15 @@ navigator and scheduler and encodes them with ffmpeg; four review flights plus a
 reference in `review/` (gitignored). Numbers in [[synthesis/benchmarks]] FL. Found: background
 test windows get 60 display-link callbacks/s on the 120 Hz panel while an external display is
 attached, so FL's interaction numbers are at 60 Hz.
+
+## [2026-10-14] decision | M4: BLA built, off where it cannot pay
+
+BLA table with per-pixel `c` validity (`|z| + K|c| < R`, framing-independent), merged
+levels from 2 steps, built on demand (thread above 16 k points), kernel pipeline `kBLA` with
+lookups at m ≡ 1 (mod 8) and derivative propagation (DE, interior with `n + len`). At the
+user's slow boundary view (4.6e−14/px) and every other reachable view it loses on the GPU:
+blocks are 2–8 steps between the reference's period-7 near-zeros, only 56 % of steps are
+linear at ε = 2⁻²⁴, and a lookup costs several steps. AT does not apply there either. A
+forecast from the table enables it per view (`auto`), which happens from about 1e−20/px
+(2.4×; 47× at 1e−24). Default renders bit-identical to before. Pages:
+[[techniques/bla]] (As built), [[synthesis/benchmarks]] M4, [[roadmap]].
