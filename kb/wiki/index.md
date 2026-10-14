@@ -134,6 +134,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/arbitrary-precision]] — own multi-limb Swift arithmetic instead of LGPL GMP/MPFR, for iOS (accepted; built, beats GMP mpf to 1024 bits)
 - [[decisions/rust-core]] — all non-UI code in Rust (maths, core, scheduler, Metal backend via objc2-metal); Swift UI only (accepted; R1 done: Rust maths 1.05x to 4x the Swift orbit speed)
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; flight recorder with rewind (proposed)
+- [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls (accepted)
 
 ## Questions
