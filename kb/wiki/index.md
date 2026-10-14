@@ -10,6 +10,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 ## Meta
 
 - [[overview]] — the current big picture
+- [[ideas]] — backlog of the user's ideas with first thoughts
 - [[roadmap]] — milestone status (driver-maintained)
 - [[log]] — chronological record of ingests, research runs, queries, lint passes
 
