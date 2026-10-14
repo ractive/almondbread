@@ -7,6 +7,7 @@ struct InspectorView: View {
 
     var body: some View {
         Form {
+            lookSection
             iterationsSection
             colourSection
             lightingSection
@@ -48,6 +49,42 @@ struct InspectorView: View {
         }
     }
 
+    // MARK: Look
+
+    /// Curated looks: a palette with the colouring that suits it, applied in one step.
+    private var lookSection: some View {
+        Section {
+            Picker("Look", selection: Binding(get: { model.lookID }, set: { model.applyLook($0) })) {
+                ForEach(ExplorerModel.looks, id: \.id) { l in
+                    HStack {
+                        if let p = ExplorerModel.palettes.first(where: { $0.id == l.paletteId }) {
+                            PaletteSwatch(palette: p).frame(width: 64, height: 12)
+                        }
+                        Text(l.name)
+                    }
+                    .tag(l.id)
+                }
+            }
+            #if os(macOS)
+            .pickerStyle(.menu)
+            #else
+            .pickerStyle(.navigationLink)
+            #endif
+            Toggle("Colour cycling", isOn: Binding(get: { model.cycleSpeed != 0 },
+                                                   set: { model.cycleSpeed = $0 ? 0.05 : 0 }))
+            if model.cycleSpeed != 0 {
+                sliderRow("Cycle speed", value: logBinding($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
+                          text: String(format: "%.3g /s", model.cycleSpeed))
+            }
+            sliderRow("Depth tint", value: $model.depthTint, in: 0...0.2,
+                      text: model.depthTint == 0 ? "off" : String(format: "%.3f / decade", model.depthTint))
+        } header: {
+            Label("Look", systemImage: "wand.and.stars")
+        } footer: {
+            Text("A look sets the palette, lighting, outline and interior together; adjust them below. Colours cycle only while the view rests. Depth tint shifts the palette as you zoom.")
+        }
+    }
+
     // MARK: Colour
 
     private var colourSection: some View {
@@ -74,20 +111,21 @@ struct InspectorView: View {
                       text: String(format: "%.2f", model.colorOffset))
             Toggle("Logarithmic", isOn: $model.logColoring)
             Toggle("Smooth", isOn: $model.smoothColoring)
-            ColorPicker("Interior", selection: interiorColorBinding, supportsOpacity: false)
+            Toggle("Palette anti-aliasing", isOn: $model.paletteFilter)
+            ColorPicker("Interior", selection: linearColorBinding(\.interiorColor), supportsOpacity: false)
         } header: {
             Label("Colour", systemImage: "paintpalette")
         }
     }
 
-    /// The model keeps the interior colour in linear RGB (what the kernel blends in).
-    private var interiorColorBinding: Binding<Color> {
+    /// The model keeps colours in linear RGB (what the kernel blends in).
+    private func linearColorBinding(_ path: ReferenceWritableKeyPath<ExplorerModel, SIMD3<Float>>) -> Binding<Color> {
         Binding {
-            let c = model.interiorColor
+            let c = model[keyPath: path]
             return Color(.sRGBLinear, red: Double(c.x), green: Double(c.y), blue: Double(c.z))
         } set: { color in
             let r = color.resolve(in: EnvironmentValues())
-            model.interiorColor = SIMD3(r.linearRed, r.linearGreen, r.linearBlue)
+            model[keyPath: path] = SIMD3(r.linearRed, r.linearGreen, r.linearBlue)
         }
     }
 
@@ -98,13 +136,24 @@ struct InspectorView: View {
             sliderRow("Shading", value: $model.shading, in: 0...1, text: String(format: "%.2f", model.shading))
             sliderRow("Light angle", value: $model.lightAngle, in: 0...360, text: String(format: "%.0f°", model.lightAngle))
                 .disabled(model.shading == 0)
+            sliderRow("Light height", value: $model.lightHeight, in: 0.2...4, text: String(format: "%.2f", model.lightHeight))
+                .disabled(model.shading == 0)
+            sliderRow("Highlight", value: $model.specular, in: 0...1, text: String(format: "%.2f", model.specular))
+                .disabled(model.shading == 0)
             sliderRow("Outline", value: $model.outline, in: 0...1, text: String(format: "%.2f", model.outline))
             sliderRow("Outline width", value: $model.outlineWidth, in: 0.5...6, text: String(format: "%.1f px", model.outlineWidth))
                 .disabled(model.outline == 0)
+            ColorPicker("Outline colour", selection: linearColorBinding(\.edgeColor), supportsOpacity: false)
+                .disabled(model.outline == 0)
+            sliderRow("Glow", value: $model.glow, in: 0...0.5, text: String(format: "%.2f", model.glow))
+            sliderRow("Glow width", value: $model.glowWidth, in: 1...40, text: String(format: "%.0f px", model.glowWidth))
+                .disabled(model.glow == 0)
+            ColorPicker("Glow colour", selection: linearColorBinding(\.glowColor), supportsOpacity: false)
+                .disabled(model.glow == 0)
         } header: {
             Label("Lighting", systemImage: "light.max")
         } footer: {
-            Text("Both use the distance estimate, which adds a little GPU work per iteration.")
+            Text("Lighting, outline and glow use the distance estimate, which adds a little GPU work per iteration.")
         }
     }
 
@@ -112,14 +161,14 @@ struct InspectorView: View {
 
     private var qualitySection: some View {
         Section {
-            Picker("Supersampling", selection: $model.supersampling) {
+            Picker("Anti-aliasing", selection: $model.supersampling) {
                 ForEach(Supersampling.allCases) { Text($0.label).tag($0) }
             }
             Toggle("Interactive preview", isOn: $model.interactivePreview)
         } header: {
             Label("Quality", systemImage: "sparkles")
         } footer: {
-            Text("A half- or quarter-resolution preview renders first when full frames are slow; the full image then refines over it.")
+            Text("While you move, each frame renders as much as fits in a refresh and builds on the frames before. When you stop, the view refines at full resolution and then gathers anti-aliasing samples near the boundary; any input interrupts that at once. Exports render the samples on a grid.")
         }
     }
 

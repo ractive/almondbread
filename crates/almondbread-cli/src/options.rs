@@ -100,6 +100,27 @@ impl Options {
     /// The rendering settings shared by all commands. Headless tools render one sample per
     /// pixel unless `--ss` asks for a grid (the app's default anti-aliasing is progressive).
     pub fn apply_settings(&self, s: &mut RenderSettings) {
+        // Headless tools: the plain M2.5 colouring unless a look is asked for (comparable
+        // timings: lighting adds the distance estimate to every iteration).
+        let iteration = (
+            s.auto_iterations,
+            s.manual_iterations,
+            s.max_iterations_cap,
+            s.interior_detection,
+        );
+        *s = RenderSettings::plain();
+        (
+            s.auto_iterations,
+            s.manual_iterations,
+            s.max_iterations_cap,
+            s.interior_detection,
+        ) = iteration;
+        if let Some(l) = self.get("look") {
+            match almondbread_core::palette::Look::named(l) {
+                Some(look) => look.apply(s),
+                None => eprintln!("almondbread: unknown look {l}"),
+            }
+        }
         s.supersampling = Supersampling::Off;
         if let Some(n) = self.usize("iterations") {
             s.auto_iterations = false;
@@ -130,6 +151,23 @@ impl Options {
         if let Some(ss) = self.usize("ss").and_then(Supersampling::from_factor) {
             s.supersampling = ss;
         }
+        if let Some(v) = self.f64("outline-width") {
+            s.outline_width = v;
+        }
+        if let Some(v) = self.f64("specular") {
+            s.specular = v;
+        }
+        if let Some(v) = self.f64("glow") {
+            s.glow = v;
+        }
+        if let Some(v) = self.get("filter") {
+            s.palette_filter = v != "0";
+        }
+        if let Some(v) = self.get("edge")
+            && let Ok(hex) = u32::from_str_radix(v.trim_start_matches('#'), 16)
+        {
+            s.edge_color = almondbread_core::palette::linear(hex);
+        }
     }
 
     /// `--chunk-ms` (GPU time per iterate command buffer) and `--extend k` (offscreen
@@ -152,5 +190,47 @@ pub fn parse_size(s: &str) -> Result<(usize, usize)> {
     Ok((parts[0], parts[1]))
 }
 
-/// Colouring ("look") settings from a JSON object (flight scripts); see `apply_json_settings`.
-pub fn apply_look_json(_v: &serde_json::Value, _s: &mut RenderSettings) {}
+/// Colouring ("look") settings from a JSON object (flight scripts; see `fly`): `look` (a look
+/// id, applied first), `specular`, `shininess`, `light_height`, `light_angle`, `glow`,
+/// `glow_width`, `outline_width`, `palette_filter`, `cycle` (cycles per second), `depth_tint`.
+pub fn apply_look_json(v: &serde_json::Value, s: &mut RenderSettings) {
+    use serde_json::Value;
+    if let Some(l) = v
+        .get("look")
+        .and_then(Value::as_str)
+        .and_then(almondbread_core::palette::Look::named)
+    {
+        l.apply(s);
+    }
+    let f = |k: &str| v.get(k).and_then(Value::as_f64);
+    if let Some(x) = f("specular") {
+        s.specular = x;
+    }
+    if let Some(x) = f("shininess") {
+        s.shininess = x;
+    }
+    if let Some(x) = f("light_height") {
+        s.light_height = x;
+    }
+    if let Some(x) = f("light_angle") {
+        s.light_angle = x;
+    }
+    if let Some(x) = f("glow") {
+        s.glow = x;
+    }
+    if let Some(x) = f("glow_width") {
+        s.glow_width = x;
+    }
+    if let Some(x) = f("outline_width") {
+        s.outline_width = x;
+    }
+    if let Some(x) = v.get("palette_filter").and_then(Value::as_bool) {
+        s.palette_filter = x;
+    }
+    if let Some(x) = f("cycle") {
+        s.cycle_speed = x;
+    }
+    if let Some(x) = f("depth_tint") {
+        s.depth_tint = x;
+    }
+}

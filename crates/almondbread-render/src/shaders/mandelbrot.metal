@@ -461,11 +461,8 @@ struct ColorParams {
 // point lookup is noise. The palette is stored as a cyclic mip chain (box-filtered halvings);
 // the lookup picks the level whose texel matches the footprint. Converges to what an
 // infinitely supersampled image would show for that pixel's colour band average.
-static inline float3 paletteAt(float t, float footprint, constant ColorParams& c, device const float4* pal) {
+static inline float3 paletteAt(float t, float lod, constant ColorParams& c, device const float4* pal) {
     t = fract(t);
-    // Footprint in entries of the full table -> mip level.
-    float lod = c.paletteFilter > 0.0f ? clamp(log2(max(footprint * float(c.paletteSize), 1.0f)), 0.0f,
-                                                float(c.paletteLevels - 1)) : 0.0f;
     uint l0 = uint(lod);
     uint l1 = min(l0 + 1, c.paletteLevels - 1);
     float3 col[2];
@@ -482,8 +479,16 @@ static inline float3 paletteAt(float t, float footprint, constant ColorParams& c
     return mix(col[0], col[1], lod - float(l0));
 }
 
+// The palette colour of a smooth count, filtered by the pixel's footprint in palette space
+// (kb: techniques/coloring-methods, FL "palette anti-aliasing"): the smooth count changes by
+// about 1 / (d ln 2) per pixel at distance d pixels from the set (mu = -log2 G of the
+// potential G, and |grad G| ~ G / d), so near the boundary the palette cycles several times
+// per pixel and a point lookup is noise. The palette is stored as a cyclic mip chain
+// (box-filtered halvings); the lookup takes the level whose entries match the footprint,
+// which is what infinite supersampling would average to. `dense` (0..1) says how far the
+// filter had to go (lod 7 -> 10: 1/8 to a whole palette cycle per pixel).
 static inline float3 paletteColor(float2 it, float deTexels, constant ColorParams& c, device const float4* pal,
-                                  float pixelsPerTexel) {
+                                  float pixelsPerTexel, thread float& dense) {
     float t, dtdmu;
     float mu = it.x + (c.smooth != 0 ? it.y : 0.0f);
     if (c.logScale != 0) {
@@ -494,10 +499,12 @@ static inline float3 paletteColor(float2 it, float deTexels, constant ColorParam
         t = fract(it.x * c.density) + (c.smooth != 0 ? it.y * c.density : 0.0f);
         dtdmu = c.density;
     }
-    // Palette cycles per output pixel: |d mu / d pixel| ~ 1 / (d ln 2), d in output pixels.
     float d = max(deTexels / pixelsPerTexel, 1e-3f);
     float footprint = dtdmu / (d * 0.6931472f);
-    return paletteAt(t + c.offset, footprint, c, pal);
+    float lod = clamp(log2(max(footprint * float(c.paletteSize), 1.0f)), 0.0f, float(c.paletteLevels - 1));
+    if (c.paletteFilter == 0.0f || deTexels >= 999.0f) lod = 0.0f;    // no filter, or no DE
+    dense = saturate((lod - 7.0f) / 3.0f);
+    return paletteAt(t + c.offset, lod, c, pal);
 }
 
 static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device const float4* pal,
@@ -509,8 +516,19 @@ static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device
     // extension pass may still resolve.
     if (it.x == ITER_UNRESOLVED) return mix(c.interior.rgb, float3(0.5f), 0.03f);
     if (it.x < 0.0f) return c.interior.rgb;
-    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel);
+    float dense;
+    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense);
     float dist = de.x / pixelsPerTexel;                            // distance in output pixels
+    if (c.outline > 0.0f) {
+        // Boundary emphasis and filament coverage, before the lighting: within outlineWidth
+        // pixels of the set the colour goes towards the edge colour (Chéritat's DE coverage
+        // when the width is ~1.4). Where the palette filter averaged many cycles, the colour
+        // is a grey of the whole palette: darken that too. Filaments then read as dark lace
+        // whose relief the lighting below still shows (highlights on their lit side).
+        float f = smoothstep(0.0f, 1.0f, clamp(dist / c.outlineWidth, 0.0f, 1.0f));
+        float edge = max(1.0f - f, 0.75f * dense);
+        col = mix(col, c.edge.rgb, edge * c.outline);
+    }
     if (c.shading > 0.0f) {
         // Normal-map lighting (Chéritat): the surface normal leans along u = z / (dz/dc), the
         // direction away from the set, lifted into 3D (kb: techniques/coloring-methods). Lambert
@@ -530,12 +548,6 @@ static inline float3 shade(float2 it, float2 de, constant ColorParams& c, device
     if (c.glow > 0.0f) {
         // A soft halo along the boundary (screen-space width, so it reads at every depth).
         col += c.glowColor.rgb * c.glow * exp(-dist / max(c.glowWidth, 1e-3f));
-    }
-    if (c.outline > 0.0f) {
-        // Boundary emphasis and filament coverage: within outlineWidth pixels of the set the
-        // colour goes towards the edge colour (Chéritat's DE coverage when the width is ~1.4).
-        float f = smoothstep(0.0f, 1.0f, clamp(dist / c.outlineWidth, 0.0f, 1.0f));
-        col = mix(col, c.edge.rgb, (1.0f - f) * c.outline);
     }
     return max(col, 0.0f);
 }

@@ -69,19 +69,47 @@ pub struct PaletteInfo {
     pub stops: Vec<PaletteStop>,
 }
 
-/// The palettes, in menu order (the first is the default).
+/// The palettes, in menu order. `stops` are 24 even samples of the GPU table (OKLab spline,
+/// sRGB), so a swatch drawn from them matches what the renderer shows.
 #[uniffi::export]
 pub fn palettes() -> Vec<PaletteInfo> {
     almondbread_core::palette::Palette::all()
         .into_iter()
-        .map(|p| PaletteInfo {
-            id: p.id.to_string(),
-            name: p.name.to_string(),
-            stops: p
-                .stops
-                .iter()
-                .map(|&(position, rgb)| PaletteStop { position, rgb })
-                .collect(),
+        .map(|p| {
+            let samples = p.swatch(24);
+            PaletteInfo {
+                id: p.id.to_string(),
+                name: p.name.to_string(),
+                stops: samples
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &rgb)| PaletteStop {
+                        position: i as f64 / samples.len() as f64,
+                        rgb,
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+/// A look (palette plus colouring) as the inspector lists it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct LookInfo {
+    pub id: String,
+    pub name: String,
+    pub palette_id: String,
+}
+
+/// The looks, in menu order (the first is the default; `Explorer::apply_look` applies one).
+#[uniffi::export]
+pub fn looks() -> Vec<LookInfo> {
+    almondbread_core::palette::Look::all()
+        .into_iter()
+        .map(|l| LookInfo {
+            id: l.id.to_string(),
+            name: l.name.to_string(),
+            palette_id: l.palette.to_string(),
         })
         .collect()
 }

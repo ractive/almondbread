@@ -59,7 +59,10 @@ check(cancelled.cancelled() && cancelled.count() < 100_000_001 && token.progress
 
 // 4. Palettes.
 let pals = palettes()
-check(pals.first?.id == "classic" && pals.count >= 7 && pals.allSatisfy { !$0.stops.isEmpty }, "palettes: \(pals.map(\.id))")
+check(pals.first?.id == "aurora" && pals.count >= 10 && pals.allSatisfy { !$0.stops.isEmpty }, "palettes: \(pals.map(\.id))")
+let lks = looks()
+check(lks.first?.id == "aurora" && (6...10).contains(lks.count)
+      && lks.allSatisfy { l in pals.contains { $0.id == l.paletteId } }, "looks: \(lks.map(\.id))")
 
 // 5. The Explorer on a windowless layer (the app's path minus the window).
 let layer = CAMetalLayer()
@@ -84,11 +87,16 @@ check(r.handled && r.redraw && abs(explorer.stats().zoomSpeed - 2.0) < 1e-12, "Q
 check(!explorer.input(event: .pan(dx: .nan, dy: 0)).handled, "NaN pan rejected")
 var t = CACurrentMediaTime()
 var frames = 0
-while !explorer.stats().settled && frames < 2000 {
-    _ = explorer.frame(timestamp: t)
-    t += 1.0 / 120
-    frames += 1
+// Settling includes the progressive AA samples (FL): give the GPU wall time per frame.
+func settle(_ limit: Int) {
+    while !explorer.stats().settled && frames < limit {
+        _ = explorer.frame(timestamp: t)
+        t += 1.0 / 120
+        frames += 1
+        Thread.sleep(forTimeInterval: 0.001)
+    }
 }
+settle(6000)
 check(explorer.stats().settled && explorer.finishFrames() == 0, "explorer did not settle in \(frames) frames")
 // Pointer / keyboard modes through the bindings: a direction key switches to keyboard mode,
 // the crosshair starts at the pointer and glides to the centre; pointer travel switches back.
@@ -99,18 +107,18 @@ var fr = explorer.frame(timestamp: t)
 check(kd.mode == .keyboard && fr & 2 != 0 && explorer.crosshairX() > 0 && explorer.crosshairX() <= 100,
       "keyboard mode and crosshair: \(kd), bits \(fr), x \(explorer.crosshairX())")
 for _ in 0..<240 { t += 1.0 / 120; fr = explorer.frame(timestamp: t) }
-check(fr & 1 == 0 && explorer.crosshairX() == 0 && explorer.crosshairY() == 0,
-      "crosshair glided to the centre, link may pause: bits \(fr)")
+check(explorer.crosshairX() == 0 && explorer.crosshairY() == 0, "crosshair glided to the centre")
+// The tapped key's pan glided the view on (FL motion): it refines and settles, then the
+// link may pause although keyboard mode stays.
+settle(frames + 6000)
+fr = explorer.frame(timestamp: t)
+check(fr & 1 == 0 && fr & 2 != 0, "settled in keyboard mode, link may pause: bits \(fr)")
 let back = explorer.input(event: .pointer(x: 100, y: 0))
 check(back.mode == .pointer && back.redraw && explorer.frame(timestamp: t) & 2 == 0, "pointer travel: pointer mode")
 explorer.setEdgePan(mode: .always)
 check(explorer.edgePan() == .always, "edge pan setting")
 explorer.setEdgePan(mode: .whileZooming)
-while !explorer.stats().settled && frames < 4000 {
-    _ = explorer.frame(timestamp: t)
-    t += 1.0 / 120
-    frames += 1
-}
+settle(frames + 6000)
 let png = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : NSTemporaryDirectory() + "almondbread-core-check.png"
 let off = try explorer.renderPng(path: png, width: 640, height: 400)
 check(FileManager.default.fileExists(atPath: png) && off.chunks > 0, "offscreen PNG \(png)")

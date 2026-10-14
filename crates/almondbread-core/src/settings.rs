@@ -1,6 +1,6 @@
 //! User-facing render settings (everything that affects the image except the viewport).
 
-use crate::palette::Palette;
+use crate::palette::{Look, Palette};
 use crate::viewport::Viewport;
 
 /// Anti-aliasing: samples per axis (1 to 4). Offscreen renders supersample on a grid; the
@@ -82,14 +82,26 @@ pub struct RenderSettings {
 }
 
 impl Default for RenderSettings {
+    /// The default look (FL: smooth iteration, DE lighting with a soft highlight, a subtle
+    /// boundary outline, palette anti-aliasing) and progressive 9x anti-aliasing.
     fn default() -> Self {
+        let mut s = Self::plain();
+        Look::default_look().apply(&mut s);
+        s
+    }
+}
+
+impl RenderSettings {
+    /// The M2.5 colouring (no lighting, so no distance estimate): what the headless tools
+    /// default to, so benchmark timings stay comparable across milestones.
+    pub fn plain() -> Self {
         Self {
             auto_iterations: true,
             manual_iterations: 1000,
             max_iterations_cap: 200_000,
             learned_iterations: 0,
             interior_detection: true,
-            palette_id: Palette::default_palette().id.to_string(),
+            palette_id: Palette::named("classic").id.to_string(),
             color_density: 0.02,
             color_offset: 0.0,
             log_coloring: false,
@@ -106,16 +118,14 @@ impl Default for RenderSettings {
             glow: 0.0,
             glow_color: [1.0, 1.0, 1.0],
             glow_width: 6.0,
-            palette_filter: true,
+            palette_filter: false,
             cycle_speed: 0.0,
             depth_tint: 0.0,
             supersampling: Supersampling::default(),
             interactive_preview: true,
         }
     }
-}
 
-impl RenderSettings {
     /// Iteration limit for `viewport`: manual, or automatic: the depth heuristic raised to what
     /// the renderer learned from the last views' escape statistics.
     pub fn max_iterations(&self, viewport: &Viewport) -> usize {

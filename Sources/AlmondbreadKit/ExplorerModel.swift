@@ -3,15 +3,17 @@ import Foundation
 import Observation
 import simd
 
-/// Supersampling choices of the inspector (samples per axis; the Rust settings carry the factor).
+/// Anti-aliasing choices of the inspector (samples per axis; the Rust settings carry the
+/// factor). The view accumulates factor² jittered samples progressively while idle.
 public enum Supersampling: Int, CaseIterable, Identifiable, Sendable {
-    case off = 1, x4 = 2, x9 = 3
+    case off = 1, x4 = 2, x9 = 3, x16 = 4
     public var id: Int { rawValue }
     public var label: String {
         switch self {
         case .off: "Off"
-        case .x4: "4× (2×2)"
-        case .x9: "9× (3×3)"
+        case .x4: "4 samples"
+        case .x9: "9 samples"
+        case .x16: "16 samples"
         }
     }
 }
@@ -70,6 +72,21 @@ public final class ExplorerModel {
     public var lightAngle = 45.0 { didSet { push() } }
     public var outline = 0.0 { didSet { push() } }
     public var outlineWidth = 1.5 { didSet { push() } }
+    /// Linear RGB.
+    public var edgeColor = SIMD3<Float>(0, 0, 0) { didSet { push() } }
+    public var specular = 0.0 { didSet { push() } }
+    public var shininess = 24.0 { didSet { push() } }
+    public var lightHeight = 1.0 { didSet { push() } }
+    public var glow = 0.0 { didSet { push() } }
+    /// Linear RGB.
+    public var glowColor = SIMD3<Float>(1, 1, 1) { didSet { push() } }
+    public var glowWidth = 6.0 { didSet { push() } }
+    public var paletteFilter = true { didSet { push() } }
+    /// Palette cycles per second while the view rests (0: off).
+    public var cycleSpeed = 0.0 { didSet { push() } }
+    public var depthTint = 0.0 { didSet { push() } }
+    /// The look last applied (the inspector's picker); edits keep it selected.
+    public var lookID = "aurora"
 
     // Quality
     public var supersampling = Supersampling.off { didSet { push() } }
@@ -99,6 +116,7 @@ public final class ExplorerModel {
     public internal(set) var failure: String?
 
     public static let palettes: [PaletteInfo] = AlmondbreadCore.palettes()
+    public static let looks: [LookInfo] = AlmondbreadCore.looks()
 
     @ObservationIgnored private(set) var explorer: Explorer?
     @ObservationIgnored private weak var host: ExplorerHost?
@@ -134,6 +152,16 @@ public final class ExplorerModel {
         lightAngle = s.lightAngle
         outline = s.outline
         outlineWidth = s.outlineWidth
+        edgeColor = SIMD3(s.edgeRed, s.edgeGreen, s.edgeBlue)
+        specular = s.specular
+        shininess = s.shininess
+        lightHeight = s.lightHeight
+        glow = s.glow
+        glowColor = SIMD3(s.glowRed, s.glowGreen, s.glowBlue)
+        glowWidth = s.glowWidth
+        paletteFilter = s.paletteFilter
+        cycleSpeed = s.cycleSpeed
+        depthTint = s.depthTint
         supersampling = Supersampling(rawValue: Int(s.supersampling)) ?? .off
         interactivePreview = s.interactivePreview
     }
@@ -146,7 +174,19 @@ public final class ExplorerModel {
             logColoring: logColoring, smoothColoring: smoothColoring,
             interiorRed: interiorColor.x, interiorGreen: interiorColor.y, interiorBlue: interiorColor.z,
             shading: shading, lightAngle: lightAngle, outline: outline, outlineWidth: outlineWidth,
+            edgeRed: edgeColor.x, edgeGreen: edgeColor.y, edgeBlue: edgeColor.z,
+            specular: specular, shininess: shininess, lightHeight: lightHeight,
+            glow: glow, glowRed: glowColor.x, glowGreen: glowColor.y, glowBlue: glowColor.z, glowWidth: glowWidth,
+            paletteFilter: paletteFilter, cycleSpeed: cycleSpeed, depthTint: depthTint,
             supersampling: UInt8(supersampling.rawValue), interactivePreview: interactivePreview)
+    }
+
+    /// Applies a look (palette and colouring) in Rust and takes over the result.
+    public func applyLook(_ id: String) {
+        guard let explorer else { return }
+        lookID = id
+        pull(explorer.applyLook(id: id))
+        host?.requestFrames()
     }
 
     private func push() {

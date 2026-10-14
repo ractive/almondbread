@@ -307,7 +307,28 @@ pub struct ExplorerSettings {
     pub light_angle: f64,
     pub outline: f64,
     pub outline_width: f64,
-    /// Samples per axis: 1, 2 or 3.
+    /// Outline (boundary emphasis) colour, linear RGB.
+    pub edge_red: f32,
+    pub edge_green: f32,
+    pub edge_blue: f32,
+    /// Highlight strength 0...1 and Blinn-Phong exponent.
+    pub specular: f64,
+    pub shininess: f64,
+    /// Elevation of the light (0 grazing, larger from the front).
+    pub light_height: f64,
+    /// Glow along the boundary: strength 0...1, linear RGB, width in pixels.
+    pub glow: f64,
+    pub glow_red: f32,
+    pub glow_green: f32,
+    pub glow_blue: f32,
+    pub glow_width: f64,
+    /// Filter the palette by the colour gradient (palette anti-aliasing).
+    pub palette_filter: bool,
+    /// Colour cycling while idle, palette cycles per second (0: off).
+    pub cycle_speed: f64,
+    /// Palette phase shift per decade of zoom (0: off).
+    pub depth_tint: f64,
+    /// Anti-aliasing: samples per axis, 1 to 4 (the view accumulates the square while idle).
     pub supersampling: u8,
     pub interactive_preview: bool,
 }
@@ -331,6 +352,20 @@ impl From<&RenderSettings> for ExplorerSettings {
             light_angle: s.light_angle,
             outline: s.outline,
             outline_width: s.outline_width,
+            edge_red: s.edge_color[0],
+            edge_green: s.edge_color[1],
+            edge_blue: s.edge_color[2],
+            specular: s.specular,
+            shininess: s.shininess,
+            light_height: s.light_height,
+            glow: s.glow,
+            glow_red: s.glow_color[0],
+            glow_green: s.glow_color[1],
+            glow_blue: s.glow_color[2],
+            glow_width: s.glow_width,
+            palette_filter: s.palette_filter,
+            cycle_speed: s.cycle_speed,
+            depth_tint: s.depth_tint,
             supersampling: s.supersampling.factor() as u8,
             interactive_preview: s.interactive_preview,
         }
@@ -350,12 +385,25 @@ impl ExplorerSettings {
             self.light_angle,
             self.outline,
             self.outline_width,
+            self.specular,
+            self.shininess,
+            self.light_height,
+            self.glow,
+            self.glow_width,
+            self.cycle_speed,
+            self.depth_tint,
         ]
         .iter()
         .chain(&[
             self.interior_red as f64,
             self.interior_green as f64,
             self.interior_blue as f64,
+            self.edge_red as f64,
+            self.edge_green as f64,
+            self.edge_blue as f64,
+            self.glow_red as f64,
+            self.glow_green as f64,
+            self.glow_blue as f64,
         ])
         .all(|v| v.is_finite());
         if !finite {
@@ -369,7 +417,7 @@ impl ExplorerSettings {
             return Err(invalid(format!("iteration limits must be in 1...{MAX_ITERATIONS}")));
         }
         let ss = Supersampling::from_factor(self.supersampling as usize)
-            .ok_or_else(|| invalid("supersampling must be 1, 2 or 3"))?;
+            .ok_or_else(|| invalid("supersampling must be 1 to 4"))?;
         s.auto_iterations = self.auto_iterations;
         s.manual_iterations = self.manual_iterations as usize;
         s.max_iterations_cap = self.max_iterations_cap as usize;
@@ -384,6 +432,17 @@ impl ExplorerSettings {
         s.light_angle = self.light_angle;
         s.outline = self.outline.clamp(0.0, 1.0);
         s.outline_width = self.outline_width.max(0.0);
+        let unit = |v: f32| v.clamp(0.0, 1.0);
+        s.edge_color = [unit(self.edge_red), unit(self.edge_green), unit(self.edge_blue)];
+        s.specular = self.specular.clamp(0.0, 1.0);
+        s.shininess = self.shininess.clamp(1.0, 256.0);
+        s.light_height = self.light_height.clamp(0.05, 10.0);
+        s.glow = self.glow.clamp(0.0, 1.0);
+        s.glow_color = [unit(self.glow_red), unit(self.glow_green), unit(self.glow_blue)];
+        s.glow_width = self.glow_width.clamp(0.5, 100.0);
+        s.palette_filter = self.palette_filter;
+        s.cycle_speed = self.cycle_speed.clamp(-2.0, 2.0);
+        s.depth_tint = self.depth_tint.clamp(-1.0, 1.0);
         s.supersampling = ss;
         s.interactive_preview = self.interactive_preview;
         Ok(())
@@ -661,6 +720,16 @@ impl Explorer {
 
     pub fn settings(&self) -> ExplorerSettings {
         ExplorerSettings::from(&self.lock().host.renderer.settings)
+    }
+
+    /// Applies a look (palette and colouring, see `looks()`); returns the new settings for
+    /// the inspector. Unknown ids change nothing.
+    pub fn apply_look(&self, id: String) -> ExplorerSettings {
+        let mut g = self.lock();
+        if let Some(look) = almondbread_core::palette::Look::named(&id) {
+            look.apply(&mut g.host.renderer.settings);
+        }
+        ExplorerSettings::from(&g.host.renderer.settings)
     }
 
     /// Replaces the settings (a frame follows: resume the display link).

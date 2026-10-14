@@ -113,6 +113,13 @@ fn nav_key(name: &str) -> Option<NavKey> {
 /// Settings from a JSON object: the CLI option names (`palette`, `shading`, `outline`,
 /// `density`, `offset`, `log`, `ss`, `iterations`, `interior`) and the colouring fields.
 pub fn apply_json_settings(v: &Value, s: &mut RenderSettings) {
+    if let Some(l) = v
+        .get("look")
+        .and_then(Value::as_str)
+        .and_then(almondbread_core::palette::Look::named)
+    {
+        l.apply(s);
+    }
     let f = |k: &str| v.get(k).and_then(Value::as_f64);
     let b = |k: &str| v.get(k).and_then(Value::as_bool);
     if let Some(p) = v.get("palette").and_then(Value::as_str) {
@@ -420,11 +427,13 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     }
 
     let mut r = Renderer::new(backend.clone())?;
-    // The app's defaults (progressive AA included), then the CLI flags, then the script.
-    let app_ss = r.settings.supersampling;
-    o.apply_settings(&mut r.settings);
-    if !o.has("ss") {
-        r.settings.supersampling = app_ss;
+    // The app's defaults (the default look, progressive AA), then CLI flags, then the script.
+    if o.has("look") || o.has("ss") || o.has("palette") || o.has("iterations") {
+        let app_ss = r.settings.supersampling;
+        o.apply_settings(&mut r.settings);
+        if !o.has("ss") {
+            r.settings.supersampling = app_ss;
+        }
     }
     if let Some(s) = &script.settings {
         apply_json_settings(s, &mut r.settings);
