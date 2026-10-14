@@ -298,3 +298,25 @@ frames. Straight-down dives lose the set: zoom towards an aim point. The "meltin
 saw while diving is σ = 0.1 S: fixed with a σ that is constant within layers of 2 octaves and
 changes in S-driven transitions inside a mist. 118–120 fps presented at 120 Hz. Results in
 [[decisions/landscape-mode]] L1 and [[synthesis/benchmarks]] L1.
+
+## [2026-10-14] research | R3: dense-region sampling
+
+Question: fewer pixel-iterations for the same perceived image in dense boundary regions
+(dense-5e-14, where BLA/AT cannot skip). Literature run (raw notes
+`raw/research/dense-region-sampling/literature.md`; new sources: mathr adaptive supersampling,
+Mitchell 1987, Ultra Fractal AA, XaoS algorithms, Mu-Ency adjacency optimisation, Fractint
+passes, joint bilateral upsampling, SVGF). CPU prototype `prototypes/dense-sampling/`
+(5 × 5 lattice per pixel, CPU port of the default look, OKLab ΔE against an independent
+16-sample reference, scripted pan for flicker; 10 locations; raw runs in
+`raw/research/dense-region-sampling/runs/`). Results: sample-sparse schemes (colour guessing,
+texture fill, sparse + reconstruction) lose fibres and small flowers in dense regions; the
+pixel footprint expands only in the last ~3 % of the orbit, so there is no early stop;
+variance-stopped AA saves little. Local series approximation around quadtree tile seeds and
+pixel seeds (second order, ε = 1e−2) cuts iterations 5.2× (refined frame) and 7.2× (settled
+AA) at the dense view with unchanged error statistics; 1.5–5.6× on other exterior views;
+interior-only Mariani–Silver adds 1.3–1.6× on interior-heavy views with zero wrong pixels.
+Recommendation: local SA in M5 after a float32 kernel check. Pages:
+[[synthesis/dense-region-sampling]], [[techniques/adaptive-sampling]],
+[[techniques/local-series-approximation]], [[questions/local-sa-float32]]; updated
+[[techniques/guessing-and-subdivision]], [[techniques/series-approximation]],
+[[techniques/anti-aliasing]], [[synthesis/benchmarks]] R3, [[index]].

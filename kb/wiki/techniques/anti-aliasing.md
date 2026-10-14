@@ -99,6 +99,15 @@ Built 2026-10-14 (measured M1 Pro, release; [[synthesis/benchmarks]] FL):
   home view 0.42 s from a cold start. Views with long extension passes (the -3/4 neck)
   run their extension budget first and take longer.
 
+## Cheaper AA samples in dense regions (R3)
+
+In dense boundary views nearly every pixel is on the adaptive list, so the settled image costs
+~9× the refined frame (dense-5e-14: 8.94×). Starting each AA sample from its pixel's orbit
+with a local series approximation cuts that to 2.05× (pixel seeds alone) or 1.24× (with
+quadtree tile seeds for the centre samples), with the same error against a converged reference
+([[techniques/local-series-approximation]], [[synthesis/dense-region-sampling]]). Variance-stopped
+AA saved 9–35 % there at a visible noise cost ([[techniques/adaptive-sampling]]).
+
 ## For almondbread
 
 Interactive: one centre sample, then progressive uniform low-discrepancy jitter

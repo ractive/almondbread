@@ -1,0 +1,18 @@
+[package]
+name = "dense-sampling"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "R3 prototype: fewer pixel-iterations in dense boundary regions (adaptive sampling, early termination, reconstruction), measured on CPU"
+
+# Own workspace root so the repository's root workspace does not claim this crate.
+[workspace]
+
+[dependencies]
+almondbread-core = { path = "../../crates/almondbread-core" }
+rayon = "1.10"
+
+[profile.release]
+debug = false
+codegen-units = 1
+lto = "thin"

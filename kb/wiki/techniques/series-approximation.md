@@ -8,6 +8,11 @@ tags: [iteration-skipping, series-approximation, legacy]
 
 # Series approximation (legacy)
 
+> **R3 (2026-10-14):** around the view's reference SA is legacy, but the same expansion around
+> *local* seeds (tile and pixel centres, nested as a quadtree) is what paid in dense boundary
+> regions where BLA cannot: 5× fewer iterations at the dense benchmark view, measured on the
+> CPU. See [[techniques/local-series-approximation]].
+
 Series approximation (SA) skips the first iterations of every pixel at once
 by evaluating a polynomial in `c` whose coefficients come from the
 reference. It was the main acceleration from 2013 to 2021. For the

@@ -1,0 +1,88 @@
+# deep-5e-14  centre -0.7436438870371587 0.13182590420531198  px 1.0800e-13  800x500  maxIter 6000  lattice 4066x2533 (10.3 M samples, 8.5 s CPU wall)
+1 spp: 5.562e8 iterations, 1391 per pixel
+  exterior DE < 0.25 px     41.0% of pixels,  49.1% of iterations
+  exterior DE 0.25-1 px     11.7% of pixels,  11.3% of iterations
+  exterior DE 1-4 px        14.1% of pixels,  12.4% of iterations
+  exterior DE >= 4 px       33.2% of pixels,  27.2% of iterations
+  interior                   0.0% of pixels,   0.0% of iterations
+  unresolved                 0.0% of pixels,   0.0% of iterations
+  footprint cut T=0.001  texture 100.0% of pixels (100.0% of iterations); cut keeps  90.0% of their iterations; all pixels  90.0% of iterations
+  footprint cut T=0.01   texture 100.0% of pixels (100.0% of iterations); cut keeps  93.7% of their iterations; all pixels  93.7% of iterations
+  footprint cut T=0.1    texture 100.0% of pixels (100.0% of iterations); cut keeps  95.8% of their iterations; all pixels  95.8% of iterations
+  footprint cut T=1      texture 100.0% of pixels (100.0% of iterations); cut keeps  97.3% of their iterations; all pixels  97.3% of iterations
+strategy (frame 0)                          iters/1spp samples/px  error vs converged reference                            minibrot px lost
+  reference noise                                  -         -  dE mean  1.51 p95  5.39 p99  7.80 max  19.5 >2  28.9% >5   6.3%  (8 vs 8 samples; the 16-sample reference ≈ 0.7x this)
+  A1: 1 spp centre (refined frame)             1.000     1.000  dE mean  3.40 p95 11.73 p99 16.78 max  36.3 >2  46.4% >5  29.6%  0/0
+  A9: FL adaptive 3x3 AA (settled)             6.826     6.347  dE mean  1.24 p95  4.47 p99  6.44 max  15.9 >2  24.5% >5   3.3%  0/0
+  G: colour guess 8->1, tau 5                  0.796     0.760  dE mean  3.46 p95 11.72 p99 16.82 max  47.9 >2  46.4% >5  29.5%  0/0
+                                                                dE mean  0.15 p95  0.47 p99  1.75 max  51.5 >2   0.9% >5   0.6%  (vs A1)
+  G: colour guess 8->1, tau 10                 0.607     0.594  dE mean  3.54 p95 11.67 p99 17.20 max  52.7 >2  47.3% >5  28.4%  0/0
+                                                                dE mean  1.00 p95  6.47 p99 15.54 max  54.3 >2   9.6% >5   6.0%  (vs A1)
+  M: Mariani-Silver interior fill              1.000     1.000  dE mean  3.40 p95 11.73 p99 16.78 max  36.3 >2  46.4% >5  29.6%  0/0
+                                             filled 0.00% of pixels, 0 of them exterior in A1
+  T: footprint cut T=1e-3, probes 1/16, +AA    0.906     1.000  dE mean  9.65 p95 27.77 p99 37.35 max  60.7 >2  81.8% >5  60.1%  0/0
+  S: sparse g1 DE<0.25 s6 +AA                  2.916     3.070  dE mean  1.57 p95  6.40 p99 12.48 max  35.6 >2  25.9% >5   7.8%  0/0
+                                                                texture 41.0%: dE mean  3.08 p95  9.50 p99 16.16 max  35.6 >2  51.2% >5  17.1%
+                                                                other:         dE mean  0.52 p95  2.79 p99  5.45 max  15.9 >2   8.3% >5   1.3%
+  S: sparse g2 DE<0.1 s6 +AA                   3.242     3.417  dE mean  1.42 p95  5.45 p99 10.95 max  41.9 >2  24.2% >5   5.9%  0/0
+                                                                texture 35.6%: dE mean  2.80 p95  8.51 p99 15.28 max  41.9 >2  47.4% >5  13.8%
+                                                                other:         dE mean  0.66 p95  3.30 p99  5.68 max  15.9 >2  11.4% >5   1.6%
+  S: sparse g2 DE<0.25 s6 +AA                  2.612     2.830  dE mean  1.69 p95  7.02 p99 14.15 max  48.7 >2  26.7% >5   8.7%  0/0
+                                                                texture 42.2%: dE mean  3.34 p95 10.61 p99 18.42 max  48.7 >2  53.1% >5  19.1%
+                                                                other:         dE mean  0.48 p95  2.60 p99  5.25 max  15.9 >2   7.4% >5   1.2%
+  S: sparse g2 DE<0.5 s6 +AA                   2.127     2.353  dE mean  2.21 p95  9.92 p99 18.73 max  49.2 >2  31.1% >5  13.4%  0/0
+                                                                texture 47.4%: dE mean  4.32 p95 13.99 p99 23.16 max  49.2 >2  61.3% >5  27.5%
+                                                                other:         dE mean  0.32 p95  1.68 p99  4.32 max  15.9 >2   3.9% >5   0.7%
+  S: sparse g4 DE<0.1 s6 +AA                   3.224     3.406  dE mean  1.46 p95  5.57 p99 11.69 max  53.2 >2  24.5% >5   6.1%  0/0
+                                                                texture 35.8%: dE mean  2.90 p95  8.92 p99 17.07 max  53.2 >2  47.8% >5  14.3%
+                                                                other:         dE mean  0.66 p95  3.31 p99  5.68 max  15.9 >2  11.4% >5   1.6%
+  S: sparse g4 DE<0.25 s6 +AA                  2.560     2.795  dE mean  1.78 p95  7.37 p99 15.90 max  53.4 >2  27.1% >5   9.2%  0/0
+                                                                texture 42.7%: dE mean  3.54 p95 11.51 p99 21.21 max  53.4 >2  53.7% >5  20.0%
+                                                                other:         dE mean  0.48 p95  2.60 p99  5.23 max  15.9 >2   7.4% >5   1.2%
+  S: sparse g4 DE<0.25 s3 +AA                  2.560     2.795  dE mean  1.84 p95  7.40 p99 15.80 max  54.0 >2  28.8% >5   9.6%  0/0
+                                                                texture 42.7%: dE mean  3.67 p95 11.43 p99 21.09 max  54.0 >2  57.6% >5  21.0%
+                                                                other:         dE mean  0.48 p95  2.60 p99  5.23 max  15.9 >2   7.4% >5   1.2%
+  S: sparse g4 DE<0.5 s6 +AA                   2.050     2.293  dE mean  2.37 p95 10.73 p99 21.06 max  54.0 >2  31.9% >5  14.2%  0/0
+                                                                texture 48.1%: dE mean  4.60 p95 15.24 p99 26.02 max  54.0 >2  62.3% >5  28.7%
+                                                                other:         dE mean  0.30 p95  1.61 p99  4.23 max  14.7 >2   3.7% >5   0.7%
+  S: sparse g8 DE<0.25 s6 +AA                  2.553     2.795  dE mean  1.87 p95  7.67 p99 17.72 max  53.7 >2  27.5% >5   9.5%  0/0
+                                                                texture 42.9%: dE mean  3.73 p95 12.41 p99 24.64 max  53.7 >2  54.2% >5  20.7%
+                                                                other:         dE mean  0.48 p95  2.62 p99  5.27 max  15.9 >2   7.5% >5   1.2%
+  L: AA off pixel orbit eps 0.000000001        6.676     6.347  dE mean  1.24 p95  4.48 p99  6.43 max  15.9 >2  24.5% >5   3.3%  0/0
+                                                                vs exact A9: dE mean  0.29 p95  1.59 p99  2.59 max   8.8 >2   2.5% >5   0.0%  branch at 2.8% of n, escape n differs 11.7%, mean dn -0.0 dDE -0.0000
+  L: AA off pixel orbit eps 0.001              2.947     6.347  dE mean  1.24 p95  4.48 p99  6.44 max  15.3 >2  24.5% >5   3.4%  0/0
+                                                                vs exact A9: dE mean  0.47 p95  2.17 p99  3.42 max   9.3 >2   6.1% >5   0.1%  branch at 73.3% of n, escape n differs 23.4%, mean dn +0.1 dDE -0.0000
+  L: AA off pixel orbit eps 0.01               2.567     6.347  dE mean  1.24 p95  4.48 p99  6.45 max  15.2 >2  24.6% >5   3.4%  0/0
+                                                                vs exact A9: dE mean  0.47 p95  2.16 p99  3.42 max   9.4 >2   6.1% >5   0.1%  branch at 80.3% of n, escape n differs 23.4%, mean dn +0.0 dDE -0.0000
+  L: tile 4x4 eps 0.001                        0.327     1.000  dE mean  3.40 p95 11.73 p99 16.76 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.13 p99 15.15 max  18.5 >2  10.6% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.1 dDE -0.0000
+  L: tile 8x8 eps 0.001                        0.293     1.000  dE mean  3.39 p95 11.72 p99 16.79 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.11 p99 15.15 max  18.5 >2  10.6% >5   6.7%  branch at 77.5% of n, escape n differs 15.6%, mean dn -0.2 dDE +0.0000
+  L: tile 16x16 eps 0.001                      0.285     1.000  dE mean  3.40 p95 11.75 p99 16.81 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.11 p99 15.16 max  18.5 >2  10.5% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.0 dDE -0.0000
+  L: tile 16x16 eps 0.01                       0.285     1.000  dE mean  3.40 p95 11.75 p99 16.81 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.11 p99 15.16 max  18.5 >2  10.5% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.0 dDE -0.0000
+  L: tile 32x32 eps 0.01                       0.283     1.000  dE mean  3.40 p95 11.73 p99 16.77 max  36.1 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.17 p99 15.11 max  18.5 >2  10.6% >5   6.7%  branch at 77.5% of n, escape n differs 15.7%, mean dn -0.0 dDE -0.0000
+  Q: quadtree 16 eps 0.01                      0.245     1.000  dE mean  3.40 p95 11.73 p99 16.81 max  36.3 >2  46.3% >5  29.5%  0/0
+                                                                vs exact A1: dE mean  0.90 p95  7.07 p99 15.14 max  18.5 >2  10.6% >5   6.7%  pixel branch at 82.7% of n, escape n differs 15.6%, seed-mode iterations 3.8%
+  Q: quadtree 32 eps 0.01                      0.243     1.000  dE mean  3.40 p95 11.73 p99 16.78 max  36.1 >2  46.3% >5  29.6%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.12 p99 15.14 max  18.5 >2  10.6% >5   6.7%  pixel branch at 82.7% of n, escape n differs 15.7%, seed-mode iterations 3.0%
+  Q: quadtree 64 eps 0.01                      0.242     1.000  dE mean  3.40 p95 11.73 p99 16.79 max  36.3 >2  46.3% >5  29.6%  0/0
+                                                                vs exact A1: dE mean  0.90 p95  7.05 p99 15.12 max  18.5 >2  10.5% >5   6.6%  pixel branch at 82.7% of n, escape n differs 15.6%, seed-mode iterations 2.8%
+  Q: quadtree 32 eps 0.001                     0.283     1.000  dE mean  3.40 p95 11.73 p99 16.76 max  36.1 >2  46.3% >5  29.6%  0/0
+                                                                vs exact A1: dE mean  0.91 p95  7.12 p99 15.14 max  18.5 >2  10.6% >5   6.7%  pixel branch at 77.5% of n, escape n differs 15.7%, seed-mode iterations 0.3%
+  Q: quadtree 32 eps 0.01 +AA                  1.811     6.347  dE mean  1.23 p95  4.48 p99  6.45 max  15.3 >2  24.5% >5   3.3%  0/0
+                                                                vs exact A9: dE mean  0.50 p95  2.29 p99  3.59 max  10.3 >2   6.9% >5   0.1%  pixel branch at 82.7% of n, escape n differs 15.7%, seed-mode iterations 1.7%
+  N: tile 16 -> pixel -> AA, eps 0.01          1.853     6.347  dE mean  1.24 p95  4.49 p99  6.47 max  14.8 >2  24.5% >5   3.4%  0/0
+                                                                vs exact A9: dE mean  0.50 p95  2.28 p99  3.56 max   8.6 >2   6.9% >5   0.1%  centre escape n differs 15.7%, seed-mode iterations 3.0%
+motion (12 frames, pan (1.2, 0.6) px/frame; errors over frames 3..)   iters/A1  dE mean  dE p99  flicker
+  converged reference                                            NaN     0.00    0.00    1.80
+  A1 point samples                                             1.000     3.39   16.74    4.57
+  A1 + temporal accumulation (cap 6)                           1.000     2.41   12.92    0.96
+  S g1 DE<0.25 (texture fill only)                             1.000     2.00   15.18    2.64
+  S g1 + temporal accumulation                                 1.000     2.49   13.38    0.61
+  S g4 DE<0.25                                                 0.792     2.14   17.07    2.64
+  S g4 + temporal accumulation                                 0.792     2.59   14.61    0.60
+  Q quadtree 32 eps 1e-2, 1 spp                                0.243     3.39   16.72    4.57
+  Q quadtree 32 + temporal accumulation                        0.243     2.42   12.95    0.96

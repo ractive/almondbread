@@ -31,6 +31,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/fractalshades-readme]] — The README of Fractalshades (GitHub `GBillotey/Fractalshades`, MIT, pushed 2026-08-30), a Python package for deep-zoom fractal rendering with a... (digested)
 - [[sources/fractalshark-readme]] — The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, pushed 2026-10-12): a Mandelbrot-only deep-zoom renderer for NVIDIA... (digested)
 - [[sources/fractalzoomer-readme]] — The short README of Fractal Zoomer (GitHub `hrkalona/Fractal-Zoomer`, GPL-3.0, pushed 2026-10-13), a Java fractal program with hundreds of formulas. (digested)
+- [[sources/fractint-passes-help]] — Fractint/Xfractint help on drawing passes: solid guessing, boundary tracing, tesseral (Mariani–Silver) and their failure modes (digested)
 - [[sources/fraktaler-3-site]] — The manual of Fraktaler 3 version 3.1 (2025-12-15): a cross-platform (Linux, Windows, Android, Web) renderer for "fast deep zooming of hybrid... (digested)
 - [[sources/frax-app-store]] — App Store listing and reviews of Frax: free + $4.99 Pro, 232 US ratings, ~2e14 cap, complaints about depth, video and gyroscope (skimmed)
 - [[sources/frax-help-explore]] — Frax help page: the 64-bit limit (~2e14) is "absolute and final"; image sizes per tier (skimmed)
@@ -43,9 +44,11 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/imagina-readme]] — The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast fractal renderer & explorer". (digested)
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
+- [[sources/kopf-2007-joint-bilateral-upsampling]] — Kopf et al. 2007: upsample a low-resolution solution with a full-resolution guide image; needs a cheap guide whose edges match (digested)
 - [[sources/luma-gl-gpu-precision]] — A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than f32 precision on GPUs: double-single (float-float),... (digested)
 - [[sources/mandelbrot-metal-app-store]] — App Store listing of Mandelbrot Metal: GPU perturbation, progressive, subscription since v3.0 ($2.99/mo, $19.99/yr, $39.99 lifetime) (skimmed)
 - [[sources/mandelbrot-site]] — How mandelbrot.site was built: Rust/Wasm tiles, perturbation, share links, PNG with params, video recording (skimmed)
+- [[sources/mathr-adaptive-supersampling-de]] — mathr 2014: supersample only pixels with DE < 4 px; on a dense view no better than uniform supersampling (digested)
 - [[sources/mathr-deep-zoom-page]] — mathr's maintained deep-zoom reference page as used in Fraktaler 3: perturbation, rebasing, BLA build/lookup, matrix and abs BLA, DE, interior detection (digested)
 - [[sources/mathr-deep-zoom-theory]] — Blog post (14 May 2021) by the maintainer of Kalles Fraktaler 2+ summarising the state of deep-zoom rendering as implemented in KF just before... (digested)
 - [[sources/mathr-deep-zoom-theory-again]] — Short follow-up blog post (21 Feb 2022) explaining Zhuoran's two 2021 ideas from fractalforums.org: rebasing and bilinear approximation (BLA),... (digested)
@@ -53,7 +56,9 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/maths-town-kfmoviemaker-guide]] — KF Movie Maker guide: KF keyframes into paid After Effects; weeks of export, manual keyframes, crashes (skimmed)
 - [[sources/maths-town-videos]] — Maths Town video catalogue and archived descriptions: depths to 4e2656, render times of weeks to months (skimmed)
 - [[sources/metal-benchmarks-readme]] — Philip Turner's long README describing the M1/M2 (Apple GPU families 7 and 8) GPU from his own microbenchmarks: per-chip FLOPS, on-chip memory,... (digested)
+- [[sources/mitchell-1987-adaptive-sampling]] — Mitchell 1987: low-density blue-noise sampling plus contrast-driven supersampling and reconstruction filters (digested)
 - [[sources/mlx-watchdog-issue]] — A GitHub issue in Apple's MLX machine-learning framework, opened 24 March 2026 by user Thump604, titled "GPU watchdog kills process during... (digested)
+- [[sources/muency-adjacency-optimization]] — Mu-Ency on adjacency optimisations: successive refinement, Mariani/Silver, circle tiling, and where each misses features (digested)
 - [[sources/muency-atom-domain]] — Glossary entry (oldest revision 1996, updated 2023-07-08) defining atom domains (dominant period regions), their computation and their size... (digested)
 - [[sources/muency-bla]] — Glossary entry in Robert Munafo's Mandelbrot Set Glossary and Encyclopedia (first version 2023-06-20, rewritten 2023-07-03, page updated... (digested)
 - [[sources/muency-floatexp]] — Very short glossary entry (2023-06-21) defining the floatexp number format. (digested)
@@ -61,6 +66,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
 - [[sources/quilez-smooth-iteration]] — Short article by Inigo Quilez deriving the smooth (continuous) iteration count for polynomial fractals of any integer degree `d`, with a GLSL... (digested)
 - [[sources/revenuecat-subscription-apps-2026]] — RevenueCat 2026 benchmarks: hard paywall 10.7% vs freemium 2.1% conversion, 72% annual churn (skimmed)
+- [[sources/schied-2017-svgf]] — Schied et al. 2017 (SVGF): temporal accumulation plus variance-guided à-trous filtering of 1 spp path tracing (digested)
 - [[sources/steam-hardware-survey-sept-2026]] — Steam survey Sept 2026 via GamingOnLinux: Windows 95.03%, Linux 3.05%, macOS 1.92% (skimmed)
 - [[sources/steamworks-leaderboards]] — Steamworks leaderboards: 10k boards per app, 64 detail ints, ghost replays via AttachLeaderboardUGC, Trusted writes need a server (skimmed)
 - [[sources/steamworks-onboarding]] — Steamworks onboarding: $100 app fee, 10–15 business-day verification, 21/30-day wait, two-week Coming Soon, 1–5 day reviews (skimmed)
@@ -68,6 +74,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/steamworks-steam-deck-compat]] — Steam Deck compatibility criteria: controller defaults, 9 px text at 1280×800, 30 fps, native Linux tested before Proton (skimmed)
 - [[sources/swift-mandelbrot-readme]] — The README of a SwiftUI + Metal Mandelbrot explorer for iPhone, iPad and Mac. (digested)
 - [[sources/thall-extended-precision]] — Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, expanding a SIGGRAPH 2006 poster. (digested)
+- [[sources/ultrafractal-antialiasing]] — Ultra Fractal help on anti-aliasing (adaptive threshold, depth) and guessing vs linear drawing (digested)
 - [[sources/ultrafractal-perturbation-calculations]] — A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal program) on how its perturbation mode works and how to tune it. (digested)
 - [[sources/ultrafractal-perturbation-equations]] — The Ultra Fractal formula-writer's guide to deriving a perturbed formula and adding it to a user formula, using Mandelbrot as the worked example. (digested)
 - [[sources/uniffi-user-guide]] — Mozilla's guide to UniFFI: proc-macro interfaces, objects/records/errors, library-mode bindgen, Swift output and XCFramework packaging (skimmed)
@@ -78,11 +85,13 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/wikibooks-triangle-inequality]] — Wikibooks page on averaging colouring methods, in particular Kerry Mitchell's Triangle Inequality Average (TIA) and the curvature average. (unread)
 - [[sources/wikipedia-plotting-algorithms]] — Encyclopedia survey of classic Mandelbrot rendering: escape time, colouring (histogram, smooth, exponential/cyclic, HSV/LCH), distance estimates,... (digested)
 - [[sources/wikipedia-xaos]] — Encyclopedia article on XaoS, the GPL real-time fractal zoomer by Jan Hubička and Thomas Marsh, mainly notable here for describing the Hubička... (digested)
+- [[sources/xaos-algorithms]] — XaoS algorithms document: frame reuse, line guessing, dynamic resolution, periodicity checking only after guessing (digested)
 - [[sources/xaos-readme]] — The README of XaoS (GNU XaoS), a real-time interactive fractal zoomer in development since 1996. (digested)
 - [[sources/zoomasm]] — manual of zoomasm 3.4 (2025), the exponential-map strip reprojector and colouring tool for zoom videos (digested)
 
 ## Techniques
 
+- [[techniques/adaptive-sampling]] — adaptive/sparse sampling, reconstruction and early termination; R3 measured: none pays in dense regions except cheaper samples
 - [[techniques/anti-aliasing]] — uniform jitter and subframe accumulation, gamma-correct resolve, DE coverage; as built (FL): progressive adaptive AA in linear light, capped by the supersampling setting
 - [[techniques/auto-iterations]] — KF's undocumented auto iterations and zoom-out bug, Fraktaler caps, statistics + hysteresis rule (inference)
 - [[techniques/bla]] — mathr's binary-tree BLA: single-step radius variants, merge rule, table build and lookup pseudocode, matrix/abs variants, costs; contradictions on the radius
@@ -96,6 +105,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); tile scheme for all-interior borders only
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
 - [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
+- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3: 5.2× fewer iterations at the dense view (CPU), same image statistics
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/rebasing]] — Zhuoran's rebase rule (|Z+z| < |z| or reference exhausted → z = Z+z, m = 0); one reference per critical point/phase; float32 pitfalls
 - [[techniques/reference-orbit-precision]] — bits vs zoom rule, cost per iteration, MT3 threading, GPU NTT verdict, storage, Imagina orbit compression; our implementation and measured error growth
@@ -151,7 +161,6 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 ## Questions
 
-- [[questions/record-zoom-live-feasibility]] — can a world-record zoom be played live without post-processing? (open; estimate: yes to ~1e1000–1e3000 along a known path)
 - [[questions/apple-gpu-denormals]] — do Apple GPUs flush float32 subnormals?
 - [[questions/auto-iteration-heuristic]] — which auto-maxIter rule to use
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
@@ -161,15 +170,18 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over 1e5–1e9 iterations; test plan
 - [[questions/higher-order-bla]] — second-order BLA: 21× reported vs "nothing adopted" (contradiction)
 - [[questions/kf-bla-support]] — does KF2+ have BLA? (contradiction: KF page vs Mu-Ency)
+- [[questions/local-sa-float32]] — does local series approximation hold in the float32 perturbation kernel, and does the gain survive on the GPU? (open)
 - [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal
 - [[questions/metal-watchdog-limit]] — exact watchdog threshold on macOS and iOS
 - [[questions/perturbation-convergent-formulas]] — perturbation/rebasing for Nova, Newton, magnet (contradiction)
 - [[questions/precision-bits-formula]] — reference bits vs zoom; working rule
+- [[questions/record-zoom-live-feasibility]] — can a world-record zoom be played live without post-processing? (open; estimate: yes to ~1e1000–1e3000 along a known path)
 - [[questions/reference-orbit-compression]] — how Imagina/FractalShark compress orbits (answered from Imagina source; FractalShark part open)
 
 ## Synthesis
 
+- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity, M2.5 and FL interaction numbers, L1 landscape frame pacing
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
+- [[synthesis/dense-region-sampling]] — R3: fewer pixel-iterations in dense boundary regions; per-location numbers, recommendation (local SA in M5, interior-only tile fill), scheduler design, risks
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
-- [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity, M2.5 and FL interaction numbers, L1 landscape frame pacing

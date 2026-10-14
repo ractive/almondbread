@@ -1161,6 +1161,312 @@
       "wiki": [
         "sources/fractalforums-interior-detection"
       ]
+    },
+    {
+      "path": "research/dense-region-sampling/literature.md",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "Research notes: dense-region sampling literature",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 32757,
+      "sha256": "d150a3b08401cc2fac47323fad202cec6821b8b9de1320f781f665483d52fb9d",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling",
+        "techniques/adaptive-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/experiments.md",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "Research notes: dense-region sampling experiments",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 5733,
+      "sha256": "b95f0982023ca44ebad35f935b548e96b3b794a160fa458772b49c3d5ef36412",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling",
+        "techniques/local-series-approximation"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/deep-5e-14.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: deep-5e-14",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12242,
+      "sha256": "d761dc310dc1a194eb3acf8e2fbf44fc665345d8e9c2a077cc0cc671fd6422ac",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/dense-5e-14.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: dense-5e-14",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12245,
+      "sha256": "c675c96b54a7a23044262fa3603bd76c5a50385147c77d97f746a785bd4df27b",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/elephant.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: elephant",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12393,
+      "sha256": "f88bb6acc6d8b83efce0b82134792e6693a89d3d0bac765dc774f5bbaba3bd41",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/feigenbaum.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: feigenbaum",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12660,
+      "sha256": "b8fd20256d4db9b42af2f8e1ccb71429c38577e7a6f712ea858c5074b0683481",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/filament-1e6.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: filament-1e6",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12206,
+      "sha256": "b1889fdbab3c0534f0738425515942d82ae88c1588c5b680a262a7874c3490c7",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/minibrot-p4.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: minibrot-p4",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12726,
+      "sha256": "28f756fc04a1195274f5602113fa398c3cc3f1e42ff4fce690130218891fabc2",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/minibrots-5e-12.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: minibrots-5e-12",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12271,
+      "sha256": "647ac80e4355df634da66b656abf1b4e4f5e8ee7888d0846fa4bd3dcb9c8e4c6",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/neck-2e5.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: neck-2e5",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12257,
+      "sha256": "b233eb92e6379baff4d4df7bf3cc185b74aff6aa5c51fcfb0fa07286fc94f828",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/root-third.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: root-third",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12524,
+      "sha256": "65f23fbcb28fff68273a793dded4df990d222ab2af6e5d045a4f2231c73e5dfd",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/seahorse-1e5.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: seahorse-1e5",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 12313,
+      "sha256": "a537985bff9188c13aa177c8d2ff53987b964b9fe0359a67f54e1dc579203c0b",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-deep-5e-14.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-deep-5e-14",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6887,
+      "sha256": "c92d56cfb5be2d5912223cdc95502bf9b692a3180e5ded298afc1b08c75095ae",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-dense-5e-14.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-dense-5e-14",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6889,
+      "sha256": "c7955a01809aa880d7b041546d738725d1973fe4f0a67280fbf4d8bf2084ef5b",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-elephant.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-elephant",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6967,
+      "sha256": "4fa46cdf04fe9258a3272c1b1a9275ef73fcf41ff8dea36e5e7c8b307d8db2e0",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-filament-1e6.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-filament-1e6",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6850,
+      "sha256": "fe6f9ec39a18617f6ba1595a29ae2a82d1ed5ce19798799e12615077a0b94970",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-minibrots-5e-12.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-minibrots-5e-12",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6904,
+      "sha256": "ad71fd364f77dca614d425b833da3aa183e4ba3a346956486dc612f08c5cb29c",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-neck-2e5.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-neck-2e5",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6890,
+      "sha256": "3fc8da2fe129dd71a4bf200feb7bf0144a2b5093b677fe7b0e50fb50f9352e2f",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
+    },
+    {
+      "path": "research/dense-region-sampling/runs/variance-seahorse-1e5.txt",
+      "method": "manual",
+      "instructions": "Research notes and prototype outputs written 2026-10-14 for R3 (dense-region sampling); kept in the repository, no external copy. Run outputs are reproducible with prototypes/dense-sampling/run-all.sh.",
+      "title": "R3 prototype output: variance-seahorse-1e5",
+      "authors": [
+        "Claude (R3 research run)"
+      ],
+      "year": 2026,
+      "size": 6924,
+      "sha256": "6bfd12cb6e135723bad9ca7e05671d7da87aa7620d96275814553f7e520f63cf",
+      "terms": "own work",
+      "wiki": [
+        "synthesis/dense-region-sampling"
+      ]
     }
   ]
 }
