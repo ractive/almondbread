@@ -205,3 +205,20 @@ orders it back, a bare path argument suppresses the SwiftUI window. Pages:
 [[decisions/arbitrary-precision]], [[techniques/reference-orbit-precision]],
 [[techniques/reference-selection]], [[platform/mpfr-gmp-on-apple-silicon]],
 [[platform/metal-compute]].
+
+## [2026-10-14] research | Fractal games and Steam
+
+Deep-research run on turning almondbread into a game and shipping a Steam edition. Notes in
+`raw/research/fractal-games-and-steam/` (fractal and maths games, Steam publishing, Steam tech
+stack); report [[synthesis/fractal-games-and-steam]]. Findings: no commercial deep-zoom
+Mandelbrot game exists; Fractal Block World is the only fractal hit (1,652 reviews) and fractal
+tools stall at 20–30 reviews; mechanics ranked daily challenge > atlas with discoverer naming >
+depth missions > journey mode > canyon racing; Steam costs $100 but wishlists decide the
+outcome (Bronze ~5k); Steamworks covers leaderboards and ghosts, the atlas needs an own
+backend; no engine: wgpu + winit + steamworks-rs, Metal kept on Apple, new crates
+`almondbread-wgpu`, `-game`, `-platform`, `-steam`, `-app`. New sources:
+[[sources/fractal-block-world-steam]], [[sources/steamworks-onboarding]],
+[[sources/steamworks-leaderboards]], [[sources/steamworks-steam-deck-compat]],
+[[sources/steam-hardware-survey-sept-2026]], [[sources/gamediscoverco-wishlist-conversion]],
+[[sources/htmag-benchmarks]], [[sources/wgpu-changelog-v30]], [[sources/steamworks-rs]],
+[[sources/bevy-0-20-release-notes]]. Research outcome added to [[decisions/gamification]].

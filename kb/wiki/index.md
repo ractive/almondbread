@@ -19,8 +19,10 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
+- [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
 - [[sources/cheritat-mandelbrot-rendering]] — Rendering-techniques page by Arnaud Chéritat, a complex-dynamics mathematician (Toulouse), on "Techniques for computer generated pictures in... (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
+- [[sources/fractal-block-world-steam]] — Steam page and reviews of Fractal Block World: 1,652 reviews, 98% positive, 50k–100k owners; the only fractal game with traction (skimmed)
 - [[sources/fractal-dive-app-store]] — App Store listing of Fractal Dive (2026-09): perturbation to 4e331, Dive autopilot, free links, $1.99 Pro with 4K dive video; closest competitor (skimmed)
 - [[sources/fractalforums-interior-detection]] — Archived single-page thread started by GBy (fractalshades author) on 25 June 2022: interior detection via the derivative `dz/dZ_1` combined with... (digested)
 - [[sources/fractalforums-mandel-machine]] — Legacy fractalforums.com board for Mandel Machine, a closed-source freeware deep-zoom Mandelbrot renderer by Botond Kósa. (unread)
@@ -31,9 +33,11 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/fraktaler-3-site]] — The manual of Fraktaler 3 version 3.1 (2025-12-15): a cross-platform (Linux, Windows, Android, Web) renderer for "fast deep zooming of hybrid... (digested)
 - [[sources/frax-app-store]] — App Store listing and reviews of Frax: free + $4.99 Pro, 232 US ratings, ~2e14 cap, complaints about depth, video and gyroscope (skimmed)
 - [[sources/frax-help-explore]] — Frax help page: the 64-bit limit (~2e14) is "absolute and final"; image sizes per tier (skimmed)
+- [[sources/gamediscoverco-wishlist-conversion]] — GameDiscoverCo (Nov 2025): median first-week sales 0.10–0.15× wishlists, order-of-magnitude spread, user score matters (skimmed)
 - [[sources/gmp-fixed-size-mul]] — A gmp-devel reply by Albin Ahlbäck, 5 April 2024, in the thread "How to calculate cycles/limb in assembly routines". (digested)
 - [[sources/gmp-m1-discuss]] — A mailing-list post, "Surprise performance from Apple M1", by GMP's lead developer, 21 November 2020, after the project bought an M1 Mac mini. (digested)
 - [[sources/hn-mandelbrot-site-thread]] — HN thread on mandelbrot.site (2025, 86 points): "zoom forever", jerky zoom, iteration scaling, URL sharing (skimmed)
+- [[sources/htmag-benchmarks]] — How To Market A Game benchmarks: wishlists at launch per tier (Bronze 5k, Silver 8k), weekly wishlist bands, Next Fest tiers (skimmed)
 - [[sources/imagina-hinfla-evaluator]] — The main Mandelbrot evaluator of Imagina (pre-rewrite `master`, last pushed 2024-01-23), by Zhuoran, the originator of rebasing and of this "LA"... (skimmed)
 - [[sources/imagina-readme]] — The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast fractal renderer & explorer". (digested)
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
@@ -56,12 +60,18 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
 - [[sources/quilez-smooth-iteration]] — Short article by Inigo Quilez deriving the smooth (continuous) iteration count for polynomial fractals of any integer degree `d`, with a GLSL... (digested)
 - [[sources/revenuecat-subscription-apps-2026]] — RevenueCat 2026 benchmarks: hard paywall 10.7% vs freemium 2.1% conversion, 72% annual churn (skimmed)
+- [[sources/steam-hardware-survey-sept-2026]] — Steam survey Sept 2026 via GamingOnLinux: Windows 95.03%, Linux 3.05%, macOS 1.92% (skimmed)
+- [[sources/steamworks-leaderboards]] — Steamworks leaderboards: 10k boards per app, 64 detail ints, ghost replays via AttachLeaderboardUGC, Trusted writes need a server (skimmed)
+- [[sources/steamworks-onboarding]] — Steamworks onboarding: $100 app fee, 10–15 business-day verification, 21/30-day wait, two-week Coming Soon, 1–5 day reviews (skimmed)
+- [[sources/steamworks-rs]] — steamworks-rs 0.13.1: Rust bindings for Steamworks SDK 1.64 (UserStats, UGC, RemoteStorage, Input, Timeline), dynamic steam_api (skimmed)
+- [[sources/steamworks-steam-deck-compat]] — Steam Deck compatibility criteria: controller defaults, 9 px text at 1280×800, 30 fps, native Linux tested before Proton (skimmed)
 - [[sources/swift-mandelbrot-readme]] — The README of a SwiftUI + Metal Mandelbrot explorer for iPhone, iPad and Mac. (digested)
 - [[sources/thall-extended-precision]] — Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, expanding a SIGGRAPH 2006 poster. (digested)
 - [[sources/ultrafractal-perturbation-calculations]] — A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal program) on how its perturbation mode works and how to tune it. (digested)
 - [[sources/ultrafractal-perturbation-equations]] — The Ultra Fractal formula-writer's guide to deriving a perturbed formula and adding it to a user formula, using Mandelbrot as the worked example. (digested)
 - [[sources/uniffi-user-guide]] — Mozilla's guide to UniFFI: proc-macro interfaces, objects/records/errors, library-mode bindgen, Swift output and XCFramework packaging (skimmed)
 - [[sources/very-plotter-readme]] — The short README of Phil Thompson's GitHub repository `visualize-primes`, which hosts Very Plotter, a browser (JavaScript) Mandelbrot explorer... (digested)
+- [[sources/wgpu-changelog-v30]] — wgpu CHANGELOG v27–v30 and Features docs: subgroups, indirect dispatch, timestamps, immediates, passthrough shaders; no Metal fast-math control (skimmed)
 - [[sources/wikibooks-fraktaler-3]] — Wikibooks page (part of Adam Majewski's "Fractals" book) about Fraktaler 3: usage notes and examples, including the metadata found in Fraktaler 3... (unread)
 - [[sources/wikibooks-mandelbrot-interior]] — Wikibooks chapter (Adam Majewski's "Fractals" book) on the interior of the Mandelbrot set: how to detect interior points and how to colour them. (unread)
 - [[sources/wikibooks-triangle-inequality]] — Wikibooks page on averaging colouring methods, in particular Kerry Mitchell's Triangle Inequality Average (TIA) and the curvature average. (unread)
@@ -159,4 +169,5 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
+- [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
 - [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity
