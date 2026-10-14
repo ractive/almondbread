@@ -8,7 +8,7 @@ use std::time::Instant;
 use almondbread_core::cfmt::g;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::PAN_SPEED;
-use almondbread_core::locations::BENCHMARK_LOCATIONS;
+use almondbread_core::locations::{Location, all_locations};
 use almondbread_core::oracle::{IterationField, VerifyReport, compare, cpu_render, cpu_render_deep};
 use almondbread_core::reference::DEEP_SCALE;
 use almondbread_core::settings::Supersampling;
@@ -407,12 +407,16 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
     println!("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|");
     let mut verify_rows = Vec::new();
     let mut false_interior = Vec::new();
-    for loc in BENCHMARK_LOCATIONS {
-        if only.as_ref().is_some_and(|o| !o.contains(&loc.name)) {
+    let deep = o.get("deep") != Some("0");
+    for loc in all_locations() {
+        if only.as_ref().is_some_and(|o| !o.contains(&loc.name())) {
             continue;
         }
-        r.settings.manual_iterations = loc.max_iterations;
-        r.settings.max_iterations_cap = r.settings.max_iterations_cap.max(loc.max_iterations);
+        if !deep && matches!(loc, Location::Deep(_)) {
+            continue;
+        }
+        r.settings.manual_iterations = loc.max_iterations();
+        r.settings.max_iterations_cap = r.settings.max_iterations_cap.max(loc.max_iterations());
         for &(w, h) in &sizes {
             r.viewport = loc.viewport_for_width(w);
             // Warm-up builds the reference orbit and textures; then best of `repeats`.
@@ -431,7 +435,7 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
                 px_iter += if t[0] >= 0.0 {
                     t[0] as f64
                 } else {
-                    loc.max_iterations as f64
+                    loc.max_iterations() as f64
                 };
             }
             let done = if res.iterations_done > 0 {
@@ -448,10 +452,10 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
             let (ref_time, _) = r.reference_info();
             println!(
                 "| {} | {}x{} | {} | {:.1} | {:.1} | {} | {} | {} | {:.1} | {:.2} |",
-                loc.name,
+                loc.name(),
                 w,
                 h,
-                loc.max_iterations,
+                loc.max_iterations(),
                 gpu_ms,
                 wall_ms,
                 res.chunks,
@@ -461,9 +465,9 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
                 ref_time * 1000.0
             );
             if let Some(dir) = out_dir {
-                write_png_bgra(format!("{dir}/{}-{w}.png", loc.name), &res.pixels, w, h)?;
+                write_png_bgra(format!("{dir}/{}-{w}.png", loc.name()), &res.pixels, w, h)?;
                 if let Some(t) = &res.iterations {
-                    IterationField::from_texels(t.len() / h, h, t).write(format!("{dir}/{}-{w}.iter", loc.name))?;
+                    IterationField::from_texels(t.len() / h, h, t).write(format!("{dir}/{}-{w}.iter", loc.name()))?;
                 }
             }
         }
@@ -474,11 +478,11 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
             let m = &v.report;
             // Exterior painted as interior is a bug, not float noise.
             if m.false_interior_pct() > 0.02 {
-                false_interior.push(format!("{} {:.3}%", loc.name, m.false_interior_pct()));
+                false_interior.push(format!("{} {:.3}%", loc.name(), m.false_interior_pct()));
             }
             verify_rows.push(format!(
                 "| {} | {}x{} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} | {} | {:.3} | {:.1} | {:.1} |",
-                loc.name,
+                loc.name(),
                 w,
                 h,
                 m.escape_differs_pct(),
@@ -493,8 +497,8 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
                 m.pct(m.detected_interior)
             ));
             if let Some(dir) = out_dir {
-                write_png_bgra(format!("{dir}/{}-diff.png", loc.name), &v.heatmap, w, h)?;
-                v.gpu.write(format!("{dir}/{}-verify.iter", loc.name))?;
+                write_png_bgra(format!("{dir}/{}-diff.png", loc.name()), &v.heatmap, w, h)?;
+                v.gpu.write(format!("{dir}/{}-verify.iter", loc.name()))?;
             }
         }
     }
