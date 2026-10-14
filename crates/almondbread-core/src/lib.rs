@@ -22,7 +22,7 @@ pub mod reference;
 pub mod settings;
 pub mod viewport;
 
-pub use input::{InputEvent, NavKey, Navigator};
+pub use input::{EdgePan, InputEvent, InputMode, NavKey, Navigator};
 pub use locations::{BENCHMARK_LOCATIONS, BenchmarkLocation};
 pub use oracle::{IterationField, VerifyReport};
 pub use palette::Palette;

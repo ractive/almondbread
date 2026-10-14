@@ -421,3 +421,68 @@ Findings:
 - **Occluded test windows measure nothing.** With the window fully covered, presented
   handlers report no times for either renderer (12 such rounds discarded). The test now
   places its rearmost window in the screen corner and warns when nothing was presented.
+
+## M2.5: pointer and keyboard modes, 2026-10-14
+
+`--interaction-test` at **120 Hz** (the display now runs ProMotion; the R2b set above
+was 60 Hz), 2560×1640 px, M1 Pro, release. Three interleaved rounds of the Swift renderer
+(de0aa8e), Rust HEAD before M2.5 (b8fba3c) and M2.5, plus two final M2.5 rounds after the
+FFI fix below. Medians; latency p50; full-resolution final frame after input stops (ms,
+per round):
+
+| scenario | fps Swift / Rust / M2.5 | latency p50 ms Swift / Rust / M2.5 | final frame ms Swift / Rust / M2.5 |
+|---|---|---|---|
+| home pan | 116 / 113 / 111 | 33–40 / 32.7 / 32.7 | 153–183 / 158–183 / 158–183 |
+| neck zoom | 83 (56–93) / 76 / 76 | 41–58 / 49.4 / 49.4 | 354, 354, 625 / 342–350 / 342–357 |
+| wasd 1e5 | 105 / 102 / 102–104 | 36.6–44.9 / 24.5 / 24.5 | 192–214 / 183–192 / 176–192 |
+| space zoom (+E) | 86 (66–106) / 80 / 80 | 28–50 / 32.8 / 32.8 | 192–473 / 467–483 / 458–467 |
+| home zoom | 115 / 109 / 109–111 | 33–58 / 32.7 / 32.7 | 154–180 / 158 / 158 |
+| 1e5 pan | 117 / 116 / 114 | 39–50 / 32.7 / 32.7 | 196–245 / 200–208 / 200–208 |
+| 1e5 zoom | 117 / 105 / 103 | 32.8 / 32.8 / 32.8 | 196 / 200 / 200 |
+| limit zoom | 110 / 110 / 108–109 | 33–40 / 32.8 / 32.8 | 354 / 350–367 / 350–367 |
+| pointer space (new) | — / — / 94–96 | 24.5 | 183–200 |
+| keyboard glide (new) | — / — / 92–94 | 24.5 | 192–208 |
+| edge pan (new; 0.5 s idle by design) | — / — / 76–78 | 24.5 | 175–221 |
+
+New checks (all rounds identical):
+
+- **Fixed point:** Space held 2.5 s in pointer mode with the pointer at (380, −200) pt
+  (×146 zoom from 1e5): the coordinate under the pointer moved **0 px**. Keyboard mode
+  after the glide, 2 s at the centre: 0 px. Criterion < 1 px per second.
+- **Glide:** crosshair from (380, −200) pt to the centre: 1 % left after **267 ms** (design
+  265 ms), snapped onto the centre after 508 ms, no overshoot, distance monotonic.
+- **Edge pan:** pointer 8 pt inside the right edge: **0.381 view widths/s** while Space is
+  held (expected 0.4 × smoothstep = 0.381), no motion in the 0.5 s before Space ("while
+  zooming"), 0.00 pt after the pointer left the window.
+- Shown frame vs fresh render: 0.000 % in all 22 checks of the final rounds.
+
+Findings:
+
+- **M2.5 costs nothing per frame** once the overlay state is scalars: fps, latency and
+  final frames match Rust HEAD within noise. A first version returned a UniFFI record
+  from `frame` (mode + crosshair): FFI overhead per frame rose from 1.7–3 µs to 11–18 µs
+  in the window (windowless core-check 0.18 → 1.64 µs), since records are serialised
+  through a heap buffer on every call. Now `frame` returns bit flags and the crosshair
+  position is two scalar calls made only in keyboard mode: 1.7–2.8 µs again (core-check
+  0.12 µs).
+- **Idle `frame` calls no longer re-present.** Rust HEAD re-coloured and presented the
+  unchanged final image on every call while the link ran (core-check idle frame 0.198 ms
+  inside Rust); now 0.1 µs. It matters for the crosshair glide, which keeps the link
+  running over an idle image.
+- **Motion from rest started with a jump** (fixed): the first frame after a key press
+  from idle integrated up to 0.1 s (the dt cap) from the last frame before the link
+  paused, i.e. 4 % of the view width for a pan key. The measured glide was 175 ms to 1 %
+  and edge pan 6 % fast until the navigator integrated from the event's time. The WASD
+  scenario now moves 0.821 instead of 0.851 view widths.
+- **R2b's "final frame 10–25 ms later" and limit-zoom latency do not reproduce at
+  120 Hz.** Final frames are at parity or earlier (neck 342–357 vs Swift 354/354/625; Swift
+  bimodal in Space zoom 192–473), limit-zoom latency 32.8 ms vs Swift 33–40. Both
+  renderers poll chunk completion once per refresh and wait for a harvest before the next
+  level starts (identical code paths); with no reproducible gap there was no scheduling
+  fix to make.
+- **Open: gesture fps on heavy zooms at 120 Hz.** Swift reaches more frames in 1e5 zoom
+  (117 vs 103–105) and neck zoom (83 vs 76, Swift varying 56–93); Rust skips 12–21
+  refreshes as "no drawable" in 1e5 zoom where Swift skips none. Latency is equal or
+  better in Rust. Likely the drawable-pool prediction of [[platform/render-architecture]]
+  (presented callbacks lag a refresh, 8 ms here) is conservative at 120 Hz; not part of
+  M2.5, see [[roadmap]] FL.

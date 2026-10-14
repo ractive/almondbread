@@ -12,6 +12,7 @@ struct InspectorView: View {
             lightingSection
             qualitySection
             viewSection
+            navigationSection
             helpSection
         }
         .formStyle(.grouped)
@@ -166,30 +167,57 @@ struct InspectorView: View {
         }
     }
 
+    // MARK: Navigation
+
+    private var navigationSection: some View {
+        Section {
+            Picker("Edge panning", selection: $model.edgePanning) {
+                ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
+            }
+        } header: {
+            Label("Navigation", systemImage: "move.3d")
+        } footer: {
+            Text("With the pointer near an edge of the image, the view also pans towards that edge, faster closer to it. "
+                 + "\"While zooming\" pans only while Space is held, so reaching for the inspector or the Dock never moves the image.")
+        }
+    }
+
     // MARK: Help
 
     private var helpSection: some View {
         Section {
             #if os(macOS)
+            helpRow("scope", "Move the mouse", "Pointer mode: zoom at the cursor")
+            helpRow("keyboard", "Hold W A S D / arrows", "Pan; keyboard mode: zoom at the centre")
+            helpRow("space", "Hold Space / ⇧Space", "Zoom in / out at the crosshair")
+            helpRow("arrow.up.left.and.arrow.down.right", "Pinch, ⌘/⌥-scroll or wheel", "Zoom at the crosshair")
+            helpRow("plus.magnifyingglass", "+  −", "Zoom step at the crosshair")
             helpRow("hand.draw", "Two-finger scroll or drag", "Pan")
-            helpRow("arrow.up.left.and.arrow.down.right", "Pinch, ⌘/⌥-scroll or wheel", "Zoom at cursor")
-            helpRow("cursorarrow.click.2", "Double-click / ⌥ double-click", "Zoom in / out")
-            helpRow("keyboard", "Hold W A S D / arrows", "Pan (diagonals too)")
-            helpRow("space", "Hold Space / ⇧Space", "Zoom in at cursor / out")
+            helpRow("cursorarrow.click.2", "Double-click / ⌥ double-click", "Zoom in / out there")
+            helpRow("arrow.up.and.down.and.arrow.left.and.right", "Pointer at an edge", "Pan that way (while zooming)")
             helpRow("gauge.with.dots.needle.33percent", "Q / E", "Zoom speed − / + (\(Format.speed(model.zoomFactorPerSecond)))")
-            helpRow("plus.magnifyingglass", "+  −", "Zoom step")
             helpRow("arrow.counterclockwise", "R or ⌘0", "Reset view")
             helpRow("sidebar.trailing", "⌘I", "Toggle inspector")
             #else
             helpRow("hand.draw", "Drag", "Pan")
-            helpRow("arrow.up.left.and.arrow.down.right", "Pinch", "Zoom and pan")
+            helpRow("arrow.up.left.and.arrow.down.right", "Pinch", "Zoom at the fingers, and pan")
             helpRow("hand.tap", "Double tap", "Zoom in")
             helpRow("hand.tap", "Two-finger tap", "Zoom out")
-            helpRow("keyboard", "Keyboard: W A S D / arrows", "Pan")
+            helpRow("scope", "Trackpad or mouse pointer", "Zoom at the pointer")
+            helpRow("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
             helpRow("space", "Keyboard: Space / ⇧Space, Q / E", "Zoom, zoom speed")
             #endif
         } header: {
             Label("Controls", systemImage: "questionmark.circle")
+        } footer: {
+            #if os(macOS)
+            Text("Every zoom goes towards the crosshair and keeps the point under it in place. Moving the mouse makes the cursor "
+                 + "the crosshair; W A S D or the arrows hide the cursor and show a crosshair that glides to the centre. "
+                 + "Q, E and Space alone do not switch.")
+            #else
+            Text("Every zoom keeps the point under the fingers, the pointer or the crosshair in place. W A S D or the arrows show "
+                 + "a crosshair that glides to the centre; moving the pointer switches back.")
+            #endif
         }
     }
 

@@ -123,6 +123,8 @@ struct HUDView: View {
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .allowsHitTesting(false)
+        // The canvas shows the arrow cursor over the HUD and treats it as off-canvas.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.hudFrame = $0 }
         .accessibilityElement(children: .combine)
         .onChange(of: model.zoomSpeedChanged) {
             speedHighlight = true

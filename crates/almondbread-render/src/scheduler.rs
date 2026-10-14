@@ -417,6 +417,9 @@ pub struct Renderer<B: GpuBackend> {
     pub last_final_frame: (f64, String),
     /// Colorize submissions that failed on the GPU (a drawable left unpainted).
     pub failed_frames: usize,
+    /// Settings of the last committed frame (an idle refresh with the same job and settings
+    /// has nothing new to show, e.g. while only the keyboard crosshair glides).
+    presented_settings: Option<RenderSettings>,
     interior_stats: Option<InteriorStats>,
     pinned_iterations: Option<(Viewport, usize)>,
     epoch: Instant,
@@ -483,6 +486,7 @@ impl<B: GpuBackend> Renderer<B> {
             last_frame_commit: 0.0,
             last_final_frame: (0.0, String::new()),
             failed_frames: 0,
+            presented_settings: None,
             interior_stats: None,
             pinned_iterations: None,
             epoch: Instant::now(),
@@ -649,10 +653,15 @@ impl<B: GpuBackend> Renderer<B> {
         // While refining, hold the previous image for a moment until the first level is
         // complete, so cheap views appear finished in one step. Gesture frames always show.
         let job = self.job.as_ref().expect("job");
-        let present = (job.interactive && (!job.presented || !job.done()))
-            || !self.has_presented
-            || job.levels[0].complete
-            || now - job.start > 0.15;
+        let unchanged = job.final_presented
+            && !job.interactive
+            && job.key == key
+            && self.presented_settings.as_ref() == Some(&self.settings);
+        let present = !unchanged
+            && ((job.interactive && (!job.presented || !job.done()))
+                || !self.has_presented
+                || job.levels[0].complete
+                || now - job.start > 0.15);
         // The refined frame (first presentation of a complete, non-gesture job) may wait for
         // a target; every other frame takes one only if it is free (see `render_frame`).
         let final_frame = !job.interactive && job.complete() && !job.complete_presented;
@@ -672,6 +681,9 @@ impl<B: GpuBackend> Renderer<B> {
                 self.frames_in_flight.push(sub);
                 self.last_frame_commit = now;
                 self.has_presented = true;
+                if self.presented_settings.as_ref() != Some(&self.settings) {
+                    self.presented_settings = Some(self.settings.clone());
+                }
                 outcome.presented = true;
                 let job = self.job.as_mut().expect("job");
                 job.presented = true;

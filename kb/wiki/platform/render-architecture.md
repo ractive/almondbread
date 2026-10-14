@@ -159,10 +159,11 @@ FractalNSView / FractalUIView
   layout / backing change  -- resize(w pt, h pt, scale) --> contentsScale, drawableSize,
                                                         Navigator Resize, first fit of home
   display link (NSView.displayLink /
-  CADisplayLink), proxy target  -- frame(timestamp) -> animating --> pool -> Host::frame:
+  CADisplayLink), proxy target  -- frame(timestamp) -> bits --> pool -> Host::frame:
                                                         Navigator::advance, render_frame_gated,
-                                                        present; false: Swift pauses the link
-  key monitor, gestures, pointer  -- input(InputEvent) -> {handled, redraw} --> Navigator
+                                                        present; !animating: Swift pauses the
+                                                        link; keyboard bit: crosshairX/Y()
+  key monitor, gestures, pointer  -- input(InputEvent) -> {handled, redraw, mode} --> Navigator
 ExplorerModel (@Observable)  -- setSettings(record) on change; stats() at ~10 Hz -->
 ```
 
@@ -175,12 +176,17 @@ ExplorerModel (@Observable)  -- setSettings(record) on change; stats() at ~10 Hz
    last vsync, up to a refresh in the past, and scheduling on it started refinement a
    refresh late (+15 ms to the final frame). When `frame` returns false the link pauses;
    any `input` whose result says `redraw`, a settings change or a resize resumes it.
-   Pointer moves and Shift do not.
+   Shift and pointer moves do not, unless the move switches the input mode or starts edge
+   panning. The result's bits also carry the input mode; in keyboard mode Swift reads the
+   crosshair's position with two scalar calls and applies it to a Core Animation overlay layer right after the call (M2.5,
+   [[decisions/controls]] As built). An idle refresh whose job is finally presented with
+   unchanged settings presents nothing (before M2.5 every `frame` call re-coloured and
+   re-presented the same image; the crosshair glide would have done so ~60 times).
 3. **Events.** Swift decodes only: key codes and characters to `NavKey` (WASD/arrows,
    Space, Q/E, +/−, R) through the window-local monitor (inspector focus keeps working,
    handled keys are swallowed), `FocusLost` on resign-key or first-responder loss,
-   pointer moves through a tracking area (zoom target of Space), scroll/magnify/wheel,
-   double-click, iOS pinch/pan/taps and hardware keys. Positions are points from the view
+   pointer moves through a tracking area (the HUD counts as off-canvas), safe-area insets,
+   scroll/magnify/wheel, double-click, iOS pinch/pan/taps, iPad hover and hardware keys. Positions are points from the view
    centre, y up. Speeds, zoom target, idle timing and the precision clamp are Rust's.
 4. **Settings and HUD.** `ExplorerModel` mirrors the settings record for SwiftUI bindings
    and forwards every change (`setSettings`). It reads `stats()` at ~10 Hz while the link

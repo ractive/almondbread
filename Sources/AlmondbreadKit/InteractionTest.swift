@@ -74,6 +74,119 @@ final class InteractionTest: NSObject {
         }
         // The -3/4 neck of the wedge report (zoom 2.2e5): wheel-like zoom in and out.
         let neck = View(re: "-0.7500016386523336", im: "-0.0021073424656852589", scale: 1.69263e-8)
+
+        // Controls revision (kb: decisions/controls): the zoom target's fixed point, the
+        // keyboard crosshair's glide and edge panning, driven per refresh like the keys above.
+        let target = (x: 380.0, y: -200.0)
+        var c0: (re: Double, im: Double)?
+        var zoomStart = 0.0
+        // Pointer mode, pointer off-centre, Space held 2.5 s: the coordinate under the
+        // pointer must stay put (< 1 px per second of zooming).
+        let pointerSpace: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                sent.removeAll()
+                v.send(.pointer(x: target.x, y: target.y))
+                c0 = InteractionTest.point(v, target.x, target.y)
+                zoomStart = CACurrentMediaTime()
+                InteractionTest.key(v, " ", down: true)
+            }
+            once("up", t >= 2.5) {
+                InteractionTest.key(v, " ", down: false)
+                self.checkDrift("pointer space", v, c0, target.x, target.y, seconds: CACurrentMediaTime() - zoomStart,
+                                note: String(format: "pointer at (%.0f, %.0f) pt, mode %@", target.x, target.y,
+                                             "\(v.base.mode)"))
+            }
+        }
+        // From pointer mode, D tapped for 0.1 s while Space is held: keyboard mode, the
+        // crosshair glides from the pointer to the centre (no overshoot, ~0.27 s to 1 %), the
+        // zoom follows it; after arrival the centre must stay put.
+        var glide = (start: 0.0, last: 0.0, pct1: Double?.none, arrived: Double?.none, overshoot: false, monotonic: true)
+        let keyboardGlide: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                sent.removeAll()
+                v.send(.pointer(x: target.x, y: target.y))
+                c0 = nil
+                InteractionTest.key(v, " ", down: true)
+                InteractionTest.key(v, "d", down: true)
+                let d0 = hypot(target.x, target.y)
+                glide = (CACurrentMediaTime(), d0, nil, nil, false, true)
+            }
+            if let f = v.base.lastFrame, f.keyboard {
+                let d = hypot(f.x, f.y)
+                if d > glide.last + 1e-9 { glide.monotonic = false }
+                // Started at (+x, −y): crossing either axis would be an overshoot.
+                if f.x < -1e-9 || f.y > 1e-9 { glide.overshoot = true }
+                glide.last = d
+                let now = CACurrentMediaTime() - glide.start
+                if glide.pct1 == nil && d < 0.01 * hypot(target.x, target.y) { glide.pct1 = now }
+                if glide.arrived == nil && d == 0 {
+                    glide.arrived = now
+                    c0 = InteractionTest.point(v, 0, 0)
+                    zoomStart = CACurrentMediaTime()
+                }
+            }
+            once("dup", t >= 0.1) { InteractionTest.key(v, "d", down: false) }
+            once("up", t >= 2.5) {
+                InteractionTest.key(v, " ", down: false)
+                let ok = !glide.overshoot && glide.monotonic && (glide.pct1 ?? 1) <= 0.35 && glide.arrived != nil
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "keyboard glide: mode %@, crosshair from (%.0f, %.0f) pt: 1 %% after %.0f ms, at the centre after %.0f ms, overshoot %@, monotonic %@ %@",
+                                               "\(v.base.mode)", target.x, target.y, (glide.pct1 ?? .nan) * 1000,
+                                               (glide.arrived ?? .nan) * 1000, glide.overshoot ? "YES" : "no",
+                                               glide.monotonic ? "yes" : "NO", ok ? "OK" : "FAILED"))
+                self.checkDrift("keyboard glide", v, c0, 0, 0, seconds: CACurrentMediaTime() - zoomStart,
+                                note: "centre after arrival")
+            }
+        }
+        // Pointer mode, pointer 8 pt inside the right edge: no pan without a zoom (setting
+        // "while zooming"), then Space: the view pans right at the ramped key speed; the
+        // pointer leaves the window at 2 s: the pan stops, the zoom goes on.
+        var edge = (prev: ViewportInfo?.none, start: ViewportInfo?.none, pan: 0.0, panAfterExit: 0.0, idleMoved: false,
+                    x: 0.0, expected: 0.0, panStart: 0.0, panSeconds: 0.0)
+        let edgePan: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                let ins = v.safeAreaInsets
+                let w = v.bounds.width - ins.left - ins.right, h = v.bounds.height - ins.top - ins.bottom
+                let band = 0.08 * Double(min(w, h))
+                let x = Double(v.bounds.width / 2 - ins.right) - 8
+                let r = max(0, min(1, 1 - 8 / band))
+                edge = (nil, explorer.viewport(), 0, 0, false, x, 0.4 * r * r * (3 - 2 * r), 0, 0)
+                v.send(.pointer(x: x, y: -100))
+            }
+            let vp = explorer.viewport()
+            if t < 0.5 {
+                if vp != edge.start { edge.idleMoved = true }
+                return
+            }
+            once("space", true) {
+                InteractionTest.key(v, " ", down: true)
+                edge.prev = vp
+                edge.panStart = CACurrentMediaTime()
+            }
+            // Pan of this step in points: the centre's move minus what zooming at the target
+            // alone moves it (the pan is applied before the zoom, at the previous scale).
+            if let p = edge.prev, let re = Double(vp.re), let pre = Double(p.re) {
+                let tx = sent.contains("exit") ? 0 : edge.x
+                let pan = (re - (pre + tx * (p.scale - vp.scale))) / p.scale
+                if sent.contains("exit") { edge.panAfterExit += pan } else { edge.pan += pan }
+            }
+            edge.prev = vp
+            once("exit", t >= 2.0) {
+                v.send(.pointerExited)
+                edge.panSeconds = CACurrentMediaTime() - edge.panStart
+            }
+            once("up", t >= 2.5) {
+                InteractionTest.key(v, " ", down: false)
+                let rate = edge.pan / max(edge.panSeconds, 1e-3) / Double(v.bounds.width)
+                let ok = !edge.idleMoved && abs(rate - edge.expected) <= 0.1 * edge.expected && abs(edge.panAfterExit) < 1
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "edge pan: pointer %.0f pt right of centre: %.3f view widths/s while zooming (expected %.3f), moved without zoom %@, %.2f pt after the pointer left %@",
+                                               edge.x, rate, edge.expected, edge.idleMoved ? "YES" : "no",
+                                               edge.panAfterExit, ok ? "OK" : "FAILED"))
+            }
+        }
         return [Scenario(name: "home pan", viewport: home, input: pan),
                 Scenario(name: "neck zoom", viewport: neck, input: zoom),
                 Scenario(name: "wasd 1e5", viewport: sea, input: wasd),
@@ -81,8 +194,38 @@ final class InteractionTest: NSObject {
                 Scenario(name: "home zoom", viewport: home, input: zoom),
                 Scenario(name: "1e5 pan", viewport: sea, input: pan),
                 Scenario(name: "1e5 zoom", viewport: sea, input: zoom),
-                Scenario(name: "limit zoom", viewport: limit, input: deep)]
+                Scenario(name: "limit zoom", viewport: limit, input: deep),
+                Scenario(name: "pointer space", viewport: sea, input: pointerSpace),
+                Scenario(name: "keyboard glide", viewport: sea, input: keyboardGlide),
+                Scenario(name: "edge pan", viewport: sea, input: edgePan)]
     }()
+
+    /// The complex coordinate at (x, y) view points from the centre.
+    static func point(_ v: FractalNSView, _ x: Double, _ y: Double) -> (re: Double, im: Double)? {
+        guard let vp = v.explorer?.viewport(), let re = Double(vp.re), let im = Double(vp.im) else { return nil }
+        return (re + x * vp.scale, im + y * vp.scale)
+    }
+
+    /// The fixed-point property of the zoom target: how far the coordinate that was under
+    /// (x, y) moved on screen, in pixels per second of zooming (must be < 1).
+    private func checkDrift(_ name: String, _ v: FractalNSView, _ c0: (re: Double, im: Double)?, _ x: Double, _ y: Double,
+                            seconds: Double, note: String) {
+        guard let c0, let c1 = Self.point(v, x, y), let vp = v.explorer?.viewport(), seconds > 0.2 else {
+            failures += 1
+            refineLines.append("\(name): fixed point not measured (\(note)) FAILED")
+            return
+        }
+        let px = hypot(c1.re - c0.re, c1.im - c0.im) / vp.scale * Double(v.window?.backingScaleFactor ?? 2)
+        let rate = px / seconds
+        let ok = rate < 1
+        if !ok { failures += 1 }
+        refineLines.append(String(format: "%@: zoom target drift %.2g px over %.2f s of zooming (%.2g px/s, ×%.3g zoom; %@) %@",
+                                  name, px, seconds, rate, startScale(name) / vp.scale, note, ok ? "OK" : "FAILED"))
+    }
+
+    private func startScale(_ name: String) -> Double {
+        scenarios.first { $0.name == name }?.viewport.scale ?? .nan
+    }
 
     func attach(view: FractalNSView) {
         // ALMONDBREAD_SCENARIOS="home zoom,1e5 pan" runs a subset.
@@ -133,8 +276,14 @@ final class InteractionTest: NSObject {
             print("interaction-test: \(scenarios[scenario].name): \(error)")
             exit(1)
         }
-        // The real pointer may be anywhere; Space zooms around the centre here.
+        // Every scenario starts in pointer mode with the pointer off the canvas (the real
+        // pointer is ignored during the test): zooms go to the centre unless a scenario
+        // moves the synthetic pointer. Pointer travel switches back from keyboard mode.
         view.send(.pointerExited)
+        view.send(.pointer(x: 0, y: 0))
+        view.send(.pointer(x: 50, y: 0))
+        view.send(.pointerExited)
+        explorer.setEdgePan(mode: .whileZooming)
         view.requestFrames()
         settling = true
         reported = false

@@ -136,8 +136,10 @@ Apple targets; it wraps the platform-neutral `Host` of [[platform/render-archite
 | --- | --- |
 | `Explorer(layer: u64, scale)` | the `CAMetalLayer`'s address, passed once (`Unmanaged.passUnretained(layer).toOpaque()`); Rust retains and configures it, creates device, queue, pipelines |
 | `resize(width, height, scale)` | view size in points, backing scale; sets `contentsScale` and the drawable size; the first size fits the home view |
-| `frame(timestamp) -> Bool` | one per display refresh (the display link's timestamp); false: pause the link |
-| `input(InputEvent) -> InputResult {handled, redraw}` | decoded events (`KeyDown/KeyUp(NavKey)`, `Shift`, `FocusLost`, `Pointer`, `PointerExited`, `Pan`, `WheelZoom`, `Magnify`, `Pinch`, `DoubleTap`); `handled`: swallow it, `redraw`: resume the link. Non-finite coordinates are rejected |
+| `frame(timestamp) -> UInt8` | one per display refresh (the display link's timestamp); bit 1 clear: pause the link; bit 2: keyboard mode (M2.5, [[decisions/controls]]). Bits, not a record: a record is serialised through a heap buffer per call (11–18 µs per frame in the window vs 2–3 µs, [[synthesis/benchmarks]] M2.5) |
+| `crosshairX()`, `crosshairY()` | the keyboard crosshair after the last `frame` (points from the centre, y up); called only in keyboard mode |
+| `input(InputEvent) -> InputResult {handled, redraw, mode}` | decoded events (`KeyDown/KeyUp(NavKey)`, `Shift`, `FocusLost`, `Insets`, `Pointer`, `PointerExited`, `Pan`, `WheelZoom`, `Magnify`, `Pinch`, `DoubleTap`, `ZoomBy`); `handled`: swallow it, `redraw`: resume the link, `mode`: pointer or keyboard after the event. Non-finite coordinates are rejected |
+| `setEdgePan(EdgePan)`, `edgePan()` | edge-panning setting (off / while zooming / always) |
 | `settings()`, `setSettings(ExplorerSettings)` | the inspector's settings as one record (validated; the learned iteration floor is kept) |
 | `stats() -> ExplorerStats` | HUD values: shown view, limit, GPU time, chunks, size, preview/refining, reference, zoom speed, held keys, settled, failed frames |
 | `viewport()`, `setViewport(re, im, scale)`, `resetViewport()`, `coordinatesText()` | centre as decimal strings (M3b-ready) |

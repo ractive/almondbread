@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use almondbread_core::cfmt::g;
 use almondbread_core::image::write_png_bgra;
-use almondbread_core::input::{self, NavKey as CoreNavKey};
+use almondbread_core::input::{self, EdgePan as CoreEdgePan, InputMode as CoreInputMode, NavKey as CoreNavKey};
 use almondbread_core::settings::{RenderSettings, Supersampling};
 use almondbread_core::viewport::{Center, Viewport};
 use almondbread_render::metal::{MetalBackend, MetalLayerSurface, PresentationLog, media_time};
@@ -40,13 +40,13 @@ pub enum NavKey {
     Left,
     /// D / right arrow
     Right,
-    /// Space: continuous zoom toward the pointer (with Shift: out).
+    /// Space: continuous zoom toward the zoom target (with Shift: out).
     Zoom,
     /// Q: zoom speed x0.8.
     SlowerZoom,
     /// E: zoom speed x1.25.
     FasterZoom,
-    /// + / =: one step in (x1.5) around the centre.
+    /// + / =: one step in (x1.5) at the zoom target.
     StepIn,
     /// - / _: one step out.
     StepOut,
@@ -71,6 +71,52 @@ impl From<NavKey> for CoreNavKey {
     }
 }
 
+/// Which input was used last (kb: decisions/controls, revision): pointer mode shows the
+/// system crosshair cursor over the canvas, keyboard mode hides it and draws the overlay
+/// crosshair at `crosshair_x()`, `crosshair_y()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InputMode {
+    Pointer,
+    Keyboard,
+}
+
+impl From<CoreInputMode> for InputMode {
+    fn from(m: CoreInputMode) -> Self {
+        match m {
+            CoreInputMode::Pointer => Self::Pointer,
+            CoreInputMode::Keyboard => Self::Keyboard,
+        }
+    }
+}
+
+/// Edge panning setting (pointer mode): off, while a continuous zoom runs, or always.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EdgePan {
+    Off,
+    WhileZooming,
+    Always,
+}
+
+impl From<EdgePan> for CoreEdgePan {
+    fn from(e: EdgePan) -> Self {
+        match e {
+            EdgePan::Off => Self::Off,
+            EdgePan::WhileZooming => Self::WhileZooming,
+            EdgePan::Always => Self::Always,
+        }
+    }
+}
+
+impl From<CoreEdgePan> for EdgePan {
+    fn from(e: CoreEdgePan) -> Self {
+        match e {
+            CoreEdgePan::Off => Self::Off,
+            CoreEdgePan::WhileZooming => Self::WhileZooming,
+            CoreEdgePan::Always => Self::Always,
+        }
+    }
+}
+
 /// Decoded platform events. Positions are view points from the view centre, y up.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
 pub enum InputEvent {
@@ -86,25 +132,35 @@ pub enum InputEvent {
     },
     /// Key window / first responder lost: key-ups may never arrive, so stop everything.
     FocusLost,
-    /// Pointer position (zoom target of Space).
+    /// Parts of the view covered by window chrome (safe-area insets), in points.
+    Insets {
+        top: f64,
+        left: f64,
+        bottom: f64,
+        right: f64,
+    },
+    /// Pointer position (mouse, trackpad, iPad pointer): the zoom target in pointer mode;
+    /// travel switches from keyboard to pointer mode.
     Pointer {
         x: f64,
         y: f64,
     },
-    /// The pointer left the view (Space zooms around the centre).
+    /// The pointer left the canvas (or is over the HUD): zooms go to the centre, edge
+    /// panning stops.
     PointerExited,
     /// Content follows a drag / trackpad scroll / one-finger pan.
     Pan {
         dx: f64,
         dy: f64,
     },
-    /// Mouse wheel notch or zoom scroll: zoom by 1.15^delta around (x, y).
+    /// Mouse wheel notch or zoom scroll: zoom by 1.15^delta at the zoom target ((x, y) in
+    /// pointer mode).
     WheelZoom {
         delta: f64,
         x: f64,
         y: f64,
     },
-    /// Trackpad pinch: zoom by 1 + magnification around (x, y).
+    /// Trackpad pinch: zoom by 1 + magnification at the zoom target ((x, y) in pointer mode).
     Magnify {
         magnification: f64,
         x: f64,
@@ -118,11 +174,15 @@ pub enum InputEvent {
         dx: f64,
         dy: f64,
     },
-    /// Double click / tap: zoom x2 (out: x0.5) around (x, y).
+    /// Double click / tap: zoom x2 (out: x0.5) at (x, y); switches to pointer mode.
     DoubleTap {
         x: f64,
         y: f64,
         out: bool,
+    },
+    /// Zoom by `factor` at the zoom target (menu commands).
+    ZoomBy {
+        factor: f64,
     },
 }
 
@@ -136,6 +196,17 @@ impl InputEvent {
             Self::KeyUp { key } => E::KeyUp(key.into()),
             Self::Shift { down } => E::Shift(down),
             Self::FocusLost => E::FocusLost,
+            Self::Insets {
+                top,
+                left,
+                bottom,
+                right,
+            } if ok(&[top, left, bottom, right]) => E::Insets {
+                top,
+                left,
+                bottom,
+                right,
+            },
             Self::Pointer { x, y } if ok(&[x, y]) => E::Pointer(Some((x, y))),
             Self::PointerExited => E::Pointer(None),
             Self::Pan { dx, dy } if ok(&[dx, dy]) => E::Pan { dx, dy },
@@ -147,6 +218,7 @@ impl InputEvent {
                 E::Pinch { ratio, x, y, dx, dy }
             }
             Self::DoubleTap { x, y, out } if ok(&[x, y]) => E::DoubleTap { x, y, out },
+            Self::ZoomBy { factor } if ok(&[factor]) && factor > 0.0 => E::ZoomBy { factor },
             _ => return None,
         })
     }
@@ -159,7 +231,17 @@ pub struct InputResult {
     pub handled: bool,
     /// The view needs frames: resume the display link.
     pub redraw: bool,
+    /// The input mode after the event (pointer moves below the switch threshold keep
+    /// keyboard mode: the platform keeps the cursor hidden).
+    pub mode: InputMode,
 }
+
+/// Bits of `Explorer::frame`'s result: keep the display link running (when clear, pause it
+/// until an `input` asks for frames).
+pub const FRAME_ANIMATING: u8 = 1;
+/// Keyboard mode: hide the cursor, draw the overlay crosshair at
+/// (`crosshair_x()`, `crosshair_y()`).
+pub const FRAME_KEYBOARD: u8 = 2;
 
 /// Everything that affects the image except the viewport (the inspector's model).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -466,13 +548,17 @@ impl Explorer {
     }
 
     /// One display refresh at `timestamp` (the display link's, `CACurrentMediaTime` clock;
-    /// Rust uses the current time if that is later): integrates held keys, schedules GPU
-    /// work, presents. Returns whether the display link
-    /// should keep running; when false, pause it until the next `input` asks for frames.
-    pub fn frame(&self, timestamp: f64) -> bool {
+    /// Rust uses the current time if that is later): integrates held keys, edge panning and
+    /// the crosshair glide, schedules GPU work, presents. Returns whether the display link
+    /// should keep running (bit 1: `FRAME_ANIMATING`; when clear, pause it until the next
+    /// `input` asks for frames) and the input mode (bit 2: `FRAME_KEYBOARD`: show the
+    /// crosshair at `crosshair_x()`, `crosshair_y()`). Bits rather than a record: a UniFFI
+    /// record is serialised through a heap buffer on every call (measured M2.5: 11–18 µs
+    /// per frame in the window instead of 2–3 µs).
+    pub fn frame(&self, timestamp: f64) -> u8 {
         let mut g = self.lock();
         let Inner { host, surface, log } = &mut *g;
-        MetalBackend::pool(|| {
+        let animating = MetalBackend::pool(|| {
             if let Some(log) = log {
                 let shown: Vec<(u64, f64)> = log.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
                 for (tag, t) in shown {
@@ -490,21 +576,45 @@ impl Explorer {
                     .map(|target| (target, surface.last_tag()))
             })
             .animating
-        })
+        });
+        let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
+        (u8::from(animating) * FRAME_ANIMATING) | (u8::from(keyboard) * FRAME_KEYBOARD)
+    }
+
+    /// The keyboard crosshair's position as of the last `frame`, view points from the centre
+    /// (y up); 0 in pointer mode. It glides to the centre; the zoom follows it.
+    pub fn crosshair_x(&self) -> f64 {
+        self.lock().host.renderer.navigator.crosshair().map_or(0.0, |c| c.0)
+    }
+
+    pub fn crosshair_y(&self) -> f64 {
+        self.lock().host.renderer.navigator.crosshair().map_or(0.0, |c| c.1)
+    }
+
+    /// Edge panning (pointer mode): off, while zooming (default) or always.
+    pub fn set_edge_pan(&self, mode: EdgePan) {
+        self.lock().host.renderer.navigator.set_edge_pan(mode.into());
+    }
+
+    pub fn edge_pan(&self) -> EdgePan {
+        self.lock().host.renderer.navigator.edge_pan().into()
     }
 
     /// Forwards a decoded event. `handled`: swallow it; `redraw`: resume the display link.
     pub fn input(&self, event: InputEvent) -> InputResult {
+        let mut g = self.lock();
         let Some(e) = event.to_core() else {
             return InputResult {
                 handled: false,
                 redraw: false,
+                mode: g.host.renderer.navigator.mode().into(),
             };
         };
-        let o = self.lock().host.input(e, media_time());
+        let o = g.host.input(e, media_time());
         InputResult {
             handled: o.handled,
             redraw: o.redraw,
+            mode: g.host.renderer.navigator.mode().into(),
         }
     }
 

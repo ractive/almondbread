@@ -130,6 +130,7 @@ impl<B: GpuBackend> Host<B> {
     pub fn input(&mut self, event: InputEvent, now: f64) -> InputOutcome {
         let before = self.renderer.viewport.clone();
         let interaction = self.renderer.navigator.last_interaction;
+        let mode = self.renderer.navigator.mode();
         let handled = self.renderer.handle_input(event, now);
         if self.renderer.navigator.last_interaction != interaction
             && let Some(m) = &mut self.measure
@@ -137,9 +138,13 @@ impl<B: GpuBackend> Host<B> {
             m.pending_input.get_or_insert(now);
         }
         let moved = self.renderer.viewport != before;
+        // A mode change needs a frame too: the platform updates cursor and crosshair from
+        // the frame's overlay state; edge panning may start on a pointer move.
+        let nav = &self.renderer.navigator;
         let redraw = handled
             && (moved
-                || self.renderer.navigator.is_moving()
+                || nav.is_animating()
+                || nav.mode() != mode
                 || matches!(event, InputEvent::KeyDown(_) | InputEvent::Resize { .. }));
         InputOutcome { handled, redraw }
     }

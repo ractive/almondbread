@@ -222,3 +222,20 @@ backend; no engine: wgpu + winit + steamworks-rs, Metal kept on Apple, new crate
 [[sources/steam-hardware-survey-sept-2026]], [[sources/gamediscoverco-wishlist-conversion]],
 [[sources/htmag-benchmarks]], [[sources/wgpu-changelog-v30]], [[sources/steamworks-rs]],
 [[sources/bevy-0-20-release-notes]]. Research outcome added to [[decisions/gamification]].
+
+## [2026-10-14] decision | M2.5: pointer and keyboard modes, crosshair zoom target
+
+Implemented the controls revision ([[decisions/controls]], As built). The Rust core's `Navigator` owns
+the input mode (pointer mode by default; W A S D / arrows switch to keyboard mode; more than 6 pt of
+pointer travel, a double-click, a drag or a touch pinch switch back), the zoom target for every zoom
+input, the crosshair glide (critically damped spring in closed form, ω = 25 /s, 1 % after 265 ms, no
+overshoot), edge panning (8 % band, smoothstep ramp to the key speed, setting off / while zooming /
+always) and the canvas from safe-area insets. Swift presents: crosshair cursor rects (macOS),
+hidden-until-moved cursor and a Core Animation crosshair overlay in keyboard mode, iPad hover and
+`UIPointerInteraction`. Fixed on the way: motion from rest jumped by up to 0.1 s of motion on its first
+frame; idle `frame` calls re-presented the unchanged image. Measured at 120 Hz against the Swift
+renderer and Rust HEAD ([[synthesis/benchmarks]] M2.5): zoom-target drift 0 px, edge pan at the
+expected 0.381 view widths/s, no per-frame cost after replacing a UniFFI record result with bit flags
+(11–18 µs → 2–3 µs); R2b's late final frame does not reproduce at 120 Hz; open: fewer gesture frames
+than Swift on heavy zooms at 120 Hz. Updated [[platform/render-architecture]],
+[[platform/rust-swift-ffi]], [[roadmap]].

@@ -21,6 +21,28 @@ public enum Supersampling: Int, CaseIterable, Identifiable, Sendable {
 protocol ExplorerHost: AnyObject {
     /// Resume the display link: the explorer needs frames.
     func requestFrames()
+    /// The HUD moved or resized (it is an arrow-cursor hole in the canvas).
+    func hudFrameChanged()
+}
+
+/// Edge panning choices of the inspector (pointer mode; kb: decisions/controls).
+public enum EdgePanning: String, CaseIterable, Identifiable, Sendable {
+    case off, whileZooming, always
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .off: "Off"
+        case .whileZooming: "While zooming"
+        case .always: "Always"
+        }
+    }
+    var ffi: EdgePan {
+        switch self {
+        case .off: .off
+        case .whileZooming: .whileZooming
+        case .always: .always
+        }
+    }
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -53,6 +75,21 @@ public final class ExplorerModel {
     public var supersampling = Supersampling.off { didSet { push() } }
     public var interactivePreview = true { didSet { push() } }
 
+    // Navigation (persisted; the navigator in Rust applies it)
+    public var edgePanning: EdgePanning = EdgePanning(rawValue: UserDefaults.standard.string(forKey: ExplorerModel.edgePanKey) ?? "")
+        ?? .whileZooming {
+        didSet {
+            UserDefaults.standard.set(edgePanning.rawValue, forKey: Self.edgePanKey)
+            explorer?.setEdgePan(mode: edgePanning.ffi)
+        }
+    }
+    static let edgePanKey = "edgePanning"
+
+    /// The HUD's frame in SwiftUI's global space (the canvas shows the arrow cursor there).
+    @ObservationIgnored public var hudFrame: CGRect? {
+        didSet { if hudFrame != oldValue { host?.hudFrameChanged() } }
+    }
+
     /// Renderer stats, refreshed at ~10 Hz while the view animates (views reading these
     /// re-render at that rate, never per input event: kb synthesis/benchmarks, M2 findings).
     public private(set) var stats: ExplorerStats?
@@ -73,6 +110,7 @@ public final class ExplorerModel {
     func attach(_ explorer: Explorer, host: ExplorerHost) {
         self.explorer = explorer
         self.host = host
+        explorer.setEdgePan(mode: edgePanning.ffi)
         pull(explorer.settings())
         refreshStats()
     }
@@ -133,8 +171,10 @@ public final class ExplorerModel {
         return r.handled
     }
 
-    public func zoomIn() { send(.doubleTap(x: 0, y: 0, out: false)) }
-    public func zoomOut() { send(.doubleTap(x: 0, y: 0, out: true)) }
+    /// Menu zoom: x2 at the zoom target (the centre unless the keyboard crosshair is still
+    /// gliding; the pointer is on the menu bar).
+    public func zoomIn() { send(.zoomBy(factor: 2)) }
+    public func zoomOut() { send(.zoomBy(factor: 0.5)) }
 
     public func reset() {
         explorer?.resetViewport()

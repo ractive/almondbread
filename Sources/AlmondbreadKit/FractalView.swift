@@ -6,7 +6,92 @@ import SwiftUI
 // the app"): each owns a CAMetalLayer whose pointer goes to Rust once, runs a display link
 // that makes one `Explorer.frame` call per refresh and pauses while nothing animates, and
 // decodes platform events into `InputEvent`s. Motion policy (pan speed, zoom target, zoom
-// speed, idle timing) is Rust's `Navigator`; nothing here integrates or interprets motion.
+// speed, idle timing, pointer/keyboard mode, the crosshair's glide, edge panning) is Rust's
+// `Navigator`; nothing here integrates or interprets motion. The views only present what each
+// `frame` result says: the cursor (system crosshair in pointer mode, hidden in keyboard
+// mode) and the keyboard crosshair overlay (kb: decisions/controls, revision 2026-10-14).
+
+/// The keyboard-mode crosshair: a Core Animation overlay above the Metal layer, moved to the
+/// position Rust returns from each `frame` call. Not drawn into the Metal frame: the glide
+/// then costs no GPU work or re-presentation of an idle image, the shown-frame checks stay
+/// pure, and the layer is vector-sharp at any backing scale. It is composited with the same
+/// display commit as the frame call that positioned it (the image can trail it by the frame
+/// in flight, invisible for a marker the image moves under). Thin white arms with a centre
+/// dot over a dark halo with a soft shadow: visible on any palette.
+final class CrosshairLayer: CALayer {
+    private let halo = CAShapeLayer()
+    private let line = CAShapeLayer()
+    private var shownAt: CGPoint?
+
+    override init() {
+        super.init()
+        let size: CGFloat = 36
+        bounds = CGRect(x: 0, y: 0, width: size, height: size)
+        let c = size / 2, gap: CGFloat = 4.5, arm: CGFloat = 13.5
+        let path = CGMutablePath()
+        for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] as [(CGFloat, CGFloat)] {
+            path.move(to: CGPoint(x: c + dx * gap, y: c + dy * gap))
+            path.addLine(to: CGPoint(x: c + dx * arm, y: c + dy * arm))
+        }
+        let dot = CGPath(ellipseIn: CGRect(x: c - 0.9, y: c - 0.9, width: 1.8, height: 1.8), transform: nil)
+        path.addPath(dot)
+        for l in [halo, line] {
+            l.frame = bounds
+            l.path = path
+            l.fillColor = nil
+            l.lineCap = .round
+            addSublayer(l)
+        }
+        halo.strokeColor = CGColor(gray: 0, alpha: 0.5)
+        halo.lineWidth = 3.2
+        halo.shadowColor = CGColor(gray: 0, alpha: 1)
+        halo.shadowOpacity = 0.35
+        halo.shadowRadius = 2.5
+        halo.shadowOffset = .zero
+        halo.shadowPath = path.copy(strokingWithWidth: 3.2, lineCap: .round, lineJoin: .round, miterLimit: 1)
+        line.strokeColor = CGColor(gray: 1, alpha: 0.95)
+        line.fillColor = CGColor(gray: 1, alpha: 0.95)
+        line.lineWidth = 1.25
+        halo.fillColor = CGColor(gray: 0, alpha: 0.5)
+        isHidden = true
+        zPosition = 1
+    }
+
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Shows the crosshair at (x, y) view points from the centre (y up) of `container`, or
+    /// hides it. Snapped to the pixel grid so the 1.25 pt lines stay crisp; no implicit
+    /// animation (the glide is Rust's).
+    func update(visible: Bool, x: Double, y: Double, in container: CALayer, scale: CGFloat) {
+        var p: CGPoint?
+        if visible {
+            let b = container.bounds
+            #if os(macOS)
+            let raw = CGPoint(x: b.midX + x, y: b.midY + y)
+            #else
+            let raw = CGPoint(x: b.midX + x, y: b.midY - y)
+            #endif
+            let s = max(scale, 1)
+            p = CGPoint(x: (raw.x * s).rounded() / s, y: (raw.y * s).rounded() / s)
+        }
+        guard p != shownAt else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if contentsScale != scale {
+            for l in [self, halo, line] { l.contentsScale = scale }
+        }
+        if let p { position = p }
+        isHidden = p == nil
+        CATransaction.commit()
+        shownAt = p
+    }
+}
+
+/// Bits of `Explorer.frame`'s result (crates/almondbread-ffi explorer.rs `FRAME_*`; UniFFI
+/// exports no constants; core-check verifies them).
+let frameAnimating: UInt8 = 1
+let frameKeyboard: UInt8 = 2
 
 /// Display links retain their target; this one holds the view weakly so views can go away.
 @MainActor
@@ -26,6 +111,14 @@ class FractalHostBase {
     private var selfTestPending = SelfTest.enabled
     /// Duration of each `frame` call as Swift sees it (interaction test: FFI overhead).
     var frameTimes: [Double]?
+    let crosshair = CrosshairLayer()
+    /// The input mode as of the last frame or input.
+    private(set) var mode: InputMode = .pointer
+    /// The platform view's cursor presentation for a mode.
+    var onModeChange: ((InputMode) -> Void)?
+    /// The overlay state after the last `frame` call (interaction test: crosshair positions).
+    struct Overlay { let keyboard: Bool; let x: Double; let y: Double }
+    private(set) var lastFrame: Overlay?
 
     init(model: ExplorerModel, scale: CGFloat) {
         self.model = model
@@ -35,6 +128,7 @@ class FractalHostBase {
         metalLayer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         #endif
         metalLayer.isOpaque = true
+        metalLayer.addSublayer(crosshair)
         SelfTest.start()
         do {
             let address = UInt64(UInt(bitPattern: Unmanaged.passUnretained(metalLayer).toOpaque()))
@@ -52,10 +146,17 @@ class FractalHostBase {
 
     @discardableResult
     func send(_ event: InputEvent, host: ExplorerHost) -> InputResult {
-        guard let explorer else { return InputResult(handled: false, redraw: false) }
+        guard let explorer else { return InputResult(handled: false, redraw: false, mode: mode) }
         let r = explorer.input(event: event)
         if r.redraw { host.requestFrames() }
+        setMode(r.mode)
         return r
+    }
+
+    private func setMode(_ m: InputMode) {
+        guard m != mode else { return }
+        mode = m
+        onModeChange?(m)
     }
 
     func resize(width: CGFloat, height: CGFloat, scale: CGFloat, host: ExplorerHost) {
@@ -67,9 +168,16 @@ class FractalHostBase {
     func step(timestamp: CFTimeInterval) -> Bool {
         guard let explorer else { return false }
         let t0 = CACurrentMediaTime()
-        let animating = explorer.frame(timestamp: timestamp)
+        let bits = explorer.frame(timestamp: timestamp)
         let t1 = CACurrentMediaTime()
         frameTimes?.append(t1 - t0)
+        let animating = bits & frameAnimating != 0
+        let keyboard = bits & frameKeyboard != 0
+        // Two scalar calls, only while the crosshair shows.
+        let o = Overlay(keyboard: keyboard, x: keyboard ? explorer.crosshairX() : 0, y: keyboard ? explorer.crosshairY() : 0)
+        lastFrame = o
+        crosshair.update(visible: keyboard, x: o.x, y: o.y, in: metalLayer, scale: metalLayer.contentsScale)
+        setMode(keyboard ? .keyboard : .pointer)
         if !animating || t1 - lastStats > 0.1 {
             lastStats = t1
             model.refreshStats()
@@ -99,6 +207,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     private var keyMonitor: Any?
     private var resignObserver: NSObjectProtocol?
     private var tracking: NSTrackingArea?
+    private var sentInsets: NSEdgeInsets?
+    /// The pointer is over the HUD (the canvas's arrow-cursor hole): reported as exited.
+    private var overHUD = false
 
     init(model: ExplorerModel) {
         base = FractalHostBase(model: model, scale: NSScreen.main?.backingScaleFactor ?? 2)
@@ -106,6 +217,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         base.attach(host: self)
+        base.onModeChange = { [weak self] mode in self?.modeChanged(mode) }
         if InteractionTest.enabled { InteractionTest.shared.attach(view: self) }
     }
 
@@ -143,9 +255,69 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         layoutExplorer()
     }
 
+    override func layout() {
+        super.layout()
+        sendInsets()
+    }
+
     private func layoutExplorer() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         base.resize(width: bounds.width, height: bounds.height, scale: scale, host: self)
+        sendInsets()
+    }
+
+    /// The title bar / toolbar overlaps the canvas (it extends under them): Rust measures the
+    /// pointer's canvas and the edge band from the uncovered part.
+    private func sendInsets() {
+        let i = safeAreaInsets
+        if let s = sentInsets, s.top == i.top, s.left == i.left, s.bottom == i.bottom, s.right == i.right { return }
+        sentInsets = i
+        send(.insets(top: Double(i.top), left: Double(i.left), bottom: Double(i.bottom), right: Double(i.right)))
+        window?.invalidateCursorRects(for: self)
+    }
+
+    // MARK: Cursor
+
+    /// The canvas part of the view: inside the safe area, minus the HUD.
+    private var hudRect: NSRect {
+        guard let window, let content = window.contentView, let g = model.hudFrame, !g.isEmpty else { return .zero }
+        // SwiftUI's global space is the content view's, top-left origin.
+        let r = content.isFlipped ? g : NSRect(x: g.minX, y: content.bounds.height - g.maxY, width: g.width, height: g.height)
+        return convert(r, from: content)
+    }
+
+    func hudFrameChanged() {
+        window?.invalidateCursorRects(for: self)
+    }
+
+    /// Pointer mode: the crosshair cursor over the canvas only (cursor rects: the arrow
+    /// stays over the title bar, the HUD and the inspector).
+    override func resetCursorRects() {
+        let i = safeAreaInsets
+        let canvas = NSRect(x: bounds.minX + i.left, y: bounds.minY + i.bottom,
+                            width: bounds.width - i.left - i.right, height: bounds.height - i.top - i.bottom)
+            .intersection(visibleRect)
+        for r in Self.subtract(hudRect, from: canvas) where !r.isEmpty {
+            addCursorRect(r, cursor: .crosshair)
+        }
+    }
+
+    /// `rect` minus `hole`, as up to four rectangles.
+    static func subtract(_ hole: NSRect, from rect: NSRect) -> [NSRect] {
+        let h = hole.intersection(rect)
+        guard !h.isEmpty else { return [rect] }
+        return [NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: h.minY - rect.minY),
+                NSRect(x: rect.minX, y: h.maxY, width: rect.width, height: rect.maxY - h.maxY),
+                NSRect(x: rect.minX, y: h.minY, width: h.minX - rect.minX, height: h.height),
+                NSRect(x: h.maxX, y: h.minY, width: rect.maxX - h.maxX, height: h.height)]
+    }
+
+    /// Keyboard mode hides the cursor until the mouse moves (the overlay crosshair takes
+    /// over); pointer mode shows it again through the cursor rects. Window tests leave the
+    /// user's cursor alone.
+    private func modeChanged(_ mode: InputMode) {
+        guard !TestLaunch.enabled else { return }
+        if mode == .keyboard { NSCursor.setHiddenUntilMouseMoves(true) }
     }
 
     func requestFrames() { link?.isPaused = false }
@@ -241,12 +413,28 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        // The interaction test drives the pointer itself; the user's real mouse over the
+        // background test window must not interfere.
+        guard !InteractionTest.enabled else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        // Over the HUD the pointer is off the canvas (zooms go to the centre, no edge pan).
+        if hudRect.contains(p) {
+            if !overHUD { overHUD = true; send(.pointerExited) }
+            return
+        }
+        overHUD = false
         let o = offset(event.locationInWindow)
-        send(.pointer(x: o.x, y: o.y))
+        let r = send(.pointer(x: o.x, y: o.y))
+        // A nudge below the switch threshold keeps keyboard mode: keep the cursor hidden.
+        if r.mode == .keyboard && !TestLaunch.enabled { NSCursor.setHiddenUntilMouseMoves(true) }
     }
 
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
-    override func mouseExited(with event: NSEvent) { send(.pointerExited) }
+    override func mouseExited(with event: NSEvent) {
+        guard !InteractionTest.enabled else { return }
+        overHUD = false
+        send(.pointerExited)
+    }
 
     override func scrollWheel(with event: NSEvent) {
         let zoomModifier = event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option)
@@ -267,6 +455,11 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseDragged(with event: NSEvent) {
         send(.pan(dx: Double(event.deltaX), dy: -Double(event.deltaY)))
+        // The pointer moves with the drag: it is the zoom target afterwards.
+        if !InteractionTest.enabled {
+            let o = offset(event.locationInWindow)
+            send(.pointer(x: o.x, y: o.y))
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -299,6 +492,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var link: CADisplayLink?
     private var lastPinchScale: CGFloat = 1
     private var lastPinchCenter: CGPoint = .zero
+    private var pointerInteraction: UIPointerInteraction?
+    private var sentInsets: UIEdgeInsets?
 
     // The base creates the layer before the view exists; UIKit asks the class for its layer,
     // so the view's own layer is a plain one hosting the Metal layer as a sublayer.
@@ -318,7 +513,13 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         twoFingerTap.numberOfTouchesRequired = 2
         pinch.delegate = self
         pan.delegate = self
-        [pinch, pan, doubleTap, twoFingerTap].forEach(addGestureRecognizer)
+        // iPad trackpad / mouse: pointer mode (zoom target = pointer, crosshair pointer).
+        let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
+        [pinch, pan, doubleTap, twoFingerTap, hover].forEach(addGestureRecognizer)
+        let pointer = UIPointerInteraction(delegate: self)
+        addInteraction(pointer)
+        pointerInteraction = pointer
+        base.onModeChange = { [weak self] _ in self?.pointerInteraction?.invalidate() }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -348,7 +549,30 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         base.metalLayer.frame = bounds
         CATransaction.commit()
         base.resize(width: bounds.width, height: bounds.height, scale: scale, host: self)
+        sendInsets()
     }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        sendInsets()
+    }
+
+    /// Notch, home indicator and status bar areas are not canvas for the pointer and the
+    /// edge band.
+    private func sendInsets() {
+        let i = safeAreaInsets
+        guard i != sentInsets else { return }
+        sentInsets = i
+        send(.insets(top: Double(i.top), left: Double(i.left), bottom: Double(i.bottom), right: Double(i.right)))
+    }
+
+    /// The HUD in this view's coordinates (SwiftUI's global space is the window's).
+    fileprivate var hudRect: CGRect {
+        guard let window, let g = base.model.hudFrame, !g.isEmpty else { return .zero }
+        return convert(g, from: window)
+    }
+
+    func hudFrameChanged() { pointerInteraction?.invalidate() }
 
     func requestFrames() { link?.isPaused = false }
 
@@ -441,6 +665,21 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         }
     }
 
+    @objc private func handleHover(_ g: UIHoverGestureRecognizer) {
+        switch g.state {
+        case .began, .changed:
+            let p = g.location(in: self)
+            if hudRect.contains(p) {
+                send(.pointerExited)
+            } else {
+                let o = offset(p)
+                send(.pointer(x: o.x, y: o.y))
+            }
+        default:
+            send(.pointerExited)
+        }
+    }
+
     @objc private func handlePan(_ g: UIPanGestureRecognizer) {
         let t = g.translation(in: self)
         send(.pan(dx: Double(t.x), dy: -Double(t.y)))
@@ -455,6 +694,27 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     @objc private func handleTwoFingerTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
         send(.doubleTap(x: o.x, y: o.y, out: true))
+    }
+}
+
+extension FractalUIView: UIPointerInteractionDelegate {
+    /// Over the canvas: a crosshair pointer (pointer mode) or none (keyboard mode, the overlay
+    /// crosshair shows the target); over the HUD the system pointer.
+    func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest,
+                            defaultRegion: UIPointerRegion) -> UIPointerRegion? {
+        hudRect.contains(request.location) ? nil : defaultRegion
+    }
+
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        if base.mode == .keyboard { return .hidden() }
+        let path = UIBezierPath()
+        for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] as [(CGFloat, CGFloat)] {
+            path.move(to: CGPoint(x: dx * 3, y: dy * 3))
+            path.addLine(to: CGPoint(x: dx * 10, y: dy * 10))
+        }
+        let shape = UIBezierPath(cgPath: path.cgPath.copy(strokingWithWidth: 1.5, lineCap: .round, lineJoin: .round,
+                                                           miterLimit: 1))
+        return UIPointerStyle(shape: .path(shape), constrainedAxes: [])
     }
 }
 
