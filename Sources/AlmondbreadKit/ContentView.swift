@@ -86,7 +86,14 @@ struct HUDView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: "plus.magnifyingglass")
-                Text(Format.zoom(s.shown.zoom)).fontWeight(.semibold)
+                Text(Format.zoom(log10: s.shown.zoomLog10)).fontWeight(.semibold)
+                if s.deep {
+                    Text("deep")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.purple.opacity(0.35), in: Capsule())
+                }
                 if s.isPreview {
                     Text("preview")
                         .font(.caption2.weight(.semibold))
@@ -99,7 +106,7 @@ struct HUDView: View {
             Group {
                 Text("iter \(s.maxIterations.formatted())\(model.autoIterations ? " auto" : "")")
                 Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks  ·  \(s.renderWidth)×\(s.renderHeight)\(s.isRendering ? "  ·  refining" : "")")
-                Text("ref \(s.referenceLength.formatted()) pts  ·  CPU \(Format.ms(s.referenceTime))")
+                Text("ref \(s.referenceLength.formatted()) pts\(s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "")  ·  \(s.referenceBits) bit  ·  CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
                 Text("zoom speed \(Format.speed(model.zoomFactorPerSecond))")
                     .padding(.horizontal, speedHighlight ? 5 : 0)
                     .background(speedHighlight ? Color.orange.opacity(0.35) : .clear, in: Capsule())
@@ -108,7 +115,7 @@ struct HUDView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             if s.shown.atPrecisionLimit {
-                Label("Precision limit: zoom stops here. Pixels merge into blocks until the arbitrary-precision milestone.",
+                Label("Depth limit: zoom stops here (10^3000; reference orbits need 10 000 bits).",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.black)
@@ -137,12 +144,14 @@ struct HUDView: View {
 }
 
 enum Format {
-    /// "850×", "12.5k×" style up to 1e4, then "1.2e9×".
-    static func zoom(_ z: Double) -> String {
-        if z < 10 { return String(format: "%.2f×", z) }
-        if z < 10_000 { return String(format: "%.0f×", z) }
-        let e = floor(log10(z))
-        return String(format: "%.1fe%d×", z / pow(10, e), Int(e))
+    /// "850×", "12.5k×" style up to 1e4, then "1.2e9×" (any depth: from log10 of the zoom).
+    static func zoom(log10 l: Double) -> String {
+        if l < 1 { return String(format: "%.2f×", pow(10, l)) }
+        if l < 4 { return String(format: "%.0f×", pow(10, l)) }
+        var e = floor(l)
+        var m = pow(10, l - e)
+        if m >= 9.95 { m /= 10; e += 1 }
+        return String(format: "%.1fe%.0f×", m, e)
     }
 
     /// Zoom speed as magnification per second: "×4.95/s".

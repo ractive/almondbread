@@ -1310,7 +1310,7 @@ impl<B: GpuBackend> Renderer<B> {
                 let mut ratio = 0.5;
                 if self.cost_per_texel > 0.0 {
                     let fit = (self.gesture_budget() / (self.cost_per_texel * (key.width * key.height) as f64)).sqrt();
-                    ratio = ((fit * 8.0).floor() / 8.0).clamp(0.25, 1.0);
+                    ratio = ((fit * 8.0).floor() / 8.0).clamp(0.125, 1.0);
                 }
                 if !self.settings.interactive_preview {
                     ratio = 1.0;

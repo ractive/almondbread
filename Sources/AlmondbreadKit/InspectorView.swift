@@ -180,16 +180,21 @@ struct InspectorView: View {
             coordinateRow("Re", v?.re ?? "")
             coordinateRow("Im", v?.im ?? "")
             LabeledContent("Zoom") {
-                Text(Format.zoom(v?.zoom ?? 1)).monospacedDigit()
+                Text(Format.zoom(log10: v?.zoomLog10 ?? 0)).monospacedDigit()
             }
             LabeledContent("Scale") {
-                Text(String(format: "%.4g / pt", v?.scale ?? 0)).monospacedDigit()
+                Text("\(v?.scaleText ?? "") / pt").monospacedDigit()
             }
             HStack {
                 Button {
                     Clipboard.copy(model.coordinatesText)
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
+                }
+                Button {
+                    model.pasteCoordinates()
+                } label: {
+                    Label("Go to copied", systemImage: "arrow.right.doc.on.clipboard")
                 }
                 Spacer()
                 Button {

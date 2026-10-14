@@ -23,7 +23,6 @@ final class InteractionTest: NSObject {
     private var settling = true
     private var inputEnd: CFTimeInterval = 0
     private var reported = false
-    private var startViewport: ViewportInfo?
     private var refineLines: [String] = []
     private var ffiLines: [String] = []
     private var failures = 0
@@ -49,9 +48,17 @@ final class InteractionTest: NSObject {
         let zoom: (FractalNSView, Int, Double) -> Void = { v, i, _ in
             v.send(.magnify(magnification: i < 90 ? 0.02 : 1 / 1.02 - 1, x: 120, y: -60))
         }
-        // Continuous zoom into the Double precision limit (minScale): the clamp must hold
-        // without the centre drifting.
+        // Continuous zoom from the former Double precision limit (1e-14) through the switch to
+        // big references (M3b: no clamp any more).
         let limit = View(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-14)
+        // M3b (kb: synthesis/benchmarks M3b): a fast zoom from 1e-12 to ~1e-40 per point (Space
+        // speed is too slow to cross that in 3 s: 0.36 e-folds per frame instead) through the
+        // f64 limit and the plain/deep kernel switch, into the seahorse valley near the
+        // period-8007 minibrot; and pans/zooms around c = i at 1e-100 and 1e-300.
+        let seaDeep = View(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139", scale: 1e-12)
+        let deepZoom: (FractalNSView, Int, Double) -> Void = { v, _, _ in v.send(.magnify(magnification: 0.43, x: 200, y: 100)) }
+        let dendrite100 = View(re: "0", im: "1", scale: 1e-100)
+        let dendrite300 = View(re: "0", im: "1", scale: 1e-300)
         let deep: (FractalNSView, Int, Double) -> Void = { v, _, _ in v.send(.magnify(magnification: 0.05, x: 200, y: 100)) }
         // Keyboard, scheduled in seconds (tick counts depend on the achieved frame rate): hold
         // D, add W at 1 s (diagonal), release both at 2.5 s; Space zoom with one E press at
@@ -205,7 +212,10 @@ final class InteractionTest: NSObject {
                 Scenario(name: "limit zoom", viewport: limit, input: deep),
                 Scenario(name: "pointer space", viewport: sea, input: pointerSpace),
                 Scenario(name: "keyboard glide", viewport: sea, input: keyboardGlide),
-                Scenario(name: "edge pan", viewport: sea, input: edgePan)]
+                Scenario(name: "edge pan", viewport: sea, input: edgePan),
+                Scenario(name: "deep zoom 1e-12 to 1e-40", viewport: seaDeep, input: deepZoom),
+                Scenario(name: "1e-100 pan", viewport: dendrite100, input: pan),
+                Scenario(name: "1e-300 zoom", viewport: dendrite300, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -348,10 +358,11 @@ final class InteractionTest: NSObject {
                 refineLines.append("\(name): \(s.heldKeys) keys still held at input end (released)")
                 view.send(.focusLost)
             }
-            if name == "limit zoom" {
-                refineLines.append(String(format: "limit zoom: scale %.4g (minScale %.4g, at limit %@), centre %@, %@",
-                                          v.scale, v.minScale, v.atPrecisionLimit ? "yes" : "no", v.re, v.im))
-                startViewport = v
+            if name == "limit zoom" || name.hasPrefix("deep zoom") || name.hasPrefix("1e-") {
+                refineLines.append(String(format: "%@: final scale %@ / pt (zoom %@), reference %llu pts%@, %u bit, %@ kernel",
+                                          name, v.scaleText, Format.zoom(log10: v.zoomLog10), s.referenceLength,
+                                          s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "",
+                                          s.referenceBits, s.deep ? "deep" : "plain"))
             }
         }
         // After input stops, the fully refined full-resolution frame must arrive.
@@ -372,14 +383,6 @@ final class InteractionTest: NSObject {
                 if !ok { failures += 1 }
                 refineLines.append(String(format: "%@: shown %dx%d frame vs fresh render: %d pixels (%.3f%%) differ in class %@",
                                           name, m.width, m.height, m.pixels, m.percent, ok ? "OK" : "FAILED"))
-            }
-            if let v0 = startViewport {
-                let v = explorer.viewport()
-                let dre = (Double(v.re) ?? .nan) - (Double(v0.re) ?? .nan)
-                let dim = (Double(v.im) ?? .nan) - (Double(v0.im) ?? .nan)
-                refineLines.append(String(format: "limit zoom: centre drift during clamped zoom %.3g / %.3g (scale units %.3g)",
-                                          dre, dim, v.scale))
-                startViewport = nil
             }
             next()
         } else if now - inputEnd > 10 {

@@ -54,6 +54,15 @@ enum Clipboard {
         UIPasteboard.general.string = text
         #endif
     }
+
+    @MainActor
+    static func text() -> String? {
+        #if os(macOS)
+        NSPasteboard.general.string(forType: .string)
+        #else
+        UIPasteboard.general.string
+        #endif
+    }
 }
 
 #if os(macOS)
@@ -66,6 +75,9 @@ struct FractalCommands: Commands {
             Divider()
             Button("Copy Coordinates") { model.map { Clipboard.copy($0.coordinatesText) } }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(model == nil)
+            Button("Go to Copied Coordinates") { _ = model?.pasteCoordinates() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(model == nil)
         }
         CommandGroup(before: .toolbar) {

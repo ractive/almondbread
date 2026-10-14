@@ -221,8 +221,17 @@ public final class ExplorerModel {
         host?.requestFrames()
     }
 
-    /// Centre and scale for the clipboard, full precision.
+    /// Centre and scale for the clipboard, full precision (as many digits as the depth needs).
     public var coordinatesText: String { explorer?.coordinatesText() ?? "" }
+
+    /// Jumps to coordinates on the clipboard (the "re / im / scale" text Copy writes).
+    /// Returns false if the clipboard holds no view.
+    @discardableResult
+    public func pasteCoordinates() -> Bool {
+        guard let text = Clipboard.text(), let explorer, explorer.pasteCoordinates(text: text) else { return false }
+        host?.requestFrames()
+        return true
+    }
 
     // MARK: Stats
 
