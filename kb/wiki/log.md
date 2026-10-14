@@ -367,3 +367,15 @@ Recommendation: local SA in M5 after a float32 kernel check. Pages:
 [[techniques/local-series-approximation]], [[questions/local-sa-float32]]; updated
 [[techniques/guessing-and-subdivision]], [[techniques/series-approximation]],
 [[techniques/anti-aliasing]], [[synthesis/benchmarks]] R3, [[index]].
+
+## [2026-10-15] ingest | Places catalogue (P1)
+
+User request: a list of well-known places to visit. Sources ingested:
+[[sources/beyer-mandelbrot-zoom-sequence]] (Commons wikitext), [[sources/muency-named-places]],
+[[sources/wikipedia-misiurewicz-point]] (its "M(23,2)" is M(24,2) with z_0 = 0), and
+[[sources/robotmoon-mandelbrot-set]] (saved to `raw/web/`, manifest entries; user tip). New
+`find_misiurewicz` (Newton with lower preperiods divided out; `locate --misiurewicz k,p`).
+69 places (landmark 9, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 9;
+whole set to 1e-1000), each thumbnail rendered and looked at, deep ones verified against
+the CPU oracle (class mismatch 0 %). Pages: [[synthesis/places]], [[techniques/reference-selection]]
+(Misiurewicz Newton), [[roadmap]] P1, [[index]].

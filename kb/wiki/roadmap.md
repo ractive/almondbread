@@ -34,3 +34,4 @@ as milestones start and finish.
 | M7 | float-float repair mode | 10 | planned |
 | M8 | more formulas via an opcode model | 11 | planned |
 | M9 | extras: exponential-map export, orbit compression, iOS polish | 12 | planned |
+| P1 | places catalogue: famous views with cited coordinates, thumbnails, go-to / random place API ([[synthesis/places]]) | — | done 2026-10-15 (69 places from the whole set to 1e-1000 in 7 categories; Misiurewicz Newton solver; `almondbread places`; UniFFI `places()`, `Explorer::go_to_place`; HEIC thumbnails as package resources; the list UI comes with the control centre) |
