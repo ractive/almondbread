@@ -65,8 +65,8 @@ fn main() {
             // Fill the low bits too (a "random" deep point), except for the exact ones.
             let c = if name == "full" {
                 let mut c = c;
-                c.re += BigFloat::from_f64(0.318309886183790671, bits).times_power_of_two(-(bits as i64 - 3));
-                c.im -= BigFloat::from_f64(0.577215664901532860, bits).times_power_of_two(-(bits as i64 - 5));
+                c.re += BigFloat::from_f64(std::f64::consts::FRAC_1_PI, bits).times_power_of_two(-(bits as i64 - 3));
+                c.im -= BigFloat::from_f64(0.577_215_664_901_532_9, bits).times_power_of_two(-(bits as i64 - 5));
                 c
             } else {
                 c
