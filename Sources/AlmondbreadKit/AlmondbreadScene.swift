@@ -159,7 +159,7 @@ struct FractalCommands: Commands {
 enum TestLaunch {
     static var enabled: Bool {
         #if os(macOS)
-        SelfTest.enabled || InteractionTest.enabled || UIDemo.enabled
+        SelfTest.enabled || InteractionTest.enabled || UIDemo.enabled || FlightBench.enabled
         #else
         SelfTest.enabled
         #endif

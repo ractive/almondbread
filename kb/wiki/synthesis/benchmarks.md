@@ -1240,6 +1240,33 @@ every look that needs the distance estimate restarts the job, and its full level
 with seed rounds. Previews of refined views seed in one bounded round since (they waited for
 several before: 12 fps).
 
+## FB: flight benchmark v1 (first, noisy runs), 2026-10-15
+
+`almondbread benchmark` (`make flight-bench`, `make flight-bench-live`) plays one fixed
+60 s flight at 1920×1080 through every regime and scores it against a reference machine
+(M1 Pro = 1000). Design, checks and the calibration procedure are on
+[[synthesis/flight-benchmark]]. The reference in the repo is **provisional**: it was written
+from single laps while other agents loaded the machine (the NOISY banner fired on every run:
+3–9 other cores busy, GPU 24–97 % busy before the laps).
+
+Measured 2026-10-15, M1 Pro, release, commit 8b9155c (main eadb176 + M5, SA auto), one lap
+each, noisy:
+
+| mode | result |
+|---|---|
+| A throughput (settled full quality, 300 frames at 5 Hz) | 36.5 s: shallow 10.1, dense 10.3, dive 4.5, heavy 5.6, rotate 5.5, jump 0.6; CPU 2.3 s, GPU 26.2 s. **INVALID** (below) |
+| B headless (120 Hz) | 91.0 % of due frames shown, p99 25 ms, time to sharp 12.1 s in all (heavy 6.2 s; the 1e−1004 jump: first image 258 ms, sharp 1.05 s) |
+| B window (120 Hz panel) | 24.6 % shown, p99 92 ms, input to photon p50 29 / p95 33 ms; the display link ran at ~38 Hz. The interaction test at the same time got 27–28 fps, so the cause is the load |
+
+Findings: at the heavy spot (`spiral-32412-1e19`), reached by a jump straight after the dive
+into c = i, mode A sometimes **settles all black** in 14 ms of GPU time. The limit is 10384,
+below the period 32412; the reference search is capped at that limit, and the learner does
+not raise it. In another run the view rendered but differed from a fresh render in 0.591 %
+of its pixels' class. The existing shown-vs-fresh check cannot see the first case, so the
+benchmark also compares each segment's settled frame with a from-scratch jump render
+(76.7 % of 16×16 blocks differ in the black case). Both cases make the run INVALID. The
+first case was reported to the driver for the M5 work.
+
 ## M7: float32 rounding artefacts and float-float, 2026-10-15
 
 Measured 2026-10-15, M1 Pro (16-core GPU), release, with other agents' GPU jobs running

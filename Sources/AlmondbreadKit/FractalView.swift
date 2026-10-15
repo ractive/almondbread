@@ -228,6 +228,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         base.attach(host: self)
         base.onModeChange = { [weak self] mode in self?.modeChanged(mode) }
         if InteractionTest.enabled { InteractionTest.shared.attach(view: self) }
+        if FlightBench.enabled { FlightBench.shared.attach(view: self) }
         if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
         // Window tests never read the user's controller.
         if !TestLaunch.enabled && Preferences.gamepadEnabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
@@ -463,7 +464,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     override func mouseMoved(with event: NSEvent) {
         // The interaction test drives the pointer itself; the user's real mouse over the
         // background test window must not interfere.
-        guard !InteractionTest.enabled, !UIDemo.enabled else { return }
+        guard !InteractionTest.enabled, !UIDemo.enabled, !FlightBench.enabled else { return }
         let p = convert(event.locationInWindow, from: nil)
         // Over the HUD the pointer is off the canvas (zooms go to the centre, no edge pan).
         if hudRect.contains(p) {
@@ -479,7 +480,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) {
-        guard !InteractionTest.enabled, !UIDemo.enabled else { return }
+        guard !InteractionTest.enabled, !UIDemo.enabled, !FlightBench.enabled else { return }
         overHUD = false
         send(.pointerExited)
     }

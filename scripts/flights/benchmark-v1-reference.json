@@ -1,0 +1,73 @@
+{
+  "_about": "Reference values of the flight benchmark (kb: synthesis/flight-benchmark): this machine scores 1000 in each mode. Written by `almondbread benchmark --write-reference`; calibrate on an idle machine (see the kb page) and commit.",
+  "commit": {
+    "dirty": true,
+    "hash": "8b9155c1433c"
+  },
+  "date": "2026-10-15",
+  "device": {
+    "chip": "Apple M1 Pro",
+    "cores": 10,
+    "memory_gb": 32.0,
+    "model": "MacBookPro18,1",
+    "os": "26.5.1",
+    "os_build": "25F80"
+  },
+  "flight": {
+    "duration_s": 60.0,
+    "hz": 120.0,
+    "name": "flight",
+    "path": "scripts/flights/benchmark-v1.json",
+    "size": "1920x1080",
+    "step_hz": 5.0,
+    "version": 1
+  },
+  "machine": "Apple M1 Pro 32 GB",
+  "noisy": true,
+  "note": "PROVISIONAL: written from single noisy laps on 2026-10-15 while other agents loaded the CPU and GPU (the live window ran at ~30 Hz); the throughput lap was INVALID at the heavy spot (kb: synthesis/flight-benchmark). Recalibrate on an idle machine.",
+  "provisional": true,
+  "realtime_approx": {
+    "p99_ms": 25.000000000000355,
+    "presented_frac": 0.910475681453768,
+    "sharp_total_s": 12.049999999999995
+  },
+  "realtime_live": {
+    "p99_ms": 91.66662499774247,
+    "presented_frac": 0.2462686567164179,
+    "sharp_total_s": 15.219779374776408
+  },
+  "renderer": {
+    "bla": "Auto",
+    "sa": "Auto",
+    "sa_env": null
+  },
+  "throughput": {
+    "segments": [
+      {
+        "name": "shallow",
+        "wall_s": 10.067057167999998
+      },
+      {
+        "name": "dense",
+        "wall_s": 10.269892250000009
+      },
+      {
+        "name": "dive",
+        "wall_s": 4.522674500999999
+      },
+      {
+        "name": "heavy",
+        "wall_s": 5.567620540999993
+      },
+      {
+        "name": "rotate",
+        "wall_s": 5.4843998350000005
+      },
+      {
+        "name": "jump",
+        "wall_s": 0.5968025820000002
+      }
+    ],
+    "total_s": 36.508446877
+  }
+}

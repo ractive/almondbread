@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
+.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -69,6 +69,19 @@ interaction-test-120: build
 
 ## Benchmark set with GPU-vs-CPU verify metrics (kb: synthesis/benchmarks)
 bench: rust-bench
+
+## Flight benchmark with a score (kb: synthesis/flight-benchmark): the fixed flight
+## scripts/flights/benchmark-v1.json in mode A (throughput: every frame settled at full quality,
+## no display) and mode B's headless approximation (real time at 120 Hz through the scheduler);
+## warm-up lap, 3 laps, medians, noise check, JSON in build/benchmark/. Quick: ARGS="--repeat 1
+## --warmup 0". Compare: target/release/almondbread benchmark --compare a.json b.json
+flight-bench: rust-cli
+	$(RUST_CLI) benchmark $(ARGS)
+
+## Mode B live: the flight in a background window at the display's rate (never takes focus,
+## quits by itself; needs an unlocked screen), scored against the live reference
+flight-bench-live: build rust-cli
+	$(RUST_CLI) benchmark --live-app .build/release/AlmondbreadMac $(ARGS)
 
 ## The -3/4 neck and seahorse history regressions (kb: techniques/interior-detection, Pitfalls)
 regress: rust-regress
