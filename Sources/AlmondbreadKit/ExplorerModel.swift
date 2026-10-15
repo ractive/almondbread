@@ -267,15 +267,16 @@ public final class ExplorerModel {
         }
     }
 
-    /// Autopilot assist: the heading leans towards nearby boundary detail while the pointer
-    /// rests (persisted; off by default; kb: decisions/controls, autopilot).
-    public var autopilotAssist: Bool = UserDefaults.standard.bool(forKey: ExplorerModel.assistKey) {
+    /// Autopilot target lock: while the pointer rests the autopilot aims at boundary targets
+    /// and backs out of voids (persisted; on by default; off: a pure joystick;
+    /// `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides it; kb: decisions/controls, autopilot).
+    public var autopilotLock: Bool = UserDefaults.standard.object(forKey: ExplorerModel.lockKey) as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(autopilotAssist, forKey: Self.assistKey)
-            explorer?.setAutopilotAssist(on: autopilotAssist)
+            UserDefaults.standard.set(autopilotLock, forKey: Self.lockKey)
+            explorer?.setAutopilotLock(on: autopilotLock)
         }
     }
-    static let assistKey = "autopilotAssist"
+    static let lockKey = "autopilotLock"
 
     /// The HUD's frame in SwiftUI's global space (the canvas shows the arrow cursor there).
     @ObservationIgnored public var hudFrame: CGRect? {
@@ -316,7 +317,7 @@ public final class ExplorerModel {
         self.explorer = explorer
         self.host = host
         explorer.setEdgePan(mode: edgePanning.ffi)
-        explorer.setAutopilotAssist(on: autopilotAssist)
+        explorer.setAutopilotLock(on: autopilotLock)
         if !TestLaunch.enabled { restoreUserPalettes() }
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
@@ -598,7 +599,7 @@ public final class ExplorerModel {
         if scope == .all || scope == .overlays { showHUD = true }
         if scope == .all || scope == .view {
             edgePanning = .whileZooming
-            autopilotAssist = false
+            autopilotLock = true
         }
         if scope == .all || scope == .view || scope == .cinematic {
             pulling = true

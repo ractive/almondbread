@@ -11,8 +11,13 @@
 //! ```text
 //! almondbread fly --script s.json [--out review/x.mp4 | --out dir/] [--fps 60] [--hz 60]
 //!                 [--size 1920x1080] [--converged 1] [--stills 0,60,120] [--codec hevc|h264]
-//!                 [--bitrate 40M] [--log x.csv]
+//!                 [--bitrate 40M] [--log x.csv] [--lock 0|1]
 //! ```
+//!
+//! With the autopilot on it reports how often the heading region was uniform (the survey's
+//! "slower: featureless / interior" condition, danger > 0.5), the longest such stretch, the
+//! rescue time, lock targets taken and the deepest zoom (kb: decisions/controls "Autopilot").
+//! `--lock 0` turns the autopilot's target lock off (the pure joystick), `--lock 1` on.
 //!
 //! Script format and events: [`almondbread_core::flight`] (`jump` added for the flight
 //! benchmark, kb: synthesis/flight-benchmark).
@@ -172,6 +177,11 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         apply_json_settings(s, &mut r.settings);
     }
     o.apply_renderer(&mut r);
+    match o.get("lock") {
+        Some("0") => r.navigator.autopilot_mut().set_lock(false),
+        Some("1") => r.navigator.autopilot_mut().set_lock(true),
+        _ => {}
+    }
     // One view point per pixel: script positions and speeds are in video pixels.
     let (w_pts, h_pts) = (size.0 as f64, size.1 as f64);
     r.handle_input(
@@ -187,10 +197,11 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let null = out == "null";
     let (tx, writer) = spawn_writer(open_sink(&out, size, fps, o)?, size);
     let mut log = String::from(
-        "refresh,t,presented,preview,render_w,render_h,zoom_log10,late_ms,frame_cpu_ms,ap_rate,ap_throttle,ap_safety,ap_hint,pointer_x,pointer_y,fly_progress\n",
+        "refresh,t,presented,preview,render_w,render_h,zoom_log10,late_ms,frame_cpu_ms,ap_rate,ap_throttle,ap_safety,ap_hint,pointer_x,pointer_y,fly_progress,ap_detail,ap_uniform,ap_rescue,lock\n",
     );
     let mut hints: std::collections::BTreeMap<String, usize> = Default::default();
     let mut ap_frames = 0usize;
+    let mut apm = ApMetrics::default();
     let mut player = FlightPlayer::new(1.0);
     let bytes = size.0 * size.1 * 4;
     let still = |k: usize| stills.contains(&k).then(|| format!("{stills_dir}/frame_{k:05}.png"));
@@ -323,12 +334,22 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         }
         let st = &r.stats;
         let ap = r.navigator.autopilot();
+        let assessment = ap.assessment(now);
+        let uniform = assessment.map(|a| a.danger() > 0.5);
         if ap.is_active() {
             ap_frames += 1;
             *hints.entry(format!("{:?}", ap.hint())).or_default() += 1;
+            apm.frame(
+                t,
+                interval,
+                uniform,
+                ap.is_rescuing(),
+                r.viewport.zoom_log10(),
+                ap.lock().switches,
+            );
         }
         log.push_str(&format!(
-            "{k},{t:.4},{},{},{},{},{:.4},{:.2},{:.3},{:.4},{:.3},{:.3},{:?},{:.1},{:.1},{:.4}\n",
+            "{k},{t:.4},{},{},{},{},{:.4},{:.2},{:.3},{:.4},{:.3},{:.3},{:?},{:.1},{:.1},{:.4},{:.2},{},{},\"{}\"\n",
             u8::from(outcome.presented),
             u8::from(st.is_preview),
             st.render_size.0,
@@ -343,6 +364,10 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             player.pointer.0,
             player.pointer.1,
             r.navigator.flight().map_or(-1.0, |f| f.progress()),
+            assessment.map_or(f64::NAN, |a| a.detail),
+            uniform.map_or(-1, i32::from),
+            u8::from(ap.is_rescuing()),
+            ap.lock_label(),
         ));
         flush(&r, &mut queue, &mut last_image, false)?;
     }
@@ -414,6 +439,61 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             r.viewport.scale.to_text(4),
             almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
         );
+        println!("  {}", apm.summary(r.navigator.autopilot().lock_enabled()));
     }
     Ok(0)
+}
+
+/// What a headless autopilot run measures (kb: decisions/controls "Autopilot").
+#[derive(Default)]
+struct ApMetrics {
+    /// Frames with a fresh survey, uniform ones, and both after the first 5 s.
+    surveyed: usize,
+    uniform: usize,
+    surveyed_late: usize,
+    uniform_late: usize,
+    /// Current and longest uniform stretch (s).
+    run: f64,
+    longest: f64,
+    rescue: f64,
+    max_zoom: f64,
+    final_zoom: f64,
+    switches: u32,
+}
+
+impl ApMetrics {
+    fn frame(&mut self, t: f64, dt: f64, uniform: Option<bool>, rescue: bool, zoom: f64, switches: u32) {
+        if let Some(u) = uniform {
+            self.surveyed += 1;
+            self.uniform += usize::from(u);
+            if t >= 5.0 {
+                self.surveyed_late += 1;
+                self.uniform_late += usize::from(u);
+            }
+            self.run = if u { self.run + dt } else { 0.0 };
+            self.longest = self.longest.max(self.run);
+        }
+        if rescue {
+            self.rescue += dt;
+        }
+        self.max_zoom = self.max_zoom.max(zoom);
+        self.final_zoom = zoom;
+        self.switches = switches;
+    }
+
+    fn summary(&self, lock: bool) -> String {
+        let pct = |a: usize, b: usize| 100.0 * a as f64 / b.max(1) as f64;
+        format!(
+            "autopilot-metrics: lock={} uniform={:.1}% uniform_after5s={:.1}% longest_uniform={:.1}s rescue={:.1}s targets={} max_zoom=1e{:.1} final_zoom=1e{:.1} surveyed_frames={}",
+            u8::from(lock),
+            pct(self.uniform, self.surveyed),
+            pct(self.uniform_late, self.surveyed_late),
+            self.longest,
+            self.rescue,
+            self.switches,
+            self.max_zoom,
+            self.final_zoom,
+            self.surveyed,
+        )
+    }
 }

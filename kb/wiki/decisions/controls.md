@@ -277,9 +277,10 @@ view. Each frame zooms about `h` at the autopilot rate z and pans the content by
 `k = (0.5 + 1.0 · z) /s`: the content under the pointer drifts to the middle while the view
 dives into it, and the focus of expansion sits at `h (1 + k/z)`, beyond the pointer, which
 reads as turning towards it. k grows with z so that turning keeps pace with the dive: a
-target can be recaptured while it is within about `R (1 + k/z)` of the centre. Straight
-ahead (h* = 0) when the pointer is off the canvas or over the HUD, in keyboard mode, or idle
-for 3 s; edge panning is off while the autopilot runs. Rate and heading are integrated in
+target can be recaptured while it is within about `R (1 + k/z)` of the centre. When the
+pointer is off the canvas or over the HUD, in keyboard mode, or idle for 3 s, the target lock
+aims (below; straight ahead, h* = 0, with the lock off); edge panning is off while the
+autopilot runs. Rate and heading are integrated in
 fixed 2 ms substeps (the pan rate depends on the zoom rate), so 30, 60 and 120 Hz agree to
 1e-3 of the distance steered (test `autopilot_is_frame_rate_independent`); the rate spring
 alone is exact.
@@ -303,11 +304,71 @@ after 0.56 s; 4 /s down: a stop glides on 2/ω = 0.5 s of rate, 0.45 e-folds at 
   sharp", "waiting for the deep reference", "slower: heading into the interior",
   "slower: featureless ahead", "paused · click to resume").
 
-**Assist** (inspector toggle, off by default, persisted). The survey's detail-weighted
-centroid around the heading (σ = 0.35 of the smaller side; score = min(detail / 12, 1) ·
-(1 − interior / 2)) leans the heading target towards boundary detail by 0.6 of its offset,
-at most 0.4 R, fading out as the pointer deflects past the dead zone (gone at a response of
-0.2): it never steers against the user.
+**Assist** (2026-10-14, removed 2026-10-15). The survey's detail-weighted centroid around
+the heading leaned the heading target towards boundary detail while the pointer rested. The
+user reported that plain Z and Z with assist both end in featureless regions; replaced by the
+target lock below.
+
+### Target lock and rescue (as built, 2026-10-15)
+
+**Why the assist failed.** Zooming continuously towards almost any point ends in smooth
+exterior or interior: the boundary has no thickness, so a generic point sits a finite
+distance from it, and once the view is smaller than that distance only one side shows. A
+centroid follower is a feedback loop on the last frame's detail: the centroid moves with every
+frame and is measured late, so it lags, and as the detail thins it has nothing left to lean
+towards. Only points *on* the boundary stay busy at every depth: Misiurewicz points (spiral
+centres and branch points, where the view is asymptotically self-similar) and minibrots (a dive
+towards one passes its embedded Julia stages and ends with the minibrot and its decorations;
+see "Journey" for the maths).
+
+**Target lock** (`crates/almondbread-core/src/autopilot/lock.rs`; control center "Autopilot
+target lock", on by default, persisted; off = the pure joystick; `ALMONDBREAD_AUTOPILOT_LOCK=0|1`
+overrides the setting in the app for A/B tests; `fly --lock 0|1`, script event `{"lock": false}`).
+While the user does not steer (pointer in the dead zone, off the canvas or idle for 3 s,
+keyboard mode, and no pan, drag, fling or held key for 1 s), the autopilot aims at a target:
+
+- *Search* (on a thread, `autopilot-lock`; synchronous only in tests and the `autopilot` CLI):
+  the journey's finder over the view (ball period detection and Newton for nuclei with extra
+  bits at depth, minibrot framings and their Julia stages, orbit closest return and Newton for
+  Misiurewicz points, boundary texels of a 40 × 40 probe), candidates within 0.45 spans of
+  the centre, pre-scored by distance (−1.2 per span) and kind (spirals and Julia stages +0.15,
+  branch points +0.1, boundary texels −0.5), the best 6 probed (40 × 40 CPU probe of the end
+  framing) and kept when the probe is *aimable*: interior ≤ 0.75 (centre third ≤ 0.9),
+  ≥ 3 band crossings per width (centre third ≥ 1). Looser than the journey's landing test:
+  sparse filaments are dull to land on but fine to dive through. Searches take 0.01–0.3 s
+  (measured 2026-10-15, M1 Pro, release; deeper and denser views more).
+- *Ahead*: each target has an end span (its framing). As soon as it is locked, a search runs
+  from the view centred on it at that end span, continuing its maths: an approach or a Julia
+  stage adds the same minibrot's next stages (nucleus again by Newton at the new precision,
+  pre-score +0.6, so a dive follows one minibrot through its Julia stages to the minibrot
+  instead of hopping to a deeper one every leg); a Misiurewicz point adds itself 4–7 e-folds
+  deeper, refined by Newton at that depth's precision (−0.25: the fallback; other targets win
+  when they probe well). The next target takes over 0.7 e-folds before the current end span.
+  Pickup searches (nothing locked) snap the view to a grid (span to 1/8 e-fold, centre to
+  1/128 span) so views a frame apart search the same view: 30, 60 and 120 Hz flights pick the
+  same targets (test `autopilot_lock_is_frame_rate_independent`).
+- *Aiming*: when the target changes, the aim point glides from where the heading pointed to
+  the new target (0.8 s, smoothstep). The heading target for an aim point p is `g p` with
+  `g = (z + λ)/(z + k)`, λ = 1.5 /s, so the point moves at `z (p − h) − k h = −λ p` (zoom about
+  h at rate z, pan −k h); the heading spring runs at ω = 20 /s while the lock aims. The first
+  version aimed `h = p` through the pointer spring (ω = 6): at 4 e-folds/s it oscillated
+  (the zoom amplifies the spring's lag at rate z) and lost the target within seconds
+  (`almondbread autopilot` at the 1e-50 start: target offsets swinging ±450 points, then
+  lost; with the gain law it holds within a point). A far aim point (beyond 0.5 R) slows the
+  zoom, to 0.3 at 1.2 R, so the turn can catch it.
+- *Pointer priority*: any deflection past the dead zone, or manual input, releases the lock at
+  once (the pointer's heading alone, ω = 6); letting go picks up again with a search from the
+  current view.
+
+**Rescue.** With the lock on and the user not steering, a heading region that stays uniform
+(survey danger > 0.5; without a fresh survey: the last search found the view uniform) for 1 s
+with no target, or 2.5 s with one (a target that leads nowhere), eases the zoom into reverse at
+0.6 × speed (0.5–1.5 e-folds/s, through the rate spring; × (1 + t/2 s) after t s of it, at most
+3 e-folds/s, so a deep interior start does not take half a minute) and keeps searching the widening view
+(every 0.6 s or 0.5 e-folds); the first target found ends it and the dive resumes. It also ends
+when the whole set is in view (span ≥ 4). A deflected pointer ends it at once: steering into a
+void on purpose is allowed (the safety still slows down there). HUD: "Autopilot · towards spiral
+M(68,2)" and "backing out: nothing ahead".
 
 **Tuning on review flights** (`scripts/flights/autopilot-seahorse.json`, `almondbread fly`
 with a scripted pilot that keeps a target under the pointer, clamped to the window):
@@ -387,12 +448,12 @@ diffs the landed frame against the CPU oracle and a fresh render.
 **Reset (2026-10-15, user request).** "Reset all…" at the bottom of the control center asks
 "Reset settings" or "Reset settings and view" and puts every per-window setting (look,
 palette and mapping, lighting and outline, interior, overlays, iterations and quality, edge
-panning, autopilot assist; with the view: the whole set) back to the defaults
+panning, autopilot target lock; with the view: the whole set) back to the defaults
 (`Explorer.defaultSettings()`). Each section header has a small ↺ that resets that section
 alone. Both are undoable (Edit ▸ Undo, ⌘Z: the previous settings record and view go on the
 window's undo manager). The Settings window's reset of app-wide preferences stays separate.
 Places, autopilot and fly-to are in the control center since the integration (Places: grid by
-category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, assist).
+category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, target lock).
 
 ## Journey (as built, 2026-10-15)
 
