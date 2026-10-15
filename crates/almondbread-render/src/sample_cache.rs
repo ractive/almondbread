@@ -953,12 +953,14 @@ impl<B: GpuBackend> SampleCache<B> {
             steps += 1;
         }
         let floor = self.cap * 0.5f64.powi(MAX_STEPS as i32);
-        if fit < self.target * 0.99 {
-            self.target = fit;
+        // Hysteresis both ways (a target change switches the level): down when the budget no
+        // longer affords 0.8 x the target, up when it affords 2.5 x and the cache kept up for a
+        // while (a finer level costs 3/4 of its texels at once). Level switches make backlogs
+        // by design; the demand model already counts them.
+        if afford < 0.8 * self.target {
+            self.target = fit.min(self.target * 0.5);
             self.calm_frames = 0;
-        } else if fit > self.target * 1.01 {
-            // Up only once the cache kept up for a while (a finer level costs 3/4 of its
-            // texels at once).
+        } else if afford >= 2.5 * self.target && self.target < self.cap * 0.99 {
             if self.backlog == 0 {
                 self.calm_frames += 1;
             } else {
@@ -968,16 +970,8 @@ impl<B: GpuBackend> SampleCache<B> {
                 self.target = (self.target * 2.0).min(self.cap);
                 self.calm_frames = 0;
             }
-        }
-        // Falling far behind: one step down.
-        if self.backlog as f64 > 6.0 * budget_texels {
-            self.starved_frames += 1;
-            if self.starved_frames >= 6 && self.target > floor * 1.01 {
-                self.target *= 0.5;
-                self.starved_frames = 0;
-            }
         } else {
-            self.starved_frames = 0;
+            self.calm_frames = 0;
         }
         self.target = self.target.clamp(floor, self.cap);
     }

@@ -126,6 +126,9 @@ pub struct SchedulerConfig {
     pub aa_budget: f64,
     /// BLA iteration skipping (kb: techniques/bla; `ALMONDBREAD_BLA=0|1|auto`).
     pub bla: BlaMode,
+    /// Wait for the frame's chunks before its colour passes (measurements only;
+    /// `ALMONDBREAD_SERIAL_COMPOSE=1`).
+    pub serial_compose: bool,
     /// BLA validity: dropped terms at most `bla_epsilon` of the linear term per step
     /// (`ALMONDBREAD_BLA_EPS=e` sets 2^-e).
     pub bla_epsilon: f64,
@@ -265,6 +268,7 @@ impl Default for SchedulerConfig {
             taa_base_weight: 0.02,
             aa_chunk_target: 0.008,
             aa_budget: 1.5,
+            serial_compose: std::env::var("ALMONDBREAD_SERIAL_COMPOSE").is_ok_and(|v| v == "1"),
             bla: std::env::var("ALMONDBREAD_BLA")
                 .ok()
                 .and_then(|v| BlaMode::parse(&v))
@@ -1918,6 +1922,15 @@ impl<B: GpuBackend> Renderer<B> {
         if let Some((mode, aa_level)) = plan
             && let Some((target, drawable)) = acquire(final_frame)
         {
+            // Measurement mode (`ALMONDBREAD_SERIAL_COMPOSE=1`): the GPU runs the frame's
+            // chunks to the end first, so the colour passes' GPU times are their own (Apple GPUs
+            // overlap consecutive command buffers; a compose overlapping a 20 ms chunk reports
+            // 20 ms).
+            if self.config.serial_compose {
+                for r in &self.in_flight {
+                    r.submission.wait();
+                }
+            }
             if let Ok(mut enc) = self.encode_compose(&target, &colors, mode, aa_level, now) {
                 if let Some(d) = &drawable {
                     enc.present(d);

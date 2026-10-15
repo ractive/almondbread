@@ -2098,7 +2098,9 @@ struct ComposeParams {
 static inline float4 cacheColor(texture2d<float, access::sample> t, int2 i, constant ComposeParams& q,
                                 float2 size) {
     if (any(i < 0) || any(float2(i) >= size)) return float4(0.0f);
-    return t.read((uint2(i) + q.wrap) % uint2(size));
+    // (t + wrap) mod size with t, wrap < size: one conditional subtraction, no division.
+    const uint2 n = uint2(size), u = uint2(i) + q.wrap;
+    return t.read(select(u, u - n, u >= n));
 }
 
 // Catmull-Rom from five bilinear taps (the four corner taps of the 4x4 kernel dropped, their
@@ -2152,6 +2154,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     // bilinear mean, over the ones present, as the base).
     float3 cacheSum = 0.0f;
     float cacheW = 0.0f;
+    bool cacheMiss = false;
     if (c.hasUnder > 0.0f && q.cache != 0) {
         const int2 b0 = int2(floor(v));
         const float2 f = v - float2(b0);
@@ -2167,23 +2170,8 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 cacheW += w;
             }
         }
-        if (bl.a > 1e-3f) {
-            base = bl.rgb / bl.a;
-        } else {
-            // No sample around (a level just switched finer twice, or not filled yet): the
-            // nearest one within 3 texels.
-            float best = 1e30f;
-            for (int j = -2; j <= 3; j++) {
-                for (int i = -2; i <= 3; i++) {
-                    const int2 t = b0 + int2(i, j);
-                    const float2 d = float2(t) - v;
-                    const float dd = dot(d, d);
-                    if (dd >= best) continue;
-                    const float4 s = cacheColor(preview, t, q, c.underSize);
-                    if (s.a > 0.0f) { best = dd; base = s.rgb; }
-                }
-            }
-        }
+        if (bl.a > 1e-3f) base = bl.rgb / bl.a;
+        else cacheMiss = true;
     } else if (c.hasUnder > 0.0f) {
         float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
         base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
@@ -2201,6 +2189,28 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 ? histIn.read(uint2(hp)) : catmullRom(histIn, bilinear, hp, q.histSize);
             hist = max(h.rgb, 0.0f);
             wh = clamp(h.a, 0.0f, q.confCap) * q.histDecay;
+        }
+    }
+
+    if (cacheMiss) {
+        // No cache sample around (a level just switched finer, or not filled yet): the history
+        // where there is one, else the nearest sample of the 4 x 4 texels around.
+        if (wh > 0.0f) {
+            base = hist;
+        } else {
+            const int2 b0 = int2(floor(v));
+            float best = 1e30f;
+            for (int j = -1; j <= 2; j++) {
+                for (int i = -1; i <= 2; i++) {
+                    const int2 t = b0 + int2(i, j);
+                    const float2 d = float2(t) - v;
+                    const float dd = dot(d, d);
+                    if (dd >= best) continue;
+                    const float4 s = cacheColor(preview, t, q, c.underSize);
+                    if (s.a > 0.0f) { best = dd; base = s.rgb; }
+                }
+            }
+            hist = base;
         }
     }
 
