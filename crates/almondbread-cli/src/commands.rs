@@ -63,8 +63,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
-        // Seed passes included (local SA); their own time is in the "local SA" line.
-        times.push(res.iterate_gpu_time + res.seeds.as_ref().map_or(0.0, |s| s.gpu_time));
+        // (Seed passes included; their own time is in the "local SA" line.)
+        times.push(res.iterate_gpu_time);
         walls.push(res.wall_time);
         out = Some(res);
     }
@@ -186,31 +186,33 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     Ok(Some(ov))
 }
 
-/// R5 prototype: what the seed passes of a locally approximated render did.
-fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: u64, pixel_steps: u64, pixel_gpu: f64) {
+/// M5: what the seed passes of a locally approximated render did.
+fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: u64, pixel_steps: u64, gpu: f64) {
     let levels: Vec<String> = s
         .levels
         .iter()
-        .map(|(size, count, iters, steps, mean_n, gpu)| {
+        .map(|(size, count, iters, steps, mean_n)| {
             format!(
-                "{size}:{count} nodes, {} it, {} steps, n̄ {:.0}, {:.2} ms",
+                "{size}:{count} nodes, {} it, {} steps, n̄ {:.0}",
                 g(*iters as f64, 3),
                 g(*steps as f64, 3),
-                mean_n,
-                gpu * 1000.0
+                mean_n
             )
         })
         .collect();
     let total = s.steps() + pixel_steps;
     println!(
-        "local SA: seeds {} it / {} steps, {:.2} ms GPU; pixels {} it; total steps {} (seed share {:.1} %); GPU seeds + pixels {:.2} ms",
+        "local SA: seeds {} it / {} steps, {:.2} ms GPU in {} rounds; tiles seeded {} of {}; pixels {} it; total steps {} (seed share {:.1} %); GPU seeds + pixels {:.2} ms",
         g(s.iterations() as f64, 3),
         g(s.steps() as f64, 3),
         s.gpu_time * 1000.0,
+        s.rounds,
+        s.tiles_seeded,
+        s.tiles,
         g(pixel_iterations as f64, 3),
         g(total as f64, 4),
         100.0 * s.steps() as f64 / total.max(1) as f64,
-        (s.gpu_time + pixel_gpu) * 1000.0
+        gpu * 1000.0
     );
     println!("  levels [{}]", levels.join("; "));
 }

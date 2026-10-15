@@ -479,42 +479,109 @@ mod tests {
         );
     }
 
-    /// R5 prototype (kb: questions/local-sa-float32): local series approximation at the dense
-    /// view takes several times fewer steps with the plain kernel's class statistics, and at
-    /// the deep needle minibrot (interior test on, period-255 nucleus reference) paints no
-    /// exterior pixel interior (restarting the interior derivative at the branch painted 96 %).
-    #[test]
-    fn local_sa_prototype() {
-        use crate::scheduler::{LocalSa, Renderer, SchedulerConfig};
+    /// An offscreen render of a benchmark location with the given local SA settings: (field,
+    /// loop steps incl. seeds, the seed report).
+    fn sa_render(
+        sa: crate::scheduler::LocalSa,
+        name: &str,
+        w: usize,
+        h: usize,
+        interior: bool,
+    ) -> (
+        almondbread_core::IterationField,
+        u64,
+        Option<crate::scheduler::SeedReport>,
+    ) {
+        use crate::scheduler::{Renderer, SchedulerConfig};
         use almondbread_core::locations::location_named;
-        use almondbread_core::oracle::compare;
-        let render = |sa: bool, name: &str, w: usize, h: usize| {
-            let config = SchedulerConfig {
-                local_sa: sa.then(LocalSa::default),
-                ..SchedulerConfig::default()
-            };
-            let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
-            let loc = location_named(name).expect("location");
-            r.settings = almondbread_core::RenderSettings::plain();
-            r.settings.auto_iterations = false;
-            r.settings.manual_iterations = loc.max_iterations();
-            r.settings.supersampling = almondbread_core::Supersampling::Off;
-            r.viewport = loc.viewport_for_width(w);
-            let out = r.render_offscreen(w, h, true).expect("render");
-            let field = almondbread_core::IterationField::from_texels(w, h, out.iterations.as_deref().unwrap());
-            let steps = out.steps_done + out.seeds.as_ref().map_or(0, |s| s.steps());
-            (field, steps, out.seeds.is_some())
+        let config = SchedulerConfig {
+            local_sa: sa,
+            ..SchedulerConfig::default()
         };
-        let (plain, plain_steps, _) = render(false, "dense-5e-14", 400, 250);
-        let (sa, sa_steps, seeded) = render(true, "dense-5e-14", 400, 250);
-        assert!(seeded);
-        assert!(sa_steps * 3 < plain_steps, "{sa_steps} vs {plain_steps}");
-        let (rep, _) = compare(&sa, &plain);
+        let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
+        let loc = location_named(name).expect("location");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = loc.max_iterations();
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        r.settings.interior_detection = interior;
+        r.viewport = loc.viewport_for_width(w);
+        let out = r.render_offscreen(w, h, true).expect("render");
+        let field = almondbread_core::IterationField::from_texels(w, h, out.iterations.as_deref().unwrap());
+        let steps = out.steps_done + out.seeds.as_ref().map_or(0, |s| s.steps());
+        (field, steps, out.seeds)
+    }
+
+    fn sa(mode: crate::scheduler::SaMode) -> crate::scheduler::LocalSa {
+        crate::scheduler::LocalSa {
+            mode,
+            ..crate::scheduler::LocalSa::default()
+        }
+    }
+
+    /// M5 (kb: techniques/local-series-approximation): at the dense view local SA takes
+    /// several times fewer steps with the plain kernel's class statistics; at the deep needle
+    /// minibrot (interior test on, period-255 nucleus reference) it paints no exterior pixel
+    /// interior (restarting the interior derivative at the branch painted 96 %, R5).
+    #[test]
+    fn local_sa_dense_and_needle() {
+        use crate::scheduler::SaMode;
+        use almondbread_core::oracle::compare;
+        let (plain, plain_steps, none) = sa_render(sa(SaMode::Off), "dense-5e-14", 400, 250, true);
+        assert!(none.is_none());
+        let (on, on_steps, report) = sa_render(sa(SaMode::On), "dense-5e-14", 400, 250, true);
+        let report = report.expect("seeded");
+        assert_eq!(report.tiles_seeded, report.tiles);
+        assert!(on_steps * 3 < plain_steps, "{on_steps} vs {plain_steps}");
+        let (rep, _) = compare(&on, &plain);
         assert!(rep.mismatch_pct() < 0.05, "{}", rep.summary());
-        let (plain, _, _) = render(false, "needle-1e305", 320, 200);
-        let (sa, _, _) = render(true, "needle-1e305", 320, 200);
-        let (rep, _) = compare(&sa, &plain);
+        // Auto seeds every tile here (the leaves saved thousands of iterations).
+        let (auto, _, report) = sa_render(sa(SaMode::Auto), "dense-5e-14", 400, 250, true);
+        let report = report.expect("seeded");
+        assert_eq!(report.tiles_seeded, report.tiles);
+        assert_eq!(auto.bitwise_differences(&on), 0);
+        let (plain, _, _) = sa_render(sa(SaMode::Off), "needle-1e305", 320, 200, true);
+        let (on, _, _) = sa_render(sa(SaMode::On), "needle-1e305", 320, 200, true);
+        let (rep, _) = compare(&on, &plain);
         assert!(rep.false_interior_pct() < 0.01, "{}", rep.summary());
+    }
+
+    /// M5: where the seeds branch early (interior-heavy home view at 100k iterations) the
+    /// auto gate seeds no tile, and the field is the plain one bit for bit.
+    #[test]
+    fn local_sa_auto_gate_off() {
+        use crate::scheduler::SaMode;
+        let (plain, _, _) = sa_render(sa(SaMode::Off), "home-100k", 320, 200, true);
+        let (auto, _, report) = sa_render(sa(SaMode::Auto), "home-100k", 320, 200, true);
+        assert_eq!(report.expect("seeded").tiles_seeded, 0);
+        assert_eq!(auto.bitwise_differences(&plain), 0);
+    }
+
+    /// M5: seed rounds are resumable: a tiny step budget (many rounds) gives the same field
+    /// bit for bit as one unbounded round, in the plain and in the deep kernel (shown frame =
+    /// fresh render whatever the rounds' timing).
+    #[test]
+    fn local_sa_rounds_resumable() {
+        use crate::scheduler::{LocalSa, SaMode};
+        for (name, w, h) in [
+            ("dense-5e-14", 320, 200),
+            ("sea-1e20", 320, 200),
+            ("dendrite-1e300", 320, 200),
+        ] {
+            let small = LocalSa {
+                budget: 5,
+                ..sa(SaMode::On)
+            };
+            let big = LocalSa {
+                budget: u32::MAX,
+                ..sa(SaMode::On)
+            };
+            let (a, _, ra) = sa_render(small, name, w, h, true);
+            let (b, _, rb) = sa_render(big, name, w, h, true);
+            assert!(ra.expect("seeded").rounds > 3, "{name}");
+            assert_eq!(rb.expect("seeded").rounds, 1, "{name}");
+            assert_eq!(a.bitwise_differences(&b), 0, "{name}");
+        }
     }
 
     /// Offscreen fields at `scale` around the M4 slow view with the given BLA mode:
@@ -526,9 +593,11 @@ mod tests {
         async_from: usize,
     ) -> (almondbread_core::IterationField, bool, u64, u64) {
         use crate::scheduler::{Renderer, SchedulerConfig};
+        // (Local SA off: the seeds would take the blocks the pixels are measured on.)
         let config = SchedulerConfig {
             bla: mode,
             bla_async_from: async_from,
+            local_sa: sa(crate::scheduler::SaMode::Off),
             ..SchedulerConfig::default()
         };
         let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");

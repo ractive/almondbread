@@ -34,7 +34,8 @@ pub struct IterateParams {
     pub height: u32,
     /// 0: raster tile order, 1: the order buffer.
     pub tile_order: u32,
-    pub pad0: u32,
+    /// M5: 1 = admit fresh pixels only once the level's seed round reported every node final.
+    pub seed_gate: u32,
     /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
     /// 2^`scale_exp`. 0 for the plain kernel.
     pub scale_exp: i32,
@@ -286,9 +287,9 @@ const _: () = {
     assert!(offset_of!(ComposeParams, out_centre) == 64);
 };
 
-/// R5 prototype (kb: techniques/local-series-approximation): one quadtree seed's branch
-/// state (`SeedNode` in MSL), 72 bytes. Plain kernel: `b` is d²z/dc² · texel, exponents 0;
-/// deep kernel: floatexp mantissas with their exponents.
+/// M5 (kb: techniques/local-series-approximation): one quadtree seed's branch state and
+/// resumable loop state (`SeedNode` in MSL), 88 bytes. Plain kernel: `b` is d²z/dc² · texel,
+/// exponents 0; deep kernel: floatexp mantissas with their exponents.
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct SeedNode {
@@ -307,9 +308,16 @@ pub struct SeedNode {
     pub wd: [f32; 2],
     pub w_exp: i32,
     pub wd_exp: i32,
+    /// `epoch << 2 | state` (0 new, 1 running, 2 done).
+    pub stamp: u32,
+    /// Accepted seed steps from the root to this node (what a pixel starting here saves).
+    pub path: u32,
+    /// Interior colouring: log2 of the smallest |z| so far and its iteration.
+    pub ic_min: f32,
+    pub ic_q: u32,
 }
 
-/// One quadtree level of seeds (`SeedParams` in MSL), 48 bytes; the leaf level's copy tells
+/// One quadtree level of seeds (`SeedParams` in MSL), 80 bytes; the leaf level's copy tells
 /// the iterate kernel where a pixel's node is.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -324,15 +332,38 @@ pub struct SeedParams {
     pub soft_iter: u32,
     pub radius: f32,
     pub eps: f32,
-    pub pad0: u32,
+    /// This seeding (node stamps).
+    pub epoch: u32,
+    /// Seed steps per node in one pass.
+    pub budget: u32,
+    /// The seeded level's sample position inside a texel.
+    pub jitter: [f32; 2],
+    pub tiles_x: u32,
+    /// 1: per-tile forecast; 2: every tile starts from its seeds.
+    pub gate_mode: u32,
+    pub gate_rel: f32,
+    pub gate_abs: f32,
+    pub tiles_y: u32,
     pub pad1: u32,
 }
 
+/// The seed round's status (`SeedStatus` in MSL).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SeedStatus {
+    pub unfinished: u32,
+    pub seeded_tiles: u32,
+    pub pad: [u32; 2],
+}
+
 const _: () = {
-    assert!(size_of::<SeedNode>() == 72);
+    assert!(size_of::<SeedNode>() == 88);
     assert!(offset_of!(SeedNode, w) == 48);
     assert!(offset_of!(SeedNode, dz_exp) == 24);
     assert!(offset_of!(SeedNode, m) == 36);
-    assert!(size_of::<SeedParams>() == 48);
+    assert!(offset_of!(SeedNode, stamp) == 72);
+    assert!(size_of::<SeedParams>() == 80);
     assert!(offset_of!(SeedParams, radius) == 32);
+    assert!(offset_of!(SeedParams, jitter) == 48);
+    assert!(size_of::<SeedStatus>() == 16);
 };

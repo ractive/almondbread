@@ -34,7 +34,7 @@ constant bool kDeep     [[function_constant(3)]];   // M3b: rescaled float32 del
 constant bool kInteriorColor [[function_constant(4)]];  // analyse interior cycles (period,
                                                     // multiplier, interior DE) for the interior
                                                     // colourings (kb: techniques/coloring-methods)
-constant bool kSeeded   [[function_constant(5)]];   // R5 prototype: fresh pixels start from their
+constant bool kSeeded   [[function_constant(5)]];   // M5: fresh pixels of seeded tiles start from their
                                                     // quadtree leaf's local series expansion
                                                     // (kb: techniques/local-series-approximation)
 
@@ -69,7 +69,8 @@ struct IterateParams {
                           // a % 256 inside it (FL: spatially coherent, priority-ordered refinement)
     uint   height;        // level height in texels (padding texels of edge tiles are skipped)
     uint   tileOrder;     // 0: tiles in raster order; 1: tile = order[rank] (buffer 13)
-    uint   pad0;
+    uint   seedGate;      // M5: admit fresh pixels only once the level's seeds are final
+                          // (SeedStatus at buffer 20 of prepareChunk)
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
@@ -78,15 +79,30 @@ struct IterateParams {
     uint   pad3;
 };
 
+// Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
+// 4 consecutive texels are a 2 x 2 block, 16 a 4 x 4 block and a SIMD group of 32 an 8 x 4
+// block (M5: a SIMD group starts from neighbouring local-SA leaves, kb:
+// techniques/local-series-approximation; also more compact than two 16-texel rows).
+static inline uint2 mortonDecode8(uint i) {
+    uint x = (i & 1u) | ((i >> 1) & 2u) | ((i >> 2) & 4u) | ((i >> 3) & 8u);
+    uint y = ((i >> 1) & 1u) | ((i >> 2) & 2u) | ((i >> 3) & 4u) | ((i >> 4) & 8u);
+    return uint2(x, y);
+}
+static inline uint mortonEncode8(uint2 v) {
+    uint x = v.x & 15u, y = v.y & 15u;
+    return (x & 1u) | ((x & 2u) << 1) | ((x & 4u) << 2) | ((x & 8u) << 3)
+         | ((y & 1u) << 1) | ((y & 2u) << 2) | ((y & 4u) << 3) | ((y & 8u) << 4);
+}
+
 // Admission index -> texel of a tiled level (kb: techniques/frame-reuse-and-progressive, FL):
-// texels are admitted tile by tile (16 x 16, row-major inside a tile); the tile order is raster
-// order or a priority list (newly exposed tiles first, then by distance from the zoom target).
-// Returns false for padding texels of edge tiles.
+// texels are admitted tile by tile (16 x 16, Morton order inside a tile); the tile order is
+// raster order or a priority list (newly exposed tiles first, then by distance from the zoom
+// target). Returns false for padding texels of edge tiles.
 static inline bool tileTexel(uint a, uint tilesX, uint width, uint height, uint tileOrder,
                              device const uint* order, thread uint2& xy) {
-    uint rank = a >> 8, within = a & 255u;
+    uint rank = a >> 8;
     uint tile = tileOrder != 0 ? order[rank] : rank;
-    xy = uint2((tile % tilesX) * 16u + (within & 15u), (tile / tilesX) * 16u + (within >> 4));
+    xy = uint2((tile % tilesX) * 16u, (tile / tilesX) * 16u) + mortonDecode8(a & 255u);
     return xy.x < width && xy.y < height;
 }
 
@@ -94,7 +110,7 @@ static inline bool tileTexel(uint a, uint tilesX, uint width, uint height, uint 
 static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const uint* rank) {
     uint tile = (s.y >> 4) * tilesX + (s.x >> 4);
     uint r = tileOrder != 0 ? rank[tile] : tile;
-    return (r << 8) | ((s.y & 15u) << 4) | (s.x & 15u);
+    return (r << 8) | mortonEncode8(s);
 }
 
 // Loop state of one live pixel. BLA needs nothing beyond (dz, m, n), so a level may switch
@@ -202,19 +218,21 @@ static inline float2 cmul(float2 a, float2 b) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// R5 prototype: local series approximation on the GPU (kb: techniques/local-series-approximation,
+// M5: local series approximation (kb: techniques/local-series-approximation,
 // questions/local-sa-float32). A quadtree node is a seed at its centre c0: it iterates exactly
 // (perturbation against the reference, rebasing as the pixel loop) and carries
 //   a = dz/dc * texel           (the DE derivative d of the pixel loop)
 //   b = d2z/dc2 * texel^2       (deep: floatexp; plain: divided by the texel, b * texel)
 // while |b| r <= 2 eps |a| over its radius r (texels). A child starts from its parent's state
 // shifted by delta (texels): dz + a delta + b delta^2 / 2, a + b delta, b. Pixels start from
-// their leaf node (2 x 2) the same way and run the unchanged loop.
+// their leaf node the same way and run the unchanged loop.
 // The interior test's w = dz_n/dz_1 is a function of c too: seeds carry it and its derivative
 //   wd = dw/dc * texel,  wd_{n+1} = 2 (a_n w_n + z_n wd_n)
 // and samples start from w + wd delta. (Restarting w at the branch is wrong: a later passage
 // of the orbit near 0 multiplies a restarted w by |2z| ~ 1e-300 at the deep needle, with no
-// growth from the earlier part of the orbit to balance it: 96 % false interior, measured.)
+// growth from the earlier part of the orbit to balance it: 96 % false interior, measured R5.)
+// Seed passes are resumable: a node keeps its whole loop state, so a pass with a step budget
+// stops anywhere and the next round continues it with the same result (watchdog, M5).
 struct SeedNode {
     float2 dz;       // delta to the reference (deep: mantissa)
     float2 a;        // dz/dc * texel (deep: mantissa)
@@ -229,8 +247,15 @@ struct SeedNode {
     float2 wd;       // dw/dc * texel, floatexp mantissa
     int    wExp;
     int    wdExp;
+    uint   stamp;    // epoch << 2 | state (0 new, 1 running, 2 done): nodes of older seedings
+                     // in the buffer are "new" for this one
+    uint   path;     // accepted seed steps from the root to here: what a pixel saves
+    float  icMin;    // kInteriorColor: log2 of the smallest |z| so far, and its iteration
+    uint   icQ;
 };
 
+// One quadtree level of seeds; the leaf level's copy tells the iterate kernel where a pixel's
+// node is and how it was seeded.
 struct SeedParams {
     uint  gridW;         // nodes per row of this quadtree level
     uint  gridH;
@@ -242,10 +267,23 @@ struct SeedParams {
     uint  softIter;      // seeds stop here
     float radius;        // texels
     float eps;
-    uint  pad0;
+    uint  epoch;         // this seeding (node stamps)
+    uint  budget;        // seed steps per node in this pass
+    float2 jitter;       // the seeded level's sample position inside a texel
+    uint  tilesX;        // 16 x 16 tiles per row of the seeded level
+    uint  gateMode;      // seedGate: 1 per-tile forecast, 2 every tile seeded
+    float gateRel;       // a tile is seeded when its leaves' mean path >= max(gateAbs,
+    float gateAbs;       //   gateRel * softIter)
+    uint  tilesY;
     uint  pad1;
 };
 
+// The seed round's status (buffer 20 of the seed kernels and of prepareChunk).
+struct SeedStatus {
+    atomic_uint unfinished;   // nodes of this round not done (incl. waiting for their parent)
+    atomic_uint seededTiles;  // tiles seedGate let start from their seeds
+    uint pad[2];
+};
 
 // ---------------------------------------------------------------------------------------------
 // Extended range for the deep kernel (M3b, kb: techniques/extended-range-floats). FE is a
@@ -357,7 +395,8 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
                          device uint* indirectArgs           [[buffer(7)]],
                          constant uint& threadsPerGroup      [[buffer(8)]],
                          device LevelCounters& level         [[buffer(9)]],
-                         device uint* listCount              [[buffer(11)]])
+                         device uint* listCount              [[buffer(11)]],
+                         device SeedStatus& seedStatus       [[buffer(20)]])
 {
     if (p.firstChunk != 0) {
         *countIn = 0;
@@ -366,6 +405,9 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
     }
     uint live = *countIn;
     uint fresh = min(p.total - level.admitted, p.capacity - live);
+    // M5: a seeded level admits nothing until its last seed round finished every node (the
+    // chunk is then a no-op; the next round and chunks follow).
+    if (p.seedGate != 0 && atomic_load_explicit(&seedStatus.unfinished, memory_order_relaxed) != 0) fresh = 0;
     level.freshStart = level.admitted;
     level.freshCount = fresh;
     level.admitted += fresh;
@@ -395,17 +437,37 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
     stats[p.statSlot].liveOut = *countOut;
 }
 
-// R5: one quadtree level of seeds (one thread per node; parents were written by the previous
-// dispatch). Node centres are texel corners (u, v) = (i + 1/2) size; a pixel centre is
-// (x + 1/2, y + 1/2), so with the level's jitter j the complex offset is ((u, v) + j - 1/2).
+// M5: local series approximation seed passes (kb: techniques/local-series-approximation).
+// A seeding is a sequence of rounds, one command buffer each: seedBegin, then one seedLevel
+// dispatch per quadtree level (root first; one thread per node), then seedGate. A node runs
+// at most `budget` seed steps per round and keeps its whole state, so the result does not
+// depend on how rounds cut the work (shown frame = fresh render). A child waits for its parent
+// to be done (counted as unfinished). The round's unfinished count gates pixel admission in
+// prepareChunk: no pixel starts before every leaf is final.
+// Node centres are texel corners (u, v) = (i + 1/2) size; a sample at texel x has the complex
+// offset of (x + jitter), the node that of ((u, v) + jitter - 1/2) (same level jitter).
+
 // Interior-test value |w| n^2 of a floatexp w.
 static inline float feWTest(FE w, uint n) {
     return max(abs(w.m.x), abs(w.m.y)) * (float(n) * float(n)) * pow2f(clamp(w.e, -126, 127));
 }
 
-static inline float2 seedDc(constant IterateParams& p, float2 q) {
-    float2 pix = q + (p.jitter - 0.5f) - p.halfSize;
+static inline float mabs(float2 v) {
+    return max(abs(v.x), abs(v.y));
+}
+
+// Deep views with texels of at least 2^this seed in float32 (scaled units), deeper in floatexp.
+constant int SEED_FLOAT_MIN_EXP = -80;
+
+static inline float2 seedDc(constant IterateParams& p, float2 q, float2 jitter) {
+    float2 pix = q + (jitter - 0.5f) - p.halfSize;
     return float2(pix.x, -pix.y) * p.texelScale + p.refOffset;
+}
+
+kernel void seedBegin(device SeedStatus& status [[buffer(20)]])
+{
+    atomic_store_explicit(&status.unfinished, 0u, memory_order_relaxed);
+    atomic_store_explicit(&status.seededTiles, 0u, memory_order_relaxed);
 }
 
 kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
@@ -415,36 +477,56 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
                       device const BlaEntryX* tableX [[buffer(17)]],
                       device SeedNode* nodes       [[buffer(18)]],
                       constant SeedParams& sp      [[buffer(19)]],
+                      device SeedStatus& status    [[buffer(20)]],
                       uint tid                     [[thread_position_in_grid]])
 {
     if (tid >= sp.gridW * sp.gridH) return;
+    const uint idx = sp.offset + tid;
+    const uint stampDone = (sp.epoch << 2) | 2u, stampRunning = (sp.epoch << 2) | 1u;
+    SeedNode s = nodes[idx];
+    if (s.stamp == stampDone) return;
     const uint2 nxy = uint2(tid % sp.gridW, tid / sp.gridW);
     const float2 q = (float2(nxy) + 0.5f) * float(sp.size);
-    const float2 dc = seedDc(p, q);
+    const float2 dc = seedDc(p, q, sp.jitter);
     const uint last = p.refLen - 1;
-    SeedNode s;
+    const bool start = s.stamp != stampRunning;
     float2 delta = 0.0f;
-    if (sp.root != 0) {
-        s.dz = 0.0f; s.a = 0.0f; s.b = 0.0f;
-        s.dzExp = FE_ZERO; s.aExp = FE_ZERO; s.bExp = FE_ZERO;
-        s.m = 0; s.n = 0;
-        s.w = float2(0.5f, 0.0f); s.wExp = 1;
-        s.wd = 0.0f; s.wdExp = FE_ZERO;
-    } else {
-        const uint2 pxy = nxy / 2u;
-        s = nodes[sp.parentOffset + pxy.y * sp.parentGridW + pxy.x];
-        const float2 dq = q - (float2(pxy) + 0.5f) * float(2u * sp.size);
-        delta = float2(dq.x, -dq.y);
+    if (start) {
+        if (sp.root != 0) {
+            s.dz = 0.0f; s.a = 0.0f; s.b = 0.0f;
+            s.dzExp = FE_ZERO; s.aExp = FE_ZERO; s.bExp = FE_ZERO;
+            s.m = 0; s.n = 0;
+            s.w = float2(0.5f, 0.0f); s.wExp = 1;
+            s.wd = 0.0f; s.wdExp = FE_ZERO;
+            s.path = 0;
+            s.icMin = 1e30f;
+            s.icQ = 0;
+        } else {
+            const uint2 pxy = nxy / 2u;
+            const SeedNode par = nodes[sp.parentOffset + pxy.y * sp.parentGridW + pxy.x];
+            if (par.stamp != stampDone) {
+                atomic_fetch_add_explicit(&status.unfinished, 1u, memory_order_relaxed);
+                return;
+            }
+            s = par;
+            const float2 dq = q - (float2(pxy) + 0.5f) * float(2u * sp.size);
+            delta = float2(dq.x, -dq.y);
+        }
+        s.steps = 0;
     }
-    uint steps = 0;
+    uint steps = s.steps, path = s.path;
     uint m = s.m, n = s.n;
+    float icMin = s.icMin;
+    uint icQ = s.icQ;
+    uint budget = sp.budget;
+    bool done = true;
     FE W = FE{s.w, s.wExp}, WD = FE{s.wd, s.wdExp};
-    if (sp.root == 0 && kInterior) W = feAdd(W, feMul(WD, feNorm(delta, 0)));
-    if (kDeep) {
+    if (start && sp.root == 0 && kInterior) W = feAdd(W, feMul(WD, feNorm(delta, 0)));
+    if (kDeep && p.scaleExp < SEED_FLOAT_MIN_EXP) {
         const FE C = feNorm(dc, p.scaleExp);
         const FE TS = feNorm(float2(p.texelScale, 0.0f), p.scaleExp);
         FE dz = FE{s.dz, s.dzExp}, A = FE{s.a, s.aExp}, B = FE{s.b, s.bExp};
-        if (sp.root == 0) {
+        if (start && sp.root == 0) {
             const FE D = feNorm(delta, 0);
             const FE BD = feMul(B, D);
             dz = feAdd(dz, feMul(feAdd(A, FE{BD.m, BD.e - 1}), D));
@@ -459,6 +541,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
         const FE cMax = feAdd(feNorm(float2(length(C.m), 0.0f), C.e),
                               feNorm(float2(TS.m.x * sp.radius, 0.0f), TS.e));
         while (n < sp.softIter) {
+            if (budget == 0) { done = false; break; }
             // BLA blocks (kBLA, deep views): z_{m+l} = A z_m + B c is affine in (z, c), so the
             // node's expansion maps exactly: dz' = A dz + B c, a' = A a + B texel, b' = A b,
             // valid for the whole region when |dz| + |a| r (1 + eps) + K (|c| + |texel| r) < R.
@@ -494,6 +577,8 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
                     }
                     m += len;
                     n += len;
+                    budget--;
+                    path++;
                     const FE zb = feAdd(refAt(refx, m), dz);
                     if (m == last || feLess(zb, dz)) { dz = zb; m = 0; }
                     continue;
@@ -514,6 +599,11 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
                 if (dot(f, f) > p.bailout2) break;
             }
             if (feLess(feMul(A2, L), feMul(B2, R))) break;
+            if (kInteriorColor && n != 0) {   // (z_0 = 0 is not an approach)
+                const float zl = length(z.m);
+                const float l = zl > 0.0f ? log2(zl) + float(z.e) : -1e30f;
+                if (l < icMin) { icMin = l; icQ = n; }
+            }
             if (kInterior && n != 0) {   // (w_1 = 1, see the plain path)
                 const FE t2 = feAdd(feMul(A, W), feMul(z, WD));
                 WD = FE{t2.m, t2.e + 1};
@@ -521,32 +611,108 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
             }
             dz = dz2; A = A2; B = B2;
             m++; n++;
+            budget--;
+            path++;
             if (m == last || feLess(zn, dz)) { dz = zn; m = 0; }
             if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) break;
         }
         s.dz = dz.m; s.dzExp = dz.e; s.a = A.m; s.aExp = A.e; s.b = B.m; s.bExp = B.e;
     } else {
-        const float ts = p.texelScale, invTs = 1.0f / ts;
-        float2 dz = s.dz, A = s.a, B = s.b;
-        if (sp.root == 0) {
+        // Float32 seeds: the plain kernel, and the deep kernel down to texels of 2^-80 (M5:
+        // floatexp seed steps cost ~10x a float step, and the root level runs on few threads
+        // where only the step latency counts: 47 ms of serial root seeds at the
+        // spiral-32412-1e19 view). In units: a = dz/dc * texel, b = d2z/dc2 * texel, so a / ts
+        // = dz/dc stays below ~1/ts and a^2 is never formed. Deep views compare max-norms
+        // (squared norms of 1e-19 deltas underflow) and take BLA blocks from the floatexp
+        // table, converted per lookup.
+        const float sc = kDeep ? pow2f(p.scaleExp) : 1.0f;
+        const float ts = p.texelScale * sc, invTs = 1.0f / ts;
+        const float2 dcf = dc * sc;
+        float2 dz, A, B;
+        if (kDeep) {
+            // Node state in floatexp (the deep pixel start reads it so), b in these units
+            // (d2z/dc2 * texel, not * texel^2: exact round trips between rounds).
+            dz = feFloat(FE{s.dz, s.dzExp});
+            A = feFloat(FE{s.a, s.aExp});
+            B = feFloat(FE{s.b, s.bExp});
+        } else {
+            dz = s.dz; A = s.a; B = s.b;
+        }
+        if (start && sp.root == 0) {
             dz += cmul(A, delta) + (0.5f * ts) * cmul(B, cmul(delta, delta));
             A += ts * cmul(B, delta);
             const float2 z = ref[m] + dz;
-            if (m != 0 && (dot(z, z) < dot(dz, dz) || m == last)) { dz = z; m = 0; }
+            if (kDeep) {
+                if (m != 0 && (mabs(z) < mabs(dz) || m == last)) { dz = z; m = 0; }
+            } else {
+                if (m != 0 && (dot(z, z) < dot(dz, dz) || m == last)) { dz = z; m = 0; }
+            }
         }
         // Accept while |B ts| r <= 2 eps |A|.
         const float lim = 2.0f * sp.eps / (ts * sp.radius);
+        const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
+        const float cMax = kBLA ? mabs(dcf) * 1.4143f + ts * sp.radius : 0.0f;
         while (n < sp.softIter) {
+            if (budget == 0) { done = false; break; }
+            if (kDeep && kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
+                // As the floatexp seeds: the longest block valid for the whole node.
+                const float zMax = mabs(dz) * 1.4143f + mabs(A) * 1.4143f * sp.radius * (1.0f + sp.eps);
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                BlaEntryX best;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > last || n + l > sp.softIter) break;
+                    const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
+                    if (!(x.r > 0.0f)) break;
+                    const float t = x.r * pow2f(clamp(x.re, -126, 127)) - x.k * pow2f(clamp(x.ke, -126, 127)) * cMax;
+                    if (!(t > 0.0f && zMax < t)) break;
+                    best = x;
+                    len = l;
+                }
+                if (len != 0) {
+                    const float2 BA = scale2(best.a, clamp(best.ae, -250, 250));
+                    const float2 BB = scale2(best.b, clamp(best.be, -250, 250));
+                    const float2 A2 = cmul(BA, A) + BB * ts;
+                    const float2 B2 = cmul(BA, B);
+                    steps++;
+                    if (!(mabs(B2) <= lim * mabs(A2))) break;
+                    dz = cmul(BA, dz) + cmul(BB, dcf);
+                    A = A2;
+                    B = B2;
+                    if (kInterior) {
+                        const FE fa = feNorm(best.a, best.ae);
+                        W = feMul(fa, W);
+                        WD = feMul(fa, WD);
+                    }
+                    m += len;
+                    n += len;
+                    budget--;
+                    path++;
+                    const float2 zb = ref[m] + dz;
+                    if (m == last || mabs(zb) < mabs(dz)) { dz = zb; m = 0; }
+                    continue;
+                }
+            }
             const float2 Z = ref[m];
             const float2 z = Z + dz;
             const float2 A2 = 2.0f * cmul(z, A) + float2(ts, 0.0f);
             const float2 B2 = 2.0f * (cmul(A, A * invTs) + cmul(z, B));
-            const float2 dz2 = cmul(2.0f * Z + dz, dz) + dc;
+            const float2 dz2 = cmul(2.0f * Z + dz, dz) + dcf;
             const float2 zn = ref[m + 1] + dz2;
             steps++;
             const float r2 = dot(zn, zn);
             if (!(r2 <= p.bailout2)) break;
-            if (!(length(B2) <= lim * length(A2))) break;
+            if (kDeep) {
+                if (!(mabs(B2) <= lim * mabs(A2))) break;
+            } else {
+                if (!(length(B2) <= lim * length(A2))) break;
+            }
+            if (kInteriorColor && n != 0) {   // (z_0 = 0 is not an approach)
+                const float zz = mabs(z);
+                const float l = zz > 0.0f ? log2(zz) + 0.5f * log2(dot(z / zz, z / zz)) : -1e30f;
+                if (l < icMin) { icMin = l; icQ = n; }
+            }
             // (w_1 = 1: the step from z_0 = 0 would zero it, as in the pixel loop's first step.)
             if (kInterior && n != 0) {
                 const FE zf = feNorm(z, 0);
@@ -556,17 +722,67 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
             }
             dz = dz2; A = A2; B = B2;
             m++; n++;
-            if (r2 < dot(dz, dz) || m == last) { dz = zn; m = 0; }
+            budget--;
+            path++;
+            if (kDeep) {
+                if (mabs(zn) < mabs(dz) || m == last) { dz = zn; m = 0; }
+            } else {
+                if (r2 < dot(dz, dz) || m == last) { dz = zn; m = 0; }
+            }
             if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) {
                 break;   // interior seed: branch here (samples inherit w + wd delta)
             }
         }
-        s.dz = dz; s.a = A; s.b = B;
-        s.dzExp = 0; s.aExp = 0; s.bExp = 0;
+        if (kDeep) {
+            const FE fz = feNorm(dz, 0), fa = feNorm(A, 0), fb = feNorm(B, 0);
+            s.dz = fz.m; s.dzExp = fz.e; s.a = fa.m; s.aExp = fa.e; s.b = fb.m; s.bExp = fb.e;
+        } else {
+            s.dz = dz; s.a = A; s.b = B;
+            s.dzExp = 0; s.aExp = 0; s.bExp = 0;
+        }
     }
-    s.m = m; s.n = n; s.steps = steps;
+    s.m = m; s.n = n; s.steps = steps; s.path = path;
     s.w = W.m; s.wExp = W.e; s.wd = WD.m; s.wdExp = WD.e;
-    nodes[sp.offset + tid] = s;
+    s.icMin = icMin; s.icQ = icQ;
+    s.stamp = done ? stampDone : stampRunning;
+    if (!done) atomic_fetch_add_explicit(&status.unfinished, 1u, memory_order_relaxed);
+    nodes[idx] = s;
+}
+
+// After the leaf level: which 16 x 16 tiles start their pixels from the seeds (one thread per
+// tile). Auto (gateMode 1): where the leaves' mean path (the seed steps a pixel saves) is at
+// least max(gateAbs, gateRel * softIter). Starting a pixel at its leaf's reference index
+// costs SIMD coherence (neighbouring leaves start at unrelated m, and interior pixels keep the
+// phase offset for their whole orbit), so a tile whose seeds branched early runs plain
+// (measured: home-100k, Feigenbaum 5-15 % slower seeded). Deterministic: depends only on the
+// seeds, i.e. on the view.
+kernel void seedGate(device const SeedNode* nodes [[buffer(18)]],
+                     constant SeedParams& sp      [[buffer(19)]],
+                     device SeedStatus& status    [[buffer(20)]],
+                     device uint* tiles           [[buffer(22)]],
+                     uint tid                     [[thread_position_in_grid]])
+{
+    if (tid >= sp.tilesX * sp.tilesY) return;
+    if (sp.gateMode == 2u) {
+        tiles[tid] = 1u;
+        atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
+        return;
+    }
+    const uint2 t = uint2(tid % sp.tilesX, tid / sp.tilesX);
+    const uint per = max(16u / sp.size, 1u);
+    const uint2 l0 = t * per;
+    float sum = 0.0f;
+    uint count = 0;
+    for (uint y = l0.y; y < min(l0.y + per, sp.gridH); y++) {
+        for (uint x = l0.x; x < min(l0.x + per, sp.gridW); x++) {
+            sum += float(nodes[sp.offset + y * sp.gridW + x].path);
+            count++;
+        }
+    }
+    const float need = max(sp.gateAbs, sp.gateRel * float(sp.softIter));
+    const bool seeded = count > 0 && sum >= need * float(count);
+    tiles[tid] = seeded ? 1u : 0u;
+    if (seeded) atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
 }
 
 // Perturbation: z = Z + dz, with Z the reference orbit.
@@ -621,6 +837,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device PixelStateIC* icOut              [[buffer(19), function_constant(kInteriorColor)]],
                     device const SeedNode* seeds            [[buffer(20), function_constant(kSeeded)]],
                     constant SeedParams& leaf               [[buffer(21), function_constant(kSeeded)]],
+                    device const uint* seedTiles            [[buffer(22), function_constant(kSeeded)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -662,14 +879,22 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint iters = 0;
     uint steps = 0;
 
-    // R5 (kSeeded): the pixel's leaf node and its offset from the node centre, in texels.
+    // M5 (kSeeded, kb: techniques/local-series-approximation): a fresh pixel of a seeded tile
+    // starts from its leaf node, offset by its sample position from the node centre (texels;
+    // extension passes and AA samples of the level use the same leaves, AA with their own
+    // jitter).
     SeedNode sd;
     float2 sdDelta = 0.0f;
+    bool fromSeed = false;
     if (kSeeded && fresh && active) {
-        const uint2 lxy = gid / leaf.size;
-        sd = seeds[leaf.offset + lxy.y * leaf.gridW + lxy.x];
-        const float2 dq = (float2(gid) + 0.5f) - (float2(lxy) + 0.5f) * float(leaf.size);
-        sdDelta = float2(dq.x, -dq.y);
+        fromSeed = seedTiles[(gid.y >> 4) * leaf.tilesX + (gid.x >> 4)] != 0;
+        if (fromSeed) {
+            const uint2 lxy = gid / leaf.size;
+            sd = seeds[leaf.offset + lxy.y * leaf.gridW + lxy.x];
+            const float2 dq = (float2(gid) + p.jitter)
+                - ((float2(lxy) + 0.5f) * float(leaf.size) + leaf.jitter - 0.5f);
+            sdDelta = float2(dq.x, -dq.y);
+        }
     }
 
     // Interior cycle analysis (kInteriorColor): a pixel proven interior continues here instead
@@ -683,6 +908,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     ic.k = 0;
     ic.minLog2 = 1e30f;
     if (kInteriorColor && active && !fresh) ic = icIn[tid];
+    // (A seeded pixel inherits its leaf's closest approach: the orbit up to the branch is the
+    // seed's within the expansion's error.)
+    if (kInteriorColor && fromSeed && sd.icMin < 1e29f) { ic.minLog2 = sd.icMin; ic.k = sd.icQ; }
     bool inB = kInteriorColor && (ic.capFlags & IC_ACTIVE) != 0;
     float icR2 = kInteriorColor ? exp2(min(2.0f * ic.minLog2, 127.0f)) : 0.0f;
     float icMinLog2 = ic.minLog2;
@@ -708,12 +936,14 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         float2 w, dm, zw;
         int e, dExp, wExp;
         uint m, n;
-        if (kSeeded && fresh) {
+        if (fromSeed) {
             // Start from the leaf's expansion: dz + a delta + b delta^2/2, d = a + b delta,
             // w + wd delta.
             const FE D = feNorm(sdDelta, 0);
             const FE A = FE{sd.a, sd.aExp};
-            const FE BD = feMul(FE{sd.b, sd.bExp}, D);
+            // (Float32 seeds keep b = d2z/dc2 * texel, floatexp seeds b * texel.)
+            const FE Bn = p.scaleExp >= SEED_FLOAT_MIN_EXP ? feMul(FE{sd.b, sd.bExp}, TS) : FE{sd.b, sd.bExp};
+            const FE BD = feMul(Bn, D);
             const FE zx = feAdd(FE{sd.dz, sd.dzExp}, feMul(feAdd(A, FE{BD.m, BD.e - 1}), D));
             if (zx.e >= DEEP_PLAIN_EXP) { w = feFloat(zx); e = 0; } else { w = zx.m; e = zx.e; }
             const FE dx = feAdd(A, BD);
@@ -975,8 +1205,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
     } else if (active && !inB) {
-        if (kSeeded && fresh) {
-            // R5: start from the leaf's expansion (iterations counted from its n).
+        if (fromSeed) {
+            // M5: start from the leaf's expansion (iterations counted from its n).
             const float ts = p.texelScale;
             st.dz = sd.dz + cmul(sd.a, sdDelta) + (0.5f * ts) * cmul(sd.b, cmul(sdDelta, sdDelta));
             st.d = sd.a + ts * cmul(sd.b, sdDelta);
