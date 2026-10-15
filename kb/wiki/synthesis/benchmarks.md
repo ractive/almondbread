@@ -932,6 +932,53 @@ callbacks and present nothing (the existing "home pan" scenario hangs the same w
 scenarios `rotate zoom`, `cinematic autopilot` and `journey` are in
 `Sources/AlmondbreadKit/InteractionTest.swift` for the next unlocked run.
 
+### PJ variety: dives and cross-overs, 2026-10-15
+
+Design: [[decisions/controls]] "Journey", variety revision. Measured 2026-10-15, M1 Pro,
+release, with several other agents' builds, GPU benches and regress runs on the machine
+(load average 120–190 during the second set of videos: the pacing numbers of that set are
+the machine's, see below).
+
+**Planner** (`almondbread journey --seed s --legs 30`, seeds 4711, 7, 20261015, load ~160):
+0.00–0.26 s per plan (median 0.01–0.02 s), within the PJ range (0.01–0.3 s). A cross-over
+plan probes up to 14 anchors (shallow, cheap); a dive plan searches the view and a view 2–4
+e-folds wider (two candidate searches).
+
+**Contact sheets** (`--thumbs`, every landing at 480 × 270, `review/v*_sheet.jpg`; stills every
+5 s of the videos, `review/journey-*-3min_sheet.jpg`). Before: #4711 legs 1–6 dendritic stars
+under M(113,10), 7–13 seahorse spirals, 14–20 spirals again: three looks in 20 legs. After:
+#4711 in 3 minutes visits snowflake dendrites (3/7 limb), Quad Spiral Valley, the Cauliflower
+Medallion (thin stars around a medallion, a minibrot with rings), a seahorse, the needle
+(Pine Compass: eight-armed needle stars down to a mandala at 1e15), the 5/8 limb and Scepter
+Valley; #20261015 and #7 likewise 6–7 regions with spirals, dendrites, medallions, needles
+and minibrots alternating. What still looks weak: (1) cross-over flights from a deep view
+pass over the cardioid's or a bulb's edge, so 3–5 of 37 stills are mostly black mid-flight;
+(2) a needle dive is 35–40 s of needle stars (cross-over to 1e12 plus a leg), the longest
+stretch of one look; (3) dendrite carpets of the 3/7 limb come back after ~60 s in #7.
+
+**Review videos** (`almondbread fly`, 1920 × 1080, 60 Hz, 180 s, `review/`, gitignored):
+
+| video | presented | late refreshes (worst) | iterate GPU / frame | machine |
+|---|---:|---|---:|---|
+| `journey-4711-3min` (first variety build, effects off) | 8274 of 10800 (46.0 fps) | 73 (180 ms) | 6.83 ms | loaded |
+| `journey-20261015-cinematic-3min` (first build) | 7923 (44.0 fps) | 30 (113 ms) | 6.76 ms | loaded |
+| `journey-4711-3min` (final) | 6644 (36.9 fps) | 2578 (7478 ms) | 6.45 ms | load 120–190 |
+| `journey-20261015-cinematic-3min` (final) | 6377 (35.4 fps) | 236 (709 ms) | 11.21 ms | load 120–190 |
+| `journey-7-needle-3min` (final, starts in the needle) | 7860 (43.7 fps) | 810 (569 ms) | 6.63 ms | load 120–190 |
+| `journey-4711-3min` (final, after merging main d7ab9e1, re-recorded) | 7701 (42.8 fps) | 194 (424 ms) | 6.09 ms | load 20–40 |
+
+Interaction test (`ALMONDBREAD_SCENARIOS=journey make interaction-test`, screen unlocked, load
+~50, after the merge): 20.1 fps, interval p50 / p95 16.7 / 100 ms, latency p50 / p95 27.9 /
+44.5 ms, GPU 8.1 + 2.0 ms/frame, shown frame vs fresh render 0 % class difference; an earlier
+run at load ~150 gave 10.2 fps with one GPU hang retried (other agents' GPU work). No earlier
+journey interaction number exists to compare (PJ ran with the screen locked).
+
+The first-build runs match PJ (46.0 / 46.3 fps, 70 / 1 late refreshes over 85 s). The final
+runs' stalls are the recorder falling behind wall time while the view rested
+(frame CPU ~0 ms, `late_ms` counting down 16.7 ms per refresh from 810 ms at 30 s in #4711):
+the process was descheduled under load ~150, not planning or rendering work; the planner runs
+on its own thread and took ≤ 0.26 s per plan at the same load. Re-measure on a quiet machine.
+
 ## R6: faster deep references, 2026-10-15
 
 What changed: [[techniques/parallel-reference-orbit]]. Measured 2026-10-15, M1 Pro (8 P +

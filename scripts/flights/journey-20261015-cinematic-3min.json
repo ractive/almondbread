@@ -1,0 +1,21 @@
+{
+ "_about": "The daily journey of 2026-10-15 (seed 20261015) from the home view for three minutes with the cinematic effects on: spin, hue and phase drift, and a new palette phase at every cross-over (kb: decisions/controls, Journey, variety).",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 180,
+ "start": {
+  "re": "-0.75",
+  "im": "0",
+  "zoom": 1
+ },
+ "settings": {
+  "cinematic": true
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "journey": "daily",
+   "date": "2026-10-15"
+  }
+ ]
+}
