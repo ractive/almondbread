@@ -1,7 +1,7 @@
 ---
 title: "Local series approximation (tile and pixel seeds)"
 type: technique
-status: draft
+status: reviewed
 sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/mathr-deep-zoom-theory-again]]"]
 tags: [series-approximation, iteration-skipping, anti-aliasing, dense-regions, measured]
 ---
@@ -221,3 +221,82 @@ Design (ours; from the prototype's measurements):
 Complements [[techniques/bla]]: BLA skips the start of orbits at M3b depths, local SA the
 coherent middle at any depth. Interior-heavy views need interior-only Mariani–Silver
 ([[techniques/guessing-and-subdivision]]) instead.
+
+## As built (M5, 2026-10-15)
+
+Code: `crates/almondbread-render/src/shaders/mandelbrot.metal` (`seedBegin`, `seedLevel`,
+`seedGate`; `iterate` with function constant `kSeeded`, `prepareChunk`'s seed gate) and the
+scheduler (`start_seeding`, `encode_seed_round`, `harvest_seed_round`, `advance_seeding`).
+On by default: `ALMONDBREAD_SA=0|1|auto` (auto), CLI `--sa 0|1|auto` with the tunables
+`--sa-leaf`, `--sa-top`, `--sa-eps`, `--sa-gate rel,abs`, `--sa-budget`. Numbers:
+[[synthesis/benchmarks]] M5.
+
+```text
+seeding of a level (its own texel size and jitter):
+    rounds until no node is unfinished, one command buffer each:
+        seedBegin                                   (status := 0)
+        seedLevel per quadtree level, root first    (budget steps per node; a node keeps its whole
+                                                     loop state + stamp = epoch | state, so any cut
+                                                     of the work into rounds gives the same nodes)
+        seedGate                                    (per 16 x 16 tile: start from the seeds?)
+    prepareChunk admits nothing while the last round left nodes unfinished
+iterate (kSeeded): a fresh pixel of a seeded tile starts from its leaf, offset by its sample
+    position (view rotation applied like the pixels'); every other pixel as before
+```
+
+- **Quadtree 32 → 4 texels, ε 1e−2.** Leaf 4, not R5's 2: ~15 % more steps at the dense view
+  but faster on the GPU (4× fewer leaves; with Morton order inside the 16 × 16 admission tiles
+  a SIMD group of 32 starts from exactly two leaves). Cusp-1e5: leaf 2 126 ms, leaf 4 102 ms;
+  spiral 687 → 600 ms (measured 2026-10-15, M1 Pro).
+- **Every level seeds**: refine previews and the full level at their own texel size and jitter;
+  extension passes and AA samples branch from the full level's leaves (AA at their Halton
+  offset; the offset stays inside the leaf's radius). Not built: R3's per-pixel seeds for AA.
+- **Rounds within the frame budget.** A level's budget per node is a share of a chunk of GPU
+  time divided by its "waves" (nodes / 16 384) and a learnt cost per budget step (up fast, down
+  slowly; ~1.5 µs per dependent deep step on few threads); later rounds size by the nodes left,
+  so a tail of a few slow nodes takes long passes. Chunks may be encoded right after the first
+  round (they admit nothing until the seeds are final), so a view whose seeds finish in one
+  round starts its pixels in the same refresh. The spiral at 1600 × 1000: 5 rounds, 42 ms.
+- **Gesture frames**: one bounded round (about a third of the frame budget for the whole chain
+  of levels); a node out of budget *branches where it is* (`truncate`: an earlier branch is
+  always valid, only less useful). Not deterministic in the budget, which gesture frames need
+  not be. Where the bounded chain cannot reach the gate's bar (deep spiral: ~23 000 seed
+  steps), no seeds at all.
+- **Per-tile gate** (`seedGate`, auto): a tile starts from its seeds when its leaves' mean
+  *path* (accepted seed steps from the root, i.e. what a pixel skips) is at least 1/6 of the
+  last level's steps per texel (unseeded-equivalent: its pixel steps plus what its seeds
+  skipped) and at least 8; without that estimate (a fresh renderer) when the leaves' mean
+  branch iteration is 1/6 of the limit. Per tile, so a SIMD group never mixes. Where no tile is
+  seeded the level switches to the plain pipeline (bit-identical fields, checked at elephant;
+  the seeded variant costs ~4 % even unseeded). Iterations (not steps) as the measure fail in
+  BLA views (sea-8007: leaves at n 20 845 of 40 000 but 26 seed steps, 2 % of a pixel's
+  steps: seeded 16 % slower); a share of the limit fails where pixels escape early (dendrite:
+  leaf n 793 of 20 000 saves 24 of 29 steps per pixel: 2.3× faster seeded).
+- **Deep seeds in float32** down to texels of 2^−80: scaled units (`a = dz/dc · texel`,
+  `b = d²z/dc² · texel`; `a²` never formed), max-norm tests (squared norms of 1e−19 deltas
+  underflow), BLA blocks from the floatexp table converted per lookup; floatexp below 2^−80.
+  The spiral's seeds: 150 → 40 ms (the root level's serial chain dominates).
+- **Interior colourings** (period/angle/bubbles/distance need the orbit's closest approach):
+  seeds track the smallest |z_n| and its n, pixels inherit it (z_0 = 0 excluded).
+- **Node buffer** 88 B per node, grown to the largest level and kept (1600 × 1000: 133 k
+  nodes, 11.7 MB; 2560 × 1640: 350 k, 31 MB), tile flags 4 B per tile.
+- **Determinism**: a level's seeds depend on the view only (round cuts: bit-identical fields,
+  plain, deep float32 and deep floatexp, test `local_sa_rounds_resumable`). The auto gate's bar
+  depends on the last level's statistics, which can change which tiles are seeded between the
+  shown frame and a fresh render; seeded and plain fields differ in class by 0.000 % at all
+  18 locations, so the shown-frame check (class) holds.
+
+### Pitfalls (M5)
+
+- A seed's `b` must round-trip exactly between rounds: storing `b · texel` in floatexp and
+  dividing on resume changed fields with the round budget (deep float32 seeds keep
+  `d²z/dc² · texel` and the pixel start multiplies by the texel).
+- The closest-approach tracking must skip `z_0 = 0`, or every inherited minimum is −∞ at n = 0
+  and the interior analysis finds no period.
+- Only the first round may be followed by chunks right away; letting a level's first chunk
+  wait for the round harvest changed the chunk-size schedule (minibrot-p4 +20 %).
+- A cheap seeded refined frame misleads the gesture frames' dynamic resolution (cost per
+  texel): previews of the spiral ran 166 ms each. Gesture chunks now report their cost also
+  when their job was superseded.
+- Bounded gesture seeds are useless where the chain is long; skip them rather than pay ~3 ms
+  per frame for leaves no tile uses.

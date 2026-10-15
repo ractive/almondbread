@@ -1239,6 +1239,9 @@ impl<B: GpuBackend> Renderer<B> {
         // (Most interior pixels prove within a few hundred iterations; slower ones are near a
         // component's boundary, where a fill would not be safe anyway.)
         level.params.fill_proof = FILL_PROOF.min(level.params.soft_iter);
+        if self.config.trace {
+            println!("interior fill: level {level_index}, {} tiles", tx * ty);
+        }
     }
 
     // MARK: Local series approximation (M5, kb: techniques/local-series-approximation)
@@ -3029,7 +3032,9 @@ impl<B: GpuBackend> Renderer<B> {
         if level.gpu_time > 0.0 && !level.is_extension() {
             self.cost_per_texel = level.gpu_time / (level.set.width * level.set.height) as f64;
         }
-        if !level.is_extension() && level.aa.is_none() && level.total > 0 {
+        // (A filled level skipped its insides: keep the last unfilled estimate, or the SA gate
+        // would seed the next level, which then may not fill: elephant alternated 23 / 33 ms.)
+        if !level.is_extension() && level.aa.is_none() && level.total > 0 && level.params.fill_border == 0 {
             let skipped = level.seeding.as_ref().map_or(0.0, |s| s.path_sum as f64 * 256.0);
             self.steps_per_texel = Some((level.steps + skipped) / level.total as f64);
         }
