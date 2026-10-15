@@ -23,6 +23,7 @@ uniffi::setup_scaffolding!();
 
 #[cfg(target_vendor = "apple")]
 mod explorer;
+mod flight_bench;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {

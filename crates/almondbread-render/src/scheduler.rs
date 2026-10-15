@@ -3400,6 +3400,12 @@ impl<B: GpuBackend> Renderer<B> {
         self.reference_serial
     }
 
+    /// A retry of the current view is pending (a failed job, or a raised iteration limit):
+    /// not settled yet even if [`Renderer::is_settled`] says so (flight benchmark).
+    pub fn retry_pending(&self) -> bool {
+        self.retry_pending
+    }
+
     pub fn is_settled(&self) -> bool {
         self.job
             .as_ref()

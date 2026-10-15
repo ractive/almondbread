@@ -11,6 +11,7 @@
 //! almondbread regress
 //! almondbread palettes --out dir [--views seahorse,antenna] [--import a.ugr,b.map] [--list 1]
 //! almondbread fly --script flight.json [--out review/x.mp4] [--fps 60] [--size 1920x1080] [--converged 1]
+//! almondbread benchmark [--modes a,approx] [--repeat 3] [--warmup 1] | --live-app app | --compare a.json b.json
 //! almondbread places [--format text|tsv|landscape] [--render-thumbs dir [--only a,b]]
 //! almondbread locate --center re,im [--radius r | --misiurewicz k,p]
 //! almondbread journey --seed 4711 [--legs 12] [--daily 2026-10-15] [--center re,im --span s] [--thumbs dir]
@@ -21,6 +22,7 @@
 // The commands are generic over the backend; only Apple targets have one yet.
 #![cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
 
+mod benchmark;
 mod commands;
 mod fly;
 mod options;
@@ -30,7 +32,7 @@ mod places;
 use options::Options;
 
 const USAGE: &str =
-    "usage: almondbread render|verify|bench|regress|fly|places|locate|journey|palettes [--key value ...]";
+    "usage: almondbread render|verify|bench|regress|fly|benchmark|places|locate|journey|palettes [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -64,6 +66,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "bench" => commands::bench_command(&backend, o),
         "regress" => commands::regress_command(&backend, o),
         "fly" => fly::fly_command(&backend, o),
+        "benchmark" => benchmark::benchmark_command(&backend, o),
         "palettes" => palettes::palettes_command(&backend, o),
         "locate" => commands::locate_command(o),
         "journey" => commands::journey_command(&backend, o),

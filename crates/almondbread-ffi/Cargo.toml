@@ -16,6 +16,7 @@ almondbread-core.workspace = true
 almondbread-render.workspace = true
 uniffi.workspace = true
 thiserror = "2"
+serde_json = "1"
 
 [lints]
 workspace = true

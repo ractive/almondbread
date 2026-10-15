@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "almondbread-core",
  "almondbread-render",
+ "libc",
  "serde_json",
 ]
 
@@ -44,6 +45,7 @@ version = "0.1.0"
 dependencies = [
  "almondbread-core",
  "almondbread-render",
+ "serde_json",
  "thiserror",
  "uniffi",
 ]
