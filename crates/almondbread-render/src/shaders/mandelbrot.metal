@@ -308,7 +308,10 @@ struct SeedParams {
     float gateAbs;       // least gateAbs, or without a cost estimate (gateAbs 0) when their
                          // mean branch iteration is at least gateRel * softIter
     uint  tilesY;
-    uint  pad1;
+    uint  truncate;      // 1 (gesture frames): a node out of budget branches where it is (an
+                         // earlier branch is always valid, only less useful), so the seeds take
+                         // one bounded round; not deterministic in the budget, which gesture
+                         // frames need not be
 };
 
 // The seed round's status (buffer 20 of the seed kernels and of prepareChunk).
@@ -586,7 +589,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
         const FE cMax = feAdd(feNorm(float2(length(C.m), 0.0f), C.e),
                               feNorm(float2(TS.m.x * sp.radius, 0.0f), TS.e));
         while (n < sp.softIter) {
-            if (budget == 0) { done = false; break; }
+            if (budget == 0) { done = sp.truncate != 0u; break; }
             // BLA blocks (kBLA, deep views): z_{m+l} = A z_m + B c is affine in (z, c), so the
             // node's expansion maps exactly: dz' = A dz + B c, a' = A a + B texel, b' = A b,
             // valid for the whole region when |dz| + |a| r (1 + eps) + K (|c| + |texel| r) < R.
@@ -701,7 +704,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
         const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
         const float cMax = kBLA ? mabs(dcf) * 1.4143f + ts * sp.radius : 0.0f;
         while (n < sp.softIter) {
-            if (budget == 0) { done = false; break; }
+            if (budget == 0) { done = sp.truncate != 0u; break; }
             if (kDeep && kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
                 // As the floatexp seeds: the longest block valid for the whole node.
                 const float zMax = mabs(dz) * 1.4143f + mabs(A) * 1.4143f * sp.radius * (1.0f + sp.eps);

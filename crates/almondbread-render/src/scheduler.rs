@@ -1290,7 +1290,7 @@ impl<B: GpuBackend> Renderer<B> {
                 gate_rel: sa.gate_rel as f32,
                 gate_abs: 0.0,
                 tiles_y: ty as u32,
-                pad1: 0,
+                truncate: 0,
             });
             offset += gw * gh;
             size /= 2;
@@ -1341,6 +1341,25 @@ impl<B: GpuBackend> Renderer<B> {
         }
         // Make sure the pipeline exists before the level counts as seeded.
         self.seed_pipeline(interior, deep, bla, interior_color)?;
+        // Gesture frames (M5): one round whose serial chain of seed steps (each level continues
+        // its parent's orbit, on few threads: the step latency counts) takes about a third of
+        // the frame budget; nodes out of budget branch where they are. Unbounded seeds stalled
+        // the spiral's gesture frames at 12 fps (root seeds run ~23 000 steps).
+        let gesture = self.job.as_ref().is_some_and(|j| j.interactive);
+        let mut unbounded = unbounded;
+        if gesture {
+            let chain = 0.3 * self.gesture_budget() / (self.seed_unit * layout.len() as f64);
+            let b = chain.clamp(64.0, f64::from(params.soft_iter.max(64))) as u32;
+            // (Seeds that cannot get as far as the auto gate's bar would only cost time.)
+            if sa.mode == SaMode::Auto && f64::from(b) * (layout.len() as f64) < f64::from(bar) {
+                return Ok(());
+            }
+            for l in &mut layout {
+                l.truncate = 1;
+                l.budget = b;
+            }
+            unbounded = false;
+        }
         let leaf = *layout.last().expect("leaf level");
         let level = &mut self.job.as_mut().expect("job").levels[level_index];
         level.seeded = Some(leaf);
@@ -1389,7 +1408,9 @@ impl<B: GpuBackend> Renderer<B> {
             .layout
             .iter()
             .map(|l| {
-                if self.config.local_sa.budget != 0 {
+                if l.truncate != 0 {
+                    l.budget
+                } else if self.config.local_sa.budget != 0 {
                     self.config.local_sa.budget
                 } else if budget != 0 {
                     budget
@@ -2043,6 +2064,19 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     fn start_job(&mut self, mut key: ComputeKey, mode: JobMode, now: f64) {
+        // A gesture frame superseded before its preview completed never reported its cost:
+        // what its finished chunks took is a lower bound (M5: after a refined frame made cheap
+        // by local SA the dynamic resolution started too fine at the neck and stayed there).
+        if mode == JobMode::Interactive
+            && let Some(old) = &self.job
+            && old.interactive
+            && let Some(l) = old.levels.first()
+            && !l.complete
+            && l.gpu_time > 0.0
+        {
+            let lower = l.gpu_time / (l.set.width * l.set.height).max(1) as f64;
+            self.cost_per_texel = self.cost_per_texel.max(lower);
+        }
         self.waiting_reference = false;
         self.retry_pending = false;
         // Interactive views anti-alias progressively (idle AA samples); only offscreen renders
@@ -2881,6 +2915,15 @@ impl<B: GpuBackend> Renderer<B> {
             if rec.adaptive && gpu > 2e-4 && work > 0.0 {
                 // Damped: at most x4 per chunk, so one odd chunk cannot swing K wildly.
                 self.rate = (work / gpu).max(self.rate / 4.0).min(self.rate * 4.0);
+            }
+            let pixels = stats.live_in as f64 + stats.fresh as f64;
+            if !rec.adaptive && gpu > 2e-4 && pixels > 0.0 {
+                // A gesture frame's chunk ran its pixels to the limit: their cost per texel,
+                // also when the job was superseded before it finished (every frame of a
+                // gesture is). Without this, a refined frame made cheap by local SA left the
+                // dynamic resolution too fine for plain previews: 166 ms gesture frames at the
+                // spiral (M5).
+                self.cost_per_texel = gpu / pixels;
             }
             if self.config.trace {
                 let use_interior = self

@@ -268,7 +268,7 @@ pub fn verify<B: GpuBackend>(
     let gpu = IterationField::from_texels(width, height, res.iterations.as_deref().unwrap_or(&[]));
     let v = r.viewport.clone();
     let t0 = Instant::now();
-    let cpu_iter = cpu_iterations.unwrap_or_else(|| r.stats.max_iterations);
+    let cpu_iter = cpu_iterations.unwrap_or(r.stats.max_iterations);
     let cpu = oracle(&v.center, v.scale, width, height, cpu_iter);
     let cpu_time = t0.elapsed().as_secs_f64();
     let (report, heatmap) = compare(&gpu, &cpu);
@@ -464,6 +464,8 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let frames = if jump { 0 } else { (seconds * 120.0) as usize };
     let mut sessions: Vec<SimulationResult> = Vec::new();
     let m = mode.clone();
+    // Gesture frames (M5 reports): previews shown, their resolution, refreshes skipped.
+    r.frame_stats = Some(almondbread_render::scheduler::FrameStats::default());
     let first = r
         .simulate(
             width,
@@ -479,6 +481,20 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             },
         )
         .map_err(|_| crate::options::CommandError("simulated session did not finish".into()))?;
+    if let Some(fs) = r.frame_stats.take()
+        && frames > 0
+    {
+        println!(
+            "gesture: {} refreshes of input at 120 Hz, {} frames in all: {} previews ({:.0} fps) at mean scale {:.2} (texels per pixel), {} refreshes skipped, iterate GPU {:.2} ms/frame",
+            frames,
+            fs.frames,
+            fs.preview_frames,
+            120.0 * fs.preview_frames.min(frames) as f64 / frames as f64,
+            fs.preview_scale_sum / fs.preview_frames.max(1) as f64,
+            fs.skipped,
+            1000.0 * fs.chunk_gpu / fs.frames.max(1) as f64
+        );
+    }
     sessions.push(first);
     if let Some(f) = o.f64("then") {
         let second = r

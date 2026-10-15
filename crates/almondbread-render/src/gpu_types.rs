@@ -349,7 +349,8 @@ pub struct SeedParams {
     pub gate_rel: f32,
     pub gate_abs: f32,
     pub tiles_y: u32,
-    pub pad1: u32,
+    /// 1: a node out of budget branches where it is (gesture frames: one bounded round).
+    pub truncate: u32,
 }
 
 /// The seed round's status (`SeedStatus` in MSL).
