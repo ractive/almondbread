@@ -615,3 +615,13 @@ novelty score; near-duplicates are rejected and a dive ends when nothing new is 
 legs fly faster; with cinematic effects each dive gets its own palette phase. Contact sheets
 and three 3-minute review videos: 6–7 regions per 3 minutes instead of 2–3. Pages:
 [[decisions/controls]] (Journey, variety revision), [[synthesis/benchmarks]] (PJ variety).
+
+## [2026-10-15] decision | FB: window test took focus, fixed
+
+The flight bench's window run activated the app (three of four runs; one with a key
+window). `AlmondbreadMac/main.swift` activated a bare executable unless `--selftest` or
+`--interaction-test` was given. It now checks `TestLaunch.enabled`, which covers
+`--flight-bench=` and `--ui-demo=` too. The bench ends with `FOCUS TAKEN` and exit 1 on any
+activation or key window; 5 runs were clean. Also explained `stats.max_iterations` 10384
+against 41536 (nominal limit vs extension to the hard limit) and the 1e−1004 disc
+(supersampling of sub-pixel rings). Page: [[synthesis/flight-benchmark]].

@@ -26,8 +26,33 @@ final class FlightBench: NSObject {
     func attach(view: FractalNSView) {
         guard self.view == nil else { return }
         self.view = view
+        watchFocus()
         // Let the window appear and the first frame render.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.start() }
+    }
+
+    /// A window test must never take focus (the project's hard rule). Any activation of the
+    /// app or any key window ends the run at once with exit 1, so `make flight-bench-live`
+    /// fails loudly instead of measuring a run that disturbed the user.
+    private func watchFocus() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { self.focusTaken("the app became active") }
+        }
+        center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+            let title = (note.object as? NSWindow)?.title ?? "?"
+            MainActor.assumeIsolated { self.focusTaken("window \"\(title)\" became key") }
+        }
+        if NSApp.isActive { focusTaken("the app was active at attach") }
+    }
+
+    private func focusTaken(_ what: String) {
+        fail("FOCUS TAKEN: \(what). Window tests must never take focus; result discarded.")
+    }
+
+    private func checkFocus() {
+        if NSApp.isActive { focusTaken("the app is active") }
+        if let w = view?.window, w.isKeyWindow { focusTaken("the window is key") }
     }
 
     private func fail(_ message: String) -> Never {
@@ -45,13 +70,10 @@ final class FlightBench: NSObject {
         let scale = window.backingScaleFactor
         window.setContentSize(NSSize(width: 1920 / scale, height: 1080 / scale))
         TestLaunch.placeAtScreenEdge(window)
-        // Never keep focus (a click on the background window, or a launch from a terminal that
-        // activated us): give it back before measuring.
-        if NSApp.isActive { NSApp.deactivate() }
-        window.orderBack(nil)
         let hz = window.screen?.maximumFramesPerSecond ?? 60
         let laps = UInt32(Self.argument("flight-bench-laps") ?? "") ?? 3
         let warmup = UInt32(Self.argument("flight-bench-warmup") ?? "") ?? 1
+        checkFocus()
         print("flight-bench: window key \(window.isKeyWindow), app active \(NSApp.isActive), "
               + "occlusion visible \(window.occlusionState.contains(.visible)), backing scale \(scale), display \(hz) Hz")
         do {
@@ -66,6 +88,7 @@ final class FlightBench: NSObject {
 
     private func poll() {
         guard let view, let explorer = view.explorer else { return }
+        checkFocus()
         // Frames must keep coming even if the link paused between laps.
         view.requestFrames()
         if let report = explorer.flightBenchReport() {
