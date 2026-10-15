@@ -379,34 +379,41 @@ pub static EPOCHS: &[Epoch] = &[
     },
 ];
 
-/// Relative mode maps zoom 1 ... 1e3000 onto the cosmos (a constant, whatever the depth
-/// limit is).
-pub const RELATIVE_DEPTH: f64 = 3000.0;
+/// Relative mode maps zoom 1 ... 1e200 onto the cosmos, the things evenly spaced in zoom
+/// decades: 24 steps of 8.3 decades, about 12 s each at the default zoom speed (×4.95/s,
+/// 0.69 decades/s), the whole cosmos in under 5 minutes. A first version spaced them in
+/// log10(1 + decades) over 1e3000: steps grew from 1 s to 20 min ("from hair to blood cell
+/// takes ages", user, 2026-10-15).
+pub const RELATIVE_DEPTH: f64 = 200.0;
 
-/// Relative mode's perceptual coordinate: `log10(1 + zoom decades)`, 0 ... `u_max()`.
-fn rel_u(z: f64) -> f64 {
-    (1.0 + z.max(0.0)).log10()
+/// Where the epochs sit on the things' grid (index into [`THINGS`], fractional allowed): from
+/// the CMB on, where the view is about the thermal wavelength `hc/kT` of the epoch's
+/// temperature (CMB ~3000 K: a cell; nucleosynthesis ~0.1 MeV: an atom; quark-hadron ~150
+/// MeV: a nucleus; electroweak ~160 GeV: below a proton; GUT/inflation: the GUT scale;
+/// Planck: Planck), so size and time do not drift apart; today, the Sun and the first stars
+/// spread over the astronomical part (kb: sources/cosmic-history-timeline).
+const EPOCH_GRID: [f64; 11] = [0.0, 7.0, 14.0, 15.0, 19.0, 19.5, 20.0, 21.5, 23.0, 23.5, 24.0];
+
+/// Relative mode's grid coordinate of zoom decades `z`: 0 (the universe, today) ... the last
+/// thing (the Planck length, the Planck epoch).
+fn rel_grid(z: f64) -> f64 {
+    (z / RELATIVE_DEPTH).clamp(0.0, 1.0) * (THINGS.len() - 1) as f64
 }
 
-fn u_max() -> f64 {
-    rel_u(RELATIVE_DEPTH)
+/// Zoom decades of grid position `g`.
+fn rel_z(g: f64) -> f64 {
+    g / (THINGS.len() - 1) as f64 * RELATIVE_DEPTH
 }
 
-/// Ruler units per unit of `rel_u` (a mark spacing is about three ruler decades).
-const REL_RULER: f64 = 20.0;
+/// Ruler units per zoom decade in relative mode (a step of 8.3 decades is ~3 ruler decades).
+const REL_RULER: f64 = 0.36;
 
-/// Zoom decades of the `i`-th of `n` equally spaced milestones.
-fn rel_z(i: usize, n: usize) -> f64 {
-    10f64.powf(i as f64 / (n - 1) as f64 * u_max()) - 1.0
-}
-
-/// log10 of a quantity interpolated between equally spaced milestones (`logs`, in order).
-fn rel_interp(z: f64, logs: &[f64]) -> f64 {
-    let n = logs.len();
-    let x = (rel_u(z) / u_max()).clamp(0.0, 1.0) * (n - 1) as f64;
-    let i = (x.floor() as usize).min(n - 2);
-    let f = x - i as f64;
-    logs[i] + (logs[i + 1] - logs[i]) * f
+/// Piecewise-linear `ys` at `x` over increasing `xs`.
+fn interp(x: f64, xs: &[f64], ys: &[f64]) -> f64 {
+    let i = xs.partition_point(|&a| a <= x).clamp(1, xs.len() - 1);
+    let (x0, x1) = (xs[i - 1], xs[i]);
+    let f = ((x - x0) / (x1 - x0)).clamp(0.0, 1.0);
+    ys[i - 1] + (ys[i] - ys[i - 1]) * f
 }
 
 /// A big number the zoom factor passes.
@@ -471,7 +478,6 @@ pub fn ladder_decades() -> f64 {
 /// The anchors offered in the UI: "screen", then things the set can be.
 pub const ANCHORS: &[&str] = &[
     "screen",
-    "cosmos",
     "universe",
     "milky-way",
     "sun",
@@ -479,21 +485,41 @@ pub const ANCHORS: &[&str] = &[
     "human",
     "cell",
     "atom",
+    "cosmos",
 ];
+
+/// The picker's group of an anchor: 0 the screen, 1 "the set is ...", 2 the metaphor.
+pub fn anchor_group(key: &str) -> u32 {
+    match key {
+        "screen" => 0,
+        "cosmos" => 2,
+        _ => 1,
+    }
+}
 
 /// A short label for an anchor key.
 pub fn anchor_label(key: &str) -> String {
-    match thing(key) {
-        Some(i) if key != "screen" => {
-            let n = THINGS[i].name;
-            let mut c = n.chars();
-            match c.next() {
-                Some(f) => format!("Set = {}{}", f.to_uppercase(), c.as_str()),
-                None => n.into(),
-            }
+    match key {
+        "screen" => "Your screen".into(),
+        "cosmos" => "Zoom range as cosmos (metaphor)".into(),
+        _ => match thing(key) {
+            Some(i) => format!("The set is {}", THINGS[i].name),
+            None => key.into(),
+        },
+    }
+}
+
+/// One line saying what an anchor compares.
+pub fn anchor_description(key: &str) -> String {
+    match key {
+        "screen" => "Your window is fixed: how big would the whole set be?".into(),
+        "cosmos" => {
+            "A metaphor: home is the universe and today, the deepest zoom the Planck length and the Big Bang.".into()
         }
-        _ if key == "cosmos" => "Zoom range = cosmos (metaphor)".into(),
-        _ => "Screen".into(),
+        _ => match thing(key) {
+            Some(i) => format!("The whole set is {}: how big is the part you see?", THINGS[i].name),
+            None => String::new(),
+        },
     }
 }
 
@@ -649,29 +675,36 @@ impl CosmicScale {
         }
     }
 
-    /// Relative mode: sizes above the ruler, epochs below, each list equally spaced.
+    /// Relative mode: sizes above the ruler, epochs below, on one grid evenly spaced in zoom
+    /// decades; past the end, "cosmos lengths" (repeats of the whole ladder).
     fn relative(offset: f64) -> Self {
         let mut marks = Vec::new();
-        let n = THINGS.len();
         for (i, t) in THINGS.iter().enumerate() {
             marks.push(Mark {
-                d: rel_z(i, n) + offset,
+                d: rel_z(i as f64) + offset,
                 label: t.label.into(),
                 group: t.group,
                 row: Some(0),
             });
         }
-        let m = EPOCHS.len();
-        for (i, e) in EPOCHS.iter().enumerate() {
+        for (e, g) in EPOCHS.iter().zip(EPOCH_GRID) {
             marks.push(Mark {
-                d: rel_z(i, m) + offset,
+                d: rel_z(g) + offset,
                 label: e.label.into(),
                 group: Group::Number,
                 row: Some(1),
             });
         }
+        for k in 2..=20 {
+            marks.push(Mark {
+                d: k as f64 * RELATIVE_DEPTH + offset,
+                label: format!("{k} cosmoses"),
+                group: Group::Ladder,
+                row: None,
+            });
+        }
         marks.sort_by(|a, b| a.d.total_cmp(&b.d));
-        let at = |key: &str| rel_z(thing(key).expect("thing"), n) + offset;
+        let at = |key: &str| rel_z(thing(key).expect("thing") as f64) + offset;
         Self {
             anchor: None,
             screen_m: DEFAULT_SCREEN_M,
@@ -686,61 +719,99 @@ impl CosmicScale {
     }
 
     /// Ruler position of depth `d` in ruler decades: decades up to the Planck length, then
-    /// compressed (big numbers and ladders); relative mode: its perceptual coordinate.
+    /// compressed (big numbers and ladders); relative mode: linear in zoom decades, compressed
+    /// past the end in the same way.
     pub fn ruler(&self, d: f64) -> f64 {
+        let compress = |x: f64, a: f64, c: f64, tau: f64| {
+            if x <= a {
+                x
+            } else {
+                let y = x - a;
+                a + y / c + (1.0 - 1.0 / c) * tau * (1.0 - (-y / tau).exp())
+            }
+        };
         if self.relative {
-            return rel_u(d - self.offset) * REL_RULER;
+            return compress(d - self.offset, RELATIVE_DEPTH + 4.0, 6.0, 40.0) * REL_RULER;
         }
-        const COMPRESS: f64 = 12.0;
-        const TAU: f64 = 15.0;
-        let a = self.planck_d + 1.0;
-        if d <= a {
-            d
+        compress(d, self.planck_d + 1.0, 12.0, 15.0)
+    }
+
+    /// Past the end of the physical scale (or of the relative cosmos).
+    pub fn past_planck(&self, d: f64) -> bool {
+        d > self.planck_d
+    }
+
+    /// Faint rungs between `lo` and `hi`: the things repeated in every ladder (physical: from
+    /// the big numbers on, universe-sized set to the Planck length; relative: every cosmos
+    /// length past the first).
+    pub fn rungs(&self, lo: f64, hi: f64) -> Vec<(f64, Group)> {
+        let (len, from, place): (f64, f64, &dyn Fn(usize) -> f64) = if self.relative {
+            (RELATIVE_DEPTH, RELATIVE_DEPTH, &|i| rel_z(i as f64))
         } else {
-            let x = d - a;
-            a + x / COMPRESS + (1.0 - 1.0 / COMPRESS) * TAU * (1.0 - (-x / TAU).exp())
+            let u = THINGS[0].size_m;
+            (
+                ladder_decades(),
+                MILESTONES.last().map_or(0.0, |m| m.log10),
+                &move |i| (u / THINGS[i].size_m).log10(),
+            )
+        };
+        let mut out = Vec::new();
+        let k0 = ((lo - self.offset) / len).floor().max(0.0) as i64;
+        let k1 = ((hi - self.offset) / len).ceil() as i64;
+        for k in k0..=k1.min(k0 + 8) {
+            let base = k as f64 * len + self.offset;
+            for (i, t) in THINGS.iter().enumerate() {
+                let d = base + place(i);
+                if d - self.offset > from && d >= lo && d <= hi {
+                    out.push((d, t.group));
+                }
+            }
         }
+        out
     }
 
     /// Relative mode's view size (m) and cosmic time (s) at zoom decades `z`.
     pub fn relative_values(z: f64) -> (f64, f64) {
+        let g = rel_grid(z);
+        let grid: Vec<f64> = (0..THINGS.len()).map(|i| i as f64).collect();
         let sizes: Vec<f64> = THINGS.iter().map(|t| t.size_m.log10()).collect();
         let times: Vec<f64> = EPOCHS.iter().map(|e| e.t_s.log10()).collect();
-        (10f64.powf(rel_interp(z, &sizes)), 10f64.powf(rel_interp(z, &times)))
+        (
+            10f64.powf(interp(g, &grid, &sizes)),
+            10f64.powf(interp(g, &EPOCH_GRID, &times)),
+        )
     }
 
     fn relative_reading(&self, z: f64) -> Reading {
+        if z > RELATIVE_DEPTH {
+            return Reading {
+                line: format!("≈ {:.1} cosmos lengths deep", z / RELATIVE_DEPTH),
+                detail: format!("1 cosmos length: universe → Planck length, zoom ×1e{RELATIVE_DEPTH:.0} (a metaphor)"),
+                physics: None,
+            };
+        }
         let (v, t) = Self::relative_values(z);
-        let n = THINGS.len();
-        let m = EPOCHS.len();
-        let x = rel_u(z) / u_max();
-        // The epoch we are at (within a third of a spacing), else just the time.
-        let k = (x * (m - 1) as f64).round() as usize;
-        let near = ((x * (m - 1) as f64) - k as f64).abs() < 0.34;
-        let detail = if z >= RELATIVE_DEPTH {
-            "the Planck epoch: the end of the metaphor".to_string()
-        } else if near && k == 0 {
-            "cosmic time: today".to_string()
-        } else if near {
-            format!("{} after the Big Bang: {}", plain(&duration(t)), EPOCHS[k].name)
-        } else {
-            format!("{} after the Big Bang", plain(&duration(t)))
+        let g = rel_grid(z);
+        // The epoch we are at (within 0.4 of a step), else just the time.
+        let near = EPOCH_GRID.iter().position(|e| (e - g).abs() < 0.4);
+        let detail = match near {
+            Some(0) => "cosmic time: today".to_string(),
+            Some(k) if k == EPOCHS.len() - 1 => "cosmic time: the Planck epoch".to_string(),
+            Some(k) => format!("{} after the Big Bang: {}", plain(&duration(t)), EPOCHS[k].name),
+            None => format!("{} after the Big Bang", plain(&duration(t))),
         };
-        let next = ((x * (n - 1) as f64).floor() as usize + 1).min(n - 1);
-        let line = if z >= RELATIVE_DEPTH {
-            "This view ≈ the Planck length".to_string()
-        } else {
-            format!("This view ≈ {}", compare(v, THINGS))
-        };
-        let tail = if z >= RELATIVE_DEPTH {
+        let next = (g.floor() as usize + 1).min(THINGS.len() - 1);
+        let tail = if g >= (THINGS.len() - 1) as f64 {
             String::new()
         } else {
             format!(" · next: {}", THINGS[next].label)
         };
         Reading {
-            line,
+            line: format!("This view ≈ {}", compare(v, THINGS)),
             detail,
-            physics: Some(format!("a metaphor: zoom 1 … 1e3000 as the cosmos{tail}")),
+            physics: Some(format!(
+                "a metaphor: zoom 1 … 1e{RELATIVE_DEPTH:.0} as the cosmos{tail}"
+            )),
         }
     }
 
@@ -930,7 +1001,7 @@ fn duration(t: f64) -> String {
             format!("{x:.0}")
         }
     };
-    if t >= 0.8 * AGE_UNIVERSE_S {
+    if t >= 1.05 * AGE_UNIVERSE_S {
         return format!("{}× the age of the universe", factor(t / AGE_UNIVERSE_S));
     }
     if t >= YEAR_S {
@@ -1107,16 +1178,24 @@ mod tests {
         assert!((v / 1.616255e-35 - 1.0).abs() < 1e-9 && (t / 5.391247e-44 - 1.0).abs() < 1e-9);
         // Monotonic down to the Planck length and the Planck epoch.
         let mut last = (f64::MAX, f64::MAX);
-        for k in 0..=300 {
-            let z = 10f64.powf(k as f64 / 300.0 * u_max()) - 1.0;
-            let (v, t) = CosmicScale::relative_values(z);
+        for k in 0..=400 {
+            let (v, t) = CosmicScale::relative_values(k as f64 * 0.5);
             assert!(v <= last.0 && t <= last.1);
             last = (v, t);
         }
-        for i in [10, 100, 500, 1500, 3000] {
+        // Even pacing: every step 200/24 decades, 12 s at ×4.95/s.
+        let step = RELATIVE_DEPTH / (THINGS.len() - 1) as f64;
+        assert!((step / 4.95f64.log10() - 12.1).abs() < 0.2);
+        // Size and time stay together: the CMB at a cell, nuclei at an atom.
+        assert!(s.reading(rel_z(15.0)).detail.contains("CMB"));
+        assert!(s.reading(rel_z(19.0)).detail.contains("nuclei"));
+        assert!(s.reading(rel_z(19.0)).line.contains("hydrogen atom"));
+        for i in [10, 50, 100, 200, 500] {
             eprintln!("relative 1e{i}: {:?}", s.reading(i as f64));
         }
+        assert!(s.reading(500.0).line.contains("2.5 cosmos lengths"));
         assert!(s.desert.0 < s.desert.1 && s.desert.1 <= RELATIVE_DEPTH + 1e-9);
+        assert!(!s.rungs(450.0, 520.0).is_empty());
     }
 
     #[test]

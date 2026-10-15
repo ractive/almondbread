@@ -42,12 +42,25 @@ impl CosmicScaleSettings {
     }
 }
 
+/// The cosmic panel's rect in view points (origin top left).
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct CosmicPanelRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 /// One anchor choice for the picker.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct CosmicAnchor {
     pub key: String,
-    /// "Screen", "Set = Earth", ...
+    /// "Your screen", "The set is Earth", "Zoom range as cosmos (metaphor)".
     pub label: String,
+    /// One line on what it compares.
+    pub description: String,
+    /// Picker group: 0 the screen, 1 "the set is ...", 2 the metaphor.
+    pub group: u32,
 }
 
 /// The anchors in display order.
@@ -58,6 +71,8 @@ pub fn cosmic_anchors() -> Vec<CosmicAnchor> {
         .map(|k| CosmicAnchor {
             key: (*k).into(),
             label: almondbread_core::cosmic::anchor_label(k),
+            description: almondbread_core::cosmic::anchor_description(k),
+            group: almondbread_core::cosmic::anchor_group(k),
         })
         .collect()
 }
@@ -66,6 +81,17 @@ pub fn cosmic_anchors() -> Vec<CosmicAnchor> {
 impl Explorer {
     pub fn cosmic_scale(&self) -> CosmicScaleSettings {
         self.with_cosmic(|c| CosmicScaleSettings::from(&c.settings))
+    }
+
+    /// While the view is past the Planck length (or the relative cosmos): the panel's rect in
+    /// view points from the top left, for a "How big is big?" link next to it.
+    pub fn cosmic_hint(&self) -> Option<CosmicPanelRect> {
+        self.cosmic_hint_points().map(|r| CosmicPanelRect {
+            x: r[0],
+            y: r[1],
+            width: r[2],
+            height: r[3],
+        })
     }
 
     /// Switches the cosmic size scale (a frame follows: resume the display link).

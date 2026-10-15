@@ -42,9 +42,37 @@ struct CosmicScaleRows: View {
             .help("How big the view is compared with real things, from the universe to the Planck length (C)")
         if model.cosmicScale {
             Picker("Compare", selection: $model.cosmicAnchor) {
-                ForEach(anchors, id: \.key) { Text($0.label).tag($0.key) }
+                ForEach(0..<3) { group in
+                    if group > 0 { Divider() }
+                    ForEach(anchors.filter { $0.group == UInt32(group) }, id: \.key) {
+                        Text($0.label).tag($0.key).help($0.description)
+                    }
+                }
             }
-            .help("Screen: the view is your window, how big is the whole set? Set = X: the whole set is X, how big is the view?")
+            if let a = anchors.first(where: { $0.key == model.cosmicAnchor }) {
+                Text(a.description).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+}
+
+/// "How big is big? →" just above the cosmic panel's top-right corner, shown once the view is
+/// past the Planck length (the gear panel takes over the story of huge numbers).
+struct CosmicHowBigLink: View {
+    let model: ExplorerModel
+    let panel: CosmicPanelRect
+
+    var body: some View {
+        HowBigButton(model: model, title: "How big is big? →")
+            .labelStyle(.titleOnly)
+            .buttonStyle(.plain)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color(red: 1, green: 0.85, blue: 0.3))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.75), in: Capsule())
+            .frame(width: panel.width, alignment: .trailing)
+            .offset(x: panel.x, y: max(0, panel.y - 26))
     }
 }

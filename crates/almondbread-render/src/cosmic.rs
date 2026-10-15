@@ -4,9 +4,7 @@
 //! overlay scene like the mini-map; costs a scene rebuild per frame while the zoom changes
 //! (no GPU work of its own) and nothing when off.
 
-use almondbread_core::cosmic::{
-    CosmicScale, CosmicScaleSettings, Group, MILESTONES, SET_WIDTH, THINGS, ladder_decades,
-};
+use almondbread_core::cosmic::{CosmicScale, CosmicScaleSettings, Group, SET_WIDTH};
 use almondbread_core::viewport::Viewport;
 
 use crate::overlay::{Scene, rgba};
@@ -28,11 +26,20 @@ pub struct CosmicOverlay {
     primed: bool,
     /// The crossed mark and when.
     flash: Option<(usize, f64)>,
+    /// The panel's rect in output pixels when the view is past the Planck length (the UI
+    /// shows a "How big is big?" link next to it), set by `draw`.
+    hint: std::cell::Cell<Option<[f32; 4]>>,
 }
 
 impl CosmicOverlay {
     pub fn enabled(&self) -> bool {
         self.settings.enabled
+    }
+
+    /// The panel's rect (output pixels: x0, y0, x1, y1) while the view is past the Planck
+    /// length, for the UI's "How big is big?" link.
+    pub fn hint(&self) -> Option<[f32; 4]> {
+        self.enabled().then(|| self.hint.get()).flatten()
     }
 
     /// A highlight is fading: keep frames coming.
@@ -102,8 +109,8 @@ impl CosmicOverlay {
         let cap = crate::font::cap_height();
         let lines: Vec<(&str, f32, [f32; 4])> = [
             Some((reading.line.as_str(), s1, rgba(1.0, 1.0, 1.0, 0.95))),
-            Some((reading.detail.as_str(), s2, rgba(0.85, 0.87, 0.9, 0.85))),
-            reading.physics.as_deref().map(|e| (e, s2, rgba(0.75, 0.88, 1.0, 0.85))),
+            Some((reading.detail.as_str(), s2, rgba(0.9, 0.92, 0.95, 0.95))),
+            reading.physics.as_deref().map(|e| (e, s2, rgba(0.8, 0.9, 1.0, 0.95))),
         ]
         .into_iter()
         .flatten()
@@ -117,7 +124,7 @@ impl CosmicOverlay {
         scene.rect(
             [x0, y0, x1, y1],
             8.0 * px,
-            rgba(0.02, 0.02, 0.03, 0.74),
+            rgba(0.015, 0.015, 0.025, 0.86),
             rgba(1.0, 1.0, 1.0, 0.22),
             px,
         );
@@ -166,31 +173,20 @@ impl CosmicOverlay {
             }
             k += 1.0;
         }
-        // Inside each ladder past the milestones: its rungs (the things, universe-sized set
-        // down to the Planck length) as faint ticks, so the repeats read as ladders.
-        let rungs_from = scale.offset() + MILESTONES.last().map_or(0.0, |m| m.log10);
-        let ladder = ladder_decades();
-        let u = THINGS[0].size_m;
-        let k0 = ((d - 60.0 - scale.offset()) / ladder).floor().max(0.0) as i64;
-        for k in (k0..k0 + 4).filter(|_| !scale.relative) {
-            let base = k as f64 * ladder + scale.offset();
-            for t in THINGS {
-                let md = base + (u / t.size_m).log10();
-                if md < rungs_from {
-                    continue;
-                }
-                let x = to_x(md);
-                if x > rx0 && x < rx1 {
-                    let c = group_color(t.group);
-                    let al = 0.55 * fade(x);
-                    scene.segment(
-                        [f64::from(x), f64::from(yr - 3.0 * px)],
-                        [f64::from(x), f64::from(yr + 3.0 * px)],
-                        0.5 * px,
-                        rgba(c[0], c[1], c[2], al),
-                        rgba(c[0], c[1], c[2], al),
-                    );
-                }
+        // Inside each ladder (cosmos length) past the milestones: its rungs as faint ticks,
+        // so the repeats read as ladders.
+        for (md, g) in scale.rungs(d - 400.0, d + 600.0) {
+            let x = to_x(md);
+            if x > rx0 && x < rx1 {
+                let c = group_color(g);
+                let al = 0.55 * fade(x);
+                scene.segment(
+                    [f64::from(x), f64::from(yr - 3.0 * px)],
+                    [f64::from(x), f64::from(yr + 3.0 * px)],
+                    0.5 * px,
+                    rgba(c[0], c[1], c[2], al),
+                    rgba(c[0], c[1], c[2], al),
+                );
             }
         }
         // Marks: a dot each; labels placed greedily nearest the marker first, above or below.
@@ -217,14 +213,15 @@ impl CosmicOverlay {
             vec![(xc - 3.0 * px, xc + 3.0 * px)],
             vec![(xc - 3.0 * px, xc + 3.0 * px)],
         ];
-        let gap = 5.0 * px;
+        let gap = 9.0 * px;
         for &(i, x) in &visible {
             let m = &scale.marks[i];
             let (_, tw) = crate::font::layout(&m.label, sl);
-            // Kept inside the ruler (a mark at the edge labels inwards).
+            // Kept inside the ruler (a mark at the edge labels inwards, but a label never
+            // strays far from its dot: it would read as its neighbour's).
             let lx0 = (x - 0.5 * tw).clamp(rx0, (rx1 - tw).max(rx0));
             let lx1 = lx0 + tw;
-            if x < rx0 || x > rx1 || lx1 > rx1 {
+            if x < rx0 || x > rx1 || lx1 > rx1 || (lx0 + 0.5 * tw - x).abs() > 0.3 * tw {
                 continue;
             }
             let free = |r: &Vec<(f32, f32)>| r.iter().all(|&(a0, a1)| lx1 + gap < a0 || lx0 > a1 + gap);
@@ -259,8 +256,8 @@ impl CosmicOverlay {
                 sl,
                 &m.label,
                 col,
-                rgba(0.0, 0.0, 0.0, 0.7 * col[3]),
-                2.0 * px,
+                rgba(0.0, 0.0, 0.0, 0.9 * col[3]),
+                2.4 * px,
             );
         }
         // The crossed mark: an expanding ring.
@@ -304,7 +301,7 @@ impl CosmicOverlay {
             } else {
                 *s
             };
-            scene.text_halo([x0 + pad, y], s, t, *c, rgba(0.0, 0.0, 0.0, 0.6), 2.0 * px);
+            scene.text_halo([x0 + pad, y], s, t, *c, rgba(0.0, 0.0, 0.0, 0.92), 2.6 * px);
             y += s.max(s2) * 1.45;
             key.push_str(t);
         }
@@ -323,6 +320,7 @@ impl CosmicOverlay {
             );
             key.push_str(&format!("flash {i} {:.2} ", t));
         }
+        self.hint.set(scale.past_planck(d).then_some([x0, y0, x1, y1]));
         key.push_str(&format!("cosmic {d:.4} {x0} {y1} {pw} "));
     }
 }

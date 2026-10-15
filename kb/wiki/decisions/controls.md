@@ -643,15 +643,30 @@ sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
   games (1e120), Planck volumes in the universe (8e184); then universe-to-Planck ladders
   (61.7 decades each; 48.6 at 1e3000), drawn as repeated faint rungs. The ruler compresses past
   the Planck length (slope 1 → 1/12 over 15 decades).
-- **Relative anchor "Zoom range = cosmos (metaphor)"**: the zoom range 1 … 1e3000 (a constant,
-  whatever the depth limit) stands for the universe … the Planck length and for today … the
-  Planck epoch (time after the Big Bang: first stars, CMB, first nuclei, neutrinos, protons,
-  electroweak, inflation, Planck epoch; src: [[sources/cosmic-history-timeline]]). Sizes above
-  the ruler, epochs below; each list equally spaced in `log10(1 + zoom decades)` with the log
-  of size and time interpolated between (so a next milestone is always coming and the desert
-  shrinks to its few named points). The panel says it is a metaphor and names the next thing.
-  A linear map in zoom decades was rejected (48.6 zoom decades per physical decade: everything
-  to 1e100 would read "1/100 of the universe"); the user asked for both modes to try.
+- **Relative anchor "Zoom range as cosmos (metaphor)"**: zoom 1 … 1e200 (one constant) stands
+  for the universe … the Planck length and for today … the Planck epoch. The 25 things sit on
+  one grid evenly spaced in zoom decades: 8.3 decades a step, about 12 s at the default zoom
+  speed (×4.95/s), the whole cosmos in under 5 minutes. The epochs sit on the same grid where
+  the view is about the thermal wavelength `hc/kT` of their temperature (CMB at a cell,
+  nucleosynthesis at an atom, quark-hadron at a nucleus, electroweak just below a proton,
+  inflation at the GUT scale, Planck at Planck; today, the Sun and the first stars spread over
+  the astronomical part; src: [[sources/cosmic-history-timeline]]), so size and time do not
+  drift apart. Log size and log time are interpolated between grid points. Sizes are shown
+  above the ruler, epochs below; the panel names the next thing and says it is a metaphor.
+  Past 1e200 it counts "cosmos lengths" (2.5 at 1e500) with the things repeated as faint rungs.
+  - Rejected first: spacing in `log10(1 + zoom decades)` over 1e3000. Steps grew from 1 s to
+    20 min ("from hair to blood cell it takes ages", user, 2026-10-15).
+  - Rejected before that: a linear map over 1e3000 (48.6 zoom decades per physical decade).
+- **Picker**: "Your screen", then "The set is …" (universe, Milky Way, Sun, Earth, you, a
+  cell, an atom), then "Zoom range as cosmos (metaphor)", in groups. A caption under the picker
+  explains the chosen anchor ("Your window is fixed: how big would the whole set be?"), and the
+  options carry the same text as tooltips.
+- **How big is big?**: past the Planck length (or past the relative cosmos), a gold "How big
+  is big? →" link sits above the panel's top-right corner and opens the gear panel. Rust
+  reports the panel rect through `Explorer.cosmicHint()`, polled with the ~10 Hz stats.
+- **Readability**: the backing is 86 % opaque black, and the labels and lines have a 2.4 to
+  2.6 px dark outline. Labels go above or below the ruler, whichever row is free, at least
+  9 pt from the next label and never far from their dot; a label that does not fit is hidden.
 - **Highlight**: crossing a mark flashes it gold with a growing ring and "passing X" above the
   panel for 1.6 s (no flash on jumps of 3 decades or more).
 - **Cost** (measured 2026-10-15, M-series MacBook Pro, release, interaction test "cosmic

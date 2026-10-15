@@ -710,3 +710,11 @@ not saved) eleven web sources: [[sources/wikipedia-knuth-up-arrow-notation]],
 [[sources/wikipedia-names-of-large-numbers]], [[sources/wikipedia-fast-growing-hierarchy]],
 [[sources/wikipedia-observable-universe]], [[sources/make-ganson-machine-with-concrete]].
 Status in [[ideas]].
+
+## [2026-10-15] decision | Cosmic size scale: relative mode paced in linear zoom
+
+User: "From hair to blood cell it takes ages." The relative cosmos now spans zoom 1e0 ... 1e200,
+with the things evenly spaced in zoom decades (about 12 s a step at the default speed). The
+epochs share the same grid, placed by thermal wavelength. Past 1e200 the panel counts cosmos
+lengths. Also: a darker backing and outlines, labels kept near their dots, a captioned anchor
+picker, and a "How big is big?" link past the Planck length. Pages: [[decisions/controls]].
