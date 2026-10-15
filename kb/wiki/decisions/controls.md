@@ -249,4 +249,136 @@ minibrot touching the pixel, Newton finds its nucleus at the view's precision, a
 goes to the minibrot's cusp, nucleus + size/4 along its orientation (`minibrot_size_complex`),
 a boundary point with structure at every depth; the note under the map says what was done
 ("snapped to the period-p minibrot's cusp near the click"). No minibrot found: the pixel's
-centre. Option-click asks to fly there; until the autopilot's fly-to is merged it jumps.
+centre. Option-click flies there instead (the fly-to path: out, across, in, landing at the current zoom).
+## Autopilot (as built, 2026-10-14)
+
+Requested by the user ("an auto-zoom, like an autopilot, so that you can just navigate with
+the mouse"). All policy in the core: `crates/almondbread-core/src/autopilot.rs`, owned by the
+`Navigator`; the renderer reports feedback and surveys; Swift decodes events and shows the
+HUD.
+
+| Input | Action |
+| --- | --- |
+| Z, menu "Autopilot On/Off", toolbar ✈ (iOS: overlay button) | on (eased start) / off (eased stop); Z key repeats are ignored |
+| Esc, menu "Stop Autopilot or Flight" | eased stop; not handled (the system keeps Esc) while nothing flies |
+| Pointer offset from the view centre | steers like a joystick (below) |
+| Click (iOS: tap) | pause / resume (eased); a double click undoes its first click's toggle and zooms as usual |
+| Q / E, mouse wheel notch, trackpad scroll | speed ×0.8 / ×1.25, ×1.1 per notch, `e^(0.004·dy)` per scrolled point; 0.1–4 e-folds/s, default 0.9 (×2.5/s); momentum scrolls are ignored |
+| Space, W A S D, drag, pinch | work as before on top of the autopilot (W A S D: keyboard mode, which flies straight) |
+| R | stops it dead (reset) |
+| iOS finger | while on, a one-finger drag steers instead of panning; lifting it flies straight |
+
+**Steering.** The pointer's offset `p` (view points from the centre; steering radius R = half
+the canvas's smaller side) gives a heading target `h* = p̂ · R · f(|p|/R)` with a dead zone of
+0.1 R and `f = 0.35 m + 0.65 m²` of the rescaled deflection. The heading `h` follows `h*` on
+a critically damped spring (ω = 6 /s, 90 % in 0.65 s), so a shaky hand does not shake the
+view. Each frame zooms about `h` at the autopilot rate z and pans the content by `−k·h` with
+`k = (0.5 + 1.0 · z) /s`: the content under the pointer drifts to the middle while the view
+dives into it, and the focus of expansion sits at `h (1 + k/z)`, beyond the pointer, which
+reads as turning towards it. k grows with z so that turning keeps pace with the dive: a
+target can be recaptured while it is within about `R (1 + k/z)` of the centre. Straight
+ahead (h* = 0) when the pointer is off the canvas or over the HUD, in keyboard mode, or idle
+for 3 s; edge panning is off while the autopilot runs. Rate and heading are integrated in
+fixed 2 ms substeps (the pan rate depends on the zoom rate), so 30, 60 and 120 Hz agree to
+1e-3 of the distance steered (test `autopilot_is_frame_rate_independent`); the rate spring
+alone is exact.
+
+**Speed.** The zoom rate follows `speed · throttle · safety` on a spring (ω = 3 /s up: 50 %
+after 0.56 s; 4 /s down: a stop glides on 2/ω = 0.5 s of rate, 0.45 e-folds at the default).
+
+- *throttle* (how the renderer keeps up; `RenderFeedback` from the scheduler every frame):
+  the gesture-preview resolution the frame budget affords, `fit = √(budget / (cost per
+  texel · pixels))` unclamped; `fit ≥ 1/4` → 1, `fit ≤ 1/10` → 0.3, smoothstep between;
+  0.06 while the view waits for a deep reference (frames show only the reprojected history).
+  Down with τ = 0.25 s, back up with τ = 1 s. Steering pan is scaled by the throttle too.
+- *safety* (the heading region of the current frame): a GPU `survey` pass over each finished
+  level (at most every 0.1 s, only while the autopilot is on) counts per cell of a 16 × 10
+  grid the sampled texels (≤ 16 × 16 per cell), interior or unresolved ones, and neighbour
+  pairs whose class or integer escape count differ. Band crossings per view width =
+  edge rate × level width. Around the heading (Gaussian, σ = 0.15 of the smaller side):
+  `detail ≤ 3` → safety 0.3, `≥ 12` → 1, smoothstep between; the hint says "interior" when
+  most of that region is interior, else "featureless". At the depth limit the zoom stops.
+- *HUD*: "autopilot ×2.46/s · now ×1.3/s" plus the reason ("slower: keeping the detail
+  sharp", "waiting for the deep reference", "slower: heading into the interior",
+  "slower: featureless ahead", "paused · click to resume").
+
+**Assist** (inspector toggle, off by default, persisted). The survey's detail-weighted
+centroid around the heading (σ = 0.35 of the smaller side; score = min(detail / 12, 1) ·
+(1 − interior / 2)) leans the heading target towards boundary detail by 0.6 of its offset,
+at most 0.4 R, fading out as the pointer deflects past the dead zone (gone at a response of
+0.2): it never steers against the user.
+
+**Tuning on review flights** (`scripts/flights/autopilot-seahorse.json`, `almondbread fly`
+with a scripted pilot that keeps a target under the pointer, clamped to the window):
+
+- The first version panned at a fixed k = 0.8 /s. At ×6/s the pilot lost the seahorse
+  target after a 2 s look-away and never caught it again (the target escapes once it is
+  beyond `R (1 + k/z)`, about 1.4 R at z = 1.8). k now grows with z.
+- A pilot with 0.3 s lag and gain 2.5 oscillated with the stronger turning (two lags in the
+  loop: the hand and the heading spring); with 0.15 s lag it holds the target within a few
+  points of the centre down to 1e-30. A real hand adapts; the numbers are for the script.
+- Looking away for 2 s at ×6/s still loses a target: it is ~36× further out when you look
+  back. That is the physics of a dive, not a bug; slowing down (Q, scroll) or pausing
+  (click) is the remedy.
+- The first heading straight into the main cardioid from the home view slowed to 0.3 with
+  the "interior" hint, as designed.
+
+## Fly to coordinates (as built, 2026-10-14)
+
+Requested by the user ("give it a coordinate and it automatically zooms in there; control the
+speed with Q and E"). Core: `crates/almondbread-core/src/flyto.rs` (path and flight),
+`Navigator::fly_to`; FFI `Explorer.fly_to(re, im, scale)` / `fly_to_coordinates(text)`.
+
+| Input | Action |
+| --- | --- |
+| ⌘G "Fly to Coordinates…" | sheet with re, im, scale (decimal strings, any depth); pasting the copied-coordinates text into a field fills all three; prefilled from the clipboard |
+| ⇧⌘G "Fly to Copied Coordinates" | flies to the clipboard's view (⇧⌘V still jumps) |
+| Q / E, wheel notch, trackpad scroll | flight speed ×0.8 / ×1.25 live, 0.1–16 e-folds/s at the zoom ends, default 2 |
+| Esc | eased stop on the path (ω = 4 /s), the view stays there |
+| any navigation (keys, Space, drag, pinch, wheel zoom, double click, gamepad, Z) | takes over: the flight's velocity is handed to the pan and zoom springs, which glide out |
+| Go to coordinates, R | cancel the flight |
+
+**Path** (src: [[sources/van-wijk-nuij-smooth-zooming]]). Van Wijk & Nuij's optimal
+zoom-and-pan path with ρ = √2 in (u, w) space (u along the line to the target, w the view
+width): zoom out as far as the distance needs, pan, zoom in; at its ends a pure zoom at
+`d ln w/ds = ±ρ`. Deep views need three changes, all ours:
+
+1. **Units and logs.** Everything is in units of a power of two near max(w0, w1, d); widths
+   are kept as `ln w`, and `ln cosh`, `ln sinh` are evaluated without overflow.
+2. **Head and tail.** f64 cannot hold w1/w0 = 1e-3000. The path is a head (pure zoom out
+   about the start centre until w = 1e-6 · d), the van Wijk part between widths f64 holds,
+   and a tail (pure zoom in about the target from 1e-6 · min(w, d) to w1). Head and tail zoom
+   at exactly the van Wijk end rate ρ per unit of s, and the van Wijk part's centre moves
+   ~1e-6 view widths per unit at its ends, so the joins are seamless.
+3. **Exact ends, no drift.** Every frame's view is computed from the path parameter, not
+   integrated. The travelled distance `u(s) = w0/ρ² · sinh(ρs) / cosh(ρs + r0)` and the
+   remaining offset `d − u(s) = w0 cosh r0 / ρ² · sinh(ρ(S − s)) / (cosh r1 · cosh(ρs + r0))`
+   are both cancellation-free; the centre is the start centre plus u (first half) or the
+   target minus the remaining offset (second half), in arbitrary precision, so the f64
+   offset is always small next to the view. At s = S the view is the target, bit for bit.
+   Targets within 1e-100 of a view width of the centre line zoom straight.
+
+**Motion.** The path parameter's speed follows `speed / ρ · throttle` (the autopilot's
+renderer back-off) on a spring (ω = 3 /s up, 4 /s down), capped by `√(2 a s_left)` to
+brake at a constant deceleration onto the target, snapping within 1e-4 units;
+`a = max(2 units/s², set speed / 0.75 s)`. (A fixed 2 units/s² made fast flights brake for
+most of a short path: the interaction test's 15 e-folds at 12 e-folds/s had not landed after
+2.9 s.) **Reference
+prefetch:** when the target is inside the current view and deeper, a needed big reference is
+requested as a jump to the target would request it (nucleus search around the target, the
+target's precision and scale), and it then serves most of the rest of the dive
+([[techniques/rebasing]]): 2 references for home → sea-8007, 6 for home → 1e-300. The first
+version asked for a plain centre reference at the target (nucleus search off, kernel picked
+at the current depth); the settled frame at sea-8007 then showed smooth wrong fans around the
+minibrot, with 35.8 % of escape counts different from a fresh render, while the class check
+of `verify --history flyto` passed. The session now also fails when more than 1 % of escape
+counts differ from a fresh render (it is 0 % now).
+
+**Tests.** Unit tests: path starts on the start view (< 1e-6 pt) and ends exactly on the
+target, continuity over 4000 steps (zoom and centre steps bounded), the target moves
+monotonically towards the centre once on screen (home → sea-8007), deep → far deep
+(1e-300 at c = i → sea-8007 zooms out to ~1e-3 and back), nearby targets, zoom-out, pure
+zoom, 30/60/120 Hz flights agree to 2e-3 and land exactly, Esc glides 2/ω of speed, the
+navigator lands with `viewport == target`, and a pan hands the motion over without a jump.
+`verify --history flyto` (in `make regress`) flies through the interactive scheduler and
+diffs the landed frame against the CPU oracle and a fresh render.

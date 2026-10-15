@@ -221,6 +221,85 @@ final class InteractionTest: NSObject {
             }
             zoom(v, i, t)
         }
+        // Autopilot (kb: decisions/controls, autopilot): Z, the synthetic pointer circles 220 pt
+        // off-centre (steering), Esc at 2.4 s (eased stop). Checks it zoomed and steered.
+        var ap = (start: ViewportInfo?.none, active: false)
+        let autopilot: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                ap = (explorer.viewport(), false)
+                v.send(.pointer(x: 0, y: 0))
+                InteractionTest.key(v, "z", down: true)
+                InteractionTest.key(v, "z", down: false)
+            }
+            let a = 0.8 * t
+            v.send(.pointer(x: 220 * cos(a), y: 220 * sin(a)))
+            if explorer.stats().autopilot.active { ap.active = true }
+            once("esc", t >= 2.4) {
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let vp = explorer.viewport()
+                let zoomed = (ap.start?.zoomLog10).map { vp.zoomLog10 - $0 } ?? 0
+                let moved = ap.start.flatMap { s in Double(vp.re).flatMap { re in Double(s.re).map { (re - $0) / vp.scale } } } ?? 0
+                let ok = ap.active && zoomed > 0.5 && abs(moved) > 1 && !explorer.stats().autopilot.active
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "autopilot: on %@, zoomed ×%.1f in 2.4 s, centre moved %.0f pt by steering, off after Esc %@ %@",
+                                               ap.active ? "yes" : "NO", pow(10, zoomed), moved,
+                                               explorer.stats().autopilot.active ? "NO" : "yes", ok ? "OK" : "FAILED"))
+            }
+        }
+        // Fly to (kb: decisions/controls, fly to): from the 1e5 view to 1e-11 per point near the
+        // seahorse point (f64 references: deeper, the flight waits for big references by
+        // design; `make regress` covers 1e-34 and 1e-300) at ~6x the default speed; must land
+        // exactly.
+        let flyTarget = (re: "-0.74364388703715870475219150611477977822", im: "0.13182590420531197049313205638514067897",
+                         scale: "1e-11")
+        var flew = false
+        var landedAt: Double?
+        let flyTo: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                flew = false
+                landedAt = nil
+                try? explorer.flyTo(re: flyTarget.re, im: flyTarget.im, scale: flyTarget.scale)
+                for _ in 0..<8 { InteractionTest.key(v, "e", down: true); InteractionTest.key(v, "e", down: false) }
+                v.requestFrames()
+            }
+            if explorer.stats().flight.active { flew = true } else if flew && landedAt == nil { landedAt = t }
+            once("check", t >= 2.9) {
+                let s = explorer.stats()
+                let vp = explorer.viewport()
+                let ok = flew && !s.flight.active && vp.scaleText == "1e-11" && vp.re.hasPrefix("-0.7436438870371587")
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "fly to: flew %@, landed %@ after %.2f s at scale %@ (target %@), speed %.2f e/s %@",
+                                               flew ? "yes" : "NO", s.flight.active ? "NOT YET" : "yes", landedAt ?? .nan,
+                                               vp.scaleText, flyTarget.scale, s.flight.speed, ok ? "OK" : "FAILED"))
+            }
+        }
+        // Every look (the inspector's Look picker: `applyLook`) and every palette (the Palette
+        // picker: `paletteID`), one every 0.1 s, idle (progressive AA running) or during a
+        // pan, at home and deep. Regression for "selected Lagoon and almondbread died".
+        let switches: [(ExplorerModel) -> Void] = ExplorerModel.looks.map { l in { $0.applyLook(l.id) } }
+            + ExplorerModel.palettes.map { p in { $0.paletteID = p.id } }
+        var switched = 0
+        @MainActor func switcher(gesture: Bool) -> (FractalNSView, Int, Double) -> Void {
+            { v, i, t in
+                if i == 0 { switched = 0; sent.removeAll() }
+                if gesture { pan(v, i, t) }
+                let due = Int(t / 0.1)
+                while switched <= due && switched < switches.count {
+                    switches[switched](v.model)
+                    switched += 1
+                }
+                if switched == switches.count, !sent.contains("looks") {
+                    sent.insert("looks")
+                    self.refineLines.append("looks: \(switches.count) looks and palettes applied (\(gesture ? "panning" : "idle"))")
+                }
+            }
+        }
+        let seaDeep20 = View(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139", scale: 1e-20)
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
                 Scenario(name: "home pan", viewport: home, input: pan),
@@ -236,7 +315,13 @@ final class InteractionTest: NSObject {
                 Scenario(name: "edge pan", viewport: sea, input: edgePan),
                 Scenario(name: "deep zoom 1e-12 to 1e-40", viewport: seaDeep, input: deepZoom),
                 Scenario(name: "1e-100 pan", viewport: dendrite100, input: pan),
-                Scenario(name: "1e-300 zoom", viewport: dendrite300, input: zoom)]
+                Scenario(name: "1e-300 zoom", viewport: dendrite300, input: zoom),
+                Scenario(name: "autopilot", viewport: sea, input: autopilot),
+                Scenario(name: "fly to", viewport: sea, input: flyTo),
+                Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
+                Scenario(name: "looks home pan", viewport: home, input: switcher(gesture: true)),
+                Scenario(name: "looks deep idle", viewport: seaDeep20, input: switcher(gesture: false)),
+                Scenario(name: "looks deep pan", viewport: seaDeep20, input: switcher(gesture: true))]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -417,12 +502,12 @@ final class InteractionTest: NSObject {
     }
 
     /// A synthetic key event through the same handler the window's key monitor uses.
-    static func key(_ view: FractalNSView, _ chars: String, down: Bool) {
+    static func key(_ view: FractalNSView, _ chars: String, down: Bool, keyCode: UInt16 = 0) {
         guard let e = NSEvent.keyEvent(with: down ? .keyDown : .keyUp, location: .zero, modifierFlags: [],
                                        timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: view.window?.windowNumber ?? 0, context: nil,
                                        characters: chars, charactersIgnoringModifiers: chars,
-                                       isARepeat: false, keyCode: 0) else { return }
+                                       isARepeat: false, keyCode: keyCode) else { return }
         _ = view.handleKey(e)
     }
 

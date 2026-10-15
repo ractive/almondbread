@@ -175,11 +175,16 @@ impl<B: GpuBackend + Clone> Host<B> {
     fn overlay_before(&mut self, now: f64) {
         self.overlay.poll_click(now);
         if let Some(j) = self.overlay.pending_jump.take() {
-            // (A fly-to path would take `j.fly`; the autopilot is wired after merging.)
             let mut v = Viewport::with_center(j.center, self.renderer.viewport.scale);
             v.ensure_precision();
-            self.renderer.viewport = v;
-            self.renderer.note_interaction(now);
+            if j.fly {
+                // Option-click: the animated fly-to path (out, across, in) to the same zoom.
+                let start = self.renderer.viewport.clone();
+                self.renderer.navigator.fly_to(&v, &start, now);
+            } else {
+                self.renderer.viewport = v;
+                self.renderer.note_interaction(now);
+            }
         }
         if self.overlay.settings.any() || self.renderer.overlay.is_some() {
             let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
@@ -204,6 +209,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// The home view fitted to the view.
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
+        self.renderer.navigator.cancel_flight();
         self.renderer.viewport = Viewport::fitting(w, h);
     }
 

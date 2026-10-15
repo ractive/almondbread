@@ -572,7 +572,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
                     if (kDE) dm = 2.0f * cmul(z, dm) + tsd;
                     if (kInterior) zw = 2.0f * cmul(z, zw);
-                    if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f) {
+                    // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
+                    // would overflow the DE mantissa within 8 steps; R5.)
+                    if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f
+                        || (kDE && max(abs(z.x), abs(z.y)) > 16.0f)) {
                         if (kDE) {
                             float a = max(abs(dm.x), abs(dm.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
@@ -1000,10 +1003,24 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             iterOut.write(float4(float(st.n), s, 0.0f, 0.0f), gid);
             if (kDE) {
                 float zr = sqrt(r2);
-                float dl = length(st.d);
+                float2 dd = st.d;
+                int dShift = 0;
+                if (kDeep) {
+                    // The deep DE mantissa is renormalised every 8 steps only, and grows by up to
+                    // |2z| ~ 2^17 per step just before escape: |d|^2 can overflow (de = 0, dotted
+                    // outline arcs in smooth exterior; found in R5). Normalise it here.
+                    const float a = max(abs(dd.x), abs(dd.y));
+                    if (a > 0.0f && isfinite(a)) {
+                        dShift = expOf(a);
+                        dd = scale2(dd, -dShift);
+                    }
+                }
+                float dl = length(dd);
                 float de = dl > 0.0f ? 2.0f * zr * log(zr) / dl : 0.0f;   // in texels
-                if (kDeep) de = min(de, 65000.0f) * pow2f(clamp(-st.dExp, -126, 127));
-                float2 u = cmul(z, float2(st.d.x, -st.d.y));                // direction of z / d
+                // (Clamp after scaling: the mantissa alone can pass 65000 while the distance does
+                // not; clamping first drew thick outline bands in deep views, found in R5.)
+                if (kDeep) de = min(de * pow2f(clamp(-(st.dExp + dShift), -126, 100)), 65000.0f);
+                float2 u = cmul(z, float2(dd.x, -dd.y));                    // direction of z / d
                 deOut.write(float4(min(de, 65000.0f), atan2(u.y, u.x), 0.0f, 0.0f), gid);
             } else {
                 deOut.write(float4(1000.0f, 0.0f, 0.0f, 0.0f), gid);
@@ -1730,4 +1747,48 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
         col = c.rgb + col * (1.0f - c.a);
     }
     out.write(float4(ditheredSRGB(col, gid), 1.0f), gid);
+}
+
+// MARK: Autopilot survey (kb: decisions/controls, autopilot)
+
+struct SurveyParams {
+    uint width;          // level texels
+    uint height;
+    uint cols;           // survey cells
+    uint rows;
+};
+
+/// A coarse picture of a finished level for the autopilot: per cell, sampled texels, interior
+/// (or unresolved) ones, and the share of neighbour pairs whose class or integer escape count
+/// differ (band edges: their rate times the level width is the number of colour bands
+/// crossed per view width). One thread per cell, at most 16 x 16 samples each.
+kernel void survey(texture2d<float, access::read> iters [[texture(0)]],
+                   constant SurveyParams& p             [[buffer(0)]],
+                   device uint4* cells                  [[buffer(1)]],
+                   uint2 gid                            [[thread_position_in_grid]])
+{
+    if (gid.x >= p.cols || gid.y >= p.rows) return;
+    uint x0 = gid.x * p.width / p.cols, x1 = (gid.x + 1) * p.width / p.cols;
+    uint y0 = gid.y * p.height / p.rows, y1 = (gid.y + 1) * p.height / p.rows;
+    uint step = max(1u, max((x1 - x0 + 15) / 16, (y1 - y0 + 15) / 16));
+    uint samples = 0, interior = 0, pairs = 0, edges = 0;
+    for (uint y = y0; y < y1; y += step) {
+        for (uint x = x0; x < x1; x += step) {
+            float n = iters.read(uint2(x, y)).x;
+            if (n == ITER_PENDING || n == ITER_SKIP) continue;
+            samples++;
+            bool in = n < 0.0f;
+            if (in) interior++;
+            for (uint k = 0; k < 2; k++) {
+                uint2 q = k == 0 ? uint2(x + 1, y) : uint2(x, y + 1);
+                if (q.x >= p.width || q.y >= p.height) continue;
+                float m = iters.read(q).x;
+                if (m == ITER_PENDING || m == ITER_SKIP) continue;
+                pairs++;
+                bool min = m < 0.0f;
+                if (min != in || (!in && m != n)) edges++;
+            }
+        }
+    }
+    cells[gid.y * p.cols + gid.x] = uint4(samples, interior, pairs, edges);
 }

@@ -1,0 +1,37 @@
+{
+ "_about": "Fly to coordinates from the home view to the period-8007 minibrot in seahorse valley (2e-34 per point): van Wijk & Nuij zoom-pan path, Q at 12 s and E at 16, 16.5 and 20 s (speed changes live), landing exactly, then refinement. The renderer back-off slows the deep part when previews drop to 1/8 resolution.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 90,
+ "start": {
+  "re": "-0.75",
+  "im": "0",
+  "zoom": 1
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "fly_to": {
+    "re": "-0.74364388703715870475219150611477977822",
+    "im": "0.13182590420531197049313205638514067897",
+    "scale": "2e-34"
+   }
+  },
+  {
+   "at": 12.0,
+   "key": "slower"
+  },
+  {
+   "at": 16.0,
+   "key": "faster"
+  },
+  {
+   "at": 16.5,
+   "key": "faster"
+  },
+  {
+   "at": 20.0,
+   "key": "faster"
+  }
+ ]
+}

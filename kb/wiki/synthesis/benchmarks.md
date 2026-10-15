@@ -833,3 +833,52 @@ probe's analysis runs at most 1.5 ms per frame until it is done) and an overlay-
 costs ~0.5 ms GPU at 2560×1640. The fps differences in this run are within the noise of the
 shared GPU. The map renderers run only between gestures, with 2 ms chunks. The shown-frame
 checks stay at 0 pixels differing in class.
+## Autopilot and fly to, 2026-10-15
+
+Measured 2026-10-15, M1 Pro, release, with other agents' GPU jobs running (motion-reuse
+renders, deep verifies): absolute frame rates and the depth reached in real time are
+pessimistic. Design: [[decisions/controls]] "Autopilot", "Fly to coordinates".
+
+**Interaction test** (`make interaction-test`; this run had **120 Hz** callbacks, so fps are
+not comparable with the 60 Hz FL table; 2560×1640 px):
+
+| scenario | fps | interval p50 / p95 ms | latency p50 ms | draw CPU p50 ms | vs fresh render |
+|---|---:|---|---:|---:|---|
+| autopilot (Z, pointer circling 220 pt, Esc at 2.4 s) | 88.8–90.2 | 8.3 / 25.0 | 24.5 | 0.15–0.16 | 0–0.001 % |
+| fly to (1e5 → 1e-11 per point, 11.9 e-folds/s) | 52.6–86.1 | 8.3 / 25.0–33.3 | 24.5 | 0.12–0.19 | 0 % |
+| looks home / deep, idle / panning (22 looks and palettes in 2.2 s) | 7 idle (recolours only), 59–89 panning | — | 32.7–49.4 | 0.08–0.13 | 0–0.000 % |
+
+Autopilot zoomed ×3.3–3.9 in 2.4 s with the eased start and steered the centre 504–649 pt;
+off after Esc, refined frame 208 ms after the eased stop. Fly to landed exactly (scale text
+`1e-11`) 1.53 s after the start. FFI 4–6 µs per frame. Same-run shallow scenarios: 74–102 fps.
+
+**Fly to through the interactive scheduler** (`verify --history flyto`, 640×410, in
+`make regress`; landed exactly in every run):
+
+| flight | e-folds | speed | time | references | vs CPU oracle (class mismatch) | vs fresh |
+|---|---:|---:|---:|---:|---:|---:|
+| home → sea-8007 (5e-34/px) | 72 | 4 e/s | 40.3 s (loaded GPU: back-off; 19.4 s on a quieter one) | 2 | 0 (escape-n 39 %: float32 noise, cf. M3b) | 0, escape-n 0 % |
+| home → c = i at 1e-300 | 686 | 16 e/s | 44.0 s | 6 | 0 | 0, escape-n 0 % |
+
+Prefetching the reference at the target makes one reference serve most of the dive (2 for 72
+e-folds, 6 for 686: a new one when the iteration limit outgrows the orbit or the kernel
+switches plain → deep). The first prefetch (a plain centre reference at the target) passed
+the class check but 35.8 % of the landed frame's escape counts differed from a fresh render
+(smooth wrong fans at sea-8007, seen in the review video); the request now matches a jump's
+and the session gates on escape counts (≤ 1 %).
+
+**Review flights** (`almondbread fly`, 1920×1080, 60 Hz, `review/`, gitignored):
+
+- `autopilot-seahorse.mp4` (78 s): scripted pilot (gain 2.5, lag 0.15 s) from home into
+  seahorse valley, a look to the right at 2.5–3.3 s, Esc at 72 s. 54.0 fps presented, 8 late
+  refreshes. The target stayed ~45 px off-centre (the pilot's equilibrium) through the dive;
+  the throttle was 0.3 for most of the deep part (previews at 1/8 resolution: "Rendering" 75 %
+  of the time), so the flight reached 3.2e-27 per point instead of ~1e-30. Images sharp at
+  every still (seahorse valley, spirals, minibrot clusters at 1e-24).
+- Earlier tuning runs (same day) are in [[decisions/controls]] Autopilot "Tuning".
+- `fly-to-seahorse.mp4`: see the log entry of 2026-10-15.
+
+**Crash fix** (1fef638): a colour change while progressive AA chunks were on the GPU
+indexed a dropped AA level (the "Lagoon" crash). Regression test
+`colour_change_during_progressive_aa` (every palette and look applied with AA in flight)
+fails with the reported panic without the fix.

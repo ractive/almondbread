@@ -398,3 +398,24 @@ fixed with main: a colour change during progressive AA crashed the app (main's `
 Pages: [[techniques/coloring-methods]] (Interior colouring as built, Dense regions),
 [[decisions/controls]] (control center, orbit overlay and mini-map),
 [[synthesis/benchmarks]] (Interior colourings, overlays, control center).
+## [2026-10-15] decision | Autopilot and fly to coordinates (as built); Lagoon crash fix
+
+User requests: an autopilot ("so that you can just navigate with the mouse") and "give it a
+coordinate and it automatically zooms in there; Q and E set the speed". Built in the core
+`Navigator` (`autopilot.rs`, `flyto.rs`), with a GPU `survey` pass, renderer feedback
+(preview resolution that fits the budget, waiting for a deep reference) for adaptive speed,
+target-reference prefetch for flights, FFI, the CLI (`fly` script events `aim`, `click`,
+`scroll`, `fly_to`; `verify --history flyto`; two regress sessions) and the Swift UI (Z, Esc,
+click to pause, scroll for speed, toolbar and menu items, ⌘G / ⇧⌘G, HUD hints, inspector
+assist toggle, iOS button and finger steering). Fly to follows van Wijk & Nuij's optimal path
+with log-space head and tail for deep zoom and lands exactly. Review flights caught: the
+scripted pilot leaving the window (now clamped), a fixed turn rate losing targets at speed
+(now grows with the zoom rate), fast flights braking for most of a short path (braking now
+scales with speed), and a target reference that rendered wrong fans at sea-8007 (now
+requested like a jump's; regress gates on escape counts). Also fixed: `fly` script events on
+a refresh boundary fired twice. Crash "selected Lagoon and almondbread died": a colour change
+dropped AA levels while their chunks were in flight; harvest indexed a missing level
+(commit 1fef638, regression test, panics now caught at the FFI and logged to
+`~/Library/Logs/Almondbread/panic.log`). Pages: [[decisions/controls]] Autopilot and Fly to,
+[[sources/van-wijk-nuij-smooth-zooming]], [[synthesis/benchmarks]] Autopilot and fly to,
+[[roadmap]] AP, [[index]].

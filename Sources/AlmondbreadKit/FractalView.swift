@@ -92,6 +92,7 @@ final class CrosshairLayer: CALayer {
 /// exports no constants; core-check verifies them).
 let frameAnimating: UInt8 = 1
 let frameKeyboard: UInt8 = 2
+let frameAutopilot: UInt8 = 4
 
 /// Display links retain their target; this one holds the view weakly so views can go away.
 @MainActor
@@ -119,6 +120,8 @@ class FractalHostBase {
     /// The overlay state after the last `frame` call (interaction test: crosshair positions).
     struct Overlay { let keyboard: Bool; let x: Double; let y: Double }
     private(set) var lastFrame: Overlay?
+    /// The autopilot is on (as of the last frame): on iOS a finger then steers.
+    private(set) var autopilotOn = false
 
     init(model: ExplorerModel, scale: CGFloat) {
         self.model = model
@@ -173,6 +176,7 @@ class FractalHostBase {
         frameTimes?.append(t1 - t0)
         let animating = bits & frameAnimating != 0
         let keyboard = bits & frameKeyboard != 0
+        autopilotOn = bits & frameAutopilot != 0
         // Two scalar calls, only while the crosshair shows.
         let o = Overlay(keyboard: keyboard, x: keyboard ? explorer.crosshairX() : 0, y: keyboard ? explorer.crosshairY() : 0)
         lastFrame = o
@@ -375,6 +379,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     /// The navigation meaning of a key (kb: decisions/controls), or nil.
     static func navKey(_ event: NSEvent) -> NavKey? {
+        // Esc stops the autopilot or a flight (Rust leaves it unhandled otherwise).
+        if event.keyCode == 53 { return .stop }
         switch event.specialKey {
         case .leftArrow?: return .left
         case .rightArrow?: return .right
@@ -393,6 +399,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "+", "=": return .stepIn
         case "-", "_": return .stepOut
         case "r": return .reset
+        case "z": return .autopilot
         default: return nil
         }
     }
@@ -418,6 +425,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         default: break
         }
         guard let key = Self.navKey(event) else { return false }
+        // Z toggles: a held key's repeats must not toggle again.
+        if key == .autopilot && event.isARepeat { return true }
         if event.type == .keyUp { return send(.keyUp(key: key)).handled }
         send(.shift(down: shift))
         return send(.keyDown(key: key)).handled
@@ -469,7 +478,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         if event.hasPreciseScrollingDeltas && !zoomModifier {
             // Trackpad: two-finger scroll pans 1:1; content follows the fingers. After the
             // fingers lift, the OS keeps sending momentum-phase scrolls: that is the fling.
-            send(.pan(dx: Double(event.scrollingDeltaX), dy: -Double(event.scrollingDeltaY)))
+            // (While the autopilot or a flight runs, Rust takes scrolling as its speed.)
+            send(.scroll(dx: Double(event.scrollingDeltaX), dy: -Double(event.scrollingDeltaY),
+                         momentum: !event.momentumPhase.isEmpty))
         } else if event.hasPreciseScrollingDeltas {
             // Precise scroll zoom (trackpad or Magic Mouse with a modifier): 1:1.
             send(.wheelZoom(delta: Double(event.scrollingDeltaY) / 40, x: o.x, y: o.y))
@@ -488,7 +499,14 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseUp(with event: NSEvent) {
         // A drag released while moving flings on (mice have no OS momentum).
-        if dragging { send(.gestureEnd) }
+        if dragging {
+            send(.gestureEnd)
+        } else if event.clickCount == 1 && !mapClicked {
+            // A plain click pauses / resumes the autopilot (unused otherwise; a click on a
+            // mini-map jumps instead).
+            let o = offset(event.locationInWindow)
+            send(.click(x: o.x, y: o.y))
+        }
         dragging = false
         mapClicked = false
     }
@@ -508,7 +526,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if event.clickCount == 1 {
-            // A click on a mini-map panel jumps there (Option: fly, once the autopilot is wired).
+            // A click on a mini-map panel jumps there (Option: flies there).
             let o = offset(event.locationInWindow)
             mapClicked = model.mapClick(x: o.x, y: o.y, fly: event.modifierFlags.contains(.option))
             if mapClicked { return }
@@ -562,14 +580,14 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         doubleTap.numberOfTapsRequired = 2
         let twoFingerTap = UITapGestureRecognizer(target: self, action: #selector(handleTwoFingerTap(_:)))
         twoFingerTap.numberOfTouchesRequired = 2
+        // A single tap pauses / resumes the autopilot (it waits for a double tap to fail).
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.require(toFail: doubleTap)
         pinch.delegate = self
         pan.delegate = self
         // iPad trackpad / mouse: pointer mode (zoom target = pointer, crosshair pointer).
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
-        // A single tap on a mini-map jumps there (waits for the double tap to fail).
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        tap.require(toFail: doubleTap)
-        [pinch, pan, tap, doubleTap, twoFingerTap, hover].forEach(addGestureRecognizer)
+        [pinch, pan, doubleTap, twoFingerTap, tap, hover].forEach(addGestureRecognizer)
         let pointer = UIPointerInteraction(delegate: self)
         addInteraction(pointer)
         pointerInteraction = pointer
@@ -671,7 +689,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case "+", "=": return .stepIn
         case "-", "_": return .stepOut
         case "r": return .reset
-        default: return nil
+        case "z": return .autopilot
+        default: return key.keyCode == .keyboardEscape ? .stop : nil
         }
     }
 
@@ -745,6 +764,19 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     @objc private func handlePan(_ g: UIPanGestureRecognizer) {
+        // Autopilot: the finger steers like the Mac pointer (its offset from the centre);
+        // lifting it flies straight on.
+        if base.autopilotOn {
+            switch g.state {
+            case .began, .changed:
+                let o = offset(g.location(in: self))
+                send(.pointer(x: o.x, y: o.y))
+            default:
+                send(.pointerExited)
+            }
+            g.setTranslation(.zero, in: self)
+            return
+        }
         let t = g.translation(in: self)
         send(.pan(dx: Double(t.x), dy: -Double(t.y)))
         g.setTranslation(.zero, in: self)
@@ -759,7 +791,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
 
     @objc private func handleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
-        _ = base.model.mapClick(x: o.x, y: o.y, fly: false)
+        // A tap on a mini-map jumps there; elsewhere it pauses / resumes the autopilot.
+        if base.model.mapClick(x: o.x, y: o.y, fly: false) { return }
+        send(.click(x: o.x, y: o.y))
     }
 
     @objc private func handleTwoFingerTap(_ g: UITapGestureRecognizer) {

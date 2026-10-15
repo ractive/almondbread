@@ -52,6 +52,15 @@ impl Scale {
         Self { mant: 1.0, exp: k }
     }
 
+    /// `2^l` for any finite `l` (beyond f64's range too).
+    pub fn from_log2(l: f64) -> Self {
+        if !l.is_finite() {
+            return Self { mant: 1.0, exp: 0 };
+        }
+        let k = l.floor();
+        Self::normalised((l - k).exp2(), k as i64)
+    }
+
     fn normalised(m: f64, e: i64) -> Self {
         if !(m.is_finite() && m > 0.0) {
             return Self { mant: 1.0, exp: e };

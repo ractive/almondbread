@@ -338,9 +338,79 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         "pan" => start.pan_by_points(pan.0 * pan_speed * seconds, pan.1 * pan_speed * seconds),
         // "Go to coordinates": a fresh view at depth, no zoom history (settled from scratch).
         "jump" => {}
-        _ => return err(format!("unknown --history {mode} (zoom, out, pan, jump)")),
+        // "Fly to coordinates" (kb: decisions/controls, fly to): from `--from re,im,scale`
+        // (default: the home view) through the navigator's path to the view, at `--speed`.
+        "flyto" => {
+            start = match o.get("from") {
+                Some(f) => {
+                    let p: Vec<&str> = f.split(',').collect();
+                    if p.len() != 3 {
+                        return err("--from re,im,scale");
+                    }
+                    almondbread_core::flyto::view_from_text(p[0], p[1], p[2])
+                        .ok_or_else(|| crate::options::CommandError("bad --from".into()))?
+                }
+                None => Viewport::fitting(width as f64 * ppp, height as f64 * ppp),
+            };
+        }
+        _ => return err(format!("unknown --history {mode} (zoom, out, pan, jump, flyto)")),
     }
     r.viewport = start;
+    if mode == "flyto" {
+        r.handle_input(
+            almondbread_core::input::InputEvent::Resize {
+                width: width as f64 * ppp,
+                height: height as f64 * ppp,
+            },
+            0.0,
+        );
+        r.navigator.set_fly_speed(speed, 0.0);
+        let _ = r.simulate(width, height, ppp, 120.0, 0, 30.0, &mut |_, _, _| {});
+        let now = r.clock();
+        let from = r.viewport.clone();
+        r.navigator.fly_to(&end, &from, now);
+        let length = r.navigator.flight().map_or(0.0, |f| f.path.length());
+        let t0 = r.clock();
+        // The flight runs inside the refreshes; the session ends once it landed and settled.
+        let sim = r
+            .simulate(
+                width,
+                height,
+                ppp,
+                120.0,
+                1,
+                30.0 + 20.0 * length / speed,
+                &mut |_, _, _| {},
+            )
+            .map_err(|_| crate::options::CommandError("flight did not land and settle".into()))?;
+        let landed = sim.viewport == end;
+        println!(
+            "flyto: path {:.1} units ({:.0} e-folds at the ends), {:.1} s from {} to {} ({}), landed exactly: {}, references computed {}",
+            length,
+            length * almondbread_core::flyto::RHO,
+            r.clock() - t0,
+            almondbread_render::host::zoom_text(from.zoom_log10()),
+            almondbread_render::host::zoom_text(end.zoom_log10()),
+            end.scale.to_text(3),
+            if landed { "yes" } else { "NO" },
+            r.reference_log.len()
+        );
+        if !landed {
+            eprintln!("almondbread: history flyto FAILED: did not land on the target");
+            return Ok(1);
+        }
+        return verify_session(
+            backend,
+            o,
+            &mode,
+            &r,
+            vec![sim],
+            pointer,
+            max_mismatch,
+            max_false_interior,
+            max_unresolved,
+        );
+    }
     let jump = mode == "jump";
     // Settle on the start view first (the session begins from a refined frame).
     if !jump {
@@ -373,6 +443,32 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             .map_err(|_| crate::options::CommandError("second session did not finish".into()))?;
         sessions.push(second);
     }
+    verify_session(
+        backend,
+        o,
+        &mode,
+        &r,
+        sessions,
+        pointer,
+        max_mismatch,
+        max_false_interior,
+        max_unresolved,
+    )
+}
+
+/// Checks the final frames of `history` sessions against the CPU oracle and a fresh render.
+#[allow(clippy::too_many_arguments)]
+fn verify_session<B: GpuBackend + Clone>(
+    backend: &B,
+    o: &Options,
+    mode: &str,
+    r: &Renderer<B>,
+    sessions: Vec<SimulationResult>,
+    _pointer: (f64, f64),
+    max_mismatch: f64,
+    max_false_interior: f64,
+    max_unresolved: Option<f64>,
+) -> Result<i32> {
     let mut failed: Vec<String> = Vec::new();
     let n = sessions.len();
     for (i, sim) in sessions.iter().enumerate() {
@@ -439,7 +535,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             } else {
                 path.to_string()
             };
-            write_png_bgra(&base, &sim.pixels, width, height)?;
+            write_png_bgra(&base, &sim.pixels, sim.width, sim.height)?;
         }
         if let Some(path) = o.get("dump") {
             let base = if n > 1 {
@@ -464,6 +560,15 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             && unresolved_pct > m
         {
             failed.push(format!("{tag}{unresolved_pct:.3}% unresolved (> {m:.3}%)"));
+        }
+        // A flight lands on a view a fresh render reproduces escape for escape (same reference
+        // choice as a jump); a different reference showed as wrong smooth fans at sea-8007 while
+        // the class check passed (35.8 % escape-n differs, 2026-10-15).
+        if mode == "flyto" && vs_fresh.escape_differs_pct() > o.f64("max-escape-diff").unwrap_or(1.0) {
+            failed.push(format!(
+                "{tag}{:.3}% escape counts differ from a fresh render",
+                vs_fresh.escape_differs_pct()
+            ));
         }
         if vs_fresh.mismatch_pct() > max_mismatch {
             failed.push(format!(
@@ -782,6 +887,36 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "2",
         "--pointer",
         "40,20",
+    ],
+    // Fly to coordinates (kb: decisions/controls, fly to): home to the period-8007 minibrot
+    // at ~1e-34 and to c = i at 1e-300, through the navigator's path; lands exactly.
+    &[
+        "--history",
+        "flyto",
+        "--center",
+        "-0.74364388703715870475219150611477977822,0.13182590420531197049313205638514067897",
+        "--scale",
+        "5e-34",
+        "--ppp",
+        "1",
+        "--size",
+        "640x410",
+        "--speed",
+        "4",
+    ],
+    &[
+        "--history",
+        "flyto",
+        "--center",
+        "0,1",
+        "--scale",
+        "1e-300",
+        "--ppp",
+        "1",
+        "--size",
+        "640x410",
+        "--speed",
+        "16",
     ],
 ];
 

@@ -33,8 +33,9 @@ use bytemuck::bytes_of;
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
-    PixelStateIC,
+    PixelStateIC, SurveyParams,
 };
+use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
 /// Dense-region colours cached per palette: (palette key, deep, filament).
 type DenseColors = (String, [f32; 3], [f32; 3]);
@@ -42,6 +43,10 @@ type DenseColors = (String, [f32; 3], [f32; 3]);
 /// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
 pub const BAILOUT: f64 = 65536.0;
 const STAT_SLOTS: usize = 64;
+/// Autopilot survey grid and how often a finished level is surveyed (s).
+const SURVEY_COLS: usize = 16;
+const SURVEY_ROWS: usize = 10;
+const SURVEY_INTERVAL: f64 = 0.1;
 const PALETTE_SIZE: usize = 1024;
 /// Derivative test threshold on |w| n² (kb: techniques/interior-detection, Pitfalls).
 const INTERIOR_EPS: f32 = 1e-3;
@@ -690,6 +695,12 @@ pub struct Renderer<B: GpuBackend> {
     pub overlay_font: Option<B::Buffer>,
     overlay_pipeline: Option<B::Pipeline>,
     overlay_shown: Option<u64>,
+    /// Autopilot: the survey kernel, its result buffer, the survey in flight (its view
+    /// geometry filled in) and when the last one was encoded.
+    survey_pipeline: B::Pipeline,
+    survey_buffer: B::Buffer,
+    pending_survey: Option<(B::Submission, Survey)>,
+    last_survey: f64,
     /// The adaptive AA list (texel indices) and its capacity.
     aa_list_buffer: Option<(B::Buffer, usize)>,
     /// Ping-pong history images (linear colour + confidence) at the output size (FL).
@@ -793,6 +804,8 @@ impl<B: GpuBackend> Renderer<B> {
         let colorize_pipeline = backend.pipeline("colorize", &[])?;
         let compose_pipeline = backend.pipeline("compose", &[])?;
         let aa_list_pipeline = backend.pipeline("aaList", &[])?;
+        let survey_pipeline = backend.pipeline("survey", &[])?;
+        let survey_buffer = backend.create_buffer(SURVEY_COLS * SURVEY_ROWS * 16, Storage::Shared)?;
         let dummy_buffer = backend.create_buffer(16, Storage::Private)?;
         let state_bytes = config.live_capacity * std::mem::size_of::<PixelState>();
         let state_buffers = [
@@ -824,6 +837,10 @@ impl<B: GpuBackend> Renderer<B> {
             overlay_font: None,
             overlay_pipeline: None,
             overlay_shown: None,
+            survey_pipeline,
+            survey_buffer,
+            pending_survey: None,
+            last_survey: f64::NEG_INFINITY,
             aa_list_buffer: None,
             history: None,
             history_ping: 0,
@@ -890,6 +907,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.job = None;
         self.in_flight.clear();
         self.frames_in_flight.clear();
+        self.pending_survey = None;
         self.failed_frames += 1;
     }
 
@@ -897,6 +915,11 @@ impl<B: GpuBackend> Renderer<B> {
     #[doc(hidden)]
     pub fn aa_chunks_in_flight(&self) -> bool {
         self.in_flight.iter().any(|r| r.aa_epoch.is_some())
+    }
+
+    /// The view waits for a deep reference (frames show the history only).
+    pub fn waiting_reference(&self) -> bool {
+        self.waiting_reference
     }
 
     pub fn backend(&self) -> &B {
@@ -977,6 +1000,23 @@ impl<B: GpuBackend> Renderer<B> {
         target_ready: bool,
         acquire: &mut dyn FnMut(bool) -> Option<FrameTarget<B>>,
     ) -> FrameOutcome {
+        if self.navigator.wants_feedback() {
+            // How the renderer keeps up, for the autopilot's and fly-to's speed (kb: decisions/controls,
+            // autopilot): the gesture-preview resolution the frame budget affords (unclamped),
+            // and whether the view waits for a deep reference.
+            let texels = (width * height) as f64;
+            let fit = if self.cost_per_texel > 0.0 && texels > 0.0 {
+                (self.gesture_budget() / (self.cost_per_texel * texels)).sqrt()
+            } else {
+                f64::NAN
+            };
+            let feedback = RenderFeedback {
+                fit,
+                waiting_reference: self.waiting_reference,
+                at_limit: self.viewport.at_precision_limit(),
+            };
+            self.navigator.autopilot_mut().set_feedback(feedback);
+        }
         let keep_going = self.navigator.advance(&mut self.viewport, now);
         let mut outcome = FrameOutcome {
             animating: keep_going,
@@ -1036,6 +1076,7 @@ impl<B: GpuBackend> Renderer<B> {
             return outcome;
         }
         self.harvest();
+        self.poll_survey(now);
         let key = self.make_key(width, height, points_per_pixel, false);
         if self.job.as_ref().is_some_and(|j| j.failed) {
             self.job = None;
@@ -2187,6 +2228,85 @@ impl<B: GpuBackend> Renderer<B> {
             level.use_interior,
             level.params.max_iter as usize,
         ));
+        self.survey_level(index);
+    }
+
+    /// Autopilot: surveys a just-completed level (at most every [`SURVEY_INTERVAL`]). The pass
+    /// is committed now, before anything else is encoded this refresh, so it reads the level
+    /// as finished (the preview allocation is reused by the next gesture job).
+    fn survey_level(&mut self, index: usize) {
+        if !self.navigator.autopilot().is_active()
+            || self.pending_survey.is_some()
+            || self.last_frame_time - self.last_survey < SURVEY_INTERVAL
+        {
+            return;
+        }
+        let Some(job) = &self.job else { return };
+        let level = &job.levels[index];
+        if level.aa.is_some() || level.is_extension() {
+            return;
+        }
+        let (w, h) = (level.set.width, level.set.height);
+        let iter = level.set.iter.clone();
+        let view = (
+            job.key.width as f64 * job.key.points_per_pixel,
+            job.key.height as f64 * job.key.points_per_pixel,
+        );
+        let Ok(mut enc) = self.backend.begin("autopilot survey") else {
+            return;
+        };
+        let p = SurveyParams {
+            width: w as u32,
+            height: h as u32,
+            cols: SURVEY_COLS as u32,
+            rows: SURVEY_ROWS as u32,
+        };
+        enc.set_pipeline(&self.survey_pipeline);
+        enc.set_texture(0, &iter);
+        enc.set_bytes(0, bytes_of(&p));
+        enc.set_buffer(1, &self.survey_buffer, 0);
+        enc.dispatch_threads([SURVEY_COLS, SURVEY_ROWS, 1], [SURVEY_COLS, SURVEY_ROWS, 1]);
+        let submission = enc.commit();
+        self.last_survey = self.last_frame_time;
+        let survey = Survey {
+            cols: SURVEY_COLS,
+            rows: SURVEY_ROWS,
+            cells: Vec::new(),
+            view,
+            texels_across: w as f64,
+            time: self.last_frame_time,
+        };
+        self.pending_survey = Some((submission, survey));
+    }
+
+    /// Hands a finished survey to the autopilot.
+    fn poll_survey(&mut self, now: f64) {
+        let Some((sub, _)) = &self.pending_survey else { return };
+        match sub.status() {
+            SubmissionStatus::Pending => {}
+            SubmissionStatus::Failed(_) => self.pending_survey = None,
+            SubmissionStatus::Completed => {
+                let (_, mut survey) = self.pending_survey.take().expect("survey");
+                let mut bytes = vec![0u8; SURVEY_COLS * SURVEY_ROWS * 16];
+                self.backend.read_buffer(&self.survey_buffer, 0, &mut bytes);
+                survey.cells = bytes
+                    .as_chunks::<16>()
+                    .0
+                    .iter()
+                    .map(|c| {
+                        let u = |k: usize| u32::from_le_bytes([c[4 * k], c[4 * k + 1], c[4 * k + 2], c[4 * k + 3]]);
+                        SurveyCell {
+                            samples: u(0),
+                            interior: u(1),
+                            pairs: u(2),
+                            edges: u(3),
+                        }
+                    })
+                    .collect();
+                survey.time = survey.time.min(now);
+                self.navigator.autopilot_mut().set_survey(survey);
+            }
+        }
     }
 
     fn finish_level(&mut self, index: usize) {
@@ -3084,6 +3204,23 @@ impl<B: GpuBackend> Renderer<B> {
             let req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
             let mut req = req;
             req.period_limit = max_iter;
+            // Flying to a deeper target inside this view: one reference at the target, with
+            // the precision the target needs, serves every view of the rest of the dive (kb:
+            // decisions/controls, fly to; techniques/rebasing).
+            if let Some(t) = self.navigator.fly_target()
+                && t.scale < viewport.scale
+                && viewport.center.distance_in(&t.center, texel) <= 0.5 * size as f64
+            {
+                let t_texel = t.scale * texel.ratio(viewport.scale);
+                // As a jump to the target would request it: the nucleus search around the target
+                // and the target's own scale (kernel). A plain centre reference at the target
+                // (nucleus search off, kernel picked at the current depth) left smooth wrong
+                // fans in the settled frame at sea-8007 (35.8 % of escape counts differed from a
+                // fresh render; `verify --history flyto` now gates on that).
+                let mut q = ReferenceRequest::for_view(t, t_texel, size, radius, max_iter * 2, BAILOUT);
+                q.period_limit = max_iter;
+                req = q;
+            }
             if self.config.trace {
                 println!(
                     "reference request: scale {} bits {} ({})",
@@ -3187,6 +3324,24 @@ impl<B: GpuBackend> Renderer<B> {
             set.width,
             set.height,
             TextureFormat::Rg32Float,
+            bytemuck::cast_slice_mut(&mut texels),
+        )?;
+        Ok(texels)
+    }
+
+    /// The last job's distance-estimate texels (half floats: DE in texels, normal angle) of
+    /// its full level, row-major (diagnostics and tests).
+    pub fn read_distance_estimates(&self) -> Result<Vec<[u16; 2]>, GpuError> {
+        let Some(level) = self.job.as_ref().and_then(|j| j.levels.last()) else {
+            return Err(GpuError("no job".into()));
+        };
+        let set = &level.set;
+        let mut texels = vec![[0u16; 2]; set.width * set.height];
+        self.backend.read_texture(
+            &set.de,
+            set.width,
+            set.height,
+            TextureFormat::Rg16Float,
             bytemuck::cast_slice_mut(&mut texels),
         )?;
         Ok(texels)

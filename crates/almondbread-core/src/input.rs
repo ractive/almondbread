@@ -24,6 +24,8 @@
 //! in keyboard mode the overlay crosshair, which glides to the view centre on a critically
 //! damped spring.
 
+use crate::autopilot::{self, Autopilot};
+use crate::flyto::{self, Flight, FlyPath};
 use crate::viewport::Viewport;
 
 /// Keys with a navigation meaning. The platform layer decodes its key events into these
@@ -46,6 +48,10 @@ pub enum NavKey {
     StepOut,
     /// R: back to the home view fitted to the window.
     Reset,
+    /// Z: autopilot on / off (kb: decisions/controls, autopilot).
+    Autopilot,
+    /// Esc: stops the autopilot (eased); not handled while it is off.
+    Stop,
 }
 
 impl NavKey {
@@ -105,6 +111,19 @@ pub enum InputEvent {
     Pan {
         dx: f64,
         dy: f64,
+    },
+    /// Trackpad two-finger scroll (`momentum`: the OS's momentum phase after the fingers
+    /// lifted): pans like `Pan`, but sets the speed while the autopilot is on.
+    Scroll {
+        dx: f64,
+        dy: f64,
+        momentum: bool,
+    },
+    /// A single click / tap on the canvas: pauses or resumes the autopilot (unused while it
+    /// is off).
+    Click {
+        x: f64,
+        y: f64,
     },
     /// A mouse wheel notch or precise zoom scroll: zoom by 1.15^delta at the zoom target
     /// ((x, y), the pointer, in pointer mode).
@@ -257,6 +276,15 @@ pub struct Navigator {
     step_left: f64,
     step_at: Option<(f64, f64)>,
     pad: GamepadState,
+    /// Continuous zoom steered by the pointer (kb: decisions/controls, autopilot).
+    autopilot: Autopilot,
+    /// When the pointer last moved over the canvas (an idle pointer stops steering).
+    pointer_moved: f64,
+    /// Fly to coordinates (kb: decisions/controls, fly to) and its speed (e-folds/s).
+    flight: Option<Flight>,
+    fly_speed: f64,
+    /// When the fly speed last changed (HUD highlight).
+    pub fly_speed_changed: f64,
 }
 
 /// A velocity following a target on a critically damped spring.
@@ -335,6 +363,11 @@ impl Default for Navigator {
             step_left: 0.0,
             step_at: None,
             pad: GamepadState::default(),
+            autopilot: Autopilot::default(),
+            pointer_moved: f64::NEG_INFINITY,
+            flight: None,
+            fly_speed: flyto::SPEED_DEFAULT,
+            fly_speed_changed: f64::NEG_INFINITY,
         }
     }
 }
@@ -364,6 +397,11 @@ impl Navigator {
         self.zoom_speed_changed = now;
     }
 
+    /// The view's size in points.
+    pub fn view_size(&self) -> (f64, f64) {
+        self.view_size
+    }
+
     pub fn mode(&self) -> InputMode {
         self.mode
     }
@@ -374,6 +412,113 @@ impl Navigator {
 
     pub fn set_edge_pan(&mut self, e: EdgePan) {
         self.edge_pan = e;
+    }
+
+    pub fn autopilot(&self) -> &Autopilot {
+        &self.autopilot
+    }
+
+    /// The renderer reports feedback and surveys here; settings (assist) too.
+    pub fn autopilot_mut(&mut self) -> &mut Autopilot {
+        &mut self.autopilot
+    }
+
+    /// The autopilot or a flight runs: the renderer reports how it keeps up.
+    pub fn wants_feedback(&self) -> bool {
+        self.autopilot.is_active() || self.flight.is_some()
+    }
+
+    /// Starts an animated flight from `viewport` to `target` (any depth); motion in progress
+    /// stops. Any navigation input cancels it, Esc eases it to a stop.
+    pub fn fly_to(&mut self, target: &Viewport, viewport: &Viewport, now: f64) {
+        let was = self.is_animating();
+        self.stop_motion();
+        self.flight = Some(Flight::new(FlyPath::new(viewport, target, self.view_size.0)));
+        self.note_interaction(now);
+        if !was {
+            self.last_tick = Some(now);
+        }
+    }
+
+    /// The view was set directly (go to coordinates, reset): a flight ends where it is.
+    pub fn cancel_flight(&mut self) {
+        self.flight = None;
+    }
+
+    pub fn flight(&self) -> Option<&Flight> {
+        self.flight.as_ref()
+    }
+
+    /// The flight's target, for an early reference.
+    pub fn fly_target(&self) -> Option<&Viewport> {
+        self.flight.as_ref().map(|f| f.path.target())
+    }
+
+    pub fn fly_speed(&self) -> f64 {
+        self.fly_speed
+    }
+
+    pub fn set_fly_speed(&mut self, v: f64, now: f64) {
+        if v.is_finite() {
+            self.fly_speed = v.clamp(flyto::SPEED_RANGE.0, flyto::SPEED_RANGE.1);
+            self.fly_speed_changed = now;
+        }
+    }
+
+    /// Esc during a flight: slow to a stop on the path. Returns whether one was flying.
+    fn stop_flight(&mut self) -> bool {
+        match &mut self.flight {
+            Some(f) => {
+                f.stopping = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Manual input takes over: the flight ends and its velocity carries on in the pan and
+    /// zoom springs, which glide out (no jolt).
+    fn hand_over_flight(&mut self) {
+        let Some(f) = self.flight.take() else { return };
+        let h = 1e-3;
+        let a = f.path.viewport_at(f.s);
+        let b = f.path.viewport_at(f.s + f.speed.v * h);
+        let (dx, dy) = b.center.delta_in(&a.center, a.scale);
+        self.pan = [Spring { v: -dx / h, a: 0.0 }, Spring { v: -dy / h, a: 0.0 }];
+        self.zoom_rate = Spring {
+            v: (a.scale.ln() - b.scale.ln()) / h,
+            a: 0.0,
+        };
+    }
+
+    /// Input that takes over from a flight.
+    fn cancels_flight(event: &InputEvent) -> bool {
+        match *event {
+            InputEvent::KeyDown(k) => matches!(
+                k,
+                NavKey::Up
+                    | NavKey::Down
+                    | NavKey::Left
+                    | NavKey::Right
+                    | NavKey::Zoom
+                    | NavKey::StepIn
+                    | NavKey::StepOut
+                    | NavKey::Autopilot
+            ),
+            InputEvent::Pan { .. }
+            | InputEvent::WheelZoom { .. }
+            | InputEvent::Magnify { .. }
+            | InputEvent::Pinch { .. }
+            | InputEvent::DoubleTap { .. }
+            | InputEvent::ZoomBy { .. } => true,
+            InputEvent::Gamepad { lx, ly, ry, lt, rt, .. } => {
+                lx.hypot(ly) > STICK_DEAD_ZONE
+                    || ry.abs() > STICK_DEAD_ZONE
+                    || lt > TRIGGER_DEAD_ZONE
+                    || rt > TRIGGER_DEAD_ZONE
+            }
+            _ => false,
+        }
     }
 
     /// The overlay crosshair (keyboard mode only), view points from the centre, y up.
@@ -405,6 +550,8 @@ impl Navigator {
             || self.fling != (0.0, 0.0)
             || self.zoom_fling != 0.0
             || self.step_left != 0.0
+            || self.autopilot.is_moving()
+            || self.flight.is_some()
     }
 
     /// Current pan velocity (points/s) and zoom rate (e-folds/s), springs plus flings.
@@ -449,8 +596,10 @@ impl Navigator {
         self.pad = GamepadState::default();
     }
 
-    /// Stops all motion at once (Reset; a new drag or pinch grabbing the view).
+    /// Stops all motion at once (Reset, a new flight).
     fn stop_motion(&mut self) {
+        self.autopilot.halt();
+        self.flight = None;
         self.pan = [Spring::default(); 2];
         self.zoom_rate = Spring::default();
         self.stop_flings();
@@ -550,6 +699,9 @@ impl Navigator {
     }
 
     fn apply(&mut self, event: InputEvent, viewport: &mut Viewport, now: f64) -> bool {
+        if self.flight.is_some() && Self::cancels_flight(&event) {
+            self.hand_over_flight();
+        }
         match event {
             InputEvent::KeyDown(k) => self.key(k, true, viewport, now),
             InputEvent::KeyUp(k) => self.key(k, false, viewport, now),
@@ -563,6 +715,14 @@ impl Navigator {
             }
             InputEvent::Resize { width, height } => {
                 self.view_size = (width, height);
+                // A flight continues from where it is, planned for the new width.
+                if let Some(f) = self.flight.take() {
+                    let target = f.path.target().clone();
+                    let mut next = Flight::new(FlyPath::new(viewport, &target, width));
+                    next.speed = f.speed;
+                    next.stopping = f.stopping;
+                    self.flight = Some(next);
+                }
                 true
             }
             InputEvent::Insets {
@@ -576,9 +736,27 @@ impl Navigator {
                 true
             }
             InputEvent::Pointer(p) => {
-                self.pointer(p);
+                self.pointer(p, now);
                 true
             }
+            InputEvent::Scroll { dx, dy, momentum } => {
+                if self.flight.is_some() {
+                    if !momentum {
+                        self.set_fly_speed(self.fly_speed * (dy * autopilot::SCROLL_PER_POINT).exp(), now);
+                    }
+                    true
+                } else if self.autopilot.is_active() {
+                    // Scrolling sets the speed; the OS's momentum after the fingers lift does not.
+                    if !momentum {
+                        self.autopilot
+                            .scale_speed((dy * autopilot::SCROLL_PER_POINT).exp(), now);
+                    }
+                    true
+                } else {
+                    self.apply(InputEvent::Pan { dx, dy }, viewport, now)
+                }
+            }
+            InputEvent::Click { .. } => self.autopilot.click(now),
             InputEvent::Pan { dx, dy } => {
                 // The hand has the view: flings stop; motion is 1:1.
                 self.stop_flings();
@@ -590,6 +768,14 @@ impl Navigator {
             InputEvent::WheelZoom { delta, x, y } => {
                 let (tx, ty) = self.gesture_target(x, y);
                 self.zoom_at(viewport, 1.15f64.powf(delta), tx, ty, now);
+                true
+            }
+            InputEvent::WheelNotch { delta, .. } if self.flight.is_some() => {
+                self.set_fly_speed(self.fly_speed * autopilot::NOTCH_FACTOR.powf(delta), now);
+                true
+            }
+            InputEvent::WheelNotch { delta, .. } if self.autopilot.is_active() => {
+                self.autopilot.scale_speed(autopilot::NOTCH_FACTOR.powf(delta), now);
                 true
             }
             InputEvent::WheelNotch { delta, x, y } => {
@@ -619,6 +805,8 @@ impl Navigator {
                 true
             }
             InputEvent::DoubleTap { x, y, out } => {
+                // Its first click toggled the autopilot's pause: undone.
+                self.autopilot.double_click(now);
                 self.enter_pointer_mode();
                 self.step_zoom(if out { 0.5 } else { 2.0 }, x, y, now);
                 true
@@ -669,7 +857,10 @@ impl Navigator {
         self.pad = next;
     }
 
-    fn pointer(&mut self, p: Option<(f64, f64)>) {
+    fn pointer(&mut self, p: Option<(f64, f64)>, now: f64) {
+        if p.is_some() && p != self.pointer {
+            self.pointer_moved = now;
+        }
         match p {
             Some(pos) if self.mode == InputMode::Keyboard => match self.anchor {
                 Some(a) if ((pos.0 - a.0).powi(2) + (pos.1 - a.1).powi(2)).sqrt() > POINTER_MODE_THRESHOLD => {
@@ -711,8 +902,31 @@ impl Navigator {
             NavKey::Left => self.left = down,
             NavKey::Right => self.right = down,
             NavKey::Zoom => self.zoom = down,
+            // While flying or the autopilot is on, Q / E set that speed.
+            NavKey::SlowerZoom if down && self.flight.is_some() => {
+                self.set_fly_speed(self.fly_speed / autopilot::SPEED_STEP, now);
+            }
+            NavKey::FasterZoom if down && self.flight.is_some() => {
+                self.set_fly_speed(self.fly_speed * autopilot::SPEED_STEP, now);
+            }
+            NavKey::SlowerZoom if down && self.autopilot.is_active() => {
+                self.autopilot.scale_speed(1.0 / autopilot::SPEED_STEP, now);
+            }
+            NavKey::FasterZoom if down && self.autopilot.is_active() => {
+                self.autopilot.scale_speed(autopilot::SPEED_STEP, now);
+            }
             NavKey::SlowerZoom if down => self.set_zoom_speed(self.zoom_speed * 0.8, now),
             NavKey::FasterZoom if down => self.set_zoom_speed(self.zoom_speed * 1.25, now),
+            NavKey::Autopilot if down => self.autopilot.toggle(),
+            NavKey::Stop => {
+                return if down {
+                    let a = self.autopilot.stop();
+                    let f = self.stop_flight();
+                    a || f
+                } else {
+                    false
+                };
+            }
             NavKey::StepIn | NavKey::StepOut if down => {
                 let (tx, ty) = self.zoom_target();
                 let f = if k == NavKey::StepIn { 1.5 } else { 1.0 / 1.5 };
@@ -745,7 +959,8 @@ impl Navigator {
             EdgePan::WhileZooming => self.zoom,
             EdgePan::Always => true,
         };
-        if !active || self.mode != InputMode::Pointer {
+        // The autopilot steers with the pointer instead.
+        if !active || self.mode != InputMode::Pointer || self.autopilot.is_active() {
             return (0.0, 0.0);
         }
         let Some((x, y)) = self.pointer_on_canvas() else {
@@ -851,6 +1066,17 @@ impl Navigator {
         let gliding = self.is_gliding();
         // The zoom follows the crosshair while it glides: the target is where it is drawn.
         self.glide(dt);
+        // A flight sets the view from its path parameter (exact, nothing integrates).
+        if let Some(f) = &mut self.flight {
+            self.last_interaction = now;
+            self.autopilot.update_throttle(dt);
+            let done = f.step(dt, self.fly_speed, self.autopilot.throttle());
+            *viewport = f.path.viewport_at(f.s);
+            if done {
+                self.flight = None;
+            }
+            return true;
+        }
         if !self.is_moving() {
             return gliding;
         }
@@ -867,6 +1093,15 @@ impl Navigator {
             ZOOM_OMEGA.1
         };
         let mut ln_zoom = self.zoom_rate.follow(tz, zomega, dt);
+        // Autopilot: steered by the pointer while it is on the canvas, moving, in pointer mode.
+        let steer_pointer = match self.mode {
+            InputMode::Pointer if now - self.pointer_moved < autopilot::STEER_IDLE => self.pointer_on_canvas(),
+            _ => None,
+        };
+        let (x0, x1, y0, y1) = self.canvas();
+        let radius = 0.5 * (x1 - x0).min(y1 - y0);
+        let target = self.autopilot.steer_target(steer_pointer, radius, now);
+        let ap = self.autopilot.step(dt, target, now);
         let v = &mut self.pan;
         if tx == 0.0 && ty == 0.0 && v[0].v.hypot(v[1].v) < PAN_REST && v[0].a.hypot(v[1].a) < PAN_REST * PAN_OMEGA.1 {
             *v = [Spring::default(); 2];
@@ -886,16 +1121,21 @@ impl Navigator {
                 self.fling = (0.0, 0.0);
             }
         }
+        dx += ap.pan.0;
+        dy += ap.pan.1;
         if dx != 0.0 || dy != 0.0 {
             // Pan and zoom run together: pan at the step's midpoint scale, so a frame's
             // order of operations does not show as a frame-rate dependence.
-            let mid = (-0.5 * ln_zoom).exp();
+            let mid = (-0.5 * (ln_zoom + ap.ln_zoom)).exp();
             viewport.pan_by_points(dx * mid, dy * mid);
         }
         if ln_zoom != 0.0 {
             let (x, y) = self.zoom_target();
             viewport.zoom_by(ln_zoom.exp(), x, y);
             ln_zoom = 0.0;
+        }
+        if ap.ln_zoom != 0.0 {
+            viewport.zoom_by(ap.ln_zoom.exp(), ap.at.0, ap.at.1);
         }
         if self.zoom_fling != 0.0 {
             let e = (-dt / ZOOM_FLING_TAU).exp();
@@ -1503,5 +1743,268 @@ mod tests {
             assert!(n.advance(&mut v, t));
         }
         assert!(v.center.re() < re0, "pans towards the left edge");
+    }
+
+    // Autopilot (kb: decisions/controls, autopilot). The setup's canvas is 1000 x 600 points:
+    // steering radius 300, dead zone 30.
+
+    /// Screen offset (points) of the complex point `c` in the view.
+    fn screen_of(v: &Viewport, c: &crate::viewport::Center) -> (f64, f64) {
+        c.delta_in(&v.center, v.scale)
+    }
+
+    #[test]
+    fn autopilot_eases_in_cruises_and_glides_to_a_stop() {
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+        n.handle(InputEvent::KeyUp(NavKey::Autopilot), &mut v, 0.0);
+        assert!(n.autopilot().is_active() && n.is_moving());
+        let speed = autopilot::SPEED_DEFAULT;
+        // Eased start: far from the set speed after 0.3 s.
+        let t = run(&mut n, &mut v, 0.0, 0.3, 60.0);
+        let r = n.autopilot().rate();
+        assert!(r > 0.1 * speed && r < 0.6 * speed, "{r}");
+        let t = run(&mut n, &mut v, t, 4.0, 60.0);
+        assert!((n.autopilot().rate() - speed).abs() < 1e-3 * speed);
+        // Zoomed by the spring's exact integral (critically damped from rest: −2/ω of a second).
+        let expect = ease_in_distance(speed, autopilot::RATE_OMEGA.0, 4.0);
+        assert!(((1e-3 / v.scale.to_f64()).ln() - expect).abs() < 1e-9);
+        // Esc: an eased stop; Esc again is not ours (the platform keeps it).
+        assert!(n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t));
+        assert!(!n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t));
+        let ln0 = v.scale.ln();
+        let mut last = n.autopilot().rate();
+        let mut t = t;
+        let mut frames = 0;
+        while n.advance(&mut v, t + 1.0 / 60.0) {
+            t += 1.0 / 60.0;
+            frames += 1;
+            let r = n.autopilot().rate();
+            assert!(r <= last + 1e-12 && r >= 0.0, "not a monotonic glide: {r} after {last}");
+            last = r;
+            assert!(frames < 600, "never stopped");
+        }
+        // It glides on 2/ω seconds' worth of the rate, and is at rest within ~2 s.
+        let glide = ln0 - v.scale.ln();
+        let expect = 2.0 / autopilot::RATE_OMEGA.1 * speed;
+        assert!((glide - expect).abs() < 0.01 * expect, "glide {glide} vs {expect}");
+        assert!((frames as f64) / 60.0 < 2.5, "{frames} frames");
+        assert_eq!(n.autopilot().rate(), 0.0);
+    }
+
+    #[test]
+    fn autopilot_dead_zone_and_no_pointer_fly_straight() {
+        for pointer in [Some((20.0, -15.0)), None] {
+            let (mut n, mut v) = setup();
+            n.handle(InputEvent::Pointer(pointer), &mut v, 0.0);
+            let c0 = v.center.clone();
+            n.advance(&mut v, 0.0);
+            n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+            run(&mut n, &mut v, 0.0, 2.0, 60.0);
+            assert!(v.scale.to_f64() < 0.3e-3, "zoomed in");
+            // Zooming about the centre: the centre's coordinate is exact.
+            assert_eq!(v.center.delta_from(&c0), (0.0, 0.0), "{pointer:?}");
+            assert_eq!(n.autopilot().heading(), (0.0, 0.0));
+        }
+        // Keyboard mode: straight too (W A S D pan as usual).
+        let (mut n, mut v) = setup();
+        n.handle(InputEvent::Pointer(Some((250.0, 0.0))), &mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Up), &mut v, 0.0);
+        n.handle(InputEvent::KeyUp(NavKey::Up), &mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+        run(&mut n, &mut v, 0.0, 1.0, 60.0);
+        assert_eq!(n.autopilot().heading_target(), (0.0, 0.0));
+    }
+
+    #[test]
+    fn autopilot_steers_the_pointed_content_to_the_centre() {
+        let (mut n, mut v) = setup();
+        n.handle(InputEvent::Pointer(Some((200.0, 0.0))), &mut v, 0.0);
+        let c = v.point_at_offset(200.0, 0.0);
+        let ahead = v.point_at_offset(0.0, 0.0);
+        n.advance(&mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+        let mut last = 200.0;
+        let mut t = 0.0;
+        for _ in 0..5 {
+            t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+            let (x, y) = screen_of(&v, &c);
+            assert!(x < last && y.abs() < 1e-6, "{x} {y} at {t}");
+            last = x;
+        }
+        assert!(last < 120.0, "{last}");
+        // ... while what was straight ahead slides away from the pointer: the view turns.
+        assert!(screen_of(&v, &ahead).0 < -10.0);
+        // An idle pointer stops steering after STEER_IDLE seconds.
+        run(&mut n, &mut v, t, autopilot::STEER_IDLE + 0.1, 60.0);
+        assert_eq!(n.autopilot().heading_target(), (0.0, 0.0));
+        // Moving it again steers again.
+        n.handle(InputEvent::Pointer(Some((-200.0, 100.0))), &mut v, 3.2);
+        run(&mut n, &mut v, 3.2, 3.3, 60.0);
+        let (hx, hy) = n.autopilot().heading_target();
+        assert!(hx < 0.0 && hy > 0.0);
+    }
+
+    #[test]
+    fn autopilot_is_frame_rate_independent() {
+        let path = |hz: f64| {
+            let (mut n, mut v) = setup();
+            let c0 = v.center.clone();
+            let s0 = v.scale;
+            n.handle(InputEvent::Pointer(Some((220.0, 90.0))), &mut v, 0.0);
+            n.advance(&mut v, 0.0);
+            n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+            let mut out = Vec::new();
+            let mut t = 0.0;
+            for k in 1..=12 {
+                match k {
+                    4 => {
+                        n.handle(InputEvent::Pointer(Some((-150.0, -60.0))), &mut v, t);
+                    }
+                    8 => {
+                        n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t);
+                    }
+                    _ => {}
+                }
+                t = run(&mut n, &mut v, t, k as f64 * 0.2, hz);
+                let (x, y) = v.center.delta_in(&c0, s0);
+                out.push((x, y, v.scale.ln()));
+            }
+            out
+        };
+        let (a, b, c) = (path(30.0), path(60.0), path(120.0));
+        for i in 0..a.len() {
+            for o in [b[i], c[i]] {
+                // Zoom alone is exact; steering pan coupled with the zoom is second order.
+                assert!((a[i].2 - o.2).abs() < 1e-9, "zoom {i}: {} vs {}", a[i].2, o.2);
+                let d = (a[i].0 - o.0).hypot(a[i].1 - o.1);
+                assert!(
+                    d < 1e-3 * a[i].0.hypot(a[i].1).max(1.0),
+                    "pan {i}: {:?} vs {:?}",
+                    a[i],
+                    o
+                );
+            }
+        }
+        assert!(a[11].0.hypot(a[11].1) > 50.0, "it steered: {:?}", a[11]);
+    }
+
+    #[test]
+    fn autopilot_speed_keys_scroll_and_click() {
+        let (mut n, mut v) = setup();
+        // Off: Q / E set the Space speed, a scroll pans, a click is not ours.
+        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.0);
+        assert!((n.zoom_speed() - 2.0).abs() < 1e-12);
+        let c0 = v.center.clone();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 10.0,
+                dy: 0.0,
+                momentum: false,
+            },
+            &mut v,
+            0.0,
+        );
+        assert_ne!(v.center, c0);
+        assert!(!n.handle(InputEvent::Click { x: 0.0, y: 0.0 }, &mut v, 0.0));
+        // On: they set the autopilot's speed instead; scrolling does not pan.
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.1);
+        let s0 = n.autopilot().speed();
+        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.1);
+        assert!((n.autopilot().speed() - s0 * autopilot::SPEED_STEP).abs() < 1e-12);
+        assert!((n.zoom_speed() - 2.0).abs() < 1e-12);
+        n.handle(InputEvent::KeyDown(NavKey::SlowerZoom), &mut v, 0.1);
+        assert!((n.autopilot().speed() - s0).abs() < 1e-12);
+        let c1 = v.center.clone();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 0.0,
+                dy: 100.0,
+                momentum: false,
+            },
+            &mut v,
+            0.2,
+        );
+        assert_eq!(v.center, c1);
+        assert!((n.autopilot().speed() - s0 * (100.0 * autopilot::SCROLL_PER_POINT).exp()).abs() < 1e-12);
+        let s1 = n.autopilot().speed();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 0.0,
+                dy: 100.0,
+                momentum: true,
+            },
+            &mut v,
+            0.2,
+        );
+        assert_eq!(n.autopilot().speed(), s1, "momentum scrolls are ignored");
+        n.handle(
+            InputEvent::WheelNotch {
+                delta: -2.0,
+                x: 0.0,
+                y: 0.0,
+            },
+            &mut v,
+            0.3,
+        );
+        assert!((n.autopilot().speed() - s1 / autopilot::NOTCH_FACTOR.powi(2)).abs() < 1e-12);
+        // A click pauses (eased to rest: the display link may stop), another resumes.
+        n.advance(&mut v, 0.3);
+        run(&mut n, &mut v, 0.3, 2.0, 60.0);
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 2.0));
+        assert!(n.autopilot().is_paused());
+        let t = run(&mut n, &mut v, 2.0, 5.0, 60.0);
+        assert!(!n.is_moving() && !n.advance(&mut v, t + 0.01));
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, t));
+        assert!(n.is_moving());
+        // Reset stops it dead.
+        n.handle(InputEvent::KeyDown(NavKey::Reset), &mut v, t);
+        assert!(!n.autopilot().is_active() && !n.is_moving());
+    }
+
+    #[test]
+    fn fly_to_lands_exactly_speed_keys_and_cancel() {
+        let target = crate::flyto::view_from_text("-0.743643887037151", "0.13182590420533", "1e-20").unwrap();
+        // Lands exactly, Q / E change the flight's speed (not Space's).
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        n.fly_to(&target, &v.clone(), 0.0);
+        assert!(n.is_moving() && n.fly_target().is_some());
+        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.0);
+        assert!((n.fly_speed() - crate::flyto::SPEED_DEFAULT * autopilot::SPEED_STEP).abs() < 1e-12);
+        assert!((n.zoom_speed() - 1.6).abs() < 1e-12);
+        let mut t = 0.0;
+        while n.advance(&mut v, t + 1.0 / 60.0) {
+            t += 1.0 / 60.0;
+            assert!(t < 60.0, "never landed");
+        }
+        assert!(n.flight().is_none());
+        assert_eq!(v, target);
+        // Esc: eased stop on the path, then idle.
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        n.fly_to(&target, &v.clone(), 0.0);
+        let t = run(&mut n, &mut v, 0.0, 2.0, 60.0);
+        assert!(n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t));
+        let s0 = v.scale.ln();
+        let t = run(&mut n, &mut v, t, t + 3.5, 60.0);
+        assert!(n.flight().is_none() && !n.advance(&mut v, t + 0.01));
+        assert!(v.scale.ln() < s0 && v.scale.to_f64() > 1e-19, "glided, stopped short");
+        // A pan takes over: the flight's motion glides out in the springs, no jump.
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        n.fly_to(&target, &v.clone(), 0.0);
+        let t = run(&mut n, &mut v, 0.0, 3.0, 60.0);
+        let rate = n.velocity().2;
+        let before = v.clone();
+        n.handle(InputEvent::Pan { dx: 1.0, dy: 0.0 }, &mut v, t);
+        assert!(n.flight().is_none());
+        assert!((n.velocity().2 - rate).abs() < 1e-12 || rate == 0.0);
+        n.advance(&mut v, t + 1.0 / 60.0);
+        let step = before.scale.ln() - v.scale.ln();
+        assert!(step > 0.0 && step < 0.1, "continues smoothly: {step}");
+        run(&mut n, &mut v, t + 1.0 / 60.0, t + 2.0, 60.0);
+        assert!(!n.is_moving());
     }
 }

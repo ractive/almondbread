@@ -12,8 +12,10 @@
 pub use almondbread_math as math;
 
 pub mod autoiter;
+pub mod autopilot;
 pub mod bla;
 pub mod cfmt;
+pub mod flyto;
 pub mod image;
 pub mod input;
 pub mod locations;

@@ -7,6 +7,7 @@ import SwiftUI
 struct ControlCenterView: View {
     @Bindable var model: ExplorerModel
     @State private var search = ""
+    @State private var showFlyTo = false
     @AppStorage("controlCenter.collapsed") private var collapsedStorage = ""
 
     var body: some View {
@@ -30,6 +31,7 @@ struct ControlCenterView: View {
         }
         .formStyle(.grouped)
         .controlSize(.small)
+        .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
         .safeAreaInset(edge: .top, spacing: 0) {
             searchField
         }
@@ -155,6 +157,40 @@ struct ControlCenterView: View {
         Picker("Edge panning", selection: $model.edgePanning) {
             ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
         }
+        // Autopilot and fly-to (kb: decisions/controls, autopilot).
+        let s = model.stats
+        HStack {
+            Button {
+                model.toggleAutopilot()
+            } label: {
+                Label(s?.autopilot.active == true ? "Stop autopilot" : "Autopilot",
+                      systemImage: s?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
+            }
+            .help("Zoom on continuously, steer with the pointer; click pauses, Esc stops (Z)")
+            Button {
+                showFlyTo = true
+            } label: {
+                Label("Fly to…", systemImage: "location.north.line")
+            }
+            .help("Fly to coordinates (⌘G)")
+            Button {
+                model.flyToCopiedCoordinates()
+            } label: {
+                Label("Fly to copied", systemImage: "doc.on.clipboard")
+            }
+            .help("Fly to coordinates on the clipboard (⇧⌘G)")
+        }
+        #if os(iOS)
+        .buttonStyle(.borderless)
+        #endif
+        if let s, s.autopilot.active || s.flight.active {
+            Text(s.flight.active ? "fly speed \(Format.speed(exp(s.flight.speed)))"
+                 : "autopilot \(Format.speed(exp(s.autopilot.speed)))")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            Button("Stop (Esc)") { model.stopMotion() }
+        }
+        Toggle("Autopilot assist", isOn: $model.autopilotAssist)
+            .help("Leans the autopilot's heading towards nearby detail while the pointer rests near the centre; it never steers against the pointer")
     }
 
     private func coordinateRow(_ label: String, _ value: String) -> some View {
@@ -503,7 +539,10 @@ struct ControlsHelp: View {
         row("arrow.up.and.down.and.arrow.left.and.right", "Pointer at an edge", "Pan that way (while zooming)")
         row("gauge.with.dots.needle.33percent", "Q / E", "Zoom speed − / + (\(Format.speed(model.zoomFactorPerSecond)))")
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
-        row("map", "M · click a map", "Mini-map · jump there")
+        row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
+        row("airplane", "Z", "Autopilot: steer with the mouse, click pauses")
+        row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
+        row("escape", "Esc", "Stop the autopilot or a flight")
         row("arrow.counterclockwise", "R or ⌘0", "Reset view")
         row("sidebar.trailing", "⌘I", "Control center")
         row("gearshape", "⌘,", "Settings")
@@ -517,6 +556,7 @@ struct ControlsHelp: View {
         row("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
         row("space", "Keyboard: Space / ⇧Space, Q / E", "Zoom, zoom speed")
         row("map", "Keyboard: O / M", "Orbit overlay / mini-map")
+        row("airplane", "Autopilot button or Z", "Fly on; a finger steers, a tap pauses")
         #endif
     }
 

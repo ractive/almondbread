@@ -254,6 +254,16 @@ public final class ExplorerModel {
         }
     }
 
+    /// Autopilot assist: the heading leans towards nearby boundary detail while the pointer
+    /// rests (persisted; off by default; kb: decisions/controls, autopilot).
+    public var autopilotAssist: Bool = UserDefaults.standard.bool(forKey: ExplorerModel.assistKey) {
+        didSet {
+            UserDefaults.standard.set(autopilotAssist, forKey: Self.assistKey)
+            explorer?.setAutopilotAssist(on: autopilotAssist)
+        }
+    }
+    static let assistKey = "autopilotAssist"
+
     /// The HUD's frame in SwiftUI's global space (the canvas shows the arrow cursor there).
     @ObservationIgnored public var hudFrame: CGRect? {
         didSet { if hudFrame != oldValue { host?.hudFrameChanged() } }
@@ -286,6 +296,7 @@ public final class ExplorerModel {
         self.explorer = explorer
         self.host = host
         explorer.setEdgePan(mode: edgePanning.ffi)
+        explorer.setAutopilotAssist(on: autopilotAssist)
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
         pushOverlay()
@@ -516,6 +527,34 @@ public final class ExplorerModel {
     public func zoomIn() { send(.zoomBy(factor: 2)) }
     public func zoomOut() { send(.zoomBy(factor: 0.5)) }
 
+    /// Autopilot on / off (the Z key's action; menu and toolbar).
+    public func toggleAutopilot() {
+        send(.keyDown(key: .autopilot))
+        send(.keyUp(key: .autopilot))
+    }
+
+    /// Stops the autopilot or a flight (eased), like Esc.
+    public func stopMotion() {
+        send(.keyDown(key: .stop))
+        send(.keyUp(key: .stop))
+    }
+
+    /// Flies to a view (any depth); throws if the text is not a view.
+    public func flyTo(re: String, im: String, scale: String) throws {
+        guard let explorer else { return }
+        try explorer.flyTo(re: re, im: im, scale: scale)
+        host?.requestFrames()
+    }
+
+    /// Flies to coordinates on the clipboard (the text Copy Coordinates writes). Returns false
+    /// if the clipboard holds no view.
+    @discardableResult
+    public func flyToCopiedCoordinates() -> Bool {
+        guard let text = Clipboard.text(), let explorer, explorer.flyToCoordinates(text: text) else { return false }
+        host?.requestFrames()
+        return true
+    }
+
     public func reset() {
         explorer?.resetViewport()
         host?.requestFrames()
@@ -558,7 +597,10 @@ public final class ExplorerModel {
     func refreshStats() {
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         guard let new = explorer?.stats(), new != stats else { return }
-        if let old = stats, old.zoomSpeed != new.zoomSpeed { zoomSpeedChanged = Date() }
+        if let old = stats, old.zoomSpeed != new.zoomSpeed || old.autopilot.speed != new.autopilot.speed
+            || old.flight.speed != new.flight.speed {
+            zoomSpeedChanged = Date()
+        }
         stats = new
     }
 

@@ -51,6 +51,10 @@ pub enum NavKey {
     StepOut,
     /// R: home view fitted to the window.
     Reset,
+    /// Z: autopilot on / off.
+    Autopilot,
+    /// Esc: stops the autopilot (not handled while it is off: the platform keeps the key).
+    Stop,
 }
 
 impl From<NavKey> for CoreNavKey {
@@ -66,6 +70,8 @@ impl From<NavKey> for CoreNavKey {
             NavKey::StepIn => Self::StepIn,
             NavKey::StepOut => Self::StepOut,
             NavKey::Reset => Self::Reset,
+            NavKey::Autopilot => Self::Autopilot,
+            NavKey::Stop => Self::Stop,
         }
     }
 }
@@ -147,10 +153,22 @@ pub enum InputEvent {
     /// The pointer left the canvas (or is over the HUD): zooms go to the centre, edge
     /// panning stops.
     PointerExited,
-    /// Content follows a drag / trackpad scroll / one-finger pan.
+    /// Content follows a drag / one-finger pan.
     Pan {
         dx: f64,
         dy: f64,
+    },
+    /// Trackpad two-finger scroll (content follows; `momentum`: the OS's momentum phase). Pans
+    /// like `Pan`; while the autopilot is on it sets the autopilot's speed instead.
+    Scroll {
+        dx: f64,
+        dy: f64,
+        momentum: bool,
+    },
+    /// A single click / tap on the canvas: pauses or resumes the autopilot.
+    Click {
+        x: f64,
+        y: f64,
     },
     /// Mouse wheel notch or zoom scroll: zoom by 1.15^delta at the zoom target ((x, y) in
     /// pointer mode).
@@ -230,6 +248,8 @@ impl InputEvent {
             Self::Pointer { x, y } if ok(&[x, y]) => E::Pointer(Some((x, y))),
             Self::PointerExited => E::Pointer(None),
             Self::Pan { dx, dy } if ok(&[dx, dy]) => E::Pan { dx, dy },
+            Self::Scroll { dx, dy, momentum } if ok(&[dx, dy]) => E::Scroll { dx, dy, momentum },
+            Self::Click { x, y } if ok(&[x, y]) => E::Click { x, y },
             Self::WheelZoom { delta, x, y } if ok(&[delta, x, y]) => E::WheelZoom { delta, x, y },
             Self::Magnify { magnification, x, y } if ok(&[magnification, x, y]) && magnification > -1.0 => {
                 E::Magnify { magnification, x, y }
@@ -282,6 +302,70 @@ pub const FRAME_ANIMATING: u8 = 1;
 /// Keyboard mode: hide the cursor, draw the overlay crosshair at
 /// (`crosshair_x()`, `crosshair_y()`).
 pub const FRAME_KEYBOARD: u8 = 2;
+/// The autopilot is on (iOS: a finger steers instead of panning).
+pub const FRAME_AUTOPILOT: u8 = 4;
+
+/// Why the autopilot flies slower than its set speed (kb: decisions/controls, autopilot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum AutopilotHint {
+    None,
+    /// Previews cannot stay sharp at this speed.
+    Rendering,
+    /// Waiting for a deep reference.
+    Reference,
+    /// Heading into the interior.
+    Interior,
+    /// Heading into featureless exterior.
+    Featureless,
+    /// The depth limit.
+    Limit,
+}
+
+impl From<almondbread_core::autopilot::Hint> for AutopilotHint {
+    fn from(h: almondbread_core::autopilot::Hint) -> Self {
+        use almondbread_core::autopilot::Hint as H;
+        match h {
+            H::None => Self::None,
+            H::Rendering => Self::Rendering,
+            H::Reference => Self::Reference,
+            H::Interior => Self::Interior,
+            H::Featureless => Self::Featureless,
+            H::Limit => Self::Limit,
+        }
+    }
+}
+
+/// A flight to coordinates for the HUD (kb: decisions/controls, fly to).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FlightStatus {
+    pub active: bool,
+    /// 0...1 along the path.
+    pub progress: f64,
+    /// Set speed, e-folds per second at the zoom ends (Q / E, scroll).
+    pub speed: f64,
+    /// Renderer back-off 0...1 and why (rendering, reference).
+    pub throttle: f64,
+    pub hint: AutopilotHint,
+    /// Esc: slowing to a stop.
+    pub stopping: bool,
+    /// The target's zoom (log10, relative to home).
+    pub target_zoom_log10: f64,
+}
+
+/// The autopilot for the HUD.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct AutopilotStatus {
+    pub active: bool,
+    pub paused: bool,
+    /// Set speed and current (eased, throttled) zoom rate, e-folds per second.
+    pub speed: f64,
+    pub rate: f64,
+    /// 0...1: how the renderer keeps up, and how uniform the heading is.
+    pub throttle: f64,
+    pub safety: f64,
+    pub hint: AutopilotHint,
+    pub assist: bool,
+}
 
 /// Everything that affects the image except the viewport (the inspector's model).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -650,6 +734,8 @@ pub struct ExplorerStats {
     pub deep: bool,
     /// Continuous zoom speed, e-folds per second (Q / E change it).
     pub zoom_speed: f64,
+    pub autopilot: AutopilotStatus,
+    pub flight: FlightStatus,
     pub held_keys: u32,
     /// The current view's refined frame is presented and nothing is left to iterate.
     pub settled: bool,
@@ -880,7 +966,10 @@ impl Explorer {
             true
         });
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
-        (u8::from(animating) * FRAME_ANIMATING) | (u8::from(keyboard) * FRAME_KEYBOARD)
+        let autopilot = host.renderer.navigator.autopilot().is_active();
+        (u8::from(animating) * FRAME_ANIMATING)
+            | (u8::from(keyboard) * FRAME_KEYBOARD)
+            | (u8::from(autopilot) * FRAME_AUTOPILOT)
     }
 
     /// The keyboard crosshair's position as of the last `frame`, view points from the centre
@@ -900,6 +989,12 @@ impl Explorer {
 
     pub fn edge_pan(&self) -> EdgePan {
         self.lock().host.renderer.navigator.edge_pan().into()
+    }
+
+    /// Autopilot assist: lean the heading towards nearby boundary detail while the pointer
+    /// rests (off by default).
+    pub fn set_autopilot_assist(&self, on: bool) {
+        self.lock().host.renderer.navigator.autopilot_mut().set_assist(on);
     }
 
     /// Forwards a decoded event. `handled`: swallow it; `redraw`: resume the display link.
@@ -1046,6 +1141,41 @@ impl Explorer {
             reference_pending: s.reference_pending,
             deep: s.deep,
             zoom_speed: r.navigator.zoom_speed(),
+            flight: {
+                let n = &r.navigator;
+                let f = n.flight();
+                let throttle = n.autopilot().throttle();
+                FlightStatus {
+                    active: f.is_some(),
+                    progress: f.map_or(0.0, |f| f.progress()),
+                    speed: n.fly_speed(),
+                    throttle,
+                    hint: if f.is_some() && throttle < 0.85 {
+                        if s.reference_pending || r.waiting_reference() {
+                            AutopilotHint::Reference
+                        } else {
+                            AutopilotHint::Rendering
+                        }
+                    } else {
+                        AutopilotHint::None
+                    },
+                    stopping: f.is_some_and(|f| f.stopping),
+                    target_zoom_log10: f.map_or(0.0, |f| f.path.target().zoom_log10()),
+                }
+            },
+            autopilot: {
+                let a = r.navigator.autopilot();
+                AutopilotStatus {
+                    active: a.is_active(),
+                    paused: a.is_paused(),
+                    speed: a.speed(),
+                    rate: a.rate(),
+                    throttle: a.throttle(),
+                    safety: a.safety(),
+                    hint: a.hint().into(),
+                    assist: a.assist(),
+                }
+            },
             held_keys: r.navigator.held_count() as u32,
             settled: r.is_settled(),
             failed_frames: r.failed_frames as u64,
@@ -1080,7 +1210,9 @@ impl Explorer {
             .max(v.min_scale())
             .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
         v.ensure_precision();
-        self.lock().host.renderer.viewport = v;
+        let mut g = self.lock();
+        g.host.renderer.navigator.cancel_flight();
+        g.host.renderer.viewport = v;
         Ok(())
     }
 
@@ -1102,6 +1234,29 @@ impl Explorer {
         match (re, im, scale) {
             (Some(re), Some(im), Some(scale)) => self.set_viewport_text(re, im, scale).is_ok(),
             _ => false,
+        }
+    }
+
+    /// Flies to a view given as text (any depth): an animated zoom-out / pan / zoom-in path
+    /// that lands exactly on it. Navigation input cancels, Esc eases to a stop, Q / E set the
+    /// speed. Resume the display link after this.
+    pub fn fly_to(&self, re: String, im: String, scale: String) -> Result<(), CoreError> {
+        let target = almondbread_core::flyto::view_from_text(&re, &im, &scale).ok_or_else(|| CoreError::Malformed {
+            text: format!("{re}, {im}, {scale}"),
+        })?;
+        let mut g = self.lock();
+        let r = &mut g.host.renderer;
+        let start = r.viewport.clone();
+        r.navigator.fly_to(&target, &start, media_time());
+        Ok(())
+    }
+
+    /// Flies to coordinates as copied by `coordinates_text` (or "re im scale"). Returns false
+    /// if the text is not a view.
+    pub fn fly_to_coordinates(&self, text: String) -> bool {
+        match almondbread_core::flyto::parse_coordinates(&text) {
+            Some((re, im, scale)) => self.fly_to(re, im, scale).is_ok(),
+            None => false,
         }
     }
 
