@@ -393,3 +393,153 @@ alone. Both are undoable (Edit ▸ Undo, ⌘Z: the previous settings record and 
 window's undo manager). The Settings window's reset of app-wide preferences stays separate.
 Places, autopilot and fly-to are in the control center since the integration (Places: grid by
 category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, assist).
+
+## Journey (as built, 2026-10-15)
+
+Requested by the user: an endless, planned, random-but-seeded flight from landmark to
+landmark, with targets chosen from the maths rather than by taste. Core:
+`crates/almondbread-core/src/journey.rs` (planner and state machine, owned by the
+`Navigator`); legs are ordinary fly-to flights ([[sources/van-wijk-nuij-smooth-zooming]]).
+
+| Input | Action |
+| --- | --- |
+| J, menu "Journey On/Off", toolbar ✦, control center "Journey" (iOS: overlay button) | start with a random seed (1 … 999 999) / resume after manual input / stop |
+| control center seed field, "Daily" | start a given seed; the daily journey's seed is the date (yyyymmdd), the same for everyone |
+| Q / E, wheel notch, trackpad scroll | journey speed ×0.8 / ×1.25 (0.1–16 e-folds/s at the zoom ends, default 1.4) |
+| any navigation (keys, drag, pinch, wheel zoom, rotate, gamepad, Z) | takes over: the leg's motion glides out in the springs (as for fly-to); the HUD says "paused · J or click to resume" |
+| click / tap | pause (eased) and resume |
+| Esc, R | stop |
+
+**Legs.** Each leg flies the van Wijk–Nuij path to the target at the journey speed (with the
+renderer back-off of fly-to), then rests for `3 s · √(1.4 / speed)` (1–6 s) while the target
+refines and anti-aliases, then flies on. The next target is planned on a thread from the
+current target as soon as the leg starts (0.01–0.3 s per plan to 1e40, measured 2026-10-15,
+M1 Pro, release: `almondbread journey --seed 4711 --legs 18`), so it is ready at landing;
+during the rest the scheduler computes the next target's reference in the background
+(`Navigator::prefetch_target`; a reference that does not serve the current view is kept as
+the *spare* until a view needs it).
+
+**Targets from the maths** (per plan; all randomness from one SplitMix64 stream):
+
+1. A 40 × 40 CPU probe of the view's square (side = the view's shorter-side span), computed
+   with the oracle (f64, or perturbation at depth). Boundary texels (neighbours whose class or
+   integer escape count differ), weighted by how many texels around them escape well after the
+   fastest one, give 10 seeded sample points.
+2. At each point: ball period detection over a disc of 0.7–2.5 probe texels, Newton for the
+   nucleus at 128 bits beyond the view's precision (deep minibrots in view are 2^-40 … 2^-100 of
+   it; at the view's precision Newton failed for every period above ~1000), the complex size
+   estimate ([[techniques/reference-selection]]). Candidates: the **minibrot** framed at
+   6–18 σ; **embedded Julia stages** at t = 1/2, 3/4, 7/8 of the way from the view to σ in log
+   scale and at 2 σ^(3/4) (Heiland-Allen's size estimate,
+   [[sources/muency-newton-raphson-zooming]]; the stage order — Julia-like figure, nested
+   preimages, minibrot — after [[sources/kisaka-julia-sets-in-mandelbrot]]), aimed 3–18 % of
+   the view off the nucleus so the shapes around it double; an **approach** centred on a
+   minibrot too deep for one leg.
+3. **Misiurewicz points** (first four samples): the orbit of the sample shadows a repelling
+   cycle; the (k, p) with the smallest relative `|z_{k+p} − z_k|` over periods 1–12 and the
+   sample's atom period (and twice it: deep spirals live in embedded copies whose cycles have
+   that period) seeds `find_misiurewicz` at k − 1, k, k + 1 (k ≥ 2: a preperiod of 1 is a
+   nucleus). The cycle multiplier `Π 2 z_i` labels it a **spiral** (complex) or a **branch
+   point** (real, a dendrite).
+4. A **boundary detail** zoom (3–6 e-folds into the sample) as a fallback, and **resurfacing**
+   to a shallow catalogue place ([[synthesis/places]]) after 9 legs or below 1e40, so the
+   journey is endless without getting slow.
+
+**Scoring with survey-style statistics.** Each candidate's framing is probed (40 × 40) and
+measured like the GPU survey kernel measures a frame (interior share, whole and middle third;
+band crossings per width) plus two measures added while tuning: the *filament* share (exterior
+texels escaping at least 8 iterations after the fastest: how much of the view is near the set)
+and the *roughness* (median escape-count step between neighbours). Rejected: interior (> 60 %,
+or > 75 % in the middle), featureless (< 3 crossings per width, filament < 10 %, calm cells
+> 80 %), noise (roughness > 400: colours change several times per screen pixel). Score:
+structure (crossings; filament share rising from 0.15 to 0.45, falling above 0.75), a little
+interior for minibrots and stages, minus calm and roughness, plus variety: the same kind family
+as the last target −0.45 (twice in a row −0.95 more), a family absent from the last four +0.2,
+detail zooms −0.6, a gain away from the leg's seeded preferred gain (4–10 e-folds) −0.06 per
+e-fold, the same direction as the last leg −0.15, straight down onto the last centre −0.6, a
+place already visited −10, plus a seeded 0–0.25. Up to 14 candidates are probed per plan. The
+probes run on the CPU rather than reading the GPU survey of the shown frame: the survey depends
+on frame timing; the CPU probe makes a seed give the same journey on every machine.
+
+**Tuning on journey #4711** (looked at as thumbnails of every target and as review videos).
+The first scoring (crossings only) flew into dendrite country: thin filaments in wide smooth
+gradients at every leg, because integer escape counts change between neighbours even where the
+colouring looks smooth. Rewarding the filament share and rejecting "noise" by crossings
+(> 0.8 of the width) then rejected exactly the rich views (crossings near 40 of 40), so the
+journey only zoomed into boundary details; replacing the noise rule by roughness turned every
+view into a dense carpet without shapes. The filament band (0.35–0.75) gives decorated
+structures with smooth space around them. At depth, minibrot Newton failed until it ran at
+128 extra bits, and every minibrot in view was 25+ e-folds deeper than a leg; the approach and
+the 7/8 stage made minibrots and Julia stages appear at every depth ("towards a period-87
+minibrot" followed by "embedded Julia (period 87)"). From home, seeds 4711, 7 and 20261015
+plan spirals, minibrots, stages, branch points and approaches in alternation, with a
+resurfacing after 9 legs.
+
+**Determinism.** A plan depends only on the start view (centre, shorter-side span) and the
+chain (seed stream, history), and every leg plans from the previous target, so a journey is
+reproducible target for target from the same start; a view near the fitted home view plans
+from the canonical whole set (centre −0.75, span 3), so "journey #4711 from home" is the same
+in every window. Manual input breaks the chain: resuming plans from where the user left the
+view (the seed stream continues). Tests: `journeys_are_reproducible_by_seed`,
+`targets_are_on_the_boundary_and_not_interior` (minibrot nuclei are periodic to the view's
+precision; every target has boundary structure in its middle and < 60 % interior),
+`journey_state_machine_flies_dwells_and_flies_on`, `journey_flies_legs_and_manual_input_takes_over`.
+
+**HUD and tools.** "Journey #4711 · leg 5 · towards a period-208 minibrot · 1.0e20× ·
+flying|resting|planning" and "journey speed ×4.06/s". `almondbread journey --seed n
+[--legs k] [--thumbs dir]` prints a journey's plan (and renders each target); `fly` scripts
+take `{"journey": 4711}` (`scripts/flights/journey-4711*.json`).
+
+## View rotation (as built, 2026-10-15)
+
+`Viewport.angle` (radians, the camera's counter-clockwise turn: a view point (dx, dy) is
+`center + scale · e^(i·angle) · (dx + i·dy)`) is carried end to end:
+
+- **Kernel**: `IterateParams.rot = (cos, sin)` turns each texel's offset before the scale;
+  `(1, 0)` keeps the plain products bit for bit. The DE derivative stays `dz/dc · texel`, so
+  lighting is fixed to the fractal and turns with the image, as a rolled camera sees a lit
+  relief; this also keeps reprojected history pixels consistent with new samples.
+- **Reprojection**: `ComposeParams.hist_rot` maps output pixels into the history through
+  scale, rotation and translation (`Renderer::reproject`); tile priorities test a tile's four
+  corners against the turned history footprint.
+- **CPU oracle** (`cpu_render`, `cpu_render_deep_with` take the angle), `verify --angle deg`,
+  `verify --history rotate` (zoom while turning `--spin` radians per e-fold about the
+  pointer), the fresh renders of the shown-frame checks (`displayed_frame_mismatch`,
+  `verify_session`).
+- **Navigator**: pans, zooms and every motion are in screen axes (`Viewport::rotate` inside
+  `pan_by_points`, `zoom_by`, `point_at_offset`; `offset_of` for the inverse). Keys `,` / `.`
+  turn at 45°/s (eased, ω = 20 / 14 /s; 30, 60 and 120 Hz agree to 1e-6 rad), `/` turns
+  upright (τ = 0.12 s, exactly 0 at the end); trackpad rotation (macOS `rotate(with:)`) and the
+  iOS rotation recogniser turn 1:1 about the zoom target. A flight turns from its start angle
+  to the target's the short way round, in proportion to the path parameter, landing exactly.
+- **Overlays**: orbit points are turned into screen axes; the mini-maps stay north-up and mark
+  the view with a turned rectangle.
+- **Coordinates**: the copied text gains `angle <degrees>` for a rotated view; paste restores
+  it; fly-to keeps the current angle when the text has none.
+
+Regress (in `make regress`): `--history rotate` at the neck (0.35 rad per e-fold, then a
+step), a rotated (40°) zoom at 1e-305, and a flight from home to sea-8007 that turns to 60°;
+all match a fresh render with 0 % class mismatch and 0 % escape-count differences.
+
+## Cinematic effects (as built, 2026-10-15)
+
+`crates/almondbread-core/src/cinematic.rs`, part of the per-window render settings
+(persisted; reset by the ↺ of "Journey & cinematic effects"), off by default: one switch and
+four strengths in the control center, menu "Cinematic Effects".
+
+- **Spin**: automatic motion turns the view with the zoom, 4° per e-fold by default (±15 in the
+  control center): the autopilot about its dive point, flights and journey legs by
+  `spin · ρ · path length` spread over the path (the landing angle is where the spin ends, so a
+  flight still lands exactly). Manual zooming never spins. At the default journey speed that is
+  5.6°/s.
+- **Hue drift**: the palette turns in OKLab hue (lightness and chroma kept; Ottosson's
+  matrices, in the kernel's `paletteAt`; src: [[sources/ottosson-oklab]]) by 2.5° per e-fold
+  of depth.
+- **Phase drift**: the palette phase moves 0.01 cycles per e-fold of depth.
+- **Cycling in flight**: 0.02 palette cycles per second while the autopilot or a flight moves.
+
+Hue and phase are functions of the view's depth, not of time: a view always has the same
+colours, and at rest nothing changes. The history keeps its colours across a zoom (the hue,
+like the phase, is left out of the "same colours" test) and is replaced within a few frames.
+Tests: `flights_turn_and_land_exactly`, `autopilot_spins_with_the_zoom_only_when_enabled`, the
+`cinematic` unit test; `fly` scripts take `"cinematic": true` or the strengths.

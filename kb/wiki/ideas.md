@@ -47,6 +47,13 @@ view is turning while zooming in. Maybe the color palette could change etc."
   flight videos.
 - Planned after the autopilot and control center land (they touch the same
   Navigator and UI).
+- **Status 2026-10-15: built** (pilot track PJ): view rotation end to end, spin
+  tied to the zoom rate, OKLab hue and phase drift with depth, slow cycling while
+  flying, all off by default; together with the journey mode (planned flights
+  from landmark to landmark, seeded). As built: [[decisions/controls]] "Journey",
+  "View rotation", "Cinematic effects". Not built: vignette/glow at speed,
+  music-driven effects, cross-fading between two palettes (the hue drift gives
+  most of the look change for one palette lookup).
 
 ## Earlier ideas already filed elsewhere
 

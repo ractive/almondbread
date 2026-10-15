@@ -440,6 +440,20 @@ mod tests {
 
     const W: f64 = 1000.0;
 
+    #[test]
+    fn coordinates_text_carries_an_optional_angle() {
+        let text = "re -0.75\nim 0.1\nscale 1e-5 (zoom 375×)\nangle 30";
+        assert_eq!(
+            parse_coordinates(text),
+            Some(("-0.75".into(), "0.1".into(), "1e-5".into()))
+        );
+        let a = parse_angle(text).unwrap();
+        assert!((a - 30f64.to_radians()).abs() < 1e-15);
+        assert!((parse_angle("angle 270°").unwrap() + 90f64.to_radians()).abs() < 1e-12);
+        assert_eq!(parse_angle("re 1\nim 2\nscale 3"), None);
+        assert_eq!(parse_angle("angle nan"), None);
+    }
+
     fn sea8007() -> Viewport {
         view_from_text(
             "-0.74364388703715870475219150611477977822",
