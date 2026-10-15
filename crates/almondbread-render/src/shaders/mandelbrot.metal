@@ -2170,8 +2170,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 cacheW += w;
             }
         }
+        // (Only a cell with all four samples is interpolated: one with fewer would show its
+        // samples as flat squares where they are sparse.)
         if (bl.a > 1e-3f) base = bl.rgb / bl.a;
-        else cacheMiss = true;
+        cacheMiss = bl.a < 0.999f;
     } else if (c.hasUnder > 0.0f) {
         float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
         base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
@@ -2193,23 +2195,29 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     }
 
     if (cacheMiss) {
-        // No cache sample around (a level just switched finer, or not filled yet): the history
-        // where there is one, else the nearest sample of the 4 x 4 texels around.
+        // Not all four cache samples around (a level just switched finer, or not filled yet):
+        // the history where there is one, else the samples of the 4 x 4 texels around.
         if (wh > 0.0f) {
             base = hist;
         } else {
+            // (A Gaussian over the samples there, about 1.5 texels wide: sparse samples blend
+            // instead of showing as squares.)
             const int2 b0 = int2(floor(v));
-            float best = 1e30f;
+            float3 acc = 0.0f;
+            float wsum = 0.0f;
             for (int j = -1; j <= 2; j++) {
                 for (int i = -1; i <= 2; i++) {
                     const int2 t = b0 + int2(i, j);
-                    const float2 d = float2(t) - v;
-                    const float dd = dot(d, d);
-                    if (dd >= best) continue;
                     const float4 s = cacheColor(preview, t, q, c.underSize);
-                    if (s.a > 0.0f) { best = dd; base = s.rgb; }
+                    if (s.a > 0.0f) {
+                        const float2 d = float2(t) - v;
+                        const float w = exp(-0.5f * dot(d, d));
+                        acc += s.rgb * w;
+                        wsum += w;
+                    }
                 }
             }
+            if (wsum > 0.0f) base = acc / wsum;
             hist = base;
         }
     }

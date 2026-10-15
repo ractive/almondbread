@@ -39,8 +39,9 @@ use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, 
 use crate::gpu_types::{CacheParams, ColorParams};
 
 const TILE: i64 = 16;
-/// Steps of the target ratio below the cap (cap / 8 at most: FL's 1/8 floor).
-const MAX_STEPS: u32 = 3;
+/// Steps of the target ratio below the cap (cap / 32 at most: in views too heavy for FL's 1/8
+/// floor a coarse level still covers the view within a few frames).
+const MAX_STEPS: u32 = 5;
 /// A finer level when the ratio (texels per output pixel) falls below this share of the target.
 const FINER_AT: f64 = 0.45;
 /// Rotation between view and lattice the window is sized for (radians, ~10 degrees).
@@ -172,8 +173,9 @@ struct Batch {
     /// GPU seconds and iterations of its chunks so far.
     gpu: f64,
     iterations: f64,
-    /// Estimated iteration units (cost model calibration).
+    /// Estimated iteration units and largest escape count (cost model calibration).
     units: f64,
+    max_n: f64,
 }
 
 /// A sample cache texture set.
@@ -228,6 +230,10 @@ pub(crate) struct Plan<B: GpuBackend> {
     pub tiles: usize,
     /// Texels per output pixel of the level.
     pub ratio: f64,
+    /// The carried batch goes on (nothing new planned; the caller keeps its level).
+    pub carried: bool,
+    /// GPU seconds the batch is expected to take (0: unknown).
+    pub predicted: f64,
 }
 
 /// How a view maps onto the cache (compose, survey).
@@ -264,6 +270,8 @@ pub(crate) struct PlanInput<'a> {
     /// Generations with chunks still on the GPU.
     pub live_generations: &'a [u64],
     pub want_aux: bool,
+    /// The generation of an unfinished batch to carry over (its level continues).
+    pub carry: Option<u64>,
 }
 
 pub(crate) struct SampleCache<B: GpuBackend> {
@@ -292,6 +300,8 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     est: Vec<Est>,
     /// GPU seconds per iteration unit (completed batches against their estimate), smoothed.
     unit_cost: f64,
+    /// GPU seconds per escape iteration of a batch's slowest pixel (latency-bound batches).
+    latency_cost: f64,
     /// What the last finished shade pass counted in the view: interior fraction and exterior
     /// iterations per sample (the interior-test statistics of a fresh preview).
     view_stats: Option<InteriorStats>,
@@ -302,9 +312,6 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     last_mean_units: f64,
     /// GPU seconds per planned frame (completed batches, empty frames as 0), smoothed; frames
     /// measured; the cache gave way to fresh previews for this gesture.
-    frame_gpu: f64,
-    frames_measured: usize,
-    slow: bool,
     /// Tiles of the last batch and the cost per texel of the last completed one.
     last_tiles: usize,
     last_cost: f64,
@@ -341,6 +348,7 @@ impl<B: GpuBackend> SampleCache<B> {
             pending: VecDeque::new(),
             est: Vec::new(),
             unit_cost: 0.0,
+            latency_cost: 2e-8,
             view_stats: None,
             pipelines: None,
             shade_key: None,
@@ -349,9 +357,6 @@ impl<B: GpuBackend> SampleCache<B> {
             last_cost: 0.0,
             last_limit: 0,
             last_mean_units: 0.0,
-            frame_gpu: 0.0,
-            frames_measured: 0,
-            slow: false,
             seeded_generation: 0,
         }
     }
@@ -367,9 +372,7 @@ impl<B: GpuBackend> SampleCache<B> {
         self.last_cost = 0.0;
         self.last_tiles = 0;
         self.unit_cost = 0.0;
-        self.frame_gpu = 0.0;
-        self.frames_measured = 0;
-        self.slow = false;
+        self.latency_cost = 2e-8;
         self.demand = 0.0;
     }
 
@@ -1015,6 +1018,20 @@ impl<B: GpuBackend> SampleCache<B> {
             self.epoch = None;
         }
         self.note_motion(inp.view, inp.ppp, inp.width, inp.height);
+        // A carried batch now belongs to this frame's generation (checked after the slide).
+        let mut carried = false;
+        if let Some(old) = inp.carry
+            && let Some(b) = self.batches.iter_mut().find(|b| b.generation == old)
+        {
+            b.generation = inp.generation;
+            for &(slot, holder) in &b.tiles {
+                let t = &mut self.tiles[slot];
+                if t.holder == holder && t.inflight == old {
+                    t.inflight = inp.generation;
+                }
+            }
+            carried = true;
+        }
         // Abandoned batches (superseded before they finished): their tiles are free again.
         let live = inp.live_generations;
         let tiles = &mut self.tiles;
@@ -1091,6 +1108,50 @@ impl<B: GpuBackend> SampleCache<B> {
         let g = Self::view_geometry(&e, inp.view, inp.ppp, inp.width, inp.height);
 
         self.marks.push(("maintenance", Instant::now()));
+        // The carried batch goes on only if all its tiles still hold their lattice tiles in this
+        // level (a slide reassigns slots, a switch changes the level): its later chunks would
+        // write into slots that now hold other points.
+        if carried {
+            let serial = self.epoch.as_ref().map_or(0, |e| e.serial);
+            let ok = self.batches.iter().any(|b| {
+                b.generation == inp.generation
+                    && b.serial == serial
+                    && b.tiles.iter().all(|&(slot, holder)| self.tiles[slot].holder == holder)
+            });
+            if ok {
+                let e = self.epoch.as_ref().expect("epoch");
+                let g = Self::view_geometry(e, inp.view, inp.ppp, inp.width, inp.height);
+                let (wt, ht) = self.dims();
+                let a = self.alloc.as_ref().expect("alloc");
+                let (tw, th) = (wt * TILE as usize, ht * TILE as usize);
+                return Some(Plan {
+                    set: a.sets[self.cur].clone(),
+                    color: a.color.clone(),
+                    width: tw,
+                    height: th,
+                    frame: self.frame_of(e, tw, th),
+                    order: None,
+                    tiles: 0,
+                    ratio: g.ratio,
+                    carried: true,
+                    predicted: 0.0,
+                });
+            }
+            // Abandoned: its tiles are free again.
+            if let Some(i) = self.batches.iter().position(|b| b.generation == inp.generation) {
+                let b = self.batches.remove(i).expect("batch");
+                self.stats.iterations += b.iterations;
+                for (slot, holder) in b.tiles {
+                    let t = &mut self.tiles[slot];
+                    if t.holder == holder && t.inflight == inp.generation {
+                        t.inflight = 0;
+                        if t.state == State::Empty {
+                            t.state = State::Partial;
+                        }
+                    }
+                }
+            }
+        }
         // Tiles to compute: visible, not (being) computed, or computed at a limit 25 % behind.
         let (x0, x1, y0, y1) = Self::tile_range(&g, 2.0);
         let (hw, hh) = (inp.width as f64 / 2.0, inp.height as f64 / 2.0);
@@ -1173,7 +1234,15 @@ impl<B: GpuBackend> SampleCache<B> {
             64
         }
         .min(2 * self.last_tiles + 8);
-        let mut n = if inp.bla_pending {
+        // At most two batches on the GPU: a batch slower than a frame (its estimate low) must
+        // not be followed by more before it reports its cost (the 1e-305 needle queued
+        // 0.5 s batches back to back).
+        let outstanding = self
+            .batches
+            .iter()
+            .filter(|b| b.serial == e.serial && b.generation != inp.generation)
+            .count();
+        let mut n = if inp.bla_pending || outstanding >= 2 {
             0
         } else {
             cands.len().min(inp.live_capacity / 256)
@@ -1189,19 +1258,11 @@ impl<B: GpuBackend> SampleCache<B> {
         let set = a.sets[self.cur].clone();
         let color = a.color.clone();
         let (tw, th) = (wt * TILE as usize, ht * TILE as usize);
-        let wrap_x = pmod(TILE * e.win0.0, tw as i64) as u32;
-        let wrap_y = pmod(TILE * e.win0.1, th as i64) as u32;
-        let frame = LatticeFrame {
-            anchor: e.anchor.clone(),
-            h: e.h,
-            rot: rot(e.angle),
-            origin: (TILE * e.win0.0, TILE * e.win0.1),
-            // Kernel: window texel of texel gid = (gid + (size - wrap)) mod size.
-            wrap: ((tw as u32 - wrap_x) % tw as u32) | (((th as u32 - wrap_y) % th as u32) << 16),
-        };
+        let frame = self.frame_of(&e, tw, th);
         self.marks.push(("scan", Instant::now()));
         let mut order = None;
-        let units_planned: f64;
+        let mut units_planned = 0.0f64;
+        let mut max_planned = 0.0f64;
         if n > 0 {
             if by_units {
                 // (Sort only a generous prefix: at least the texel model's count, several times.)
@@ -1225,16 +1286,31 @@ impl<B: GpuBackend> SampleCache<B> {
                 };
                 self.last_mean_units = mean;
                 let tile_budget = inp.budget / (self.unit_cost * 256.0);
+                // A batch takes at least its slowest pixel's chain (a few pixels running to a
+                // 200 000 limit at the 1e-305 needle kept 0.5 s chunks of cheap totals): the
+                // latency term, calibrated per escape iteration.
+                let max_n_of = |s: &Self, slot: usize| -> f64 {
+                    let x = s.est[slot];
+                    if x.holder == s.tiles[slot].holder && x.serial == e.serial {
+                        f64::from(x.max_n)
+                    } else {
+                        0.0
+                    }
+                };
                 let mut used = 0.0;
                 let mut take = 0;
+                let mut max_n = 0.0f64;
                 for c in &cands {
                     let u = est_of(self, c.1 as usize).unwrap_or(mean);
-                    if take > 0 && used + u > tile_budget {
+                    let m = max_n.max(max_n_of(self, c.1 as usize));
+                    if take > 0 && (used + u > tile_budget || m * self.latency_cost > inp.budget) {
                         break;
                     }
                     used += u;
+                    max_n = m;
                     take += 1;
                 }
+                max_planned = max_n;
                 n = take;
                 units_planned = used * 256.0;
                 cands.truncate(n);
@@ -1268,13 +1344,11 @@ impl<B: GpuBackend> SampleCache<B> {
                 gpu: 0.0,
                 iterations: 0.0,
                 units: units_planned,
+                max_n: max_planned,
             });
             self.last_tiles = n;
             self.stats.tiles_planned += n;
             self.stats.texels_planned += n * 256;
-        }
-        if n == 0 {
-            self.note_frame_gpu(0.0);
         }
         self.marks.push(("batch", Instant::now()));
         Some(Plan {
@@ -1286,7 +1360,27 @@ impl<B: GpuBackend> SampleCache<B> {
             order,
             tiles: n,
             ratio: g.ratio,
+            carried: false,
+            predicted: if self.unit_cost > 0.0 {
+                (units_planned * self.unit_cost).max(max_planned * self.latency_cost)
+            } else {
+                cost * (n * 256) as f64
+            },
         })
+    }
+
+    /// The lattice frame of the current level for the iterate parameters.
+    fn frame_of(&self, e: &Epoch, tw: usize, th: usize) -> LatticeFrame {
+        let wrap_x = pmod(TILE * e.win0.0, tw as i64) as u32;
+        let wrap_y = pmod(TILE * e.win0.1, th as i64) as u32;
+        LatticeFrame {
+            anchor: e.anchor.clone(),
+            h: e.h,
+            rot: rot(e.angle),
+            origin: (TILE * e.win0.0, TILE * e.win0.1),
+            // Kernel: window texel of texel gid = (gid + (size - wrap)) mod size.
+            wrap: ((tw as u32 - wrap_x) % tw as u32) | (((th as u32 - wrap_y) % th as u32) << 16),
+        }
     }
 
     /// Commits the pending clear / resample passes (one command buffer).
@@ -1367,12 +1461,21 @@ impl<B: GpuBackend> SampleCache<B> {
             return;
         }
         let b = self.batches.remove(i).expect("batch");
-        self.note_frame_gpu(b.gpu);
         self.stats.texels_done += b.texels;
         self.stats.iterations += b.iterations;
         if b.gpu > 0.0 && b.texels > 0 {
             let c = b.gpu / b.texels as f64;
             self.last_cost = c;
+            // Latency: what the batch took beyond its throughput estimate, per iteration of its
+            // slowest pixel (starts at 20 ns).
+            if b.max_n > 0.0 && b.units > 0.0 && self.unit_cost > 0.0 && b.gpu > 1.5 * b.units * self.unit_cost {
+                let l = b.gpu / b.max_n;
+                self.latency_cost = if self.latency_cost > 0.0 {
+                    0.7 * self.latency_cost + 0.3 * l
+                } else {
+                    l
+                };
+            }
             if b.units > 0.0 {
                 let u = b.gpu / b.units;
                 self.unit_cost = if self.unit_cost > 0.0 {
@@ -1584,8 +1687,6 @@ impl<B: GpuBackend> SampleCache<B> {
             return;
         }
         self.seeded_generation = generation;
-        self.slow = false;
-        self.frames_measured = 0;
         // Step: 2^k full texels per lattice texel, the largest ratio 2^-k <= cap.
         let mut step = 1i64;
         while 1.0 / (step as f64) > self.cap * 1.0001 && step < 8 {
@@ -1736,39 +1837,6 @@ impl<B: GpuBackend> SampleCache<B> {
     /// pass showed (for `autoiter::use_interior_test`).
     pub fn view_stats(&self) -> Option<InteriorStats> {
         self.view_stats
-    }
-
-    /// The view rests: the next gesture decides afresh whether the cache pays.
-    pub fn rest(&mut self) {
-        self.slow = false;
-        self.frames_measured = 0;
-    }
-
-    fn note_frame_gpu(&mut self, gpu: f64) {
-        self.frame_gpu = if self.frames_measured == 0 {
-            gpu
-        } else {
-            0.8 * self.frame_gpu + 0.2 * gpu
-        };
-        self.frames_measured += 1;
-    }
-
-    /// The cache's GPU time per gesture frame (smoothed) exceeds both the budget and what a
-    /// fresh preview would take by a quarter: the gesture is better off without it (until the
-    /// view rests, which seeds or resets this).
-    pub fn too_slow(&mut self, budget: f64, fresh: f64) -> bool {
-        if self.slow {
-            return true;
-        }
-        self.slow = self.frames_measured >= 8 && fresh > 0.0 && self.frame_gpu > 1.25 * budget.max(fresh);
-        if self.slow && self.config.trace {
-            eprintln!(
-                "sample cache: {:.1} ms per frame against {:.1} ms fresh: fresh previews for this gesture",
-                self.frame_gpu * 1000.0,
-                fresh * 1000.0
-            );
-        }
-        self.slow
     }
 
     /// The regime of the current epoch.

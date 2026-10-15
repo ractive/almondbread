@@ -394,6 +394,8 @@ struct Level<B: GpuBackend> {
 struct CacheLevel<B: GpuBackend> {
     regime: Regime,
     bla: Option<BlaGpu<B>>,
+    /// GPU seconds the planner expects the batch to take (0: unknown).
+    predicted: f64,
 }
 
 /// A level's seed passes (M5): the quadtree layout and how far the rounds got.
@@ -1841,8 +1843,18 @@ impl<B: GpuBackend> Renderer<B> {
             // Every frame of a gesture shows its own view: a preview level sized to fit the
             // frame budget, computed to completion (kb: techniques/frame-reuse-and-progressive).
             if !same_key || !job_interactive {
+                // An unfinished sample cache batch carries over into the new frame's job.
+                let carried = self.take_cache_level();
+                let old = self.job.as_ref().map(|j| j.generation);
                 self.start_job(key.clone(), JobMode::Interactive, now);
-                self.attach_cache_level();
+                if self.job.as_ref().map(|j| j.generation) == old {
+                    // (No new job: the level goes back.)
+                    if let (Some((l, _)), Some(j)) = (carried, &mut self.job) {
+                        j.levels.insert(0, l);
+                    }
+                } else {
+                    self.attach_cache_level(carried);
+                }
             }
         } else if has_job && same_key {
             // Input idle: refine the gesture's last frame at full resolution over its preview.
@@ -2704,7 +2716,18 @@ impl<B: GpuBackend> Renderer<B> {
     /// Replaces a fresh gesture job's preview level by a level of the sample cache: the
     /// cache's window, computing only the tiles the view lacks within the frame budget. Keeps
     /// the fresh preview when the cache cannot serve the view.
-    fn attach_cache_level(&mut self) {
+    /// The current gesture job's sample cache level if its batch is unfinished (it continues in
+    /// the next frame's job), with the job's generation.
+    fn take_cache_level(&mut self) -> Option<(Level<B>, u64)> {
+        let job = self.job.as_mut()?;
+        let l = job.levels.first()?;
+        if !job.interactive || l.cache.is_none() || l.done || !l.started() {
+            return None;
+        }
+        Some((job.levels.remove(0), job.generation))
+    }
+
+    fn attach_cache_level(&mut self, carried: Option<(Level<B>, u64)>) {
         if !self.sample_cache.config.enabled || !self.settings.interactive_preview {
             return;
         }
@@ -2715,16 +2738,6 @@ impl<B: GpuBackend> Renderer<B> {
         let Some((regime, bla_pending, table)) = self.cache_regime() else {
             return;
         };
-        // Where the cache's tiles take longer per frame than a fresh preview would (views whose
-        // previews start from local SA seeds, which cache tiles cannot use: the 1e-305 needle,
-        // 14 vs 9 ms), this gesture renders fresh previews.
-        if self
-            .sample_cache
-            .too_slow(self.gesture_budget(), self.fresh_preview_cost())
-        {
-            self.sample_cache.stats.fallback_frames += 1;
-            return;
-        }
         let job = self.job.as_ref().expect("job");
         let key = job.key.clone();
         let generation = job.generation;
@@ -2748,10 +2761,23 @@ impl<B: GpuBackend> Renderer<B> {
             live_capacity: self.config.live_capacity,
             live_generations: &live,
             want_aux: regime.interior_color,
+            carry: carried.as_ref().map(|c| c.1),
         };
         let Some(plan) = self.sample_cache.plan(&self.backend, &input) else {
             return;
         };
+        if plan.carried
+            && let Some((l, old)) = carried
+        {
+            // The unfinished batch goes on: its chunks on the GPU now count for this job.
+            for r in &mut self.in_flight {
+                if r.generation == old && r.level == 0 {
+                    r.generation = generation;
+                }
+            }
+            self.job.as_mut().expect("job").levels[0] = l;
+            return;
+        }
         if self.config.trace {
             println!(
                 "sample cache level: gen {generation} {} tiles, ratio {:.3}, regime {regime:?}",
@@ -2798,7 +2824,11 @@ impl<B: GpuBackend> Renderer<B> {
             order,
             rank: self.dummy_buffer.clone(),
         });
-        l.cache = Some(CacheLevel { regime, bla: table });
+        l.cache = Some(CacheLevel {
+            regime,
+            bla: table,
+            predicted: plan.predicted,
+        });
         l.use_bla = regime.bla;
         l.use_interior = regime.interior;
         let empty = plan.tiles == 0;
@@ -2832,19 +2862,6 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
-    /// What a fresh gesture preview of the current job would take on the GPU (the dynamic
-    /// resolution's cost model; 0: unknown).
-    fn fresh_preview_cost(&self) -> f64 {
-        let Some(job) = &self.job else { return 0.0 };
-        if self.cost_per_texel <= 0.0 {
-            return 0.0;
-        }
-        let texels = (job.key.width * job.key.height) as f64;
-        let fit = (self.gesture_budget() / (self.cost_per_texel * texels)).sqrt();
-        let ratio = ((fit * 8.0).floor() / 8.0).clamp(0.125, 1.0);
-        self.cost_per_texel * texels * ratio * ratio
-    }
-
     /// Seeds the sample cache from the refined frame once a view's full level (and its
     /// extension passes) are done: a gesture starting here reuses every sample.
     fn seed_sample_cache(&mut self) {
@@ -2868,8 +2885,6 @@ impl<B: GpuBackend> Renderer<B> {
         {
             return;
         }
-        // (At rest: the next gesture measures the cache afresh.)
-        self.sample_cache.rest();
         // Tiles whose pixels started from local SA seeds (M5) are not exact samples: the cache
         // leaves them out (their 16 x 16 tiles of the full level, from the seed pass's flags).
         let mut seeded_tiles: Vec<bool> = Vec::new();
@@ -3053,7 +3068,13 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         let estimate = self.cost_per_texel * level.total as f64;
-        if estimate > 0.05 {
+        // A sample cache batch runs at once when the planner expects it to fit the frame, else
+        // in budgeted chunks that carry over into the next frames' jobs.
+        let progressive = match &level.cache {
+            Some(c) => c.predicted > 1.5 * self.gesture_budget(),
+            None => estimate > 0.05,
+        };
+        if progressive {
             let b = self.config.interactive_chunk_target;
             self.encode_chunks(b);
             return;
