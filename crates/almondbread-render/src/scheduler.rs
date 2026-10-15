@@ -648,7 +648,8 @@ pub struct SimulationResult {
     pub final_after: f64,
     pub done_after: f64,
     /// Seconds from the last input (a jump: the start) to the first frame computed for the
-    /// current view (not the history shown while its reference computes).
+    /// current view (not the history shown while its reference computes); negative when
+    /// that frame came during the gesture.
     pub first_after: f64,
     pub unresolved: usize,
     pub reference_length: usize,

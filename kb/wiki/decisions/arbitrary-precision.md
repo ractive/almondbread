@@ -54,3 +54,10 @@ test-only benchmark. It beats GMP `mpf` on the reference orbit up to 1024 bits (
 M3b (2026-10-14): the same library carries the app's viewport centre and every deep
 reference; reference orbits take 3 ms (1e-20) to 0.6 s (1e-1000) per 100 000 iterations on one
 core ([[synthesis/benchmarks]] M3b).
+
+R6 (2026-10-15): still our own library, now on three cores for deep orbits (bit-identical
+three-squaring split from 1536 bits), with jump references delivered as prefixes and a
+cheap-derivative Newton. Toom-3/NTT stay unbuilt: the short Comba square beats the full
+Karatsuba square 1.5-1.8x at every size up to 157 limbs (1e-3000), so they cannot pay
+before ~300 limbs. A jump to dendrite-1e1000 shows its first frame after ~0.13 s instead
+of ~2.1 s ([[techniques/parallel-reference-orbit]], [[synthesis/benchmarks]] R6).

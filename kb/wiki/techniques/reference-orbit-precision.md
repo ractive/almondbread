@@ -39,7 +39,10 @@ or three full-precision multiplications, e.g. `(X+Y)(X−Y)` and `XY`
 
 - **Threading one iteration**: FractalShark's "MT3" uses three threads, two
   squaring and one coordinating; fastest the author measured on an AMD
-  5950X (src: [[sources/fractalshark-readme]]).
+  5950X (src: [[sources/fractalshark-readme]]). Ours (R6) squares X², Y², (X+Y)² on
+  three threads with one exchange per iteration (~0.1 µs): it pays from ~1500 bits,
+  1.7x at 3456 bits and 2.2x at 6784 bits (measured 2026-10-15, M1 Pro, release,
+  loaded machine; [[techniques/parallel-reference-orbit]]).
 - **GMP on M1**: "almost every inner loop runs at < 1 cycle/limb"; M1
   took second place on GMPbench in 2020 (src: [[sources/gmp-m1-discuss]]). Fixed-size
   kernels beat `mpn_mul_basecase` by up to 80% at 8 limbs on M1

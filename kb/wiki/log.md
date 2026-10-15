@@ -367,3 +367,20 @@ Recommendation: local SA in M5 after a float32 kernel check. Pages:
 [[techniques/local-series-approximation]], [[questions/local-sa-float32]]; updated
 [[techniques/guessing-and-subdivision]], [[techniques/series-approximation]],
 [[techniques/anti-aliasing]], [[synthesis/benchmarks]] R3, [[index]].
+
+## [2026-10-15] decision | R6: faster deep references
+
+Three-thread reference orbit (X², Y², (X+Y)² on the caller and two scoped helpers, one
+all-to-all exchange per iteration through padded atomics, bit-identical; pays from 1536 bits,
+1.8x at 1e-1000 and 2.2x at 1e-2000 on a lightly loaded M1 Pro; opt-in for the reference
+worker and Newton). `ReferenceOrbitComputer::resume`; the reference worker hands out
+centre-orbit prefixes (1/8 limit, limit, 2x) that the scheduler adopts with its existing
+Stale/Good rules. Newton with an extended-range f64 derivative over the orbit code (~3x per
+step, exact Newton finishes very close starts). Short products round down without the full
+product when the round bit is clear (exact orbits like c = i 2.5x faster). Jump to
+dendrite-1e1000: first frame 1.8 s -> 0.1 s; dendrite-1e300 0.32 s -> 0.03 s; needles
+unchanged. Toom-3/NTT not built: the short Comba square beats full Karatsuba 1.5-1.8x up to
+157 limbs. Pages: [[techniques/parallel-reference-orbit]] (new), [[synthesis/benchmarks]] R6,
+[[decisions/arbitrary-precision]], [[techniques/reference-selection]],
+[[techniques/reference-orbit-precision]], [[platform/mpfr-gmp-on-apple-silicon]] (corrected
+the unmeasured MT3 handoff guess), [[index]].

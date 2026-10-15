@@ -128,9 +128,14 @@ fn run_par(sizes: &[usize]) {
 /// against the full product (Comba below the Karatsuba threshold, Karatsuba above).
 /// Best of 5 timings of a loop each.
 fn run_kernels() {
-    println!("{:>6} {:>6} {:>14} {:>14} {:>8}", "limbs", "bits", "short Comba ns", "full sqr ns", "ratio");
+    println!(
+        "{:>6} {:>6} {:>14} {:>14} {:>8}",
+        "limbs", "bits", "short Comba ns", "full sqr ns", "ratio"
+    );
     for n in [18usize, 54, 64, 106, 157, 256] {
-        let a: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1 << 63).collect();
+        let a: Vec<u64> = (0..n as u64)
+            .map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1 << 63)
+            .collect();
         let mut r = vec![0u64; 2 * n];
         let mut scratch = vec![0u64; limbs::product_scratch_limbs(n) + 8];
         let reps = (20_000_000 / (n * n)).max(50);

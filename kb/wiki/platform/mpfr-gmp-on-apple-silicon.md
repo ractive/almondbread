@@ -52,10 +52,11 @@ P2 = X * Y                  // thread B
   was fastest among the CPU paths its author tried, on an AMD 5950X (MPIR+AVX2 on
   Windows, GMP on Linux); "MT5" currently falls back to MT3
   (src: [[sources/fractalshark-readme]] §4. Multithreaded high-performance CPU reference orbit calculation).
-- On an M1 Pro, run these on performance cores. Per-iteration thread handoff costs
-  microseconds, so the split only pays when one product costs more than that,
-  roughly from a few hundred limbs up (inference, unmeasured). Below that, a
-  single-threaded fixed-limb implementation is likely faster.
+- On an M1 Pro, run these on performance cores. The earlier guess here (handoff
+  costs microseconds, pays from a few hundred limbs) was wrong: an exchange through
+  atomics on padded cache lines costs ~0.1 µs, and our three-squaring split pays from
+  ~24 limbs (1536 bits): 1.7x at 54 limbs, 2.2x at 106 (measured 2026-10-15, M1 Pro,
+  release, loaded machine; [[techniques/parallel-reference-orbit]]).
 - Other parallelism that is free: one reference per critical point or hybrid phase
   can run on separate cores ([[techniques/rebasing]]), and Newton refinement of the
   nucleus ([[techniques/reference-selection]]) is a separate job.
@@ -121,6 +122,14 @@ What made the difference (all measured on the same machine):
   decision is certain unless the bits below the round bit are within n of a boundary
   (probability ~n/2^62), in which case the full product is computed. Results stay
   bit-identical to a correctly rounded full product. Saves ~40 % at 16 limbs.
+  R6 fix: zero bits below a *clear* round bit cannot be a tie (the value is below
+  half an ulp), so that case now rounds down on the short path; before, exact short
+  values (orbit of c = i) took the full product almost every time (2.5x slower).
+- **Short Comba square vs full square at deep sizes** (R6, `math_check kernels`):
+  full/short time ratio 1.68 at 18 limbs, 1.83 at 54, 1.72 at 106, 1.48 at 157, 1.39
+  at 256 (measured 2026-10-15, M1 Pro, release, best of 5, load ~20). A Toom-3 or
+  Mulders square would need to be 1.5x faster than our Karatsuba at 157 limbs to win;
+  neither is plausible below ~300 limbs, i.e. above 1e-5000 (inference).
 - **Two independent accumulators in the Comba column loop** (lows and highs summed
   separately): 16-limb product 305 ns -> 190 ns versus one three-word accumulator.
 - **Loop exits are the basecase cost.** The column loop's variable trip count costs a

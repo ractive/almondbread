@@ -161,3 +161,19 @@ plain-kernel reference below 1e-17 per point. With no usable reference the frame
 reprojected history. A Space zoom from 1e-12 to 4e-39 needed two background references (a
 centre reference, then the period-998 nucleus near the seahorse point). Times in
 [[synthesis/benchmarks]] M3b.
+
+## R6 changes
+
+- **Newton derivative in extended-range f64.** The step only needs `dz/dc` to a few
+  digits; computing it in DoubleExp over the orbit (which runs through the orbit code,
+  three threads at high precision) makes a step ~3x cheaper. Convergence turns linear
+  (~50-90 bits per step) once the quadratic phase is over; from the view centre the
+  step count is unchanged (8 at c = i, 1e-1000), and exact Newton takes over when steps
+  stop accelerating with more than two left (starts very close to the nucleus: the
+  oracle fixtures now take 5-6 steps instead of 3). Nuclei stay within the oracle
+  tolerance, not bit-identical to before.
+- **Centre references are delivered in prefixes** (1/8 of the limit, then the limit,
+  then 2x): with rebasing any prefix is a correct reference.
+- At c = i the ball method finds a period whose nucleus lies outside the view, so the
+  Newton work is thrown away (the fallback rule above). It cost 1.3 s at 1e-2000 before,
+  ~0.3 s now. Details: [[techniques/parallel-reference-orbit]].
