@@ -2776,6 +2776,11 @@ impl<B: GpuBackend> Renderer<B> {
             let mut bytes = vec![0u8; tx * ty * 4];
             self.backend.read_buffer(buf, 0, &mut bytes);
             seeded_tiles = bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c) != 0).collect();
+            // Mostly seeded: the gesture's own samples serve better than what is left.
+            if seeded_tiles.iter().filter(|&&t| t).count() * 4 > seeded_tiles.len() {
+                self.sample_cache.seeded_generation = job.generation;
+                return;
+            }
         }
         let key = &job.key;
         let regime = Regime {

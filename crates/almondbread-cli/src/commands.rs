@@ -547,7 +547,12 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
 }
 
 /// Prints the sample cache's statistics and checks; failures for `failed`.
-fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, failed: &mut Vec<String>) {
+///
+/// The escape-count gate is relative: where float32 escape counts depend on the reference
+/// (dense or deep views), the session's own refined frame differs from a fresh render or the
+/// CPU oracle by `noise` % of its pixels; a cache sample may differ as much (with the same
+/// reference the samples are bit-identical). A wrong position shows as several % in any view.
+fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, noise: f64, failed: &mut Vec<String>) {
     let s = r.sample_cache_stats();
     if s.frames + s.fallback_frames > 0 {
         let f = s.frames.max(1) as f64;
@@ -572,13 +577,15 @@ fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, failed: &mut Vec<St
         );
     }
     let max_class = o.f64("max-cache-mismatch").unwrap_or(0.05);
-    let max_escape = o.f64("max-cache-escape-diff").unwrap_or(2.0);
+    let max_escape = o
+        .f64("max-cache-escape-diff")
+        .unwrap_or_else(|| (1.5 * noise + 1.0).max(2.0));
     for (i, c) in r.cache_checks.iter().enumerate() {
         let when = if i + 1 == r.cache_checks.len() { "settled" } else { "after the gesture" };
         match c {
             Some(c) => {
                 println!(
-                    "sample cache check ({when}): {} samples vs a fresh render of their points: class differs {} ({:.4} %), escape count differs {} of {} escaped ({:.3} %)",
+                    "sample cache check ({when}): {} samples vs a fresh render of their points: class differs {} ({:.4} %), escape count differs {} of {} escaped ({:.3} %; gate {max_escape:.1} %)",
                     c.samples,
                     c.class_differ,
                     c.class_pct(),
@@ -615,6 +622,7 @@ fn verify_session<B: GpuBackend + Clone>(
     max_unresolved: Option<f64>,
 ) -> Result<i32> {
     let mut failed: Vec<String> = Vec::new();
+    let mut noise = 0.0f64;
     let n = sessions.len();
     for (i, sim) in sessions.iter().enumerate() {
         let v = &sim.viewport;
@@ -723,6 +731,7 @@ fn verify_session<B: GpuBackend + Clone>(
                 vs_fresh.escape_differs_pct()
             ));
         }
+        noise = noise.max(vs_cpu.escape_differs_pct()).max(vs_fresh.escape_differs_pct());
         if vs_fresh.mismatch_pct() > max_mismatch {
             failed.push(format!(
                 "{tag}{:.3}% differ from a fresh render (> {:.3}%)",
@@ -731,7 +740,7 @@ fn verify_session<B: GpuBackend + Clone>(
             ));
         }
     }
-    report_cache(o, r, &mut failed);
+    report_cache(o, r, noise, &mut failed);
     if !failed.is_empty() {
         eprintln!("almondbread: history {mode} FAILED: {}", failed.join("; "));
         return Ok(1);
