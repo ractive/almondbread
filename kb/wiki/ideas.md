@@ -64,6 +64,24 @@ the iteration counts. At `c = -0.75 + iε` the escape count times ε tends to π
 `c = 0.25 + ε` the count times √ε does (Boll 1991; unverified, no source page yet; our own
 check: n·ε = 3.1416 at ε = 1e-5, n·√ε = 3.14157 at ε = 1e-10, Python float64, 2026-10-15).
 
+## Cosmic size scale (2026-10-15)
+
+User: a size comparison of the set with the universe, galaxies, the Sun, Earth, humans,
+atoms, nuclei, strings, shown like the mini-map at the bottom left.
+
+- Anchor: the screen. "If this view is your 30 cm screen, the whole set is as big as X."
+  Our own arithmetic (sizes unverified, need source pages: NASA, PDG): you at zoom ≈ 6, Earth ≈ 4e7,
+  Sun ≈ 5e9, Neptune's orbit ≈ 3e13, a light year ≈ 3e16, the Milky Way ≈ 3e21, the observable
+  universe ≈ 3e27.
+- Second mode, anchor the set to an object: "if the set were the Earth, this view is an atom".
+- The punchline: physics runs out. The observable universe over the Planck length is about
+  1e62, so a 1e-3000 view is about 49 universe-to-Planck ladders deep. Past 1e62 the panel
+  counts ladders instead of naming objects.
+- Display: a log ruler with small icons in the overlay (Rust/Metal, like the mini-map), a
+  marker for the current view, one line of text. Also in exported videos; possible depth
+  badges for the game ([[decisions/gamification]]).
+- Strings are hypothetical (about the Planck length); label them as such.
+
 ## Earlier ideas already filed elsewhere
 
 - Landscape mode with altitude as zoom, flight recorder and rewind:
