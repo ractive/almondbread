@@ -1002,3 +1002,193 @@ three threads) identical to base; unit tests for three threads through escape, r
 cancel, short-product rounding on sparse mantissas, progressive prefixes equal to the final
 orbit; nuclei within the oracle tolerance (Newton not bit-identical by design);
 `cargo test --workspace --release`, clippy `-D warnings`, fmt clean.
+
+## R5: local series approximation on the GPU (prototype), 2026-10-14
+
+Measured 2026-10-14, M1 Pro (16-core GPU), macOS 26, release, branch
+`worktree-agent-ade067c897fa45012`. **The GPU was shared with other agents throughout**:
+single renders varied by up to 3× (dense-5e-14 plain 75–255 ms across sessions). Timings are
+interleaved A/B (3 rounds, alternating order, 3 renders each after a warm-up; min / median /
+max of 9); step counts are deterministic. Prototype and design:
+[[techniques/local-series-approximation]] "GPU prototype (R5)"; answer:
+[[questions/local-sa-float32]].
+
+`almondbread render --sa 0|1 --size 1600x1000 --iterations <location's>` (offscreen, plain
+look, interior test as configured). Steps: loop steps (BLA blocks count one); SA = seed steps
++ pixel steps. Quadtree 32 → 2 texels, ε = 1e−2; deep seeds take BLA blocks.
+
+| location | maxIter | plain steps | SA steps | seed share | fewer steps | plain GPU ms | SA GPU ms (seeds, median) | speed-up median (min) |
+|---|---:|---:|---:|---:|---:|---|---|---:|
+| home | 1 000 | 6.31e7 | 5.74e7 | 2.3 % | 1.10 | 3.2 / 4.9 / 8.1 | 3.9 / 5.6 / 11.1 (0.5) | 0.87 (0.82) |
+| home-100k | 100 000 | 1.75e8 | 1.69e8 | 0.8 % | 1.03 | 26.6 / 36.5 / 64.6 | 30.4 / 43.5 / 73.9 (1.3) | 0.84 (0.87) |
+| seahorse-1e5 | 2 000 | 2.05e8 | 7.6e7 | 6.2 % | 2.70 | 6.0 / 6.3 / 15.3 | 4.3 / 5.0 / 9.6 (0.8) | 1.25 (1.37) |
+| elephant | 5 000 | 1.06e9 | 1.00e9 | 0.8 % | 1.05 | 37.6 / 44.4 / 65.1 | 39.6 / 46.3 / 52.0 (1.1) | 0.96 (0.95) |
+| minibrot-p4 | 50 000 | 3.80e8 | 3.59e8 | 0.8 % | 1.06 | 28.3 / 31.3 / 37.7 | 29.1 / 32.5 / 41.1 (0.6) | 0.96 (0.97) |
+| deep-5e-14 | 6 000 | 1.92e9 | 2.16e8 | 5.7 % | 8.88 | 38.5 / 48.8 / 60.5 | 7.5 / 10.6 / 15.1 (0.9) | 4.61 (5.11) |
+| feigenbaum | 200 000 | 8.62e10 | 7.97e10 | 1.1 % | 1.08 | 2533 / 2976 / 4967 | 3048 / 3994 / 6315 (188) | 0.75 (0.83) |
+| neck-2e5 | 2 053 | 2.99e9 | 2.42e8 | 15.1 % | 12.4 | 94.5 / 147 / 310 | 16.3 / 49.2 / 122 (24) | 2.99 (5.79) |
+| neck-7e6 | 2 907 | 4.64e9 | 5.09e8 | 41.4 % | 9.11 | 119 / 122 / 371 | 43.3 / 43.6 / 56.2 (33) | 2.79 (2.75) |
+| cusp-1e5 | 3 000 | 4.67e9 | 3.00e9 | 7.0 % | 1.56 | 120 / 121 / 130 | 133 / 137 / 140 (37) | 0.89 (0.91) |
+| dense-5e-14 | 5 791 | 4.61e9 | 5.29e8 | 8.7 % | 8.72 | 75.3 / 78.2 / 82.8 | 15.0 / 15.6 / 18.8 (3.1) | 5.03 (5.04) |
+| root-third | 3 000 | 4.22e9 | 7.57e8 | 15.2 % | 5.57 | 108 / 111 / 116 | 34.2 / 34.4 / 37.8 (16) | 3.23 (3.17) |
+| filament-1e6 (−1.25066 + 0.02012i, 3.75e−9/px) | 2 409 | 9.0e8 | 1.6e8 | 6.4 % | 5.63 | 17.5 / 19.2 / 20.5 | 9.0 / 10.3 / 18.5 (1.2) | 1.85 (1.94) |
+| minibrots-5e-12 (dense centre, 4.6e−12/px) | 17 084 | 1.13e10 | 9.15e9 | 2.4 % | 1.23 | 301 / 309 / 342 | 280 / 289 / 417 (34) | 1.07 (1.07) |
+| sea-1e20 | 20 000 | 2.05e9 (1.29e10 it) | 1.18e8 | 12.5 % | 17.4 | 229 / 293 / 335 | 28.3 / 34.3 / 53.8 (16) | 8.52 (8.10) |
+| sea-8007 | 40 000 | 1.96e9 (5.97e10 it) | 1.82e9 | 1.9 % | 1.08 | 401 / 555 / 759 | 454 / 599 / 1216 (27) | 0.93 (0.88) |
+| needle-1e305 | 50 000 | 1.95e8 (4.83e9 it) | 1.50e8 | 2.9 % | 1.30 | 64.4 / 85.2 / 115 | 59.0 / 70.3 / 111 (2.2) | 1.21 (1.09) |
+| dendrite-1e300 | 20 000 | 4.66e7 (1.28e9 it) | 6.86e6 | 17.3 % | 6.79 | 5.5 / 8.4 / 13.3 | 3.5 / 4.5 / 6.1 (1.4) | 1.87 (1.55) |
+
+Deep seeds without BLA blocks (`ALMONDBREAD_SA_SEED_BLA=0`, same session): sea-1e20 15.8×
+fewer steps (seeds 20 % of the steps, 27 ms), sea-8007 0.34× (seeds 70 %, 1.1 s), needle
+1.08×, dendrite 5.8×.
+
+**Correctness vs the CPU oracle** (`verify`, 800 × 500 centre crop at the 1600-wide pixel
+size; needle 1600 × 1000; plain / SA / SA vs plain):
+
+| location | escape-n differs % | class mismatch % | GPU-int/CPU-ext % | median \|Δμ\| | >0.05 % |
+|---|---|---|---|---|---|
+| home | 0.42 / 0.49 / 0.44 | 0.021 / 0.021 | 0 / 0 | 2.4e−7 / 7.2e−7 | 0.64 / 0.73 |
+| home-100k | 0.53 / 0.60 / 0.52 | 0.001 / 0.001 | 0 / 0 | 2.4e−7 / 7.2e−7 | 0.75 / 0.84 |
+| seahorse-1e5 | 6.21 / 7.96 / 8.00 | 0.001 / 0.001 | 0 / 0 | 1.5e−5 / 4.7e−5 | 9.2 / 11.8 |
+| elephant | 3.95 / 5.79 / 5.78 | 0.060 / 0.065 | 0 / 0 | 1.4e−6 / 1.8e−5 | 5.4 / 8.2 |
+| minibrot-p4 | 1.08 / 1.12 / 0.90 | 0.001 / 0.002 | 0 / 0 | 2.6e−6 / 4.1e−6 | 1.58 / 1.65 |
+| deep-5e-14 | 12.8 / 12.7 / 13.4 | 0.008 / 0.007 | 0 / 0 | 3.3e−4 / 3.4e−4 | 18.7 / 18.6 |
+| feigenbaum | 62.2 / 62.2 / 55.3 | 0.084 / 0.084 | 0 / 0 | 11.7 / 11.6 | 70.9 / 70.9 |
+| neck-2e5 | 0.005 / 0.011 / 0.011 | 0.001 / 0.001 | 0 / 0 | 2.4e−6 / 5.5e−6 | 0.013 / 0.025 |
+| neck-7e6 | 0.002 / 0.010 / 0.010 | 0 / 0.001 | 0 / 0 | 2.3e−4 / 1.5e−3 | 0.004 / 0.022 |
+| cusp-1e5 | 0.065 / 0.089 / 0.082 | 0.010 / 0.015 | 0 / 0 | 3.0e−5 / 1.5e−4 | 0.13 / 0.19 |
+| dense-5e-14 | 16.0 / 16.9 / 15.1 | 0.008 / 0.009 | 0 / 0 | 0.0109 / 0.0123 | 30.6 / 32.1 |
+| root-third | 0.011 / 0.025 / 0.022 | 0.002 / 0.003 | 0 / 0 | 5.5e−6 / 1.3e−5 | 0.034 / 0.059 |
+| filament-1e6 | 3.86 / 5.19 / 5.29 | 0.004 / 0.004 | 0 / 0 | 1.5e−5 / 4.9e−5 | 6.2 / 8.4 |
+| minibrots-5e-12 | 18.3 / 18.4 / 17.0 | 0.026 / 0.026 | 0 / 0 | 0.0134 / 0.0139 | 31.3 / 31.5 |
+| sea-1e20 | 9.91 / 10.1 / 8.59 | 0 / 0 | 0 / 0 | 1.6e−4 / 1.7e−4 | 14.6 / 14.9 |
+| sea-8007 | 0.39 / 0.39 / 0.17 | 0.006 / 0.006 | 0 / 0 | 0.028 / 0.028 | 0.59 / 0.59 |
+| needle-1e305 | 0.10 / 0.11 / 0.08 | 0.001 / 0.001 | 0 / 0 | 2.3e−5 / 2.6e−5 | 0.19 / 0.20 |
+| dendrite-1e300 | 0.001 / 0.010 / 0.009 | 0 / 0 | 0 / 0 | 4.8e−7 / 1.2e−6 | 0.004 / 0.028 |
+
+Interior and unresolved fractions are equal plain vs SA at every location (e.g. Feigenbaum
+3.4 % detected / 21.8 % unresolved both ways). Before the `w` fix (interior derivative
+restarted at the branch) needle-1e305 had 96.3 % GPU-int/CPU-ext.
+
+**Images** (default look Aurora, 1600 × 1000, 100 % and 300 % crops at dense, filament,
+neck-2e5, seahorse, minibrots-5e-12, sea-1e20, needle-1e305, elephant, root-third): no tile
+seams, no wrong-coloured patches, no missing minibrots. Pixels differing by more than 3 % in
+colour: 0.2–0.6 % (dense, filament, seahorse, elephant, minibrots), < 0.003 % (neck,
+root-third, needle), 1.5 % (sea-1e20); the differences are isolated boundary pixels.
+
+**Deep-kernel DE bugs found on the way (both in the plain deep kernel, fixed in the R5
+branch):** the DE was clamped to 65 000 *before* scaling by `2^-dExp`, drawing thick
+stair-stepped outline bands in smooth exterior at sea-1e20; and the DE mantissa, renormalised
+every 8th step only, can overflow (`|d|²` → inf, DE 0) in the steps before escape where
+`|2z|` reaches 2^17 per step: dotted outline arcs along iteration contours. Fix: clamp after
+scaling, renormalise every step once `|z| > 16`, normalise `d` before `length`.
+
+## M5: local series approximation and interior fill, 2026-10-15
+
+Measured 2026-10-15, M1 Pro (16-core GPU), macOS 26, release, branch
+`worktree-agent-a9436fdde1a6473db` after merging main (view rotation). **The GPU was shared**
+with the user's open app and other agents: the same plain render took 77 ms in the morning
+and 125 ms (dense-5e-14) in the afternoon runs, so compare within a row only. Design and
+as-built notes: [[techniques/local-series-approximation]] "As built (M5)",
+[[techniques/guessing-and-subdivision]] "As built (M5)", [[techniques/auto-iterations]]
+"Floor from the reference".
+
+### Offscreen GPU time, M5 default vs all off
+
+`almondbread render --size 1600x1000 --iterations <location's> --repeat 4` per process,
+first render dropped (it has no statistics yet, as a fresh view in the app); "off" is
+`--sa 0 --fill 0`; order A B B A per location, so 6 renders per variant; min / median / max.
+Steps: loop steps of the pixels (BLA blocks count one), seeds extra.
+
+| location | off GPU ms min / med / max | M5 GPU ms min / med / max | speed-up (median) | steps off → M5 | seeds |
+|---|---|---|---:|---|---|
+| home | 2.9 / 4.4 / 5.6 | 3.5 / 4.0 / 4.7 | 1.08 | 6.31e+07 → 6.29e+07 | 0.28 ms, 1 rounds, 1 % tiles |
+| home-100k | 25.9 / 26.2 / 27.1 | 26.4 / 27.0 / 27.7 | 0.97 | 1.75e+08 → 1.75e+08 | 1.15 ms, 1 rounds, 0 % tiles |
+| seahorse-1e5 | 6.6 / 6.8 / 7.6 | 4.2 / 4.7 / 5.5 | 1.45 | 2.05e+08 → 8.1e+07 | 0.32 ms, 1 rounds, 100 % tiles |
+| elephant | 32.0 / 32.9 / 33.7 | 24.1 / 24.3 / 24.8 | 1.35 | 1.06e+09 → 7.06e+08 | 0.29 ms, 1 rounds, 0 % tiles (fill) |
+| minibrot-p4 | 20.5 / 21.2 / 22.5 | 21.1 / 21.9 / 22.5 | 0.97 | 3.8e+08 → 3.8e+08 | 0.26 ms, 1 rounds, 0 % tiles |
+| deep-5e-14 | 39.1 / 40.4 / 41.0 | 8.3 / 9.9 / 10.7 | 4.07 | 1.92e+09 → 2.33e+08 | 0.63 ms, 1 rounds, 100 % tiles |
+| feigenbaum | 2366.1 / 2387.7 / 2408.8 | 2407.9 / 2414.7 / 2420.8 | 0.99 | 8.62e+10 → 8.62e+10 | 24.63 ms, 2 rounds, 0 % tiles |
+| neck-2e5 | 76.3 / 77.5 / 78.0 | 12.8 / 13.4 / 13.6 | 5.79 | 2.99e+09 → 2.77e+08 | 4.64 ms, 1 rounds, 100 % tiles |
+| neck-7e6 | 118.9 / 119.5 / 119.8 | 38.5 / 39.5 / 40.0 | 3.03 | 4.64e+09 → 8.32e+08 | 15.01 ms, 2 rounds, 100 % tiles |
+| cusp-1e5 | 119.8 / 120.8 / 121.3 | 110.8 / 112.6 / 114.7 | 1.07 | 4.67e+09 → 3.8e+09 | 9.93 ms, 2 rounds, 50 % tiles |
+| dense-5e-14 | 124.9 / 125.3 / 126.0 | 24.4 / 25.3 / 27.8 | 4.95 | 4.61e+09 → 6.02e+08 | 3.60 ms, 1 rounds, 100 % tiles |
+| root-third | 107.9 / 111.3 / 115.4 | 31.9 / 33.3 / 33.9 | 3.34 | 4.22e+09 → 9.65e+08 | 7.04 ms, 2 rounds, 100 % tiles |
+| sea-1e20 | 201.8 / 203.9 / 207.4 | 22.9 / 23.4 / 23.8 | 8.71 | 2.05e+09 → 1.28e+08 | 4.38 ms, 1 rounds, 100 % tiles |
+| sea-8007 | 393.7 / 396.1 / 411.3 | 393.7 / 397.4 / 409.6 | 1.00 | 1.96e+09 → 1.96e+09 | 0.99 ms, 1 rounds, 0 % tiles |
+| needle-1e305 | 45.4 / 45.8 / 46.3 | 40.9 / 41.1 / 41.6 | 1.11 | 1.8e+08 → 1.52e+08 | 0.78 ms, 1 rounds, 65 % tiles |
+| dendrite-1e300 | 4.9 / 5.2 / 10.1 | 2.1 / 2.1 / 2.1 | 2.49 | 4.66e+07 → 7.58e+06 | 0.34 ms, 1 rounds, 100 % tiles |
+| spiral-32412-1e19 | 3053.4 / 3066.8 / 3072.2 | 771.1 / 774.7 / 778.5 | 3.96 | 4.14e+10 → 7.69e+09 | 78.96 ms, 8 rounds, 100 % tiles |
+
+Where nothing is seeded or filled (home-100k, minibrot-p4, Feigenbaum, sea-8007) the cost is
+the seed pass (0.3–25 ms) and the first chunks' seeded pipeline: 0–3 %. Earlier in the day,
+on a quieter GPU, the same build-up measured dense 77 → 15 ms and spiral 2 250 → 510 ms (both
+~4.5–5×); the ratios hold, the absolute times do not.
+
+### The user's spiral (spiral-32412-1e19), auto iterations, as the app sees a jump
+
+`render --center … --scale 4.19804e-19 --size 1600x1000` without `--iterations`; "main" =
+`ALMONDBREAD_SA=0 ALMONDBREAD_FILL=0 ALMONDBREAD_ITER_FLOOR=0` (main's behaviour); GPU of every
+chunk and seed round, 3 runs each, alternating:
+
+| | first render of the view | once the limit is known |
+|---|---|---|
+| main | 944 ms at 10 384 (every pixel unresolved) + 3 061 ms at 41 536 = **4.0 s** | 3.06 s |
+| M5 | 691 ms pixels + 88 ms seeds at 41 536 (floor from the reference) = **0.78 s** | 0.78 s |
+
+5.1× for the first view, 3.9× after. Wall 787 ms vs 3 067 ms for a single pass. BLA does not
+help here and could not: relaxing its ε from 2^−24 to 2^−10 only extends its coverage from
+1 302 to 2 016 iterations (1.07× → 1.11× fewer steps), because the pixels' deltas from the
+centre orbit grow to the orbit's size within ~2 000 iterations in this chaotic spiral; local SA
+works because neighbouring pixels stay close to *each other* for ~23 000 iterations (leaf
+branch). The disc in the middle is pixels escaping after 41 536 (the extension passes resolve
+it in the app), not a period-32 412 minibrot: "ref 32412 pts" is the centre orbit escaping at
+32 411; no nucleus is in view (ball detection finds period 2 235, Newton fails).
+
+### Correctness (verify vs the CPU oracle)
+
+`verify`, 800 × 500 centre crop at the 1600-wide pixel size (needle 1600 × 1000), SA off / on /
+auto, and the on field against the off field. GPU-interior/CPU-exterior is 0.000 % everywhere,
+class mismatch on vs off 0.000 % at all 17 locations; escape-n differences and median |Δμ| move
+as in R5 (dense 15.6 → 16.7 %, 0.0102 → 0.0117; sea-1e20 9.9 → 10.0 %; seahorse-1e5 6.2 → 8.0 %,
+1.5e−5 → 4.7e−5; elephant 3.95 → 5.80 %; spiral 46.2 → 47.0 %, where float32 itself is far
+from the oracle). Auto equals off bit for bit where no tile is seeded (home, home-100k,
+elephant, minibrot-p4, Feigenbaum, sea-8007). Images (Aurora, 100 % crops at seahorse,
+sea-1e20, spiral, elephant, root-third, dense, neck-2e5, needle): no seams, patches or missing
+minibrots. Interior fill: bit-identical fields with and without (test `interior_fill_exact`).
+`make regress` with SA auto and forced on: all sessions OK, including two new spiral sessions
+(jump and pan; the pan exposed the interior-test switch bug, fixed, see
+[[techniques/auto-iterations]]).
+
+### Interactive (interaction test, background window 1280 × 820 pt at 2x, 120 Hz display)
+
+Two runs each, M5 vs all off; the background window is throttled to ~31 presented fps in
+both, so fps compare only where they drop below that. Final = full-resolution refined frame
+after the last input.
+
+| scenario | final frame ms M5 (run 1 / 2) | off | iterate GPU ms/frame M5 | off | preview scale M5 / off |
+|---|---|---|---|---|---|
+| dense pan | 517 / 417 | 933 / 966 | 5.8 / 7.1 | 7.5 / 7.9 | 0.13 / 0.12 |
+| dense zoom | 433 / 450 | 1067 / 983 | 7.0 / 7.7 | 8.7 / 9.0 | 0.13 / 0.12 |
+| neck2e5 pan | 533 / 783 | 1350 / 1100 | 10.1 / 9.1 | 10.5 / 11.1 | 0.12 / 0.12 |
+| neck zoom (1.7e−8) | 333 / 400 | 733 / 550 | 4.3 / 4.4 | 8.0 / 7.8 | 0.14 / 0.12 |
+| sea-1e20 pan | 333 / 433 | 1767 / 1733 | 10.1 / 11.5 | 13.4 / 12.6 | 0.12 / 0.12 |
+| sea-1e20 zoom | 317 / 416 | 1617 / 1616 | 9.5 / 9.6 | 11.2 / 11.4 | 0.13 / 0.12 |
+| spiral pan | 4 850 / 4 600 | none within 10 s | 19.0 / 19.3 (29 fps) | 39.5 / 40.0 (20 fps) | 0.12 / 0.12 |
+| spiral zoom | 3 517 / 3 750 | none within 10 s | 14.5 / 10.6 | 10.4 / 11.7 | 0.12 / 0.12 |
+| home pan | 216 / 216 | 216 / 216 | 6.9 / 6.0 | 7.2 / 6.8 | 0.93–0.96 / 0.90–0.94 |
+| 1e5 zoom | 533 / 533 | 533 / 433 | 5.3 / 5.5 | 5.7 / 5.5 | 0.13 / 0.13 |
+| deep zoom 1e-12 to 1e-40 | 400 / 217 | 283 / 283 | 7.1 / 6.9 | 5.9 / 6.0 | 0.75 / 0.43 |
+
+Shown frame vs fresh render: ≤ 21 pixels (0.001 %) differ in class in every scenario, both
+ways. Headless sessions through the same scheduler at 2560 × 1640 (`verify --history`, 120 Hz
+pacing, prints the gesture frames): spiral jump complete 1 884 ms (off 10 895 ms); spiral pan
+83 previews/s (off 90) after the gesture-frame fixes (unbounded gesture seed rounds had dropped
+it to 12/s; a cheap seeded refined frame had misled the dynamic resolution to 166 ms gesture
+frames), neck zoom 84 vs 74 previews/s, dense pan 118 vs 120.
+
+Cost where views restart often: "looks deep idle" (a look or palette every 0.1 s, idle, at
+1e−20) presented 12–16 fps with M5 against 13–25 off (noisy; 28–33 vs 17–27 ms GPU per frame):
+every look that needs the distance estimate restarts the job, and its full level now starts
+with seed rounds. Previews of refined views seed in one bounded round since (they waited for
+several before: 12 fps).

@@ -86,7 +86,8 @@ kernel void scResample(texture2d<float, access::read>  iterIn  [[texture(0)]],
 // the outline width and the palette filter follow the current pixel size. Also counts what the
 // view holds (samples, interior, unresolved, escape iterations as a 64-bit sum) for the
 // interior-test decision (kb: techniques/interior-detection): a frame's new tiles alone are a
-// biased sample of the view.
+// biased sample of the view. counts: samples, interior, unresolved, escape
+// iterations (lo, hi), interior at the limit without the test.
 kernel void scShade(texture2d<float, access::read>  iters  [[texture(0)]],
                     texture2d<float, access::read>  des    [[texture(1)]],
                     texture2d<float, access::read>  auxs   [[texture(2)]],
@@ -111,11 +112,13 @@ kernel void scShade(texture2d<float, access::read>  iters  [[texture(0)]],
     const uint nInterior = simd_sum(valid && it.x == ITER_INTERIOR ? 1u : 0u);
     const uint nUnresolved = simd_sum(valid && it.x == ITER_UNRESOLVED ? 1u : 0u);
     const uint nIter = simd_sum(valid && it.x >= 0.0f ? uint(it.x) : 0u);
+    const uint nLimit = simd_sum(valid && it.x == ITER_INTERIOR && it.y == 0.0f ? 1u : 0u);
     if (lane == 0 && nValid > 0) {
         atomic_fetch_add_explicit(&counts[0], nValid, memory_order_relaxed);
         atomic_fetch_add_explicit(&counts[1], nInterior, memory_order_relaxed);
         atomic_fetch_add_explicit(&counts[2], nUnresolved, memory_order_relaxed);
         const uint old = atomic_fetch_add_explicit(&counts[3], nIter, memory_order_relaxed);
         if (old + nIter < old) atomic_fetch_add_explicit(&counts[4], 1u, memory_order_relaxed);
+        if (nLimit > 0) atomic_fetch_add_explicit(&counts[5], nLimit, memory_order_relaxed);
     }
 }

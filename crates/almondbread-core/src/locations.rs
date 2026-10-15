@@ -279,4 +279,12 @@ pub const DEEP_LOCATIONS: &[DeepLocation] = &[
         max_iterations: 20000,
         note: "c = i at 1e-1000/px",
     },
+    DeepLocation {
+        name: "spiral-32412-1e19",
+        re: "-0.13415002160674054265664",
+        im: "-0.64991906714433853974391",
+        width: "6.716864e-16",
+        max_iterations: 41536,
+        note: "dense spiral around a period-32412 minibrot, 4.2e-19/px (user: the slowest area found)",
+    },
 ];

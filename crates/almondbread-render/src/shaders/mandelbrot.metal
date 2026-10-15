@@ -34,6 +34,9 @@ constant bool kDeep     [[function_constant(3)]];   // M3b: rescaled float32 del
 constant bool kInteriorColor [[function_constant(4)]];  // analyse interior cycles (period,
                                                     // multiplier, interior DE) for the interior
                                                     // colourings (kb: techniques/coloring-methods)
+constant bool kSeeded   [[function_constant(5)]];   // M5: fresh pixels of seeded tiles start from their
+                                                    // quadtree leaf's local series expansion
+                                                    // (kb: techniques/local-series-approximation)
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -67,7 +70,8 @@ struct IterateParams {
                           // a % 256 inside it (FL: spatially coherent, priority-ordered refinement)
     uint   height;        // level height in texels (padding texels of edge tiles are skipped)
     uint   tileOrder;     // 0: tiles in raster order; 1: tile = order[rank] (buffer 13)
-    uint   pad0;
+    uint   seedGate;      // M5: admit fresh pixels only once the level's seeds are final
+                          // (SeedStatus at buffer 20 of prepareChunk)
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
@@ -76,25 +80,75 @@ struct IterateParams {
     // View rotation (cos, sin) of the texel offset (kb: decisions/controls "View rotation");
     // (1, 0) unrotated, which keeps the plain products bit for bit.
     float2 rot;
+    uint   fillBorder;    // M5 interior fill: admission indices of the tile borders (0: off)
+    uint   fillEpoch;     // the level's stamp in tileBad[]
+    uint   fillProof;     // a border pixel counts as interior if proven within this many
+                          // iterations
+    uint   pad4;
 };
 
+// Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
+// 4 consecutive texels are a 2 x 2 block, 16 a 4 x 4 block and a SIMD group of 32 an 8 x 4
+// block (M5: a SIMD group starts from neighbouring local-SA leaves, kb:
+// techniques/local-series-approximation; also more compact than two 16-texel rows).
+static inline uint2 mortonDecode8(uint i) {
+    uint x = (i & 1u) | ((i >> 1) & 2u) | ((i >> 2) & 4u) | ((i >> 3) & 8u);
+    uint y = ((i >> 1) & 1u) | ((i >> 2) & 2u) | ((i >> 3) & 4u) | ((i >> 4) & 8u);
+    return uint2(x, y);
+}
+static inline uint mortonEncode8(uint2 v) {
+    uint x = v.x & 15u, y = v.y & 15u;
+    return (x & 1u) | ((x & 2u) << 1) | ((x & 4u) << 2) | ((x & 8u) << 3)
+         | ((y & 1u) << 1) | ((y & 2u) << 2) | ((y & 4u) << 3) | ((y & 8u) << 4);
+}
+
 // Admission index -> texel of a tiled level (kb: techniques/frame-reuse-and-progressive, FL):
-// texels are admitted tile by tile (16 x 16, row-major inside a tile); the tile order is raster
-// order or a priority list (newly exposed tiles first, then by distance from the zoom target).
-// Returns false for padding texels of edge tiles.
+// texels are admitted tile by tile (16 x 16, Morton order inside a tile); the tile order is
+// raster order or a priority list (newly exposed tiles first, then by distance from the zoom
+// target). Returns false for padding texels of edge tiles.
+// M5 interior fill (Mariani-Silver on the tile grid, kb: techniques/guessing-and-subdivision):
+// the first `fillBorder` = tiles x 60 admission indices are the tiles' borders (the ring of
+// 60 texels, in tile order), the rest their 14 x 14 insides; a tile whose whole border was
+// proven interior is filled interior without iterating its inside.
+static inline uint2 ringTexel(uint k) {
+    return k < 16u ? uint2(k, 0u) : k < 32u ? uint2(k - 16u, 15u) : k < 46u ? uint2(0u, k - 31u) : uint2(15u, k - 45u);
+}
+static inline uint ringIndex(uint2 l) {
+    return l.y == 0u ? l.x : l.y == 15u ? 16u + l.x : l.x == 0u ? 31u + l.y : 45u + l.y;
+}
+static inline bool onRing(uint2 s) {
+    const uint2 l = s & 15u;
+    return l.x == 0u || l.y == 0u || l.x == 15u || l.y == 15u;
+}
+
 static inline bool tileTexel(uint a, uint tilesX, uint width, uint height, uint tileOrder,
-                             device const uint* order, thread uint2& xy) {
-    uint rank = a >> 8, within = a & 255u;
-    uint tile = tileOrder != 0 ? order[rank] : rank;
-    xy = uint2((tile % tilesX) * 16u + (within & 15u), (tile / tilesX) * 16u + (within >> 4));
+                             device const uint* order, thread uint2& xy, uint fillBorder = 0u) {
+    uint rank, tile;
+    uint2 l;
+    if (fillBorder == 0u) {
+        rank = a >> 8;
+        l = mortonDecode8(a & 255u);
+    } else if (a < fillBorder) {
+        rank = a / 60u;
+        l = ringTexel(a - rank * 60u);
+    } else {
+        const uint b = a - fillBorder;
+        rank = b / 196u;
+        const uint k = b - rank * 196u;
+        l = uint2(1u + k % 14u, 1u + k / 14u);
+    }
+    tile = tileOrder != 0 ? order[rank] : rank;
+    xy = uint2((tile % tilesX) * 16u, (tile / tilesX) * 16u) + l;
     return xy.x < width && xy.y < height;
 }
 
 // Texel -> admission index (the inverse; rank[] is the inverse of order[]).
-static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const uint* rank) {
+static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const uint* rank, uint fillBorder = 0u) {
     uint tile = (s.y >> 4) * tilesX + (s.x >> 4);
     uint r = tileOrder != 0 ? rank[tile] : tile;
-    return (r << 8) | ((s.y & 15u) << 4) | (s.x & 15u);
+    if (fillBorder == 0u) return (r << 8) | mortonEncode8(s);
+    const uint2 l = s & 15u;
+    return onRing(s) ? r * 60u + ringIndex(l) : fillBorder + r * 196u + (l.y - 1u) * 14u + (l.x - 1u);
 }
 
 // Loop state of one live pixel. BLA needs nothing beyond (dz, m, n), so a level may switch
@@ -194,13 +248,86 @@ struct LevelCounters {
     uint admitted;        // fresh pixels admitted so far (scanline order)
     uint freshStart;      // this chunk's first fresh pixel
     uint freshCount;      // this chunk's fresh pixels
-    uint pad;
+    uint undecided;       // M5 interior fill: border pixels alive below fillProof iterations
+                          // after the last chunk (iterate adds them through buffer 24)
 };
 
 static inline float2 cmul(float2 a, float2 b) {
     return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
+// ---------------------------------------------------------------------------------------------
+// M5: local series approximation (kb: techniques/local-series-approximation,
+// questions/local-sa-float32). A quadtree node is a seed at its centre c0: it iterates exactly
+// (perturbation against the reference, rebasing as the pixel loop) and carries
+//   a = dz/dc * texel           (the DE derivative d of the pixel loop)
+//   b = d2z/dc2 * texel^2       (deep: floatexp; plain: divided by the texel, b * texel)
+// while |b| r <= 2 eps |a| over its radius r (texels). A child starts from its parent's state
+// shifted by delta (texels): dz + a delta + b delta^2 / 2, a + b delta, b. Pixels start from
+// their leaf node the same way and run the unchanged loop.
+// The interior test's w = dz_n/dz_1 is a function of c too: seeds carry it and its derivative
+//   wd = dw/dc * texel,  wd_{n+1} = 2 (a_n w_n + z_n wd_n)
+// and samples start from w + wd delta. (Restarting w at the branch is wrong: a later passage
+// of the orbit near 0 multiplies a restarted w by |2z| ~ 1e-300 at the deep needle, with no
+// growth from the earlier part of the orbit to balance it: 96 % false interior, measured R5.)
+// Seed passes are resumable: a node keeps its whole loop state, so a pass with a step budget
+// stops anywhere and the next round continues it with the same result (watchdog, M5).
+struct SeedNode {
+    float2 dz;       // delta to the reference (deep: mantissa)
+    float2 a;        // dz/dc * texel (deep: mantissa)
+    float2 b;        // plain: d2z/dc2 * texel; deep: d2z/dc2 * texel^2 mantissa
+    int    dzExp;    // deep exponents (plain: 0)
+    int    aExp;
+    int    bExp;
+    uint   m;        // reference index
+    uint   n;        // iteration of the branch state
+    uint   steps;    // seed steps executed by this node (incl. the rejected one)
+    float2 w;        // dz_n/dz_1 (interior test), floatexp mantissa
+    float2 wd;       // dw/dc * texel, floatexp mantissa
+    int    wExp;
+    int    wdExp;
+    uint   stamp;    // epoch << 2 | state (0 new, 1 running, 2 done): nodes of older seedings
+                     // in the buffer are "new" for this one
+    uint   path;     // accepted seed steps from the root to here: what a pixel saves
+    float  icMin;    // kInteriorColor: log2 of the smallest |z| so far, and its iteration
+    uint   icQ;
+};
+
+// One quadtree level of seeds; the leaf level's copy tells the iterate kernel where a pixel's
+// node is and how it was seeded.
+struct SeedParams {
+    uint  gridW;         // nodes per row of this quadtree level
+    uint  gridH;
+    uint  size;          // node size in texels
+    uint  offset;        // first node of this level in the node buffer
+    uint  parentGridW;
+    uint  parentOffset;
+    uint  root;          // 1: no parent, start at z = 0
+    uint  softIter;      // seeds stop here
+    float radius;        // texels
+    float eps;
+    uint  epoch;         // this seeding (node stamps)
+    uint  budget;        // seed steps per node in this pass
+    float2 jitter;       // the seeded level's sample position inside a texel
+    uint  tilesX;        // 16 x 16 tiles per row of the seeded level
+    uint  gateMode;      // seedGate: 1 per-tile forecast, 2 every tile seeded
+    float gateRel;       // a tile is seeded when its leaves' mean path (seed steps) is at
+    float gateAbs;       // least gateAbs, or without a cost estimate (gateAbs 0) when their
+                         // mean branch iteration is at least gateRel * softIter
+    uint  tilesY;
+    uint  truncate;      // 1 (gesture frames): a node out of budget branches where it is (an
+                         // earlier branch is always valid, only less useful), so the seeds take
+                         // one bounded round; not deterministic in the budget, which gesture
+                         // frames need not be
+};
+
+// The seed round's status (buffer 20 of the seed kernels and of prepareChunk).
+struct SeedStatus {
+    atomic_uint unfinished;   // nodes of this round not done (incl. waiting for their parent)
+    atomic_uint seededTiles;  // tiles seedGate let start from their seeds
+    atomic_uint pathLo;       // sum over those tiles of their leaves' mean path (64 bit)
+    atomic_uint pathHi;
+};
 
 // ---------------------------------------------------------------------------------------------
 // Extended range for the deep kernel (M3b, kb: techniques/extended-range-floats). FE is a
@@ -312,7 +439,8 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
                          device uint* indirectArgs           [[buffer(7)]],
                          constant uint& threadsPerGroup      [[buffer(8)]],
                          device LevelCounters& level         [[buffer(9)]],
-                         device uint* listCount              [[buffer(11)]])
+                         device uint* listCount              [[buffer(11)]],
+                         device SeedStatus& seedStatus       [[buffer(20)]])
 {
     if (p.firstChunk != 0) {
         *countIn = 0;
@@ -321,6 +449,17 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
     }
     uint live = *countIn;
     uint fresh = min(p.total - level.admitted, p.capacity - live);
+    // M5: a seeded level admits nothing until its last seed round finished every node (the
+    // chunk is then a no-op; the next round and chunks follow).
+    if (p.seedGate != 0 && atomic_load_explicit(&seedStatus.unfinished, memory_order_relaxed) != 0) fresh = 0;
+    // M5 interior fill: the tile borders first; the insides only once every border pixel is
+    // decided (finished, or past fillProof iterations, which spoils its tile), so a tile's fill
+    // never depends on chunk timing, and the wait is at most fillProof iterations.
+    if (p.fillBorder != 0) {
+        if (level.admitted < p.fillBorder) fresh = min(fresh, p.fillBorder - level.admitted);
+        else if (p.firstChunk == 0 && level.undecided != 0) fresh = 0;
+    }
+    level.undecided = 0;
     level.freshStart = level.admitted;
     level.freshCount = fresh;
     level.admitted += fresh;
@@ -348,6 +487,375 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
                         device ChunkStats* stats             [[buffer(6)]])
 {
     stats[p.statSlot].liveOut = *countOut;
+}
+
+// M5: local series approximation seed passes (kb: techniques/local-series-approximation).
+// A seeding is a sequence of rounds, one command buffer each: seedBegin, then one seedLevel
+// dispatch per quadtree level (root first; one thread per node), then seedGate. A node runs
+// at most `budget` seed steps per round and keeps its whole state, so the result does not
+// depend on how rounds cut the work (shown frame = fresh render). A child waits for its parent
+// to be done (counted as unfinished). The round's unfinished count gates pixel admission in
+// prepareChunk: no pixel starts before every leaf is final.
+// Node centres are texel corners (u, v) = (i + 1/2) size; a sample at texel x has the complex
+// offset of (x + jitter), the node that of ((u, v) + jitter - 1/2) (same level jitter).
+
+// Interior-test value |w| n^2 of a floatexp w.
+static inline float feWTest(FE w, uint n) {
+    return max(abs(w.m.x), abs(w.m.y)) * (float(n) * float(n)) * pow2f(clamp(w.e, -126, 127));
+}
+
+static inline float mabs(float2 v) {
+    return max(abs(v.x), abs(v.y));
+}
+
+// Deep views with texels of at least 2^this seed in float32 (scaled units), deeper in floatexp.
+constant int SEED_FLOAT_MIN_EXP = -80;
+
+// Texel offsets (x right, y down) as complex offsets in texel units, turned by the view
+// rotation as the iterate kernel turns its pixels' (kb: decisions/controls "View rotation").
+static inline float2 texelOffset(constant IterateParams& p, float2 d) {
+    const float2 o = float2(d.x, -d.y);
+    return float2(o.x * p.rot.x - o.y * p.rot.y, o.x * p.rot.y + o.y * p.rot.x);
+}
+
+static inline float2 seedDc(constant IterateParams& p, float2 q, float2 jitter) {
+    return texelOffset(p, q + (jitter - 0.5f) - p.halfSize) * p.texelScale + p.refOffset;
+}
+
+kernel void seedBegin(device SeedStatus& status [[buffer(20)]])
+{
+    atomic_store_explicit(&status.unfinished, 0u, memory_order_relaxed);
+    atomic_store_explicit(&status.seededTiles, 0u, memory_order_relaxed);
+    atomic_store_explicit(&status.pathLo, 0u, memory_order_relaxed);
+    atomic_store_explicit(&status.pathHi, 0u, memory_order_relaxed);
+}
+
+kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
+                      device const float2* ref     [[buffer(1)]],
+                      constant BlaParams& bla      [[buffer(14)]],
+                      device const RefX* refx      [[buffer(16)]],
+                      device const BlaEntryX* tableX [[buffer(17)]],
+                      device SeedNode* nodes       [[buffer(18)]],
+                      constant SeedParams& sp      [[buffer(19)]],
+                      device SeedStatus& status    [[buffer(20)]],
+                      uint tid                     [[thread_position_in_grid]])
+{
+    if (tid >= sp.gridW * sp.gridH) return;
+    const uint idx = sp.offset + tid;
+    // (Done: state 2, or 3 when the seed stopped proven interior.)
+    const uint stampDone = (sp.epoch << 2) | 2u, stampRunning = (sp.epoch << 2) | 1u;
+    SeedNode s = nodes[idx];
+    if ((s.stamp | 1u) == (stampDone | 1u)) return;
+    const uint2 nxy = uint2(tid % sp.gridW, tid / sp.gridW);
+    const float2 q = (float2(nxy) + 0.5f) * float(sp.size);
+    const float2 dc = seedDc(p, q, sp.jitter);
+    const uint last = p.refLen - 1;
+    const bool start = s.stamp != stampRunning;
+    float2 delta = 0.0f;
+    if (start) {
+        if (sp.root != 0) {
+            s.dz = 0.0f; s.a = 0.0f; s.b = 0.0f;
+            s.dzExp = FE_ZERO; s.aExp = FE_ZERO; s.bExp = FE_ZERO;
+            s.m = 0; s.n = 0;
+            s.w = float2(0.5f, 0.0f); s.wExp = 1;
+            s.wd = 0.0f; s.wdExp = FE_ZERO;
+            s.path = 0;
+            s.icMin = 1e30f;
+            s.icQ = 0;
+        } else {
+            const uint2 pxy = nxy / 2u;
+            const SeedNode par = nodes[sp.parentOffset + pxy.y * sp.parentGridW + pxy.x];
+            if ((par.stamp | 1u) != (stampDone | 1u)) {
+                atomic_fetch_add_explicit(&status.unfinished, 1u, memory_order_relaxed);
+                return;
+            }
+            s = par;
+            delta = texelOffset(p, q - (float2(pxy) + 0.5f) * float(2u * sp.size));
+        }
+        s.steps = 0;
+    }
+    uint steps = s.steps, path = s.path;
+    uint m = s.m, n = s.n;
+    float icMin = s.icMin;
+    uint icQ = s.icQ;
+    uint budget = sp.budget;
+    bool done = true, provenInterior = false;
+    FE W = FE{s.w, s.wExp}, WD = FE{s.wd, s.wdExp};
+    if (start && sp.root == 0 && kInterior) W = feAdd(W, feMul(WD, feNorm(delta, 0)));
+    if (kDeep && p.scaleExp < SEED_FLOAT_MIN_EXP) {
+        const FE C = feNorm(dc, p.scaleExp);
+        const FE TS = feNorm(float2(p.texelScale, 0.0f), p.scaleExp);
+        FE dz = FE{s.dz, s.dzExp}, A = FE{s.a, s.aExp}, B = FE{s.b, s.bExp};
+        if (start && sp.root == 0) {
+            const FE D = feNorm(delta, 0);
+            const FE BD = feMul(B, D);
+            dz = feAdd(dz, feMul(feAdd(A, FE{BD.m, BD.e - 1}), D));
+            A = feAdd(A, BD);
+            FE z = feAdd(refAt(refx, m), dz);
+            if (m != 0 && (m == last || feLess(z, dz))) { dz = z; m = 0; }
+        }
+        const FE R = feNorm(float2(sp.radius, 0.0f), 0);
+        const FE L = feNorm(float2(2.0f * sp.eps, 0.0f), 0);
+        const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
+        // |c| + |texel| r: the largest |c| of the node's region (BLA validity).
+        const FE cMax = feAdd(feNorm(float2(length(C.m), 0.0f), C.e),
+                              feNorm(float2(TS.m.x * sp.radius, 0.0f), TS.e));
+        while (n < sp.softIter) {
+            if (budget == 0) { done = sp.truncate != 0u; break; }
+            // BLA blocks (kBLA, deep views): z_{m+l} = A z_m + B c is affine in (z, c), so the
+            // node's expansion maps exactly: dz' = A dz + B c, a' = A a + B texel, b' = A b,
+            // valid for the whole region when |dz| + |a| r (1 + eps) + K (|c| + |texel| r) < R.
+            if (kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
+                const FE zMax = feAdd(feNorm(float2(length(dz.m), 0.0f), dz.e),
+                                      feNorm(float2(length(A.m) * sp.radius * (1.0f + sp.eps), 0.0f), A.e));
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                BlaEntryX best;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > last || n + l > sp.softIter) break;
+                    const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
+                    if (!(x.r > 0.0f)) break;
+                    const int kce = x.ke + cMax.e - x.re;
+                    const float t = x.r - (kce < -150 ? 0.0f : x.k * cMax.m.x * pow2f(min(kce, 64)));
+                    if (!(t > 0.0f && zMax.m.x * pow2f(clamp(zMax.e - x.re, -127, 64)) < t)) break;
+                    best = x;
+                    len = l;
+                }
+                if (len != 0) {
+                    const FE BA = FE{best.a, best.ae}, BB = FE{best.b, best.be};
+                    const FE A2 = feAdd(feMul(BA, A), feMul(BB, TS));
+                    const FE B2 = feMul(BA, B);
+                    steps++;
+                    if (feLess(feMul(A2, L), feMul(B2, R))) break;
+                    dz = feAdd(feMul(BA, dz), feMul(BB, C));
+                    A = A2;
+                    B = B2;
+                    if (kInterior) {
+                        W = feMul(BA, W);
+                        WD = feMul(BA, WD);
+                    }
+                    m += len;
+                    n += len;
+                    budget--;
+                    path++;
+                    const FE zb = feAdd(refAt(refx, m), dz);
+                    if (m == last || feLess(zb, dz)) { dz = zb; m = 0; }
+                    continue;
+                }
+            }
+            const FE Zx = refAt(refx, m);
+            const FE z = feAdd(Zx, dz);
+            const FE z2 = FE{z.m, z.e + 1};
+            const FE A2 = feAdd(feMul(z2, A), TS);
+            const FE t = feAdd(feMul(A, A), feMul(z, B));
+            const FE B2 = FE{t.m, t.e + 1};
+            const FE dz2 = feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, dz), dz), C);
+            const FE zn = feAdd(refAt(refx, m + 1), dz2);
+            steps++;
+            if (zn.e > 0) {
+                if (zn.e > 64) break;
+                const float2 f = feFloat(zn);
+                if (dot(f, f) > p.bailout2) break;
+            }
+            if (feLess(feMul(A2, L), feMul(B2, R))) break;
+            if (kInteriorColor && n != 0) {   // (z_0 = 0 is not an approach)
+                const float zl = length(z.m);
+                const float l = zl > 0.0f ? log2(zl) + float(z.e) : -1e30f;
+                if (l < icMin) { icMin = l; icQ = n; }
+            }
+            if (kInterior && n != 0) {   // (w_1 = 1, see the plain path)
+                const FE t2 = feAdd(feMul(A, W), feMul(z, WD));
+                WD = FE{t2.m, t2.e + 1};
+                W = feMul(z2, W);
+            }
+            dz = dz2; A = A2; B = B2;
+            m++; n++;
+            budget--;
+            path++;
+            if (m == last || feLess(zn, dz)) { dz = zn; m = 0; }
+            if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) {
+                provenInterior = true;
+                break;
+            }
+        }
+        s.dz = dz.m; s.dzExp = dz.e; s.a = A.m; s.aExp = A.e; s.b = B.m; s.bExp = B.e;
+    } else {
+        // Float32 seeds: the plain kernel, and the deep kernel down to texels of 2^-80 (M5:
+        // floatexp seed steps cost ~10x a float step, and the root level runs on few threads
+        // where only the step latency counts: 47 ms of serial root seeds at the
+        // spiral-32412-1e19 view). In units: a = dz/dc * texel, b = d2z/dc2 * texel, so a / ts
+        // = dz/dc stays below ~1/ts and a^2 is never formed. Deep views compare max-norms
+        // (squared norms of 1e-19 deltas underflow) and take BLA blocks from the floatexp
+        // table, converted per lookup.
+        const float sc = kDeep ? pow2f(p.scaleExp) : 1.0f;
+        const float ts = p.texelScale * sc, invTs = 1.0f / ts;
+        const float2 dcf = dc * sc;
+        float2 dz, A, B;
+        if (kDeep) {
+            // Node state in floatexp (the deep pixel start reads it so), b in these units
+            // (d2z/dc2 * texel, not * texel^2: exact round trips between rounds).
+            dz = feFloat(FE{s.dz, s.dzExp});
+            A = feFloat(FE{s.a, s.aExp});
+            B = feFloat(FE{s.b, s.bExp});
+        } else {
+            dz = s.dz; A = s.a; B = s.b;
+        }
+        if (start && sp.root == 0) {
+            dz += cmul(A, delta) + (0.5f * ts) * cmul(B, cmul(delta, delta));
+            A += ts * cmul(B, delta);
+            const float2 z = ref[m] + dz;
+            if (kDeep) {
+                if (m != 0 && (mabs(z) < mabs(dz) || m == last)) { dz = z; m = 0; }
+            } else {
+                if (m != 0 && (dot(z, z) < dot(dz, dz) || m == last)) { dz = z; m = 0; }
+            }
+        }
+        // Accept while |B ts| r <= 2 eps |A|.
+        const float lim = 2.0f * sp.eps / (ts * sp.radius);
+        const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
+        const float cMax = kBLA ? mabs(dcf) * 1.4143f + ts * sp.radius : 0.0f;
+        while (n < sp.softIter) {
+            if (budget == 0) { done = sp.truncate != 0u; break; }
+            if (kDeep && kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
+                // As the floatexp seeds: the longest block valid for the whole node.
+                const float zMax = mabs(dz) * 1.4143f + mabs(A) * 1.4143f * sp.radius * (1.0f + sp.eps);
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                BlaEntryX best;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > last || n + l > sp.softIter) break;
+                    const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
+                    if (!(x.r > 0.0f)) break;
+                    const float t = x.r * pow2f(clamp(x.re, -126, 127)) - x.k * pow2f(clamp(x.ke, -126, 127)) * cMax;
+                    if (!(t > 0.0f && zMax < t)) break;
+                    best = x;
+                    len = l;
+                }
+                if (len != 0) {
+                    const float2 BA = scale2(best.a, clamp(best.ae, -250, 250));
+                    const float2 BB = scale2(best.b, clamp(best.be, -250, 250));
+                    const float2 A2 = cmul(BA, A) + BB * ts;
+                    const float2 B2 = cmul(BA, B);
+                    steps++;
+                    if (!(mabs(B2) <= lim * mabs(A2))) break;
+                    dz = cmul(BA, dz) + cmul(BB, dcf);
+                    A = A2;
+                    B = B2;
+                    if (kInterior) {
+                        const FE fa = feNorm(best.a, best.ae);
+                        W = feMul(fa, W);
+                        WD = feMul(fa, WD);
+                    }
+                    m += len;
+                    n += len;
+                    budget--;
+                    path++;
+                    const float2 zb = ref[m] + dz;
+                    if (m == last || mabs(zb) < mabs(dz)) { dz = zb; m = 0; }
+                    continue;
+                }
+            }
+            const float2 Z = ref[m];
+            const float2 z = Z + dz;
+            const float2 A2 = 2.0f * cmul(z, A) + float2(ts, 0.0f);
+            const float2 B2 = 2.0f * (cmul(A, A * invTs) + cmul(z, B));
+            const float2 dz2 = cmul(2.0f * Z + dz, dz) + dcf;
+            const float2 zn = ref[m + 1] + dz2;
+            steps++;
+            const float r2 = dot(zn, zn);
+            if (!(r2 <= p.bailout2)) break;
+            if (kDeep) {
+                if (!(mabs(B2) <= lim * mabs(A2))) break;
+            } else {
+                if (!(length(B2) <= lim * length(A2))) break;
+            }
+            if (kInteriorColor && n != 0) {   // (z_0 = 0 is not an approach)
+                const float zz = mabs(z);
+                const float l = zz > 0.0f ? log2(zz) + 0.5f * log2(dot(z / zz, z / zz)) : -1e30f;
+                if (l < icMin) { icMin = l; icQ = n; }
+            }
+            // (w_1 = 1: the step from z_0 = 0 would zero it, as in the pixel loop's first step.)
+            if (kInterior && n != 0) {
+                const FE zf = feNorm(z, 0);
+                const FE t2 = feAdd(feMul(feNorm(A, 0), W), feMul(zf, WD));
+                WD = FE{t2.m, t2.e + 1};
+                W = feMul(FE{zf.m, zf.e + 1}, W);
+            }
+            dz = dz2; A = A2; B = B2;
+            m++; n++;
+            budget--;
+            path++;
+            if (kDeep) {
+                if (mabs(zn) < mabs(dz) || m == last) { dz = zn; m = 0; }
+            } else {
+                if (r2 < dot(dz, dz) || m == last) { dz = zn; m = 0; }
+            }
+            if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) {
+                provenInterior = true;
+                break;   // interior seed: branch here (samples inherit w + wd delta)
+            }
+        }
+        if (kDeep) {
+            const FE fz = feNorm(dz, 0), fa = feNorm(A, 0), fb = feNorm(B, 0);
+            s.dz = fz.m; s.dzExp = fz.e; s.a = fa.m; s.aExp = fa.e; s.b = fb.m; s.bExp = fb.e;
+        } else {
+            s.dz = dz; s.a = A; s.b = B;
+            s.dzExp = 0; s.aExp = 0; s.bExp = 0;
+        }
+    }
+    s.m = m; s.n = n; s.steps = steps; s.path = path;
+    s.w = W.m; s.wExp = W.e; s.wd = WD.m; s.wdExp = WD.e;
+    s.icMin = icMin; s.icQ = icQ;
+    s.stamp = done ? (stampDone | (provenInterior ? 1u : 0u)) : stampRunning;
+    if (!done) atomic_fetch_add_explicit(&status.unfinished, 1u, memory_order_relaxed);
+    nodes[idx] = s;
+}
+
+// After the leaf level: which 16 x 16 tiles start their pixels from the seeds (one thread per
+// tile). Starting a pixel at its leaf's reference index costs SIMD coherence (neighbouring
+// leaves start at unrelated m, and pixels that run long keep the phase offset for their whole
+// orbit: ~10-25 % per remaining step), so a tile is seeded only where its leaves saved a good
+// share of a pixel's work (auto, gateMode 1): mean path (seed steps a pixel saves) >= gateAbs,
+// which the scheduler sets to a share of the last level's steps per texel; without that
+// estimate (a fresh renderer), mean branch iteration >= gateRel * softIter. Measured: home-100k,
+// Feigenbaum, minibrot-p4, sea-8007 5-25 % slower seeded, dense/spiral/neck 3-6x faster.
+kernel void seedGate(device const SeedNode* nodes [[buffer(18)]],
+                     constant SeedParams& sp      [[buffer(19)]],
+                     device SeedStatus& status    [[buffer(20)]],
+                     device uint* tiles           [[buffer(22)]],
+                     uint tid                     [[thread_position_in_grid]])
+{
+    if (tid >= sp.tilesX * sp.tilesY) return;
+    if (sp.gateMode == 2u) {
+        tiles[tid] = 1u;
+        atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
+        return;
+    }
+    const uint2 t = uint2(tid % sp.tilesX, tid / sp.tilesX);
+    const uint per = max(16u / sp.size, 1u);
+    const uint2 l0 = t * per;
+    float pathSum = 0.0f, nSum = 0.0f;
+    uint count = 0;
+    for (uint y = l0.y; y < min(l0.y + per, sp.gridH); y++) {
+        for (uint x = l0.x; x < min(l0.x + per, sp.gridW); x++) {
+            const SeedNode nd = nodes[sp.offset + y * sp.gridW + x];
+            pathSum += float(nd.path);
+            nSum += float(nd.n);
+            count++;
+        }
+    }
+    const bool bySteps = sp.gateAbs > 0.0f;
+    const float need = bySteps ? sp.gateAbs : sp.gateRel * float(sp.softIter);
+    const bool seeded = count > 0 && (bySteps ? pathSum : nSum) >= need * float(count);
+    tiles[tid] = seeded ? 1u : 0u;
+    if (seeded) {
+        atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
+        const uint v = uint(pathSum / float(count));
+        const uint old = atomic_fetch_add_explicit(&status.pathLo, v, memory_order_relaxed);
+        if (old + v < old) atomic_fetch_add_explicit(&status.pathHi, 1u, memory_order_relaxed);
+    }
 }
 
 // Perturbation: z = Z + dz, with Z the reference orbit.
@@ -400,6 +908,11 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     texture2d<float, access::write> auxOut  [[texture(2), function_constant(kInteriorColor)]],
                     device const PixelStateIC* icIn         [[buffer(18), function_constant(kInteriorColor)]],
                     device PixelStateIC* icOut              [[buffer(19), function_constant(kInteriorColor)]],
+                    device const SeedNode* seeds            [[buffer(20), function_constant(kSeeded)]],
+                    constant SeedParams& leaf               [[buffer(21), function_constant(kSeeded)]],
+                    device const uint* seedTiles            [[buffer(22), function_constant(kSeeded)]],
+                    device atomic_uint* tileBad             [[buffer(23)]],
+                    device atomic_uint* levelAtomic         [[buffer(24)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -423,7 +936,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             st.pixel = listIn[a];            // lists hold texel indices (y * width + x)
         } else {
             uint2 xy;
-            active = tileTexel(a, p.tilesX, p.width, p.height, p.tileOrder, order, xy);
+            active = tileTexel(a, p.tilesX, p.width, p.height, p.tileOrder, order, xy, p.fillBorder);
             st.pixel = xy.y * p.width + xy.x;
         }
     } else {
@@ -440,10 +953,36 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     float2 dc = off * p.texelScale + p.refOffset;
 
     bool escaped = false, interior = false;
+    // M5 interior fill: an inside texel of a whole tile whose border is all proven interior.
+    const uint tileOf = (gid.y >> 4) * p.tilesX + (gid.x >> 4);
+    bool filled = false;
+    if (p.fillBorder != 0 && fresh && active && !onRing(gid) && (gid.x | 15u) < p.width && (gid.y | 15u) < p.height
+        && atomic_load_explicit(&tileBad[tileOf], memory_order_relaxed) != p.fillEpoch) {
+        filled = true;
+        interior = true;
+        st.n = 0;
+    }
     float r2 = 0.0f;
     float2 z = 0.0f;
     uint iters = 0;
     uint steps = 0;
+
+    // M5 (kSeeded, kb: techniques/local-series-approximation): a fresh pixel of a seeded tile
+    // starts from its leaf node, offset by its sample position from the node centre (texels;
+    // extension passes and AA samples of the level use the same leaves, AA with their own
+    // jitter).
+    SeedNode sd;
+    float2 sdDelta = 0.0f;
+    bool fromSeed = false;
+    if (kSeeded && fresh && active) {
+        fromSeed = seedTiles[(gid.y >> 4) * leaf.tilesX + (gid.x >> 4)] != 0;
+        if (fromSeed) {
+            const uint2 lxy = gid / leaf.size;
+            sd = seeds[leaf.offset + lxy.y * leaf.gridW + lxy.x];
+            sdDelta = texelOffset(p, (float2(gid) + p.jitter)
+                - ((float2(lxy) + 0.5f) * float(leaf.size) + leaf.jitter - 0.5f));
+        }
+    }
 
     // Interior cycle analysis (kInteriorColor): a pixel proven interior continues here instead
     // of finishing, see below; `inB` marks one already analysing (the main loop is done).
@@ -456,13 +995,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     ic.k = 0;
     ic.minLog2 = 1e30f;
     if (kInteriorColor && active && !fresh) ic = icIn[tid];
+    // (A seeded pixel inherits its leaf's closest approach: the orbit up to the branch is the
+    // seed's within the expansion's error.)
+    if (kInteriorColor && fromSeed && sd.icMin < 1e29f) { ic.minLog2 = sd.icMin; ic.k = sd.icQ; }
     bool inB = kInteriorColor && (ic.capFlags & IC_ACTIVE) != 0;
     float icR2 = kInteriorColor ? exp2(min(2.0f * ic.minLog2, 127.0f)) : 0.0f;
     float icMinLog2 = ic.minLog2;
     uint icQ = ic.k;
 #define IC_TRACK(r2v, nv) if (kInteriorColor && (r2v) < icR2) { icR2 = (r2v); icMinLog2 = 0.5f * log2(icR2); icQ = (nv); }
 
-    if (active && !inB && kDeep) {
+    if (active && !inB && !filled && kDeep) {
         // M3b deep loop (kb: techniques/extended-range-floats "Rescaled iterations", rebasing,
         // bla). The pixel's delta is z = w 2^e. Two regimes:
         //  P (e == 0): |z| >= 2^-50, w is the plain float32 delta; the loop is the plain one
@@ -481,7 +1023,23 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         float2 w, dm, zw;
         int e, dExp, wExp;
         uint m, n;
-        if (fresh) {
+        if (fromSeed) {
+            // Start from the leaf's expansion: dz + a delta + b delta^2/2, d = a + b delta,
+            // w + wd delta.
+            const FE D = feNorm(sdDelta, 0);
+            const FE A = FE{sd.a, sd.aExp};
+            // (Float32 seeds keep b = d2z/dc2 * texel, floatexp seeds b * texel.)
+            const FE Bn = p.scaleExp >= SEED_FLOAT_MIN_EXP ? feMul(FE{sd.b, sd.bExp}, TS) : FE{sd.b, sd.bExp};
+            const FE BD = feMul(Bn, D);
+            const FE zx = feAdd(FE{sd.dz, sd.dzExp}, feMul(feAdd(A, FE{BD.m, BD.e - 1}), D));
+            if (zx.e >= DEEP_PLAIN_EXP) { w = feFloat(zx); e = 0; } else { w = zx.m; e = zx.e; }
+            const FE dx = feAdd(A, BD);
+            dm = dx.m; dExp = dx.e;
+            const FE wx = kInterior ? feAdd(FE{sd.w, sd.wExp}, feMul(FE{sd.wd, sd.wdExp}, D)) : FE{float2(1.0f, 0.0f), 0};
+            zw = wx.m; wExp = wx.e;
+            m = sd.m; n = sd.n;
+            st.n = n;
+        } else if (fresh) {
             // z_1 = c, d_1 = texel, w_1 = 1.
             if (C.e >= DEEP_PLAIN_EXP) { w = feFloat(C); e = 0; } else { w = C.m; e = C.e; }
             dm = TS.m; dExp = TS.e;
@@ -733,8 +1291,36 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
-    } else if (active && !inB) {
-        if (fresh) {
+    } else if (active && !inB && !filled) {
+        if (fromSeed) {
+            // M5: start from the leaf's expansion (iterations counted from its n).
+            const float ts = p.texelScale;
+            st.dz = sd.dz + cmul(sd.a, sdDelta) + (0.5f * ts) * cmul(sd.b, cmul(sdDelta, sdDelta));
+            st.d = sd.a + ts * cmul(sd.b, sdDelta);
+            // w + wd delta, as the plain loop keeps it: w 2^wExp with wExp a multiple of 60 >= 0.
+            st.w = float2(1.0f, 0.0f);
+            st.wExp = 0;
+            if (kInterior) {
+                const FE wx = feAdd(FE{sd.w, sd.wExp}, feMul(FE{sd.wd, sd.wdExp}, feNorm(sdDelta, 0)));
+                if (wx.e <= 0) {
+                    st.w = scale2(wx.m, max(wx.e, -250));
+                } else {
+                    const int k = ((wx.e + 59) / 60) * 60;
+                    st.w = scale2(wx.m, wx.e - k);
+                    st.wExp = k;
+                }
+            }
+            st.m = sd.m;
+            st.n = sd.n;
+            z = ref[st.m] + st.dz;
+            r2 = dot(z, z);
+            if (r2 > p.bailout2) {
+                escaped = true;
+            } else if (st.m != 0 && (r2 < dot(st.dz, st.dz) || st.m == last)) {
+                st.dz = z;
+                st.m = 0;
+            }
+        } else if (fresh) {
             // First step done here, from z_0 = 0: z_1 = c, dz_1 = dc, d_1 = texelScale,
             // w_1 = 1 (the generic step would multiply w by z_0 = 0).
             st.dz = dc;
@@ -1044,6 +1630,18 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         // (An extension pixel keeps showing "unresolved" until it resolves.)
         iterOut.write(float4(ITER_PENDING, 0.0f, 0.0f, 0.0f), gid);
     }
+    // M5 interior fill: a border pixel is good when it is proven interior within fillProof
+    // iterations (a function of its orbit alone); one that finished otherwise, or is still
+    // running at fillProof or beyond (it can only finish later), spoils its tile. Those still
+    // below it are counted: the insides wait for them (prepareChunk).
+    if (p.fillBorder != 0) {
+        const bool ring = active && !inB && onRing(gid);
+        if (ring && (alive ? st.n >= p.fillProof : !(interior && st.n < p.fillProof))) {
+            atomic_store_explicit(&tileBad[tileOf], p.fillEpoch, memory_order_relaxed);
+        }
+        const uint und = simd_sum((ring && alive && st.n < p.fillProof) ? 1u : 0u);
+        if (lane == 0 && und != 0) atomic_fetch_add_explicit(&levelAtomic[3], und, memory_order_relaxed);
+    }
     // Unresolved at the limit: remembered for the extension level (one atomic per
     // threadgroup, like the live-list compaction below).
     bool collect = p.listMode != 0 && crossed && kInterior;
@@ -1177,6 +1775,8 @@ struct ColorParams {
     float2 hueRot;        // palette hue turn (cos, sin) in OKLab (cinematic hue drift); y = 0: none
     float4 deep;          // dense regions: calm colour (linear RGB), w = 1 on (0: mean grey)
     float4 filament;      // dense regions: colour of the thin lines along the boundary
+    uint   fillBorder;    // M5: the main level's admission order has tile borders first
+    uint   pad3[3];
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -1375,7 +1975,7 @@ static inline float3 ditheredSRGB(float3 linear, uint2 gid) {
 // not pending.
 static inline bool finished(texture2d<float, access::read> t, uint2 s, constant ColorParams& c,
                             device const uint* rank, uint admitted, thread float2& it) {
-    if (tileIndex(s, c.tilesX, c.tileOrder, rank) >= admitted) return false;
+    if (tileIndex(s, c.tilesX, c.tileOrder, rank, c.fillBorder) >= admitted) return false;
     it = t.read(s).xy;
     return it.x != ITER_PENDING;
 }

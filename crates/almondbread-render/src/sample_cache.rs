@@ -31,6 +31,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
+use almondbread_core::autoiter::InteriorStats;
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use bytemuck::bytes_of;
 
@@ -281,7 +282,7 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     pending: VecDeque<(bool, B::Submission, Option<(B::Buffer, usize)>)>,
     /// What the last finished shade pass counted in the view: interior fraction and exterior
     /// iterations per sample (the interior-test statistics of a fresh preview).
-    view_stats: Option<(f64, f64)>,
+    view_stats: Option<InteriorStats>,
     pipelines: Option<[B::Pipeline; 3]>,
     /// Generation of the job whose full level seeded the current epoch.
     pub seeded_generation: u64,
@@ -350,13 +351,19 @@ impl<B: GpuBackend> SampleCache<B> {
                 continue;
             }
             if let Some((b, limit)) = counts {
-                let mut bytes = [0u8; 20];
+                let mut bytes = [0u8; 24];
                 backend.read_buffer(&b, 0, &mut bytes);
                 let u = |k: usize| u32::from_le_bytes([bytes[4 * k], bytes[4 * k + 1], bytes[4 * k + 2], bytes[4 * k + 3]]);
                 let n = u(0) as f64;
                 if n > 0.0 {
                     let iters = ((u64::from(u(4)) << 32) | u64::from(u(3))) as f64;
-                    self.view_stats = Some((u(1) as f64 / n, (iters + u(2) as f64 * limit as f64) / n));
+                    // (Unresolved with the test: ran to the limit; without it they are drawn
+                    // interior, counted in u(1), and their iterations are not exterior work.)
+                    self.view_stats = Some(InteriorStats {
+                        fraction: u(1) as f64 / n,
+                        exterior_iterations: (iters + u(2) as f64 * limit as f64) / n,
+                        unresolved: (u(2) + u(5)) as f64 / n,
+                    });
                 }
             }
             if self.config.trace && gpu > 0.002 {
@@ -1185,7 +1192,7 @@ impl<B: GpuBackend> SampleCache<B> {
             rect_size: [(x1 - x0) as u32, (y1 - y0) as u32],
             ..CacheParams::default()
         };
-        let counts = backend.create_buffer_with_data(&[0u8; 20]).ok()?;
+        let counts = backend.create_buffer_with_data(&[0u8; 24]).ok()?;
         let mut enc = backend.begin("sample cache shade").ok()?;
         enc.set_pipeline(&pipelines[2]);
         enc.set_texture(0, &set.iter);
@@ -1235,6 +1242,7 @@ impl<B: GpuBackend> SampleCache<B> {
         regime: Regime,
         limit: usize,
         generation: u64,
+        seeded_tiles: &[bool],
     ) {
         if !self.config.enabled {
             return;
@@ -1300,6 +1308,27 @@ impl<B: GpuBackend> SampleCache<B> {
                 states.push(((tx, ty), state));
             }
         }
+        // Leave out (empty, cleared after the copy) tiles that took samples from a seeded tile.
+        let mut clear = Vec::new();
+        if !seeded_tiles.is_empty() {
+            let ftx = fw.div_ceil(16) as i64;
+            for (t, state) in &mut states {
+                if *state == State::Empty {
+                    continue;
+                }
+                let span = |i: i64, a: i64, n: usize| {
+                    let lo = (a + step * TILE * i).max(0);
+                    let hi = (a + step * (TILE * i + TILE - 1)).min(n as i64 - 1);
+                    (lo / 16, hi / 16)
+                };
+                let ((x0, x1), (y0, y1)) = (span(t.0, xa, fw), span(t.1, ya, fh));
+                let hit = (y0..=y1).any(|y| (x0..=x1).any(|x| seeded_tiles.get((y * ftx + x) as usize) == Some(&true)));
+                if hit {
+                    *state = State::Empty;
+                    clear.push(self.slot(*t) as u32);
+                }
+            }
+        }
         for (t, state) in states {
             let slot = self.slot(t);
             self.tiles[slot] = Tile {
@@ -1331,6 +1360,7 @@ impl<B: GpuBackend> SampleCache<B> {
         self.stats.epochs += 1;
         let mut m = Maintenance {
             seed: Some((p, iter.clone(), de.clone(), aux.cloned())),
+            clear,
             ..Maintenance::default()
         };
         self.encode_maintenance(backend, &pipelines, &mut m);
@@ -1365,7 +1395,7 @@ impl<B: GpuBackend> SampleCache<B> {
 
     /// Interior fraction and exterior iterations per sample of the view the last finished shade
     /// pass showed (for `autoiter::use_interior_test`).
-    pub fn view_stats(&self) -> Option<(f64, f64)> {
+    pub fn view_stats(&self) -> Option<InteriorStats> {
         self.view_stats
     }
 
