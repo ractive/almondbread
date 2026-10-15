@@ -18,6 +18,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[sources/apple-dynamic-caching-talk]] — An Apple developer tech talk (video) on the GPU in M3 and A17 Pro, mainly Dynamic Caching. (unread)
 - [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
+- [[sources/apple-simulator-tooling]] — Xcode 26.6 simctl, xcodebuild test and XCTest touch synthesis: what the iOS simulator checks use (digested)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
@@ -49,6 +50,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/hn-mandelbrot-site-thread]] — HN thread on mandelbrot.site (2025, 86 points): "zoom forever", jerky zoom, iteration scaling, URL sharing (skimmed)
 - [[sources/htmag-benchmarks]] — How To Market A Game benchmarks: wishlists at launch per tier (Bronze 5k, Silver 8k), weekly wishlist bands, Next Fest tiers (skimmed)
 - [[sources/imagina-hinfla-evaluator]] — The main Mandelbrot evaluator of Imagina (pre-rewrite `master`, last pushed 2024-01-23), by Zhuoran, the originator of rebasing and of this "LA"... (skimmed)
+- [[sources/inter-font]] — Inter 4.1 typeface (OFL 1.1): the overlay font; SemiBold used for the SDF atlas (digested)
 - [[sources/imagina-readme]] — The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast fractal renderer & explorer". (digested)
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
@@ -165,8 +167,10 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/apple-gpu-architecture]] — M1-class GPU: fp32/fp16 rates, no fp64, int mul 1/8, SIMD 32, registers, occupancy, dynamic caching
 - [[platform/gpu-watchdog-and-chunking]] — ~5 s per-command-buffer watchdog, resumable per-pixel state, compaction, chunk scheduler
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
+- [[platform/ios-simulator]] — iOS 26.5 simulator runs: self-test and XCTest touch UI test (pan, pinch, rotate, taps, buttons), the presented-handler crash and HEIC thumbnail deadlock fixed, compact HUD/button layout
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
+- [[platform/overlay-text]] — overlay labels: Inter SemiBold (OFL) as a signed-distance-field atlas, layout in Rust, bilinear SDF with a soft dark halo in the overlay kernel
 - [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) the pool-predictor fix, and FL's drawable pre-acquisition thread and compose pass
 - [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy, frame call 2–7 µs), the Explorer interface (R2b), FFI rules
 

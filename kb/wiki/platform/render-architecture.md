@@ -168,7 +168,11 @@ see below): neck zoom 53.7 → 58.7 fps, "no drawable" skips 16 → 2; space zoo
 **120 Hz in background windows.** With an external 60 Hz display attached, the interaction
 test's window on the ProMotion panel reports `duration` 8.33 ms but receives 60 callbacks
 per second whatever `preferredFrameRateRange` asks for (both links; 2026-10-14, macOS 26).
-M2.5's 120 Hz runs had the panel alone. So FL's numbers are 60 Hz; the headless flight
+M2.5's 120 Hz runs had the panel alone. 2026-10-15 the same window got only 20–33
+callbacks per second, and with frames offered by a `CVDisplayLink` at 120 Hz half the
+refreshes found no free drawable ([[synthesis/benchmarks]] "120 Hz on ProMotion"): 120 Hz
+presentation needs a frontmost window (`make interaction-test-120`, run by a person).
+So FL's numbers are 60 Hz; the headless flight
 recorder (`almondbread fly --hz 120`) can drive 120 Hz refreshes with real budgets.
 
 ## FL: compose pass, history and progressive AA

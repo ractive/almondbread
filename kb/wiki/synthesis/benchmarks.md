@@ -1276,3 +1276,68 @@ locations (per-location 0.86–1.29, the spread of the load); float32 fields bit
 seahorse-1e5, deep-5e-14, sea-1e20, needle-1e305, spiral-32412-1e19. The main kernel library
 is unchanged; the float-float library compiles only when a `FloatFloat` is created (verify
 tools and tests).
+
+## 120 Hz on ProMotion, 2026-10-15
+
+Question: what frame rate and latency does the app present on the M1 Pro's 120 Hz panel
+while panning, zooming, flying, on a journey and while rotating? Measured with
+`--interaction-test` (background window 1280 × 820 pt at 2×, on the built-in panel, the
+5K external display is the main display; release; measured 2026-10-15, M1 Pro). The test now
+prints, per scenario, the display link's callback rate during the input phase and the rate
+the link was *granted* (`1/(targetTimestamp − timestamp)`), and `ALMONDBREAD_TEST_LINK=cv`
+drives both the view's frames and the inputs from a `CVDisplayLink` on the panel instead.
+Other agents were compiling (rustc, ~55 % CPU each) and, during part of the runs, rendering
+(an `almondbread` at 270 % CPU): GPU ms per frame vary 2× between runs.
+
+**Result: the background test window never gets 120 Hz.** The `CADisplayLink` is granted
+8.33 ms (120 Hz) and asks for 120 (`preferredFrameRateRange`), yet calls back only 20–33
+times per second, irregularly (interval p50 16.7 ms, p95 67–92 ms). Earlier runs (FL,
+2026-10-14) saw 60 per second; the rate a non-key window of an accessory app gets is the
+system's choice, not ours. The renderer is not the limit: draw CPU p50 0.1–0.2 ms, GPU
+2–7 ms per frame when the GPU is not shared.
+
+CADisplayLink (quieter run, `build/interaction-120-run2.txt`):
+
+| scenario | fps | link Hz (granted) | interval p50 / p95 ms | latency p50 / p95 ms | GPU ms/frame |
+|---|---:|---|---|---|---|
+| home pan | 29.2 | 30.7 (120) | 16.7 / 75.0 | 48.4 / 106.5 | 7.1 + 2.9 |
+| home zoom | 30.2 | 31.3 (120) | 16.7 / 75.0 | 48.1 / 106.3 | 6.7 + 2.1 |
+| 1e5 pan | 31.3 | 31.9 (120) | 16.7 / 66.7 | 47.8 / 97.8 | 5.3 + 1.6 |
+| 1e5 zoom | 27.3 | 28.3 (120) | 16.7 / 83.3 | 51.5 / 109.9 | 5.5 + 1.9 |
+| deep zoom 1e-12 → 1e-40 | 31.0 | 31.6 (120) | 16.7 / 75.0 | 47.2 / 97.1 | 6.1 + 1.8 |
+| autopilot | 29.0 | 29.8 (120) | 16.7 / 83.3 | 30.1 / 30.2 | 6.2 + 1.7 |
+| fly to | 19.1 | 30.5 (120) | 25.0 / 100.0 | 29.8 / 38.1 | 11.8 + 1.5 |
+| rotate zoom | 31.8 | 32.7 (120) | 16.7 / 66.7 | 29.4 / 29.5 | 6.2 + 2.0 |
+| cinematic autopilot | 28.8 | 29.7 (120) | 16.7 / 75.0 | 29.1 / 37.5 | 6.6 + 1.8 |
+| journey | 27.7 | 28.5 (120) | 16.7 / 83.3 | 28.7 / 37.1 | 7.0 + 1.9 |
+
+CVDisplayLink, frames offered at 120 Hz (`build/interaction-120-cv2.txt`):
+
+| scenario | fps | interval p50 / p95 ms | latency p50 / p95 ms | skipped: in flight + no drawable (of ~360) |
+|---|---:|---|---|---|
+| home pan | 44.2 | 8.3 / 75.0 | 44.7 / 102.8 | 38 + 183 |
+| home zoom | 40.9 | 8.3 / 75.0 | 44.6 / 102.7 | 20 + 179 |
+| 1e5 pan | 49.9 | 8.3 / 58.3 | 44.7 / 94.4 | 22 + 188 |
+| 1e5 zoom | 40.3 | 8.3 / 75.0 | 44.7 / 103.0 | 60 + 174 |
+| deep zoom 1e-12 → 1e-40 | 36.7 | 16.7 / 75.0 | 45.0 / 111.2 | 53 + 193 |
+| autopilot | 41.7 | 8.3 / 75.0 | 36.5 / 56.8 | 142 + 89 |
+| fly to | 30.6 | 8.3 / 75.0 | 36.5 / 50.6 | 83 + 54 |
+| rotate zoom | 43.2 | 8.3 / 75.0 | 36.5 / 53.3 | 57 + 170 |
+| cinematic autopilot | 44.7 | 8.3 / 75.0 | 36.4 / 54.1 | 57 + 163 |
+| journey | 46.6 | 8.3 / 75.0 | 36.5 / 56.0 | 163 + 49 |
+
+With frames offered at 120 Hz, consecutive presentations are 8.3 ms apart (p50) — the panel
+does run at 120 Hz for this window — but half the refreshes find no free drawable: the
+window server releases a background window's drawables at its own, slower pace, and bursts
+alternate with 60–75 ms gaps. "In flight" skips (the previous frame's GPU work unfinished)
+dominate in the autopilot and journey runs, where another agent shared the GPU. Draw →
+screen p50 is ~28 ms in every mode (FL: ~28 ms at 60 Hz), i.e. two to three refreshes of
+compositor queue for a background window.
+
+**What this means.** 120 Hz presentation cannot be measured honestly from an agent: it needs
+the window frontmost and key on the ProMotion panel, which agent runs must never do.
+`make interaction-test-120` runs the same ten scenarios in front (`ALMONDBREAD_TEST_FOREGROUND=1`:
+regular activation policy, window key and in front on the fastest screen, ~2 minutes) for a
+person to run themselves; it writes `build/interaction-120-foreground.txt`. Not run yet.
+The budget side is clear: at ≤ 0.3 ms draw CPU and 2–7 ms GPU per frame (unshared), every
+scenario but fly-to (12 ms iterate GPU in its jump frames) fits 8.33 ms.

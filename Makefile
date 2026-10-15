@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
+.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -59,6 +59,13 @@ selftest: build app
 ## ALMONDBREAD_SCENARIOS="home pan,neck zoom" picks some. kb: synthesis/benchmarks
 interaction-test: build
 	.build/release/AlmondbreadMac --interaction-test
+
+## The same in FRONT of other windows (takes focus for ~2 minutes; run it yourself, never from
+## an agent): the only way to measure 120 Hz presentation on a ProMotion panel. Results in
+## build/interaction-120-foreground.txt. kb: synthesis/benchmarks "120 Hz on ProMotion"
+interaction-test-120: build
+	ALMONDBREAD_TEST_FOREGROUND=1 ALMONDBREAD_SCENARIOS="home pan,home zoom,1e5 pan,1e5 zoom,deep zoom 1e-12 to 1e-40,autopilot,fly to,rotate zoom,cinematic autopilot,journey" \
+		.build/release/AlmondbreadMac --interaction-test | tee build/interaction-120-foreground.txt
 
 ## Benchmark set with GPU-vs-CPU verify metrics (kb: synthesis/benchmarks)
 bench: rust-bench

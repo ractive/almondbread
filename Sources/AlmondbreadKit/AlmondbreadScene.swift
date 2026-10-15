@@ -166,12 +166,25 @@ enum TestLaunch {
     }
     private static var activity: NSObjectProtocol?
 
+    /// `ALMONDBREAD_TEST_FOREGROUND=1`: the interaction test's window comes to the front, key,
+    /// on the ProMotion panel. Only for a person running the test themselves (`make
+    /// interaction-test-120`): macOS drives a background window's display link at 20-60 Hz,
+    /// so 120 Hz presentation can only be measured in front (kb: synthesis/benchmarks,
+    /// "120 Hz on ProMotion"). Agents never set it.
+    static var foreground: Bool {
+        #if os(macOS)
+        InteractionTest.enabled && ProcessInfo.processInfo.environment["ALMONDBREAD_TEST_FOREGROUND"] == "1"
+        #else
+        false
+        #endif
+    }
+
     static func prepare() {
         guard enabled, activity == nil else { return }
         activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
                                                          reason: "Almondbread window test")
         #if os(macOS)
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(foreground ? .regular : .accessory)
         #endif
     }
 
@@ -179,7 +192,7 @@ enum TestLaunch {
     /// Orders the window behind all others. SwiftUI shows the window after its content view
     /// moved in, which would put it in front of the user's windows: order back again then.
     static func placeInBackground(_ window: NSWindow) {
-        guard enabled else { return }
+        guard enabled, !foreground else { return }
         window.orderBack(nil)
         for delay in [0.0, 0.3, 1.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak window] in window?.orderBack(nil) }
@@ -199,7 +212,12 @@ enum TestLaunch {
         guard enabled, let screen = (useMain ? nil : fastest) ?? window.screen ?? NSScreen.main else { return }
         let f = screen.visibleFrame
         window.setFrameOrigin(NSPoint(x: f.maxX - window.frame.width, y: f.minY))
-        window.orderBack(nil)
+        if foreground {
+            NSApplication.shared.activate()
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            window.orderBack(nil)
+        }
     }
     #endif
 }

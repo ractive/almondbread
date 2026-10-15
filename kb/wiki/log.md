@@ -564,3 +564,20 @@ benchmarks (float-float 7–12×, fx 27–52× slower than float32). `bench` A/B
 [[questions/double-float-speed-on-m1]] (answered), [[questions/metal-fast-math-defaults]]
 (partial), [[techniques/double-float]] (As built), [[synthesis/benchmarks]] (M7), [[roadmap]]
 (M7), [[overview]], [[index]].
+
+## [2026-10-15] decision | Overlay font, place thumbnail moiré, 120 Hz measurement, iOS simulator
+
+Overlay text in Rust/Metal is now Inter SemiBold (OFL 1.1, licence shipped) as a
+signed-distance-field atlas with a soft dark halo, crisp at any backing scale and legible on
+pale and dark palettes ([[platform/overlay-text]]); `render --ppp` sets the overlay scale for
+stills. Place thumbnails render 3× larger and resample with a Gaussian (σ 0.5 px, linear
+light); the three needle minibrots were re-rendered without moiré ([[synthesis/places]]).
+120 Hz: the interaction test reports the display link's actual and granted rate and can run
+from a CVDisplayLink; a background window gets 20–33 callbacks per second (granted 120) and,
+fed at 120 Hz, half the refreshes find no drawable, so real 120 Hz presentation needs a
+frontmost window: `make interaction-test-120` for a person to run
+([[synthesis/benchmarks]] "120 Hz on ProMotion"). iOS: simulator runtime installed, iPhone and
+iPad simulators, self-test and an XCTest touch UI test; fixed a crash (presented handlers
+missing on simulator drawables), a main-thread HEIC decode deadlock when the control center
+opened, the HUD under the buttons on narrow canvases and the status bar
+([[platform/ios-simulator]]). Updated [[platform/render-architecture]], [[index]].
