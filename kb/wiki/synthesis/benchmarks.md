@@ -651,6 +651,35 @@ difference 0.000. L0's dive video (640×360 at 30 fps): first difference 17.5, s
 dominated by fast low-altitude motion over fine texture, with no spike frames. The pop check
 is the meaningful number for L1.
 
+## L2: landscape detail and robustness, 2026-10-15
+
+`prototypes/landscape-rt`, M1 Pro, release; L1 build (with the L2 measurement harness only)
+and L2 build interleaved, two repeats each. Other agents' GPU jobs and a user's landscape-rt
+window ran throughout: GPU times are noisy (a trivial shader measured 3.8–4.2 ms per frame).
+Recorder: 1920×1080, 60 fps, DE budget 5 GPU-ms per video frame (live 2.5 ms × 2), scripts
+`low` (valley-seeking pilot, eye 0.065–0.08 S, S = 1.76e-6, seahorse), `zoomlow` (zoom 300×
+from 5e-4 while descending, then `low`), `target` (manual dive to 1e-7), `LRT_MASK=fallback`.
+
+| measurement | L1 | L2 |
+| --- | --- | --- |
+| `low`: tiles completed/s | 2 406, 2 672 | 5 047, 4 259 |
+| `low`: in-view backlog p95 / max | 4 529 / 4 882, 2 879 / 3 344 | 4 / 56, 6 / 83 |
+| `low`: all missing tiles p95 | 10 505, 7 375 | 4 329, 5 231 |
+| `low`: no-data px max; ≥2 levels coarse max | 0.007 %; 6.4 %, 5.8 % | 0; 0, 0.03 % |
+| `low --budget-ms 0.4`: tiles/s | 384, 396 | 1 020, 627 |
+| same: no-data px p50 / max | 10.2 % / 45.4 % (both) | 0 / 0 |
+| `zoomlow`: S after 40 s | 7.5e-6, 5.7e-6 | 1.26e-6, 1.26e-6 |
+| `target`: time to 1e-7; no-data px p99 / max | 39.6 s, 40.5 s; 60 % / 99.9 % | 28.5 s; 0 / 0 |
+| `bench` cold prefill (360 k tiles, 6 locations) | 82 k, 86 k tiles/s | 98 k, 109 k tiles/s |
+| pop check hover / cruise / low, max mean diff | 0.005 / 0.033 / 0.72 | 0.010 / 0.112 / 0.65 |
+| recorder render p50, `low` | 5.5, 5.1 ms | 4.8, 4.2 ms |
+
+Window (`fly --background`, 2560×1600, 120 Hz): `low` L1 106.5 / 111.9 fps, L2 111.3 / 106.1;
+`dive` L1 114.4 / 106.3, L2 88.3 / 112.5 (L2 zooms to ~1e-6 in the 13 s, L1 to ~1e-4).
+Render p50 4.0–5.9 ms both; p99 16–42 ms both under this load. Earlier, with less load:
+hashed detail noise 12.9 ms (L1 6.5), texture noise + 256² rings 6.8 ms (L1 6.5–6.6), no
+detail 5.8 ms. Details: [[decisions/landscape-mode]] L2.
+
 ## M3b: unlimited depth, 2026-10-14
 
 Measured 2026-10-14, M1 Pro, release, with the user's app and another agent running (GPU

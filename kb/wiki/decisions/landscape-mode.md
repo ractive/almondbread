@@ -390,3 +390,177 @@ Review videos 1080p60 in `review/landscape/` (gitignored): `l1-tour.mp4` (35 s, 
 - Faceted geometry at distance (vertex spacing 2 samples) and normal detail fading by the
   pixel footprint. No shadows, AO or water reflections (out of scope for L1).
 - The autopilot zig-zags along the coast (side flips); it is a demo aid, not tuned.
+
+## L2: close-up detail and robustness (as built)
+
+Code: `prototypes/landscape-rt/` (same crate). Measured 2026-10-15, M1 Pro, release. Other
+agents' GPU jobs (two `motion-reuse` runs, builds) and the user's own landscape-rt window shared
+the GPU during every measurement, so GPU times are noisy: every comparison below is L1 and L2
+interleaved under the same load, repeated twice (both values given where they differ).
+
+**User feedback on L1.** "It feels ok... Not wow yet. You should be able to probably zoom in
+more. The detail level at the highest zoom level is currently very low." The screenshot
+(S = 1.76e-6, eye 0.04 S above the ground, backlog 5658 tiles) showed flat untextured slabs
+(white, light blue, steel blue) in tile-shaped steps in the foreground, a blurry near ground and
+a flat green plain with small lakes.
+
+**What the slabs were.** Missing data rendered by the wrong path. The vertex fallback below
+ℓ+2 point-sampled ℓ+3..ℓ+5 at the ring vertices: 2×2 and 4×4 vertex groups took one coarse
+sample, flat tile-shaped steps, and height 0 (water) past ℓ+5. The fragment stopped at ℓ+2
+and shaded the rest from the faceted geometry, with "lake" wherever that geometry sat at 0: a
+different material. Reproduced with the new low-flight pilot and a starved DE budget
+(`record --script low --scale 1.76e-6 --budget-ms 0.4`, `LRT_MASK=fallback`): L1 shades
+10 % of the pixels p50 (45 % max) without any data and 16 % p50 (69 % max) from ℓ+2 or coarser.
+The L1 manual target dive also shows it at full budget: up to 99.9 % of a frame without data
+(p99 60 %) while the zoom outruns the tiles.
+
+**Fixes.**
+- *A complete pyramid.* A tile is scheduled only after its parent tile (level ℓ+1) is done
+  (CPU `DONE` bit per tile, set when the GPU job finishes). The valid levels at any point are
+  then always a contiguous range up from the coarsest, so a fallback always exists.
+- *Fallback through all levels.* Each ring gets every coarser active level (and every finer
+  one, below). Vertex: below ℓ+2, the bilinear surface of the finest fully valid coarser level
+  with fading finer ones blended on top (smooth, no steps). Fragment: normalized weights over
+  all levels by validity; geometry-only shading only where no level at all is valid.
+- *Geomorph with curvature.* The coarse target of the geomorph now includes the coarse ring's
+  curvature drop (interpolated like the height); L1 dropped each vertex by its own d²/2R, which
+  left hairline cracks along ring edges (sky showing through, faint white streaks on lakes).
+- Result: no-data pixels 0.0000 % in every run (low, starved, plain, zoom, dives), against
+  10 % p50 / 45 % max (starved) and 60 % p99 (target dive) in L1.
+
+**Scheduling and budget.**
+- *Priority = screen-space error removed*: the parent's spacing (what is shown now) over the 3D
+  distance from the eye (the eye height counts, so flying low the ground under the camera is
+  nearest), times visibility from the view frustum (inside 1, just outside 0.35, else 0.15,
+  behind 0.1). L1 used horizontal distance and heading only.
+- *Fill-limited zoom was self-throttling.* L1 counted missing tiles before scheduling, so each
+  frame's fresh demand (≥ 60 tiles within 3 S) held the zoom at 0.1–0.15 e-folds/s while the GPU
+  idled (DE 0.5 ms of a 5 ms budget). That is the user's "zoom in more": 5e-4 → 7e-6 in 40 s.
+  L2 counts the backlog left after the frame's batch (in view within 2 fog, or within 1.5 S of
+  the eye). Zoom-and-descend script: L1 5e-4 → 5.7–7.5e-6 in 40 s, L2 → 1.26e-6 (the 300×
+  target) and then the low flight.
+- *Cost estimate.* L1 took every rise of the per-tile cost at once and decayed 5 % a frame;
+  small (overhead-dominated) batches kept the budget at a fraction for seconds. L2 pools
+  batches to ≥ 32 tiles and takes an EMA (only a 1.6× overshoot rises at once).
+- *Window budget follows the render*: DE gets 90 % of the refresh period minus the render
+  p90, at least 0.8 ms (the floor keeps the terrain filling while another process's GPU work
+  shows up in our command buffers' times), at most 1.6 × `budget_ms`. Offscreen: fixed.
+- *Detail follows the eye harder*: one finest sample ≈ 2 px under the eye (L1: 4 px), at most 5
+  octaves below the zoom's finest level (L1: 4).
+
+**Cheaper DE tiles: parent samples.** With the parent done first, the 64 even samples of a
+tile are the parent's samples (log2(DE/spacing) + 1, lake stays lake): copied, not iterated.
+Threads 0–63 copy, threads 64–255 iterate the other 192 samples (three per 2×2 block), so two
+whole SIMD groups finish at once: 25 % fewer SIMD cycles. Cold prefill of 6 locations
+(`bench`, ~360 k tiles with the 4 extra levels): L1 82–86 k tiles/s, L2 98–109 k tiles/s
+(1.15–1.27×; per location 0.93–1.7×, noisy). Not 1.33×: the slowest samples dominate a tile.
+BLA and local SA were not tried: M4 found BLA does not pay at f64-reference depths, and
+float32 local SA is an open question ([[questions/local-sa-float32]]); the scheduler, not the
+per-tile cost, was the bottleneck (the demand while flying low is 1–6 k tiles/s against a
+capacity of 10–50 k tiles/s inside a 2.5 ms budget).
+
+**Detail below the computed resolution.** World-anchored value noise: octave `oct` lives on
+the integer lattice of absolute level oct (cell 2^oct complex units), so it is a fixed function
+of c whichever ring or level evaluates it (the lattice base per ring and octave is computed
+exactly on the CPU, mod 128 cells; the noise and its gradient come from a 512² RGBA16F
+periodic texture: hashing the four corners per octave cost 2.8 ms per frame at 2560×1600).
+Amplitude 0.12 × wavelength, only for wavelengths under DE/4 (the true DE field is smooth below
+that scale, so this is surface texture, never fractal structure the set does not have), from
+0.05 S down to 1.5 px. The normals get all octaves; the geometry the octaves of ≥ 4 samples of
+the evaluated level (consistent between a ring and the ring it morphs to). It also tints
+vegetation and rock and darkens cavities. Hover: frame difference 0.000.
+
+**Plains.** Three parts. The detail texture above (on plains DE is large, so all octaves
+apply). Equipotential ridges from the smooth iteration count ν: the DE kernel stores
+r = sin²(πν/2) per sample (R16Unorm; R8 made visible contour terraces), and the height adds
+0.3·σ·r where DE/σ > 1.5 (full at 10), faded where two dwell bands span < 12 samples of the
+level. First baked into DE (`DE·(1 + a·sin²(πν))`, σ-free): that put ridges on every mesa
+flank, where the bands run downhill, and the flanks looked like zebras. Vegetation patches
+from the noise value.
+
+**Rings and shading resolution.** Even in L1 the vertex stage was ~4.5 ms of the 6.5 ms render
+in the window (2560×1600). Rings are now 256² vertices (L1 448², `--ring`), a third of the
+vertex work; fragments shade from the finest level that resolves the pixel (≤ 2.5 samples
+per pixel), also from levels finer than the ring's own, by footprint and validity only. That
+choice must not depend on the ring: with the ring's α in it, pixels changing ring when a ring
+snapped changed level (pop check max 1.3–2.5). A finer level's window is faded by L∞ distance
+from the camera (400–460 samples); a fade keyed to the window edge jumped with its 16-sample
+steps.
+
+**Results** (recorder 1920×1080 at 60 fps, DE budget = live 2.5 ms × 2; two interleaved
+repeats; numbers in [[synthesis/benchmarks]] L2):
+
+| run | L1 | L2 |
+| --- | --- | --- |
+| low valley flight, S = 1.76e-6, eye 0.065–0.08 S: tiles completed/s | 2 400–2 800 | 4 300–5 000 |
+| same: backlog in view (unscheduled, frustum, < 2 fog) p95 / max | 1 500–4 500 / 2 200–4 900 | 4–6 / 56–83 |
+| same: pixels without data / two finest levels missing, max | 0.007 % / 5.8–6.4 % | 0 / 0.03 % |
+| same, DE starved (0.4 ms): tiles/s | 384–396 | 627–1 020 |
+| same, starved: pixels without data p50 / max | 10.2 % / 45.4 % | 0 / 0 |
+| same, starved: two finest levels missing p50 / max | 15.6 % / 69 % | 0 / 4.3 % |
+| zoom 300× while descending, then low flight: S after 40 s | 5.7–7.5e-6 | 1.26e-6 (target reached) |
+| manual target dive onto the seahorse centre, 1e-3 → 1e-7 | 39.6–40.5 s, no-data p99 60 %, max 99.9 % | 28.5 s, no-data 0 |
+| `deep` target dive (L2 only) | — | 1.7e-11 in 70 s |
+| cold prefill (`bench`, 6 locations) | 82–86 k tiles/s | 98–109 k tiles/s |
+| pop check hover, mean diff max | 0.005 | 0.010 |
+| pop check cruise (S-turns), mean diff p99 / max | 0.022 / 0.033 | 0.050 / 0.112 |
+| pop check low flight, mean diff p99 / max | 0.45 / 0.72 | 0.53 / 0.65 |
+
+The cruise pop check is 3× L1's: more fine data arrives while flying (finer levels are used
+for shading and fade in over 0.3 s); 0.2 % of the pixels change by more than 8/255 in the worst
+frame. In a dive the pop check measures the layered-σ morph, which is now 2–3× faster per frame
+because the zoom no longer stalls (p99 17.6 at ~0.9 e-folds/s).
+
+Window pacing (`fly --background`, 2560×1600 at 120 Hz, two runs each, interleaved, other GPU
+jobs running): low flight L1 106.5 / 111.9 fps, L2 111.3 / 106.1 fps; dive L1 114.4 / 106.3, L2
+88.3 / 112.5 fps (L2 zooms to 7.6e-7–1.1e-6 in the 13 s, L1 to 9.3e-5–1e-4). Render p50 4.0–5.9
+ms for both; p99 16–42 ms under this load for both, so the 120 Hz criterion could not be
+verified on a quiet GPU. A trivial shader (`LRT_PROFILE=6`) measured 3.8 ms in this state, and
+4.2 ms in a 320×200 window: most of the render time was other processes' work. With hashed
+noise L2 rendered at 12.9 ms (L1 6.5) in the same window; the texture noise and the smaller
+rings brought it to L1's level.
+
+Videos (1080p60, `review/landscape/`, gitignored): `l2-l1-low.mp4` / `l2-l2-low.mp4` (low
+valley flight at the screenshot's scale), `l2-l1look-plain.mp4` / `l2-l2-plain.mp4` (low over a
+plain; "before" is L2 with detail, ridges and variation off, since the L1 build has no plain
+pilot), `l2-l1-target-seahorse.mp4` / `l2-l2-target-seahorse.mp4` (1e-3 → 1e-7 dive),
+`l2-l2-deep.mp4` (to 1.7e-11), stills `l2-low-before-after-f600.png`, `-f900.png`.
+
+**Depth limit (not lifted).** S ≥ 1e-12 stays. What limits it, and what lifting it takes:
+- *CPU side, f64 absolute coordinates.* The camera ground (`Ground`, collision floor and nose
+  ray), the start placement (`snap_to_boundary`) and the nucleus search (`find_minibrot`,
+  Newton) iterate absolute f64 c. At |c| ≈ 0.75 an f64 step is 1.1e-16, and the finest samples
+  at S = 1e-12 are S/32768 = 3e-17 apart. Needed: the reference from `almondbread-core`
+  (`ReferenceRequest` / `Reference::compute_big`: BigFloat ball-period nucleus and orbit, already
+  used by M3b), and the ground by f64 perturbation against that orbit (f64 deltas reach 1e-300).
+- *World origin.* Offsets are f64 from a fixed origin c0. Deep, c0 must be a `Center`
+  (BigComplex) and must move with the camera, or offsets of 1e-3 lose the 1e-20 sample
+  spacing. A move by a multiple of N·256 coarsest-level samples (262 144 × the coarsest
+  spacing) leaves every texel index and tile tag unchanged (texel = index mod N, tag = index div
+  N mod 256), so no data is lost: shift the level windows, ring origins, resume keys, camera
+  and reference offsets, and clear the ground cache.
+- *GPU kernel, float32 deltas.* dc and dz are float32 offsets of about S; the rebasing test
+  |z|² < |dz|² underflows below |dz| ≈ 1e-19, so the plain kernel serves S down to ~1e-16 (the
+  app's plain kernel stops at 1e-17 per pixel for the same reason, [[synthesis/benchmarks]] M3b).
+  Deeper needs the app's rescaled deep kernel (float32 mantissa with a shared exponent,
+  floatexp full steps where |Z| is tiny), with dz/dc already carrying an exponent here.
+So the first step (big reference, perturbed ground, moving origin) buys about four decades
+(to ~1e-16); unlimited depth also needs the deep kernel. Neither is a small change to a
+prototype, so L2 spent the time on detail and robustness instead. The user's "zoom in more"
+at S = 1.76e-6 was, as measured, the fill-limited zoom stuck at 0.1–0.15 e-folds/s (below).
+
+**Still weak (honest).**
+- At full budget the low valley flight looks almost the same as L1 (compare the stills). L2's
+  gains show under load (DE starved, zooming, another process on the GPU), which is where the
+  user saw the slabs. Over a plain the detail texture is a clear gain. Elsewhere it is "ok", not
+  "wow".
+- The detail noise is plain value noise: sandy, mottled. It reads as terrain, not as rock, and
+  there is no erosion structure. The domes and mesas are still smooth clay in backlight; there
+  are no cast shadows and no AO, and those would do more for depth than more noise.
+- The green valley floor near minibrots is still a uniform carpet from a distance.
+- Straight-down fast zooms look blobby (coarse data stretched, strata rings) until the levels
+  arrive.
+- The depth limit stays at 1e-12 (above). After the `deep` dive (S = 1.7e-11) the CPU f64
+  oracle disagrees with 0–16 of 600 samples per level (DE off by more than 2×): the f64 limit
+  of the oracle and the f64 nucleus, as in L1.
+- 120 Hz under a quiet GPU is not re-measured (see above).
