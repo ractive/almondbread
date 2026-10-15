@@ -202,8 +202,10 @@ impl PiMeter {
     fn record(&mut self, m: Measured) {
         self.last = Some(m);
         let h = &mut self.history[slot(m.point)];
-        // One point per 0.05 decade (the newest wins).
-        h.retain(|o| (o.eps.log10() - m.eps.log10()).abs() > 0.05);
+        // One point per 0.1-decade bin (the newest wins; a bin, not a distance, or a slow zoom
+        // would keep replacing its last point and leave the plot empty).
+        let bin = |e: f64| (e.log10() * 10.0).round() as i64;
+        h.retain(|o| bin(o.eps) != bin(m.eps));
         h.push(m);
         h.sort_by(|a, b| b.eps.total_cmp(&a.eps));
         if h.len() > 200 {
@@ -611,6 +613,29 @@ fn group(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flight_fills_the_plot() {
+        // As the app does: each refresh moves the flight on, then the meter follows the view.
+        let h = 800.0;
+        let p = PiPoint::Neck;
+        let mut m = PiMeter::default();
+        m.enabled = true;
+        let mut v = p.view_at(0.02, h);
+        m.start_flight(p, 0.02, 1e-6);
+        let mut t = 0.0;
+        while m.flying() {
+            t += 1.0 / 60.0;
+            if let Some(nv) = m.flight_view(&v, h, t, 1.6) {
+                v = nv;
+            }
+            m.update(&v);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        m.wait(&v);
+        let n = m.history[0].len();
+        assert!(n >= 20, "{n} plot points");
+    }
 
     #[test]
     fn flight_zooms_about_the_point_and_lands() {
