@@ -426,7 +426,8 @@ pub fn media_time() -> f64 {
 mod tests {
     use super::*;
     use crate::gpu_types::{
-        BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
+        BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState, SeedNode,
+        SeedParams,
     };
 
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
@@ -438,7 +439,7 @@ mod tests {
              out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
              out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX);\n\
-             out[12] = sizeof(PixelStateIC); }}\n"
+             out[12] = sizeof(PixelStateIC); out[13] = sizeof(SeedNode); out[14] = sizeof(SeedParams); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -448,7 +449,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 52];
+        let mut bytes = [0u8; 60];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -472,8 +473,48 @@ mod tests {
                 size_of::<almondbread_core::bla::BlaEntryX>() as u32,
                 size_of::<almondbread_core::math::FloatExpComplex>() as u32,
                 size_of::<crate::gpu_types::PixelStateIC>() as u32,
+                size_of::<SeedNode>() as u32,
+                size_of::<SeedParams>() as u32,
             ]
         );
+    }
+
+    /// R5 prototype (kb: questions/local-sa-float32): local series approximation at the dense
+    /// view takes several times fewer steps with the plain kernel's class statistics, and at
+    /// the deep needle minibrot (interior test on, period-255 nucleus reference) paints no
+    /// exterior pixel interior (restarting the interior derivative at the branch painted 96 %).
+    #[test]
+    fn local_sa_prototype() {
+        use crate::scheduler::{LocalSa, Renderer, SchedulerConfig};
+        use almondbread_core::locations::location_named;
+        use almondbread_core::oracle::compare;
+        let render = |sa: bool, name: &str, w: usize, h: usize| {
+            let config = SchedulerConfig {
+                local_sa: sa.then(LocalSa::default),
+                ..SchedulerConfig::default()
+            };
+            let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
+            let loc = location_named(name).expect("location");
+            r.settings = almondbread_core::RenderSettings::plain();
+            r.settings.auto_iterations = false;
+            r.settings.manual_iterations = loc.max_iterations();
+            r.settings.supersampling = almondbread_core::Supersampling::Off;
+            r.viewport = loc.viewport_for_width(w);
+            let out = r.render_offscreen(w, h, true).expect("render");
+            let field = almondbread_core::IterationField::from_texels(w, h, out.iterations.as_deref().unwrap());
+            let steps = out.steps_done + out.seeds.as_ref().map_or(0, |s| s.steps());
+            (field, steps, out.seeds.is_some())
+        };
+        let (plain, plain_steps, _) = render(false, "dense-5e-14", 400, 250);
+        let (sa, sa_steps, seeded) = render(true, "dense-5e-14", 400, 250);
+        assert!(seeded);
+        assert!(sa_steps * 3 < plain_steps, "{sa_steps} vs {plain_steps}");
+        let (rep, _) = compare(&sa, &plain);
+        assert!(rep.mismatch_pct() < 0.05, "{}", rep.summary());
+        let (plain, _, _) = render(false, "needle-1e305", 320, 200);
+        let (sa, _, _) = render(true, "needle-1e305", 320, 200);
+        let (rep, _) = compare(&sa, &plain);
+        assert!(rep.false_interior_pct() < 0.01, "{}", rep.summary());
     }
 
     /// Offscreen fields at `scale` around the M4 slow view with the given BLA mode:

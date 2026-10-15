@@ -122,7 +122,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); tile scheme for all-interior borders only
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
 - [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
-- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3: 5.2× fewer iterations at the dense view (CPU), same image statistics
+- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3: 5.2× fewer iterations at the dense view (CPU); R5 GPU prototype: 8.7× fewer steps, 5× less GPU time, same error statistics; M5 integration design
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured
@@ -189,7 +189,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over 1e5–1e9 iterations; test plan
 - [[questions/higher-order-bla]] — second-order BLA: 21× reported vs "nothing adopted" (contradiction)
 - [[questions/kf-bla-support]] — does KF2+ have BLA? (contradiction: KF page vs Mu-Ency)
-- [[questions/local-sa-float32]] — does local series approximation hold in the float32 perturbation kernel, and does the gain survive on the GPU? (open)
+- [[questions/local-sa-float32]] — does local series approximation hold in the float32 perturbation kernel, and does the gain survive on the GPU? (answered R5: yes in dense/filament/deep-seahorse views, 3–8.5× GPU; no gain in interior-heavy views; carry the interior derivative, never restart it)
 - [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal
 - [[questions/metal-watchdog-limit]] — exact watchdog threshold on macOS and iOS
 - [[questions/perturbation-convergent-formulas]] — perturbation/rebasing for Nova, Newton, magnet (contradiction)

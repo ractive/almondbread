@@ -285,3 +285,54 @@ const _: () = {
     assert!(offset_of!(ComposeParams, mode) == 60);
     assert!(offset_of!(ComposeParams, out_centre) == 64);
 };
+
+/// R5 prototype (kb: techniques/local-series-approximation): one quadtree seed's branch
+/// state (`SeedNode` in MSL), 72 bytes. Plain kernel: `b` is d²z/dc² · texel, exponents 0;
+/// deep kernel: floatexp mantissas with their exponents.
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SeedNode {
+    pub dz: [f32; 2],
+    pub a: [f32; 2],
+    pub b: [f32; 2],
+    pub dz_exp: i32,
+    pub a_exp: i32,
+    pub b_exp: i32,
+    pub m: u32,
+    pub n: u32,
+    /// Seed steps this node executed (accepted ones plus the rejected last).
+    pub steps: u32,
+    /// Interior test: w = dz_n/dz_1 and dw/dc · texel (floatexp mantissas, exponents).
+    pub w: [f32; 2],
+    pub wd: [f32; 2],
+    pub w_exp: i32,
+    pub wd_exp: i32,
+}
+
+/// One quadtree level of seeds (`SeedParams` in MSL), 48 bytes; the leaf level's copy tells
+/// the iterate kernel where a pixel's node is.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SeedParams {
+    pub grid_w: u32,
+    pub grid_h: u32,
+    pub size: u32,
+    pub offset: u32,
+    pub parent_grid_w: u32,
+    pub parent_offset: u32,
+    pub root: u32,
+    pub soft_iter: u32,
+    pub radius: f32,
+    pub eps: f32,
+    pub pad0: u32,
+    pub pad1: u32,
+}
+
+const _: () = {
+    assert!(size_of::<SeedNode>() == 72);
+    assert!(offset_of!(SeedNode, w) == 48);
+    assert!(offset_of!(SeedNode, dz_exp) == 24);
+    assert!(offset_of!(SeedNode, m) == 36);
+    assert!(size_of::<SeedParams>() == 48);
+    assert!(offset_of!(SeedParams, radius) == 32);
+};

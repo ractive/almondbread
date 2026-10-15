@@ -480,3 +480,20 @@ thumbnails re-rendered with calm dense regions and the bubbles interior
 the merge: the R6 orbit digest is identical to the R6 branch's; `verify --history jump` at
 dendrite-1e1000 shows the first frame after 93 ms. Pages: [[decisions/controls]],
 [[synthesis/places]], [[techniques/coloring-methods]].
+
+## [2026-10-14] research | R5: local series approximation on the GPU (float32 check)
+
+Answered [[questions/local-sa-float32]]. Metal prototype in the render crate (behind `--sa 1` /
+`ALMONDBREAD_SA=1`, offscreen only): `seedLevel` kernel per quadtree level (32 → 2 texels,
+ε = 1e−2), float32 seeds in the plain kernel and floatexp seeds with BLA blocks in the deep
+kernel, `iterate` with function constant `kSeeded` starting fresh pixels from their leaf.
+Interleaved A/B timing at 18 locations on a shared GPU, verify against the CPU oracle, Aurora
+crops. Dense-5e-14: 8.7× fewer steps, 78 → 16 ms; deep-5e-14 4.6×, root-third 3.2×, filament
+1.9×, sea-1e20 8.5×; interior/unresolved-heavy views 0.75–1.07× (incoherent reference reads,
+long seed runs). Error statistics equal the plain kernel's in chaotic views, slightly larger
+but invisible μ errors in smooth ones, zero false interior. Found: restarting the interior
+derivative at the branch (R3 design) paints 96 % of needle-1e305 interior; carry `w` and
+`dw/dc` instead. Also found and fixed two DE bugs of the deep kernel (clamp before scaling,
+mantissa overflow before escape). Recommendation: go for M5 with a per-view gate, leaf-sorted
+admission, chunked seed passes. Pages: [[techniques/local-series-approximation]] (GPU
+prototype, pitfalls, M5 design), [[synthesis/benchmarks]] R5, [[roadmap]], [[index]].

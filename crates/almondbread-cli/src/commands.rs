@@ -63,7 +63,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
-        times.push(res.iterate_gpu_time);
+        // Seed passes included (local SA); their own time is in the "local SA" line.
+        times.push(res.iterate_gpu_time + res.seeds.as_ref().map_or(0.0, |s| s.gpu_time));
         walls.push(res.wall_time);
         out = Some(res);
     }
@@ -85,6 +86,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         g(out.steps_done as f64, 3),
         out.colorize_gpu_time * 1000.0
     );
+    if let Some(s) = &out.seeds {
+        print_seeds(s, out.iterations_done, out.steps_done, out.iterate_gpu_time);
+    }
     if let Some(texels) = &out.iterations {
         // Interior cycle analysis (interior colourings): periods found, by frequency.
         let interior: Vec<f32> = texels.iter().filter(|t| t[0] == ITER_INTERIOR).map(|t| t[1]).collect();
@@ -180,6 +184,35 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         );
     }
     Ok(Some(ov))
+}
+
+/// R5 prototype: what the seed passes of a locally approximated render did.
+fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: u64, pixel_steps: u64, pixel_gpu: f64) {
+    let levels: Vec<String> = s
+        .levels
+        .iter()
+        .map(|(size, count, iters, steps, mean_n, gpu)| {
+            format!(
+                "{size}:{count} nodes, {} it, {} steps, n̄ {:.0}, {:.2} ms",
+                g(*iters as f64, 3),
+                g(*steps as f64, 3),
+                mean_n,
+                gpu * 1000.0
+            )
+        })
+        .collect();
+    let total = s.steps() + pixel_steps;
+    println!(
+        "local SA: seeds {} it / {} steps, {:.2} ms GPU; pixels {} it; total steps {} (seed share {:.1} %); GPU seeds + pixels {:.2} ms",
+        g(s.iterations() as f64, 3),
+        g(s.steps() as f64, 3),
+        s.gpu_time * 1000.0,
+        g(pixel_iterations as f64, 3),
+        g(total as f64, 4),
+        100.0 * s.steps() as f64 / total.max(1) as f64,
+        (s.gpu_time + pixel_gpu) * 1000.0
+    );
+    println!("  levels [{}]", levels.join("; "));
 }
 
 // MARK: verify

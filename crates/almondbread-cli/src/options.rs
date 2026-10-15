@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use almondbread_core::settings::{RenderSettings, Supersampling};
 use almondbread_core::viewport::{Center, Scale, Viewport};
-use almondbread_render::scheduler::BlaMode;
+use almondbread_render::scheduler::{BlaMode, LocalSa};
 use almondbread_render::{GpuBackend, Renderer};
 
 #[derive(Debug)]
@@ -247,6 +247,22 @@ impl Options {
         }
         if let Some(e) = self.f64("bla-eps") {
             r.config.bla_epsilon = 2f64.powf(-e);
+        }
+        // R5 prototype: local series approximation (`--sa 1`, `--sa-eps`, `--sa-top`,
+        // `--sa-leaf`) for offscreen renders (kb: techniques/local-series-approximation).
+        if let Some(v) = self.get("sa") {
+            r.config.local_sa = (v != "0").then(LocalSa::default);
+        }
+        if let Some(sa) = &mut r.config.local_sa {
+            if let Some(e) = self.f64("sa-eps") {
+                sa.eps = e;
+            }
+            if let Some(t) = self.usize("sa-top") {
+                sa.top = t.next_power_of_two();
+            }
+            if let Some(l) = self.usize("sa-leaf") {
+                sa.leaf = l.next_power_of_two();
+            }
         }
     }
 }

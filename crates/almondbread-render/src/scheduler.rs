@@ -33,7 +33,7 @@ use bytemuck::bytes_of;
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
-    PixelStateIC, SurveyParams,
+    PixelStateIC, SeedNode, SeedParams, SurveyParams,
 };
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
@@ -135,6 +135,48 @@ pub struct SchedulerConfig {
     /// BLA lookups only at reference indices m = 1 (mod this): a lookup costs several exact
     /// steps on the GPU, and a rule on m keeps results independent of chunking.
     pub bla_lookup_every: u32,
+    /// R5 prototype: local series approximation for offscreen full levels
+    /// (`ALMONDBREAD_SA=1`; kb: techniques/local-series-approximation).
+    pub local_sa: Option<LocalSa>,
+}
+
+/// Quadtree seeds of the local series approximation (R5 prototype).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LocalSa {
+    /// Root node size in texels (a power of two).
+    pub top: usize,
+    /// Leaf node size (pixels start from it; a power of two >= 2).
+    pub leaf: usize,
+    /// Branch when the quadratic term exceeds `eps` of the linear one over the node.
+    pub eps: f64,
+}
+
+impl Default for LocalSa {
+    fn default() -> Self {
+        Self {
+            top: 32,
+            leaf: 2,
+            eps: 1e-2,
+        }
+    }
+}
+
+/// What the seed passes of the last seeded level did (R5 prototype).
+#[derive(Clone, Debug, Default)]
+pub struct SeedReport {
+    /// Per quadtree level: node size, nodes, accepted seed iterations, executed seed steps,
+    /// mean branch iteration, GPU seconds.
+    pub levels: Vec<(usize, usize, u64, u64, f64, f64)>,
+    pub gpu_time: f64,
+}
+
+impl SeedReport {
+    pub fn iterations(&self) -> u64 {
+        self.levels.iter().map(|l| l.2).sum()
+    }
+    pub fn steps(&self) -> u64 {
+        self.levels.iter().map(|l| l.3).sum()
+    }
 }
 
 impl Default for SchedulerConfig {
@@ -177,6 +219,9 @@ impl Default for SchedulerConfig {
                 .map_or(BLA_EPSILON, |e| 2f64.powf(-e)),
             bla_async_from: 16_384,
             bla_lookup_every: 8,
+            local_sa: std::env::var("ALMONDBREAD_SA")
+                .is_ok_and(|v| v == "1")
+                .then(LocalSa::default),
         }
     }
 }
@@ -270,6 +315,8 @@ struct Level<B: GpuBackend> {
     /// Admission list of a list level (AA samples: the adaptive list), instead of the
     /// unresolved lists.
     list_buffer: Option<B::Buffer>,
+    /// R5: fresh pixels start from quadtree seeds (the leaf level's parameters).
+    seeded: Option<SeedParams>,
 }
 
 /// The adaptive AA list of a refined view: the GPU pass that builds it and its length.
@@ -344,6 +391,7 @@ impl<B: GpuBackend> Level<B> {
             order: None,
             aa: None,
             list_buffer: None,
+            seeded: None,
         }
     }
 
@@ -406,6 +454,9 @@ struct Job<B: GpuBackend> {
     aa_epoch: u64,
     /// Which pixels take AA samples (built once the view is refined).
     aa_list: Option<AaList<B>>,
+    /// R5 prototype: the full level starts from quadtree seeds (offscreen jobs with
+    /// `config.local_sa`).
+    seed_full: bool,
 }
 
 /// The CPU copy of a BLA table: float32 (plain kernel, f64 references) or extended range
@@ -643,6 +694,8 @@ pub struct OffscreenResult {
     pub bla_used: bool,
     /// Raw iteration texels (n, smooth offset), row-major, if requested.
     pub iterations: Option<Vec<[f32; 2]>>,
+    /// R5: the seed passes (None: not seeded).
+    pub seeds: Option<SeedReport>,
 }
 
 /// A scripted headless session through the interactive scheduler.
@@ -723,12 +776,19 @@ pub struct Renderer<B: GpuBackend> {
     /// Colour cycling: accumulated phase (cycles) and when it last advanced.
     cycle_phase: f64,
     cycle_time: f64,
-    /// Iterate pipelines keyed by `de | interior << 1 | bla << 2 | deep << 3`.
-    iterate_pipelines: [Option<B::Pipeline>; 32],
+    /// Iterate pipelines keyed by `de | interior << 1 | bla << 2 | deep << 3 | interior_color << 4 |
+    /// seeded << 5`.
+    iterate_pipelines: [Option<B::Pipeline>; 64],
     /// Interior cycle analysis state, parallel to `state_buffers` (allocated on first use).
     ic_buffers: Option<[B::Buffer; 2]>,
     /// Level textures carry the interior analysis texture (set per job).
     want_aux: bool,
+    /// R5: seed pipelines keyed by `interior | deep << 1 | bla << 2`, the node buffer and its size in
+    /// nodes, the levels' parameters and their submissions.
+    seed_pipelines: [Option<B::Pipeline>; 8],
+    seed_nodes: Option<(B::Buffer, usize)>,
+    seed_levels: Vec<SeedParams>,
+    seed_submissions: Vec<B::Submission>,
 
     full_set: Option<TextureSet<B>>,
     /// One preview allocation at the largest preview size (the output size); levels use its
@@ -858,9 +918,13 @@ impl<B: GpuBackend> Renderer<B> {
             dummy_buffer,
             cycle_phase: 0.0,
             cycle_time: 0.0,
-            iterate_pipelines: Default::default(),
+            iterate_pipelines: std::array::from_fn(|_| None),
             ic_buffers: None,
             want_aux: false,
+            seed_pipelines: Default::default(),
+            seed_nodes: None,
+            seed_levels: Vec::new(),
+            seed_submissions: Vec::new(),
             full_set: None,
             preview_alloc: None,
             state_buffers,
@@ -960,20 +1024,171 @@ impl<B: GpuBackend> Renderer<B> {
         bla: bool,
         deep: bool,
         interior_color: bool,
+        seeded: bool,
     ) -> Result<B::Pipeline, GpuError> {
         let k = usize::from(de)
             | (usize::from(interior) << 1)
             | (usize::from(bla) << 2)
             | (usize::from(deep) << 3)
-            | (usize::from(interior_color) << 4);
+            | (usize::from(interior_color) << 4)
+            | (usize::from(seeded) << 5);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
         let p = self
             .backend
-            .pipeline("iterate", &[de, interior, bla, deep, interior_color])?;
+            .pipeline("iterate", &[de, interior, bla, deep, interior_color, seeded])?;
         self.iterate_pipelines[k] = Some(p.clone());
         Ok(p)
+    }
+
+    fn seed_pipeline(&mut self, interior: bool, deep: bool, bla: bool) -> Result<B::Pipeline, GpuError> {
+        let k = usize::from(interior) | (usize::from(deep) << 1) | (usize::from(bla) << 2);
+        if let Some(p) = &self.seed_pipelines[k] {
+            return Ok(p.clone());
+        }
+        let p = self
+            .backend
+            .pipeline("seedLevel", &[false, interior, bla, deep, false])?;
+        self.seed_pipelines[k] = Some(p.clone());
+        Ok(p)
+    }
+
+    /// R5 prototype: the quadtree layout of a `w x h` level (root size first, leaf last).
+    fn seed_layout(sa: LocalSa, w: usize, h: usize, soft_iter: u32) -> Vec<SeedParams> {
+        let mut levels: Vec<SeedParams> = Vec::new();
+        let mut size = sa.top;
+        let mut offset = 0usize;
+        while size >= sa.leaf.max(1) {
+            let (gw, gh) = (w.div_ceil(size), h.div_ceil(size));
+            let parent = levels.last().copied();
+            levels.push(SeedParams {
+                grid_w: gw as u32,
+                grid_h: gh as u32,
+                size: size as u32,
+                offset: offset as u32,
+                parent_grid_w: parent.map_or(0, |p| p.grid_w),
+                parent_offset: parent.map_or(0, |p| p.offset),
+                root: u32::from(parent.is_none()),
+                soft_iter,
+                radius: (0.5 * size as f64 * std::f64::consts::SQRT_2) as f32,
+                eps: sa.eps as f32,
+                pad0: 0,
+                pad1: 0,
+            });
+            offset += gw * gh;
+            if size == 1 {
+                break;
+            }
+            size /= 2;
+        }
+        levels
+    }
+
+    /// R5 prototype: encodes the seed passes of a level (one command buffer per quadtree
+    /// level, committed before the level's first chunk on the same queue).
+    fn encode_seeds(&mut self, level_index: usize, interior: bool) -> Result<(), GpuError> {
+        let Some(sa) = self.config.local_sa else { return Ok(()) };
+        let (params, deep, reference_buffer, refx, bla) = {
+            let job = self.job.as_ref().expect("job");
+            let l = &job.levels[level_index];
+            // Seeds take BLA blocks only in the deep kernel (where the table pays).
+            // (`ALMONDBREAD_SA_SEED_BLA=0`: seeds step exactly, for comparison.)
+            let seed_bla = std::env::var("ALMONDBREAD_SA_SEED_BLA").map_or(true, |v| v != "0");
+            let bla = job
+                .bla
+                .as_ref()
+                .filter(|_| l.use_bla && job.deep && seed_bla)
+                .map(|b| (b.params, b.buffer.clone()));
+            (
+                l.params,
+                job.deep,
+                job.reference_buffer.clone(),
+                job.refx_buffer.clone(),
+                bla,
+            )
+        };
+        let w = params.width as usize;
+        let h = (params.height as usize).max(1);
+        let layout = Self::seed_layout(sa, w, h, params.soft_iter);
+        let nodes: usize = layout.iter().map(|l| (l.grid_w * l.grid_h) as usize).sum();
+        if self.seed_nodes.as_ref().is_none_or(|(_, n)| *n < nodes) {
+            let buf = self
+                .backend
+                .create_buffer(nodes * std::mem::size_of::<SeedNode>(), Storage::Shared)?;
+            self.seed_nodes = Some((buf, nodes));
+        }
+        let pipeline = self.seed_pipeline(interior, deep, bla.is_some())?;
+        let nodes_buf = self.seed_nodes.as_ref().expect("nodes").0.clone();
+        self.seed_submissions.clear();
+        for l in &layout {
+            let mut enc = self.backend.begin("seed level")?;
+            enc.set_pipeline(&pipeline);
+            enc.set_bytes(0, bytes_of(&params));
+            enc.set_buffer(1, &reference_buffer, 0);
+            enc.set_buffer(16, refx.as_ref().unwrap_or(&self.dummy_buffer), 0);
+            match &bla {
+                Some((bp, buf)) => {
+                    enc.set_bytes(14, bytes_of(bp));
+                    enc.set_buffer(17, buf, 0);
+                }
+                None => {
+                    enc.set_bytes(14, bytes_of(&BlaParams::default()));
+                    enc.set_buffer(17, &self.dummy_buffer, 0);
+                }
+            }
+            enc.set_buffer(18, &nodes_buf, 0);
+            enc.set_bytes(19, bytes_of(l));
+            enc.dispatch_threads([(l.grid_w * l.grid_h) as usize, 1, 1], [64, 1, 1]);
+            self.seed_submissions.push(enc.commit());
+        }
+        let leaf = *layout.last().expect("leaf level");
+        self.seed_levels = layout;
+        self.job.as_mut().expect("job").levels[level_index].seeded = Some(leaf);
+        Ok(())
+    }
+
+    /// R5 prototype: waits for the last seed passes and summarises them.
+    pub fn seed_report(&self) -> Option<SeedReport> {
+        if self.seed_submissions.is_empty() {
+            return None;
+        }
+        let (buf, _) = self.seed_nodes.as_ref()?;
+        for s in &self.seed_submissions {
+            s.wait();
+        }
+        let total: usize = self.seed_levels.iter().map(|l| (l.grid_w * l.grid_h) as usize).sum();
+        let mut bytes = vec![0u8; total * std::mem::size_of::<SeedNode>()];
+        self.backend.read_buffer(buf, 0, &mut bytes);
+        let nodes: Vec<SeedNode> = bytes
+            .as_chunks::<{ std::mem::size_of::<SeedNode>() }>()
+            .0
+            .iter()
+            .map(|c| bytemuck::pod_read_unaligned(c))
+            .collect();
+        let mut report = SeedReport::default();
+        for (l, sub) in self.seed_levels.iter().zip(&self.seed_submissions) {
+            let (mut iters, mut steps, mut nsum) = (0u64, 0u64, 0f64);
+            let count = (l.grid_w * l.grid_h) as usize;
+            for i in 0..count {
+                let nd = nodes[l.offset as usize + i];
+                let parent_n = if l.root != 0 {
+                    0
+                } else {
+                    let (x, y) = (i as u32 % l.grid_w, i as u32 / l.grid_w);
+                    nodes[(l.parent_offset + (y / 2) * l.parent_grid_w + x / 2) as usize].n
+                };
+                iters += u64::from(nd.n - parent_n);
+                steps += u64::from(nd.steps);
+                nsum += f64::from(nd.n);
+            }
+            let gpu = sub.gpu_time();
+            report.gpu_time += gpu;
+            report
+                .levels
+                .push((l.size as usize, count, iters, steps, nsum / count.max(1) as f64, gpu));
+        }
+        Some(report)
     }
 
     // MARK: Interactive frames
@@ -1561,6 +1776,7 @@ impl<B: GpuBackend> Renderer<B> {
             aa_composed: 0,
             aa_epoch: 0,
             aa_list: None,
+            seed_full: mode == JobMode::Offscreen,
         });
         // Offscreen renders always iterate with the table (deterministic results); views
         // take it when it is there (previews), and full levels wait for it (encode_chunks).
@@ -2021,13 +2237,23 @@ impl<B: GpuBackend> Renderer<B> {
                 }
             }
         }
-        let (use_interior, use_bla, deep, interior_color) = {
+        let (use_interior, use_bla, deep, interior_color, seed_now) = {
             let j = self.job.as_ref().expect("job");
             let l = &j.levels[level_index];
             let ic = j.key.interior_color && l.set.aux.is_some() && self.ic_buffers.is_some();
-            (l.use_interior, l.use_bla, j.deep, ic)
+            let seed_now = self.config.local_sa.is_some()
+                && j.seed_full
+                && !l.preview
+                && l.aa.is_none()
+                && !l.started()
+                && !l.is_extension();
+            (l.use_interior, l.use_bla, j.deep, ic, seed_now)
         };
-        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla, deep, interior_color) {
+        if seed_now && let Err(e) = self.encode_seeds(level_index, use_interior) {
+            eprintln!("almondbread: seed passes failed: {e}");
+        }
+        let seeded = self.job.as_ref().expect("job").levels[level_index].seeded;
+        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla, deep, interior_color, seeded.is_some()) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("almondbread: iterate pipeline failed: {e}");
@@ -2101,6 +2327,10 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        if let (Some((nodes, _)), Some(leaf)) = (&self.seed_nodes, seeded) {
+            enc.set_buffer(20, nodes, 0);
+            enc.set_bytes(21, bytes_of(&leaf));
+        }
         enc.dispatch_indirect(&self.args_buffer, 0, [ITERATE_THREADS, 1, 1]);
 
         enc.set_pipeline(&self.finish_pipeline);
@@ -2362,6 +2592,7 @@ impl<B: GpuBackend> Renderer<B> {
                 p.total = count as u32;
                 let mut ext = Level::new(level.set.clone(), level.ratio, false, p, Some(count));
                 ext.use_interior = true;
+                ext.seeded = level.seeded;
                 // The frame already is complete; this only resolves more pixels.
                 ext.complete = true;
                 ext.extend_to = level.extend_to;
@@ -3466,6 +3697,11 @@ impl<B: GpuBackend> Renderer<B> {
             bla_forecast: job.bla_forecast,
             bla_used: job.levels.iter().any(|l| l.use_bla),
             iterations,
+            seeds: if job.levels.iter().any(|l| l.seeded.is_some()) {
+                self.seed_report()
+            } else {
+                None
+            },
         })
     }
 

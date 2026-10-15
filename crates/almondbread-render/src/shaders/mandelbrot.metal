@@ -34,6 +34,9 @@ constant bool kDeep     [[function_constant(3)]];   // M3b: rescaled float32 del
 constant bool kInteriorColor [[function_constant(4)]];  // analyse interior cycles (period,
                                                     // multiplier, interior DE) for the interior
                                                     // colourings (kb: techniques/coloring-methods)
+constant bool kSeeded   [[function_constant(5)]];   // R5 prototype: fresh pixels start from their
+                                                    // quadtree leaf's local series expansion
+                                                    // (kb: techniques/local-series-approximation)
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -198,6 +201,51 @@ static inline float2 cmul(float2 a, float2 b) {
     return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
+// ---------------------------------------------------------------------------------------------
+// R5 prototype: local series approximation on the GPU (kb: techniques/local-series-approximation,
+// questions/local-sa-float32). A quadtree node is a seed at its centre c0: it iterates exactly
+// (perturbation against the reference, rebasing as the pixel loop) and carries
+//   a = dz/dc * texel           (the DE derivative d of the pixel loop)
+//   b = d2z/dc2 * texel^2       (deep: floatexp; plain: divided by the texel, b * texel)
+// while |b| r <= 2 eps |a| over its radius r (texels). A child starts from its parent's state
+// shifted by delta (texels): dz + a delta + b delta^2 / 2, a + b delta, b. Pixels start from
+// their leaf node (2 x 2) the same way and run the unchanged loop.
+// The interior test's w = dz_n/dz_1 is a function of c too: seeds carry it and its derivative
+//   wd = dw/dc * texel,  wd_{n+1} = 2 (a_n w_n + z_n wd_n)
+// and samples start from w + wd delta. (Restarting w at the branch is wrong: a later passage
+// of the orbit near 0 multiplies a restarted w by |2z| ~ 1e-300 at the deep needle, with no
+// growth from the earlier part of the orbit to balance it: 96 % false interior, measured.)
+struct SeedNode {
+    float2 dz;       // delta to the reference (deep: mantissa)
+    float2 a;        // dz/dc * texel (deep: mantissa)
+    float2 b;        // plain: d2z/dc2 * texel; deep: d2z/dc2 * texel^2 mantissa
+    int    dzExp;    // deep exponents (plain: 0)
+    int    aExp;
+    int    bExp;
+    uint   m;        // reference index
+    uint   n;        // iteration of the branch state
+    uint   steps;    // seed steps executed by this node (incl. the rejected one)
+    float2 w;        // dz_n/dz_1 (interior test), floatexp mantissa
+    float2 wd;       // dw/dc * texel, floatexp mantissa
+    int    wExp;
+    int    wdExp;
+};
+
+struct SeedParams {
+    uint  gridW;         // nodes per row of this quadtree level
+    uint  gridH;
+    uint  size;          // node size in texels
+    uint  offset;        // first node of this level in the node buffer
+    uint  parentGridW;
+    uint  parentOffset;
+    uint  root;          // 1: no parent, start at z = 0
+    uint  softIter;      // seeds stop here
+    float radius;        // texels
+    float eps;
+    uint  pad0;
+    uint  pad1;
+};
+
 
 // ---------------------------------------------------------------------------------------------
 // Extended range for the deep kernel (M3b, kb: techniques/extended-range-floats). FE is a
@@ -347,6 +395,180 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
     stats[p.statSlot].liveOut = *countOut;
 }
 
+// R5: one quadtree level of seeds (one thread per node; parents were written by the previous
+// dispatch). Node centres are texel corners (u, v) = (i + 1/2) size; a pixel centre is
+// (x + 1/2, y + 1/2), so with the level's jitter j the complex offset is ((u, v) + j - 1/2).
+// Interior-test value |w| n^2 of a floatexp w.
+static inline float feWTest(FE w, uint n) {
+    return max(abs(w.m.x), abs(w.m.y)) * (float(n) * float(n)) * pow2f(clamp(w.e, -126, 127));
+}
+
+static inline float2 seedDc(constant IterateParams& p, float2 q) {
+    float2 pix = q + (p.jitter - 0.5f) - p.halfSize;
+    return float2(pix.x, -pix.y) * p.texelScale + p.refOffset;
+}
+
+kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
+                      device const float2* ref     [[buffer(1)]],
+                      constant BlaParams& bla      [[buffer(14)]],
+                      device const RefX* refx      [[buffer(16)]],
+                      device const BlaEntryX* tableX [[buffer(17)]],
+                      device SeedNode* nodes       [[buffer(18)]],
+                      constant SeedParams& sp      [[buffer(19)]],
+                      uint tid                     [[thread_position_in_grid]])
+{
+    if (tid >= sp.gridW * sp.gridH) return;
+    const uint2 nxy = uint2(tid % sp.gridW, tid / sp.gridW);
+    const float2 q = (float2(nxy) + 0.5f) * float(sp.size);
+    const float2 dc = seedDc(p, q);
+    const uint last = p.refLen - 1;
+    SeedNode s;
+    float2 delta = 0.0f;
+    if (sp.root != 0) {
+        s.dz = 0.0f; s.a = 0.0f; s.b = 0.0f;
+        s.dzExp = FE_ZERO; s.aExp = FE_ZERO; s.bExp = FE_ZERO;
+        s.m = 0; s.n = 0;
+        s.w = float2(0.5f, 0.0f); s.wExp = 1;
+        s.wd = 0.0f; s.wdExp = FE_ZERO;
+    } else {
+        const uint2 pxy = nxy / 2u;
+        s = nodes[sp.parentOffset + pxy.y * sp.parentGridW + pxy.x];
+        const float2 dq = q - (float2(pxy) + 0.5f) * float(2u * sp.size);
+        delta = float2(dq.x, -dq.y);
+    }
+    uint steps = 0;
+    uint m = s.m, n = s.n;
+    FE W = FE{s.w, s.wExp}, WD = FE{s.wd, s.wdExp};
+    if (sp.root == 0 && kInterior) W = feAdd(W, feMul(WD, feNorm(delta, 0)));
+    if (kDeep) {
+        const FE C = feNorm(dc, p.scaleExp);
+        const FE TS = feNorm(float2(p.texelScale, 0.0f), p.scaleExp);
+        FE dz = FE{s.dz, s.dzExp}, A = FE{s.a, s.aExp}, B = FE{s.b, s.bExp};
+        if (sp.root == 0) {
+            const FE D = feNorm(delta, 0);
+            const FE BD = feMul(B, D);
+            dz = feAdd(dz, feMul(feAdd(A, FE{BD.m, BD.e - 1}), D));
+            A = feAdd(A, BD);
+            FE z = feAdd(refAt(refx, m), dz);
+            if (m != 0 && (m == last || feLess(z, dz))) { dz = z; m = 0; }
+        }
+        const FE R = feNorm(float2(sp.radius, 0.0f), 0);
+        const FE L = feNorm(float2(2.0f * sp.eps, 0.0f), 0);
+        const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
+        // |c| + |texel| r: the largest |c| of the node's region (BLA validity).
+        const FE cMax = feAdd(feNorm(float2(length(C.m), 0.0f), C.e),
+                              feNorm(float2(TS.m.x * sp.radius, 0.0f), TS.e));
+        while (n < sp.softIter) {
+            // BLA blocks (kBLA, deep views): z_{m+l} = A z_m + B c is affine in (z, c), so the
+            // node's expansion maps exactly: dz' = A dz + B c, a' = A a + B texel, b' = A b,
+            // valid for the whole region when |dz| + |a| r (1 + eps) + K (|c| + |texel| r) < R.
+            if (kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
+                const FE zMax = feAdd(feNorm(float2(length(dz.m), 0.0f), dz.e),
+                                      feNorm(float2(length(A.m) * sp.radius * (1.0f + sp.eps), 0.0f), A.e));
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                BlaEntryX best;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > last || n + l > sp.softIter) break;
+                    const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
+                    if (!(x.r > 0.0f)) break;
+                    const int kce = x.ke + cMax.e - x.re;
+                    const float t = x.r - (kce < -150 ? 0.0f : x.k * cMax.m.x * pow2f(min(kce, 64)));
+                    if (!(t > 0.0f && zMax.m.x * pow2f(clamp(zMax.e - x.re, -127, 64)) < t)) break;
+                    best = x;
+                    len = l;
+                }
+                if (len != 0) {
+                    const FE BA = FE{best.a, best.ae}, BB = FE{best.b, best.be};
+                    const FE A2 = feAdd(feMul(BA, A), feMul(BB, TS));
+                    const FE B2 = feMul(BA, B);
+                    steps++;
+                    if (feLess(feMul(A2, L), feMul(B2, R))) break;
+                    dz = feAdd(feMul(BA, dz), feMul(BB, C));
+                    A = A2;
+                    B = B2;
+                    if (kInterior) {
+                        W = feMul(BA, W);
+                        WD = feMul(BA, WD);
+                    }
+                    m += len;
+                    n += len;
+                    const FE zb = feAdd(refAt(refx, m), dz);
+                    if (m == last || feLess(zb, dz)) { dz = zb; m = 0; }
+                    continue;
+                }
+            }
+            const FE Zx = refAt(refx, m);
+            const FE z = feAdd(Zx, dz);
+            const FE z2 = FE{z.m, z.e + 1};
+            const FE A2 = feAdd(feMul(z2, A), TS);
+            const FE t = feAdd(feMul(A, A), feMul(z, B));
+            const FE B2 = FE{t.m, t.e + 1};
+            const FE dz2 = feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, dz), dz), C);
+            const FE zn = feAdd(refAt(refx, m + 1), dz2);
+            steps++;
+            if (zn.e > 0) {
+                if (zn.e > 64) break;
+                const float2 f = feFloat(zn);
+                if (dot(f, f) > p.bailout2) break;
+            }
+            if (feLess(feMul(A2, L), feMul(B2, R))) break;
+            if (kInterior && n != 0) {   // (w_1 = 1, see the plain path)
+                const FE t2 = feAdd(feMul(A, W), feMul(z, WD));
+                WD = FE{t2.m, t2.e + 1};
+                W = feMul(z2, W);
+            }
+            dz = dz2; A = A2; B = B2;
+            m++; n++;
+            if (m == last || feLess(zn, dz)) { dz = zn; m = 0; }
+            if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) break;
+        }
+        s.dz = dz.m; s.dzExp = dz.e; s.a = A.m; s.aExp = A.e; s.b = B.m; s.bExp = B.e;
+    } else {
+        const float ts = p.texelScale, invTs = 1.0f / ts;
+        float2 dz = s.dz, A = s.a, B = s.b;
+        if (sp.root == 0) {
+            dz += cmul(A, delta) + (0.5f * ts) * cmul(B, cmul(delta, delta));
+            A += ts * cmul(B, delta);
+            const float2 z = ref[m] + dz;
+            if (m != 0 && (dot(z, z) < dot(dz, dz) || m == last)) { dz = z; m = 0; }
+        }
+        // Accept while |B ts| r <= 2 eps |A|.
+        const float lim = 2.0f * sp.eps / (ts * sp.radius);
+        while (n < sp.softIter) {
+            const float2 Z = ref[m];
+            const float2 z = Z + dz;
+            const float2 A2 = 2.0f * cmul(z, A) + float2(ts, 0.0f);
+            const float2 B2 = 2.0f * (cmul(A, A * invTs) + cmul(z, B));
+            const float2 dz2 = cmul(2.0f * Z + dz, dz) + dc;
+            const float2 zn = ref[m + 1] + dz2;
+            steps++;
+            const float r2 = dot(zn, zn);
+            if (!(r2 <= p.bailout2)) break;
+            if (!(length(B2) <= lim * length(A2))) break;
+            // (w_1 = 1: the step from z_0 = 0 would zero it, as in the pixel loop's first step.)
+            if (kInterior && n != 0) {
+                const FE zf = feNorm(z, 0);
+                const FE t2 = feAdd(feMul(feNorm(A, 0), W), feMul(zf, WD));
+                WD = FE{t2.m, t2.e + 1};
+                W = feMul(FE{zf.m, zf.e + 1}, W);
+            }
+            dz = dz2; A = A2; B = B2;
+            m++; n++;
+            if (r2 < dot(dz, dz) || m == last) { dz = zn; m = 0; }
+            if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) {
+                break;   // interior seed: branch here (samples inherit w + wd delta)
+            }
+        }
+        s.dz = dz; s.a = A; s.b = B;
+        s.dzExp = 0; s.aExp = 0; s.bExp = 0;
+    }
+    s.m = m; s.n = n; s.steps = steps;
+    s.w = W.m; s.wExp = W.e; s.wd = WD.m; s.wdExp = WD.e;
+    nodes[sp.offset + tid] = s;
+}
+
 // Perturbation: z = Z + dz, with Z the reference orbit.
 //   dz_{n+1} = 2 Z_n dz_n + dz_n^2 + dc = (2 Z_n + dz_n) dz_n + dc
 // Rebasing: when |Z_m + dz| < |dz|, or the reference runs out, continue from the start of
@@ -397,6 +619,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     texture2d<float, access::write> auxOut  [[texture(2), function_constant(kInteriorColor)]],
                     device const PixelStateIC* icIn         [[buffer(18), function_constant(kInteriorColor)]],
                     device PixelStateIC* icOut              [[buffer(19), function_constant(kInteriorColor)]],
+                    device const SeedNode* seeds            [[buffer(20), function_constant(kSeeded)]],
+                    constant SeedParams& leaf               [[buffer(21), function_constant(kSeeded)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -438,6 +662,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint iters = 0;
     uint steps = 0;
 
+    // R5 (kSeeded): the pixel's leaf node and its offset from the node centre, in texels.
+    SeedNode sd;
+    float2 sdDelta = 0.0f;
+    if (kSeeded && fresh && active) {
+        const uint2 lxy = gid / leaf.size;
+        sd = seeds[leaf.offset + lxy.y * leaf.gridW + lxy.x];
+        const float2 dq = (float2(gid) + 0.5f) - (float2(lxy) + 0.5f) * float(leaf.size);
+        sdDelta = float2(dq.x, -dq.y);
+    }
+
     // Interior cycle analysis (kInteriorColor): a pixel proven interior continues here instead
     // of finishing, see below; `inB` marks one already analysing (the main loop is done).
     // Before that, the main loop tracks the orbit's closest approach to 0 (atom domain): the
@@ -474,7 +708,21 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         float2 w, dm, zw;
         int e, dExp, wExp;
         uint m, n;
-        if (fresh) {
+        if (kSeeded && fresh) {
+            // Start from the leaf's expansion: dz + a delta + b delta^2/2, d = a + b delta,
+            // w + wd delta.
+            const FE D = feNorm(sdDelta, 0);
+            const FE A = FE{sd.a, sd.aExp};
+            const FE BD = feMul(FE{sd.b, sd.bExp}, D);
+            const FE zx = feAdd(FE{sd.dz, sd.dzExp}, feMul(feAdd(A, FE{BD.m, BD.e - 1}), D));
+            if (zx.e >= DEEP_PLAIN_EXP) { w = feFloat(zx); e = 0; } else { w = zx.m; e = zx.e; }
+            const FE dx = feAdd(A, BD);
+            dm = dx.m; dExp = dx.e;
+            const FE wx = kInterior ? feAdd(FE{sd.w, sd.wExp}, feMul(FE{sd.wd, sd.wdExp}, D)) : FE{float2(1.0f, 0.0f), 0};
+            zw = wx.m; wExp = wx.e;
+            m = sd.m; n = sd.n;
+            st.n = n;
+        } else if (fresh) {
             // z_1 = c, d_1 = texel, w_1 = 1.
             if (C.e >= DEEP_PLAIN_EXP) { w = feFloat(C); e = 0; } else { w = C.m; e = C.e; }
             dm = TS.m; dExp = TS.e;
@@ -727,7 +975,35 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
     } else if (active && !inB) {
-        if (fresh) {
+        if (kSeeded && fresh) {
+            // R5: start from the leaf's expansion (iterations counted from its n).
+            const float ts = p.texelScale;
+            st.dz = sd.dz + cmul(sd.a, sdDelta) + (0.5f * ts) * cmul(sd.b, cmul(sdDelta, sdDelta));
+            st.d = sd.a + ts * cmul(sd.b, sdDelta);
+            // w + wd delta, as the plain loop keeps it: w 2^wExp with wExp a multiple of 60 >= 0.
+            st.w = float2(1.0f, 0.0f);
+            st.wExp = 0;
+            if (kInterior) {
+                const FE wx = feAdd(FE{sd.w, sd.wExp}, feMul(FE{sd.wd, sd.wdExp}, feNorm(sdDelta, 0)));
+                if (wx.e <= 0) {
+                    st.w = scale2(wx.m, max(wx.e, -250));
+                } else {
+                    const int k = ((wx.e + 59) / 60) * 60;
+                    st.w = scale2(wx.m, wx.e - k);
+                    st.wExp = k;
+                }
+            }
+            st.m = sd.m;
+            st.n = sd.n;
+            z = ref[st.m] + st.dz;
+            r2 = dot(z, z);
+            if (r2 > p.bailout2) {
+                escaped = true;
+            } else if (st.m != 0 && (r2 < dot(st.dz, st.dz) || st.m == last)) {
+                st.dz = z;
+                st.m = 0;
+            }
+        } else if (fresh) {
             // First step done here, from z_0 = 0: z_1 = c, dz_1 = dc, d_1 = texelScale,
             // w_1 = 1 (the generic step would multiply w by z_0 = 0).
             st.dz = dc;
