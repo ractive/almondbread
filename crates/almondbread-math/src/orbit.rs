@@ -36,15 +36,17 @@ pub enum Variant {
 /// Whether the orbit squares on three cores (kb: techniques/parallel-reference-orbit).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Threads {
-    /// One thread.
+    /// One thread (the default: callers that already run many orbits in parallel, such
+    /// as the CPU oracle, must not multiply their threads by three).
+    #[default]
     Single,
     /// The caller plus two helper threads (squaring form only; the multiplication form
     /// stays single-threaded).
     Three,
     /// Three from [`PARALLEL_MIN_LIMBS`] limbs and [`PARALLEL_MIN_ITERATIONS`] iterations
     /// on machines with at least eight cores, else one (a 6-core iPhone has two
-    /// performance cores: a helper on an efficiency core would set the pace).
-    #[default]
+    /// performance cores: a helper on an efficiency core would set the pace). Used by
+    /// the reference worker and Newton, one orbit at a time.
     Automatic,
 }
 
@@ -129,7 +131,7 @@ impl ReferenceOrbitComputer {
             c: c.with_precision(bits),
             precision_bits: bits,
             variant: Variant::Automatic,
-            threads: Threads::Automatic,
+            threads: Threads::Single,
         }
     }
 
@@ -393,7 +395,19 @@ impl Job<'_> {
             while done < self.max_iterations {
                 let end = self.max_iterations.min(done + interval);
                 let (reached, esc) = if let Some(sh) = shared {
-                    orbit_loop_squarings_shared(&mut x, &mut y, &cx, &cy, &mut regs, s, done, end, self.bailout2, &mut out, sh)
+                    orbit_loop_squarings_shared(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut regs,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                        sh,
+                    )
                 } else if self.squarings {
                     orbit_loop_squarings(&mut x, &mut y, &cx, &cy, &mut t, s, done, end, self.bailout2, &mut out)
                 } else {
@@ -547,7 +561,7 @@ mod tests {
             bits,
         )
         .unwrap();
-        c.re += BigFloat::from_f64(0.3183098861837907, bits).times_power_of_two(-(bits as i64 - 3));
+        c.re += BigFloat::from_f64(std::f64::consts::FRAC_1_PI, bits).times_power_of_two(-(bits as i64 - 3));
         c
     }
 
@@ -588,7 +602,11 @@ mod tests {
     /// cancelled computation resumes where it stopped.
     #[test]
     fn resume_continues_exactly() {
-        for (bits, threads) in [(128usize, Threads::Single), (1024, Threads::Single), (1536, Threads::Three)] {
+        for (bits, threads) in [
+            (128usize, Threads::Single),
+            (1024, Threads::Single),
+            (1536, Threads::Three),
+        ] {
             let comp = ReferenceOrbitComputer::new(&point(bits), bits).with_threads(threads);
             let n = 3000;
             let whole = comp.compute_vec(n, 1e10);
@@ -609,7 +627,9 @@ mod tests {
             };
             r = comp.resume(&r, 2000, 1e10, Some(&mut pts), Some(&mut ext), &mut ctl);
             assert!(r.cancelled && r.iterations() == 1000);
-            r = with_no_control(4096, |ctl| comp.resume(&r, n, 1e10, Some(&mut pts), Some(&mut ext), ctl));
+            r = with_no_control(4096, |ctl| {
+                comp.resume(&r, n, 1e10, Some(&mut pts), Some(&mut ext), ctl)
+            });
             pts.truncate(r.count);
             ext.truncate(r.count);
             same(&whole, &(pts, ext, r));

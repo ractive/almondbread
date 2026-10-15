@@ -92,7 +92,10 @@ fn run_bench(sizes: &[usize]) {
 fn run_par(sizes: &[usize]) {
     let rounds: usize = std::env::var("ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(7);
     println!("Reference orbit with outputs, iterations per second: best / median of {rounds}");
-    println!("{:>6} {:>21} {:>21} {:>13}", "bits", "1 thread", "3 threads", "x best/median");
+    println!(
+        "{:>6} {:>21} {:>21} {:>13}",
+        "bits", "1 thread", "3 threads", "x best/median"
+    );
     for &bits in sizes {
         let single_variant = if bits <= 64 * AUTOMATIC_MULTIPLICATION_LIMIT {
             Variant::Multiplications

@@ -11,7 +11,7 @@
 //!
 //! The operations and their inputs are exactly those of the serial loop, so the orbit is
 //! bit-identical. It pays from about [`PARALLEL_MIN_LIMBS`] limbs (measured). Waits spin
-//! briefly, then yield, so a descheduled thread on a loaded machine costs time slices,
+//! briefly (1024 polls, a few µs), then yield, so a descheduled thread on a loaded machine costs time slices,
 //! not a stall.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -115,7 +115,7 @@ fn wait_until(shared: &Shared, mut ready: impl FnMut() -> bool) -> bool {
         if shared.stopped() {
             return false;
         }
-        if spins < 4096 {
+        if spins < 1024 {
             spins += 1;
             core::hint::spin_loop();
         } else {

@@ -7,7 +7,7 @@
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::BigComplex;
 use crate::floatexp::{DoubleExp, DoubleExpComplex};
-use crate::orbit::{Control, ReferenceOrbitComputer, load};
+use crate::orbit::{Control, ReferenceOrbitComputer, Threads, load};
 use crate::raw::{self, Raw};
 
 type Reg = Raw<Vec<u64>>;
@@ -362,7 +362,7 @@ pub fn find_nucleus(
         } else {
             // The orbit through the reference-orbit code (fixed-size kernels, three threads
             // at high precision), the derivative over its extended-range copy.
-            let comp = ReferenceOrbitComputer::new(&c, bits);
+            let comp = ReferenceOrbitComputer::new(&c, bits).with_threads(Threads::Automatic);
             let mut ignore = |_: usize| {};
             let mut ctl = Control {
                 check_interval: 4096,

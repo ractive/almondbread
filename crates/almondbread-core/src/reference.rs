@@ -16,13 +16,13 @@
 //! a reference is reused while panning and zooming as long as its precision covers the pixel
 //! spacing and it lies within float32 reach of the pixels ([`Reference::fit`]).
 
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 use almondbread_math::{
-    BigFloat, FloatExpComplex, PeriodMethod, ReferenceOrbitComputer, recommended_precision_bits_with,
+    BigFloat, FloatExpComplex, PeriodMethod, ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
 };
 
 use crate::viewport::{Center, Scale, Viewport};
@@ -189,7 +189,7 @@ impl Reference {
         let select_time = t0.elapsed().as_secs_f64();
         let t1 = Instant::now();
         let iters = period.unwrap_or(request.max_iter).max(1);
-        let comp = ReferenceOrbitComputer::new(point.big(), bits);
+        let comp = ReferenceOrbitComputer::new(point.big(), bits).with_threads(Threads::Automatic);
         let mut points = vec![[0.0f32; 2]; iters + 1];
         let mut extended = vec![FloatExpComplex::ZERO; iters + 1];
         let mut never_progress = |n: usize| progress.store(n, Ordering::Relaxed);
@@ -214,7 +214,14 @@ impl Reference {
         for &stage in &stages {
             let next = match &r {
                 None => comp.compute(stage, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl),
-                Some(prev) => comp.resume(prev, stage, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl),
+                Some(prev) => comp.resume(
+                    prev,
+                    stage,
+                    request.bailout,
+                    Some(&mut points),
+                    Some(&mut extended),
+                    &mut ctl,
+                ),
             };
             if next.cancelled {
                 return None;
