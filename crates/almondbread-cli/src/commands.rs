@@ -107,6 +107,16 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
             list.join(" ")
         );
     }
+    if out.la_used {
+        let (t, entries, bytes, stages) = r.la_info();
+        println!(
+            "LA used{}: {entries} entries in {stages} stages ({} KB) built in {:.3} ms; {:.2}x fewer steps than iterations",
+            if out.at_used { " with AT" } else { "" },
+            bytes / 1024,
+            t * 1000.0,
+            out.iterations_done as f64 / out.steps_done.max(1) as f64
+        );
+    }
     if let Some(f) = out.bla_forecast {
         let (t, entries, bytes) = r.bla_info();
         println!(
@@ -163,7 +173,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     }
     // The reference first (the probe perturbs against it at depth).
     r.render_offscreen(width.min(64), height.min(64), false)?;
-    ov.prepare(r, (width, height), 1.0, now);
+    ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
     let deadline = r.clock() + 30.0;
     while r.clock() < deadline {
         ov.step_probe(0.05);
@@ -174,7 +184,8 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         std::thread::sleep(std::time::Duration::from_millis(4));
     }
     let now = r.clock();
-    ov.prepare(r, (width, height), 1.0, now);
+    // `--ppp 0.5`: overlay sizes as on a Retina display (view points per pixel).
+    ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
     if let Some(c) = ov.orbit_class() {
         println!(
             "orbit: {} ({} iterates drawn, |z_n| {})",
@@ -1313,18 +1324,72 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
         .get("span")
         .and_then(Scale::parse)
         .unwrap_or_else(|| Scale::from_f64(3.0));
-    let mut chain = Chain::new(seed);
+    let mut chain = Chain::starting_at(seed, &center, span);
     let never = std::sync::atomic::AtomicBool::new(false);
     let thumbs = o.get("thumbs");
+    let show_look = o.get("describe").is_some();
+    let mut looks: Vec<almondbread_core::journey::Look> = Vec::new();
     if let Some(d) = thumbs {
         fs::create_dir_all(d)?;
     }
+    // `--views file`: describe fixed views ("re im span label" per line) instead of planning
+    // (to compare descriptors on one set); `--save file` writes the planned targets so.
+    let views: Option<Vec<(Center, Scale, String)>> = match o.get("views") {
+        Some(path) => Some(
+            fs::read_to_string(path)?
+                .lines()
+                .filter_map(|l| {
+                    let mut it = l.splitn(4, ' ');
+                    let (re, im, sp) = (it.next()?, it.next()?, it.next()?);
+                    Some((
+                        Center::parse(re, im)?,
+                        Scale::parse(sp)?,
+                        it.next().unwrap_or("").to_string(),
+                    ))
+                })
+                .collect(),
+        ),
+        None => None,
+    };
+    let legs = views.as_ref().map_or(legs, |v| v.len());
+    let mut saved = String::new();
     println!("journey #{seed}");
     for leg in 1..=legs {
-        let Some(p) = plan(&center, span, &chain, &never) else {
-            return err("cancelled");
+        let p = match &views {
+            Some(v) => {
+                use almondbread_core::journey::{ProbeStats, Target, TargetKind, probe};
+                let (c, sp, label) = v[leg - 1].clone();
+                let f = probe(&c, sp, 0);
+                almondbread_core::journey::Plan {
+                    target: Target {
+                        kind: TargetKind::Surface,
+                        stats: ProbeStats::of(&f),
+                        look: almondbread_core::journey::look_of(&f, &c, sp),
+                        center: c,
+                        span: sp,
+                        period: None,
+                        preperiod: None,
+                        label,
+                        gain: 0.0,
+                        score: 0.0,
+                        palette_phase: 0.0,
+                    },
+                    chain: chain.clone(),
+                    candidates: 0,
+                    probed: 0,
+                    seconds: 0.0,
+                }
+            }
+            None => {
+                let Some(p) = plan(&center, span, &chain, &never) else {
+                    return err("cancelled");
+                };
+                p
+            }
         };
         let t = &p.target;
+        let (re, im) = t.center.to_strings();
+        saved.push_str(&format!("{re} {im} {} {}\n", t.span.to_text(17), t.label));
         println!(
             "{leg:>3}  {:<34} {:>6.2} e-folds  zoom 10^{:<6.2} score {:>5.2}  detail {:>5.1} centre {:>5.1} interior {:>4.2} calm {:>4.2} filament {:>4.2} rough {:>5.1}  ({} candidates, {} probed, {:.2} s)",
             t.label,
@@ -1341,6 +1406,35 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
             p.probed,
             p.seconds
         );
+        let mut t = t.clone();
+        if let Some(n) = o.usize("look-size") {
+            t.look = almondbread_core::journey::look_of(
+                &almondbread_core::journey::probe_sized(&t.center, t.span, 0, n),
+                &t.center,
+                t.span,
+            );
+        }
+        let t = &t;
+        println!(
+            "     {} · {} dive, {} legs left",
+            almondbread_core::journey::region_of(t.center.re(), t.center.im()).1,
+            p.chain.style.name(),
+            p.chain.dive_left
+        );
+        if show_look {
+            let near: Vec<String> = looks
+                .iter()
+                .rev()
+                .take(4)
+                .map(|l| format!("{:.2}", l.distance(&t.look)))
+                .collect();
+            println!(
+                "     look {}  | distance to the last legs {}",
+                t.look.describe(),
+                near.join(" ")
+            );
+        }
+        looks.push(t.look);
         if let Some(d) = thumbs {
             let mut r = new_renderer(backend, o)?;
             r.settings = almondbread_core::RenderSettings::default();
@@ -1353,6 +1447,9 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
         center = t.center.clone();
         span = t.span;
         chain = p.chain;
+    }
+    if let Some(path) = o.get("save") {
+        fs::write(path, saved)?;
     }
     Ok(0)
 }

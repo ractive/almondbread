@@ -26,6 +26,10 @@ final class InteractionTest: NSObject {
     private var refineLines: [String] = []
     private var ffiLines: [String] = []
     private var failures = 0
+    /// Display-link callbacks of the measured interval: timestamps and granted durations
+    /// (`targetTimestamp - timestamp`): what rate the system actually drives the window at.
+    private var linkTimes: [CFTimeInterval] = []
+    private var linkDurations: [CFTimeInterval] = []
 
     private struct View { let re: String, im: String, scale: Double }
     private struct Scenario {
@@ -465,14 +469,24 @@ final class InteractionTest: NSObject {
         let fps = window.screen?.maximumFramesPerSecond ?? 60
         print("interaction-test: window key \(window.isKeyWindow), app active \(NSApp.isActive), "
               + "occlusion visible \(window.occlusionState.contains(.visible))")
-        print("interaction-test: Rust renderer, window 1280x820 pt, backing scale \(window.backingScaleFactor), display \(fps) Hz")
-        print("| scenario | frames | fps | interval p50 / p95 / max ms | latency p50 / p95 ms (input→draw + draw→screen p50) | draw CPU p50 / p95 ms | GPU ms/frame (iter + colorize) | preview % | preview scale | skipped draws | draws / encoded |")
-        print("|---|---:|---:|---|---|---|---|---:|---:|---:|---|")
-        let link = view.displayLink(target: self, selector: #selector(step(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, Float(fps)), maximum: Float(fps), preferred: Float(fps))
-        view.setPreferredFrameRate(Float(fps))
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        print("interaction-test: Rust renderer, window 1280x820 pt, backing scale \(window.backingScaleFactor), display \(window.screen?.localizedName ?? "?") \(fps) Hz (main: \(window.screen == NSScreen.main))")
+        print("| scenario | frames | fps | link Hz (granted) | interval p50 / p95 / max ms | latency p50 / p95 ms (input→draw + draw→screen p50) | draw CPU p50 / p95 ms | GPU ms/frame (iter + colorize) | preview % | preview scale | skipped draws | draws / encoded |")
+        print("|---|---:|---:|---|---|---|---|---|---:|---:|---:|---|")
+        if ProcessInfo.processInfo.environment["ALMONDBREAD_TEST_LINK"] == "cv", let screen = window.screen {
+            // A CVDisplayLink on the window's display drives both the view's frames and the
+            // inputs: the CADisplayLink of a background (accessory, never key) window gets
+            // ~30-60 callbacks per second whatever rate it asks for (kb: synthesis/benchmarks,
+            // "120 Hz on ProMotion"); this shows what presentation achieves when frames are
+            // offered at the panel's rate.
+            startCVLink(screen: screen, view: view)
+            print("interaction-test: frames and inputs driven by a CVDisplayLink on \(screen.localizedName)")
+        } else {
+            let link = view.displayLink(target: self, selector: #selector(step(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, Float(fps)), maximum: Float(fps), preferred: Float(fps))
+            view.setPreferredFrameRate(Float(fps))
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
         next()
     }
 
@@ -480,6 +494,7 @@ final class InteractionTest: NSObject {
         scenario += 1
         guard scenario < scenarios.count, let view, let explorer = view.explorer else {
             link?.invalidate()
+            if let cvLink { CVDisplayLinkStop(cvLink) }
             refineLines.forEach { print($0) }
             ffiLines.forEach { print($0) }
             print(failures == 0 ? "interaction-test: done" : "interaction-test: FAILED (\(failures) checks)")
@@ -511,7 +526,41 @@ final class InteractionTest: NSObject {
         tick = 0
     }
 
+    private var cvLink: CVDisplayLink?
+    private var cvPending = false
+
+    private func startCVLink(screen: NSScreen, view: FractalNSView) {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return }
+        var link: CVDisplayLink?
+        CVDisplayLinkCreateWithCGDisplay(CGDirectDisplayID(number.uint32Value), &link)
+        guard let link else { return }
+        view.externalClock = true
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        let scale = Double(info.numer) / Double(info.denom) / 1e9
+        CVDisplayLinkSetOutputHandler(link) { [weak self] _, _, output, _, _ in
+            // Host time on CACurrentMediaTime's clock (mach absolute time in seconds).
+            let t = Double(output.pointee.hostTime) * scale
+            let period = output.pointee.videoRefreshPeriod > 0
+                ? Double(output.pointee.videoRefreshPeriod) / Double(output.pointee.videoTimeScale) : 1.0 / 120
+            DispatchQueue.main.async {
+                guard let self, !self.cvPending else { return }
+                self.cvPending = true
+                defer { self.cvPending = false }
+                self.view?.stepExternal(timestamp: t - period)
+                self.tick(timestamp: t - period, duration: period)
+            }
+            return kCVReturnSuccess
+        }
+        CVDisplayLinkStart(link)
+        cvLink = link
+    }
+
     @objc private func step(_ link: CADisplayLink) {
+        tick(timestamp: link.timestamp, duration: link.targetTimestamp - link.timestamp)
+    }
+
+    private func tick(timestamp: CFTimeInterval, duration: CFTimeInterval) {
         guard let view, let explorer = view.explorer, scenario < scenarios.count else { return }
         let now = CACurrentMediaTime()
         let name = scenarios[scenario].name
@@ -522,10 +571,14 @@ final class InteractionTest: NSObject {
                 phaseStart = now
                 explorer.beginMeasurement()
                 view.base.frameTimes = []
+                linkTimes = []
+                linkDurations = []
             }
             return
         }
         if now - phaseStart < inputSeconds {
+            linkTimes.append(timestamp)
+            linkDurations.append(duration)
             scenarios[scenario].input(view, tick, now - phaseStart)
             tick += 1
             return
@@ -603,8 +656,12 @@ final class InteractionTest: NSObject {
     }
 
     private func report(_ name: String, _ r: InteractionReport) {
-        print(String(format: "| %@ | %d | %.1f | %.1f / %.1f / %.1f | %.1f / %.1f (%.1f + %.1f) | %.2f / %.2f | %.2f + %.2f | %.0f | %.2f | %d | %d / %d |",
-                     name, r.presented, r.fps, r.intervalP50, r.intervalP95, r.intervalMax,
+        let span = (linkTimes.last ?? 0) - (linkTimes.first ?? 0)
+        let linkHz = linkTimes.count > 1 && span > 0 ? Double(linkTimes.count - 1) / span : 0
+        let granted = linkDurations.sorted()
+        let grantedHz = granted.isEmpty ? 0 : 1 / max(granted[granted.count / 2], 1e-6)
+        print(String(format: "| %@ | %d | %.1f | %.1f (%.0f) | %.1f / %.1f / %.1f | %.1f / %.1f (%.1f + %.1f) | %.2f / %.2f | %.2f + %.2f | %.0f | %.2f | %d | %d / %d |",
+                     name, r.presented, r.fps, linkHz, grantedHz, r.intervalP50, r.intervalP95, r.intervalMax,
                      r.latencyP50, r.latencyP95, r.inputToDrawP50, r.drawToPresentP50,
                      r.drawCpuP50, r.drawCpuP95, r.iterateGpuPerFrame, r.colorizeGpuPerFrame,
                      r.previewPct, r.previewScale, r.skipped, r.draws, r.encoded))

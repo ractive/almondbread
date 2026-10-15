@@ -242,7 +242,8 @@ impl Options {
     }
 
     /// `--chunk-ms` (GPU time per iterate command buffer), `--extend k` (offscreen
-    /// unresolved pixels continue to k x the limit), `--bla 0|1|auto`, `--bla-eps e`.
+    /// unresolved pixels continue to k x the limit), `--bla 0|1|auto`, `--bla-eps e`, `--la 0|1|auto`,
+    /// `--at 0|1`.
     pub fn apply_renderer<B: GpuBackend>(&self, r: &mut Renderer<B>) {
         if let Some(v) = self.f64("chunk-ms") {
             r.config.chunk_target = v / 1000.0;
@@ -261,6 +262,17 @@ impl Options {
         }
         if let Some(e) = self.f64("bla-eps") {
             r.config.bla_epsilon = 2f64.powf(-e);
+        }
+        // M6: Imagina-style LA instead of BLA (`--la 0|1|auto`) and its AT (`--at 0|1`; kb:
+        // techniques/linear-approximation-imagina).
+        if let Some(v) = self.get("la") {
+            match almondbread_render::la_gpu::LaMode::parse(v) {
+                Some(m) => r.config.la = m,
+                None => eprintln!("almondbread: --la {v}: expected 0, 1 or auto"),
+            }
+        }
+        if let Some(v) = self.get("at") {
+            r.config.la_at = v != "0";
         }
         // M5: local series approximation (`--sa 0|1|auto`, tunables `--sa-eps`, `--sa-top`,
         // `--sa-leaf`, `--sa-gate rel,abs`, `--sa-budget`; kb: techniques/local-series-approximation).
@@ -297,49 +309,4 @@ pub fn parse_size(s: &str) -> Result<(usize, usize)> {
         return err(format!("bad size {s}"));
     }
     Ok((parts[0], parts[1]))
-}
-
-/// Colouring ("look") settings from a JSON object (flight scripts; see `fly`): `look` (a look
-/// id, applied first), `specular`, `shininess`, `light_height`, `light_angle`, `glow`,
-/// `glow_width`, `outline_width`, `palette_filter`, `cycle` (cycles per second), `depth_tint`.
-pub fn apply_look_json(v: &serde_json::Value, s: &mut RenderSettings) {
-    use serde_json::Value;
-    if let Some(l) = v
-        .get("look")
-        .and_then(Value::as_str)
-        .and_then(almondbread_core::palette::Look::named)
-    {
-        l.apply(s);
-    }
-    let f = |k: &str| v.get(k).and_then(Value::as_f64);
-    if let Some(x) = f("specular") {
-        s.specular = x;
-    }
-    if let Some(x) = f("shininess") {
-        s.shininess = x;
-    }
-    if let Some(x) = f("light_height") {
-        s.light_height = x;
-    }
-    if let Some(x) = f("light_angle") {
-        s.light_angle = x;
-    }
-    if let Some(x) = f("glow") {
-        s.glow = x;
-    }
-    if let Some(x) = f("glow_width") {
-        s.glow_width = x;
-    }
-    if let Some(x) = f("outline_width") {
-        s.outline_width = x;
-    }
-    if let Some(x) = v.get("palette_filter").and_then(Value::as_bool) {
-        s.palette_filter = x;
-    }
-    if let Some(x) = f("cycle") {
-        s.cycle_speed = x;
-    }
-    if let Some(x) = f("depth_tint") {
-        s.depth_tint = x;
-    }
 }

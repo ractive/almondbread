@@ -20,5 +20,9 @@ objc2-quartz-core = "0.3"
 objc2-core-foundation = "0.3"
 block2 = "0.6"
 
+# Only the overlay font generator (examples/gen_overlay_font.rs) rasterises the TTF.
+[dev-dependencies]
+fontdue = "0.9"
+
 [lints]
 workspace = true

@@ -80,6 +80,10 @@ and quit by themselves):
 - M5 switches for before/after checks (default auto/on): `ALMONDBREAD_SA=0|1|auto` (local SA,
   CLI `--sa`), `ALMONDBREAD_FILL=0|1|auto` (interior tile fill, `--fill`),
   `ALMONDBREAD_ITER_FLOOR=0` (auto-iteration floor from the reference).
+- M6 switches: `ALMONDBREAD_LA=0|1|auto` (Imagina-style LA instead of BLA, CLI `--la`; auto =
+  deep nucleus references only), `ALMONDBREAD_AT=1` (its AT, `--at 1`; off by default).
+  `cargo run --release -p almondbread-core --example la_check -- [name...]`: CPU model step counts
+  of exact / BLA / LA / LA+AT per location (kb: techniques/linear-approximation-imagina).
 - Stills of features: `almondbread render out.png --inside flat|bubbles|period|angle|distance`
   (interior colourings; prints the period histogram), `--orbit x,y --map 1` (orbit overlay and
   mini-map), `scripts/render-interior-stills.sh`, `scripts/render-dense-looks.sh`.

@@ -279,9 +279,28 @@ impl MetalLayerSurface {
             }
         });
         let generic: MetalDrawable = ProtocolObject::from_retained(drawable);
-        // SAFETY: the block is retained by the drawable and only touches an atomic.
-        unsafe { generic.addPresentedHandler(RcBlock::as_ptr(&handler)) };
+        // The iOS simulator's drawables do not implement presented handlers (sending the
+        // message raises an Objective-C exception, which aborts in Rust; kb:
+        // platform/ios-simulator): count the frame as presented, without a time.
+        if Self::presented_handlers_supported(&generic) {
+            // SAFETY: the block is retained by the drawable and only touches an atomic.
+            unsafe { generic.addPresentedHandler(RcBlock::as_ptr(&handler)) };
+        } else {
+            self.presented.fetch_add(1, Ordering::AcqRel);
+        }
         Some((texture, Some(generic)))
+    }
+
+    /// Whether drawables answer `addPresentedHandler:` (checked once).
+    fn presented_handlers_supported(d: &MetalDrawable) -> bool {
+        use std::sync::OnceLock;
+        static SUPPORTED: OnceLock<bool> = OnceLock::new();
+        *SUPPORTED.get_or_init(|| {
+            let obj: &objc2::runtime::AnyObject = d.as_ref();
+            // SAFETY: respondsToSelector: is NSObject protocol, safe on any object.
+            let yes: bool = unsafe { objc2::msg_send![obj, respondsToSelector: objc2::sel!(addPresentedHandler:)] };
+            yes
+        })
     }
 }
 

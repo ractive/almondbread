@@ -18,6 +18,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[sources/apple-dynamic-caching-talk]] — An Apple developer tech talk (video) on the GPU in M3 and A17 Pro, mainly Dynamic Caching. (unread)
 - [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
+- [[sources/apple-simulator-tooling]] — Xcode 26.6 simctl, xcodebuild test and XCTest touch synthesis: what the iOS simulator checks use (digested)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/apple-metal-feature-set-tables]] — Apple Metal Feature Set Tables (May 2026): GPU families per MetalFX feature (temporal scaler Apple7+, denoiser Apple9+) (digested)
@@ -52,6 +53,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/hn-mandelbrot-site-thread]] — HN thread on mandelbrot.site (2025, 86 points): "zoom forever", jerky zoom, iteration scaling, URL sharing (skimmed)
 - [[sources/htmag-benchmarks]] — How To Market A Game benchmarks: wishlists at launch per tier (Bronze 5k, Silver 8k), weekly wishlist bands, Next Fest tiers (skimmed)
 - [[sources/imagina-hinfla-evaluator]] — The main Mandelbrot evaluator of Imagina (pre-rewrite `master`, last pushed 2024-01-23), by Zhuoran, the originator of rebasing and of this "LA"... (skimmed)
+- [[sources/inter-font]] — Inter 4.1 typeface (OFL 1.1): the overlay font; SemiBold used for the SDF atlas (digested)
 - [[sources/imagina-readme]] — The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast fractal renderer & explorer". (digested)
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
@@ -128,7 +130,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/glitch-detection]] — Pauldelbrot's |Z+z|² < G|Z|² test and KF multi-reference correction (legacy; keep as debug overlay)
 - [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); as built in M5: interior-only fill of 16 × 16 tiles (border-first admission, bit-identical, gated)
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
-- [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
+- [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut; as built in M6
 - [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3 CPU 5.2×; R5 GPU prototype; as built in M5: resumable seed rounds, per-tile gate, float32 deep seeds, 4–9× in dense/deep views
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
@@ -172,8 +174,10 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/gpu-watchdog-and-chunking]] — ~5 s per-command-buffer watchdog, resumable per-pixel state, compaction, chunk scheduler
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
 - [[platform/metalfx]] — MetalFX temporal/spatial upscaling from Rust (objc2-metal-fx): conventions verified, 3× limit, GPU cost and memory, quality on fractal flights (R4: no gain over our compose)
+- [[platform/ios-simulator]] — iOS 26.5 simulator runs: self-test and XCTest touch UI test (pan, pinch, rotate, taps, buttons), the presented-handler crash and HEIC thumbnail deadlock fixed, compact HUD/button layout
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
+- [[platform/overlay-text]] — overlay labels: Inter SemiBold (OFL) as a signed-distance-field atlas, layout in Rust, bilinear SDF with a soft dark halo in the overlay kernel
 - [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) the pool-predictor fix, and FL's drawable pre-acquisition thread and compose pass
 - [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy, frame call 2–7 µs), the Explorer interface (R2b), FFI rules
 
@@ -192,7 +196,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/apple-gpu-denormals]] — do Apple GPUs flush float32 subnormals?
 - [[questions/auto-iteration-heuristic]] — which auto-maxIter rule to use
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
-- [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU
+- [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU (answered M6: LA 1.9–2.4× at deep needle minibrots, no gain elsewhere)
 - [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs; answered: fma float-float correct under .safe, broken under .fast, 7–12× slower than float32
 - [[questions/ffma32-latency]] — FFMA32 latency 2.21 vs 6 cycles in metal-benchmarks
 - [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over long orbits; answered (M7): within a 0.001–0.2 px grid shift, no visible artefacts
@@ -210,6 +214,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[synthesis/benchmarks]] — running record of almondbread measurements: benchmark set, M1 vs M2 timings, GPU-vs-CPU verify metrics, scheduler and interaction findings, reference-orbit speed vs GMP, R2a/R2b Rust vs Swift parity, M2.5 and FL interaction numbers, L1 landscape frame pacing
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
+- [[synthesis/flight-benchmark]] — the flight benchmark: one fixed versioned 60 s flight through every regime, mode A throughput (settled full quality, checked against fresh and jump renders), mode B real time (headless and window), score vs the M1 Pro reference, hygiene, calibration, first noisy findings (heavy spot settles black after the dive)
 - [[synthesis/dense-region-sampling]] — R3: fewer pixel-iterations in dense boundary regions; per-location numbers, recommendation (local SA in M5, interior-only tile fill), scheduler design, risks
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan

@@ -932,6 +932,53 @@ callbacks and present nothing (the existing "home pan" scenario hangs the same w
 scenarios `rotate zoom`, `cinematic autopilot` and `journey` are in
 `Sources/AlmondbreadKit/InteractionTest.swift` for the next unlocked run.
 
+### PJ variety: dives and cross-overs, 2026-10-15
+
+Design: [[decisions/controls]] "Journey", variety revision. Measured 2026-10-15, M1 Pro,
+release, with several other agents' builds, GPU benches and regress runs on the machine
+(load average 120–190 during the second set of videos: the pacing numbers of that set are
+the machine's, see below).
+
+**Planner** (`almondbread journey --seed s --legs 30`, seeds 4711, 7, 20261015, load ~160):
+0.00–0.26 s per plan (median 0.01–0.02 s), within the PJ range (0.01–0.3 s). A cross-over
+plan probes up to 14 anchors (shallow, cheap); a dive plan searches the view and a view 2–4
+e-folds wider (two candidate searches).
+
+**Contact sheets** (`--thumbs`, every landing at 480 × 270, `review/v*_sheet.jpg`; stills every
+5 s of the videos, `review/journey-*-3min_sheet.jpg`). Before: #4711 legs 1–6 dendritic stars
+under M(113,10), 7–13 seahorse spirals, 14–20 spirals again: three looks in 20 legs. After:
+#4711 in 3 minutes visits snowflake dendrites (3/7 limb), Quad Spiral Valley, the Cauliflower
+Medallion (thin stars around a medallion, a minibrot with rings), a seahorse, the needle
+(Pine Compass: eight-armed needle stars down to a mandala at 1e15), the 5/8 limb and Scepter
+Valley; #20261015 and #7 likewise 6–7 regions with spirals, dendrites, medallions, needles
+and minibrots alternating. What still looks weak: (1) cross-over flights from a deep view
+pass over the cardioid's or a bulb's edge, so 3–5 of 37 stills are mostly black mid-flight;
+(2) a needle dive is 35–40 s of needle stars (cross-over to 1e12 plus a leg), the longest
+stretch of one look; (3) dendrite carpets of the 3/7 limb come back after ~60 s in #7.
+
+**Review videos** (`almondbread fly`, 1920 × 1080, 60 Hz, 180 s, `review/`, gitignored):
+
+| video | presented | late refreshes (worst) | iterate GPU / frame | machine |
+|---|---:|---|---:|---|
+| `journey-4711-3min` (first variety build, effects off) | 8274 of 10800 (46.0 fps) | 73 (180 ms) | 6.83 ms | loaded |
+| `journey-20261015-cinematic-3min` (first build) | 7923 (44.0 fps) | 30 (113 ms) | 6.76 ms | loaded |
+| `journey-4711-3min` (final) | 6644 (36.9 fps) | 2578 (7478 ms) | 6.45 ms | load 120–190 |
+| `journey-20261015-cinematic-3min` (final) | 6377 (35.4 fps) | 236 (709 ms) | 11.21 ms | load 120–190 |
+| `journey-7-needle-3min` (final, starts in the needle) | 7860 (43.7 fps) | 810 (569 ms) | 6.63 ms | load 120–190 |
+| `journey-4711-3min` (final, after merging main d7ab9e1, re-recorded) | 7701 (42.8 fps) | 194 (424 ms) | 6.09 ms | load 20–40 |
+
+Interaction test (`ALMONDBREAD_SCENARIOS=journey make interaction-test`, screen unlocked, load
+~50, after the merge): 20.1 fps, interval p50 / p95 16.7 / 100 ms, latency p50 / p95 27.9 /
+44.5 ms, GPU 8.1 + 2.0 ms/frame, shown frame vs fresh render 0 % class difference; an earlier
+run at load ~150 gave 10.2 fps with one GPU hang retried (other agents' GPU work). No earlier
+journey interaction number exists to compare (PJ ran with the screen locked).
+
+The first-build runs match PJ (46.0 / 46.3 fps, 70 / 1 late refreshes over 85 s). The final
+runs' stalls are the recorder falling behind wall time while the view rested
+(frame CPU ~0 ms, `late_ms` counting down 16.7 ms per refresh from 810 ms at 30 s in #4711):
+the process was descheduled under load ~150, not planning or rendering work; the planner runs
+on its own thread and took ≤ 0.26 s per plan at the same load. Re-measure on a quiet machine.
+
 ## R6: faster deep references, 2026-10-15
 
 What changed: [[techniques/parallel-reference-orbit]]. Measured 2026-10-15, M1 Pro (8 P +
@@ -1222,6 +1269,33 @@ GPU time per frame:
 - **MetalFX temporal at 2×** (minimum over loaded runs): 1.0–1.1 ms at 1600×1000 output and
   4.7–4.9 ms at 3456×2160.
 
+## FB: flight benchmark v1 (first, noisy runs), 2026-10-15
+
+`almondbread benchmark` (`make flight-bench`, `make flight-bench-live`) plays one fixed
+60 s flight at 1920×1080 through every regime and scores it against a reference machine
+(M1 Pro = 1000). Design, checks and the calibration procedure are on
+[[synthesis/flight-benchmark]]. The reference in the repo is **provisional**: it was written
+from single laps while other agents loaded the machine (the NOISY banner fired on every run:
+3–9 other cores busy, GPU 24–97 % busy before the laps).
+
+Measured 2026-10-15, M1 Pro, release, commit 8b9155c (main eadb176 + M5, SA auto), one lap
+each, noisy:
+
+| mode | result |
+|---|---|
+| A throughput (settled full quality, 300 frames at 5 Hz) | 36.5 s: shallow 10.1, dense 10.3, dive 4.5, heavy 5.6, rotate 5.5, jump 0.6; CPU 2.3 s, GPU 26.2 s. **INVALID** (below) |
+| B headless (120 Hz) | 91.0 % of due frames shown, p99 25 ms, time to sharp 12.1 s in all (heavy 6.2 s; the 1e−1004 jump: first image 258 ms, sharp 1.05 s) |
+| B window (120 Hz panel) | 24.6 % shown, p99 92 ms, input to photon p50 29 / p95 33 ms; the display link ran at ~38 Hz. The interaction test at the same time got 27–28 fps, so the cause is the load |
+
+Findings: at the heavy spot (`spiral-32412-1e19`), reached by a jump straight after the dive
+into c = i, mode A sometimes **settles all black** in 14 ms of GPU time. The limit is 10384,
+below the period 32412; the reference search is capped at that limit, and the learner does
+not raise it. In another run the view rendered but differed from a fresh render in 0.591 %
+of its pixels' class. The existing shown-vs-fresh check cannot see the first case, so the
+benchmark also compares each segment's settled frame with a from-scratch jump render
+(76.7 % of 16×16 blocks differ in the black case). Both cases make the run INVALID. The
+first case was reported to the driver for the M5 work.
+
 ## M7: float32 rounding artefacts and float-float, 2026-10-15
 
 Measured 2026-10-15, M1 Pro (16-core GPU), release, with other agents' GPU jobs running
@@ -1305,3 +1379,162 @@ locations (per-location 0.86–1.29, the spread of the load); float32 fields bit
 seahorse-1e5, deep-5e-14, sea-1e20, needle-1e305, spiral-32412-1e19. The main kernel library
 is unchanged; the float-float library compiles only when a `FloatFloat` is created (verify
 tools and tests).
+
+## M6: Imagina-style LA and AT, 2026-10-15
+
+Measured 2026-10-15, M1 Pro (16-core GPU), macOS 26, release, branch
+`worktree-agent-aa5f8d75073184c1d` (main d7ab9e1 merged). **The GPU and CPU were shared** with
+other agents (load averages 13 → 550 during the session): single renders varied up to 3×, so
+only interleaved medians within a row compare. Design: [[techniques/linear-approximation-imagina]]
+"As built (M6)"; answer: [[questions/bla-vs-la-benchmark]].
+
+### CPU model (deterministic step counts)
+
+`examples/la_check` (extended-range model of one pixel against the renderer's reference;
+32 × 20 pixels of the 1600 × 1000 framing, the location's limit, no interior test, no seeds):
+mean loop steps per pixel with no skipping, BLA (lookups at m ≡ 1 mod 8), LA, LA + AT
+(4× stages, synthetic split above 16).
+
+| location | exact | BLA | LA | LA + AT | stages (steps per stage) |
+|---|---:|---:|---:|---:|---|
+| needle-1e94 (period 79) | 836 | 80 | 43 | 34 | 20, 5, 1 |
+| needle-1e305 (period 255) | 3 100 | 125 | 52 | 42 | 64, 16, 1 |
+| needle-1e1004 (period 834) | 9 336 | 75 | 48 | 40 | 209, 53, 14, 1 |
+| sea-8007 (period 8007) | 37 314 | 1 223 | 1 125 | 1 073 | 2470, 346, 89, 8 |
+| sea-1e20 (centre) | 8 087 | 1 281 | 1 149 | 1 149 | 12341, 1727, 447, 40 |
+| dendrite-1e300 (centre) | 798 | 29 | 31 | 31 | 10000 … 1 (7 stages) |
+| dense-5e-14 | 2 877 | 2 445 | 2 297 | 2 297 | 1662 … 1 |
+| spiral-32412-1e19 | 27 804 | 25 986 | 26 092 | — | 8103 … 1 (7 stages) |
+| home, home-100k, seahorse-1e5, elephant, minibrot-p4, necks, cusp, root-third, Feigenbaum | — | = exact | = exact | = exact | no block is ever valid |
+
+Classes agree with exact perturbation at every location (0–1 of 640 pixels; the spiral 10–11 for
+both BLA and LA). Table entries tested per pixel: LA 20–700 (one per lookup in the non-linear
+tail, at every near-return), BLA one lookup per 8 steps.
+
+### GPU time, LA on vs off (interleaved)
+
+`render --size 1600x1000 --iterations <location's> --repeat 4`, first render dropped, 3 rounds
+alternating order (9 renders per variant; sea-8007 and the AT rows 5 rounds); medians in ms;
+"off" is main's behaviour (BLA auto), "LA" forced on without AT, "auto" the default.
+
+| location | off | LA forced | LA + AT | auto | auto uses | steps off → LA |
+|---|---:|---:|---:|---:|---|---|
+| needle-1e94 | 30.9 | 16.0 | 24.8 | 16.0 (= LA) | LA | 8.84e7 → 5.60e7 |
+| needle-1e305 | 44.0 | 18.7 | 17.9 | 18.7 (= LA) | LA | 1.52e8 → 7.09e7 |
+| needle-1e1004 | 34.8 | 16.6 | 19.6 | 16.6 (= LA) | LA | 1.03e8 → 6.89e7 |
+| sea-8007 (5 rounds) | 396 | 359 | 431 | 359 (= LA) | LA | 1.96e9 → 1.81e9 |
+| sea-1e20 | 22.8 | 23.7 | 23.9 | 22.8 | BLA | 1.28e8 = 1.28e8 |
+| dendrite-1e50 / 1e300 / 1e1000 | 2.8 / 2.7 / 3.6 | 3.2 / 2.7 / 2.0 | 3.0 / 3.1 / 4.3 | as off | BLA | equal |
+| spiral-32412-1e19 | 762 | 1 213 | 992 | 881 | BLA | 7.69e9 = 7.69e9 |
+| home-100k | 33.3 | 141 | 184 | 26.3 | — | equal |
+| elephant | 36.3 | 71.2 | 73.3 | 23.7 | — | equal |
+| minibrot-p4 | 34.5 | 58.6 | 73.4 | 28.0 | — | equal |
+| cusp-1e5 | 136 | 228 | 258 | 187 | — | equal |
+| dense-5e-14 | 34.1 | 60.6 | 59.9 | 36.6 | — | 6.02e8 → 5.96e8 |
+| feigenbaum | 2 374 | 3 986 | 3 991 | 2 375 | — | equal |
+| home / seahorse / deep-5e-14 / necks / root-third | 5.6–48 | 1.4–3.1× slower | same | as off (noise) | — | equal |
+
+The needles' "auto" is the "LA forced" pipeline (AT off). Rows where auto equals off run the
+identical pipeline; their spread is the shared GPU (dendrite-1e300 auto 6.6 ms vs off 2.7 ms in
+one round). With the AT, needle steps fall a further 4–10 % but time does not
+(focused 5-round A/B, AT off → on: needle-1e94 17.1 → 16.7, needle-1e305 27.8 → 32.9,
+needle-1e1004 24.5 → 26.6, sea-8007 357 → 431 ms): an AT step carries floatexp derivative
+updates and splits SIMD groups between AT pixels and walking pixels. Stage granularity:
+needle-1e1004 with Imagina-like 16× stages 37 ms against 24 ms with 4× stages (one A/B).
+
+### Correctness
+
+`verify` 800 × 500 centre crop at the 1600-wide pixel size, LA off / forced / auto, all 21
+locations: **GPU-int/CPU-ext 0.000 % everywhere**; class mismatch equal to off at 16 locations
+and +0.001 % (4 pixels of 400 000, GPU-ext/CPU-int) at deep-5e-14, dense-5e-14, needle-1e94 and
+needle-1e305; escape-n differences and median |Δμ| within float32 noise of off (needle-1e305
+0.393 → 0.315 %, 4.7e−5 → 2.3e−5; needle-1e94 0.264 → 0.315 %, 1.7e−5 → 3.0e−5; needle-1e1004
+0.326 → 0.323 %). Interior detected and unresolved fractions equal. The AT at needle-1e305
+(1600 × 1000): escape-n 0.096 % vs 0.116 % off, class mismatch 0.001 % both.
+Chunk independence: bit-identical fields with 0.2 ms and 50 ms chunk targets at needle-1e305
+(AT on, pixels resuming inside the AT), needle-1e94 and deep-5e-14 (plain path)
+(test `la_chunk_independent`). `make rust-regress`: all 18 sessions OK; the needle rotate
+session's shown frame vs fresh render is 0 % in class and 0.006–0.097 % in escape count, 0 %
+with `ALMONDBREAD_SA=1`: M5's statistics-dependent seed gate picks different tiles, LA itself
+is deterministic. Images (Aurora, 1600 × 1000 and 100 % crops of sea-8007's filigree and
+needle-1e1004's bands): no seams or patches, LA and off look the same.
+
+**A pre-existing M5 effect found on the way.** `bench`'s 400 × 259 verify of the needles shows
+0.09–0.12 % GPU-ext/CPU-int with BLA, with LA, and with no skipping at all, but 0 % with
+`ALMONDBREAD_SA=0`: one pixel row lies exactly on the real axis, where c > −2 by 1e−301 and the
+orbit is bounded only on a knife edge; seeded pixels there escape near n = 2 200. Which runs show
+it depends on which tiles the M5 gate seeds (LA changes the statistics). Not an LA error; noted
+for the seed work ([[techniques/local-series-approximation]]).
+
+### `make bench` (M6 build, load average 440–550)
+
+1600 × 1000 GPU ms: home 5.0, home-100k 26.9, seahorse 5.4, elephant 25.2, minibrot-p4 23.2,
+deep-5e-14 12.1, Feigenbaum 2 466, neck-2e5 13.5, neck-7e6 38.4, cusp 112.8, dense 25.4,
+root-third 33.8, sea-1e20 22.9, sea-8007 943 (load spike; 359 in the A/B), needle-1e94 11.9,
+needle-1e305 16.0, needle-1e1004 16.6, dendrites 2.7–3.7, spiral 785. Verify: GPU-int/CPU-ext
+0.000 % at every location (the needles' 0.09–0.12 % GPU-ext/CPU-int is the real-axis row above).
+
+## 120 Hz on ProMotion, 2026-10-15
+
+Question: what frame rate and latency does the app present on the M1 Pro's 120 Hz panel
+while panning, zooming, flying, on a journey and while rotating? Measured with
+`--interaction-test` (background window 1280 × 820 pt at 2×, on the built-in panel, the
+5K external display is the main display; release; measured 2026-10-15, M1 Pro). The test now
+prints, per scenario, the display link's callback rate during the input phase and the rate
+the link was *granted* (`1/(targetTimestamp − timestamp)`), and `ALMONDBREAD_TEST_LINK=cv`
+drives both the view's frames and the inputs from a `CVDisplayLink` on the panel instead.
+Other agents were compiling (rustc, ~55 % CPU each) and, during part of the runs, rendering
+(an `almondbread` at 270 % CPU): GPU ms per frame vary 2× between runs.
+
+**Result: the background test window never gets 120 Hz.** The `CADisplayLink` is granted
+8.33 ms (120 Hz) and asks for 120 (`preferredFrameRateRange`), yet calls back only 20–33
+times per second, irregularly (interval p50 16.7 ms, p95 67–92 ms). Earlier runs (FL,
+2026-10-14) saw 60 per second; the rate a non-key window of an accessory app gets is the
+system's choice, not ours. The renderer is not the limit: draw CPU p50 0.1–0.2 ms, GPU
+2–7 ms per frame when the GPU is not shared.
+
+CADisplayLink (quieter run, `build/interaction-120-run2.txt`):
+
+| scenario | fps | link Hz (granted) | interval p50 / p95 ms | latency p50 / p95 ms | GPU ms/frame |
+|---|---:|---|---|---|---|
+| home pan | 29.2 | 30.7 (120) | 16.7 / 75.0 | 48.4 / 106.5 | 7.1 + 2.9 |
+| home zoom | 30.2 | 31.3 (120) | 16.7 / 75.0 | 48.1 / 106.3 | 6.7 + 2.1 |
+| 1e5 pan | 31.3 | 31.9 (120) | 16.7 / 66.7 | 47.8 / 97.8 | 5.3 + 1.6 |
+| 1e5 zoom | 27.3 | 28.3 (120) | 16.7 / 83.3 | 51.5 / 109.9 | 5.5 + 1.9 |
+| deep zoom 1e-12 → 1e-40 | 31.0 | 31.6 (120) | 16.7 / 75.0 | 47.2 / 97.1 | 6.1 + 1.8 |
+| autopilot | 29.0 | 29.8 (120) | 16.7 / 83.3 | 30.1 / 30.2 | 6.2 + 1.7 |
+| fly to | 19.1 | 30.5 (120) | 25.0 / 100.0 | 29.8 / 38.1 | 11.8 + 1.5 |
+| rotate zoom | 31.8 | 32.7 (120) | 16.7 / 66.7 | 29.4 / 29.5 | 6.2 + 2.0 |
+| cinematic autopilot | 28.8 | 29.7 (120) | 16.7 / 75.0 | 29.1 / 37.5 | 6.6 + 1.8 |
+| journey | 27.7 | 28.5 (120) | 16.7 / 83.3 | 28.7 / 37.1 | 7.0 + 1.9 |
+
+CVDisplayLink, frames offered at 120 Hz (`build/interaction-120-cv2.txt`):
+
+| scenario | fps | interval p50 / p95 ms | latency p50 / p95 ms | skipped: in flight + no drawable (of ~360) |
+|---|---:|---|---|---|
+| home pan | 44.2 | 8.3 / 75.0 | 44.7 / 102.8 | 38 + 183 |
+| home zoom | 40.9 | 8.3 / 75.0 | 44.6 / 102.7 | 20 + 179 |
+| 1e5 pan | 49.9 | 8.3 / 58.3 | 44.7 / 94.4 | 22 + 188 |
+| 1e5 zoom | 40.3 | 8.3 / 75.0 | 44.7 / 103.0 | 60 + 174 |
+| deep zoom 1e-12 → 1e-40 | 36.7 | 16.7 / 75.0 | 45.0 / 111.2 | 53 + 193 |
+| autopilot | 41.7 | 8.3 / 75.0 | 36.5 / 56.8 | 142 + 89 |
+| fly to | 30.6 | 8.3 / 75.0 | 36.5 / 50.6 | 83 + 54 |
+| rotate zoom | 43.2 | 8.3 / 75.0 | 36.5 / 53.3 | 57 + 170 |
+| cinematic autopilot | 44.7 | 8.3 / 75.0 | 36.4 / 54.1 | 57 + 163 |
+| journey | 46.6 | 8.3 / 75.0 | 36.5 / 56.0 | 163 + 49 |
+
+With frames offered at 120 Hz, consecutive presentations are 8.3 ms apart (p50) — the panel
+does run at 120 Hz for this window — but half the refreshes find no free drawable: the
+window server releases a background window's drawables at its own, slower pace, and bursts
+alternate with 60–75 ms gaps. "In flight" skips (the previous frame's GPU work unfinished)
+dominate in the autopilot and journey runs, where another agent shared the GPU. Draw →
+screen p50 is ~28 ms in every mode (FL: ~28 ms at 60 Hz), i.e. two to three refreshes of
+compositor queue for a background window.
+
+**What this means.** 120 Hz presentation cannot be measured honestly from an agent: it needs
+the window frontmost and key on the ProMotion panel, which agent runs must never do.
+`make interaction-test-120` runs the same ten scenarios in front (`ALMONDBREAD_TEST_FOREGROUND=1`:
+regular activation policy, window key and in front on the fastest screen, ~2 minutes) for a
+person to run themselves; it writes `build/interaction-120-foreground.txt`. Not run yet.
+The budget side is clear: at ≤ 0.3 ms draw CPU and 2–7 ms GPU per frame (unshared), every
+scenario but fly-to (12 ms iterate GPU in its jump frames) fits 8.33 ms.

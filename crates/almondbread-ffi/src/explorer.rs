@@ -898,6 +898,8 @@ struct Inner {
     host: Host<MetalBackend>,
     surface: MetalLayerSurface,
     log: Option<PresentationLog>,
+    /// The flight benchmark playing in this view (window test `--flight-bench=`).
+    bench: Option<crate::flight_bench::FlightBench>,
 }
 
 // SAFETY: `Inner` holds Objective-C objects (Metal device, queue, buffers, textures, the
@@ -980,6 +982,7 @@ impl Explorer {
                 host: Host::new(renderer),
                 surface,
                 log: None,
+                bench: None,
             }),
         }))
     }
@@ -1005,7 +1008,12 @@ impl Explorer {
     /// per frame in the window instead of 2–3 µs).
     pub fn frame(&self, timestamp: f64) -> u8 {
         let mut g = self.lock();
-        let Inner { host, surface, log } = &mut *g;
+        let Inner {
+            host,
+            surface,
+            log,
+            bench,
+        } = &mut *g;
         // A panic must not cross the FFI (UniFFI turns it into a Swift trap: the app dies, as
         // in "selected Lagoon and almondbread died"). The panic hook has logged it to
         // ~/Library/Logs/Almondbread/panic.log; the renderer drops its job and goes on.
@@ -1015,19 +1023,31 @@ impl Explorer {
                     let shown: Vec<(u64, f64)> = log.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
                     for (tag, t) in shown {
                         host.on_presented(tag, t);
+                        if let Some(b) = bench.as_mut() {
+                            b.presented(t);
+                        }
                     }
                 }
                 // macOS reports the last vsync as the timestamp, up to a refresh in the past:
                 // scheduling on it started refinement a refresh late (measured +15 ms to the final
                 // frame), so the later of it and the current time is "now".
                 let now = media_time().max(if timestamp.is_finite() { timestamp } else { 0.0 });
+                if let Some(b) = bench.as_mut() {
+                    b.before(host, surface, log, now);
+                }
                 let ready = surface.drawable_ready(now);
-                host.frame(now, &media_time, ready, &mut |final_frame| {
+                let outcome = host.frame(now, &media_time, ready, &mut |final_frame| {
                     surface
                         .next_drawable(now, final_frame)
                         .map(|target| (target, surface.last_tag()))
-                })
-                .animating
+                });
+                match bench.as_mut() {
+                    Some(b) if !b.done() => {
+                        b.after(host, surface, log, now, outcome.presented);
+                        true
+                    }
+                    _ => outcome.animating,
+                }
             })
         }));
         let animating = frame.unwrap_or_else(|_| {
@@ -1566,7 +1586,7 @@ impl Explorer {
 
     pub fn end_measurement(&self) -> InteractionReport {
         let mut g = self.lock();
-        let Inner { host, surface, log } = &mut *g;
+        let Inner { host, surface, log, .. } = &mut *g;
         if let Some(l) = log.take() {
             let shown: Vec<(u64, f64)> = l.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default();
             for (tag, t) in shown {
@@ -1575,6 +1595,34 @@ impl Explorer {
         }
         surface.set_presentation_log(None);
         host.end_measurement(media_time()).into()
+    }
+
+    /// Starts the flight benchmark (mode B, kb: synthesis/flight-benchmark): `script` is the
+    /// flight's JSON, `hz` the display's maximum rate; `warmup` laps, then `laps` measured
+    /// ones. Frames keep coming until it is done; `flight_bench_report` then returns the JSON.
+    pub fn start_flight_bench(&self, script: String, hz: f64, laps: u32, warmup: u32) -> Result<(), CoreError> {
+        let script =
+            almondbread_core::flight::FlightScript::parse(&script).map_err(|e| CoreError::Malformed { text: e })?;
+        if script.benchmark.is_none() {
+            return Err(invalid("not a benchmark flight (no `benchmark` object)"));
+        }
+        self.lock().bench = Some(crate::flight_bench::FlightBench::new(
+            script,
+            hz,
+            laps as usize,
+            warmup as usize,
+        ));
+        Ok(())
+    }
+
+    /// The flight benchmark's JSON report once all laps are done (None before).
+    pub fn flight_bench_report(&self) -> Option<String> {
+        self.lock().bench.as_ref().and_then(|b| b.report.clone())
+    }
+
+    /// One line on the flight benchmark's progress ("" when none runs).
+    pub fn flight_bench_progress(&self) -> String {
+        self.lock().bench.as_ref().map(|b| b.progress()).unwrap_or_default()
     }
 
     pub fn final_frame(&self) -> FinalFrame {

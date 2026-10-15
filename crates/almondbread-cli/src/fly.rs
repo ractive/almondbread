@@ -14,34 +14,8 @@
 //!                 [--bitrate 40M] [--log x.csv]
 //! ```
 //!
-//! Script (JSON): `size`, `fps`, `duration` (s), `start` (`re`, `im` decimal strings and
-//! `zoom` relative to the fitted home view, or `scale` in complex units per point),
-//! `settings` (as in [`apply_json_settings`]) and `events`, each either at a time (`at`) or
-//! over an interval (`from`, `to`, applied every refresh):
-//!
-//! | event | meaning |
-//! | --- | --- |
-//! | `{"at": t, "key": "zoom", "down": true}` | key down / up (`down` omitted: a tap). Keys: up down left right w a s d zoom space slower q faster e in out reset autopilot z stop esc |
-//! | `{"at": t, "shift": true}` | Shift state (Shift+Space zooms out) |
-//! | `{"at": t, "pointer": [x, y]}` / `null` | pointer position in points from the centre (y up), or off the canvas |
-//! | `{"from": a, "to": b, "pointer_to": [x, y]}` | pointer moves linearly to (x, y) |
-//! | `{"from": a, "to": b, "pan": [vx, vy], "momentum": true, "release": true}` | 1:1 pan at vx, vy points/s; then trackpad-like OS momentum (τ 0.35 s) or a release (fling) |
-//! | `{"from": a, "to": b, "magnify": rate, "point": [x, y], "release": true}` | trackpad pinch at `rate` e-folds/s |
-//! | `{"from": a, "to": b, "pinch": rate, "point": [x, y], "release": true}` | touch pinch |
-//! | `{"at": t, "wheel": notches, "point": [x, y]}` | mouse wheel notches |
-//! | `{"at": t, "double_click": [x, y], "out": false}` | double click |
-//! | `{"from": a, "to": b, "gamepad": {"lx": .., "ly": .., "ry": .., "lt": .., "rt": .., "boost": ..}}` | controller state held over the interval |
-//! | `{"at": t, "settings": {...}}` | settings change mid-flight |
-//! | `{"at": t, "click": [x, y]}` | single click (autopilot: pause / resume) |
-//! | `{"from": a, "to": b, "scroll": [vx, vy]}` | trackpad scroll at vx, vy points/s (autopilot: speed) |
-//! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
-//! | `{"at": t, "assist": true}` | autopilot assist on / off |
-//! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per point) |
-//! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); keys `j` (resume / stop), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
-//! | `{"from": a, "to": b, "rotate": rate}` | trackpad rotation at `rate` radians/s (counter-clockwise image) about `point` |
-//!
-//! Settings also take `"cinematic": true` or `{"spin": 4, "hue_drift": 2.5, "phase_drift": 0.01, "fly_cycle": 0.02}`
-//! (kb: decisions/controls, cinematic effects).
+//! Script format and events: [`almondbread_core::flight`] (`jump` added for the flight
+//! benchmark, kb: synthesis/flight-benchmark).
 
 use std::fs;
 use std::io::Write;
@@ -51,14 +25,18 @@ use std::sync::mpsc::{SyncSender, sync_channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use almondbread_core::flight::{FlightPlayer, FlightScript, apply_json_settings, start_viewport};
 use almondbread_core::image::write_png_bgra;
-use almondbread_core::input::{InputEvent, NavKey};
-use almondbread_core::settings::{RenderSettings, Supersampling};
-use almondbread_core::viewport::{Center, Scale, Viewport};
+use almondbread_core::input::InputEvent;
 use almondbread_render::{FrameStats, GpuBackend, Renderer, Storage, TextureFormat};
-use serde_json::Value;
 
-use crate::options::{Options, Result, err, parse_size};
+use crate::options::{Options, Result, err};
+
+/// Loads a flight script.
+pub fn load_script(path: &str) -> Result<FlightScript> {
+    let text = fs::read_to_string(path).map_err(|e| crate::options::CommandError(format!("{path}: {e}")))?;
+    FlightScript::parse(&text).or_else(|e| err(format!("{path}: {e}")))
+}
 
 /// Frames handed to the encoder.
 enum Sink {
@@ -66,376 +44,6 @@ enum Sink {
     Pngs(String),
     /// `--out null`: measurements only (no frame readback, no encoding).
     Null,
-}
-
-/// One flight: scripted events plus where it starts.
-struct Script {
-    size: (usize, usize),
-    fps: f64,
-    duration: f64,
-    start: Option<Value>,
-    settings: Option<Value>,
-    events: Vec<Value>,
-}
-
-fn num(v: &Value, key: &str) -> Option<f64> {
-    v.get(key).and_then(Value::as_f64)
-}
-
-fn pair(v: Option<&Value>) -> Option<(f64, f64)> {
-    let a = v?.as_array()?;
-    Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
-}
-
-impl Script {
-    fn load(path: &str) -> Result<Self> {
-        let text = fs::read_to_string(path).map_err(|e| crate::options::CommandError(format!("{path}: {e}")))?;
-        let v: Value = serde_json::from_str(&text)?;
-        let size = match v.get("size").and_then(Value::as_str) {
-            Some(s) => parse_size(s)?,
-            None => (1920, 1080),
-        };
-        Ok(Self {
-            size,
-            fps: num(&v, "fps").unwrap_or(60.0),
-            duration: num(&v, "duration").unwrap_or(10.0),
-            start: v.get("start").cloned(),
-            settings: v.get("settings").cloned(),
-            events: v.get("events").and_then(Value::as_array).cloned().unwrap_or_default(),
-        })
-    }
-}
-
-fn nav_key(name: &str) -> Option<NavKey> {
-    Some(match name {
-        "up" | "w" => NavKey::Up,
-        "down" | "s" => NavKey::Down,
-        "left" | "a" => NavKey::Left,
-        "right" | "d" => NavKey::Right,
-        "zoom" | "space" => NavKey::Zoom,
-        "slower" | "q" => NavKey::SlowerZoom,
-        "faster" | "e" => NavKey::FasterZoom,
-        "in" | "+" => NavKey::StepIn,
-        "out" | "-" => NavKey::StepOut,
-        "reset" | "r" => NavKey::Reset,
-        "autopilot" | "z" => NavKey::Autopilot,
-        "stop" | "esc" => NavKey::Stop,
-        "rotate_ccw" | "," => NavKey::RotateCcw,
-        "rotate_cw" | "." => NavKey::RotateCw,
-        "straighten" | "/" => NavKey::Straighten,
-        "journey" | "j" => NavKey::Journey,
-        _ => return None,
-    })
-}
-
-/// Settings from a JSON object: the CLI option names (`palette`, `shading`, `outline`,
-/// `density`, `offset`, `log`, `ss`, `iterations`, `interior`) and the colouring fields.
-pub fn apply_json_settings(v: &Value, s: &mut RenderSettings) {
-    if let Some(l) = v
-        .get("look")
-        .and_then(Value::as_str)
-        .and_then(almondbread_core::palette::Look::named)
-    {
-        l.apply(s);
-    }
-    let f = |k: &str| v.get(k).and_then(Value::as_f64);
-    let b = |k: &str| v.get(k).and_then(Value::as_bool);
-    if let Some(p) = v.get("palette").and_then(Value::as_str) {
-        s.palette_id = p.to_string();
-    }
-    if let Some(x) = f("shading") {
-        s.shading = x;
-    }
-    if let Some(x) = f("outline") {
-        s.outline = x;
-    }
-    if let Some(x) = f("density") {
-        s.color_density = x;
-    }
-    if let Some(x) = f("offset") {
-        s.color_offset = x;
-    }
-    if let Some(x) = b("log") {
-        s.log_coloring = x;
-    }
-    if let Some(x) = f("ss").and_then(|x| Supersampling::from_factor(x as usize)) {
-        s.supersampling = x;
-    }
-    if let Some(x) = f("iterations") {
-        s.auto_iterations = false;
-        s.manual_iterations = x as usize;
-        s.max_iterations_cap = s.max_iterations_cap.max(x as usize);
-    }
-    if let Some(x) = b("interior") {
-        s.interior_detection = x;
-    }
-    if let Some(x) = b("preview") {
-        s.interactive_preview = x;
-    }
-    match v.get("cinematic") {
-        Some(Value::Bool(on)) => s.cinematic.enabled = *on,
-        Some(c @ Value::Object(_)) => {
-            let g = |k: &str| c.get(k).and_then(Value::as_f64);
-            s.cinematic.enabled = c.get("enabled").and_then(Value::as_bool).unwrap_or(true);
-            if let Some(x) = g("spin") {
-                s.cinematic.spin = x;
-            }
-            if let Some(x) = g("hue_drift") {
-                s.cinematic.hue_drift = x;
-            }
-            if let Some(x) = g("phase_drift") {
-                s.cinematic.phase_drift = x;
-            }
-            if let Some(x) = g("fly_cycle") {
-                s.cinematic.fly_cycle = x;
-            }
-            s.cinematic = s.cinematic.sanitized();
-        }
-        _ => {}
-    }
-    crate::options::apply_look_json(v, s);
-}
-
-fn start_viewport(start: Option<&Value>, w_pts: f64, h_pts: f64) -> Result<Viewport> {
-    let fitted = Viewport::fitting(w_pts, h_pts);
-    let Some(s) = start else { return Ok(fitted) };
-    let text = |k: &str| {
-        s.get(k)
-            .map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))
-    };
-    let center = match (text("re"), text("im")) {
-        (Some(re), Some(im)) => {
-            Center::parse(&re, &im).ok_or_else(|| crate::options::CommandError("bad start".into()))?
-        }
-        _ => fitted.center.clone(),
-    };
-    let scale = match (
-        text("scale").and_then(|t| Scale::parse(t.trim_matches('"'))),
-        num(s, "zoom"),
-    ) {
-        (Some(sc), _) => sc,
-        (None, Some(z)) => fitted.scale / z,
-        _ => fitted.scale,
-    };
-    Ok(Viewport::with_center(center, scale))
-}
-
-/// Feeds the events due in (t0, t1] (virtual seconds since the start) at time `now`.
-fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, now: f64, pointer: &mut (f64, f64)) {
-    let dt = t1 - t0;
-    for e in events {
-        let at = num(e, "at");
-        let due = at.is_some_and(|a| a > t0 && a <= t1) || (t0 < 0.0 && at == Some(0.0));
-        let (from, to) = (num(e, "from"), num(e, "to"));
-        let during = matches!((from, to), (Some(a), Some(b)) if t1 > a && t0 < b);
-        let ends = matches!(to, Some(b) if b > t0 && b <= t1);
-        if due {
-            if let Some(k) = e.get("key").and_then(Value::as_str).and_then(nav_key) {
-                match e.get("down").and_then(Value::as_bool) {
-                    Some(d) => {
-                        let ev = if d {
-                            InputEvent::KeyDown(k)
-                        } else {
-                            InputEvent::KeyUp(k)
-                        };
-                        r.handle_input(ev, now);
-                    }
-                    None => {
-                        r.handle_input(InputEvent::KeyDown(k), now);
-                        r.handle_input(InputEvent::KeyUp(k), now);
-                    }
-                }
-            }
-            if let Some(s) = e.get("shift").and_then(Value::as_bool) {
-                r.handle_input(InputEvent::Shift(s), now);
-            }
-            if let Some(p) = e.get("pointer") {
-                let p = pair(Some(p));
-                if let Some(p) = p {
-                    *pointer = p;
-                }
-                r.handle_input(InputEvent::Pointer(p), now);
-            }
-            if let Some(n) = num(e, "wheel") {
-                let (x, y) = pair(e.get("point")).unwrap_or(*pointer);
-                r.handle_input(InputEvent::WheelNotch { delta: n, x, y }, now);
-            }
-            if let Some((x, y)) = pair(e.get("double_click")) {
-                let out = e.get("out").and_then(Value::as_bool).unwrap_or(false);
-                r.handle_input(InputEvent::DoubleTap { x, y, out }, now);
-            }
-            if let Some(s) = e.get("settings") {
-                apply_json_settings(s, &mut r.settings);
-            }
-            if let Some((x, y)) = pair(e.get("click")) {
-                r.handle_input(InputEvent::Click { x, y }, now);
-            }
-            if let Some(a) = e.get("assist").and_then(Value::as_bool) {
-                r.navigator.autopilot_mut().set_assist(a);
-            }
-            if let Some(j) = e.get("journey") {
-                let start = r.viewport.clone();
-                if j.as_str() == Some("daily") {
-                    let date = e.get("date").and_then(Value::as_str).unwrap_or("2026-10-15");
-                    let p: Vec<i64> = date.split('-').filter_map(|x| x.parse().ok()).collect();
-                    let seed = if p.len() == 3 {
-                        almondbread_core::journey::daily_seed(p[0] as i32, p[1] as u32, p[2] as u32)
-                    } else {
-                        1
-                    };
-                    r.navigator.start_journey(seed, true, &start, now);
-                } else {
-                    let seed = j.as_u64().unwrap_or(1);
-                    r.navigator.start_journey(seed, false, &start, now);
-                }
-            }
-            if let Some(f) = e.get("fly_to") {
-                let text = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("");
-                match almondbread_core::flyto::view_from_text(text("re"), text("im"), text("scale")) {
-                    Some(target) => {
-                        let start = r.viewport.clone();
-                        r.navigator.fly_to(&target, &start, now);
-                    }
-                    None => eprintln!("fly: bad fly_to target {f}"),
-                }
-            }
-        }
-        if during {
-            let (a, b) = (from.unwrap_or(0.0), to.unwrap_or(0.0));
-            // The part of this refresh inside the interval.
-            let span = t1.min(b) - t0.max(a);
-            if let Some((vx, vy)) = pair(e.get("pan")) {
-                r.handle_input(
-                    InputEvent::Pan {
-                        dx: vx * span,
-                        dy: vy * span,
-                    },
-                    now,
-                );
-            }
-            if let Some(rate) = num(e, "magnify") {
-                let (x, y) = pair(e.get("point")).unwrap_or(*pointer);
-                r.handle_input(
-                    InputEvent::Magnify {
-                        magnification: (rate * span).exp() - 1.0,
-                        x,
-                        y,
-                    },
-                    now,
-                );
-            }
-            if let Some(rate) = num(e, "rotate") {
-                let (x, y) = pair(e.get("point")).unwrap_or(*pointer);
-                r.handle_input(
-                    InputEvent::Rotate {
-                        radians: rate * span,
-                        x,
-                        y,
-                    },
-                    now,
-                );
-            }
-            if let Some(rate) = num(e, "pinch") {
-                let (x, y) = pair(e.get("point")).unwrap_or(*pointer);
-                let (vx, vy) = pair(e.get("pan")).unwrap_or((0.0, 0.0));
-                r.handle_input(
-                    InputEvent::Pinch {
-                        ratio: (rate * span).exp(),
-                        x,
-                        y,
-                        dx: vx * span,
-                        dy: vy * span,
-                    },
-                    now,
-                );
-            }
-            if let Some((vx, vy)) = pair(e.get("scroll")) {
-                r.handle_input(
-                    InputEvent::Scroll {
-                        dx: vx * span,
-                        dy: vy * span,
-                        momentum: false,
-                    },
-                    now,
-                );
-            }
-            if let Some(aim) = e.get("aim") {
-                // The target's offset on screen (points, y up), scaled by the pilot's gain and
-                // followed with a lag: the pointer path a hand would take keeping it in view.
-                let text = |k: &str| aim.get(k).and_then(Value::as_str).unwrap_or("0");
-                if let Some(c) = Center::parse(text("re"), text("im")) {
-                    let (ox, oy) = r.viewport.offset_of(&c);
-                    let gain = num(e, "gain").unwrap_or(2.5);
-                    let lag = num(e, "lag").unwrap_or(0.25).max(1e-3);
-                    let f = 1.0 - (-span / lag).exp();
-                    // A hand stays on the window: the pointer is clamped to the canvas.
-                    let (w, h) = r.navigator.view_size();
-                    let (tx, ty) = (
-                        (ox * gain).clamp(-0.48 * w, 0.48 * w),
-                        (oy * gain).clamp(-0.48 * h, 0.48 * h),
-                    );
-                    *pointer = (pointer.0 + (tx - pointer.0) * f, pointer.1 + (ty - pointer.1) * f);
-                    r.handle_input(InputEvent::Pointer(Some(*pointer)), now);
-                }
-            }
-            if let Some((x1, y1)) = pair(e.get("pointer_to")) {
-                // Linear from where the pointer is to the end point by `b`.
-                let left = (b - t0.max(a)).max(1e-9);
-                let f = (span / left).clamp(0.0, 1.0);
-                *pointer = (pointer.0 + (x1 - pointer.0) * f, pointer.1 + (y1 - pointer.1) * f);
-                r.handle_input(InputEvent::Pointer(Some(*pointer)), now);
-            }
-            if let Some(g) = e.get("gamepad")
-                && t0 <= a
-            {
-                let gf = |k: &str| g.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-                r.handle_input(
-                    InputEvent::Gamepad {
-                        lx: gf("lx"),
-                        ly: gf("ly"),
-                        rx: gf("rx"),
-                        ry: gf("ry"),
-                        lt: gf("lt"),
-                        rt: gf("rt"),
-                        boost: g.get("boost").and_then(Value::as_bool).unwrap_or(false),
-                    },
-                    now,
-                );
-            }
-        }
-        // Trackpad-like momentum after a pan: the OS keeps sending decaying scrolls.
-        if let (Some(b), Some((vx, vy))) = (to, pair(e.get("pan")))
-            && e.get("momentum").and_then(Value::as_bool) == Some(true)
-            && t1 > b
-        {
-            let (s0, s1) = ((t0 - b).max(0.0), t1 - b);
-            let tau = 0.35;
-            let k = tau * ((-s0 / tau).exp() - (-s1 / tau).exp());
-            if vx.hypot(vy) * (-s1 / tau).exp() > 5.0 {
-                r.handle_input(InputEvent::Pan { dx: vx * k, dy: vy * k }, now);
-            }
-        }
-        if ends {
-            if e.get("release").and_then(Value::as_bool) == Some(true) {
-                r.handle_input(InputEvent::GestureEnd, now);
-            }
-            if e.get("gamepad").is_some() {
-                r.handle_input(
-                    InputEvent::Gamepad {
-                        lx: 0.0,
-                        ly: 0.0,
-                        rx: 0.0,
-                        ry: 0.0,
-                        lt: 0.0,
-                        rt: 0.0,
-                        boost: false,
-                    },
-                    now,
-                );
-            }
-        }
-    }
-    let _ = dt;
 }
 
 fn open_sink(out: &str, size: (usize, usize), fps: f64, o: &Options) -> Result<Sink> {
@@ -528,7 +136,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let Some(path) = o.get("script") else {
         return err("fly needs --script path.json");
     };
-    let script = Script::load(path)?;
+    let script = load_script(path)?;
     let size = o.size("size", script.size)?;
     let fps = o.f64("fps").unwrap_or(script.fps);
     let hz = o.f64("hz").unwrap_or(fps);
@@ -573,7 +181,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         },
         0.0,
     );
-    r.viewport = start_viewport(script.start.as_ref(), w_pts, h_pts)?;
+    r.viewport = start_viewport(script.start.as_ref(), w_pts, h_pts, 1.0).map_err(crate::options::CommandError)?;
     let refreshes = (duration * hz).round() as usize;
     let interval = 1.0 / hz;
     let null = out == "null";
@@ -583,7 +191,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     );
     let mut hints: std::collections::BTreeMap<String, usize> = Default::default();
     let mut ap_frames = 0usize;
-    let mut pointer = (0.0, 0.0);
+    let mut player = FlightPlayer::new(1.0);
     let bytes = size.0 * size.1 * 4;
     let still = |k: usize| stills.contains(&k).then(|| format!("{stills_dir}/frame_{k:05}.png"));
 
@@ -599,7 +207,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             // The previous refresh's time exactly: `t − interval` rounds differently, and an event
             // on a refresh boundary then fired twice.
             let t_prev = if k == 0 { -interval } else { (k - 1) as f64 * interval };
-            feed(&mut r, &script.events, t_prev, t, now, &mut pointer);
+            player.feed(&mut r, &script.events, t_prev, t, now);
             r.navigator.advance(&mut r.viewport, now);
             if k % per_video == 0 {
                 let res = r.render_offscreen(size.0, size.1, false)?;
@@ -684,7 +292,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         // The previous refresh's time exactly: `t − interval` rounds differently, and an event
         // on a refresh boundary then fired twice.
         let t_prev = if k == 0 { -interval } else { (k - 1) as f64 * interval };
-        feed(&mut r, &script.events, t_prev, t, now, &mut pointer);
+        player.feed(&mut r, &script.events, t_prev, t, now);
         // The slot this refresh may draw into must not hold an image still waiting.
         if queue
             .iter()
@@ -732,8 +340,8 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             ap.throttle(),
             ap.safety(),
             ap.hint(),
-            pointer.0,
-            pointer.1,
+            player.pointer.0,
+            player.pointer.1,
             r.navigator.flight().map_or(-1.0, |f| f.progress()),
         ));
         flush(&r, &mut queue, &mut last_image, false)?;

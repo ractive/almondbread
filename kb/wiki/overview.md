@@ -28,7 +28,9 @@ orbits on the CPU) with a Swift + SwiftUI/AppKit UI on Apple platforms
 3. **Iteration skipping** with a precomputed table: mathr's binary-tree
    [[techniques/bla]] (general, works for Burning Ship, Mandelbar, hybrids)
    or Imagina's period-aligned [[techniques/linear-approximation-imagina]]
-   with the AT minibrot shortcut (fastest, Mandelbrot only). Series
+   with the AT minibrot shortcut (Mandelbrot only; measured in M6: 1.9–2.4× over BLA at deep
+   needle minibrots, no gain on centre references or in float32 views, the AT no gain on the
+   GPU, so almondbread uses LA only on deep nucleus references and keeps BLA elsewhere). Series
    approximation and nanoMB are legacy ([[techniques/series-approximation]]).
 4. **Range handling** for float32: plain deltas to about 1e-25, then
    rescaled float32 with floatexp scale and floatexp skip-table entries

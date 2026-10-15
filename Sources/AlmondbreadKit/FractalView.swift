@@ -228,6 +228,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         base.attach(host: self)
         base.onModeChange = { [weak self] mode in self?.modeChanged(mode) }
         if InteractionTest.enabled { InteractionTest.shared.attach(view: self) }
+        if FlightBench.enabled { FlightBench.shared.attach(view: self) }
         if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
         // Window tests never read the user's controller.
         if !TestLaunch.enabled && Preferences.gamepadEnabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
@@ -344,7 +345,15 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     func step(_ link: CADisplayLink) {
+        if externalClock { return }
         if !base.step(timestamp: link.timestamp) { link.isPaused = true }
+    }
+
+    /// The interaction test drives frames from its own CVDisplayLink (`ALMONDBREAD_TEST_LINK=cv`).
+    var externalClock = false
+
+    func stepExternal(timestamp: CFTimeInterval) {
+        _ = base.step(timestamp: timestamp)
     }
 
     @discardableResult
@@ -455,7 +464,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     override func mouseMoved(with event: NSEvent) {
         // The interaction test drives the pointer itself; the user's real mouse over the
         // background test window must not interfere.
-        guard !InteractionTest.enabled, !UIDemo.enabled else { return }
+        guard !InteractionTest.enabled, !UIDemo.enabled, !FlightBench.enabled else { return }
         let p = convert(event.locationInWindow, from: nil)
         // Over the HUD the pointer is off the canvas (zooms go to the centre, no edge pan).
         if hudRect.contains(p) {
@@ -471,7 +480,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) {
-        guard !InteractionTest.enabled, !UIDemo.enabled else { return }
+        guard !InteractionTest.enabled, !UIDemo.enabled, !FlightBench.enabled else { return }
         overHUD = false
         send(.pointerExited)
     }
@@ -605,7 +614,27 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         addInteraction(pointer)
         pointerInteraction = pointer
         base.onModeChange = { [weak self] _ in self?.pointerInteraction?.invalidate() }
-        if Preferences.gamepadEnabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
+        if Preferences.gamepadEnabled && !TestLaunch.enabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
+        if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
+        // VoiceOver (and the UI tests): one element, touches pass through to the gestures,
+        // its value is the view (`accessibilityValue`).
+        isAccessibilityElement = true
+        accessibilityIdentifier = "fractal"
+        accessibilityLabel = "Fractal"
+        accessibilityTraits = .allowsDirectInteraction
+    }
+
+    /// The view as text: "re im scale angle° autopilot on|off journey on|off" (UI tests read
+    /// it to check that a gesture moved, zoomed or turned the view).
+    override var accessibilityValue: String? {
+        get {
+            guard let explorer = base.explorer else { return nil }
+            let v = explorer.viewport()
+            let s = explorer.stats()
+            return "\(v.re) \(v.im) \(v.scaleText) \(String(format: "%.2f", v.angleDegrees))° "
+                + "autopilot \(s.autopilot.active ? "on" : "off") journey \(s.journey.active ? "on" : "off")"
+        }
+        set {}
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

@@ -1,0 +1,17 @@
+{
+ "_about": "Journey #4711 from the home view for three minutes, effects off (kb: decisions/controls, Journey, variety): dives in several regions joined by cross-over flights; the review video for 'do consecutive legs look different'.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 180,
+ "start": {
+  "re": "-0.75",
+  "im": "0",
+  "zoom": 1
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "journey": 4711
+  }
+ ]
+}

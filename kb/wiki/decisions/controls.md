@@ -441,9 +441,9 @@ the *spare* until a view needs it).
    that period) seeds `find_misiurewicz` at k − 1, k, k + 1 (k ≥ 2: a preperiod of 1 is a
    nucleus). The cycle multiplier `Π 2 z_i` labels it a **spiral** (complex) or a **branch
    point** (real, a dendrite).
-4. A **boundary detail** zoom (3–6 e-folds into the sample) as a fallback, and **resurfacing**
-   to a shallow catalogue place ([[synthesis/places]]) after 6 legs or below 1e40, so the
-   journey is endless without getting slow.
+4. A **boundary detail** zoom (3–6 e-folds into the sample) as a fallback (never twice in a
+   row), and **resurfacing** to a shallow catalogue place ([[synthesis/places]]) when nothing
+   else is found. (Until the variety revision below: resurfacing after 6 legs or below 1e40.)
 
 **Scoring with survey-style statistics.** Each candidate's framing is probed (40 × 40) and
 measured like the GPU survey kernel measures a frame (interior share, whole and middle third;
@@ -474,6 +474,66 @@ the 7/8 stage made minibrots and Julia stages appear at every depth ("towards a 
 minibrot" followed by "embedded Julia (period 87)"). From home, seeds 4711, 7 and 20261015
 plan spirals, minibrots, stages, branch points and approaches in alternation, with a
 resurfacing after 6 legs (9 in the first review video: one region for its whole 85 s, so 6).
+
+**Variety: dives, cross-overs, novelty (revision 2026-10-15).** The tuned planner still showed
+one family of shapes for a minute (journey #4711: six legs of dendritic star filigree under
+M(113,10), 12 of 17 stills alike). The reason is the maths, not the scoring: deep in one
+region every view is decorated with the same local Julia set, so diving within a region repeats
+its shapes however the targets are picked. The journey now plans *across regions*
+(`journey.rs`, `journey/regions.rs`, `journey/look.rs`):
+
+- **Regions.** `region_of(c)` (mirror images are one region): the needle (re < −1.4),
+  seahorse valley, elephant valley; else the internal angle of `μ = 1 − √(1 − 4c)` (the
+  cardioid is `c = μ/2 − μ²/4`) snapped to the nearest p/q (q ≤ 9), *valley* when
+  `|μ| < 1 + 0.5/q²`, *limb* otherwise; the period-2 bulb the same way about −1. Families:
+  valley (spirals at depth), limb (dendrites, stars), needle.
+- **Dives.** A journey is a sequence of dives: a **cross-over** leg to an anchor in another
+  region, then 1–2 legs within it in a seeded style: *scenic* (one leg, gains 2.5–5 e-folds,
+  cross over beyond 1e10), *medium* (1–2 legs, 4–8, to 1e22), *deep* (2 legs, 11–17, to 1e40;
+  never twice in a row, not the first dive). Within a dive, candidates also come from a view
+  2–4 e-folds wider (targets beside the current one: a short cross-over in the region). A
+  journey started away from home first dives two legs where the user is.
+- **Anchors** (cross-over targets): the catalogue's places from 1e0.7 to 1e16 (curated
+  framings), and per plan four seeded p/q bulbs (30 % on the period-2 bulb) giving the hub of
+  the limb (Misiurewicz M(q+1, 1), Newton from 2.2 bulb radii beyond the nucleus; the bulb
+  radius is about `sin(πp/q)/q²`) and the valleys either side of the attachment point
+  `e^{iθ}/2 − e^{2iθ}/4`. The bulb itself framed with its antenna was dropped: a dark disc
+  beside the cardioid in every review. Pre-score: not this region or the last three (hard),
+  −0.5 for one of the last eight, −0.7 for the same family as the last dive, −0.8 for a limb
+  on a deep dive, a seeded 0–0.6; after the probe −2 per unit of interior share above 12 %
+  (catalogue framings beside the cardioid were the same black wedge every time).
+- **Look descriptor** (`Look`, 17 components from the 40 × 40 probe plus two short orbits):
+  distance spectrum (quantiles of `log10 |∇ν|`, ν = n + s the smooth count), box-counting
+  dimension of the structure mask (|∇ν| ≥ 2), interior, filament, calm and crossings, weak
+  orientation measures, colour statistics of the default palette, and the **spiral pitch**:
+  the cycle the orbit of a point near the centre shadows (closest return over periods 1–16),
+  its multiplier λ = Π 2 z_i, the turn per e-fold `|arg λ| / ln |λ|` (arg folded to
+  [0, π/2]). Calibrated on 30 landings of #4711 sorted by eye into four families (dendrite
+  carpets, bulbs, thin stars and medallions, spirals): image orientation measures do not
+  resolve seahorse spirals 3–4 texels wide (separation of family means ≤ 0.5, also at 96 × 96
+  texels); the pitch separates spirals from dendrite carpets (1.2–1.3), the distance spectrum
+  and dimension separate thin stars from everything denser (2–3.4); colour is nearly random
+  between views of one shape. Weighted distance: within a family 0.24 / 0.45 / 0.77 (10th /
+  50th / 90th percentile), across families 0.45 / 0.73 / 1.13.
+- **Novelty.** Score + 1.2 · min(d, 0.8), d the distance to the most similar of the last six
+  landings (stretched 12 % per leg of age). Rejected: closer than 0.22 to one of the last three
+  (near-duplicate); for a dive's second leg closer than 0.33 (the dive goes on only while it
+  shows something new, else the journey crosses over).
+- **Long legs fly faster.** A leg whose path covers more than 14 e-folds flies only 20 % of the
+  excess at the journey speed (`leg_pace`: speed × e / (14 + 0.2 (e − 14))): a cross-over from
+  1e40 (~92 e-folds) takes ~21 s instead of ~66 s at the default speed.
+- **Colours per dive** (cinematic effects on only): every cross-over moves a palette phase on
+  by 0.15–0.4 cycles, eased over the leg's flight (`Navigator::journey_palette_phase`, added
+  to the palette offset in `color_params`); a new journey continues from the current phase.
+
+Tests: `journeys_cross_regions_and_do_not_repeat_looks` (seeds 4711, 7, 20261015, 16 legs: ≥ 5
+regions, at most 3 legs per region in a row, no landing within 0.22 of the one before),
+`novelty_rejects_a_repeat_and_rewards_a_new_look`, `long_legs_fly_faster`,
+`regions_of_known_places`, `bulb_anchors_find_their_nuclei_and_hubs`. Tools:
+`almondbread journey --describe 1` prints each landing's region, dive and look with its
+distances to the last legs; `--save f` writes the targets, `--views f` describes fixed views
+(to compare descriptor variants on one set). Results in [[synthesis/benchmarks]] (PJ,
+variety).
 
 **Determinism.** A plan depends only on the start view (centre, shorter-side span) and the
 chain (seed stream, history), and every leg plans from the previous target, so a journey is

@@ -131,34 +131,55 @@ impl Scene {
         });
     }
 
-    /// Text in the 5x7 font, `cell` pixels per font pixel, top-left at `origin`. Returns the
-    /// width drawn.
-    pub fn text(&mut self, origin: [f32; 2], cell: f32, text: &str, color: [f32; 4]) -> f32 {
-        let mut x = origin[0];
-        for ch in text.chars() {
-            let g = glyph_index(ch);
-            if g != 0 {
-                self.push(OverlayPrim {
-                    geom: [x, origin[1], x + 5.0 * cell, origin[1] + 7.0 * cell],
-                    color0: color,
-                    param: [cell, 0.0, 0.0, 0.0],
-                    info: [KIND_GLYPH, g as u32, 0, 0],
-                    ..OverlayPrim::default()
-                });
-            }
-            x += 6.0 * cell;
+    /// Text in the overlay font (`crate::font`, an SDF atlas) at `size` pixels per em, the
+    /// top of its capitals at `origin`; `halo` is the outline colour (premultiplied; alpha 0:
+    /// none) and `halo_width` its width in pixels. Returns the width drawn.
+    pub fn text_halo(
+        &mut self,
+        origin: [f32; 2],
+        size: f32,
+        text: &str,
+        color: [f32; 4],
+        halo: [f32; 4],
+        halo_width: f32,
+    ) -> f32 {
+        let (glyphs, width) = crate::font::layout(text, size);
+        let base = [origin[0], origin[1] + crate::font::cap_height() * size];
+        // The atlas stores distances out to SPREAD texels: the halo cannot reach further.
+        let reach = crate::font::SPREAD * size / crate::font::EM - 0.25;
+        let halo_width = halo_width.clamp(0.0, reach.max(0.0));
+        for g in glyphs {
+            self.push(OverlayPrim {
+                geom: [
+                    base[0] + g.quad[0],
+                    base[1] + g.quad[1],
+                    base[0] + g.quad[2],
+                    base[1] + g.quad[3],
+                ],
+                color0: color,
+                color1: halo,
+                param: g.atlas,
+                info: [
+                    KIND_GLYPH,
+                    crate::font::ATLAS_W,
+                    halo_width.to_bits(),
+                    crate::font::SPREAD.to_bits(),
+                ],
+                ..OverlayPrim::default()
+            });
         }
-        x - origin[0]
+        width
     }
 
-    /// Text with a dark halo (readable on any palette).
-    pub fn label(&mut self, origin: [f32; 2], cell: f32, text: &str, color: [f32; 4]) -> f32 {
-        let shadow = rgba(0.0, 0.0, 0.0, 0.75 * color[3].clamp(0.01, 1.0));
-        for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
-            let o = [origin[0] + dx * cell * 0.6, origin[1] + dy * cell * 0.6];
-            self.text(o, cell, text, shadow);
-        }
-        self.text(origin, cell, text, color)
+    /// Text without a halo.
+    pub fn text(&mut self, origin: [f32; 2], size: f32, text: &str, color: [f32; 4]) -> f32 {
+        self.text_halo(origin, size, text, color, [0.0; 4], 0.0)
+    }
+
+    /// Text with a dark outline (readable on any palette, bright or dark).
+    pub fn label(&mut self, origin: [f32; 2], size: f32, text: &str, color: [f32; 4]) -> f32 {
+        let halo = rgba(0.0, 0.0, 0.0, 0.85 * color[3].clamp(0.0, 1.0));
+        self.text_halo(origin, size, text, color, halo, (0.2 * size).max(2.5))
     }
 
     /// Pixel bounding box of primitive `i` (inflated for anti-aliasing), clipped.
@@ -298,77 +319,9 @@ fn clip_segment(a: [f32; 2], b: [f32; 2], r: [f32; 4]) -> Option<([f32; 2], [f32
 
 // MARK: Font
 
-/// 5x7 bitmap font (rows top-down, bit 4 = leftmost column): digits, lower case (upper case
-/// maps to it) and the symbols the overlay prints. Index 0 is the space.
-const FONT: &[(char, [u8; 7])] = &[
-    (' ', [0, 0, 0, 0, 0, 0, 0]),
-    ('0', [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E]),
-    ('1', [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E]),
-    ('2', [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F]),
-    ('3', [0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E]),
-    ('4', [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02]),
-    ('5', [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E]),
-    ('6', [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E]),
-    ('7', [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08]),
-    ('8', [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E]),
-    ('9', [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C]),
-    ('a', [0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F]),
-    ('b', [0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x1E]),
-    ('c', [0x00, 0x00, 0x0E, 0x10, 0x10, 0x11, 0x0E]),
-    ('d', [0x01, 0x01, 0x0D, 0x13, 0x11, 0x11, 0x0F]),
-    ('e', [0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E]),
-    ('f', [0x06, 0x09, 0x08, 0x1C, 0x08, 0x08, 0x08]),
-    ('g', [0x00, 0x0F, 0x11, 0x11, 0x0F, 0x01, 0x0E]),
-    ('h', [0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x11]),
-    ('i', [0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E]),
-    ('j', [0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x0C]),
-    ('k', [0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12]),
-    ('l', [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]),
-    ('m', [0x00, 0x00, 0x1A, 0x15, 0x15, 0x11, 0x11]),
-    ('n', [0x00, 0x00, 0x16, 0x19, 0x11, 0x11, 0x11]),
-    ('o', [0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E]),
-    ('p', [0x00, 0x00, 0x1E, 0x11, 0x1E, 0x10, 0x10]),
-    ('q', [0x00, 0x00, 0x0D, 0x13, 0x0F, 0x01, 0x01]),
-    ('r', [0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10]),
-    ('s', [0x00, 0x00, 0x0E, 0x10, 0x0E, 0x01, 0x1E]),
-    ('t', [0x08, 0x08, 0x1C, 0x08, 0x08, 0x09, 0x06]),
-    ('u', [0x00, 0x00, 0x11, 0x11, 0x11, 0x13, 0x0D]),
-    ('v', [0x00, 0x00, 0x11, 0x11, 0x11, 0x0A, 0x04]),
-    ('w', [0x00, 0x00, 0x11, 0x11, 0x15, 0x15, 0x0A]),
-    ('x', [0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11]),
-    ('y', [0x00, 0x00, 0x11, 0x11, 0x0F, 0x01, 0x0E]),
-    ('z', [0x00, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F]),
-    ('.', [0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C]),
-    (',', [0x00, 0x00, 0x00, 0x00, 0x0C, 0x04, 0x08]),
-    ('-', [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00]),
-    ('+', [0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00]),
-    ('=', [0x00, 0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00]),
-    ('|', [0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04]),
-    (':', [0x00, 0x0C, 0x0C, 0x00, 0x0C, 0x0C, 0x00]),
-    ('(', [0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02]),
-    (')', [0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08]),
-    ('/', [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x00]),
-    ('λ', [0x08, 0x04, 0x04, 0x0A, 0x0A, 0x11, 0x11]),
-    ('×', [0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x00]),
-    ('^', [0x04, 0x0A, 0x11, 0x00, 0x00, 0x00, 0x00]),
-    ('?', [0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04]),
-    ('%', [0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03]),
-    ('_', [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F]),
-    ('#', [0x0A, 0x0A, 0x1F, 0x0A, 0x1F, 0x0A, 0x0A]),
-];
-
-fn glyph_index(ch: char) -> usize {
-    let lower = ch.to_lowercase().next().unwrap_or(ch);
-    FONT.iter()
-        .position(|&(c, _)| c == lower)
-        .unwrap_or_else(|| FONT.iter().position(|&(c, _)| c == '?').unwrap_or(0))
-}
-
-/// The font as the kernel reads it: 8 bytes per glyph (7 rows, one pad).
+/// The font atlas as the kernel reads it (`crate::font`).
 pub fn font_bytes() -> Vec<u8> {
-    FONT.iter()
-        .flat_map(|(_, rows)| rows.iter().copied().chain(std::iter::once(0)))
-        .collect()
+    crate::font::ATLAS.to_vec()
 }
 
 // MARK: GPU
@@ -1014,23 +967,23 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                     );
                 }
                 // Level label: its magnification.
-                let cell = (1.2 * px).max(1.5) as f32;
+                let size = (11.0 * px).max(9.0) as f32;
                 let label = if l.decade == 0 {
                     "whole set".to_string()
                 } else {
-                    format!("x1e{}", l.decade)
+                    format!("×1e{}", l.decade)
                 };
                 scene.label(
-                    [o[0] + 6.0 * cell, o[1] + 5.0 * cell],
-                    cell,
+                    [o[0] + 0.7 * size, o[1] + 0.7 * size],
+                    size,
                     &label,
                     rgba(1.0, 1.0, 1.0, 0.85),
                 );
             }
             scene.set_clip(None);
             // Info under (or above) the first panel: the orbit's fate and a click note.
-            let cell = (1.5 * px).max(2.0) as f32;
-            let line = 10.0 * cell;
+            let size = (13.0 * px).max(11.0) as f32;
+            let line = 1.35 * size;
             let o0 = stack.panels[0];
             let below = matches!(s.map_corner, Corner::TopLeft | Corner::TopRight);
             let mut lines: Vec<String> = Vec::new();
@@ -1045,19 +998,20 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             {
                 lines.push(note.clone());
             }
+            let cap = crate::font::cap_height() * size;
             let y0 = if below {
-                o0[1] + ph + 8.0 * cell
+                o0[1] + ph + 0.8 * size
             } else {
-                o0[1] - 6.0 * cell - line * lines.len() as f32
+                o0[1] - 0.8 * size - cap - line * lines.len().saturating_sub(1) as f32
             };
             for (k, t) in lines.iter().enumerate() {
-                scene.label([o0[0], y0 + k as f32 * line], cell, t, rgba(1.0, 1.0, 1.0, 0.92));
+                scene.label([o0[0], y0 + k as f32 * line], size, t, rgba(1.0, 1.0, 1.0, 0.92));
                 key.push_str(t);
             }
         } else if s.orbit
             && let Some(p) = &self.probe
         {
-            let cell = (1.5 * px).max(2.0) as f32;
+            let size = (13.0 * px).max(11.0) as f32;
             let t = format!(
                 "c {}   |z{}| {}",
                 p.class.text(),
@@ -1066,7 +1020,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             );
             scene.label(
                 [(12.0 * px) as f32, (h - 24.0 * px) as f32],
-                cell,
+                size,
                 &t,
                 rgba(1.0, 1.0, 1.0, 0.92),
             );
@@ -1205,16 +1159,27 @@ mod tests {
         for t in [
             "c escapes at n 37",
             "period 3  |λ| 0.412  arg +0.250",
-            "x1e6 whole set",
+            "×1e6 whole set",
             "|z50| 1.234e-5",
         ] {
-            for ch in t.chars() {
-                assert!(
-                    FONT.iter().any(|&(c, _)| c == ch.to_lowercase().next().unwrap()),
-                    "{ch}"
-                );
+            for ch in t.chars().filter(|c| !c.is_whitespace()) {
+                let g = crate::font::glyph(ch).unwrap();
+                assert!(ch == '?' || g != crate::font::glyph('?').unwrap(), "{ch}");
             }
         }
-        assert_eq!(font_bytes().len(), FONT.len() * 8);
+        assert_eq!(
+            font_bytes().len(),
+            (crate::font::ATLAS_W * crate::font::ATLAS_H) as usize
+        );
+    }
+
+    #[test]
+    fn labels_are_one_prim_per_glyph() {
+        let mut s = Scene::default();
+        let w = s.label([10.0, 10.0], 26.0, "a b", rgba(1.0, 1.0, 1.0, 1.0));
+        assert_eq!(s.prims.len(), 2);
+        assert!(w > 26.0 && w < 60.0, "{w}");
+        // The halo width is limited to what the atlas stores.
+        assert!(f32::from_bits(s.prims[0].info[2]) <= crate::font::SPREAD * 26.0 / crate::font::EM);
     }
 }

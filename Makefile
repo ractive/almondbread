@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim render selftest interaction-test bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
+.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -31,6 +31,17 @@ ios-sim: project rust
 		-configuration Debug SYMROOT=$(abspath .build/xcode-ios) -quiet build
 	@echo "$(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)"
 
+## iOS checks on the simulators (kb: platform/ios-simulator): self-test (first view through the
+## real view and Rust, shown vs fresh render, offscreen PNG pulled to build/ios-selftest-*.png)
+## and the touch UI test (real UIKit gestures and the toolbar buttons, screenshots in
+## build/ios-screens). IOS_DEVICES: simulator names (xcrun simctl create).
+IOS_DEVICES ?= AB iPhone 17e,AB iPad mini
+ios-selftest: ios-sim
+	scripts/ios-selftest.sh "$(IOS_DEVICES)" $(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)
+
+ios-uitest: project rust
+	scripts/ios-uitest.sh "$(IOS_DEVICES)"
+
 ## Headless check render through the Rust renderer: make render ARGS="--center -0.7436,0.1318 --scale 1e-8"
 render: rust-cli
 	$(RUST_CLI) render render.png --size 1600x1000 $(ARGS)
@@ -49,8 +60,28 @@ selftest: build app
 interaction-test: build
 	.build/release/AlmondbreadMac --interaction-test
 
+## The same in FRONT of other windows (takes focus for ~2 minutes; run it yourself, never from
+## an agent): the only way to measure 120 Hz presentation on a ProMotion panel. Results in
+## build/interaction-120-foreground.txt. kb: synthesis/benchmarks "120 Hz on ProMotion"
+interaction-test-120: build
+	ALMONDBREAD_TEST_FOREGROUND=1 ALMONDBREAD_SCENARIOS="home pan,home zoom,1e5 pan,1e5 zoom,deep zoom 1e-12 to 1e-40,autopilot,fly to,rotate zoom,cinematic autopilot,journey" \
+		.build/release/AlmondbreadMac --interaction-test | tee build/interaction-120-foreground.txt
+
 ## Benchmark set with GPU-vs-CPU verify metrics (kb: synthesis/benchmarks)
 bench: rust-bench
+
+## Flight benchmark with a score (kb: synthesis/flight-benchmark): the fixed flight
+## scripts/flights/benchmark-v1.json in mode A (throughput: every frame settled at full quality,
+## no display) and mode B's headless approximation (real time at 120 Hz through the scheduler);
+## warm-up lap, 3 laps, medians, noise check, JSON in build/benchmark/. Quick: ARGS="--repeat 1
+## --warmup 0". Compare: target/release/almondbread benchmark --compare a.json b.json
+flight-bench: rust-cli
+	$(RUST_CLI) benchmark $(ARGS)
+
+## Mode B live: the flight in a background window at the display's rate (never takes focus,
+## quits by itself; needs an unlocked screen), scored against the live reference
+flight-bench-live: build rust-cli
+	$(RUST_CLI) benchmark --live-app .build/release/AlmondbreadMac $(ARGS)
 
 ## The -3/4 neck and seahorse history regressions (kb: techniques/interior-detection, Pitfalls)
 regress: rust-regress
