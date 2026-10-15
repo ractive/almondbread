@@ -36,6 +36,9 @@ use crate::gpu_types::{
     PixelStateIC,
 };
 
+/// Dense-region colours cached per palette: (palette key, deep, filament).
+type DenseColors = (String, [f32; 3], [f32; 3]);
+
 /// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
 pub const BAILOUT: f64 = 65536.0;
 const STAT_SLOTS: usize = 64;
@@ -741,7 +744,7 @@ pub struct Renderer<B: GpuBackend> {
 
     palette_id: Option<String>,
     /// Dense-region colours of the palette (key, deep, filament).
-    dense_cache: std::cell::RefCell<Option<(String, [f32; 3], [f32; 3])>>,
+    dense_cache: std::cell::RefCell<Option<DenseColors>>,
     palette_buffer: Option<B::Buffer>,
 
     job: Option<Job<B>>,
@@ -1126,6 +1129,14 @@ impl<B: GpuBackend> Renderer<B> {
                     COMPOSE_AA => job.aa_composed += 1,
                     COMPOSE_EXACT => {
                         // Recoloured from the exact samples: anti-aliasing starts over.
+                        // AA chunks may still be in flight and their records index the levels
+                        // being dropped: a new generation makes `harvest` ignore them (it
+                        // indexed past the shrunken level list and panicked: the app died
+                        // when a look was chosen while AA samples were running).
+                        if job.levels.iter().any(|l| l.aa.is_some()) {
+                            self.generation += 1;
+                            job.generation = self.generation;
+                        }
                         job.drop_aa();
                         job.complete_at = Some(f64::NEG_INFINITY);
                     }
@@ -2113,7 +2124,10 @@ impl<B: GpuBackend> Renderer<B> {
             job.chunks += 1;
             job.iterations += stats.iterations() as f64;
             job.steps += stats.steps() as f64;
-            let level = &mut job.levels[rec.level];
+            // (Defensive: a record never outlives its level within one generation.)
+            let Some(level) = job.levels.get_mut(rec.level) else {
+                continue;
+            };
             level.gpu_time += gpu;
             level.iterations += stats.iterations() as f64;
             level.steps += stats.steps() as f64;
@@ -2627,10 +2641,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         if self.overlay_font.is_none() {
-            self.overlay_font = self
-                .backend
-                .create_buffer_with_data(&crate::overlay::font_bytes())
-                .ok();
+            self.overlay_font = self.backend.create_buffer_with_data(&crate::overlay::font_bytes()).ok();
         }
         let empty;
         let d = match &self.overlay {
@@ -3194,7 +3205,9 @@ impl<B: GpuBackend> Renderer<B> {
         }
         // With an overlay (CLI `--orbit`, `--map`): colour into linear light, then composite.
         let enc = if self.overlay.is_some() {
-            let lin = self.backend.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?;
+            let lin = self
+                .backend
+                .create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?;
             let mut enc = self.encode_colorize(&lin, true)?;
             self.encode_overlay(&mut enc, &lin, &target, true);
             enc

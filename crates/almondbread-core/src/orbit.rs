@@ -146,7 +146,7 @@ pub fn orbit_points(
 ) -> OrbitPoints {
     let count = count.min(MAX_ORBIT_POINTS);
     let mut out = OrbitPoints::default();
-    if !(scale.mantissa > 0.0) {
+    if scale.mantissa.is_nan() || scale.mantissa <= 0.0 {
         return out;
     }
     let inv = DoubleExp::ONE / scale;
@@ -165,12 +165,17 @@ pub fn orbit_points(
             // (Z_m - Z_1) + (C_ref - C_view) + delta: exact where m = 1, which is where the
             // orbit comes back near c after a rebase.
             Some(r) => {
-                let d = if it.m == 1 { it.delta } else { sub(zm, r.z(1)) + it.delta };
+                let d = if it.m == 1 {
+                    it.delta
+                } else {
+                    sub(zm, r.z(1)) + it.delta
+                };
                 d + ref_offset
             }
             None => sub(z, centre),
         };
-        out.view.push([clamp((rel.re * inv).to_f64()), clamp((rel.im * inv).to_f64())]);
+        out.view
+            .push([clamp((rel.re * inv).to_f64()), clamp((rel.im * inv).to_f64())]);
         let zf = to_f64(z);
         out.plane.push([clamp(zf[0]), clamp(zf[1])]);
         out.last_abs = z.magnitude().to_f64();
@@ -291,7 +296,7 @@ impl OrbitProbe {
                         return true;
                     }
                     self.w = z.times_two() * self.w;
-                    if self.n % 8 == 0 {
+                    if self.n.is_multiple_of(8) {
                         let a = self.w.re.abs().to_f64().max(self.w.im.abs().to_f64());
                         let nn = self.n as f64;
                         if a * nn * nn < INTERIOR_EPS {
@@ -312,10 +317,11 @@ impl OrbitProbe {
                     if self.k == 0 {
                         self.zs = z;
                         self.lam = DoubleExpComplex::ONE;
-                    } else if self.q % self.k == 0 {
+                    } else if self.q.is_multiple_of(self.k) {
                         let d = sub(z, self.zs).magnitude_squared();
                         let s = self.zs.magnitude_squared();
-                        let close = d.is_zero() || (!s.is_zero() && d.log2_magnitude() - s.log2_magnitude() <= CLOSE_TAU2.log2());
+                        let close = d.is_zero()
+                            || (!s.is_zero() && d.log2_magnitude() - s.log2_magnitude() <= CLOSE_TAU2.log2());
                         if close && self.lam.magnitude_squared().to_f64() < 1.0 {
                             self.class = OrbitClass::Interior {
                                 period: self.k,
@@ -363,7 +369,8 @@ mod tests {
 
     #[test]
     fn classes() {
-        assert_eq!(probe(1.0, 1.0), OrbitClass::Escaped { iteration: 2 });
+        // (escape radius 2^16, as in the kernels)
+        assert_eq!(probe(1.0, 1.0), OrbitClass::Escaped { iteration: 6 });
         match probe(-0.1, 0.1) {
             OrbitClass::Interior { period, multiplier } => {
                 assert_eq!(period, 1);

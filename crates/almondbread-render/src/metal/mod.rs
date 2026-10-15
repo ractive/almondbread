@@ -585,6 +585,50 @@ mod tests {
         assert_eq!(r.settings.learned_iterations, 0);
     }
 
+    /// Every look and every interior mode switched at runtime on one interactive renderer
+    /// (the user saw the app die selecting a look): frames keep presenting, none fails, and
+    /// switching an overlay on and off in between changes nothing about that.
+    #[test]
+    fn switch_looks_and_interior_modes() {
+        use crate::host::Host;
+        use crate::scheduler::Renderer;
+        use almondbread_core::InteriorMode;
+        use almondbread_core::palette::Look;
+        use objc2_quartz_core::CAMetalLayer;
+
+        let backend = MetalBackend::new().expect("metal");
+        let mut surface = MetalLayerSurface::new(CAMetalLayer::new(), &backend);
+        surface.set_drawable_size(320, 200);
+        let mut host = Host::new(Renderer::new(backend).expect("renderer"));
+        host.resize(160.0, 100.0, 2.0, 0.0);
+        let start = std::time::Instant::now();
+        let now = || start.elapsed().as_secs_f64();
+        let mut frames = |host: &mut Host<MetalBackend>, n: usize| {
+            for _ in 0..n {
+                let t = now();
+                let ready = surface.drawable_ready(t);
+                host.frame(t, &now, ready, &mut |f| surface.next_drawable(t, f).map(|d| (d, 0)));
+                std::thread::sleep(std::time::Duration::from_millis(4));
+            }
+        };
+        frames(&mut host, 20);
+        for (i, look) in Look::all().iter().enumerate() {
+            look.apply(&mut host.renderer.settings);
+            host.renderer.settings.interior_mode = InteriorMode::ALL[i % InteriorMode::ALL.len()];
+            host.overlay.settings.orbit = i % 2 == 0;
+            host.overlay.settings.map = i % 3 == 0;
+            frames(&mut host, 15);
+        }
+        for m in InteriorMode::ALL {
+            host.renderer.settings.interior_mode = m;
+            frames(&mut host, 10);
+        }
+        host.overlay.settings.orbit = false;
+        host.overlay.settings.map = false;
+        frames(&mut host, 30);
+        assert_eq!(host.renderer.finish_frames(), 0, "frames failed on the GPU");
+    }
+
     /// Interior cycle analysis (interior colourings): the period every interior pixel reports
     /// at the centres of known components, shallow (plain kernel) and deep (needle-1e305,
     /// period-255 minibrot, deep kernel). Flat colouring keeps the legacy `.y` flag.

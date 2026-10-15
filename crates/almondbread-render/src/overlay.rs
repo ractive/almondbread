@@ -153,7 +153,7 @@ impl Scene {
 
     /// Text with a dark halo (readable on any palette).
     pub fn label(&mut self, origin: [f32; 2], cell: f32, text: &str, color: [f32; 4]) -> f32 {
-        let shadow = rgba(0.0, 0.0, 0.0, 0.75 * color[3].max(0.01).min(1.0));
+        let shadow = rgba(0.0, 0.0, 0.0, 0.75 * color[3].clamp(0.01, 1.0));
         for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
             let o = [origin[0] + dx * cell * 0.6, origin[1] + dy * cell * 0.6];
             self.text(o, cell, text, shadow);
@@ -167,9 +167,19 @@ impl Scene {
         let b = match p.info[0] {
             KIND_SEGMENT => {
                 let w = p.param[0] + 1.5;
-                [g[0].min(g[2]) - w, g[1].min(g[3]) - w, g[0].max(g[2]) + w, g[1].max(g[3]) + w]
+                [
+                    g[0].min(g[2]) - w,
+                    g[1].min(g[3]) - w,
+                    g[0].max(g[2]) + w,
+                    g[1].max(g[3]) + w,
+                ]
             }
-            KIND_DISC => [g[0] - g[2] - 1.5, g[1] - g[2] - 1.5, g[0] + g[2] + 1.5, g[1] + g[2] + 1.5],
+            KIND_DISC => [
+                g[0] - g[2] - 1.5,
+                g[1] - g[2] - 1.5,
+                g[0] + g[2] + 1.5,
+                g[1] + g[2] + 1.5,
+            ],
             KIND_RING => {
                 let r = g[2] + 0.5 * g[3] + 1.5;
                 [g[0] - r, g[1] - r, g[0] + r, g[1] + r]
@@ -192,7 +202,7 @@ impl Scene {
         let tx = w.div_ceil(TILE).max(1);
         let ty = h.div_ceil(TILE).max(1);
         let mut per_tile: Vec<Vec<u32>> = vec![Vec::new(); tx * ty];
-        let mut add = |t: usize, i: u32, per_tile: &mut Vec<Vec<u32>>| {
+        let add = |t: usize, i: u32, per_tile: &mut Vec<Vec<u32>>| {
             let v = &mut per_tile[t];
             if v.last() != Some(&i) {
                 v.push(i);
@@ -589,7 +599,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 if self.probe_reference.as_ref().is_none_or(|(s, _)| *s != serial) {
                     self.probe_reference = Some((serial, Arc::new(ProbeReference::from_reference(r))));
                 }
-                (r.point.clone(), self.probe_reference.as_ref().expect("reference").1.clone())
+                (
+                    r.point.clone(),
+                    self.probe_reference.as_ref().expect("reference").1.clone(),
+                )
             })
         } else {
             None
@@ -720,9 +733,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                         ..SchedulerConfig::default()
                     };
                     let r = Renderer::with_config(renderer.backend().clone(), config)?;
-                    let target = renderer
-                        .backend()
-                        .create_texture(panel.0, panel.1, TextureFormat::Bgra8Unorm, Storage::Private)?;
+                    let target = renderer.backend().create_texture(
+                        panel.0,
+                        panel.1,
+                        TextureFormat::Bgra8Unorm,
+                        Storage::Private,
+                    )?;
                     (r, target)
                 }
             };
@@ -854,7 +870,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             };
             let lw = (0.75 * px) as f32;
             for k in 0..n.saturating_sub(1) {
-                scene.segment(pts[k], pts[k + 1], lw + px as f32, rgba(0.0, 0.0, 0.0, 0.45 * fade(k)), rgba(0.0, 0.0, 0.0, 0.45 * fade(k + 1)));
+                scene.segment(
+                    pts[k],
+                    pts[k + 1],
+                    lw + px as f32,
+                    rgba(0.0, 0.0, 0.0, 0.45 * fade(k)),
+                    rgba(0.0, 0.0, 0.0, 0.45 * fade(k + 1)),
+                );
                 scene.segment(pts[k], pts[k + 1], lw, col(k, 0.9), col(k + 1, 0.9));
             }
             for (k, p) in pts.iter().enumerate().skip(1) {
@@ -863,9 +885,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             }
             // c itself: a larger dot with a ring.
             scene.disc(pts[0], (5.0 * px) as f32, rgba(0.0, 0.0, 0.0, 0.55));
-            scene.disc(pts[0], (3.4 * px) as f32, rgba(ORBIT_WARM[0], ORBIT_WARM[1], ORBIT_WARM[2], 1.0));
+            scene.disc(
+                pts[0],
+                (3.4 * px) as f32,
+                rgba(ORBIT_WARM[0], ORBIT_WARM[1], ORBIT_WARM[2], 1.0),
+            );
             scene.ring(pts[0], (6.5 * px) as f32, (1.2 * px) as f32, rgba(1.0, 1.0, 1.0, 0.8));
-            key.push_str(&format!("orbit {:?} ", &self.points.view.first()));
+            key.push_str(&format!("orbit {:?} ", self.points.view.first()));
             key.push_str(&format!("{} {:?} ", n, self.points.view.last()));
         }
         // ---- Maps.
@@ -897,7 +923,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 let cx = f64::from(o[0]) + f64::from(pw) / 2.0 + dx;
                 let cy = f64::from(o[1]) + f64::from(ph) / 2.0 - dy;
                 let mw = mscale.ratio(l.viewport.scale);
-                let mh = mw * if stack.levels.get(i + 1).is_some() { f64::from(ph / pw) } else { h / w };
+                let mh = mw
+                    * if stack.levels.get(i + 1).is_some() {
+                        f64::from(ph / pw)
+                    } else {
+                        h / w
+                    };
                 let marker = rgba(1.0, 0.85, 0.3, 0.95);
                 if mw >= 6.0 * px {
                     let (x0, y0, x1, y1) = (cx - mw / 2.0, cy - mh / 2.0, cx + mw / 2.0, cy + mh / 2.0);
@@ -908,7 +939,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                         ([x1, y1], [x0, y1]),
                         ([x0, y1], [x0, y0]),
                     ] {
-                        scene.segment(a, b, hw + px as f32 * 0.8, rgba(0.0, 0.0, 0.0, 0.5), rgba(0.0, 0.0, 0.0, 0.5));
+                        scene.segment(
+                            a,
+                            b,
+                            hw + px as f32 * 0.8,
+                            rgba(0.0, 0.0, 0.0, 0.5),
+                            rgba(0.0, 0.0, 0.0, 0.5),
+                        );
                         scene.segment(a, b, hw, marker, marker);
                     }
                 } else {
@@ -922,7 +959,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                         ([cx, cy - a], [cx, cy - g]),
                         ([cx, cy + g], [cx, cy + a]),
                     ] {
-                        scene.segment(p0, p1, hw + px as f32 * 0.8, rgba(0.0, 0.0, 0.0, 0.5), rgba(0.0, 0.0, 0.0, 0.5));
+                        scene.segment(
+                            p0,
+                            p1,
+                            hw + px as f32 * 0.8,
+                            rgba(0.0, 0.0, 0.0, 0.5),
+                            rgba(0.0, 0.0, 0.0, 0.5),
+                        );
                         scene.segment(p0, p1, hw, marker, marker);
                     }
                     scene.disc([cx, cy], (1.3 * px) as f32, marker);
@@ -935,27 +978,49 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                             (z[0] - l.viewport.center.re()) / l.viewport.scale.to_f64(),
                             (z[1] - l.viewport.center.im()) / l.viewport.scale.to_f64(),
                         );
-                        [f64::from(o[0]) + f64::from(pw) / 2.0 + ddx, f64::from(o[1]) + f64::from(ph) / 2.0 - ddy]
+                        [
+                            f64::from(o[0]) + f64::from(pw) / 2.0 + ddx,
+                            f64::from(o[1]) + f64::from(ph) / 2.0 - ddy,
+                        ]
                     };
                     let mp: Vec<[f64; 2]> = self.points.plane.iter().map(|&z| to_map(z)).collect();
                     let n = mp.len();
                     for k in 0..n.saturating_sub(1) {
                         let a = 0.85 * (1.0 - 0.7 * k as f32 / n.max(2) as f32);
-                        scene.segment(mp[k], mp[k + 1], (0.5 * px) as f32, rgba(ORBIT_COOL[0], ORBIT_COOL[1], ORBIT_COOL[2], a), rgba(ORBIT_COOL[0], ORBIT_COOL[1], ORBIT_COOL[2], a));
+                        scene.segment(
+                            mp[k],
+                            mp[k + 1],
+                            (0.5 * px) as f32,
+                            rgba(ORBIT_COOL[0], ORBIT_COOL[1], ORBIT_COOL[2], a),
+                            rgba(ORBIT_COOL[0], ORBIT_COOL[1], ORBIT_COOL[2], a),
+                        );
                     }
                     for p in mp.iter().skip(1) {
                         scene.disc(*p, (1.2 * px) as f32, rgba(1.0, 1.0, 1.0, 0.8));
                     }
-                    scene.disc(mp[0], (2.2 * px) as f32, rgba(ORBIT_WARM[0], ORBIT_WARM[1], ORBIT_WARM[2], 1.0));
+                    scene.disc(
+                        mp[0],
+                        (2.2 * px) as f32,
+                        rgba(ORBIT_WARM[0], ORBIT_WARM[1], ORBIT_WARM[2], 1.0),
+                    );
                 }
                 // Level label: its magnification.
-                let cell = (1.0 * px).max(1.0) as f32;
-                let label = if l.decade == 0 { "whole set".to_string() } else { format!("x1e{}", l.decade) };
-                scene.label([o[0] + 6.0 * cell, o[1] + 5.0 * cell], cell, &label, rgba(1.0, 1.0, 1.0, 0.85));
+                let cell = (1.2 * px).max(1.5) as f32;
+                let label = if l.decade == 0 {
+                    "whole set".to_string()
+                } else {
+                    format!("x1e{}", l.decade)
+                };
+                scene.label(
+                    [o[0] + 6.0 * cell, o[1] + 5.0 * cell],
+                    cell,
+                    &label,
+                    rgba(1.0, 1.0, 1.0, 0.85),
+                );
             }
             scene.set_clip(None);
             // Info under (or above) the first panel: the orbit's fate and a click note.
-            let cell = (1.2 * px).max(1.0) as f32;
+            let cell = (1.5 * px).max(2.0) as f32;
             let line = 10.0 * cell;
             let o0 = stack.panels[0];
             let below = matches!(s.map_corner, Corner::TopLeft | Corner::TopRight);
@@ -983,9 +1048,19 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         } else if s.orbit
             && let Some(p) = &self.probe
         {
-            let cell = (1.2 * px).max(1.0) as f32;
-            let t = format!("c {}   |z{}| {}", p.class.text(), self.points.plane.len(), sci(self.points.last_abs));
-            scene.label([(12.0 * px) as f32, (h - 24.0 * px) as f32], cell, &t, rgba(1.0, 1.0, 1.0, 0.92));
+            let cell = (1.5 * px).max(2.0) as f32;
+            let t = format!(
+                "c {}   |z{}| {}",
+                p.class.text(),
+                self.points.plane.len(),
+                sci(self.points.last_abs)
+            );
+            scene.label(
+                [(12.0 * px) as f32, (h - 24.0 * px) as f32],
+                cell,
+                &t,
+                rgba(1.0, 1.0, 1.0, 0.92),
+            );
             key.push_str(&t);
         }
         let _ = renderer;
@@ -1035,7 +1110,14 @@ fn resolve_click(c: Center, map_scale: Scale, ratio: f64, bits: usize, max_iter:
     }
     let big = c.with_min_precision(bits);
     let radius = map_scale.big_times(1.0, 64);
-    let period = find_period(big.big(), &radius, max_iter.min(200_000), PeriodMethod::Ball, 1024, &mut || false);
+    let period = find_period(
+        big.big(),
+        &radius,
+        max_iter.min(200_000),
+        PeriodMethod::Ball,
+        1024,
+        &mut || false,
+    );
     let Some(p) = period else {
         return MapJump {
             center: c,
@@ -1076,9 +1158,21 @@ mod tests {
     #[test]
     fn binning_keeps_draw_order_and_walks_segments() {
         let mut s = Scene::default();
-        s.segment([0.0, 0.0], [319.0, 0.0], 1.0, rgba(1.0, 1.0, 1.0, 1.0), rgba(1.0, 1.0, 1.0, 1.0));
+        s.segment(
+            [0.0, 0.0],
+            [319.0, 0.0],
+            1.0,
+            rgba(1.0, 1.0, 1.0, 1.0),
+            rgba(1.0, 1.0, 1.0, 1.0),
+        );
         s.disc([8.0, 8.0], 3.0, rgba(1.0, 0.0, 0.0, 1.0));
-        s.segment([0.0, 0.0], [319.0, 199.0], 1.0, rgba(1.0, 1.0, 1.0, 1.0), rgba(1.0, 1.0, 1.0, 1.0));
+        s.segment(
+            [0.0, 0.0],
+            [319.0, 199.0],
+            1.0,
+            rgba(1.0, 1.0, 1.0, 1.0),
+            rgba(1.0, 1.0, 1.0, 1.0),
+        );
         let (start, list, active) = s.bin(320, 200);
         assert_eq!(start.len(), 20 * 13 + 1);
         // Tile 0 has all three, in order.
@@ -1087,15 +1181,29 @@ mod tests {
         assert!(active.len() < 20 * 13 / 2, "{}", active.len());
         // Off-screen segments add nothing.
         let mut t = Scene::default();
-        t.segment([-500.0, -500.0], [-400.0, -300.0], 1.0, rgba(1.0, 1.0, 1.0, 1.0), rgba(1.0, 1.0, 1.0, 1.0));
+        t.segment(
+            [-500.0, -500.0],
+            [-400.0, -300.0],
+            1.0,
+            rgba(1.0, 1.0, 1.0, 1.0),
+            rgba(1.0, 1.0, 1.0, 1.0),
+        );
         assert!(t.bin(320, 200).2.is_empty());
     }
 
     #[test]
     fn font_covers_the_overlay_texts() {
-        for t in ["c escapes at n 37", "period 3  |λ| 0.412  arg +0.250", "x1e6 whole set", "|z50| 1.234e-5"] {
+        for t in [
+            "c escapes at n 37",
+            "period 3  |λ| 0.412  arg +0.250",
+            "x1e6 whole set",
+            "|z50| 1.234e-5",
+        ] {
             for ch in t.chars() {
-                assert!(FONT.iter().any(|&(c, _)| c == ch.to_lowercase().next().unwrap()), "{ch}");
+                assert!(
+                    FONT.iter().any(|&(c, _)| c == ch.to_lowercase().next().unwrap()),
+                    "{ch}"
+                );
             }
         }
         assert_eq!(font_bytes().len(), FONT.len() * 8);

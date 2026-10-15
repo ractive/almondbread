@@ -904,7 +904,12 @@ impl Explorer {
         g.host.renderer.settings.palette_stops = if stops.is_empty() {
             None
         } else {
-            Some(stops.iter().map(|s| (s.position.clamp(0.0, 1.0), s.rgb & 0xFF_FFFF)).collect())
+            Some(
+                stops
+                    .iter()
+                    .map(|s| (s.position.clamp(0.0, 1.0), s.rgb & 0xFF_FFFF))
+                    .collect(),
+            )
         };
     }
 
