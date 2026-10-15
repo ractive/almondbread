@@ -13,7 +13,6 @@ pub use almondbread_math as math;
 
 pub mod autoiter;
 pub mod autopilot;
-pub mod bignum_scale;
 pub mod bla;
 pub mod cfmt;
 pub mod cinematic;

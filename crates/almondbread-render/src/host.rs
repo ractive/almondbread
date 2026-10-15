@@ -221,20 +221,6 @@ impl<B: GpuBackend + Clone> Host<B> {
         outcome.animating |= self.overlay.busy();
     }
 
-    /// The cosmic size scale panel's rect in view points (x, y from the top left, width,
-    /// height) while the view is past the Planck length: the UI puts a "How big is big?" link
-    /// next to it.
-    pub fn cosmic_hint_points(&self) -> Option<[f64; 4]> {
-        let r = self.overlay.cosmic.hint()?;
-        let p = self.points_per_pixel;
-        Some([
-            f64::from(r[0]) * p,
-            f64::from(r[1]) * p,
-            f64::from(r[2] - r[0]) * p,
-            f64::from(r[3] - r[1]) * p,
-        ])
-    }
-
     /// The home view fitted to the view.
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;

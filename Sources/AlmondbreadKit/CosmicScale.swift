@@ -56,23 +56,3 @@ struct CosmicScaleRows: View {
         }
     }
 }
-
-/// "How big is big? →" just above the cosmic panel's top-right corner, shown once the view is
-/// past the Planck length (the gear panel takes over the story of huge numbers).
-struct CosmicHowBigLink: View {
-    let model: ExplorerModel
-    let panel: CosmicPanelRect
-
-    var body: some View {
-        HowBigButton(model: model, title: "How big is big? →")
-            .labelStyle(.titleOnly)
-            .buttonStyle(.plain)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Color(red: 1, green: 0.85, blue: 0.3))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(.black.opacity(0.75), in: Capsule())
-            .frame(width: panel.width, alignment: .trailing)
-            .offset(x: panel.x, y: max(0, panel.y - 26))
-    }
-}

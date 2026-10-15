@@ -42,15 +42,6 @@ impl CosmicScaleSettings {
     }
 }
 
-/// The cosmic panel's rect in view points (origin top left).
-#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
-pub struct CosmicPanelRect {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
 /// One anchor choice for the picker.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct CosmicAnchor {
@@ -81,17 +72,6 @@ pub fn cosmic_anchors() -> Vec<CosmicAnchor> {
 impl Explorer {
     pub fn cosmic_scale(&self) -> CosmicScaleSettings {
         self.with_cosmic(|c| CosmicScaleSettings::from(&c.settings))
-    }
-
-    /// While the view is past the Planck length (or the relative cosmos): the panel's rect in
-    /// view points from the top left, for a "How big is big?" link next to it.
-    pub fn cosmic_hint(&self) -> Option<CosmicPanelRect> {
-        self.cosmic_hint_points().map(|r| CosmicPanelRect {
-            x: r[0],
-            y: r[1],
-            width: r[2],
-            height: r[3],
-        })
     }
 
     /// Switches the cosmic size scale (a frame follows: resume the display link).
