@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim render selftest interaction-test bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
+.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -30,6 +30,17 @@ ios-sim: project rust
 	xcodebuild -project Almondbread.xcodeproj -target "Almondbread iOS" -sdk iphonesimulator -arch arm64 \
 		-configuration Debug SYMROOT=$(abspath .build/xcode-ios) -quiet build
 	@echo "$(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)"
+
+## iOS checks on the simulators (kb: platform/ios-simulator): self-test (first view through the
+## real view and Rust, shown vs fresh render, offscreen PNG pulled to build/ios-selftest-*.png)
+## and the touch UI test (real UIKit gestures and the toolbar buttons, screenshots in
+## build/ios-screens). IOS_DEVICES: simulator names (xcrun simctl create).
+IOS_DEVICES ?= AB iPhone 17e,AB iPad mini
+ios-selftest: ios-sim
+	scripts/ios-selftest.sh "$(IOS_DEVICES)" $(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)
+
+ios-uitest: project rust
+	scripts/ios-uitest.sh "$(IOS_DEVICES)"
 
 ## Headless check render through the Rust renderer: make render ARGS="--center -0.7436,0.1318 --scale 1e-8"
 render: rust-cli
