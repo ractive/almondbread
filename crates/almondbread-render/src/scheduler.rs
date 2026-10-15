@@ -2707,6 +2707,29 @@ impl<B: GpuBackend> Renderer<B> {
         Ok(enc)
     }
 
+    /// The shown image with the current overlay, as BGRA8 sRGB pixels (screenshots of the view
+    /// for documentation and tests; blocks for the GPU). None before the first frame.
+    pub fn capture_shown(&mut self) -> Option<(Vec<u8>, usize, usize)> {
+        let history = self.history.clone()?;
+        self.history_view.as_ref()?;
+        let (w, h) = self.backend.texture_size(&history[0]);
+        let target = self
+            .backend
+            .create_texture(w, h, TextureFormat::Bgra8Unorm, Storage::Shared)
+            .ok()?;
+        let shown = self.overlay_shown;
+        let mut enc = self.backend.begin("capture").ok()?;
+        let src = history[self.history_ping].clone();
+        self.encode_overlay(&mut enc, &src, &target, true);
+        self.overlay_shown = shown;
+        enc.commit().wait();
+        let mut pixels = vec![0u8; w * h * 4];
+        self.backend
+            .read_texture(&target, w, h, TextureFormat::Bgra8Unorm, &mut pixels)
+            .ok()?;
+        Some((pixels, w, h))
+    }
+
     /// The history images at the output size (reallocated, and forgotten, on resize).
     fn ensure_history(&mut self, width: usize, height: usize) -> Result<(), GpuError> {
         if let Some(h) = &self.history

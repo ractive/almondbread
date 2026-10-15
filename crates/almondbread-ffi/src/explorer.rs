@@ -933,6 +933,16 @@ impl Explorer {
         self.lock().host.map_click(x, y, fly)
     }
 
+    /// Writes the shown image with its overlays as a PNG (drawable pixels; screenshots of
+    /// background windows for documentation). False before the first frame or on error.
+    pub fn capture_png(&self, path: String) -> bool {
+        let mut g = self.lock();
+        let Some((pixels, w, h)) = MetalBackend::pool(|| g.host.renderer.capture_shown()) else {
+            return false;
+        };
+        write_png_bgra(&path, &pixels, w, h).is_ok()
+    }
+
     pub fn orbit_info(&self) -> OrbitInfo {
         use almondbread_core::orbit::OrbitClass;
         let g = self.lock();

@@ -72,6 +72,66 @@ public enum SelfTest {
 /// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
 /// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels).
 public enum UIDemo {
+    /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
+    static var outDir: String {
+        let prefix = "--ui-demo-out="
+        return CommandLine.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+            ?? "build/screens"
+    }
+
+    #if os(macOS)
+    /// The window as drawn, without the screen: AppKit draws the SwiftUI content and chrome
+    /// (`cacheDisplay`), Rust renders the Metal canvas with its overlays (`capturePng`), and the
+    /// canvas goes under the content where the fractal view is. Needs no screen-recording
+    /// permission and works for a window behind all others.
+    @MainActor
+    static func capture(window: NSWindow, explorer: Explorer, scene: String) {
+        try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+        // The window server's image of our own window (no permission needed for one's own
+        // windows; it has the composited Metal layer and the sidebar's materials). Fallback below.
+        if let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber),
+                                            [.boundsIgnoreFraming, .bestResolution]),
+           cg.width > 16 {
+            let rep = NSBitmapImageRep(cgImage: cg)
+            try? rep.representation(using: .png, properties: [:])?
+                .write(to: URL(fileURLWithPath: "\(outDir)/window-\(scene).png"))
+        }
+        let canvasPath = "\(outDir)/canvas-\(scene).png"
+        guard explorer.capturePng(path: canvasPath),
+              let canvas = NSImage(contentsOfFile: canvasPath),
+              let root = window.contentView?.superview ?? window.contentView,
+              let fractal = findFractalView(root),
+              let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else {
+            print("ui-demo: capture failed")
+            return
+        }
+        root.cacheDisplay(in: root.bounds, to: rep)
+        let size = root.bounds.size
+        let scale = CGFloat(rep.pixelsWide) / size.width
+        guard let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: out) else { return }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        ctx.cgContext.scaleBy(x: scale, y: scale)
+        let fr = fractal.convert(fractal.bounds, to: root)
+        canvas.draw(in: fr)
+        rep.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
+                 respectFlipped: true, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        try? out.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/control-center-\(scene).png"))
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/chrome-\(scene).png"))
+    }
+
+    @MainActor
+    private static func findFractalView(_ v: NSView) -> NSView? {
+        if v is FractalNSView { return v }
+        for s in v.subviews { if let f = findFractalView(s) { return f } }
+        return nil
+    }
+    #endif
+
     public static var scene: String? {
         let prefix = "--ui-demo"
         guard let a = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }) else { return nil }
@@ -120,6 +180,7 @@ public enum UIDemo {
                 if Date().timeIntervalSince(start) > 8, model.stats?.settled == true,
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
+                    capture(window: w, explorer: explorer, scene: scene)
                     print("ui-demo: window \(w.windowNumber) orbit: \(model.orbit?.text ?? "")")
                     fflush(stdout)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }
