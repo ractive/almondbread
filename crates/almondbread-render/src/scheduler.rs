@@ -2808,10 +2808,27 @@ impl<B: GpuBackend> Renderer<B> {
         }
         self.job.as_mut().expect("job").levels[0] = l;
         if empty {
-            if let Some(st) = self.sample_cache.view_stats() {
-                self.interior_stats = Some(st);
-            }
+            self.interior_stats = self.cache_interior_stats();
             self.survey_level(0);
+        }
+    }
+
+    /// The interior-test statistics after a sample cache frame. Its new tiles are a biased
+    /// sample of the view, so the counts come from the whole cached view (its shade pass);
+    /// those may only turn the test on: cached samples carry no record of what was unresolved
+    /// at the view's limit before an extension pass resolved them, and the test off draws
+    /// such pixels interior (the refined frame then differed from a fresh render by 0.1 %).
+    fn cache_interior_stats(&self) -> Option<InteriorStats> {
+        let max_iter = self.job.as_ref().map_or(0, |j| j.key.max_iter);
+        match (self.sample_cache.view_stats(), self.interior_stats) {
+            (Some(v), Some(old))
+                if autoiter::use_interior_test(true, Some(v), max_iter)
+                    && !autoiter::use_interior_test(true, Some(old), max_iter) =>
+            {
+                Some(v)
+            }
+            (Some(_), old) => old,
+            (None, old) => old,
         }
     }
 
@@ -3414,10 +3431,8 @@ impl<B: GpuBackend> Renderer<B> {
             let skipped = level.seeding.as_ref().map_or(0.0, |s| s.path_sum as f64 * 256.0);
             self.steps_per_texel = Some((level.steps + skipped) / level.total as f64);
         }
-        // A sample cache level computes a frame's new tiles only, a biased sample of the view:
-        // the statistics come from what its shade pass counted in the whole view instead.
         self.interior_stats = if level.cache.is_some() {
-            self.sample_cache.view_stats().or(self.interior_stats)
+            self.cache_interior_stats()
         } else {
             Some(InteriorStats::from_level(
                 level.total,

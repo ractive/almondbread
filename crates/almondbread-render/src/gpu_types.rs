@@ -272,7 +272,8 @@ pub struct CacheParams {
     pub de_scale: f32,
     pub count: u32,
     pub has_aux: u32,
-    pub pad: u32,
+    /// Shade: the view's iteration limit (tile statistics).
+    pub limit: u32,
 }
 
 const _: () = {

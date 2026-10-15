@@ -733,6 +733,49 @@ mod tests {
         (field, out.bla_used, out.steps_done, out.iterations_done)
     }
 
+    /// The motion sample cache (kb: techniques/sample-reuse) holds exact samples: after a
+    /// settled view (rest seed), a zoom in (finer level, resampled), a zoom out (coarser) and a
+    /// pan, every cached sample equals a fresh render of its lattice point with the same
+    /// reference (class always; escape count up to float32 rounding of the point), and the
+    /// shown refined frame equals a fresh render.
+    #[test]
+    fn sample_cache_exact() {
+        use crate::scheduler::Renderer;
+        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+        r.viewport = almondbread_core::Viewport::new(-0.743643887037151, 0.13182590420533, 3.75e-6 * 4.0);
+        // (One reference throughout: a fixed limit, moves within its reach. Samples of other
+        // references differ from a fresh render as the refined frames do: float32.)
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = 2000;
+        let (w, h) = (320, 200);
+        r.simulate(w, h, 1.0, 120.0, 0, 30.0, &mut |_, _, _| {})
+            .expect("settle");
+        let steps: [(&str, Box<dyn Fn(&mut almondbread_core::Viewport, f64)>); 3] = [
+            ("zoom in", Box::new(|v, dt| v.zoom_by((1.4 * dt).exp(), 30.0, 10.0))),
+            ("zoom out", Box::new(|v, dt| v.zoom_by((-1.4 * dt).exp(), 0.0, 0.0))),
+            ("pan", Box::new(|v, dt| v.pan_by_points(-150.0 * dt, 60.0 * dt))),
+        ];
+        for (name, step) in steps {
+            r.reset_sample_cache_stats();
+            r.cache_check_renderer = Some(Box::new(Renderer::new(MetalBackend::new().expect("metal")).expect("r")));
+            r.cache_checks.clear();
+            let serial = r.reference_serial();
+            r.simulate(w, h, 1.0, 120.0, 90, 30.0, &mut |_, dt, v| step(v, dt))
+                .expect("gesture");
+            let c = r.cache_checks[0].clone().expect("cache");
+            let s = r.sample_cache_stats().clone();
+            assert!(s.frames > 60 && s.fallback_frames == 0, "{name}: {s:?}");
+            assert!(c.samples > 20_000, "{name}: {c:?}");
+            assert_eq!(r.reference_serial(), serial, "{name}: the reference changed");
+            // (Escape counts: the lattice point's dc = i h + (anchor - reference) rounds in float32
+            // unlike the check render's (its own centre): ~1e-7 of |dc|, which flips a few
+            // escape counts in chaotic places, as two fresh renders centred differently do.)
+            assert!(c.class_differ == 0 && c.escape_pct() < 0.5, "{name}: {c:?}");
+            let m = r.displayed_frame_mismatch().expect("refined");
+            assert!(m.percent < 0.05, "{name}: {m:?}");
+        }
+    }
+
     /// M4 regression (kb: synthesis/benchmarks M4): at the boundary-dense 4.6e-14 view BLA
     /// would cost more than it skips, so `auto` leaves the kernel as it was (bit-identical to
     /// BLA off); forced on, it changes no pixel's class and the smooth count far less than

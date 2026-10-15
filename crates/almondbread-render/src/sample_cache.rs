@@ -283,7 +283,6 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     /// Demand: texels a frame needs in units of the visible texels at the target, smoothed.
     demand: f64,
     calm_frames: u32,
-    starved_frames: u32,
     backlog: usize,
     prev_view: Option<(Viewport, Scale)>,
     /// GPU passes still running: (shade?, submission).
@@ -337,7 +336,6 @@ impl<B: GpuBackend> SampleCache<B> {
             cost: 0.0,
             demand: 0.0,
             calm_frames: 0,
-            starved_frames: 0,
             backlog: 0,
             prev_view: None,
             pending: VecDeque::new(),
@@ -406,23 +404,6 @@ impl<B: GpuBackend> SampleCache<B> {
                 continue;
             }
             let gpu = pass.sub.gpu_time();
-            if let Some((b, limit)) = &pass.counts {
-                let mut bytes = [0u8; 24];
-                backend.read_buffer(b, 0, &mut bytes);
-                let u =
-                    |k: usize| u32::from_le_bytes([bytes[4 * k], bytes[4 * k + 1], bytes[4 * k + 2], bytes[4 * k + 3]]);
-                let n = u(0) as f64;
-                if n > 0.0 {
-                    let iters = ((u64::from(u(4)) << 32) | u64::from(u(3))) as f64;
-                    // (Unresolved with the test: ran to the limit; without it they are drawn
-                    // interior, counted in u(1), and their iterations are not exterior work.)
-                    self.view_stats = Some(InteriorStats {
-                        fraction: u(1) as f64 / n,
-                        exterior_iterations: (iters + u(2) as f64 * *limit as f64) / n,
-                        unresolved: (u(2) + u(5)) as f64 / n,
-                    });
-                }
-            }
             if !pass.tiles.is_empty()
                 && let Some(a) = &self.alloc
                 && self.epoch.as_ref().is_some_and(|e| e.serial == pass.serial)
@@ -430,7 +411,7 @@ impl<B: GpuBackend> SampleCache<B> {
                 // The shaded tiles' statistics -> cost estimates (the tile still holds them).
                 let mut bytes = vec![0u8; a.wt * a.ht * 16];
                 backend.read_buffer(&a.stats, 0, &mut bytes);
-                let limit = pass.counts.as_ref().map_or(self.last_limit, |c| c.1).max(1) as f64;
+                let limit = pass.limit.max(1) as f64;
                 for &(slot, holder) in &pass.tiles {
                     if self.tiles[slot].holder != holder {
                         continue;
@@ -453,6 +434,10 @@ impl<B: GpuBackend> SampleCache<B> {
                         serial: pass.serial,
                         units: units as f32,
                         max_n: max_n.max(if unres > 0.0 { limit as u32 } else { 0 }),
+                        esc: esc as u32,
+                        sum: w(0),
+                        interior: ir & 0xffff,
+                        unresolved: ir >> 16,
                     };
                 }
             }
@@ -824,6 +809,7 @@ impl<B: GpuBackend> SampleCache<B> {
                     serial: 0,
                     units: sum / k as f32,
                     max_n,
+                    ..Est::default()
                 })
             };
             next_est.push(est.map(|x| Est {
@@ -1112,6 +1098,9 @@ impl<B: GpuBackend> SampleCache<B> {
         let limit = inp.limit as u32;
         let mut cands: Vec<(u64, u32)> = Vec::new();
         let mut visible = 0usize;
+        // The view's interior-test statistics from its tiles' shade statistics: escaped, their
+        // escape counts, interior, unresolved at the limit.
+        let mut vs = [0.0f64; 4];
         let mut reused = 0usize;
         for ty in y0..=y1 {
             for tx in x0..=x1 {
@@ -1127,6 +1116,13 @@ impl<B: GpuBackend> SampleCache<B> {
                 }
                 visible += 1;
                 let slot = self.slot((tx, ty));
+                let x = &self.est[slot];
+                if x.holder == (tx, ty) && x.serial == e.serial {
+                    vs[0] += f64::from(x.esc);
+                    vs[1] += f64::from(x.sum);
+                    vs[2] += f64::from(x.interior);
+                    vs[3] += f64::from(x.unresolved);
+                }
                 let t = &self.tiles[slot];
                 debug_assert_eq!(t.holder, (tx, ty));
                 if t.inflight != 0 {
@@ -1146,6 +1142,14 @@ impl<B: GpuBackend> SampleCache<B> {
                 let d2 = ((fx * fx + fy * fy) as u64).min((1 << 40) - 1);
                 cands.push(((class << 40) | d2, slot as u32));
             }
+        }
+        let n_vs = vs[0] + vs[2] + vs[3];
+        if n_vs >= 256.0 {
+            self.view_stats = Some(InteriorStats {
+                fraction: vs[2] / n_vs,
+                exterior_iterations: (vs[1] + vs[3] * inp.limit as f64) / n_vs,
+                unresolved: vs[3] / n_vs,
+            });
         }
         self.stats.visible_texels += visible * 256;
         self.stats.reused_texels += reused * 256;
@@ -1347,7 +1351,7 @@ impl<B: GpuBackend> SampleCache<B> {
         self.pending.push_back(Pass {
             shade: false,
             sub: s,
-            counts: None,
+            limit: 0,
             tiles: Vec::new(),
             serial: 0,
         });
@@ -1494,13 +1498,13 @@ impl<B: GpuBackend> SampleCache<B> {
             rect_origin: [x0 as u32, y0 as u32],
             rect_size: [(x1 - x0) as u32, (y1 - y0) as u32],
             count: list.len() as u32,
+            limit: limit as u32,
             ..CacheParams::default()
         };
         if !full && list.is_empty() {
             self.stats.cpu_shade += t0.elapsed().as_secs_f64();
             return Some((color, map));
         }
-        let mut counts = None;
         let mut enc = backend.begin("sample cache shade").ok()?;
         enc.set_texture(0, &set.iter);
         enc.set_texture(1, &set.de);
@@ -1511,12 +1515,9 @@ impl<B: GpuBackend> SampleCache<B> {
         enc.set_bytes(2, bytes_of(&p));
         enc.set_buffer(4, &a.stats, 0);
         if full {
-            let b = backend.create_buffer_with_data(&[0u8; 24]).ok()?;
             enc.set_pipeline(&pipelines[2]);
-            enc.set_buffer(3, &b, 0);
             // (One threadgroup per tile: the rectangle is tile-aligned.)
             enc.dispatch_threads([x1 - x0, y1 - y0, 1], [16, 16, 1]);
-            counts = Some((b, limit));
         } else {
             let b = backend.create_buffer_with_data(bytemuck::cast_slice(&list)).ok()?;
             enc.set_pipeline(&pipelines[3]);
@@ -1528,7 +1529,7 @@ impl<B: GpuBackend> SampleCache<B> {
         self.pending.push_back(Pass {
             shade: true,
             sub: s,
-            counts,
+            limit,
             tiles: covered,
             serial,
         });
@@ -1600,7 +1601,6 @@ impl<B: GpuBackend> SampleCache<B> {
         self.target = self.cap;
         self.demand = 0.0;
         self.calm_frames = 0;
-        self.starved_frames = 0;
         self.prev_view = None;
         let mut e = Epoch {
             regime,
@@ -1779,12 +1779,13 @@ impl<B: GpuBackend> SampleCache<B> {
     }
 }
 
-/// A committed GPU pass of the cache: shade or maintenance, its counts buffer (shade: the view
-/// statistics and the limit) and the tiles whose statistics it writes.
+/// A committed GPU pass of the cache: shade or maintenance, and (shade) the tiles whose
+/// statistics it writes.
 struct Pass<B: GpuBackend> {
     shade: bool,
     sub: B::Submission,
-    counts: Option<(B::Buffer, usize)>,
+    /// The limit the shade pass counted against.
+    limit: usize,
     tiles: Vec<(usize, (i64, i64))>,
     serial: u64,
 }
@@ -1795,6 +1796,11 @@ struct Est {
     serial: u64,
     units: f32,
     max_n: u32,
+    /// Samples escaped below the limit, their escape counts, interior, unresolved at it.
+    esc: u32,
+    sum: u32,
+    interior: u32,
+    unresolved: u32,
 }
 
 impl Default for Est {
@@ -1804,6 +1810,10 @@ impl Default for Est {
             serial: 0,
             units: 0.0,
             max_n: 0,
+            esc: 0,
+            sum: 0,
+            interior: 0,
+            unresolved: 0,
         }
     }
 }
