@@ -10,6 +10,7 @@ use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::PAN_SPEED;
 use almondbread_core::locations::{Location, all_locations};
 use almondbread_core::oracle::{ITER_INTERIOR, IterationField, VerifyReport, compare, cpu_render, cpu_render_deep};
+use almondbread_core::pi_moment::PiPoint;
 use almondbread_core::reference::DEEP_SCALE;
 use almondbread_core::settings::Supersampling;
 use almondbread_core::viewport::{Center, Scale, Viewport};
@@ -62,7 +63,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`,
     // `--scale-overlay 1` (cosmic size scale) with `--scale-anchor screen|earth|...` and
     // `--screen-cm w` (the view's physical width; default 30 cm).
-    // `--pi-overlay 1` (the π meter; kb: techniques/pi-in-the-mandelbrot-set).
+    // `--pi-overlay 1` (the π meter; kb: techniques/pi-in-the-mandelbrot-set), `--pi-probe
+    // neck,1e-6` (the π hunt's probe there, with its orbit trail, in the hunt's valley view).
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
@@ -148,7 +150,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     use almondbread_core::input::InputEvent;
     let orbit = o.pair("orbit")?;
     let map = o.get("map").is_some_and(|v| v != "0");
-    let pi = o.get("pi-overlay").is_some_and(|v| v != "0");
+    let pi = o.get("pi-overlay").is_some_and(|v| v != "0") || o.has("pi-probe");
     let cosmic = o.get("scale-overlay").is_some_and(|v| v != "0");
     if orbit.is_none() && !map && !pi && !cosmic {
         return Ok(None);
@@ -171,8 +173,24 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     ov.settings.orbit = orbit.is_some();
     ov.settings.map = map;
     ov.pi.enabled = pi;
+    // `--pi-probe neck,1e-6`: the probe of the guided flight at that ε (its trail and log
+    // ruler), in the flight's valley view unless `--center` or `--place` frames another.
+    if let Some(spec) = o.get("pi-probe") {
+        let parsed = spec
+            .split_once(',')
+            .and_then(|(p, e)| Some((PiPoint::named(p)?, e.parse::<f64>().ok()?)));
+        let Some((point, eps)) = parsed.filter(|(_, e)| *e > 0.0 && *e <= 0.1) else {
+            return err(format!("bad --pi-probe {spec} (neck|cusp,eps with 0 < eps <= 0.1)"));
+        };
+        if !o.has("center") && !o.has("place") {
+            let short = width.min(height) as f64 * o.f64("ppp").unwrap_or(1.0);
+            r.viewport = almondbread_render::pi_meter::flight_still_view(point, eps, short);
+        }
+        ov.pi.set_probe(point, eps);
+    }
     if pi {
-        pi_history_for_still(&mut ov.pi, &r.viewport);
+        let probe = ov.pi.probe();
+        pi_history_for_still(&mut ov.pi, &r.viewport, probe);
     }
     if let Some(n) = o.usize("orbit-length") {
         ov.settings.orbit_length = n;
@@ -246,10 +264,16 @@ fn overlay_for_still<B: GpuBackend + Clone>(
 
 /// The π meter's plot for a still: the counts a zoom along the line would have made, every
 /// half decade from ε = 0.1 down to the view's ε (shallower than it).
-fn pi_history_for_still(meter: &mut almondbread_render::pi_meter::PiMeter, view: &Viewport) {
+fn pi_history_for_still(
+    meter: &mut almondbread_render::pi_meter::PiMeter,
+    view: &Viewport,
+    probe: Option<almondbread_core::pi_moment::PiTarget>,
+) {
     use almondbread_core::pi_moment::{Count, MAX_COUNT, escape_count, target};
     use std::sync::atomic::{AtomicBool, AtomicU64};
-    let Some(t) = target(view) else { return };
+    let Some(t) = probe.or_else(|| target(view)) else {
+        return;
+    };
     // Shallow to deep, as a zoom would make them (the deepest counted is the one shown), and
     // only where the meter counts.
     let mut list: Vec<f64> = (1..)

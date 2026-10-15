@@ -684,31 +684,59 @@ A maths moment ([[techniques/pi-in-the-mandelbrot-set]]), off by default, drawn 
 like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
 `crates/almondbread-core/src/pi_moment.rs`).
 
-- **When it shows:** the view's centre lies on the neck's line `-3/4 + iε` (or `-3/4 - iε`) or
-  the cusp's line `1/4 + ε`, within 20 % of ε sideways, ε ≤ 0.1. Elsewhere a small hint panel
-  says where to go.
+- **When it shows:** the probe is on (below), or the view's centre lies on the neck's line
+  `-3/4 + iε` (or `-3/4 - iε`) or the cusp's line `1/4 + ε`, within 20 % of ε sideways,
+  ε ≤ 0.1. Elsewhere a small hint panel says where to go.
+- **Probe (updated 2026-10-15):** a glowing marker on the line that the meter counts instead of
+  the view centre, so the view can stay on the valley while the counted point goes far below a
+  pixel from the pinch point. It slides on a log ruler (one tick per decade from 0.1, two at
+  the cusp, "ε, log scale"), its true position as text (`probe c = −3/4 + 1.00e-8·i`). Set by
+  the π hunt; kept while its pinch point is in view (it wins over a view centred on the line);
+  put away when the pinch point leaves the view.
 - **Panel (bottom right):** `N·ε =` (or `N·√ε =`) with the digits that agree with π in gold and
   the rest dimmed, π below it aligned digit for digit, N and ε, "k digits of π" or the progress
   of the running count, and a log-log plot of |N·ε − π| against ε (ε falls to the right) that
   gains a point each time a count finishes, with the expected ~ε (~√ε) trend dashed. On the
-  canvas: a dashed line of approach from the parabolic point (ringed, labelled) to the centre
-  (gold ring), since the image there is mostly unresolved.
-- **Counting:** a background thread per count (compensated f64 in shifted coordinates); the
-  frame only reads the result, so frames cost a scene rebuild when the text changes. A running
+  canvas without a probe: a dashed line of approach from the parabolic point (ringed,
+  labelled) to the centre (gold ring), since the image there is mostly unresolved.
+- **Orbit trail inset (2026-10-15):** above the panel (434 points wide; left of it when the
+  view is too low, hidden when neither fits; clear of maps in the right corners and of the
+  maps and cosmic scale at the bottom left). Left: the counted orbit (the neck's gate in the
+  z-plane at ±4√ε with the fixed point and 2-cycle ringed; the cusp's `(z − 1/2)/√ε` against
+  `√ε·n` with π/2 and π marked). Right: the turn circle (the orbit in the turning coordinate
+  goes round once: "2ε per step: N ≈ π/ε"). A glowing density picture coloured by progress
+  n/N (blue, cyan, gold, rose), with the newest iterate marked while the count runs, so the
+  orbit visibly crawls through the gate on long counts. Why these plots: the technique page,
+  "The orbit".
+- **Counting:** a background thread per count (compensated f64 in shifted coordinates), which
+  also accumulates the trail (every k-th iterate, at most 4e6 per count) and publishes its
+  picture every 0.12 s; the frame only reads results and uploads a new picture as a new shared
+  buffer (a glow primitive in the overlay kernel adds it), so frames cost a scene rebuild when
+  the text or picture changes (about 0.25 ms p50, 0.4 ms p95 a frame during the hunt; the
+  technique page has the measurements). A running
   count is kept while the view goes deeper (it becomes a plot point) and dropped when the view
   leaves the point or zooms out past it by more than a decade. **Depth limit 10⁹ iterations**
   (ε ≥ 3.1e-9 neck, ε ≥ 1e-17 cusp; about 13 s); deeper, the panel says so. The image's
   iteration limit is not raised (measurements on the technique page).
 - **Controls:** P toggles (macOS and iPad keyboards); toolbar toggle "π Meter" (SF Symbol
-  `pi`) with a tooltip; View menu "π Meter" (⌥⌘P), "Fly into the Neck (π)", "Fly into the Cusp
-  (π)"; control center Overlays: switch, reading (product, N, digits, progress) and the two
-  flight buttons (the iOS way in). Persisted with the other settings, off after Reset all and
+  `pi`) with a tooltip; View menu "π Meter" (⌥⌘P), "Hunt π at the Neck", "Hunt π at the Cusp"
+  (renamed from "Fly into the …": the view no longer flies into the point); control center
+  Overlays: switch, reading (product, N, digits, progress) and the two hunt buttons (the iOS
+  way in). Persisted with the other settings, off after Reset all and
   the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset).
-- **Guided flight:** jumps to the place "π at the Neck" (ε = 0.02) or "π at the Cusp"
-  (ε = 2e-4), turns the meter on and zooms exponentially about the parabolic point to
-  ε = 1e-8 or 1e-16, every view framed like the place (about 10 s / 18 s at the default zoom
-  speed; Q / E change the speed, Esc or any move ends it). Driven by the meter in
-  `Overlay::prepare`, not the fly-to path (that pans first). FFI: `set_pi_meter`, `pi_meter`,
-  `pi_flight`.
+- **π hunt (guided flight, reworked 2026-10-15):** takes the place's look; the navigator's
+  fly-to eases the view to seahorse valley (neck) or elephant valley (cusp) with the pinch
+  point in view; the probe then slides from ε = 0.1 to 1e-8 (neck) or 1e-16 (cusp) at the
+  zoom speed in e-folds of the expected count (about 10 s at 1.6/s; Q / E change it) while the
+  view zooms gently (×1.4 neck, ×2 cusp) and the meter counts and draws the trail; it holds
+  until the last count is done plus 2.5 s. Esc ends it, and a move during the slide ends it;
+  the probe stays. Before, the flight zoomed the view into the pinch point, where the image is
+  black ("not really exciting"). Driven by `PiMeter::flight_view` from `Overlay::prepare`
+  (`Overlay::start_pi_flight`). FFI: `set_pi_meter`, `pi_meter`, `pi_flight`.
 - **Headless:** `almondbread render out.png --pi-overlay 1 [--ppp 0.5]` waits for the count and
-  fills the plot with the counts every half decade from ε = 0.1 down to the view's ε.
+  fills the plot with the counts every half decade from ε = 0.1 down to the view's ε;
+  `--pi-probe neck,1e-5` puts the probe there in the flight's view at that moment (with its
+  trail). `almondbread fly --script scripts/flights/pi-neck.json --pi-flight neck` records
+  the hunt as the app shows it (`pi-cusp.json`, `--pi-flight cusp`); ui-demo scenes
+  `pi-flight`, `pi-flight-late`, `pi-cusp`, `pi-cusp-late`; interaction-test scenario
+  "pi hunt".

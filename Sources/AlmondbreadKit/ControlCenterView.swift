@@ -472,14 +472,14 @@ struct ControlCenterView: View {
                 Text("Closer than the meter counts (over 10⁹ iterations).").font(.caption).foregroundStyle(.secondary)
             }
         } else {
-            Text("Centre the view on the neck −3/4 + iε or the cusp 1/4 + ε, or take a guided flight:")
+            Text("Centre the view on the neck −3/4 + iε or the cusp 1/4 + ε, or hunt π with a probe:")
                 .font(.caption).foregroundStyle(.secondary)
         }
         HStack {
-            Button("Fly into the neck") { model.piFlight("neck") }
-            Button("Fly into the cusp") { model.piFlight("cusp") }
+            Button("Hunt π at the neck") { model.piFlight("neck") }
+            Button("Hunt π at the cusp") { model.piFlight("cusp") }
         }
-        .help("Zoom down the line of approach to ε = 1e-8 (neck) or 1e-16 (cusp) with the meter on; Esc stops")
+        .help("Flies to seahorse valley (neck) or elephant valley (cusp) and slides a probe down the line to ε = 1e-8 or 1e-16 while the meter counts and draws its orbit; Q / E change the speed, Esc stops")
     }
 
     // MARK: Iterations & quality
