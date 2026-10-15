@@ -81,13 +81,35 @@ kernel void scResample(texture2d<float, access::read>  iterIn  [[texture(0)]],
     if (p.hasAux != 0) auxOut.write(ax, d);
 }
 
+// Per-tile sample statistics for the planner's cost estimate (one threadgroup = one 16 x 16
+// tile): sum of escape counts, samples escaped, interior | unresolved << 16, largest escape count.
+static inline void tileStats(float2 it, bool valid, uint slot, uint tidInGroup, uint lane, uint sg,
+                             device uint4* est, threadgroup uint4* tg) {
+    const bool esc = valid && it.x >= 0.0f;
+    const uint4 v = uint4(simd_sum(esc ? uint(it.x) : 0u), simd_sum(esc ? 1u : 0u),
+                          simd_sum(valid && it.x == ITER_INTERIOR ? 1u : 0u)
+                              | (simd_sum(valid && it.x == ITER_UNRESOLVED ? 1u : 0u) << 16),
+                          simd_max(esc ? uint(it.x) : 0u));
+    if (lane == 0) tg[sg] = v;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tidInGroup == 0) {
+        uint4 t = tg[0];
+        for (uint k = 1; k < 8; k++) {
+            t.xyz += tg[k].xyz;
+            t.w = max(t.w, tg[k].w);
+        }
+        est[slot] = t;
+    }
+}
+
 // Colours the cache texels of the visible rectangle (premultiplied linear colour, alpha 0 where
 // there is no sample) with the current colour parameters: samples are re-shaded every frame, so
 // the outline width and the palette filter follow the current pixel size. Also counts what the
 // view holds (samples, interior, unresolved, escape iterations as a 64-bit sum) for the
 // interior-test decision (kb: techniques/interior-detection): a frame's new tiles alone are a
-// biased sample of the view. counts: samples, interior, unresolved, escape
-// iterations (lo, hi), interior at the limit without the test.
+// biased sample of the view. counts: samples, interior, unresolved, escape iterations (lo, hi),
+// interior at the limit without the test. Threadgroups are the 16 x 16 tiles (the rectangle is
+// tile-aligned), which also write their tile's statistics.
 kernel void scShade(texture2d<float, access::read>  iters  [[texture(0)]],
                     texture2d<float, access::read>  des    [[texture(1)]],
                     texture2d<float, access::read>  auxs   [[texture(2)]],
@@ -96,18 +118,19 @@ kernel void scShade(texture2d<float, access::read>  iters  [[texture(0)]],
                     device const float4* pal               [[buffer(1)]],
                     constant CacheParams& p                [[buffer(2)]],
                     device atomic_uint* counts             [[buffer(3)]],
+                    device uint4* est                      [[buffer(4)]],
                     uint2 gid                              [[thread_position_in_grid]],
-                    uint lane                              [[thread_index_in_simdgroup]])
+                    uint tidInGroup                        [[thread_index_in_threadgroup]],
+                    uint lane                              [[thread_index_in_simdgroup]],
+                    uint sg                                [[simdgroup_index_in_threadgroup]])
 {
-    const bool in = all(gid < p.rectSize);
+    threadgroup uint4 tg[8];
     const uint2 s = (p.rectOrigin + gid + p.newWrap) % p.newSize;
-    float2 it = float2(ITER_EMPTY, 0.0f);
-    if (in) it = iters.read(s).xy;
-    const bool valid = in && it.x != ITER_EMPTY && it.x != ITER_PENDING;
-    if (in) {
-        out.write(valid ? float4(shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale), 1.0f)
-                        : float4(0.0f), s);
-    }
+    const float2 it = iters.read(s).xy;
+    const bool valid = it.x != ITER_EMPTY && it.x != ITER_PENDING;
+    out.write(valid ? float4(shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale), 1.0f)
+                    : float4(0.0f), s);
+    tileStats(it, valid, (s.y >> 4) * (p.newSize.x >> 4) + (s.x >> 4), tidInGroup, lane, sg, est, tg);
     const uint nValid = simd_sum(valid ? 1u : 0u);
     const uint nInterior = simd_sum(valid && it.x == ITER_INTERIOR ? 1u : 0u);
     const uint nUnresolved = simd_sum(valid && it.x == ITER_UNRESOLVED ? 1u : 0u);
@@ -133,14 +156,19 @@ kernel void scShadeTiles(texture2d<float, access::read>  iters [[texture(0)]],
                          device const float4* pal              [[buffer(1)]],
                          constant CacheParams& p               [[buffer(2)]],
                          device const uint* tiles              [[buffer(3)]],
-                         uint tid                              [[thread_position_in_grid]])
+                         device uint4* est                     [[buffer(4)]],
+                         uint tid                              [[thread_position_in_grid]],
+                         uint tidInGroup                       [[thread_index_in_threadgroup]],
+                         uint lane                             [[thread_index_in_simdgroup]],
+                         uint sg                               [[simdgroup_index_in_threadgroup]])
 {
-    const uint k = tid >> 8;
-    if (k >= p.count) return;
+    threadgroup uint4 tg[8];
+    const uint k = min(tid >> 8, p.count - 1);
     const uint slot = tiles[k], tilesX = p.newSize.x >> 4, w = tid & 255u;
     const uint2 s = uint2((slot % tilesX) * 16u + (w & 15u), (slot / tilesX) * 16u + (w >> 4));
     const float2 it = iters.read(s).xy;
     const bool valid = it.x != ITER_EMPTY && it.x != ITER_PENDING;
     out.write(valid ? float4(shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale), 1.0f)
                     : float4(0.0f), s);
+    tileStats(it, valid, slot, tidInGroup, lane, sg, est, tg);
 }

@@ -172,6 +172,8 @@ struct Batch {
     /// GPU seconds and iterations of its chunks so far.
     gpu: f64,
     iterations: f64,
+    /// Estimated iteration units (cost model calibration).
+    units: f64,
 }
 
 /// A sample cache texture set.
@@ -194,6 +196,8 @@ impl<B: GpuBackend> Clone for CacheSet<B> {
 struct Alloc<B: GpuBackend> {
     sets: [CacheSet<B>; 2],
     color: B::Texture,
+    /// Per-slot sample statistics the shade passes write (uint4), CPU-visible.
+    stats: B::Buffer,
     /// Window size in tiles.
     wt: usize,
     ht: usize,
@@ -283,11 +287,28 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     backlog: usize,
     prev_view: Option<(Viewport, Scale)>,
     /// GPU passes still running: (shade?, submission).
-    pending: VecDeque<(bool, B::Submission, Option<(B::Buffer, usize)>)>,
+    pending: VecDeque<Pass<B>>,
+    /// Per-slot cost estimate of the samples a tile holds (from the shade passes): its holder
+    /// and epoch serial (valid while they match), iteration units per sample, largest escape.
+    est: Vec<Est>,
+    /// GPU seconds per iteration unit (completed batches against their estimate), smoothed.
+    unit_cost: f64,
     /// What the last finished shade pass counted in the view: interior fraction and exterior
     /// iterations per sample (the interior-test statistics of a fresh preview).
     view_stats: Option<InteriorStats>,
     pipelines: Option<[B::Pipeline; 4]>,
+    /// The limit of the last shade pass.
+    last_limit: usize,
+    /// Mean estimated units per sample of the last planned candidates.
+    last_mean_units: f64,
+    /// GPU seconds per planned frame (completed batches, empty frames as 0), smoothed; frames
+    /// measured; the cache gave way to fresh previews for this gesture.
+    frame_gpu: f64,
+    frames_measured: usize,
+    slow: bool,
+    /// Tiles of the last batch and the cost per texel of the last completed one.
+    last_tiles: usize,
+    last_cost: f64,
     /// Phase timestamps of the last plan (trace).
     marks: Vec<(&'static str, Instant)>,
     /// Colour parameters and texture set the shaded tiles were coloured with.
@@ -320,10 +341,19 @@ impl<B: GpuBackend> SampleCache<B> {
             backlog: 0,
             prev_view: None,
             pending: VecDeque::new(),
+            est: Vec::new(),
+            unit_cost: 0.0,
             view_stats: None,
             pipelines: None,
             shade_key: None,
             marks: Vec::new(),
+            last_tiles: 0,
+            last_cost: 0.0,
+            last_limit: 0,
+            last_mean_units: 0.0,
+            frame_gpu: 0.0,
+            frames_measured: 0,
+            slow: false,
             seeded_generation: 0,
         }
     }
@@ -336,6 +366,12 @@ impl<B: GpuBackend> SampleCache<B> {
         self.view_stats = None;
         self.shade_key = None;
         self.cost = 0.0;
+        self.last_cost = 0.0;
+        self.last_tiles = 0;
+        self.unit_cost = 0.0;
+        self.frame_gpu = 0.0;
+        self.frames_measured = 0;
+        self.slow = false;
         self.demand = 0.0;
     }
 
@@ -360,19 +396,19 @@ impl<B: GpuBackend> SampleCache<B> {
 
     /// GPU times of finished passes.
     fn poll(&mut self, backend: &B) {
-        while let Some((shade, sub, _)) = self.pending.front() {
-            let status = sub.status();
+        while let Some(pass) = self.pending.front() {
+            let status = pass.sub.status();
             if status == SubmissionStatus::Pending {
                 break;
             }
-            let (shade, gpu) = (*shade, sub.gpu_time());
-            let (_, _, counts) = self.pending.pop_front().expect("pass");
+            let pass = self.pending.pop_front().expect("pass");
             if status != SubmissionStatus::Completed {
                 continue;
             }
-            if let Some((b, limit)) = counts {
+            let gpu = pass.sub.gpu_time();
+            if let Some((b, limit)) = &pass.counts {
                 let mut bytes = [0u8; 24];
-                backend.read_buffer(&b, 0, &mut bytes);
+                backend.read_buffer(b, 0, &mut bytes);
                 let u =
                     |k: usize| u32::from_le_bytes([bytes[4 * k], bytes[4 * k + 1], bytes[4 * k + 2], bytes[4 * k + 3]]);
                 let n = u(0) as f64;
@@ -382,19 +418,52 @@ impl<B: GpuBackend> SampleCache<B> {
                     // interior, counted in u(1), and their iterations are not exterior work.)
                     self.view_stats = Some(InteriorStats {
                         fraction: u(1) as f64 / n,
-                        exterior_iterations: (iters + u(2) as f64 * limit as f64) / n,
+                        exterior_iterations: (iters + u(2) as f64 * *limit as f64) / n,
                         unresolved: (u(2) + u(5)) as f64 / n,
                     });
+                }
+            }
+            if !pass.tiles.is_empty()
+                && let Some(a) = &self.alloc
+                && self.epoch.as_ref().is_some_and(|e| e.serial == pass.serial)
+            {
+                // The shaded tiles' statistics -> cost estimates (the tile still holds them).
+                let mut bytes = vec![0u8; a.wt * a.ht * 16];
+                backend.read_buffer(&a.stats, 0, &mut bytes);
+                let limit = pass.counts.as_ref().map_or(self.last_limit, |c| c.1).max(1) as f64;
+                for &(slot, holder) in &pass.tiles {
+                    if self.tiles[slot].holder != holder {
+                        continue;
+                    }
+                    let w = |k: usize| {
+                        let o = slot * 16 + 4 * k;
+                        u32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]])
+                    };
+                    let (sum, esc, ir, max_n) = (w(0) as f64, w(1) as f64, w(2), w(3));
+                    let (int, unres) = ((ir & 0xffff) as f64, (ir >> 16) as f64);
+                    let valid = esc + int + unres;
+                    if valid < 1.0 {
+                        continue;
+                    }
+                    // Proven interior costs about what escaping costs nearby (unknown here).
+                    let interior_unit = if esc > 0.0 { sum / esc } else { limit / 4.0 };
+                    let units = (sum + int * interior_unit + unres * limit) / valid;
+                    self.est[slot] = Est {
+                        holder,
+                        serial: pass.serial,
+                        units: units as f32,
+                        max_n: max_n.max(if unres > 0.0 { limit as u32 } else { 0 }),
+                    };
                 }
             }
             if self.config.trace && gpu > 0.002 {
                 eprintln!(
                     "sample cache: {} pass {:.2} ms GPU",
-                    if shade { "shade" } else { "maintenance" },
+                    if pass.shade { "shade" } else { "maintenance" },
                     gpu * 1000.0
                 );
             }
-            if shade {
+            if pass.shade {
                 self.stats.gpu_shade += gpu;
                 self.stats.gpu_shades += 1;
             } else {
@@ -459,9 +528,12 @@ impl<B: GpuBackend> SampleCache<B> {
         };
         let sets = [make()?, make()?];
         let color = backend.create_texture(tw, th, TextureFormat::Rgba16Float, Storage::Private)?;
+        let stats = backend.create_buffer(wt * ht * 16, Storage::Shared)?;
+        self.est = vec![Est::default(); wt * ht];
         self.alloc = Some(Alloc {
             sets,
             color,
+            stats,
             wt,
             ht,
             for_view: key,
@@ -722,8 +794,49 @@ impl<B: GpuBackend> SampleCache<B> {
                 next.push(((tx, ty), state, limit));
             }
         }
-        for (t, state, limit) in next {
+        // Cost estimates of the new tiles from their source tiles (iterations per sample hold;
+        // the old level's estimate is read before any tile is rewritten).
+        let old_est = |s: &Self, t: (i64, i64)| -> Option<Est> {
+            let x = s.est[s.slot(t)];
+            (x.holder == t && x.serial == old.serial).then_some(x)
+        };
+        let mut next_est = Vec::with_capacity(next.len());
+        for &(t, _, _) in &next {
+            let est = if realign {
+                None
+            } else if finer {
+                old_est(self, (at + t.0.div_euclid(2), bt + t.1.div_euclid(2)))
+            } else {
+                let mut sum = 0.0f32;
+                let mut max_n = 0u32;
+                let mut k = 0;
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        if let Some(x) = old_est(self, (at + 2 * t.0 + dx, bt + 2 * t.1 + dy)) {
+                            sum += x.units;
+                            max_n = max_n.max(x.max_n);
+                            k += 1;
+                        }
+                    }
+                }
+                (k > 0).then_some(Est {
+                    holder: t,
+                    serial: 0,
+                    units: sum / k as f32,
+                    max_n,
+                })
+            };
+            next_est.push(est.map(|x| Est {
+                holder: t,
+                serial: e.serial,
+                ..x
+            }));
+        }
+        for (i, (t, state, limit)) in next.into_iter().enumerate() {
             let slot = self.slot(t);
+            if let Some(x) = next_est[i] {
+                self.est[slot] = x;
+            }
             self.tiles[slot] = Tile {
                 holder: t,
                 state,
@@ -1043,17 +1156,36 @@ impl<B: GpuBackend> SampleCache<B> {
         self.stats.visible_texels += visible * 256;
         self.stats.reused_texels += reused * 256;
         self.backlog = cands.len() * 256;
-        let cost = if self.cost > 0.0 { self.cost } else { inp.cost_hint };
+        // Cost estimates (iteration units per sample) of the candidates: their own tile's from
+        // its last shade, else the mean over the visible ones known.
+        let est_of = |s: &Self, slot: usize| -> Option<f64> {
+            let x = s.est[slot];
+            (x.holder == s.tiles[slot].holder && x.serial == e.serial).then_some(f64::from(x.units))
+        };
+        // The cost estimate lags (new tiles may be far denser than the last ones): a batch is
+        // at most twice the last one plus 8 tiles, and the last batch's own cost counts.
+        let cost = if self.cost > 0.0 {
+            self.cost.max(self.last_cost)
+        } else {
+            inp.cost_hint
+        };
         let budget_tiles = if cost > 0.0 {
             ((inp.budget / cost) / 256.0).floor() as usize
         } else {
             64
-        };
-        let n = if inp.bla_pending {
+        }
+        .min(2 * self.last_tiles + 8);
+        let mut n = if inp.bla_pending {
             0
         } else {
-            cands.len().min(budget_tiles.max(1)).min(inp.live_capacity / 256)
+            cands.len().min(inp.live_capacity / 256)
         };
+        // With a calibrated cost per iteration unit, the batch is the prefix (in priority
+        // order) whose estimated GPU time fits the budget; else the texel model above.
+        let by_units = self.unit_cost > 0.0;
+        if !by_units {
+            n = n.min(budget_tiles.max(1));
+        }
         let (wt, ht) = self.dims();
         let a = self.alloc.as_ref().expect("alloc");
         let set = a.sets[self.cur].clone();
@@ -1071,12 +1203,56 @@ impl<B: GpuBackend> SampleCache<B> {
         };
         self.marks.push(("scan", Instant::now()));
         let mut order = None;
+        let units_planned: f64;
         if n > 0 {
-            if n < cands.len() {
-                cands.select_nth_unstable(n - 1);
+            if by_units {
+                // (Sort only a generous prefix: at least the texel model's count, several times.)
+                let k = n.min(4 * budget_tiles.max(16) + 64);
+                if k < cands.len() {
+                    cands.select_nth_unstable(k - 1);
+                    cands.truncate(k);
+                }
+                cands.sort_unstable();
+                let (mut sum, mut known) = (0.0, 0usize);
+                for c in &cands {
+                    if let Some(u) = est_of(self, c.1 as usize) {
+                        sum += u;
+                        known += 1;
+                    }
+                }
+                let mean = if known > 0 {
+                    sum / known as f64
+                } else {
+                    self.last_mean_units.max(1.0)
+                };
+                self.last_mean_units = mean;
+                let tile_budget = inp.budget / (self.unit_cost * 256.0);
+                let mut used = 0.0;
+                let mut take = 0;
+                for c in &cands {
+                    let u = est_of(self, c.1 as usize).unwrap_or(mean);
+                    if take > 0 && used + u > tile_budget {
+                        break;
+                    }
+                    used += u;
+                    take += 1;
+                }
+                n = take;
+                units_planned = used * 256.0;
                 cands.truncate(n);
+            } else {
+                if n < cands.len() {
+                    cands.select_nth_unstable(n - 1);
+                    cands.truncate(n);
+                }
+                cands.sort_unstable();
+                let mean = self.last_mean_units.max(1.0);
+                units_planned = cands
+                    .iter()
+                    .map(|c| est_of(self, c.1 as usize).unwrap_or(mean))
+                    .sum::<f64>()
+                    * 256.0;
             }
-            cands.sort_unstable();
             let slots: Vec<u32> = cands.iter().map(|c| c.1).collect();
             order = backend.create_buffer_with_data(bytemuck::cast_slice(&slots)).ok();
             if order.is_none() {
@@ -1096,9 +1272,14 @@ impl<B: GpuBackend> SampleCache<B> {
                 limit,
                 gpu: 0.0,
                 iterations: 0.0,
+                units: units_planned,
             });
+            self.last_tiles = n;
             self.stats.tiles_planned += n;
             self.stats.texels_planned += n * 256;
+        }
+        if n == 0 {
+            self.note_frame_gpu(0.0);
         }
         self.marks.push(("batch", Instant::now()));
         Some(Plan {
@@ -1169,7 +1350,13 @@ impl<B: GpuBackend> SampleCache<B> {
             m.clear.clear();
         }
         let s = enc.commit();
-        self.pending.push_back((false, s, None));
+        self.pending.push_back(Pass {
+            shade: false,
+            sub: s,
+            counts: None,
+            tiles: Vec::new(),
+            serial: 0,
+        });
     }
 
     /// A chunk of `generation` finished: a batch whose texels are all done marks its tiles
@@ -1185,10 +1372,20 @@ impl<B: GpuBackend> SampleCache<B> {
             return;
         }
         let b = self.batches.remove(i).expect("batch");
+        self.note_frame_gpu(b.gpu);
         self.stats.texels_done += b.texels;
         self.stats.iterations += b.iterations;
         if b.gpu > 0.0 && b.texels > 0 {
             let c = b.gpu / b.texels as f64;
+            self.last_cost = c;
+            if b.units > 0.0 {
+                let u = b.gpu / b.units;
+                self.unit_cost = if self.unit_cost > 0.0 {
+                    0.7 * self.unit_cost + 0.3 * u
+                } else {
+                    u
+                };
+            }
             self.cost = if self.cost > 0.0 { 0.7 * self.cost + 0.3 * c } else { c };
         }
         if self.epoch.as_ref().is_none_or(|e| e.serial != b.serial) {
@@ -1281,6 +1478,7 @@ impl<B: GpuBackend> SampleCache<B> {
         // Tiles of the rectangle whose colours are stale: all after a colour change (the zoom
         // changes the pixel size every frame), else those whose samples changed (a pan).
         let mut list: Vec<u32> = Vec::new();
+        let mut covered: Vec<(usize, (i64, i64))> = Vec::new();
         for ty in (y0 / 16) as i64..(y1 / 16) as i64 {
             for tx in (x0 / 16) as i64..(x1 / 16) as i64 {
                 let slot = self.slot((win0.0 + tx, win0.1 + ty));
@@ -1289,10 +1487,13 @@ impl<B: GpuBackend> SampleCache<B> {
                     if !full {
                         list.push(slot as u32);
                     }
+                    covered.push((slot, t.holder));
                     t.shaded = true;
                 }
             }
         }
+        let serial = e.serial;
+        self.last_limit = limit;
         let p = CacheParams {
             new_size: [tw as u32, th as u32],
             new_wrap: map.wrap,
@@ -1314,12 +1515,13 @@ impl<B: GpuBackend> SampleCache<B> {
         enc.set_bytes(0, bytes_of(&c));
         enc.set_buffer(1, palette, 0);
         enc.set_bytes(2, bytes_of(&p));
+        enc.set_buffer(4, &a.stats, 0);
         if full {
             let b = backend.create_buffer_with_data(&[0u8; 24]).ok()?;
             enc.set_pipeline(&pipelines[2]);
             enc.set_buffer(3, &b, 0);
-            let (w, mx) = backend.pipeline_limits(&pipelines[2]);
-            enc.dispatch_threads([x1 - x0, y1 - y0, 1], [w, (mx / w / 2).max(1), 1]);
+            // (One threadgroup per tile: the rectangle is tile-aligned.)
+            enc.dispatch_threads([x1 - x0, y1 - y0, 1], [16, 16, 1]);
             counts = Some((b, limit));
         } else {
             let b = backend.create_buffer_with_data(bytemuck::cast_slice(&list)).ok()?;
@@ -1329,7 +1531,13 @@ impl<B: GpuBackend> SampleCache<B> {
         }
         self.stats.shaded_texels += if full { (x1 - x0) * (y1 - y0) } else { list.len() * 256 };
         let s = enc.commit();
-        self.pending.push_back((true, s, counts));
+        self.pending.push_back(Pass {
+            shade: true,
+            sub: s,
+            counts,
+            tiles: covered,
+            serial,
+        });
         self.stats.cpu_shade += t0.elapsed().as_secs_f64();
         Some((color, map))
     }
@@ -1383,6 +1591,8 @@ impl<B: GpuBackend> SampleCache<B> {
             return;
         }
         self.seeded_generation = generation;
+        self.slow = false;
+        self.frames_measured = 0;
         // Step: 2^k full texels per lattice texel, the largest ratio 2^-k <= cap.
         let mut step = 1i64;
         while 1.0 / (step as f64) > self.cap * 1.0001 && step < 8 {
@@ -1536,9 +1746,71 @@ impl<B: GpuBackend> SampleCache<B> {
         self.view_stats
     }
 
+    /// The view rests: the next gesture decides afresh whether the cache pays.
+    pub fn rest(&mut self) {
+        self.slow = false;
+        self.frames_measured = 0;
+    }
+
+    fn note_frame_gpu(&mut self, gpu: f64) {
+        self.frame_gpu = if self.frames_measured == 0 {
+            gpu
+        } else {
+            0.8 * self.frame_gpu + 0.2 * gpu
+        };
+        self.frames_measured += 1;
+    }
+
+    /// The cache's GPU time per gesture frame (smoothed) exceeds both the budget and what a
+    /// fresh preview would take by a quarter: the gesture is better off without it (until the
+    /// view rests, which seeds or resets this).
+    pub fn too_slow(&mut self, budget: f64, fresh: f64) -> bool {
+        if self.slow {
+            return true;
+        }
+        self.slow = self.frames_measured >= 8 && fresh > 0.0 && self.frame_gpu > 1.25 * budget.max(fresh);
+        if self.slow && self.config.trace {
+            eprintln!(
+                "sample cache: {:.1} ms per frame against {:.1} ms fresh: fresh previews for this gesture",
+                self.frame_gpu * 1000.0,
+                fresh * 1000.0
+            );
+        }
+        self.slow
+    }
+
     /// The regime of the current epoch.
     pub fn regime(&self) -> Option<Regime> {
         self.epoch.as_ref().map(|e| e.regime)
+    }
+}
+
+/// A committed GPU pass of the cache: shade or maintenance, its counts buffer (shade: the view
+/// statistics and the limit) and the tiles whose statistics it writes.
+struct Pass<B: GpuBackend> {
+    shade: bool,
+    sub: B::Submission,
+    counts: Option<(B::Buffer, usize)>,
+    tiles: Vec<(usize, (i64, i64))>,
+    serial: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Est {
+    holder: (i64, i64),
+    serial: u64,
+    units: f32,
+    max_n: u32,
+}
+
+impl Default for Est {
+    fn default() -> Self {
+        Self {
+            holder: (i64::MIN, i64::MIN),
+            serial: 0,
+            units: 0.0,
+            max_n: 0,
+        }
     }
 }
 

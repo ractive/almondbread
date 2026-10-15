@@ -697,6 +697,8 @@ struct ChunkRecord<B: GpuBackend> {
     adaptive: bool,
     /// A chunk of a preview level (gesture frames, the sample cache's tiles).
     preview: bool,
+    /// A chunk of a sample cache level (its tiles are no sample of the view's cost).
+    cache: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2179,6 +2181,7 @@ impl<B: GpuBackend> Renderer<B> {
             && let Some(l) = old.levels.first()
             && !l.complete
             && l.gpu_time > 0.0
+            && l.cache.is_none()
         {
             let lower = l.gpu_time / (l.set.width * l.set.height).max(1) as f64;
             self.cost_per_texel = self.cost_per_texel.max(lower);
@@ -2670,10 +2673,11 @@ impl<B: GpuBackend> Renderer<B> {
             (true, false, true) => (true, true),
             (true, false, false) => (false, false),
         };
-        let interior = match pinned {
-            Some(r) => r.interior && key.interior,
-            None => autoiter::use_interior_test(key.interior, self.interior_stats, key.max_iter),
-        };
+        // The interior test whenever it is enabled: cached samples live for many frames, and an
+        // interior pixel without the test runs to the limit (a 1e-305 needle: 200 000
+        // iterations per interior texel, 0.5 s chunks). The statistics-driven switch is for
+        // fresh levels.
+        let interior = key.interior;
         let regime = Regime {
             deep: job.deep,
             bla,
@@ -2698,6 +2702,16 @@ impl<B: GpuBackend> Renderer<B> {
         let Some((regime, bla_pending, table)) = self.cache_regime() else {
             return;
         };
+        // Where the cache's tiles take longer per frame than a fresh preview would (views whose
+        // previews start from local SA seeds, which cache tiles cannot use: the 1e-305 needle,
+        // 14 vs 9 ms), this gesture renders fresh previews.
+        if self
+            .sample_cache
+            .too_slow(self.gesture_budget(), self.fresh_preview_cost())
+        {
+            self.sample_cache.stats.fallback_frames += 1;
+            return;
+        }
         let job = self.job.as_ref().expect("job");
         let key = job.key.clone();
         let generation = job.generation;
@@ -2725,6 +2739,12 @@ impl<B: GpuBackend> Renderer<B> {
         let Some(plan) = self.sample_cache.plan(&self.backend, &input) else {
             return;
         };
+        if self.config.trace {
+            println!(
+                "sample cache level: gen {generation} {} tiles, ratio {:.3}, regime {regime:?}",
+                plan.tiles, plan.ratio
+            );
+        }
         let Some(reference) = &self.reference else { return };
         let f = &plan.frame;
         let mut p = template;
@@ -2782,6 +2802,19 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
+    /// What a fresh gesture preview of the current job would take on the GPU (the dynamic
+    /// resolution's cost model; 0: unknown).
+    fn fresh_preview_cost(&self) -> f64 {
+        let Some(job) = &self.job else { return 0.0 };
+        if self.cost_per_texel <= 0.0 {
+            return 0.0;
+        }
+        let texels = (job.key.width * job.key.height) as f64;
+        let fit = (self.gesture_budget() / (self.cost_per_texel * texels)).sqrt();
+        let ratio = ((fit * 8.0).floor() / 8.0).clamp(0.125, 1.0);
+        self.cost_per_texel * texels * ratio * ratio
+    }
+
     /// Seeds the sample cache from the refined frame once a view's full level (and its
     /// extension passes) are done: a gesture starting here reuses every sample.
     fn seed_sample_cache(&mut self) {
@@ -2805,6 +2838,8 @@ impl<B: GpuBackend> Renderer<B> {
         {
             return;
         }
+        // (At rest: the next gesture measures the cache afresh.)
+        self.sample_cache.rest();
         // Tiles whose pixels started from local SA seeds (M5) are not exact samples: the cache
         // leaves them out (their 16 x 16 tiles of the full level, from the seed pass's flags).
         let mut seeded_tiles: Vec<bool> = Vec::new();
@@ -3215,6 +3250,7 @@ impl<B: GpuBackend> Renderer<B> {
             iterations: k,
             adaptive,
             preview: self.job.as_ref().is_some_and(|j| j.levels[level_index].preview),
+            cache: self.job.as_ref().is_some_and(|j| j.levels[level_index].cache.is_some()),
         });
         self.stat_slot = (self.stat_slot + 1) % STAT_SLOTS;
         true
@@ -3256,7 +3292,7 @@ impl<B: GpuBackend> Renderer<B> {
                 self.rate = (work / gpu).max(self.rate / 4.0).min(self.rate * 4.0);
             }
             let pixels = stats.live_in as f64 + stats.fresh as f64;
-            if !rec.adaptive && gpu > 2e-4 && pixels > 0.0 {
+            if !rec.adaptive && gpu > 2e-4 && pixels > 0.0 && !rec.cache {
                 // A gesture frame's chunk ran its pixels to the limit: their cost per texel,
                 // also when the job was superseded before it finished (every frame of a
                 // gesture is). Without this, a refined frame made cheap by local SA left the
@@ -3347,13 +3383,11 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         level.complete = true;
-        // (A sample cache level computes its listed tiles only.)
-        let texels = if level.cache.is_some() {
-            level.total
-        } else {
-            level.set.width * level.set.height
-        };
-        if level.gpu_time > 0.0 && !level.is_extension() && texels > 0 {
+        // (A sample cache level computes the tiles a frame lacks, no sample of the view's cost:
+        // the cost per texel stays the fresh previews' and refined levels', which a fresh
+        // preview is sized by.)
+        let texels = level.set.width * level.set.height;
+        if level.gpu_time > 0.0 && !level.is_extension() && texels > 0 && level.cache.is_none() {
             self.cost_per_texel = level.gpu_time / texels as f64;
         }
         // (A filled level skipped its insides: keep the last unfilled estimate, or the SA gate
