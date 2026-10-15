@@ -513,7 +513,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
                     if (kDE) dm = 2.0f * cmul(z, dm) + tsd;
                     if (kInterior) zw = 2.0f * cmul(z, zw);
-                    if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f) {
+                    // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
+                    // would overflow the DE mantissa within 8 steps; R5.)
+                    if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f
+                        || (kDE && max(abs(z.x), abs(z.y)) > 16.0f)) {
                         if (kDE) {
                             float a = max(abs(dm.x), abs(dm.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
@@ -811,10 +814,24 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             iterOut.write(float4(float(st.n), s, 0.0f, 0.0f), gid);
             if (kDE) {
                 float zr = sqrt(r2);
-                float dl = length(st.d);
+                float2 dd = st.d;
+                int dShift = 0;
+                if (kDeep) {
+                    // The deep DE mantissa is renormalised every 8 steps only, and grows by up to
+                    // |2z| ~ 2^17 per step just before escape: |d|^2 can overflow (de = 0, dotted
+                    // outline arcs in smooth exterior; found in R5). Normalise it here.
+                    const float a = max(abs(dd.x), abs(dd.y));
+                    if (a > 0.0f && isfinite(a)) {
+                        dShift = expOf(a);
+                        dd = scale2(dd, -dShift);
+                    }
+                }
+                float dl = length(dd);
                 float de = dl > 0.0f ? 2.0f * zr * log(zr) / dl : 0.0f;   // in texels
-                if (kDeep) de = min(de, 65000.0f) * pow2f(clamp(-st.dExp, -126, 127));
-                float2 u = cmul(z, float2(st.d.x, -st.d.y));                // direction of z / d
+                // (Clamp after scaling: the mantissa alone can pass 65000 while the distance does
+                // not; clamping first drew thick outline bands in deep views, found in R5.)
+                if (kDeep) de = min(de * pow2f(clamp(-(st.dExp + dShift), -126, 100)), 65000.0f);
+                float2 u = cmul(z, float2(dd.x, -dd.y));                    // direction of z / d
                 deOut.write(float4(min(de, 65000.0f), atan2(u.y, u.x), 0.0f, 0.0f), gid);
             } else {
                 deOut.write(float4(1000.0f, 0.0f, 0.0f, 0.0f), gid);

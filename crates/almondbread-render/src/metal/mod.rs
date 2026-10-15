@@ -676,4 +676,67 @@ mod tests {
         assert!(!r.stats.is_preview && !r.stats.is_rendering);
         assert_eq!(r.stats.render_size, (320, 200));
     }
+
+    /// IEEE half float bits to f32 (DE texels are Rg16Float).
+    fn half(h: u16) -> f32 {
+        let s = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+        let e = i32::from((h >> 10) & 0x1f);
+        let m = f32::from(h & 0x3ff);
+        s * match e {
+            0 => m * 2f32.powi(-24),
+            31 => f32::INFINITY,
+            _ => (1.0 + m / 1024.0) * 2f32.powi(e - 15),
+        }
+    }
+
+    /// Deep-kernel distance estimate regressions (found in R5, kb: synthesis/benchmarks R5):
+    /// the DE was clamped to 65000 before scaling by its exponent (thick outline bands in
+    /// smooth exterior), and the DE mantissa overflowed in the steps before escape (DE 0,
+    /// dotted outline arcs). In sea-1e20's smooth exterior neither may happen: no escaped
+    /// pixel has DE 0, and DE agrees between neighbours away from the boundary.
+    #[test]
+    fn deep_distance_estimate() {
+        use crate::scheduler::Renderer;
+        use almondbread_core::locations::location_named;
+        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+        let loc = location_named("sea-1e20").expect("location");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = loc.max_iterations();
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        r.settings.shading = 0.5; // distance estimate on
+        let (w, h) = (400, 250);
+        r.viewport = loc.viewport_for_width(w);
+        let out = r.render_offscreen(w, h, true).expect("render");
+        let iters = out.iterations.expect("iterations");
+        let de: Vec<f32> = r
+            .read_distance_estimates()
+            .expect("de")
+            .iter()
+            .map(|t| half(t[0]))
+            .collect();
+        let escaped = |k: usize| iters[k][0] >= 0.0;
+        // DE 0 itself is legitimate on the boundary (below half-float range); between two
+        // neighbours more than 2 texels from the boundary it is the overflow.
+        let zero = (1..w * h - 1)
+            .filter(|&k| escaped(k) && de[k] <= 0.0 && k % w > 0 && k % w < w - 1)
+            .filter(|&k| de[k - 1] > 2.0 && de[k + 1] > 2.0)
+            .count();
+        // Smooth exterior (DE > 8 texels): a neighbour's DE within a factor 2.
+        let (mut smooth, mut jumps) = (0, 0);
+        for y in 0..h {
+            for x in 0..w - 1 {
+                let (a, b) = (y * w + x, y * w + x + 1);
+                if escaped(a) && escaped(b) && de[a] > 8.0 && de[a] < 60000.0 {
+                    smooth += 1;
+                    if de[b] <= 0.5 * de[a] || de[b] >= 2.0 * de[a] {
+                        jumps += 1;
+                    }
+                }
+            }
+        }
+        println!("deep DE: {zero} isolated DE 0, {jumps} of {smooth} smooth neighbours jump");
+        assert_eq!(zero, 0, "escaped pixels with DE 0 in smooth exterior");
+        assert!(smooth > 1000 && jumps * 1000 < smooth, "{jumps} of {smooth}");
+    }
 }

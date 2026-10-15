@@ -3053,6 +3053,24 @@ impl<B: GpuBackend> Renderer<B> {
         Ok(texels)
     }
 
+    /// The last job's distance-estimate texels (half floats: DE in texels, normal angle) of
+    /// its full level, row-major (diagnostics and tests).
+    pub fn read_distance_estimates(&self) -> Result<Vec<[u16; 2]>, GpuError> {
+        let Some(level) = self.job.as_ref().and_then(|j| j.levels.last()) else {
+            return Err(GpuError("no job".into()));
+        };
+        let set = &level.set;
+        let mut texels = vec![[0u16; 2]; set.width * set.height];
+        self.backend.read_texture(
+            &set.de,
+            set.width,
+            set.height,
+            TextureFormat::Rg16Float,
+            bytemuck::cast_slice_mut(&mut texels),
+        )?;
+        Ok(texels)
+    }
+
     // MARK: Offscreen rendering (headless checks, export)
 
     /// Renders the current viewport into an offscreen texture through the same chunked
