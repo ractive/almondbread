@@ -583,3 +583,18 @@ benchmarks (float-float 7–12×, fx 27–52× slower than float32). `bench` A/B
 [[questions/double-float-speed-on-m1]] (answered), [[questions/metal-fast-math-defaults]]
 (partial), [[techniques/double-float]] (As built), [[synthesis/benchmarks]] (M7), [[roadmap]]
 (M7), [[overview]], [[index]].
+
+## [2026-10-15] decision | Journey variety: dives, cross-overs, novelty
+
+The journey planned well-framed targets but stayed in one region for a minute (one family of
+shapes: deep in a region every view carries the same local Julia set). Now a journey is a
+sequence of dives: a cross-over to another region (catalogue places to 1e16 and views from the
+maths of p/q bulbs: limb hubs M(q+1, 1), valleys beside the attachment point), then 1–2 legs
+in a seeded style (scenic, medium, deep); regions from the cardioid's internal angle, families
+(valley, limb, needle) alternate. Every landing gets a look descriptor (distance spectrum,
+structure dimension, interior, and the spiral pitch of the shadowed cycle's multiplier: the
+only measure that told seahorse spirals from dendrite carpets on 40-texel probes) and a
+novelty score; near-duplicates are rejected and a dive ends when nothing new is left. Long
+legs fly faster; with cinematic effects each dive gets its own palette phase. Contact sheets
+and three 3-minute review videos: 6–7 regions per 3 minutes instead of 2–3. Pages:
+[[decisions/controls]] (Journey, variety revision), [[synthesis/benchmarks]] (PJ variety).

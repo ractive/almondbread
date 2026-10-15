@@ -16,6 +16,7 @@
 //! almondbread places [--format text|tsv|landscape] [--render-thumbs dir [--only a,b]]
 //! almondbread locate --center re,im [--radius r | --misiurewicz k,p]
 //! almondbread journey --seed 4711 [--legs 12] [--daily 2026-10-15] [--center re,im --span s] [--thumbs dir]
+//!                     [--describe 1] [--save views.txt] [--views views.txt] [--look-size 96]
 //! ```
 //!
 //! `render`, `verify` and `fly` views take `--place id` (the places catalogue).

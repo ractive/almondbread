@@ -3790,7 +3790,11 @@ impl<B: GpuBackend> Renderer<B> {
         let depth = self.viewport.zoom_log10().max(0.0);
         // Cinematic palette drift: hue and phase as functions of depth (the same view always
         // has the same colours), plus cycling while flying (in `cycle_phase`).
-        let (hue, phase) = s.cinematic.palette_at(depth * std::f64::consts::LN_10);
+        let (hue, mut phase) = s.cinematic.palette_at(depth * std::f64::consts::LN_10);
+        // Each journey dive its own colours (kb: decisions/controls "Journey").
+        if s.cinematic.enabled {
+            phase += self.navigator.journey_palette_phase();
+        }
         let offset = (s.color_offset + self.cycle_phase + s.depth_tint * depth + phase).rem_euclid(1.0);
         let (deep, filament) = self.dense_colors();
         ColorParams {
