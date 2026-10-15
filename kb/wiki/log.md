@@ -677,3 +677,9 @@ as smooth as or smoother than the previous day. The cache is now opt-in
 (`ALMONDBREAD_SAMPLE_CACHE=1`). Lesson: headless replays and background windows (capped near 30 Hz)
 do not show interactive feel; a speed feature needs a foreground check before it becomes the
 default. Pages: [[techniques/sample-reuse]].
+
+## [2026-10-15] decision | Mini-Mandelbrot atlas proposed
+
+Wrote up [[decisions/minibrot-atlas]] (proposed, not scheduled): local atlas from the journey's
+target finder first, then a shallow census and deep samples. Filed the π-in-the-set idea in
+[[ideas]] with our own numeric check.

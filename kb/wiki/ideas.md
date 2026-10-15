@@ -55,6 +55,15 @@ view is turning while zooming in. Maybe the color palette could change etc."
   music-driven effects, cross-fading between two palettes (the hue drift gives
   most of the look change for one palette lookup).
 
+## Mini-Mandelbrot atlas and maths moments (2026-10-15)
+
+User asked which unsolved questions the tool could explore. Pictures cannot settle MLC,
+density of hyperbolicity or the boundary's area; experimental maths can. Written up as
+[[decisions/minibrot-atlas]] (waits for go). Side idea, a "maths moment" in the app: π in
+the iteration counts. At `c = -0.75 + iε` the escape count times ε tends to π, and at
+`c = 0.25 + ε` the count times √ε does (Boll 1991; unverified, no source page yet; our own
+check: n·ε = 3.1416 at ε = 1e-5, n·√ε = 3.14157 at ε = 1e-10, Python float64, 2026-10-15).
+
 ## Earlier ideas already filed elsewhere
 
 - Landscape mode with altitude as zoom, flight recorder and rewind:
