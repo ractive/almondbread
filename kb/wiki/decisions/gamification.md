@@ -41,6 +41,53 @@ research found that games sell on Steam and tools do not
 Avoid: grafted-on combat, enemies, upgrade trees, resource systems tied
 to iteration budgets.
 
+## Achievements (brainstorm, 2026-10-15)
+
+User asked for achievements; Game Center and Steam both support them natively. Rule:
+**everything is checked off the render path.** The core already computes zoom depth,
+precision bits, periods, journey state and the π count. Achievements are cheap comparisons on
+those values at the stats rate (~10 Hz) or on events the core already emits, with no extra GPU
+or orbit work. Progress is stored locally; Game Center/Steam sync comes later.
+
+**Depth**
+- Ten thousand (1e4), Billion (1e9), Googol (1e100), Thousand digits (1e1000), Rock bottom
+  (the 1e3000 depth limit).
+- Bit-hungry: a view needing more than 1 000 / 5 000 bits.
+- Past the universe: the whole set would be larger than the observable universe (cosmic scale,
+  zoom ≈ 3e27). Into the desert: below the smallest scale ever measured (~1e-19 m).
+  Planck diver: below the Planck length.
+- Second gear: the ↑↑ dial of the "How big is big?" panel passes 2.5.
+
+**Impossible ones, on purpose** (progress bars that never move, after Ganson's concrete gear):
+- Googolplex: "3 000 of 10^100 digits", which shows 0.000…%.
+- 10↑↑3 (10^10^10): a coordinate alone would need ~3.3e10 bits (about 4 GB); its reference
+  orbit is out of reach. Graham's number and TREE(3): "no".
+
+**Mathematics**
+- First minibrot; Period collector (periods 2–10); Big period (find one with period above 1 000).
+- Misiurewicz: land on a spiral or branch point found by Newton.
+- Embedded Julia: reach a Julia stage of a deep minibrot (the journey's targets).
+- Feigenbaum: zoom along the real axis through 5 period doublings.
+- π at the neck / π at the cusp: 3, 6 or 9 correct digits on the π meter.
+- Seahorse, elephant, needle, scepter, ... : visit every catalogue region.
+- Interior artist: view every interior colouring at one minibrot.
+
+**Flight and skill**
+- Smooth operator: a 60 s manual flight without a late frame.
+- Barrel roll: rotate 360° while zooming.
+- Speed demon: zoom at more than 40 e-folds per second for 10 s.
+- Pilot: land a fly-to within 1 % of the target framing; Daily journey: finish today's seed.
+- Explorer: 100 jumps or places; Wanderer: one hour of journeys.
+
+**Collection and sharing**
+- Palette collector: use 20 palettes; Photographer: export a still / a video.
+- Discoverer: first in the world to upload a minibrot (online atlas,
+  [[decisions/minibrot-atlas]]); Census contributor: 100 verified uploads.
+
+**Performance guard:** achievements never trigger work themselves. "Find a minibrot" uses the
+period detection that runs anyway for interior colouring and the journey; anything that would
+need extra computation stays out or waits for the atlas.
+
 ## Similar games (from memory, to be verified by research)
 
 Marble Marcher (CodeParade, fractal levels), Fractal Block World (Steam,
