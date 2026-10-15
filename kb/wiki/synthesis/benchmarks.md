@@ -1538,3 +1538,76 @@ regular activation policy, window key and in front on the fastest screen, ~2 min
 person to run themselves; it writes `build/interaction-120-foreground.txt`. Not run yet.
 The budget side is clear: at ≤ 0.3 ms draw CPU and 2–7 ms GPU per frame (unshared), every
 scenario but fly-to (12 ms iterate GPU in its jump frames) fits 8.33 ms.
+
+## Sample cache: motion sample reuse in production, 2026-10-15
+
+What was built: [[techniques/sample-reuse]] "As built". Measured 2026-10-15 on an M1 Pro,
+release, at 8b3d608. Other agents were building and benchmarking at the same time (load
+average 6–200), so every run was repeated at least twice; the numbers below are the last
+full set, and single-frame CPU maxima are load spikes. Tool: `almondbread fly --out null`
+with `ALMONDBREAD_SAMPLE_CACHE=1|0`; colour-pass costs come from the same runs with
+`ALMONDBREAD_SERIAL_COMPOSE=1`, because overlapping command buffers inflate GPU times.
+
+Flights `scripts/flights/cache-*.json`, 7.5 s each: a D-key pan for 2 s, Space zoom in for
+2 s, Shift+Space zoom out for 1.4 s. The views:
+
+| flight | view |
+|---|---|
+| shallow | seahorse valley at zoom 1e3 |
+| f14 | 4.6e-14, boundary-dense |
+| f300 | period-255 needle at 1e-305 per point (deep kernel, LA) |
+| spiral | spiral-32412-1e19, 4.2e-19 per point |
+
+Each cell: cache / fresh previews (FL). "Gesture" means preview-level chunks only.
+
+| flight | size, refresh | fps | gesture iterations per frame | gesture iterate GPU ms per frame |
+|---|---|---|---|---|
+| shallow | 1600×1000, 60 Hz | 54.0 / 54.7 | 1.03e7 / 2.32e7 | 1.37 / 5.06 |
+| f14 | 1600×1000, 60 Hz | 54.0 / 54.4 | 1.65e7 / 3.66e7 | 2.04 / 3.99 |
+| f300 | 1600×1000, 60 Hz | 54.7 / 54.7 (fresh previews) | 2.99e8 / 2.51e8 | 6.21 / 6.14 |
+| spiral | 1600×1000, 60 Hz | 58.1 / 11.2 | 9.0e5 / 1.33e9 | 6.41 / 124 |
+| shallow | 3456×2160, 120 Hz | 105.7 / 73.5 | 2.40e7 / 3.06e8 | 1.43 / 9.72 |
+| f14 | 3456×2160, 120 Hz | 109.2 / 107.9 | 1.63e7 / 1.97e8 | 1.13 / 5.55 |
+| f300 | 3456×2160, 120 Hz | 104.5 / 107.1 (fresh previews) | 1.43e8 / 1.43e8 | 2.27 / 2.12 |
+| spiral | 3456×2160, 120 Hz | 109.7 / 13.1 | 6.6e5 / 7.35e9 | 3.01 / 760 |
+
+What the cache did per frame (normal runs; each cell 1600×1000 / 3456×2160):
+
+| flight | visible texels reused | texels computed | CPU plan + shade encode, ms | GPU shade, ms | GPU maintenance, ms |
+|---|---|---|---|---|---|
+| shallow | 91 % / 61 % | 52 800 / 7 040 | 0.46 + 0.17 / 0.25 + 0.13 | 0.90 / 0.23 | 0.04 / 0.04 |
+| f14 | 78 % / 76 % | 5 800 / 6 370 | 0.20 + 0.10 / 0.26 + 0.13 | 0.20 / 0.15 | 0.06 / 0.06 |
+| spiral | 1 % / 4 % | 41 / 37 | 0.17 + 0.16 / 0.12 + 0.08 | 0.06 / 0.03 | 0.04 / 0.02 |
+
+Compose pass (with FL: plus the preview colour pass), serial runs, ms per frame:
+
+| flight | 1600×1000: cache / FL | 3456×2160: cache / FL |
+|---|---|---|
+| shallow | 0.49 / 2.86 | 3.13 / 2.10 |
+| f14 | 0.84 / 1.04 | 3.01 / 2.07 |
+| spiral | 1.37 / 0.46 | 2.93 / 1.88 |
+
+Findings:
+
+- **Bookkeeping fits 1.5 ms.** Planning, encoding and the maintenance passes take 0.1–0.6 ms
+  per frame. The CPU side is 0.1–0.5 ms on average, with single frames up to 3–9 ms under
+  the machine's load. Planning scans the visible tiles, a few thousand, and nothing per
+  pixel.
+- **The colour side does not fit at Retina size.** Shading is 0.03–0.9 ms; it replaces FL's
+  preview colour pass, so it is not bookkeeping. But the compose pass costs ~1 ms more than
+  FL's colour passes at 3456 × 2160. Taken together, the cache's own cost at Retina size is
+  about 1.2–1.5 ms per frame. Against that, iterate GPU time falls by 4–8 ms per frame.
+- **Iterations saved**: 55–56 % at 1600 × 1000 (the cache renders up to √2 × FL's preview
+  resolution), 92 % at 3456 × 2160. Panning reuses 70–91 % of the visible samples.
+- **The spiral**: fresh previews (floor 1/8) take 120–760 ms per frame there (11–13 fps).
+  The cache keeps 58–110 fps but fills only ~40 texels a frame, so newly exposed areas stay
+  empty or coarse for seconds.
+- **The needle at 1e-305 (LA views)**: cache tiles were 100× the loop steps per sample of
+  SA-seeded LA previews. The cache stayed at 43–55 fps with the panned-in area empty, so
+  gestures from such views render fresh previews; the table shows those numbers.
+- **Correctness**: `make rust-regress` passes all 18 sessions with the cache check after
+  every gesture and once settled. No cached sample differs in class. Escape counts differ
+  only within each view's float32 reference noise. `sample_cache_exact` tests a zoom in,
+  zoom out and pan with one reference.
+
+Not measured: `make interaction-test` and `make selftest` (screen locked during this work).

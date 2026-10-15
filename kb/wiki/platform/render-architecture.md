@@ -186,6 +186,34 @@ Levels admit 16×16 tiles in raster or priority order. `Renderer::frames_committ
 `frames_completed` and `GpuBackend::read_shared_texture` let headless capture read frames
 without draining the queue.
 
+## Motion sample cache (2026-10-15)
+
+Gesture frames no longer render a fresh jittered preview each refresh. They reuse the exact
+samples of earlier frames, kept on a lattice fixed in the plane, and compute only the tiles
+the view lacks ([[techniques/sample-reuse]] "As built", [[synthesis/motion-sample-reuse]]).
+The module is `sample_cache.rs` (`SampleCache<B>`, owned by the renderer); its kernels are
+`shaders/sample_cache.metal`, appended to `mandelbrot.metal` at compile time. The scheduler
+hooks are narrow:
+
+- `attach_cache_level` replaces a fresh gesture job's preview level with a cache level:
+  the cache's toroidal window textures, a tile list as admission order, and lattice
+  parameters (`halfSize`, `rot`, `wrap`).
+- An unfinished cache batch moves into the next frame's job (`take_cache_level`), and its
+  in-flight chunk records are renamed to the new generation.
+- `encode_chunk` takes the epoch's pinned BLA/interior regime; cache levels never seed
+  (M5) or use LA (M6).
+- `harvest` reports every level-0 chunk to the cache (`on_chunk`), superseded jobs
+  included.
+- `encode_compose` shades the cache (its own command buffer, committed first) and sets the
+  compose pass's cache mapping.
+- `seed_sample_cache` seeds an epoch from each settled full level. `make_key` resets the
+  cache on a jump.
+
+Off: `ALMONDBREAD_SAMPLE_CACHE=0`. Trace: `ALMONDBREAD_CACHE_TRACE=1`. Cap and memory:
+`ALMONDBREAD_CACHE_RATIO`, `ALMONDBREAD_CACHE_TEXELS`. Two texture sets plus colour cost
+~32 B per window texel: 4.2 M visible texels at most, ~1.4× that allocated (rotation slack),
+so up to ~190 MB at Retina size.
+
 ## Hosting in the app (as built, R2b)
 
 ```text

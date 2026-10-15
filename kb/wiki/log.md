@@ -645,3 +645,26 @@ window). `AlmondbreadMac/main.swift` activated a bare executable unless `--selft
 activation or key window; 5 runs were clean. Also explained `stats.max_iterations` 10384
 against 41536 (nominal limit vs extension to the hard limit) and the 1e−1004 disc
 (supersampling of sub-pixel rings). Page: [[synthesis/flight-benchmark]].
+
+## [2026-10-15] decision | Sample cache: motion sample reuse in production
+
+Built the sample cache R4 recommended ([[techniques/sample-reuse]] "As built",
+[[synthesis/motion-sample-reuse]] "Production"). R4's free per-pixel samples and move pass
+were replaced: samples sit on a lattice fixed in the plane, held as a toroidal window of
+16 × 16 tiles.
+
+- A pan clears and computes the entering tiles; a zoom switches the level and resamples the
+  coinciding samples on the GPU.
+- The rest seeds the cache from the refined frame.
+- Planning is per tile on the CPU, with cost estimates from per-tile shade statistics,
+  latency-bounded chunks, and batches that carry over between frames.
+- Exactness: epochs pin the BLA/LA/interior regime, a jump resets the cache, and `verify
+  --history` and `sample_cache_exact` check every cached sample against fresh renders.
+
+Bookkeeping is 0.1–0.6 ms per frame (budget 1.5 ms). Iterations per gesture frame fall by
+55–92 %; frame rates are equal or higher (spiral 58–110 vs 11–13 fps). The compose pass costs
+~1 ms more at Retina size. LA views (1e-305 needle) keep fresh previews. Pitfalls are filed on
+the technique page: superseded jobs wasting budgeted batches, latency vs throughput, biased
+interior statistics, `%` in per-pixel code, overlapping command buffers. Brought in the R4
+pages, sources, raw notes and prototypes. Numbers: [[synthesis/benchmarks]] "Sample cache".
+Pages: [[platform/render-architecture]], [[index]].

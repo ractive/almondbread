@@ -1,7 +1,7 @@
 ---
 title: "Sample reuse while zooming and panning (sample cache in fractal coordinates)"
 type: technique
-status: draft
+status: reviewed
 sources: ["[[sources/xaos-algorithms]]", "[[sources/wikipedia-xaos]]"]
 tags: [frame-reuse, sample-reuse, temporal, interactive, xaos, measured]
 ---
@@ -112,6 +112,102 @@ against 16-sample references. Full tables are in [[synthesis/motion-sample-reuse
 GPU bookkeeping, unoptimised prototype: 3.6–6.3 ms per frame at 1080p. It needs ~3× less
 before the iteration savings turn into GPU time savings.
 
+## As built in almondbread (production cache, 2026-10-15)
+
+`crates/almondbread-render/src/sample_cache.rs`, kernels in `shaders/sample_cache.metal`,
+hooks in `scheduler.rs`. Our design, built after R4; it departs from R4's design (per-pixel
+cells holding K free-positioned samples, a move pass) because that bookkeeping was O(pixels)
+and cost 19–23 ms per frame at Retina size (measured R4, [[synthesis/motion-sample-reuse]]).
+
+**A lattice fixed in the plane instead of free samples.** Lattice point `(i, j)` of a level
+is `anchor + h · R(angle) · (i, −j)`. Samples sit only on lattice points, so a sample never
+moves in its storage. One level is a **toroidal window** of the lattice: a W × H texture set
+(iteration rg32f, DE rg16f, interior analysis when an interior colouring needs it) where
+window texel `t` (lattice index `16·win0 + t`) is texel `(lattice index) mod (W, H)`.
+
+- **Pan**: the window slides by whole 16 × 16 tiles. Entering tiles are cleared on the GPU
+  (`scClear`, one thread per texel of the listed tiles) and planned for computing. Nothing
+  else moves.
+- **Zoom**: when the spacing leaves its band of texels per output pixel (0.45–1 × the target
+  ratio), the level switches. The coarser level's points are every other point of the finer
+  one. `scResample` builds the new window from the old one: a finer level takes the old
+  samples at even indices (a quarter of its points), a coarser one takes every other old
+  sample (all of its points). Distance estimates are in texels, so they scale by 2 or 1/2.
+  The anchor moves to a tile-aligned lattice point near the view centre at each switch, so
+  lattice indices stay small.
+- **Rest**: the refined frame's full level seeds a new epoch (its texel centres form a lattice
+  at the pixel spacing; above the ratio cap it is decimated). A gesture from rest starts with
+  every sample. Tiles started from local SA seeds (M5) or levels iterated through the LA
+  table (M6) are left out: they are another regime.
+- **Iterate**: the cache level is an ordinary level of the chunked scheduler with a tile list
+  as its admission order (`tileOrder`). The only kernel change is the position: texel `gid`
+  holds window texel `(gid + wrap) mod size` (`IterateParams.wrap`, 0 for every other level).
+  `halfSize = −(lattice index of window texel 0)`, jitter 0, `rot` = the lattice angle.
+- **Bookkeeping is per tile on the CPU**: holder (lattice tile), state (empty, partial,
+  full), the limit its samples ran to, the batch computing it, and whether the colour texture
+  holds it shaded. The visible scan, the slide and the plan are O(visible tiles), a few
+  thousand, never O(pixels).
+- **Shade and compose**: `scShade` colours the visible tiles of the window (premultiplied:
+  alpha 0 marks no sample) with the current colour parameters. During a pan the colours do not
+  change, so it shades only tiles whose samples changed (`scShadeTiles`). Threadgroups are tiles
+  and also write per-tile statistics (escape-count sum, escaped, interior, unresolved, largest
+  escape count). The compose pass treats the cache like FL's jittered preview: Gaussian point
+  samples from the 2 × 2 lattice points around a pixel, the reprojected history, and a
+  bilinear base. The mapping turns by the view angle minus the lattice angle. Where fewer than
+  four samples surround a pixel it takes the history, or else a small Gaussian over the 4 × 4
+  points around.
+- **Budget and density**: a target ratio steps down from the cap (√2 texels per pixel, lowered
+  so the visible window holds at most 4.2 M texels; cap/32 at most) with hysteresis. The
+  demand model counts exposed area and level switches (zoom in: 1.08 × the visible texels
+  per e-fold). Batches are the priority prefix (empty before partial before stale, then
+  distance to the focus) whose estimated GPU time fits the gesture budget. The estimate is
+  per-tile iteration units from the shade statistics × a cost per unit calibrated from
+  finished batches, plus a latency term from the batch's slowest pixel. At most two batches
+  are on the GPU. A batch runs **one chunk per frame**, with K sized so that its slowest
+  chains fit the budget (GPU seconds per loop step measured on chunks that left pixels live).
+  Unfinished pixels **carry over** into the next frames' jobs (the level moves on with its
+  live state) unless a slide reassigned one of the batch's tiles or the level switched.
+- **Exactness**: an epoch pins its regime (deep kernel, BLA, LA, interior test on, DE,
+  interior analysis). A regime change starts a new epoch, and a jump resets the cache (M5 jump
+  rule).
+- **Where fresh previews win**: gestures that start from a view whose refined frame stepped
+  through the LA table (M6, deep nucleus references) render fresh previews. Such previews
+  start from SA seeds and take LA blocks; cache tiles, exact samples from scratch, took ~100×
+  the loop steps per sample there (1e-305 needle). The cache left the panned-in area empty
+  where fresh previews kept 55 fps.
+  References may change within an epoch: a sample does not depend on the reference beyond
+  float32 rounding of `dc` (below). Tiles whose limit fell 25 % behind the view's are
+  recomputed.
+- **Interior-test statistics**: a cache frame's new tiles are a biased sample of the view.
+  The interior test switch takes the view's statistics from the per-tile shade statistics,
+  and may only be turned on by them (escapes past the limit from an extension pass count as
+  unresolved). Before this fix the settled frame differed from a fresh render by 0.1 %.
+
+**The cache check** (`Renderer::sample_cache_check`, run by `verify --history` after the
+gesture and once settled): every cached sample against a fresh offscreen render of the same
+lattice points with the live reference and the epoch's regime. With one reference throughout
+a gesture, no sample differs in class and escape counts match up to float32 rounding of the
+sample position: the test `sample_cache_exact` allows < 0.5 % of escape counts, and the zoom
+step measured 0.08 %. The lattice point's `dc = i·h + (anchor − reference)` rounds
+differently from the check render's (other centre), as two fresh renders centred differently
+do. Across references the escape counts differ as much as the session's own refined frame
+differs from a fresh render (0.2–55 % in dense views, the reference's float32 noise), so
+`verify` gates escape counts relative to that noise and class strictly (0.05 %). A one-texel
+position error shows as 5–6 % in a smooth view, a 0.1-texel one as 2 % (tested 2026-10-15).
+
+Measured (M1 Pro, release, 2026-10-15; [[synthesis/benchmarks]] "Sample cache"):
+
+- **Iterations per gesture frame**, against fresh previews: shallow −56 % at 1600 × 1000 and
+  −92 % at 3456 × 2160; 1e-14 −55 % and −92 %. In the 1e-19 dense spiral −99.9 %, but the
+  cache then fills only ~40 texels a frame.
+- **GPU iterate time per frame**: 1–2 ms instead of 4–11 ms.
+- **Frame rate** (120 Hz refreshes at Retina size): shallow 106 vs 74 fps, spiral 110 vs
+  13 fps. At 1600 × 1000 (60 Hz) equal, except the spiral: 58 vs 11 fps.
+- **Bookkeeping** (CPU planning and encoding, maintenance passes): 0.1–0.4 ms per frame,
+  with single-frame CPU spikes to 3–9 ms on the loaded machine.
+- **Colour passes**: shade 0.03–0.9 ms. The compose pass costs ~1 ms more than FL's preview
+  colour plus compose at Retina size (3.0–3.1 vs 2.1 ms), and the same at 1600 × 1000.
+
 ## Pitfalls
 
 - **Use a reconstruction filter, never the nearest sample.** A sample replaced under a pixel
@@ -120,3 +216,15 @@ before the iteration savings turn into GPU time savings.
   any limit growth.
 - **Sparse samples.** On a starved budget the cache is grainy where FL is blurry. Fill gaps
   from the reprojected output (hybrid).
+- **Superseded jobs waste batches.** Every gesture frame is a new job, so a batch split into
+  budgeted chunks was dropped after its first chunk, and the same tiles were planned again
+  forever (1e-305 needle: 9 ms GPU per frame, little progress). Batches carry over.
+- **Throughput is not latency.** A batch of cheap tiles plus a few pixels running to a
+  200 000 limit took 0.3–1.1 s (needle, deep kernel without SA seeds), although its total
+  work fitted the budget. The planner bounds the slowest pixel too.
+- **Biased statistics.** Interior-test and cost statistics from the computed tiles alone
+  turned the interior test off after a pan; use the whole cached view.
+- **Integer division in per-pixel code.** Wrapping texel indices with `%` cost about 0.5 ms
+  of the compose pass at Retina size; a conditional subtraction does it.
+- **Apple GPUs overlap command buffers.** A compose next to a 20 ms chunk reports 20 ms GPU
+  time. Pass costs need `ALMONDBREAD_SERIAL_COMPOSE=1`.

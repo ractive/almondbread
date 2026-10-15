@@ -136,7 +136,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured
 - [[techniques/rebasing]] — Zhuoran's rebase rule (|Z+z| < |z| or reference exhausted → z = Z+z, m = 0); one reference per critical point/phase; float32 pitfalls
-- [[techniques/sample-reuse]] — reuse samples while zooming/panning: XaoS row/column approximation, exact-position sample cache in fractal coordinates, re-shading, density policies, the cache check (R4)
+- [[techniques/sample-reuse]] — reuse samples while zooming/panning: XaoS row/column approximation, exact-position sample cache (R4), and the production cache as built: plane-fixed lattice in a toroidal tile window, GPU clear/resample/shade, per-tile planning, carry-over batches, the cache check
 - [[techniques/reference-orbit-precision]] — bits vs zoom rule, cost per iteration, MT3 threading, GPU NTT verdict, storage, Imagina orbit compression; our implementation and measured error growth
 - [[techniques/reference-selection]] — view centre vs nucleus; atom domain, box and ball period detection, Newton for the nucleus; Misiurewicz; measured period/Newton behaviour
 - [[techniques/series-approximation]] — SA recurrences, probe points, why BLA replaced it, Very Plotter SA-vs-BLA table, nanoMB (legacy)
@@ -220,4 +220,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
 - [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use
 - [[synthesis/fractal-palettes]] — palette research and the 67-palette library: findings, licence table, what was dropped after the contact sheets, integration API
-- [[synthesis/motion-sample-reuse]] — R4: fewer iterations per gesture frame: sample cache vs FL vs MetalFX on five flights, how many iterations can go (2–50 %), bookkeeping cost, integration design, risks
+- [[synthesis/motion-sample-reuse]] — R4: fewer iterations per gesture frame: sample cache vs FL vs MetalFX on five flights, how many iterations can go (2–50 %), bookkeeping cost, integration design, risks; production as built (bookkeeping 0.1–0.6 ms, 55–92 % fewer iterations)

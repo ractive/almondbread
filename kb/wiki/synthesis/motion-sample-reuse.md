@@ -303,6 +303,41 @@ each scenario and in `verify --history`.
 - **The simulator is not the app**: CPU port of the compose, deterministic budget model,
   960 × 540 / 1280 × 720, fixed limits, no extension passes; GPU numbers from synthetic content.
 
+## Production (as built, 2026-10-15)
+
+The cache was built ([[techniques/sample-reuse]] "As built"), but not as designed above. The
+design's per-pixel cells with K free samples and a move pass are O(pixels), and the
+bookkeeping cost was the risk. The build keeps samples on a **lattice fixed in the plane**,
+held as a **toroidal window** of 16 × 16 tiles:
+
+- A pan clears and computes only the entering tiles.
+- A zoom switches the lattice level and copies the coinciding samples in one GPU pass.
+- Planning is per tile on the CPU, and the iterate kernel runs a tile list (`wrap` is its
+  only kernel change).
+- Reconstruction is the FL compose pass with the lattice as its new samples.
+
+Measured ([[synthesis/benchmarks]] "Sample cache"): bookkeeping is 0.1–0.6 ms per frame,
+within the 1.5 ms budget. Iterations per gesture frame fall by 55–56 % at 1600 × 1000 (at up
+to √2 × the preview resolution) and by 92 % at Retina size. Iterate GPU falls by 4–8 ms per
+frame.
+
+Departures from the plan:
+
+- **No AA in motion.** One sample per lattice point; the history accumulates as in FL.
+- **Deep dense views remain the open case.** In the 1e-19 spiral the cache keeps 58–110 fps
+  where fresh previews manage 11–13, but it fills only ~40 texels a frame.
+- **LA views use fresh previews.** In views whose refined frame uses LA (M6) the cache tiles
+  lose to SA-seeded LA previews (~100× the loop steps per sample), so gestures there do not
+  use the cache.
+- **The compose pass is ~1 ms dearer at Retina size**, so the cache's total colour-side cost
+  there is 1.2–1.5 ms per frame.
+
+Open:
+
+- Local SA seeds for cache tiles.
+- Coverage of newly exposed areas in heavy views (a coarse level under the fine one).
+- A cheaper compose at Retina size.
+
 ## Related
 
 [[techniques/sample-reuse]], [[techniques/frame-reuse-and-progressive]],
