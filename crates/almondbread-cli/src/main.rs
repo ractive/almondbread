@@ -9,6 +9,7 @@
 //! almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--ppp p] [--pointer x,y] [--then f]
 //! almondbread bench [--sizes 3456x2234,1600x1000] [--only a,b] [--repeat n] [--out dir]
 //! almondbread regress
+//! almondbread precision --location sea-8007 [--shifts 0.001,0.01,0.1] [--out dir/name]
 //! almondbread palettes --out dir [--views seahorse,antenna] [--import a.ugr,b.map] [--list 1]
 //! almondbread fly --script flight.json [--out review/x.mp4] [--fps 60] [--size 1920x1080] [--converged 1]
 //! almondbread places [--format text|tsv|landscape] [--render-thumbs dir [--only a,b]]
@@ -26,11 +27,12 @@ mod fly;
 mod options;
 mod palettes;
 mod places;
+mod precision;
 
 use options::Options;
 
 const USAGE: &str =
-    "usage: almondbread render|verify|bench|regress|fly|places|locate|journey|palettes [--key value ...]";
+    "usage: almondbread render|verify|precision|bench|regress|fly|places|locate|journey|palettes [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -68,6 +70,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "locate" => commands::locate_command(o),
         "journey" => commands::journey_command(&backend, o),
         "places" => places::places_command(&backend, o),
+        "precision" => precision::precision_command(&backend, o),
         _ => options::err(USAGE),
     })
 }

@@ -174,6 +174,18 @@ interior pixels, many iterations each) and 2 % of the pixels, the disc of slow e
 painted interior (`verify --history pan`). The test now stays on while ≥ 0.1 % of the last
 level's pixels ended unresolved (`UNRESOLVED_KEEPS_TEST`).
 
+**Learned state does not survive a jump** (M5, found by the flight benchmark): after a dive at
+c = i (1e−280) and a jump to the spiral, the dendrite's statistics (no interior, so the
+interior test off) drew the spiral's unresolved disc interior, and the learner could not
+retry without the test: an all-black settled frame in 2 of 3 runs, 0.6 % class difference
+from a fresh render in the third. Now a view change that is not continuous (scale ratio ≥ 8
+or the centre two view widths away, between consecutive refreshes) resets the learned limit,
+the pin, the interior-test statistics and the local-SA gate's cost estimate; and a view where
+a quarter reached the limit without the test renders again with it (a retry epoch in the job
+key, also when the limit cannot grow). `verify --history` checks the settled frame against a
+from-scratch render (own auto iterations, no learned state), and `make regress` runs the
+dive-then-jump path (`--prior 0,1,1e-280 --prior-speed 40 --prior-seconds 0.8`).
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,

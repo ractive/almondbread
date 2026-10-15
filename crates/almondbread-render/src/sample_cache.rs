@@ -333,6 +333,10 @@ impl<B: GpuBackend> SampleCache<B> {
         self.epoch = None;
         self.batches.clear();
         self.prev_view = None;
+        self.view_stats = None;
+        self.shade_key = None;
+        self.cost = 0.0;
+        self.demand = 0.0;
     }
 
     fn pipelines(&mut self, backend: &B) -> Result<[B::Pipeline; 4], GpuError> {

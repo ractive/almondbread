@@ -16,12 +16,14 @@ use objc2_foundation::NSString;
 use objc2_metal::{
     MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
     MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType,
-    MTLDevice, MTLDrawable, MTLFunctionConstantValues, MTLLanguageVersion, MTLLibrary, MTLOrigin, MTLPixelFormat,
-    MTLRegion, MTLResource, MTLResourceOptions, MTLSize, MTLStorageMode, MTLTexture, MTLTextureDescriptor,
-    MTLTextureUsage,
+    MTLDevice, MTLDrawable, MTLFunctionConstantValues, MTLLanguageVersion, MTLLibrary, MTLMathMode, MTLOrigin,
+    MTLPixelFormat, MTLRegion, MTLResource, MTLResourceOptions, MTLSize, MTLStorageMode, MTLTexture,
+    MTLTextureDescriptor, MTLTextureUsage,
 };
 
-use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
+use crate::backend::{
+    ComputeEncoder, GpuBackend, GpuError, MathMode, Storage, Submission, SubmissionStatus, TextureFormat,
+};
 
 // MTLCreateSystemDefaultDevice needs CoreGraphics linked.
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -405,6 +407,44 @@ impl GpuBackend for MetalBackend {
             pipeline.threadExecutionWidth(),
             pipeline.maxTotalThreadsPerThreadgroup(),
         )
+    }
+
+    fn library_pipelines(
+        &self,
+        source: &str,
+        functions: &[&str],
+        math: MathMode,
+    ) -> Result<Vec<MetalPipeline>, GpuError> {
+        use objc2::runtime::NSObjectProtocol;
+        autoreleasepool(|_| {
+            let options = MTLCompileOptions::new();
+            options.setLanguageVersion(MTLLanguageVersion::Version3_0);
+            // `mathMode` (macOS 15 / iOS 18) where available, else the deprecated switch.
+            if options.respondsToSelector(objc2::sel!(setMathMode:)) {
+                options.setMathMode(match math {
+                    MathMode::Safe => MTLMathMode::Safe,
+                    MathMode::Fast => MTLMathMode::Fast,
+                });
+            } else {
+                #[allow(deprecated)]
+                options.setFastMathEnabled(math == MathMode::Fast);
+            }
+            let library = self
+                .device
+                .newLibraryWithSource_options_error(&NSString::from_str(source), Some(&options))
+                .map_err(|e| GpuError(format!("library compile failed: {}", e.localizedDescription())))?;
+            functions
+                .iter()
+                .map(|name| {
+                    let f = library
+                        .newFunctionWithName(&NSString::from_str(name))
+                        .ok_or_else(|| GpuError(format!("kernel {name} missing")))?;
+                    self.device
+                        .newComputePipelineStateWithFunction_error(&f)
+                        .map_err(|e| GpuError(format!("pipeline {name}: {}", e.localizedDescription())))
+                })
+                .collect()
+        })
     }
 
     fn begin(&self, label: &str) -> Result<MetalEncoder, GpuError> {

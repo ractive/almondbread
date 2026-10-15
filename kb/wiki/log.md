@@ -534,3 +534,33 @@ sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e3
 where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
 Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
 [[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
+
+## [2026-10-15] decision | M5 fix: learned state across jumps
+
+The flight benchmark found the spiral settling black after a dive at c = i (1e-280): the
+old view's interior-test statistics turned the test off and the learner could not retry
+without it. Jumps now reset the learned iteration and gate state; a view at the limit without
+the test renders again with it; `verify --history` checks against a from-scratch render; a
+regress session runs the path. Page: [[techniques/auto-iterations]].
+
+## [2026-10-15] decision | M7: float32 artefacts measured (none visible); float-float as scaffolding
+
+Step 1 of M7 asked whether float32 rounding artefacts exist at all. New probe `almondbread
+precision`: the float32 GPU field against the CPU oracle next to control oracles with the pixel
+grid shifted by 0.001–0.5 px, one CPU colouring for both, signed error maps and crops. At 23 views
+from 3e-7 to 4e-1003 per pixel (catalogue minibrots and spirals, sea-8007 at 1e5 iterations, the
+period-32412 spiral, a needle minibrot at 1e1000 with 1e6 iterations) the float32 error is within
+a 0.001-px shift at 17, 0.01 px at 5 and 0.1–0.2 px at spiral-1e1000; crops show no speckle, and
+the smooth-region error at the deep spirals is smooth and coherent (|Δμ| ≤ 0.022), not noise.
+Float-float (48 bits) and the f64 oracle still disagree on 6 % at the period-32412 spiral: chaotic
+pixels have no stable value. So no repair pass, flagging or "max precision" setting was built.
+Built instead, at zero runtime cost: the float-float + exponent kernels in their own library
+compiled with `MTLMathMode.safe` through a new backend hook, a known-answer test that the
+creation runs (passes under `.safe`; under `.fast` TwoSum and QuickTwoSum lose their low parts)
+with float32 as the fallback, a pixel-list fx perturbation kernel at any depth used by
+`verify --ff 1` / `precision --ff 1` (30–3000× closer to the oracle than float32), and number-type
+benchmarks (float-float 7–12×, fx 27–52× slower than float32). `bench` A/B against main: geomean
+1.014 under load, fields bit-identical. Pages: [[questions/float32-error-long-orbits]] (answered),
+[[questions/double-float-speed-on-m1]] (answered), [[questions/metal-fast-math-defaults]]
+(partial), [[techniques/double-float]] (As built), [[synthesis/benchmarks]] (M7), [[roadmap]]
+(M7), [[overview]], [[index]].
