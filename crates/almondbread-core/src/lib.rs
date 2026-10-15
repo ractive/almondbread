@@ -22,6 +22,8 @@ pub mod locations;
 pub mod oracle;
 pub mod orbit;
 pub mod palette;
+pub mod palette_import;
+pub mod palette_library;
 pub mod places;
 pub mod reference;
 pub mod settings;

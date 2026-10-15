@@ -430,3 +430,17 @@ User request: a list of well-known places to visit. Sources ingested:
 whole set to 1e-1000), each thumbnail rendered and looked at, deep ones verified against
 the CPU oracle (class mismatch 0 %). Pages: [[synthesis/places]], [[techniques/reference-selection]]
 (Misiurewicz Newton), [[roadmap]] P1, [[index]].
+## [2026-10-15] research | Fractal palettes and the palette library
+
+Research run on fractal palette design (fractalset.com viewer, Ultra Fractal
+gradients and `.ugr`, Fractint `.map`, KF palettes, cosine palettes, open
+perceptual maps and their licences, OKLab interpolation, cyclic maps, density
+mapping, dense regions, CVD safety). Notes saved unchanged under
+`raw/research/fractal-palettes/` (9 files, manifest entries added). Pages:
+[[techniques/palette-design]], [[synthesis/fractal-palettes]], and 12 source
+pages (fractalset-viewer, ultrafractal-gradients-help, fractint-map-format,
+kovesi-good-colour-maps, colorcet, crameri-scientific-colour-maps,
+bids-viridis-colormaps, cmocean, turbo-colormap, cividis-paper,
+quilez-cosine-palettes, ottosson-oklab); [[index]] updated. Built: the
+67-palette library (`almondbread-core` `palette_library`, `palette_import`)
+and `almondbread palettes` contact sheets.

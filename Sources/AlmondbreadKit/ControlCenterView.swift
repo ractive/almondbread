@@ -1,5 +1,6 @@
 import AlmondbreadCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The control center: every per-window setting in grouped, searchable sections (kb:
 /// decisions/controls, "Control center"). A trailing sidebar on the Mac and iPad (toolbar
@@ -579,13 +580,25 @@ struct PlaceThumbnail: View {
     }
 }
 
-/// The palette picker: swatches of the built-in palettes in a grid (separate from the look,
-/// which is a colouring preset). Extension point for a palette library: `setCustomPalette`
-/// takes any palette as stops.
+/// The palette picker: the palette library's swatches in a grid by category (separate from
+/// the look, which is a colouring preset). Choosing one applies its recommended density,
+/// offset and deep colour; "Import palette…" reads .ugr / .map / JSON files into "My
+/// palettes" (kept across launches).
 struct PalettePicker: View {
     @Bindable var model: ExplorerModel
+    @AppStorage("palettes.category") private var category = ""
+    @State private var importing = false
+    @State private var importNote: String?
 
     private let columns = [GridItem(.adaptive(minimum: 64), spacing: 6)]
+
+    private var categories: [(key: String, label: String)] {
+        var seen: [(key: String, label: String)] = []
+        for p in model.library where !seen.contains(where: { $0.key == p.category }) {
+            seen.append((p.category, p.categoryLabel))
+        }
+        return seen
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -594,21 +607,53 @@ struct PalettePicker: View {
                 Spacer()
                 Text(model.palette.name).foregroundStyle(.secondary)
             }
+            Picker("Category", selection: $category) {
+                Text("All (\(model.library.count))").tag("")
+                ForEach(categories, id: \.key) { c in Text(c.label).tag(c.key) }
+            }
+            .labelsHidden()
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(ExplorerModel.palettes, id: \.id) { p in
+                ForEach(model.library.filter { category.isEmpty || $0.category == category }, id: \.id) { p in
                     Button {
-                        model.paletteID = p.id
+                        model.applyPalette(p.id)
                     } label: {
-                        PaletteSwatch(palette: p)
+                        PaletteSwatch(palette: PaletteInfo(id: p.id, name: p.name, stops: p.stops))
                             .frame(height: 16)
                             .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
                                 .strokeBorder(model.paletteID == p.id ? Color.accentColor : .clear, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
-                    .help(p.name)
+                    .help("\(p.name) · \(p.categoryLabel)\(p.attribution.isEmpty ? "" : " · \(p.attribution)")")
                     .accessibilityLabel(p.name)
                     .accessibilityAddTraits(model.paletteID == p.id ? .isSelected : [])
                 }
+            }
+            HStack {
+                Button {
+                    importing = true
+                } label: {
+                    Label("Import palette…", systemImage: "square.and.arrow.down")
+                }
+                .help("Ultra Fractal .ugr, Fractint .map or almondbread JSON")
+                if let importNote {
+                    Text(importNote).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .json, .plainText],
+                      allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls):
+                var n = 0
+                var failures: [String] = []
+                for url in urls {
+                    do { n += try model.importPalettes(from: url) } catch { failures.append("\(error)") }
+                }
+                importNote = failures.isEmpty ? "Imported \(n) palette\(n == 1 ? "" : "s") into My palettes"
+                    : "Imported \(n); failed: \(failures.joined(separator: "; "))"
+                if n > 0 { category = "user" }
+            case .failure(let e):
+                importNote = "\(e.localizedDescription)"
             }
         }
     }

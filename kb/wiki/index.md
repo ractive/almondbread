@@ -22,16 +22,23 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
 - [[sources/beyer-mandelbrot-zoom-sequence]] — Wolfgang Beyer's 15-image Commons zoom into seahorse valley (2005): centre and width of each view, to 6e10 (digested)
+- [[sources/bids-viridis-colormaps]] — viridis, magma, inferno, plasma colour maps (CC0); 256-entry data (digested)
 - [[sources/cheritat-mandelbrot-rendering]] — Rendering-techniques page by Arnaud Chéritat, a complex-dynamics mathematician (Toulouse), on "Techniques for computer generated pictures in... (digested)
+- [[sources/cividis-paper]] — cividis (PLOS ONE 2018): CVD-optimised blue-yellow map; article CC0, data Battelle BSD-style (digested)
+- [[sources/cmocean]] — cmocean oceanography colour maps (MIT), incl. cyclic phase (digested)
+- [[sources/colorcet]] — Kovesi's CET colour maps (CC BY 4.0): linear, cyclic, colour-blind sets (digested)
+- [[sources/crameri-scientific-colour-maps]] — Crameri Scientific colour maps v8 (MIT): batlow, cyclic romaO/vikO/bamO, ... (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
 - [[sources/fractal-block-world-steam]] — Steam page and reviews of Fractal Block World: 1,652 reviews, 98% positive, 50k–100k owners; the only fractal game with traction (skimmed)
 - [[sources/fractal-dive-app-store]] — App Store listing of Fractal Dive (2026-09): perturbation to 4e331, Dive autopilot, free links, $1.99 Pro with 4K dive video; closest competitor (skimmed)
 - [[sources/fractalforums-interior-detection]] — Archived single-page thread started by GBy (fractalshades author) on 25 June 2022: interior detection via the derivative `dz/dZ_1` combined with... (digested)
 - [[sources/fractalforums-mandel-machine]] — Legacy fractalforums.com board for Mandel Machine, a closed-source freeware deep-zoom Mandelbrot renderer by Botond Kósa. (unread)
 - [[sources/fractalforums-zhuoran-rebasing-bla]] — Archived forum thread where Zhuoran (later author of Imagina) posted the rebasing idea on 3 Aug 2021. (digested)
+- [[sources/fractalset-viewer]] — fractalset.com viewer: 24 palettes, log density 2^(d/10), sine ping-pong mapping (proprietary, described only) (digested)
 - [[sources/fractalshades-readme]] — The README of Fractalshades (GitHub `GBillotey/Fractalshades`, MIT, pushed 2026-08-30), a Python package for deep-zoom fractal rendering with a... (digested)
 - [[sources/fractalshark-readme]] — The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, pushed 2026-10-12): a Mandelbrot-only deep-zoom renderer for NVIDIA... (digested)
 - [[sources/fractalzoomer-readme]] — The short README of Fractal Zoomer (GitHub `hrkalona/Fractal-Zoomer`, GPL-3.0, pushed 2026-10-13), a Java fractal program with hundreds of formulas. (digested)
+- [[sources/fractint-map-format]] — Fractint .map format: up to 256 `R G B` lines, comments after the triplet; bundled maps not free (digested)
 - [[sources/fractint-passes-help]] — Fractint/Xfractint help on drawing passes: solid guessing, boundary tracing, tesseral (Mariani–Silver) and their failure modes (digested)
 - [[sources/fraktaler-3-site]] — The manual of Fraktaler 3 version 3.1 (2025-12-15): a cross-platform (Linux, Windows, Android, Web) renderer for "fast deep zooming of hybrid... (digested)
 - [[sources/frax-app-store]] — App Store listing and reviews of Frax: free + $4.99 Pro, 232 US ratings, ~2e14 cap, complaints about depth, video and gyroscope (skimmed)
@@ -46,6 +53,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
 - [[sources/kopf-2007-joint-bilateral-upsampling]] — Kopf et al. 2007: upsample a low-resolution solution with a full-resolution guide image; needs a cheap guide whose edges match (digested)
+- [[sources/kovesi-good-colour-maps]] — Kovesi 2015: lightness carries detail; recipes for vivid cyclic maps (digested)
 - [[sources/luma-gl-gpu-precision]] — A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than f32 precision on GPUs: double-single (float-float),... (digested)
 - [[sources/mandelbrot-metal-app-store]] — App Store listing of Mandelbrot Metal: GPU perturbation, progressive, subscription since v3.0 ($2.99/mo, $19.99/yr, $39.99 lifetime) (skimmed)
 - [[sources/mandelbrot-site]] — How mandelbrot.site was built: Rust/Wasm tiles, perturbation, share links, PNG with params, video recording (skimmed)
@@ -65,7 +73,9 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/muency-floatexp]] — Very short glossary entry (2023-06-21) defining the floatexp number format. (digested)
 - [[sources/muency-named-places]] — Mu-Ency feature entries and favourite views with coordinates: valleys, medallions, embedded Julia sets, to 1.5e-27 (digested)
 - [[sources/muency-newton-raphson]] — Glossary entry (written 2010, updated 2023-06-22) on Newton's method and its use to find the nucleus of a mu-atom (hyperbolic component) of known... (digested)
+- [[sources/ottosson-oklab]] — OKLab/OKLCH definition; why OKLab gradients beat sRGB/HSV lerp (digested)
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
+- [[sources/quilez-cosine-palettes]] — cosine palettes a + b cos(2π(ct + d)); mean = a; integer c is seamless (digested)
 - [[sources/quilez-smooth-iteration]] — Short article by Inigo Quilez deriving the smooth (continuous) iteration count for polynomial fractals of any integer degree `d`, with a GLSL... (digested)
 - [[sources/revenuecat-subscription-apps-2026]] — RevenueCat 2026 benchmarks: hard paywall 10.7% vs freemium 2.1% conversion, 72% annual churn (skimmed)
 - [[sources/robotmoon-mandelbrot-set]] — Robot Moon's illustrated explorer page: named regions with coordinates and spans, deep galleries to 1e-111 (digested)
@@ -77,7 +87,9 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/steamworks-steam-deck-compat]] — Steam Deck compatibility criteria: controller defaults, 9 px text at 1280×800, 30 fps, native Linux tested before Proton (skimmed)
 - [[sources/swift-mandelbrot-readme]] — The README of a SwiftUI + Metal Mandelbrot explorer for iPhone, iPad and Mac. (digested)
 - [[sources/thall-extended-precision]] — Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, expanding a SIGGRAPH 2006 poster. (digested)
+- [[sources/turbo-colormap]] — Google Turbo rainbow (Apache-2.0) (digested)
 - [[sources/ultrafractal-antialiasing]] — Ultra Fractal help on anti-aliasing (adaptive threshold, depth) and guessing vs linear drawing (digested)
+- [[sources/ultrafractal-gradients-help]] — UF gradients: 400-entry wrapping ring, density/transfer/offset order, .ugr syntax (COLORREF colours) (digested)
 - [[sources/ultrafractal-perturbation-calculations]] — A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal program) on how its perturbation mode works and how to tune it. (digested)
 - [[sources/ultrafractal-perturbation-equations]] — The Ultra Fractal formula-writer's guide to deriving a perturbed formula and adding it to a user formula, using Mandelbrot as the worked example. (digested)
 - [[sources/uniffi-user-guide]] — Mozilla's guide to UniFFI: proc-macro interfaces, objects/records/errors, library-mode bindgen, Swift output and XCFramework packaging (skimmed)
@@ -111,6 +123,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
 - [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
 - [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3: 5.2× fewer iterations at the dense view (CPU), same image statistics
+- [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/rebasing]] — Zhuoran's rebase rule (|Z+z| < |z| or reference exhausted → z = Z+z, m = 0); one reference per critical point/phase; float32 pitfalls
 - [[techniques/reference-orbit-precision]] — bits vs zoom rule, cost per iteration, MT3 threading, GPU NTT verdict, storage, Imagina orbit compression; our implementation and measured error growth
@@ -191,3 +204,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
 - [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use
+- [[synthesis/fractal-palettes]] — palette research and the 67-palette library: findings, licence table, what was dropped after the contact sheets, integration API

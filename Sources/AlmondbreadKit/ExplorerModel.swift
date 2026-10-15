@@ -280,6 +280,9 @@ public final class ExplorerModel {
     public internal(set) var failure: String?
 
     public static let palettes: [PaletteInfo] = AlmondbreadCore.palettes()
+    /// The palette library (built-in by category, then imported ones; refreshed on import).
+    public private(set) var library: [LibraryPaletteInfo] = AlmondbreadCore.paletteLibrary()
+    static let userPalettesKey = "almondbread.userPalettes.v1"
     public static let looks: [LookInfo] = AlmondbreadCore.looks()
 
     @ObservationIgnored private(set) var explorer: Explorer?
@@ -297,6 +300,7 @@ public final class ExplorerModel {
         self.host = host
         explorer.setEdgePan(mode: edgePanning.ffi)
         explorer.setAutopilotAssist(on: autopilotAssist)
+        if !TestLaunch.enabled { restoreUserPalettes() }
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
         pushOverlay()
@@ -636,6 +640,43 @@ public final class ExplorerModel {
     public var zoomFactorPerSecond: Double { exp(stats?.zoomSpeed ?? 1.6) }
 
     public var palette: PaletteInfo {
-        Self.palettes.first { $0.id == paletteID } ?? Self.palettes[0]
+        if let p = Self.palettes.first(where: { $0.id == paletteID }) { return p }
+        if let l = library.first(where: { $0.id == paletteID }) {
+            return PaletteInfo(id: l.id, name: l.name, stops: l.stops)
+        }
+        return Self.palettes[0]
+    }
+
+    // MARK: Palette library (kb: techniques/palette-design)
+
+    /// Applies a library palette with its recommended mapping and deep colour.
+    public func applyPalette(_ id: String) {
+        guard let explorer else { return }
+        pull(explorer.applyPalette(id: id))
+        host?.requestFrames()
+        save()
+    }
+
+    /// Imports palette files (.ugr, .map, almondbread JSON): registers them in Rust, keeps
+    /// their JSON in user defaults (registered again at launch) and returns how many came in.
+    public func importPalettes(from url: URL) throws -> Int {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url)
+        let text = String(decoding: data, as: UTF8.self)
+        let jsons = try AlmondbreadCore.importPalettes(text: text, fileName: url.lastPathComponent)
+        var saved = UserDefaults.standard.stringArray(forKey: Self.userPalettesKey) ?? []
+        saved.append(contentsOf: jsons)
+        UserDefaults.standard.set(saved, forKey: Self.userPalettesKey)
+        library = AlmondbreadCore.paletteLibrary()
+        return jsons.count
+    }
+
+    /// Registers the palettes imported in earlier sessions.
+    private func restoreUserPalettes() {
+        for json in UserDefaults.standard.stringArray(forKey: Self.userPalettesKey) ?? [] {
+            _ = try? AlmondbreadCore.registerPaletteJson(json: json)
+        }
+        library = AlmondbreadCore.paletteLibrary()
     }
 }

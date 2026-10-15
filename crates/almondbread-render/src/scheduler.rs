@@ -2966,7 +2966,20 @@ impl<B: GpuBackend> Renderer<B> {
         {
             return (*d, *f);
         }
-        let (d, f) = almondbread_core::palette::dense_colors(&self.settings.palette_table(256));
+        let (mut d, f) = almondbread_core::palette::dense_colors(&self.settings.palette_table(256));
+        // A library palette carries its designed deep colour: keep its hue, at the calm
+        // luminance (the library's deep is near black; interior and unresolved pixels must stay
+        // distinguishable from dense regions).
+        if self.settings.palette_stops.is_none()
+            && let Some(lib) = almondbread_core::palette_library::find(&self.settings.palette_id)
+        {
+            let c = lib.deep_linear();
+            let lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+            if lum > 1e-5 {
+                let k = 0.012 / lum;
+                d = [(c[0] * k).min(1.0), (c[1] * k).min(1.0), (c[2] * k).min(1.0)];
+            }
+        }
         *cache = Some((key, d, f));
         (d, f)
     }

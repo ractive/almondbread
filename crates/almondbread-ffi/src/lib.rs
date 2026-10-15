@@ -97,6 +97,89 @@ pub fn palettes() -> Vec<PaletteInfo> {
         .collect()
 }
 
+/// A palette of the palette library (kb: techniques/palette-design): built-in ones by
+/// category, then the user's imported ones (category "user").
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct LibraryPaletteInfo {
+    pub id: String,
+    pub name: String,
+    /// Category key ("classic", "natural", ..., "user") and its label.
+    pub category: String,
+    pub category_label: String,
+    /// 24 even sRGB samples of the gradient, as `PaletteInfo.stops`.
+    pub stops: Vec<PaletteStop>,
+    /// Interior / dense-region colour, sRGB hex.
+    pub deep: u32,
+    pub attribution: String,
+    pub license: String,
+}
+
+impl From<&almondbread_core::palette_library::LibraryPalette> for LibraryPaletteInfo {
+    fn from(p: &almondbread_core::palette_library::LibraryPalette) -> Self {
+        let samples = p.swatch(24);
+        Self {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            category: p.category.key().into(),
+            category_label: p.category.label().into(),
+            stops: samples
+                .iter()
+                .enumerate()
+                .map(|(i, &rgb)| PaletteStop {
+                    position: i as f64 / samples.len() as f64,
+                    rgb,
+                })
+                .collect(),
+            deep: p.deep,
+            attribution: p.attribution.clone(),
+            license: p.license.clone(),
+        }
+    }
+}
+
+/// The palette library, in menu order (built-in by category, then user palettes).
+#[uniffi::export]
+pub fn palette_library() -> Vec<LibraryPaletteInfo> {
+    almondbread_core::palette_library::all()
+        .into_iter()
+        .map(LibraryPaletteInfo::from)
+        .collect()
+}
+
+/// Parses palette files (`.ugr` Ultra Fractal gradients, `.map` Fractint maps, almondbread
+/// JSON) and registers them as user palettes. `file_name` picks the format by extension.
+/// Returns each registered palette as JSON (the app persists these and registers them again
+/// at launch with `register_palette_json`).
+#[uniffi::export]
+pub fn import_palettes(text: String, file_name: String) -> Result<Vec<String>, CoreError> {
+    use almondbread_core::palette_import::{parse_map, parse_ugr};
+    use almondbread_core::palette_library::{parse_json, register_user};
+    let lower = file_name.to_lowercase();
+    let stem = std::path::Path::new(&file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "imported".into());
+    let parsed = if lower.ends_with(".ugr") {
+        parse_ugr(&text)
+    } else if lower.ends_with(".map") {
+        parse_map(&text, &stem).map(|p| vec![p])
+    } else {
+        parse_json(&text)
+    }
+    .map_err(|e| invalid(format!("{file_name}: {e}")))?;
+    if parsed.is_empty() {
+        return Err(invalid(format!("{file_name}: no palette found")));
+    }
+    Ok(parsed.into_iter().map(|p| register_user(p).to_json()).collect())
+}
+
+/// Registers a user palette saved as JSON (from `import_palettes`); returns its id.
+#[uniffi::export]
+pub fn register_palette_json(json: String) -> Result<String, CoreError> {
+    let p = almondbread_core::palette_library::LibraryPalette::from_json(&json).map_err(|e| invalid(e.to_string()))?;
+    Ok(almondbread_core::palette_library::register_user(p).id.clone())
+}
+
 /// A look (palette plus colouring) as the inspector lists it.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct LookInfo {

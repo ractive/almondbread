@@ -1044,6 +1044,22 @@ impl Explorer {
         Ok(())
     }
 
+    /// Applies a library palette with its recommended mapping (density, offset, log) and deep
+    /// colour as interior and outline colour; the look's lighting stays. Returns the new
+    /// settings. Unknown ids change nothing.
+    pub fn apply_palette(&self, id: String) -> ExplorerSettings {
+        let mut g = self.lock();
+        let s = &mut g.host.renderer.settings;
+        if let Some(p) = almondbread_core::palette_library::find(&id) {
+            p.apply(s);
+            s.palette_stops = None;
+        } else if almondbread_core::palette::Palette::all().iter().any(|p| p.id == id) {
+            s.palette_id = id;
+            s.palette_stops = None;
+        }
+        ExplorerSettings::from(&*s)
+    }
+
     /// Uses a palette given as stops (an imported or custom one, e.g. from a palette
     /// library) instead of the built-in `palette_id`; empty: back to the built-in one.
     pub fn set_custom_palette(&self, stops: Vec<crate::PaletteStop>) {

@@ -1,0 +1,226 @@
+{
+ "almondbread_palettes": 1,
+ "comment": "Palettes designed for almondbread (own work, CC0-1.0). Stops are sRGB hex or CSS oklch(L C H); without 'at' they are evenly spaced. Cyclic palettes wrap from the last stop to the first; the others are mirrored. Design rules: kb techniques/palette-design.",
+ "palettes": [
+  {
+   "id": "royal-gold", "name": "Royal Gold", "category": "classic",
+   "stops": ["#050A30", "#1B3A8C", "#6FA8DC", "#F5F0DC", "#E8B730", "#8C4A0F", "#2A1205"],
+   "density": 0.025, "deep": "#020410"
+  },
+  {
+   "id": "seahorse", "name": "Seahorse", "category": "classic",
+   "stops": ["#0B0603", "#3D1F0A", "#9C5B1E", "#E8B864", "#FFF3D6", "#B07A3A", "#4A2A10"],
+   "density": 0.025, "deep": "#050201"
+  },
+  {
+   "id": "electric-blue", "name": "Electric Blue", "category": "classic",
+   "stops": ["#000000", "#03104A", "#0A3FBF", "#3FA9FF", "#E6FAFF", "#5AC8FA", "#0A2A80"],
+   "density": 0.025, "deep": "#000000"
+  },
+  {
+   "id": "retro-ramps", "name": "Retro Ramps", "category": "classic",
+   "stops": [
+    {"at": 0.0, "color": "#000010"}, {"at": 0.17, "color": "#2850FF"}, {"at": 0.23, "color": "#C8F0FF"},
+    {"at": 0.25, "color": "#100000"}, {"at": 0.42, "color": "#FF3010"}, {"at": 0.48, "color": "#FFF0A0"},
+    {"at": 0.5, "color": "#001000"}, {"at": 0.67, "color": "#20C040"}, {"at": 0.73, "color": "#E0FFC0"},
+    {"at": 0.75, "color": "#100010"}, {"at": 0.92, "color": "#D030D0"}, {"at": 0.98, "color": "#FFD0FF"}
+   ],
+   "density": 0.02, "deep": "#000000"
+  },
+  {
+   "id": "sunset-beach", "name": "Sunset Beach", "category": "natural",
+   "stops": ["#0B1026", "#3B1E54", "#B83B5E", "#F08A4B", "#FCD581", "#FFF3D9", "#2A7F8F", "#0B3044"],
+   "density": 0.025, "deep": "#04060F"
+  },
+  {
+   "id": "autumn", "name": "Autumn", "category": "natural",
+   "stops": ["#120804", "#4A1406", "#9B2C0E", "#D9661E", "#F2B33D", "#F9E4A0", "#6F7A2A", "#2E3510"],
+   "density": 0.025, "deep": "#070302"
+  },
+  {
+   "id": "glacier", "name": "Glacier", "category": "natural",
+   "stops": ["#021018", "#0B3A4F", "#2B7A8C", "#8CCBD4", "#E8F7FA", "#A7C4D9", "#4C6A8C", "#1A2A44"],
+   "density": 0.025, "deep": "#01070C"
+  },
+  {
+   "id": "coral-reef", "name": "Coral Reef", "category": "natural",
+   "stops": ["#031A2A", "#075A73", "#12A3A0", "#8EE3C8", "#FFF1D6", "#FF9E80", "#E2566E", "#4A1A3A"],
+   "density": 0.025, "deep": "#010A12"
+  },
+  {
+   "id": "alpine", "name": "Alpine Meadow", "category": "natural",
+   "stops": ["#0A1405", "#2D4A12", "#6E9B2A", "#C6DD6E", "#FBF5C8", "#9CC8E8", "#3A6AA8", "#14284A"],
+   "density": 0.025, "deep": "#050A03"
+  },
+  {
+   "id": "deep-ocean", "name": "Deep Ocean", "category": "natural",
+   "stops": ["#000308", "#001A33", "#00406B", "#0A7A9A", "#4FC1C9", "#B8F0E6", "#1E5A7A", "#02142A"],
+   "density": 0.025, "deep": "#000104"
+  },
+  {
+   "id": "tundra", "name": "Tundra", "category": "natural",
+   "stops": ["#0E1012", "#2E3436", "#5E6B5A", "#9AAE7C", "#D9D6B8", "#B0A48C", "#6E5E4A", "#2A241E"],
+   "density": 0.025, "deep": "#060708"
+  },
+  {
+   "id": "desert-night", "name": "Desert Night", "category": "natural",
+   "stops": ["#050510", "#1A1638", "#4A3A6B", "#B88A6E", "#E8C49A", "#FFF0D8", "#7A5A8A", "#20183A"],
+   "density": 0.025, "deep": "#020208"
+  },
+  {
+   "id": "blaze", "name": "Blaze", "category": "fire-ice",
+   "stops": ["#000000", "#2A0000", "#7A0A00", "#D42A00", "#FF7A00", "#FFC94A", "#FFF8E0", "#FF9A2A", "#8A1A00", "#1A0000"],
+   "density": 0.02, "deep": "#000000"
+  },
+  {
+   "id": "lava", "name": "Lava", "category": "fire-ice",
+   "stops": ["#050000", "#3A0505", "#8A1505", "#E04A0A", "#FFB02A", "#FFE9A0", "#E04A0A", "#3A0505", "#140808", "#2A2A2A"],
+   "density": 0.02, "deep": "#030000"
+  },
+  {
+   "id": "frost", "name": "Frost", "category": "fire-ice",
+   "stops": ["#000814", "#0A2540", "#2A5F8A", "#6FA8D0", "#CFEAFA", "#FFFFFF", "#9AC8E8", "#2A4A70"],
+   "density": 0.02, "deep": "#00040A"
+  },
+  {
+   "id": "polar-night", "name": "Polar Night", "category": "fire-ice",
+   "stops": ["#01020A", "#0A1A3A", "#1A4A6A", "#3AA0A0", "#A0F0C0", "#F0FFF8", "#6080C0", "#20184A"],
+   "density": 0.025, "deep": "#000105"
+  },
+  {
+   "id": "fire-and-ice", "name": "Fire and Ice", "category": "fire-ice",
+   "stops": ["#000000", "#082A6A", "#3A9AE0", "#E8F8FF", "#FFC060", "#E04A00", "#3A0800"],
+   "density": 0.02, "deep": "#000000"
+  },
+  {
+   "id": "solar-flare", "name": "Solar Flare", "category": "fire-ice",
+   "stops": ["#0A0002", "#4A0010", "#B0102A", "#FF4A20", "#FFA040", "#FFF0A0", "#FF8060", "#A02060", "#2A0020"],
+   "density": 0.02, "deep": "#050001"
+  },
+  {
+   "id": "macaron", "name": "Macaron", "category": "pastel",
+   "stops": ["oklch(0.66 0.11 5)", "oklch(0.90 0.06 50)", "oklch(0.86 0.10 95)", "oklch(0.93 0.06 150)", "oklch(0.74 0.09 225)", "oklch(0.90 0.05 285)", "oklch(0.60 0.11 320)"],
+   "density": 0.02, "deep": "oklch(0.25 0.04 320)"
+  },
+  {
+   "id": "sorbet", "name": "Sorbet", "category": "pastel",
+   "stops": ["oklch(0.58 0.14 10)", "oklch(0.78 0.11 30)", "oklch(0.92 0.08 75)", "oklch(0.97 0.03 95)", "oklch(0.88 0.12 125)", "oklch(0.70 0.10 150)", "oklch(0.80 0.08 40)"],
+   "density": 0.02, "deep": "oklch(0.25 0.05 10)"
+  },
+  {
+   "id": "morning-mist", "name": "Morning Mist", "category": "pastel",
+   "stops": ["oklch(0.52 0.04 250)", "oklch(0.72 0.05 240)", "oklch(0.90 0.03 230)", "oklch(0.97 0.01 80)", "oklch(0.88 0.05 20)", "oklch(0.74 0.06 350)", "oklch(0.62 0.05 290)"],
+   "density": 0.02, "deep": "oklch(0.22 0.03 260)"
+  },
+  {
+   "id": "lavender-field", "name": "Lavender Field", "category": "pastel",
+   "stops": ["oklch(0.45 0.10 300)", "oklch(0.66 0.12 300)", "oklch(0.85 0.07 305)", "oklch(0.95 0.03 100)", "oklch(0.80 0.06 140)", "oklch(0.62 0.07 150)", "oklch(0.55 0.10 310)"],
+   "density": 0.02, "deep": "oklch(0.20 0.05 300)"
+  },
+  {
+   "id": "sea-glass", "name": "Sea Glass", "category": "pastel",
+   "stops": ["oklch(0.50 0.06 210)", "oklch(0.70 0.08 190)", "oklch(0.88 0.07 170)", "oklch(0.97 0.02 120)", "oklch(0.85 0.06 220)", "oklch(0.68 0.06 250)"],
+   "density": 0.02, "deep": "oklch(0.20 0.04 220)"
+  },
+  {
+   "id": "synthwave", "name": "Synthwave", "category": "neon",
+   "stops": ["#0B0221", "#2A0A5E", "#7A1FA2", "#FF2E97", "#FFB86B", "#FFF6A8", "#1A0B3A", "#2DE2E6", "#1A4ACF"],
+   "density": 0.02, "deep": "#05010F"
+  },
+  {
+   "id": "vaporwave", "name": "Vaporwave", "category": "neon",
+   "stops": ["#120A2A", "#FF71CE", "#3A1A6A", "#01CDFE", "#12243A", "#05FFA1", "#2A1A4A", "#B967FF", "#FFFB96"],
+   "density": 0.015, "deep": "#08041A"
+  },
+  {
+   "id": "cyberpunk", "name": "Cyberpunk", "category": "neon",
+   "stops": ["#000000", "#00F0FF", "#0A1A2A", "#FCEE0A", "#1A0A1A", "#FF003C"],
+   "density": 0.015, "deep": "#000000"
+  },
+  {
+   "id": "neon-tube", "name": "Neon Tube", "category": "neon",
+   "stops": ["oklch(0.12 0.04 300)", "oklch(0.62 0.27 330)", "oklch(0.95 0.06 330)", "oklch(0.62 0.27 330)", "oklch(0.12 0.04 260)", "oklch(0.78 0.15 195)", "oklch(0.97 0.04 195)", "oklch(0.78 0.15 195)"],
+   "density": 0.02, "deep": "oklch(0.08 0.03 300)"
+  },
+  {
+   "id": "miami", "name": "Miami", "category": "neon",
+   "stops": ["#071A2A", "#0BB4C4", "#9FF5EC", "#FFFFFF", "#FF9FCB", "#F2357A", "#FF8C42", "#2A0B2A"],
+   "density": 0.02, "deep": "#030B12"
+  },
+  {
+   "id": "laser", "name": "Laser", "category": "neon",
+   "stops": ["#000000", "#00FF41", "#002A08", "#00E5FF", "#000814", "#FF1744", "#2A0008"],
+   "density": 0.015, "deep": "#000000"
+  },
+  {
+   "id": "ink-wash", "name": "Ink Wash", "category": "monochrome", "cyclic": false,
+   "stops": ["#0A0A0C", "#2A2A30", "#5A5A60", "#A8A49C", "#F2EEE4"],
+   "density": 0.02, "deep": "#030304"
+  },
+  {
+   "id": "sepia", "name": "Sepia", "category": "monochrome", "cyclic": false,
+   "stops": ["#120A04", "#4A2E18", "#9A7048", "#D8BC94", "#F8EEDC"],
+   "density": 0.02, "deep": "#080402"
+  },
+  {
+   "id": "cyanotype", "name": "Cyanotype", "category": "monochrome", "cyclic": false,
+   "stops": ["#021024", "#0A3A6A", "#3A78B0", "#A8CCE8", "#F4F8FC"],
+   "density": 0.02, "deep": "#010814"
+  },
+  {
+   "id": "silver", "name": "Silver Gelatin", "category": "monochrome",
+   "stops": ["#000000", "#1E1E1E", "#5C5C5C", "#BDBDBD", "#FFFFFF", "#8A8A8A", "#2E2E2E"],
+   "density": 0.02, "deep": "#000000"
+  },
+  {
+   "id": "indigo-dye", "name": "Indigo Dye", "category": "monochrome", "cyclic": false,
+   "stops": ["#05060F", "#141A3A", "#2A3A7A", "#6A80C0", "#E6EAF5"],
+   "density": 0.02, "deep": "#020308"
+  },
+  {
+   "id": "oxblood", "name": "Oxblood", "category": "monochrome", "cyclic": false,
+   "stops": ["#0A0203", "#3A0A0E", "#7A1A20", "#C0505A", "#F6DCDC"],
+   "density": 0.02, "deep": "#050101"
+  },
+  {
+   "id": "jade", "name": "Jade", "category": "monochrome", "cyclic": false,
+   "stops": ["#020A06", "#0A2E1C", "#1E6A48", "#6AB894", "#E2F6EA"],
+   "density": 0.02, "deep": "#010503"
+  },
+  {
+   "id": "zebra", "name": "Zebra", "category": "high-contrast",
+   "stops": [
+    {"at": 0.0, "color": "#000000"}, {"at": 0.44, "color": "#000000"},
+    {"at": 0.5, "color": "#FFFFFF"}, {"at": 0.94, "color": "#FFFFFF"}
+   ],
+   "density": 0.04, "deep": "#000000"
+  },
+  {
+   "id": "tiger", "name": "Tiger", "category": "high-contrast",
+   "stops": [
+    {"at": 0.0, "color": "#050200"}, {"at": 0.38, "color": "#050200"},
+    {"at": 0.46, "color": "#FF7A00"}, {"at": 0.7, "color": "#FFB347"}, {"at": 0.92, "color": "#FF7A00"}
+   ],
+   "density": 0.04, "deep": "#000000"
+  },
+  {
+   "id": "bauhaus", "name": "Bauhaus", "category": "high-contrast",
+   "stops": [
+    {"at": 0.0, "color": "#D7261E"}, {"at": 0.2, "color": "#D7261E"},
+    {"at": 0.25, "color": "#111111"}, {"at": 0.45, "color": "#111111"},
+    {"at": 0.5, "color": "#F4C20D"}, {"at": 0.7, "color": "#F4C20D"},
+    {"at": 0.75, "color": "#1F4BA5"}, {"at": 0.95, "color": "#1F4BA5"}
+   ],
+   "density": 0.03, "deep": "#000000"
+  },
+  {
+   "id": "prism", "name": "Prism", "category": "high-contrast",
+   "stops": [
+    {"at": 0.0, "color": "#000000"}, {"at": 0.12, "color": "#FF2020"}, {"at": 0.24, "color": "#000000"},
+    {"at": 0.36, "color": "#20FF40"}, {"at": 0.48, "color": "#000000"}, {"at": 0.62, "color": "#2060FF"},
+    {"at": 0.76, "color": "#000000"}, {"at": 0.88, "color": "#FFFFFF"}
+   ],
+   "density": 0.03, "deep": "#000000"
+  }
+ ]
+}
