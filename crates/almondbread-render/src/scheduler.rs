@@ -1356,7 +1356,12 @@ impl<B: GpuBackend> Renderer<B> {
         // its parent's orbit, on few threads: the step latency counts) takes about a third of
         // the frame budget; nodes out of budget branch where they are. Unbounded seeds stalled
         // the spiral's gesture frames at 12 fps (root seeds run ~23 000 steps).
-        let gesture = self.job.as_ref().is_some_and(|j| j.interactive);
+        // (Also the preview of a refined view: previews are never compared with fresh renders,
+        // and one waiting for several rounds delayed the first image after every look switch.)
+        let gesture = self
+            .job
+            .as_ref()
+            .is_some_and(|j| j.interactive || j.levels[level_index].preview);
         let mut unbounded = unbounded;
         if gesture {
             let chain = 0.3 * self.gesture_budget() / (self.seed_unit * layout.len() as f64);
