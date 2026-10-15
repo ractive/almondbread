@@ -573,6 +573,7 @@ public final class ExplorerModel {
         guard let explorer, let s = try? explorer.goToPlace(id: id) else { return }
         lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
         pull(s)
+        showPlaceInterior()
         host?.requestFrames()
     }
 
@@ -581,7 +582,15 @@ public final class ExplorerModel {
         guard let explorer, let s = try? explorer.flyToPlace(id: id) else { return }
         lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
         pull(s)
+        showPlaceInterior()
         host?.requestFrames()
+    }
+
+    /// The place thumbnails show the interior in the bubbles colouring (a flat black interior
+    /// hid most of the landmarks): a place visited with the flat interior switches to it, so
+    /// the view looks like its thumbnail. Any other interior colouring the user chose stays.
+    private func showPlaceInterior() {
+        if interiorColoring == .flat { interiorColoring = .bubbles }
     }
 
     /// A random place (optionally of one category); `fly` flies there instead of jumping.

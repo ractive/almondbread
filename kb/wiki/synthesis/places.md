@@ -76,9 +76,18 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
 ```text
 almondbread places                          # list: id, category, depth, look
 almondbread render out.png --place spiral-1e1000 --size 1600x1000
-almondbread places --render-thumbs Sources/AlmondbreadKit/Resources/Places [--only a,b]
+almondbread places --render-thumbs Sources/AlmondbreadKit/Resources/Places --inside bubbles --extend 16 [--only a,b]
 almondbread places --format landscape       # landscape-rt start commands (f64 places)
 ```
+
+Thumbnails (re-rendered 2026-10-15 after the merge into the control-center branch) use the
+calm dense regions and the *bubbles* interior colouring with extension passes
+([[techniques/coloring-methods]] "Interior colouring as built"): the flat black interiors
+hid most landmarks, and the dense bands of deep minibrots were grey. The palette moiré
+rings of the needle minibrots stay (they are the look's density at that zoom). In the app,
+Go and Fly to a place switch a flat interior to bubbles, so the view matches its thumbnail;
+the control center's Places section shows them as a grid by category with Go, Fly
+(`Explorer.flyToPlace`) and Random.
 
 Swift: `places()` for the list (sections by `category`), `PlaceThumbnails.url(id:)`
 for the image, `explorer.goToPlace(id:)` to jump (centre, span fitted to the view's
