@@ -285,6 +285,10 @@ public final class ExplorerModel {
     /// Renderer stats, refreshed at ~10 Hz while the view animates (views reading these
     /// re-render at that rate, never per input event: kb synthesis/benchmarks, M2 findings).
     public private(set) var stats: ExplorerStats?
+    /// Autopilot / journey state alone, assigned only on change: the toolbar reads these, not
+    /// `stats`, so it is not rebuilt at 10 Hz (that reset the hover timer and no tooltip showed).
+    public private(set) var autopilotActive = false
+    public private(set) var journeyActive = false
     /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
     public private(set) var orbit: OrbitInfo?
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
@@ -835,6 +839,8 @@ public final class ExplorerModel {
             zoomSpeedChanged = Date()
         }
         stats = new
+        if autopilotActive != new.autopilot.active { autopilotActive = new.autopilot.active }
+        if journeyActive != new.journey.active { journeyActive = new.journey.active }
     }
 
     /// Zoom speed as a magnification factor per second, for display.

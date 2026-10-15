@@ -58,7 +58,7 @@ struct ContentView: View {
                 Button {
                     model.toggleAutopilot()
                 } label: {
-                    Image(systemName: model.stats?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
+                    Image(systemName: model.autopilotActive ? "airplane.circle.fill" : "airplane")
                         .font(.title3)
                         .frame(width: 44, height: 44)
                         .background(.ultraThinMaterial, in: Circle())
@@ -69,7 +69,7 @@ struct ContentView: View {
                 Button {
                     model.toggleJourney()
                 } label: {
-                    Image(systemName: model.stats?.journey.active == true ? "sparkles.rectangle.stack.fill" : "sparkles")
+                    Image(systemName: model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
                         .font(.title3)
                         .frame(width: 44, height: 44)
                         .background(.ultraThinMaterial, in: Circle())
@@ -120,13 +120,13 @@ struct ContentView: View {
                 Button {
                     model.toggleAutopilot()
                 } label: {
-                    Label("Autopilot", systemImage: model.stats?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
+                    Label("Autopilot", systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
                 }
                 .help("Autopilot (Z): zoom on continuously, steer with the mouse; click pauses, Esc stops")
                 Button {
                     model.toggleJourney()
                 } label: {
-                    Label("Journey", systemImage: model.stats?.journey.active == true ? "sparkles.rectangle.stack.fill" : "sparkles")
+                    Label("Journey", systemImage: model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
                 }
                 .help("Journey (J): an endless planned flight from landmark to landmark; any input takes over, J resumes, Esc stops")
                 Button {
