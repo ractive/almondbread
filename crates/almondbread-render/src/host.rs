@@ -49,6 +49,8 @@ pub struct InteractionReport {
     pub iterate_gpu_per_frame: f64,
     pub colorize_gpu_per_frame: f64,
     pub preview_pct: f64,
+    /// Mean resolution of the preview frames (texels per pixel; 1: full resolution).
+    pub preview_scale: f64,
     /// Refreshes that encoded nothing (frames in flight, or no drawable without blocking).
     pub skipped: usize,
     pub skipped_in_flight: usize,
@@ -325,6 +327,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             iterate_gpu_per_frame: fs.chunk_gpu * 1000.0 / n,
             colorize_gpu_per_frame: fs.colorize_gpu * 1000.0 / n,
             preview_pct: 100.0 * fs.preview_frames as f64 / n,
+            preview_scale: fs.preview_scale_sum / fs.preview_frames.max(1) as f64,
             skipped: fs.skipped,
             skipped_in_flight: fs.skipped_in_flight,
             skipped_no_target: fs.skipped_no_target,

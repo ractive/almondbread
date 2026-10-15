@@ -214,7 +214,7 @@ fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: 
         100.0 * s.steps() as f64 / total.max(1) as f64,
         gpu * 1000.0
     );
-    println!("  levels [{}]", levels.join("; "));
+    println!("  levels [{}]; leaf path {:.1} steps", levels.join("; "), s.leaf_path);
     let il = &s.interior_leaves;
     if !il.is_empty() {
         println!(

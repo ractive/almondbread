@@ -358,7 +358,8 @@ pub struct SeedParams {
 pub struct SeedStatus {
     pub unfinished: u32,
     pub seeded_tiles: u32,
-    pub pad: [u32; 2],
+    pub path_lo: u32,
+    pub path_hi: u32,
 }
 
 const _: () = {

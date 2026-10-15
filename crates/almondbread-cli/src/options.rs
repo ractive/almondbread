@@ -107,7 +107,9 @@ impl Options {
             let Some(l) = almondbread_core::locations::location_named(name) else {
                 return err(format!("unknown --location {name}"));
             };
-            return Ok(l.viewport_for_width(width));
+            // (`--at-width w`: the pixel size of the location framed w pixels wide, e.g. a centre
+            // crop of the 1600-wide framing.)
+            return Ok(l.viewport_for_width(self.usize("at-width").unwrap_or(width)));
         }
         let mut center = Viewport::home().center;
         if let Some(v) = self.get("center") {

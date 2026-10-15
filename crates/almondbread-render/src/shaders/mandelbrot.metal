@@ -304,8 +304,9 @@ struct SeedParams {
     float2 jitter;       // the seeded level's sample position inside a texel
     uint  tilesX;        // 16 x 16 tiles per row of the seeded level
     uint  gateMode;      // seedGate: 1 per-tile forecast, 2 every tile seeded
-    float gateRel;       // a tile is seeded when its leaves' mean path >= max(gateAbs,
-    float gateAbs;       //   gateRel * softIter)
+    float gateRel;       // a tile is seeded when its leaves' mean path (seed steps) is at
+    float gateAbs;       // least gateAbs, or without a cost estimate (gateAbs 0) when their
+                         // mean branch iteration is at least gateRel * softIter
     uint  tilesY;
     uint  pad1;
 };
@@ -314,7 +315,8 @@ struct SeedParams {
 struct SeedStatus {
     atomic_uint unfinished;   // nodes of this round not done (incl. waiting for their parent)
     atomic_uint seededTiles;  // tiles seedGate let start from their seeds
-    uint pad[2];
+    atomic_uint pathLo;       // sum over those tiles of their leaves' mean path (64 bit)
+    atomic_uint pathHi;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -508,6 +510,8 @@ kernel void seedBegin(device SeedStatus& status [[buffer(20)]])
 {
     atomic_store_explicit(&status.unfinished, 0u, memory_order_relaxed);
     atomic_store_explicit(&status.seededTiles, 0u, memory_order_relaxed);
+    atomic_store_explicit(&status.pathLo, 0u, memory_order_relaxed);
+    atomic_store_explicit(&status.pathHi, 0u, memory_order_relaxed);
 }
 
 kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
@@ -795,12 +799,13 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
 }
 
 // After the leaf level: which 16 x 16 tiles start their pixels from the seeds (one thread per
-// tile). Auto (gateMode 1): where the leaves' mean path (the seed steps a pixel saves) is at
-// least max(gateAbs, gateRel * softIter). Starting a pixel at its leaf's reference index
-// costs SIMD coherence (neighbouring leaves start at unrelated m, and interior pixels keep the
-// phase offset for their whole orbit), so a tile whose seeds branched early runs plain
-// (measured: home-100k, Feigenbaum 5-15 % slower seeded). Deterministic: depends only on the
-// seeds, i.e. on the view.
+// tile). Starting a pixel at its leaf's reference index costs SIMD coherence (neighbouring
+// leaves start at unrelated m, and pixels that run long keep the phase offset for their whole
+// orbit: ~10-25 % per remaining step), so a tile is seeded only where its leaves saved a good
+// share of a pixel's work (auto, gateMode 1): mean path (seed steps a pixel saves) >= gateAbs,
+// which the scheduler sets to a share of the last level's steps per texel; without that
+// estimate (a fresh renderer), mean branch iteration >= gateRel * softIter. Measured: home-100k,
+// Feigenbaum, minibrot-p4, sea-8007 5-25 % slower seeded, dense/spiral/neck 3-6x faster.
 kernel void seedGate(device const SeedNode* nodes [[buffer(18)]],
                      constant SeedParams& sp      [[buffer(19)]],
                      device SeedStatus& status    [[buffer(20)]],
@@ -816,18 +821,26 @@ kernel void seedGate(device const SeedNode* nodes [[buffer(18)]],
     const uint2 t = uint2(tid % sp.tilesX, tid / sp.tilesX);
     const uint per = max(16u / sp.size, 1u);
     const uint2 l0 = t * per;
-    float sum = 0.0f;
+    float pathSum = 0.0f, nSum = 0.0f;
     uint count = 0;
     for (uint y = l0.y; y < min(l0.y + per, sp.gridH); y++) {
         for (uint x = l0.x; x < min(l0.x + per, sp.gridW); x++) {
-            sum += float(nodes[sp.offset + y * sp.gridW + x].path);
+            const SeedNode nd = nodes[sp.offset + y * sp.gridW + x];
+            pathSum += float(nd.path);
+            nSum += float(nd.n);
             count++;
         }
     }
-    const float need = max(sp.gateAbs, sp.gateRel * float(sp.softIter));
-    const bool seeded = count > 0 && sum >= need * float(count);
+    const bool bySteps = sp.gateAbs > 0.0f;
+    const float need = bySteps ? sp.gateAbs : sp.gateRel * float(sp.softIter);
+    const bool seeded = count > 0 && (bySteps ? pathSum : nSum) >= need * float(count);
     tiles[tid] = seeded ? 1u : 0u;
-    if (seeded) atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
+    if (seeded) {
+        atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
+        const uint v = uint(pathSum / float(count));
+        const uint old = atomic_fetch_add_explicit(&status.pathLo, v, memory_order_relaxed);
+        if (old + v < old) atomic_fetch_add_explicit(&status.pathHi, 1u, memory_order_relaxed);
+    }
 }
 
 // Perturbation: z = Z + dz, with Z the reference orbit.

@@ -178,8 +178,9 @@ pub struct LocalSa {
     pub leaf: usize,
     /// Branch when the quadratic term exceeds `eps` of the linear one over the node.
     pub eps: f64,
-    /// Auto: a tile is seeded when its leaves saved on average at least
-    /// max(`gate_abs`, `gate_rel` x the nominal limit) seed steps.
+    /// Auto: a tile is seeded when its leaves saved on average at least `gate_rel` of the last
+    /// level's (unseeded-equivalent) steps per texel and at least `gate_abs` seed steps;
+    /// without that estimate, when their mean branch iteration is `gate_rel` of the limit.
     pub gate_rel: f64,
     pub gate_abs: f64,
     /// Seed steps per node and round (0: from the throughput model).
@@ -196,8 +197,8 @@ impl Default for LocalSa {
             top: 32,
             leaf: 4,
             eps: 1e-2,
-            gate_rel: 1.0 / 32.0,
-            gate_abs: 32.0,
+            gate_rel: 1.0 / 6.0,
+            gate_abs: 8.0,
             budget: 0,
         }
     }
@@ -217,6 +218,8 @@ pub struct SeedReport {
     /// Leaves whose seed stopped proven interior, and their branch iterations (sorted).
     pub interior_leaves: Vec<u32>,
     pub leaves: usize,
+    /// Mean over the leaves of the seed steps from the root (what a pixel saves).
+    pub leaf_path: f64,
 }
 
 impl SeedReport {
@@ -378,8 +381,10 @@ struct Seeding {
     layout: Vec<SeedParams>,
     /// Every node is final (the last round reported none unfinished).
     done: bool,
-    /// Tiles that start from their seeds (known once done).
+    /// Tiles that start from their seeds (known once done), and the sum of their leaves' mean
+    /// path (seed steps their pixels skip, per pixel).
     tiles_seeded: usize,
+    path_sum: u64,
     /// Nodes the last round left unfinished (later rounds size their budgets by them).
     unfinished: Option<usize>,
     rounds: usize,
@@ -727,6 +732,8 @@ pub struct ShownStats {
 pub struct FrameStats {
     pub frames: usize,
     pub preview_frames: usize,
+    /// Sum over those frames of the shown level's texels per output pixel (preview scale).
+    pub preview_scale_sum: f64,
     /// Refreshes that encoded nothing (frames in flight, or no drawable without blocking).
     pub skipped: usize,
     /// ... of which with `max_frames_in_flight` colorize passes still on the GPU,
@@ -886,6 +893,9 @@ pub struct Renderer<B: GpuBackend> {
     seed_unit: f64,
     seed_round: Option<SeedRound<B>>,
     seed_last: Option<(Vec<SeedParams>, f64, usize)>,
+    /// Loop steps per texel of the last completed level as if unseeded (its pixels' steps
+    /// plus what its seeds skipped): the auto SA gate's cost estimate.
+    steps_per_texel: Option<f64>,
     /// M5 interior fill: per-tile stamps (a border pixel not proven interior writes its
     /// level's epoch) and their capacity; the last epoch.
     tile_bad: Option<(B::Buffer, usize)>,
@@ -1035,6 +1045,7 @@ impl<B: GpuBackend> Renderer<B> {
             seed_unit: 1.5e-6,
             seed_round: None,
             seed_last: None,
+            steps_per_texel: None,
             tile_bad: None,
             fill_epoch: 0,
             full_set: None,
@@ -1273,7 +1284,7 @@ impl<B: GpuBackend> Renderer<B> {
                 tiles_x: tx as u32,
                 gate_mode: if sa.mode == SaMode::On { 2 } else { 1 },
                 gate_rel: sa.gate_rel as f32,
-                gate_abs: sa.gate_abs as f32,
+                gate_abs: 0.0,
                 tiles_y: ty as u32,
                 pad1: 0,
             });
@@ -1305,8 +1316,11 @@ impl<B: GpuBackend> Renderer<B> {
         let h = (params.height as usize).max(1);
         self.seed_epoch = self.seed_epoch.wrapping_add(1) & 0x3fff_ffff;
         let mut layout = Self::seed_layout(sa, w, h, params.soft_iter, params.jitter);
+        // The gate's bar in seed steps, from the last level's cost per texel (see seedGate).
+        let bar = self.steps_per_texel.map_or(0.0, |s| (sa.gate_rel * s).max(sa.gate_abs)) as f32;
         for l in &mut layout {
             l.epoch = self.seed_epoch;
+            l.gate_abs = bar;
         }
         let nodes: usize = layout.iter().map(|l| (l.grid_w * l.grid_h) as usize).sum();
         if self.seed_nodes.as_ref().is_none_or(|(_, n)| *n < nodes) {
@@ -1330,6 +1344,7 @@ impl<B: GpuBackend> Renderer<B> {
             layout,
             done: false,
             tiles_seeded: 0,
+            path_sum: 0,
             unfinished: None,
             rounds: 0,
             gpu_time: 0.0,
@@ -1450,10 +1465,12 @@ impl<B: GpuBackend> Renderer<B> {
         if let Some(fs) = &mut self.frame_stats {
             fs.chunk_gpu += gpu;
         }
-        let mut bytes = [0u8; 8];
+        let mut bytes = [0u8; 16];
         self.backend.read_buffer(&self.seed_status, 0, &mut bytes);
-        let unfinished = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let seeded_tiles = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+        let st: crate::gpu_types::SeedStatus = bytemuck::pod_read_unaligned(&bytes);
+        let unfinished = st.unfinished;
+        let seeded_tiles = st.seeded_tiles as usize;
+        let path_sum = (u64::from(st.path_hi) << 32) | u64::from(st.path_lo);
         let failed = matches!(status, SubmissionStatus::Failed(_));
         if unfinished > 0 && gpu > 1e-3 && round.units.is_finite() && round.units > 0.0 {
             // The budget bound: learn the cost of a budget step. Up quickly, down slowly: a
@@ -1484,6 +1501,7 @@ impl<B: GpuBackend> Renderer<B> {
         seeding.done = unfinished == 0;
         seeding.unfinished = Some(unfinished as usize);
         seeding.tiles_seeded = seeded_tiles;
+        seeding.path_sum = path_sum;
         if seeding.done && seeded_tiles == 0 {
             // No tile starts from its seeds: the rest of the level (and its extension passes
             // and AA samples) runs the plain pipeline, which is a few % faster and gives the
@@ -1514,7 +1532,7 @@ impl<B: GpuBackend> Renderer<B> {
         if seeding.done {
             return true;
         }
-        let first = seeding.rounds <= 1 && !level.started();
+        let first = seeding.rounds <= 1;
         if self.seed_round.is_some() {
             return first && !(self.config.interior_fill == SaMode::Auto && self.fill_wanted(level_index));
         }
@@ -1568,6 +1586,11 @@ impl<B: GpuBackend> Renderer<B> {
         if let Some(leaf) = layout.last() {
             let count = (leaf.grid_w * leaf.grid_h) as usize;
             report.leaves = count;
+            report.leaf_path = nodes[leaf.offset as usize..leaf.offset as usize + count]
+                .iter()
+                .map(|n| f64::from(n.path))
+                .sum::<f64>()
+                / count.max(1) as f64;
             report.interior_leaves = nodes[leaf.offset as usize..leaf.offset as usize + count]
                 .iter()
                 .filter(|n| n.stamp & 3 == 3)
@@ -1800,6 +1823,7 @@ impl<B: GpuBackend> Renderer<B> {
                     fs.frames += 1;
                     if mode == COMPOSE_GESTURE || job.levels[job.display()].preview {
                         fs.preview_frames += 1;
+                        fs.preview_scale_sum += job.levels[job.display()].ratio;
                     }
                 }
                 let sub = enc.commit();
@@ -1955,7 +1979,11 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         // (As `start_job` raises it once the reference is there, so the job keeps its key.)
-        let ss = if offscreen { self.settings.supersampling.factor() } else { 1 };
+        let ss = if offscreen {
+            self.settings.supersampling.factor()
+        } else {
+            1
+        };
         let texel = self.viewport.scale * points_per_pixel / ss as f64;
         let viewport = self.viewport.clone();
         max_iter = max_iter.max(self.period_floor(&viewport, texel, width.max(height) * ss, max_iter));
@@ -1993,7 +2021,9 @@ impl<B: GpuBackend> Renderer<B> {
         if !self.settings.auto_iterations {
             return 0;
         }
-        let Some(r) = self.reference.as_ref().filter(|r| r.big) else { return 0 };
+        let Some(r) = self.reference.as_ref().filter(|r| r.big) else {
+            return 0;
+        };
         if r.fit(viewport, texel, size, max_iter) == Fit::No {
             return 0;
         }
@@ -2918,6 +2948,10 @@ impl<B: GpuBackend> Renderer<B> {
         level.complete = true;
         if level.gpu_time > 0.0 && !level.is_extension() {
             self.cost_per_texel = level.gpu_time / (level.set.width * level.set.height) as f64;
+        }
+        if !level.is_extension() && level.aa.is_none() && level.total > 0 {
+            let skipped = level.seeding.as_ref().map_or(0.0, |s| s.path_sum as f64 * 256.0);
+            self.steps_per_texel = Some((level.steps + skipped) / level.total as f64);
         }
         self.interior_stats = Some(InteriorStats::from_level(
             level.total,
