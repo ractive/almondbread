@@ -64,6 +64,8 @@ use crate::options::{Options, Result, err, parse_size};
 enum Sink {
     Ffmpeg(std::process::Child),
     Pngs(String),
+    /// `--out null`: measurements only (no frame readback, no encoding).
+    Null,
 }
 
 /// One flight: scripted events plus where it starts.
@@ -437,6 +439,9 @@ fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, 
 }
 
 fn open_sink(out: &str, size: (usize, usize), fps: f64, o: &Options) -> Result<Sink> {
+    if out == "null" {
+        return Ok(Sink::Null);
+    }
     if out.ends_with(".mp4") || out.ends_with(".mov") {
         if let Some(dir) = std::path::Path::new(out).parent() {
             fs::create_dir_all(dir)?;
@@ -501,6 +506,7 @@ fn spawn_writer(mut sink: Sink, size: (usize, usize)) -> (SyncSender<Frame>, Joi
                     let stdin = child.stdin.as_mut().ok_or("ffmpeg stdin")?;
                     stdin.write_all(&frame).map_err(|e| format!("ffmpeg: {e}"))?;
                 }
+                Sink::Null => {}
                 Sink::Pngs(dir) => write_png_bgra(format!("{dir}/frame_{n:05}.png"), &frame, size.0, size.1)
                     .map_err(|e| format!("{dir}: {e}"))?,
             }
@@ -570,6 +576,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     r.viewport = start_viewport(script.start.as_ref(), w_pts, h_pts)?;
     let refreshes = (duration * hz).round() as usize;
     let interval = 1.0 / hz;
+    let null = out == "null";
     let (tx, writer) = spawn_writer(open_sink(&out, size, fps, o)?, size);
     let mut log = String::from(
         "refresh,t,presented,preview,render_w,render_h,zoom_log10,late_ms,frame_cpu_ms,ap_rate,ap_throttle,ap_safety,ap_hint,pointer_x,pointer_y,fly_progress\n",
@@ -641,6 +648,10 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
                  force: bool|
      -> Result<()> {
         while let Some(&(k, serial, slot)) = queue.front() {
+            if null {
+                queue.pop_front();
+                continue;
+            }
             if serial > 0 && serial != last_image.0 {
                 if r.frames_completed() < serial {
                     if !force {

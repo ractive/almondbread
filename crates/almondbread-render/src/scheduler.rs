@@ -2628,8 +2628,10 @@ impl<B: GpuBackend> Renderer<B> {
             .clone()
             .filter(|t| t.serial == job.reference_serial && self.reference_serial == job.reference_serial);
         let building = self.bla_build.as_ref().is_some_and(|(s, _)| *s == job.reference_serial);
-        // BLA as pinned by the epoch (a new epoch: as the job decided).
-        let want = pinned.map_or(job.bla.is_some(), |r| r.bla);
+        // BLA as pinned by the epoch, or (a new epoch, or one that started before the table
+        // was built) as the job decided: an epoch moves to BLA once, never back while its table
+        // exists.
+        let want = job.bla.is_some() || pinned.is_some_and(|r| r.bla);
         let (bla, pending) = match (want, table.is_some(), building) {
             (false, _, _) => (false, false),
             (true, true, _) => (true, false),

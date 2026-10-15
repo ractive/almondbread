@@ -288,6 +288,8 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     /// iterations per sample (the interior-test statistics of a fresh preview).
     view_stats: Option<InteriorStats>,
     pipelines: Option<[B::Pipeline; 4]>,
+    /// Phase timestamps of the last plan (trace).
+    marks: Vec<(&'static str, Instant)>,
     /// Colour parameters and texture set the shaded tiles were coloured with.
     shade_key: Option<(Vec<u8>, usize)>,
     /// Generation of the job whose full level seeded the current epoch.
@@ -321,6 +323,7 @@ impl<B: GpuBackend> SampleCache<B> {
             view_stats: None,
             pipelines: None,
             shade_key: None,
+            marks: Vec::new(),
             seeded_generation: 0,
         }
     }
@@ -590,10 +593,17 @@ impl<B: GpuBackend> SampleCache<B> {
         if w == e.win0 {
             return true;
         }
+        let old = e.win0;
         e.win0 = w;
         self.stats.slides += 1;
-        for ty in w.1..w.1 + ht as i64 {
-            for tx in w.0..w.0 + wt as i64 {
+        let (wt_i, ht_i) = (wt as i64, ht as i64);
+        for ty in w.1..w.1 + ht_i {
+            // (Rows inside the old window only gain the columns it did not cover.)
+            let row_old = ty >= old.1 && ty < old.1 + ht_i;
+            for tx in w.0..w.0 + wt_i {
+                if row_old && tx >= old.0 && tx < old.0 + wt_i {
+                    continue;
+                }
                 let slot = self.slot((tx, ty));
                 let t = &mut self.tiles[slot];
                 if t.holder != (tx, ty) {
@@ -861,8 +871,22 @@ impl<B: GpuBackend> SampleCache<B> {
     /// caller renders a fresh preview).
     pub fn plan(&mut self, backend: &B, inp: &PlanInput) -> Option<Plan<B>> {
         let t0 = Instant::now();
+        self.marks.clear();
         let out = self.plan_inner(backend, inp);
         let dt = t0.elapsed().as_secs_f64();
+        if self.config.trace && dt > 0.001 {
+            let mut last = t0;
+            let parts: Vec<String> = self
+                .marks
+                .iter()
+                .map(|(l, t)| {
+                    let d = t.duration_since(last).as_secs_f64() * 1000.0;
+                    last = *t;
+                    format!("{l} {d:.2}")
+                })
+                .collect();
+            eprintln!("sample cache: plan phases (ms): {}", parts.join(", "));
+        }
         if self.config.trace && dt > 0.001 {
             eprintln!(
                 "sample cache: plan {:.2} ms, backlog {} texels, epochs {} switches {}/{} cleared {}",
@@ -918,6 +942,7 @@ impl<B: GpuBackend> SampleCache<B> {
         if self.epoch.as_ref().is_some_and(|e| e.regime != inp.regime) {
             self.epoch = None;
         }
+        self.marks.push(("prologue", Instant::now()));
         self.steer(inp);
         let mut m = Maintenance::default();
         if self.epoch.is_none() && !self.new_epoch(inp, &mut m) {
@@ -954,6 +979,7 @@ impl<B: GpuBackend> SampleCache<B> {
                 return None;
             }
         }
+        self.marks.push(("level+slide", Instant::now()));
         self.recentre();
         let tm = Instant::now();
         let ncl = m.clear.len();
@@ -967,6 +993,7 @@ impl<B: GpuBackend> SampleCache<B> {
         let e = self.epoch.as_ref().expect("epoch").clone();
         let g = Self::view_geometry(&e, inp.view, inp.ppp, inp.width, inp.height);
 
+        self.marks.push(("maintenance", Instant::now()));
         // Tiles to compute: visible, not (being) computed, or computed at a limit 25 % behind.
         let (x0, x1, y0, y1) = Self::tile_range(&g, 2.0);
         let (hw, hh) = (inp.width as f64 / 2.0, inp.height as f64 / 2.0);
@@ -1038,6 +1065,7 @@ impl<B: GpuBackend> SampleCache<B> {
             // Kernel: window texel of texel gid = (gid + (size - wrap)) mod size.
             wrap: ((tw as u32 - wrap_x) % tw as u32) | (((th as u32 - wrap_y) % th as u32) << 16),
         };
+        self.marks.push(("scan", Instant::now()));
         let mut order = None;
         if n > 0 {
             if n < cands.len() {
@@ -1068,6 +1096,7 @@ impl<B: GpuBackend> SampleCache<B> {
             self.stats.tiles_planned += n;
             self.stats.texels_planned += n * 256;
         }
+        self.marks.push(("batch", Instant::now()));
         Some(Plan {
             set,
             color,
