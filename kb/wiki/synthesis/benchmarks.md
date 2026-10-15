@@ -1232,3 +1232,87 @@ Cost where views restart often: "looks deep idle" (a look or palette every 0.1 s
 every look that needs the distance estimate restarts the job, and its full level now starts
 with seed rounds. Previews of refined views seed in one bounded round since (they waited for
 several before: 12 fps).
+
+## M7: float32 rounding artefacts and float-float, 2026-10-15
+
+Measured 2026-10-15, M1 Pro (16-core GPU), release, with other agents' GPU jobs running
+(load average 140–600). Tool: `almondbread precision` (`crates/almondbread-cli/src/precision.rs`):
+the float32 GPU field against the CPU oracle (f64 deltas, [[questions/float32-error-long-orbits]])
+**next to control oracles whose pixel grid is shifted by 0.001–0.5 pixel**. Where a 0.001-pixel
+shift changes as many escape counts as float32 does, the float32 "error" is the view's own
+chaotic sensitivity, not an artefact: any image of those pixels is one random draw. Both fields
+are coloured by one CPU colouring (the plain look, unfiltered) for side-by-side crops. 400×260,
+interior test off (as the oracle), auto iterations unless noted; "differs" = escape-n differs,
+">0.05" = |Δμ| > 0.05, in % of pixels.
+
+| view (texel) | float32 differs / >0.05 | 0.001 px shift | 0.01 px shift | float32 ~ shift of | float-float differs / >0.05 |
+|---|---:|---:|---:|---:|---:|
+| seahorse-1e5 (3e-7) | 3.84 / 5.63 | 8.70 / 12.8 | 14.0 / 20.6 | < 0.001 px | |
+| elephant (6e-5) | 1.45 / 2.26 | 4.15 / 6.37 | 6.97 / 10.6 | < 0.001 px | |
+| minibrot-p4 (1e-5) | 0.20 / 0.39 | 1.04 / 1.89 | 2.45 / 4.93 | < 0.001 px | |
+| neck-2e5, cusp-1e5, root-third | ≤ 0.04 / ≤ 0.09 | 0.03–0.05 / 0.05–0.13 | | < 0.001 px | |
+| feigenbaum (5e-10, 2e5 it) | 54.2 / 64.4 | 58.6 / 67.6 | 67.5 / 70.2 | < 0.001 px | |
+| deep-5e-14 (4.3e-13) | 8.99 / 13.1 | 15.4 / 22.2 | 24.4 / 35.0 | < 0.001 px | 0.30 / 0.42 |
+| dense-5e-14 (1.8e-13) | 12.8 / 24.8 | 20.4 / 37.8 | 42.3 / 71.3 | < 0.001 px | |
+| crystal-compass (7.7e-17) | 0.64 / 1.49 | 2.63 / 5.86 | 8.14 / 18.8 | < 0.001 px | |
+| sunflower-island (8.5e-18) | 0.13 / 0.28 | 1.10 / 2.45 | 3.55 / 8.39 | < 0.001 px | |
+| spiral-32412-1e19 (1.7e-18) | 52.8 / 66.2 | 51.6 / 64.5 | 67.1 / 83.8 | ~0.001 px | 6.27 / 8.02 |
+| sea-1e20 (4e-20) | 10.5 / 15.7 | 12.9 / 19.0 | 20.8 / 30.8 | < 0.001 px | 0.29 / 0.44 |
+| copper-mandala (2.1e-24) | 3.71 / 7.37 | 5.42 / 10.9 | 13.1 / 25.5 | < 0.001 px | |
+| frost-mandala (1.2e-29) | 1.70 / 4.25 | 3.46 / 8.37 | 10.9 / 24.9 | < 0.001 px | |
+| sea-8007 (8e-34, 1e5 it) | 39.1 / 55.1 | 39.9 / 56.1 | 59.5 / 79.7 | < 0.001 px | |
+| spiral-1e50 (3.8e-53) | 9.48 / 17.2 | 4.06 / 7.46 | 8.96 / 16.2 | ~0.01 px | 0.021 / 0.036 |
+| needle-1e94 (4e-94) | 0.08 / 0.14 | 0.83 / 1.92 | 3.61 / 10.1 | < 0.001 px | |
+| junction-1e100 (3.8e-103) | 0.96 / 2.14 | | 2.37 / 5.32 | < 0.01 px | |
+| starburst-1e112 (3.8e-115, 2e5 it) | 3.19 / 7.34 | 2.72 / 6.13 | 8.60 / 20.1 | < 0.01 px | 0.001 / 0.002 |
+| junction-1e300 (3.8e-303, 2e5 it) | 1.42 / 3.31 | | 2.16 / 4.88 | < 0.01 px | |
+| spiral-1e1000 (3.8e-1003, 2e5 it) | 17.8 / 34.0 | 2.80 / 5.08 | 6.07 / 11.1 | 0.1–0.2 px | 0.031 / 0.062 |
+| needle-minibrot-1e1000 (1e6 it, 200×130) | 0.15 / 0.24 | 5.15 / 15.7 | 23.8 / 77.5 | < 0.001 px | |
+
+(Places are from the catalogue, [[synthesis/places]]; sea-8007 framed 400 wide needs 1e5
+iterations, at its auto limit of 29 004 every pixel is still iterating.)
+
+**No visible artefacts.** At 100 % and 4× crops (GPU | oracle | 0.001-px control) of
+sea-8007, spiral-32412-1e19, spiral-1e50, spiral-1e1000, deep-5e-14 and needle-1e94 the float32
+and oracle images are indistinguishable; the differences sit in boundary pixels that are
+noise in the oracle too (the 0.001-px control looks equally different). Smooth regions agree to
+|Δμ| 1e-7…1e-4 except at the two catalogue spirals at 1e50 and 1e1000, where the signed error
+map shows a **smooth, spatially coherent** error (opposite signs on the two sides of each arm,
+median |Δμ| 0.002 and 0.022): neighbouring pixels share their rounding events, so float32 bends
+the image by a fraction of a pixel rather than speckling it. At the default density 0.02 that is
+4e-4 of a palette cycle; correlation with a 1.001× grid zoom is −0.48, with grid shifts and turns
+≈ 0, so it is not a plain shift, scale or turn. Float-float removes it (signed map black).
+
+**The oracle is not ground truth in chaotic views either.** At spiral-32412-1e19 float-float
+(48 bits) and the f64 oracle (53 bits) still disagree on 6.3 % of escape counts and 0.74 % of
+classes: those pixels have no stable answer at any practical precision, and float32 (52.8 %)
+sits at the 0.001-px-shift level (51.6 %).
+
+**Float-float known-answer test** (`precision --kat 1`; same library compiled twice):
+
+| check | `MathMode::Safe` | `MathMode::Fast` |
+|---|---|---|
+| TwoSum(1, 1e-8) low part | 1e-8 ✓ | 0 ✗ |
+| QuickTwoSum(1, 2^-30) low part | 2^-30 ✓ | 0 ✗ |
+| TwoProd(1+2^-12, 1+2^-12) via `fma` | 2^-24 ✓ | 2^-24 ✓ |
+| ff(1/3)·3 | 1 exactly ✓ | 1 exactly ✓ |
+| 1000-step ff orbit vs f64 (c = −0.5+0.3i) | 9.4e-16 ✓ (float32 6.2e-9) | 4.5e-8 ✗ |
+| fx a²+a at 2^-1000 | exact ✓ | exact ✓ |
+
+**Throughput of the number types** (`precision --kat 1`, z = z² + c, 262 144 threads × 2000
+steps, medians of 5–7, three runs under load; all in the safe library): float32 1.8–3.0e11
+it/s, float-float 2.58e10 (**7–12× slower**), fx (float-float + exponent, normalised after
+every operation) 3.4–6.6e9 (27–52× slower).
+
+**Cost of a float-float field** (`precision --ff 1`, every pixel, fx deltas and reference, no
+BLA/SA, 400×260) against the float32 renderer's iterate GPU time: deep-5e-14 91 vs 8 ms,
+sea-1e20 638 vs 18 ms, spiral-1e50 396 vs 12 ms, starburst-1e112 117 vs 2 ms, spiral-1e1000
+1766 vs 6 ms, spiral-32412-1e19 1770 vs 254 ms (1.3–3.6e9 it/s). A repair pass would have to
+stay on a few flagged pixels; none was built (nothing to repair).
+
+**No cost to the float32 path** (A/B `bench --sizes 1600x1000 --no-verify 1 --repeat 3`, base
+`eadb176` vs the M7 branch, interleaved, 3 rounds, medians): geomean new/base 1.014 over 21
+locations (per-location 0.86–1.29, the spread of the load); float32 fields bit-identical at
+seahorse-1e5, deep-5e-14, sea-1e20, needle-1e305, spiral-32412-1e19. The main kernel library
+is unchanged; the float-float library compiles only when a `FloatFloat` is created (verify
+tools and tests).

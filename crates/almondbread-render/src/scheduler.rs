@@ -333,6 +333,8 @@ struct ComputeKey {
     width: usize,
     height: usize,
     supersampling: usize,
+    /// Bumped to render the same view again (a forced retry with the interior test).
+    retry: u32,
 }
 
 struct Level<B: GpuBackend> {
@@ -900,6 +902,9 @@ pub struct Renderer<B: GpuBackend> {
     /// Loop steps per texel of the last completed level as if unseeded (its pixels' steps
     /// plus what its seeds skipped): the auto SA gate's cost estimate.
     steps_per_texel: Option<f64>,
+    /// The view of the last `make_key` (jumps reset the learned state) and the retry epoch.
+    last_key_view: Option<Viewport>,
+    retry_epoch: u32,
     /// M5 interior fill: per-tile stamps (a border pixel not proven interior writes its
     /// level's epoch) and their capacity; the last epoch.
     tile_bad: Option<(B::Buffer, usize)>,
@@ -1053,6 +1058,8 @@ impl<B: GpuBackend> Renderer<B> {
             seed_round: None,
             seed_last: None,
             steps_per_texel: None,
+            last_key_view: None,
+            retry_epoch: 0,
             tile_bad: None,
             fill_epoch: 0,
             full_set: None,
@@ -2019,6 +2026,26 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     fn make_key(&mut self, width: usize, height: usize, points_per_pixel: f64, offscreen: bool) -> ComputeKey {
+        // A jump (not a continuous move from the last view): what was learned there says
+        // nothing here. After a dive at c = i (1e-280) and a jump to the spiral, its interior-test
+        // switch (off: nothing interior at the dendrite) drew the spiral's unresolved disc
+        // interior, and the learner could not retry without the test: an all-black settled
+        // frame (M5 fix).
+        if let Some(prev) = &self.last_key_view {
+            let view = self.viewport.scale * (width.max(height) as f64 * points_per_pixel);
+            let ratio = prev.scale.ratio(self.viewport.scale);
+            let far = prev.center.distance_in(&self.viewport.center, view);
+            if !(ratio < 8.0 && ratio > 1.0 / 8.0 && far < 2.0) {
+                if self.config.trace {
+                    println!("jump: learned iteration state reset");
+                }
+                self.settings.learned_iterations = 0;
+                self.pinned_iterations = None;
+                self.interior_stats = None;
+                self.steps_per_texel = None;
+            }
+        }
+        self.last_key_view = Some(self.viewport.clone());
         let mut max_iter = self.max_iterations();
         // A learned limit applies from the next view on: the view it was learned at is
         // already resolved by the extension, re-rendering it would only repeat the work.
@@ -2054,6 +2081,7 @@ impl<B: GpuBackend> Renderer<B> {
             } else {
                 1
             },
+            retry: self.retry_epoch,
         }
     }
 
@@ -3212,8 +3240,14 @@ impl<B: GpuBackend> Renderer<B> {
             max_escape: level.max_escape,
             escaped_past: level.escaped_past,
             reached: level.params.max_iter as usize,
-            may_retry: !job.interactive && level.use_interior,
+            // (Also without the interior test: a view all at the limit is then drawn interior
+            // and must not settle so; the retry runs with the test, below.)
+            may_retry: !job.interactive,
         };
+        let no_test_unresolved = !job.interactive
+            && job.key.interior
+            && !level.use_interior
+            && level.crossed as f64 >= autoiter::RETRY_FRACTION * outcome.texels as f64;
         let old = self.settings.learned_iterations;
         let autoiter::Learned { limit: learned, retry } = autoiter::learn_iterations(
             old,
@@ -3234,6 +3268,17 @@ impl<B: GpuBackend> Renderer<B> {
                 learned,
                 if retry { " (render again)" } else { "" }
             );
+        }
+        if no_test_unresolved {
+            // A quarter or more of the view reached the limit without the interior test (drawn
+            // interior, never extended): render it again with the test on, at the new limit
+            // if there is one, else at the same limit (the retry epoch makes it a new key).
+            self.interior_stats = None;
+            self.pinned_iterations = None;
+            self.retry_pending = true;
+            self.retry_epoch = self.retry_epoch.wrapping_add(1);
+            self.settings.learned_iterations = learned;
+            return;
         }
         if learned == old {
             return;

@@ -9,6 +9,8 @@
 //!   test, stats ring, cancellation), written once against the trait.
 //! - [`host`]: [`Host`], the renderer hosted in an interactive view (size, input, one
 //!   frame per refresh, interaction measurements); platform UIs wrap it.
+//! - [`floatfloat`]: M7 float-float kernels in their own safe-math library (known-answer
+//!   test, verify-only field renderer, benchmarks); not used by the renderer.
 //! - [`gpu_types`]: `#[repr(C)]` mirrors of the kernel structs with layout assertions.
 //! - `metal` (Apple targets only): the Metal backend on objc2-metal and the
 //!   `CAMetalLayer` surface. The MSL kernels live in `src/shaders/`.
@@ -19,6 +21,7 @@
 pub use almondbread_core as core;
 
 pub mod backend;
+pub mod floatfloat;
 pub mod gpu_types;
 pub mod host;
 pub mod overlay;
@@ -27,7 +30,9 @@ pub mod scheduler;
 #[cfg(target_vendor = "apple")]
 pub mod metal;
 
-pub use backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
+pub use backend::{
+    ComputeEncoder, GpuBackend, GpuError, MathMode, Storage, Submission, SubmissionStatus, TextureFormat,
+};
 pub use host::{Host, InputOutcome, InteractionReport};
 pub use scheduler::{
     FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
