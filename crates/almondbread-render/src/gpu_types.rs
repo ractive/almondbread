@@ -34,7 +34,8 @@ pub struct IterateParams {
     pub height: u32,
     /// 0: raster tile order, 1: the order buffer.
     pub tile_order: u32,
-    pub pad0: u32,
+    /// M5: 1 = admit fresh pixels only once the level's seed round reported every node final.
+    pub seed_gate: u32,
     /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
     /// 2^`scale_exp`. 0 for the plain kernel.
     pub scale_exp: i32,
@@ -43,6 +44,13 @@ pub struct IterateParams {
     /// rotation, kb: decisions/controls "View rotation"); `(1, 0)` unrotated. Every
     /// constructor must set it (`[0, 0]` would collapse the view to a point).
     pub rot: [f32; 2],
+    /// M5 interior fill: admission indices of the tile borders (tiles x 60; 0: off) and the
+    /// level's stamp in the tile-bad buffer.
+    pub fill_border: u32,
+    pub fill_epoch: u32,
+    /// A border pixel counts as interior when proven within this many iterations.
+    pub fill_proof: u32,
+    pub pad4: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -176,6 +184,9 @@ pub struct ColorParams {
     /// and the filament colour.
     pub deep: [f32; 4],
     pub filament: [f32; 4],
+    /// M5 interior fill: the main level's admission order has the tile borders first.
+    pub fill_border: u32,
+    pub pad3: [u32; 3],
 }
 
 /// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
@@ -228,7 +239,8 @@ pub struct SurveyParams {
 const _: () = {
     assert!(size_of::<SurveyParams>() == 16);
     assert!(size_of::<AaListParams>() == 32);
-    assert!(size_of::<IterateParams>() == 112);
+    assert!(size_of::<IterateParams>() == 128);
+    assert!(offset_of!(IterateParams, fill_border) == 112);
     assert!(offset_of!(IterateParams, scale_exp) == 96);
     assert!(offset_of!(IterateParams, rot) == 104);
     assert!(offset_of!(IterateParams, tiles_x) == 80);
@@ -264,7 +276,8 @@ const _: () = {
     assert!(offset_of!(PixelStateIC, dcdz) == 32);
     assert!(offset_of!(PixelStateIC, cap_flags) == 44);
 
-    assert!(size_of::<ColorParams>() == 224);
+    assert!(size_of::<ColorParams>() == 240);
+    assert!(offset_of!(ColorParams, fill_border) == 224);
     assert!(offset_of!(ColorParams, deep) == 192);
     assert!(offset_of!(ColorParams, interior_mode) == 172);
     assert!(offset_of!(ColorParams, hue_rot) == 184);
@@ -291,4 +304,87 @@ const _: () = {
     assert!(offset_of!(ComposeParams, mode) == 60);
     assert!(offset_of!(ComposeParams, out_centre) == 64);
     assert!(offset_of!(ComposeParams, hist_rot) == 72);
+};
+
+/// M5 (kb: techniques/local-series-approximation): one quadtree seed's branch state and
+/// resumable loop state (`SeedNode` in MSL), 88 bytes. Plain kernel: `b` is d²z/dc² · texel,
+/// exponents 0; deep kernel: floatexp mantissas with their exponents.
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SeedNode {
+    pub dz: [f32; 2],
+    pub a: [f32; 2],
+    pub b: [f32; 2],
+    pub dz_exp: i32,
+    pub a_exp: i32,
+    pub b_exp: i32,
+    pub m: u32,
+    pub n: u32,
+    /// Seed steps this node executed (accepted ones plus the rejected last).
+    pub steps: u32,
+    /// Interior test: w = dz_n/dz_1 and dw/dc · texel (floatexp mantissas, exponents).
+    pub w: [f32; 2],
+    pub wd: [f32; 2],
+    pub w_exp: i32,
+    pub wd_exp: i32,
+    /// `epoch << 2 | state` (0 new, 1 running, 2 done).
+    pub stamp: u32,
+    /// Accepted seed steps from the root to this node (what a pixel starting here saves).
+    pub path: u32,
+    /// Interior colouring: log2 of the smallest |z| so far and its iteration.
+    pub ic_min: f32,
+    pub ic_q: u32,
+}
+
+/// One quadtree level of seeds (`SeedParams` in MSL), 80 bytes; the leaf level's copy tells
+/// the iterate kernel where a pixel's node is.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SeedParams {
+    pub grid_w: u32,
+    pub grid_h: u32,
+    pub size: u32,
+    pub offset: u32,
+    pub parent_grid_w: u32,
+    pub parent_offset: u32,
+    pub root: u32,
+    pub soft_iter: u32,
+    pub radius: f32,
+    pub eps: f32,
+    /// This seeding (node stamps).
+    pub epoch: u32,
+    /// Seed steps per node in one pass.
+    pub budget: u32,
+    /// The seeded level's sample position inside a texel.
+    pub jitter: [f32; 2],
+    pub tiles_x: u32,
+    /// 1: per-tile forecast; 2: every tile starts from its seeds.
+    pub gate_mode: u32,
+    pub gate_rel: f32,
+    pub gate_abs: f32,
+    pub tiles_y: u32,
+    /// 1: a node out of budget branches where it is (gesture frames: one bounded round).
+    pub truncate: u32,
+}
+
+/// The seed round's status (`SeedStatus` in MSL).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SeedStatus {
+    pub unfinished: u32,
+    pub seeded_tiles: u32,
+    pub path_lo: u32,
+    pub path_hi: u32,
+}
+
+const _: () = {
+    assert!(size_of::<SeedNode>() == 88);
+    assert!(offset_of!(SeedNode, w) == 48);
+    assert!(offset_of!(SeedNode, dz_exp) == 24);
+    assert!(offset_of!(SeedNode, m) == 36);
+    assert!(offset_of!(SeedNode, stamp) == 72);
+    assert!(size_of::<SeedParams>() == 80);
+    assert!(offset_of!(SeedParams, radius) == 32);
+    assert!(offset_of!(SeedParams, jitter) == 48);
+    assert!(size_of::<SeedStatus>() == 16);
 };

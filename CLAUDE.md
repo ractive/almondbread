@@ -72,7 +72,10 @@ and quit by themselves):
 - `almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--then f]`:
   a scripted session through the real per-refresh scheduler, headless, diffed against
   the CPU oracle and a fresh render; `make regress` runs the -3/4 neck regressions.
-- `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms).
+- `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms) and seed round.
+- M5 switches for before/after checks (default auto/on): `ALMONDBREAD_SA=0|1|auto` (local SA,
+  CLI `--sa`), `ALMONDBREAD_FILL=0|1|auto` (interior tile fill, `--fill`),
+  `ALMONDBREAD_ITER_FLOOR=0` (auto-iteration floor from the reference).
 - Stills of features: `almondbread render out.png --inside flat|bubbles|period|angle|distance`
   (interior colourings; prints the period histogram), `--orbit x,y --map 1` (orbit overlay and
   mini-map), `scripts/render-interior-stills.sh`, `scripts/render-dense-looks.sh`.

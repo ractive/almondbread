@@ -481,6 +481,23 @@ the merge: the R6 orbit digest is identical to the R6 branch's; `verify --histor
 dendrite-1e1000 shows the first frame after 93 ms. Pages: [[decisions/controls]],
 [[synthesis/places]], [[techniques/coloring-methods]].
 
+## [2026-10-14] research | R5: local series approximation on the GPU (float32 check)
+
+Answered [[questions/local-sa-float32]]. Metal prototype in the render crate (behind `--sa 1` /
+`ALMONDBREAD_SA=1`, offscreen only): `seedLevel` kernel per quadtree level (32 → 2 texels,
+ε = 1e−2), float32 seeds in the plain kernel and floatexp seeds with BLA blocks in the deep
+kernel, `iterate` with function constant `kSeeded` starting fresh pixels from their leaf.
+Interleaved A/B timing at 18 locations on a shared GPU, verify against the CPU oracle, Aurora
+crops. Dense-5e-14: 8.7× fewer steps, 78 → 16 ms; deep-5e-14 4.6×, root-third 3.2×, filament
+1.9×, sea-1e20 8.5×; interior/unresolved-heavy views 0.75–1.07× (incoherent reference reads,
+long seed runs). Error statistics equal the plain kernel's in chaotic views, slightly larger
+but invisible μ errors in smooth ones, zero false interior. Found: restarting the interior
+derivative at the branch (R3 design) paints 96 % of needle-1e305 interior; carry `w` and
+`dw/dc` instead. Also found and fixed two DE bugs of the deep kernel (clamp before scaling,
+mantissa overflow before escape). Recommendation: go for M5 with a per-view gate, leaf-sorted
+admission, chunked seed passes. Pages: [[techniques/local-series-approximation]] (GPU
+prototype, pitfalls, M5 design), [[synthesis/benchmarks]] R5, [[roadmap]], [[index]].
+
 ## [2026-10-15] decision | PJ: journey autopilot, view rotation, cinematic effects
 
 Pilot track. Journey (J): an endless seeded flight from landmark to landmark; targets from the
@@ -496,6 +513,27 @@ cycling in flight). Ingested [[sources/muency-newton-raphson-zooming]] and
 [[sources/kisaka-julia-sets-in-mandelbrot]]. Pages: [[decisions/controls]] (Journey, View
 rotation, Cinematic effects), [[ideas]] (status), [[roadmap]] (PJ), [[synthesis/benchmarks]]
 (PJ), [[index]].
+
+## [2026-10-15] decision | M5: local series approximation and interior fill in production
+
+Shipped local SA ([[techniques/local-series-approximation]] "As built (M5)") on by default:
+quadtree seeds 32 → 4 texels in resumable rounds (a node keeps its whole loop state; rounds
+sized by a learnt latency model; pixel admission gated on the GPU until the seeds are final),
+every level seeded at its own texel size, extension passes and AA samples from the full
+level's leaves, float32 deep seeds down to 2^−80 texels (the spiral's seeds 150 → 40 ms), a
+deterministic per-tile gate whose bar comes from the last level's steps per texel, Morton order
+inside admission tiles, bounded rounds for gesture frames. Interior-only tile fill
+([[techniques/guessing-and-subdivision]] "As built (M5)"): borders first, insides of
+all-proven-interior tiles written without iterating, bit-identical, gated (elephant 1.35×,
+off with analysed interior colourings). New benchmark location `spiral-32412-1e19` (the
+user's slowest view) and regress sessions; auto iterations take a floor from the big
+reference and keep the interior test on while pixels end unresolved
+([[techniques/auto-iterations]]). Results ([[synthesis/benchmarks]] M5): dense-5e-14 4.95×,
+sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e300 2.5×, spiral
+3.96× (first render 4.0 → 0.78 s GPU), interactive refined frames 2–5× sooner, 0–3 % cost
+where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
+Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
+[[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
 
 ## [2026-10-15] decision | Journey variety: dives, cross-overs, novelty
 
