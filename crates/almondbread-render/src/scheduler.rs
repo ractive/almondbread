@@ -409,8 +409,7 @@ struct Level<B: GpuBackend> {
 struct CacheLevel<B: GpuBackend> {
     regime: Regime,
     bla: Option<BlaGpu<B>>,
-    /// GPU seconds the planner expects the batch to take (0: unknown).
-    predicted: f64,
+    la: Option<LaGpu<B>>,
 }
 
 /// A level's seed passes (M5): the quadtree layout and how far the rounds got.
@@ -927,6 +926,8 @@ pub struct Renderer<B: GpuBackend> {
     dummy_buffer: B::Buffer,
     /// Exact samples of earlier gesture frames, reused while moving (kb: techniques/sample-reuse).
     sample_cache: SampleCache<B>,
+    /// GPU seconds per loop step of a sample cache chunk's slowest pixels (sets its K).
+    cache_step_latency: f64,
     /// Scripted sessions (`simulate`) check the sample cache after their input frames with this
     /// renderer and collect the results (`verify --history`).
     pub cache_check_renderer: Option<Box<Renderer<B>>>,
@@ -1107,6 +1108,7 @@ impl<B: GpuBackend> Renderer<B> {
             last_frame_time: 0.0,
             dummy_buffer,
             sample_cache,
+            cache_step_latency: 2e-7,
             cache_check_renderer: None,
             cache_checks: Vec::new(),
             cycle_phase: 0.0,
@@ -2861,14 +2863,15 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The regime new cache samples of the current job would be computed in, whether its BLA
     /// table is still building, and the table.
-    fn cache_regime(&self) -> Option<(Regime, bool, Option<BlaGpu<B>>)> {
+    fn cache_regime(&self) -> Option<(Regime, bool, Option<BlaGpu<B>>, Option<LaGpu<B>>)> {
         let job = self.job.as_ref()?;
         let key = &job.key;
         let pinned = self.sample_cache.regime();
-        let table = self
-            .bla
-            .clone()
-            .filter(|t| t.serial == job.reference_serial && self.reference_serial == job.reference_serial);
+        let table = job.bla.clone().or_else(|| {
+            self.bla
+                .clone()
+                .filter(|t| t.serial == job.reference_serial && self.reference_serial == job.reference_serial)
+        });
         let building = self.bla_build.as_ref().is_some_and(|(s, _)| *s == job.reference_serial);
         // BLA as pinned by the epoch, or (a new epoch, or one that started before the table
         // was built) as the job decided: an epoch moves to BLA once, never back while its table
@@ -2885,14 +2888,35 @@ impl<B: GpuBackend> Renderer<B> {
         // iterations per interior texel, 0.5 s chunks). The statistics-driven switch is for
         // fresh levels.
         let interior = key.interior;
+        // LA (M6) the same way: where the job takes it (deep nucleus references), cache tiles
+        // iterate through it too (1e-305 needle: 100x fewer steps per sample).
+        let la_table = job.la.clone().or_else(|| {
+            self.la
+                .clone()
+                .filter(|t| t.serial == job.reference_serial && self.reference_serial == job.reference_serial)
+        });
+        let la_building = self.la_build.as_ref().is_some_and(|(s, _)| *s == job.reference_serial);
+        let la_want = job.la.is_some() || pinned.is_some_and(|r| r.la);
+        let (la, la_pending) = match (la_want, la_table.is_some(), la_building) {
+            (false, _, _) => (false, false),
+            (true, true, _) => (true, false),
+            (true, false, true) => (true, true),
+            (true, false, false) => (false, false),
+        };
         let regime = Regime {
             deep: job.deep,
             bla,
+            la,
             interior,
             de: key.de,
             interior_color: key.interior_color && self.ic_buffers.is_some(),
         };
-        Some((regime, pending, if bla { table } else { None }))
+        Some((
+            regime,
+            pending || la_pending,
+            if bla { table } else { None },
+            if la { la_table } else { None },
+        ))
     }
 
     /// Replaces a fresh gesture job's preview level by a level of the sample cache: the
@@ -2917,7 +2941,11 @@ impl<B: GpuBackend> Renderer<B> {
         if !job.interactive || job.levels.len() != 1 || !job.levels[0].preview || job.levels[0].started() {
             return;
         }
-        let Some((regime, bla_pending, table)) = self.cache_regime() else {
+        if self.sample_cache.fresh_view {
+            self.sample_cache.stats.fallback_frames += 1;
+            return;
+        }
+        let Some((regime, bla_pending, table, la_table)) = self.cache_regime() else {
             return;
         };
         let job = self.job.as_ref().expect("job");
@@ -3009,7 +3037,7 @@ impl<B: GpuBackend> Renderer<B> {
         l.cache = Some(CacheLevel {
             regime,
             bla: table,
-            predicted: plan.predicted,
+            la: la_table,
         });
         l.use_bla = regime.bla;
         l.use_interior = regime.interior;
@@ -3067,12 +3095,6 @@ impl<B: GpuBackend> Renderer<B> {
         {
             return;
         }
-        // (A level iterated through the LA table (M6) is another regime: cache levels never use
-        // it, so its samples do not seed.)
-        if full.use_la && job.la.is_some() {
-            self.sample_cache.seeded_generation = job.generation;
-            return;
-        }
         // Tiles whose pixels started from local SA seeds (M5) are not exact samples: the cache
         // leaves them out (their 16 x 16 tiles of the full level, from the seed pass's flags).
         let mut seeded_tiles: Vec<bool> = Vec::new();
@@ -3092,13 +3114,26 @@ impl<B: GpuBackend> Renderer<B> {
             // Mostly seeded: the gesture's own samples serve better than what is left.
             if seeded_tiles.iter().filter(|&&t| t).count() * 4 > seeded_tiles.len() {
                 self.sample_cache.seeded_generation = job.generation;
+                self.sample_cache.fresh_view = full.use_la && job.la.is_some();
                 return;
             }
+        }
+        // Where the view's pixels step through the LA table (M6, deep nucleus references), a
+        // fresh preview with LA and SA seeds costs a fraction of cache tiles, which take neither
+        // effectively (1e-305 needle: 2e8 iterations in 6 ms against 121 cache texels per 7 ms
+        // frame, the panned-in area left empty): gestures from here render fresh previews.
+        // (SA alone does not: the dense spiral's fresh previews take 120 ms per frame.)
+        let fresh = full.use_la && job.la.is_some();
+        self.sample_cache.fresh_view = fresh;
+        if fresh {
+            self.sample_cache.seeded_generation = job.generation;
+            return;
         }
         let key = &job.key;
         let regime = Regime {
             deep: job.deep,
-            bla: full.use_bla,
+            bla: full.use_bla && !(full.use_la && job.la.is_some()),
+            la: full.use_la && job.la.is_some(),
             interior: full.use_interior,
             de: key.de,
             interior_color: key.interior_color && self.ic_buffers.is_some() && full.set.aux.is_some(),
@@ -3248,6 +3283,24 @@ impl<B: GpuBackend> Renderer<B> {
         if level.done {
             return;
         }
+        if level.cache.is_some() {
+            // A sample cache batch runs one chunk per frame whose K keeps its latency within the
+            // budget (its slowest pixels set the time, not its total work: 256 texels with a few
+            // pixels running to a 200 000 limit took 187 ms in one chunk and stalled the queue);
+            // unfinished pixels go on in the next frames' jobs (the batch carries over).
+            let generation = job.generation;
+            if self
+                .in_flight
+                .iter()
+                .any(|r| r.generation == generation && r.level == 0)
+            {
+                return;
+            }
+            let k = ((0.8 * self.gesture_budget() / self.cache_step_latency) as usize)
+                .clamp(64, level.params.max_iter as usize);
+            self.encode_chunk(0, k, false);
+            return;
+        }
         if level.encoded != 0 {
             if !level.done {
                 let b = self.config.interactive_chunk_target;
@@ -3256,13 +3309,7 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         let estimate = self.cost_per_texel * level.total as f64;
-        // A sample cache batch runs at once when the planner expects it to fit the frame, else
-        // in budgeted chunks that carry over into the next frames' jobs.
-        let progressive = match &level.cache {
-            Some(c) => c.predicted > 1.5 * self.gesture_budget(),
-            None => estimate > 0.05,
-        };
-        if progressive {
+        if estimate > 0.05 {
             let b = self.config.interactive_chunk_target;
             self.encode_chunks(b);
             return;
@@ -3354,6 +3401,7 @@ impl<B: GpuBackend> Renderer<B> {
             if let Some(c) = &level.cache {
                 // The cache epoch's pinned regime (samples of one epoch never mix regimes).
                 level.use_bla = c.regime.bla;
+                level.use_la = c.regime.la;
                 level.use_interior = c.regime.interior;
             } else if !level.started() {
                 level.use_bla = has_bla;
@@ -3408,8 +3456,9 @@ impl<B: GpuBackend> Renderer<B> {
         let (use_la, use_at) = {
             let j = self.job.as_ref().expect("job");
             let l = &j.levels[level_index];
-            let la = l.use_la && j.la.is_some();
-            (la, la && self.config.la_at && j.la.as_ref().is_some_and(LaGpu::has_at))
+            let table = l.cache.as_ref().map_or(j.la.as_ref(), |c| c.la.as_ref());
+            let la = l.use_la && table.is_some();
+            (la, la && self.config.la_at && table.is_some_and(LaGpu::has_at))
         };
         let pipeline = match self.iterate_pipeline(
             de,
@@ -3496,7 +3545,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
-        if use_la && let Some(t) = &job.la {
+        if use_la && let Some(t) = level.cache.as_ref().map_or(job.la.as_ref(), |c| c.la.as_ref()) {
             t.bind(&mut enc, deep, use_at, &self.dummy_buffer);
         }
         enc.set_buffer(23, self.tile_bad.as_ref().map_or(&self.dummy_buffer, |t| &t.0), 0);
@@ -3606,6 +3655,12 @@ impl<B: GpuBackend> Renderer<B> {
                     fs.preview_iterations += stats.iterations() as f64;
                     fs.preview_chunk_gpu += gpu;
                 }
+            }
+            // A sample cache chunk with pixels left after its K: GPU seconds per loop step of its
+            // slowest chains (few threads: latency-bound).
+            if rec.cache && stats.live_out > 0 && gpu > 5e-4 && rec.iterations > 0 {
+                let l = gpu / rec.iterations as f64;
+                self.cache_step_latency = (0.7 * self.cache_step_latency + 0.3 * l).clamp(1e-9, 1e-4);
             }
             // The sample cache's batches complete even after their job was superseded.
             if rec.level == 0 {
@@ -5288,7 +5343,7 @@ impl<B: GpuBackend> Renderer<B> {
             .ok()?;
         let limit = self.job.as_ref().map_or(self.max_iterations(), |j| j.key.max_iter);
         fresh.config.bla = if regime.bla { BlaMode::On } else { BlaMode::Off };
-        fresh.config.la = LaMode::Off;
+        fresh.config.la = if regime.la { LaMode::On } else { LaMode::Off };
         fresh.job = None;
         // The live reference (used if it serves the check's view): float32 escape counts in
         // chaotic regions depend on the reference, which is not what this check is about.

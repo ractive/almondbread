@@ -55,6 +55,8 @@ pub struct Regime {
     /// The deep (extended-range) kernel.
     pub deep: bool,
     pub bla: bool,
+    /// Iterates through the LA table (M6; replaces BLA where both are on).
+    pub la: bool,
     /// The derivative interior test.
     pub interior: bool,
     pub de: bool,
@@ -232,8 +234,6 @@ pub(crate) struct Plan<B: GpuBackend> {
     pub ratio: f64,
     /// The carried batch goes on (nothing new planned; the caller keeps its level).
     pub carried: bool,
-    /// GPU seconds the batch is expected to take (0: unknown).
-    pub predicted: f64,
 }
 
 /// How a view maps onto the cache (compose, survey).
@@ -321,6 +321,9 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     shade_key: Option<(Vec<u8>, usize)>,
     /// Generation of the job whose full level seeded the current epoch.
     pub seeded_generation: u64,
+    /// The last settled view rendered fresh previews cheaper than cache tiles (SA seeds, LA):
+    /// gestures from it do not use the cache.
+    pub fresh_view: bool,
 }
 
 fn pmod(a: i64, m: i64) -> i64 {
@@ -358,11 +361,13 @@ impl<B: GpuBackend> SampleCache<B> {
             last_limit: 0,
             last_mean_units: 0.0,
             seeded_generation: 0,
+            fresh_view: false,
         }
     }
 
     /// Forgets every sample (after a panic, or a change that alters samples).
     pub fn reset(&mut self) {
+        self.fresh_view = false;
         self.epoch = None;
         self.batches.clear();
         self.prev_view = None;
@@ -1134,7 +1139,6 @@ impl<B: GpuBackend> SampleCache<B> {
                     tiles: 0,
                     ratio: g.ratio,
                     carried: true,
-                    predicted: 0.0,
                 });
             }
             // Abandoned: its tiles are free again.
@@ -1261,7 +1265,7 @@ impl<B: GpuBackend> SampleCache<B> {
         let frame = self.frame_of(&e, tw, th);
         self.marks.push(("scan", Instant::now()));
         let mut order = None;
-        let mut units_planned = 0.0f64;
+        let units_planned: f64;
         let mut max_planned = 0.0f64;
         if n > 0 {
             if by_units {
@@ -1361,11 +1365,6 @@ impl<B: GpuBackend> SampleCache<B> {
             tiles: n,
             ratio: g.ratio,
             carried: false,
-            predicted: if self.unit_cost > 0.0 {
-                (units_planned * self.unit_cost).max(max_planned * self.latency_cost)
-            } else {
-                cost * (n * 256) as f64
-            },
         })
     }
 
