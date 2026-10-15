@@ -64,7 +64,7 @@ pub const PROBE_ITER_CAP: usize = 30_000;
 pub const GAIN_RANGE: (f64, f64) = (2.5, 20.0);
 /// Resurface after this depth (log10 of the magnification against span 3) or this many legs.
 pub const MAX_DEPTH_LOG10: f64 = 40.0;
-pub const MAX_LEGS_PER_DIVE: u32 = 9;
+pub const MAX_LEGS_PER_DIVE: u32 = 6;
 /// Boundary points tried per plan.
 const SAMPLES: usize = 10;
 /// Candidates probed per plan (best by the pre-score).

@@ -229,7 +229,7 @@ public final class ExplorerModel {
     /// with depth (per e-fold), colours cycle while flying (cycles per second).
     public var cinematic = false { didSet { push() } }
     public var cinematicSpin = 4.0 { didSet { push() } }
-    public var cinematicHueDrift = 2.5 { didSet { push() } }
+    public var cinematicHueDrift = 1.0 { didSet { push() } }
     public var cinematicPhaseDrift = 0.01 { didSet { push() } }
     public var cinematicFlyCycle = 0.02 { didSet { push() } }
     /// Dense regions: calm dark colour with thin filaments (off: the palette's mean grey).
@@ -637,7 +637,7 @@ public final class ExplorerModel {
         depthTint = 0
         cinematic = false
         cinematicSpin = 4
-        cinematicHueDrift = 2.5
+        cinematicHueDrift = 1
         cinematicPhaseDrift = 0.01
         cinematicFlyCycle = 0.02
         orbitEnabled = false

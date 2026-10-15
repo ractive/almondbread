@@ -884,6 +884,54 @@ indexed a dropped AA level (the "Lagoon" crash). Regression test
 `colour_change_during_progressive_aa` (every palette and look applied with AA in flight)
 fails with the reported panic without the fix.
 
+## PJ: journey, view rotation, cinematic effects, 2026-10-15
+
+Measured 2026-10-15, M1 Pro, release, with another agent's GPU jobs (M5) running at times.
+Design: [[decisions/controls]] "Journey", "View rotation", "Cinematic effects".
+
+**Planner** (`almondbread journey --seed s --legs 18`, CPU only, one thread plus the oracle's
+rayon rows): 0.01–0.3 s per plan from home to 1e43 (seeds 4711, 7, 20261015), 10–20
+candidates, up to 14 probed per plan. Legs gain 2.8–18 e-folds (median ~6), resurfacing after
+6 legs or below 1e40.
+
+**Rotation through the interactive scheduler** (`verify --history`, in `make regress`; all
+three new sessions pass, the 12 existing ones are unchanged):
+
+| session | vs CPU oracle (class mismatch) | vs fresh render |
+|---|---:|---|
+| rotate (0.35 rad/e-fold) at the neck, 640×410, then ×1.32 | 0.355 % GPU-ext/CPU-int, 0 % false interior (unrotated zoom: 0.460 %) | 0 % class; escape-n 4.9 % in the first view (unresolved neck pixels), 0 % after the step |
+| rotate at needle-1e305, 40°, 3 s at 3 e/s | 0.001 % | 0 %, escape-n 0 % |
+| flyto home → sea-8007 turning to 60° | 0 % (escape-n 39 %: float32 noise, as unrotated) | 0 %, escape-n 0 %; landed exactly, 42.2 s at 4 e/s, 2 references |
+
+Still renders: `verify --angle 30` at 2e-7 per pixel: class mismatch 0 %, escape-n 5.5 %
+(unrotated 5.6 %); spiral-1e1000 at 75°: class mismatch 0 % (escape-n 25.8 % vs 18.1 %
+unrotated: the float32-vs-f64 chaos of dense spirals, which the turned grid samples at other
+points). The
+kernel's extra cost is two multiply-adds per pixel start.
+
+**Review videos** (`almondbread fly`, 1920×1080, 60 Hz, 85 s, `review/`, gitignored):
+
+| video | presented | preview frames | late refreshes (worst) | iterate GPU / frame |
+|---|---:|---:|---|---:|
+| `journey-4711.mp4` (effects off) | 3906 of 5100 (46.0 fps; the rests present only when the image changes) | 3757 | 70 (395 ms; GPU shared) | 6.53 ms |
+| `journey-4711-cinematic.mp4` | 3937 (46.3 fps) | 3788 | 1 (8.8 ms) | 6.73 ms |
+
+Judged on stills every 5 s and frame strips: every landing is sharp and composed around a
+structure (minibrot with rings, Julia-like stars, spirals), the flights are smooth and the
+rests long enough to see the refined image. Variety is the weak point: the first six legs stay
+in one region (dendritic, star-shaped embedded Julia filigree under the M(113,10) spiral), so
+the first minute looks like one family of shapes; the resurfacing to "A Seahorse" at ~70 s
+brings seahorse spirals. With 9 legs per dive (first recording) the whole 85 s stayed in one
+region, hence 6. The cinematic run turns slowly (4°/e-fold) and shifts colours; at the first
+default hue drift (2.5°/e-fold) the later legs turned muddy brown and pink, at 1°/e-fold the
+look stays recognisable.
+
+**Not measured: interaction tests and self-test.** The screen was locked for the whole
+session (`CGSSessionScreenIsLocked`), so the background test windows get no display-link
+callbacks and present nothing (the existing "home pan" scenario hangs the same way). The new
+scenarios `rotate zoom`, `cinematic autopilot` and `journey` are in
+`Sources/AlmondbreadKit/InteractionTest.swift` for the next unlocked run.
+
 ## R6: faster deep references, 2026-10-15
 
 What changed: [[techniques/parallel-reference-orbit]]. Measured 2026-10-15, M1 Pro (8 P +

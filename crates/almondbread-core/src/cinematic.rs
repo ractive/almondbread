@@ -33,7 +33,7 @@ impl Default for Cinematic {
         Self {
             enabled: false,
             spin: 4.0,
-            hue_drift: 2.5,
+            hue_drift: 1.0,
             phase_drift: 0.01,
             fly_cycle: 0.02,
         }
@@ -96,7 +96,7 @@ mod tests {
         let on = Cinematic { enabled: true, ..c };
         assert!((on.spin_per_efold() - 4f64.to_radians()).abs() < 1e-15);
         let (h, p) = on.palette_at(10.0);
-        assert!((h - 25f64.to_radians()).abs() < 1e-12 && (p - 0.1).abs() < 1e-12);
+        assert!((h - 10f64.to_radians()).abs() < 1e-12 && (p - 0.1).abs() < 1e-12);
         // A function of depth only: the same depth gives the same colours.
         assert_eq!(on.palette_at(3.5), on.palette_at(3.5));
     }

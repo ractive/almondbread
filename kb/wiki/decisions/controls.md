@@ -442,7 +442,7 @@ the *spare* until a view needs it).
    nucleus). The cycle multiplier `Π 2 z_i` labels it a **spiral** (complex) or a **branch
    point** (real, a dendrite).
 4. A **boundary detail** zoom (3–6 e-folds into the sample) as a fallback, and **resurfacing**
-   to a shallow catalogue place ([[synthesis/places]]) after 9 legs or below 1e40, so the
+   to a shallow catalogue place ([[synthesis/places]]) after 6 legs or below 1e40, so the
    journey is endless without getting slow.
 
 **Scoring with survey-style statistics.** Each candidate's framing is probed (40 × 40) and
@@ -473,7 +473,7 @@ structures with smooth space around them. At depth, minibrot Newton failed until
 the 7/8 stage made minibrots and Julia stages appear at every depth ("towards a period-87
 minibrot" followed by "embedded Julia (period 87)"). From home, seeds 4711, 7 and 20261015
 plan spirals, minibrots, stages, branch points and approaches in alternation, with a
-resurfacing after 9 legs.
+resurfacing after 6 legs (9 in the first review video: one region for its whole 85 s, so 6).
 
 **Determinism.** A plan depends only on the start view (centre, shorter-side span) and the
 chain (seed stream, history), and every leg plans from the previous target, so a journey is
@@ -533,8 +533,10 @@ four strengths in the control center, menu "Cinematic Effects".
   flight still lands exactly). Manual zooming never spins. At the default journey speed that is
   5.6°/s.
 - **Hue drift**: the palette turns in OKLab hue (lightness and chroma kept; Ottosson's
-  matrices, in the kernel's `paletteAt`; src: [[sources/ottosson-oklab]]) by 2.5° per e-fold
-  of depth.
+  matrices, in the kernel's `paletteAt`; src: [[sources/ottosson-oklab]]) by 1° per e-fold
+  of depth. The first default, 2.5°, turned the aurora look by 115° over the 46 e-folds of an
+  85 s journey: its peach and teal went brown and pink, muddy in the review video; 1° keeps the
+  look recognisable and still shifts it noticeably over a dive.
 - **Phase drift**: the palette phase moves 0.01 cycles per e-fold of depth.
 - **Cycling in flight**: 0.02 palette cycles per second while the autopilot or a flight moves.
 
