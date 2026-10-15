@@ -47,7 +47,10 @@ fn main() {
         }
     };
     let grid = take("--grid", "64x40");
-    let (gw, gh) = grid.split_once('x').map(|(a, b)| (a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap())).unwrap();
+    let (gw, gh) = grid
+        .split_once('x')
+        .map(|(a, b)| (a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap()))
+        .unwrap();
     let width: usize = take("--size", "1600").parse().unwrap();
     let height = width * 5 / 8;
     let names: Vec<String> = if args.is_empty() {
@@ -57,8 +60,23 @@ fn main() {
     };
     println!(
         "{:<18} {:>7} {:>6} {:>5} {:>9} | {:>8} {:>8} {:>8} {:>8} | {:>6} {:>6} {:>6} | {:>5} {:>5} {:>5} | {:>8} {:>8}",
-        "location", "points", "stages", "bnds", "build ms", "exact", "bla", "la", "la+at", "bla x", "la x", "at x",
-        "clsB", "clsL", "clsA", "dmuL", "tests/px"
+        "location",
+        "points",
+        "stages",
+        "bnds",
+        "build ms",
+        "exact",
+        "bla",
+        "la",
+        "la+at",
+        "bla x",
+        "la x",
+        "at x",
+        "clsB",
+        "clsL",
+        "clsA",
+        "dmuL",
+        "tests/px"
     );
     for name in &names {
         let loc = location_named(name).unwrap_or_else(|| panic!("unknown location {name}"));
@@ -73,7 +91,11 @@ fn main() {
             req.period_limit = max_iter;
             Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).expect("reference")
         };
-        let pts = if r.extended.is_empty() { to_x(&r.points) } else { r.extended.clone() };
+        let pts = if r.extended.is_empty() {
+            to_x(&r.points)
+        } else {
+            r.extended.clone()
+        };
         let off = v.center.delta_in(&r.point, texel);
         let t0 = Instant::now();
         let bla = BlaTableX::build(&pts, BLA_EPSILON);
@@ -97,7 +119,10 @@ fn main() {
                     println!("{}", la.describe_chain(j));
                 }
             }
-            println!("|dc| max 2^{:.1}", (tm * (width as f64).hypot(height as f64) / 2.0).log2() + te as f64);
+            println!(
+                "|dc| max 2^{:.1}",
+                (tm * (width as f64).hypot(height as f64) / 2.0).log2() + te as f64
+            );
         }
         let pixels: Vec<(f64, f64)> = (0..gh)
             .flat_map(|j| {
@@ -118,7 +143,13 @@ fn main() {
             let k: usize = k.parse().unwrap();
             let (x, y) = pixels[k];
             almondbread_core::la::TRACE.with(|t| t.set(true));
-            let o = iterate_model(&pts, Skip::La(&la, false), (x * tm, y * tm, te), max_iter, BAILOUT * BAILOUT);
+            let o = iterate_model(
+                &pts,
+                Skip::La(&la, false),
+                (x * tm, y * tm, te),
+                max_iter,
+                BAILOUT * BAILOUT,
+            );
             almondbread_core::la::TRACE.with(|t| t.set(false));
             println!("pixel {k}: {o:?}");
         }
@@ -163,7 +194,9 @@ fn main() {
             tests(&ol),
             tests(&ob),
             la.stage_steps,
-            la.at.as_ref().map_or(String::new(), |a| format!(" AT period {}", a.period)),
+            la.at
+                .as_ref()
+                .map_or(String::new(), |a| format!(" AT period {}", a.period)),
         );
         println!("    escaped {esc:.1} %");
     }

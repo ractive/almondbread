@@ -20,7 +20,7 @@
 //! when one no longer coarsens. The thresholds follow Imagina's (src: kb
 //! sources/imagina-hinfla-evaluator §LAInfo::Step, §CreateLAFromOrbit); the bounds are ours.
 //!
-//! **Lookup (GPU and [`iterate_la`]).** A pixel does ordinary steps; right after the exact step
+//! **Lookup (GPU and [`iterate_model`]).** A pixel does ordinary steps; right after the exact step
 //! *from* a stage-0 boundary `b_j` (at `m = b_j + 1`, with `dz = u`) it looks up the chain of
 //! steps starting at `b_j` (stage 0, 1, ... while `b_j` is a boundary of that stage; validity
 //! is monotone up the chain: each is a prefix of the next) and applies the longest valid block.
@@ -49,11 +49,14 @@ pub const NEAR_RETURN_LOG2: f64 = 3.0;
 /// A radius collapsing by this much (log2) when a point is added cuts the step there.
 pub const COLLAPSE_LOG2: f64 = 10.0;
 /// A natural stage step longer than this many steps of the stage below is split ...
-pub const SYNTHETIC_MAX: usize = 64;
+pub const SYNTHETIC_MAX: usize = 16;
 /// ... into pieces so that stages coarsen by about this factor.
-pub const SYNTHETIC_FACTOR: f64 = 16.0;
+pub const SYNTHETIC_FACTOR: f64 = 4.0;
 /// Upper bound on stages (a guard; real tables have ~log_2 of the boundaries).
 pub const MAX_STAGES: usize = 64;
+
+/// A boundary's chain as built: per stage, the block and where it ends.
+type Chain = Vec<(Option<MergedX>, usize)>;
 
 /// Construction parameters (defaults: the constants above).
 #[derive(Clone, Copy, Debug)]
@@ -126,12 +129,20 @@ fn then_opt(x: Option<MergedX>, y: &MergedX) -> MergedX {
 }
 
 fn log2_xr(x: Xr) -> f64 {
-    if x.is_zero() { f64::NEG_INFINITY } else { x.m.log2() + x.e as f64 }
+    if x.is_zero() {
+        f64::NEG_INFINITY
+    } else {
+        x.m.log2() + x.e as f64
+    }
 }
 
 fn log2_abs(z: &FloatExpComplex) -> f64 {
     let m = f64::from(z.mantissa[0]).hypot(f64::from(z.mantissa[1]));
-    if m == 0.0 { f64::NEG_INFINITY } else { m.log2() + f64::from(z.exponent) }
+    if m == 0.0 {
+        f64::NEG_INFINITY
+    } else {
+        m.log2() + f64::from(z.exponent)
+    }
 }
 
 fn r_log2(b: &Option<MergedX>) -> f64 {
@@ -272,11 +283,19 @@ impl LaEntryX {
     }
 
     fn a(&self) -> Xc {
-        Xc::new(f64::from(self.block.a[0]), f64::from(self.block.a[1]), i64::from(self.block.ae))
+        Xc::new(
+            f64::from(self.block.a[0]),
+            f64::from(self.block.a[1]),
+            i64::from(self.block.ae),
+        )
     }
 
     fn b(&self) -> Xc {
-        Xc::new(f64::from(self.block.b[0]), f64::from(self.block.b[1]), i64::from(self.block.be))
+        Xc::new(
+            f64::from(self.block.b[0]),
+            f64::from(self.block.b[1]),
+            i64::from(self.block.be),
+        )
     }
 
     /// `|u| + K |c| < R`.
@@ -290,7 +309,11 @@ impl LaEntryX {
         let f = |m: f32, x: i32| -> f64 { f64::from(m) * crate::bla::pow2(i64::from(x)) };
         let (a0, a1) = (f(e.a[0], e.ae), f(e.a[1], e.ae));
         let (b0, b1) = (f(e.b[0], e.be), f(e.b[1], e.be));
-        let r = if e.r > 0.0 { f(e.r, e.re).min(f64::from(f32::MAX)) } else { 0.0 };
+        let r = if e.r > 0.0 {
+            f(e.r, e.re).min(f64::from(f32::MAX))
+        } else {
+            0.0
+        };
         let k = f(e.k, e.ke);
         let ok = r >= f64::from(f32::MIN_POSITIVE)
             && a0.hypot(a1) <= PLAIN_MAX_COEFFICIENT
@@ -384,13 +407,13 @@ impl LaTable {
                 natural: true,
             })
             .collect();
-        let mut stages = vec![compose_stage(&units, &zl, &single, params.near0_log2, &params)];
+        let mut stages = vec![compose_stage(&units, &zl, &single, params.near0_log2, params)];
         while stages.len() < MAX_STAGES {
             let prev = stages.last().expect("stage");
             if prev.len() <= 1 {
                 break;
             }
-            let next = compose_stage(prev, &zl, &single, params.near_log2, &params);
+            let next = compose_stage(prev, &zl, &single, params.near_log2, params);
             if next.len() == prev.len() {
                 break;
             }
@@ -405,7 +428,7 @@ impl LaTable {
         // boundary whose chain is then empty has no lookup.
         let s0 = &stages[0];
         let mut ptr = vec![0usize; stages.len()];
-        let mut kept: Vec<(usize, Vec<(Option<MergedX>, usize)>)> = Vec::new();
+        let mut kept: Vec<(usize, Chain)> = Vec::new();
         for st0 in s0 {
             let prev_look = kept.last().map(|k| k.0);
             let natural = st0.natural || prev_look.is_some_and(|l| st0.start <= l);
@@ -550,9 +573,7 @@ impl LaTable {
     }
 
     pub fn bytes(&self) -> usize {
-        self.entries.len() * std::mem::size_of::<LaEntryX>()
-            + self.bounds.len() * 8
-            + self.next_j.len() * 4
+        self.entries.len() * std::mem::size_of::<LaEntryX>() + self.bounds.len() * 8 + self.next_j.len() * 4
     }
 
     /// The chain of boundary `j` as text: per stage, length, log2 R, log2 K, log2 |A|, log2 |B|
@@ -586,7 +607,15 @@ impl LaTable {
 
     /// The longest valid block of boundary `j`'s chain for `|u| = un`, `|dc| = cn` at
     /// iteration `n`: (entry, tests made).
-    fn longest(&self, j: usize, n: usize, max_iter: usize, un: Xr, cn: Xr, hint: usize) -> (Option<(usize, &LaEntryX)>, usize) {
+    fn longest(
+        &self,
+        j: usize,
+        n: usize,
+        max_iter: usize,
+        un: Xr,
+        cn: Xr,
+        hint: usize,
+    ) -> (Option<(usize, &LaEntryX)>, usize) {
         // Validity is monotone along the chain: start at the stage that served last time and
         // move up while valid or down until valid (about two tests on the GPU).
         let c = self.chain(j);
@@ -615,7 +644,7 @@ impl LaTable {
     }
 }
 
-/// Outcome of the CPU models [`iterate_la`], [`iterate_bla_deep`].
+/// Outcome of the CPU model [`iterate_model`].
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ModelOutcome {
     pub n: usize,
@@ -638,7 +667,11 @@ impl ModelOutcome {
 }
 
 fn xc_of(z: &FloatExpComplex) -> Xc {
-    Xc::new(f64::from(z.mantissa[0]), f64::from(z.mantissa[1]), i64::from(z.exponent))
+    Xc::new(
+        f64::from(z.mantissa[0]),
+        f64::from(z.mantissa[1]),
+        i64::from(z.exponent),
+    )
 }
 
 fn log2_xc(z: Xc) -> f64 {
@@ -692,7 +725,7 @@ pub fn iterate_model(
                 let mut moved = false;
                 while n + at.period <= max_iter {
                     let y2 = y.mul(y).add(cp);
-                    if !(2.0 * log2_xc(y) < rad) {
+                    if 2.0 * log2_xc(y) >= rad || rad.is_nan() {
                         break;
                     }
                     y = y2;
@@ -808,7 +841,14 @@ thread_local! {
 }
 
 /// Escape and rebase tests at `m`; true when escaped.
-fn finish(points: &[FloatExpComplex], dz: &mut Xc, m: &mut usize, last: usize, half_log2_b2: f64, out: &mut ModelOutcome) -> bool {
+fn finish(
+    points: &[FloatExpComplex],
+    dz: &mut Xc,
+    m: &mut usize,
+    last: usize,
+    half_log2_b2: f64,
+    out: &mut ModelOutcome,
+) -> bool {
     let z = xc_of(&points[*m]).add(*dz);
     let lz = log2_xc(z);
     if lz > half_log2_b2 {
@@ -832,28 +872,99 @@ mod tests {
 
     #[test]
     fn chains_and_next() {
-        let r = Reference::compute_f64(&Viewport::new(-1.4080321340304542, 0.13680236432900417, 1e-10), 6000, 65536.0);
+        let r = Reference::compute_f64(
+            &Viewport::new(-1.4080321340304542, 0.13680236432900417, 1e-10),
+            6000,
+            65536.0,
+        );
         let t = LaTable::build_plain(&r.points, BLA_EPSILON);
-        println!("stages {:?}, {} entries, {} boundaries", t.stage_steps, t.entries.len(), t.boundaries());
-        assert_eq!(t.bounds[0][0], 0);
+        println!(
+            "stages {:?}, {} entries, {} boundaries",
+            t.stage_steps,
+            t.entries.len(),
+            t.boundaries()
+        );
+        assert_eq!(t.bounds[0][0], 1, "the first lookup follows the step from z_0 = 0");
+        let look = |j: usize| t.bounds[j][0] as usize;
         for j in 0..t.boundaries() {
+            if j > 0 {
+                assert!(look(j) > look(j - 1), "lookup indices grow strictly");
+            }
             let c = t.chain(j);
             assert!(!c.is_empty());
-            // The chain's ends are boundaries further on, each no earlier than the last.
-            let mut prev = j;
-            for e in c {
-                assert!(e.end_j as usize > j && e.end_j as usize >= prev);
-                prev = e.end_j as usize;
-                let end = if (e.end_j as usize) < t.boundaries() { t.bounds[e.end_j as usize][0] as usize } else { t.ref_len - 1 };
-                assert_eq!(end, t.bounds[j][0] as usize + 1 + e.len as usize);
+            for (k, e) in c.iter().enumerate() {
+                assert!(e.len > 0);
+                let end = look(j) + e.len as usize;
+                assert!(end < t.ref_len);
+                // The next lookup after the block is the first one at or after its end.
+                assert_eq!(e.end_j, t.next_j[end]);
+                // Monotone along the chain: R no larger, K no smaller (the GPU search relies on it).
+                if k > 0 && e.block.r > 0.0 {
+                    assert!(
+                        !c[k - 1].r().lt(e.r()) && !e.k().lt(c[k - 1].k()),
+                        "chain {j} stage {k}"
+                    );
+                }
             }
         }
         for m in 0..t.ref_len {
             let j = t.next_j[m] as usize;
             if j < t.boundaries() {
-                assert!(t.bounds[j][0] as usize + 1 >= m);
-                assert!(j == 0 || (t.bounds[j - 1][0] as usize + 1) < m);
+                assert!(look(j) >= m && (j == 0 || look(j - 1) < m));
             }
         }
+    }
+
+    /// The model with LA agrees with exact perturbation (class, median smooth count) and skips,
+    /// around the M4 slow view at 1e-20 per pixel (an f64 reference, as the BLA test).
+    #[test]
+    fn model_agrees_with_perturbation() {
+        let r = Reference::compute_f64(
+            &Viewport::new(-1.4080321340304542, 0.13680236432900417, 1e-10),
+            12000,
+            65536.0,
+        );
+        let pts: Vec<FloatExpComplex> = r
+            .points
+            .iter()
+            .map(|p| {
+                let a = p[0].abs().max(p[1].abs());
+                if a == 0.0 {
+                    return FloatExpComplex::ZERO;
+                }
+                let (_, e) = crate::bla::frexp(f64::from(a));
+                let s = crate::bla::pow2(-e) as f32;
+                FloatExpComplex {
+                    mantissa: [p[0] * s, p[1] * s],
+                    exponent: e as i32,
+                }
+            })
+            .collect();
+        let t = LaTable::build(&pts, BLA_EPSILON);
+        let (mut class, mut dmu, mut exact, mut la) = (0, Vec::new(), 0usize, 0usize);
+        for j in 0..20 {
+            for i in 0..32 {
+                let dc = (
+                    (i as f64 - 16.0 + 0.37) * 2.5e-19,
+                    (j as f64 - 10.0 + 0.61) * 2.5e-19,
+                    0,
+                );
+                let a = iterate_model(&pts, Skip::None, dc, 12000, 65536.0 * 65536.0);
+                let b = iterate_model(&pts, Skip::La(&t, true), dc, 12000, 65536.0 * 65536.0);
+                exact += a.steps;
+                la += b.steps;
+                if a.escaped != b.escaped {
+                    class += 1;
+                } else if a.escaped {
+                    dmu.push((a.mu() - b.mu()).abs());
+                }
+            }
+        }
+        dmu.sort_by(f64::total_cmp);
+        let median = dmu.get(dmu.len() / 2).copied().unwrap_or(0.0);
+        println!("class {class}, median |dmu| {median:.2e}, steps {exact} -> {la}");
+        assert!(class <= 2);
+        assert!(median < 1e-3);
+        assert!(la * 4 < exact, "{la} vs {exact}");
     }
 }

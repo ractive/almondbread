@@ -567,7 +567,14 @@ impl BlaTableX {
     }
 
     /// The longest valid block at `m` for `|dz| = 2^zn_log2`, `|dc| = 2^cn_log2`.
-    pub(crate) fn longest_pub(&self, m: usize, n: usize, max_iter: usize, zn: Xr, cn: Xr) -> Option<(&BlaEntryX, usize)> {
+    pub(crate) fn longest_pub(
+        &self,
+        m: usize,
+        n: usize,
+        max_iter: usize,
+        zn: Xr,
+        cn: Xr,
+    ) -> Option<(&BlaEntryX, usize)> {
         self.longest(m, n, max_iter, zn, cn)
     }
 

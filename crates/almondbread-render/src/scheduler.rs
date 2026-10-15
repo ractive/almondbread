@@ -31,16 +31,18 @@ use almondbread_core::viewport::{Scale, Viewport};
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
-use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
     PixelStateIC, SeedNode, SeedParams, SurveyParams,
 };
+use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
 /// Dense-region colours cached per palette: (palette key, deep, filament).
 type DenseColors = (String, [f32; 3], [f32; 3]);
 
+/// M6 auto: LA when the limit spans at least this many periods of a nucleus reference.
+const LA_MIN_PERIODS: usize = 16;
 /// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
 pub const BAILOUT: f64 = 65536.0;
 const STAT_SLOTS: usize = 64;
@@ -1185,6 +1187,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.navigator.note_interaction(now);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn iterate_pipeline(
         &mut self,
         de: bool,
@@ -1209,7 +1212,18 @@ impl<B: GpuBackend> Renderer<B> {
         // (Constants 6 and 7 are unused by `iterate`; 8 and 9 are M6's kLA and kAT.)
         let p = self.backend.pipeline(
             "iterate",
-            &[de, interior, bla, deep, interior_color, seeded, false, false, la.0, la.1],
+            &[
+                de,
+                interior,
+                bla,
+                deep,
+                interior_color,
+                seeded,
+                false,
+                false,
+                la.0,
+                la.1,
+            ],
         )?;
         self.iterate_pipelines[k] = Some(p.clone());
         Ok(p)
@@ -2560,7 +2574,7 @@ impl<B: GpuBackend> Renderer<B> {
             || self.la_build.as_ref().is_some_and(|(s, _)| *s == serial);
         if !building {
             // As for BLA: no block is valid for a pixel beyond eps max|2 Z|.
-            if self.config.la == LaMode::Auto && job.max_dc_log2 >= self.bla_reach_log2 {
+            if self.config.la == LaMode::Auto && (job.max_dc_log2 >= self.bla_reach_log2 || !self.prefer_la()) {
                 self.job.as_mut().expect("job").la_decided = true;
                 return BlaReady::Without;
             }
@@ -2570,10 +2584,7 @@ impl<B: GpuBackend> Renderer<B> {
         match &self.la {
             Some(t) if t.serial == serial => {
                 let t = t.clone();
-                let use_la = match self.config.la {
-                    LaMode::On => true,
-                    _ => self.prefer_la(&t),
-                };
+                let use_la = self.config.la == LaMode::On || self.prefer_la();
                 let job = self.job.as_mut().expect("job");
                 job.la_decided = true;
                 if use_la {
@@ -2593,8 +2604,17 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// Auto mode: whether the job's view should iterate through the LA table rather than BLA
     /// (kb: synthesis/benchmarks M6).
-    fn prefer_la(&self, _t: &LaGpu<B>) -> bool {
-        false
+    /// Measured (M6): LA (with the AT) beats BLA 2-3x where pixels run through many periods of
+    /// a short nucleus reference (needles: periods 79-834, limits 120-250 periods), loses at
+    /// sea-8007 (5 periods of 8007: the cost is the non-linear tail, where LA's lookups at
+    /// every near-return cost more than BLA's every 8th step) and is even with BLA on centre
+    /// references (dendrites, sea-1e20, spiral: deltas are non-linear or seeds did the work).
+    fn prefer_la(&self) -> bool {
+        let Some(job) = &self.job else { return false };
+        self.reference
+            .as_ref()
+            .and_then(|r| r.period)
+            .is_some_and(|p| p >= 2 && job.key.max_iter >= LA_MIN_PERIODS * p)
     }
 
     fn finish_la_build(&mut self, wait: bool) {
@@ -2613,7 +2633,12 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     fn upload_la(&mut self, serial: u64, table: Arc<almondbread_core::la::LaTable>) {
-        self.la_info = (table.build_time, table.entries.len(), table.bytes(), table.stage_steps.len());
+        self.la_info = (
+            table.build_time,
+            table.entries.len(),
+            table.bytes(),
+            table.stage_steps.len(),
+        );
         let deep = self.reference.as_ref().is_some_and(|r| r.deep_kernel);
         if self.config.trace {
             println!(
@@ -2621,7 +2646,10 @@ impl<B: GpuBackend> Renderer<B> {
                 table.boundaries(),
                 table.entries.len(),
                 table.stage_steps,
-                table.at.as_ref().map_or("none".to_string(), |a| format!("period {}", a.period)),
+                table
+                    .at
+                    .as_ref()
+                    .map_or("none".to_string(), |a| format!("period {}", a.period)),
                 table.build_time * 1e3
             );
         }

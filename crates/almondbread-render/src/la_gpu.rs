@@ -129,3 +129,59 @@ pub(crate) fn build_table(r: &Reference, epsilon: f64) -> Box<dyn FnOnce() -> Ar
 
 /// A table build on its thread, for the reference with this serial.
 pub(crate) type LaBuildJob = (u64, JoinHandle<Arc<LaTable>>);
+
+#[cfg(all(test, target_vendor = "apple"))]
+mod tests {
+    use super::LaMode;
+    use crate::metal::MetalBackend;
+    use crate::scheduler::{Renderer, SaMode, SchedulerConfig};
+    use almondbread_core::IterationField;
+    use almondbread_core::locations::location_named;
+
+    /// (field, steps, LA used) of an offscreen render of `name` at `w` x `h` (the location's
+    /// pixel size at 1600 wide), local SA off, with the given LA mode, AT and chunk target.
+    fn render(name: &str, w: usize, h: usize, la: LaMode, at: bool, chunk: f64) -> (IterationField, u64, bool) {
+        let mut config = SchedulerConfig {
+            la,
+            la_at: at,
+            chunk_target: chunk,
+            ..SchedulerConfig::default()
+        };
+        config.local_sa.mode = SaMode::Off;
+        let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
+        let loc = location_named(name).expect("location");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = loc.max_iterations();
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        r.viewport = loc.viewport_for_width(1600);
+        let out = r.render_offscreen(w, h, true).expect("render");
+        let field = IterationField::from_texels(w, h, out.iterations.as_deref().expect("texels"));
+        (field, out.steps_done, out.la_used)
+    }
+
+    /// Results do not depend on how chunks cut the orbit (shown frame = fresh render), in the
+    /// deep path with the AT (pixels resume inside it), without it, and in the plain path.
+    #[test]
+    fn la_chunk_independent() {
+        for (name, at) in [("needle-1e305", true), ("needle-1e94", false), ("deep-5e-14", false)] {
+            let (a, _, used) = render(name, 320, 200, LaMode::On, at, 0.0002);
+            let (b, _, _) = render(name, 320, 200, LaMode::On, at, 0.05);
+            assert!(used, "{name}");
+            assert_eq!(a.bitwise_differences(&b), 0, "{name}");
+        }
+    }
+
+    /// LA with its AT changes (almost) no pixel's class against BLA at a needle minibrot and
+    /// takes fewer steps; auto picks it there.
+    #[test]
+    fn la_agrees_with_bla() {
+        let (off, off_steps, _) = render("needle-1e305", 400, 250, LaMode::Off, true, 0.016);
+        let (on, on_steps, used) = render("needle-1e305", 400, 250, LaMode::Auto, true, 0.016);
+        assert!(used);
+        assert!(on_steps * 3 < off_steps * 2, "{on_steps} vs {off_steps}");
+        let class = |f: &IterationField, i: usize| f.n[i] >= 0.0;
+        let differ = (0..off.n.len()).filter(|&i| class(&off, i) != class(&on, i)).count();
+        assert!(differ * 2000 <= off.n.len(), "{differ} pixels changed class");
+    }
+}
