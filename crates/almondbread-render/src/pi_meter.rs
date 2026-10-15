@@ -250,7 +250,7 @@ impl PiMeter {
         f.last_time = Some(now);
         // Ease out over the last e-fold so the flight lands rather than stops.
         let left = (f.eps / f.end_eps).ln().max(0.0);
-        let r = rate.max(0.05) * left.min(1.0).max(0.08);
+        let r = rate.max(0.05) * left.clamp(0.08, 1.0);
         f.eps = (f.eps * (-r * dt).exp()).max(f.end_eps);
         let v = f.point.view_at(f.eps, short_side).with_angle(current.angle);
         if f.eps <= f.end_eps * (1.0 + 1e-9) {
