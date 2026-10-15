@@ -106,12 +106,3 @@ schemes:
         Almondbread iOS: all
     test:
       targets: [Almondbread iOS UITests]
-  # Listed because shared schemes stop Xcode from making automatic ones (`make app` uses it).
-  Almondbread:
-    build:
-      targets:
-        Almondbread: all
-    run:
-      config: Debug
-    archive:
-      config: Release

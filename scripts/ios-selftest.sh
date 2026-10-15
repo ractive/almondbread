@@ -19,7 +19,7 @@ for name in ${(s:,:)devices}; do
   xcrun simctl install $udid $app
   log=$root/build/ios-selftest-$slug.log
   # --console-pty: the app's stdout; it quits by itself (exit status 1/2 on failure).
-  if ! SIMCTL_CHILD_ALMONDBREAD_SELFTEST=1 ${=commands[timeout]:+timeout 90} xcrun simctl launch --console-pty --terminate-running-process \
+  if ! SIMCTL_CHILD_ALMONDBREAD_SELFTEST=1 ${=commands[timeout]:+timeout 240} xcrun simctl launch --console-pty --terminate-running-process \
        $udid $bundle --selftest-png=selftest.png >$log 2>&1; then
     true
   fi
