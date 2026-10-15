@@ -117,6 +117,10 @@ struct ContentView: View {
                     Label("Mini-map", systemImage: "map")
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
+                Toggle(isOn: $model.cosmicScale) {
+                    Label("Size Scale", systemImage: "ruler")
+                }
+                .help("Cosmic size scale: the view compared with real things, from the universe to the Planck length (C)")
                 Button {
                     model.toggleAutopilot()
                 } label: {

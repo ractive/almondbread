@@ -59,7 +59,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let mut out = None;
     let analyse = r.settings.interior_mode.needs_analysis() || o.has("interior-stats");
     // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): `--orbit x,y` (view
-    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`.
+    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`,
+    // `--scale-overlay 1` (cosmic size scale) with `--scale-anchor screen|earth|...` and
+    // `--screen-cm w` (the view's physical width; default 30 cm).
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
@@ -145,10 +147,25 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     use almondbread_core::input::InputEvent;
     let orbit = o.pair("orbit")?;
     let map = o.get("map").is_some_and(|v| v != "0");
-    if orbit.is_none() && !map {
+    let cosmic = o.get("scale-overlay").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map && !cosmic {
         return Ok(None);
     }
     let mut ov = almondbread_render::overlay::Overlay::<B>::default();
+    ov.cosmic.settings.enabled = cosmic;
+    if let Some(a) = o.get("scale-anchor") {
+        if !almondbread_core::cosmic::ANCHORS.contains(&a) {
+            return err(format!(
+                "--scale-anchor: one of {}",
+                almondbread_core::cosmic::ANCHORS.join(", ")
+            ));
+        }
+        ov.cosmic.settings.anchor = a.to_string();
+    }
+    if let Some(cm) = o.f64("screen-cm") {
+        let ppp = o.f64("ppp").unwrap_or(1.0);
+        ov.cosmic.settings.metres_per_point = cm / 100.0 / (width as f64 * ppp);
+    }
     ov.settings.orbit = orbit.is_some();
     ov.settings.map = map;
     if let Some(n) = o.usize("orbit-length") {

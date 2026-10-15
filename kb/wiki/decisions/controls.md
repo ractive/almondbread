@@ -605,3 +605,60 @@ colours, and at rest nothing changes. The history keeps its colours across a zoo
 like the phase, is left out of the "same colours" test) and is replaced within a few frames.
 Tests: `flights_turn_and_land_exactly`, `autopilot_spins_with_the_zoom_only_when_enabled`, the
 `cinematic` unit test; `fly` scripts take `"cinematic": true` or the strengths.
+
+## Cosmic size scale (as built, 2026-10-15)
+
+A panel at the bottom left (above the mini-map when that sits there too) that compares the zoom
+with real things: a log ruler with coloured dots for things sliding past a gold marker, one
+sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
+(`crates/almondbread-render/src/cosmic.rs`); the table, the sentences and the mappings live in
+`crates/almondbread-core/src/cosmic.rs`, every size with its source page. Off by default.
+
+- **Controls**: C toggles it (macOS key and iPad/iPhone hardware keyboard; free before: WASD,
+  arrows, Q/E, Z, J, O, M, R, `,` `.` `/`, Space, `+`/`-`, Esc), toolbar toggle "Size Scale"
+  (ruler icon, with a tooltip), menu item "Cosmic Size Scale", control center "Overlays":
+  switch plus a "Compare" picker. Persisted with the other overlay settings; "Reset all" and
+  the overlays ↺ turn it off. iOS: the control center row (no extra button: the bottom-right
+  stack is full on iPhone). CLI: `render out.png --scale-overlay 1 [--scale-anchor
+  screen|cosmos|universe|milky-way|sun|earth|human|cell|atom] [--screen-cm 30]`.
+- **Depth**: `d = log10(2.25 / view width)` in the plane (the set spans re −2 … 1/4).
+- **Screen anchor (default, physical)**: the view is the window on the screen. macOS reads the
+  display's physical width (`CGDisplayScreenSize`, rejected outside 0.1 … 1 mm per point); iOS
+  assumes 160 points per inch on iPhone and 132 on iPad (rule of thumb, unverified); otherwise
+  30 cm. The whole set is `L · 10^d`: "The whole set ≈ 1.6× the Milky Way". When it passes the
+  observable universe (`d ≈ 27.5` for 30 cm) the readout turns around without a jump: the set
+  *is* the universe and the view is `U · 10^-d`, down to the Planck length at `d ≈ 61.7`.
+- **Set = X**: the view is `X · 10^-d` ("This view ≈ a hydrogen atom, if the whole set were
+  Earth").
+- **Light and probes**: a third line gives light's crossing time ("light crosses it in 165
+  thousand years", "longer than humans have existed", "≈ the Planck time") and, for views
+  below 10 µm, the probe energy `E = hc/λ` with its band (visible, UV, X-rays, gamma, more than
+  the LHC's 13.6 TeV). Band edges are textbook ranges (unverified).
+- **Small side**: cell, virus, DNA, atom, nucleus, proton, "limit probed" (~1e-19 m), then a
+  red band "unexplored" down to the Planck length; inside it the sentence counts Planck lengths
+  and the GUT scale (~2e-32 m) is marked hypothetical; the Planck mark reads "Planck
+  (strings?)": strings are hypothetical.
+- **Past the Planck length**: the zoom factor (as the HUD shows it) passes big numbers: Planck
+  times since the Big Bang (8e60), atoms in the universe (1e80), a googol, Shannon's chess
+  games (1e120), Planck volumes in the universe (8e184); then universe-to-Planck ladders
+  (61.7 decades each; 48.6 at 1e3000), drawn as repeated faint rungs. The ruler compresses past
+  the Planck length (slope 1 → 1/12 over 15 decades).
+- **Relative anchor "Zoom range = cosmos (metaphor)"**: the zoom range 1 … 1e3000 (a constant,
+  whatever the depth limit) stands for the universe … the Planck length and for today … the
+  Planck epoch (time after the Big Bang: first stars, CMB, first nuclei, neutrinos, protons,
+  electroweak, inflation, Planck epoch; src: [[sources/cosmic-history-timeline]]). Sizes above
+  the ruler, epochs below; each list equally spaced in `log10(1 + zoom decades)` with the log
+  of size and time interpolated between (so a next milestone is always coming and the desert
+  shrinks to its few named points). The panel says it is a metaphor and names the next thing.
+  A linear map in zoom decades was rejected (48.6 zoom decades per physical decade: everything
+  to 1e100 would read "1/100 of the universe"); the user asked for both modes to try.
+- **Highlight**: crossing a mark flashes it gold with a growing ring and "passing X" above the
+  panel for 1.6 s (no flash on jumps of 3 decades or more).
+- **Cost** (measured 2026-10-15, M-series MacBook Pro, release, interaction test "cosmic
+  zoom" vs "1e5 zoom", 1280x820 pt window): draw CPU p50 0.37 vs 0.14 ms (+0.23 ms: scene
+  build ~0.01 ms, the rest binning and uploading the overlay scene every frame while the
+  zoom changes). Off: no overlay work at all, the shown frame matched a fresh render.
+
+Sources: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
+[[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
+[[sources/cosmic-history-timeline]]. Idea: [[ideas]] "Cosmic size scale".

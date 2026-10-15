@@ -81,6 +81,12 @@ atoms, nuclei, strings, shown like the mini-map at the bottom left.
   marker for the current view, one line of text. Also in exported videos; possible depth
   badges for the game ([[decisions/gamification]]).
 - Strings are hypothetical (about the Planck length); label them as such.
+- **Status 2026-10-15: built** (off by default, key C): screen and set-as-object anchors
+  (physical), light-crossing times and probe energies, the unexplored band, big numbers and
+  ladders past the Planck length, and a relative "zoom range = cosmos" metaphor that also travels
+  back in cosmic time. As built: [[decisions/controls]] "Cosmic size scale". Not built: icons
+  (coloured dots instead), depth badges, the panel in exported videos (overlays never enter
+  exports).
 
 ## Earlier ideas already filed elsewhere
 

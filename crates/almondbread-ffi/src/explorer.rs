@@ -955,6 +955,11 @@ impl Explorer {
         // A panic inside a call (caught by UniFFI) must not brick the view.
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
+
+    /// The cosmic size scale's state (`crate::cosmic`).
+    pub(crate) fn with_cosmic<R>(&self, f: impl FnOnce(&mut almondbread_render::cosmic::CosmicOverlay) -> R) -> R {
+        f(&mut self.lock().host.overlay.cosmic)
+    }
 }
 
 #[uniffi::export]

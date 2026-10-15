@@ -148,6 +148,9 @@ struct FractalCommands: Commands {
                                              set: { model?.mapEnabled = $0 }))
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
+            Toggle("Cosmic Size Scale", isOn: Binding(get: { model?.cosmicScale ?? false },
+                                                      set: { model?.cosmicScale = $0 }))
+                .disabled(model == nil)
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)

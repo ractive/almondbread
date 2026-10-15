@@ -162,6 +162,7 @@ public enum UIDemo {
         switch scene {
         case "palettes": "palette"
         case "autopilot": "autopilot"
+        case "cosmic", "cosmic-deep", "cosmic-relative": "cosmic"
         default: nil
         }
     }
@@ -195,6 +196,23 @@ public enum UIDemo {
         case "palettes":
             model.applyPalette(model.library.first { $0.category == "natural" }?.id ?? "aurora")
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+        case "cosmic":
+            // The size scale stacked above the mini-map (both bottom left).
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
+            model.mapEnabled = true
+            model.mapLevels = 2
+            model.cosmicScale = true
+        case "cosmic-deep":
+            try? explorer.setViewportText(
+                re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",
+                im: "0", scale: "1.25e-94")
+            model.cosmicScale = true
+            model.cosmicAnchor = "earth"
+        case "cosmic-relative":
+            // Relative mode (the zoom range as the cosmos) at 1e100.
+            try? explorer.setViewportText(re: "0", im: "1", scale: "1e-103")
+            model.cosmicScale = true
+            model.cosmicAnchor = "cosmos"
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
             model.mapEnabled = true

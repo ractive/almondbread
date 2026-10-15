@@ -191,7 +191,7 @@ impl<B: GpuBackend + Clone> Host<B> {
                 self.renderer.note_interaction(now);
             }
         }
-        if self.overlay.settings.any() || self.renderer.overlay.is_some() {
+        if self.overlay.active() || self.renderer.overlay.is_some() {
             let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
             self.overlay.prepare(&mut self.renderer, (w, h), ppp, now);
         }
@@ -200,6 +200,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Overlay work after the frame: about 1.5 ms of orbit analysis, and the maps' renderers
     /// while the view is not in a gesture (they never take the gesture frame budget).
     fn overlay_after(&mut self, now: f64, outcome: &mut FrameOutcome) {
+        outcome.animating |= self.overlay.cosmic.animating(now);
         if !self.overlay.settings.any() {
             return;
         }
