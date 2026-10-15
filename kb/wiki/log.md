@@ -553,3 +553,11 @@ switches (`--sa 0`). The script player and real-time recorder moved into
 first, noisy runs found a path-dependent black frame at the heavy spot after the dive (auto
 iterations stay at 10384, below the period), reported for M5. Pages:
 [[synthesis/flight-benchmark]], [[synthesis/benchmarks]] (FB), [[index]].
+
+## [2026-10-15] decision | M5 fix: learned state across jumps
+
+The flight benchmark found the spiral settling black after a dive at c = i (1e-280): the
+old view's interior-test statistics turned the test off and the learner could not retry
+without it. Jumps now reset the learned iteration and gate state; a view at the limit without
+the test renders again with it; `verify --history` checks against a from-scratch render; a
+regress session runs the path. Page: [[techniques/auto-iterations]].
