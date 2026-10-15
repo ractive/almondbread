@@ -175,6 +175,7 @@ struct ControlCenterView: View {
         LabeledContent("Zoom speed") {
             Text(Format.speed(model.zoomFactorPerSecond)).monospacedDigit()
         }
+        HowBigButton(model: model)
         HStack {
             Button {
                 Clipboard.copy(model.coordinatesText)
@@ -617,7 +618,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
-        case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed", "autopilot", "fly", "assist"]
+        case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed", "autopilot", "fly", "assist", "big", "googol", "graham"]
         case .journey: ["journey", "seed", "daily", "share", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
