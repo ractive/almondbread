@@ -695,3 +695,18 @@ times. Design and costs: [[decisions/controls]] "Cosmic size scale"; status in [
 Pages: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
 [[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
 [[sources/cosmic-history-timeline]], [[index]].
+
+## [2026-10-15] ingest | How big is big? panel
+
+Built the up-arrow gear-train panel and wrote [[synthesis/how-big-is-big]]: the linear
+super-logarithm generalised to every arrow level, marker positions (googol 2.301, our limit
+2.541, googolplex 3.301 on ↑↑; g₁ 2.364 on ↑↑↑↑), recomputed facts (googol after 2 min 24 s at
+×4.95/s, googolplex zoom 4.6·10^92 years and 3.3·10^100 bits vs ~10^80 atoms). Finding: the
+four-arrow dial and beyond read 1.15, 1.06, 1.03 … at our limit, not 1.000. Ingested (skimmed,
+not saved) eleven web sources: [[sources/wikipedia-knuth-up-arrow-notation]],
+[[sources/wikipedia-tetration]], [[sources/wikipedia-grahams-number]],
+[[sources/wikipedia-kruskal-tree-theorem]], [[sources/wikipedia-steinhaus-moser-notation]],
+[[sources/wikipedia-skewes-number]], [[sources/wikipedia-googolplex]],
+[[sources/wikipedia-names-of-large-numbers]], [[sources/wikipedia-fast-growing-hierarchy]],
+[[sources/wikipedia-observable-universe]], [[sources/make-ganson-machine-with-concrete]].
+Status in [[ideas]].

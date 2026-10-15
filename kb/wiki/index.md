@@ -65,6 +65,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/kopf-2007-joint-bilateral-upsampling]] — Kopf et al. 2007: upsample a low-resolution solution with a full-resolution guide image; needs a cheap guide whose edges match (digested)
 - [[sources/kovesi-good-colour-maps]] — Kovesi 2015: lightness carries detail; recipes for vivid cyclic maps (digested)
 - [[sources/luma-gl-gpu-precision]] — A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than f32 precision on GPUs: double-single (float-float),... (digested)
+- [[sources/make-ganson-machine-with-concrete]] — Make 2012 on Ganson's Machine with Concrete: twelve 1:50 worm pairs at 200 rpm, last gear in concrete, over 2 trillion years per turn (skimmed)
 - [[sources/mandelbrot-metal-app-store]] — App Store listing of Mandelbrot Metal: GPU perturbation, progressive, subscription since v3.0 ($2.99/mo, $19.99/yr, $39.99 lifetime) (skimmed)
 - [[sources/mandelbrot-site]] — How mandelbrot.site was built: Rust/Wasm tiles, perturbation, share links, PNG with params, video recording (skimmed)
 - [[sources/mathr-adaptive-supersampling-de]] — mathr 2014: supersample only pixels with DE < 4 px; on a dense view no better than uniform supersampling (digested)
@@ -111,6 +112,16 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/wikibooks-fraktaler-3]] — Wikibooks page (part of Adam Majewski's "Fractals" book) about Fraktaler 3: usage notes and examples, including the metadata found in Fraktaler 3... (unread)
 - [[sources/wikibooks-mandelbrot-interior]] — Wikibooks chapter (Adam Majewski's "Fractals" book) on the interior of the Mandelbrot set: how to detect interior points and how to colour them. (unread)
 - [[sources/wikibooks-triangle-inequality]] — Wikibooks page on averaging colouring methods, in particular Kerry Mitchell's Triangle Inequality Average (TIA) and the curvature average. (unread)
+- [[sources/wikipedia-fast-growing-hierarchy]] — f_ω is a unary Ackermann function, f_(ω+1)(64) > Graham's number (skimmed)
+- [[sources/wikipedia-googolplex]] — googolplex = 10^10^100, Kasner and Sirotta 1920, impossible to write out (skimmed)
+- [[sources/wikipedia-grahams-number]] — g₁ = 3↑↑↑↑3, g_n = 3↑^(g_(n-1))3, G = g₆₄; Gardner 1977 (skimmed)
+- [[sources/wikipedia-knuth-up-arrow-notation]] — Knuth 1976: definition of a↑^n b, 3↑↑3 = 7 625 597 484 987, 3↑↑↑3 (skimmed)
+- [[sources/wikipedia-kruskal-tree-theorem]] — TREE(3): far beyond Graham's number, faster than f_Γ₀, weak lower bound A^A(187196)(1) (skimmed)
+- [[sources/wikipedia-names-of-large-numbers]] — googolplexian = 10^googolplex, an informal name (skimmed)
+- [[sources/wikipedia-observable-universe]] — about 10^80 atoms in the observable universe (Eddington number) (skimmed)
+- [[sources/wikipedia-skewes-number]] — Skewes' bounds e^e^e^79 < 10^10^10^34 (1933, RH) and e^e^e^e^7.705 < 10^10^10^964 (1955) (skimmed)
+- [[sources/wikipedia-steinhaus-moser-notation]] — mega between 10↑↑257 and 10↑↑258; Moser's number < 3→3→4→2, ≪ Graham's number (skimmed)
+- [[sources/wikipedia-tetration]] — linear approximation of tetration for real heights (Hooshmand 2006), continuity and smoothness (skimmed)
 - [[sources/wikipedia-misiurewicz-point]] — Wikipedia on Misiurewicz points M(k,n): six examples (tips, branch points, the seahorse spiral, whose label is off by one) (digested)
 - [[sources/wikipedia-plotting-algorithms]] — Encyclopedia survey of classic Mandelbrot rendering: escape time, colouring (histogram, smooth, exponential/cyclic, HSV/LCH), distance estimates,... (digested)
 - [[sources/wikipedia-xaos]] — Encyclopedia article on XaoS, the GPL real-time fractal zoomer by Jan Hubička and Thomas Marsh, mainly notable here for describing the Hubička... (digested)
@@ -224,6 +235,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/dense-region-sampling]] — R3: fewer pixel-iterations in dense boundary regions; per-location numbers, recommendation (local SA in M5, interior-only tile fill), scheduler design, risks
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
+- [[synthesis/how-big-is-big]] — the "How big is big?" panel: zoom depth vs googol, googolplex, Skewes, mega, Graham's g₁ on one dial per up-arrow; linear super-log convention, marker table, recomputed facts, TREE(3)
 - [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use
 - [[synthesis/fractal-palettes]] — palette research and the 67-palette library: findings, licence table, what was dropped after the contact sheets, integration API
 - [[synthesis/motion-sample-reuse]] — R4: fewer iterations per gesture frame: sample cache vs FL vs MetalFX on five flights, how many iterations can go (2–50 %), bookkeeping cost, integration design, risks; production as built (bookkeeping 0.1–0.6 ms, 55–92 % fewer iterations)
