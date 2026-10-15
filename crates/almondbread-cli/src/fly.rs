@@ -21,7 +21,7 @@
 //!
 //! | event | meaning |
 //! | --- | --- |
-//! | `{"at": t, "key": "zoom", "down": true}` | key down / up (`down` omitted: a tap). Keys: up down left right w a s d zoom space slower q faster e in out reset |
+//! | `{"at": t, "key": "zoom", "down": true}` | key down / up (`down` omitted: a tap). Keys: up down left right w a s d zoom space slower q faster e in out reset autopilot z stop esc |
 //! | `{"at": t, "shift": true}` | Shift state (Shift+Space zooms out) |
 //! | `{"at": t, "pointer": [x, y]}` / `null` | pointer position in points from the centre (y up), or off the canvas |
 //! | `{"from": a, "to": b, "pointer_to": [x, y]}` | pointer moves linearly to (x, y) |
@@ -32,6 +32,11 @@
 //! | `{"at": t, "double_click": [x, y], "out": false}` | double click |
 //! | `{"from": a, "to": b, "gamepad": {"lx": .., "ly": .., "ry": .., "lt": .., "rt": .., "boost": ..}}` | controller state held over the interval |
 //! | `{"at": t, "settings": {...}}` | settings change mid-flight |
+//! | `{"at": t, "click": [x, y]}` | single click (autopilot: pause / resume) |
+//! | `{"from": a, "to": b, "scroll": [vx, vy]}` | trackpad scroll at vx, vy points/s (autopilot: speed) |
+//! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
+//! | `{"at": t, "assist": true}` | autopilot assist on / off |
+//! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per point) |
 
 use std::fs;
 use std::io::Write;
@@ -106,6 +111,8 @@ fn nav_key(name: &str) -> Option<NavKey> {
         "in" | "+" => NavKey::StepIn,
         "out" | "-" => NavKey::StepOut,
         "reset" | "r" => NavKey::Reset,
+        "autopilot" | "z" => NavKey::Autopilot,
+        "stop" | "esc" => NavKey::Stop,
         _ => return None,
     })
 }
@@ -228,6 +235,22 @@ fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, 
             if let Some(s) = e.get("settings") {
                 apply_json_settings(s, &mut r.settings);
             }
+            if let Some((x, y)) = pair(e.get("click")) {
+                r.handle_input(InputEvent::Click { x, y }, now);
+            }
+            if let Some(a) = e.get("assist").and_then(Value::as_bool) {
+                r.navigator.autopilot_mut().set_assist(a);
+            }
+            if let Some(f) = e.get("fly_to") {
+                let text = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("");
+                match almondbread_core::flyto::view_from_text(text("re"), text("im"), text("scale")) {
+                    Some(target) => {
+                        let start = r.viewport.clone();
+                        r.navigator.fly_to(&target, &start, now);
+                    }
+                    None => eprintln!("fly: bad fly_to target {f}"),
+                }
+            }
         }
         if during {
             let (a, b) = (from.unwrap_or(0.0), to.unwrap_or(0.0));
@@ -266,6 +289,35 @@ fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, 
                     },
                     now,
                 );
+            }
+            if let Some((vx, vy)) = pair(e.get("scroll")) {
+                r.handle_input(
+                    InputEvent::Scroll {
+                        dx: vx * span,
+                        dy: vy * span,
+                        momentum: false,
+                    },
+                    now,
+                );
+            }
+            if let Some(aim) = e.get("aim") {
+                // The target's offset on screen (points, y up), scaled by the pilot's gain and
+                // followed with a lag: the pointer path a hand would take keeping it in view.
+                let text = |k: &str| aim.get(k).and_then(Value::as_str).unwrap_or("0");
+                if let Some(c) = Center::parse(text("re"), text("im")) {
+                    let (ox, oy) = c.delta_in(&r.viewport.center, r.viewport.scale);
+                    let gain = num(e, "gain").unwrap_or(2.5);
+                    let lag = num(e, "lag").unwrap_or(0.25).max(1e-3);
+                    let f = 1.0 - (-span / lag).exp();
+                    // A hand stays on the window: the pointer is clamped to the canvas.
+                    let (w, h) = r.navigator.view_size();
+                    let (tx, ty) = (
+                        (ox * gain).clamp(-0.48 * w, 0.48 * w),
+                        (oy * gain).clamp(-0.48 * h, 0.48 * h),
+                    );
+                    *pointer = (pointer.0 + (tx - pointer.0) * f, pointer.1 + (ty - pointer.1) * f);
+                    r.handle_input(InputEvent::Pointer(Some(*pointer)), now);
+                }
             }
             if let Some((x1, y1)) = pair(e.get("pointer_to")) {
                 // Linear from where the pointer is to the end point by `b`.
@@ -462,7 +514,11 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let refreshes = (duration * hz).round() as usize;
     let interval = 1.0 / hz;
     let (tx, writer) = spawn_writer(open_sink(&out, size, fps, o)?, size);
-    let mut log = String::from("refresh,t,presented,preview,render_w,render_h,zoom,late_ms,frame_cpu_ms\n");
+    let mut log = String::from(
+        "refresh,t,presented,preview,render_w,render_h,zoom_log10,late_ms,frame_cpu_ms,ap_rate,ap_throttle,ap_safety,ap_hint,pointer_x,pointer_y,fly_progress\n",
+    );
+    let mut hints: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut ap_frames = 0usize;
     let mut pointer = (0.0, 0.0);
     let bytes = size.0 * size.1 * 4;
     let still = |k: usize| stills.contains(&k).then(|| format!("{stills_dir}/frame_{k:05}.png"));
@@ -476,7 +532,10 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         for k in 0..refreshes {
             let t = k as f64 * interval;
             let now = base + t;
-            feed(&mut r, &script.events, t - interval, t, now, &mut pointer);
+            // The previous refresh's time exactly: `t − interval` rounds differently, and an event
+            // on a refresh boundary then fired twice.
+            let t_prev = if k == 0 { -interval } else { (k - 1) as f64 * interval };
+            feed(&mut r, &script.events, t_prev, t, now, &mut pointer);
             r.navigator.advance(&mut r.viewport, now);
             if k % per_video == 0 {
                 let res = r.render_offscreen(size.0, size.1, false)?;
@@ -554,7 +613,10 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             worst_late = worst_late.max(-wait);
         }
         let before = r.navigator.last_interaction;
-        feed(&mut r, &script.events, t - interval, t, now, &mut pointer);
+        // The previous refresh's time exactly: `t − interval` rounds differently, and an event
+        // on a refresh boundary then fired twice.
+        let t_prev = if k == 0 { -interval } else { (k - 1) as f64 * interval };
+        feed(&mut r, &script.events, t_prev, t, now, &mut pointer);
         // The slot this refresh may draw into must not hold an image still waiting.
         if queue
             .iter()
@@ -584,15 +646,27 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             video += 1;
         }
         let st = &r.stats;
+        let ap = r.navigator.autopilot();
+        if ap.is_active() {
+            ap_frames += 1;
+            *hints.entry(format!("{:?}", ap.hint())).or_default() += 1;
+        }
         log.push_str(&format!(
-            "{k},{t:.4},{},{},{},{},{:.6e},{:.2},{:.3}\n",
+            "{k},{t:.4},{},{},{},{},{:.4},{:.2},{:.3},{:.4},{:.3},{:.3},{:?},{:.1},{:.1},{:.4}\n",
             u8::from(outcome.presented),
             u8::from(st.is_preview),
             st.render_size.0,
             st.render_size.1,
-            r.viewport.zoom(),
+            r.viewport.zoom_log10(),
             (-wait).max(0.0) * 1000.0,
-            frame_cpu * 1000.0
+            frame_cpu * 1000.0,
+            ap.rate(),
+            ap.throttle(),
+            ap.safety(),
+            ap.hint(),
+            pointer.0,
+            pointer.1,
+            r.navigator.flight().map_or(-1.0, |f| f.progress()),
         ));
         flush(&r, &mut queue, &mut last_image, false)?;
     }
@@ -621,5 +695,18 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         fs.colorize_gpu * 1000.0 / fs.frames.max(1) as f64,
         final_after.map_or("not".into(), |s| format!("{:.0} ms", s * 1000.0)),
     );
+    if ap_frames > 0 {
+        let share: Vec<String> = hints
+            .iter()
+            .map(|(h, n)| format!("{h} {:.0} %", 100.0 * *n as f64 / ap_frames as f64))
+            .collect();
+        println!(
+            "  autopilot: {:.1} s on, hints {}; final scale {} per point (zoom {})",
+            ap_frames as f64 / hz,
+            share.join(", "),
+            r.viewport.scale.to_text(4),
+            almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
+        );
+    }
     Ok(0)
 }

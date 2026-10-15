@@ -33,6 +33,10 @@ struct InspectorVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+struct FlyToVisibleKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var explorerModel: ExplorerModel? {
         get { self[ExplorerModelKey.self] }
@@ -41,6 +45,10 @@ extension FocusedValues {
     var inspectorVisible: Binding<Bool>? {
         get { self[InspectorVisibleKey.self] }
         set { self[InspectorVisibleKey.self] = newValue }
+    }
+    var flyToVisible: Binding<Bool>? {
+        get { self[FlyToVisibleKey.self] }
+        set { self[FlyToVisibleKey.self] = newValue }
     }
 }
 
@@ -69,6 +77,7 @@ enum Clipboard {
 struct FractalCommands: Commands {
     @FocusedValue(\.explorerModel) private var model
     @FocusedValue(\.inspectorVisible) private var inspectorVisible
+    @FocusedValue(\.flyToVisible) private var flyToVisible
 
     var body: some Commands {
         CommandGroup(after: .pasteboard) {
@@ -79,6 +88,13 @@ struct FractalCommands: Commands {
             Button("Go to Copied Coordinates") { _ = model?.pasteCoordinates() }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(model == nil)
+            // Animated: zoom out, pan, zoom in, landing exactly (kb: decisions/controls, fly to).
+            Button("Fly to Copied Coordinates") { _ = model?.flyToCopiedCoordinates() }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(model == nil)
+            Button("Fly to Coordinates…") { flyToVisible?.wrappedValue = true }
+                .keyboardShortcut("g", modifiers: .command)
+                .disabled(flyToVisible == nil)
         }
         CommandGroup(before: .toolbar) {
             Button("Zoom In") { model?.zoomIn() }
@@ -89,6 +105,12 @@ struct FractalCommands: Commands {
                 .disabled(model == nil)
             Button("Reset View") { model?.reset() }
                 .keyboardShortcut("0", modifiers: .command)
+                .disabled(model == nil)
+            // Z and Esc are handled by the canvas's key monitor (a plain-key menu shortcut
+            // would fire as well); the menu items are for discovery.
+            Button("Autopilot On/Off (Z)") { model?.toggleAutopilot() }
+                .disabled(model == nil)
+            Button("Stop Autopilot or Flight (Esc)") { model?.stopMotion() }
                 .disabled(model == nil)
             Divider()
             Button(inspectorVisible?.wrappedValue == true ? "Hide Inspector" : "Show Inspector") {

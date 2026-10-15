@@ -86,6 +86,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/wikipedia-plotting-algorithms]] — Encyclopedia survey of classic Mandelbrot rendering: escape time, colouring (histogram, smooth, exponential/cyclic, HSV/LCH), distance estimates,... (digested)
 - [[sources/wikipedia-xaos]] — Encyclopedia article on XaoS, the GPL real-time fractal zoomer by Jan Hubička and Thomas Marsh, mainly notable here for describing the Hubička... (digested)
 - [[sources/xaos-algorithms]] — XaoS algorithms document: frame reuse, line guessing, dynamic resolution, periodicity checking only after guessing (digested)
+- [[sources/van-wijk-nuij-smooth-zooming]] — van Wijk & Nuij (InfoVis 2003): the optimal zoom-and-pan path between two views, closed form with one parameter ρ; used for fly to coordinates (skimmed)
 - [[sources/xaos-readme]] — The README of XaoS (GNU XaoS), a real-time interactive fractal zoomer in development since 1996. (digested)
 - [[sources/zoomasm]] — manual of zoomasm 3.4 (2025), the exponential-map strip reprojector and colouring tool for zoom videos (digested)
 
@@ -157,7 +158,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; L0 stills, L1 real-time prototype (geometry clipmap, layered σ)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/distribution]] — stores and order: Apple first, Steam (+ itch.io) for the game edition, others only with traction (proposed)
-- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad
+- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad; autopilot (Z, pointer steers, adaptive speed, safety, assist) and fly to coordinates (van Wijk & Nuij path at any depth, exact landing)
 
 ## Questions
 

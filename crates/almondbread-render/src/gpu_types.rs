@@ -179,7 +179,18 @@ pub struct AaListParams {
     pub pad: u32,
 }
 
+/// Parameters of the `survey` kernel (autopilot), 16 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct SurveyParams {
+    pub width: u32,
+    pub height: u32,
+    pub cols: u32,
+    pub rows: u32,
+}
+
 const _: () = {
+    assert!(size_of::<SurveyParams>() == 16);
     assert!(size_of::<AaListParams>() == 32);
     assert!(size_of::<IterateParams>() == 112);
     assert!(offset_of!(IterateParams, scale_exp) == 96);

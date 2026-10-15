@@ -118,6 +118,20 @@ check(back.mode == .pointer && back.redraw && explorer.frame(timestamp: t) & 2 =
 explorer.setEdgePan(mode: .always)
 check(explorer.edgePan() == .always, "edge pan setting")
 explorer.setEdgePan(mode: .whileZooming)
+// Autopilot and fly-to through the bindings (kb: decisions/controls): frame bit 4 says the
+// autopilot is on; Esc stops it and is not ours when nothing flies; jumps cancel a flight.
+let ap = explorer.input(event: .keyDown(key: .autopilot))
+_ = explorer.input(event: .keyUp(key: .autopilot))
+t += 1.0 / 120
+fr = explorer.frame(timestamp: t)
+check(ap.redraw && fr & 4 != 0 && explorer.stats().autopilot.active, "autopilot on: bits \(fr)")
+check(explorer.input(event: .keyDown(key: .stop)).handled && !explorer.stats().autopilot.active, "Esc stops the autopilot")
+check(!explorer.input(event: .keyDown(key: .stop)).handled, "Esc is not ours when nothing flies")
+check(explorer.flyToCoordinates(text: "re -0.75\nim 0.1\nscale 1e-6 (zoom 1×)") && explorer.stats().flight.active,
+      "fly to coordinates")
+check(!explorer.flyToCoordinates(text: "nonsense"), "fly to rejects other text")
+explorer.resetViewport()
+check(!explorer.stats().flight.active, "reset cancels the flight")
 settle(frames + 6000)
 let png = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : NSTemporaryDirectory() + "almondbread-core-check.png"
 let off = try explorer.renderPng(path: png, width: 640, height: 400)

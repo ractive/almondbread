@@ -6,6 +6,7 @@ struct ContentView: View {
     // kernels) once, when SwiftUI makes the view.
     @State private var model = ExplorerModel()
     @State private var showInspector = false
+    @State private var showFlyTo = false
 
     var body: some View {
         explorer
@@ -31,17 +32,30 @@ struct ContentView: View {
         }
         #if os(iOS)
         .overlay(alignment: .topTrailing) {
-            Button {
-                showInspector.toggle()
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
-                    .background(.ultraThinMaterial, in: Circle())
+            HStack(spacing: 10) {
+                // Autopilot: on, a finger steers, a tap pauses.
+                Button {
+                    model.toggleAutopilot()
+                } label: {
+                    Image(systemName: model.stats?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Autopilot")
+                Button {
+                    showInspector.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Inspector")
             }
-            .buttonStyle(.plain)
             .padding(12)
-            .accessibilityLabel("Inspector")
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
@@ -53,8 +67,19 @@ struct ContentView: View {
                 .presentationDetents([.medium, .large])
                 #endif
         }
+        .sheet(isPresented: $showFlyTo) {
+            FlyToSheet(model: model, isPresented: $showFlyTo)
+        }
         #if os(macOS)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    model.toggleAutopilot()
+                } label: {
+                    Label("Autopilot", systemImage: model.stats?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
+                }
+                .help("Autopilot (Z): zoom on continuously, steer with the mouse; click pauses, Esc stops")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showInspector.toggle()
@@ -68,6 +93,7 @@ struct ContentView: View {
         #endif
         .focusedSceneValue(\.explorerModel, model)
         .focusedSceneValue(\.inspectorVisible, $showInspector)
+        .focusedSceneValue(\.flyToVisible, $showFlyTo)
     }
 }
 
@@ -107,13 +133,18 @@ struct HUDView: View {
                 Text("iter \(s.maxIterations.formatted())\(model.autoIterations ? " auto" : "")")
                 Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks  ·  \(s.renderWidth)×\(s.renderHeight)\(s.isRendering ? "  ·  refining" : "")")
                 Text("ref \(s.referenceLength.formatted()) pts\(s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "")  ·  \(s.referenceBits) bit  ·  CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
-                Text("zoom speed \(Format.speed(model.zoomFactorPerSecond))")
+                Text(speedLine(s))
                     .padding(.horizontal, speedHighlight ? 5 : 0)
                     .background(speedHighlight ? Color.orange.opacity(0.35) : .clear, in: Capsule())
                     .foregroundStyle(speedHighlight ? .primary : .secondary)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if let hint = motionHint(s) {
+                Label(hint, systemImage: s.flight.active ? "location.north.line" : "airplane")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
             if s.shown.atPrecisionLimit {
                 Label("Depth limit: zoom stops here (10^3000; reference orbits need 10 000 bits).",
                       systemImage: "exclamationmark.triangle.fill")
@@ -139,6 +170,42 @@ struct HUDView: View {
                 try? await Task.sleep(for: .seconds(1.5))
                 if Date().timeIntervalSince(model.zoomSpeedChanged) >= 1.4 { speedHighlight = false }
             }
+        }
+    }
+}
+
+extension HUDView {
+    /// The speed Q / E change right now: the flight's, the autopilot's or Space's.
+    func speedLine(_ s: ExplorerStats) -> String {
+        if s.flight.active {
+            return "fly speed \(Format.speed(exp(s.flight.speed)))"
+        }
+        if s.autopilot.active {
+            return "autopilot \(Format.speed(exp(s.autopilot.speed)))  ·  now \(Format.speed(exp(max(0, s.autopilot.rate))))"
+        }
+        return "zoom speed \(Format.speed(model.zoomFactorPerSecond))"
+    }
+
+    /// Autopilot / flight state and why it is slower than set (kb: decisions/controls).
+    func motionHint(_ s: ExplorerStats) -> String? {
+        if s.flight.active {
+            let to = "Flying to \(Format.zoom(log10: s.flight.targetZoomLog10))  ·  \(Int(s.flight.progress * 100)) %"
+            if s.flight.stopping { return to + "  ·  stopping" }
+            return [to, Self.hintText(s.flight.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+        }
+        guard s.autopilot.active else { return nil }
+        if s.autopilot.paused { return "Autopilot paused  ·  click to resume" }
+        return ["Autopilot", Self.hintText(s.autopilot.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+    }
+
+    static func hintText(_ h: AutopilotHint) -> String? {
+        switch h {
+        case .none: nil
+        case .rendering: "slower: keeping the detail sharp"
+        case .reference: "waiting for the deep reference"
+        case .interior: "slower: heading into the interior"
+        case .featureless: "slower: featureless ahead"
+        case .limit: "depth limit"
         }
     }
 }

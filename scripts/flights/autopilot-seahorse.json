@@ -1,0 +1,80 @@
+{
+ "_about": "Autopilot (Z) from the home view, steered by a scripted pointer: a pilot keeps the period-8007 minibrot in seahorse valley under the pointer (gain 2.5, 0.15 s lag, clamped to the window); a look to the right at 2.5-3.3 s; E twice and one scroll to speed up; Esc at 72 s (eased stop), then refinement.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 78,
+ "start": {
+  "re": "-0.75",
+  "im": "0",
+  "zoom": 1
+ },
+ "events": [
+  {
+   "at": 0.3,
+   "pointer": [
+    0,
+    0
+   ]
+  },
+  {
+   "at": 0.5,
+   "key": "autopilot"
+  },
+  {
+   "from": 0.6,
+   "to": 2.5,
+   "aim": {
+    "re": "-0.74364388703715870475219150611477977822",
+    "im": "0.13182590420531197049313205638514067897"
+   },
+   "gain": 2.5,
+   "lag": 0.15
+  },
+  {
+   "from": 2.5,
+   "to": 3.0,
+   "pointer_to": [
+    300,
+    -120
+   ]
+  },
+  {
+   "from": 3.0,
+   "to": 3.3,
+   "pointer_to": [
+    300,
+    -120
+   ]
+  },
+  {
+   "from": 3.3,
+   "to": 72.0,
+   "aim": {
+    "re": "-0.74364388703715870475219150611477977822",
+    "im": "0.13182590420531197049313205638514067897"
+   },
+   "gain": 2.5,
+   "lag": 0.15
+  },
+  {
+   "at": 8.0,
+   "key": "faster"
+  },
+  {
+   "at": 12.0,
+   "key": "faster"
+  },
+  {
+   "from": 18.0,
+   "to": 18.3,
+   "scroll": [
+    0,
+    200
+   ]
+  },
+  {
+   "at": 72.0,
+   "key": "esc"
+  }
+ ]
+}

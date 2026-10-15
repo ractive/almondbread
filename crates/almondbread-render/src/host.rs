@@ -152,6 +152,7 @@ impl<B: GpuBackend> Host<B> {
     /// The home view fitted to the view.
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
+        self.renderer.navigator.cancel_flight();
         self.renderer.viewport = Viewport::fitting(w, h);
     }
 

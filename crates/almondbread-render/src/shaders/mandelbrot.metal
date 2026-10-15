@@ -1344,3 +1344,47 @@ kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
     base = simd_broadcast_first(base);
     if (want && base + off < p.capacity) list[base + off] = xy.y * p.width + xy.x;
 }
+
+// MARK: Autopilot survey (kb: decisions/controls, autopilot)
+
+struct SurveyParams {
+    uint width;          // level texels
+    uint height;
+    uint cols;           // survey cells
+    uint rows;
+};
+
+/// A coarse picture of a finished level for the autopilot: per cell, sampled texels, interior
+/// (or unresolved) ones, and the share of neighbour pairs whose class or integer escape count
+/// differ (band edges: their rate times the level width is the number of colour bands
+/// crossed per view width). One thread per cell, at most 16 x 16 samples each.
+kernel void survey(texture2d<float, access::read> iters [[texture(0)]],
+                   constant SurveyParams& p             [[buffer(0)]],
+                   device uint4* cells                  [[buffer(1)]],
+                   uint2 gid                            [[thread_position_in_grid]])
+{
+    if (gid.x >= p.cols || gid.y >= p.rows) return;
+    uint x0 = gid.x * p.width / p.cols, x1 = (gid.x + 1) * p.width / p.cols;
+    uint y0 = gid.y * p.height / p.rows, y1 = (gid.y + 1) * p.height / p.rows;
+    uint step = max(1u, max((x1 - x0 + 15) / 16, (y1 - y0 + 15) / 16));
+    uint samples = 0, interior = 0, pairs = 0, edges = 0;
+    for (uint y = y0; y < y1; y += step) {
+        for (uint x = x0; x < x1; x += step) {
+            float n = iters.read(uint2(x, y)).x;
+            if (n == ITER_PENDING || n == ITER_SKIP) continue;
+            samples++;
+            bool in = n < 0.0f;
+            if (in) interior++;
+            for (uint k = 0; k < 2; k++) {
+                uint2 q = k == 0 ? uint2(x + 1, y) : uint2(x, y + 1);
+                if (q.x >= p.width || q.y >= p.height) continue;
+                float m = iters.read(q).x;
+                if (m == ITER_PENDING || m == ITER_SKIP) continue;
+                pairs++;
+                bool min = m < 0.0f;
+                if (min != in || (!in && m != n)) edges++;
+            }
+        }
+    }
+    cells[gid.y * p.cols + gid.x] = uint4(samples, interior, pairs, edges);
+}

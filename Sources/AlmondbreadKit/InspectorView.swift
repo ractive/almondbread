@@ -228,11 +228,14 @@ struct InspectorView: View {
             Picker("Edge panning", selection: $model.edgePanning) {
                 ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
             }
+            Toggle("Autopilot assist", isOn: $model.autopilotAssist)
         } header: {
             Label("Navigation", systemImage: "move.3d")
         } footer: {
             Text("With the pointer near an edge of the image, the view also pans towards that edge, faster closer to it. "
-                 + "\"While zooming\" pans only while Space is held, so reaching for the inspector or the Dock never moves the image.")
+                 + "\"While zooming\" pans only while Space is held, so reaching for the inspector or the Dock never moves the image. "
+                 + "Autopilot assist leans the autopilot's heading towards nearby detail while the pointer rests near the centre; "
+                 + "it never steers against the pointer.")
         }
     }
 
@@ -250,6 +253,10 @@ struct InspectorView: View {
             helpRow("cursorarrow.click.2", "Double-click / ⌥ double-click", "Zoom in / out there")
             helpRow("arrow.up.and.down.and.arrow.left.and.right", "Pointer at an edge", "Pan that way (while zooming)")
             helpRow("gauge.with.dots.needle.33percent", "Q / E", "Zoom speed − / + (\(Format.speed(model.zoomFactorPerSecond)))")
+            helpRow("airplane", "Z", "Autopilot: steer with the mouse, click pauses")
+            helpRow("gauge.with.dots.needle.67percent", "Q / E or scroll (autopilot, flight)", "Speed − / +")
+            helpRow("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
+            helpRow("escape", "Esc", "Stop the autopilot or a flight")
             helpRow("arrow.counterclockwise", "R or ⌘0", "Reset view")
             helpRow("sidebar.trailing", "⌘I", "Toggle inspector")
             #else
@@ -260,6 +267,7 @@ struct InspectorView: View {
             helpRow("scope", "Trackpad or mouse pointer", "Zoom at the pointer")
             helpRow("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
             helpRow("space", "Keyboard: Space / ⇧Space, Q / E", "Zoom, zoom speed")
+            helpRow("airplane", "Autopilot button or Z", "Fly on; a finger steers, a tap pauses")
             #endif
         } header: {
             Label("Controls", systemImage: "questionmark.circle")
