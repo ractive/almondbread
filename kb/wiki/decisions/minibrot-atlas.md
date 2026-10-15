@@ -93,6 +93,27 @@ Driver's assessment:
 - Order: local atlas plus export file → manual upload → opt-in background sharing and the
   website. Backend: a small Rust service with SQLite or Postgres on ractive.ch (not decided).
 
+## Fog of war: two maps (user idea, 2026-10-15)
+
+User: like a game where the fog lifts where you have been, with two layers: where people
+looked around, and where minibrots were found.
+
+- **Multi-scale, not one picture.** The set spans thousands of decades of scale, so a flat
+  heatmap cannot hold it. Use a quadtree like web map tiles: a view marks the tiles at its own
+  level (`z ≈ log2(zoom)`) that it covered at about its own resolution. A tile key is the
+  quadtree path, 2 bits per level (about 2.5 KB at 1e-3000; deep keys can share prefixes).
+- **Fog at every depth.** Zooming into a cleared region shows fog again at the finer level:
+  explored is always relative to a level. "% explored" per depth decade drops towards zero
+  with depth: the infinite map, made visible.
+- **Layer 1, exploration:** visit counts per tile. **Layer 2, discoveries:** found minibrots
+  (period, size, finder).
+- **Combined with the census:** the census knows how many minibrots up to period N exist in a
+  tile, so a tile can say "3 of 7 found", a game loop with no invented content.
+- **Personal fog vs world fog.** Your own fog stays on the device, needs no upload, and is
+  always available. The world fog is aggregated from opt-in uploads, coarse and anonymous.
+- **Display:** fog darkens the mini-map; a subtle tint in the main view at the current level
+  marks never-visited ground; the online atlas shows both layers.
+
 ## Not in scope
 
 - Claims about MLC, queer components or the boundary's area: floating-point pixels cannot
