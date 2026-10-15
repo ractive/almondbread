@@ -35,3 +35,4 @@ as milestones start and finish.
 | M7 | float-float repair mode | 10 | planned |
 | M8 | more formulas via an opcode model | 11 | planned |
 | M9 | extras: exponential-map export, orbit compression, iOS polish | 12 | planned |
+| UX1 | control center (searchable, Settings window, persistence), interior colourings, calm dense regions, orbit overlay and mini-map with click-to-jump ([[decisions/controls]], [[techniques/coloring-methods]]) | — | done 2026-10-15 (GPU cycle analysis at any depth; overlays in Rust/Metal, zero cost when off; [[synthesis/benchmarks]] "Interior colourings, overlays") |

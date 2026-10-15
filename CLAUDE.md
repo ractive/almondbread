@@ -73,6 +73,12 @@ and quit by themselves):
   a scripted session through the real per-refresh scheduler, headless, diffed against
   the CPU oracle and a fresh render; `make regress` runs the -3/4 neck regressions.
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms).
+- Stills of features: `almondbread render out.png --inside flat|bubbles|period|angle|distance`
+  (interior colourings; prints the period histogram), `--orbit x,y --map 1` (orbit overlay and
+  mini-map), `scripts/render-interior-stills.sh`, `scripts/render-dense-looks.sh`.
+- `scripts/ui-screenshots.sh`: control center and overlays from background `--ui-demo`
+  windows; the app captures its own window (no screen-recording permission, no focus) into
+  `build/screens/window-*.png`.
 
 ## Working mode
 

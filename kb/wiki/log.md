@@ -382,3 +382,19 @@ rings with footprint-based shading levels, curvature-correct geomorph. No-data p
 every run (L1: 45 % max starved, 99.9 % max in the target dive). Depth limit not lifted (what
 it takes is on the page). Pages: [[decisions/landscape-mode]] L2, [[synthesis/benchmarks]] L2,
 [[roadmap]].
+
+## [2026-10-15] decision | Interior colourings, calm dense regions, orbit overlay and mini-map, control center
+
+User requests: orbit of c as dots and lines, interior colourings, a control center; then a
+mini-map with nested levels and click-to-jump; then "grey dense areas too big". Built: GPU
+interior cycle analysis at any depth (atom domain q, period = first divisor of q with closure
+and |λ| < 1, multiplier, interior DE, closest approach) with bubbles / period / angle /
+distance modes and CLI `--inside`; calm dense regions (per-palette deep colour instead of the
+filtered palette's grey); the orbit overlay and mini-map drawn in Rust/Metal (tile-binned
+vector primitives, own 5×7 font, overlay-only frames from the history), map levels rendered
+by small renderers between gestures, click-to-jump with snapping to a minibrot's cusp; the
+control center (searchable sections), a macOS Settings window and persistence. Found and
+fixed with main: a colour change during progressive AA crashed the app (main's `aa_epoch`).
+Pages: [[techniques/coloring-methods]] (Interior colouring as built, Dense regions),
+[[decisions/controls]] (control center, orbit overlay and mini-map),
+[[synthesis/benchmarks]] (Interior colourings, overlays, control center).

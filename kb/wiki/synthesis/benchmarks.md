@@ -798,3 +798,38 @@ Iterations relative to the exact 1 spp render; ΔE mean / p99:
 Local SA: quadtree from 32 × 32 tiles, ε = 1e−2, AA samples from pixel seeds
 ([[techniques/local-series-approximation]]). Not GPU numbers: the GPU check is
 [[questions/local-sa-float32]].
+
+## Interior colourings, overlays, control center (2026-10-15)
+
+Measured 2026-10-15, M1 Pro, release, while other agents used the GPU (timings noisy; counts
+are exact). See [[techniques/coloring-methods]] "Interior colouring as built" and
+[[decisions/controls]] "control center, orbit overlay and mini-map".
+
+**Interior cycle analysis** (`almondbread render --inside period --extend 16`, 960×600,
+look aurora; iterations and loop steps from the chunk counters):
+
+| view | flat: iterations / steps | period: iterations / steps | interior px | without period |
+| --- | --- | --- | ---: | ---: |
+| home | 1.48e7 / 1.48e7 | 1.49e7 / 1.49e7 | 70 540 | 0 |
+| sea-8007 (no extension) | 2.21e10 / 8.76e8 | 2.21e10 / 9.03e8 | 1 502 | 367 (unresolved near the boundary) |
+| needle-1e305 | 1.84e9 / 7.36e7 | 1.84e9 / 7.59e7 | 6 648 | 0 |
+
+The analysis adds under 1 % of iterations at home and about 3 % of loop steps at depth
+(one period of floatexp steps per interior pixel, no BLA). Pipelines without it are
+unchanged (separate state buffer, `kInteriorColor` off).
+
+**Overlays** (`--interaction-test`, 1280×820 pt window at 2×, 120 Hz panel):
+
+| scenario | fps | draw CPU p50 / p95 ms | GPU ms/frame (iter + colorize/overlay) |
+| --- | ---: | --- | --- |
+| orbit pointer (200 iterates following the pointer over a resting view: every frame overlay-only) | 105.0 | 0.42 / 0.54 | 0.00 + 0.49 |
+| overlays zoom (orbit + 3 map levels while zooming) | 61.7 | 0.47 / 0.59 | 5.62 + 2.04 |
+| 1e5 zoom (overlays off, same run) | 66.9 | 0.08 / 0.17 | 4.63 + 1.77 |
+| home pan (overlays off) | 52.9 | 0.10 / 0.17 | 6.42 + 3.87 |
+
+With the overlays off nothing is built or encoded (the host skips it; draw CPU as before). On,
+the CPU cost is ~0.35–0.4 ms per frame (orbit iterates, scene, tile binning, upload; the
+probe's analysis runs at most 1.5 ms per frame until it is done) and an overlay-only frame
+costs ~0.5 ms GPU at 2560×1640. The fps differences in this run are within the noise of the
+shared GPU. The map renderers run only between gestures, with 2 ms chunks. The shown-frame
+checks stay at 0 pixels differing in class.

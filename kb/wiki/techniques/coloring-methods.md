@@ -204,9 +204,9 @@ where `z*` → 0); *period* golden-ratio steps through the palette per period, b
 internal rays (faded where they converge) and rings of equal `log(1 − |λ|)`; *distance* palette
 by `log2(1 + d_px)`, dark within ~6 px of the boundary.
 
-**Cost** (measured 2026-10-14, M1 Pro, release, 960×600, `--extend 16`): see
-[[synthesis/benchmarks]] "Interior colouring". At home the analysis adds about 1 % of
-iterations; deep views pay at most one period of floatexp steps per interior pixel.
+**Cost** (measured 2026-10-15, M1 Pro, release, 960×600, `--extend 16`): see
+[[synthesis/benchmarks]] "Interior colourings, overlays, control center". Under 1 % more
+iterations at home, about 3 % more loop steps at sea-8007 and needle-1e305 (one period of floatexp steps per interior pixel).
 
 ## Dense regions (as built)
 
