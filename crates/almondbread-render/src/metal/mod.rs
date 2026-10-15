@@ -584,6 +584,42 @@ mod tests {
         }
     }
 
+    /// M5 interior-only tile fill (kb: techniques/guessing-and-subdivision): at the elephant
+    /// valley (28 % interior, slow to prove near the cusp) filling tiles whose border is all
+    /// proven interior skips a third of the steps and gives the unfilled field bit for bit;
+    /// with an analysed interior colouring nothing is filled.
+    #[test]
+    fn interior_fill_exact() {
+        use crate::scheduler::{Renderer, SaMode, SchedulerConfig};
+        use almondbread_core::locations::location_named;
+        let render = |fill: SaMode, inside: almondbread_core::InteriorMode| {
+            let config = SchedulerConfig {
+                local_sa: sa(SaMode::Off),
+                interior_fill: fill,
+                ..SchedulerConfig::default()
+            };
+            let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
+            let loc = location_named("elephant").expect("location");
+            r.settings = almondbread_core::RenderSettings::plain();
+            r.settings.auto_iterations = false;
+            r.settings.manual_iterations = loc.max_iterations();
+            r.settings.supersampling = almondbread_core::Supersampling::Off;
+            r.settings.interior_mode = inside;
+            r.viewport = loc.viewport_for_width(480);
+            let out = r.render_offscreen(480, 300, true).expect("render");
+            let field = almondbread_core::IterationField::from_texels(480, 300, out.iterations.as_deref().unwrap());
+            (field, out.steps_done)
+        };
+        use almondbread_core::InteriorMode;
+        let (off, off_steps) = render(SaMode::Off, InteriorMode::Flat);
+        let (on, on_steps) = render(SaMode::On, InteriorMode::Flat);
+        assert!(on_steps * 10 < off_steps * 8, "{on_steps} vs {off_steps}");
+        assert_eq!(on.bitwise_differences(&off), 0);
+        let (_, a) = render(SaMode::Off, InteriorMode::Period);
+        let (_, b) = render(SaMode::On, InteriorMode::Period);
+        assert_eq!(a, b);
+    }
+
     /// Offscreen fields at `scale` around the M4 slow view with the given BLA mode:
     /// (field, used, steps, iterations).
     fn bla_render(

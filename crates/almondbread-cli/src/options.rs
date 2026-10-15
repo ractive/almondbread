@@ -270,6 +270,10 @@ impl Options {
         if let Some(b) = self.usize("sa-budget") {
             sa.budget = b as u32;
         }
+        // M5 interior-only tile fill (`--fill 0|1|auto`).
+        if let Some(m) = self.get("fill").and_then(SaMode::parse) {
+            r.config.interior_fill = m;
+        }
     }
 }
 

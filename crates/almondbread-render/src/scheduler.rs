@@ -138,6 +138,11 @@ pub struct SchedulerConfig {
     /// M5: local series approximation (`ALMONDBREAD_SA=0|1|auto`; kb:
     /// techniques/local-series-approximation).
     pub local_sa: LocalSa,
+    /// M5: interior-only tile fill on full levels with the interior test and flat interior
+    /// colouring (`ALMONDBREAD_FILL=0|1|auto`; kb: techniques/guessing-and-subdivision).
+    /// `SaMode` doubles as its mode: Auto fills where the last level's statistics forecast a
+    /// gain.
+    pub interior_fill: SaMode,
 }
 
 /// When levels start their pixels from local series approximation seeds.
@@ -209,6 +214,9 @@ pub struct SeedReport {
     /// Tiles starting from their seeds, of all tiles.
     pub tiles_seeded: usize,
     pub tiles: usize,
+    /// Leaves whose seed stopped proven interior, and their branch iterations (sorted).
+    pub interior_leaves: Vec<u32>,
+    pub leaves: usize,
 }
 
 impl SeedReport {
@@ -261,6 +269,10 @@ impl Default for SchedulerConfig {
             bla_async_from: 16_384,
             bla_lookup_every: 8,
             local_sa: LocalSa::default(),
+            interior_fill: std::env::var("ALMONDBREAD_FILL")
+                .ok()
+                .and_then(|v| SaMode::parse(&v))
+                .unwrap_or(SaMode::Auto),
         }
     }
 }
@@ -386,6 +398,13 @@ struct SeedRound<B: GpuBackend> {
     /// Budget steps x waves of the round (`Renderer::seed_unit` learns from it).
     units: f64,
 }
+
+/// M5 interior fill: border pixels must be proven interior within this many iterations (the
+/// insides wait at most this long for the borders).
+const FILL_PROOF: u32 = 8192;
+/// Auto fill: the last level's interior fraction and iterations per pixel at least these.
+const FILL_MIN_INTERIOR: f64 = 0.15;
+const FILL_MIN_ITERATIONS: f64 = 300.0;
 
 /// Seed nodes the GPU runs at once (about; M1 Pro: 16 cores x 1024 threads).
 const SEED_WAVE: f64 = 16384.0;
@@ -867,6 +886,10 @@ pub struct Renderer<B: GpuBackend> {
     seed_unit: f64,
     seed_round: Option<SeedRound<B>>,
     seed_last: Option<(Vec<SeedParams>, f64, usize)>,
+    /// M5 interior fill: per-tile stamps (a border pixel not proven interior writes its
+    /// level's epoch) and their capacity; the last epoch.
+    tile_bad: Option<(B::Buffer, usize)>,
+    fill_epoch: u32,
 
     full_set: Option<TextureSet<B>>,
     /// One preview allocation at the largest preview size (the output size); levels use its
@@ -1012,6 +1035,8 @@ impl<B: GpuBackend> Renderer<B> {
             seed_unit: 1.5e-6,
             seed_round: None,
             seed_last: None,
+            tile_bad: None,
+            fill_epoch: 0,
             full_set: None,
             preview_alloc: None,
             state_buffers,
@@ -1128,6 +1153,73 @@ impl<B: GpuBackend> Renderer<B> {
             .pipeline("iterate", &[de, interior, bla, deep, interior_color, seeded])?;
         self.iterate_pipelines[k] = Some(p.clone());
         Ok(p)
+    }
+
+    // MARK: Interior fill (M5, kb: techniques/guessing-and-subdivision)
+
+    /// Whether a full level about to start should fill tiles whose border is all proven
+    /// interior (Mariani-Silver on the 16 x 16 admission tiles), seeds aside. Only with the
+    /// derivative interior test (the fill claims "proven interior", never "unresolved") and
+    /// flat interior colouring (the period, multiplier and interior distance of the other
+    /// modes are per pixel; a fill would leave the inside of a tile without them). Previews
+    /// and gesture frames stay as they were (cheap, and a gesture frame must complete in its
+    /// chunks).
+    fn fill_wanted(&self, level_index: usize) -> bool {
+        let Some(job) = &self.job else { return false };
+        let level = &job.levels[level_index];
+        if level.started()
+            || level.preview
+            || level.is_extension()
+            || level.aa.is_some()
+            || !level.use_interior
+            || job.key.interior_color
+        {
+            return false;
+        }
+        // Auto: the border-first admission costs chunk occupancy (the borders are 23 % of the
+        // texels, admitted alone), a short wait, and the seeds' admission coherence; it pays
+        // where many pixels are interior and proving them is slow (measured M5: elephant
+        // 1.38x; home-100k and minibrot-p4, whose interior proves in tens of iterations, 5-17 %
+        // slower; cusp-1e5 seeded 16 % slower, no tile filled). Decided from the last level's
+        // statistics, which a fill does not change (filled pixels count as interior; the
+        // iterations per pixel stay above the bar where it fills).
+        match self.config.interior_fill {
+            SaMode::Off => false,
+            SaMode::On => true,
+            SaMode::Auto => self
+                .interior_stats
+                .is_some_and(|s| s.fraction >= FILL_MIN_INTERIOR && s.exterior_iterations >= FILL_MIN_ITERATIONS),
+        }
+    }
+
+    /// When a full level starts: its fill decision (`fill_wanted`, and in auto only where no
+    /// tile starts from local SA seeds: the seeds' leaves are known by now).
+    fn decide_fill(&mut self, level_index: usize) {
+        if !self.fill_wanted(level_index) {
+            return;
+        }
+        let Some(job) = &self.job else { return };
+        let level = &job.levels[level_index];
+        if self.config.interior_fill == SaMode::Auto
+            && level.seeding.as_ref().is_some_and(|s| !s.done || s.tiles_seeded > 0)
+        {
+            return;
+        }
+        let (tx, ty) = tiles(level.set.width, level.set.height);
+        if self.tile_bad.as_ref().is_none_or(|(_, n)| *n < tx * ty) {
+            match self.backend.create_buffer_with_data(&vec![0u8; tx * ty * 4]) {
+                Ok(b) => self.tile_bad = Some((b, tx * ty)),
+                Err(_) => return,
+            }
+        }
+        self.fill_epoch = self.fill_epoch.wrapping_add(1).max(1);
+        let epoch = self.fill_epoch;
+        let level = &mut self.job.as_mut().expect("job").levels[level_index];
+        level.params.fill_border = (tx * ty * 60) as u32;
+        level.params.fill_epoch = epoch;
+        // (Most interior pixels prove within a few hundred iterations; slower ones are near a
+        // component's boundary, where a fill would not be safe anyway.)
+        level.params.fill_proof = FILL_PROOF.min(level.params.soft_iter);
     }
 
     // MARK: Local series approximation (M5, kb: techniques/local-series-approximation)
@@ -1424,7 +1516,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let first = seeding.rounds <= 1 && !level.started();
         if self.seed_round.is_some() {
-            return first;
+            return first && !(self.config.interior_fill == SaMode::Auto && self.fill_wanted(level_index));
         }
         if let Err(e) = self.encode_seed_round(level_index, 0) {
             eprintln!("almondbread: seed round failed: {e}");
@@ -1472,6 +1564,16 @@ impl<B: GpuBackend> Renderer<B> {
             report
                 .levels
                 .push((l.size as usize, count, iters, steps, nsum / count.max(1) as f64));
+        }
+        if let Some(leaf) = layout.last() {
+            let count = (leaf.grid_w * leaf.grid_h) as usize;
+            report.leaves = count;
+            report.interior_leaves = nodes[leaf.offset as usize..leaf.offset as usize + count]
+                .iter()
+                .filter(|n| n.stamp & 3 == 3)
+                .map(|n| n.n)
+                .collect();
+            report.interior_leaves.sort_unstable();
         }
         if let (Some((tiles, _)), Some(leaf)) = (&self.seed_tiles, layout.last()) {
             let n = (leaf.tiles_x * leaf.tiles_y) as usize;
@@ -1852,6 +1954,11 @@ impl<B: GpuBackend> Renderer<B> {
                 self.pinned_iterations = None;
             }
         }
+        // (As `start_job` raises it once the reference is there, so the job keeps its key.)
+        let ss = if offscreen { self.settings.supersampling.factor() } else { 1 };
+        let texel = self.viewport.scale * points_per_pixel / ss as f64;
+        let viewport = self.viewport.clone();
+        max_iter = max_iter.max(self.period_floor(&viewport, texel, width.max(height) * ss, max_iter));
         ComputeKey {
             viewport: self.viewport.clone(),
             max_iter,
@@ -1873,7 +1980,35 @@ impl<B: GpuBackend> Renderer<B> {
 
     // MARK: Jobs and chunks
 
-    fn start_job(&mut self, key: ComputeKey, mode: JobMode, now: f64) {
+    /// Auto iterations from the view's big reference (M5), so a view that needs far more than
+    /// the depth heuristic is not first rendered fully unresolved and then again at 4x (the
+    /// learner's retry; the user's spiral-32412-1e19 spent 37 % of its iterations on that
+    /// pass): the nucleus of a period-P minibrot found in the view needs more than P
+    /// iterations, so the limit starts at 1.25 P; a centre orbit (no nucleus) that escapes
+    /// only after the heuristic, or not within its length, starts at the retry level, 4x the
+    /// heuristic (cheap where most pixels escape earlier: a limit costs only the pixels that
+    /// reach it). Capped like the learner (4x the heuristic) and at the user's cap; a function
+    /// of the reference alone, so the key `make_key` builds stays the job's. 0: none applies.
+    fn period_floor(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> usize {
+        if !self.settings.auto_iterations {
+            return 0;
+        }
+        let Some(r) = self.reference.as_ref().filter(|r| r.big) else { return 0 };
+        if r.fit(viewport, texel, size, max_iter) == Fit::No {
+            return 0;
+        }
+        let heuristic = depth_iterations(viewport);
+        let floor = match r.period {
+            Some(p) => (p as f64 * 1.25).ceil() as usize,
+            // (A centre orbit runs to twice the limit it was made for; its last index is where
+            // it escaped, or how far it is known not to.)
+            None if r.points.len() - 1 > heuristic => 4 * heuristic,
+            None => 0,
+        };
+        floor.min(4 * heuristic).min(self.settings.max_iterations_cap)
+    }
+
+    fn start_job(&mut self, mut key: ComputeKey, mode: JobMode, now: f64) {
         self.waiting_reference = false;
         self.retry_pending = false;
         // Interactive views anti-alias progressively (idle AA samples); only offscreen renders
@@ -1909,6 +2044,9 @@ impl<B: GpuBackend> Renderer<B> {
             self.waiting_reference = true;
             return;
         }
+        key.max_iter = key
+            .max_iter
+            .max(self.period_floor(&viewport, full_texel, tex_w.max(tex_h), key.max_iter));
         let (Some(reference), Some(reference_buffer)) = (&self.reference, self.reference_buffer.clone()) else {
             return;
         };
@@ -2425,6 +2563,7 @@ impl<B: GpuBackend> Renderer<B> {
         // Admit the listed texels; collect nothing.
         p.list_mode = 2;
         p.list_capacity = 0;
+        p.fill_border = 0;
         p.max_iter = full.params.soft_iter;
         let mut l = Level::new(set, 1.0, false, p, Some(len));
         l.list_buffer = list;
@@ -2539,6 +2678,7 @@ impl<B: GpuBackend> Renderer<B> {
                 }
             }
         }
+
         let (use_interior, use_bla, deep, interior_color, seed_now) = {
             let j = self.job.as_ref().expect("job");
             let l = &j.levels[level_index];
@@ -2558,6 +2698,11 @@ impl<B: GpuBackend> Renderer<B> {
                 eprintln!("almondbread: seed passes failed: {e}");
             }
         }
+        // (A fill candidate waits for its seeds' tile count before its first chunk.)
+        if seed_now && self.config.interior_fill == SaMode::Auto && self.fill_wanted(level_index) {
+            return false;
+        }
+        self.decide_fill(level_index);
         let (seeded, seed_gate) = {
             let l = &self.job.as_ref().expect("job").levels[level_index];
             (l.seeded, l.seeding.is_some())
@@ -2638,6 +2783,8 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        enc.set_buffer(23, self.tile_bad.as_ref().map_or(&self.dummy_buffer, |t| &t.0), 0);
+        enc.set_buffer(24, &self.level_buffer, 0);
         if let (Some((nodes, _)), Some((tiles, _)), Some(leaf)) = (&self.seed_nodes, &self.seed_tiles, seeded) {
             enc.set_buffer(20, nodes, 0);
             enc.set_bytes(21, bytes_of(&leaf));
@@ -2903,6 +3050,7 @@ impl<B: GpuBackend> Renderer<B> {
                 p.max_iter = next as u32;
                 p.list_mode = 2;
                 p.total = count as u32;
+                p.fill_border = 0;
                 let mut ext = Level::new(level.set.clone(), level.ratio, false, p, Some(count));
                 ext.use_interior = true;
                 ext.seeded = level.seeded;
@@ -3069,6 +3217,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         c.tiles_x = tiles(l.set.width, l.set.height).0 as u32;
         c.tile_order = u32::from(l.order.is_some() && !l.is_extension());
+        c.fill_border = if l.is_extension() { 0 } else { l.params.fill_border };
     }
 
     /// Colours a preview level at its own resolution into its colour texture (linear light).
@@ -3768,7 +3917,15 @@ impl<B: GpuBackend> Renderer<B> {
             let radius = 0.5 * (key.width as f64).hypot(key.height as f64) * key.points_per_pixel;
             let req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
             let mut req = req;
-            req.period_limit = max_iter;
+            // Nuclei up to the learner's reach (4x the depth heuristic): a longer-period
+            // minibrot in view then sets the limit (`period_floor`) instead of an unresolved
+            // first pass.
+            let search = if self.settings.auto_iterations {
+                (4 * depth_iterations(viewport)).min(self.settings.max_iterations_cap)
+            } else {
+                0
+            };
+            req.period_limit = max_iter.max(search);
             // Flying to a deeper target inside this view: one reference at the target, with
             // the precision the target needs, serves every view of the rest of the dive (kb:
             // decisions/controls, fly to; techniques/rebasing).
@@ -3788,9 +3945,10 @@ impl<B: GpuBackend> Renderer<B> {
             }
             if self.config.trace {
                 println!(
-                    "reference request: scale {} bits {} ({})",
+                    "reference request: scale {} bits {} period limit {} ({})",
                     viewport.scale,
                     req.precision_bits,
+                    req.period_limit,
                     if fit == Fit::Stale { "stale" } else { "none usable" }
                 );
             }

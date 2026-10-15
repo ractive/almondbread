@@ -76,7 +76,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     println!(
         "{path}: {width}x{height}  zoom {}  maxIter {}  ref {} pts {:.2} ms  iterate GPU [{}] ms  wall [{}] ms  chunks {}  iters {}  steps {}  colorize {:.2} ms",
         almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
-        r.max_iterations(),
+        r.stats.max_iterations,
         ref_len,
         ref_time * 1000.0,
         ms.join(", "),
@@ -215,6 +215,16 @@ fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: 
         gpu * 1000.0
     );
     println!("  levels [{}]", levels.join("; "));
+    let il = &s.interior_leaves;
+    if !il.is_empty() {
+        println!(
+            "  interior leaves {:.1} % (n p10 {} p50 {} p90 {})",
+            100.0 * il.len() as f64 / s.leaves.max(1) as f64,
+            il[il.len() / 10],
+            il[il.len() / 2],
+            il[il.len() * 9 / 10]
+        );
+    }
 }
 
 // MARK: verify
@@ -258,7 +268,7 @@ pub fn verify<B: GpuBackend>(
     let gpu = IterationField::from_texels(width, height, res.iterations.as_deref().unwrap_or(&[]));
     let v = r.viewport.clone();
     let t0 = Instant::now();
-    let cpu_iter = cpu_iterations.unwrap_or_else(|| r.max_iterations());
+    let cpu_iter = cpu_iterations.unwrap_or_else(|| r.stats.max_iterations);
     let cpu = oracle(&v.center, v.scale, width, height, cpu_iter);
     let cpu_time = t0.elapsed().as_secs_f64();
     let (report, heatmap) = compare(&gpu, &cpu);

@@ -74,9 +74,10 @@ struct IterateParams {
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
-    uint   pad1;
-    uint   pad2;
-    uint   pad3;
+    uint   fillBorder;    // M5 interior fill: admission indices of the tile borders (0: off)
+    uint   fillEpoch;     // the level's stamp in tileBad[]
+    uint   fillProof;     // a border pixel counts as interior if proven within this many
+                          // iterations
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -98,19 +99,49 @@ static inline uint mortonEncode8(uint2 v) {
 // texels are admitted tile by tile (16 x 16, Morton order inside a tile); the tile order is
 // raster order or a priority list (newly exposed tiles first, then by distance from the zoom
 // target). Returns false for padding texels of edge tiles.
+// M5 interior fill (Mariani-Silver on the tile grid, kb: techniques/guessing-and-subdivision):
+// the first `fillBorder` = tiles x 60 admission indices are the tiles' borders (the ring of
+// 60 texels, in tile order), the rest their 14 x 14 insides; a tile whose whole border was
+// proven interior is filled interior without iterating its inside.
+static inline uint2 ringTexel(uint k) {
+    return k < 16u ? uint2(k, 0u) : k < 32u ? uint2(k - 16u, 15u) : k < 46u ? uint2(0u, k - 31u) : uint2(15u, k - 45u);
+}
+static inline uint ringIndex(uint2 l) {
+    return l.y == 0u ? l.x : l.y == 15u ? 16u + l.x : l.x == 0u ? 31u + l.y : 45u + l.y;
+}
+static inline bool onRing(uint2 s) {
+    const uint2 l = s & 15u;
+    return l.x == 0u || l.y == 0u || l.x == 15u || l.y == 15u;
+}
+
 static inline bool tileTexel(uint a, uint tilesX, uint width, uint height, uint tileOrder,
-                             device const uint* order, thread uint2& xy) {
-    uint rank = a >> 8;
-    uint tile = tileOrder != 0 ? order[rank] : rank;
-    xy = uint2((tile % tilesX) * 16u, (tile / tilesX) * 16u) + mortonDecode8(a & 255u);
+                             device const uint* order, thread uint2& xy, uint fillBorder = 0u) {
+    uint rank, tile;
+    uint2 l;
+    if (fillBorder == 0u) {
+        rank = a >> 8;
+        l = mortonDecode8(a & 255u);
+    } else if (a < fillBorder) {
+        rank = a / 60u;
+        l = ringTexel(a - rank * 60u);
+    } else {
+        const uint b = a - fillBorder;
+        rank = b / 196u;
+        const uint k = b - rank * 196u;
+        l = uint2(1u + k % 14u, 1u + k / 14u);
+    }
+    tile = tileOrder != 0 ? order[rank] : rank;
+    xy = uint2((tile % tilesX) * 16u, (tile / tilesX) * 16u) + l;
     return xy.x < width && xy.y < height;
 }
 
 // Texel -> admission index (the inverse; rank[] is the inverse of order[]).
-static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const uint* rank) {
+static inline uint tileIndex(uint2 s, uint tilesX, uint tileOrder, device const uint* rank, uint fillBorder = 0u) {
     uint tile = (s.y >> 4) * tilesX + (s.x >> 4);
     uint r = tileOrder != 0 ? rank[tile] : tile;
-    return (r << 8) | mortonEncode8(s);
+    if (fillBorder == 0u) return (r << 8) | mortonEncode8(s);
+    const uint2 l = s & 15u;
+    return onRing(s) ? r * 60u + ringIndex(l) : fillBorder + r * 196u + (l.y - 1u) * 14u + (l.x - 1u);
 }
 
 // Loop state of one live pixel. BLA needs nothing beyond (dz, m, n), so a level may switch
@@ -210,7 +241,8 @@ struct LevelCounters {
     uint admitted;        // fresh pixels admitted so far (scanline order)
     uint freshStart;      // this chunk's first fresh pixel
     uint freshCount;      // this chunk's fresh pixels
-    uint pad;
+    uint undecided;       // M5 interior fill: border pixels alive below fillProof iterations
+                          // after the last chunk (iterate adds them through buffer 24)
 };
 
 static inline float2 cmul(float2 a, float2 b) {
@@ -408,6 +440,14 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
     // M5: a seeded level admits nothing until its last seed round finished every node (the
     // chunk is then a no-op; the next round and chunks follow).
     if (p.seedGate != 0 && atomic_load_explicit(&seedStatus.unfinished, memory_order_relaxed) != 0) fresh = 0;
+    // M5 interior fill: the tile borders first; the insides only once every border pixel is
+    // decided (finished, or past fillProof iterations, which spoils its tile), so a tile's fill
+    // never depends on chunk timing, and the wait is at most fillProof iterations.
+    if (p.fillBorder != 0) {
+        if (level.admitted < p.fillBorder) fresh = min(fresh, p.fillBorder - level.admitted);
+        else if (p.firstChunk == 0 && level.undecided != 0) fresh = 0;
+    }
+    level.undecided = 0;
     level.freshStart = level.admitted;
     level.freshCount = fresh;
     level.admitted += fresh;
@@ -482,9 +522,10 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
 {
     if (tid >= sp.gridW * sp.gridH) return;
     const uint idx = sp.offset + tid;
+    // (Done: state 2, or 3 when the seed stopped proven interior.)
     const uint stampDone = (sp.epoch << 2) | 2u, stampRunning = (sp.epoch << 2) | 1u;
     SeedNode s = nodes[idx];
-    if (s.stamp == stampDone) return;
+    if ((s.stamp | 1u) == (stampDone | 1u)) return;
     const uint2 nxy = uint2(tid % sp.gridW, tid / sp.gridW);
     const float2 q = (float2(nxy) + 0.5f) * float(sp.size);
     const float2 dc = seedDc(p, q, sp.jitter);
@@ -504,7 +545,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
         } else {
             const uint2 pxy = nxy / 2u;
             const SeedNode par = nodes[sp.parentOffset + pxy.y * sp.parentGridW + pxy.x];
-            if (par.stamp != stampDone) {
+            if ((par.stamp | 1u) != (stampDone | 1u)) {
                 atomic_fetch_add_explicit(&status.unfinished, 1u, memory_order_relaxed);
                 return;
             }
@@ -519,7 +560,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
     float icMin = s.icMin;
     uint icQ = s.icQ;
     uint budget = sp.budget;
-    bool done = true;
+    bool done = true, provenInterior = false;
     FE W = FE{s.w, s.wExp}, WD = FE{s.wd, s.wdExp};
     if (start && sp.root == 0 && kInterior) W = feAdd(W, feMul(WD, feNorm(delta, 0)));
     if (kDeep && p.scaleExp < SEED_FLOAT_MIN_EXP) {
@@ -614,7 +655,10 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
             budget--;
             path++;
             if (m == last || feLess(zn, dz)) { dz = zn; m = 0; }
-            if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) break;
+            if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) {
+                provenInterior = true;
+                break;
+            }
         }
         s.dz = dz.m; s.dzExp = dz.e; s.a = A.m; s.aExp = A.e; s.b = B.m; s.bExp = B.e;
     } else {
@@ -730,6 +774,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
                 if (r2 < dot(dz, dz) || m == last) { dz = zn; m = 0; }
             }
             if (kInterior && (n & 7u) == 0u && feWTest(W, n) < p.interiorEps) {
+                provenInterior = true;
                 break;   // interior seed: branch here (samples inherit w + wd delta)
             }
         }
@@ -744,7 +789,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
     s.m = m; s.n = n; s.steps = steps; s.path = path;
     s.w = W.m; s.wExp = W.e; s.wd = WD.m; s.wdExp = WD.e;
     s.icMin = icMin; s.icQ = icQ;
-    s.stamp = done ? stampDone : stampRunning;
+    s.stamp = done ? (stampDone | (provenInterior ? 1u : 0u)) : stampRunning;
     if (!done) atomic_fetch_add_explicit(&status.unfinished, 1u, memory_order_relaxed);
     nodes[idx] = s;
 }
@@ -838,6 +883,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const SeedNode* seeds            [[buffer(20), function_constant(kSeeded)]],
                     constant SeedParams& leaf               [[buffer(21), function_constant(kSeeded)]],
                     device const uint* seedTiles            [[buffer(22), function_constant(kSeeded)]],
+                    device atomic_uint* tileBad             [[buffer(23)]],
+                    device atomic_uint* levelAtomic         [[buffer(24)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -861,7 +908,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             st.pixel = listIn[a];            // lists hold texel indices (y * width + x)
         } else {
             uint2 xy;
-            active = tileTexel(a, p.tilesX, p.width, p.height, p.tileOrder, order, xy);
+            active = tileTexel(a, p.tilesX, p.width, p.height, p.tileOrder, order, xy, p.fillBorder);
             st.pixel = xy.y * p.width + xy.x;
         }
     } else {
@@ -874,6 +921,15 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     float2 dc = float2(pix.x, -pix.y) * p.texelScale + p.refOffset;
 
     bool escaped = false, interior = false;
+    // M5 interior fill: an inside texel of a whole tile whose border is all proven interior.
+    const uint tileOf = (gid.y >> 4) * p.tilesX + (gid.x >> 4);
+    bool filled = false;
+    if (p.fillBorder != 0 && fresh && active && !onRing(gid) && (gid.x | 15u) < p.width && (gid.y | 15u) < p.height
+        && atomic_load_explicit(&tileBad[tileOf], memory_order_relaxed) != p.fillEpoch) {
+        filled = true;
+        interior = true;
+        st.n = 0;
+    }
     float r2 = 0.0f;
     float2 z = 0.0f;
     uint iters = 0;
@@ -917,7 +973,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint icQ = ic.k;
 #define IC_TRACK(r2v, nv) if (kInteriorColor && (r2v) < icR2) { icR2 = (r2v); icMinLog2 = 0.5f * log2(icR2); icQ = (nv); }
 
-    if (active && !inB && kDeep) {
+    if (active && !inB && !filled && kDeep) {
         // M3b deep loop (kb: techniques/extended-range-floats "Rescaled iterations", rebasing,
         // bla). The pixel's delta is z = w 2^e. Two regimes:
         //  P (e == 0): |z| >= 2^-50, w is the plain float32 delta; the loop is the plain one
@@ -1204,7 +1260,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
-    } else if (active && !inB) {
+    } else if (active && !inB && !filled) {
         if (fromSeed) {
             // M5: start from the leaf's expansion (iterations counted from its n).
             const float ts = p.texelScale;
@@ -1543,6 +1599,18 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         // (An extension pixel keeps showing "unresolved" until it resolves.)
         iterOut.write(float4(ITER_PENDING, 0.0f, 0.0f, 0.0f), gid);
     }
+    // M5 interior fill: a border pixel is good when it is proven interior within fillProof
+    // iterations (a function of its orbit alone); one that finished otherwise, or is still
+    // running at fillProof or beyond (it can only finish later), spoils its tile. Those still
+    // below it are counted: the insides wait for them (prepareChunk).
+    if (p.fillBorder != 0) {
+        const bool ring = active && !inB && onRing(gid);
+        if (ring && (alive ? st.n >= p.fillProof : !(interior && st.n < p.fillProof))) {
+            atomic_store_explicit(&tileBad[tileOf], p.fillEpoch, memory_order_relaxed);
+        }
+        const uint und = simd_sum((ring && alive && st.n < p.fillProof) ? 1u : 0u);
+        if (lane == 0 && und != 0) atomic_fetch_add_explicit(&levelAtomic[3], und, memory_order_relaxed);
+    }
     // Unresolved at the limit: remembered for the extension level (one atomic per
     // threadgroup, like the live-list compaction below).
     bool collect = p.listMode != 0 && crossed && kInterior;
@@ -1673,7 +1741,8 @@ struct ColorParams {
                           // textures hold the cycle analysis)
     float  interiorDensity; // palette cycles of the interior modes
     float  interiorStripes; // angle mode: stripes per turn
-    float2 pad2;
+    uint   fillBorder;    // M5: the main level's admission order has tile borders first
+    uint   pad3;
     float4 deep;          // dense regions: calm colour (linear RGB), w = 1 on (0: mean grey)
     float4 filament;      // dense regions: colour of the thin lines along the boundary
 };
@@ -1853,7 +1922,7 @@ static inline float3 ditheredSRGB(float3 linear, uint2 gid) {
 // not pending.
 static inline bool finished(texture2d<float, access::read> t, uint2 s, constant ColorParams& c,
                             device const uint* rank, uint admitted, thread float2& it) {
-    if (tileIndex(s, c.tilesX, c.tileOrder, rank) >= admitted) return false;
+    if (tileIndex(s, c.tilesX, c.tileOrder, rank, c.fillBorder) >= admitted) return false;
     it = t.read(s).xy;
     return it.x != ITER_PENDING;
 }

@@ -39,9 +39,12 @@ pub struct IterateParams {
     /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
     /// 2^`scale_exp`. 0 for the plain kernel.
     pub scale_exp: i32,
-    pub pad1: u32,
-    pub pad2: u32,
-    pub pad3: u32,
+    /// M5 interior fill: admission indices of the tile borders (tiles x 60; 0: off) and the
+    /// level's stamp in the tile-bad buffer.
+    pub fill_border: u32,
+    pub fill_epoch: u32,
+    /// A border pixel counts as interior when proven within this many iterations.
+    pub fill_proof: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -169,7 +172,9 @@ pub struct ColorParams {
     pub interior_mode: u32,
     pub interior_density: f32,
     pub interior_stripes: f32,
-    pub pad2: [f32; 2],
+    /// M5 interior fill: the main level's admission order has the tile borders first.
+    pub fill_border: u32,
+    pub pad3: u32,
     /// Dense regions (calm look): the deep colour (linear RGB, w = 1 on, 0 the old mean grey)
     /// and the filament colour.
     pub deep: [f32; 4],
@@ -262,7 +267,7 @@ const _: () = {
     assert!(size_of::<ColorParams>() == 224);
     assert!(offset_of!(ColorParams, deep) == 192);
     assert!(offset_of!(ColorParams, interior_mode) == 172);
-    assert!(offset_of!(ColorParams, pad2) == 184);
+    assert!(offset_of!(ColorParams, fill_border) == 184);
     assert!(offset_of!(ColorParams, edge) == 16);
     assert!(offset_of!(ColorParams, glow_color) == 32);
     assert!(offset_of!(ColorParams, light) == 48);
