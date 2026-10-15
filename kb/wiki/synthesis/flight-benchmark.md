@@ -204,13 +204,18 @@ works.
   (2261 `frame` calls in 60 s, all late). 24.6 % of due frames were shown, p99 92 ms,
   input-to-photon p50 29 ms / p95 33 ms. An interaction-test run at the same time
   (`home pan`, `1e5 zoom`) got 27–28 fps, so the cause is the machine, not the bench.
-- In one of three window runs the app reported `window key true, app active true` at
-  start, although the window is a TestLaunch background window. The other two runs, and
-  the interaction test, reported false. It may have been a click on the visible window.
-  The bench now calls `NSApp.deactivate()` and `orderBack` before measuring. After the
-  merge with d7ab9e1, two more window runs printed `window key false, app active true`.
-  The window never became key, but the app was active at start. Why is not resolved; the
-  interaction test, launched the same way, reports false.
+- The window run **took focus**: three of four runs reported `app active true` at start,
+  and one also `window key true`. Root cause: `Sources/AlmondbreadMac/main.swift` promotes a
+  bare executable to `.regular` and calls `activate(ignoringOtherApps: true)` unless the
+  arguments contain `--selftest` or `--interaction-test`. `--flight-bench=` (and
+  `--ui-demo=`) were not on that list. Fixed: the check is now `!TestLaunch.enabled` (made
+  public), which covers every window test. The bench also watches for focus from its first
+  moment (`NSApplication.didBecomeActive`, `NSWindow.didBecomeKey`, and polls every 0.25 s).
+  Any activation or key window ends the run at once with `FOCUS TAKEN` and exit 1, so
+  `make flight-bench-live` fails loudly. The `deactivate()` workaround was removed. Verified
+  over 5 window runs of a 5 s flight on 2026-10-15: `window key false, app active false`
+  every time, and the watcher never fired. The watcher was not tested against a real focus
+  steal, because that test would itself disturb the screen.
 
 ## After the fix (main d7ab9e1, 2026-10-15)
 
@@ -220,8 +225,17 @@ noisy (other processes 7–10 cores, GPU up to 84 % busy). Three full v1 laps, A
 B (`--repeat 3 --warmup 0`): **every lap valid**. The heavy segment ends with 0.000 % class
 mismatch and 0.00 % of blocks differing from a jump render; it is no longer black, and
 heavy costs 4.4–6.7 s wall (4.3–6.6 s GPU) per lap. `stats.max_iterations` still reports
-10384 for the shown job against 41536 for a jump render, but the images agree: the
-extension passes resolve it.
+10384 for the shown job against 41536 for a jump render, and the images agree. The stat is
+not stale: it is the job's nominal limit (`job.key.max_iter`). After a jump the learned
+limit is reset, so the job starts at the depth limit 10384. The trace shows its first level
+at 10384 with every pixel unresolved (10 ms GPU), then the extension pass (mode 2) taking
+them to the 4× hard limit 41536 (4.1 s GPU). The learner then sets 41536 and the AA level
+runs at 41536. So the heavy work does run at 41536, but `ShownStats.max_iterations` shows
+the nominal limit, not the hard limit the shown level reached. A from-scratch offscreen render has no
+extension (`offscreen_extension` 1), so it raises the nominal limit instead. Left as is (the
+stat is the scheduler's); the HUD would need a "hard limit" field to show it. Side note
+from the same trace: after the AA level the learner returns 41536 → 0 (`escapedPast
+[64, 0, 0, 0]`), so a re-render of the same view would start at 10384 again.
 
 | | median of 3 | spread |
 |---|---|---|
@@ -232,14 +246,21 @@ extension passes resolve it.
 One window lap (B live): 24.0 % shown (the display link still ran at ~30 Hz under the
 load), p99 108 ms, sharp 17.9 s, input to photon p50 33 / p95 77 ms.
 
-The settled still of the 1e−1004 jump shows a uniform blue disc around the minibrot where
-an earlier `render` showed fine bands. The jump render agrees (0 % of blocks differ), so this
-is the colouring at the 200000 limit, not reuse. Not investigated.
+The settled still of the 1e−1004 jump shows a uniform disc around the minibrot where an
+earlier `render` showed fine bands. This is **anti-aliasing**, not the colouring at the
+iteration limit. Near the minibrot the rings are finer than a pixel at 1920 wide. One sample
+per pixel (`render --ss 1`, or `verify --history jump` at 640 wide) shows them as moiré,
+while 3×3 supersampling averages them to the palette's mean colour. `render --ss 3` shows
+the same disc shape; `history jump` has 0.22 % unresolved pixels and no class mismatch.
+The disc is grey in the offscreen supersampled render but blue in the interactive
+progressive AA. Both AA paths average the palette, but to different colours. That may be
+worth a look; it stayed under the jump check's 32/255 per-block threshold.
 
 ## Open
 
 - Calibrate on an idle machine (above).
-- Why the window-test app is active at start (above).
+- The mean colour of sub-pixel detail differs between offscreen supersampling (grey) and
+  interactive progressive AA (blue) at the 1e−1004 jump.
 - iOS: the FFI calls exist, but no iOS harness drives them yet.
 - A user-facing "Benchmark" (later): the score and per-segment table already come from
   Rust, so a SwiftUI sheet only has to show the JSON.

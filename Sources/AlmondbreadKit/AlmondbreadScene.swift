@@ -156,8 +156,11 @@ struct FractalCommands: Commands {
 /// take focus from the user. No Dock icon or menu bar (accessory policy), no activation, the
 /// window ordered behind others and never key, App Nap off so pacing is not throttled.
 @MainActor
-enum TestLaunch {
-    static var enabled: Bool {
+public enum TestLaunch {
+    /// Any window test (`--selftest`, `--interaction-test`, `--ui-demo`, `--flight-bench=`):
+    /// the app must stay in the background. Entry points check this before promoting a bare
+    /// executable to a regular, active app.
+    public static var enabled: Bool {
         #if os(macOS)
         SelfTest.enabled || InteractionTest.enabled || UIDemo.enabled || FlightBench.enabled
         #else

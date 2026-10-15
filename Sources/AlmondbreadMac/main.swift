@@ -7,14 +7,15 @@ import SwiftUI
 // (render / verify / bench / regress). Window checks run in the background and quit:
 //   --selftest [--selftest-png=out.png]   render the first view through the real view, print "renderer OK"
 //   --interaction-test                    frame pacing and latency of pans, zooms and keys
+//   --flight-bench=flight.json            the flight benchmark's real-time mode (almondbread benchmark --live-app)
 
 struct AlmondbreadMacApp: App {
     init() {
         // A bare executable (not an .app bundle) starts as a background process with no
         // Dock icon or menu bar; promote it so the window comes to the front.
-        let arguments = CommandLine.arguments
-        if Bundle.main.bundleIdentifier == nil && !arguments.contains("--selftest")
-            && !arguments.contains("--interaction-test") {
+        // Never for a window test (TestLaunch: --selftest, --interaction-test, --ui-demo=,
+        // --flight-bench=): this activation took focus from the user in flight-bench runs.
+        if Bundle.main.bundleIdentifier == nil && !TestLaunch.enabled {
             NSApplication.shared.setActivationPolicy(.regular)
             DispatchQueue.main.async { NSApplication.shared.activate(ignoringOtherApps: true) }
         }
