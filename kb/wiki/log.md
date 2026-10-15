@@ -534,3 +534,22 @@ sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e3
 where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
 Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
 [[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
+
+## [2026-10-15] decision | FB: flight benchmark with a score
+
+Built `almondbread benchmark` (`make flight-bench`, `make flight-bench-live`). The flight
+`scripts/flights/benchmark-v1.json` is versioned, 60 s at 1920×1080: shallow pan and zoom,
+the dense spot, a dive into c = i to 1e−300, the heavy period-32412 spiral, a rotating zoom
+in elephant valley, and a jump to 1e−1004. Mode A renders every 5 Hz camera sample through
+the real scheduler to the settled full-quality frame, checks it against a fresh render and
+a from-scratch jump render, and reports wall, CPU and GPU time per segment. Mode B plays the
+flight live: headless at 120 Hz, or in a background window (`--flight-bench=`, never key).
+It reports shown/due frames, p99, late frames, input to photon, and time to first image and
+to sharp per landing. The score is geomean(A, B) against a **provisional** M1 Pro reference
+= 1000. Also: warm-up and repeated laps with medians and spread, a noise check (other
+processes' CPU, IOAccelerator utilisation), JSON in `build/benchmark/`, `--compare`, and A/B
+switches (`--sa 0`). The script player and real-time recorder moved into
+`almondbread_core::flight`, shared with `fly`; `jump` and `location` events were added. The
+first, noisy runs found a path-dependent black frame at the heavy spot after the dive (auto
+iterations stay at 10384, below the period), reported for M5. Pages:
+[[synthesis/flight-benchmark]], [[synthesis/benchmarks]] (FB), [[index]].

@@ -45,6 +45,10 @@ final class FlightBench: NSObject {
         let scale = window.backingScaleFactor
         window.setContentSize(NSSize(width: 1920 / scale, height: 1080 / scale))
         TestLaunch.placeAtScreenEdge(window)
+        // Never keep focus (a click on the background window, or a launch from a terminal that
+        // activated us): give it back before measuring.
+        if NSApp.isActive { NSApp.deactivate() }
+        window.orderBack(nil)
         let hz = window.screen?.maximumFramesPerSecond ?? 60
         let laps = UInt32(Self.argument("flight-bench-laps") ?? "") ?? 3
         let warmup = UInt32(Self.argument("flight-bench-warmup") ?? "") ?? 1

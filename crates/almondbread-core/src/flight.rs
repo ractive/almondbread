@@ -30,7 +30,7 @@
 //! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
 //! | `{"at": t, "assist": true}` | autopilot assist on / off |
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per script unit) |
-//! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates) |
+//! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates); `{"location": "spiral-32412-1e19", "pixels": 1920}` takes a benchmark location framed as at that width (also for `fly_to`) |
 //! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); keys `j` (resume / stop), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
 //! | `{"from": a, "to": b, "rotate": rate}` | trackpad rotation at `rate` radians/s (counter-clockwise image) about `point` |
 //!
@@ -420,7 +420,16 @@ impl FlightPlayer {
 
     fn view_text(&self, f: &Value) -> Option<Viewport> {
         let text = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("");
-        let mut v = crate::flyto::view_from_text(text("re"), text("im"), text("scale"))?;
+        let mut v = match f.get("location").and_then(Value::as_str) {
+            // A benchmark location (`almondbread bench`), framed as at `pixels` (1920) wide.
+            Some(name) => {
+                let pixels = f.get("pixels").and_then(Value::as_u64).unwrap_or(1920) as usize;
+                let mut v = crate::locations::location_named(name)?.viewport_for_width(pixels);
+                v.ensure_precision();
+                v
+            }
+            None => crate::flyto::view_from_text(text("re"), text("im"), text("scale"))?,
+        };
         if self.unit != 1.0 {
             v.scale = v.scale / self.unit;
             v.ensure_precision();
@@ -1004,5 +1013,40 @@ mod tests {
         let l1 = &r["segments"][1]["landings"][0];
         assert!((l1["sharp_ms"].as_f64().unwrap() - 200.0).abs() < 1e-3);
         assert!((r["sharp_total_s"].as_f64().unwrap() - 0.4).abs() < 1e-6);
+    }
+
+    /// The benchmark flight reaches every regime: the dive ends near 1e-300 per pixel, the
+    /// heavy spot and the 1e-1000 jump land where the locations are, the rotation turns.
+    #[test]
+    fn benchmark_flight_visits_every_regime() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/flights/benchmark-v1.json"
+        ))
+        .unwrap();
+        let s = FlightScript::parse(&text).unwrap();
+        let p = camera_path(&s, &RenderSettings::default(), s.size, 120.0, 5.0).unwrap();
+        let at = |t: f64| &p.iter().find(|c| c.t >= t - 1e-9).unwrap().viewport;
+        for c in p.iter().step_by(5) {
+            eprintln!(
+                "{:5.1} s: 1e{:.1} per px, angle {:.2}",
+                c.t,
+                c.viewport.scale.log10(),
+                c.viewport.angle
+            );
+        }
+        assert!(
+            (at(39.0).scale.log10() + 300.0).abs() < 1.0,
+            "dive {}",
+            at(39.0).scale.log10()
+        );
+        assert!(
+            (at(41.0).scale.log10() - 4.19804e-19f64.log10()).abs() < 0.01,
+            "heavy {}",
+            at(41.0).scale.log10()
+        );
+        assert!(at(41.0).center.re() + 0.13415 < 1e-5);
+        assert!(at(53.0).angle.abs() > 2.0, "rotation {}", at(53.0).angle);
+        assert!(at(59.0).scale.log10() < -1003.0, "jump {}", at(59.0).scale.log10());
     }
 }

@@ -21,8 +21,9 @@
 //! ```text
 //! almondbread benchmark [--flight f.json] [--modes a,approx] [--repeat 3] [--warmup 1]
 //!                       [--out build/benchmark] [--reference r.json] [--check-every 100]
-//!                       [--write-reference r.json [--final 1]]
+//!                       [--write-reference r.json [--final 1]] [--stills dir]
 //! almondbread benchmark --live-app .build/release/AlmondbreadMac [--repeat 3] [--warmup 1]
+//! (any mode: --sa 0|1|auto, --bla 0|1|auto for A/B runs; the JSON records them)
 //! almondbread benchmark --live run.json
 //! almondbread benchmark --compare a.json b.json
 //! almondbread benchmark --noise 1
@@ -46,6 +47,36 @@ use crate::options::{Options, Result, err};
 const DEFAULT_FLIGHT: &str = "scripts/flights/benchmark-v1.json";
 /// A shown frame differing from a fresh render in more than this % of pixels (class) fails.
 const MAX_MISMATCH: f64 = 0.05;
+/// A settled frame whose 16x16-pixel blocks differ from a from-scratch render of the view by
+/// more than 32 levels of mean luma in more than this % of blocks fails (anti-aliasing and
+/// float noise average out in a block; a wrong iteration limit or stale image does not).
+const MAX_JUMP_BLOCKS: f64 = 2.0;
+
+/// % of 16x16 blocks whose mean luma differs by more than 32 of 255 (BGRA8).
+fn block_difference(a: &[u8], b: &[u8], w: usize, h: usize) -> f64 {
+    const B: usize = 16;
+    let luma = |p: &[u8], x: usize, y: usize| {
+        let i = (y * w + x) * 4;
+        0.0722 * p[i] as f64 + 0.7152 * p[i + 1] as f64 + 0.2126 * p[i + 2] as f64
+    };
+    let (mut n, mut differ) = (0usize, 0usize);
+    for by in 0..h / B {
+        for bx in 0..w / B {
+            let (mut sa, mut sb) = (0.0, 0.0);
+            for y in by * B..(by + 1) * B {
+                for x in bx * B..(bx + 1) * B {
+                    sa += luma(a, x, y);
+                    sb += luma(b, x, y);
+                }
+            }
+            n += 1;
+            if ((sa - sb) / (B * B) as f64).abs() > 32.0 {
+                differ += 1;
+            }
+        }
+    }
+    100.0 * differ as f64 / n.max(1) as f64
+}
 
 // MARK: Machine state
 
@@ -240,9 +271,29 @@ fn geomean(v: &[f64]) -> f64 {
 
 // MARK: Mode A: throughput
 
-/// A renderer set up like the app's for the flight (script settings, one point per pixel).
-fn flight_renderer<B: GpuBackend + Clone>(backend: &B, script: &FlightScript) -> Result<Renderer<B>> {
+/// The renderer switches this run uses (A/B comparisons: SA on or off, BLA), as the JSON
+/// records them.
+fn renderer_config<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<Value> {
     let mut r = Renderer::new(backend.clone())?;
+    o.apply_renderer(&mut r);
+    // A live run: the app takes the mode from the environment the CLI passes on.
+    let sa = match o.get("sa").and_then(almondbread_render::scheduler::SaMode::parse) {
+        Some(m) => m,
+        None => r.config.local_sa.mode,
+    };
+    Ok(json!({
+        "sa": format!("{sa:?}"),
+        "sa_env": std::env::var("ALMONDBREAD_SA").ok(),
+        "bla": format!("{:?}", r.config.bla),
+    }))
+}
+
+/// A renderer set up like the app's for the flight (script settings, one point per pixel).
+fn flight_renderer<B: GpuBackend + Clone>(backend: &B, script: &FlightScript, o: &Options) -> Result<Renderer<B>> {
+    let mut r = Renderer::new(backend.clone())?;
+    // Renderer switches for A/B runs (`--sa 0|1|auto`, `--bla 0|1|auto`, ...); the default is
+    // the app's (and `ALMONDBREAD_SA`).
+    o.apply_renderer(&mut r);
     if let Some(s) = &script.settings {
         apply_json_settings(s, &mut r.settings);
     }
@@ -286,9 +337,10 @@ fn throughput_lap<B: GpuBackend + Clone>(
     path: &[almondbread_core::flight::CameraSample],
     check_every: usize,
     lap_name: &str,
+    o: &Options,
 ) -> Result<Value> {
     let size = script.size;
-    let mut r = flight_renderer(backend, script)?;
+    let mut r = flight_renderer(backend, script, o)?;
     // The fade-in of refined pixels is presentation only (real time); every frame here must
     // reach the settled frame, so it would only add idle refreshes.
     r.config.fade_tau = 1e-6;
@@ -301,6 +353,8 @@ fn throughput_lap<B: GpuBackend + Clone>(
     let mut frames = vec![0usize; n];
     let mut checks: Vec<Value> = Vec::new();
     let mut worst = 0.0f64;
+    let mut jump_checks: Vec<Value> = Vec::new();
+    let mut worst_jump = 0.0f64;
     let gpu_now = |r: &Renderer<B>| r.frame_stats.as_ref().map_or(0.0, |f| f.chunk_gpu + f.colorize_gpu);
     for (i, s) in path.iter().enumerate() {
         let seg = script.segment_at(s.t).unwrap_or(0);
@@ -313,6 +367,30 @@ fn throughput_lap<B: GpuBackend + Clone>(
         cpu[seg] += cpu_time() - c0;
         gpu[seg] += gpu_now(&r) - g0;
         frames[seg] += 1;
+        if last_of_segment {
+            let mut px = vec![0u8; size.0 * size.1 * 4];
+            backend.read_shared_texture(&target, size.0, size.1, TextureFormat::Bgra8Unorm, &mut px);
+            let name = script.segments.get(seg).map_or("?", |s| s.name.as_str()).to_string();
+            // `--stills dir`: the settled last frame of each segment, to look at.
+            if let Some(dir) = o.get("stills") {
+                fs::create_dir_all(dir)?;
+                let path = format!("{dir}/{}-{name}.png", lap_name.replace(' ', "-"));
+                almondbread_core::image::write_png_bgra(&path, &px, size.0, size.1)?;
+            }
+            // Not timed: the frame against a from-scratch render of the same view (a jump: new
+            // renderer, its own auto iterations). The shown-vs-fresh check below uses the
+            // shown frame's own limit, so a view settled at a too-low limit (all black) passes
+            // it; this one does not.
+            if o.get("jump-check") != Some("0") {
+                let mut fresh = flight_renderer(backend, script, o)?;
+                fresh.viewport = r.viewport.clone();
+                let res = fresh.render_offscreen(size.0, size.1, false)?;
+                let pct = block_difference(&px, &res.pixels, size.0, size.1);
+                worst_jump = worst_jump.max(pct);
+                jump_checks.push(json!({"frame": i, "t": s.t, "segment": name, "blocks_differ_pct": pct,
+                                        "shown_iterations": r.stats.max_iterations, "jump_iterations": fresh.stats.max_iterations}));
+            }
+        }
         // Spot checks (not timed): the shown frame against a fresh render of the same view.
         if (check_every > 0 && i % check_every == 0) || last_of_segment {
             match r.displayed_frame_mismatch() {
@@ -347,15 +425,23 @@ fn throughput_lap<B: GpuBackend + Clone>(
         "segments": segments,
         "spot_checks": checks,
         "worst_mismatch_pct": worst,
-        "valid": worst <= MAX_MISMATCH,
+        "jump_checks": jump_checks,
+        "worst_jump_blocks_pct": worst_jump,
+        "valid": worst <= MAX_MISMATCH && worst_jump <= MAX_JUMP_BLOCKS,
     }))
 }
 
 // MARK: Mode B: real time, headless approximation
 
-fn realtime_lap<B: GpuBackend + Clone>(backend: &B, script: &FlightScript, hz: f64, lap_name: &str) -> Result<Value> {
+fn realtime_lap<B: GpuBackend + Clone>(
+    backend: &B,
+    script: &FlightScript,
+    hz: f64,
+    lap_name: &str,
+    o: &Options,
+) -> Result<Value> {
     let size = script.size;
-    let mut r = flight_renderer(backend, script)?;
+    let mut r = flight_renderer(backend, script, o)?;
     let target = backend.create_texture(size.0, size.1, TextureFormat::Bgra8Unorm, Storage::Shared)?;
     // The flight starts from the settled start view, as in the app.
     settle(&mut r, &target, size, 60.0)?;
@@ -439,6 +525,8 @@ fn throughput_summary(laps: &[Value]) -> Value {
         "cpu_s": jnum(median(&nums(laps, |l| l["cpu_s"].as_f64()))),
         "gpu_s": jnum(median(&nums(laps, |l| l["gpu_s"].as_f64()))),
         "worst_mismatch_pct": laps.iter().filter_map(|l| l["worst_mismatch_pct"].as_f64()).fold(0.0, f64::max),
+        "worst_jump_blocks_pct": laps.iter().filter_map(|l| l["worst_jump_blocks_pct"].as_f64()).fold(0.0, f64::max),
+        "jump_checks": laps.first().map_or(Value::Null, |l| l["jump_checks"].clone()),
         "valid": laps.iter().all(|l| l["valid"].as_bool() == Some(true)),
         "segments": segments,
     })
@@ -563,15 +651,41 @@ fn print_throughput(s: &Value, reference: &Value) {
         fmt(s["spread_pct"].as_f64(), 1),
         fmt(reference["throughput"]["total_s"].as_f64(), 2)
     );
+    let class = s["worst_mismatch_pct"].as_f64().unwrap_or(0.0);
     println!(
-        "shown vs fresh render (spot checks): worst {} % of pixels differ in class ({})",
-        fmt(s["worst_mismatch_pct"].as_f64(), 3),
-        if s["valid"].as_bool() == Some(true) {
+        "shown vs fresh render (spot checks, same limit): worst {} % of pixels differ in class ({})",
+        fmt(Some(class), 3),
+        if class <= MAX_MISMATCH {
             "OK"
         } else {
             "FAILED: reuse produced a frame a fresh render does not"
         }
     );
+    let jump = s["worst_jump_blocks_pct"].as_f64().unwrap_or(0.0);
+    println!(
+        "settled vs from-scratch jump render (segment ends): worst {} % of 16x16 blocks differ ({})",
+        fmt(Some(jump), 2),
+        if jump <= MAX_JUMP_BLOCKS {
+            "OK"
+        } else {
+            "FAILED: a settled frame differs from what a jump to the view renders"
+        }
+    );
+    for c in s["jump_checks"].as_array().into_iter().flatten() {
+        if c["blocks_differ_pct"].as_f64().unwrap_or(0.0) > MAX_JUMP_BLOCKS {
+            println!(
+                "  {} at {} s: {} % of blocks differ, limit {} shown vs {} after a jump",
+                c["segment"].as_str().unwrap_or("?"),
+                fmt(c["t"].as_f64(), 1),
+                fmt(c["blocks_differ_pct"].as_f64(), 1),
+                c["shown_iterations"],
+                c["jump_iterations"]
+            );
+        }
+    }
+    if s["valid"].as_bool() != Some(true) {
+        println!("THROUGHPUT RESULT INVALID: not every frame reached the full-quality image.");
+    }
 }
 
 fn print_realtime(s: &Value, title: &str) {
@@ -702,6 +816,9 @@ fn print_scores(result: &Value) {
     if result["noise"]["noisy"].as_bool() == Some(true) {
         println!("NOISY RUN: do not compare these numbers.");
     }
+    if s["throughput_valid"].as_bool() == Some(false) {
+        println!("INVALID: the throughput run did not reach the full-quality image everywhere (see above).");
+    }
 }
 
 fn write_result(result: &Value, o: &Options, tag: &str) -> Result<String> {
@@ -743,6 +860,7 @@ fn write_reference(result: &Value, path: &str, provisional: bool, previous: &Val
         "commit": result["commit"],
         "date": run("date", &["+%Y-%m-%d"]),
         "noisy": result["noise"]["noisy"],
+        "renderer": result["renderer"],
         "throughput": if throughput.is_null() { Value::Null } else {
             json!({"total_s": throughput["total_s"], "segments": throughput["segments"].as_array().map(|a| a.iter().map(|s| json!({"name": s["name"], "wall_s": s["wall_s"]})).collect::<Vec<_>>())})
         },
@@ -782,6 +900,7 @@ fn scores(result: &mut Value, reference: &Value) {
         "total": jnum(if a.is_finite() && b.is_finite() { total } else { f64::NAN }),
         "reference": reference_note(reference),
         "reference_provisional": reference["provisional"],
+        "throughput_valid": result["throughput"]["valid"],
     });
 }
 
@@ -821,6 +940,7 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
         "commit": commit(),
         "device": device(),
         "unix_time": unix_time(),
+        "renderer": renderer_config(backend, o)?,
         "repeat": repeat,
         "warmup": warmup,
         "throughput": null, "realtime_approx": null, "realtime_live": null,
@@ -835,6 +955,11 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
         repeat,
         warmup,
         reference_note(&reference)
+    );
+    println!(
+        "renderer: local SA {}, BLA {} (A/B: --sa 0|1|auto, --bla 0|1|auto)",
+        result["renderer"]["sa"].as_str().unwrap_or("?"),
+        result["renderer"]["bla"].as_str().unwrap_or("?")
     );
     let me = std::process::id();
     let mut probes = Vec::new();
@@ -860,7 +985,12 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
         let raw_abs = format!("{}/{}", abs(out_dir), raw.rsplit('/').next().unwrap_or(&raw));
         probes.push(noise_probe());
         let sampler = Sampler::start(vec![me]);
-        let status = Command::new(app)
+        let mut cmd = Command::new(app);
+        // The app reads the SA switch from the environment (A/B: `--sa 0`).
+        if let Some(sa) = o.get("sa") {
+            cmd.env("ALMONDBREAD_SA", sa);
+        }
+        let status = cmd
             .arg(format!("--flight-bench={flight_abs}"))
             .arg(format!("--flight-bench-out={raw_abs}"))
             .arg(format!("--flight-bench-laps={repeat}"))
@@ -898,13 +1028,13 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
             }
             let sampler = Sampler::start(vec![me]);
             if do_a {
-                let l = throughput_lap(backend, &script, &path, check_every, &name)?;
+                let l = throughput_lap(backend, &script, &path, check_every, &name, o)?;
                 if !warm {
                     a_laps.push(l);
                 }
             }
             if do_b {
-                let l = realtime_lap(backend, &script, hz, &name)?;
+                let l = realtime_lap(backend, &script, hz, &name, o)?;
                 if !warm {
                     b_laps.push(l);
                 }
@@ -946,13 +1076,24 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
     };
     let path = write_result(&result, o, tag)?;
     println!("wrote {path}");
-    if let Some(p) = o.get("write-reference") {
-        let previous = load_json(p).unwrap_or(Value::Null);
-        write_reference(&result, p, o.get("final") != Some("1"), &previous)?;
-    }
     let valid = result["throughput"].is_null() || result["throughput"]["valid"].as_bool() == Some(true);
+    if let Some(p) = o.get("write-reference") {
+        let noisy = result["noise"]["noisy"].as_bool() == Some(true);
+        let final_ = o.get("final") == Some("1");
+        if (!valid || (noisy && final_)) && o.get("force") != Some("1") {
+            eprintln!(
+                "almondbread: not writing {p}: the run is {} (--force 1 overrides)",
+                if valid { "noisy" } else { "INVALID" }
+            );
+        } else {
+            let previous = load_json(p).unwrap_or(Value::Null);
+            write_reference(&result, p, !final_, &previous)?;
+        }
+    }
     if !valid {
-        eprintln!("almondbread: benchmark FAILED: a shown frame differed from a fresh render");
+        eprintln!(
+            "almondbread: benchmark FAILED: a settled frame differed from a fresh or a from-scratch render (result INVALID)"
+        );
         return Ok(1);
     }
     Ok(0)
@@ -970,6 +1111,10 @@ fn compare(a: &Value, b: &Value, an: &str, bn: &str) -> Result<i32> {
         (Some(x), Some(y)) if x.is_finite() && y.is_finite() && x != 0.0 => format!("{:+.1} %", 100.0 * (y - x) / x),
         _ => "-".into(),
     };
+    let sa = |v: &Value| v["renderer"]["sa"].as_str().unwrap_or("?").to_string();
+    if sa(a) != sa(b) {
+        println!("NOTE: different local SA modes: a {}, b {}", sa(a), sa(b));
+    }
     println!(
         "a: {an} ({} {}{})\nb: {bn} ({} {}{})",
         a["commit"]["hash"].as_str().unwrap_or("?"),
@@ -987,6 +1132,20 @@ fn compare(a: &Value, b: &Value, an: &str, bn: &str) -> Result<i32> {
             ""
         },
     );
+    for (n, v) in [("a", a), ("b", b)] {
+        if v["throughput"]["valid"].as_bool() == Some(false) {
+            println!(
+                "{n} is INVALID (a settled frame was not the full-quality image): its throughput is not comparable"
+            );
+        }
+        if v["renderer"]["sa"].is_string() {
+            println!(
+                "{n}: local SA {}, BLA {}",
+                v["renderer"]["sa"].as_str().unwrap_or("?"),
+                v["renderer"]["bla"].as_str().unwrap_or("?")
+            );
+        }
+    }
     if !a["throughput"].is_null() && !b["throughput"].is_null() {
         println!("\nthroughput (lower is better):");
         println!("| segment | a wall s | b wall s | Δ | a GPU s | b GPU s | Δ GPU | a CPU s | b CPU s | Δ CPU |");
