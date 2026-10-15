@@ -301,12 +301,35 @@ impl Center {
     }
 }
 
-/// Centre and size of one view point (not one pixel: independent of the display scale).
+/// Centre, size of one view point (not one pixel: independent of the display scale) and the
+/// view's rotation.
+///
+/// **Rotation** (cinematic effects, kb: decisions/controls "View rotation"): a view point at
+/// offset (dx, dy) from the centre (y up) is the complex point
+/// `center + scale · e^(i·angle) · (dx + i·dy)`, so a positive angle turns the camera
+/// counter-clockwise and the image clockwise. Every pixel-to-c mapping goes through
+/// [`Viewport::rotate`] (and the GPU kernel's `rot`); angle 0 keeps the unrotated arithmetic
+/// bit for bit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Viewport {
     pub center: Center,
     /// Complex units per view point.
     pub scale: Scale,
+    /// Radians in (-π, π]; 0 for an unrotated view.
+    pub angle: f64,
+}
+
+/// `a` wrapped into (-π, π] (0 stays exactly 0; non-finite gives 0).
+pub fn wrap_angle(a: f64) -> f64 {
+    use std::f64::consts::{PI, TAU};
+    if !a.is_finite() {
+        return 0.0;
+    }
+    if a > -PI && a <= PI {
+        return a;
+    }
+    let w = a.rem_euclid(TAU);
+    if w > PI { w - TAU } else { w }
 }
 
 /// Scale of the home view.
@@ -325,15 +348,77 @@ impl Viewport {
         let mut v = Self {
             center: Center::new(re, im),
             scale: Scale::from_f64(scale),
+            angle: 0.0,
         };
         v.ensure_precision();
         v
     }
 
     pub fn with_center(center: Center, scale: Scale) -> Self {
-        let mut v = Self { center, scale };
+        let mut v = Self {
+            center,
+            scale,
+            angle: 0.0,
+        };
         v.ensure_precision();
         v
+    }
+
+    /// The same view turned to `angle` radians (wrapped).
+    pub fn with_angle(mut self, angle: f64) -> Self {
+        self.angle = wrap_angle(angle);
+        self
+    }
+
+    /// `(cos, sin)` of the angle; exactly (1, 0) unrotated.
+    pub fn rotation(&self) -> (f64, f64) {
+        if self.angle == 0.0 {
+            (1.0, 0.0)
+        } else {
+            let (s, c) = self.angle.sin_cos();
+            (c, s)
+        }
+    }
+
+    /// A view-point offset (screen axes, y up) as a complex offset in units of the scale: the
+    /// offset turned by the angle. Exact identity when unrotated.
+    pub fn rotate(&self, dx: f64, dy: f64) -> (f64, f64) {
+        if self.angle == 0.0 {
+            return (dx, dy);
+        }
+        let (c, s) = self.rotation();
+        (dx * c - dy * s, dx * s + dy * c)
+    }
+
+    /// The inverse of [`Viewport::rotate`]: a complex offset (units of the scale) in screen axes.
+    pub fn unrotate(&self, x: f64, y: f64) -> (f64, f64) {
+        if self.angle == 0.0 {
+            return (x, y);
+        }
+        let (c, s) = self.rotation();
+        (x * c + y * s, -x * s + y * c)
+    }
+
+    /// [`Viewport::unrotate`] of a pair.
+    pub fn unrotate_vec(&self, v: (f64, f64)) -> (f64, f64) {
+        self.unrotate(v.0, v.1)
+    }
+
+    /// Where `c` is on screen: view points from the centre, y up (at any depth).
+    pub fn offset_of(&self, c: &Center) -> (f64, f64) {
+        let (x, y) = c.delta_in(&self.center, self.scale);
+        self.unrotate(x, y)
+    }
+
+    /// Turns the view by `delta` radians about the view point (x, y), which stays fixed.
+    pub fn rotate_by(&mut self, delta: f64, x: f64, y: f64) {
+        if !delta.is_finite() || delta == 0.0 {
+            return;
+        }
+        let p = self.point_at_offset(x, y);
+        self.angle = wrap_angle(self.angle + delta);
+        let (rx, ry) = self.rotate(x, y);
+        self.center = p.offset_scaled(-rx, -ry, self.scale);
     }
 
     pub fn home() -> Self {
@@ -384,7 +469,8 @@ impl Viewport {
 
     /// Complex coordinate of a point given in view points from the centre (y up).
     pub fn point_at_offset(&self, dx: f64, dy: f64) -> Center {
-        self.center.offset_scaled(dx, dy, self.scale)
+        let (x, y) = self.rotate(dx, dy);
+        self.center.offset_scaled(x, y, self.scale)
     }
 
     /// Zooms by `factor` (> 1 zooms in) keeping the point at offset (dx, dy) fixed.
@@ -398,12 +484,14 @@ impl Viewport {
             .min(Scale::from_f64(MAX_SCALE));
         let bits = (-self.scale.log2()).ceil() as i64 + CENTER_GUARD_BITS;
         let bits = (bits.max(MIN_CENTER_BITS as i64) as usize).div_ceil(64) * 64;
-        self.center = p.with_min_precision(bits).offset_scaled(-dx, -dy, self.scale);
+        let (rx, ry) = self.rotate(dx, dy);
+        self.center = p.with_min_precision(bits).offset_scaled(-rx, -ry, self.scale);
     }
 
     /// Moves the content by (dx, dy) view points (the camera moves the other way).
     pub fn pan_by_points(&mut self, dx: f64, dy: f64) {
-        self.center = self.center.offset_scaled(-dx, -dy, self.scale);
+        let (x, y) = self.rotate(dx, dy);
+        self.center = self.center.offset_scaled(-x, -y, self.scale);
     }
 }
 
@@ -467,6 +555,50 @@ mod tests {
         v.pan_by_points(1.0, 0.0);
         let (px, py) = v.center.delta_in(&before, v.scale);
         assert!((px + 1.0).abs() < 1e-12 && py.abs() < 1e-12);
+    }
+
+    #[test]
+    fn rotation_round_trips_at_any_depth() {
+        for &(scale, angle) in &[(1e-3, 0.7), (1e-300, -2.9), (0.0, 1.0e-3)] {
+            let mut v = if scale > 0.0 {
+                Viewport::new(-0.743, 0.131, scale)
+            } else {
+                Viewport::with_center(Center::new(-1.25, 0.1), Scale::pow2(-3330))
+            };
+            v.angle = angle;
+            // Screen -> plane -> screen.
+            for &(x, y) in &[(0.0, 0.0), (120.5, -33.25), (-640.0, 400.0)] {
+                let c = v.point_at_offset(x, y);
+                let (bx, by) = v.offset_of(&c);
+                assert!((bx - x).abs() < 1e-9 && (by - y).abs() < 1e-9, "{x},{y} -> {bx},{by}");
+            }
+            // rotate / unrotate are inverse; lengths are kept.
+            let (rx, ry) = v.rotate(3.0, 4.0);
+            assert!((rx.hypot(ry) - 5.0).abs() < 1e-12);
+            let (ux, uy) = v.unrotate(rx, ry);
+            assert!((ux - 3.0).abs() < 1e-12 && (uy - 4.0).abs() < 1e-12);
+            // A zoom keeps the point under the target fixed on screen.
+            let p = v.point_at_offset(50.0, -20.0);
+            v.zoom_by(3.7, 50.0, -20.0);
+            let (sx, sy) = v.offset_of(&p);
+            assert!((sx - 50.0).abs() < 1e-6 && (sy + 20.0).abs() < 1e-6, "{sx} {sy}");
+            // A pan moves the content by exactly the screen offset.
+            let q = v.point_at_offset(10.0, 10.0);
+            v.pan_by_points(7.0, -3.0);
+            let (qx, qy) = v.offset_of(&q);
+            assert!((qx - 17.0).abs() < 1e-6 && (qy - 7.0).abs() < 1e-6, "{qx} {qy}");
+            // Turning about a point keeps that point.
+            let r = v.point_at_offset(-80.0, 60.0);
+            v.rotate_by(1.3, -80.0, 60.0);
+            let (rx2, ry2) = v.offset_of(&r);
+            assert!((rx2 + 80.0).abs() < 1e-6 && (ry2 - 60.0).abs() < 1e-6, "{rx2} {ry2}");
+        }
+        // Unrotated mapping is exactly the plain one.
+        let v = Viewport::new(-0.75, 0.1, 1e-3);
+        assert_eq!(v.point_at_offset(1.5, -2.5), v.center.offset_scaled(1.5, -2.5, v.scale));
+        assert_eq!(wrap_angle(4.0), 4.0 - std::f64::consts::TAU);
+        assert_eq!(wrap_angle(std::f64::consts::PI), std::f64::consts::PI);
+        assert_eq!(wrap_angle(0.0), 0.0);
     }
 
     #[test]

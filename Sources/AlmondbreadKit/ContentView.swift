@@ -48,6 +48,17 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Autopilot")
+                // Journey: planned flights from landmark to landmark; a tap on the canvas pauses.
+                Button {
+                    model.toggleJourney()
+                } label: {
+                    Image(systemName: model.stats?.journey.active == true ? "sparkles.rectangle.stack.fill" : "sparkles")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Journey")
                 Button {
                     showInspector.toggle()
                 } label: {
@@ -94,6 +105,12 @@ struct ContentView: View {
                     Label("Autopilot", systemImage: model.stats?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
                 }
                 .help("Autopilot (Z): zoom on continuously, steer with the mouse; click pauses, Esc stops")
+                Button {
+                    model.toggleJourney()
+                } label: {
+                    Label("Journey", systemImage: model.stats?.journey.active == true ? "sparkles.rectangle.stack.fill" : "sparkles")
+                }
+                .help("Journey (J): an endless planned flight from landmark to landmark; any input takes over, J resumes, Esc stops")
                 Button {
                     showFlyTo = true
                 } label: {
@@ -154,6 +171,9 @@ struct HUDView: View {
                 Text("iter \(s.maxIterations.formatted())\(model.autoIterations ? " auto" : "")")
                 Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks  ·  \(s.renderWidth)×\(s.renderHeight)\(s.isRendering ? "  ·  refining" : "")")
                 Text("ref \(s.referenceLength.formatted()) pts\(s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "")  ·  \(s.referenceBits) bit  ·  CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
+                if s.shown.angleDegrees != 0 {
+                    Text(String(format: "turned %.1f°", s.shown.angleDegrees))
+                }
                 Text(speedLine(s))
                     .padding(.horizontal, speedHighlight ? 5 : 0)
                     .background(speedHighlight ? Color.orange.opacity(0.35) : .clear, in: Capsule())
@@ -161,6 +181,11 @@ struct HUDView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if let journey = journeyLine(s) {
+                Label(journey, systemImage: "sparkles")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
             if let hint = motionHint(s) {
                 Label(hint, systemImage: s.flight.active ? "location.north.line" : "airplane")
                     .font(.caption.weight(.semibold))
@@ -198,6 +223,9 @@ struct HUDView: View {
 extension HUDView {
     /// The speed Q / E change right now: the flight's, the autopilot's or Space's.
     func speedLine(_ s: ExplorerStats) -> String {
+        if s.journey.active && !s.journey.suspended {
+            return "journey speed \(Format.speed(exp(s.journey.speed)))"
+        }
         if s.flight.active {
             return "fly speed \(Format.speed(exp(s.flight.speed)))"
         }
@@ -208,7 +236,24 @@ extension HUDView {
     }
 
     /// Autopilot / flight state and why it is slower than set (kb: decisions/controls).
+    /// "Journey #4711 · leg 3 · spiral M(36,2) · 1.2e8× · resting" (kb: decisions/controls).
+    func journeyLine(_ s: ExplorerStats) -> String? {
+        let j = s.journey
+        guard j.active else { return nil }
+        let name = j.daily ? "Daily journey #\(j.seed)" : "Journey #\(j.seed)"
+        if j.suspended { return "\(name) paused  ·  J or click to resume" }
+        var parts = [name, "leg \(j.leg)"]
+        if !j.label.isEmpty { parts.append(j.label) }
+        if j.leg > 0 { parts.append(Format.zoom(log10: j.targetZoomLog10)) }
+        parts.append(j.phase)
+        return parts.joined(separator: "  ·  ")
+    }
+
     func motionHint(_ s: ExplorerStats) -> String? {
+        if s.journey.active {
+            // The journey line says it all; only a back-off is worth a second line.
+            return s.flight.active && !s.journey.suspended ? Self.hintText(s.flight.hint) : nil
+        }
         if s.flight.active {
             let to = "Flying to \(Format.zoom(log10: s.flight.targetZoomLog10))  ·  \(Int(s.flight.progress * 100)) %"
             if s.flight.stopping { return to + "  ·  stopping" }

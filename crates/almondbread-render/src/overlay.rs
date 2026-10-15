@@ -639,6 +639,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         };
         let _ = ppp;
         self.points = orbit_points(&point, length, centre, ref_offset, scale);
+        // Plane offsets to screen axes (a rotated view, kb: decisions/controls "View rotation").
+        if view.angle != 0.0 {
+            for p in &mut self.points.view {
+                let (x, y) = view.unrotate(p[0], p[1]);
+                *p = [x, y];
+            }
+        }
         let max_iter = renderer.stats.max_iterations.max(renderer.max_iterations()).max(1000);
         self.probe = Some(OrbitProbe::new(point, max_iter));
         self.probe_key = Some(key);
@@ -923,22 +930,24 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 let cx = f64::from(o[0]) + f64::from(pw) / 2.0 + dx;
                 let cy = f64::from(o[1]) + f64::from(ph) / 2.0 - dy;
                 let mw = mscale.ratio(l.viewport.scale);
-                let mh = mw
-                    * if stack.levels.get(i + 1).is_some() {
-                        f64::from(ph / pw)
-                    } else {
-                        h / w
-                    };
+                let last = stack.levels.get(i + 1).is_none();
+                let mh = mw * if last { h / w } else { f64::from(ph / pw) };
                 let marker = rgba(1.0, 0.85, 0.3, 0.95);
                 if mw >= 6.0 * px {
-                    let (x0, y0, x1, y1) = (cx - mw / 2.0, cy - mh / 2.0, cx + mw / 2.0, cy + mh / 2.0);
+                    // The view's rectangle, turned with the view (maps stay north-up).
+                    let (c, sn) = if last { view.rotation() } else { (1.0, 0.0) };
+                    let corner = |u: f64, v: f64| {
+                        let (x, y) = (u * mw / 2.0, v * mh / 2.0);
+                        [cx + x * c - y * sn, cy - (x * sn + y * c)]
+                    };
+                    let (p00, p10, p11, p01) = (
+                        corner(-1.0, 1.0),
+                        corner(1.0, 1.0),
+                        corner(1.0, -1.0),
+                        corner(-1.0, -1.0),
+                    );
                     let hw = (0.7 * px) as f32;
-                    for (a, b) in [
-                        ([x0, y0], [x1, y0]),
-                        ([x1, y0], [x1, y1]),
-                        ([x1, y1], [x0, y1]),
-                        ([x0, y1], [x0, y0]),
-                    ] {
+                    for (a, b) in [(p00, p10), (p10, p11), (p11, p01), (p01, p00)] {
                         scene.segment(
                             a,
                             b,

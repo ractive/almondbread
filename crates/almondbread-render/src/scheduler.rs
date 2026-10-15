@@ -755,6 +755,9 @@ pub struct Renderer<B: GpuBackend> {
     reference_serial: u64,
     /// Big references are computed here, off the main thread (M3b).
     reference_worker: ReferenceWorker,
+    /// A finished background reference that did not serve the view it arrived for (a journey's
+    /// prefetch for its next target): adopted once the view gets there.
+    spare_reference: Option<Reference>,
     /// Big references computed so far and their times (selection + orbit), for reports.
     pub reference_log: Vec<ReferenceLogEntry>,
     /// The current reference's BLA table on the GPU, or its build on a thread.
@@ -879,6 +882,7 @@ impl<B: GpuBackend> Renderer<B> {
             refx_buffer: None,
             reference_serial: 0,
             reference_worker: ReferenceWorker::default(),
+            spare_reference: None,
             reference_log: Vec::new(),
             bla: None,
             bla_build: None,
@@ -1007,6 +1011,7 @@ impl<B: GpuBackend> Renderer<B> {
         target_ready: bool,
         acquire: &mut dyn FnMut(bool) -> Option<FrameTarget<B>>,
     ) -> FrameOutcome {
+        self.navigator.set_cinematic(self.settings.cinematic);
         if self.navigator.wants_feedback() {
             // How the renderer keeps up, for the autopilot's and fly-to's speed (kb: decisions/controls,
             // autopilot): the gesture-preview resolution the frame budget affords (unclamped),
@@ -1040,10 +1045,15 @@ impl<B: GpuBackend> Renderer<B> {
         }
         self.last_frame_time = now;
         // Colour cycling advances only while the view rests (flying keeps colours still, so
-        // the temporal reprojection stays valid).
+        // the temporal reprojection stays valid), except the cinematic cycling while flying,
+        // slow enough for the reprojected history (a few thousandths of a cycle per frame).
+        let fly_cycle = self.settings.cinematic.fly_cycle_rate();
         if self.settings.cycle_speed != 0.0 && !interacting {
             let dt = (now - self.cycle_time).clamp(0.0, 0.1);
             self.cycle_phase = (self.cycle_phase + self.settings.cycle_speed * dt).rem_euclid(1.0);
+        } else if fly_cycle != 0.0 && self.navigator.is_flying() {
+            let dt = (now - self.cycle_time).clamp(0.0, 0.1);
+            self.cycle_phase = (self.cycle_phase + fly_cycle * dt).rem_euclid(1.0);
         }
         self.cycle_time = now;
 
@@ -1297,7 +1307,9 @@ impl<B: GpuBackend> Renderer<B> {
             return (!job.presented || !job.done()).then_some((COMPOSE_GESTURE, None));
         }
         let colors_changed = match &self.history_view {
-            Some(h) => !self.same_colors(h, colors) || h.offset != colors.offset,
+            Some(h) => {
+                !self.same_colors(h, colors) || h.offset != colors.offset || h.colors.0.hue_rot != colors.hue_rot
+            }
             None => true,
         };
         let exact_done = job.levels.iter().all(|l| l.done || l.aa.is_some());
@@ -1326,6 +1338,8 @@ impl<B: GpuBackend> Renderer<B> {
     fn same_colors(&self, h: &HistoryView, colors: &ColorParams) -> bool {
         let mut a = h.colors.0;
         a.offset = colors.offset;
+        // The hue drifts with depth like the phase: a zoom must not drop the history.
+        a.hue_rot = colors.hue_rot;
         a == *colors && h.colors.1 == self.palette_key()
     }
 
@@ -1426,6 +1440,8 @@ impl<B: GpuBackend> Renderer<B> {
         };
         let ref_point = reference.point.clone();
         let live_capacity = self.config.live_capacity as u32;
+        let (rc, rs) = viewport.rotation();
+        let rot = [rc as f32, rs as f32];
         let params = |ratio: f64, w: usize, h: usize| {
             let texel = viewport.scale * key.points_per_pixel / ratio;
             let (texel_scale, ref_offset, scale_exp) = if deep {
@@ -1450,6 +1466,7 @@ impl<B: GpuBackend> Renderer<B> {
                 interior_eps: INTERIOR_EPS,
                 soft_iter: key.max_iter as u32,
                 scale_exp,
+                rot,
                 ..IterateParams::default()
             }
         };
@@ -1750,21 +1767,37 @@ impl<B: GpuBackend> Renderer<B> {
         let (fx, fy) = self.navigator.zoom_target();
         // Focus in pixels from the top-left.
         let focus = (key.width as f64 / 2.0 + fx / ppp, key.height as f64 / 2.0 - fy / ppp);
-        // The history's footprint in this view's pixels.
-        let covered = self.history_view.as_ref().map(|h| {
+        // The history's footprint: a pixel of this view (from the top-left) in history pixels
+        // (a rotated view turns the footprint).
+        let to_history = self.history_view.as_ref().map(|h| {
             let s = key.viewport.scale * ppp;
-            let (dx, dy) = h.viewport.center.delta_in(&key.viewport.center, s);
-            let cx = key.width as f64 / 2.0 + dx;
-            let cy = key.height as f64 / 2.0 - dy;
-            let r = h.scale.ratio(s);
-            let (hw, hh) = (h.width as f64 * r / 2.0, h.height as f64 * r / 2.0);
-            (cx - hw, cx + hw, cy - hh, cy + hh)
+            let r = s.ratio(h.scale);
+            let (dx, dy) = h
+                .viewport
+                .unrotate_vec(key.viewport.center.delta_in(&h.viewport.center, h.scale));
+            let (kv, hv) = (key.viewport.clone(), h.viewport.clone());
+            let (w, hgt, hw, hh) = (key.width as f64, key.height as f64, h.width as f64, h.height as f64);
+            move |x: f64, y: f64| {
+                // Screen offset (y up) in this view -> plane, in history pixels -> history axes.
+                let (px, py) = kv.rotate(x - w / 2.0, hgt / 2.0 - y);
+                let (ux, uy) = hv.unrotate(px * r, py * r);
+                (hw / 2.0 + dx + ux, hh / 2.0 - dy - uy)
+            }
         });
+        let (hw, hh) = self
+            .history_view
+            .as_ref()
+            .map_or((0.0, 0.0), |h| (h.width as f64, h.height as f64));
         let mut keyed: Vec<(bool, f64, u32)> = (0..tx * ty)
             .map(|t| {
                 let (x0, y0) = ((t % tx * 16) as f64, (t / tx * 16) as f64);
                 let (x1, y1) = ((x0 + 16.0).min(key.width as f64), (y0 + 16.0).min(key.height as f64));
-                let inside = covered.is_some_and(|(a, b, c, d)| x0 >= a && x1 <= b && y0 >= c && y1 <= d);
+                let inside = to_history.as_ref().is_some_and(|f| {
+                    [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].iter().all(|&(x, y)| {
+                        let (u, v) = f(x, y);
+                        (0.0..=hw).contains(&u) && (0.0..=hh).contains(&v)
+                    })
+                });
                 let (cx, cy) = (0.5 * (x0 + x1) - focus.0, 0.5 * (y0 + y1) - focus.1);
                 (inside, cx * cx + cy * cy, t as u32)
             })
@@ -2635,27 +2668,13 @@ impl<B: GpuBackend> Renderer<B> {
             q.jitter = u.jitter;
             q.new_centre = [uw as f32 / 2.0, uh as f32 / 2.0];
         }
-        // Reprojection of the history into this view: pure scale + translation.
+        // Reprojection of the history into this view: scale, rotation and translation.
         let s = key.viewport.scale * key.points_per_pixel;
+        q.hist_rot = [1.0, 0.0];
         if let Some(h) = &self.history_view
             && self.same_colors(h, colors)
-            && h.width == out_w
-            && h.height == out_h
-            && s.ratio(h.scale) > 1e-6
-            && s.ratio(h.scale) < 1e6
         {
-            // In history pixels (any depth: offsets are taken in units of the history scale).
-            let step = s.ratio(h.scale);
-            let (dx, dy) = key.viewport.center.delta_in(&h.viewport.center, h.scale);
-            q.hist_step = step as f32;
-            q.hist_origin = [
-                (0.5 * step - out_w as f64 / 2.0 * step + dx + h.width as f64 / 2.0) as f32,
-                (0.5 * step - out_h as f64 / 2.0 * step - dy + h.height as f64 / 2.0) as f32,
-            ];
-            q.hist_size = [h.width as f32, h.height as f32];
-            // Zoom-in stretches each history texel over 1/step^2 pixels: its confidence
-            // shrinks with it, and new samples take over the detail.
-            q.hist_decay = step.min(1.0).powi(2) as f32;
+            Self::reproject(h, &key.viewport, s, (out_w, out_h), &mut q);
         }
         q.blend = match mode {
             COMPOSE_REFINE => {
@@ -2695,6 +2714,45 @@ impl<B: GpuBackend> Renderer<B> {
         Ok(enc)
     }
 
+    /// Sets the compose pass's history mapping (FL; rotation: cinematic effects): output pixel
+    /// `g` (texture axes, y down) reads history texel `origin + step · R · g`, where R turns
+    /// by the angle between the two views. Leaves `q` alone (no history) for another size or
+    /// an absurd scale ratio.
+    fn reproject(h: &HistoryView, view: &Viewport, s: Scale, out: (usize, usize), q: &mut ComposeParams) {
+        let (out_w, out_h) = out;
+        let ratio = s.ratio(h.scale);
+        if h.width != out_w || h.height != out_h || !(ratio > 1e-6 && ratio < 1e6) {
+            return;
+        }
+        let step = ratio;
+        // The new centre in history pixels (screen axes of the history, y up).
+        let (dx, dy) = h
+            .viewport
+            .unrotate_vec(view.center.delta_in(&h.viewport.center, h.scale));
+        // Output offsets (y up) turn by phi = new angle - history angle; in texture axes
+        // (y down) that is a turn by -phi.
+        let phi = view.angle - h.viewport.angle;
+        let (c, sn) = if phi == 0.0 {
+            (1.0, 0.0)
+        } else {
+            ((-phi).cos(), (-phi).sin())
+        };
+        let (ox, oy) = {
+            let (x, y) = (0.5 - out_w as f64 / 2.0, 0.5 - out_h as f64 / 2.0);
+            (x * c - y * sn, x * sn + y * c)
+        };
+        q.hist_step = step as f32;
+        q.hist_rot = [c as f32, sn as f32];
+        q.hist_origin = [
+            (step * ox + dx + h.width as f64 / 2.0) as f32,
+            (step * oy - dy + h.height as f64 / 2.0) as f32,
+        ];
+        q.hist_size = [h.width as f32, h.height as f32];
+        // Zoom-in stretches each history texel over 1/step^2 pixels: its confidence shrinks
+        // with it, and new samples take over the detail.
+        q.hist_decay = step.min(1.0).powi(2) as f32;
+    }
+
     /// A frame of the reprojected history only (M3b: while a deep view's reference computes):
     /// the compose pass in gesture mode with no new samples.
     fn encode_history_only(
@@ -2723,22 +2781,11 @@ impl<B: GpuBackend> Renderer<B> {
             ..ComposeParams::default()
         };
         let s = key.viewport.scale * key.points_per_pixel;
+        q.hist_rot = [1.0, 0.0];
         if let Some(h) = &self.history_view
             && self.same_colors(h, colors)
-            && h.width == out_w
-            && h.height == out_h
-            && s.ratio(h.scale) > 1e-6
-            && s.ratio(h.scale) < 1e6
         {
-            let step = s.ratio(h.scale);
-            let (dx, dy) = key.viewport.center.delta_in(&h.viewport.center, h.scale);
-            q.hist_step = step as f32;
-            q.hist_origin = [
-                (0.5 * step - out_w as f64 / 2.0 * step + dx + h.width as f64 / 2.0) as f32,
-                (0.5 * step - out_h as f64 / 2.0 * step - dy + h.height as f64 / 2.0) as f32,
-            ];
-            q.hist_size = [h.width as f32, h.height as f32];
-            q.hist_decay = step.min(1.0).powi(2) as f32;
+            Self::reproject(h, &key.viewport, s, (out_w, out_h), &mut q);
         }
         let (hist_in, hist_out) = (&history[self.history_ping], &history[1 - self.history_ping]);
         enc.set_pipeline(&self.compose_pipeline);
@@ -2907,7 +2954,10 @@ impl<B: GpuBackend> Renderer<B> {
         let e = s.edge_color;
         let g = s.glow_color;
         let depth = self.viewport.zoom_log10().max(0.0);
-        let offset = (s.color_offset + self.cycle_phase + s.depth_tint * depth).rem_euclid(1.0);
+        // Cinematic palette drift: hue and phase as functions of depth (the same view always
+        // has the same colours), plus cycling while flying (in `cycle_phase`).
+        let (hue, phase) = s.cinematic.palette_at(depth * std::f64::consts::LN_10);
+        let offset = (s.color_offset + self.cycle_phase + s.depth_tint * depth + phase).rem_euclid(1.0);
         let (deep, filament) = self.dense_colors();
         ColorParams {
             interior: [i[0], i[1], i[2], 1.0],
@@ -2940,6 +2990,11 @@ impl<B: GpuBackend> Renderer<B> {
             },
             interior_density: s.interior_density as f32,
             interior_stripes: s.interior_stripes as f32,
+            hue_rot: if hue == 0.0 {
+                [1.0, 0.0]
+            } else {
+                [hue.cos() as f32, hue.sin() as f32]
+            },
             deep: [deep[0], deep[1], deep[2], if s.dense_calm { 1.0 } else { 0.0 }],
             filament: [filament[0], filament[1], filament[2], 1.0],
             ..ColorParams::default()
@@ -3186,7 +3241,43 @@ impl<B: GpuBackend> Renderer<B> {
         );
         if better {
             self.set_reference(r);
+        } else {
+            self.spare_reference = Some(r);
         }
+    }
+
+    /// The journey rests at a target and knows the next one (kb: decisions/controls,
+    /// "Journey"): compute the next target's reference now, while the worker is idle, so the
+    /// next leg does not wait for it. It is kept as the spare until a view needs it.
+    fn prefetch_journey_reference(&mut self, texel: Scale, size: usize, viewport: &Viewport) {
+        if self.reference_worker.running_for().is_some() {
+            return;
+        }
+        let Some(t) = self.navigator.prefetch_target() else {
+            return;
+        };
+        if t.scale.to_f64() >= DEEP_SCALE {
+            return;
+        }
+        let t_texel = t.scale * texel.ratio(viewport.scale);
+        let max_iter = self.settings.max_iterations(&t);
+        let serves = |r: &Reference| r.fit(&t, t_texel, size, max_iter) == Fit::Good;
+        if self.reference.as_ref().is_some_and(serves) || self.spare_reference.as_ref().is_some_and(serves) {
+            return;
+        }
+        if self.pending_serves(&t, t_texel, size) {
+            return;
+        }
+        let radius = 0.5 * size as f64 * t_texel.ratio(t.scale);
+        let mut q = ReferenceRequest::for_view(&t, t_texel, size, radius, max_iter * 2, BAILOUT);
+        q.period_limit = max_iter;
+        if self.config.trace {
+            println!(
+                "reference prefetch (journey): scale {} bits {}",
+                t.scale, q.precision_bits
+            );
+        }
+        self.reference_worker.start(q);
     }
 
     /// Whether a pending request will give a reference that serves this view.
@@ -3206,10 +3297,20 @@ impl<B: GpuBackend> Renderer<B> {
         let viewport = &key.viewport;
         let max_iter = key.max_iter;
         self.adopt_worker_reference(viewport, texel, size, max_iter, false);
-        let fit = self
+        let mut fit = self
             .reference
             .as_ref()
             .map_or(Fit::No, |r| r.fit(viewport, texel, size, max_iter));
+        if fit != Fit::Good
+            && let Some(spare) = self.spare_reference.take()
+        {
+            if spare.fit(viewport, texel, size, max_iter) == Fit::Good {
+                self.set_reference(spare);
+                fit = Fit::Good;
+            } else {
+                self.spare_reference = Some(spare);
+            }
+        }
         if viewport.scale.to_f64() >= DEEP_SCALE {
             if fit != Fit::Good {
                 let r = Reference::compute_f64(viewport, max_iter, BAILOUT);
@@ -3218,6 +3319,10 @@ impl<B: GpuBackend> Renderer<B> {
             return self.reference_buffer.is_some();
         }
         if fit == Fit::Good {
+            if !wait {
+                let v = viewport.clone();
+                self.prefetch_journey_reference(texel, size, &v);
+            }
             return true;
         }
         if !self.pending_serves(viewport, texel, size) {
@@ -3593,7 +3698,11 @@ impl<B: GpuBackend + Clone> Renderer<B> {
         let (max_iter, interior) = (job.key.max_iter, job.key.interior);
         let mine = self.read_iterations(&set).ok()?;
         let mut fresh = Renderer::new(self.backend.clone()).ok()?;
-        fresh.viewport = Viewport { center, scale };
+        fresh.viewport = Viewport {
+            center,
+            scale,
+            angle: job.key.viewport.angle,
+        };
         fresh.settings.auto_iterations = false;
         fresh.settings.manual_iterations = max_iter;
         fresh.settings.max_iterations_cap = self.settings.max_iterations_cap.max(max_iter);

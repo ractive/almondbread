@@ -1,0 +1,17 @@
+{
+ "_about": "Journey #4711 from the home view (kb: decisions/controls, Journey): planned legs from landmark to landmark (minibrots, embedded Julia stages, Misiurewicz spirals and branch points), each a fly-to flight, a rest of ~3 s while the target refines, then the next leg. No input after the start. Effects off.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 85,
+ "start": {
+  "re": "-0.75",
+  "im": "0",
+  "zoom": 1
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "journey": 4711
+  }
+ ]
+}
