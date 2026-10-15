@@ -1186,3 +1186,9 @@ pacing, prints the gesture frames): spiral jump complete 1 884 ms (off 10 895 ms
 83 previews/s (off 90) after the gesture-frame fixes (unbounded gesture seed rounds had dropped
 it to 12/s; a cheap seeded refined frame had misled the dynamic resolution to 166 ms gesture
 frames), neck zoom 84 vs 74 previews/s, dense pan 118 vs 120.
+
+Cost where views restart often: "looks deep idle" (a look or palette every 0.1 s, idle, at
+1e−20) presented 12–16 fps with M5 against 13–25 off (noisy; 28–33 vs 17–27 ms GPU per frame):
+every look that needs the distance estimate restarts the job, and its full level now starts
+with seed rounds. Previews of refined views seed in one bounded round since (they waited for
+several before: 12 fps).

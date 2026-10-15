@@ -257,7 +257,7 @@ iterate (kSeeded): a fresh pixel of a seeded tile starts from its leaf, offset b
   so a tail of a few slow nodes takes long passes. Chunks may be encoded right after the first
   round (they admit nothing until the seeds are final), so a view whose seeds finish in one
   round starts its pixels in the same refresh. The spiral at 1600 × 1000: 5 rounds, 42 ms.
-- **Gesture frames**: one bounded round (about a third of the frame budget for the whole chain
+- **Gesture frames and previews of refined views**: one bounded round (about a third of the frame budget for the whole chain
   of levels); a node out of budget *branches where it is* (`truncate`: an earlier branch is
   always valid, only less useful). Not deterministic in the budget, which gesture frames need
   not be. Where the bounded chain cannot reach the gate's bar (deep spiral: ~23 000 seed
