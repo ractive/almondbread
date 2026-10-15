@@ -185,6 +185,7 @@ public enum UIDemo {
         switch scene {
         case "palettes": "palette"
         case "autopilot": "autopilot"
+        case let s? where s.hasPrefix("howbig"): "googol"
         default: nil
         }
     }
