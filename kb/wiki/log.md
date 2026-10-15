@@ -535,6 +535,14 @@ where nothing is seeded; 0.000 % class change and no false interior at all 17 lo
 Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
 [[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
 
+## [2026-10-15] decision | M5 fix: learned state across jumps
+
+The flight benchmark found the spiral settling black after a dive at c = i (1e-280): the
+old view's interior-test statistics turned the test off and the learner could not retry
+without it. Jumps now reset the learned iteration and gate state; a view at the limit without
+the test renders again with it; `verify --history` checks against a from-scratch render; a
+regress session runs the path. Page: [[techniques/auto-iterations]].
+
 ## [2026-10-15] decision | M7: float32 artefacts measured (none visible); float-float as scaffolding
 
 Step 1 of M7 asked whether float32 rounding artefacts exist at all. New probe `almondbread

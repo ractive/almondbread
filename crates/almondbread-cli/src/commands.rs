@@ -485,6 +485,31 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         );
     }
     let jump = mode == "jump";
+    // `--prior re,im,scale` (scale per point) with `--prior-speed` e-folds/s for
+    // `--prior-seconds`: a dive somewhere else first, then the session (a jump: "Go to" after
+    // flying elsewhere; the learned auto-iteration state comes along).
+    if let Some(f) = o.get("prior") {
+        let p: Vec<&str> = f.split(',').collect();
+        if p.len() != 3 {
+            return err("--prior re,im,scale");
+        }
+        let prior = almondbread_core::flyto::view_from_text(p[0], p[1], p[2])
+            .ok_or_else(|| crate::options::CommandError("bad --prior".into()))?;
+        let target = r.viewport.clone();
+        r.viewport = prior;
+        let _ = r.simulate(width, height, ppp, 120.0, 0, 30.0, &mut |_, _, _| {});
+        let ps = o.f64("prior-speed").unwrap_or(40.0);
+        let pf = (o.f64("prior-seconds").unwrap_or(0.8) * 120.0) as usize;
+        let _ = r.simulate(width, height, ppp, 120.0, pf, 30.0, &mut |_, dt, v: &mut Viewport| {
+            v.zoom_by((ps * dt).exp(), 0.0, 0.0)
+        });
+        println!(
+            "prior dive: settled at zoom {}, learned limit {}",
+            almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
+            r.settings.learned_iterations
+        );
+        r.viewport = target;
+    }
     // Settle on the start view first (the session begins from a refined frame).
     if !jump {
         let _ = r.simulate(width, height, ppp, 120.0, 0, 30.0, &mut |_, _, _| {});
@@ -616,6 +641,35 @@ fn verify_session<B: GpuBackend + Clone>(
         );
         let (vs_fresh, fresh_heatmap) = compare(&field, &fresh_field);
         println!("{tag}vs fresh GPU:   {}", vs_fresh.summary());
+        // From scratch (M5 invariant): a new renderer with its own auto iterations and
+        // extension at the same texel grid, no learned state. The fresh render above shares
+        // the session's limit, so a limit learned elsewhere (a view settled all black after a
+        // dive elsewhere) passed it. Fails when the shown frame leaves pixels unescaped that
+        // escape from scratch.
+        let mut scratch = new_renderer(backend, o)?;
+        scratch.viewport = Viewport::with_center(v.center.clone(), sim.texel_scale).with_angle(v.angle);
+        scratch.settings.supersampling = Supersampling::Off;
+        scratch.config.offscreen_extension = r.config.extension_factor;
+        scratch.config.extension_budget = r.config.extension_budget;
+        let sres = render(&mut scratch, sim.level_width, sim.level_height, 0, true)?;
+        let st = sres.iterations.as_deref().unwrap_or(&[]);
+        let lost = sim
+            .iterations
+            .iter()
+            .zip(st)
+            .filter(|(a, b)| a[0] < 0.0 && b[0] >= 0.0)
+            .count();
+        let lost_pct = 100.0 * lost as f64 / sim.iterations.len().max(1) as f64;
+        println!(
+            "{tag}vs from scratch (maxIter {}): {lost} pixels ({lost_pct:.3}%) escape there but not in the shown frame",
+            scratch.stats.max_iterations
+        );
+        let max_scratch = o.f64("max-scratch-diff").unwrap_or(1.0);
+        if lost_pct > max_scratch {
+            failed.push(format!(
+                "{tag}{lost_pct:.3}% of the pixels escape in a from-scratch render but not in the shown frame (> {max_scratch:.3}%)"
+            ));
+        }
         if let Some(path) = o.get("heatmap") {
             let base = if n > 1 {
                 suffixed(path, &format!("-{}", i + 1))
@@ -1003,6 +1057,27 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "640x400",
         "--ppp",
         "1",
+    ],
+    // A dive at c = i (1e-280, 40 e-folds/s for 0.8 s) and then a jump to the spiral: the
+    // learned state of the dive (interior test off, limits) must not leave the spiral black
+    // (M5 bug, found by the flight benchmark).
+    &[
+        "--history",
+        "jump",
+        "--location",
+        "spiral-32412-1e19",
+        "--at-width",
+        "1600",
+        "--size",
+        "640x400",
+        "--ppp",
+        "1",
+        "--prior",
+        "0,1,1e-280",
+        "--prior-speed",
+        "40",
+        "--prior-seconds",
+        "0.8",
     ],
     &[
         "--history",
