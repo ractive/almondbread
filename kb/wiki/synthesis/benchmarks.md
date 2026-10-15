@@ -1610,4 +1610,7 @@ Findings:
   only within each view's float32 reference noise. `sample_cache_exact` tests a zoom in,
   zoom out and pan with one reference.
 
-Not measured: `make interaction-test` and `make selftest` (screen locked during this work).
+`make bench` (offscreen renders, which never use the cache) passes on this branch: home
+5.9 / 18.7 ms, needle-1e305 15.5 / 67.9 ms, spiral 783 / 2639 ms GPU at 1600 × 1000 /
+3456 × 2234. Not measured: `make interaction-test` and `make selftest` (screen locked during
+this work).
