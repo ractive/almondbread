@@ -422,8 +422,9 @@ public final class ExplorerModel {
         }
     }
 
-    private func writeSaved() {
-        let s = SavedSettings(
+    /// Everything that persists, as a record (also the undo state of the resets).
+    func snapshot() -> SavedSettings {
+        SavedSettings(
             autoIterations: autoIterations, manualIterations: manualIterations, maxIterationsCap: maxIterationsCap,
             interiorDetection: interiorDetection, paletteID: paletteID, colorDensity: colorDensity,
             colorOffset: colorOffset, logColoring: logColoring, smoothColoring: smoothColoring,
@@ -436,7 +437,10 @@ public final class ExplorerModel {
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement)
-        if let data = try? JSONEncoder().encode(s) {
+    }
+
+    private func writeSaved() {
+        if let data = try? JSONEncoder().encode(snapshot()) {
             UserDefaults.standard.set(data, forKey: Preferences.savedSettingsKey)
         }
     }
@@ -445,6 +449,11 @@ public final class ExplorerModel {
     private func restore() {
         guard let data = UserDefaults.standard.data(forKey: Preferences.savedSettingsKey),
               let s = try? JSONDecoder().decode(SavedSettings.self, from: data) else { return }
+        apply(s)
+    }
+
+    /// Takes over a settings record (missing keys keep the current values) and forwards it.
+    func apply(_ s: SavedSettings) {
         pulling = true
         func rgb(_ v: [Float]?) -> SIMD3<Float>? { v.flatMap { $0.count == 3 ? SIMD3($0[0], $0[1], $0[2]) : nil } }
         autoIterations = s.autoIterations ?? autoIterations
@@ -486,6 +495,93 @@ public final class ExplorerModel {
         mapPlacement = s.mapPlacement ?? mapPlacement
         pulling = false
         push()
+        pushOverlay()
+    }
+
+    // MARK: Reset (control center: "Reset all" and per section)
+
+    /// What a reset covers.
+    public enum ResetScope: Sendable {
+        case all, view, look, lighting, interior, overlays, quality
+    }
+
+    /// Resets `scope` to the defaults (`withView`: also the view, for "all"). Undoable: the
+    /// previous settings (and view) go on `undo` (⌘Z).
+    public func reset(_ scope: ResetScope, withView: Bool = false, undo: UndoManager? = nil) {
+        guard let explorer else { return }
+        let before = snapshot()
+        let view = explorer.viewport()
+        let d = explorer.defaultSettings()
+        pulling = true
+        func rgb(_ r: Float, _ g: Float, _ b: Float) -> SIMD3<Float> { SIMD3(r, g, b) }
+        let look = scope == .all || scope == .look
+        let light = scope == .all || scope == .lighting
+        if look {
+            paletteID = d.paletteId
+            colorDensity = d.colorDensity
+            colorOffset = d.colorOffset
+            logColoring = d.logColoring
+            smoothColoring = d.smoothColoring
+            paletteFilter = d.paletteFilter
+            denseCalm = d.denseCalm
+            cycleSpeed = d.cycleSpeed
+            depthTint = d.depthTint
+            lookID = Self.looks.first?.id ?? lookID
+        }
+        if light {
+            shading = d.shading
+            lightAngle = d.lightAngle
+            lightHeight = d.lightHeight
+            specular = d.specular
+            shininess = d.shininess
+            outline = d.outline
+            outlineWidth = d.outlineWidth
+            edgeColor = rgb(d.edgeRed, d.edgeGreen, d.edgeBlue)
+            glow = d.glow
+            glowColor = rgb(d.glowRed, d.glowGreen, d.glowBlue)
+            glowWidth = d.glowWidth
+        }
+        if scope == .all || scope == .interior {
+            interiorColoring = InteriorColoring(d.interiorMode)
+            interiorDensity = d.interiorDensity
+            interiorStripes = d.interiorStripes
+            interiorColor = rgb(d.interiorRed, d.interiorGreen, d.interiorBlue)
+            interiorDetection = d.interiorDetection
+        }
+        if scope == .all || scope == .quality {
+            autoIterations = d.autoIterations
+            manualIterations = Int(d.manualIterations)
+            maxIterationsCap = Int(d.maxIterationsCap)
+            supersampling = Supersampling(rawValue: Int(d.supersampling)) ?? .x9
+            interactivePreview = d.interactivePreview
+        }
+        if scope == .all || scope == .overlays {
+            orbitEnabled = false
+            orbitLength = 50
+            mapEnabled = false
+            mapLevels = 3
+            mapSize = 180
+            mapPlacement = .bottomLeft
+        }
+        pulling = false
+        if scope == .all || scope == .overlays { showHUD = true }
+        if scope == .all || scope == .view {
+            edgePanning = .whileZooming
+            autopilotAssist = false
+        }
+        push()
+        pushOverlay()
+        if scope == .view || (scope == .all && withView) { reset() }
+        undo?.registerUndo(withTarget: self) { m in
+            MainActor.assumeIsolated {
+                m.apply(before)
+                if scope == .view || (scope == .all && withView) {
+                    try? m.explorer?.setViewportText(re: view.re, im: view.im, scale: view.scaleText)
+                    m.host?.requestFrames()
+                }
+            }
+        }
+        undo?.setActionName(scope == .all ? "Reset All" : "Reset Section")
     }
 
     /// Back to the defaults (the default look, overlays off) and forgets the saved settings.

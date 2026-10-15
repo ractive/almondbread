@@ -1021,6 +1021,12 @@ impl Explorer {
         }
     }
 
+    /// The defaults (the default look, automatic iterations, flat interior, ...): what
+    /// "Reset" in the control center goes back to.
+    pub fn default_settings(&self) -> ExplorerSettings {
+        ExplorerSettings::from(&RenderSettings::default())
+    }
+
     pub fn settings(&self) -> ExplorerSettings {
         ExplorerSettings::from(&self.lock().host.renderer.settings)
     }

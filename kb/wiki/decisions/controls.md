@@ -383,3 +383,13 @@ zoom, 30/60/120 Hz flights agree to 2e-3 and land exactly, Esc glides 2/ω of sp
 navigator lands with `viewport == target`, and a pan hands the motion over without a jump.
 `verify --history flyto` (in `make regress`) flies through the interactive scheduler and
 diffs the landed frame against the CPU oracle and a fresh render.
+
+**Reset (2026-10-15, user request).** "Reset all…" at the bottom of the control center asks
+"Reset settings" or "Reset settings and view" and puts every per-window setting (look,
+palette and mapping, lighting and outline, interior, overlays, iterations and quality, edge
+panning, autopilot assist; with the view: the whole set) back to the defaults
+(`Explorer.defaultSettings()`). Each section header has a small ↺ that resets that section
+alone. Both are undoable (Edit ▸ Undo, ⌘Z: the previous settings record and view go on the
+window's undo manager). The Settings window's reset of app-wide preferences stays separate.
+Places, autopilot and fly-to are in the control center since the integration (Places: grid by
+category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, assist).

@@ -9,6 +9,8 @@ struct ControlCenterView: View {
     @Bindable var model: ExplorerModel
     @State private var search = UIDemo.search ?? ""
     @State private var showFlyTo = false
+    @State private var confirmReset = false
+    @Environment(\.undoManager) private var undoManager
     @AppStorage("controlCenter.collapsed") private var collapsedStorage = ""
 
     var body: some View {
@@ -35,6 +37,9 @@ struct ControlCenterView: View {
         .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
         .safeAreaInset(edge: .top, spacing: 0) {
             searchField
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            resetAllBar
         }
     }
 
@@ -82,22 +87,58 @@ struct ControlCenterView: View {
     }
 
     private func sectionHeader(_ s: ControlSection) -> some View {
-        Button {
-            withAnimation(.snappy(duration: 0.2)) { toggle(s) }
-        } label: {
-            HStack {
-                Label(s.title, systemImage: s.symbol)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .rotationEffect(.degrees(isCollapsed(s) && search.isEmpty ? 0 : 90))
-                    .foregroundStyle(.tertiary)
-                    .font(.caption)
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { toggle(s) }
+            } label: {
+                HStack {
+                    Label(s.title, systemImage: s.symbol)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .rotationEffect(.degrees(isCollapsed(s) && search.isEmpty ? 0 : 90))
+                        .foregroundStyle(.tertiary)
+                        .font(.caption)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityHint(isCollapsed(s) ? "Expands the section" : "Collapses the section")
+            if let scope = s.resetScope {
+                Button {
+                    model.reset(scope, undo: undoManager)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Reset \(s.title.lowercased()) to the defaults (⌘Z undoes)")
+                .accessibilityLabel("Reset \(s.title)")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityHint(isCollapsed(s) ? "Expands the section" : "Collapses the section")
+    }
+
+    /// "Reset all…" at the bottom: settings only, or settings and the view.
+    private var resetAllBar: some View {
+        HStack {
+            Spacer()
+            Button(role: .destructive) {
+                confirmReset = true
+            } label: {
+                Label("Reset all…", systemImage: "arrow.counterclockwise.circle")
+            }
+            .help("Every setting of this window back to the defaults (⌘Z undoes)")
+            .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
+                Button("Reset settings") { model.reset(.all, undo: undoManager) }
+                Button("Reset settings and view") { model.reset(.all, withView: true, undo: undoManager) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Look, palette, lighting, interior, overlays, iterations and quality go back to the defaults. Edit ▸ Undo (⌘Z) brings them back. App-wide preferences stay (Settings, ⌘,).")
+            }
+            Spacer()
+        }
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     @ViewBuilder
@@ -439,6 +480,19 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .quality: "sparkles"
         case .diagnostics: "gauge.with.dots.needle.67percent"
         case .controls: "keyboard"
+        }
+    }
+
+    /// What the section's ↺ resets (None: nothing to reset).
+    var resetScope: ExplorerModel.ResetScope? {
+        switch self {
+        case .view: .view
+        case .look: .look
+        case .lighting: .lighting
+        case .interior: .interior
+        case .overlays: .overlays
+        case .quality: .quality
+        case .places, .diagnostics, .controls: nil
         }
     }
 
