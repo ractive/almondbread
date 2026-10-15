@@ -833,6 +833,7 @@ probe's analysis runs at most 1.5 ms per frame until it is done) and an overlay-
 costs ~0.5 ms GPU at 2560×1640. The fps differences in this run are within the noise of the
 shared GPU. The map renderers run only between gestures, with 2 ms chunks. The shown-frame
 checks stay at 0 pixels differing in class.
+
 ## Autopilot and fly to, 2026-10-15
 
 Measured 2026-10-15, M1 Pro, release, with other agents' GPU jobs running (motion-reuse
@@ -882,6 +883,7 @@ and the session gates on escape counts (≤ 1 %).
 indexed a dropped AA level (the "Lagoon" crash). Regression test
 `colour_change_during_progressive_aa` (every palette and look applied with AA in flight)
 fails with the reported panic without the fix.
+
 ## R6: faster deep references, 2026-10-15
 
 What changed: [[techniques/parallel-reference-orbit]]. Measured 2026-10-15, M1 Pro (8 P +

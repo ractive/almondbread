@@ -398,6 +398,7 @@ fixed with main: a colour change during progressive AA crashed the app (main's `
 Pages: [[techniques/coloring-methods]] (Interior colouring as built, Dense regions),
 [[decisions/controls]] (control center, orbit overlay and mini-map),
 [[synthesis/benchmarks]] (Interior colourings, overlays, control center).
+
 ## [2026-10-15] decision | Autopilot and fly to coordinates (as built); Lagoon crash fix
 
 User requests: an autopilot ("so that you can just navigate with the mouse") and "give it a
@@ -419,6 +420,7 @@ dropped AA levels while their chunks were in flight; harvest indexed a missing l
 `~/Library/Logs/Almondbread/panic.log`). Pages: [[decisions/controls]] Autopilot and Fly to,
 [[sources/van-wijk-nuij-smooth-zooming]], [[synthesis/benchmarks]] Autopilot and fly to,
 [[roadmap]] AP, [[index]].
+
 ## [2026-10-15] ingest | Places catalogue (P1)
 
 User request: a list of well-known places to visit. Sources ingested:
@@ -430,6 +432,7 @@ User request: a list of well-known places to visit. Sources ingested:
 whole set to 1e-1000), each thumbnail rendered and looked at, deep ones verified against
 the CPU oracle (class mismatch 0 %). Pages: [[synthesis/places]], [[techniques/reference-selection]]
 (Misiurewicz Newton), [[roadmap]] P1, [[index]].
+
 ## [2026-10-15] research | Fractal palettes and the palette library
 
 Research run on fractal palette design (fractalset.com viewer, Ultra Fractal
@@ -444,6 +447,7 @@ bids-viridis-colormaps, cmocean, turbo-colormap, cividis-paper,
 quilez-cosine-palettes, ottosson-oklab); [[index]] updated. Built: the
 67-palette library (`almondbread-core` `palette_library`, `palette_import`)
 and `almondbread palettes` contact sheets.
+
 ## [2026-10-15] decision | R6: faster deep references
 
 Three-thread reference orbit (X², Y², (X+Y)² on the caller and two scoped helpers, one
@@ -460,3 +464,19 @@ unchanged. Toom-3/NTT not built: the short Comba square beats full Karatsuba 1.5
 [[decisions/arbitrary-precision]], [[techniques/reference-selection]],
 [[techniques/reference-orbit-precision]], [[platform/mpfr-gmp-on-apple-silicon]] (corrected
 the unmeasured MT3 handoff guess), [[index]].
+
+## [2026-10-15] decision | Integration: autopilot, places, palette library and R6 into the control center
+
+Merged main (autopilot, fly-to, deep DE fix, L2), the places catalogue, the palette library
+and R6 (faster deep reference orbits) into the control-center branch. Control center:
+autopilot and fly-to buttons, assist toggle and the autopilot keys in View & navigation;
+Places as a thumbnail grid by category with Go, Fly (`Explorer.flyToPlace`) and Random;
+the palette picker lists the library by category, applies a palette's density, offset and
+deep colour, and imports .ugr / .map / JSON palettes into "My palettes" (JSON kept in user
+defaults, registered again at launch). A library palette's deep colour gives the calm dense
+regions their hue (at the calm luminance). Option-click on a mini-map flies there. Place
+thumbnails re-rendered with calm dense regions and the bubbles interior
+([[synthesis/places]]); Go / Fly switch a flat interior to bubbles to match. Checks after
+the merge: the R6 orbit digest is identical to the R6 branch's; `verify --history jump` at
+dendrite-1e1000 shows the first frame after 93 ms. Pages: [[decisions/controls]],
+[[synthesis/places]], [[techniques/coloring-methods]].

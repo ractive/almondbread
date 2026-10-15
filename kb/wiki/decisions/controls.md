@@ -250,6 +250,7 @@ goes to the minibrot's cusp, nucleus + size/4 along its orientation (`minibrot_s
 a boundary point with structure at every depth; the note under the map says what was done
 ("snapped to the period-p minibrot's cusp near the click"). No minibrot found: the pixel's
 centre. Option-click flies there instead (the fly-to path: out, across, in, landing at the current zoom).
+
 ## Autopilot (as built, 2026-10-14)
 
 Requested by the user ("an auto-zoom, like an autopilot, so that you can just navigate with
