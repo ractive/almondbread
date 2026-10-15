@@ -123,7 +123,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/glitch-detection]] — Pauldelbrot's |Z+z|² < G|Z|² test and KF multi-reference correction (legacy; keep as debug overlay)
 - [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); as built in M5: interior-only fill of 16 × 16 tiles (border-first admission, bit-identical, gated)
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
-- [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
+- [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut; as built in M6
 - [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3 CPU 5.2×; R5 GPU prototype; as built in M5: resumable seed rounds, per-tile gate, float32 deep seeds, 4–9× in dense/deep views
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
@@ -185,7 +185,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/apple-gpu-denormals]] — do Apple GPUs flush float32 subnormals?
 - [[questions/auto-iteration-heuristic]] — which auto-maxIter rule to use
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
-- [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU
+- [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU (answered M6: LA 1.9–2.4× at deep needle minibrots, no gain elsewhere)
 - [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs; answered: fma float-float correct under .safe, broken under .fast, 7–12× slower than float32
 - [[questions/ffma32-latency]] — FFMA32 latency 2.21 vs 6 cycles in metal-benchmarks
 - [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over long orbits; answered (M7): within a 0.001–0.2 px grid shift, no visible artefacts

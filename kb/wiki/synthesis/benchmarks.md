@@ -1276,3 +1276,97 @@ locations (per-location 0.86–1.29, the spread of the load); float32 fields bit
 seahorse-1e5, deep-5e-14, sea-1e20, needle-1e305, spiral-32412-1e19. The main kernel library
 is unchanged; the float-float library compiles only when a `FloatFloat` is created (verify
 tools and tests).
+
+## M6: Imagina-style LA and AT, 2026-10-15
+
+Measured 2026-10-15, M1 Pro (16-core GPU), macOS 26, release, branch
+`worktree-agent-aa5f8d75073184c1d` (main d7ab9e1 merged). **The GPU and CPU were shared** with
+other agents (load averages 13 → 550 during the session): single renders varied up to 3×, so
+only interleaved medians within a row compare. Design: [[techniques/linear-approximation-imagina]]
+"As built (M6)"; answer: [[questions/bla-vs-la-benchmark]].
+
+### CPU model (deterministic step counts)
+
+`examples/la_check` (extended-range model of one pixel against the renderer's reference;
+32 × 20 pixels of the 1600 × 1000 framing, the location's limit, no interior test, no seeds):
+mean loop steps per pixel with no skipping, BLA (lookups at m ≡ 1 mod 8), LA, LA + AT
+(4× stages, synthetic split above 16).
+
+| location | exact | BLA | LA | LA + AT | stages (steps per stage) |
+|---|---:|---:|---:|---:|---|
+| needle-1e94 (period 79) | 836 | 80 | 43 | 34 | 20, 5, 1 |
+| needle-1e305 (period 255) | 3 100 | 125 | 52 | 42 | 64, 16, 1 |
+| needle-1e1004 (period 834) | 9 336 | 75 | 48 | 40 | 209, 53, 14, 1 |
+| sea-8007 (period 8007) | 37 314 | 1 223 | 1 125 | 1 073 | 2470, 346, 89, 8 |
+| sea-1e20 (centre) | 8 087 | 1 281 | 1 149 | 1 149 | 12341, 1727, 447, 40 |
+| dendrite-1e300 (centre) | 798 | 29 | 31 | 31 | 10000 … 1 (7 stages) |
+| dense-5e-14 | 2 877 | 2 445 | 2 297 | 2 297 | 1662 … 1 |
+| spiral-32412-1e19 | 27 804 | 25 986 | 26 092 | — | 8103 … 1 (7 stages) |
+| home, home-100k, seahorse-1e5, elephant, minibrot-p4, necks, cusp, root-third, Feigenbaum | — | = exact | = exact | = exact | no block is ever valid |
+
+Classes agree with exact perturbation at every location (0–1 of 640 pixels; the spiral 10–11 for
+both BLA and LA). Table entries tested per pixel: LA 20–700 (one per lookup in the non-linear
+tail, at every near-return), BLA one lookup per 8 steps.
+
+### GPU time, LA on vs off (interleaved)
+
+`render --size 1600x1000 --iterations <location's> --repeat 4`, first render dropped, 3 rounds
+alternating order (9 renders per variant; sea-8007 and the AT rows 5 rounds); medians in ms;
+"off" is main's behaviour (BLA auto), "LA" forced on without AT, "auto" the default.
+
+| location | off | LA forced | LA + AT | auto | auto uses | steps off → LA |
+|---|---:|---:|---:|---:|---|---|
+| needle-1e94 | 30.9 | 16.0 | 24.8 | 16.0 (= LA) | LA | 8.84e7 → 5.60e7 |
+| needle-1e305 | 44.0 | 18.7 | 17.9 | 18.7 (= LA) | LA | 1.52e8 → 7.09e7 |
+| needle-1e1004 | 34.8 | 16.6 | 19.6 | 16.6 (= LA) | LA | 1.03e8 → 6.89e7 |
+| sea-8007 (5 rounds) | 396 | 359 | 431 | 359 (= LA) | LA | 1.96e9 → 1.81e9 |
+| sea-1e20 | 22.8 | 23.7 | 23.9 | 22.8 | BLA | 1.28e8 = 1.28e8 |
+| dendrite-1e50 / 1e300 / 1e1000 | 2.8 / 2.7 / 3.6 | 3.2 / 2.7 / 2.0 | 3.0 / 3.1 / 4.3 | as off | BLA | equal |
+| spiral-32412-1e19 | 762 | 1 213 | 992 | 881 | BLA | 7.69e9 = 7.69e9 |
+| home-100k | 33.3 | 141 | 184 | 26.3 | — | equal |
+| elephant | 36.3 | 71.2 | 73.3 | 23.7 | — | equal |
+| minibrot-p4 | 34.5 | 58.6 | 73.4 | 28.0 | — | equal |
+| cusp-1e5 | 136 | 228 | 258 | 187 | — | equal |
+| dense-5e-14 | 34.1 | 60.6 | 59.9 | 36.6 | — | 6.02e8 → 5.96e8 |
+| feigenbaum | 2 374 | 3 986 | 3 991 | 2 375 | — | equal |
+| home / seahorse / deep-5e-14 / necks / root-third | 5.6–48 | 1.4–3.1× slower | same | as off (noise) | — | equal |
+
+The needles' "auto" is the "LA forced" pipeline (AT off). Rows where auto equals off run the
+identical pipeline; their spread is the shared GPU (dendrite-1e300 auto 6.6 ms vs off 2.7 ms in
+one round). With the AT, needle steps fall a further 4–10 % but time does not
+(focused 5-round A/B, AT off → on: needle-1e94 17.1 → 16.7, needle-1e305 27.8 → 32.9,
+needle-1e1004 24.5 → 26.6, sea-8007 357 → 431 ms): an AT step carries floatexp derivative
+updates and splits SIMD groups between AT pixels and walking pixels. Stage granularity:
+needle-1e1004 with Imagina-like 16× stages 37 ms against 24 ms with 4× stages (one A/B).
+
+### Correctness
+
+`verify` 800 × 500 centre crop at the 1600-wide pixel size, LA off / forced / auto, all 21
+locations: **GPU-int/CPU-ext 0.000 % everywhere**; class mismatch equal to off at 16 locations
+and +0.001 % (4 pixels of 400 000, GPU-ext/CPU-int) at deep-5e-14, dense-5e-14, needle-1e94 and
+needle-1e305; escape-n differences and median |Δμ| within float32 noise of off (needle-1e305
+0.393 → 0.315 %, 4.7e−5 → 2.3e−5; needle-1e94 0.264 → 0.315 %, 1.7e−5 → 3.0e−5; needle-1e1004
+0.326 → 0.323 %). Interior detected and unresolved fractions equal. The AT at needle-1e305
+(1600 × 1000): escape-n 0.096 % vs 0.116 % off, class mismatch 0.001 % both.
+Chunk independence: bit-identical fields with 0.2 ms and 50 ms chunk targets at needle-1e305
+(AT on, pixels resuming inside the AT), needle-1e94 and deep-5e-14 (plain path)
+(test `la_chunk_independent`). `make rust-regress`: all 18 sessions OK; the needle rotate
+session's shown frame vs fresh render is 0 % in class and 0.006–0.097 % in escape count, 0 %
+with `ALMONDBREAD_SA=1`: M5's statistics-dependent seed gate picks different tiles, LA itself
+is deterministic. Images (Aurora, 1600 × 1000 and 100 % crops of sea-8007's filigree and
+needle-1e1004's bands): no seams or patches, LA and off look the same.
+
+**A pre-existing M5 effect found on the way.** `bench`'s 400 × 259 verify of the needles shows
+0.09–0.12 % GPU-ext/CPU-int with BLA, with LA, and with no skipping at all, but 0 % with
+`ALMONDBREAD_SA=0`: one pixel row lies exactly on the real axis, where c > −2 by 1e−301 and the
+orbit is bounded only on a knife edge; seeded pixels there escape near n = 2 200. Which runs show
+it depends on which tiles the M5 gate seeds (LA changes the statistics). Not an LA error; noted
+for the seed work ([[techniques/local-series-approximation]]).
+
+### `make bench` (M6 build, load average 440–550)
+
+1600 × 1000 GPU ms: home 5.0, home-100k 26.9, seahorse 5.4, elephant 25.2, minibrot-p4 23.2,
+deep-5e-14 12.1, Feigenbaum 2 466, neck-2e5 13.5, neck-7e6 38.4, cusp 112.8, dense 25.4,
+root-third 33.8, sea-1e20 22.9, sea-8007 943 (load spike; 359 in the A/B), needle-1e94 11.9,
+needle-1e305 16.0, needle-1e1004 16.6, dendrites 2.7–3.7, spiral 785. Verify: GPU-int/CPU-ext
+0.000 % at every location (the needles' 0.09–0.12 % GPU-ext/CPU-int is the real-axis row above).

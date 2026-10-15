@@ -564,3 +564,23 @@ benchmarks (float-float 7–12×, fx 27–52× slower than float32). `bench` A/B
 [[questions/double-float-speed-on-m1]] (answered), [[questions/metal-fast-math-defaults]]
 (partial), [[techniques/double-float]] (As built), [[synthesis/benchmarks]] (M7), [[roadmap]]
 (M7), [[overview]], [[index]].
+
+## [2026-10-15] decision | M6: Imagina-style LA and AT built; used only where it pays
+
+LA built in our BLA terms: a step is one exact perturbation step from a near-return of the
+reference followed by an ordinary BLA block (validity `|u| + K|c| < R`, ε = 2^-24); stages compose
+steps and linearise the boundaries in between; synthetic splits coarsen 4× where the orbit has no
+period structure; chains per lookup index with a deterministic search (first, last, binary), so
+fields do not depend on chunk cuts. Plain and deep kernels (`kLA`, `kAT`), the AT for nucleus
+references with y kept in the pixel state between chunks. CPU model study first
+(`examples/la_check`), then interleaved GPU A/B at all 21 locations under heavy shared load:
+LA 1.9–2.4× faster than BLA at the three needle minibrots, 1.1× at sea-8007, even on centre
+references (sea-1e20, dendrites, spiral: deltas non-linear, or the seeds did the work) and
+1.4–5× slower forced into plain-kernel views. The AT saves 4–10 % of steps but no GPU time: off by
+default. Auto: LA on deep nucleus references whose limit spans ≥ 4 periods, BLA otherwise; LA
+does not replace BLA. Verify: 0 % exterior painted interior, class mismatch within 0.001 % of BLA
+at all locations; regress all OK; selftest OK; interaction test OK except the autopilot zoom check
+(×2.6–2.8 < ×3.16 at load average 534, the same with LA off). Found on the way: a pre-existing M5
+real-axis row at the needles (seeded pixels escape where the oracle does not). Pages:
+[[techniques/linear-approximation-imagina]] (As built), [[synthesis/benchmarks]] (M6),
+[[questions/bla-vs-la-benchmark]] (answered), [[roadmap]] (M6), [[overview]], [[index]].
