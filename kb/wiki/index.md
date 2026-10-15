@@ -112,7 +112,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[techniques/adaptive-sampling]] — adaptive/sparse sampling, reconstruction and early termination; R3 measured: none pays in dense regions except cheaper samples
 - [[techniques/anti-aliasing]] — uniform jitter and subframe accumulation, gamma-correct resolve, DE coverage; as built (FL): progressive adaptive AA in linear light, capped by the supersampling setting
-- [[techniques/auto-iterations]] — KF's undocumented auto iterations and zoom-out bug, Fraktaler caps, statistics + hysteresis rule (inference)
+- [[techniques/auto-iterations]] — KF's undocumented auto iterations and zoom-out bug, Fraktaler caps, statistics + hysteresis rule (inference); as built: unresolved ≠ interior, extension passes, learned limit, floor from the reference (M5)
 - [[techniques/bla]] — mathr's binary-tree BLA: single-step radius variants, merge rule, table build and lookup pseudocode, matrix/abs variants, costs; contradictions on the radius
 - [[techniques/coloring-methods]] — transfer functions, log-potential palette, histogram, phase, slopes/normal maps, TIA/curvature/stripe averages; as built (FL): OKLab palettes, looks, palette anti-aliasing by DE, outline-then-light
 - [[techniques/distance-estimation]] — Milnor exterior DE, Koebe ¼, pixel-scaled dual numbers for float32, DE through skips, AA/boundary tests
@@ -121,10 +121,10 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/extended-range-floats]] — float32/64 range limits, floatexp, rescaled iterations with full floatexp steps, skip-table exponents, depth→type table
 - [[techniques/frame-reuse-and-progressive]] — XaoS row/column reuse, KF reuse reference and interlacing; as built: M2 gesture previews, FL history reprojection with temporal upsampling, per-pixel refinement fade, focus-first tiles
 - [[techniques/glitch-detection]] — Pauldelbrot's |Z+z|² < G|Z|² test and KF multi-reference correction (legacy; keep as debug overlay)
-- [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); tile scheme for all-interior borders only
+- [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); as built in M5: interior-only fill of 16 × 16 tiles (border-first admission, bit-identical, gated)
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
 - [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
-- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3: 5.2× fewer iterations at the dense view (CPU); R5 GPU prototype: 8.7× fewer steps, 5× less GPU time, same error statistics; M5 integration design
+- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3 CPU 5.2×; R5 GPU prototype; as built in M5: resumable seed rounds, per-tile gate, float32 deep seeds, 4–9× in dense/deep views
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured

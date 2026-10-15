@@ -132,7 +132,8 @@ inside pixel of a whole tile with tileBad != epoch: written interior (.y = 1, DE
   (1600 × 1000, M1 Pro): elephant 32 → 23 ms (1.39×, 33 % fewer steps), cusp-1e5 1.03×
   (unseeded), home-100k and minibrot-p4 5–17 % slower (their interior proves in tens of
   iterations), cusp-1e5 seeded 16 % slower with no tile filled. So it fills where the last
-  level had ≥ 15 % interior pixels and ≥ 300 iterations per pixel, and only where no tile
+  level had ≥ 15 % *proven* interior pixels (unresolved ones excluded: at sea-8007, 98 %
+  unresolved, it filled nothing and cost 9 %) and ≥ 300 iterations per pixel, and only where no tile
   starts from local SA seeds (a fill candidate waits for its seed round before its first
   chunk). R3's CPU study found 0.76 at minibrot-p4 with 32 → 4 px subdivision; on the GPU the
   single-level fill loses there.

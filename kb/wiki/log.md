@@ -513,3 +513,24 @@ cycling in flight). Ingested [[sources/muency-newton-raphson-zooming]] and
 [[sources/kisaka-julia-sets-in-mandelbrot]]. Pages: [[decisions/controls]] (Journey, View
 rotation, Cinematic effects), [[ideas]] (status), [[roadmap]] (PJ), [[synthesis/benchmarks]]
 (PJ), [[index]].
+
+## [2026-10-15] decision | M5: local series approximation and interior fill in production
+
+Shipped local SA ([[techniques/local-series-approximation]] "As built (M5)") on by default:
+quadtree seeds 32 → 4 texels in resumable rounds (a node keeps its whole loop state; rounds
+sized by a learnt latency model; pixel admission gated on the GPU until the seeds are final),
+every level seeded at its own texel size, extension passes and AA samples from the full
+level's leaves, float32 deep seeds down to 2^−80 texels (the spiral's seeds 150 → 40 ms), a
+deterministic per-tile gate whose bar comes from the last level's steps per texel, Morton order
+inside admission tiles, bounded rounds for gesture frames. Interior-only tile fill
+([[techniques/guessing-and-subdivision]] "As built (M5)"): borders first, insides of
+all-proven-interior tiles written without iterating, bit-identical, gated (elephant 1.35×,
+off with analysed interior colourings). New benchmark location `spiral-32412-1e19` (the
+user's slowest view) and regress sessions; auto iterations take a floor from the big
+reference and keep the interior test on while pixels end unresolved
+([[techniques/auto-iterations]]). Results ([[synthesis/benchmarks]] M5): dense-5e-14 4.95×,
+sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e300 2.5×, spiral
+3.96× (first render 4.0 → 0.78 s GPU), interactive refined frames 2–5× sooner, 0–3 % cost
+where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
+Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
+[[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].

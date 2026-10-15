@@ -1082,3 +1082,107 @@ stair-stepped outline bands in smooth exterior at sea-1e20; and the DE mantissa,
 every 8th step only, can overflow (`|d|²` → inf, DE 0) in the steps before escape where
 `|2z|` reaches 2^17 per step: dotted outline arcs along iteration contours. Fix: clamp after
 scaling, renormalise every step once `|z| > 16`, normalise `d` before `length`.
+
+## M5: local series approximation and interior fill, 2026-10-15
+
+Measured 2026-10-15, M1 Pro (16-core GPU), macOS 26, release, branch
+`worktree-agent-a9436fdde1a6473db` after merging main (view rotation). **The GPU was shared**
+with the user's open app and other agents: the same plain render took 77 ms in the morning
+and 125 ms (dense-5e-14) in the afternoon runs, so compare within a row only. Design and
+as-built notes: [[techniques/local-series-approximation]] "As built (M5)",
+[[techniques/guessing-and-subdivision]] "As built (M5)", [[techniques/auto-iterations]]
+"Floor from the reference".
+
+### Offscreen GPU time, M5 default vs all off
+
+`almondbread render --size 1600x1000 --iterations <location's> --repeat 4` per process,
+first render dropped (it has no statistics yet, as a fresh view in the app); "off" is
+`--sa 0 --fill 0`; order A B B A per location, so 6 renders per variant; min / median / max.
+Steps: loop steps of the pixels (BLA blocks count one), seeds extra.
+
+| location | off GPU ms min / med / max | M5 GPU ms min / med / max | speed-up (median) | steps off → M5 | seeds |
+|---|---|---|---:|---|---|
+| home | 2.9 / 4.4 / 5.6 | 3.5 / 4.0 / 4.7 | 1.08 | 6.31e+07 → 6.29e+07 | 0.28 ms, 1 rounds, 1 % tiles |
+| home-100k | 25.9 / 26.2 / 27.1 | 26.4 / 27.0 / 27.7 | 0.97 | 1.75e+08 → 1.75e+08 | 1.15 ms, 1 rounds, 0 % tiles |
+| seahorse-1e5 | 6.6 / 6.8 / 7.6 | 4.2 / 4.7 / 5.5 | 1.45 | 2.05e+08 → 8.1e+07 | 0.32 ms, 1 rounds, 100 % tiles |
+| elephant | 32.0 / 32.9 / 33.7 | 24.1 / 24.3 / 24.8 | 1.35 | 1.06e+09 → 7.06e+08 | 0.29 ms, 1 rounds, 0 % tiles (fill) |
+| minibrot-p4 | 20.5 / 21.2 / 22.5 | 21.1 / 21.9 / 22.5 | 0.97 | 3.8e+08 → 3.8e+08 | 0.26 ms, 1 rounds, 0 % tiles |
+| deep-5e-14 | 39.1 / 40.4 / 41.0 | 8.3 / 9.9 / 10.7 | 4.07 | 1.92e+09 → 2.33e+08 | 0.63 ms, 1 rounds, 100 % tiles |
+| feigenbaum | 2366.1 / 2387.7 / 2408.8 | 2407.9 / 2414.7 / 2420.8 | 0.99 | 8.62e+10 → 8.62e+10 | 24.63 ms, 2 rounds, 0 % tiles |
+| neck-2e5 | 76.3 / 77.5 / 78.0 | 12.8 / 13.4 / 13.6 | 5.79 | 2.99e+09 → 2.77e+08 | 4.64 ms, 1 rounds, 100 % tiles |
+| neck-7e6 | 118.9 / 119.5 / 119.8 | 38.5 / 39.5 / 40.0 | 3.03 | 4.64e+09 → 8.32e+08 | 15.01 ms, 2 rounds, 100 % tiles |
+| cusp-1e5 | 119.8 / 120.8 / 121.3 | 110.8 / 112.6 / 114.7 | 1.07 | 4.67e+09 → 3.8e+09 | 9.93 ms, 2 rounds, 50 % tiles |
+| dense-5e-14 | 124.9 / 125.3 / 126.0 | 24.4 / 25.3 / 27.8 | 4.95 | 4.61e+09 → 6.02e+08 | 3.60 ms, 1 rounds, 100 % tiles |
+| root-third | 107.9 / 111.3 / 115.4 | 31.9 / 33.3 / 33.9 | 3.34 | 4.22e+09 → 9.65e+08 | 7.04 ms, 2 rounds, 100 % tiles |
+| sea-1e20 | 201.8 / 203.9 / 207.4 | 22.9 / 23.4 / 23.8 | 8.71 | 2.05e+09 → 1.28e+08 | 4.38 ms, 1 rounds, 100 % tiles |
+| sea-8007 | 393.7 / 396.1 / 411.3 | 393.7 / 397.4 / 409.6 | 1.00 | 1.96e+09 → 1.96e+09 | 0.99 ms, 1 rounds, 0 % tiles |
+| needle-1e305 | 45.4 / 45.8 / 46.3 | 40.9 / 41.1 / 41.6 | 1.11 | 1.8e+08 → 1.52e+08 | 0.78 ms, 1 rounds, 65 % tiles |
+| dendrite-1e300 | 4.9 / 5.2 / 10.1 | 2.1 / 2.1 / 2.1 | 2.49 | 4.66e+07 → 7.58e+06 | 0.34 ms, 1 rounds, 100 % tiles |
+| spiral-32412-1e19 | 3053.4 / 3066.8 / 3072.2 | 771.1 / 774.7 / 778.5 | 3.96 | 4.14e+10 → 7.69e+09 | 78.96 ms, 8 rounds, 100 % tiles |
+
+Where nothing is seeded or filled (home-100k, minibrot-p4, Feigenbaum, sea-8007) the cost is
+the seed pass (0.3–25 ms) and the first chunks' seeded pipeline: 0–3 %. Earlier in the day,
+on a quieter GPU, the same build-up measured dense 77 → 15 ms and spiral 2 250 → 510 ms (both
+~4.5–5×); the ratios hold, the absolute times do not.
+
+### The user's spiral (spiral-32412-1e19), auto iterations, as the app sees a jump
+
+`render --center … --scale 4.19804e-19 --size 1600x1000` without `--iterations`; "main" =
+`ALMONDBREAD_SA=0 ALMONDBREAD_FILL=0 ALMONDBREAD_ITER_FLOOR=0` (main's behaviour); GPU of every
+chunk and seed round, 3 runs each, alternating:
+
+| | first render of the view | once the limit is known |
+|---|---|---|
+| main | 944 ms at 10 384 (every pixel unresolved) + 3 061 ms at 41 536 = **4.0 s** | 3.06 s |
+| M5 | 691 ms pixels + 88 ms seeds at 41 536 (floor from the reference) = **0.78 s** | 0.78 s |
+
+5.1× for the first view, 3.9× after. Wall 787 ms vs 3 067 ms for a single pass. BLA does not
+help here and could not: relaxing its ε from 2^−24 to 2^−10 only extends its coverage from
+1 302 to 2 016 iterations (1.07× → 1.11× fewer steps), because the pixels' deltas from the
+centre orbit grow to the orbit's size within ~2 000 iterations in this chaotic spiral; local SA
+works because neighbouring pixels stay close to *each other* for ~23 000 iterations (leaf
+branch). The disc in the middle is pixels escaping after 41 536 (the extension passes resolve
+it in the app), not a period-32 412 minibrot: "ref 32412 pts" is the centre orbit escaping at
+32 411; no nucleus is in view (ball detection finds period 2 235, Newton fails).
+
+### Correctness (verify vs the CPU oracle)
+
+`verify`, 800 × 500 centre crop at the 1600-wide pixel size (needle 1600 × 1000), SA off / on /
+auto, and the on field against the off field. GPU-interior/CPU-exterior is 0.000 % everywhere,
+class mismatch on vs off 0.000 % at all 17 locations; escape-n differences and median |Δμ| move
+as in R5 (dense 15.6 → 16.7 %, 0.0102 → 0.0117; sea-1e20 9.9 → 10.0 %; seahorse-1e5 6.2 → 8.0 %,
+1.5e−5 → 4.7e−5; elephant 3.95 → 5.80 %; spiral 46.2 → 47.0 %, where float32 itself is far
+from the oracle). Auto equals off bit for bit where no tile is seeded (home, home-100k,
+elephant, minibrot-p4, Feigenbaum, sea-8007). Images (Aurora, 100 % crops at seahorse,
+sea-1e20, spiral, elephant, root-third, dense, neck-2e5, needle): no seams, patches or missing
+minibrots. Interior fill: bit-identical fields with and without (test `interior_fill_exact`).
+`make regress` with SA auto and forced on: all sessions OK, including two new spiral sessions
+(jump and pan; the pan exposed the interior-test switch bug, fixed, see
+[[techniques/auto-iterations]]).
+
+### Interactive (interaction test, background window 1280 × 820 pt at 2x, 120 Hz display)
+
+Two runs each, M5 vs all off; the background window is throttled to ~31 presented fps in
+both, so fps compare only where they drop below that. Final = full-resolution refined frame
+after the last input.
+
+| scenario | final frame ms M5 (run 1 / 2) | off | iterate GPU ms/frame M5 | off | preview scale M5 / off |
+|---|---|---|---|---|---|
+| dense pan | 517 / 417 | 933 / 966 | 5.8 / 7.1 | 7.5 / 7.9 | 0.13 / 0.12 |
+| dense zoom | 433 / 450 | 1067 / 983 | 7.0 / 7.7 | 8.7 / 9.0 | 0.13 / 0.12 |
+| neck2e5 pan | 533 / 783 | 1350 / 1100 | 10.1 / 9.1 | 10.5 / 11.1 | 0.12 / 0.12 |
+| neck zoom (1.7e−8) | 333 / 400 | 733 / 550 | 4.3 / 4.4 | 8.0 / 7.8 | 0.14 / 0.12 |
+| sea-1e20 pan | 333 / 433 | 1767 / 1733 | 10.1 / 11.5 | 13.4 / 12.6 | 0.12 / 0.12 |
+| sea-1e20 zoom | 317 / 416 | 1617 / 1616 | 9.5 / 9.6 | 11.2 / 11.4 | 0.13 / 0.12 |
+| spiral pan | 4 850 / 4 600 | none within 10 s | 19.0 / 19.3 (29 fps) | 39.5 / 40.0 (20 fps) | 0.12 / 0.12 |
+| spiral zoom | 3 517 / 3 750 | none within 10 s | 14.5 / 10.6 | 10.4 / 11.7 | 0.12 / 0.12 |
+| home pan | 216 / 216 | 216 / 216 | 6.9 / 6.0 | 7.2 / 6.8 | 0.93–0.96 / 0.90–0.94 |
+| 1e5 zoom | 533 / 533 | 533 / 433 | 5.3 / 5.5 | 5.7 / 5.5 | 0.13 / 0.13 |
+| deep zoom 1e-12 to 1e-40 | 400 / 217 | 283 / 283 | 7.1 / 6.9 | 5.9 / 6.0 | 0.75 / 0.43 |
+
+Shown frame vs fresh render: ≤ 21 pixels (0.001 %) differ in class in every scenario, both
+ways. Headless sessions through the same scheduler at 2560 × 1640 (`verify --history`, 120 Hz
+pacing, prints the gesture frames): spiral jump complete 1 884 ms (off 10 895 ms); spiral pan
+83 previews/s (off 90) after the gesture-frame fixes (unbounded gesture seed rounds had dropped
+it to 12/s; a cheap seeded refined frame had misled the dynamic resolution to 166 ms gesture
+frames), neck zoom 84 vs 74 previews/s, dense pan 118 vs 120.
