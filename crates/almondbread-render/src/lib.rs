@@ -21,6 +21,7 @@ pub use almondbread_core as core;
 pub mod backend;
 pub mod gpu_types;
 pub mod host;
+pub mod la_gpu;
 pub mod overlay;
 pub mod scheduler;
 

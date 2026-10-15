@@ -242,7 +242,8 @@ impl Options {
     }
 
     /// `--chunk-ms` (GPU time per iterate command buffer), `--extend k` (offscreen
-    /// unresolved pixels continue to k x the limit), `--bla 0|1|auto`, `--bla-eps e`.
+    /// unresolved pixels continue to k x the limit), `--bla 0|1|auto`, `--bla-eps e`, `--la 0|1|auto`,
+    /// `--at 0|1`.
     pub fn apply_renderer<B: GpuBackend>(&self, r: &mut Renderer<B>) {
         if let Some(v) = self.f64("chunk-ms") {
             r.config.chunk_target = v / 1000.0;
@@ -261,6 +262,17 @@ impl Options {
         }
         if let Some(e) = self.f64("bla-eps") {
             r.config.bla_epsilon = 2f64.powf(-e);
+        }
+        // M6: Imagina-style LA instead of BLA (`--la 0|1|auto`) and its AT (`--at 0|1`; kb:
+        // techniques/linear-approximation-imagina).
+        if let Some(v) = self.get("la") {
+            match almondbread_render::la_gpu::LaMode::parse(v) {
+                Some(m) => r.config.la = m,
+                None => eprintln!("almondbread: --la {v}: expected 0, 1 or auto"),
+            }
+        }
+        if let Some(v) = self.get("at") {
+            r.config.la_at = v != "0";
         }
         // M5: local series approximation (`--sa 0|1|auto`, tunables `--sa-eps`, `--sa-top`,
         // `--sa-leaf`, `--sa-gate rel,abs`, `--sa-budget`; kb: techniques/local-series-approximation).

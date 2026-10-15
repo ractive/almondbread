@@ -31,6 +31,7 @@ use almondbread_core::viewport::{Scale, Viewport};
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
+use crate::la_gpu::{LaBuild, LaGpu, LaMode};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
     PixelStateIC, SeedNode, SeedParams, SurveyParams,
@@ -146,6 +147,11 @@ pub struct SchedulerConfig {
     /// M5: auto iterations start at the big reference's floor (`period_floor`;
     /// `ALMONDBREAD_ITER_FLOOR=0` off, for before/after measurements).
     pub iteration_floor: bool,
+    /// M6: Imagina-style LA instead of BLA for the pixels (kb:
+    /// techniques/linear-approximation-imagina; `ALMONDBREAD_LA=0|1|auto`), and its AT for
+    /// periodic references (`ALMONDBREAD_AT=0|1`).
+    pub la: LaMode,
+    pub la_at: bool,
 }
 
 /// When levels start their pixels from local series approximation seeds.
@@ -280,6 +286,11 @@ impl Default for SchedulerConfig {
                 .and_then(|v| SaMode::parse(&v))
                 .unwrap_or(SaMode::Auto),
             iteration_floor: std::env::var("ALMONDBREAD_ITER_FLOOR").map_or(true, |v| v != "0"),
+            la: std::env::var("ALMONDBREAD_LA")
+                .ok()
+                .and_then(|v| LaMode::parse(&v))
+                .unwrap_or(LaMode::Auto),
+            la_at: std::env::var("ALMONDBREAD_AT").map_or(true, |v| v != "0"),
         }
     }
 }
@@ -365,6 +376,8 @@ struct Level<B: GpuBackend> {
     steps: f64,
     /// Iterates through the BLA table (decided when the level starts).
     use_bla: bool,
+    /// M6: iterates through the LA table instead (decided when the level starts).
+    use_la: bool,
     preview: bool,
     /// Admission order: tile order and its inverse (None: raster tile order).
     order: Option<TileOrder<B>>,
@@ -486,6 +499,7 @@ impl<B: GpuBackend> Level<B> {
             use_interior: false,
             steps: 0.0,
             use_bla: false,
+            use_la: false,
             preview,
             order: None,
             aa: None,
@@ -529,6 +543,10 @@ struct Job<B: GpuBackend> {
     refx_buffer: Option<B::Buffer>,
     /// The table's forecast for this view, once decided.
     bla_forecast: Option<BlaForecast>,
+    /// M6: the LA table of the reference, if this view uses it (levels started before stay
+    /// without), and whether that is decided.
+    la: Option<LaGpu<B>>,
+    la_decided: bool,
     levels: Vec<Level<B>>,
     start: f64,
     /// A gesture frame: preview only, superseded every frame.
@@ -791,6 +809,9 @@ pub struct OffscreenResult {
     /// The BLA table's forecast for the view (None: no table), and whether it was used.
     pub bla_forecast: Option<BlaForecast>,
     pub bla_used: bool,
+    /// M6: the pixels iterated through the LA table (and its AT).
+    pub la_used: bool,
+    pub at_used: bool,
     /// Raw iteration texels (n, smooth offset), row-major, if requested.
     pub iterations: Option<Vec<[f32; 2]>>,
     /// M5: the seed passes of the last seeded level (None: not seeded).
@@ -877,7 +898,7 @@ pub struct Renderer<B: GpuBackend> {
     cycle_time: f64,
     /// Iterate pipelines keyed by `de | interior << 1 | bla << 2 | deep << 3 | interior_color << 4 |
     /// seeded << 5`.
-    iterate_pipelines: [Option<B::Pipeline>; 64],
+    iterate_pipelines: [Option<B::Pipeline>; 256],
     /// Interior cycle analysis state, parallel to `state_buffers` (allocated on first use).
     ic_buffers: Option<[B::Buffer; 2]>,
     /// Level textures carry the interior analysis texture (set per job).
@@ -942,6 +963,11 @@ pub struct Renderer<B: GpuBackend> {
     bla_reach_log2: f64,
     /// Build time (s), entries and bytes of the last table.
     bla_info: (f64, usize, usize),
+    /// M6: the current reference's LA table on the GPU, or its build on a thread; build time
+    /// (s), entries, bytes and stages of the last one.
+    la: Option<LaGpu<B>>,
+    la_build: Option<LaBuild>,
+    la_info: (f64, usize, usize, usize),
 
     palette_id: Option<String>,
     /// Dense-region colours of the palette (key, deep, filament).
@@ -1079,6 +1105,9 @@ impl<B: GpuBackend> Renderer<B> {
             bla_build: None,
             bla_reach_log2: f64::NEG_INFINITY,
             bla_info: (0.0, 0, 0),
+            la: None,
+            la_build: None,
+            la_info: (0.0, 0, 0, 0),
             palette_id: None,
             dense_cache: std::cell::RefCell::new(None),
             palette_buffer: None,
@@ -1157,19 +1186,24 @@ impl<B: GpuBackend> Renderer<B> {
         deep: bool,
         interior_color: bool,
         seeded: bool,
+        la: (bool, bool),
     ) -> Result<B::Pipeline, GpuError> {
         let k = usize::from(de)
             | (usize::from(interior) << 1)
             | (usize::from(bla) << 2)
             | (usize::from(deep) << 3)
             | (usize::from(interior_color) << 4)
-            | (usize::from(seeded) << 5);
+            | (usize::from(seeded) << 5)
+            | (usize::from(la.0) << 6)
+            | (usize::from(la.1) << 7);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
-        let p = self
-            .backend
-            .pipeline("iterate", &[de, interior, bla, deep, interior_color, seeded])?;
+        // (Constants 6 and 7 are unused by `iterate`; 8 and 9 are M6's kLA and kAT.)
+        let p = self.backend.pipeline(
+            "iterate",
+            &[de, interior, bla, deep, interior_color, seeded, false, false, la.0, la.1],
+        )?;
         self.iterate_pipelines[k] = Some(p.clone());
         Ok(p)
     }
@@ -2292,6 +2326,8 @@ impl<B: GpuBackend> Renderer<B> {
             deep,
             refx_buffer,
             bla_forecast: None,
+            la: None,
+            la_decided: false,
             levels,
             start: now,
             interactive: mode == JobMode::Interactive,
@@ -2312,6 +2348,7 @@ impl<B: GpuBackend> Renderer<B> {
         // Offscreen renders always iterate with the table (deterministic results); views
         // take it when it is there (previews), and full levels wait for it (encode_chunks).
         self.job_bla(mode == JobMode::Offscreen);
+        self.job_la(mode == JobMode::Offscreen);
     }
 
     // MARK: BLA table (kb: techniques/bla)
@@ -2474,6 +2511,120 @@ impl<B: GpuBackend> Renderer<B> {
     /// Build time (s), entries and bytes of the last BLA table.
     pub fn bla_info(&self) -> (f64, usize, usize) {
         self.bla_info
+    }
+
+    // MARK: LA table (M6, kb: techniques/linear-approximation-imagina)
+
+    /// Attaches the LA table of the job's reference once it is built and chosen for the view;
+    /// `wait` joins a build still running on its thread.
+    fn job_la(&mut self, wait: bool) -> BlaReady {
+        let Some(job) = &self.job else {
+            return BlaReady::Without;
+        };
+        if job.la.is_some() {
+            return BlaReady::Ready;
+        }
+        if self.config.la == LaMode::Off || job.la_decided {
+            return BlaReady::Without;
+        }
+        let serial = job.reference_serial;
+        let building = self.la.as_ref().is_some_and(|t| t.serial == serial)
+            || self.la_build.as_ref().is_some_and(|(s, _)| *s == serial);
+        if !building {
+            // As for BLA: no block is valid for a pixel beyond eps max|2 Z|.
+            if self.config.la == LaMode::Auto && job.max_dc_log2 >= self.bla_reach_log2 {
+                self.job.as_mut().expect("job").la_decided = true;
+                return BlaReady::Without;
+            }
+            self.start_la_build();
+        }
+        self.finish_la_build(wait);
+        match &self.la {
+            Some(t) if t.serial == serial => {
+                let t = t.clone();
+                let use_la = match self.config.la {
+                    LaMode::On => true,
+                    _ => self.prefer_la(&t),
+                };
+                let job = self.job.as_mut().expect("job");
+                job.la_decided = true;
+                if use_la {
+                    job.la = Some(t);
+                    BlaReady::Ready
+                } else {
+                    BlaReady::Without
+                }
+            }
+            _ if self.la_build.as_ref().is_some_and(|(s, _)| *s == serial) => BlaReady::Pending,
+            _ => {
+                self.job.as_mut().expect("job").la_decided = true;
+                BlaReady::Without
+            }
+        }
+    }
+
+    /// Auto mode: whether the job's view should iterate through the LA table rather than BLA
+    /// (kb: synthesis/benchmarks M6).
+    fn prefer_la(&self, _t: &LaGpu<B>) -> bool {
+        false
+    }
+
+    fn finish_la_build(&mut self, wait: bool) {
+        let Some((serial, handle)) = self.la_build.take() else {
+            return;
+        };
+        if !wait && !handle.is_finished() {
+            self.la_build = Some((serial, handle));
+            return;
+        }
+        match handle.join() {
+            Ok(table) if serial == self.reference_serial => self.upload_la(serial, table),
+            Ok(_) => {}
+            Err(_) => eprintln!("almondbread: LA table build failed"),
+        }
+    }
+
+    fn upload_la(&mut self, serial: u64, table: Arc<almondbread_core::la::LaTable>) {
+        self.la_info = (table.build_time, table.entries.len(), table.bytes(), table.stage_steps.len());
+        let deep = self.reference.as_ref().is_some_and(|r| r.deep_kernel);
+        if self.config.trace {
+            println!(
+                "LA table: {} boundaries, {} entries, stages {:?}, AT {}, {:.2} ms",
+                table.boundaries(),
+                table.entries.len(),
+                table.stage_steps,
+                table.at.as_ref().map_or("none".to_string(), |a| format!("period {}", a.period)),
+                table.build_time * 1e3
+            );
+        }
+        self.la = match LaGpu::upload(&self.backend, serial, table, deep) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("almondbread: LA table buffer: {e}");
+                None
+            }
+        };
+    }
+
+    /// Starts the LA table of the current reference: inline when short, else on a thread.
+    fn start_la_build(&mut self) {
+        let Some(r) = &self.reference else { return };
+        let serial = self.reference_serial;
+        let build = crate::la_gpu::build_table(r, self.config.bla_epsilon);
+        if r.points.len() >= self.config.bla_async_from / 4 {
+            match std::thread::Builder::new().name("almondbread-la".into()).spawn(build) {
+                Ok(h) => self.la_build = Some((serial, h)),
+                Err(e) => eprintln!("almondbread: LA build thread: {e}"),
+            }
+        } else {
+            let table = build();
+            self.upload_la(serial, table);
+        }
+    }
+
+    /// Build time (s), entries, bytes and stages of the last LA table.
+    pub fn la_info(&self) -> (f64, usize, usize, usize) {
+        self.la_info
     }
 
     /// GPU seconds a gesture frame's iteration may take: half the measured refresh interval
@@ -2747,6 +2898,16 @@ impl<B: GpuBackend> Renderer<B> {
                     break;
                 }
             }
+            // M6: the same for the LA table.
+            if let Some(job) = &self.job
+                && !job.levels[i].started()
+                && job.la.is_none()
+            {
+                let preview = job.levels[i].preview;
+                if self.job_la(false) == BlaReady::Pending && !preview {
+                    break;
+                }
+            }
             // M5: a seeded level's later seed rounds come before its chunks.
             if !self.advance_seeding(i) {
                 break;
@@ -2779,9 +2940,11 @@ impl<B: GpuBackend> Renderer<B> {
         {
             let job = self.job.as_mut().expect("job");
             let has_bla = job.bla.is_some();
+            let has_la = job.la.is_some();
             let level = &mut job.levels[level_index];
             if !level.started() {
                 level.use_bla = has_bla;
+                level.use_la = has_la;
             }
             if !level.started() && !level.is_extension() {
                 level.use_interior = autoiter::use_interior_test(interior_enabled, stats, key_max_iter);
@@ -2795,6 +2958,7 @@ impl<B: GpuBackend> Renderer<B> {
         let (use_interior, use_bla, deep, interior_color, seed_now) = {
             let j = self.job.as_ref().expect("job");
             let l = &j.levels[level_index];
+            // (M6: LA replaces BLA in the pixel loop; seeds keep BLA blocks, below.)
             let ic = j.key.interior_color && l.set.aux.is_some() && self.ic_buffers.is_some();
             let seed_now = self.config.local_sa.mode != SaMode::Off
                 && l.aa.is_none()
@@ -2820,7 +2984,21 @@ impl<B: GpuBackend> Renderer<B> {
             let l = &self.job.as_ref().expect("job").levels[level_index];
             (l.seeded, l.seeding.is_some())
         };
-        let pipeline = match self.iterate_pipeline(de, use_interior, use_bla, deep, interior_color, seeded.is_some()) {
+        let (use_la, use_at) = {
+            let j = self.job.as_ref().expect("job");
+            let l = &j.levels[level_index];
+            let la = l.use_la && j.la.is_some();
+            (la, la && self.config.la_at && j.la.as_ref().is_some_and(LaGpu::has_at))
+        };
+        let pipeline = match self.iterate_pipeline(
+            de,
+            use_interior,
+            use_bla && !use_la,
+            deep,
+            interior_color,
+            seeded.is_some(),
+            (use_la, use_at),
+        ) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("almondbread: iterate pipeline failed: {e}");
@@ -2896,6 +3074,9 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        if use_la && let Some(t) = &job.la {
+            t.bind(&mut enc, deep, use_at, &self.dummy_buffer);
+        }
         enc.set_buffer(23, self.tile_bad.as_ref().map_or(&self.dummy_buffer, |t| &t.0), 0);
         enc.set_buffer(24, &self.level_buffer, 0);
         if let (Some((nodes, _)), Some((tiles, _)), Some(leaf)) = (&self.seed_nodes, &self.seed_tiles, seeded) {
@@ -3977,6 +4158,8 @@ impl<B: GpuBackend> Renderer<B> {
         // still running for it finishes on its thread and is dropped.
         self.bla = None;
         self.bla_build = None;
+        self.la = None;
+        self.la_build = None;
         let eps = self.config.bla_epsilon;
         self.bla_reach_log2 = if r.deep_kernel {
             BlaTableX::reach_log2(&r.extended, eps)
@@ -4369,7 +4552,11 @@ impl<B: GpuBackend> Renderer<B> {
             iterations_done: job.iterations as u64,
             steps_done: job.steps as u64,
             bla_forecast: job.bla_forecast,
-            bla_used: job.levels.iter().any(|l| l.use_bla),
+            bla_used: job.levels.iter().any(|l| l.use_bla && !l.use_la),
+            la_used: job.levels.iter().any(|l| l.use_la),
+            at_used: self.config.la_at
+                && job.levels.iter().any(|l| l.use_la)
+                && job.la.as_ref().is_some_and(LaGpu::has_at),
             iterations,
             seeds: if job.levels.iter().any(|l| l.seeding.is_some()) {
                 self.seed_report()

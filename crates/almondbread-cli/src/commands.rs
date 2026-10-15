@@ -107,6 +107,16 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
             list.join(" ")
         );
     }
+    if out.la_used {
+        let (t, entries, bytes, stages) = r.la_info();
+        println!(
+            "LA used{}: {entries} entries in {stages} stages ({} KB) built in {:.3} ms; {:.2}x fewer steps than iterations",
+            if out.at_used { " with AT" } else { "" },
+            bytes / 1024,
+            t * 1000.0,
+            out.iterations_done as f64 / out.steps_done.max(1) as f64
+        );
+    }
     if let Some(f) = out.bla_forecast {
         let (t, entries, bytes) = r.bla_info();
         println!(

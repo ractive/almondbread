@@ -254,7 +254,7 @@ const _: () = assert!(std::mem::size_of::<BlaEntryX>() == 40);
 pub const XZERO_EXP: i32 = -(1 << 28);
 
 /// `x = m 2^e` with `m` in [0.5, 1) for finite non-zero normal `x`.
-fn frexp(x: f64) -> (f64, i64) {
+pub(crate) fn frexp(x: f64) -> (f64, i64) {
     let bits = x.to_bits();
     let be = ((bits >> 52) & 0x7ff) as i64;
     if be == 0 {
@@ -267,7 +267,7 @@ fn frexp(x: f64) -> (f64, i64) {
     (f64::from_bits((bits & !(0x7ffu64 << 52)) | (1022u64 << 52)), be - 1022)
 }
 
-fn pow2(k: i64) -> f64 {
+pub(crate) fn pow2(k: i64) -> f64 {
     if k < -1022 {
         if k < -1074 { 0.0 } else { pow2(k + 64) * pow2(-64) }
     } else if k > 1023 {
@@ -279,36 +279,36 @@ fn pow2(k: i64) -> f64 {
 
 /// Extended-range non-negative real `m 2^e` (m in [0.5, 1), or 0).
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Xr {
-    m: f64,
-    e: i64,
+pub(crate) struct Xr {
+    pub(crate) m: f64,
+    pub(crate) e: i64,
 }
 
 impl Xr {
-    const ZERO: Xr = Xr { m: 0.0, e: 0 };
-    fn new(x: f64, e: i64) -> Xr {
+    pub(crate) const ZERO: Xr = Xr { m: 0.0, e: 0 };
+    pub(crate) fn new(x: f64, e: i64) -> Xr {
         if x == 0.0 || !x.is_finite() {
             return Xr::ZERO;
         }
         let (m, k) = frexp(x);
         Xr { m, e: e + k }
     }
-    fn from_f64(x: f64) -> Xr {
+    pub(crate) fn from_f64(x: f64) -> Xr {
         Xr::new(x, 0)
     }
-    fn is_zero(self) -> bool {
+    pub(crate) fn is_zero(self) -> bool {
         self.m == 0.0
     }
-    fn mul(self, b: Xr) -> Xr {
+    pub(crate) fn mul(self, b: Xr) -> Xr {
         Xr::new(self.m * b.m, self.e + b.e)
     }
-    fn div(self, b: Xr) -> Xr {
+    pub(crate) fn div(self, b: Xr) -> Xr {
         if b.is_zero() {
             return Xr::ZERO;
         }
         Xr::new(self.m / b.m, self.e - b.e)
     }
-    fn add(self, b: Xr) -> Xr {
+    pub(crate) fn add(self, b: Xr) -> Xr {
         if self.is_zero() {
             return b;
         }
@@ -322,19 +322,19 @@ impl Xr {
         }
         Xr::new(x.m + y.m * pow2(-d), x.e)
     }
-    fn lt(self, b: Xr) -> bool {
+    pub(crate) fn lt(self, b: Xr) -> bool {
         if self.m <= 0.0 || b.m <= 0.0 {
             return self.m < b.m;
         }
         (self.e, self.m) < (b.e, b.m)
     }
-    fn min(self, b: Xr) -> Xr {
+    pub(crate) fn min(self, b: Xr) -> Xr {
         if b.lt(self) { b } else { self }
     }
-    fn max(self, b: Xr) -> Xr {
+    pub(crate) fn max(self, b: Xr) -> Xr {
         if self.lt(b) { b } else { self }
     }
-    fn gpu(self) -> (f32, i32) {
+    pub(crate) fn gpu(self) -> (f32, i32) {
         if self.is_zero() {
             return (0.0, XZERO_EXP);
         }
@@ -350,16 +350,16 @@ impl Xr {
 
 /// Extended-range complex with one exponent: `(re + i im) 2^e`, max-abs mantissa in [0.5, 1).
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Xc {
-    re: f64,
-    im: f64,
-    e: i64,
+pub(crate) struct Xc {
+    pub(crate) re: f64,
+    pub(crate) im: f64,
+    pub(crate) e: i64,
 }
 
 impl Xc {
-    const ZERO: Xc = Xc { re: 0.0, im: 0.0, e: 0 };
-    const ONE: Xc = Xc { re: 0.5, im: 0.0, e: 1 };
-    fn new(re: f64, im: f64, e: i64) -> Xc {
+    pub(crate) const ZERO: Xc = Xc { re: 0.0, im: 0.0, e: 0 };
+    pub(crate) const ONE: Xc = Xc { re: 0.5, im: 0.0, e: 1 };
+    pub(crate) fn new(re: f64, im: f64, e: i64) -> Xc {
         let a = re.abs().max(im.abs());
         if a == 0.0 || !a.is_finite() {
             return Xc::ZERO;
@@ -372,17 +372,17 @@ impl Xc {
             e: e + k,
         }
     }
-    fn is_zero(self) -> bool {
+    pub(crate) fn is_zero(self) -> bool {
         self.re == 0.0 && self.im == 0.0
     }
-    fn mul(self, b: Xc) -> Xc {
+    pub(crate) fn mul(self, b: Xc) -> Xc {
         Xc::new(
             self.re * b.re - self.im * b.im,
             self.re * b.im + self.im * b.re,
             self.e + b.e,
         )
     }
-    fn add(self, b: Xc) -> Xc {
+    pub(crate) fn add(self, b: Xc) -> Xc {
         if self.is_zero() {
             return b;
         }
@@ -397,10 +397,10 @@ impl Xc {
         let s = pow2(-d);
         Xc::new(x.re + y.re * s, x.im + y.im * s, x.e)
     }
-    fn abs(self) -> Xr {
+    pub(crate) fn abs(self) -> Xr {
         Xr::new(self.re.hypot(self.im), self.e)
     }
-    fn gpu(self) -> ([f32; 2], i32) {
+    pub(crate) fn gpu(self) -> ([f32; 2], i32) {
         if self.is_zero() {
             return ([0.0, 0.0], XZERO_EXP);
         }
@@ -415,11 +415,11 @@ impl Xc {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct MergedX {
-    a: Xc,
-    b: Xc,
-    r: Xr,
-    k: Xr,
+pub(crate) struct MergedX {
+    pub(crate) a: Xc,
+    pub(crate) b: Xc,
+    pub(crate) r: Xr,
+    pub(crate) k: Xr,
 }
 
 const INVALID_X: MergedX = MergedX {
@@ -430,7 +430,7 @@ const INVALID_X: MergedX = MergedX {
 };
 
 impl MergedX {
-    fn single(z: &FloatExpComplex, eps: f64) -> Self {
+    pub(crate) fn single(z: &FloatExpComplex, eps: f64) -> Self {
         let a = Xc::new(
             2.0 * f64::from(z.mantissa[0]),
             2.0 * f64::from(z.mantissa[1]),
@@ -444,7 +444,7 @@ impl MergedX {
         }
     }
 
-    fn then(&self, y: &MergedX) -> MergedX {
+    pub(crate) fn then(&self, y: &MergedX) -> MergedX {
         let ax = self.a.abs();
         if self.r.is_zero() || y.r.is_zero() || ax.is_zero() {
             return INVALID_X;
@@ -457,7 +457,7 @@ impl MergedX {
         }
     }
 
-    fn entry(&self) -> BlaEntryX {
+    pub(crate) fn entry(&self) -> BlaEntryX {
         if self.r.is_zero() || self.e_out_of_range() {
             return BlaEntryX {
                 ae: XZERO_EXP,
@@ -483,7 +483,7 @@ impl MergedX {
         }
     }
 
-    fn e_out_of_range(&self) -> bool {
+    pub(crate) fn e_out_of_range(&self) -> bool {
         let big = 1i64 << 27;
         self.a.e.abs() > big || self.b.e.abs() > big || self.r.e.abs() > big || self.k.e.abs() > big
     }
@@ -567,6 +567,10 @@ impl BlaTableX {
     }
 
     /// The longest valid block at `m` for `|dz| = 2^zn_log2`, `|dc| = 2^cn_log2`.
+    pub(crate) fn longest_pub(&self, m: usize, n: usize, max_iter: usize, zn: Xr, cn: Xr) -> Option<(&BlaEntryX, usize)> {
+        self.longest(m, n, max_iter, zn, cn)
+    }
+
     fn longest(&self, m: usize, n: usize, max_iter: usize, zn: Xr, cn: Xr) -> Option<(&BlaEntryX, usize)> {
         if m == 0 {
             return None;
