@@ -33,8 +33,7 @@ mod precision;
 
 use options::Options;
 
-const USAGE: &str =
-    "usage: almondbread render|verify|precision|bench|regress|fly|benchmark|places|locate|journey|palettes [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|precision|bench|regress|fly|benchmark|places|locate|journey|palettes [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

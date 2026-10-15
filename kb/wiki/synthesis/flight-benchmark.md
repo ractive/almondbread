@@ -207,13 +207,39 @@ works.
 - In one of three window runs the app reported `window key true, app active true` at
   start, although the window is a TestLaunch background window. The other two runs, and
   the interaction test, reported false. It may have been a click on the visible window.
-  The bench now calls `NSApp.deactivate()` and `orderBack` before measuring.
+  The bench now calls `NSApp.deactivate()` and `orderBack` before measuring. After the
+  merge with d7ab9e1, two more window runs printed `window key false, app active true`.
+  The window never became key, but the app was active at start. Why is not resolved; the
+  interaction test, launched the same way, reports false.
+
+## After the fix (main d7ab9e1, 2026-10-15)
+
+The M5 fix resets the learned state on jumps
+([[techniques/auto-iterations]]). Measured on the M1 Pro at commit fbf692e, release, still
+noisy (other processes 7–10 cores, GPU up to 84 % busy). Three full v1 laps, A plus headless
+B (`--repeat 3 --warmup 0`): **every lap valid**. The heavy segment ends with 0.000 % class
+mismatch and 0.00 % of blocks differing from a jump render; it is no longer black, and
+heavy costs 4.4–6.7 s wall (4.3–6.6 s GPU) per lap. `stats.max_iterations` still reports
+10384 for the shown job against 41536 for a jump render, but the images agree: the
+extension passes resolve it.
+
+| | median of 3 | spread |
+|---|---|---|
+| A total | 27.86 s (shallow 5.30, dense 6.85, dive 6.32, heavy 4.68, rotate 3.41, jump 0.80); CPU 2.11 s, GPU 23.07 s | 17.7 % |
+| B headless | 95.4 % of due frames shown, p99 16.7 ms, sharp 10.57 s in all (heavy 6.3 s; 1e−1004 jump: first image 208 ms, sharp 0.79 s) | |
+| score vs provisional reference | 1262 (throughput 1310, real time 1215): meaningless until calibration | |
+
+One window lap (B live): 24.0 % shown (the display link still ran at ~30 Hz under the
+load), p99 108 ms, sharp 17.9 s, input to photon p50 33 / p95 77 ms.
+
+The settled still of the 1e−1004 jump shows a uniform blue disc around the minibrot where
+an earlier `render` showed fine bands. The jump render agrees (0 % of blocks differ), so this
+is the colouring at the 200000 limit, not reuse. Not investigated.
 
 ## Open
 
 - Calibrate on an idle machine (above).
-- Fix the heavy-spot auto-iteration path and the 0.59 % class mismatch (M5 work). Until
-  then mode A is INVALID by design.
+- Why the window-test app is active at start (above).
 - iOS: the FFI calls exist, but no iOS harness drives them yet.
 - A user-facing "Benchmark" (later): the score and per-segment table already come from
   Rust, so a SwiftUI sheet only has to show the JSON.
