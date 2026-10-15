@@ -65,8 +65,8 @@ pub struct Regime {
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
     pub enabled: bool,
-    /// Texels per output pixel at most (1: one sample per pixel); lowered for large views by
-    /// `max_texels`.
+    /// Texels per output pixel at most (√2: up to two samples per pixel, one on average over
+    /// the level band); lowered for large views by `max_texels`.
     pub max_ratio: f64,
     /// Texels of the visible window at the largest ratio (bounds the memory: ~32 B per texel
     /// of the allocation, which adds the rotation slack and tile rounding).
@@ -82,8 +82,8 @@ impl Default for CacheConfig {
             enabled: env("ALMONDBREAD_SAMPLE_CACHE").is_none_or(|v| v != "0"),
             max_ratio: env("ALMONDBREAD_CACHE_RATIO")
                 .and_then(|v| v.parse().ok())
-                .filter(|&v: &f64| v > 0.0 && v <= 1.0)
-                .unwrap_or(1.0),
+                .filter(|&v: &f64| v > 0.0 && v <= 2.0)
+                .unwrap_or(std::f64::consts::SQRT_2),
             max_texels: env("ALMONDBREAD_CACHE_TEXELS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(4_200_000),
@@ -808,6 +808,17 @@ impl<B: GpuBackend> SampleCache<B> {
         let budget_texels = inp.budget / cost;
         let n = (inp.width * inp.height) as f64;
         let afford = (budget_texels / (n * self.demand.max(1e-4))).sqrt();
+        if self.config.trace {
+            eprintln!(
+                "sample cache: steer cost {:.3e} s/texel budget {:.1} ms demand {:.4} afford {:.3} target {:.3} backlog {}",
+                cost,
+                inp.budget * 1000.0,
+                self.demand,
+                afford,
+                self.target,
+                self.backlog
+            );
+        }
         let mut fit = self.cap;
         let mut steps = 0;
         while fit > afford && steps < MAX_STEPS {
