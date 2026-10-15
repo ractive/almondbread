@@ -1000,7 +1000,7 @@ mod tests {
             // after each landing.
             let moving = k < 50;
             let committed = moving && k % 2 == 0;
-            let settled = (k >= 70 && k < 100) || k >= 120;
+            let settled = (70..100).contains(&k) || k >= 120;
             rec.refresh(t, base + t, moving, committed, settled, None);
         }
         let r = rec.report();
