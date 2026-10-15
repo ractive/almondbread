@@ -734,6 +734,19 @@ was measured and rejected (8 s GPU per frame at the cusp, minutes at the neck). 
 [[techniques/pi-in-the-mandelbrot-set]], [[questions/pi-escape-count-conventions]],
 [[decisions/controls]] "π meter", [[synthesis/places]], [[ideas]], [[index]].
 
+## [2026-10-15] decision | "How big is big?" panel removed
+
+The user removed the panel: "It's an own window, which is not like the rest; way too much text;
+not sure if people understand it." Gone from the app: `HowBigView.swift`, the `how-big` window
+scene, its View-menu item and control-center button (and search keywords), the `howbig`
+ui-demo scenes, the cosmic size scale's "How big is big? →" link with `Explorer.cosmicHint()`
+and its Rust side (`CosmicOverlay::hint`, `Host::cosmic_hint_points`, `CosmicScale::past_planck`),
+`almondbread-ffi/src/how_big.rs` and `almondbread-core/src/bignum_scale.rs` with its tests.
+The maths (linear super-log convention, marker table, facts) stays in
+[[synthesis/how-big-is-big]], marked removed, for achievements later; the sources pages stay.
+Pages: [[synthesis/how-big-is-big]], [[decisions/controls]], [[decisions/gamification]],
+[[ideas]], [[index]].
+
 ## [2026-10-15] decision | π hunt: the view stays in the valley, a probe and the orbit trail
 
 User feedback: "Since the π hunting is only on black regions, it's not really exciting." The

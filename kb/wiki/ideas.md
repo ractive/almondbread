@@ -95,9 +95,11 @@ User: fascinated by googol, googolplex, Graham's number, TREE(3); how does our 1
 Direct comparison is hopeless, so compare the kind of size: one dial per Knuth up-arrow, as a
 gear train after Ganson's "Machine with Concrete".
 
-- **Status 2026-10-15: built.** Window on the Mac (View menu, control center), sheet on iOS;
-  maths in Rust. As built, with the convention, numbers and sources: [[synthesis/how-big-is-big]].
-  Open: a link from the cosmic size scale overlay.
+- **Status 2026-10-15: built, then removed the same day.** User: "It's an own window, which
+  is not like the rest; way too much text; not sure if people understand it." Panel, window,
+  menu item, control-center button, the cosmic scale's link and the Rust maths are gone. The
+  convention, numbers and sources stay in [[synthesis/how-big-is-big]] for achievements later
+  ([[decisions/gamification]]).
 
 ## Money ladder for the relative mode (2026-10-15)
 

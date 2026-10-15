@@ -736,11 +736,6 @@ impl CosmicScale {
         compress(d, self.planck_d + 1.0, 12.0, 15.0)
     }
 
-    /// Past the end of the physical scale (or of the relative cosmos).
-    pub fn past_planck(&self, d: f64) -> bool {
-        d > self.planck_d
-    }
-
     /// Faint rungs between `lo` and `hi`: the things repeated in every ladder (physical: from
     /// the big numbers on, universe-sized set to the Planck length; relative: every cosmos
     /// length past the first).

@@ -267,9 +267,6 @@ public final class ExplorerModel {
     public var cosmicAnchor = "screen" { didSet { pushCosmic() } }
     /// Physical size of a view point (the platform view measures its screen; 0: unknown).
     var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
-    /// The cosmic panel's rect while the view is past the Planck length (a "How big is big?"
-    /// link goes next to it); nil otherwise.
-    var cosmicHint: CosmicPanelRect?
     /// The status overlay (zoom, iterations, GPU time) in the top-left corner.
     public var showHUD: Bool = UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
@@ -900,8 +897,6 @@ public final class ExplorerModel {
     /// when it stops). Assigns only on change, so idle views do not re-render.
     func refreshStats() {
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
-        let hint = cosmicScale ? explorer?.cosmicHint() : nil
-        if hint != cosmicHint { cosmicHint = hint }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
         guard let new = explorer?.stats(), new != stats else { return }
         if let old = stats, old.zoomSpeed != new.zoomSpeed || old.autopilot.speed != new.autopilot.speed

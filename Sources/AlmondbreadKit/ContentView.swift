@@ -48,15 +48,6 @@ struct ContentView: View {
             }
         }
         .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
-        // Past the Planck length the cosmic size scale points on to "How big is big?".
-        .overlay(alignment: .topLeading) {
-            if let r = model.cosmicHint {
-                // Rust's rect is in canvas points; the canvas runs under the title bar.
-                CosmicHowBigLink(model: model, panel: r)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .ignoresSafeArea()
-            }
-        }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
         .onChange(of: compactWidth, initial: true) { model.piMeterInsetRight = compactWidth ? 56 : 0 }

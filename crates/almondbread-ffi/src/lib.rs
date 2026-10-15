@@ -25,7 +25,6 @@ uniffi::setup_scaffolding!();
 mod cosmic;
 mod explorer;
 mod flight_bench;
-mod how_big;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {

@@ -143,28 +143,6 @@ public enum UIDemo {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/chrome-\(scene).png"))
     }
 
-    /// The "How big is big?" panel drawn offscreen (no window opens: nothing comes to the
-    /// front) at the Mac window's width and at an iPhone's (390 pt), at the shown zoom.
-    @MainActor
-    static func captureHowBig(_ model: ExplorerModel, scene: String) {
-        for (suffix, width) in [("", 760.0), ("-phone", 390.0)] {
-            let view = HowBigPanel(model: model)
-                .frame(width: width)
-                .background(HowBigStyle.background)
-                .environment(\.colorScheme, .dark)
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            guard let cg = renderer.cgImage else {
-                print("ui-demo: how-big render failed")
-                continue
-            }
-            let rep = NSBitmapImageRep(cgImage: cg)
-            try? rep.representation(using: .png, properties: [:])?
-                .write(to: URL(fileURLWithPath: "\(outDir)/\(scene)\(suffix).png"))
-        }
-        print("ui-demo: how-big zoom 10^\(String(format: "%.1f", model.stats?.shown.zoomLog10 ?? 0))")
-    }
-
     @MainActor
     private static func findFractalView(_ v: NSView) -> NSView? {
         if v is FractalNSView { return v }
@@ -187,7 +165,6 @@ public enum UIDemo {
         case "autopilot": "autopilot"
         case "pi", "pi-flight": "π"
         case "cosmic", "cosmic-deep", "cosmic-relative": "cosmic"
-        case let s? where s.hasPrefix("howbig"): "googol"
         default: nil
         }
     }
@@ -247,11 +224,6 @@ public enum UIDemo {
             try? explorer.setViewportText(re: "0", im: "1", scale: "1e-103")
             model.cosmicScale = true
             model.cosmicAnchor = "cosmos"
-        case let s where s.hasPrefix("howbig"):
-            // `howbig-<log10 zoom>` (`howbig` = home): the "How big is big?" panel at that depth,
-            // a cheap view (a point outside the set: short reference orbits at any depth).
-            let l = Int(s.dropFirst("howbig-".count)) ?? 0
-            if l > 0 { try? explorer.setViewportText(re: "0.3", im: "0.6", scale: "3.75e-\(l + 3)") }
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
             model.mapEnabled = true
@@ -279,7 +251,6 @@ public enum UIDemo {
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
-                    if scene.hasPrefix("howbig") { captureHowBig(model, scene: scene) }
                     print("ui-demo: window \(w.windowNumber) orbit: \(model.orbit?.text ?? "")")
                     fflush(stdout)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }

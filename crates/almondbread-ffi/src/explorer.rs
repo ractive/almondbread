@@ -982,11 +982,6 @@ impl Explorer {
     pub(crate) fn with_cosmic<R>(&self, f: impl FnOnce(&mut almondbread_render::cosmic::CosmicOverlay) -> R) -> R {
         f(&mut self.lock().host.overlay.cosmic)
     }
-
-    /// The cosmic panel's rect in points while past the Planck length (`crate::cosmic`).
-    pub(crate) fn cosmic_hint_points(&self) -> Option<[f64; 4]> {
-        self.lock().host.cosmic_hint_points()
-    }
 }
 
 #[uniffi::export]

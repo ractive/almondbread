@@ -26,20 +26,11 @@ pub struct CosmicOverlay {
     primed: bool,
     /// The crossed mark and when.
     flash: Option<(usize, f64)>,
-    /// The panel's rect in output pixels when the view is past the Planck length (the UI
-    /// shows a "How big is big?" link next to it), set by `draw`.
-    hint: std::cell::Cell<Option<[f32; 4]>>,
 }
 
 impl CosmicOverlay {
     pub fn enabled(&self) -> bool {
         self.settings.enabled
-    }
-
-    /// The panel's rect (output pixels: x0, y0, x1, y1) while the view is past the Planck
-    /// length, for the UI's "How big is big?" link.
-    pub fn hint(&self) -> Option<[f32; 4]> {
-        self.enabled().then(|| self.hint.get()).flatten()
     }
 
     /// A highlight is fading: keep frames coming.
@@ -320,7 +311,6 @@ impl CosmicOverlay {
             );
             key.push_str(&format!("flash {i} {:.2} ", t));
         }
-        self.hint.set(scale.past_planck(d).then_some([x0, y0, x1, y1]));
         key.push_str(&format!("cosmic {d:.4} {x0} {y1} {pw} "));
     }
 }

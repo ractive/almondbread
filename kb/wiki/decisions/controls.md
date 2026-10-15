@@ -661,9 +661,9 @@ sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
   cell, an atom), then "Zoom range as cosmos (metaphor)", in groups. A caption under the picker
   explains the chosen anchor ("Your window is fixed: how big would the whole set be?"), and the
   options carry the same text as tooltips.
-- **How big is big?**: past the Planck length (or past the relative cosmos), a gold "How big
-  is big? →" link sits above the panel's top-right corner and opens the gear panel. Rust
-  reports the panel rect through `Explorer.cosmicHint()`, polled with the ~10 Hz stats.
+- **How big is big?** (removed 2026-10-15): past the Planck length a gold "How big is big? →"
+  link above the panel opened the gear panel, placed from `Explorer.cosmicHint()`. Link, panel
+  and `cosmicHint()` are gone with the panel ([[synthesis/how-big-is-big]]).
 - **Readability**: the backing is 86 % opaque black, and the labels and lines have a 2.4 to
   2.6 px dark outline. Labels go above or below the ruler, whichever row is free, at least
   9 pt from the next label and never far from their dot; a label that does not fit is hidden.
