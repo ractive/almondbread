@@ -143,9 +143,12 @@ pub fn round_product(p: &[u64], n: usize, out: &mut [u64]) -> i64 {
 /// Rounds a short product (columns >= n-2 only) into `out` when the rounding decision is
 /// certain, returning the exponent adjustment; `None` means "compute the full product".
 /// The skipped columns add less than n units to limb n-1, so the decision is certain when
-/// the bits of limb n-1 below the round bit are non-zero (no tie possible) and stay below
-/// the round bit after adding n. Fails with probability ~n/2^62; the result is then
-/// identical to the full product's.
+/// the bits of limb n-1 below the round bit stay below the round bit after adding n, and
+/// no tie is possible: either those bits are non-zero or the round bit is clear (then the
+/// exact value is below half an ulp whatever the skipped columns hold; this keeps products
+/// of short mantissas, such as an orbit of exact small numbers like c = i, on the short
+/// path). Fails with probability ~n/2^62 on full mantissas; the result is then identical
+/// to the full product's.
 #[inline(always)]
 pub fn round_short_product(p: &[u64], n: usize, out: &mut [u64]) -> Option<i64> {
     let (p, out) = (&p[..2 * n], &mut out[..n]);
@@ -154,7 +157,8 @@ pub fn round_short_product(p: &[u64], n: usize, out: &mut [u64]) -> Option<i64> 
     let rb_pos = if top_set { 63 } else { 62 };
     let mask = (1u64 << rb_pos) - 1;
     let rest = l & mask;
-    if rest == 0 || rest.wrapping_add(n as u64).wrapping_add(1) > mask {
+    let round_bit = (l >> rb_pos) & 1 != 0;
+    if (rest == 0 && round_bit) || rest.wrapping_add(n as u64).wrapping_add(1) > mask {
         return None;
     }
     let mut adjust = 0;
@@ -166,7 +170,7 @@ pub fn round_short_product(p: &[u64], n: usize, out: &mut [u64]) -> Option<i64> 
         }
         adjust = -1;
     }
-    if (l >> rb_pos) & 1 != 0 && mantissa_increment(out) {
+    if round_bit && mantissa_increment(out) {
         adjust += 1;
     }
     Some(adjust)
@@ -579,6 +583,57 @@ pub fn set_f64<R: AsMut<[u64]>>(r: &mut Raw<R>, d: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The short-product rounding agrees with the full product's whenever it decides, also
+    /// for sparse mantissas (exact small values, trailing zero limbs, runs of ones).
+    #[test]
+    fn short_product_rounding_matches_full() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut decided = 0;
+        for n in 3..=24 {
+            for case in 0..400 {
+                let mut a = vec![0u64; n];
+                let mut b = vec![0u64; n];
+                for (k, (x, y)) in a.iter_mut().zip(b.iter_mut()).enumerate() {
+                    let pick = |v: u64, sel: u64| match sel % 4 {
+                        0 => 0,
+                        1 => u64::MAX,
+                        _ => v,
+                    };
+                    let keep = case % 3 == 0 || k + 2 >= n;
+                    *x = if keep { pick(next(), next()) } else { 0 };
+                    *y = if keep || case % 2 == 0 { pick(next(), next()) } else { 0 };
+                }
+                a[n - 1] |= 1 << 63;
+                b[n - 1] |= 1 << 63;
+                for sq in [false, true] {
+                    let bb = if sq { &a } else { &b };
+                    let mut pf = vec![0u64; 2 * n];
+                    limbs::mul_columns(&mut pf, &a, bb, n, 0);
+                    let mut want = vec![0u64; n];
+                    let adj_want = round_product(&pf, n, &mut want);
+                    let mut ps = vec![0u64; 2 * n];
+                    if sq {
+                        limbs::sqr_columns(&mut ps, &a, n, n - 2);
+                    } else {
+                        limbs::mul_columns(&mut ps, &a, bb, n, n - 2);
+                    }
+                    let mut got = vec![0u64; n];
+                    if let Some(adj) = round_short_product(&ps, n, &mut got) {
+                        decided += 1;
+                        assert_eq!((adj, &got), (adj_want, &want), "n={n} case={case} sq={sq}");
+                    }
+                }
+            }
+        }
+        assert!(decided > 10_000);
+    }
 
     #[test]
     fn two_m200_is_exact() {

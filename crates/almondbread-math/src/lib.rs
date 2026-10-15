@@ -21,6 +21,7 @@ mod floatexp;
 #[doc(hidden)]
 pub mod limbs;
 mod orbit;
+mod parallel;
 #[doc(hidden)]
 pub mod raw;
 pub mod selection;
@@ -29,9 +30,10 @@ pub use bigfloat::BigFloat;
 pub use complex::BigComplex;
 pub use floatexp::{DoubleExp, DoubleExpComplex, FloatExp, FloatExpComplex};
 pub use orbit::{
-    AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Variant, recommended_precision_bits,
-    recommended_precision_bits_with, with_no_control,
+    AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Threads, Variant,
+    recommended_precision_bits, recommended_precision_bits_with, with_no_control,
 };
+pub use parallel::{PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS};
 pub use selection::{
     MisiurewiczResult, NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period,
     find_misiurewicz, find_nucleus, find_period, find_period_from, minibrot_size, minibrot_size_complex,

@@ -882,3 +882,73 @@ and the session gates on escape counts (≤ 1 %).
 indexed a dropped AA level (the "Lagoon" crash). Regression test
 `colour_change_during_progressive_aa` (every palette and look applied with AA in flight)
 fails with the reported panic without the fix.
+## R6: faster deep references, 2026-10-15
+
+What changed: [[techniques/parallel-reference-orbit]]. Measured 2026-10-15, M1 Pro (8 P +
+2 E cores), release, base = `b781bee` (M3b/R3 main) against the R6 branch, runs
+interleaved base/new. Other agents shared the machine throughout: "loaded" = 1-minute load
+average 35-90, "lighter" = load 4-12 (the quietest it got). Both are given.
+
+**Orbit with outputs, one vs three threads** (`math_check par`, iterations/s, best / median
+of 5-7 interleaved runs; the single-thread column is the faster form, unchanged by R6):
+
+| bits | depth | 1 thread (lighter) | 3 threads (lighter) | x best / median (lighter) | x best / median (load ~20) |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1024 | | 2.86 M | 2.70 M | 1.01 / 0.94 | 1.05 / 0.85 |
+| 1536 | | 1.43 M | 1.63 M | 1.44 / 1.14 | 1.31 / 1.06 |
+| 2048 | | 0.97 M | 1.33 M | 1.53 / 1.37 | 1.29 / 1.16 |
+| 3456 | 1e-1000 | 439 k | 796 k | 1.92 / 1.81 | 1.74 / 1.66 |
+| 6784 | 1e-2000 | 142 k | 313 k | 2.21 / 2.21 | 2.24 / 2.19 |
+| 10048 | 1e-3000 | 69 k | 158 k | 2.29 / 2.27 | 2.37 / 2.10 |
+
+Helpers are used from 24 limbs (1536 bits) for orbits of 256+ iterations on 8+ core machines,
+by the reference worker and Newton only (the CPU oracle stays single-threaded per orbit). So
+per 100 000 iterations of a full-mantissa reference: 1e-20 (192 bits), 1e-100 (448) and 1e-300
+(1152) are unchanged (3.3 ms, 7.2 ms, 47 ms single-thread); 1e-1000 0.23 s -> 0.13 s;
+1e-2000 0.70 s -> 0.32 s. The spin-then-yield exchange degrades under load: at load 85 the
+1e-1000 orbit gained only 1.27x in one series, and medians trail best runs by up to 25 %.
+
+**Jump reference** (`reference_check`, 640 texels, limit 200 000, centre orbit to 400 000; ms;
+"first" = first usable reference: base waits for the whole orbit, R6 hands out a 25 001-point
+prefix; median of 3 (lighter) / 5 (loaded)):
+
+| view | bits | base select + orbit (lighter) | R6 select + orbit (lighter) | base first | R6 first (lighter / loaded) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| dendrite@1e-20 | 192 | 0.1 + 10.9 | 0.1 + 8.2 | 11.1 | 1.2 / 1.3 |
+| dendrite@1e-100 | 448 | 1.0 + 34.8 | 0.4 + 16.7 | 35.8 | 1.6 / 1.6 |
+| dendrite@1e-300 | 1152 | 10.1 + 269 | 4.4 + 127 | 279 | 12.7 / 13.1 |
+| dendrite@1e-1000 | 3456 | 205 + 1532 | 42 + 431 | 1735 | 72 / 109 |
+| dendrite@1e-2000 | 6784 | 1379 + 4773 | 229 + 1238 | 6155 | 311 / 433 |
+| needle-1e305 | 1152 | 0.3 + 0.1 | 0.4 + 0.1 | 0.4 | 0.5 / 0.5 |
+| needle-1e1004 | 3456 | 6.3 + 1.2 | 5.0 + 0.9 | 7.5 | 5.9 / 16 |
+
+The dendrite (c = i) orbit is exact small numbers; its 2.2x orbit gain at 1e-300 is the
+short-product round-down fix alone, at 1e-1000/2000 that fix times the three threads. The
+needles use one-period nucleus orbits and were already fast (no change beyond noise).
+
+**Time to first frame, "Go to coordinates"** (`verify --history jump --location L --size
+640x410`, ms from the jump to the first frame of the new view, which is also the complete
+frame here; all sessions pass the CPU-oracle and fresh-render checks):
+
+| location | base (lighter, 2 runs) | R6 (lighter) | base (loaded, 3 runs) | R6 (loaded) |
+| --- | --- | --- | --- | --- |
+| needle-1e305 | 43, 51 | 43, 35 | 60, 77, 52 | 43, 65, 68 |
+| needle-1e1004 | 27, 27 | 27, 35 | 35, 49, 34 | 43, 60, 43 |
+| dendrite-1e300 | 318, 327 | 27, 35 | 379, 376, 368 | 44, 36, 48 |
+| dendrite-1e1000 | 1818, 1835 | 93, 110 | 2078, 2017, 2067 | 135, 269, 135 |
+
+The first frame renders with the 25 001-point prefix (pixels rebase at its end); the dendrite
+views escape by ~2700 iterations, so the prefix covers them entirely. `make regress`
+(all sessions) passes.
+
+**Multiplication algorithms at deep sizes** (`math_check kernels`, ns per square, best of 5,
+load ~20): short Comba vs full square (Comba < 48 limbs, Karatsuba above): 18 limbs 101 vs
+170, 54 limbs 616 vs 1128, 106 limbs 2071 vs 3553, 157 limbs 4596 vs 6784, 256 limbs 11206
+vs 15576. No Toom-3, Mulders or NTT was built: they would have to beat the short product,
+not Karatsuba ([[platform/mpfr-gmp-on-apple-silicon]]).
+
+**Correctness**: `orbit_digest` (5 points incl. c = i, 64-10048 bits, all variants, one and
+three threads) identical to base; unit tests for three threads through escape, resume after
+cancel, short-product rounding on sparse mantissas, progressive prefixes equal to the final
+orbit; nuclei within the oracle tolerance (Newton not bit-identical by design);
+`cargo test --workspace --release`, clippy `-D warnings`, fmt clean.

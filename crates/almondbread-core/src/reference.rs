@@ -16,13 +16,13 @@
 //! a reference is reused while panning and zooming as long as its precision covers the pixel
 //! spacing and it lies within float32 reach of the pixels ([`Reference::fit`]).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 use almondbread_math::{
-    BigFloat, FloatExpComplex, PeriodMethod, ReferenceOrbitComputer, recommended_precision_bits_with,
+    BigFloat, FloatExpComplex, PeriodMethod, ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
 };
 
 use crate::viewport::{Center, Scale, Viewport};
@@ -49,6 +49,12 @@ pub const EXTRA_BITS: usize = 64;
 /// A reference farther than this many texels from the view centre is unusable (float32
 /// texel offsets lose sub-texel resolution beyond).
 pub const MAX_OFFSET_TEXELS: f64 = 65536.0;
+
+/// The first prefix a progressive centre reference hands out, as a fraction of the
+/// requested length (R6: 1/16 of 2x the limit = 1/8 of the limit).
+pub const PARTIAL_FIRST_FRACTION: f64 = 1.0 / 16.0;
+/// Prefixes shorter than this are not handed out (the whole orbit is quick anyway).
+pub const PARTIAL_MIN_POINTS: usize = 4096;
 
 /// A reference orbit and where it came from.
 #[derive(Clone, Debug)]
@@ -142,6 +148,23 @@ impl Reference {
     /// A big reference for `request` (see the module docs). `cancel` is polled every 4096
     /// iterations; returns None when cancelled. `progress` counts orbit iterations done.
     pub fn compute_big(request: &ReferenceRequest, cancel: &AtomicBool, progress: &AtomicUsize) -> Option<Self> {
+        Self::compute_big_progressive(request, cancel, progress, &mut |_| {})
+    }
+
+    /// [`Reference::compute_big`] that also hands out prefixes of a long centre orbit as
+    /// soon as they are computed (R6, kb: techniques/parallel-reference-orbit): rebasing
+    /// makes any prefix of at least two points a correct reference (pixels rebase at its
+    /// end), so the first frame need not wait for the whole orbit. `partial` gets the
+    /// prefix of [`PARTIAL_FIRST_FRACTION`] of the request (a short, `Stale` reference),
+    /// then the prefix of half of it (the view's own limit when the request is the
+    /// scheduler's 2x: `Good`). The final reference is bit-identical to an uninterrupted
+    /// computation's.
+    pub fn compute_big_progressive(
+        request: &ReferenceRequest,
+        cancel: &AtomicBool,
+        progress: &AtomicUsize,
+        partial: &mut dyn FnMut(Reference),
+    ) -> Option<Self> {
         let bits = request.precision_bits.div_ceil(64) * 64;
         let center = request.center.with_min_precision(bits);
         let t0 = Instant::now();
@@ -166,7 +189,7 @@ impl Reference {
         let select_time = t0.elapsed().as_secs_f64();
         let t1 = Instant::now();
         let iters = period.unwrap_or(request.max_iter).max(1);
-        let comp = ReferenceOrbitComputer::new(point.big(), bits);
+        let comp = ReferenceOrbitComputer::new(point.big(), bits).with_threads(Threads::Automatic);
         let mut points = vec![[0.0f32; 2]; iters + 1];
         let mut extended = vec![FloatExpComplex::ZERO; iters + 1];
         let mut never_progress = |n: usize| progress.store(n, Ordering::Relaxed);
@@ -175,10 +198,58 @@ impl Reference {
             is_cancelled: &mut is_cancelled,
             progress: &mut never_progress,
         };
-        let r = comp.compute(iters, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl);
-        if r.cancelled {
-            return None;
+        // Centre orbits run in stages; a nucleus orbit (one period) in one go.
+        let mut stages = Vec::new();
+        if period.is_none() {
+            let first = (iters as f64 * PARTIAL_FIRST_FRACTION) as usize;
+            if first >= PARTIAL_MIN_POINTS {
+                stages.push(first);
+            }
+            if iters / 2 > first && iters / 2 >= PARTIAL_MIN_POINTS {
+                stages.push(iters / 2);
+            }
         }
+        stages.push(iters);
+        let mut r: Option<almondbread_math::OrbitResult> = None;
+        for &stage in &stages {
+            let next = match &r {
+                None => comp.compute(stage, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl),
+                Some(prev) => comp.resume(
+                    prev,
+                    stage,
+                    request.bailout,
+                    Some(&mut points),
+                    Some(&mut extended),
+                    &mut ctl,
+                ),
+            };
+            if next.cancelled {
+                return None;
+            }
+            let done = next.escaped || stage == iters;
+            if !done {
+                partial(Self {
+                    point: point.clone(),
+                    scale: request.scale,
+                    precision_bits: bits,
+                    max_iter: request.max_iter,
+                    points: points[..next.count].to_vec(),
+                    extended: extended[..next.count].to_vec(),
+                    period: None,
+                    detected_period: detected,
+                    escaped: false,
+                    big: true,
+                    deep_kernel: request.scale.to_f64() < DEEP_KERNEL_SCALE,
+                    select_time,
+                    orbit_time: t1.elapsed().as_secs_f64(),
+                });
+            }
+            r = Some(next);
+            if done {
+                break;
+            }
+        }
+        let r = r.expect("at least one stage");
         points.truncate(r.count);
         extended.truncate(r.count);
         if points.len() < 2 {
@@ -315,6 +386,8 @@ struct WorkerJob {
     cancel: Arc<AtomicBool>,
     progress: Arc<AtomicUsize>,
     handle: JoinHandle<Option<Reference>>,
+    /// The latest prefix the computation handed out and nobody took yet.
+    partial: Arc<Mutex<Option<Reference>>>,
     start: Instant,
 }
 
@@ -324,10 +397,17 @@ impl ReferenceWorker {
         self.cancel();
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicUsize::new(0));
-        let (c, p, r) = (cancel.clone(), progress.clone(), request.clone());
+        let partial = Arc::new(Mutex::new(None));
+        let (c, p, r, slot) = (cancel.clone(), progress.clone(), request.clone(), partial.clone());
         let handle = std::thread::Builder::new()
             .name("almondbread-reference".into())
-            .spawn(move || Reference::compute_big(&r, &c, &p));
+            .spawn(move || {
+                Reference::compute_big_progressive(&r, &c, &p, &mut |prefix| {
+                    if let Ok(mut s) = slot.lock() {
+                        *s = Some(prefix);
+                    }
+                })
+            });
         match handle {
             Ok(handle) => {
                 self.started += 1;
@@ -336,6 +416,7 @@ impl ReferenceWorker {
                     cancel,
                     progress,
                     handle,
+                    partial,
                     start: Instant::now(),
                 })
             }
@@ -361,11 +442,16 @@ impl ReferenceWorker {
             .map(|j| (j.start.elapsed().as_secs_f64(), j.progress.load(Ordering::Relaxed)))
     }
 
-    /// The finished reference, once; `wait` blocks until the running one is done.
+    /// The finished reference, once; `wait` blocks until the running one is done. Without
+    /// `wait`, while the computation runs, a prefix it handed out since the last poll
+    /// ([`Reference::compute_big_progressive`]; the computation stays pending).
     pub fn poll(&mut self, wait: bool) -> Option<Reference> {
         let finished = self.job.as_ref().is_some_and(|j| j.handle.is_finished());
         if !finished && !wait {
-            return None;
+            return self
+                .job
+                .as_ref()
+                .and_then(|j| j.partial.lock().ok().and_then(|mut s| s.take()));
         }
         let job = self.job.take()?;
         match job.handle.join() {
@@ -412,6 +498,33 @@ mod tests {
         // Shallow views keep the f64 path.
         let shallow = Viewport::new(-1.75, 0.0, 1e-6);
         assert_eq!(r.fit(&shallow, shallow.scale, 1000, 5000), Fit::No);
+    }
+
+    /// A long centre orbit is handed out as prefixes (1/16, then 1/2 of the request) that
+    /// equal the start of the final orbit; the half-length one serves the view's limit.
+    #[test]
+    fn progressive_prefixes_match_the_final_orbit() {
+        let v = Viewport::with_center(Center::new(-0.5, 0.1), Scale::from_f64(1e-30));
+        let limit = 40_000;
+        let mut req = ReferenceRequest::for_view(&v, v.scale, 800, 500.0, 2 * limit, 65536.0);
+        req.nucleus = false;
+        let mut parts = Vec::new();
+        let r = Reference::compute_big_progressive(&req, &AtomicBool::new(false), &AtomicUsize::new(0), &mut |p| {
+            parts.push(p)
+        })
+        .unwrap();
+        assert_eq!(r.points.len(), 2 * limit + 1);
+        let lens: Vec<usize> = parts.iter().map(|p| p.points.len()).collect();
+        assert_eq!(lens, vec![2 * limit / 16 + 1, limit + 1]);
+        for p in &parts {
+            let n = p.points.len();
+            assert_eq!(p.points[..], r.points[..n]);
+            assert_eq!(p.extended[..], r.extended[..n]);
+        }
+        assert_eq!(parts[0].fit(&v, v.scale, 800, limit), Fit::Stale);
+        assert_eq!(parts[1].fit(&v, v.scale, 800, limit), Fit::Good);
+        let whole = Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
+        assert!(whole.points == r.points && whole.extended == r.extended);
     }
 
     #[test]
