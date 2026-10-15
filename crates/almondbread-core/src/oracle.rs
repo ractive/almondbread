@@ -109,7 +109,9 @@ impl IterationField {
 /// Direct f64 iteration `z <- z^2 + c` from z = 0: no perturbation, no interior test, the
 /// same pixel grid, bailout and smooth formula as the GPU kernel. Float32 errors in the GPU
 /// path are silent, so this is the ground truth the verifier diffs against. Valid while f64
-/// resolves the pixel spacing (scales above about 1e-15). Rows run in parallel.
+/// resolves the pixel spacing (scales above about 1e-15). Rows run in parallel. `angle`: the
+/// view's rotation (radians, [`crate::viewport::Viewport::angle`]).
+#[allow(clippy::too_many_arguments)]
 pub fn cpu_render(
     center_re: f64,
     center_im: f64,
@@ -118,7 +120,9 @@ pub fn cpu_render(
     height: usize,
     max_iter: usize,
     bailout: f64,
+    angle: f64,
 ) -> IterationField {
+    let (rs, rc) = if angle == 0.0 { (0.0, 1.0) } else { angle.sin_cos() };
     let mut n = vec![0f32; width * height];
     let mut s = vec![0f32; width * height];
     let b2 = bailout * bailout;
@@ -128,10 +132,18 @@ pub fn cpu_render(
         .zip(s.par_chunks_mut(width.max(1)))
         .enumerate()
         .for_each(|(y, (nrow, srow))| {
-            // Same sample position as the kernel: texel centre, y flipped.
-            let ci = center_im - (y as f64 + 0.5 - half_h) * scale;
+            // Same sample position as the kernel: texel centre, y flipped, turned by the angle.
+            let oy = -(y as f64 + 0.5 - half_h);
             for x in 0..width {
-                let cr = center_re + (x as f64 + 0.5 - half_w) * scale;
+                let ox = x as f64 + 0.5 - half_w;
+                let (cr, ci) = if angle == 0.0 {
+                    (center_re + ox * scale, center_im + oy * scale)
+                } else {
+                    (
+                        center_re + (ox * rc - oy * rs) * scale,
+                        center_im + (ox * rs + oy * rc) * scale,
+                    )
+                };
                 let (mut zr, mut zi, mut r2) = (0.0f64, 0.0f64, 0.0f64);
                 let mut i = 0usize;
                 while i < max_iter {
@@ -246,14 +258,17 @@ pub fn cpu_render_deep(
     height: usize,
     max_iter: usize,
     bailout: f64,
+    angle: f64,
 ) -> (IterationField, OracleReference) {
     let reference = OracleReference::compute(center, texel, width.max(height), max_iter, bailout);
-    let field = cpu_render_deep_with(&reference, texel, width, height, max_iter, bailout, (0.0, 0.0));
+    let field = cpu_render_deep_with(&reference, texel, width, height, max_iter, bailout, (0.0, 0.0), angle);
     (field, reference)
 }
 
 /// [`cpu_render_deep`] against a given reference whose point lies `offset` texels from the
-/// view centre (offset = centre - reference point, in texels).
+/// view centre (offset = centre - reference point, in texels, plane axes); `angle` turns the
+/// pixel grid as [`cpu_render`]'s.
+#[allow(clippy::too_many_arguments)]
 pub fn cpu_render_deep_with(
     reference: &OracleReference,
     texel: Scale,
@@ -262,7 +277,9 @@ pub fn cpu_render_deep_with(
     max_iter: usize,
     bailout: f64,
     offset: (f64, f64),
+    angle: f64,
 ) -> IterationField {
+    let (rs, rc) = if angle == 0.0 { (0.0, 1.0) } else { angle.sin_cos() };
     let mut n = vec![0f32; width * height];
     let mut s = vec![0f32; width * height];
     let half_w = width as f64 / 2.0;
@@ -273,8 +290,14 @@ pub fn cpu_render_deep_with(
         .enumerate()
         .for_each(|(y, (nrow, srow))| {
             for x in 0..width {
-                let px = (x as f64 + 0.5 - half_w + offset.0) * tm;
-                let py = (-(y as f64 + 0.5 - half_h) + offset.1) * tm;
+                let (ox, oy) = (x as f64 + 0.5 - half_w, -(y as f64 + 0.5 - half_h));
+                let (ox, oy) = if angle == 0.0 {
+                    (ox, oy)
+                } else {
+                    (ox * rc - oy * rs, ox * rs + oy * rc)
+                };
+                let px = (ox + offset.0) * tm;
+                let py = (oy + offset.1) * tm;
                 let (it, sm) = deep_pixel(reference, (px, py), te, max_iter, bailout * bailout);
                 nrow[x] = it;
                 srow[x] = sm;
@@ -596,7 +619,7 @@ mod tests {
 
     #[test]
     fn oracle_home_and_roundtrip() {
-        let f = cpu_render(-0.75, 0.0, 3.0 / 64.0, 64, 40, 500, 65536.0);
+        let f = cpu_render(-0.75, 0.0, 3.0 / 64.0, 64, 40, 500, 65536.0, 0.0);
         // the centre row crosses the main cardioid: interior there
         assert!(f.n[20 * 64 + 32] < 0.0);
         // the corner escapes at once
@@ -631,7 +654,7 @@ mod tests {
             let center = Center::parse(re, im).unwrap();
             let texel = Scale::parse(sc).unwrap();
             let (w, h) = (24usize, 16usize);
-            let (field, _) = cpu_render_deep(&center, texel, w, h, it, 65536.0);
+            let (field, _) = cpu_render_deep(&center, texel, w, h, it, 65536.0, 0.0);
             let bits = crate::reference::needed_bits(&center, texel, w, 64) + 64;
             let (tm, te) = texel.parts();
             let (mut same, mut worst) = (0usize, 0.0f64);

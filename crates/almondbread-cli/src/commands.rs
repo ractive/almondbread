@@ -231,7 +231,14 @@ fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: 
 
 /// The CPU oracle for a view: direct f64 iteration where f64 resolves the pixels, else the
 /// deep oracle (high-precision reference, f64 rescaled perturbation; M3b).
-pub fn oracle(center: &Center, texel: Scale, width: usize, height: usize, max_iter: usize) -> IterationField {
+pub fn oracle(
+    center: &Center,
+    texel: Scale,
+    width: usize,
+    height: usize,
+    max_iter: usize,
+    angle: f64,
+) -> IterationField {
     if texel.to_f64() >= DEEP_SCALE {
         cpu_render(
             center.re(),
@@ -241,9 +248,10 @@ pub fn oracle(center: &Center, texel: Scale, width: usize, height: usize, max_it
             height,
             max_iter,
             BAILOUT,
+            angle,
         )
     } else {
-        cpu_render_deep(center, texel, width, height, max_iter, BAILOUT).0
+        cpu_render_deep(center, texel, width, height, max_iter, BAILOUT, angle).0
     }
 }
 
@@ -269,7 +277,7 @@ pub fn verify<B: GpuBackend>(
     let v = r.viewport.clone();
     let t0 = Instant::now();
     let cpu_iter = cpu_iterations.unwrap_or(r.stats.max_iterations);
-    let cpu = oracle(&v.center, v.scale, width, height, cpu_iter);
+    let cpu = oracle(&v.center, v.scale, width, height, cpu_iter, v.angle);
     let cpu_time = t0.elapsed().as_secs_f64();
     let (report, heatmap) = compare(&gpu, &cpu);
     Ok(VerifyResult {
@@ -362,6 +370,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     // mostly unresolved by design). sea-8007 once settled entirely unresolved (uniform grey).
     let max_unresolved = o.f64("max-unresolved");
     let pointer = o.pair("pointer")?.unwrap_or((0.0, 0.0));
+    let spin = o.f64("spin").unwrap_or(0.35);
     // --scale is per pixel as for verify; the viewport counts view points.
     let mut end = o.viewport(width, height)?;
     end.scale = end.scale / ppp;
@@ -381,6 +390,12 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         "zoom" => start.zoom_by((-speed * seconds).exp(), pointer.0, pointer.1),
         "out" => start.zoom_by((speed * seconds).exp(), pointer.0, pointer.1),
         "pan" => start.pan_by_points(pan.0 * pan_speed * seconds, pan.1 * pan_speed * seconds),
+        // Zooming in while the view turns (cinematic spin, kb: decisions/controls "View
+        // rotation"): `--spin` radians per e-fold about the pointer.
+        "rotate" => {
+            start.rotate_by(-spin * speed * seconds, pointer.0, pointer.1);
+            start.zoom_by((-speed * seconds).exp(), pointer.0, pointer.1);
+        }
         // "Go to coordinates": a fresh view at depth, no zoom history (settled from scratch).
         "jump" => {}
         // "Fly to coordinates" (kb: decisions/controls, fly to): from `--from re,im,scale`
@@ -398,7 +413,11 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
                 None => Viewport::fitting(width as f64 * ppp, height as f64 * ppp),
             };
         }
-        _ => return err(format!("unknown --history {mode} (zoom, out, pan, jump, flyto)")),
+        _ => {
+            return err(format!(
+                "unknown --history {mode} (zoom, out, pan, rotate, jump, flyto)"
+            ));
+        }
     }
     r.viewport = start;
     if mode == "flyto" {
@@ -477,6 +496,10 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             &mut |_, dt, v: &mut Viewport| match m.as_str() {
                 "zoom" => v.zoom_by((speed * dt).exp(), pointer.0, pointer.1),
                 "out" => v.zoom_by((-speed * dt).exp(), pointer.0, pointer.1),
+                "rotate" => {
+                    v.zoom_by((speed * dt).exp(), pointer.0, pointer.1);
+                    v.rotate_by(spin * speed * dt, pointer.0, pointer.1);
+                }
                 _ => v.pan_by_points(-pan.0 * pan_speed * dt, -pan.1 * pan_speed * dt),
             },
         )
@@ -557,12 +580,19 @@ fn verify_session<B: GpuBackend + Clone>(
         );
         let field = IterationField::from_texels(sim.level_width, sim.level_height, &sim.iterations);
         let cpu_iter = o.usize("cpu-iterations").unwrap_or(sim.hard_iter);
-        let cpu = oracle(&v.center, sim.texel_scale, sim.level_width, sim.level_height, cpu_iter);
+        let cpu = oracle(
+            &v.center,
+            sim.texel_scale,
+            sim.level_width,
+            sim.level_height,
+            cpu_iter,
+            v.angle,
+        );
         let (vs_cpu, heatmap) = compare(&field, &cpu);
         println!("{tag}vs CPU oracle at {cpu_iter}:  {}", vs_cpu.summary());
         // Fresh headless render of the same texel grid, settings and limits.
         let mut fresh = new_renderer(backend, o)?;
-        fresh.viewport = Viewport::with_center(v.center.clone(), sim.texel_scale);
+        fresh.viewport = Viewport::with_center(v.center.clone(), sim.texel_scale).with_angle(v.angle);
         fresh.settings.supersampling = Supersampling::Off;
         fresh.settings.auto_iterations = false;
         fresh.settings.manual_iterations = sim.max_iter;
@@ -1009,6 +1039,60 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "--speed",
         "16",
     ],
+    // View rotation (cinematic effects, kb: decisions/controls "View rotation"): zooming while
+    // the view turns (0.35 rad per e-fold about the pointer) at the neck, then a step; a
+    // rotated Space zoom at 1e-305; a flight from home that turns to 60 degrees while it flies
+    // to the period-8007 minibrot. Reprojection, tile priorities and the oracle all turn.
+    &[
+        "--history",
+        "rotate",
+        "--center",
+        "-0.7500016386523336,-0.0021073424656852589",
+        "--scale",
+        "3.38526e-8",
+        "--ppp",
+        "2",
+        "--size",
+        "640x410",
+        "--pointer",
+        "40,-30",
+        "--then",
+        "1.3225",
+    ],
+    &[
+        "--history",
+        "rotate",
+        "--location",
+        "needle-1e305",
+        "--angle",
+        "40",
+        "--size",
+        "640x410",
+        "--ppp",
+        "1",
+        "--speed",
+        "3",
+        "--seconds",
+        "3",
+        "--pointer",
+        "40,20",
+    ],
+    &[
+        "--history",
+        "flyto",
+        "--center",
+        "-0.74364388703715870475219150611477977822,0.13182590420531197049313205638514067897",
+        "--scale",
+        "5e-34",
+        "--angle",
+        "60",
+        "--ppp",
+        "1",
+        "--size",
+        "640x410",
+        "--speed",
+        "4",
+    ],
 ];
 
 pub fn regress_command<B: GpuBackend + Clone>(backend: &B, extra: &Options) -> Result<i32> {
@@ -1034,6 +1118,79 @@ pub fn regress_command<B: GpuBackend + Clone>(backend: &B, extra: &Options) -> R
         }
     }
     Ok(status)
+}
+
+// MARK: journey
+
+/// `journey --seed n [--legs k] [--daily yyyy-mm-dd] [--center re,im --span s] [--thumbs dir]`:
+/// the targets a journey plans from the whole set (or the given view), leg by leg, with their
+/// probe statistics; `--thumbs` renders each target at 480x270 with the app's look (kb:
+/// decisions/controls, "Journey").
+pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
+    use almondbread_core::journey::{Chain, daily_seed, plan};
+    let seed = match o.get("daily") {
+        Some(d) => {
+            let p: Vec<i64> = d.split('-').filter_map(|x| x.parse().ok()).collect();
+            if p.len() != 3 {
+                return err("--daily yyyy-mm-dd");
+            }
+            daily_seed(p[0] as i32, p[1] as u32, p[2] as u32)
+        }
+        None => o.usize("seed").unwrap_or(4711) as u64,
+    };
+    let legs = o.usize("legs").unwrap_or(12);
+    let mut center = Center::new(-0.75, 0.0);
+    if let Some(v) = o.get("center")
+        && let Some((re, im)) = v.split_once(',')
+    {
+        center = Center::parse(re, im).ok_or_else(|| crate::options::CommandError("bad --center".into()))?;
+    }
+    let mut span = o
+        .get("span")
+        .and_then(Scale::parse)
+        .unwrap_or_else(|| Scale::from_f64(3.0));
+    let mut chain = Chain::new(seed);
+    let never = std::sync::atomic::AtomicBool::new(false);
+    let thumbs = o.get("thumbs");
+    if let Some(d) = thumbs {
+        fs::create_dir_all(d)?;
+    }
+    println!("journey #{seed}");
+    for leg in 1..=legs {
+        let Some(p) = plan(&center, span, &chain, &never) else {
+            return err("cancelled");
+        };
+        let t = &p.target;
+        println!(
+            "{leg:>3}  {:<34} {:>6.2} e-folds  zoom 10^{:<6.2} score {:>5.2}  detail {:>5.1} centre {:>5.1} interior {:>4.2} calm {:>4.2} filament {:>4.2} rough {:>5.1}  ({} candidates, {} probed, {:.2} s)",
+            t.label,
+            t.gain,
+            t.zoom_log10(),
+            t.score,
+            t.stats.detail,
+            t.stats.centre_detail,
+            t.stats.interior,
+            t.stats.calm,
+            t.stats.filament,
+            t.stats.roughness,
+            p.candidates,
+            p.probed,
+            p.seconds
+        );
+        if let Some(d) = thumbs {
+            let mut r = new_renderer(backend, o)?;
+            r.settings = almondbread_core::RenderSettings::default();
+            r.settings.supersampling = Supersampling::X4;
+            let (w, h) = (480usize, 270usize);
+            r.viewport = Viewport::with_center(t.center.clone(), t.span / h as f64);
+            let res = render(&mut r, w, h, 0, false)?;
+            write_png_bgra(format!("{d}/leg{leg:02}.png"), &res.pixels, w, h)?;
+        }
+        center = t.center.clone();
+        span = t.span;
+        chain = p.chain;
+    }
+    Ok(0)
 }
 
 // MARK: locate

@@ -74,10 +74,15 @@ struct IterateParams {
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
+    uint   pad1;
+    // View rotation (cos, sin) of the texel offset (kb: decisions/controls "View rotation");
+    // (1, 0) unrotated, which keeps the plain products bit for bit.
+    float2 rot;
     uint   fillBorder;    // M5 interior fill: admission indices of the tile borders (0: off)
     uint   fillEpoch;     // the level's stamp in tileBad[]
     uint   fillProof;     // a border pixel counts as interior if proven within this many
                           // iterations
+    uint   pad4;
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -504,9 +509,15 @@ static inline float mabs(float2 v) {
 // Deep views with texels of at least 2^this seed in float32 (scaled units), deeper in floatexp.
 constant int SEED_FLOAT_MIN_EXP = -80;
 
+// Texel offsets (x right, y down) as complex offsets in texel units, turned by the view
+// rotation as the iterate kernel turns its pixels' (kb: decisions/controls "View rotation").
+static inline float2 texelOffset(constant IterateParams& p, float2 d) {
+    const float2 o = float2(d.x, -d.y);
+    return float2(o.x * p.rot.x - o.y * p.rot.y, o.x * p.rot.y + o.y * p.rot.x);
+}
+
 static inline float2 seedDc(constant IterateParams& p, float2 q, float2 jitter) {
-    float2 pix = q + (jitter - 0.5f) - p.halfSize;
-    return float2(pix.x, -pix.y) * p.texelScale + p.refOffset;
+    return texelOffset(p, q + (jitter - 0.5f) - p.halfSize) * p.texelScale + p.refOffset;
 }
 
 kernel void seedBegin(device SeedStatus& status [[buffer(20)]])
@@ -557,8 +568,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
                 return;
             }
             s = par;
-            const float2 dq = q - (float2(pxy) + 0.5f) * float(2u * sp.size);
-            delta = float2(dq.x, -dq.y);
+            delta = texelOffset(p, q - (float2(pxy) + 0.5f) * float(2u * sp.size));
         }
         s.steps = 0;
     }
@@ -934,7 +944,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
 
     uint2 gid = uint2(st.pixel % p.width, st.pixel / p.width);
     float2 pix = float2(gid) + p.jitter - p.halfSize;
-    float2 dc = float2(pix.x, -pix.y) * p.texelScale + p.refOffset;
+    float2 off = float2(pix.x, -pix.y);
+    off = float2(off.x * p.rot.x - off.y * p.rot.y, off.x * p.rot.y + off.y * p.rot.x);
+    float2 dc = off * p.texelScale + p.refOffset;
 
     bool escaped = false, interior = false;
     // M5 interior fill: an inside texel of a whole tile whose border is all proven interior.
@@ -963,9 +975,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         if (fromSeed) {
             const uint2 lxy = gid / leaf.size;
             sd = seeds[leaf.offset + lxy.y * leaf.gridW + lxy.x];
-            const float2 dq = (float2(gid) + p.jitter)
-                - ((float2(lxy) + 0.5f) * float(leaf.size) + leaf.jitter - 0.5f);
-            sdDelta = float2(dq.x, -dq.y);
+            sdDelta = texelOffset(p, (float2(gid) + p.jitter)
+                - ((float2(lxy) + 0.5f) * float(leaf.size) + leaf.jitter - 0.5f));
         }
     }
 
@@ -1757,10 +1768,11 @@ struct ColorParams {
                           // textures hold the cycle analysis)
     float  interiorDensity; // palette cycles of the interior modes
     float  interiorStripes; // angle mode: stripes per turn
-    uint   fillBorder;    // M5: the main level's admission order has tile borders first
-    uint   pad3;
+    float2 hueRot;        // palette hue turn (cos, sin) in OKLab (cinematic hue drift); y = 0: none
     float4 deep;          // dense regions: calm colour (linear RGB), w = 1 on (0: mean grey)
     float4 filament;      // dense regions: colour of the thin lines along the boundary
+    uint   fillBorder;    // M5: the main level's admission order has tile borders first
+    uint   pad3[3];
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -1785,7 +1797,28 @@ static inline float3 paletteAt(float t, float lod, constant ColorParams& c, devi
         uint i1 = (i0 + 1) % size;
         col[k] = mix(pal[base + i0].rgb, pal[base + i1].rgb, x - fl);
     }
-    return mix(col[0], col[1], lod - float(l0));
+    float3 rgb = mix(col[0], col[1], lod - float(l0));
+    if (c.hueRot.y != 0.0f) {
+        // Cinematic hue drift (kb: decisions/controls "Cinematic effects"): turn the hue in
+        // OKLab (lightness and chroma kept), linear sRGB in and out (Ottosson's matrices).
+        float3 lms = float3(0.4122214708f * rgb.r + 0.5363325363f * rgb.g + 0.0514459929f * rgb.b,
+                            0.2119034982f * rgb.r + 0.6806995451f * rgb.g + 0.1073969566f * rgb.b,
+                            0.0883024619f * rgb.r + 0.2817188376f * rgb.g + 0.6299787005f * rgb.b);
+        lms = pow(max(lms, 0.0f), float3(1.0f / 3.0f));
+        float L = 0.2104542553f * lms.x + 0.7936177850f * lms.y - 0.0040720468f * lms.z;
+        float A = 1.9779984951f * lms.x - 2.4285922050f * lms.y + 0.4505937099f * lms.z;
+        float B = 0.0259040371f * lms.x + 0.7827717662f * lms.y - 0.8086757660f * lms.z;
+        float A2 = A * c.hueRot.x - B * c.hueRot.y;
+        float B2 = A * c.hueRot.y + B * c.hueRot.x;
+        float l_ = L + 0.3963377774f * A2 + 0.2158037573f * B2;
+        float m_ = L - 0.1055613458f * A2 - 0.0638541728f * B2;
+        float s_ = L - 0.0894841775f * A2 - 1.2914855480f * B2;
+        l_ = l_ * l_ * l_; m_ = m_ * m_ * m_; s_ = s_ * s_ * s_;
+        rgb = max(float3(4.0767416621f * l_ - 3.3077115913f * m_ + 0.2309699292f * s_,
+                         -1.2684380046f * l_ + 2.6097574011f * m_ - 0.3413193965f * s_,
+                         -0.0041960863f * l_ - 0.7034186147f * m_ + 1.7076372176f * s_), 0.0f);
+    }
+    return rgb;
 }
 
 // The palette colour of a smooth count, filtered by the pixel's footprint in palette space
@@ -2047,7 +2080,7 @@ struct ComposeParams {
     float  blend;         // mode 1: fade factor; mode 2: weight of the new AA sample
     uint   mode;
     float2 outCentre;     // output size / 2
-    float2 pad;
+    float2 histRot;       // (cos, sin): output pixel offsets turned into history axes (view rotation)
 };
 
 // Catmull-Rom from five bilinear taps (the four corner taps of the 4x4 kernel dropped, their
@@ -2103,7 +2136,9 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     float3 hist = base;
     float wh = 0.0f;
     if (q.histDecay > 0.0f) {
-        float2 hp = q.histOrigin + float2(gid) * q.histStep;
+        float2 g = float2(gid);
+        float2 hp = q.histOrigin + float2(g.x * q.histRot.x - g.y * q.histRot.y,
+                                          g.x * q.histRot.y + g.y * q.histRot.x) * q.histStep;
         if (all(hp >= 0.0f) && all(hp <= q.histSize)) {
             float4 h = q.histStep == 1.0f && all(fract(hp) == 0.5f)
                 ? histIn.read(uint2(hp)) : catmullRom(histIn, bilinear, hp, q.histSize);

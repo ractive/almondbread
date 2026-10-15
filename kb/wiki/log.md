@@ -497,3 +497,19 @@ derivative at the branch (R3 design) paints 96 % of needle-1e305 interior; carry
 mantissa overflow before escape). Recommendation: go for M5 with a per-view gate, leaf-sorted
 admission, chunked seed passes. Pages: [[techniques/local-series-approximation]] (GPU
 prototype, pitfalls, M5 design), [[synthesis/benchmarks]] R5, [[roadmap]], [[index]].
+
+## [2026-10-15] decision | PJ: journey autopilot, view rotation, cinematic effects
+
+Pilot track. Journey (J): an endless seeded flight from landmark to landmark; targets from the
+maths (ball period + Newton minibrots at 128 extra bits, embedded Julia stages at t = 1/2,
+3/4, 7/8 and σ^(3/4), approaches, Misiurewicz spirals and branch points from the orbit's
+near-repeats, detail zooms, resurfacing to shallow places), scored on 40 × 40 CPU probes with
+survey-style statistics plus a filament share and a roughness measure, and variety rules;
+legs are fly-to flights with a rest; the next plan runs on a thread during the leg and the
+next reference is prefetched during the rest. View rotation end to end (kernel, reprojection,
+tile priorities, oracle, overlays, navigator keys and gestures, coordinates text, regress
+sessions). Cinematic effects (spin with the zoom, OKLab hue and phase drift with depth,
+cycling in flight). Ingested [[sources/muency-newton-raphson-zooming]] and
+[[sources/kisaka-julia-sets-in-mandelbrot]]. Pages: [[decisions/controls]] (Journey, View
+rotation, Cinematic effects), [[ideas]] (status), [[roadmap]] (PJ), [[synthesis/benchmarks]]
+(PJ), [[index]].

@@ -39,12 +39,18 @@ pub struct IterateParams {
     /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
     /// 2^`scale_exp`. 0 for the plain kernel.
     pub scale_exp: i32,
+    pub pad1: u32,
+    /// View rotation `(cos, sin)` applied to the texel offset before scaling (cinematic
+    /// rotation, kb: decisions/controls "View rotation"); `(1, 0)` unrotated. Every
+    /// constructor must set it (`[0, 0]` would collapse the view to a point).
+    pub rot: [f32; 2],
     /// M5 interior fill: admission indices of the tile borders (tiles x 60; 0: off) and the
     /// level's stamp in the tile-bad buffer.
     pub fill_border: u32,
     pub fill_epoch: u32,
     /// A border pixel counts as interior when proven within this many iterations.
     pub fill_proof: u32,
+    pub pad4: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -172,13 +178,15 @@ pub struct ColorParams {
     pub interior_mode: u32,
     pub interior_density: f32,
     pub interior_stripes: f32,
-    /// M5 interior fill: the main level's admission order has the tile borders first.
-    pub fill_border: u32,
-    pub pad3: u32,
+    /// Palette hue turn `(cos, sin)` in OKLab (cinematic hue drift); `(0, 0)` or `(1, 0)`: none.
+    pub hue_rot: [f32; 2],
     /// Dense regions (calm look): the deep colour (linear RGB, w = 1 on, 0 the old mean grey)
     /// and the filament colour.
     pub deep: [f32; 4],
     pub filament: [f32; 4],
+    /// M5 interior fill: the main level's admission order has the tile borders first.
+    pub fill_border: u32,
+    pub pad3: [u32; 3],
 }
 
 /// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
@@ -199,7 +207,9 @@ pub struct ComposeParams {
     pub blend: f32,
     pub mode: u32,
     pub out_centre: [f32; 2],
-    pub pad: [f32; 2],
+    /// Rotation `(cos, sin)` of output pixel offsets into history pixel offsets (texture
+    /// axes, y down): the history was composed at another view angle. `(1, 0)`: none.
+    pub hist_rot: [f32; 2],
 }
 
 /// Parameters of the `aaList` kernel (adaptive anti-aliasing), 32 bytes.
@@ -229,8 +239,10 @@ pub struct SurveyParams {
 const _: () = {
     assert!(size_of::<SurveyParams>() == 16);
     assert!(size_of::<AaListParams>() == 32);
-    assert!(size_of::<IterateParams>() == 112);
+    assert!(size_of::<IterateParams>() == 128);
+    assert!(offset_of!(IterateParams, fill_border) == 112);
     assert!(offset_of!(IterateParams, scale_exp) == 96);
+    assert!(offset_of!(IterateParams, rot) == 104);
     assert!(offset_of!(IterateParams, tiles_x) == 80);
     assert!(offset_of!(IterateParams, tile_order) == 88);
     assert!(offset_of!(IterateParams, texel_scale) == 24);
@@ -264,10 +276,11 @@ const _: () = {
     assert!(offset_of!(PixelStateIC, dcdz) == 32);
     assert!(offset_of!(PixelStateIC, cap_flags) == 44);
 
-    assert!(size_of::<ColorParams>() == 224);
+    assert!(size_of::<ColorParams>() == 240);
+    assert!(offset_of!(ColorParams, fill_border) == 224);
     assert!(offset_of!(ColorParams, deep) == 192);
     assert!(offset_of!(ColorParams, interior_mode) == 172);
-    assert!(offset_of!(ColorParams, fill_border) == 184);
+    assert!(offset_of!(ColorParams, hue_rot) == 184);
     assert!(offset_of!(ColorParams, edge) == 16);
     assert!(offset_of!(ColorParams, glow_color) == 32);
     assert!(offset_of!(ColorParams, light) == 48);
@@ -290,6 +303,7 @@ const _: () = {
     assert!(offset_of!(ComposeParams, new_ratio) == 40);
     assert!(offset_of!(ComposeParams, mode) == 60);
     assert!(offset_of!(ComposeParams, out_centre) == 64);
+    assert!(offset_of!(ComposeParams, hist_rot) == 72);
 };
 
 /// M5 (kb: techniques/local-series-approximation): one quadtree seed's branch state and

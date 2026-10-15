@@ -165,6 +165,11 @@ struct SavedSettings: Codable {
     var paletteFilter: Bool?
     var cycleSpeed: Double?
     var depthTint: Double?
+    var cinematic: Bool?
+    var cinematicSpin: Double?
+    var cinematicHueDrift: Double?
+    var cinematicPhaseDrift: Double?
+    var cinematicFlyCycle: Double?
     var lookID: String?
     var supersampling: Supersampling?
     var interactivePreview: Bool?
@@ -219,6 +224,14 @@ public final class ExplorerModel {
     /// Palette cycles per second while the view rests (0: off).
     public var cycleSpeed = 0.0 { didSet { push() } }
     public var depthTint = 0.0 { didSet { push() } }
+    /// Cinematic effects (kb: decisions/controls "Cinematic effects"): off by default; the
+    /// view spins with automatic zooms (degrees per e-fold), the palette's hue and phase drift
+    /// with depth (per e-fold), colours cycle while flying (cycles per second).
+    public var cinematic = false { didSet { push() } }
+    public var cinematicSpin = 4.0 { didSet { push() } }
+    public var cinematicHueDrift = 1.0 { didSet { push() } }
+    public var cinematicPhaseDrift = 0.01 { didSet { push() } }
+    public var cinematicFlyCycle = 0.02 { didSet { push() } }
     /// Dense regions: calm dark colour with thin filaments (off: the palette's mean grey).
     public var denseCalm = true { didSet { push() } }
     /// The look last applied (the control center's picker); edits keep it selected.
@@ -350,6 +363,11 @@ public final class ExplorerModel {
         paletteFilter = s.paletteFilter
         cycleSpeed = s.cycleSpeed
         depthTint = s.depthTint
+        cinematic = s.cinematic
+        cinematicSpin = s.cinematicSpin
+        cinematicHueDrift = s.cinematicHueDrift
+        cinematicPhaseDrift = s.cinematicPhaseDrift
+        cinematicFlyCycle = s.cinematicFlyCycle
         supersampling = Supersampling(rawValue: Int(s.supersampling)) ?? .off
         interactivePreview = s.interactivePreview
         interiorColoring = InteriorColoring(s.interiorMode)
@@ -372,7 +390,9 @@ public final class ExplorerModel {
             paletteFilter: paletteFilter, cycleSpeed: cycleSpeed, depthTint: depthTint,
             supersampling: UInt8(supersampling.rawValue), interactivePreview: interactivePreview,
             interiorMode: interiorColoring.ffi, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
-            denseCalm: denseCalm)
+            denseCalm: denseCalm, cinematic: cinematic, cinematicSpin: cinematicSpin,
+            cinematicHueDrift: cinematicHueDrift, cinematicPhaseDrift: cinematicPhaseDrift,
+            cinematicFlyCycle: cinematicFlyCycle)
     }
 
     private var overlaySettings: OverlaySettings {
@@ -433,6 +453,8 @@ public final class ExplorerModel {
             edgeColor: [edgeColor.x, edgeColor.y, edgeColor.z], specular: specular, shininess: shininess,
             lightHeight: lightHeight, glow: glow, glowColor: [glowColor.x, glowColor.y, glowColor.z],
             glowWidth: glowWidth, paletteFilter: paletteFilter, cycleSpeed: cycleSpeed, depthTint: depthTint,
+            cinematic: cinematic, cinematicSpin: cinematicSpin, cinematicHueDrift: cinematicHueDrift,
+            cinematicPhaseDrift: cinematicPhaseDrift, cinematicFlyCycle: cinematicFlyCycle,
             lookID: lookID, supersampling: supersampling, interactivePreview: interactivePreview,
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
@@ -480,6 +502,11 @@ public final class ExplorerModel {
         paletteFilter = s.paletteFilter ?? paletteFilter
         cycleSpeed = s.cycleSpeed ?? cycleSpeed
         depthTint = s.depthTint ?? depthTint
+        cinematic = s.cinematic ?? cinematic
+        cinematicSpin = s.cinematicSpin ?? cinematicSpin
+        cinematicHueDrift = s.cinematicHueDrift ?? cinematicHueDrift
+        cinematicPhaseDrift = s.cinematicPhaseDrift ?? cinematicPhaseDrift
+        cinematicFlyCycle = s.cinematicFlyCycle ?? cinematicFlyCycle
         lookID = s.lookID ?? lookID
         supersampling = s.supersampling ?? supersampling
         interactivePreview = s.interactivePreview ?? interactivePreview
@@ -502,7 +529,7 @@ public final class ExplorerModel {
 
     /// What a reset covers.
     public enum ResetScope: Sendable {
-        case all, view, look, lighting, interior, overlays, quality
+        case all, view, look, lighting, interior, overlays, quality, cinematic
     }
 
     /// Resets `scope` to the defaults (`withView`: also the view, for "all"). Undoable: the
@@ -569,6 +596,15 @@ public final class ExplorerModel {
             edgePanning = .whileZooming
             autopilotAssist = false
         }
+        if scope == .all || scope == .view || scope == .cinematic {
+            pulling = true
+            cinematic = d.cinematic
+            cinematicSpin = d.cinematicSpin
+            cinematicHueDrift = d.cinematicHueDrift
+            cinematicPhaseDrift = d.cinematicPhaseDrift
+            cinematicFlyCycle = d.cinematicFlyCycle
+            pulling = false
+        }
         push()
         pushOverlay()
         if scope == .view || (scope == .all && withView) { reset() }
@@ -599,6 +635,11 @@ public final class ExplorerModel {
         interactivePreview = true
         cycleSpeed = 0
         depthTint = 0
+        cinematic = false
+        cinematicSpin = 4
+        cinematicHueDrift = 1
+        cinematicPhaseDrift = 0.01
+        cinematicFlyCycle = 0.02
         orbitEnabled = false
         orbitLength = 50
         mapEnabled = false
@@ -631,6 +672,61 @@ public final class ExplorerModel {
     public func toggleAutopilot() {
         send(.keyDown(key: .autopilot))
         send(.keyUp(key: .autopilot))
+    }
+
+    // MARK: Journey and rotation (kb: decisions/controls, "Journey", "View rotation")
+
+    /// J: a journey with a random seed; while one runs, stops it; after manual input, resumes.
+    public func toggleJourney() {
+        send(.keyDown(key: .journey))
+        send(.keyUp(key: .journey))
+    }
+
+    /// A journey with a given seed ("Journey #4711" is reproducible from the same start view).
+    public func startJourney(seed: UInt64) {
+        explorer?.startJourney(seed: seed)
+        host?.requestFrames()
+    }
+
+    /// Today's journey: the same for everyone on this date.
+    public func startDailyJourney() {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        explorer?.startDailyJourney(year: Int32(c.year ?? 2026), month: UInt32(c.month ?? 1), day: UInt32(c.day ?? 1))
+        host?.requestFrames()
+    }
+
+    public func resumeJourney() {
+        explorer?.resumeJourney()
+        host?.requestFrames()
+    }
+
+    public func stopJourney() {
+        explorer?.stopJourney()
+        host?.requestFrames()
+    }
+
+    /// The running journey as shareable text ("Almondbread journey #4711"), or nil.
+    public var journeyShareText: String? {
+        guard let j = stats?.journey, j.active else { return nil }
+        return j.daily ? "Almondbread daily journey #\(j.seed)" : "Almondbread journey #\(j.seed)"
+    }
+
+    /// Copies the journey's seed text to the clipboard.
+    public func copyJourney() {
+        if let t = journeyShareText { Clipboard.copy(t) }
+    }
+
+    /// Parses "#4711", "journey 4711" or "4711" into a seed.
+    public static func journeySeed(from text: String) -> UInt64? {
+        let digits = text.split(whereSeparator: { !$0.isNumber }).last.map(String.init) ?? ""
+        guard let v = UInt64(digits), v > 0 else { return nil }
+        return v
+    }
+
+    /// Turns the view upright (animated), like `/`.
+    public func straighten() {
+        send(.keyDown(key: .straighten))
+        send(.keyUp(key: .straighten))
     }
 
     /// Stops the autopilot or a flight (eased), like Esc.
@@ -735,7 +831,7 @@ public final class ExplorerModel {
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         guard let new = explorer?.stats(), new != stats else { return }
         if let old = stats, old.zoomSpeed != new.zoomSpeed || old.autopilot.speed != new.autopilot.speed
-            || old.flight.speed != new.flight.speed {
+            || old.flight.speed != new.flight.speed || old.journey.speed != new.journey.speed {
             zoomSpeedChanged = Date()
         }
         stats = new

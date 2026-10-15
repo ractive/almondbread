@@ -116,7 +116,18 @@ struct FractalCommands: Commands {
             // would fire as well); the menu items are for discovery.
             Button("Autopilot On/Off (Z)") { model?.toggleAutopilot() }
                 .disabled(model == nil)
-            Button("Stop Autopilot or Flight (Esc)") { model?.stopMotion() }
+            Button("Journey On/Off (J)") { model?.toggleJourney() }
+                .disabled(model == nil)
+            Button("Daily Journey") { model?.startDailyJourney() }
+                .disabled(model == nil)
+            Button("Copy Journey Seed") { model?.copyJourney() }
+                .disabled(model?.journeyShareText == nil)
+            Button("Straighten View (/)") { model?.straighten() }
+                .disabled(model == nil)
+            Toggle("Cinematic Effects", isOn: Binding(get: { model?.cinematic ?? false },
+                                                      set: { model?.cinematic = $0 }))
+                .disabled(model == nil)
+            Button("Stop Autopilot, Flight or Journey (Esc)") { model?.stopMotion() }
                 .disabled(model == nil)
             Divider()
             Button(inspectorVisible?.wrappedValue == true ? "Hide Control Center" : "Show Control Center") {

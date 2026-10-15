@@ -25,8 +25,10 @@
 //! damped spring.
 
 use crate::autopilot::{self, Autopilot};
+use crate::cinematic::Cinematic;
 use crate::flyto::{self, Flight, FlyPath};
-use crate::viewport::Viewport;
+use crate::journey::{self, Journey};
+use crate::viewport::{Scale, Viewport, wrap_angle};
 
 /// Keys with a navigation meaning. The platform layer decodes its key events into these
 /// (WASD and the arrows to the four directions, Space to `Zoom`, ...).
@@ -52,6 +54,13 @@ pub enum NavKey {
     Autopilot,
     /// Esc: stops the autopilot (eased); not handled while it is off.
     Stop,
+    /// `,` / `.` (held): turn the image counter-clockwise / clockwise (view rotation).
+    RotateCcw,
+    RotateCw,
+    /// `/`: turn back upright (animated).
+    Straighten,
+    /// J: journey on (a random seed) / resume after manual input / off.
+    Journey,
 }
 
 impl NavKey {
@@ -181,6 +190,14 @@ pub enum InputEvent {
         rt: f64,
         boost: bool,
     },
+    /// Trackpad rotation (macOS rotate gesture, iOS rotation recogniser): the image turns
+    /// counter-clockwise by `radians` about (x, y) (pointer mode; keyboard mode: the
+    /// crosshair), 1:1 with the fingers.
+    Rotate {
+        radians: f64,
+        x: f64,
+        y: f64,
+    },
 }
 
 /// Pan speed of the direction keys, in view widths per second.
@@ -228,6 +245,12 @@ pub const STEP_TAU: f64 = 0.06;
 pub const STICK_DEAD_ZONE: f64 = 0.15;
 pub const TRIGGER_DEAD_ZONE: f64 = 0.06;
 pub const BOOST: f64 = 2.5;
+/// Turn rate of the rotate keys (radians per second, 45°/s) and their spring frequencies.
+pub const ROTATE_SPEED: f64 = std::f64::consts::FRAC_PI_4;
+pub const ROTATE_OMEGA: (f64, f64) = (20.0, 14.0);
+/// Time constant (s) of the animated turn back upright.
+pub const STRAIGHTEN_TAU: f64 = 0.12;
+const ROTATE_REST: f64 = 1e-4;
 /// Below these the velocities snap to rest (points/s, e-folds/s).
 const PAN_REST: f64 = 0.5;
 const ZOOM_REST: f64 = 1e-3;
@@ -285,6 +308,16 @@ pub struct Navigator {
     fly_speed: f64,
     /// When the fly speed last changed (HUD highlight).
     pub fly_speed_changed: f64,
+    /// Rotate keys held, the turn rate (radians/s, + turns the camera counter-clockwise, the
+    /// image clockwise), and an animated turn still to apply (Straighten).
+    rot_ccw: bool,
+    rot_cw: bool,
+    rot_rate: Spring,
+    rot_step_left: f64,
+    /// Cinematic effects: the spin while the autopilot, a journey or a flight zooms.
+    cinematic: Cinematic,
+    /// The journey: planned flights from landmark to landmark (kb: decisions/controls).
+    journey: Journey,
 }
 
 /// A velocity following a target on a critically damped spring.
@@ -368,6 +401,12 @@ impl Default for Navigator {
             flight: None,
             fly_speed: flyto::SPEED_DEFAULT,
             fly_speed_changed: f64::NEG_INFINITY,
+            rot_ccw: false,
+            rot_cw: false,
+            rot_rate: Spring::default(),
+            rot_step_left: 0.0,
+            cinematic: Cinematic::default(),
+            journey: Journey::default(),
         }
     }
 }
@@ -423,21 +462,120 @@ impl Navigator {
         &mut self.autopilot
     }
 
-    /// The autopilot or a flight runs: the renderer reports how it keeps up.
+    /// The autopilot, a journey or a flight runs: the renderer reports how it keeps up.
     pub fn wants_feedback(&self) -> bool {
-        self.autopilot.is_active() || self.flight.is_some()
+        self.autopilot.is_active() || self.flight.is_some() || self.journey.is_running()
     }
 
-    /// Starts an animated flight from `viewport` to `target` (any depth); motion in progress
-    /// stops. Any navigation input cancels it, Esc eases it to a stop.
-    pub fn fly_to(&mut self, target: &Viewport, viewport: &Viewport, now: f64) {
+    /// Automatic motion (autopilot, journey, flight) is under way: colours may cycle.
+    pub fn is_flying(&self) -> bool {
+        self.autopilot.is_moving() || self.flight.is_some()
+    }
+
+    pub fn cinematic(&self) -> Cinematic {
+        self.cinematic
+    }
+
+    /// The renderer passes the settings' effects every frame.
+    pub fn set_cinematic(&mut self, c: Cinematic) {
+        self.cinematic = c;
+    }
+
+    pub fn journey(&self) -> &Journey {
+        &self.journey
+    }
+
+    pub fn journey_mut(&mut self) -> &mut Journey {
+        &mut self.journey
+    }
+
+    /// Starts a journey with `seed` from `viewport` (the autopilot and any flight stop).
+    pub fn start_journey(&mut self, seed: u64, daily: bool, viewport: &Viewport, now: f64) {
         let was = self.is_animating();
         self.stop_motion();
-        self.flight = Some(Flight::new(FlyPath::new(viewport, target, self.view_size.0)));
+        let span = viewport.scale * self.min_side();
+        self.journey.start(seed, daily, &viewport.center, span);
         self.note_interaction(now);
         if !was {
             self.last_tick = Some(now);
         }
+    }
+
+    /// Stops a journey (its flight eases to a stop).
+    pub fn stop_journey(&mut self) {
+        if self.journey.is_active() {
+            self.journey.stop();
+            self.stop_flight();
+        }
+    }
+
+    /// Resumes a journey that manual input took over.
+    pub fn resume_journey(&mut self, viewport: &Viewport, now: f64) {
+        if self.journey.is_suspended() {
+            let span = viewport.scale * self.min_side();
+            self.autopilot.halt();
+            self.journey.resume(&viewport.center, span);
+            self.note_interaction(now);
+            self.last_tick.get_or_insert(now);
+        }
+    }
+
+    /// The view's shorter side in points (spans of places and journey targets).
+    fn min_side(&self) -> f64 {
+        let s = self.view_size.0.min(self.view_size.1);
+        if s.is_finite() && s > 0.0 { s } else { 800.0 }
+    }
+
+    /// The journey's next target view once planned (the renderer prefetches its reference
+    /// while the journey rests).
+    pub fn prefetch_target(&self) -> Option<Viewport> {
+        if !self.journey.is_running() || self.flight.is_some() {
+            return None;
+        }
+        self.journey.next_target().map(|t| t.viewport(self.min_side()))
+    }
+
+    /// Starts an animated flight from `viewport` to `target` (any depth); motion in progress
+    /// stops. Any navigation input cancels it, Esc eases it to a stop. With the spin effect
+    /// on, the view turns with the zoom on the way (the target's angle is then where the
+    /// spin ends); otherwise it turns to the target's angle the short way round.
+    pub fn fly_to(&mut self, target: &Viewport, viewport: &Viewport, now: f64) {
+        let was = self.is_animating();
+        self.stop_motion();
+        self.journey.stop();
+        self.begin_flight(target, viewport);
+        self.note_interaction(now);
+        if !was {
+            self.last_tick = Some(now);
+        }
+    }
+
+    fn begin_flight(&mut self, target: &Viewport, viewport: &Viewport) {
+        let path = FlyPath::new(viewport, target, self.view_size.0);
+        self.flight = Some(Flight::turning(path, viewport.angle, self.cinematic.spin_per_efold()));
+    }
+
+    /// The speed the flight runs at: the journey's during a journey, else the fly-to speed.
+    fn flight_speed(&self) -> f64 {
+        if self.journey.is_running() {
+            self.journey.speed()
+        } else {
+            self.fly_speed
+        }
+    }
+
+    /// Q / E, wheel and scroll during a flight or journey.
+    fn scale_flight_speed(&mut self, f: f64, now: f64) {
+        if self.journey.is_running() {
+            self.journey.scale_speed(f, now);
+        } else {
+            self.set_fly_speed(self.fly_speed * f, now);
+        }
+    }
+
+    /// The view's rotation rate (radians/s) right now.
+    pub fn rotation_rate(&self) -> f64 {
+        self.rot_rate.v
     }
 
     /// The view was set directly (go to coordinates, reset): a flight ends where it is.
@@ -481,12 +619,18 @@ impl Navigator {
     fn hand_over_flight(&mut self) {
         let Some(f) = self.flight.take() else { return };
         let h = 1e-3;
-        let a = f.path.viewport_at(f.s);
-        let b = f.path.viewport_at(f.s + f.speed.v * h);
-        let (dx, dy) = b.center.delta_in(&a.center, a.scale);
+        let a = f.viewport();
+        let mut fb = f.clone();
+        fb.s = (f.s + f.speed.v * h).min(f.path.length());
+        let b = fb.viewport();
+        let (dx, dy) = a.offset_of(&b.center);
         self.pan = [Spring { v: -dx / h, a: 0.0 }, Spring { v: -dy / h, a: 0.0 }];
         self.zoom_rate = Spring {
             v: (a.scale.ln() - b.scale.ln()) / h,
+            a: 0.0,
+        };
+        self.rot_rate = Spring {
+            v: wrap_angle(b.angle - a.angle) / h,
             a: 0.0,
         };
     }
@@ -504,8 +648,12 @@ impl Navigator {
                     | NavKey::StepIn
                     | NavKey::StepOut
                     | NavKey::Autopilot
+                    | NavKey::RotateCcw
+                    | NavKey::RotateCw
+                    | NavKey::Straighten
             ),
             InputEvent::Pan { .. }
+            | InputEvent::Rotate { .. }
             | InputEvent::WheelZoom { .. }
             | InputEvent::Magnify { .. }
             | InputEvent::Pinch { .. }
@@ -532,7 +680,7 @@ impl Navigator {
     }
 
     fn keys_held(&self) -> bool {
-        self.up || self.down || self.left || self.right || self.zoom
+        self.up || self.down || self.left || self.right || self.zoom || self.rot_ccw || self.rot_cw
     }
 
     /// Something drives motion: held keys, edge panning or a deflected gamepad.
@@ -552,6 +700,9 @@ impl Navigator {
             || self.step_left != 0.0
             || self.autopilot.is_moving()
             || self.flight.is_some()
+            || !self.rot_rate.at_rest()
+            || self.rot_step_left != 0.0
+            || self.journey.is_running()
     }
 
     /// Current pan velocity (points/s) and zoom rate (e-folds/s), springs plus flings.
@@ -593,6 +744,8 @@ impl Navigator {
         self.right = false;
         self.zoom = false;
         self.shift = false;
+        self.rot_ccw = false;
+        self.rot_cw = false;
         self.pad = GamepadState::default();
     }
 
@@ -605,6 +758,8 @@ impl Navigator {
         self.stop_flings();
         self.step_left = 0.0;
         self.step_at = None;
+        self.rot_rate = Spring::default();
+        self.rot_step_left = 0.0;
     }
 
     fn stop_flings(&mut self) {
@@ -699,6 +854,11 @@ impl Navigator {
     }
 
     fn apply(&mut self, event: InputEvent, viewport: &mut Viewport, now: f64) -> bool {
+        // Manual input takes over from a journey (eased: the flight's motion glides out); J,
+        // the button or a click resumes it.
+        if self.journey.is_running() && Self::cancels_flight(&event) && event != InputEvent::KeyDown(NavKey::Journey) {
+            self.journey.suspend();
+        }
         if self.flight.is_some() && Self::cancels_flight(&event) {
             self.hand_over_flight();
         }
@@ -719,6 +879,10 @@ impl Navigator {
                 if let Some(f) = self.flight.take() {
                     let target = f.path.target().clone();
                     let mut next = Flight::new(FlyPath::new(viewport, &target, width));
+                    // The turn continues from here to where it would have ended.
+                    next.angle0 = viewport.angle;
+                    next.angle1 = viewport.angle + (f.angle1 - f.angle0) * (1.0 - f.progress());
+                    next.land_angle = f.land_angle;
                     next.speed = f.speed;
                     next.stopping = f.stopping;
                     self.flight = Some(next);
@@ -740,9 +904,9 @@ impl Navigator {
                 true
             }
             InputEvent::Scroll { dx, dy, momentum } => {
-                if self.flight.is_some() {
+                if self.flight.is_some() || self.journey.is_running() {
                     if !momentum {
-                        self.set_fly_speed(self.fly_speed * (dy * autopilot::SCROLL_PER_POINT).exp(), now);
+                        self.scale_flight_speed((dy * autopilot::SCROLL_PER_POINT).exp(), now);
                     }
                     true
                 } else if self.autopilot.is_active() {
@@ -756,7 +920,26 @@ impl Navigator {
                     self.apply(InputEvent::Pan { dx, dy }, viewport, now)
                 }
             }
+            InputEvent::Click { .. } if self.journey.is_active() => {
+                // A click pauses a journey (its flight glides out) and resumes it.
+                if self.journey.is_running() {
+                    self.journey.suspend();
+                    self.hand_over_flight();
+                } else {
+                    self.resume_journey(viewport, now);
+                }
+                true
+            }
             InputEvent::Click { .. } => self.autopilot.click(now),
+            InputEvent::Rotate { radians, x, y } => {
+                if radians.is_finite() {
+                    self.note_interaction(now);
+                    let (tx, ty) = self.gesture_target(x, y);
+                    // The image follows the fingers: counter-clockwise fingers, the camera turns clockwise.
+                    viewport.rotate_by(-radians, tx, ty);
+                }
+                true
+            }
             InputEvent::Pan { dx, dy } => {
                 // The hand has the view: flings stop; motion is 1:1.
                 self.stop_flings();
@@ -770,8 +953,8 @@ impl Navigator {
                 self.zoom_at(viewport, 1.15f64.powf(delta), tx, ty, now);
                 true
             }
-            InputEvent::WheelNotch { delta, .. } if self.flight.is_some() => {
-                self.set_fly_speed(self.fly_speed * autopilot::NOTCH_FACTOR.powf(delta), now);
+            InputEvent::WheelNotch { delta, .. } if self.flight.is_some() || self.journey.is_running() => {
+                self.scale_flight_speed(autopilot::NOTCH_FACTOR.powf(delta), now);
                 true
             }
             InputEvent::WheelNotch { delta, .. } if self.autopilot.is_active() => {
@@ -902,12 +1085,28 @@ impl Navigator {
             NavKey::Left => self.left = down,
             NavKey::Right => self.right = down,
             NavKey::Zoom => self.zoom = down,
-            // While flying or the autopilot is on, Q / E set that speed.
-            NavKey::SlowerZoom if down && self.flight.is_some() => {
-                self.set_fly_speed(self.fly_speed / autopilot::SPEED_STEP, now);
+            NavKey::RotateCcw => self.rot_ccw = down,
+            NavKey::RotateCw => self.rot_cw = down,
+            NavKey::Straighten if down => {
+                self.rot_rate = Spring::default();
+                self.rot_step_left = -viewport.angle;
             }
-            NavKey::FasterZoom if down && self.flight.is_some() => {
-                self.set_fly_speed(self.fly_speed * autopilot::SPEED_STEP, now);
+            NavKey::Journey if down => {
+                if self.journey.is_suspended() {
+                    self.resume_journey(viewport, now);
+                } else if self.journey.is_active() {
+                    self.stop_journey();
+                } else {
+                    let seed = random_seed(now);
+                    self.start_journey(seed, false, viewport, now);
+                }
+            }
+            // While flying or the autopilot is on, Q / E set that speed.
+            NavKey::SlowerZoom if down && (self.flight.is_some() || self.journey.is_running()) => {
+                self.scale_flight_speed(1.0 / autopilot::SPEED_STEP, now);
+            }
+            NavKey::FasterZoom if down && (self.flight.is_some() || self.journey.is_running()) => {
+                self.scale_flight_speed(autopilot::SPEED_STEP, now);
             }
             NavKey::SlowerZoom if down && self.autopilot.is_active() => {
                 self.autopilot.scale_speed(1.0 / autopilot::SPEED_STEP, now);
@@ -917,12 +1116,17 @@ impl Navigator {
             }
             NavKey::SlowerZoom if down => self.set_zoom_speed(self.zoom_speed * 0.8, now),
             NavKey::FasterZoom if down => self.set_zoom_speed(self.zoom_speed * 1.25, now),
-            NavKey::Autopilot if down => self.autopilot.toggle(),
+            NavKey::Autopilot if down => {
+                self.journey.stop();
+                self.autopilot.toggle()
+            }
             NavKey::Stop => {
                 return if down {
+                    let j = self.journey.is_active();
+                    self.journey.stop();
                     let a = self.autopilot.stop();
                     let f = self.stop_flight();
-                    a || f
+                    a || f || j
                 } else {
                     false
                 };
@@ -934,6 +1138,7 @@ impl Navigator {
             }
             NavKey::Reset if down => {
                 self.stop_motion();
+                self.journey.stop();
                 *viewport = Viewport::fitting(self.view_size.0, self.view_size.1);
             }
             _ => {}
@@ -1066,15 +1271,38 @@ impl Navigator {
         let gliding = self.is_gliding();
         // The zoom follows the crosshair while it glides: the target is where it is drawn.
         self.glide(dt);
+        // The journey starts its next leg when one is due.
+        if self.journey.is_running()
+            && let Some(journey::Action::Fly(t)) = self.journey.tick(now, self.flight.is_some())
+        {
+            let mut target = t.viewport(self.min_side());
+            target.angle = viewport.angle;
+            let speed = self.flight.as_ref().map(|f| f.speed);
+            let from = viewport.clone();
+            self.begin_flight(&target, &from);
+            if let (Some(f), Some(s)) = (&mut self.flight, speed) {
+                f.speed = s;
+            }
+        }
         // A flight sets the view from its path parameter (exact, nothing integrates).
-        if let Some(f) = &mut self.flight {
+        if self.flight.is_some() {
+            let speed = self.flight_speed();
+            let f = self.flight.as_mut().expect("flight");
             self.last_interaction = now;
             self.autopilot.update_throttle(dt);
-            let done = f.step(dt, self.fly_speed, self.autopilot.throttle());
-            *viewport = f.path.viewport_at(f.s);
+            let done = f.step(dt, speed, self.autopilot.throttle());
+            *viewport = f.viewport();
             if done {
+                let stopped = f.stopping;
                 self.flight = None;
+                if stopped {
+                    self.journey.stop();
+                }
             }
+            return true;
+        }
+        if self.journey.is_running() {
+            // Resting at a target (it refines) or waiting for the plan.
             return true;
         }
         if !self.is_moving() {
@@ -1110,6 +1338,26 @@ impl Navigator {
         if tz == 0.0 && z.v.abs() < ZOOM_REST && z.a.abs() < ZOOM_REST * ZOOM_OMEGA.1 {
             *z = Spring::default();
         }
+        // Rotate keys: the camera turns opposite to the image.
+        let tr = ROTATE_SPEED * (f64::from(u8::from(self.rot_cw)) - f64::from(u8::from(self.rot_ccw)));
+        let romega = if tr.abs() > self.rot_rate.v.abs() {
+            ROTATE_OMEGA.0
+        } else {
+            ROTATE_OMEGA.1
+        };
+        let mut turn = self.rot_rate.follow(tr, romega, dt);
+        let r = &mut self.rot_rate;
+        if tr == 0.0 && r.v.abs() < ROTATE_REST && r.a.abs() < ROTATE_REST * ROTATE_OMEGA.1 {
+            *r = Spring::default();
+        }
+        if self.rot_step_left != 0.0 {
+            let mut part = self.rot_step_left * (1.0 - (-dt / STRAIGHTEN_TAU).exp());
+            if (self.rot_step_left - part).abs() < 1e-5 {
+                part = self.rot_step_left;
+            }
+            self.rot_step_left -= part;
+            turn += part;
+        }
 
         // Flings: v(t) = v0 e^(−t/τ), distance v0 τ (1 − e^(−dt/τ)).
         if self.fling != (0.0, 0.0) {
@@ -1136,6 +1384,18 @@ impl Navigator {
         }
         if ap.ln_zoom != 0.0 {
             viewport.zoom_by(ap.ln_zoom.exp(), ap.at.0, ap.at.1);
+            // Cinematic spin: the view turns with the autopilot's zoom, about its dive point.
+            let spin = self.cinematic.spin_per_efold();
+            if spin != 0.0 {
+                viewport.rotate_by(spin * ap.ln_zoom, ap.at.0, ap.at.1);
+            }
+        }
+        if turn != 0.0 {
+            let (x, y) = self.zoom_target();
+            viewport.rotate_by(turn, x, y);
+            if self.rot_step_left == 0.0 && viewport.angle.abs() < 1e-12 && !self.rot_ccw && !self.rot_cw {
+                viewport.angle = 0.0;
+            }
         }
         if self.zoom_fling != 0.0 {
             let e = (-dt / ZOOM_FLING_TAU).exp();
@@ -1162,6 +1422,20 @@ impl Navigator {
         }
         true
     }
+}
+
+/// A journey seed for J: 1 ... 999 999 from the clock (short enough to read out and share).
+pub fn random_seed(now: f64) -> u64 {
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    let mut r = journey::Rng::new(t ^ now.to_bits());
+    1 + r.next_u64() % 999_999
+}
+
+/// The span (shorter side) of `viewport` in a view of `view` points.
+pub fn span_of(viewport: &Viewport, view: (f64, f64)) -> Scale {
+    viewport.scale * view.0.min(view.1).max(1.0)
 }
 
 #[cfg(test)]
@@ -2006,5 +2280,153 @@ mod tests {
         assert!(step > 0.0 && step < 0.1, "continues smoothly: {step}");
         run(&mut n, &mut v, t + 1.0 / 60.0, t + 2.0, 60.0);
         assert!(!n.is_moving());
+    }
+
+    #[test]
+    fn rotate_keys_ease_and_are_frame_rate_independent() {
+        let mut angles = Vec::new();
+        for hz in [30.0, 60.0, 120.0] {
+            let (mut n, mut v) = setup();
+            n.advance(&mut v, 0.0);
+            n.handle(InputEvent::KeyDown(NavKey::RotateCw), &mut v, 0.0);
+            let t = run(&mut n, &mut v, 0.0, 1.0, hz);
+            n.handle(InputEvent::KeyUp(NavKey::RotateCw), &mut v, t);
+            run(&mut n, &mut v, t, t + 1.0, hz);
+            assert!(!n.is_moving());
+            angles.push(v.angle);
+        }
+        // About 45 degrees per second minus the ease-in plus the glide.
+        assert!((angles[0] - ROTATE_SPEED).abs() < 0.1, "{angles:?}");
+        for a in &angles {
+            assert!((a - angles[0]).abs() < 1e-6, "{angles:?}");
+        }
+        // Straighten turns back to exactly 0.
+        let (mut n, mut v) = setup();
+        v.angle = 1.0;
+        n.handle(InputEvent::KeyDown(NavKey::Straighten), &mut v, 0.0);
+        run(&mut n, &mut v, 0.0, 1.5, 60.0);
+        assert_eq!(v.angle, 0.0);
+    }
+
+    #[test]
+    fn rotate_gesture_keeps_the_point_under_the_fingers() {
+        let (mut n, mut v) = setup();
+        n.handle(InputEvent::Pointer(Some((120.0, -80.0))), &mut v, 0.0);
+        let p = v.point_at_offset(120.0, -80.0);
+        n.handle(
+            InputEvent::Rotate {
+                radians: 0.4,
+                x: 120.0,
+                y: -80.0,
+            },
+            &mut v,
+            0.0,
+        );
+        assert!((v.angle + 0.4).abs() < 1e-12);
+        let (x, y) = v.offset_of(&p);
+        assert!((x - 120.0).abs() < 1e-6 && (y + 80.0).abs() < 1e-6);
+        // Panning a rotated view moves the content along the screen axes.
+        let q = v.point_at_offset(0.0, 0.0);
+        n.handle(InputEvent::Pan { dx: 10.0, dy: 0.0 }, &mut v, 0.1);
+        let (x, y) = v.offset_of(&q);
+        assert!((x - 10.0).abs() < 1e-6 && y.abs() < 1e-6, "{x} {y}");
+    }
+
+    #[test]
+    fn flights_turn_and_land_exactly() {
+        let target = crate::flyto::view_from_text("-0.743643887037151", "0.13182590420533", "1e-20")
+            .unwrap()
+            .with_angle(-2.5);
+        // Without the spin: the short way round to the target's angle, landing exactly.
+        let (mut n, mut v) = setup();
+        v.angle = 2.5;
+        n.advance(&mut v, 0.0);
+        n.fly_to(&target, &v.clone(), 0.0);
+        let mut t = 0.0;
+        let mut max_step: f64 = 0.0;
+        let mut prev = v.angle;
+        while n.advance(&mut v, t + 1.0 / 60.0) {
+            t += 1.0 / 60.0;
+            max_step = max_step.max(wrap_angle(v.angle - prev).abs());
+            prev = v.angle;
+            assert!(t < 60.0);
+        }
+        assert_eq!(v, target);
+        assert!(max_step < 0.05, "turned the short way, smoothly: {max_step}");
+        // With the spin: the view turns with the zoom and lands on the spun angle.
+        let (mut n, mut v) = setup();
+        n.set_cinematic(Cinematic {
+            enabled: true,
+            ..Cinematic::default()
+        });
+        n.advance(&mut v, 0.0);
+        let plain = target.clone().with_angle(0.0);
+        n.fly_to(&plain, &v.clone(), 0.0);
+        let f = n.flight().unwrap().clone();
+        let e = f.path.length() * crate::flyto::RHO;
+        assert!((f.angle1 - 4f64.to_radians() * e).abs() < 1e-9);
+        let mut t = 0.0;
+        while n.advance(&mut v, t + 1.0 / 60.0) {
+            t += 1.0 / 60.0;
+        }
+        assert_eq!(v.angle, wrap_angle(f.angle1));
+        assert_eq!(&v.center, &plain.center);
+    }
+
+    #[test]
+    fn autopilot_spins_with_the_zoom_only_when_enabled() {
+        for enabled in [false, true] {
+            let (mut n, mut v) = setup();
+            n.set_cinematic(Cinematic {
+                enabled,
+                ..Cinematic::default()
+            });
+            n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+            let s0 = v.scale.ln();
+            run(&mut n, &mut v, 0.0, 3.0, 60.0);
+            let efolds = s0 - v.scale.ln();
+            assert!(efolds > 1.0);
+            if enabled {
+                assert!(
+                    (v.angle - 4f64.to_radians() * efolds).abs() < 1e-6,
+                    "{} vs {}",
+                    v.angle,
+                    efolds
+                );
+            } else {
+                assert_eq!(v.angle, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn journey_flies_legs_and_manual_input_takes_over() {
+        let mut n = Navigator::default();
+        let mut v = Viewport::fitting(1000.0, 600.0);
+        n.handle(
+            InputEvent::Resize {
+                width: 1000.0,
+                height: 600.0,
+            },
+            &mut v,
+            0.0,
+        );
+        n.journey_mut().synchronous = true;
+        n.start_journey(4711, false, &v.clone(), 0.0);
+        let mut t = 0.0;
+        while t < 60.0 && n.journey().leg() < 3 {
+            t += 1.0 / 60.0;
+            n.advance(&mut v, t);
+        }
+        assert!(n.journey().leg() >= 3, "flew legs: {}", n.journey().leg());
+        assert!(v.zoom_log10() > 1.0, "went deeper: {}", v.zoom_log10());
+        // A pan takes over; J resumes.
+        n.handle(InputEvent::Pan { dx: 5.0, dy: 0.0 }, &mut v, t);
+        assert!(n.journey().is_suspended() && n.flight().is_none());
+        n.handle(InputEvent::KeyDown(NavKey::Journey), &mut v, t + 0.5);
+        assert!(n.journey().is_running());
+        // Esc stops it.
+        n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t + 1.0);
+        assert!(!n.journey().is_active());
     }
 }

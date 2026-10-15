@@ -400,6 +400,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "-", "_": return .stepOut
         case "r": return .reset
         case "z": return .autopilot
+        case "j": return .journey
+        case ",", "<": return .rotateCcw
+        case ".", ">": return .rotateCw
+        case "/": return .straighten
         default: return nil
         }
     }
@@ -426,7 +430,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         }
         guard let key = Self.navKey(event) else { return false }
         // Z toggles: a held key's repeats must not toggle again.
-        if key == .autopilot && event.isARepeat { return true }
+        if (key == .autopilot || key == .journey || key == .straighten) && event.isARepeat { return true }
         if event.type == .keyUp { return send(.keyUp(key: key)).handled }
         send(.shift(down: shift))
         return send(.keyDown(key: key)).handled
@@ -488,6 +492,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             // A wheel notch: an animated step (Rust eases it in over ~0.1 s).
             send(.wheelNotch(delta: Double(event.scrollingDeltaY), x: o.x, y: o.y))
         }
+    }
+
+    override func rotate(with event: NSEvent) {
+        // Trackpad rotation (degrees, counter-clockwise positive): the image follows the fingers.
+        let o = offset(event.locationInWindow)
+        send(.rotate(radians: Double(event.rotation) * .pi / 180, x: o.x, y: o.y))
     }
 
     override func magnify(with event: NSEvent) {
@@ -585,9 +595,12 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         tap.require(toFail: doubleTap)
         pinch.delegate = self
         pan.delegate = self
+        // Two-finger rotation turns the view (kb: decisions/controls, "View rotation").
+        let rotation = UIRotationGestureRecognizer(target: self, action: #selector(handleRotation(_:)))
+        rotation.delegate = self
         // iPad trackpad / mouse: pointer mode (zoom target = pointer, crosshair pointer).
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
-        [pinch, pan, doubleTap, twoFingerTap, tap, hover].forEach(addGestureRecognizer)
+        [pinch, rotation, pan, doubleTap, twoFingerTap, tap, hover].forEach(addGestureRecognizer)
         let pointer = UIPointerInteraction(delegate: self)
         addInteraction(pointer)
         pointerInteraction = pointer
@@ -690,6 +703,10 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case "-", "_": return .stepOut
         case "r": return .reset
         case "z": return .autopilot
+        case "j": return .journey
+        case ",", "<": return .rotateCcw
+        case ".", ">": return .rotateCw
+        case "/": return .straighten
         default: return key.keyCode == .keyboardEscape ? .stop : nil
         }
     }
@@ -746,6 +763,14 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             send(.gestureEnd)
         default: break
         }
+    }
+
+    @objc private func handleRotation(_ g: UIRotationGestureRecognizer) {
+        guard g.state == .changed || g.state == .ended else { return }
+        let o = offset(g.location(in: self))
+        // UIKit's rotation is clockwise-positive on screen; Rust takes counter-clockwise.
+        send(.rotate(radians: -Double(g.rotation), x: o.x, y: o.y))
+        g.rotation = 0
     }
 
     @objc private func handleHover(_ g: UIHoverGestureRecognizer) {

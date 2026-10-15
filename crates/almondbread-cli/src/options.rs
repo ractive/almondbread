@@ -95,8 +95,20 @@ impl Options {
     /// (complex units per pixel, any exponent: `1e-1000`); without a scale, the home view's
     /// 3.0 x 2.5 complex units are fitted into the image. `--location name` takes a benchmark
     /// location (deep ones included) at this image width; `--place id` a catalogue place
-    /// (kb: synthesis/places), its span fitted to the shorter side.
+    /// (kb: synthesis/places), its span fitted to the shorter side. `--angle deg` turns any of
+    /// them (view rotation, kb: decisions/controls).
     pub fn viewport(&self, width: usize, height: usize) -> Result<Viewport> {
+        let v = self.viewport_unrotated(width, height)?;
+        Ok(match self.get("angle") {
+            Some(a) => match a.parse::<f64>() {
+                Ok(deg) if deg.is_finite() => v.with_angle(deg.to_radians()),
+                _ => return err(format!("bad --angle {a}")),
+            },
+            None => v,
+        })
+    }
+
+    fn viewport_unrotated(&self, width: usize, height: usize) -> Result<Viewport> {
         if let Some(id) = self.get("place") {
             let Some(p) = almondbread_core::places::place_named(id) else {
                 return err(format!("unknown --place {id} (see `almondbread places`)"));

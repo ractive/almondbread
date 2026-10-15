@@ -10,6 +10,7 @@ struct ControlCenterView: View {
     @State private var search = UIDemo.search ?? ""
     @State private var showFlyTo = false
     @State private var confirmReset = false
+    @State private var journeySeed = ""
     @Environment(\.undoManager) private var undoManager
     @AppStorage("controlCenter.collapsed") private var collapsedStorage = ""
 
@@ -146,6 +147,7 @@ struct ControlCenterView: View {
         switch s {
         case .places: PlacesSection(model: model)
         case .view: viewRows
+        case .journey: journeyRows
         case .look: lookRows
         case .lighting: lightingRows
         case .interior: interiorRows
@@ -233,6 +235,86 @@ struct ControlCenterView: View {
         }
         Toggle("Autopilot assist", isOn: $model.autopilotAssist)
             .help("Leans the autopilot's heading towards nearby detail while the pointer rests near the centre; it never steers against the pointer")
+        // View rotation (kb: decisions/controls, "View rotation").
+        LabeledContent("Rotation") {
+            HStack {
+                Text(String(format: "%.1f°", v?.angleDegrees ?? 0)).monospacedDigit()
+                Button("Straighten") { model.straighten() }
+                    .disabled((v?.angleDegrees ?? 0) == 0)
+                    .help("Turn the view upright (/); , and . turn it, so does a trackpad rotation")
+            }
+        }
+    }
+
+    // MARK: Journey & cinematic effects
+
+    @ViewBuilder
+    private var journeyRows: some View {
+        let j = model.stats?.journey
+        HStack {
+            Button {
+                if j?.active == true && j?.suspended == true {
+                    model.resumeJourney()
+                } else if j?.active == true {
+                    model.stopJourney()
+                } else if let seed = ExplorerModel.journeySeed(from: journeySeed) {
+                    model.startJourney(seed: seed)
+                } else {
+                    model.toggleJourney()
+                }
+            } label: {
+                Label(j?.active == true ? (j?.suspended == true ? "Resume" : "Stop") : "Journey",
+                      systemImage: j?.active == true ? "sparkles.rectangle.stack.fill" : "sparkles")
+            }
+            .help("An endless planned flight from landmark to landmark (J); a seed below replays that journey")
+            Button {
+                model.startDailyJourney()
+            } label: {
+                Label("Daily", systemImage: "calendar")
+            }
+            .help("Today's journey: the same for everyone today")
+            if j?.active == true {
+                Button {
+                    model.copyJourney()
+                } label: {
+                    Label("Copy #\(j?.seed ?? 0)", systemImage: "doc.on.doc")
+                }
+                .help("Copy the journey's seed to share it")
+            }
+        }
+        #if os(iOS)
+        .buttonStyle(.borderless)
+        #endif
+        TextField("Seed (empty: random)", text: $journeySeed)
+            .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
+        if let j, j.active {
+            Text(j.suspended ? "Journey #\(j.seed) paused" :
+                 "#\(j.seed) · leg \(j.leg) · \(j.label.isEmpty ? j.phase : j.label) · \(j.phase)")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            Text("journey speed \(Format.speed(exp(j.speed))) (Q / E)")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+        }
+        Toggle("Cinematic effects", isOn: $model.cinematic)
+            .help("Spin with the zoom, palette drift with depth and slow cycling while flying (autopilot, journeys, fly-to)")
+        Group {
+            LabeledContent("Spin") {
+                Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }
+                    .help(String(format: "%.1f° per e-fold of zoom (×2.7)", model.cinematicSpin))
+            }
+            LabeledContent("Hue drift") {
+                Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }
+                    .help(String(format: "%.1f° of hue per e-fold of depth", model.cinematicHueDrift))
+            }
+            LabeledContent("Phase drift") {
+                Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }
+                    .help(String(format: "%.3f palette cycles per e-fold of depth", model.cinematicPhaseDrift))
+            }
+            LabeledContent("Cycling in flight") {
+                Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }
+                    .help(String(format: "%.3f palette cycles per second while flying", model.cinematicFlyCycle))
+            }
+        }
+        .disabled(!model.cinematic)
     }
 
     private func coordinateRow(_ label: String, _ value: String) -> some View {
@@ -452,13 +534,14 @@ struct ControlCenterView: View {
 
 /// The control center's sections, in order, with what the search matches.
 enum ControlSection: String, CaseIterable, Identifiable {
-    case places, view, look, lighting, interior, overlays, quality, diagnostics, controls
+    case places, view, journey, look, lighting, interior, overlays, quality, diagnostics, controls
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .places: "Places"
         case .view: "View & navigation"
+        case .journey: "Journey & cinematic effects"
         case .look: "Look & colour"
         case .lighting: "Lighting & outline"
         case .interior: "Interior"
@@ -473,6 +556,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: "mappin.and.ellipse"
         case .view: "scope"
+        case .journey: "film"
         case .look: "paintpalette"
         case .lighting: "light.max"
         case .interior: "circle.inset.filled"
@@ -487,6 +571,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var resetScope: ExplorerModel.ResetScope? {
         switch self {
         case .view: .view
+        case .journey: .cinematic
         case .look: .look
         case .lighting: .lighting
         case .interior: .interior
@@ -500,6 +585,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed", "autopilot", "fly", "assist"]
+        case .journey: ["journey", "seed", "daily", "share", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
@@ -512,6 +598,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
 
     var footer: String? {
         switch self {
+        case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Any input takes over; J or a click resumes, Esc stops. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
@@ -732,7 +819,9 @@ struct ControlsHelp: View {
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
         row("airplane", "Z", "Autopilot: steer with the mouse, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
-        row("escape", "Esc", "Stop the autopilot or a flight")
+        row("sparkles", "J", "Journey: on · resume after input · off")
+        row("rotate.left", ",  .  /", "Turn left / right · upright (or trackpad rotate)")
+        row("escape", "Esc", "Stop the autopilot, a flight or a journey")
         row("arrow.counterclockwise", "R or ⌘0", "Reset view")
         row("sidebar.trailing", "⌘I", "Control center")
         row("gearshape", "⌘,", "Settings")
@@ -747,6 +836,8 @@ struct ControlsHelp: View {
         row("space", "Keyboard: Space / ⇧Space, Q / E", "Zoom, zoom speed")
         row("map", "Keyboard: O / M", "Orbit overlay / mini-map")
         row("airplane", "Autopilot button or Z", "Fly on; a finger steers, a tap pauses")
+        row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
+        row("rotate.left", "Two-finger rotate", "Turn the view")
         #endif
     }
 

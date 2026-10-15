@@ -53,8 +53,16 @@ pub enum NavKey {
     Reset,
     /// Z: autopilot on / off.
     Autopilot,
-    /// Esc: stops the autopilot (not handled while it is off: the platform keeps the key).
+    /// Esc: stops the autopilot, a flight or a journey (not handled while nothing flies: the
+    /// platform keeps the key).
     Stop,
+    /// `,` / `.` (held): turn the image counter-clockwise / clockwise.
+    RotateCcw,
+    RotateCw,
+    /// `/`: turn back upright.
+    Straighten,
+    /// J: journey on (random seed) / resume after manual input / off.
+    Journey,
 }
 
 impl From<NavKey> for CoreNavKey {
@@ -72,6 +80,10 @@ impl From<NavKey> for CoreNavKey {
             NavKey::Reset => Self::Reset,
             NavKey::Autopilot => Self::Autopilot,
             NavKey::Stop => Self::Stop,
+            NavKey::RotateCcw => Self::RotateCcw,
+            NavKey::RotateCw => Self::RotateCw,
+            NavKey::Straighten => Self::Straighten,
+            NavKey::Journey => Self::Journey,
         }
     }
 }
@@ -222,6 +234,13 @@ pub enum InputEvent {
         rt: f64,
         boost: bool,
     },
+    /// Trackpad / touch rotation: the image turns counter-clockwise by `radians` about (x, y)
+    /// (pointer mode; keyboard mode: the crosshair), 1:1.
+    Rotate {
+        radians: f64,
+        x: f64,
+        y: f64,
+    },
 }
 
 impl InputEvent {
@@ -261,6 +280,7 @@ impl InputEvent {
             Self::ZoomBy { factor } if ok(&[factor]) && factor > 0.0 => E::ZoomBy { factor },
             Self::WheelNotch { delta, x, y } if ok(&[delta, x, y]) => E::WheelNotch { delta, x, y },
             Self::GestureEnd => E::GestureEnd,
+            Self::Rotate { radians, x, y } if ok(&[radians, x, y]) => E::Rotate { radians, x, y },
             // Non-finite axes read as centred (handled in the navigator).
             Self::Gamepad {
                 lx,
@@ -352,6 +372,28 @@ pub struct FlightStatus {
     pub target_zoom_log10: f64,
 }
 
+/// A journey for the HUD and the control center (kb: decisions/controls, "Journey").
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct JourneyStatus {
+    pub active: bool,
+    /// Manual input took over: J, the button or a click resumes.
+    pub suspended: bool,
+    /// The seed ("Journey #4711"); the daily journey's is the date (yyyymmdd).
+    pub seed: u64,
+    pub daily: bool,
+    /// Legs flown (the current one included).
+    pub leg: u32,
+    /// "flying", "resting", "planning".
+    pub phase: String,
+    /// The current target: kind ("minibrot", "embedded Julia", "spiral", ...), its label
+    /// ("period-34 minibrot", "spiral M(36,2)") and depth (log10 of the magnification).
+    pub kind: String,
+    pub label: String,
+    pub target_zoom_log10: f64,
+    /// Set speed, e-folds per second at the zoom ends.
+    pub speed: f64,
+}
+
 /// The autopilot for the HUD.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AutopilotStatus {
@@ -422,6 +464,14 @@ pub struct ExplorerSettings {
     pub interior_stripes: f64,
     /// Dense regions fade to a calm dark colour with thin filaments (off: the old grey).
     pub dense_calm: bool,
+    /// Cinematic effects (kb: decisions/controls "Cinematic effects"): master switch, view
+    /// spin (degrees per e-fold of automatic zoom), palette hue drift (degrees per e-fold of
+    /// depth), phase drift (cycles per e-fold of depth), cycling while flying (cycles/s).
+    pub cinematic: bool,
+    pub cinematic_spin: f64,
+    pub cinematic_hue_drift: f64,
+    pub cinematic_phase_drift: f64,
+    pub cinematic_fly_cycle: f64,
 }
 
 /// How the inside of the set is coloured.
@@ -579,6 +629,11 @@ impl From<&RenderSettings> for ExplorerSettings {
             interior_density: s.interior_density,
             interior_stripes: s.interior_stripes,
             dense_calm: s.dense_calm,
+            cinematic: s.cinematic.enabled,
+            cinematic_spin: s.cinematic.spin,
+            cinematic_hue_drift: s.cinematic.hue_drift,
+            cinematic_phase_drift: s.cinematic.phase_drift,
+            cinematic_fly_cycle: s.cinematic.fly_cycle,
         }
     }
 }
@@ -668,6 +723,14 @@ impl ExplorerSettings {
             8.0
         };
         s.dense_calm = self.dense_calm;
+        s.cinematic = almondbread_core::cinematic::Cinematic {
+            enabled: self.cinematic,
+            spin: self.cinematic_spin,
+            hue_drift: self.cinematic_hue_drift,
+            phase_drift: self.cinematic_phase_drift,
+            fly_cycle: self.cinematic_fly_cycle,
+        }
+        .sanitized();
         Ok(())
     }
 }
@@ -689,6 +752,8 @@ pub struct ViewportInfo {
     pub min_scale: f64,
     /// Zoom stops here.
     pub at_precision_limit: bool,
+    /// View rotation, degrees (the camera's counter-clockwise turn; 0 upright).
+    pub angle_degrees: f64,
 }
 
 impl From<&Viewport> for ViewportInfo {
@@ -705,6 +770,7 @@ impl From<&Viewport> for ViewportInfo {
             zoom_log10: v.zoom_log10(),
             min_scale: v.min_scale().to_f64(),
             at_precision_limit: v.at_precision_limit(),
+            angle_degrees: v.angle.to_degrees(),
         }
     }
 }
@@ -736,6 +802,7 @@ pub struct ExplorerStats {
     pub zoom_speed: f64,
     pub autopilot: AutopilotStatus,
     pub flight: FlightStatus,
+    pub journey: JourneyStatus,
     pub held_keys: u32,
     /// The current view's refined frame is presented and nothing is left to iterate.
     pub settled: bool,
@@ -1200,6 +1267,31 @@ impl Explorer {
                     assist: a.assist(),
                 }
             },
+            journey: {
+                let j = r.navigator.journey();
+                let t = j.current();
+                JourneyStatus {
+                    active: j.is_active(),
+                    suspended: j.is_suspended(),
+                    seed: j.seed(),
+                    daily: j.is_daily(),
+                    leg: j.leg(),
+                    phase: if j.is_planning() {
+                        "planning"
+                    } else {
+                        match j.phase() {
+                            almondbread_core::journey::Phase::Flying => "flying",
+                            almondbread_core::journey::Phase::Dwelling => "resting",
+                            almondbread_core::journey::Phase::Planning => "planning",
+                        }
+                    }
+                    .to_string(),
+                    kind: t.map_or(String::new(), |t| t.kind.name().to_string()),
+                    label: t.map_or(String::new(), |t| t.label.clone()),
+                    target_zoom_log10: t.map_or(0.0, |t| t.zoom_log10()),
+                    speed: j.speed(),
+                }
+            },
             held_keys: r.navigator.held_count() as u32,
             settled: r.is_settled(),
             failed_frames: r.failed_frames as u64,
@@ -1255,10 +1347,16 @@ impl Explorer {
                 _ => {}
             }
         }
-        match (re, im, scale) {
+        let ok = match (re, im, scale) {
             (Some(re), Some(im), Some(scale)) => self.set_viewport_text(re, im, scale).is_ok(),
             _ => false,
+        };
+        // The optional `angle` line (degrees); without it the view comes upright.
+        if ok {
+            let a = almondbread_core::flyto::parse_angle(&text).unwrap_or(0.0);
+            self.lock().host.renderer.viewport.angle = a;
         }
+        ok
     }
 
     /// Flies to a view given as text (any depth): an animated zoom-out / pan / zoom-in path
@@ -1270,6 +1368,7 @@ impl Explorer {
         })?;
         let mut g = self.lock();
         let r = &mut g.host.renderer;
+        let target = target.with_angle(r.viewport.angle);
         let start = r.viewport.clone();
         r.navigator.fly_to(&target, &start, media_time());
         Ok(())
@@ -1278,9 +1377,66 @@ impl Explorer {
     /// Flies to coordinates as copied by `coordinates_text` (or "re im scale"). Returns false
     /// if the text is not a view.
     pub fn fly_to_coordinates(&self, text: String) -> bool {
-        match almondbread_core::flyto::parse_coordinates(&text) {
-            Some((re, im, scale)) => self.fly_to(re, im, scale).is_ok(),
-            None => false,
+        let Some((re, im, scale)) = almondbread_core::flyto::parse_coordinates(&text) else {
+            return false;
+        };
+        let Some(target) = almondbread_core::flyto::view_from_text(&re, &im, &scale) else {
+            return false;
+        };
+        let mut g = self.lock();
+        let r = &mut g.host.renderer;
+        // The text's angle; without one the view keeps its own.
+        let target = target.with_angle(almondbread_core::flyto::parse_angle(&text).unwrap_or(r.viewport.angle));
+        let start = r.viewport.clone();
+        r.navigator.fly_to(&target, &start, media_time());
+        true
+    }
+
+    /// Starts a journey with `seed` (kb: decisions/controls, "Journey"): planned legs from
+    /// landmark to landmark, reproducible from the seed and the start view. Resume the
+    /// display link after this.
+    pub fn start_journey(&self, seed: u64) {
+        let mut g = self.lock();
+        let r = &mut g.host.renderer;
+        let v = r.viewport.clone();
+        r.navigator.start_journey(seed.max(1), false, &v, media_time());
+    }
+
+    /// The daily journey: the same for everyone on that date (seed yyyymmdd).
+    pub fn start_daily_journey(&self, year: i32, month: u32, day: u32) {
+        let seed = almondbread_core::journey::daily_seed(year, month, day);
+        let mut g = self.lock();
+        let r = &mut g.host.renderer;
+        let v = r.viewport.clone();
+        r.navigator.start_journey(seed, true, &v, media_time());
+    }
+
+    /// A random journey seed (1 ... 999 999).
+    pub fn random_journey_seed(&self) -> u64 {
+        almondbread_core::input::random_seed(media_time())
+    }
+
+    /// Stops a journey (its flight eases out).
+    pub fn stop_journey(&self) {
+        self.lock().host.renderer.navigator.stop_journey();
+    }
+
+    /// Resumes a journey that manual input took over.
+    pub fn resume_journey(&self) {
+        let mut g = self.lock();
+        let r = &mut g.host.renderer;
+        let v = r.viewport.clone();
+        r.navigator.resume_journey(&v, media_time());
+    }
+
+    /// Turns the view to `degrees` (the camera's counter-clockwise turn) about the centre.
+    pub fn set_angle(&self, degrees: f64) {
+        if degrees.is_finite() {
+            let mut g = self.lock();
+            let v = &mut g.host.renderer.viewport;
+            let d = almondbread_core::viewport::wrap_angle(degrees.to_radians()) - v.angle;
+            v.rotate_by(d, 0.0, 0.0);
+            g.host.renderer.note_interaction(media_time());
         }
     }
 

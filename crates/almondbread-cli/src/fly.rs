@@ -37,6 +37,11 @@
 //! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
 //! | `{"at": t, "assist": true}` | autopilot assist on / off |
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per point) |
+//! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); keys `j` (resume / stop), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
+//! | `{"from": a, "to": b, "rotate": rate}` | trackpad rotation at `rate` radians/s (counter-clockwise image) about `point` |
+//!
+//! Settings also take `"cinematic": true` or `{"spin": 4, "hue_drift": 2.5, "phase_drift": 0.01, "fly_cycle": 0.02}`
+//! (kb: decisions/controls, cinematic effects).
 
 use std::fs;
 use std::io::Write;
@@ -113,6 +118,10 @@ fn nav_key(name: &str) -> Option<NavKey> {
         "reset" | "r" => NavKey::Reset,
         "autopilot" | "z" => NavKey::Autopilot,
         "stop" | "esc" => NavKey::Stop,
+        "rotate_ccw" | "," => NavKey::RotateCcw,
+        "rotate_cw" | "." => NavKey::RotateCw,
+        "straighten" | "/" => NavKey::Straighten,
+        "journey" | "j" => NavKey::Journey,
         _ => return None,
     })
 }
@@ -160,6 +169,27 @@ pub fn apply_json_settings(v: &Value, s: &mut RenderSettings) {
     }
     if let Some(x) = b("preview") {
         s.interactive_preview = x;
+    }
+    match v.get("cinematic") {
+        Some(Value::Bool(on)) => s.cinematic.enabled = *on,
+        Some(c @ Value::Object(_)) => {
+            let g = |k: &str| c.get(k).and_then(Value::as_f64);
+            s.cinematic.enabled = c.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+            if let Some(x) = g("spin") {
+                s.cinematic.spin = x;
+            }
+            if let Some(x) = g("hue_drift") {
+                s.cinematic.hue_drift = x;
+            }
+            if let Some(x) = g("phase_drift") {
+                s.cinematic.phase_drift = x;
+            }
+            if let Some(x) = g("fly_cycle") {
+                s.cinematic.fly_cycle = x;
+            }
+            s.cinematic = s.cinematic.sanitized();
+        }
+        _ => {}
     }
     crate::options::apply_look_json(v, s);
 }
@@ -241,6 +271,22 @@ fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, 
             if let Some(a) = e.get("assist").and_then(Value::as_bool) {
                 r.navigator.autopilot_mut().set_assist(a);
             }
+            if let Some(j) = e.get("journey") {
+                let start = r.viewport.clone();
+                if j.as_str() == Some("daily") {
+                    let date = e.get("date").and_then(Value::as_str).unwrap_or("2026-10-15");
+                    let p: Vec<i64> = date.split('-').filter_map(|x| x.parse().ok()).collect();
+                    let seed = if p.len() == 3 {
+                        almondbread_core::journey::daily_seed(p[0] as i32, p[1] as u32, p[2] as u32)
+                    } else {
+                        1
+                    };
+                    r.navigator.start_journey(seed, true, &start, now);
+                } else {
+                    let seed = j.as_u64().unwrap_or(1);
+                    r.navigator.start_journey(seed, false, &start, now);
+                }
+            }
             if let Some(f) = e.get("fly_to") {
                 let text = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("");
                 match almondbread_core::flyto::view_from_text(text("re"), text("im"), text("scale")) {
@@ -276,6 +322,17 @@ fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, 
                     now,
                 );
             }
+            if let Some(rate) = num(e, "rotate") {
+                let (x, y) = pair(e.get("point")).unwrap_or(*pointer);
+                r.handle_input(
+                    InputEvent::Rotate {
+                        radians: rate * span,
+                        x,
+                        y,
+                    },
+                    now,
+                );
+            }
             if let Some(rate) = num(e, "pinch") {
                 let (x, y) = pair(e.get("point")).unwrap_or(*pointer);
                 let (vx, vy) = pair(e.get("pan")).unwrap_or((0.0, 0.0));
@@ -305,7 +362,7 @@ fn feed<B: GpuBackend>(r: &mut Renderer<B>, events: &[Value], t0: f64, t1: f64, 
                 // followed with a lag: the pointer path a hand would take keeping it in view.
                 let text = |k: &str| aim.get(k).and_then(Value::as_str).unwrap_or("0");
                 if let Some(c) = Center::parse(text("re"), text("im")) {
-                    let (ox, oy) = c.delta_in(&r.viewport.center, r.viewport.scale);
+                    let (ox, oy) = r.viewport.offset_of(&c);
                     let gain = num(e, "gain").unwrap_or(2.5);
                     let lag = num(e, "lag").unwrap_or(0.25).max(1e-3);
                     let f = 1.0 - (-span / lag).exp();

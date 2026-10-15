@@ -136,6 +136,9 @@ pub struct RenderSettings {
     pub cycle_speed: f64,
     /// Depth tint: palette phase shift per decade of zoom (0: off).
     pub depth_tint: f64,
+    /// Cinematic effects (spin, palette drift with depth, cycling while flying; off by
+    /// default; kb: decisions/controls "Cinematic effects").
+    pub cinematic: crate::cinematic::Cinematic,
 
     // Quality
     pub supersampling: Supersampling,
@@ -187,6 +190,7 @@ impl RenderSettings {
             palette_stops: None,
             cycle_speed: 0.0,
             depth_tint: 0.0,
+            cinematic: crate::cinematic::Cinematic::default(),
             supersampling: Supersampling::default(),
             interactive_preview: true,
         }

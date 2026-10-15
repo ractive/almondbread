@@ -546,6 +546,44 @@ mod tests {
         assert!(rep.false_interior_pct() < 0.01, "{}", rep.summary());
     }
 
+    /// M5 with view rotation (kb: decisions/controls "View rotation"): seeds turn their node
+    /// offsets like the pixels, so a rotated dense view seeded matches the plain one (a wrong
+    /// turn would put every pixel on another orbit), in the plain and the deep kernel.
+    #[test]
+    fn local_sa_rotated() {
+        use crate::scheduler::{Renderer, SaMode, SchedulerConfig};
+        use almondbread_core::locations::location_named;
+        use almondbread_core::oracle::compare;
+        for name in ["dense-5e-14", "sea-1e20"] {
+            let render = |mode: SaMode| {
+                let config = SchedulerConfig {
+                    local_sa: sa(mode),
+                    ..SchedulerConfig::default()
+                };
+                let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
+                let loc = location_named(name).expect("location");
+                r.settings = almondbread_core::RenderSettings::plain();
+                r.settings.auto_iterations = false;
+                r.settings.manual_iterations = loc.max_iterations();
+                r.settings.supersampling = almondbread_core::Supersampling::Off;
+                r.viewport = loc.viewport_for_width(400).with_angle(0.7);
+                let out = r.render_offscreen(400, 250, true).expect("render");
+                let steps = out.steps_done + out.seeds.as_ref().map_or(0, |s| s.steps());
+                (
+                    almondbread_core::IterationField::from_texels(400, 250, out.iterations.as_deref().unwrap()),
+                    steps,
+                )
+            };
+            let (off, off_steps) = render(SaMode::Off);
+            let (on, on_steps) = render(SaMode::On);
+            // (Unrotated at this size: dense 7x, sea-1e20 1.45x fewer steps.)
+            assert!(on_steps * 4 < off_steps * 3, "{name}: {on_steps} vs {off_steps}");
+            let (rep, _) = compare(&on, &off);
+            assert!(rep.mismatch_pct() < 0.05, "{name}: {}", rep.summary());
+            assert!(rep.escape_differs_pct() < 25.0, "{name}: {}", rep.summary());
+        }
+    }
+
     /// M5: where the seeds branch early (interior-heavy home view at 100k iterations) the
     /// auto gate seeds no tile, and the field is the plain one bit for bit.
     #[test]

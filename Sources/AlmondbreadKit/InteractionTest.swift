@@ -299,6 +299,81 @@ final class InteractionTest: NSObject {
                 }
             }
         }
+        // View rotation (kb: decisions/controls, "View rotation"): hold "." (turn) and Space
+        // (zoom) together for 2.5 s at 1e5; the view must have turned and zoomed, and the
+        // settled frame must match a fresh render of the rotated view.
+        var turnStart = (angle: 0.0, zoom: 0.0)
+        let rotateZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                let vp = explorer.viewport()
+                turnStart = (vp.angleDegrees, vp.zoomLog10)
+                v.send(.pointer(x: 150, y: 80))
+                InteractionTest.key(v, ".", down: true)
+                InteractionTest.key(v, " ", down: true)
+            }
+            once("up", t >= 2.5) {
+                InteractionTest.key(v, ".", down: false)
+                InteractionTest.key(v, " ", down: false)
+                let vp = explorer.viewport()
+                let turned = vp.angleDegrees - turnStart.angle
+                let ok = abs(turned) > 60 && vp.zoomLog10 - turnStart.zoom > 0.5
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "rotate zoom: turned %.1f° and zoomed ×%.1f in 2.5 s %@",
+                                               turned, pow(10, vp.zoomLog10 - turnStart.zoom), ok ? "OK" : "FAILED"))
+            }
+        }
+        // Cinematic autopilot: effects on, Z, Esc at 2.4 s: the view turns with the zoom.
+        var cine = (angle: 0.0, zoom: 0.0)
+        let cinematicAutopilot: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                v.model.cinematic = true
+                let vp = explorer.viewport()
+                cine = (vp.angleDegrees, vp.zoomLog10)
+                v.send(.pointer(x: 0, y: 0))
+                InteractionTest.key(v, "z", down: true)
+                InteractionTest.key(v, "z", down: false)
+            }
+            once("esc", t >= 2.4) {
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let vp = explorer.viewport()
+                let efolds = (vp.zoomLog10 - cine.zoom) * log(10)
+                let turned = vp.angleDegrees - cine.angle
+                // 4° per e-fold at the default spin (the eased stop adds a little more later).
+                let ok = efolds > 0.5 && abs(turned - 4 * efolds) < 0.5
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "cinematic autopilot: %.2f e-folds, turned %.2f° (expected %.2f) %@",
+                                               efolds, turned, 4 * efolds, ok ? "OK" : "FAILED"))
+            }
+            once("off", t >= 2.9) { v.model.cinematic = false }
+        }
+        // Journey (kb: decisions/controls, "Journey"): J from the 1e5 view; within 2.8 s the
+        // first leg must be planned and flying; Esc then stops it (the view settles for the
+        // shown-vs-fresh check).
+        var journeyLegs = 0
+        let journey: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                journeyLegs = 0
+                InteractionTest.key(v, "j", down: true)
+                InteractionTest.key(v, "j", down: false)
+            }
+            let j = explorer.stats().journey
+            journeyLegs = max(journeyLegs, Int(j.leg))
+            once("esc", t >= 2.8) {
+                let s = explorer.stats()
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let ok = journeyLegs >= 1 && s.journey.active && !explorer.stats().journey.active
+                if !ok { self.failures += 1 }
+                self.refineLines.append("journey: #\(s.journey.seed) leg \(journeyLegs) \"\(s.journey.label)\" \(s.journey.phase), off after Esc \(explorer.stats().journey.active ? "NO" : "yes") \(ok ? "OK" : "FAILED")")
+            }
+        }
         let seaDeep20 = View(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139", scale: 1e-20)
         // M5 benchmark views at their benchmark pixel size (1600 px wide framing; the window's
         // points are 2 px on a Retina display, so the scale per point is twice that).
@@ -323,6 +398,9 @@ final class InteractionTest: NSObject {
                 Scenario(name: "1e-300 zoom", viewport: dendrite300, input: zoom),
                 Scenario(name: "autopilot", viewport: sea, input: autopilot),
                 Scenario(name: "fly to", viewport: sea, input: flyTo),
+                Scenario(name: "rotate zoom", viewport: sea, input: rotateZoom),
+                Scenario(name: "cinematic autopilot", viewport: sea, input: cinematicAutopilot),
+                Scenario(name: "journey", viewport: sea, input: journey),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
                 Scenario(name: "looks home pan", viewport: home, input: switcher(gesture: true)),
                 Scenario(name: "looks deep idle", viewport: seaDeep20, input: switcher(gesture: false)),

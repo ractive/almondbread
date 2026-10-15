@@ -108,7 +108,7 @@ pub struct FlyPath {
 impl FlyPath {
     /// The path from `start` to `target` for a view `view_width` points wide.
     pub fn new(start: &Viewport, target: &Viewport, view_width: f64) -> Self {
-        let target = Viewport::with_center(target.center.clone(), target.scale);
+        let target = Viewport::with_center(target.center.clone(), target.scale).with_angle(target.angle);
         let bits = target.center.precision_bits().max(start.center.precision_bits());
         let start_center = start.center.with_min_precision(bits);
         let view_width = if view_width.is_finite() && view_width > 0.0 {
@@ -293,16 +293,54 @@ pub struct Flight {
     pub speed: Spring,
     /// Esc: slowing to a stop on the path.
     pub stopping: bool,
+    /// View rotation (cinematic effects, kb: decisions/controls "View rotation"): the angle
+    /// turns from `angle0` to `angle1` (unwrapped radians) in proportion to the path parameter,
+    /// so with the spin effect it turns with the zoom; at the end the view has exactly
+    /// `land_angle`.
+    pub angle0: f64,
+    pub angle1: f64,
+    pub land_angle: f64,
 }
 
 impl Flight {
     pub fn new(path: FlyPath) -> Self {
+        let a = path.target().angle;
         Self {
             path,
             s: 0.0,
             speed: Spring::default(),
             stopping: false,
+            angle0: a,
+            angle1: a,
+            land_angle: a,
         }
+    }
+
+    /// A flight that turns from `start_angle` to the target's angle the short way round, plus
+    /// `spin` radians per e-fold of path (the path's e-folds: ρ per unit of s).
+    pub fn turning(path: FlyPath, start_angle: f64, spin: f64) -> Self {
+        let target = path.target().angle;
+        let mut f = Self::new(path);
+        f.angle0 = start_angle;
+        if spin != 0.0 {
+            f.angle1 = start_angle + spin * f.path.length() * RHO;
+            f.land_angle = crate::viewport::wrap_angle(f.angle1);
+            f.path.target.angle = f.land_angle;
+        } else {
+            f.angle1 = start_angle + crate::viewport::wrap_angle(target - start_angle);
+            f.land_angle = target;
+        }
+        f
+    }
+
+    /// The view at the current path parameter, rotation included (exactly the target at the end).
+    pub fn viewport(&self) -> Viewport {
+        let v = self.path.viewport_at(self.s);
+        if self.s >= self.path.length {
+            return v.with_angle(self.land_angle);
+        }
+        let t = self.progress();
+        v.with_angle(self.angle0 + (self.angle1 - self.angle0) * t)
     }
 
     /// Fraction of the path flown.
@@ -363,6 +401,23 @@ pub fn parse_coordinates(text: &str) -> Option<(String, String, String)> {
     None
 }
 
+/// The `angle` line of copied coordinates (degrees, the camera's counter-clockwise turn), as
+/// radians; None when the text has none.
+pub fn parse_angle(text: &str) -> Option<f64> {
+    text.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        match (parts.next(), parts.next()) {
+            (Some("angle"), Some(v)) => v
+                .trim_end_matches('°')
+                .parse::<f64>()
+                .ok()
+                .filter(|a| a.is_finite())
+                .map(|a| crate::viewport::wrap_angle(a.to_radians())),
+            _ => None,
+        }
+    })
+}
+
 /// The view of parsed coordinates (None if they are not numbers or the scale is not positive).
 pub fn view_from_text(re: &str, im: &str, scale: &str) -> Option<Viewport> {
     let center = Center::parse(re.trim(), im.trim())?;
@@ -384,6 +439,20 @@ mod tests {
     use super::*;
 
     const W: f64 = 1000.0;
+
+    #[test]
+    fn coordinates_text_carries_an_optional_angle() {
+        let text = "re -0.75\nim 0.1\nscale 1e-5 (zoom 375×)\nangle 30";
+        assert_eq!(
+            parse_coordinates(text),
+            Some(("-0.75".into(), "0.1".into(), "1e-5".into()))
+        );
+        let a = parse_angle(text).unwrap();
+        assert!((a - 30f64.to_radians()).abs() < 1e-15);
+        assert!((parse_angle("angle 270°").unwrap() + 90f64.to_radians()).abs() < 1e-12);
+        assert_eq!(parse_angle("re 1\nim 2\nscale 3"), None);
+        assert_eq!(parse_angle("angle nan"), None);
+    }
 
     fn sea8007() -> Viewport {
         view_from_text(

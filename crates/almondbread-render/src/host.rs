@@ -179,7 +179,8 @@ impl<B: GpuBackend + Clone> Host<B> {
     fn overlay_before(&mut self, now: f64) {
         self.overlay.poll_click(now);
         if let Some(j) = self.overlay.pending_jump.take() {
-            let mut v = Viewport::with_center(j.center, self.renderer.viewport.scale);
+            let mut v =
+                Viewport::with_center(j.center, self.renderer.viewport.scale).with_angle(self.renderer.viewport.angle);
             v.ensure_precision();
             if j.fly {
                 // Option-click: the animated fly-to path (out, across, in) to the same zoom.
@@ -341,11 +342,20 @@ impl<B: GpuBackend + Clone> Host<B> {
     pub fn coordinates_text(&self) -> String {
         let v = &self.renderer.viewport;
         let (re, im) = v.center.to_strings_digits(coordinate_digits(v));
-        format!(
+        let mut text = format!(
             "re {re}\nim {im}\nscale {} (zoom {})",
             v.scale.to_text(6),
             zoom_text(v.zoom_log10())
-        )
+        );
+        // A rotated view (kb: decisions/controls "View rotation"): degrees, counter-clockwise
+        // turn of the camera. Unrotated views omit the line (older builds read the text too).
+        if v.angle != 0.0 {
+            text.push_str(&format!(
+                "\nangle {}",
+                almondbread_core::cfmt::g(v.angle.to_degrees(), 10)
+            ));
+        }
+        text
     }
 }
 
