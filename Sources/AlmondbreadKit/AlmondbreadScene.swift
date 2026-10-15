@@ -26,6 +26,13 @@ public struct AlmondbreadScene: Scene {
         .commands { FractalCommands() }
         #endif
         #if os(macOS)
+        // "How big is big?" (kb: synthesis/how-big-is-big): its own window, so it stays open
+        // and follows the zoom while the fractal window keeps the input.
+        Window("How Big Is Big?", id: HowBig.windowID) {
+            HowBigWindow()
+                .preferredColorScheme(.dark)
+        }
+        .defaultSize(width: 760, height: 860)
         Settings {
             AppSettingsView()
                 .preferredColorScheme(.dark)
@@ -151,6 +158,7 @@ struct FractalCommands: Commands {
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)
+            HowBigButton(model: model, title: "How Big Is Big?")
             Divider()
         }
     }
