@@ -208,6 +208,17 @@ Measured (M1 Pro, release, 2026-10-15; [[synthesis/benchmarks]] "Sample cache"):
 - **Colour passes**: shade 0.03–0.9 ms. The compose pass costs ~1 ms more than FL's preview
   colour plus compose at Retina size (3.0–3.1 vs 2.1 ms), and the same at 1600 × 1000.
 
+## User test: off by default (2026-10-15)
+
+In the real foreground window on the M1 Pro (Retina, ProMotion) the user found the app
+"very sluggish" with the cache on. Zoom-out frames were very blurry and fast zoom-ins less smooth
+than the build without the cache. Switching features off one at a time (env switches, same
+build) pinned it on the cache alone: M5 local SA and M6 LA were as smooth as or smoother than the
+day before. Headless `fly` replays at 3456×2160 had shown no difference (96–99 fps either way), and
+background window tests are capped near 30 Hz, so neither check could see it. The cache is now
+opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`). It must not return as the default until a foreground
+measurement and the user's own check show that zoom-out stays sharp and fast zooms feel smoother.
+
 ## Pitfalls
 
 - **Use a reconstruction filter, never the nearest sample.** A sample replaced under a pixel

@@ -668,3 +668,12 @@ the technique page: superseded jobs wasting budgeted batches, latency vs through
 interior statistics, `%` in per-pixel code, overlapping command buffers. Brought in the R4
 pages, sources, raw notes and prototypes. Numbers: [[synthesis/benchmarks]] "Sample cache".
 Pages: [[platform/render-architecture]], [[index]].
+
+## [2026-10-15] decision | Sample cache off by default after user test
+
+The user found the merged build sluggish: blurry zoom-out and less smooth fast zooms. Feature
+bisection with env switches in the real window traced it to the sample cache; M5 and M6 felt
+as smooth as or smoother than the previous day. The cache is now opt-in
+(`ALMONDBREAD_SAMPLE_CACHE=1`). Lesson: headless replays and background windows (capped near 30 Hz)
+do not show interactive feel; a speed feature needs a foreground check before it becomes the
+default. Pages: [[techniques/sample-reuse]].

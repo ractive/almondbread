@@ -82,7 +82,9 @@ impl Default for CacheConfig {
     fn default() -> Self {
         let env = |k: &str| std::env::var(k).ok();
         Self {
-            enabled: env("ALMONDBREAD_SAMPLE_CACHE").is_none_or(|v| v != "0"),
+            // Opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`): in the real window it made zoom-out blurry and
+            // fast zooms less smooth than without it (user test 2026-10-15; kb: techniques/sample-reuse).
+            enabled: env("ALMONDBREAD_SAMPLE_CACHE").is_some_and(|v| v == "1"),
             max_ratio: env("ALMONDBREAD_CACHE_RATIO")
                 .and_then(|v| v.parse().ok())
                 .filter(|&v: &f64| v > 0.0 && v <= 2.0)

@@ -747,6 +747,8 @@ mod tests {
         // references differ from a fresh render as the refined frames do: float32.)
         r.settings.auto_iterations = false;
         r.settings.manual_iterations = 2000;
+        // The cache is opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`).
+        r.sample_cache_config().enabled = true;
         let (w, h) = (320, 200);
         r.simulate(w, h, 1.0, 120.0, 0, 30.0, &mut |_, _, _| {})
             .expect("settle");
