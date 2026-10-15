@@ -146,6 +146,46 @@ From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers
   `--extension-budget 0`), Metal tests `auto_iterations_nothing_escaped` and
   `auto_iterations_interior_view`.
 
+## Floor from the reference (M5, 2026-10-15)
+
+The user's slowest view (`spiral-32412-1e19`: a dense spiral at 4.2e−19/px around a disc of
+pixels that need more than 41 536 iterations) spent 37 % of its 4.43e10 iterations on a
+first pass that left every pixel unresolved at the depth limit 10 384 before the 4× retry
+(3 350 ms GPU in all, driver's measurement on main). The view's big reference knows better
+before any pixel runs: its centre orbit escaped only at 32 411 (the "ref 32412 pts" of the
+report: not a nucleus period; ball period detection finds period 2 235 and Newton does not
+converge, so there is no nucleus in view). Rule (`period_floor` in the scheduler, a function
+of the reference alone, so the job's key is stable):
+
+- reference = nucleus of period P found in the view: limit ≥ 1.25 P;
+- centre orbit (no nucleus) that escaped after the depth limit, or did not escape within its
+  length (2× the limit it was made for): limit ≥ 4× the depth limit (the retry level);
+- capped at 4× the depth limit and at the user's cap; auto iterations only; nuclei are now
+  searched up to that cap (`period_limit`), not only to the current limit.
+
+A high limit costs only the pixels that reach it, so the floor is cheap where most pixels
+escape earlier. Spiral, 1600 × 1000, plain kernel (measured 2026-10-15, M1 Pro): one pass at
+41 536, 2 257 ms instead of two (10 384 + 41 536). `ALMONDBREAD_ITER_FLOOR=0` turns it off.
+
+**The adaptive interior-test switch must not drop the test while pixels end unresolved**
+(M5): with the test off, limit pixels are drawn interior and the extension passes (which need
+the test) never continue them. After a pan at the spiral the switch turned the test off (few
+interior pixels, many iterations each) and 2 % of the pixels, the disc of slow escapes, were
+painted interior (`verify --history pan`). The test now stays on while ≥ 0.1 % of the last
+level's pixels ended unresolved (`UNRESOLVED_KEEPS_TEST`).
+
+**Learned state does not survive a jump** (M5, found by the flight benchmark): after a dive at
+c = i (1e−280) and a jump to the spiral, the dendrite's statistics (no interior, so the
+interior test off) drew the spiral's unresolved disc interior, and the learner could not
+retry without the test: an all-black settled frame in 2 of 3 runs, 0.6 % class difference
+from a fresh render in the third. Now a view change that is not continuous (scale ratio ≥ 8
+or the centre two view widths away, between consecutive refreshes) resets the learned limit,
+the pin, the interior-test statistics and the local-SA gate's cost estimate; and a view where
+a quarter reached the limit without the test renders again with it (a retry epoch in the job
+key, also when the limit cannot grow). `verify --history` checks the settled frame against a
+from-scratch render (own auto iterations, no learned state), and `make regress` runs the
+dive-then-jump path (`--prior 0,1,1e-280 --prior-speed 40 --prior-seconds 0.8`).
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,

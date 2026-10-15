@@ -112,19 +112,19 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[techniques/adaptive-sampling]] — adaptive/sparse sampling, reconstruction and early termination; R3 measured: none pays in dense regions except cheaper samples
 - [[techniques/anti-aliasing]] — uniform jitter and subframe accumulation, gamma-correct resolve, DE coverage; as built (FL): progressive adaptive AA in linear light, capped by the supersampling setting
-- [[techniques/auto-iterations]] — KF's undocumented auto iterations and zoom-out bug, Fraktaler caps, statistics + hysteresis rule (inference)
+- [[techniques/auto-iterations]] — KF's undocumented auto iterations and zoom-out bug, Fraktaler caps, statistics + hysteresis rule (inference); as built: unresolved ≠ interior, extension passes, learned limit, floor from the reference (M5)
 - [[techniques/bla]] — mathr's binary-tree BLA: single-step radius variants, merge rule, table build and lookup pseudocode, matrix/abs variants, costs; contradictions on the radius
 - [[techniques/coloring-methods]] — transfer functions, log-potential palette, histogram, phase, slopes/normal maps, TIA/curvature/stripe averages; as built (FL): OKLab palettes, looks, palette anti-aliasing by DE, outline-then-light
 - [[techniques/distance-estimation]] — Milnor exterior DE, Koebe ¼, pixel-scaled dual numbers for float32, DE through skips, AA/boundary tests
-- [[techniques/double-float]] — float-float error-free transforms, costs, Metal reassociation and math-mode pitfalls; repair/shallow mode only
+- [[techniques/double-float]] — float-float error-free transforms, costs, Metal reassociation and math-mode pitfalls; M7 as built: safe-math library, known-answer test, fx verify renderer, 7–12× / 27–52× slower than float32
 - [[techniques/exponential-map]] — log-polar strips (9:1, zoom 2 per keyframe), KF/zoomasm/Fraktaler practice, geometry
 - [[techniques/extended-range-floats]] — float32/64 range limits, floatexp, rescaled iterations with full floatexp steps, skip-table exponents, depth→type table
 - [[techniques/frame-reuse-and-progressive]] — XaoS row/column reuse, KF reuse reference and interlacing; as built: M2 gesture previews, FL history reprojection with temporal upsampling, per-pixel refinement fade, focus-first tiles
 - [[techniques/glitch-detection]] — Pauldelbrot's |Z+z|² < G|Z|² test and KF multi-reference correction (legacy; keep as debug overlay)
-- [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); tile scheme for all-interior borders only
+- [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); as built in M5: interior-only fill of 16 × 16 tiles (border-first admission, bit-identical, gated)
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
 - [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut
-- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3: 5.2× fewer iterations at the dense view (CPU), same image statistics
+- [[techniques/local-series-approximation]] — second-order expansion around tile and pixel seeds (quadtree); R3 CPU 5.2×; R5 GPU prototype; as built in M5: resumable seed rounds, per-tile gate, float32 deep seeds, 4–9× in dense/deep views
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured
@@ -186,13 +186,13 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/auto-iteration-heuristic]] — which auto-maxIter rule to use
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
 - [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU
-- [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs (contradiction)
+- [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs; answered: fma float-float correct under .safe, broken under .fast, 7–12× slower than float32
 - [[questions/ffma32-latency]] — FFMA32 latency 2.21 vs 6 cycles in metal-benchmarks
-- [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over 1e5–1e9 iterations; test plan
+- [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over long orbits; answered (M7): within a 0.001–0.2 px grid shift, no visible artefacts
 - [[questions/higher-order-bla]] — second-order BLA: 21× reported vs "nothing adopted" (contradiction)
 - [[questions/kf-bla-support]] — does KF2+ have BLA? (contradiction: KF page vs Mu-Ency)
-- [[questions/local-sa-float32]] — does local series approximation hold in the float32 perturbation kernel, and does the gain survive on the GPU? (open)
-- [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal
+- [[questions/local-sa-float32]] — does local series approximation hold in the float32 perturbation kernel, and does the gain survive on the GPU? (answered R5: yes in dense/filament/deep-seahorse views, 3–8.5× GPU; no gain in interior-heavy views; carry the interior derivative, never restart it)
+- [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal; .fast erases TwoSum, .safe keeps it (M7)
 - [[questions/metal-watchdog-limit]] — exact watchdog threshold on macOS and iOS
 - [[questions/perturbation-convergent-formulas]] — perturbation/rebasing for Nova, Newton, magnet (contradiction)
 - [[questions/precision-bits-formula]] — reference bits vs zoom; working rule

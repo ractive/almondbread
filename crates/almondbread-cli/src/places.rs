@@ -131,7 +131,7 @@ fn render_thumbs<B: GpuBackend + Clone>(backend: &B, o: &Options, list: &[&Place
                     notes.push(format!("FLAT (luma {lo:.0}..{hi:.0})"));
                     status = 1;
                 }
-                notes.push(format!("maxIter {}", r.max_iterations()));
+                notes.push(format!("maxIter {}", r.stats.max_iterations));
             }
             let png = Path::new(dir).join(format!("{}{suffix}.png", p.id));
             let image = Path::new(dir).join(format!("{}{suffix}.{ext}", p.id));

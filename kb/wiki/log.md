@@ -481,6 +481,23 @@ the merge: the R6 orbit digest is identical to the R6 branch's; `verify --histor
 dendrite-1e1000 shows the first frame after 93 ms. Pages: [[decisions/controls]],
 [[synthesis/places]], [[techniques/coloring-methods]].
 
+## [2026-10-14] research | R5: local series approximation on the GPU (float32 check)
+
+Answered [[questions/local-sa-float32]]. Metal prototype in the render crate (behind `--sa 1` /
+`ALMONDBREAD_SA=1`, offscreen only): `seedLevel` kernel per quadtree level (32 → 2 texels,
+ε = 1e−2), float32 seeds in the plain kernel and floatexp seeds with BLA blocks in the deep
+kernel, `iterate` with function constant `kSeeded` starting fresh pixels from their leaf.
+Interleaved A/B timing at 18 locations on a shared GPU, verify against the CPU oracle, Aurora
+crops. Dense-5e-14: 8.7× fewer steps, 78 → 16 ms; deep-5e-14 4.6×, root-third 3.2×, filament
+1.9×, sea-1e20 8.5×; interior/unresolved-heavy views 0.75–1.07× (incoherent reference reads,
+long seed runs). Error statistics equal the plain kernel's in chaotic views, slightly larger
+but invisible μ errors in smooth ones, zero false interior. Found: restarting the interior
+derivative at the branch (R3 design) paints 96 % of needle-1e305 interior; carry `w` and
+`dw/dc` instead. Also found and fixed two DE bugs of the deep kernel (clamp before scaling,
+mantissa overflow before escape). Recommendation: go for M5 with a per-view gate, leaf-sorted
+admission, chunked seed passes. Pages: [[techniques/local-series-approximation]] (GPU
+prototype, pitfalls, M5 design), [[synthesis/benchmarks]] R5, [[roadmap]], [[index]].
+
 ## [2026-10-15] decision | PJ: journey autopilot, view rotation, cinematic effects
 
 Pilot track. Journey (J): an endless seeded flight from landmark to landmark; targets from the
@@ -496,3 +513,54 @@ cycling in flight). Ingested [[sources/muency-newton-raphson-zooming]] and
 [[sources/kisaka-julia-sets-in-mandelbrot]]. Pages: [[decisions/controls]] (Journey, View
 rotation, Cinematic effects), [[ideas]] (status), [[roadmap]] (PJ), [[synthesis/benchmarks]]
 (PJ), [[index]].
+
+## [2026-10-15] decision | M5: local series approximation and interior fill in production
+
+Shipped local SA ([[techniques/local-series-approximation]] "As built (M5)") on by default:
+quadtree seeds 32 → 4 texels in resumable rounds (a node keeps its whole loop state; rounds
+sized by a learnt latency model; pixel admission gated on the GPU until the seeds are final),
+every level seeded at its own texel size, extension passes and AA samples from the full
+level's leaves, float32 deep seeds down to 2^−80 texels (the spiral's seeds 150 → 40 ms), a
+deterministic per-tile gate whose bar comes from the last level's steps per texel, Morton order
+inside admission tiles, bounded rounds for gesture frames. Interior-only tile fill
+([[techniques/guessing-and-subdivision]] "As built (M5)"): borders first, insides of
+all-proven-interior tiles written without iterating, bit-identical, gated (elephant 1.35×,
+off with analysed interior colourings). New benchmark location `spiral-32412-1e19` (the
+user's slowest view) and regress sessions; auto iterations take a floor from the big
+reference and keep the interior test on while pixels end unresolved
+([[techniques/auto-iterations]]). Results ([[synthesis/benchmarks]] M5): dense-5e-14 4.95×,
+sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e300 2.5×, spiral
+3.96× (first render 4.0 → 0.78 s GPU), interactive refined frames 2–5× sooner, 0–3 % cost
+where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
+Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
+[[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
+
+## [2026-10-15] decision | M5 fix: learned state across jumps
+
+The flight benchmark found the spiral settling black after a dive at c = i (1e-280): the
+old view's interior-test statistics turned the test off and the learner could not retry
+without it. Jumps now reset the learned iteration and gate state; a view at the limit without
+the test renders again with it; `verify --history` checks against a from-scratch render; a
+regress session runs the path. Page: [[techniques/auto-iterations]].
+
+## [2026-10-15] decision | M7: float32 artefacts measured (none visible); float-float as scaffolding
+
+Step 1 of M7 asked whether float32 rounding artefacts exist at all. New probe `almondbread
+precision`: the float32 GPU field against the CPU oracle next to control oracles with the pixel
+grid shifted by 0.001–0.5 px, one CPU colouring for both, signed error maps and crops. At 23 views
+from 3e-7 to 4e-1003 per pixel (catalogue minibrots and spirals, sea-8007 at 1e5 iterations, the
+period-32412 spiral, a needle minibrot at 1e1000 with 1e6 iterations) the float32 error is within
+a 0.001-px shift at 17, 0.01 px at 5 and 0.1–0.2 px at spiral-1e1000; crops show no speckle, and
+the smooth-region error at the deep spirals is smooth and coherent (|Δμ| ≤ 0.022), not noise.
+Float-float (48 bits) and the f64 oracle still disagree on 6 % at the period-32412 spiral: chaotic
+pixels have no stable value. So no repair pass, flagging or "max precision" setting was built.
+Built instead, at zero runtime cost: the float-float + exponent kernels in their own library
+compiled with `MTLMathMode.safe` through a new backend hook, a known-answer test that the
+creation runs (passes under `.safe`; under `.fast` TwoSum and QuickTwoSum lose their low parts)
+with float32 as the fallback, a pixel-list fx perturbation kernel at any depth used by
+`verify --ff 1` / `precision --ff 1` (30–3000× closer to the oracle than float32), and number-type
+benchmarks (float-float 7–12×, fx 27–52× slower than float32). `bench` A/B against main: geomean
+1.014 under load, fields bit-identical. Pages: [[questions/float32-error-long-orbits]] (answered),
+[[questions/double-float-speed-on-m1]] (answered), [[questions/metal-fast-math-defaults]]
+(partial), [[techniques/double-float]] (As built), [[synthesis/benchmarks]] (M7), [[roadmap]]
+(M7), [[overview]], [[index]].

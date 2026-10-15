@@ -379,6 +379,11 @@ final class InteractionTest: NSObject {
             }
         }
         let seaDeep20 = View(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139", scale: 1e-20)
+        // M5 benchmark views at their benchmark pixel size (1600 px wide framing; the window's
+        // points are 2 px on a Retina display, so the scale per point is twice that).
+        let dense = View(re: "-1.4080321340304542", im: "0.13680236432900417", scale: 2 * 7.384e-11 / 1600)
+        let neck2e5 = View(re: "-0.7500016386523336", im: "-0.0021073424656852589", scale: 2 * 2.1666e-5 / 1600)
+        let spiral = View(re: "-0.13415002160674054265664", im: "-0.64991906714433853974391", scale: 2 * 4.19804e-19)
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
                 Scenario(name: "home pan", viewport: home, input: pan),
@@ -403,7 +408,15 @@ final class InteractionTest: NSObject {
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
                 Scenario(name: "looks home pan", viewport: home, input: switcher(gesture: true)),
                 Scenario(name: "looks deep idle", viewport: seaDeep20, input: switcher(gesture: false)),
-                Scenario(name: "looks deep pan", viewport: seaDeep20, input: switcher(gesture: true))]
+                Scenario(name: "looks deep pan", viewport: seaDeep20, input: switcher(gesture: true)),
+                // M5 (kb: techniques/local-series-approximation): local SA's views.
+                Scenario(name: "dense pan", viewport: dense, input: pan),
+                Scenario(name: "dense zoom", viewport: dense, input: zoom),
+                Scenario(name: "neck2e5 pan", viewport: neck2e5, input: pan),
+                Scenario(name: "sea-1e20 pan", viewport: seaDeep20, input: pan),
+                Scenario(name: "sea-1e20 zoom", viewport: seaDeep20, input: zoom),
+                Scenario(name: "spiral pan", viewport: spiral, input: pan),
+                Scenario(name: "spiral zoom", viewport: spiral, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -457,8 +470,8 @@ final class InteractionTest: NSObject {
         print("interaction-test: window key \(window.isKeyWindow), app active \(NSApp.isActive), "
               + "occlusion visible \(window.occlusionState.contains(.visible))")
         print("interaction-test: Rust renderer, window 1280x820 pt, backing scale \(window.backingScaleFactor), display \(window.screen?.localizedName ?? "?") \(fps) Hz (main: \(window.screen == NSScreen.main))")
-        print("| scenario | frames | fps | link Hz (granted) | interval p50 / p95 / max ms | latency p50 / p95 ms (input→draw + draw→screen p50) | draw CPU p50 / p95 ms | GPU ms/frame (iter + colorize) | preview % | skipped draws | draws / encoded |")
-        print("|---|---:|---:|---|---|---|---|---|---:|---:|---|")
+        print("| scenario | frames | fps | link Hz (granted) | interval p50 / p95 / max ms | latency p50 / p95 ms (input→draw + draw→screen p50) | draw CPU p50 / p95 ms | GPU ms/frame (iter + colorize) | preview % | preview scale | skipped draws | draws / encoded |")
+        print("|---|---:|---:|---|---|---|---|---|---:|---:|---:|---|")
         if ProcessInfo.processInfo.environment["ALMONDBREAD_TEST_LINK"] == "cv", let screen = window.screen {
             // A CVDisplayLink on the window's display drives both the view's frames and the
             // inputs: the CADisplayLink of a background (accessory, never key) window gets
@@ -647,11 +660,11 @@ final class InteractionTest: NSObject {
         let linkHz = linkTimes.count > 1 && span > 0 ? Double(linkTimes.count - 1) / span : 0
         let granted = linkDurations.sorted()
         let grantedHz = granted.isEmpty ? 0 : 1 / max(granted[granted.count / 2], 1e-6)
-        print(String(format: "| %@ | %d | %.1f | %.1f (%.0f) | %.1f / %.1f / %.1f | %.1f / %.1f (%.1f + %.1f) | %.2f / %.2f | %.2f + %.2f | %.0f | %d | %d / %d |",
+        print(String(format: "| %@ | %d | %.1f | %.1f (%.0f) | %.1f / %.1f / %.1f | %.1f / %.1f (%.1f + %.1f) | %.2f / %.2f | %.2f + %.2f | %.0f | %.2f | %d | %d / %d |",
                      name, r.presented, r.fps, linkHz, grantedHz, r.intervalP50, r.intervalP95, r.intervalMax,
                      r.latencyP50, r.latencyP95, r.inputToDrawP50, r.drawToPresentP50,
                      r.drawCpuP50, r.drawCpuP95, r.iterateGpuPerFrame, r.colorizeGpuPerFrame,
-                     r.previewPct, r.skipped, r.draws, r.encoded))
+                     r.previewPct, r.previewScale, r.skipped, r.draws, r.encoded))
         if r.presented == 0 {
             let visible = view?.window?.occlusionState.contains(.visible) ?? false
             refineLines.append("\(name): no presentation times (window \(visible ? "visible" : "occluded")): frame rate and latency not measurable")
