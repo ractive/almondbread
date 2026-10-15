@@ -1,8 +1,20 @@
 //! Journey: an endless, planned, random-but-seeded flight from landmark to landmark (kb:
 //! decisions/controls "Journey", techniques/reference-selection, synthesis/places).
 //!
+//! **Dives and cross-overs (variety).** Deep in one region every view is decorated with the same
+//! local Julia set, so a journey that only dives shows one family of shapes. A journey is a
+//! sequence of *dives*: a cross-over flight to another region (a catalogue place up to 1e16 or
+//! a view from the maths of a bulb, [`regions`]; not one of the last three regions, the region
+//! family — valley, limb, needle — alternating), then 1–2 legs within it in a seeded style
+//! (scenic, medium, deep), then the next cross-over. Every landing is described ([`look`]:
+//! distance spectrum, structure dimension, interior, the spiral pitch of its maths) and scored
+//! for novelty against the last six; near-duplicates of the last three are rejected, and a
+//! dive goes on only while it shows something new. Long legs fly faster ([`leg_pace`]); with
+//! the cinematic effects on, each dive gets its own palette phase.
+//!
 //! **Targets come from the maths, not from taste.** From the current view the planner finds
-//! candidates in and near it:
+//! candidates in and near it (and in a view 2–4 e-folds wider: a short cross-over within the
+//! region):
 //!
 //! - *minibrots*: ball period detection over a small disc at a boundary point of the view,
 //!   Newton for the nucleus, the size estimate for the framing (the minibrot fills 1/6 to 1/12
@@ -18,8 +30,8 @@
 //!   point shadows a repelling cycle for a while; the preperiod and period where
 //!   `|z_{k+p} − z_k|` is smallest seed Newton (`find_misiurewicz`); the multiplier of the cycle
 //!   says spiral (complex) or dendrite (real);
-//! - a *detail* zoom into the busiest part of the view as a fallback, and *resurfacing* to a
-//!   shallow catalogue place after a deep dive (the journey is endless without getting slow).
+//! - a *detail* zoom into the busiest part of the view as a fallback (never twice in a row),
+//!   and *resurfacing* to a shallow catalogue place when nothing else is found.
 //!
 //! **Scoring with cheap image statistics.** Every candidate's framing is rendered as a 40 × 40
 //! CPU probe (the oracle: f64, or perturbation at depth) and measured like the GPU survey
@@ -48,6 +60,13 @@ use almondbread_math::{
     find_period, minibrot_size_complex, with_no_control,
 };
 
+pub mod look;
+pub mod regions;
+
+pub use regions::{RegionId, region_of};
+
+pub use look::Look;
+
 use crate::oracle::{IterationField, cpu_render, cpu_render_deep};
 use crate::viewport::{Center, Scale, Viewport};
 
@@ -56,15 +75,29 @@ pub const SPEED_DEFAULT: f64 = 1.4;
 pub const SPEED_RANGE: (f64, f64) = (0.1, 16.0);
 /// Seconds at a target (it refines and anti-aliases meanwhile), at the default speed.
 pub const DWELL: f64 = 3.0;
+/// Legs longer than this many e-folds of path (zoom out, across, zoom in: cross-overs from
+/// deep dives) fly faster: only `LONG_LEG_SHARE` of the excess is flown at the journey speed,
+/// so a cross-over from 1e40 takes ~20 s instead of ~65 s at the default speed.
+pub const LONG_LEG: f64 = 14.0;
+pub const LONG_LEG_SHARE: f64 = 0.2;
+
+/// The speed factor of a leg whose path covers `efolds` e-folds (1 for ordinary legs).
+pub fn leg_pace(efolds: f64) -> f64 {
+    if !efolds.is_finite() || efolds <= LONG_LEG {
+        1.0
+    } else {
+        efolds / (LONG_LEG + LONG_LEG_SHARE * (efolds - LONG_LEG))
+    }
+}
+
 /// Probe resolution (square, across the shorter side).
 pub const PROBE: usize = 40;
 /// Probe iteration cap (CPU).
 pub const PROBE_ITER_CAP: usize = 30_000;
 /// Depth gain of a leg, e-folds: accepted range.
 pub const GAIN_RANGE: (f64, f64) = (2.5, 20.0);
-/// Resurface after this depth (log10 of the magnification against span 3) or this many legs.
+/// Cross over after this depth (log10 of the magnification against span 3) whatever the dive.
 pub const MAX_DEPTH_LOG10: f64 = 40.0;
-pub const MAX_LEGS_PER_DIVE: u32 = 6;
 /// Boundary points tried per plan.
 const SAMPLES: usize = 10;
 /// Candidates probed per plan (best by the pre-score).
@@ -85,12 +118,15 @@ pub enum TargetKind {
     Dendrite,
     /// The busiest part of the view (fallback).
     Detail,
-    /// Back up to a shallow catalogue place after a deep dive.
+    /// Back up to a shallow catalogue place (the fallback when nothing else is found).
     Surface,
+    /// Over to another region: a catalogue place or a view from the maths of a bulb (the
+    /// flight zooms out as far as the distance needs and back in).
+    Crossing,
 }
 
 impl TargetKind {
-    pub const ALL: [TargetKind; 7] = [
+    pub const ALL: [TargetKind; 8] = [
         Self::Minibrot,
         Self::Julia,
         Self::Approach,
@@ -98,6 +134,7 @@ impl TargetKind {
         Self::Dendrite,
         Self::Detail,
         Self::Surface,
+        Self::Crossing,
     ];
 
     pub fn name(self) -> &'static str {
@@ -109,6 +146,7 @@ impl TargetKind {
             Self::Dendrite => "dendrite",
             Self::Detail => "detail",
             Self::Surface => "resurfacing",
+            Self::Crossing => "cross-over",
         }
     }
 
@@ -119,7 +157,7 @@ impl TargetKind {
             Self::Minibrot | Self::Approach => 0,
             Self::Julia => 1,
             Self::Detail => 3,
-            Self::Surface => 4,
+            Self::Surface | Self::Crossing => 4,
         }
     }
 }
@@ -312,18 +350,82 @@ pub fn probe_iterations(span: Scale) -> usize {
 
 /// A `PROBE` × `PROBE` render of the square of side `span` around `center` (plane axes).
 pub fn probe(center: &Center, span: Scale, extra_iterations: usize) -> IterationField {
-    let texel = span / PROBE as f64;
+    probe_sized(center, span, extra_iterations, PROBE)
+}
+
+/// A `size` × `size` probe (see [`probe`]).
+pub fn probe_sized(center: &Center, span: Scale, extra_iterations: usize, size: usize) -> IterationField {
+    let texel = span / size as f64;
     let it = (probe_iterations(span) + extra_iterations).min(PROBE_ITER_CAP * 2);
     if texel.to_f64() >= 1e-13 {
-        cpu_render(center.re(), center.im(), texel.to_f64(), PROBE, PROBE, it, 65536.0, 0.0)
+        cpu_render(center.re(), center.im(), texel.to_f64(), size, size, it, 65536.0, 0.0)
     } else {
         let c = center.with_min_precision(
             Viewport::with_center(center.clone(), texel / 4.0)
                 .needed_center_bits()
                 .max(center.precision_bits()),
         );
-        cpu_render_deep(&c, texel, PROBE, PROBE, it, 65536.0, 0.0).0
+        cpu_render_deep(&c, texel, size, size, it, 65536.0, 0.0).0
     }
+}
+
+/// The spiral pitch of a view, from its maths: the orbit of a point near the centre shadows
+/// a repelling cycle (the (k, p) of its closest return, as for Misiurewicz candidates); the
+/// cycle's multiplier λ = Π 2 z_i says how the structure there repeats: scaled by |λ| and
+/// turned by arg λ. The turn per e-fold of scale, `|arg λ| / ln |λ|` (arg folded to [0, π/2]:
+/// a negative real multiplier flips, it does not turn), is what the eye sees as curl:
+/// about 0 for dendrites and stars, large for tight spirals. Two points off the centre
+/// (a nucleus' own cycle is attracting), averaged, mapped to 0 … 1 by `t / (t + 0.5)`.
+pub fn pitch(center: &Center, span: Scale) -> f64 {
+    let bits = bits_for(span).max(center.precision_bits());
+    let base = center.with_min_precision(bits);
+    let n_orbit = probe_iterations(span).clamp(500, 20_000);
+    let mut sum = 0.0;
+    let mut count = 0;
+    for (ox, oy) in [(0.21, 0.13), (-0.18, -0.2)] {
+        let p = base.offset_scaled(ox, oy, span);
+        let comp = ReferenceOrbitComputer::new(p.big(), bits);
+        let (orbit, _) = with_no_control(4096, |ctl| comp.compute_double_exp(n_orbit, 1e6, ctl));
+        let z: Vec<[f64; 2]> = orbit.iter().map(|v| [v.re.to_f64(), v.im.to_f64()]).collect();
+        if z.len() < 8 {
+            continue;
+        }
+        let mut best: Option<(f64, usize, usize)> = None;
+        for per in 1..=16usize {
+            for k in 1..z.len().saturating_sub(per) {
+                let (a, b) = (z[k], z[k + per]);
+                let d = (a[0] - b[0]).hypot(a[1] - b[1]) / (a[0].hypot(a[1]) + 1e-3) * (1.0 + 0.05 * per as f64);
+                if best.is_none_or(|(bd, _, _)| d < bd) {
+                    best = Some((d, k, per));
+                }
+            }
+        }
+        let Some((_, k, per)) = best else { continue };
+        let (mut lr, mut li) = (1.0f64, 0.0f64);
+        let mut ln_mag = 0.0;
+        for v in &z[k..k + per] {
+            let (zr, zi) = (2.0 * v[0], 2.0 * v[1]);
+            let m = zr.hypot(zi);
+            if m == 0.0 {
+                continue;
+            }
+            ln_mag += m.ln();
+            let (r, i) = (lr * zr - li * zi, lr * zi + li * zr);
+            let n = r.hypot(i);
+            (lr, li) = (r / n, i / n);
+        }
+        let turn = li.atan2(lr).abs();
+        let turn = turn.min(std::f64::consts::PI - turn);
+        let t = turn / ln_mag.max(0.05);
+        sum += t / (t + 0.5);
+        count += 1;
+    }
+    if count == 0 { 0.0 } else { sum / count as f64 }
+}
+
+/// The look of a probe of the view (`center`, `span`) with its spiral pitch.
+pub fn look_of(f: &IterationField, center: &Center, span: Scale) -> Look {
+    Look::of(f).with_pitch(pitch(center, span))
 }
 
 /// A place visited, for the variety rules.
@@ -334,6 +436,9 @@ pub struct Visit {
     pub span: Scale,
     /// Direction of travel to it in the plane (radians), if it moved sideways.
     pub direction: Option<f64>,
+    /// What its probe looked like, and its region.
+    pub look: Look,
+    pub region: RegionId,
 }
 
 /// One planned target.
@@ -352,6 +457,11 @@ pub struct Target {
     pub gain: f64,
     pub score: f64,
     pub stats: ProbeStats,
+    /// What the probe looks like (novelty scoring).
+    pub look: Look,
+    /// The journey's palette phase at this target (cycles, unwrapped; applied only with the
+    /// cinematic effects on): it changes at cross-overs, eased over the flight.
+    pub palette_phase: f64,
 }
 
 impl Target {
@@ -371,13 +481,60 @@ impl Target {
     }
 }
 
+/// How a dive goes: seeded at every cross-over (kb: decisions/controls "Journey", variety).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiveStyle {
+    /// The cross-over and one short leg near the surface: the region's scenery.
+    Scenic,
+    /// The cross-over and one or two legs, to 1e8 … 1e20.
+    Medium,
+    /// The cross-over and two long legs, down to minibrots and their Julia stages (to 1e40).
+    Deep,
+}
+
+impl DiveStyle {
+    /// The depth gain a leg prefers (e-folds, seeded within).
+    fn gain(self) -> (f64, f64) {
+        match self {
+            Self::Scenic => (2.5, 5.0),
+            Self::Medium => (4.0, 8.0),
+            Self::Deep => (11.0, 17.0),
+        }
+    }
+
+    /// Cross over once a dive is this deep (log10 of the magnification).
+    fn max_depth_log10(self) -> f64 {
+        match self {
+            Self::Scenic => 10.0,
+            Self::Medium => 22.0,
+            Self::Deep => MAX_DEPTH_LOG10,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Scenic => "scenic",
+            Self::Medium => "medium",
+            Self::Deep => "deep",
+        }
+    }
+}
+
 /// The planner's state between plans: what makes the journey reproducible.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chain {
     pub seed: u64,
     pub rng: Rng,
     pub history: Vec<Visit>,
-    pub legs_since_surface: u32,
+    /// Legs left in this dive before the journey crosses over to another region (0: the
+    /// next leg crosses over; a new journey starts with one).
+    pub dive_left: u32,
+    pub style: DiveStyle,
+    /// The regions of the dives so far, newest last (at most 12).
+    pub regions: Vec<RegionId>,
+    /// Palette phase (cycles, unwrapped) of the current dive: every cross-over moves it on by
+    /// 0.15 … 0.4, so each region gets its own colours when the cinematic effects are on.
+    pub palette_phase: f64,
 }
 
 impl Chain {
@@ -386,8 +543,24 @@ impl Chain {
             seed,
             rng: Rng::new(seed),
             history: Vec::new(),
-            legs_since_surface: 0,
+            dive_left: 0,
+            style: DiveStyle::Medium,
+            regions: Vec::new(),
+            palette_phase: 0.0,
         }
+    }
+
+    /// The chain of a journey started from the view (`center`, `span`): from home the first
+    /// leg crosses over; started away from home (J pressed while exploring), it first dives
+    /// two legs where the user is.
+    pub fn starting_at(seed: u64, center: &Center, span: Scale) -> Self {
+        let mut chain = Self::new(seed);
+        let (c, s) = canonical_start(center, span);
+        if s.to_f64() < 1.5 {
+            chain.dive_left = 2;
+            chain.regions.push(region_of(c.re(), c.im()).0);
+        }
+        chain
     }
 }
 
@@ -437,8 +610,50 @@ fn canonical_start(center: &Center, span: Scale) -> (Center, Scale) {
     }
 }
 
+/// Visits compared for novelty; the distance below which a probe is a near-duplicate of one
+/// of the last `DUPLICATE_RECENT` landings (rejected outright), and the stricter one for a
+/// dive's later legs: a dive goes on only while it shows something new, else the journey
+/// crosses over. Calibrated on journey #4711's landings sorted into four families by eye
+/// (dendrite carpets, bulbs, thin stars and medallions, spirals): distances within a family
+/// 0.24 / 0.45 / 0.77 (10th / 50th / 90th percentile), across families 0.45 / 0.73 / 1.13.
+const NOVELTY_RECENT: usize = 6;
+
+const DUPLICATE_RECENT: usize = 3;
+pub const DUPLICATE: f64 = 0.22;
+pub const FAMILIAR: f64 = 0.33;
+/// Novelty score: per unit of look distance to the most similar recent landing, up to a cap.
+const NOVELTY_WEIGHT: f64 = 1.2;
+const NOVELTY_CAP: f64 = 0.8;
+
+/// How new a look is against the recent landings: the score term, and whether it is a
+/// near-duplicate (closer than `dup` to one of the last three). Older landings count less
+/// (their distance is stretched by 12 % per leg).
+pub fn novelty(look: &Look, history: &[Visit], dup: f64) -> (f64, bool) {
+    let mut dmin = f64::INFINITY;
+    let mut duplicate = false;
+    for (k, v) in history.iter().rev().take(NOVELTY_RECENT).enumerate() {
+        let d = look.distance(&v.look);
+        if k < DUPLICATE_RECENT && d < dup {
+            duplicate = true;
+        }
+        dmin = dmin.min(d * (1.0 + 0.12 * k as f64));
+    }
+    if !dmin.is_finite() {
+        return (NOVELTY_WEIGHT * NOVELTY_CAP, false);
+    }
+    (NOVELTY_WEIGHT * dmin.min(NOVELTY_CAP), duplicate)
+}
+
 /// Plans the next target from the view (`center`, `span` across the shorter side). Returns
 /// None only when cancelled. Deterministic in (`center`, `span`, `chain`).
+///
+/// A journey is a sequence of *dives*: a cross-over flight to another region (a catalogue
+/// place or a bulb's view, not one of the last regions), then one to five legs within it in a
+/// seeded style (scenic, medium, deep), then the next cross-over. Within a dive the targets
+/// are the maths' (minibrots, Julia stages, Misiurewicz points) in and near the view, and
+/// those of a wider view around it (a short cross-over within the region). Every candidate's
+/// probe is scored for structure and for novelty against the last landings; near-duplicates
+/// are rejected, and a dive whose candidates all look like what was just seen ends early.
 pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) -> Option<Plan> {
     let t0 = std::time::Instant::now();
     let (center, span) = canonical_start(center, span);
@@ -446,21 +661,132 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
     let mut rng = chain.rng;
     let depth = 3.0f64.log10() - span.log10();
     let cancelled = || cancel.load(Ordering::Relaxed);
+    let trace = std::env::var_os("ALMONDBREAD_JOURNEY_TRACE").is_some();
+    let mut found = 0;
+    let mut probed = 0;
 
-    // ---- Resurfacing after a deep dive.
-    let deep_enough = depth > MAX_DEPTH_LOG10 || chain.legs_since_surface >= MAX_LEGS_PER_DIVE;
-    let mut candidates: Vec<Candidate> = Vec::new();
-    if !deep_enough {
-        candidates = find_candidates(&center, span, &mut rng, cancel)?;
+    // ---- Within the dive.
+    let mut best: Option<Target> = None;
+    let cross_due = chain.dive_left == 0 || depth > chain.style.max_depth_log10();
+    if !cross_due {
+        let mut candidates = find_candidates(&center, span, &mut rng, cancel)?;
+        // A short cross-over within the region: targets of a view 2-4 e-folds wider, away
+        // from this one (the flight zooms out a little and back in beside it).
+        if depth > 2.5 {
+            let wide = span * rng.range(2.0, 4.0).exp();
+            let mut side = find_candidates(&center, wide, &mut rng, cancel)?;
+            side.retain(|c| {
+                c.kind != TargetKind::Detail
+                    && c.center.distance_in(&center, span) > 0.8
+                    && span.ratio(c.span).ln() > -1.0
+            });
+            candidates.extend(side);
+        }
+        if cancelled() {
+            return None;
+        }
+        let (lo, hi) = chain.style.gain();
+        let want_gain = rng.range(lo, hi);
+        prescore_dive(&mut candidates, &center, span, &chain, want_gain, &mut rng);
+        found += candidates.len();
+        // The dive's first leg after the cross-over needs only to differ; later ones must
+        // show something new.
+        let in_dive = chain
+            .history
+            .iter()
+            .rev()
+            .take_while(|v| !matches!(v.kind, TargetKind::Crossing | TargetKind::Surface))
+            .count();
+        let dup = if in_dive == 0 { DUPLICATE } else { FAMILIAR };
+        let (b, n) = probe_best(candidates, span, &chain.history, dup, trace, cancel)?;
+        probed += n;
+        // A boundary detail after a boundary detail: the dive has run out of landmarks.
+        best = b.filter(|t| {
+            t.kind != TargetKind::Detail || chain.history.last().is_none_or(|v| v.kind != TargetKind::Detail)
+        });
+        if best.is_none() && trace {
+            println!("    dive ends: nothing new here");
+        }
     }
-    if cancelled() {
-        return None;
+
+    // ---- Cross over to another region.
+    let crossing = best.is_none();
+    if crossing {
+        // The next dive's style: no two deep dives in a row.
+        let r = rng.f64();
+        let style = if r < 0.35 {
+            DiveStyle::Scenic
+        } else if r < 0.72 || chain.style == DiveStyle::Deep || chain.regions.is_empty() {
+            DiveStyle::Medium
+        } else {
+            DiveStyle::Deep
+        };
+        chain.style = style;
+        let here = region_of(center.re(), center.im()).0;
+        let mut candidates = crossover_candidates(here, span, &chain, &mut rng);
+        found += candidates.len();
+        candidates.truncate(MAX_PROBES);
+        let (b, n) = probe_best(candidates, span, &chain.history, DUPLICATE, trace, cancel)?;
+        probed += n;
+        best = b;
+        chain.dive_left = match style {
+            DiveStyle::Scenic => 1,
+            DiveStyle::Medium => 1 + rng.index(2) as u32,
+            DiveStyle::Deep => 2,
+        };
+    } else {
+        chain.dive_left = chain.dive_left.saturating_sub(1);
     }
-    // Pre-score: variety and the leg's preferred depth gain, then probe the best few.
-    let want_gain = rng.range(4.0, 10.0);
+    let mut target = match best {
+        Some(t) => t,
+        None => surface(span, &mut rng, &chain),
+    };
+    if crossing || target.kind == TargetKind::Surface {
+        chain.palette_phase += rng.range(0.15, 0.4);
+    }
+    target.palette_phase = chain.palette_phase;
+    let region = region_of(target.center.re(), target.center.im()).0;
+    if crossing || target.kind == TargetKind::Surface {
+        chain.regions.push(region);
+        if chain.regions.len() > 12 {
+            chain.regions.remove(0);
+        }
+    }
+    let (dx, dy) = target.center.delta_in(&center, span);
+    chain.history.push(Visit {
+        kind: target.kind,
+        center: target.center.clone(),
+        span: target.span,
+        direction: (dx.hypot(dy) > 0.05).then(|| dy.atan2(dx)),
+        look: target.look,
+        region,
+    });
+    if chain.history.len() > 32 {
+        chain.history.remove(0);
+    }
+    chain.rng = rng;
+    Some(Plan {
+        target,
+        chain,
+        candidates: found,
+        probed,
+        seconds: t0.elapsed().as_secs_f64(),
+    })
+}
+
+/// Variety rules before probing (kinds alternate, the leg's preferred gain, directions
+/// change, no place twice) and a seeded share.
+fn prescore_dive(
+    candidates: &mut Vec<Candidate>,
+    center: &Center,
+    span: Scale,
+    chain: &Chain,
+    want_gain: f64,
+    rng: &mut Rng,
+) {
     let last_dir = chain.history.last().and_then(|v| v.direction);
     let recent: Vec<TargetKind> = chain.history.iter().rev().take(4).map(|v| v.kind).collect();
-    for c in &mut candidates {
+    for c in candidates.iter_mut() {
         let gain = span.ratio(c.span).ln();
         let mut s = 0.0;
         // Kinds alternate: the same family as the last target costs, twice in a row more.
@@ -477,6 +803,9 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         }
         if c.kind == TargetKind::Detail {
             s -= 0.6;
+            if recent.first() == Some(&TargetKind::Detail) {
+                s -= 1.0;
+            }
         }
         // Straight down onto the last target's centre again is a plain zoom.
         if chain
@@ -488,7 +817,7 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         }
         s -= 0.06 * (gain - want_gain).abs();
         // Directions change: a leg along the last one's direction costs a little.
-        let (dx, dy) = c.center.delta_in(&center, span);
+        let (dx, dy) = c.center.delta_in(center, span);
         if dx.hypot(dy) > 0.05
             && let Some(ld) = last_dir
         {
@@ -498,42 +827,122 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
                 s -= 0.15;
             }
         }
-        // Never the same place twice.
-        if chain.history.iter().any(|v| {
-            let near = c.center.distance_in(&v.center, c.span) < 0.08;
-            near && (v.span.ratio(c.span).ln().abs() < 1.5)
-        }) {
+        if visited(&chain.history, &c.center, c.span) {
             s -= 10.0;
         }
         c.prescore = s + rng.range(0.0, 0.25);
     }
     candidates.retain(|c| c.prescore > -5.0);
     candidates.sort_by(|a, b| b.prescore.total_cmp(&a.prescore));
-    let found = candidates.len();
+}
+
+/// A place already landed on (same place, similar depth).
+fn visited(history: &[Visit], center: &Center, span: Scale) -> bool {
+    history
+        .iter()
+        .any(|v| center.distance_in(&v.center, span) < 0.08 && v.span.ratio(span).ln().abs() < 1.5)
+}
+
+/// Cross-over targets: anchors in other regions than this one and the last dives', best
+/// first by a seeded pre-score.
+fn crossover_candidates(here: RegionId, span: Scale, chain: &Chain, rng: &mut Rng) -> Vec<Candidate> {
+    let anchors = regions::anchors(rng);
+    let last: Vec<RegionId> = chain.regions.iter().rev().take(3).copied().collect();
+    let older: Vec<RegionId> = chain.regions.iter().rev().take(8).copied().collect();
+    let last_family = chain.regions.last().map(|&r| regions::family(r));
+    let mut out: Vec<Candidate> = Vec::new();
+    for a in anchors {
+        if a.region == here || last.contains(&a.region) || visited(&chain.history, &a.center, a.span) {
+            continue;
+        }
+        // Far places of the catalogue and the maths views alike; regions seen in the last
+        // eight dives cost; scenic dives prefer shallow anchors, deep ones need not.
+        let zoom = 3.0f64.log10() - a.span.log10();
+        let mut s = rng.range(0.0, 0.6);
+        if older.contains(&a.region) {
+            s -= 0.5;
+        }
+        // Region families alternate (valleys, limbs, the needle): deep in a limb every view
+        // is dendrite filigree, deep in a valley spirals, so a limb after a limb looks the
+        // same however far apart they are. Deep dives go where depth brings new shapes.
+        let family = regions::family(a.region);
+        if last_family == Some(family) {
+            s -= 0.7;
+        }
+        if chain.style == DiveStyle::Deep && family == regions::Family::Limb {
+            s -= 0.8;
+        }
+        if chain.style == DiveStyle::Scenic && zoom > 6.0 {
+            s -= 0.3;
+        }
+        if a.look.is_none() {
+            s += 0.1;
+        }
+        let gain = span.ratio(a.span).ln();
+        out.push(Candidate {
+            kind: TargetKind::Crossing,
+            center: a.center,
+            span: a.span,
+            period: a.period,
+            preperiod: a.preperiod,
+            label: format!("over to {}", a.label),
+            prescore: s - 0.01 * gain.abs().min(60.0),
+            extra: a.period.map_or(0, |p| (4 * p).min(PROBE_ITER_CAP)),
+        });
+    }
+    out.sort_by(|a, b| b.prescore.total_cmp(&a.prescore));
+    out
+}
+
+/// Probes the candidates in order (up to `max`) and keeps the best: structure, the
+/// pre-score and novelty against the recent landings; rejects featureless, interior and noisy
+/// framings and near-duplicates. None (outer) only when cancelled.
+fn probe_best(
+    candidates: Vec<Candidate>,
+    span: Scale,
+    history: &[Visit],
+    dup: f64,
+    trace: bool,
+    cancel: &AtomicBool,
+) -> Option<(Option<Target>, usize)> {
     let mut best: Option<Target> = None;
     let mut probed = 0;
     for c in candidates.into_iter().take(MAX_PROBES) {
-        if cancelled() {
+        if cancel.load(Ordering::Relaxed) {
             return None;
         }
         let f = probe(&c.center, c.span, c.extra);
         probed += 1;
         let st = ProbeStats::of(&f);
         if let Some(why) = st.reject() {
-            if std::env::var_os("ALMONDBREAD_JOURNEY_TRACE").is_some() {
-                println!("    reject {:<34} {why}: {st:?}", c.label);
+            if trace {
+                println!("    reject {:<40} {why}", c.label);
             }
             continue;
         }
-        let score = st.quality(c.kind) + c.prescore;
-        if std::env::var_os("ALMONDBREAD_JOURNEY_TRACE").is_some() {
+        let look = look_of(&f, &c.center, c.span);
+        let (nov, duplicate) = novelty(&look, history, dup);
+        if duplicate {
+            if trace {
+                println!("    reject {:<40} looks like a recent landing", c.label);
+            }
+            continue;
+        }
+        // A cross-over landing beside a big dark body (the cardioid's or a bulb's edge) reads
+        // as the same black wedge every time: catalogue framings with > 12 % interior cost.
+        let dark = if c.kind == TargetKind::Crossing {
+            2.0 * (st.interior - 0.12).max(0.0)
+        } else {
+            0.0
+        };
+        let score = st.quality(c.kind) + c.prescore + nov - dark;
+        if trace {
             println!(
-                "    probe  {:<34} score {score:.2} (pre {:.2}) filament {:.2} detail {:.1} rough {:.0} gain {:.1}",
+                "    probe  {:<40} score {score:.2} (pre {:.2} novelty {nov:.2}) filament {:.2} detail {:.1} gain {:.1}",
                 c.label,
                 c.prescore,
                 st.filament,
                 st.detail,
-                st.roughness,
                 span.ratio(c.span).ln()
             );
         }
@@ -548,40 +957,16 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
                 gain: span.ratio(c.span).ln(),
                 score,
                 stats: st,
+                look,
+                palette_phase: 0.0,
             });
         }
     }
-    let target = match best {
-        Some(t) => {
-            chain.legs_since_surface += 1;
-            t
-        }
-        None => {
-            chain.legs_since_surface = 0;
-            surface(span, &mut rng, &chain)
-        }
-    };
-    let (dx, dy) = target.center.delta_in(&center, span);
-    chain.history.push(Visit {
-        kind: target.kind,
-        center: target.center.clone(),
-        span: target.span,
-        direction: (dx.hypot(dy) > 0.05).then(|| dy.atan2(dx)),
-    });
-    if chain.history.len() > 32 {
-        chain.history.remove(0);
-    }
-    chain.rng = rng;
-    Some(Plan {
-        target,
-        chain,
-        candidates: found,
-        probed,
-        seconds: t0.elapsed().as_secs_f64(),
-    })
+    Some((best, probed))
 }
 
-/// A shallow catalogue place not visited recently (seeded), as a resurfacing target.
+/// A shallow catalogue place not visited recently (seeded): the fallback when nothing else
+/// is found.
 fn surface(span: Scale, rng: &mut Rng, chain: &Chain) -> Target {
     let pool: Vec<&crate::places::Place> = crate::places::places()
         .iter()
@@ -601,13 +986,16 @@ fn surface(span: Scale, rng: &mut Rng, chain: &Chain) -> Target {
     let p = pool[rng.index(pool.len())];
     let center = p.center();
     let t_span = p.span_scale();
-    let st = ProbeStats::of(&probe(&center, t_span, 0));
+    let f = probe(&center, t_span, 0);
+    let st = ProbeStats::of(&f);
     Target {
         kind: TargetKind::Surface,
         label: format!("resurfacing: {}", p.name),
         gain: span.ratio(t_span).ln(),
         score: 0.0,
         stats: st,
+        look: look_of(&f, &center, t_span),
+        palette_phase: 0.0,
         center,
         span: t_span,
         period: None,
@@ -995,6 +1383,11 @@ pub struct Journey {
     phase: Phase,
     since: f64,
     speed: f64,
+    /// This leg's speed factor ([`leg_pace`]).
+    pace: f64,
+    /// Palette phase at the start and the end of this leg (cycles, unwrapped; kept after a
+    /// stop so the colours do not jump).
+    palette: (f64, f64),
     pub speed_changed: f64,
     current: Option<Target>,
     next: Option<Plan>,
@@ -1017,6 +1410,8 @@ impl Default for Journey {
             phase: Phase::Planning,
             since: 0.0,
             speed: SPEED_DEFAULT,
+            pace: 1.0,
+            palette: (0.0, 0.0),
             speed_changed: f64::NEG_INFINITY,
             current: None,
             next: None,
@@ -1069,6 +1464,24 @@ impl Journey {
         self.speed
     }
 
+    /// The speed this leg flies at: the journey speed times the leg's pace.
+    pub fn leg_speed(&self) -> f64 {
+        self.speed * self.pace
+    }
+
+    /// Sets the leg's pace from its path length in e-folds (the navigator, as a leg starts).
+    pub fn set_leg_efolds(&mut self, efolds: f64) {
+        self.pace = leg_pace(efolds);
+    }
+
+    /// The journey's palette phase (cycles) at flight progress `t` (0 … 1, eased; 1 when not
+    /// flying). Applied by the renderer only with the cinematic effects on.
+    pub fn palette_phase(&self, t: f64) -> f64 {
+        let t = t.clamp(0.0, 1.0);
+        let e = t * t * (3.0 - 2.0 * t);
+        self.palette.0 + (self.palette.1 - self.palette.0) * e
+    }
+
     pub fn set_speed(&mut self, v: f64, now: f64) {
         if v.is_finite() {
             self.speed = v.clamp(SPEED_RANGE.0, SPEED_RANGE.1);
@@ -1107,7 +1520,10 @@ impl Journey {
         self.leg = 0;
         self.current = None;
         self.next = None;
-        self.chain = Chain::new(seed);
+        self.chain = Chain::starting_at(seed, center, span);
+        // Colours go on from where they are (the chain's phases are relative to this).
+        self.palette = (self.palette.1, self.palette.1);
+        self.chain.palette_phase = self.palette.1;
         self.phase = Phase::Planning;
         self.request(center, span);
     }
@@ -1217,6 +1633,7 @@ impl Journey {
                 self.leg += 1;
                 self.phase = Phase::Flying;
                 let t = p.target.clone();
+                self.palette = (self.palette.1, t.palette_phase);
                 self.current = Some(t.clone());
                 // Plan the leg after this one from this target while it flies.
                 self.request(&t.center, t.span);
@@ -1301,6 +1718,77 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn journeys_cross_regions_and_do_not_repeat_looks() {
+        for seed in [4711u64, 7, 20_261_015] {
+            let ts = chain_of(seed, 16);
+            let regions: Vec<RegionId> = ts.iter().map(|t| region_of(t.center.re(), t.center.im()).0).collect();
+            let distinct: std::collections::HashSet<_> = regions.iter().collect();
+            assert!(distinct.len() >= 5, "seed {seed}: regions {regions:?}");
+            // A dive is the cross-over and at most two legs.
+            let mut run = 1;
+            for w in regions.windows(2) {
+                run = if w[0] == w[1] { run + 1 } else { 1 };
+                assert!(run <= 3, "seed {seed}: {run} legs in one region: {regions:?}");
+            }
+            // No landing is a near-duplicate of the one before.
+            for w in ts.windows(2) {
+                let d = w[0].look.distance(&w[1].look);
+                assert!(
+                    d >= DUPLICATE,
+                    "seed {seed}: {} after {}: look distance {d:.2}",
+                    w[1].label,
+                    w[0].label
+                );
+            }
+            assert!(ts.iter().any(|t| t.kind == TargetKind::Crossing), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn novelty_rejects_a_repeat_and_rewards_a_new_look() {
+        let f = probe(&Center::new(-0.745, 0.11), Scale::from_f64(0.02), 0);
+        let seahorse = look_of(&f, &Center::new(-0.745, 0.11), Scale::from_f64(0.02));
+        let visit = |look: Look| Visit {
+            kind: TargetKind::Spiral,
+            center: Center::new(0.0, 0.0),
+            span: Scale::from_f64(1.0),
+            direction: None,
+            look,
+            region: 0,
+        };
+        let (_, dup) = novelty(&seahorse, &[visit(seahorse)], DUPLICATE);
+        assert!(dup, "the same look again is a duplicate");
+        // A branch point looks different: no duplicate, and more novelty than the repeat.
+        // The 1/3 limb's principal branch point M(4,1): straight dendrite arms.
+        let c = Center::new(-0.101_096_363_845_622, 0.956_286_510_809_142);
+        let needle = look_of(&probe(&c, Scale::from_f64(0.01), 0), &c, Scale::from_f64(0.01));
+        let (n_new, dup) = novelty(&needle, &[visit(seahorse)], DUPLICATE);
+        let (n_same, _) = novelty(&seahorse, &[visit(seahorse)], DUPLICATE);
+        assert!(
+            !dup && n_new > n_same + 0.2,
+            "{n_new} vs {n_same}: {:?} / {:?}",
+            needle,
+            seahorse
+        );
+        // Spiral pitch: the seahorse valley turns, the branch point's arms do not.
+        assert!(
+            seahorse.v[16] > needle.v[16] + 0.2,
+            "{} {}",
+            seahorse.v[16],
+            needle.v[16]
+        );
+    }
+
+    #[test]
+    fn long_legs_fly_faster() {
+        assert_eq!(leg_pace(5.0), 1.0);
+        assert_eq!(leg_pace(LONG_LEG), 1.0);
+        // 92 e-folds out and back in (a cross-over from 1e40) take what ~29.6 would.
+        let p = leg_pace(92.0);
+        assert!((92.0 / p - (LONG_LEG + LONG_LEG_SHARE * 78.0)).abs() < 1e-9, "{p}");
     }
 
     #[test]

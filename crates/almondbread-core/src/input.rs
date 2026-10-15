@@ -468,6 +468,17 @@ impl Navigator {
     }
 
     /// Automatic motion (autopilot, journey, flight) is under way: colours may cycle.
+    /// The journey's palette phase now (cycles; kb: decisions/controls "Journey"): it moves
+    /// on at each cross-over, eased over the leg's flight. The renderer adds it to the palette
+    /// offset only with the cinematic effects on.
+    pub fn journey_palette_phase(&self) -> f64 {
+        let t = match &self.flight {
+            Some(f) if self.journey.is_running() => f.progress(),
+            _ => 1.0,
+        };
+        self.journey.palette_phase(t)
+    }
+
     pub fn is_flying(&self) -> bool {
         self.autopilot.is_moving() || self.flight.is_some()
     }
@@ -558,7 +569,7 @@ impl Navigator {
     /// The speed the flight runs at: the journey's during a journey, else the fly-to speed.
     fn flight_speed(&self) -> f64 {
         if self.journey.is_running() {
-            self.journey.speed()
+            self.journey.leg_speed()
         } else {
             self.fly_speed
         }
@@ -1283,6 +1294,12 @@ impl Navigator {
             if let (Some(f), Some(s)) = (&mut self.flight, speed) {
                 f.speed = s;
             }
+            // Long legs (cross-overs from deep dives) fly faster.
+            let efolds = self
+                .flight
+                .as_ref()
+                .map_or(0.0, |f| f.path.length() * crate::flyto::RHO);
+            self.journey.set_leg_efolds(efolds);
         }
         // A flight sets the view from its path parameter (exact, nothing integrates).
         if self.flight.is_some() {

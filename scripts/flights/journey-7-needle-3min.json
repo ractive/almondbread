@@ -1,0 +1,17 @@
+{
+ "_about": "Journey #7 started away from home, in the needle near the period-3 minibrot at about 1e4, effects off, three minutes (kb: decisions/controls, Journey, variety): the first leg plans from that view, later ones cross over to other regions.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 180,
+ "start": {
+  "re": "-1.7686",
+  "im": "0.0004",
+  "zoom": 4000
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "journey": 7
+  }
+ ]
+}
