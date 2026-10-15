@@ -186,6 +186,7 @@ public enum UIDemo {
         case "palettes": "palette"
         case "autopilot": "autopilot"
         case "pi", "pi-flight": "π"
+        case "cosmic", "cosmic-deep", "cosmic-relative": "cosmic"
         case let s? where s.hasPrefix("howbig"): "googol"
         default: nil
         }
@@ -227,6 +228,23 @@ public enum UIDemo {
         case "pi-flight":
             // The guided flight into the neck, captured on the way (after the first layout).
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight("neck") }
+        case "cosmic":
+            // The size scale stacked above the mini-map (both bottom left).
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
+            model.mapEnabled = true
+            model.mapLevels = 2
+            model.cosmicScale = true
+        case "cosmic-deep":
+            try? explorer.setViewportText(
+                re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",
+                im: "0", scale: "1.25e-94")
+            model.cosmicScale = true
+            model.cosmicAnchor = "earth"
+        case "cosmic-relative":
+            // Relative mode (the zoom range as the cosmos) at 1e100.
+            try? explorer.setViewportText(re: "0", im: "1", scale: "1e-103")
+            model.cosmicScale = true
+            model.cosmicAnchor = "cosmos"
         case let s where s.hasPrefix("howbig"):
             // `howbig-<log10 zoom>` (`howbig` = home): the "How big is big?" panel at that depth,
             // a cheap view (a point outside the set: short reference orbits at any depth).

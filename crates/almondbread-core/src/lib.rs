@@ -17,6 +17,7 @@ pub mod bignum_scale;
 pub mod bla;
 pub mod cfmt;
 pub mod cinematic;
+pub mod cosmic;
 pub mod flight;
 pub mod flyto;
 pub mod image;

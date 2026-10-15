@@ -218,6 +218,13 @@ final class InteractionTest: NSObject {
             let a = Double(i) * 0.06
             v.send(.pointer(x: 220 * cos(a), y: 150 * sin(a)))
         }
+        // The cosmic size scale alone during a zoom (its panel is rebuilt every frame).
+        let cosmicZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                v.explorer?.setCosmicScale(settings: CosmicScaleSettings(enabled: true, anchor: "screen", metresPerPoint: 0))
+            }
+            zoom(v, i, t)
+        }
         let overlayZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
             if i == 0 {
                 overlayOn(v, true, true)
@@ -386,6 +393,7 @@ final class InteractionTest: NSObject {
         let spiral = View(re: "-0.13415002160674054265664", im: "-0.64991906714433853974391", scale: 2 * 4.19804e-19)
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
+                Scenario(name: "cosmic zoom", viewport: sea, input: cosmicZoom),
                 Scenario(name: "home pan", viewport: home, input: pan),
                 Scenario(name: "neck zoom", viewport: neck, input: zoom),
                 Scenario(name: "wasd 1e5", viewport: sea, input: wasd),
@@ -519,6 +527,7 @@ final class InteractionTest: NSObject {
         // Overlays off unless a scenario turns them on (measures that off costs nothing).
         explorer.setOverlay(settings: OverlaySettings(orbit: false, orbitLength: 50, map: false, mapLevels: 3,
                                                       mapSize: 180, mapCorner: .bottomLeft))
+        explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: false, anchor: "screen", metresPerPoint: 0))
         view.requestFrames()
         settling = true
         reported = false

@@ -684,6 +684,18 @@ Wrote up [[decisions/minibrot-atlas]] (proposed, not scheduled): local atlas fro
 target finder first, then a shallow census and deep samples. Filed the π-in-the-set idea in
 [[ideas]] with our own numeric check.
 
+## [2026-10-15] ingest | Cosmic size scale: sizes, epochs and the overlay
+
+Built the cosmic size scale (key C, off by default) and filed its numbers: NASA fact sheets,
+IAU units, CODATA 2022, a references page (galaxies, universe, cells, viruses, nuclei, the
+quark size limit, big numbers, ages) and a cosmic-history timeline (times before ~1 s derived
+from transition temperatures with the PDG radiation-era relation). Unconfirmed figures are
+marked (unverified): adult height, the 93 vs 92 billion light-year universe (92 used), inflation
+times. Design and costs: [[decisions/controls]] "Cosmic size scale"; status in [[ideas]].
+Pages: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
+[[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
+[[sources/cosmic-history-timeline]], [[index]].
+
 ## [2026-10-15] ingest | How big is big? panel
 
 Built the up-arrow gear-train panel and wrote [[synthesis/how-big-is-big]]: the linear

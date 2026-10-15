@@ -184,6 +184,8 @@ struct SavedSettings: Codable {
     var mapSize: Double?
     var mapPlacement: MapPlacement?
     var piMeterEnabled: Bool?
+    var cosmicScale: Bool?
+    var cosmicAnchor: String?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -259,6 +261,12 @@ public final class ExplorerModel {
     public var piMeterEnabled = false { didSet { pushPiMeter() } }
     /// Extra right margin of the π panel (points): iPhone portrait keeps its buttons clear.
     public var piMeterInsetRight = 0.0 { didSet { if piMeterInsetRight != oldValue { pushPiMeter() } } }
+    /// Cosmic size scale (kb: decisions/controls, "Cosmic size scale"): off by default.
+    public var cosmicScale = false { didSet { pushCosmic() } }
+    /// "screen" or a thing the whole set is as big as (`cosmicAnchors()`).
+    public var cosmicAnchor = "screen" { didSet { pushCosmic() } }
+    /// Physical size of a view point (the platform view measures its screen; 0: unknown).
+    var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
     /// The status overlay (zoom, iterations, GPU time) in the top-left corner.
     public var showHUD: Bool = UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
@@ -330,6 +338,7 @@ public final class ExplorerModel {
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
         pushOverlay()
         pushPiMeter()
+        pushCosmic()
         refreshStats()
         // The Settings window writes user defaults: follow edge panning and the HUD.
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
@@ -450,6 +459,14 @@ public final class ExplorerModel {
         save()
     }
 
+    private func pushCosmic() {
+        guard !pulling, let explorer else { return }
+        explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: cosmicScale, anchor: cosmicAnchor,
+                                                              metresPerPoint: metresPerPoint))
+        host?.requestFrames()
+        save()
+    }
+
     // MARK: Persistence
 
     /// Writes the settings to user defaults (coalesced: at most every half second).
@@ -479,7 +496,8 @@ public final class ExplorerModel {
             lookID: lookID, supersampling: supersampling, interactivePreview: interactivePreview,
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
-            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, piMeterEnabled: piMeterEnabled)
+            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, piMeterEnabled: piMeterEnabled,
+            cosmicScale: cosmicScale, cosmicAnchor: cosmicAnchor)
     }
 
     private func writeSaved() {
@@ -542,9 +560,12 @@ public final class ExplorerModel {
         mapSize = s.mapSize ?? mapSize
         mapPlacement = s.mapPlacement ?? mapPlacement
         piMeterEnabled = s.piMeterEnabled ?? piMeterEnabled
+        cosmicScale = s.cosmicScale ?? cosmicScale
+        cosmicAnchor = s.cosmicAnchor ?? cosmicAnchor
         pulling = false
         push()
         pushOverlay()
+        pushCosmic()
         pushPiMeter()
     }
 
@@ -613,6 +634,8 @@ public final class ExplorerModel {
             mapSize = 180
             mapPlacement = .bottomLeft
             piMeterEnabled = false
+            cosmicScale = false
+            cosmicAnchor = "screen"
         }
         pulling = false
         if scope == .all || scope == .overlays { showHUD = true }
@@ -632,6 +655,7 @@ public final class ExplorerModel {
         push()
         pushOverlay()
         pushPiMeter()
+        pushCosmic()
         if scope == .view || (scope == .all && withView) { reset() }
         undo?.registerUndo(withTarget: self) { m in
             MainActor.assumeIsolated {
@@ -672,9 +696,12 @@ public final class ExplorerModel {
         mapSize = 180
         mapPlacement = .bottomLeft
         piMeterEnabled = false
+        cosmicScale = false
+        cosmicAnchor = "screen"
         pulling = false
         push()
         pushOverlay()
+        pushCosmic()
         pushPiMeter()
         applyLook("aurora")
     }
@@ -822,6 +849,7 @@ public final class ExplorerModel {
 
     public func toggleOrbit() { orbitEnabled.toggle() }
     public func toggleMap() { mapEnabled.toggle() }
+    public func toggleCosmicScale() { cosmicScale.toggle() }
     public func togglePiMeter() { piMeterEnabled.toggle() }
 
     /// The guided π flight ("neck" or "cusp"): to the place, meter on, then down the line of

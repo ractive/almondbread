@@ -163,6 +163,9 @@ struct FractalCommands: Commands {
                 .disabled(model == nil)
             Button("Fly into the Cusp (π)") { model?.piFlight("cusp") }
                 .disabled(model == nil)
+            Toggle("Cosmic Size Scale", isOn: Binding(get: { model?.cosmicScale ?? false },
+                                                      set: { model?.cosmicScale = $0 }))
+                .disabled(model == nil)
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)

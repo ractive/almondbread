@@ -21,6 +21,7 @@
 pub use almondbread_core as core;
 
 pub mod backend;
+pub mod cosmic;
 pub mod flight;
 pub mod floatfloat;
 pub mod font;

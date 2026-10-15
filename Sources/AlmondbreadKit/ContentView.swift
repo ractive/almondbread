@@ -125,6 +125,10 @@ struct ContentView: View {
                     Label("π Meter", systemImage: "pi")
                 }
                 .help("π meter (P): at the neck −3/4 + iε or the cusp 1/4 + ε the escape count times ε (√ε) closes in on π; View menu: guided flights")
+                Toggle(isOn: $model.cosmicScale) {
+                    Label("Size Scale", systemImage: "ruler")
+                }
+                .help("Cosmic size scale: the view compared with real things, from the universe to the Planck length (C)")
                 Button {
                     model.toggleAutopilot()
                 } label: {
