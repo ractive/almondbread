@@ -92,8 +92,48 @@ converged reference.
 
 ## For almondbread
 
-Not in v1. After [[techniques/local-series-approximation]] (which cannot shorten interior
-detection), interior-only tile fill is the measured lever for interior-heavy views. If profiling shows interior-heavy frames still dominate after
-derivative interior detection, add tile guessing restricted to tiles whose
-entire border is interior (never exterior guessing), via indirect dispatch.
-Related: [[techniques/frame-reuse-and-progressive]].
+Interior-only tile fill shipped in M5 (below), gated to the views where it pays; never
+exterior guessing. Local SA ([[techniques/local-series-approximation]]) cannot shorten
+interior detection, so the two complement each other, but they do not combine well on one
+level (the fill's border-first order breaks the seeds' admission coherence): a level uses one
+or the other. Related: [[techniques/frame-reuse-and-progressive]].
+
+## As built (M5, 2026-10-15): interior-only tile fill
+
+Interior-only Mariani–Silver on the 16 × 16 admission tiles of a full level, one level of
+tiles (no subdivision). `ALMONDBREAD_FILL=0|1|auto` (auto), CLI `--fill`. Code: `tileTexel` /
+`tileIndex` (fill order), `prepareChunk` (border-first gate), `iterate` (fill and the tile
+stamps), scheduler `fill_wanted` / `decide_fill`.
+
+```text
+admission order of a filled level: all tile borders (60 texels each, ring order), then the
+    14 x 14 insides of the tiles (rank order as before)
+border pixel: good  = proven interior by the derivative test within fillProof (8192)
+                      iterations (a function of its own orbit)
+              spoils its tile (tileBad[tile] = epoch) when it finishes otherwise, or is still
+              running at fillProof (it can only finish later)
+prepareChunk: insides only once no border pixel is still below fillProof (per-chunk count),
+              so a tile's decision never depends on chunk timing; the wait is <= fillProof
+inside pixel of a whole tile with tileBad != epoch: written interior (.y = 1, DE 0) without
+              iterating; otherwise iterated as before
+```
+
+- **Exact in every measured case**: the filled field equals the unfilled one bit for bit
+  (elephant, home-100k, minibrot-p4; test `interior_fill_exact`). Only proven interior, never
+  "unresolved": the derivative test leaves parabolic regions (neck, root-third, cusp)
+  unresolved, so the fill never fires next to the narrow exterior channels where a tile border
+  could step over a sub-pixel gap (the residual risk of any Mariani–Silver: a channel thinner
+  than the border's sampling).
+- **Flat interior colouring only**: period, angle, bubbles and distance need per-pixel cycle
+  analysis (multiplier, interior distance); a fill would paint the tile without it, so the
+  fill is off with those modes (decided, not computed).
+- **Gate (auto)**: the border-first order costs chunk occupancy (the borders, 23 % of the
+  texels, are admitted alone), the short wait, and the local-SA seeds' coherence. Measured
+  (1600 × 1000, M1 Pro): elephant 32 → 23 ms (1.39×, 33 % fewer steps), cusp-1e5 1.03×
+  (unseeded), home-100k and minibrot-p4 5–17 % slower (their interior proves in tens of
+  iterations), cusp-1e5 seeded 16 % slower with no tile filled. So it fills where the last
+  level had ≥ 15 % *proven* interior pixels (unresolved ones excluded: at sea-8007, 98 %
+  unresolved, it filled nothing and cost 9 %) and ≥ 300 iterations per pixel, and only where no tile
+  starts from local SA seeds (a fill candidate waits for its seed round before its first
+  chunk). R3's CPU study found 0.76 at minibrot-p4 with 32 → 4 px subdivision; on the GPU the
+  single-level fill loses there.

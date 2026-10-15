@@ -63,6 +63,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
+        // (Seed passes included; their own time is in the "local SA" line.)
         times.push(res.iterate_gpu_time);
         walls.push(res.wall_time);
         out = Some(res);
@@ -75,7 +76,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     println!(
         "{path}: {width}x{height}  zoom {}  maxIter {}  ref {} pts {:.2} ms  iterate GPU [{}] ms  wall [{}] ms  chunks {}  iters {}  steps {}  colorize {:.2} ms",
         almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
-        r.max_iterations(),
+        r.stats.max_iterations,
         ref_len,
         ref_time * 1000.0,
         ms.join(", "),
@@ -85,6 +86,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         g(out.steps_done as f64, 3),
         out.colorize_gpu_time * 1000.0
     );
+    if let Some(s) = &out.seeds {
+        print_seeds(s, out.iterations_done, out.steps_done, out.iterate_gpu_time);
+    }
     if let Some(texels) = &out.iterations {
         // Interior cycle analysis (interior colourings): periods found, by frequency.
         let interior: Vec<f32> = texels.iter().filter(|t| t[0] == ITER_INTERIOR).map(|t| t[1]).collect();
@@ -182,6 +186,47 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     Ok(Some(ov))
 }
 
+/// M5: what the seed passes of a locally approximated render did.
+fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: u64, pixel_steps: u64, gpu: f64) {
+    let levels: Vec<String> = s
+        .levels
+        .iter()
+        .map(|(size, count, iters, steps, mean_n)| {
+            format!(
+                "{size}:{count} nodes, {} it, {} steps, n̄ {:.0}",
+                g(*iters as f64, 3),
+                g(*steps as f64, 3),
+                mean_n
+            )
+        })
+        .collect();
+    let total = s.steps() + pixel_steps;
+    println!(
+        "local SA: seeds {} it / {} steps, {:.2} ms GPU in {} rounds; tiles seeded {} of {}; pixels {} it; total steps {} (seed share {:.1} %); GPU seeds + pixels {:.2} ms",
+        g(s.iterations() as f64, 3),
+        g(s.steps() as f64, 3),
+        s.gpu_time * 1000.0,
+        s.rounds,
+        s.tiles_seeded,
+        s.tiles,
+        g(pixel_iterations as f64, 3),
+        g(total as f64, 4),
+        100.0 * s.steps() as f64 / total.max(1) as f64,
+        gpu * 1000.0
+    );
+    println!("  levels [{}]; leaf path {:.1} steps", levels.join("; "), s.leaf_path);
+    let il = &s.interior_leaves;
+    if !il.is_empty() {
+        println!(
+            "  interior leaves {:.1} % (n p10 {} p50 {} p90 {})",
+            100.0 * il.len() as f64 / s.leaves.max(1) as f64,
+            il[il.len() / 10],
+            il[il.len() / 2],
+            il[il.len() * 9 / 10]
+        );
+    }
+}
+
 // MARK: verify
 
 /// The CPU oracle for a view: direct f64 iteration where f64 resolves the pixels, else the
@@ -231,7 +276,7 @@ pub fn verify<B: GpuBackend>(
     let gpu = IterationField::from_texels(width, height, res.iterations.as_deref().unwrap_or(&[]));
     let v = r.viewport.clone();
     let t0 = Instant::now();
-    let cpu_iter = cpu_iterations.unwrap_or_else(|| r.max_iterations());
+    let cpu_iter = cpu_iterations.unwrap_or(r.stats.max_iterations);
     let cpu = oracle(&v.center, v.scale, width, height, cpu_iter, v.angle);
     let cpu_time = t0.elapsed().as_secs_f64();
     let (report, heatmap) = compare(&gpu, &cpu);
@@ -438,6 +483,8 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let frames = if jump { 0 } else { (seconds * 120.0) as usize };
     let mut sessions: Vec<SimulationResult> = Vec::new();
     let m = mode.clone();
+    // Gesture frames (M5 reports): previews shown, their resolution, refreshes skipped.
+    r.frame_stats = Some(almondbread_render::scheduler::FrameStats::default());
     let first = r
         .simulate(
             width,
@@ -457,6 +504,20 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             },
         )
         .map_err(|_| crate::options::CommandError("simulated session did not finish".into()))?;
+    if let Some(fs) = r.frame_stats.take()
+        && frames > 0
+    {
+        println!(
+            "gesture: {} refreshes of input at 120 Hz, {} frames in all: {} previews ({:.0} fps) at mean scale {:.2} (texels per pixel), {} refreshes skipped, iterate GPU {:.2} ms/frame",
+            frames,
+            fs.frames,
+            fs.preview_frames,
+            120.0 * fs.preview_frames.min(frames) as f64 / frames as f64,
+            fs.preview_scale_sum / fs.preview_frames.max(1) as f64,
+            fs.skipped,
+            1000.0 * fs.chunk_gpu / fs.frames.max(1) as f64
+        );
+    }
     sessions.push(first);
     if let Some(f) = o.f64("then") {
         let second = r
@@ -918,6 +979,35 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "2",
         "--pointer",
         "40,20",
+    ],
+    // M5 (kb: techniques/local-series-approximation): the user's slowest view, a dense spiral
+    // at 4.2e-19/px (centre crop of the 1600-wide framing): a jump there (auto iterations: the
+    // reference's escape sets the limit at once, local SA seeds every tile) and a pan.
+    &[
+        "--history",
+        "jump",
+        "--location",
+        "spiral-32412-1e19",
+        "--at-width",
+        "1600",
+        "--size",
+        "640x400",
+        "--ppp",
+        "1",
+    ],
+    &[
+        "--history",
+        "pan",
+        "--location",
+        "spiral-32412-1e19",
+        "--at-width",
+        "1600",
+        "--size",
+        "640x400",
+        "--ppp",
+        "1",
+        "--seconds",
+        "1",
     ],
     // Fly to coordinates (kb: decisions/controls, fly to): home to the period-8007 minibrot
     // at ~1e-34 and to c = i at 1e-300, through the navigator's path; lands exactly.

@@ -217,7 +217,10 @@ AA sample (listMode 2): init from the pixel's AA seed shifted by the Halton offs
 
 - **float32 at the branch** ([[questions/local-sa-float32]]): if `|A δ|` falls below float32
   rounding of `dz`, neighbours start identical; `+dc` separates them again but could leave
-  streaks. Must be checked on the GPU before anything else.
+  streaks. Must be checked on the GPU before anything else. **Checked (R5):** no collapse;
+  8.7× fewer steps and 5× less GPU time at the dense view, but the interior derivative must
+  be carried, not restarted, and interior-heavy views lose time
+  ([[questions/local-sa-float32]]).
 - **GPU efficiency**: the seed phase has 1/1024 of the threads at the 32 × 32 root level (the
   first few hundred iterations of a level run on few threads); children arrive in waves. The
   chunked live list hides some of it; measure wall and GPU time, not just iterations.

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use almondbread_core::settings::{RenderSettings, Supersampling};
 use almondbread_core::viewport::{Center, Scale, Viewport};
-use almondbread_render::scheduler::BlaMode;
+use almondbread_render::scheduler::{BlaMode, SaMode};
 use almondbread_render::{GpuBackend, Renderer};
 
 #[derive(Debug)]
@@ -119,7 +119,9 @@ impl Options {
             let Some(l) = almondbread_core::locations::location_named(name) else {
                 return err(format!("unknown --location {name}"));
             };
-            return Ok(l.viewport_for_width(width));
+            // (`--at-width w`: the pixel size of the location framed w pixels wide, e.g. a centre
+            // crop of the 1600-wide framing.)
+            return Ok(l.viewport_for_width(self.usize("at-width").unwrap_or(width)));
         }
         let mut center = Viewport::home().center;
         if let Some(v) = self.get("center") {
@@ -259,6 +261,32 @@ impl Options {
         }
         if let Some(e) = self.f64("bla-eps") {
             r.config.bla_epsilon = 2f64.powf(-e);
+        }
+        // M5: local series approximation (`--sa 0|1|auto`, tunables `--sa-eps`, `--sa-top`,
+        // `--sa-leaf`, `--sa-gate rel,abs`, `--sa-budget`; kb: techniques/local-series-approximation).
+        if let Some(m) = self.get("sa").and_then(SaMode::parse) {
+            r.config.local_sa.mode = m;
+        }
+        let sa = &mut r.config.local_sa;
+        if let Some(e) = self.f64("sa-eps") {
+            sa.eps = e;
+        }
+        if let Some(t) = self.usize("sa-top") {
+            sa.top = t.next_power_of_two();
+        }
+        if let Some(l) = self.usize("sa-leaf") {
+            sa.leaf = l.next_power_of_two();
+        }
+        if let Ok(Some((rel, abs))) = self.pair("sa-gate") {
+            sa.gate_rel = rel;
+            sa.gate_abs = abs;
+        }
+        if let Some(b) = self.usize("sa-budget") {
+            sa.budget = b as u32;
+        }
+        // M5 interior-only tile fill (`--fill 0|1|auto`).
+        if let Some(m) = self.get("fill").and_then(SaMode::parse) {
+            r.config.interior_fill = m;
         }
     }
 }
