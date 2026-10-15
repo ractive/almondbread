@@ -1,7 +1,7 @@
 ---
 title: "Which extended-precision emulation is fastest and correct on Apple GPUs?"
 type: question
-status: open
+status: answered
 sources: ["[[sources/apple-forums-fp64-emulation]]", "[[sources/metal-benchmarks-readme]]", "[[sources/luma-gl-gpu-precision]]", "[[sources/thall-extended-precision]]", "[[sources/fractalshark-readme]]"]
 tags: [double-float, apple-gpu, benchmark, precision]
 ---
@@ -52,3 +52,33 @@ z = z^2 + c in each representation, compiled with `.fast` and `.safe`; measure
 iterations/s and check a known-answer residual (TwoSum(1, 1e-8) low limb nonzero,
 and a 1000-step orbit compared with CPU double). Related:
 [[questions/metal-fast-math-defaults]], [[platform/apple-gpu-architecture]].
+
+## Answer (M7, measured)
+
+Measured 2026-10-15, M1 Pro (16-core GPU), release, `almondbread precision --kat 1`
+(kernels `ffBench*` in `crates/almondbread-render/src/shaders/floatfloat.metal`), z = z² + c,
+262 144 threads × 2000 steps, medians of 5–7, three runs while other agents loaded the GPU;
+all three kernels in the same `.safe` library ([[synthesis/benchmarks]] M7):
+
+| type | iterations/s | vs float32 |
+|---|---:|---:|
+| float32 | 1.8–3.0e11 | 1 |
+| fma-based float-float (Thall's TwoSum/TwoProd) | 2.58e10 | 7–12× slower |
+| fx: float-float + int exponent, renormalised after each op | 3.4–6.6e9 | 27–52× slower |
+
+- **Correct under `.safe`, broken under `.fast`.** The known-answer test passes every
+  check in `.safe` (TwoSum(1, 1e-8) keeps 1e-8, a 1000-step float-float orbit is within
+  9.4e-16 of f64). The same source in `.fast` returns 0 for the TwoSum and QuickTwoSum low
+  parts and a float32-accurate orbit (4.5e-8): the compiler reassociates the transforms
+  away, as luma.gl feared (src: [[sources/luma-gl-gpu-precision]] §Why This Is Fragile In WGSL And Metal).
+  TwoProd via explicit `fma` survives both. So the classic fma path is valid on native
+  Metal with `.safe` and a known-answer test; luma.gl's integer workaround is not needed here.
+- **Not measured:** integer-controlled double-single and integer-limb software floats
+  (Turner's suggestion). With fma float-float at 7–12× and int32 multiply at 1/8 rate
+  (src: [[sources/metal-benchmarks-readme]]), an integer path is unlikely to win for a
+  48-bit mantissa (inference), and correctness no longer argues for it. An M3+ device was
+  not available.
+- fx's extra cost is the renormalisation (`frexp` + two `ldexp` per complex value per
+  operation); a kernel that rescales only when the exponent drifts, like the float32 deep
+  kernel, would sit closer to plain float-float (inference, not built: M7 found no
+  artefacts to repair, [[questions/float32-error-long-orbits]]).

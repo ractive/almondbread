@@ -98,6 +98,51 @@ for correctness, not speed. Unresolved: [[questions/double-float-speed-on-m1]].
 
 ## For almondbread
 
-Roadmap step 10: an optional float-float (+ exponent) pipeline under
+Roadmap step 10 (M7): an optional float-float (+ exponent) pipeline under
 `.safe` math with a startup known-answer test, used for the shallow direct
 band and as a repair/verification mode. Measure its speed on M1 Pro first.
+
+## As built (M7)
+
+M7 first checked whether there is anything to repair. There is not: at 23
+views from 3e-7 to 4e-1003 per pixel (minibrots, spirals, Feigenbaum, the
+period-32412 spiral, 1e6-iteration orbits) the float32 GPU field differs from
+the CPU oracle by less than the oracle differs from itself with its pixel grid
+moved by 0.001 px at 17 views and 0.01 px at 5 (0.1–0.2 px at the catalogue
+spiral at 1e1000), and no crop shows speckle (measured 2026-10-15, M1 Pro, release;
+[[questions/float32-error-long-orbits]] "M7", [[synthesis/benchmarks]] M7).
+So float-float is built as scaffolding with no runtime cost, not as a repair
+pass:
+
+- **Own library** `crates/almondbread-render/src/shaders/floatfloat.metal`,
+  compiled through the backend hook `GpuBackend::library_pipelines(source,
+  functions, MathMode::Safe)` (Metal: `MTLCompileOptions.mathMode = .safe`
+  where the OS has it, macOS 15 / iOS 18, else `fastMathEnabled = false`).
+  The fast float32 library is untouched (fields bit-identical, `bench` geomean
+  1.014 under load), and the float-float library compiles only when a
+  `floatfloat::FloatFloat` is created.
+- **Known-answer test**, run by `FloatFloat::new` before it hands out
+  pipelines; inputs come from a buffer so nothing constant-folds. Under
+  `.safe` every check passes; the same source under `.fast` loses the low
+  parts of TwoSum and QuickTwoSum (0 instead of 1e-8 and 2^-30) and a
+  1000-step float-float orbit is only float32-accurate (4.5e-8). TwoProd
+  through an explicit `fma` survives fast math. On failure `new` returns the
+  report as an error and callers stay on float32 (the fallback). Settles
+  [[questions/metal-fast-math-defaults]] for `.fast`.
+- **fx type**: a complex float-float mantissa with one `int` exponent,
+  `(re + i im) 2^e`, renormalised after every operation, so one kernel
+  (`ffIterate`) covers every depth (`fx a^2 + a` at 2^-1000 is exact). It
+  iterates a *list* of pixels (the hook for a repair pass of flagged pixels)
+  against a float-float + exponent reference with rebasing, in budgeted
+  command buffers (~50 ms each). Used by `verify --ff 1` and
+  `precision --ff 1`: against the f64 oracle it differs on 0.001–0.3 % of
+  escape counts where float32 differs on 3–18 % (6.3 % against 52.8 % at the
+  chaotic period-32412 spiral, where 48 and 53 bits still disagree).
+- **Speed** (z² + c, M1 Pro, under load): float-float 2.58e10 it/s, 7–12×
+  slower than float32 (better than the 10–20× guessed above); fx 3.4–6.6e9,
+  27–52×. A whole fx field costs 10–300× the float32 renderer, which also
+  skips iterations (BLA, local SA): a repair pass would have to stay on a few
+  flagged pixels ([[questions/double-float-speed-on-m1]]).
+- **Not built** (no artefacts to remove): the repair pass and its flagging
+  (Pauldelbrot test, AA-sample or neighbour disagreement, precision-loss
+  estimate), the "max precision" setting, the shallow direct float-float band.
