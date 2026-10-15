@@ -41,6 +41,7 @@ constant float ITER_PENDING    = -2.0f;   // admitted but still iterating
 constant float ITER_UNRESOLVED = -3.0f;   // past the nominal limit, neither escaped nor proven
                                           // interior (.y = the nominal limit); may still resolve
 constant float ITER_SKIP       = -4.0f;   // AA sample textures: this pixel takes no AA samples
+constant float ITER_EMPTY      = -5.0f;   // sample cache: no sample here (yet)
 
 struct IterateParams {
     float2 halfSize;      // iteration texture size / 2, in texels
@@ -70,7 +71,8 @@ struct IterateParams {
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
-    uint   pad1;
+    uint   wrap;          // toroidal levels (sample cache, kb: techniques/sample-reuse): texel gid
+                          // holds window texel (gid + wrap) mod size, wrap = x | y << 16; 0: none
     // View rotation (cos, sin) of the texel offset (kb: decisions/controls "View rotation");
     // (1, 0) unrotated, which keeps the plain products bit for bit.
     float2 rot;
@@ -430,7 +432,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     }
 
     uint2 gid = uint2(st.pixel % p.width, st.pixel / p.width);
-    float2 pix = float2(gid) + p.jitter - p.halfSize;
+    // (A sample cache level is toroidal: the texel's sample position is its window texel's.)
+    const uint2 gw = (gid + uint2(p.wrap & 0xffffu, p.wrap >> 16)) % uint2(p.width, p.height);
+    float2 pix = float2(gw) + p.jitter - p.halfSize;
     float2 off = float2(pix.x, -pix.y);
     off = float2(off.x * p.rot.x - off.y * p.rot.y, off.x * p.rot.y + off.y * p.rot.x);
     float2 dc = off * p.texelScale + p.refOffset;
@@ -1481,7 +1485,21 @@ struct ComposeParams {
     uint   mode;
     float2 outCentre;     // output size / 2
     float2 histRot;       // (cos, sin): output pixel offsets turned into history axes (view rotation)
+    // Sample cache (kb: techniques/sample-reuse): the new samples are the cache's lattice, turned
+    // by newRot against the output; window texel t (sample at t itself, no jitter) is colour
+    // texel (t + wrap) mod size, premultiplied (alpha 0: no sample). cache 0: a preview level.
+    float2 newRot;
+    uint2  wrap;
+    uint   cache;
+    uint   pad;
 };
+
+// A cache colour texel by window texel (zero outside the window).
+static inline float4 cacheColor(texture2d<float, access::sample> t, int2 i, constant ComposeParams& q,
+                                float2 size) {
+    if (any(i < 0) || any(float2(i) >= size)) return float4(0.0f);
+    return t.read((uint2(i) + q.wrap) % uint2(size));
+}
 
 // Catmull-Rom from five bilinear taps (the four corner taps of the 4x4 kernel dropped, their
 // weight is tiny). `p` in texel coordinates (centres at i + 0.5).
@@ -1523,11 +1541,50 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     constexpr sampler bilinear(coord::normalized, filter::linear, address::clamp_to_edge);
     const float2 pc = float2(gid) + 0.5f;
     // New-sample level: texel coordinate of this pixel's centre (texel t's sample sits at t + jitter).
-    const float2 v = (pc - q.outCentre) * q.newRatio + q.newCentre;
+    const float2 g = pc - q.outCentre;
+    const float2 v = q.cache != 0
+        ? q.newCentre + q.newRatio * float2(g.x * q.newRot.x + g.y * q.newRot.y, g.y * q.newRot.x - g.x * q.newRot.y)
+        : (pc - q.outCentre) * q.newRatio + q.newCentre;
 
     // The bilinear preview: the fallback where nothing better exists.
     float3 base = c.interior.rgb;
-    if (c.hasUnder > 0.0f) {
+    // Sample cache: the 2 x 2 lattice samples around the pixel (point samples in mode 0; their
+    // bilinear mean, over the ones present, as the base).
+    float3 cacheSum = 0.0f;
+    float cacheW = 0.0f;
+    if (c.hasUnder > 0.0f && q.cache != 0) {
+        const int2 b0 = int2(floor(v));
+        const float2 f = v - float2(b0);
+        float4 bl = 0.0f;
+        for (int j = 0; j < 2; j++) {
+            for (int i = 0; i < 2; i++) {
+                const int2 t = b0 + int2(i, j);
+                const float4 s = cacheColor(preview, t, q, c.underSize);
+                bl += s * ((i == 0 ? 1.0f - f.x : f.x) * (j == 0 ? 1.0f - f.y : f.y));
+                const float2 d = (float2(t) - v) / q.newRatio;
+                const float w = exp(-dot(d, d) * q.invTwoSigma2) * s.a;
+                cacheSum += s.rgb * w;
+                cacheW += w;
+            }
+        }
+        if (bl.a > 1e-3f) {
+            base = bl.rgb / bl.a;
+        } else {
+            // No sample around (a level just switched finer twice, or not filled yet): the
+            // nearest one within 3 texels.
+            float best = 1e30f;
+            for (int j = -2; j <= 3; j++) {
+                for (int i = -2; i <= 3; i++) {
+                    const int2 t = b0 + int2(i, j);
+                    const float2 d = float2(t) - v;
+                    const float dd = dot(d, d);
+                    if (dd >= best) continue;
+                    const float4 s = cacheColor(preview, t, q, c.underSize);
+                    if (s.a > 0.0f) { best = dd; base = s.rgb; }
+                }
+            }
+        }
+    } else if (c.hasUnder > 0.0f) {
         float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
         base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
     }
@@ -1551,9 +1608,9 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     float conf;
     if (q.mode == 0) {
         // Point samples of the jittered preview within the 2 x 2 texels around this pixel.
-        float3 sum = 0.0f;
-        float wn = 0.0f;
-        if (q.newRatio > 0.0f) {
+        float3 sum = cacheSum;
+        float wn = cacheW;
+        if (q.newRatio > 0.0f && q.cache == 0) {
             int2 t0 = int2(floor(v - q.jitter));
             for (int j = 0; j < 2; j++) {
                 for (int i = 0; i < 2; i++) {
@@ -1778,11 +1835,19 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
 // MARK: Autopilot survey (kb: decisions/controls, autopilot)
 
 struct SurveyParams {
-    uint width;          // level texels
+    uint width;          // level texels (sample cache: the surveyed rectangle)
     uint height;
     uint cols;           // survey cells
     uint rows;
+    uint2 origin;        // sample cache: the rectangle's first window texel; window texel t is
+    uint wrap;           // texel (t + wrap) mod tex (packed x | y << 16); plain levels: 0, 0, size
+    uint tex;
 };
+
+static inline float surveyRead(texture2d<float, access::read> iters, constant SurveyParams& p, uint2 xy) {
+    const uint2 tex = uint2(p.tex & 0xffffu, p.tex >> 16);
+    return iters.read((xy + p.origin + uint2(p.wrap & 0xffffu, p.wrap >> 16)) % tex).x;
+}
 
 /// A coarse picture of a finished level for the autopilot: per cell, sampled texels, interior
 /// (or unresolved) ones, and the share of neighbour pairs whose class or integer escape count
@@ -1800,16 +1865,16 @@ kernel void survey(texture2d<float, access::read> iters [[texture(0)]],
     uint samples = 0, interior = 0, pairs = 0, edges = 0;
     for (uint y = y0; y < y1; y += step) {
         for (uint x = x0; x < x1; x += step) {
-            float n = iters.read(uint2(x, y)).x;
-            if (n == ITER_PENDING || n == ITER_SKIP) continue;
+            float n = surveyRead(iters, p, uint2(x, y));
+            if (n == ITER_PENDING || n == ITER_SKIP || n == ITER_EMPTY) continue;
             samples++;
             bool in = n < 0.0f;
             if (in) interior++;
             for (uint k = 0; k < 2; k++) {
                 uint2 q = k == 0 ? uint2(x + 1, y) : uint2(x, y + 1);
                 if (q.x >= p.width || q.y >= p.height) continue;
-                float m = iters.read(q).x;
-                if (m == ITER_PENDING || m == ITER_SKIP) continue;
+                float m = surveyRead(iters, p, q);
+                if (m == ITER_PENDING || m == ITER_SKIP || m == ITER_EMPTY) continue;
                 pairs++;
                 bool min = m < 0.0f;
                 if (min != in || (!in && m != n)) edges++;

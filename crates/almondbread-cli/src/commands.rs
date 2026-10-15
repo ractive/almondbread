@@ -437,6 +437,9 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     }
     let frames = if jump { 0 } else { (seconds * 120.0) as usize };
     let mut sessions: Vec<SimulationResult> = Vec::new();
+    // The motion sample cache is checked after the gesture (kb: techniques/sample-reuse).
+    r.cache_check_renderer = Some(Box::new(new_renderer(backend, o)?));
+    r.reset_sample_cache_stats();
     let m = mode.clone();
     let first = r
         .simulate(
@@ -466,6 +469,9 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             .map_err(|_| crate::options::CommandError("second session did not finish".into()))?;
         sessions.push(second);
     }
+    // The cache once more, seeded from the refined frame.
+    let settled = r.sample_cache_check();
+    r.cache_checks.push(settled);
     verify_session(
         backend,
         o,
@@ -477,6 +483,61 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         max_false_interior,
         max_unresolved,
     )
+}
+
+/// Prints the sample cache's statistics and checks; failures for `failed`.
+fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, failed: &mut Vec<String>) {
+    let s = r.sample_cache_stats();
+    if s.frames + s.fallback_frames > 0 {
+        let f = s.frames.max(1) as f64;
+        println!(
+            "sample cache: {} gesture frames ({} fresh previews), reused {:.1} % of visible texels, computed {:.0} texels/frame, {:.3e} iterations/frame, epochs {} (seeded {}), switches finer {} coarser {}, slides {}, CPU plan {:.3} ms/frame (max {:.3}), shade encode {:.3} ms/frame, GPU maintenance {:.3} ms over {} passes, shade {:.3} ms/frame",
+            s.frames,
+            s.fallback_frames,
+            100.0 * s.reused_texels as f64 / s.visible_texels.max(1) as f64,
+            s.texels_planned as f64 / f,
+            s.iterations / f,
+            s.epochs,
+            s.seeds,
+            s.finer,
+            s.coarser,
+            s.slides,
+            s.cpu_plan * 1000.0 / f,
+            s.cpu_plan_max * 1000.0,
+            s.cpu_shade * 1000.0 / f,
+            s.gpu_maintain * 1000.0,
+            s.gpu_passes,
+            s.gpu_shade * 1000.0 / s.gpu_shades.max(1) as f64,
+        );
+    }
+    let max_class = o.f64("max-cache-mismatch").unwrap_or(0.05);
+    let max_escape = o.f64("max-cache-escape-diff").unwrap_or(2.0);
+    for (i, c) in r.cache_checks.iter().enumerate() {
+        let when = if i + 1 == r.cache_checks.len() { "settled" } else { "after the gesture" };
+        match c {
+            Some(c) => {
+                println!(
+                    "sample cache check ({when}): {} samples vs a fresh render of their points: class differs {} ({:.4} %), escape count differs {} of {} escaped ({:.3} %)",
+                    c.samples,
+                    c.class_differ,
+                    c.class_pct(),
+                    c.escape_differ,
+                    c.escaped,
+                    c.escape_pct()
+                );
+                if c.class_pct() > max_class {
+                    failed.push(format!("sample cache ({when}): {:.4} % class differ (> {max_class} %)", c.class_pct()));
+                }
+                if c.escape_pct() > max_escape {
+                    failed.push(format!(
+                        "sample cache ({when}): {:.3} % escape counts differ (> {max_escape} %)",
+                        c.escape_pct()
+                    ));
+                }
+            }
+            None => println!("sample cache check ({when}): no cache"),
+        }
+    }
 }
 
 /// Checks the final frames of `history` sessions against the CPU oracle and a fresh render.
@@ -609,6 +670,7 @@ fn verify_session<B: GpuBackend + Clone>(
             ));
         }
     }
+    report_cache(o, r, &mut failed);
     if !failed.is_empty() {
         eprintln!("almondbread: history {mode} FAILED: {}", failed.join("; "));
         return Ok(1);

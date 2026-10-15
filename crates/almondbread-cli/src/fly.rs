@@ -752,6 +752,37 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         fs.colorize_gpu * 1000.0 / fs.frames.max(1) as f64,
         final_after.map_or("not".into(), |s| format!("{:.0} ms", s * 1000.0)),
     );
+    {
+        // Gesture work and the motion sample cache (kb: techniques/sample-reuse).
+        let pf = fs.preview_frames.max(1) as f64;
+        let c = r.sample_cache_stats();
+        println!(
+            "  gesture frames: {:.3e} iterations/frame, iterate GPU {:.2} ms/frame; all chunks {:.3e} iterations",
+            fs.preview_iterations / pf,
+            fs.preview_chunk_gpu * 1000.0 / pf,
+            fs.iterations,
+        );
+        if c.frames + c.fallback_frames > 0 {
+            let f = c.frames.max(1) as f64;
+            println!(
+                "  sample cache: {} frames ({} fresh), reused {:.1} % of visible texels, computed {:.0} texels/frame, CPU plan {:.3} ms/frame (max {:.3}) + shade encode {:.3}, GPU shade {:.3} ms/frame, maintenance {:.3} ms/frame ({} passes), epochs {} (seeded {}), finer {} coarser {}",
+                c.frames,
+                c.fallback_frames,
+                100.0 * c.reused_texels as f64 / c.visible_texels.max(1) as f64,
+                c.texels_planned as f64 / f,
+                c.cpu_plan * 1000.0 / f,
+                c.cpu_plan_max * 1000.0,
+                c.cpu_shade * 1000.0 / f,
+                c.gpu_shade * 1000.0 / c.gpu_shades.max(1) as f64,
+                c.gpu_maintain * 1000.0 / f,
+                c.gpu_passes,
+                c.epochs,
+                c.seeds,
+                c.finer,
+                c.coarser,
+            );
+        }
+    }
     if ap_frames > 0 {
         let share: Vec<String> = hints
             .iter()

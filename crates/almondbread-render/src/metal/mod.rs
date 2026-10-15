@@ -28,7 +28,11 @@ use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, 
 unsafe extern "C" {}
 
 /// The kernel source (moved here from the Swift package; kb: platform/render-architecture).
-pub const KERNEL_SOURCE: &str = include_str!("../shaders/mandelbrot.metal");
+/// The motion sample cache's kernels follow (kb: techniques/sample-reuse).
+pub const KERNEL_SOURCE: &str = concat!(
+    include_str!("../shaders/mandelbrot.metal"),
+    include_str!("../shaders/sample_cache.metal")
+);
 
 pub type MetalBuffer = Retained<ProtocolObject<dyn MTLBuffer>>;
 pub type MetalTexture = Retained<ProtocolObject<dyn MTLTexture>>;
@@ -438,7 +442,7 @@ mod tests {
              out[3] = sizeof(ColorParams); out[4] = sizeof(LevelCounters); out[5] = alignof(ColorParams);\n\
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
              out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX);\n\
-             out[12] = sizeof(PixelStateIC); }}\n"
+             out[12] = sizeof(PixelStateIC); out[13] = sizeof(CacheParams); out[14] = sizeof(SurveyParams); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -448,7 +452,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 52];
+        let mut bytes = [0u8; 60];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -472,6 +476,8 @@ mod tests {
                 size_of::<almondbread_core::bla::BlaEntryX>() as u32,
                 size_of::<almondbread_core::math::FloatExpComplex>() as u32,
                 size_of::<crate::gpu_types::PixelStateIC>() as u32,
+                size_of::<crate::gpu_types::CacheParams>() as u32,
+                size_of::<crate::gpu_types::SurveyParams>() as u32,
             ]
         );
     }

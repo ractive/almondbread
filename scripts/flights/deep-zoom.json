@@ -1,0 +1,17 @@
+{
+ "_about": "R4/M3b: Space zoom from 1e-24 to ~1e-33 per point towards the period-8007 minibrot near the seahorse point (sea-8007), E twice (about 2.5 e-folds/s): big references, deep kernel, BLA.",
+ "size": "1920x1080",
+ "fps": 60,
+ "duration": 10,
+ "start": {
+  "re": "-0.74364388703715870475219150611477977822",
+  "im": "0.13182590420531197049313205638514067897",
+  "scale": "1e-24"
+ },
+ "events": [
+  { "at": 0.2, "key": "faster" },
+  { "at": 0.3, "key": "faster" },
+  { "at": 0.6, "key": "zoom", "down": true },
+  { "at": 8.6, "key": "zoom", "down": false }
+ ]
+}

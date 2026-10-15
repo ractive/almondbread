@@ -38,7 +38,9 @@ pub struct IterateParams {
     /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
     /// 2^`scale_exp`. 0 for the plain kernel.
     pub scale_exp: i32,
-    pub pad1: u32,
+    /// Toroidal levels (the motion sample cache, kb: techniques/sample-reuse): texel `gid`
+    /// holds window texel `(gid + wrap) mod size`, wrap packed as `x | y << 16`. 0: none.
+    pub wrap: u32,
     /// View rotation `(cos, sin)` applied to the texel offset before scaling (cinematic
     /// rotation, kb: decisions/controls "View rotation"); `(1, 0)` unrotated. Every
     /// constructor must set it (`[0, 0]` would collapse the view to a point).
@@ -179,7 +181,7 @@ pub struct ColorParams {
 }
 
 /// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
-/// refinement fade, AA accumulation), 80 bytes.
+/// refinement fade, AA accumulation, sample cache), 104 bytes.
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ComposeParams {
@@ -199,6 +201,13 @@ pub struct ComposeParams {
     /// Rotation `(cos, sin)` of output pixel offsets into history pixel offsets (texture
     /// axes, y down): the history was composed at another view angle. `(1, 0)`: none.
     pub hist_rot: [f32; 2],
+    /// Sample cache (kb: techniques/sample-reuse): output offsets turn by `(cos, sin)` into
+    /// lattice axes, window texel t sits in texel `(t + wrap) mod size` of the colour texture
+    /// (premultiplied: alpha 0 = no sample) and its sample at t itself. `cache` 0: a preview.
+    pub new_rot: [f32; 2],
+    pub wrap: [u32; 2],
+    pub cache: u32,
+    pub pad: u32,
 }
 
 /// Parameters of the `aaList` kernel (adaptive anti-aliasing), 32 bytes.
@@ -215,7 +224,7 @@ pub struct AaListParams {
     pub pad: u32,
 }
 
-/// Parameters of the `survey` kernel (autopilot), 16 bytes.
+/// Parameters of the `survey` kernel (autopilot), 32 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct SurveyParams {
@@ -223,10 +232,43 @@ pub struct SurveyParams {
     pub height: u32,
     pub cols: u32,
     pub rows: u32,
+    /// A sample cache level (toroidal): the surveyed rectangle starts at window texel
+    /// `origin`, window texel t is texel `(t + wrap) mod tex` (plain levels: 0, 0, size).
+    pub origin: [u32; 2],
+    pub wrap: u32,
+    pub tex: u32,
+}
+
+/// Parameters of the sample cache's maintenance and shading kernels (`CacheParams` in MSL,
+/// kb: techniques/sample-reuse), 88 bytes. A window texel t lives in texel
+/// `(t + new_wrap) mod new_size`; resampling reads old window texel
+/// `old_base + (I * num) >> shift` for lattice index `I = new_origin + t` (seeding: full-level
+/// texel, no wrap).
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct CacheParams {
+    pub new_origin: [i32; 2],
+    pub old_base: [i32; 2],
+    pub new_size: [u32; 2],
+    pub new_wrap: [u32; 2],
+    pub old_size: [u32; 2],
+    pub old_wrap: [u32; 2],
+    pub rect_origin: [u32; 2],
+    pub rect_size: [u32; 2],
+    pub num: i32,
+    pub shift: u32,
+    /// Multiplier of copied distance estimates (texel units change with the spacing).
+    pub de_scale: f32,
+    pub count: u32,
+    pub has_aux: u32,
+    pub pad: u32,
 }
 
 const _: () = {
-    assert!(size_of::<SurveyParams>() == 16);
+    assert!(size_of::<SurveyParams>() == 32);
+    assert!(size_of::<CacheParams>() == 88);
+    assert!(offset_of!(CacheParams, num) == 64);
+    assert!(offset_of!(CacheParams, has_aux) == 80);
     assert!(size_of::<AaListParams>() == 32);
     assert!(size_of::<IterateParams>() == 112);
     assert!(offset_of!(IterateParams, scale_exp) == 96);
@@ -285,7 +327,9 @@ const _: () = {
     assert!(offset_of!(ColorParams, specular) == 144);
     assert!(offset_of!(ColorParams, palette_levels) == 164);
 
-    assert!(size_of::<ComposeParams>() == 80);
+    assert!(size_of::<ComposeParams>() == 104);
+    assert!(offset_of!(ComposeParams, new_rot) == 80);
+    assert!(offset_of!(ComposeParams, cache) == 96);
     assert!(offset_of!(ComposeParams, hist_size) == 16);
     assert!(offset_of!(ComposeParams, new_ratio) == 40);
     assert!(offset_of!(ComposeParams, mode) == 60);

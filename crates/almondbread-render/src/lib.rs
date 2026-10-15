@@ -22,6 +22,7 @@ pub mod backend;
 pub mod gpu_types;
 pub mod host;
 pub mod overlay;
+pub mod sample_cache;
 pub mod scheduler;
 
 #[cfg(target_vendor = "apple")]
@@ -29,7 +30,8 @@ pub mod metal;
 
 pub use backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 pub use host::{Host, InputOutcome, InteractionReport};
+pub use sample_cache::{CacheConfig, CacheStats};
 pub use scheduler::{
-    FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
+    CacheCheck, FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
     SimulationResult,
 };
