@@ -31,7 +31,7 @@ use almondbread_core::viewport::{Scale, Viewport};
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
-use crate::la_gpu::{LaBuild, LaGpu, LaMode};
+use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
     PixelStateIC, SeedNode, SeedParams, SurveyParams,
@@ -966,7 +966,7 @@ pub struct Renderer<B: GpuBackend> {
     /// M6: the current reference's LA table on the GPU, or its build on a thread; build time
     /// (s), entries, bytes and stages of the last one.
     la: Option<LaGpu<B>>,
-    la_build: Option<LaBuild>,
+    la_build: Option<LaBuildJob>,
     la_info: (f64, usize, usize, usize),
 
     palette_id: Option<String>,

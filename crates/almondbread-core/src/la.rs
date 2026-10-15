@@ -456,6 +456,11 @@ impl LaTable {
 
     /// [`LaTable::build`] for a float32 reference (f64 views and plain-kernel big references).
     pub fn build_plain(points: &[[f32; 2]], epsilon: f64) -> Self {
+        Self::build_plain_with(points, epsilon, &LaBuild::default())
+    }
+
+    /// [`LaTable::build_plain`] with explicit construction parameters.
+    pub fn build_plain_with(points: &[[f32; 2]], epsilon: f64, params: &LaBuild) -> Self {
         let x: Vec<FloatExpComplex> = points
             .iter()
             .map(|p| {
@@ -471,7 +476,7 @@ impl LaTable {
                 }
             })
             .collect();
-        Self::build(&x, epsilon)
+        Self::build_with(&x, epsilon, params)
     }
 
     /// The AT, from a top-stage step that covers the whole reference `[0, last)`: only for a

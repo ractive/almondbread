@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use almondbread_core::la::{LaEntryX, LaParams, LaTable};
+use almondbread_core::la::{LaBuild, LaEntryX, LaParams, LaTable};
 use almondbread_core::reference::Reference;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError};
@@ -108,15 +108,24 @@ impl<B: GpuBackend> LaGpu<B> {
 
 /// Builds the LA table of `r` (validity `epsilon`, as BLA's), from the floatexp points for the
 /// deep kernel and from the float32 points the plain kernel iterates against otherwise.
+/// Stage parameters can be overridden for studies: `ALMONDBREAD_LA_F` (synthetic coarsening
+/// factor), `ALMONDBREAD_LA_SMAX` (longest natural step before a synthetic split).
 pub(crate) fn build_table(r: &Reference, epsilon: f64) -> Box<dyn FnOnce() -> Arc<LaTable> + Send> {
+    let mut b = LaBuild::default();
+    if let Some(f) = std::env::var("ALMONDBREAD_LA_F").ok().and_then(|v| v.parse().ok()) {
+        b.synthetic_factor = f;
+    }
+    if let Some(m) = std::env::var("ALMONDBREAD_LA_SMAX").ok().and_then(|v| v.parse().ok()) {
+        b.synthetic_max = m;
+    }
     if r.deep_kernel {
         let points = r.extended.clone();
-        Box::new(move || Arc::new(LaTable::build(&points, epsilon)))
+        Box::new(move || Arc::new(LaTable::build_with(&points, epsilon, &b)))
     } else {
         let points = r.points.clone();
-        Box::new(move || Arc::new(LaTable::build_plain(&points, epsilon)))
+        Box::new(move || Arc::new(LaTable::build_plain_with(&points, epsilon, &b)))
     }
 }
 
 /// A table build on its thread, for the reference with this serial.
-pub(crate) type LaBuild = (u64, JoinHandle<Arc<LaTable>>);
+pub(crate) type LaBuildJob = (u64, JoinHandle<Arc<LaTable>>);
