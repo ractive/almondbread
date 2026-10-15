@@ -18,21 +18,27 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 
 - [[sources/apple-dynamic-caching-talk]] — An Apple developer tech talk (video) on the GPU in M3 and A17 Pro, mainly Dynamic Caching. (unread)
 - [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
-- [[sources/apple-simulator-tooling]] — Xcode 26.6 simctl, xcodebuild test and XCTest touch synthesis: what the iOS simulator checks use (digested)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/apple-metal-feature-set-tables]] — Apple Metal Feature Set Tables (May 2026): GPU families per MetalFX feature (temporal scaler Apple7+, denoiser Apple9+) (digested)
 - [[sources/apple-metalfx-docs]] — Apple docs and SDK headers for MetalFX: spatial/temporal scalers, jitter and motion conventions, texture usage, reactive mask, dynamic resolution (digested)
 - [[sources/apple-metalfx-taa-sample]] — Apple sample code: temporal antialiasing and upscaling with MetalFX (digested)
+- [[sources/apple-simulator-tooling]] — Xcode 26.6 simctl, xcodebuild test and XCTest touch synthesis: what the iOS simulator checks use (digested)
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
 - [[sources/beyer-mandelbrot-zoom-sequence]] — Wolfgang Beyer's 15-image Commons zoom into seahorse valley (2005): centre and width of each view, to 6e10 (digested)
 - [[sources/bids-viridis-colormaps]] — viridis, magma, inferno, plasma colour maps (CC0); 256-entry data (digested)
+- [[sources/boll-pi-post]] — Dave Boll's 1991 sci.math post (via brainwagon, 2011): neck escape counts 33, 315, 3143 ... whose product with ε is π; a C program that fails at ε = 1e-9 (digested)
+- [[sources/brockmoeller-pi-everywhere]] — Brockmoeller, Scherz, Srkalovic 2025 (arXiv): first proof at the neck -3/4, π at every parabolic parameter along its rays, N = π/ε + O(1) (digested)
 - [[sources/cheritat-mandelbrot-rendering]] — Rendering-techniques page by Arnaud Chéritat, a complex-dynamics mathematician (Toulouse), on "Techniques for computer generated pictures in... (digested)
 - [[sources/cividis-paper]] — cividis (PLOS ONE 2018): CVD-optimised blue-yellow map; article CC0, data Battelle BSD-style (digested)
 - [[sources/cmocean]] — cmocean oceanography colour maps (MIT), incl. cyclic phase (digested)
+- [[sources/codata-2022-constants]] — CODATA 2022 values from NIST: Planck length and time, Bohr radius, proton radius, h, c (digested)
 - [[sources/colorcet]] — Kovesi's CET colour maps (CC BY 4.0): linear, cyclic, colour-blind sets (digested)
+- [[sources/cosmic-history-timeline]] — Times after the Big Bang (first stars, CMB, nucleosynthesis, transitions, inflation, Planck epoch) for the cosmic size scale (digested)
+- [[sources/cosmic-scale-references]] — Sizes, distances and big numbers for the cosmic size scale: Milky Way, universe, cells, nuclei, quark limit, googol, Shannon number (digested)
 - [[sources/crameri-scientific-colour-maps]] — Crameri Scientific colour maps v8 (MIT): batlow, cyclic romaO/vikO/bamO, ... (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
+- [[sources/edgar-pi-and-mandelbrot]] — Gerald Edgar's page on Boll's π (1992 alt.fractals post): Petry's tan heuristic at the cusp, Edgar's f∘f integral at the neck, -5/4 (digested)
 - [[sources/fractal-block-world-steam]] — Steam page and reviews of Fractal Block World: 1,652 reviews, 98% positive, 50k–100k owners; the only fractal game with traction (skimmed)
 - [[sources/fractal-dive-app-store]] — App Store listing of Fractal Dive (2026-09): perturbation to 4e331, Dive autopilot, free links, $1.99 Pro with 4K dive video; closest competitor (skimmed)
 - [[sources/fractalforums-interior-detection]] — Archived single-page thread started by GBy (fractalshades author) on 25 June 2022: interior detection via the derivative `dz/dZ_1` combined with... (digested)
@@ -52,12 +58,14 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/gmp-m1-discuss]] — A mailing-list post, "Surprise performance from Apple M1", by GMP's lead developer, 21 November 2020, after the project bought an M1 Mac mini. (digested)
 - [[sources/hn-mandelbrot-site-thread]] — HN thread on mandelbrot.site (2025, 86 points): "zoom forever", jerky zoom, iteration scaling, URL sharing (skimmed)
 - [[sources/htmag-benchmarks]] — How To Market A Game benchmarks: wishlists at launch per tier (Bronze 5k, Silver 8k), weekly wishlist bands, Next Fest tiers (skimmed)
+- [[sources/iau-astronomical-units]] — IAU astronomical unit (exact) and the light year (digested)
 - [[sources/imagina-hinfla-evaluator]] — The main Mandelbrot evaluator of Imagina (pre-rewrite `master`, last pushed 2024-01-23), by Zhuoran, the originator of rebasing and of this "LA"... (skimmed)
-- [[sources/inter-font]] — Inter 4.1 typeface (OFL 1.1): the overlay font; SemiBold used for the SDF atlas (digested)
 - [[sources/imagina-readme]] — The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast fractal renderer & explorer". (digested)
+- [[sources/inter-font]] — Inter 4.1 typeface (OFL 1.1): the overlay font; SemiBold used for the SDF atlas (digested)
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
 - [[sources/kisaka-julia-sets-in-mandelbrot]] — Kisaka 2015 (seminar abstract): zooming in shows a Julia-like figure, then nested preimages, then a small Mandelbrot set; the stage order the journey's embedded Julia targets rely on (skimmed)
+- [[sources/klebanoff-pi-in-mandelbrot]] — Klebanoff, Fractals 9(4) 2001: first proof that √ε·N → π at the cusp 1/4 + ε; Boll's neck and cusp tables (digested)
 - [[sources/kopf-2007-joint-bilateral-upsampling]] — Kopf et al. 2007: upsample a low-resolution solution with a full-resolution guide image; needs a cheap guide whose edges match (digested)
 - [[sources/kovesi-good-colour-maps]] — Kovesi 2015: lightness carries detail; recipes for vivid cyclic maps (digested)
 - [[sources/luma-gl-gpu-precision]] — A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than f32 precision on GPUs: double-single (float-float),... (digested)
@@ -81,6 +89,8 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/muency-named-places]] — Mu-Ency feature entries and favourite views with coordinates: valleys, medallions, embedded Julia sets, to 1.5e-27 (digested)
 - [[sources/muency-newton-raphson]] — Glossary entry (written 2010, updated 2023-06-22) on Newton's method and its use to find the nucleus of a mu-atom (hyperbolic component) of known... (digested)
 - [[sources/muency-newton-raphson-zooming]] — Mu-Ency on zooming to a minibrot by Newton; Heiland-Allen's estimate that the 2-fold embedded Julia set is about s^(3/4) of the island size s; "Julia morphing" (digested)
+- [[sources/muency-pi]] — Mu-Ency R2.C(1/2) on π: neck counts one higher than Boll's (another convention), "occurs in all the cusps" (digested)
+- [[sources/nasa-planetary-fact-sheets]] — NASA planetary fact sheets: radii of Earth, Moon, Jupiter, Sun; Neptune's orbit (digested)
 - [[sources/ottosson-oklab]] — OKLab/OKLCH definition; why OKLab gradients beat sRGB/HSV lerp (digested)
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
 - [[sources/quilez-cosine-palettes]] — cosine palettes a + b cos(2π(ct + d)); mean = a; integer c is seamless (digested)
@@ -101,6 +111,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/ultrafractal-perturbation-calculations]] — A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal program) on how its perturbation mode works and how to tune it. (digested)
 - [[sources/ultrafractal-perturbation-equations]] — The Ultra Fractal formula-writer's guide to deriving a perturbed formula and adding it to a user formula, using Mandelbrot as the worked example. (digested)
 - [[sources/uniffi-user-guide]] — Mozilla's guide to UniFFI: proc-macro interfaces, objects/records/errors, library-mode bindgen, Swift output and XCFramework packaging (skimmed)
+- [[sources/van-wijk-nuij-smooth-zooming]] — van Wijk & Nuij (InfoVis 2003): the optimal zoom-and-pan path between two views, closed form with one parameter ρ; used for fly to coordinates (skimmed)
 - [[sources/very-plotter-readme]] — The short README of Phil Thompson's GitHub repository `visualize-primes`, which hosts Very Plotter, a browser (JavaScript) Mandelbrot explorer... (digested)
 - [[sources/wgpu-changelog-v30]] — wgpu CHANGELOG v27–v30 and Features docs: subgroups, indirect dispatch, timestamps, immediates, passthrough shaders; no Metal fast-math control (skimmed)
 - [[sources/wikibooks-fraktaler-3]] — Wikibooks page (part of Adam Majewski's "Fractals" book) about Fraktaler 3: usage notes and examples, including the metadata found in Fraktaler 3... (unread)
@@ -122,7 +133,6 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/wwdc22-metalfx-upscaling]] — WWDC22 session 10103: MetalFX spatial and temporal upscaling, inputs, jitter example (digested)
 - [[sources/wwdc25-metal4-games]] — WWDC25 session 211: Metal 4 games, MetalFX frame interpolation and denoised upscaler, exposure and reactive-mask advice (digested)
 - [[sources/xaos-algorithms]] — XaoS algorithms document: frame reuse, line guessing, dynamic resolution, periodicity checking only after guessing (digested)
-- [[sources/van-wijk-nuij-smooth-zooming]] — van Wijk & Nuij (InfoVis 2003): the optimal zoom-and-pan path between two views, closed form with one parameter ρ; used for fly to coordinates (skimmed)
 - [[sources/xaos-readme]] — The README of XaoS (GNU XaoS), a real-time interactive fractal zoomer in development since 1996. (digested)
 - [[sources/zoomasm]] — manual of zoomasm 3.4 (2025), the exponential-map strip reprojector and colouring tool for zoom videos (digested)
 
@@ -146,6 +156,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured
+- [[techniques/pi-in-the-mandelbrot-set]] — Boll's π at the neck (N·ε) and cusp (N·√ε): proofs, O(ε) / O(√ε) errors measured, f64 drift, compensated shifted count, the π meter
 - [[techniques/rebasing]] — Zhuoran's rebase rule (|Z+z| < |z| or reference exhausted → z = Z+z, m = 0); one reference per critical point/phase; float32 pitfalls
 - [[techniques/sample-reuse]] — reuse samples while zooming/panning: XaoS row/column approximation, exact-position sample cache (R4), and the production cache as built: plane-fixed lattice in a toroidal tile window, GPU clear/resample/shade, per-tile planning, carry-over batches, the cache check
 - [[techniques/reference-orbit-precision]] — bits vs zoom rule, cost per iteration, MT3 threading, GPU NTT verdict, storage, Imagina orbit compression; our implementation and measured error growth
@@ -201,7 +212,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; L0 stills, L1 real-time prototype (geometry clipmap, layered σ)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/distribution]] — stores and order: Apple first, Steam (+ itch.io) for the game edition, others only with traction (proposed)
-- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad; autopilot (Z, pointer steers, adaptive speed, safety, assist) and fly to coordinates (van Wijk & Nuij path at any depth, exact landing)
+- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad; autopilot (Z, pointer steers, adaptive speed, safety, assist) and fly to coordinates (van Wijk & Nuij path at any depth, exact landing); cosmic size scale (C: screen, set-as-object and relative anchors)
 
 ## Questions
 
@@ -218,6 +229,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal; .fast erases TwoSum, .safe keeps it (M7)
 - [[questions/metal-watchdog-limit]] — exact watchdog threshold on macOS and iOS
 - [[questions/perturbation-convergent-formulas]] — perturbation/rebasing for Nova, Newton, magnet (contradiction)
+- [[questions/pi-escape-count-conventions]] — why Mu-Ency's neck counts are Boll's + 1 and why Boll's 1e-7 entry (31415928) is off by one (answered)
 - [[questions/precision-bits-formula]] — reference bits vs zoom; working rule
 - [[questions/record-zoom-live-feasibility]] — can a world-record zoom be played live without post-processing? (open; estimate: yes to ~1e1000–1e3000 along a known path)
 - [[questions/reference-orbit-compression]] — how Imagina/FractalShark compress orbits (answered from Imagina source; FractalShark part open)
@@ -230,7 +242,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/dense-region-sampling]] — R3: fewer pixel-iterations in dense boundary regions; per-location numbers, recommendation (local SA in M5, interior-only tile fill), scheduler design, risks
 - [[synthesis/fractal-app-market-research]] — 2026 market report: competitor matrix (App Store, desktop, Steam, web), differentiator gap analysis, positioning as a Mac/iPad flight and video studio, MVP, $9.99 one-time Pro, launch plan
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
-- [[synthesis/how-big-is-big]] — the "How big is big?" panel: zoom depth vs googol, googolplex, Skewes, mega, Graham's g₁ on one dial per up-arrow; linear super-log convention, marker table, recomputed facts, TREE(3)
+- [[synthesis/how-big-is-big]] — the "How big is big?" panel (removed from the app 2026-10-15; maths kept): zoom depth vs googol, googolplex, Skewes, mega, Graham's g₁ on one dial per up-arrow; linear super-log convention, marker table, recomputed facts, TREE(3)
 - [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use
 - [[synthesis/fractal-palettes]] — palette research and the 67-palette library: findings, licence table, what was dropped after the contact sheets, integration API
 - [[synthesis/motion-sample-reuse]] — R4: fewer iterations per gesture frame: sample cache vs FL vs MetalFX on five flights, how many iterations can go (2–50 %), bookkeeping cost, integration design, risks; production as built (bookkeeping 0.1–0.6 ms, 55–92 % fewer iterations)

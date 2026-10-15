@@ -3,10 +3,18 @@ title: "How big is big? Zoom depth against huge numbers, one dial per up-arrow"
 type: synthesis
 date: 2026-10-15
 sources: ["[[sources/wikipedia-knuth-up-arrow-notation]]", "[[sources/wikipedia-tetration]]", "[[sources/wikipedia-grahams-number]]", "[[sources/wikipedia-kruskal-tree-theorem]]", "[[sources/wikipedia-steinhaus-moser-notation]]", "[[sources/wikipedia-skewes-number]]", "[[sources/wikipedia-googolplex]]", "[[sources/wikipedia-names-of-large-numbers]]", "[[sources/wikipedia-fast-growing-hierarchy]]", "[[sources/wikipedia-observable-universe]]", "[[sources/make-ganson-machine-with-concrete]]"]
-tags: [how-big, big-numbers, up-arrow, product, ui]
+tags: [how-big, big-numbers, up-arrow, product, ui, removed]
 ---
 
 # How big is big? Zoom depth against huge numbers, one dial per up-arrow
+
+> **Removed from the app on 2026-10-15.** The user's reasons: "It's an own window, which is not
+> like the rest; way too much text; not sure if people understand it." The panel, its window,
+> menu item, control-center button, the cosmic scale's "How big is big? →" link
+> (`Explorer.cosmicHint()`) and the Rust maths (`bignum_scale.rs`, `how_big.rs`) are gone. The
+> maths below stays here because it may be useful for achievements later
+> ([[decisions/gamification]]). The last commit with the code is `ab82452`
+> (`git show ab82452:crates/almondbread-core/src/bignum_scale.rs`, tests included).
 
 The user's idea ([[ideas]]): compare our zoom (up to about 10^3008, a 3009-digit number) with
 googol, googolplex, Graham's number and TREE(3). Comparing values makes no sense, so the panel
@@ -15,8 +23,9 @@ level. The metaphor is Arthur Ganson's "Machine with Concrete": twelve 1:50 worm
 driven at 200 rpm, whose last gear is set in concrete and would turn once in about 2.3·10^12
 years (src: [[sources/make-ganson-machine-with-concrete]]).
 
-As built 2026-10-15: maths in `almondbread-core/src/bignum_scale.rs`, FFI in
-`almondbread-ffi/src/how_big.rs`, UI in `Sources/AlmondbreadKit/HowBigView.swift`.
+As built 2026-10-15 (removed the same day, see above): maths in
+`almondbread-core/src/bignum_scale.rs`, FFI in `almondbread-ffi/src/how_big.rs`, UI in
+`Sources/AlmondbreadKit/HowBigView.swift`.
 
 ## The dials and the fractional convention
 
@@ -108,7 +117,9 @@ second:
   observable universe (src: [[sources/wikipedia-observable-universe]]) by 10^20.
 - Ganson: `50^12 / 200 rpm` = 2.32·10^12 years (src: [[sources/make-ganson-machine-with-concrete]]).
 
-## UI
+## UI (removed 2026-10-15)
+
+What was built, for the record; none of it is in the app any more.
 
 - A window on the Mac (`Window` scene "How Big Is Big?", View menu item, control-center button
   under View & navigation); it follows the window that opened it and redraws with the ~10 Hz
@@ -121,6 +132,8 @@ second:
 - Screenshots: `SCENES="howbig howbig-100 howbig-1000 howbig-3000" scripts/ui-screenshots.sh`
   renders the panel offscreen (`ImageRenderer`, 760 pt and 390 pt wide) next to the usual
   window captures; no window comes to the front.
-- Later: a link from the cosmic size scale overlay ([[ideas]], built in parallel); the hook is
-  `HowBigButton(model:)`, or `openWindow(id: HowBig.windowID)` after setting
-  `HowBigPresenter.shared.model`.
+- A gold "How big is big? →" link above the cosmic size scale panel past the Planck length
+  ([[decisions/controls]]), placed from `Explorer.cosmicHint()`.
+- Lessons: a separate window broke the app's one-window, overlay-and-control-center pattern,
+  and the panel needed too much explanatory text for an idea most people would not follow.
+  A future take should be one glanceable number or an achievement, not an essay.

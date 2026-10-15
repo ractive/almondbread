@@ -684,6 +684,18 @@ Wrote up [[decisions/minibrot-atlas]] (proposed, not scheduled): local atlas fro
 target finder first, then a shallow census and deep samples. Filed the π-in-the-set idea in
 [[ideas]] with our own numeric check.
 
+## [2026-10-15] ingest | Cosmic size scale: sizes, epochs and the overlay
+
+Built the cosmic size scale (key C, off by default) and filed its numbers: NASA fact sheets,
+IAU units, CODATA 2022, a references page (galaxies, universe, cells, viruses, nuclei, the
+quark size limit, big numbers, ages) and a cosmic-history timeline (times before ~1 s derived
+from transition temperatures with the PDG radiation-era relation). Unconfirmed figures are
+marked (unverified): adult height, the 93 vs 92 billion light-year universe (92 used), inflation
+times. Design and costs: [[decisions/controls]] "Cosmic size scale"; status in [[ideas]].
+Pages: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
+[[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
+[[sources/cosmic-history-timeline]], [[index]].
+
 ## [2026-10-15] ingest | How big is big? panel
 
 Built the up-arrow gear-train panel and wrote [[synthesis/how-big-is-big]]: the linear
@@ -698,3 +710,39 @@ not saved) eleven web sources: [[sources/wikipedia-knuth-up-arrow-notation]],
 [[sources/wikipedia-names-of-large-numbers]], [[sources/wikipedia-fast-growing-hierarchy]],
 [[sources/wikipedia-observable-universe]], [[sources/make-ganson-machine-with-concrete]].
 Status in [[ideas]].
+
+## [2026-10-15] decision | Cosmic size scale: relative mode paced in linear zoom
+
+User: "From hair to blood cell it takes ages." The relative cosmos now spans zoom 1e0 ... 1e200,
+with the things evenly spaced in zoom decades (about 12 s a step at the default speed). The
+epochs share the same grid, placed by thermal wavelength. Past 1e200 the panel counts cosmos
+lengths. Also: a darker backing and outlines, labels kept near their dots, a captioned anchor
+picker, and a "How big is big?" link past the Planck length. Pages: [[decisions/controls]].
+
+## [2026-10-15] ingest | π in the Mandelbrot set, and the π meter
+
+Ingested Boll's 1991 post (via brainwagon), Klebanoff 2001 (cusp proof), Brockmoeller, Scherz,
+Srkalovic 2025 (neck proof, all parabolic points, N = π/ε + O(1)), Gerald Edgar's page and
+Mu-Ency's R2.C(1/2) entry. Measured the counts at both points against a 256-bit BigFloat orbit
+and double-double: errors O(ε) (neck offset N − π/ε in 0.35 ... 1.6) and O(√ε) (cusp offset
+about −2); textbook f64 never escapes at the neck from ε = 1e-8 and drifts at the cusp from
+1e-12; f64 in shifted coordinates drifts at the cusp from 1e-16; a compensated (TwoSum) shifted
+count matches double-double everywhere at 11–13 ns per iteration. Boll's 1e-7 neck entry
+(31415928) is not reproduced (31415927); Mu-Ency counts one higher (convention). Built the
+π meter, two places and guided flights. Raising the image's iteration limit near the points
+was measured and rejected (8 s GPU per frame at the cusp, minutes at the neck). Pages:
+[[techniques/pi-in-the-mandelbrot-set]], [[questions/pi-escape-count-conventions]],
+[[decisions/controls]] "π meter", [[synthesis/places]], [[ideas]], [[index]].
+
+## [2026-10-15] decision | "How big is big?" panel removed
+
+The user removed the panel: "It's an own window, which is not like the rest; way too much text;
+not sure if people understand it." Gone from the app: `HowBigView.swift`, the `how-big` window
+scene, its View-menu item and control-center button (and search keywords), the `howbig`
+ui-demo scenes, the cosmic size scale's "How big is big? →" link with `Explorer.cosmicHint()`
+and its Rust side (`CosmicOverlay::hint`, `Host::cosmic_hint_points`, `CosmicScale::past_planck`),
+`almondbread-ffi/src/how_big.rs` and `almondbread-core/src/bignum_scale.rs` with its tests.
+The maths (linear super-log convention, marker table, facts) stays in
+[[synthesis/how-big-is-big]], marked removed, for achievements later; the sources pages stay.
+Pages: [[synthesis/how-big-is-big]], [[decisions/controls]], [[decisions/gamification]],
+[[ideas]], [[index]].

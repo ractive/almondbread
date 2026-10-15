@@ -140,6 +140,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         let interaction = self.renderer.navigator.last_interaction;
         let mode = self.renderer.navigator.mode();
         let handled = self.renderer.handle_input(event, now);
+        // Esc ends the π meter's guided flight too (other input ends it by moving the view).
+        if matches!(event, InputEvent::KeyDown(almondbread_core::input::NavKey::Stop)) && self.overlay.pi.flying() {
+            self.overlay.pi.stop_flight();
+        }
         if self.renderer.navigator.last_interaction != interaction
             && let Some(m) = &mut self.measure
         {
@@ -191,7 +195,7 @@ impl<B: GpuBackend + Clone> Host<B> {
                 self.renderer.note_interaction(now);
             }
         }
-        if self.overlay.settings.any() || self.renderer.overlay.is_some() {
+        if self.overlay.active() || self.renderer.overlay.is_some() {
             let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
             self.overlay.prepare(&mut self.renderer, (w, h), ppp, now);
         }
@@ -200,7 +204,10 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Overlay work after the frame: about 1.5 ms of orbit analysis, and the maps' renderers
     /// while the view is not in a gesture (they never take the gesture frame budget).
     fn overlay_after(&mut self, now: f64, outcome: &mut FrameOutcome) {
+        outcome.animating |= self.overlay.cosmic.animating(now);
         if !self.overlay.settings.any() {
+            // The π meter alone: its count runs on its own thread; frames show its progress.
+            outcome.animating |= self.overlay.busy();
             return;
         }
         self.overlay.step_probe(0.0015);

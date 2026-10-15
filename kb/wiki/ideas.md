@@ -61,8 +61,9 @@ User asked which unsolved questions the tool could explore. Pictures cannot sett
 density of hyperbolicity or the boundary's area; experimental maths can. Written up as
 [[decisions/minibrot-atlas]] (waits for go). Side idea, a "maths moment" in the app: π in
 the iteration counts. At `c = -0.75 + iε` the escape count times ε tends to π, and at
-`c = 0.25 + ε` the count times √ε does (Boll 1991; unverified, no source page yet; our own
-check: n·ε = 3.1416 at ε = 1e-5, n·√ε = 3.14157 at ε = 1e-10, Python float64, 2026-10-15).
+`c = 0.25 + ε` the count times √ε does (Boll 1991). **Built 2026-10-15** as the π meter with
+places and guided flights: sources, proofs, error orders and our precision measurements in
+[[techniques/pi-in-the-mandelbrot-set]], controls in [[decisions/controls]] "π meter".
 
 ## Cosmic size scale (2026-10-15)
 
@@ -81,6 +82,12 @@ atoms, nuclei, strings, shown like the mini-map at the bottom left.
   marker for the current view, one line of text. Also in exported videos; possible depth
   badges for the game ([[decisions/gamification]]).
 - Strings are hypothetical (about the Planck length); label them as such.
+- **Status 2026-10-15: built** (off by default, key C): screen and set-as-object anchors
+  (physical), light-crossing times and probe energies, the unexplored band, big numbers and
+  ladders past the Planck length, and a relative "zoom range = cosmos" metaphor that also travels
+  back in cosmic time. As built: [[decisions/controls]] "Cosmic size scale". Not built: icons
+  (coloured dots instead), depth badges, the panel in exported videos (overlays never enter
+  exports).
 
 ## How big is big? (2026-10-15)
 
@@ -88,9 +95,11 @@ User: fascinated by googol, googolplex, Graham's number, TREE(3); how does our 1
 Direct comparison is hopeless, so compare the kind of size: one dial per Knuth up-arrow, as a
 gear train after Ganson's "Machine with Concrete".
 
-- **Status 2026-10-15: built.** Window on the Mac (View menu, control center), sheet on iOS;
-  maths in Rust. As built, with the convention, numbers and sources: [[synthesis/how-big-is-big]].
-  Open: a link from the cosmic size scale overlay.
+- **Status 2026-10-15: built, then removed the same day.** User: "It's an own window, which
+  is not like the rest; way too much text; not sure if people understand it." Panel, window,
+  menu item, control-center button, the cosmic scale's link and the Rust maths are gone. The
+  convention, numbers and sources stay in [[synthesis/how-big-is-big]] for achievements later
+  ([[decisions/gamification]]).
 
 ## Money ladder for the relative mode (2026-10-15)
 

@@ -1654,6 +1654,218 @@
         "synthesis/fractal-palettes",
         "techniques/palette-design"
       ]
+    },
+    {
+      "path": "papers/klebanoff-pi-in-mandelbrot.pdf",
+      "method": "fetch",
+      "url": "https://www.doc.ic.ac.uk/~jb/teaching/jmc/pi-in-mandelbrot.pdf",
+      "title": "π in the Mandelbrot set (Fractals 9(4), 2001, pp. 393-402)",
+      "authors": [
+        "Aaron Klebanoff"
+      ],
+      "year": 2001,
+      "size": 383933,
+      "sha256": "2fb2265e3a261f998bc644fe48c0fad07d40fb99a0ad322a9882eee6f381423a",
+      "terms": "copyright World Scientific; course copy hosted at Imperial College; personal research copy, not redistributed",
+      "retrieved": "2026-10-15",
+      "wiki": [
+        "sources/klebanoff-pi-in-mandelbrot"
+      ]
+    },
+    {
+      "path": "papers/klebanoff-pi-in-mandelbrot.txt",
+      "method": "derived",
+      "derived_from": "papers/klebanoff-pi-in-mandelbrot.pdf",
+      "command": "pdftotext -layout papers/klebanoff-pi-in-mandelbrot.pdf papers/klebanoff-pi-in-mandelbrot.txt",
+      "title": "π in the Mandelbrot set (text)",
+      "authors": [
+        "Aaron Klebanoff"
+      ],
+      "year": 2001,
+      "size": 59103,
+      "sha256": "6635ed59a6d0d986ac932fe56647d341c3b23147b0f75dbf6a889d8d2a0bb0dc",
+      "terms": "copyright World Scientific; personal research copy, not redistributed",
+      "wiki": [
+        "sources/klebanoff-pi-in-mandelbrot"
+      ]
+    },
+    {
+      "path": "papers/pi-in-mandelbrot-everywhere-2025.pdf",
+      "method": "fetch",
+      "url": "https://arxiv.org/pdf/2505.07138",
+      "title": "Pi in the Mandelbrot set everywhere (arXiv:2505.07138v1)",
+      "authors": [
+        "Thies Brockmoeller",
+        "Oscar Scherz",
+        "Nedim Srkalovic"
+      ],
+      "year": 2025,
+      "size": 810326,
+      "sha256": "c44719cf35dfd7cf77f74f00d419fcc5062242397494ca61d73909becfe6c4c8",
+      "terms": "arXiv non-exclusive licence; personal research copy, not redistributed",
+      "retrieved": "2026-10-15",
+      "wiki": [
+        "sources/brockmoeller-pi-everywhere"
+      ]
+    },
+    {
+      "path": "papers/pi-in-mandelbrot-everywhere-2025.txt",
+      "method": "derived",
+      "derived_from": "papers/pi-in-mandelbrot-everywhere-2025.pdf",
+      "command": "pdftotext -layout papers/pi-in-mandelbrot-everywhere-2025.pdf papers/pi-in-mandelbrot-everywhere-2025.txt",
+      "title": "Pi in the Mandelbrot set everywhere (text)",
+      "authors": [
+        "Thies Brockmoeller",
+        "Oscar Scherz",
+        "Nedim Srkalovic"
+      ],
+      "year": 2025,
+      "size": 67728,
+      "sha256": "0dd2dfc88951ddbfca900920e0be6da41a461135e6bc8427ef198e25b65e78e2",
+      "terms": "arXiv non-exclusive licence; personal research copy, not redistributed",
+      "wiki": [
+        "sources/brockmoeller-pi-everywhere"
+      ]
+    },
+    {
+      "path": "web/brainwagon-boll-pi.html",
+      "method": "fetch",
+      "url": "https://brainwagon.org/blog/happy-day/",
+      "title": "Happy (π) day: Dave Boll's 1991 sci.math post and a C program",
+      "authors": [
+        "Mark VandeWettering",
+        "Dave Boll"
+      ],
+      "year": 2011,
+      "size": 16621,
+      "sha256": "871ac91b637510cdb8370e879a10db99a4d281e87290418683d7cba5687b2cad",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-15",
+      "wiki": [
+        "sources/boll-pi-post"
+      ]
+    },
+    {
+      "path": "web/brainwagon-boll-pi.txt",
+      "method": "derived",
+      "derived_from": "web/brainwagon-boll-pi.html",
+      "command": "textutil -convert txt -output web/brainwagon-boll-pi.txt web/brainwagon-boll-pi.html",
+      "title": "Happy (π) day: Dave Boll's 1991 sci.math post and a C program (text)",
+      "authors": [
+        "Mark VandeWettering",
+        "Dave Boll"
+      ],
+      "year": 2011,
+      "size": 3691,
+      "sha256": "a9e6624498ad5f025b297cba0c882c7277554bccab6dc01ba83fc15346cbb907",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/boll-pi-post"
+      ]
+    },
+    {
+      "path": "web/edgar-pi-and-mandelbrot.html",
+      "method": "fetch",
+      "url": "https://people.math.osu.edu/edgar.2/piand.html",
+      "title": "Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)",
+      "authors": [
+        "Gerald Edgar",
+        "David Petry"
+      ],
+      "year": 1992,
+      "size": 8486,
+      "sha256": "e82aeb27de526682d8f48eb38c5246190e6b63ab3c399bc68e89f1952120c1c0",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "retrieved": "2026-10-15",
+      "wiki": [
+        "sources/edgar-pi-and-mandelbrot"
+      ]
+    },
+    {
+      "path": "web/edgar-pi-and-mandelbrot.txt",
+      "method": "derived",
+      "derived_from": "web/edgar-pi-and-mandelbrot.html",
+      "command": "textutil -convert txt -output web/edgar-pi-and-mandelbrot.txt web/edgar-pi-and-mandelbrot.html",
+      "title": "Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics) (text)",
+      "authors": [
+        "Gerald Edgar",
+        "David Petry"
+      ],
+      "year": 1992,
+      "size": 6016,
+      "sha256": "c767b56e869056cf969eaf8c589860a321f8204dc28bf5a17c957ea40f6c26ea",
+      "terms": "copyright the author; personal research copy, not redistributed",
+      "wiki": [
+        "sources/edgar-pi-and-mandelbrot"
+      ]
+    },
+    {
+      "path": "web/muency-r2c12.html",
+      "method": "fetch",
+      "url": "https://www.mrob.com/pub/muency/r2c12.html",
+      "title": "Mu-Ency: R2.C(1/2) (relation to π)",
+      "authors": [
+        "Robert P. Munafo"
+      ],
+      "year": 2024,
+      "size": 22001,
+      "sha256": "72713d13e03fe5c6c8dcaccf632e522cb4b92a44bf113134c78934fb00ace0b3",
+      "terms": "CC BY-NC 4.0 (Mu-Ency); personal research copy",
+      "retrieved": "2026-10-15",
+      "wiki": [
+        "sources/muency-pi"
+      ]
+    },
+    {
+      "path": "web/muency-r2c12.txt",
+      "method": "derived",
+      "derived_from": "web/muency-r2c12.html",
+      "command": "textutil -convert txt -output web/muency-r2c12.txt web/muency-r2c12.html",
+      "title": "Mu-Ency: R2.C(1/2) (relation to π) (text)",
+      "authors": [
+        "Robert P. Munafo"
+      ],
+      "year": 2024,
+      "size": 9931,
+      "sha256": "a98a5f4b241176581b6650b627de401d805ddf23d93a538dbcecf70175689d87",
+      "terms": "CC BY-NC 4.0 (Mu-Ency); personal research copy",
+      "wiki": [
+        "sources/muency-pi"
+      ]
+    },
+    {
+      "path": "web/muency-pi.html",
+      "method": "fetch",
+      "url": "https://www.mrob.com/pub/muency/pi.html",
+      "title": "Mu-Ency: pi",
+      "authors": [
+        "Robert P. Munafo"
+      ],
+      "year": 2003,
+      "size": 3817,
+      "sha256": "14a11b9aa6a5a7887522f78374348fc4cf3a99d0b1878d5ce4292bf348fa4c39",
+      "terms": "CC BY-NC 4.0 (Mu-Ency); personal research copy",
+      "retrieved": "2026-10-15",
+      "wiki": [
+        "sources/muency-pi"
+      ]
+    },
+    {
+      "path": "web/muency-pi.txt",
+      "method": "derived",
+      "derived_from": "web/muency-pi.html",
+      "command": "textutil -convert txt -output web/muency-pi.txt web/muency-pi.html",
+      "title": "Mu-Ency: pi (text)",
+      "authors": [
+        "Robert P. Munafo"
+      ],
+      "year": 2003,
+      "size": 834,
+      "sha256": "a00b68b55dee569bb93fe249797255851a34b6c5a8452239670f11667ae1bd76",
+      "terms": "CC BY-NC 4.0 (Mu-Ency); personal research copy",
+      "wiki": [
+        "sources/muency-pi"
+      ]
     }
   ]
 }

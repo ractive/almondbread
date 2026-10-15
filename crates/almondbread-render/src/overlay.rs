@@ -292,7 +292,7 @@ impl Scene {
 }
 
 /// Liang-Barsky: the part of segment a-b inside rectangle r.
-fn clip_segment(a: [f32; 2], b: [f32; 2], r: [f32; 4]) -> Option<([f32; 2], [f32; 2])> {
+pub(crate) fn clip_segment(a: [f32; 2], b: [f32; 2], r: [f32; 4]) -> Option<([f32; 2], [f32; 2])> {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let (mut t0, mut t1) = (0.0f32, 1.0f32);
     for (p, q) in [
@@ -433,6 +433,10 @@ pub struct Overlay<B: GpuBackend> {
     pub note: Option<(String, f64)>,
     /// A finished map click waiting to be applied by the host.
     pub pending_jump: Option<MapJump>,
+    /// The π meter (its own settings and thread; kb: techniques/pi-in-the-mandelbrot-set).
+    pub pi: crate::pi_meter::PiMeter,
+    /// The cosmic size scale panel (kb: decisions/controls, "Cosmic size scale").
+    pub cosmic: crate::cosmic::CosmicOverlay,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -450,6 +454,8 @@ impl<B: GpuBackend> Default for Overlay<B> {
             snap: None,
             note: None,
             pending_jump: None,
+            pi: crate::pi_meter::PiMeter::default(),
+            cosmic: Default::default(),
         }
     }
 }
@@ -468,9 +474,17 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         &self.points
     }
 
-    /// Work left (probe analysing, maps rendering, a click resolving): keep frames coming.
+    /// Anything to draw (the host skips all overlay work otherwise): the overlay settings,
+    /// the cosmic scale or the π meter.
+    pub fn active(&self) -> bool {
+        self.settings.any() || self.cosmic.enabled() || self.pi.enabled
+    }
+
+    /// Work left (probe analysing, maps rendering, a click resolving, a π count): keep
+    /// frames coming.
     pub fn busy(&self) -> bool {
-        self.probe.as_ref().is_some_and(|p| !p.done())
+        self.pi.busy()
+            || self.probe.as_ref().is_some_and(|p| !p.done())
             || self.snap.is_some()
             || self
                 .maps
@@ -483,17 +497,32 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// the renderer's frame. `size`: output pixels, `ppp`: view points per pixel.
     pub fn prepare(&mut self, renderer: &mut Renderer<B>, size: (usize, usize), ppp: f64, now: f64) {
         let s = self.settings.clone().sanitized();
-        if !s.any() || size.0 == 0 || size.1 == 0 || ppp <= 0.0 {
-            renderer.overlay = None;
+        if size.0 > 0 && size.1 > 0 && ppp > 0.0 {
+            let short = size.0.min(size.1) as f64 * ppp;
+            let rate = renderer.navigator.zoom_speed();
+            if let Some(v) = self.pi.flight_view(&renderer.viewport, short, now, rate) {
+                renderer.viewport = v;
+                renderer.note_interaction(now);
+            }
+        }
+        self.pi.update(&renderer.viewport);
+        let empty = size.0 == 0 || size.1 == 0 || ppp <= 0.0;
+        if !s.any() || empty {
             self.maps = None;
             self.probe = None;
             self.probe_key = None;
-            return;
+            if !(self.cosmic.enabled() || self.pi.enabled) || empty {
+                renderer.overlay = None;
+                return;
+            }
         }
         let view = renderer.viewport.clone();
         let px_per_pt = 1.0 / ppp;
+        self.cosmic.update(&view, size, ppp, now);
         // ---- Orbit probe.
-        if s.orbit {
+        if !s.any() {
+            // Only the cosmic scale or the π meter: no probe, no maps.
+        } else if s.orbit {
             self.update_probe(renderer, &view, ppp, s.orbit_length);
         } else {
             self.probe = None;
@@ -505,7 +534,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             ((s.map_size * px_per_pt).round() as usize).max(32),
             ((s.map_size * 0.72 * px_per_pt).round() as usize).max(24),
         );
-        if let Err(e) = self.update_maps(renderer, &view, want_levels, panel, size, &s, px_per_pt) {
+        if s.any()
+            && let Err(e) = self.update_maps(renderer, &view, want_levels, panel, size, &s, px_per_pt)
+        {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
         }
@@ -817,6 +848,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let px = 1.0 / ppp; // pixels per point
         let (w, h) = (size.0 as f64, size.1 as f64);
         let mut key = format!("{w}x{h} {px} ");
+        // The cosmic scale sits bottom left, above the maps when they are there too.
+        let mut cosmic_bottom = (h - 12.0 * px) as f32;
         let to_px = |v: [f64; 2]| [w / 2.0 + v[0] * px, h / 2.0 - v[1] * px];
         // ---- Orbit in the view.
         if s.orbit && !self.points.view.is_empty() {
@@ -1008,6 +1041,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 scene.label([o0[0], y0 + k as f32 * line], size, t, rgba(1.0, 1.0, 1.0, 0.92));
                 key.push_str(t);
             }
+            if s.map_corner == Corner::BottomLeft {
+                cosmic_bottom = if lines.is_empty() { o0[1] - 3.0 * px as f32 } else { y0 } - 14.0 * px as f32;
+            }
         } else if s.orbit
             && let Some(p) = &self.probe
         {
@@ -1026,6 +1062,11 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             );
             key.push_str(&t);
         }
+        if self.cosmic.enabled() {
+            let left = (12.0 * px) as f32;
+            self.cosmic.draw(scene, size, ppp, [left, cosmic_bottom], now, &mut key);
+        }
+        key.push_str(&self.pi.draw(scene, w, h, px));
         let _ = renderer;
         key
     }

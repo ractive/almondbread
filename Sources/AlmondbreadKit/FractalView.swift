@@ -280,6 +280,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     private func layoutExplorer() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         base.resize(width: bounds.width, height: bounds.height, scale: scale, host: self)
+        base.model.metresPerPoint = ScreenMetrics.metresPerPoint(window?.screen)
         sendInsets()
     }
 
@@ -427,13 +428,20 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // Menu shortcuts and text fields keep their keys.
         if event.modifierFlags.contains(.command) { return false }
         if window?.firstResponder is NSText { return false }
-        // O / M: orbit overlay, mini-map (toggled on key-down; their key-ups are swallowed).
+        // O / M / C / P: orbit overlay, mini-map, cosmic size scale, π meter (toggled on
+        // key-down; their key-ups are swallowed).
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
         case "o":
             if event.type == .keyDown && !event.isARepeat { model.toggleOrbit() }
             return true
         case "m":
             if event.type == .keyDown && !event.isARepeat { model.toggleMap() }
+            return true
+        case "c":
+            if event.type == .keyDown && !event.isARepeat { model.toggleCosmicScale() }
+            return true
+        case "p":
+            if event.type == .keyDown && !event.isARepeat { model.togglePiMeter() }
             return true
         default: break
         }
@@ -664,6 +672,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         base.metalLayer.frame = bounds
         CATransaction.commit()
         base.resize(width: bounds.width, height: bounds.height, scale: scale, host: self)
+        base.model.metresPerPoint = ScreenMetrics.metresPerPoint(window?.screen)
         sendInsets()
     }
 
@@ -747,6 +756,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 switch key.charactersIgnoringModifiers.lowercased() {
                 case "o": base.model.toggleOrbit(); continue
                 case "m": base.model.toggleMap(); continue
+                case "p": base.model.togglePiMeter(); continue
+                case "c": base.model.toggleCosmicScale(); continue
                 default: break
                 }
             }

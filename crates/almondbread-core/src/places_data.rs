@@ -54,6 +54,34 @@ pub const PLACES: &[Place] = &[
         source_url: "https://commons.wikimedia.org/wiki/File:Mandel_zoom_01_head_and_shoulder.jpg",
         ..BASE
     },
+    // The π maths moment (kb: techniques/pi-in-the-mandelbrot-set): views centred on the line
+    // of approach, ε above the neck and ε right of the cusp, with the parabolic point in view.
+    Place {
+        id: "pi-at-the-neck",
+        name: "π at the Neck",
+        description: "Where the period-2 disc touches the cardioid. Count the iterations of c = -3/4 + iε before it escapes and multiply by ε: the product tends to π. Turn on the π meter (P) and zoom down the line.",
+        feature: "Boll (1991): N·ε → π as ε → 0 along c = -3/4 + iε; here ε = 0.02, N = 158.",
+        re: "-0.75",
+        im: "0.02",
+        span: "0.08",
+        look: "aurora",
+        source: "A. Klebanoff, \"π in the Mandelbrot set\", Fractals 9(4) 2001, after D. Boll (1991)",
+        source_url: "https://doi.org/10.1142/S0218348X01000828",
+        ..BASE
+    },
+    Place {
+        id: "pi-at-the-cusp",
+        name: "π at the Cusp",
+        description: "The cusp of the cardioid at c = 1/4, where the exterior pinches to a point. The escape count of c = 1/4 + ε times √ε tends to π; the dwell bands crowd towards the cusp as ε shrinks.",
+        feature: "Boll (1991), proved by Klebanoff (2001): N·√ε → π along c = 1/4 + ε; here ε = 2e-4, N = 220.",
+        re: "0.2502",
+        im: "0",
+        span: "0.0006",
+        look: "aurora",
+        source: "A. Klebanoff, \"π in the Mandelbrot set\", Fractals 9(4) 2001, after D. Boll (1991)",
+        source_url: "https://doi.org/10.1142/S0218348X01000828",
+        ..BASE
+    },
     Place {
         id: "the-spike",
         name: "The Spike",

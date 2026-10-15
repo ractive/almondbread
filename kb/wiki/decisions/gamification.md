@@ -56,7 +56,9 @@ or orbit work. Progress is stored locally; Game Center/Steam sync comes later.
 - Past the universe: the whole set would be larger than the observable universe (cosmic scale,
   zoom ≈ 3e27). Into the desert: below the smallest scale ever measured (~1e-19 m).
   Planck diver: below the Planck length.
-- Second gear: the ↑↑ dial of the "How big is big?" panel passes 2.5.
+- Second gear: the zoom's ↑↑ height (super-logarithm) passes 2.5. The "How big is big?" panel
+  that showed this dial was removed on 2026-10-15; the maths is kept in
+  [[synthesis/how-big-is-big]], so the achievement would have to explain the dial itself.
 
 **Impossible ones, on purpose** (progress bars that never move, after Ganson's concrete gear):
 - Googolplex: "3 000 of 10^100 digits", which shows 0.000…%.
@@ -77,7 +79,7 @@ added per frame. Our arithmetic (2026-10-15) for time to reach `10^D`:
 | 10^10^8 | 4.6 years | 2.2 months |
 | 10^10^10 (= 10↑↑3) | 456 years | 18 years |
 
-So the odometer can move the "How big is big?" second gear from about 2.5 to 3: 10↑↑3 is a
+So the odometer can move the second gear (the ↑↑ height, [[synthesis/how-big-is-big]]) from about 2.5 to 3: 10↑↑3 is a
 lifetime of nonstop journeys; a googolplex would need 10^100 decades, so never. Farming by
 holding zoom in/out is possible; harmless for local achievements, and Game Center/Steam versions
 could count only frames that rendered new detail.

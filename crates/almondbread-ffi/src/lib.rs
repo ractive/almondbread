@@ -22,9 +22,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 uniffi::setup_scaffolding!();
 
 #[cfg(target_vendor = "apple")]
+mod cosmic;
 mod explorer;
 mod flight_bench;
-mod how_big;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {

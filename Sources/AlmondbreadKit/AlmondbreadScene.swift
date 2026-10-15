@@ -26,13 +26,6 @@ public struct AlmondbreadScene: Scene {
         .commands { FractalCommands() }
         #endif
         #if os(macOS)
-        // "How big is big?" (kb: synthesis/how-big-is-big): its own window, so it stays open
-        // and follows the zoom while the fractal window keeps the input.
-        Window("How Big Is Big?", id: HowBig.windowID) {
-            HowBigWindow()
-                .preferredColorScheme(.dark)
-        }
-        .defaultSize(width: 760, height: 860)
         Settings {
             AppSettingsView()
                 .preferredColorScheme(.dark)
@@ -155,10 +148,20 @@ struct FractalCommands: Commands {
                                              set: { model?.mapEnabled = $0 }))
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
+            Toggle("π Meter", isOn: Binding(get: { model?.piMeterEnabled ?? false },
+                                            set: { model?.piMeterEnabled = $0 }))
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Button("Fly into the Neck (π)") { model?.piFlight("neck") }
+                .disabled(model == nil)
+            Button("Fly into the Cusp (π)") { model?.piFlight("cusp") }
+                .disabled(model == nil)
+            Toggle("Cosmic Size Scale", isOn: Binding(get: { model?.cosmicScale ?? false },
+                                                      set: { model?.cosmicScale = $0 }))
+                .disabled(model == nil)
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)
-            HowBigButton(model: model, title: "How Big Is Big?")
             Divider()
         }
     }

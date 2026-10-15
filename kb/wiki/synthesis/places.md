@@ -113,12 +113,14 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 ## The catalogue
 
 <!-- places-table -->
-69 places (landmark 9, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 9). By magnification: < 1e5: 34, 1e5-1e13: 20, 1e13-1e30: 6, 1e30-1e300: 5, >= 1e300: 4. Depth is log10 of the magnification relative to the whole set (span 3); `almondbread places --format tsv` prints centres and spans.
+71 places (landmark 11, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 9). By magnification: < 1e5: 36, 1e5-1e13: 20, 1e13-1e30: 6, 1e30-1e300: 5, >= 1e300: 4. Depth is log10 of the magnification relative to the whole set (span 3); `almondbread places --format tsv` prints centres and spans.
 
 | id | name | category | depth (log10 zoom) | look | source |
 | --- | --- | --- | --- | --- | --- |
 | `whole-set` | The Whole Set | landmark | 0.1 | aurora | [[sources/beyer-mandelbrot-zoom-sequence]] 00 |
 | `head-and-shoulders` | Head and Shoulders | landmark | 0.9 | lagoon | [[sources/beyer-mandelbrot-zoom-sequence]] 01 |
+| `pi-at-the-neck` | π at the Neck | landmark | 1.6 | aurora | [[sources/klebanoff-pi-in-mandelbrot]] (Boll 1991); ε = 0.02 on -3/4 + iε, [[techniques/pi-in-the-mandelbrot-set]] |
+| `pi-at-the-cusp` | π at the Cusp | landmark | 3.7 | aurora | [[sources/klebanoff-pi-in-mandelbrot]]; ε = 2e-4 on 1/4 + ε, [[techniques/pi-in-the-mandelbrot-set]] |
 | `the-spike` | The Spike | landmark | 0.3 | ember | [[sources/muency-named-places]]: R2F(1/2B) (the spike / main antenna) |
 | `third-bulb` | The 1/3 Bulb | landmark | 0.9 | dusk | Nucleus of period 3 (root of c³ + 2c² + c + 1), computed with almondbread locate (generated) |
 | `quarter-bulb` | The 1/4 Bulb | landmark | 0.8 | moss | [[sources/muency-named-places]]: R2.1/4 |

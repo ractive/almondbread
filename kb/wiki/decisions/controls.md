@@ -666,3 +666,110 @@ colours, and at rest nothing changes. The history keeps its colours across a zoo
 like the phase, is left out of the "same colours" test) and is replaced within a few frames.
 Tests: `flights_turn_and_land_exactly`, `autopilot_spins_with_the_zoom_only_when_enabled`, the
 `cinematic` unit test; `fly` scripts take `"cinematic": true` or the strengths.
+
+## Cosmic size scale (as built, 2026-10-15)
+
+A panel at the bottom left (above the mini-map when that sits there too) that compares the zoom
+with real things: a log ruler with coloured dots for things sliding past a gold marker, one
+sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
+(`crates/almondbread-render/src/cosmic.rs`); the table, the sentences and the mappings live in
+`crates/almondbread-core/src/cosmic.rs`, every size with its source page. Off by default.
+
+- **Controls**: C toggles it (macOS key and iPad/iPhone hardware keyboard; free before: WASD,
+  arrows, Q/E, Z, J, O, M, R, `,` `.` `/`, Space, `+`/`-`, Esc), toolbar toggle "Size Scale"
+  (ruler icon, with a tooltip), menu item "Cosmic Size Scale", control center "Overlays":
+  switch plus a "Compare" picker. Persisted with the other overlay settings; "Reset all" and
+  the overlays ↺ turn it off. iOS: the control center row (no extra button: the bottom-right
+  stack is full on iPhone). CLI: `render out.png --scale-overlay 1 [--scale-anchor
+  screen|cosmos|universe|milky-way|sun|earth|human|cell|atom] [--screen-cm 30]`.
+- **Depth**: `d = log10(2.25 / view width)` in the plane (the set spans re −2 … 1/4).
+- **Screen anchor (default, physical)**: the view is the window on the screen. macOS reads the
+  display's physical width (`CGDisplayScreenSize`, rejected outside 0.1 … 1 mm per point); iOS
+  assumes 160 points per inch on iPhone and 132 on iPad (rule of thumb, unverified); otherwise
+  30 cm. The whole set is `L · 10^d`: "The whole set ≈ 1.6× the Milky Way". When it passes the
+  observable universe (`d ≈ 27.5` for 30 cm) the readout turns around without a jump: the set
+  *is* the universe and the view is `U · 10^-d`, down to the Planck length at `d ≈ 61.7`.
+- **Set = X**: the view is `X · 10^-d` ("This view ≈ a hydrogen atom, if the whole set were
+  Earth").
+- **Light and probes**: a third line gives light's crossing time ("light crosses it in 165
+  thousand years", "longer than humans have existed", "≈ the Planck time") and, for views
+  below 10 µm, the probe energy `E = hc/λ` with its band (visible, UV, X-rays, gamma, more than
+  the LHC's 13.6 TeV). Band edges are textbook ranges (unverified).
+- **Small side**: cell, virus, DNA, atom, nucleus, proton, "limit probed" (~1e-19 m), then a
+  red band "unexplored" down to the Planck length; inside it the sentence counts Planck lengths
+  and the GUT scale (~2e-32 m) is marked hypothetical; the Planck mark reads "Planck
+  (strings?)": strings are hypothetical.
+- **Past the Planck length**: the zoom factor (as the HUD shows it) passes big numbers: Planck
+  times since the Big Bang (8e60), atoms in the universe (1e80), a googol, Shannon's chess
+  games (1e120), Planck volumes in the universe (8e184); then universe-to-Planck ladders
+  (61.7 decades each; 48.6 at 1e3000), drawn as repeated faint rungs. The ruler compresses past
+  the Planck length (slope 1 → 1/12 over 15 decades).
+- **Relative anchor "Zoom range as cosmos (metaphor)"**: zoom 1 … 1e200 (one constant) stands
+  for the universe … the Planck length and for today … the Planck epoch. The 25 things sit on
+  one grid evenly spaced in zoom decades: 8.3 decades a step, about 12 s at the default zoom
+  speed (×4.95/s), the whole cosmos in under 5 minutes. The epochs sit on the same grid where
+  the view is about the thermal wavelength `hc/kT` of their temperature (CMB at a cell,
+  nucleosynthesis at an atom, quark-hadron at a nucleus, electroweak just below a proton,
+  inflation at the GUT scale, Planck at Planck; today, the Sun and the first stars spread over
+  the astronomical part; src: [[sources/cosmic-history-timeline]]), so size and time do not
+  drift apart. Log size and log time are interpolated between grid points. Sizes are shown
+  above the ruler, epochs below; the panel names the next thing and says it is a metaphor.
+  Past 1e200 it counts "cosmos lengths" (2.5 at 1e500) with the things repeated as faint rungs.
+  - Rejected first: spacing in `log10(1 + zoom decades)` over 1e3000. Steps grew from 1 s to
+    20 min ("from hair to blood cell it takes ages", user, 2026-10-15).
+  - Rejected before that: a linear map over 1e3000 (48.6 zoom decades per physical decade).
+- **Picker**: "Your screen", then "The set is …" (universe, Milky Way, Sun, Earth, you, a
+  cell, an atom), then "Zoom range as cosmos (metaphor)", in groups. A caption under the picker
+  explains the chosen anchor ("Your window is fixed: how big would the whole set be?"), and the
+  options carry the same text as tooltips.
+- **How big is big?** (removed 2026-10-15): past the Planck length a gold "How big is big? →"
+  link above the panel opened the gear panel, placed from `Explorer.cosmicHint()`. Link, panel
+  and `cosmicHint()` are gone with the panel ([[synthesis/how-big-is-big]]).
+- **Readability**: the backing is 86 % opaque black, and the labels and lines have a 2.4 to
+  2.6 px dark outline. Labels go above or below the ruler, whichever row is free, at least
+  9 pt from the next label and never far from their dot; a label that does not fit is hidden.
+- **Highlight**: crossing a mark flashes it gold with a growing ring and "passing X" above the
+  panel for 1.6 s (no flash on jumps of 3 decades or more).
+- **Cost** (measured 2026-10-15, M-series MacBook Pro, release, interaction test "cosmic
+  zoom" vs "1e5 zoom", 1280x820 pt window): draw CPU p50 0.37 vs 0.14 ms (+0.23 ms: scene
+  build ~0.01 ms, the rest binning and uploading the overlay scene every frame while the
+  zoom changes). Off: no overlay work at all, the shown frame matched a fresh render.
+
+Sources: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
+[[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
+[[sources/cosmic-history-timeline]]. Idea: [[ideas]] "Cosmic size scale".
+
+## π meter (as built, 2026-10-15)
+
+A maths moment ([[techniques/pi-in-the-mandelbrot-set]]), off by default, drawn in Rust/Metal
+like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
+`crates/almondbread-core/src/pi_moment.rs`).
+
+- **When it shows:** the view's centre lies on the neck's line `-3/4 + iε` (or `-3/4 - iε`) or
+  the cusp's line `1/4 + ε`, within 20 % of ε sideways, ε ≤ 0.1. Elsewhere a small hint panel
+  says where to go.
+- **Panel (bottom right):** `N·ε =` (or `N·√ε =`) with the digits that agree with π in gold and
+  the rest dimmed, π below it aligned digit for digit, N and ε, "k digits of π" or the progress
+  of the running count, and a log-log plot of |N·ε − π| against ε (ε falls to the right) that
+  gains a point each time a count finishes, with the expected ~ε (~√ε) trend dashed. On the
+  canvas: a dashed line of approach from the parabolic point (ringed, labelled) to the centre
+  (gold ring), since the image there is mostly unresolved.
+- **Counting:** a background thread per count (compensated f64 in shifted coordinates); the
+  frame only reads the result, so frames cost a scene rebuild when the text changes. A running
+  count is kept while the view goes deeper (it becomes a plot point) and dropped when the view
+  leaves the point or zooms out past it by more than a decade. **Depth limit 10⁹ iterations**
+  (ε ≥ 3.1e-9 neck, ε ≥ 1e-17 cusp; about 13 s); deeper, the panel says so. The image's
+  iteration limit is not raised (measurements on the technique page).
+- **Controls:** P toggles (macOS and iPad keyboards); toolbar toggle "π Meter" (SF Symbol
+  `pi`) with a tooltip; View menu "π Meter" (⌥⌘P), "Fly into the Neck (π)", "Fly into the Cusp
+  (π)"; control center Overlays: switch, reading (product, N, digits, progress) and the two
+  flight buttons (the iOS way in). Persisted with the other settings, off after Reset all and
+  the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset).
+- **Guided flight:** jumps to the place "π at the Neck" (ε = 0.02) or "π at the Cusp"
+  (ε = 2e-4), turns the meter on and zooms exponentially about the parabolic point to
+  ε = 1e-8 or 1e-16, every view framed like the place (about 10 s / 18 s at the default zoom
+  speed; Q / E change the speed, Esc or any move ends it). Driven by the meter in
+  `Overlay::prepare`, not the fly-to path (that pans first). FFI: `set_pi_meter`, `pi_meter`,
+  `pi_flight`.
+- **Headless:** `almondbread render out.png --pi-overlay 1 [--ppp 0.5]` waits for the count and
+  fills the plot with the counts every half decade from ε = 0.1 down to the view's ε.
