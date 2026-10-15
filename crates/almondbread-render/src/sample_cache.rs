@@ -124,6 +124,8 @@ pub struct CacheStats {
     pub coarser: usize,
     pub slides: usize,
     pub cleared_tiles: usize,
+    /// Texels the shade passes coloured.
+    pub shaded_texels: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,6 +145,8 @@ struct Tile {
     limit: u32,
     /// Generation of the batch computing it (0: none).
     inflight: u64,
+    /// The colour texture holds its samples shaded with the current colour key.
+    shaded: bool,
 }
 
 /// The cache's lattice and window.
@@ -283,7 +287,9 @@ pub(crate) struct SampleCache<B: GpuBackend> {
     /// What the last finished shade pass counted in the view: interior fraction and exterior
     /// iterations per sample (the interior-test statistics of a fresh preview).
     view_stats: Option<InteriorStats>,
-    pipelines: Option<[B::Pipeline; 3]>,
+    pipelines: Option<[B::Pipeline; 4]>,
+    /// Colour parameters and texture set the shaded tiles were coloured with.
+    shade_key: Option<(Vec<u8>, usize)>,
     /// Generation of the job whose full level seeded the current epoch.
     pub seeded_generation: u64,
 }
@@ -314,6 +320,7 @@ impl<B: GpuBackend> SampleCache<B> {
             pending: VecDeque::new(),
             view_stats: None,
             pipelines: None,
+            shade_key: None,
             seeded_generation: 0,
         }
     }
@@ -325,7 +332,7 @@ impl<B: GpuBackend> SampleCache<B> {
         self.prev_view = None;
     }
 
-    fn pipelines(&mut self, backend: &B) -> Result<[B::Pipeline; 3], GpuError> {
+    fn pipelines(&mut self, backend: &B) -> Result<[B::Pipeline; 4], GpuError> {
         if let Some(p) = &self.pipelines {
             return Ok(p.clone());
         }
@@ -333,9 +340,15 @@ impl<B: GpuBackend> SampleCache<B> {
             backend.pipeline("scClear", &[])?,
             backend.pipeline("scResample", &[])?,
             backend.pipeline("scShade", &[])?,
+            backend.pipeline("scShadeTiles", &[])?,
         ];
         self.pipelines = Some(p.clone());
         Ok(p)
+    }
+
+    /// Compiles the kernels now (renderer creation), not at the first gesture.
+    pub fn warm_up(&mut self, backend: &B) {
+        let _ = self.pipelines(backend);
     }
 
     /// GPU times of finished passes.
@@ -353,7 +366,8 @@ impl<B: GpuBackend> SampleCache<B> {
             if let Some((b, limit)) = counts {
                 let mut bytes = [0u8; 24];
                 backend.read_buffer(&b, 0, &mut bytes);
-                let u = |k: usize| u32::from_le_bytes([bytes[4 * k], bytes[4 * k + 1], bytes[4 * k + 2], bytes[4 * k + 3]]);
+                let u =
+                    |k: usize| u32::from_le_bytes([bytes[4 * k], bytes[4 * k + 1], bytes[4 * k + 2], bytes[4 * k + 3]]);
                 let n = u(0) as f64;
                 if n > 0.0 {
                     let iters = ((u64::from(u(4)) << 32) | u64::from(u(3))) as f64;
@@ -452,6 +466,7 @@ impl<B: GpuBackend> SampleCache<B> {
                 state: State::Empty,
                 limit: 0,
                 inflight: 0,
+                shaded: false,
             };
             wt * ht
         ];
@@ -523,7 +538,10 @@ impl<B: GpuBackend> SampleCache<B> {
         if (x1 - x0 + 1) as usize > wt || (y1 - y0 + 1) as usize > ht {
             return false;
         }
-        e.win0 = (x0 - (wt as i64 - (x1 - x0 + 1)) / 2, y0 - (ht as i64 - (y1 - y0 + 1)) / 2);
+        e.win0 = (
+            x0 - (wt as i64 - (x1 - x0 + 1)) / 2,
+            y0 - (ht as i64 - (y1 - y0 + 1)) / 2,
+        );
         self.serial += 1;
         e.serial = self.serial;
         self.batches.clear();
@@ -540,6 +558,7 @@ impl<B: GpuBackend> SampleCache<B> {
                     state: State::Empty,
                     limit: 0,
                     inflight: 0,
+                    shaded: false,
                 };
                 clear.push(slot as u32);
             }
@@ -583,6 +602,7 @@ impl<B: GpuBackend> SampleCache<B> {
                         state: State::Empty,
                         limit: 0,
                         inflight: 0,
+                        shaded: false,
                     };
                     enc.clear.push(slot as u32);
                 }
@@ -615,7 +635,12 @@ impl<B: GpuBackend> SampleCache<B> {
         );
         let mut e = old.clone();
         let realign = finer && g.delta.abs() > REALIGN;
-        Self::reanchor(&mut e, a, if finer { 0.5 } else { 2.0 }, inp.view.center.precision_bits());
+        Self::reanchor(
+            &mut e,
+            a,
+            if finer { 0.5 } else { 2.0 },
+            inp.view.center.precision_bits(),
+        );
         if realign {
             // The lattice turns with the view (no sample coincides): a fresh level.
             e.angle = inp.view.angle;
@@ -626,14 +651,21 @@ impl<B: GpuBackend> SampleCache<B> {
         if (x1 - x0 + 1) as usize > wt || (y1 - y0 + 1) as usize > ht {
             return false;
         }
-        e.win0 = (x0 - (wt as i64 - (x1 - x0 + 1)) / 2, y0 - (ht as i64 - (y1 - y0 + 1)) / 2);
+        e.win0 = (
+            x0 - (wt as i64 - (x1 - x0 + 1)) / 2,
+            y0 - (ht as i64 - (y1 - y0 + 1)) / 2,
+        );
         self.serial += 1;
         e.serial = self.serial;
         // Tile states of the new window from the old ones (old tile coordinates of new lattice
         // index I: a + I / 2 (finer) or a + 2 I (coarser), a tile-aligned).
         let old_state = |s: &Self, t: (i64, i64)| -> Option<Tile> {
             let x = &s.tiles[s.slot(t)];
-            (x.holder == t && t.0 >= old.win0.0 && t.0 < old.win0.0 + wt as i64 && t.1 >= old.win0.1 && t.1 < old.win0.1 + ht as i64)
+            (x.holder == t
+                && t.0 >= old.win0.0
+                && t.0 < old.win0.0 + wt as i64
+                && t.1 >= old.win0.1
+                && t.1 < old.win0.1 + ht as i64)
                 .then_some(*x)
         };
         let (at, bt) = (a.0 / TILE, a.1 / TILE);
@@ -683,6 +715,7 @@ impl<B: GpuBackend> SampleCache<B> {
                 state,
                 limit,
                 inflight: 0,
+                shaded: false,
             };
         }
         if realign {
@@ -691,12 +724,7 @@ impl<B: GpuBackend> SampleCache<B> {
         } else {
             // Old window texel of new lattice index 0: a - 16 win0_old.
             let (tw, th) = (wt as u32 * TILE as u32, ht as u32 * TILE as u32);
-            let wrap = |w: (i64, i64)| {
-                [
-                    pmod(TILE * w.0, tw as i64) as u32,
-                    pmod(TILE * w.1, th as i64) as u32,
-                ]
-            };
+            let wrap = |w: (i64, i64)| [pmod(TILE * w.0, tw as i64) as u32, pmod(TILE * w.1, th as i64) as u32];
             enc.resample = Some((
                 CacheParams {
                     new_origin: [(TILE * e.win0.0) as i32, (TILE * e.win0.1) as i32],
@@ -920,7 +948,10 @@ impl<B: GpuBackend> SampleCache<B> {
         let ncl = m.clear.len();
         self.encode_maintenance(backend, &pipelines, &mut m);
         if self.config.trace && tm.elapsed().as_secs_f64() > 0.0005 {
-            eprintln!("sample cache: maintenance encode {:.2} ms ({ncl} clears)", tm.elapsed().as_secs_f64() * 1000.0);
+            eprintln!(
+                "sample cache: maintenance encode {:.2} ms ({ncl} clears)",
+                tm.elapsed().as_secs_f64() * 1000.0
+            );
         }
         let e = self.epoch.as_ref().expect("epoch").clone();
         let g = Self::view_geometry(&e, inp.view, inp.ppp, inp.width, inp.height);
@@ -1039,7 +1070,7 @@ impl<B: GpuBackend> SampleCache<B> {
     }
 
     /// Commits the pending clear / resample passes (one command buffer).
-    fn encode_maintenance(&mut self, backend: &B, pipelines: &[B::Pipeline; 3], m: &mut Maintenance<B>) {
+    fn encode_maintenance(&mut self, backend: &B, pipelines: &[B::Pipeline; 4], m: &mut Maintenance<B>) {
         if m.clear.is_empty() && m.resample.is_none() && m.seed.is_none() {
             return;
         }
@@ -1173,48 +1204,101 @@ impl<B: GpuBackend> SampleCache<B> {
         let g = Self::view_geometry(e, view, ppp, width, height);
         let (tw, th) = map.size;
         // The footprint's bounding box plus the compose pass's reach (4 texels), in window texels.
+        // Tile-aligned, so a tile is either shaded whole or not at all.
         let ox = TILE * e.win0.0;
         let oy = TILE * e.win0.1;
-        let x0 = ((g.centre.0 - g.eu).floor() as i64 - 4 - ox).clamp(0, tw as i64) as usize;
-        let x1 = ((g.centre.0 + g.eu).ceil() as i64 + 5 - ox).clamp(0, tw as i64) as usize;
-        let y0 = ((g.centre.1 - g.ev).floor() as i64 - 4 - oy).clamp(0, th as i64) as usize;
-        let y1 = ((g.centre.1 + g.ev).ceil() as i64 + 5 - oy).clamp(0, th as i64) as usize;
+        let al = |v: i64, lo: bool| {
+            if lo {
+                v.div_euclid(TILE) * TILE
+            } else {
+                (v + TILE - 1).div_euclid(TILE) * TILE
+            }
+        };
+        let x0 = al((g.centre.0 - g.eu).floor() as i64 - 4 - ox, true).clamp(0, tw as i64) as usize;
+        let x1 = al((g.centre.0 + g.eu).ceil() as i64 + 5 - ox, false).clamp(0, tw as i64) as usize;
+        let y0 = al((g.centre.1 - g.ev).floor() as i64 - 4 - oy, true).clamp(0, th as i64) as usize;
+        let y1 = al((g.centre.1 + g.ev).ceil() as i64 + 5 - oy, false).clamp(0, th as i64) as usize;
         if x1 <= x0 || y1 <= y0 {
             return None;
         }
-        let set = &a.sets[self.cur];
+        let set = a.sets[self.cur].clone();
+        let color = a.color.clone();
+        let win0 = e.win0;
         let mut c = *colors;
         c.de_scale = g.ratio as f32;
+        let key = (bytes_of(&c).to_vec(), self.cur);
+        let full = self.shade_key.as_ref() != Some(&key);
+        if full {
+            for t in &mut self.tiles {
+                t.shaded = false;
+            }
+            self.shade_key = Some(key);
+        }
+        // Tiles of the rectangle whose colours are stale: all after a colour change (the zoom
+        // changes the pixel size every frame), else those whose samples changed (a pan).
+        let mut list: Vec<u32> = Vec::new();
+        for ty in (y0 / 16) as i64..(y1 / 16) as i64 {
+            for tx in (x0 / 16) as i64..(x1 / 16) as i64 {
+                let slot = self.slot((win0.0 + tx, win0.1 + ty));
+                let t = &mut self.tiles[slot];
+                if full || !t.shaded || t.inflight != 0 {
+                    if !full {
+                        list.push(slot as u32);
+                    }
+                    t.shaded = true;
+                }
+            }
+        }
         let p = CacheParams {
             new_size: [tw as u32, th as u32],
             new_wrap: map.wrap,
             rect_origin: [x0 as u32, y0 as u32],
             rect_size: [(x1 - x0) as u32, (y1 - y0) as u32],
+            count: list.len() as u32,
             ..CacheParams::default()
         };
-        let counts = backend.create_buffer_with_data(&[0u8; 24]).ok()?;
+        if !full && list.is_empty() {
+            self.stats.cpu_shade += t0.elapsed().as_secs_f64();
+            return Some((color, map));
+        }
+        let mut counts = None;
         let mut enc = backend.begin("sample cache shade").ok()?;
-        enc.set_pipeline(&pipelines[2]);
         enc.set_texture(0, &set.iter);
         enc.set_texture(1, &set.de);
         enc.set_texture(2, set.aux.as_ref().unwrap_or(&set.iter));
-        enc.set_texture(3, &a.color);
+        enc.set_texture(3, &color);
         enc.set_bytes(0, bytes_of(&c));
         enc.set_buffer(1, palette, 0);
         enc.set_bytes(2, bytes_of(&p));
-        enc.set_buffer(3, &counts, 0);
-        let (w, mx) = backend.pipeline_limits(&pipelines[2]);
-        enc.dispatch_threads([x1 - x0, y1 - y0, 1], [w, (mx / w / 2).max(1), 1]);
-        let color = a.color.clone();
+        if full {
+            let b = backend.create_buffer_with_data(&[0u8; 24]).ok()?;
+            enc.set_pipeline(&pipelines[2]);
+            enc.set_buffer(3, &b, 0);
+            let (w, mx) = backend.pipeline_limits(&pipelines[2]);
+            enc.dispatch_threads([x1 - x0, y1 - y0, 1], [w, (mx / w / 2).max(1), 1]);
+            counts = Some((b, limit));
+        } else {
+            let b = backend.create_buffer_with_data(bytemuck::cast_slice(&list)).ok()?;
+            enc.set_pipeline(&pipelines[3]);
+            enc.set_buffer(3, &b, 0);
+            enc.dispatch_threads([list.len() * 256, 1, 1], [256, 1, 1]);
+        }
+        self.stats.shaded_texels += if full { (x1 - x0) * (y1 - y0) } else { list.len() * 256 };
         let s = enc.commit();
-        self.pending.push_back((true, s, Some((counts, limit))));
+        self.pending.push_back((true, s, counts));
         self.stats.cpu_shade += t0.elapsed().as_secs_f64();
         Some((color, map))
     }
 
     /// The survey rectangle of `view` (axis-aligned in the window; a turned view is surveyed
     /// unturned): origin, size, packed wrap, packed texture size.
-    pub fn survey_rect(&self, view: &Viewport, ppp: f64, width: usize, height: usize) -> Option<([u32; 2], [u32; 2], u32, u32)> {
+    pub fn survey_rect(
+        &self,
+        view: &Viewport,
+        ppp: f64,
+        width: usize,
+        height: usize,
+    ) -> Option<([u32; 2], [u32; 2], u32, u32)> {
         let m = self.map_for(view, ppp, width, height)?;
         let (w, h) = (width as f64 * m.ratio, height as f64 * m.ratio);
         let x0 = (m.centre[0] - w / 2.0).round().max(0.0) as u32;
@@ -1285,12 +1369,20 @@ impl<B: GpuBackend> SampleCache<B> {
             self.epoch = None;
             return;
         }
-        e.win0 = (x0 - (wt as i64 - (x1 - x0 + 1)) / 2, y0 - (ht as i64 - (y1 - y0 + 1)) / 2);
+        e.win0 = (
+            x0 - (wt as i64 - (x1 - x0 + 1)) / 2,
+            y0 - (ht as i64 - (y1 - y0 + 1)) / 2,
+        );
         self.serial += 1;
         e.serial = self.serial;
         // Tiles inside the full level are full; edge tiles partial. Lattice indices with a
         // full-level texel: lo ..= hi per axis.
-        let range = |a: i64, n: usize| ((-a).div_euclid(step) + i64::from((-a).rem_euclid(step) != 0), (n as i64 - 1 - a).div_euclid(step));
+        let range = |a: i64, n: usize| {
+            (
+                (-a).div_euclid(step) + i64::from((-a).rem_euclid(step) != 0),
+                (n as i64 - 1 - a).div_euclid(step),
+            )
+        };
         let (ix, iy) = (range(xa, fw), range(ya, fh));
         let mut states = Vec::with_capacity(wt * ht);
         for ty in e.win0.1..e.win0.1 + ht as i64 {
@@ -1336,6 +1428,7 @@ impl<B: GpuBackend> SampleCache<B> {
                 state,
                 limit: limit as u32,
                 inflight: 0,
+                shaded: false,
             };
         }
         let (tw, th) = (wt * TILE as usize, ht * TILE as usize);

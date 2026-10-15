@@ -1010,6 +1010,8 @@ impl<B: GpuBackend> Renderer<B> {
 
     pub fn with_config(backend: B, config: SchedulerConfig) -> Result<Self, GpuError> {
         let prepare_pipeline = backend.pipeline("prepareChunk", &[])?;
+        let mut sample_cache = SampleCache::new();
+        sample_cache.warm_up(&backend);
         let finish_pipeline = backend.pipeline("finishChunk", &[])?;
         let colorize_pipeline = backend.pipeline("colorize", &[])?;
         let compose_pipeline = backend.pipeline("compose", &[])?;
@@ -1063,7 +1065,7 @@ impl<B: GpuBackend> Renderer<B> {
             refresh_interval: 1.0 / 60.0,
             last_frame_time: 0.0,
             dummy_buffer,
-            sample_cache: SampleCache::new(),
+            sample_cache,
             cache_check_renderer: None,
             cache_checks: Vec::new(),
             cycle_phase: 0.0,
@@ -2756,7 +2758,11 @@ impl<B: GpuBackend> Renderer<B> {
         if job.interactive || job.failed || self.sample_cache.seeded_generation == job.generation {
             return;
         }
-        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none() && !l.is_extension()) else {
+        let Some(full) = job
+            .levels
+            .iter()
+            .find(|l| !l.preview && l.aa.is_none() && !l.is_extension())
+        else {
             return;
         };
         if !job.levels.iter().filter(|l| l.aa.is_none()).all(|l| l.done)
@@ -2775,7 +2781,12 @@ impl<B: GpuBackend> Renderer<B> {
             }
             let mut bytes = vec![0u8; tx * ty * 4];
             self.backend.read_buffer(buf, 0, &mut bytes);
-            seeded_tiles = bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c) != 0).collect();
+            seeded_tiles = bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c) != 0)
+                .collect();
             // Mostly seeded: the gesture's own samples serve better than what is left.
             if seeded_tiles.iter().filter(|&&t| t).count() * 4 > seeded_tiles.len() {
                 self.sample_cache.seeded_generation = job.generation;
@@ -4893,7 +4904,13 @@ impl<B: GpuBackend> Renderer<B> {
         // (Any sample computing is finished: the queue is serial and drained above.)
         let mut mine = vec![[0f32; 2]; w * hgt];
         self.backend
-            .read_texture(&tex, w, hgt, TextureFormat::Rg32Float, bytemuck::cast_slice_mut(&mut mine))
+            .read_texture(
+                &tex,
+                w,
+                hgt,
+                TextureFormat::Rg32Float,
+                bytemuck::cast_slice_mut(&mut mine),
+            )
             .ok()?;
         let limit = self.job.as_ref().map_or(self.max_iterations(), |j| j.key.max_iter);
         fresh.config.bla = if regime.bla { BlaMode::On } else { BlaMode::Off };

@@ -581,7 +581,11 @@ fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, noise: f64, failed:
         .f64("max-cache-escape-diff")
         .unwrap_or_else(|| (1.5 * noise + 1.0).max(2.0));
     for (i, c) in r.cache_checks.iter().enumerate() {
-        let when = if i + 1 == r.cache_checks.len() { "settled" } else { "after the gesture" };
+        let when = if i + 1 == r.cache_checks.len() {
+            "settled"
+        } else {
+            "after the gesture"
+        };
         match c {
             Some(c) => {
                 println!(
@@ -594,7 +598,10 @@ fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, noise: f64, failed:
                     c.escape_pct()
                 );
                 if c.class_pct() > max_class {
-                    failed.push(format!("sample cache ({when}): {:.4} % class differ (> {max_class} %)", c.class_pct()));
+                    failed.push(format!(
+                        "sample cache ({when}): {:.4} % class differ (> {max_class} %)",
+                        c.class_pct()
+                    ));
                 }
                 if c.escape_pct() > max_escape {
                     failed.push(format!(
@@ -731,7 +738,9 @@ fn verify_session<B: GpuBackend + Clone>(
                 vs_fresh.escape_differs_pct()
             ));
         }
-        noise = noise.max(vs_cpu.escape_differs_pct()).max(vs_fresh.escape_differs_pct());
+        noise = noise
+            .max(vs_cpu.escape_differs_pct())
+            .max(vs_fresh.escape_differs_pct());
         if vs_fresh.mismatch_pct() > max_mismatch {
             failed.push(format!(
                 "{tag}{:.3}% differ from a fresh render (> {:.3}%)",

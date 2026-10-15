@@ -32,6 +32,6 @@ pub use backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, Sub
 pub use host::{Host, InputOutcome, InteractionReport};
 pub use sample_cache::{CacheConfig, CacheStats};
 pub use scheduler::{
-    CacheCheck, FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
-    SimulationResult,
+    CacheCheck, FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig,
+    ShownStats, SimulationResult,
 };

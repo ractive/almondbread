@@ -122,3 +122,25 @@ kernel void scShade(texture2d<float, access::read>  iters  [[texture(0)]],
         if (nLimit > 0) atomic_fetch_add_explicit(&counts[5], nLimit, memory_order_relaxed);
     }
 }
+
+// scShade for a list of texture tiles only (a pan with unchanged colours: only the tiles whose
+// samples changed, or that entered the shaded rectangle, need colouring again).
+kernel void scShadeTiles(texture2d<float, access::read>  iters [[texture(0)]],
+                         texture2d<float, access::read>  des   [[texture(1)]],
+                         texture2d<float, access::read>  auxs  [[texture(2)]],
+                         texture2d<float, access::write> out   [[texture(3)]],
+                         constant ColorParams& c               [[buffer(0)]],
+                         device const float4* pal              [[buffer(1)]],
+                         constant CacheParams& p               [[buffer(2)]],
+                         device const uint* tiles              [[buffer(3)]],
+                         uint tid                              [[thread_position_in_grid]])
+{
+    const uint k = tid >> 8;
+    if (k >= p.count) return;
+    const uint slot = tiles[k], tilesX = p.newSize.x >> 4, w = tid & 255u;
+    const uint2 s = uint2((slot % tilesX) * 16u + (w & 15u), (slot / tilesX) * 16u + (w >> 4));
+    const float2 it = iters.read(s).xy;
+    const bool valid = it.x != ITER_EMPTY && it.x != ITER_PENDING;
+    out.write(valid ? float4(shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale), 1.0f)
+                    : float4(0.0f), s);
+}
