@@ -405,6 +405,10 @@ struct Level<B: GpuBackend> {
     cache: Option<CacheLevel<B>>,
 }
 
+/// [`Renderer::cache_regime`]: the regime, whether a table it needs is still building, and the
+/// BLA and LA tables.
+type CacheRegime<B> = (Regime, bool, Option<BlaGpu<B>>, Option<LaGpu<B>>);
+
 /// What a sample cache level iterates with: the epoch's pinned regime and its BLA table.
 struct CacheLevel<B: GpuBackend> {
     regime: Regime,
@@ -2863,7 +2867,7 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The regime new cache samples of the current job would be computed in, whether its BLA
     /// table is still building, and the table.
-    fn cache_regime(&self) -> Option<(Regime, bool, Option<BlaGpu<B>>, Option<LaGpu<B>>)> {
+    fn cache_regime(&self) -> Option<CacheRegime<B>> {
         let job = self.job.as_ref()?;
         let key = &job.key;
         let pinned = self.sample_cache.regime();
