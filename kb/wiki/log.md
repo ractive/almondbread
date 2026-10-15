@@ -534,3 +534,11 @@ sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e3
 where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
 Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
 [[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
+
+## [2026-10-15] decision | M5 fix: learned state across jumps
+
+The flight benchmark found the spiral settling black after a dive at c = i (1e-280): the
+old view's interior-test statistics turned the test off and the learner could not retry
+without it. Jumps now reset the learned iteration and gate state; a view at the limit without
+the test renders again with it; `verify --history` checks against a from-scratch render; a
+regress session runs the path. Page: [[techniques/auto-iterations]].
