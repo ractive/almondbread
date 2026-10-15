@@ -33,6 +33,7 @@ pub use orbit::{
     recommended_precision_bits_with, with_no_control,
 };
 pub use selection::{
-    NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period, find_nucleus, find_period,
-    find_period_from, minibrot_size, minibrot_size_complex, select_reference,
+    MisiurewiczResult, NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period,
+    find_misiurewicz, find_nucleus, find_period, find_period_from, minibrot_size, minibrot_size_complex,
+    select_reference,
 };

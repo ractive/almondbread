@@ -1467,6 +1467,40 @@
       "wiki": [
         "synthesis/dense-region-sampling"
       ]
+    },
+    {
+      "path": "web/robotmoon-mandelbrot-set.html",
+      "method": "fetch",
+      "url": "https://robotmoon.com/mandelbrot-set/",
+      "title": "The Mandelbrot Set - Interactive Explorer, Math, and Deep Zooms",
+      "authors": [
+        "Robot Moon (robotmoon.com)"
+      ],
+      "year": 2026,
+      "size": 117603,
+      "sha256": "d1d5463ebee72160a2fb3a04ed34c73b5a55051cde3f77717291fd14e2b8f36e",
+      "terms": "no licence stated; copyright the site owner; personal research copy, not redistributed",
+      "retrieved": "2026-10-14",
+      "wiki": [
+        "sources/robotmoon-mandelbrot-set"
+      ]
+    },
+    {
+      "path": "web/robotmoon-mandelbrot-set.txt",
+      "method": "derived",
+      "derived_from": "web/robotmoon-mandelbrot-set.html",
+      "command": "textutil -convert txt -output web/robotmoon-mandelbrot-set.txt web/robotmoon-mandelbrot-set.html",
+      "title": "The Mandelbrot Set - Interactive Explorer, Math, and Deep Zooms (text)",
+      "authors": [
+        "Robot Moon (robotmoon.com)"
+      ],
+      "year": 2026,
+      "size": 19568,
+      "sha256": "f3388c99cd791b462162f05ac1136381906eb2096c392b624c549aa5694ed83e",
+      "terms": "no licence stated; copyright the site owner; personal research copy, not redistributed",
+      "wiki": [
+        "sources/robotmoon-mandelbrot-set"
+      ]
     }
   ]
 }

@@ -22,6 +22,7 @@ pub mod locations;
 pub mod oracle;
 pub mod orbit;
 pub mod palette;
+pub mod places;
 pub mod reference;
 pub mod settings;
 pub mod viewport;
@@ -30,6 +31,7 @@ pub use input::{EdgePan, InputEvent, InputMode, NavKey, Navigator};
 pub use locations::{BENCHMARK_LOCATIONS, BenchmarkLocation};
 pub use oracle::{IterationField, VerifyReport};
 pub use palette::Palette;
+pub use places::{Place, PlaceCategory};
 pub use settings::{InteriorMode, RenderSettings, Supersampling};
 pub use viewport::{Center, Viewport};
 

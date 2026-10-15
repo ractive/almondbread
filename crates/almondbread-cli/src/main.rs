@@ -10,7 +10,11 @@
 //! almondbread bench [--sizes 3456x2234,1600x1000] [--only a,b] [--repeat n] [--out dir]
 //! almondbread regress
 //! almondbread fly --script flight.json [--out review/x.mp4] [--fps 60] [--size 1920x1080] [--converged 1]
+//! almondbread places [--format text|tsv|landscape] [--render-thumbs dir [--only a,b]]
+//! almondbread locate --center re,im [--radius r | --misiurewicz k,p]
 //! ```
+//!
+//! `render`, `verify` and `fly` views take `--place id` (the places catalogue).
 
 // The commands are generic over the backend; only Apple targets have one yet.
 #![cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
@@ -18,10 +22,11 @@
 mod commands;
 mod fly;
 mod options;
+mod places;
 
 use options::Options;
 
-const USAGE: &str = "usage: almondbread render|verify|bench|regress|fly [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|bench|regress|fly|places|locate [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -56,6 +61,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "regress" => commands::regress_command(&backend, o),
         "fly" => fly::fly_command(&backend, o),
         "locate" => commands::locate_command(o),
+        "places" => places::places_command(&backend, o),
         _ => options::err(USAGE),
     })
 }

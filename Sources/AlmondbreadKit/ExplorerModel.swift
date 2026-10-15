@@ -560,6 +560,34 @@ public final class ExplorerModel {
         host?.requestFrames()
     }
 
+    // MARK: Places (the catalogue in the Rust core; kb: synthesis/places)
+
+    public static let places: [PlaceInfo] = AlmondbreadCore.places()
+
+    /// Jumps to a place (its view, look and iteration limit).
+    public func goToPlace(_ id: String) {
+        guard let explorer, let s = try? explorer.goToPlace(id: id) else { return }
+        lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
+        pull(s)
+        host?.requestFrames()
+    }
+
+    /// Flies to a place (the fly-to path) and takes its look.
+    public func flyToPlace(_ id: String) {
+        guard let explorer, let s = try? explorer.flyToPlace(id: id) else { return }
+        lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
+        pull(s)
+        host?.requestFrames()
+    }
+
+    /// A random place (optionally of one category); `fly` flies there instead of jumping.
+    @discardableResult
+    public func randomPlace(category: PlaceCategory? = nil, fly: Bool = false) -> PlaceInfo {
+        let p = AlmondbreadCore.randomPlace(seed: UInt64.random(in: 0...UInt64.max), category: category)
+        if fly { flyToPlace(p.id) } else { goToPlace(p.id) }
+        return p
+    }
+
     public func toggleOrbit() { orbitEnabled.toggle() }
     public func toggleMap() { mapEnabled.toggle() }
 

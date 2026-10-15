@@ -138,6 +138,22 @@ let off = try explorer.renderPng(path: png, width: 640, height: 400)
 check(FileManager.default.fileExists(atPath: png) && off.chunks > 0, "offscreen PNG \(png)")
 print(String(format: "explorer: settled after %d frames; offscreen 640x400 %@ in %.1f ms GPU", frames, png, off.iterateGpuSeconds * 1000))
 
+// Places (kb: synthesis/places): the catalogue, a random pick, and a jump to the deepest one.
+let pls = places()
+check(pls.count >= 40 && Set(pls.map(\.id)).count == pls.count, "places: \(pls.count)")
+check(place(id: "seahorse-valley")?.category == .valley && place(id: "nowhere") == nil, "place lookup")
+check(randomPlace(seed: 7, category: .deep).category == .deep, "random place")
+check(abs((Double(try placeScale(id: "whole-set", width: 320, height: 200)) ?? 0) - 0.012) < 1e-15, "place scale")
+let placeSettings = try explorer.goToPlace(id: "spiral-1e1000")
+let pv = explorer.viewport()
+check(placeSettings.paletteId == "ice" && placeSettings.autoIterations && pv.re.hasPrefix("-0.775683768009053797")
+      && pv.scaleText.hasSuffix("e-1003"), "go to place: \(pv.scaleText) \(placeSettings.paletteId)")
+let placeFrames = frames
+settle(frames + 6000)
+check(explorer.stats().settled && explorer.finishFrames() == 0, "deep place did not settle")
+print(String(format: "places: %d; spiral-1e1000 settled after %d frames, maxIter %d", pls.count, frames - placeFrames,
+             explorer.stats().maxIterations))
+
 // 6. FFI costs (best of 5 rounds).
 func best(_ rounds: Int = 5, _ body: () throws -> Void) rethrows -> Double {
     var b = Double.infinity

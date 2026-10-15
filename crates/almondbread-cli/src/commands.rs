@@ -965,6 +965,9 @@ pub fn locate_command(o: &Options) -> Result<i32> {
     let Some((re, im)) = c.split_once(',') else {
         return err("bad --center");
     };
+    if let Some(kp) = o.get("misiurewicz") {
+        return locate_misiurewicz(re, im, kp, o);
+    }
     let radius = o.get("radius").unwrap_or("1e-10");
     let max_period = o.usize("max-period").unwrap_or(200_000);
     let mut min_period = o.usize("min-period").unwrap_or(1);
@@ -1057,5 +1060,41 @@ pub fn locate_command(o: &Options) -> Result<i32> {
         );
         min_period = p + 1;
     }
+    Ok(0)
+}
+
+/// `locate --center re,im --misiurewicz k,p [--bits b]`: the Misiurewicz point of preperiod k
+/// and period p nearest the start (Newton), printed with the digits its precision carries.
+/// Used for the places catalogue (kb: synthesis/places).
+fn locate_misiurewicz(re: &str, im: &str, kp: &str, o: &Options) -> Result<i32> {
+    use almondbread_core::math::{BigComplex, NewtonOptions, find_misiurewicz};
+    let parts: Vec<usize> = kp.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+    let [k, p] = parts[..] else {
+        return err("bad --misiurewicz k,p");
+    };
+    let bits = o.usize("bits").unwrap_or(256);
+    let Some(start) = BigComplex::parse(re, im, bits) else {
+        return err("bad --center");
+    };
+    let opts = NewtonOptions {
+        precision_bits: Some(bits),
+        max_steps: 200,
+        max_distance: None,
+    };
+    let t0 = Instant::now();
+    let Some(r) = find_misiurewicz(&start, k, p, &opts) else {
+        println!("M_{{{k},{p}}}: Newton did not converge");
+        return Ok(1);
+    };
+    let digits = ((bits as f64 * std::f64::consts::LOG10_2) as usize)
+        .saturating_sub(6)
+        .max(17);
+    println!(
+        "M_{{{k},{p}}} re {}\n        im {}\n        newton {} steps, {:.2} s at {bits} bits",
+        r.point.re.to_decimal_string(Some(digits)),
+        r.point.im.to_decimal_string(Some(digits)),
+        r.steps,
+        t0.elapsed().as_secs_f64()
+    );
     Ok(0)
 }

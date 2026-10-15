@@ -10,6 +10,10 @@
 //!   orbit with cancellation, and a no-op call for measuring the call overhead.
 //! - R2b: the `Explorer` (explorer.rs, Apple targets): the renderer hosted in the app's
 //!   `CAMetalLayer`, one `frame` call per display refresh; `palettes()`.
+//! - Places: the catalogue of famous views (`places()`, `place()`, `random_place()`,
+//!   `place_scale()`, `Explorer::go_to_place`; kb: synthesis/places). Thumbnails are app
+//!   resources (`Sources/AlmondbreadKit/Resources/Places/<id>.heic`, `<id>@2x.heic`), never
+//!   bytes over this boundary.
 
 use almondbread_core::math::{self, BigComplex, BigFloat, FloatExpComplex};
 use std::sync::Arc;
@@ -112,6 +116,130 @@ pub fn looks() -> Vec<LookInfo> {
             palette_id: l.palette.to_string(),
         })
         .collect()
+}
+
+/// Section of the places catalogue (menu order as in `PlaceCategory::ALL`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PlaceCategory {
+    Landmark,
+    Valley,
+    Spiral,
+    Dendrite,
+    Minibrot,
+    JuliaIsland,
+    Deep,
+}
+
+impl From<almondbread_core::PlaceCategory> for PlaceCategory {
+    fn from(c: almondbread_core::PlaceCategory) -> Self {
+        use almondbread_core::PlaceCategory as C;
+        match c {
+            C::Landmark => Self::Landmark,
+            C::Valley => Self::Valley,
+            C::Spiral => Self::Spiral,
+            C::Dendrite => Self::Dendrite,
+            C::Minibrot => Self::Minibrot,
+            C::JuliaIsland => Self::JuliaIsland,
+            C::Deep => Self::Deep,
+        }
+    }
+}
+
+impl From<PlaceCategory> for almondbread_core::PlaceCategory {
+    fn from(c: PlaceCategory) -> Self {
+        use almondbread_core::PlaceCategory as C;
+        match c {
+            PlaceCategory::Landmark => C::Landmark,
+            PlaceCategory::Valley => C::Valley,
+            PlaceCategory::Spiral => C::Spiral,
+            PlaceCategory::Dendrite => C::Dendrite,
+            PlaceCategory::Minibrot => C::Minibrot,
+            PlaceCategory::JuliaIsland => C::JuliaIsland,
+            PlaceCategory::Deep => C::Deep,
+        }
+    }
+}
+
+/// One catalogue place as the UI lists it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PlaceInfo {
+    /// Stable id; also the thumbnail resource name (`Places/<id>.heic`, `Places/<id>@2x.heic`).
+    pub id: String,
+    pub name: String,
+    pub category: PlaceCategory,
+    /// Section title ("Valleys", "Deep showcases", ...).
+    pub category_name: String,
+    pub description: String,
+    /// One-line fact about what the view shows.
+    pub feature: String,
+    /// Centre (decimal strings, up to ~1000 digits for the deepest places).
+    pub re: String,
+    pub im: String,
+    /// Complex extent across the view's shorter side ("1e-1000" style text).
+    pub span: String,
+    /// log10 of the magnification relative to the whole set (for "10^n" depth labels).
+    pub zoom_log10: f64,
+    /// Recommended look id (`looks()`).
+    pub look: String,
+    /// Iteration limit, or none for automatic.
+    pub iterations: Option<u64>,
+    pub source: String,
+    pub source_url: String,
+    /// Computed or framed by us rather than taken verbatim from the source.
+    pub generated: bool,
+}
+
+impl From<&almondbread_core::Place> for PlaceInfo {
+    fn from(p: &almondbread_core::Place) -> Self {
+        PlaceInfo {
+            id: p.id.into(),
+            name: p.name.into(),
+            category: p.category.into(),
+            category_name: p.category.name().into(),
+            description: p.description.into(),
+            feature: p.feature.into(),
+            re: p.re.into(),
+            im: p.im.into(),
+            span: p.span.into(),
+            zoom_log10: p.zoom_log10(),
+            look: p.look.into(),
+            iterations: p.iterations.map(|n| n as u64),
+            source: p.source.into(),
+            source_url: p.source_url.into(),
+            generated: p.generated,
+        }
+    }
+}
+
+/// Every place, grouped by category in menu order, shallow to deep within a category.
+#[uniffi::export]
+pub fn places() -> Vec<PlaceInfo> {
+    almondbread_core::places::places().iter().map(PlaceInfo::from).collect()
+}
+
+/// The place with this id.
+#[uniffi::export]
+pub fn place(id: String) -> Option<PlaceInfo> {
+    almondbread_core::places::place_named(&id).map(PlaceInfo::from)
+}
+
+/// A random place, optionally from one category: `seed` picks it (pass a random number);
+/// the same seed gives the same place.
+#[uniffi::export]
+pub fn random_place(seed: u64, category: Option<PlaceCategory>) -> PlaceInfo {
+    almondbread_core::places::random_place(seed, category.map(Into::into)).into()
+}
+
+/// The view scale (complex units per view point, as text: may be beyond f64) that shows the
+/// place in a `width` x `height` view, for `Explorer::set_viewport_text`.
+#[uniffi::export]
+pub fn place_scale(id: String, width: f64, height: f64) -> Result<String, CoreError> {
+    let p = almondbread_core::places::place_named(&id).ok_or_else(|| invalid(format!("unknown place {id}")))?;
+    let side = width.min(height);
+    if !(side.is_finite() && side > 0.0) {
+        return Err(invalid("view size must be positive"));
+    }
+    Ok((p.span_scale() / side).to_text(17))
 }
 
 /// "almondbread-core <version>".
@@ -404,5 +532,20 @@ mod tests {
         )
         .unwrap();
         assert!(r.is_nucleus && r.period == Some(3));
+    }
+
+    #[test]
+    fn places_api() {
+        let all = places();
+        assert!(all.len() >= 40);
+        let p = place("seahorse-valley".into()).unwrap();
+        assert_eq!(p.category, PlaceCategory::Valley);
+        assert!(place("nowhere".into()).is_none());
+        assert_eq!(random_place(3, None), random_place(3, None));
+        assert_eq!(random_place(3, Some(PlaceCategory::Deep)).category, PlaceCategory::Deep);
+        let s = place_scale("spiral-1e1000".into(), 800.0, 600.0).unwrap();
+        let v = almondbread_core::viewport::Scale::parse(&s).unwrap();
+        assert!((v.log10() - (-1000.0 - 600f64.log10())).abs() < 1e-6, "{s}");
+        assert!(place_scale("seahorse-valley".into(), 0.0, 10.0).is_err());
     }
 }

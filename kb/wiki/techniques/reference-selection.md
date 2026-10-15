@@ -107,6 +107,17 @@ parts (src: [[sources/mathr-deep-zoom-theory-again]] §Rebasing). No source
 found for choosing a Misiurewicz point as the main reference for plain
 Mandelbrot; with rebasing there is little reason to (inference).
 
+**Finding one (as built 2026-10-14, for the places catalogue).**
+`almondbread_math::find_misiurewicz(start, k, p, options)` solves
+`z_{k+p}(c) = z_k(c)` (z_0 = 0) by Newton. Plain Newton on `f = z_{k+p} − z_k`
+wandered to a different root from Wikipedia's 8-digit seahorse spiral point, so it
+divides out the lower-preperiod roots: `g = f / ∏_{i<k} (z_{i+p} − z_i)` and the step is
+`1 / (f'/f − Σ_i (z'_{i+p} − z'_i)/(z_{i+p} − z_i))`, all derivatives `dz/dc`
+carried alongside (BigComplex arithmetic; fine for catalogue use, not per frame). Same
+stopping rule as the nucleus Newton. CLI: `almondbread locate --center re,im
+--misiurewicz k,p --bits b`. Converges in 4–8 steps to 3,500 bits from 8–15-digit starts
+([[synthesis/places]], [[sources/wikipedia-misiurewicz-point]]).
+
 ## For almondbread
 
 Roadmap step 7: atom-domain period from the current reference, ball-method

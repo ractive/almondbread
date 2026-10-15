@@ -467,24 +467,115 @@ enum ControlSection: String, CaseIterable, Identifiable {
     }
 }
 
-/// Places: the curated catalog of famous locations (thumbnails by category, Go / Fly, random
-/// place). Extension point: the catalog comes from a Rust places library that is being built
-/// separately; until it is wired, this section says so. `PlacesProvider` is the seam.
-@MainActor
-protocol PlacesProvider {
-    var categories: [String] { get }
-}
-
+/// Places: the catalogue of famous views (Rust core `places()`, kb: synthesis/places) as a
+/// thumbnail grid by category. Selecting one shows what it is; Go jumps there, Fly flies there
+/// (the fly-to path), Random picks one (of the shown category).
 struct PlacesSection: View {
     let model: ExplorerModel
+    @State private var category: PlaceCategory?
+    @State private var selected: String?
+
+    private var categories: [(PlaceCategory, String)] {
+        var seen: [(PlaceCategory, String)] = []
+        for p in ExplorerModel.places where !seen.contains(where: { $0.0 == p.category }) {
+            seen.append((p.category, p.categoryName))
+        }
+        return seen
+    }
+
+    private var shown: [PlaceInfo] {
+        ExplorerModel.places.filter { category == nil || $0.category == category }
+    }
+
+    private let columns = [GridItem(.adaptive(minimum: 88), spacing: 6)]
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Places", systemImage: "mappin.and.ellipse")
-        } description: {
-            Text("A catalog of famous locations with thumbnails, grouped by category, with Go, Fly and Random. It arrives with the places library.")
+        Picker("Category", selection: $category) {
+            Text("All (\(ExplorerModel.places.count))").tag(PlaceCategory?.none)
+            ForEach(categories, id: \.1) { c in
+                Text(c.1).tag(PlaceCategory?.some(c.0))
+            }
         }
-        .controlSize(.small)
+        LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(shown, id: \.id) { p in
+                Button {
+                    selected = p.id
+                } label: {
+                    PlaceThumbnail(id: p.id)
+                        .aspectRatio(1.6, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(selected == p.id ? Color.accentColor : .white.opacity(0.12),
+                                          lineWidth: selected == p.id ? 2 : 1))
+                }
+                .buttonStyle(.plain)
+                .help("\(p.name) · \(Format.zoom(log10: p.zoomLog10))")
+                .accessibilityLabel(p.name)
+                .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
+            }
+        }
+        if let id = selected, let p = ExplorerModel.places.first(where: { $0.id == id }) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(p.name).font(.callout.weight(.semibold))
+                Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10)) · \(p.feature)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(p.description).font(.caption).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        HStack {
+            Button {
+                if let id = selected { model.goToPlace(id) }
+            } label: {
+                Label("Go", systemImage: "arrow.right.circle")
+            }
+            .disabled(selected == nil)
+            .help("Jump there (double-click a thumbnail)")
+            Button {
+                if let id = selected { model.flyToPlace(id) }
+            } label: {
+                Label("Fly", systemImage: "airplane")
+            }
+            .disabled(selected == nil)
+            .help("Fly there: out, across and in; Esc stops")
+            Spacer()
+            Button {
+                selected = model.randomPlace(category: category).id
+            } label: {
+                Label("Random", systemImage: "dice")
+            }
+            .help("A random place\(category == nil ? "" : " of this category")")
+        }
+        #if os(iOS)
+        .buttonStyle(.borderless)
+        #endif
+    }
+}
+
+/// A place's thumbnail (HEIC package resource), loaded once.
+struct PlaceThumbnail: View {
+    let id: String
+    var body: some View {
+        if let image = Self.image(id) {
+            image.resizable()
+        } else {
+            Rectangle().fill(.quaternary)
+        }
+    }
+
+    @MainActor private static var cache: [String: Image] = [:]
+
+    @MainActor static func image(_ id: String) -> Image? {
+        if let i = cache[id] { return i }
+        guard let url = PlaceThumbnails.url(id: id) else { return nil }
+        #if os(macOS)
+        guard let ns = NSImage(contentsOf: url) else { return nil }
+        let i = Image(nsImage: ns)
+        #else
+        guard let ui = UIImage(contentsOfFile: url.path) else { return nil }
+        let i = Image(uiImage: ui)
+        #endif
+        cache[id] = i
+        return i
     }
 }
 

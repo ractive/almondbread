@@ -41,6 +41,15 @@ public enum SelfTest {
             lines.append(String(format: "selftest: shown %dx%d frame vs fresh render: %d pixels (%.3f%%) differ in class",
                                 m.width, m.height, m.pixels, m.percent))
         }
+        // The places thumbnails ship as package resources in both the swift-run and the
+        // Xcode-built app (kb: synthesis/places).
+        let catalogue = places()
+        let missing = catalogue.filter {
+            PlaceThumbnails.url(id: $0.id) == nil || PlaceThumbnails.url(id: $0.id, retina: false) == nil
+        }
+        ok = ok && !catalogue.isEmpty && missing.isEmpty
+        lines.append("selftest: places \(catalogue.count), thumbnails missing: "
+                     + (missing.isEmpty ? "none" : missing.map(\.id).joined(separator: ", ")))
         if let path = pngPath {
             do {
                 let w = UInt32(max(16, viewWidth.rounded()))
