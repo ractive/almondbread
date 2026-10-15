@@ -116,7 +116,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/bla]] — mathr's binary-tree BLA: single-step radius variants, merge rule, table build and lookup pseudocode, matrix/abs variants, costs; contradictions on the radius
 - [[techniques/coloring-methods]] — transfer functions, log-potential palette, histogram, phase, slopes/normal maps, TIA/curvature/stripe averages; as built (FL): OKLab palettes, looks, palette anti-aliasing by DE, outline-then-light
 - [[techniques/distance-estimation]] — Milnor exterior DE, Koebe ¼, pixel-scaled dual numbers for float32, DE through skips, AA/boundary tests
-- [[techniques/double-float]] — float-float error-free transforms, costs, Metal reassociation and math-mode pitfalls; repair/shallow mode only
+- [[techniques/double-float]] — float-float error-free transforms, costs, Metal reassociation and math-mode pitfalls; M7 as built: safe-math library, known-answer test, fx verify renderer, 7–12× / 27–52× slower than float32
 - [[techniques/exponential-map]] — log-polar strips (9:1, zoom 2 per keyframe), KF/zoomasm/Fraktaler practice, geometry
 - [[techniques/extended-range-floats]] — float32/64 range limits, floatexp, rescaled iterations with full floatexp steps, skip-table exponents, depth→type table
 - [[techniques/frame-reuse-and-progressive]] — XaoS row/column reuse, KF reuse reference and interlacing; as built: M2 gesture previews, FL history reprojection with temporal upsampling, per-pixel refinement fade, focus-first tiles
@@ -186,13 +186,13 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/auto-iteration-heuristic]] — which auto-maxIter rule to use
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
 - [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU
-- [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs (contradiction)
+- [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs; answered: fma float-float correct under .safe, broken under .fast, 7–12× slower than float32
 - [[questions/ffma32-latency]] — FFMA32 latency 2.21 vs 6 cycles in metal-benchmarks
-- [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over 1e5–1e9 iterations; test plan
+- [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over long orbits; answered (M7): within a 0.001–0.2 px grid shift, no visible artefacts
 - [[questions/higher-order-bla]] — second-order BLA: 21× reported vs "nothing adopted" (contradiction)
 - [[questions/kf-bla-support]] — does KF2+ have BLA? (contradiction: KF page vs Mu-Ency)
 - [[questions/local-sa-float32]] — does local series approximation hold in the float32 perturbation kernel, and does the gain survive on the GPU? (answered R5: yes in dense/filament/deep-seahorse views, 3–8.5× GPU; no gain in interior-heavy views; carry the interior derivative, never restart it)
-- [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal
+- [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal; .fast erases TwoSum, .safe keeps it (M7)
 - [[questions/metal-watchdog-limit]] — exact watchdog threshold on macOS and iOS
 - [[questions/perturbation-convergent-formulas]] — perturbation/rebasing for Nova, Newton, magnet (contradiction)
 - [[questions/precision-bits-formula]] — reference bits vs zoom; working rule

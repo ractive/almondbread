@@ -48,7 +48,9 @@ orbits on the CPU) with a Swift + SwiftUI/AppKit UI on Apple platforms
 
 - float32-only GPU: ε = 2^-24 in skip radii, norms that do not underflow,
   per-quantity exponents in skip tables, and a verification harness,
-  because float32 errors are silent ([[questions/float32-error-long-orbits]]).
+  because float32 errors are silent ([[questions/float32-error-long-orbits]]). M7
+  measured them: smaller than moving the pixel grid by 0.001–0.2 px at every view tested
+  to 1e-1003, nothing visible, so float-float stays a verification tool.
 - macOS GPU watchdog (about 5 s per command buffer, community report):
   resumable chunked kernels with compaction and indirect dispatch
   ([[platform/gpu-watchdog-and-chunking]], [[platform/metal-compute]],

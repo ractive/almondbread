@@ -292,7 +292,8 @@ pub fn verify<B: GpuBackend>(
 }
 
 /// `verify`: a GPU render against the CPU f64 oracle; `--fields a.iter --against b.iter`
-/// diffs two dumps (b plays the reference); `--history zoom|out|pan|jump` runs a scripted session.
+/// diffs two dumps (b plays the reference); `--history zoom|out|pan|jump` runs a scripted session;
+/// `--ff 1` adds the float-float field against the oracle and the float32 field (M7).
 pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     if let (Some(a), Some(b)) = (o.get("fields"), o.get("against")) {
         let fa = IterationField::read(a)?;
@@ -337,6 +338,14 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         v.chunks,
         v.cpu_time * 1000.0
     );
+    if o.get("ff") == Some("1") {
+        // M7: the same view in float-float (kb: techniques/double-float); the oracle again,
+        // as `verify` keeps no copy of it.
+        let view = r.viewport.clone();
+        let it = o.usize("cpu-iterations").unwrap_or(r.stats.max_iterations);
+        let cpu = oracle(&view.center, view.scale, width, height, it, view.angle);
+        crate::precision::ff_report(backend, &view, width, height, it, &v.gpu, &cpu);
+    }
     if let Some(path) = o.get("heatmap") {
         write_png_bgra(path, &v.heatmap, width, height)?;
     }

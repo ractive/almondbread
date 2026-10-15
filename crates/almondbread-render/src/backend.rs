@@ -88,6 +88,16 @@ pub trait ComputeEncoder<B: GpuBackend + ?Sized> {
     fn commit(self) -> B::Submission;
 }
 
+/// Floating-point semantics a separately compiled library asks for (M7, kb:
+/// techniques/double-float).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MathMode {
+    /// IEEE rounding, no reassociation (the float-float library).
+    Safe,
+    /// The main library's fast math (only to show what it does to the float-float code).
+    Fast,
+}
+
 /// A GPU device with one serial queue and the kernel library compiled.
 pub trait GpuBackend {
     type Buffer: Clone;
@@ -144,4 +154,17 @@ pub trait GpuBackend {
 
     /// Starts a command buffer with one compute pass.
     fn begin(&self, label: &str) -> Result<Self::Encoder, GpuError>;
+
+    /// Compiles `source` as a library of its own with `math` semantics and returns a pipeline
+    /// per name in `functions` (M7: the float-float kernels, which must not share the fast
+    /// library's compile options or registers). Backends without one return an error.
+    fn library_pipelines(
+        &self,
+        source: &str,
+        functions: &[&str],
+        math: MathMode,
+    ) -> Result<Vec<Self::Pipeline>, GpuError> {
+        let _ = (source, functions, math);
+        Err(GpuError("separate libraries not supported by this backend".into()))
+    }
 }

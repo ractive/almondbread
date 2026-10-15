@@ -1,7 +1,7 @@
 ---
 title: "How large is float32 perturbation error over long orbits?"
 type: question
-status: open
+status: answered
 sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fractalshark-readme]]"]
 tags: [float32, precision, verification, benchmark]
 ---
@@ -82,3 +82,37 @@ the CPU), 400×259; full table in [[synthesis/benchmarks]].
   0.26 % of pixels change class in each direction, identical with and without BLA and with a
   centre instead of a nucleus reference, so it is float32 rounding over 10^4-iteration orbits,
   not the reference. Remedy is M7 (float-float repair mode) ([[synthesis/benchmarks]] M3b).
+
+## Answer (M7): measurable, not visible
+
+Measured 2026-10-15, M1 Pro, release, `almondbread precision` (full table and method in
+[[synthesis/benchmarks]] M7): the float32 field against the oracle **next to the oracle against
+itself with the pixel grid shifted by 0.001, 0.01, 0.1 and 0.5 pixel**, at 23 views from 3e-7 to
+4e-1003 per pixel, including minibrots at 1e14–1e34 (catalogue places, sea-8007 with 1e5
+iterations), the period-32412 spiral at 1e19, a needle minibrot at 1e1000 with 1e6 iterations,
+and the catalogue spirals at 1e50 and 1e1000.
+
+- **The float32 error is smaller than a 0.001-pixel grid shift** at 17 of 23 views; between
+  0.001 and 0.01 px at spiral-32412-1e19, spiral-1e50 and starburst-1e112 (and below 0.01 px at
+  junction-1e100/1e300, not run at 0.001); 0.1–0.2 px at spiral-1e1000 (the worst).
+  This refines the M2 reading of deep-5e-14: float32 is worse than a 1e-5-px shift there, but
+  better than a 1e-3-px one (13.1 % against 22.2 % of pixels off by > 0.05).
+- **Nothing visible.** 100 % and 4× crops of GPU, oracle and the 0.001-px control show no speckle,
+  blobs or wrong bands near minibrots or in long orbits; the differing pixels are the chaotic
+  boundary pixels that the 0.001-px control changes as much. Where float32 differs in smooth
+  regions (spiral-1e50, spiral-1e1000), the error is smooth and spatially coherent (median |Δμ|
+  0.002 / 0.022, one sign per side of each arm): neighbours share rounding events, so float32
+  bends the image by a fraction of a pixel instead of speckling it, 4e-4 of a palette cycle at
+  the default density. Not a plain shift, scale or turn of the grid (correlations ≈ 0, −0.48 with
+  a 1.001× zoom).
+- **The f64 oracle is not ground truth in chaotic views.** Float-float (48 bits, M7) and the
+  oracle (53 bits) still disagree on 6.3 % of escape counts at spiral-32412-1e19 (float32: 52.8 %,
+  the 0.001-px control: 51.6 %): such pixels have no stable value at any practical precision,
+  only a stable distribution, which float32 reproduces.
+- Float-float reduces the disagreement with the oracle 30–3000× (deep-5e-14 0.30 %, sea-1e20
+  0.29 %, spiral-1e50 0.021 %, starburst-1e112 0.001 %, spiral-1e1000 0.031 % of escape counts)
+  at 10–300× the GPU time of the float32 renderer, so it stays a verification tool
+  (`verify --ff 1`, `precision --ff 1`; [[techniques/double-float]] "As built (M7)").
+- Still unmeasured: DE and slope-lighting error against an oracle (the oracle computes no
+  derivative; the lit GPU renders show no speckle), and the split between delta and reference
+  rounding (step 4 of "How to resolve": no longer needed for a decision).
