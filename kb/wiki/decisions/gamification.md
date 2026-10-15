@@ -63,6 +63,25 @@ or orbit work. Progress is stored locally; Game Center/Steam sync comes later.
 - 10↑↑3 (10^10^10): a coordinate alone would need ~3.3e10 bits (about 4 GB); its reference
   orbit is out of reach. Graham's number and TREE(3): "no".
 
+**Zoom odometer** (user idea): the total zoom travelled, in and out both counting, as a
+lifetime total. Decades add up: `D = Σ |Δ log10 zoom|`, the total factor is `10^D`. One float
+added per frame. Our arithmetic (2026-10-15) for time to reach `10^D`:
+
+| total zoom | default speed (×4.95/s) | journey at 40 e-folds/s |
+| --- | --- | --- |
+| 10^10^3 | 24 min | 1.4 min |
+| 10^10^4 | 4 h | 10 min |
+| 10^10^5 | 40 h | 1.6 h |
+| 10^10^6 | 17 days | 16 h |
+| 10^10^7 | 5.5 months | 7 days |
+| 10^10^8 | 4.6 years | 2.2 months |
+| 10^10^10 (= 10↑↑3) | 456 years | 18 years |
+
+So the odometer can move the "How big is big?" second gear from about 2.5 to 3: 10↑↑3 is a
+lifetime of nonstop journeys; a googolplex would need 10^100 decades, so never. Farming by
+holding zoom in/out is possible; harmless for local achievements, and Game Center/Steam versions
+could count only frames that rendered new detail.
+
 **Mathematics**
 - First minibrot; Period collector (periods 2–10); Big period (find one with period above 1 000).
 - Misiurewicz: land on a spiral or branch point found by Newton.
