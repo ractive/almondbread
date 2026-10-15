@@ -113,6 +113,11 @@ looked around, and where minibrots were found.
   always available. The world fog is aggregated from opt-in uploads, coarse and anonymous.
 - **Display:** fog darkens the mini-map; a subtle tint in the main view at the current level
   marks never-visited ground; the online atlas shows both layers.
+- **Deferred (user, 2026-10-15): too complex to show.** Simpler first version instead: your
+  trail as outlines in the mini-map's nested levels (they already handle scale), found minibrots
+  as markers in the view, counters instead of maps ("12 found, 3 of the period-≤12 ones"), and
+  on the website a plain 2D heatmap only for the shallow set (zoom ≤ ~1e6) plus search and lists
+  for deeper entries. Multi-level fog only if a game mode needs it.
 
 ## Not in scope
 
