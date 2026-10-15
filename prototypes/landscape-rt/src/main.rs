@@ -34,6 +34,12 @@ enum Cmd {
         #[arg(long, default_value_t = 4000)]
         per_level: usize,
     },
+    /// DE tile throughput: cold prefill (all levels, including the 4 extra ones of low flight)
+    /// at a few locations; tiles per GPU second.
+    Bench {
+        #[command(flatten)]
+        set: sim::Settings,
+    },
     /// Temporal-stability metrics of an existing video.
     Framestats { path: std::path::PathBuf },
 }
@@ -48,6 +54,7 @@ fn main() {
         Some(Cmd::Fly(a)) => app::run(a),
         Some(Cmd::Record(a)) => record::run(a),
         Some(Cmd::Framestats { path }) => record::framestats(&path),
+        Some(Cmd::Bench { set }) => sim::bench(set),
         Some(Cmd::Check { set, per_level }) => sim::Sim::new(set, 0.0).map(|mut s| {
             eprintln!("{}", s.ref_note);
             s.prefill();

@@ -9,12 +9,15 @@ use crate::mandel;
 
 pub struct Ground {
     pub c0: (f64, f64),
-    cache: HashMap<(i32, i64, i64), f32>,
+    cache: HashMap<(i32, i64, i64), (f32, f32)>,
     pub max_iter: u32,
     pub evals: u64,
     /// height curve h = σ·ln(1 + k·DE/σ), absolute (complex units)
     sigma: f64,
     k: f64,
+    /// equipotential ridges on plains (σ units; the shader's heightS), from DE/σ = ridge_from
+    pub ridges: f64,
+    pub ridge_from: f64,
 }
 
 fn bspline(t: f64) -> [f64; 4] {
@@ -30,15 +33,15 @@ fn bspline(t: f64) -> [f64; 4] {
 
 impl Ground {
     pub fn new(c0: (f64, f64), sigma: f64, k: f64) -> Self {
-        Ground { c0, cache: HashMap::new(), max_iter: 6000, evals: 0, sigma, k }
+        Ground { c0, cache: HashMap::new(), max_iter: 6000, evals: 0, sigma, k, ridges: 0.0, ridge_from: 1.5 }
     }
 
     pub fn set_sigma(&mut self, sigma: f64) {
         self.sigma = sigma;
     }
 
-    /// DE (complex units, 0 = interior/unresolved) at sample (i, j) of level l.
-    fn de(&mut self, l: i32, i: i64, j: i64) -> f64 {
+    /// (DE in complex units, 0 = interior/unresolved; ridge phase) at sample (i, j) of level l.
+    fn de(&mut self, l: i32, i: i64, j: i64) -> (f64, f64) {
         if self.cache.len() > 200_000 {
             self.cache.clear();
         }
@@ -49,16 +52,18 @@ impl Ground {
             miss = true;
             let sp = (l as f64).exp2();
             let s = mandel::eval(c0.0 + i as f64 * sp, c0.1 + j as f64 * sp, max_iter);
-            if s.interior { 0.0 } else { s.de as f32 }
+            if s.interior { (0.0, 0.0) } else { (s.de as f32, mandel::ridge_phase(&s, sp) as f32) }
         });
         if miss {
             self.evals += 1;
         }
-        v as f64
+        (v.0 as f64, v.1 as f64)
     }
 
-    fn h(&self, de: f64) -> f64 {
-        self.sigma * (1.0 + self.k * de / self.sigma).ln()
+    fn h(&self, (de, ridge): (f64, f64)) -> f64 {
+        let x = de / self.sigma;
+        let t = ((x - self.ridge_from) / (10.0 - self.ridge_from)).clamp(0.0, 1.0);
+        self.sigma * (1.0 + self.k * x).ln() + self.ridges * self.sigma * ridge * t * t * (3.0 - 2.0 * t)
     }
 
     /// B-spline smoothed height (complex units) at offset p on level l.
