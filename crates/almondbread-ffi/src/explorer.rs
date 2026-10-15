@@ -574,6 +574,28 @@ impl OverlaySettings {
     }
 }
 
+/// The π meter's state, for the control center (the overlay draws the panel itself; kb:
+/// techniques/pi-in-the-mandelbrot-set).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PiMeterInfo {
+    pub enabled: bool,
+    /// "neck" or "cusp" when the view is centred on one; empty otherwise.
+    pub point: String,
+    /// ε of the view centre.
+    pub eps: f64,
+    /// The latest finished count there (0: none yet), its ε and N·ε (N·√ε).
+    pub count: u64,
+    pub count_eps: f64,
+    pub product: f64,
+    /// Digits of the product that agree with π.
+    pub digits: u32,
+    pub counting: bool,
+    /// 0 ... 1 of the running count.
+    pub progress: f64,
+    /// The centre is closer than the meter counts (more than 1e9 iterations).
+    pub too_deep: bool,
+}
+
 /// The probed point's orbit, for the UI (the overlay draws the same in the view).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct OrbitInfo {
@@ -1189,6 +1211,52 @@ impl Explorer {
             return false;
         }
         self.lock().host.map_click(x, y, fly)
+    }
+
+    /// Switches the π meter (its panel, the line of approach and its counting thread);
+    /// `inset_right` / `inset_bottom`: extra margins in points keeping platform buttons clear.
+    /// A frame follows: resume the display link.
+    pub fn set_pi_meter(&self, on: bool, inset_right: f64, inset_bottom: f64) {
+        let mut g = self.lock();
+        let m = &mut g.host.overlay.pi;
+        m.enabled = on;
+        m.inset = [inset_right.clamp(0.0, 400.0), inset_bottom.clamp(0.0, 400.0)];
+    }
+
+    pub fn pi_meter(&self) -> PiMeterInfo {
+        let g = self.lock();
+        let m = &g.host.overlay.pi;
+        let s = m.state();
+        PiMeterInfo {
+            enabled: m.enabled,
+            point: s.point,
+            eps: s.eps,
+            count: s.count,
+            count_eps: s.count_eps,
+            product: s.product,
+            digits: s.digits,
+            counting: s.counting,
+            progress: s.progress,
+            too_deep: s.too_deep,
+        }
+    }
+
+    /// The guided π flight: jumps to the place at `point` ("neck" or "cusp"), switches the
+    /// meter on and flies down the line of approach to ε = 1e-8 (neck) or 1e-16 (cusp), the
+    /// parabolic point held at the same place on screen (the fly-to path: Q / E speed, Esc
+    /// stops). Returns the place's settings. Resume the display link after this.
+    pub fn pi_flight(&self, point: String) -> Result<ExplorerSettings, CoreError> {
+        use almondbread_core::pi_moment::PiPoint;
+        let p = PiPoint::named(&point).ok_or_else(|| invalid(format!("unknown π point {point}")))?;
+        let settings = self.go_to_place(p.place_id().into())?;
+        let mut g = self.lock();
+        let (w, h) = g.host.view_points();
+        g.host.overlay.pi.enabled = true;
+        let r = &mut g.host.renderer;
+        let target = p.view_at(p.flight_eps(), w.min(h)).with_angle(r.viewport.angle);
+        let start = r.viewport.clone();
+        r.navigator.fly_to(&target, &start, media_time());
+        Ok(settings)
     }
 
     /// Writes the shown image with its overlays as a PNG (drawable pixels; screenshots of

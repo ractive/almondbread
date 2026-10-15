@@ -683,3 +683,18 @@ default. Pages: [[techniques/sample-reuse]].
 Wrote up [[decisions/minibrot-atlas]] (proposed, not scheduled): local atlas from the journey's
 target finder first, then a shallow census and deep samples. Filed the π-in-the-set idea in
 [[ideas]] with our own numeric check.
+
+## [2026-10-15] ingest | π in the Mandelbrot set, and the π meter
+
+Ingested Boll's 1991 post (via brainwagon), Klebanoff 2001 (cusp proof), Brockmoeller, Scherz,
+Srkalovic 2025 (neck proof, all parabolic points, N = π/ε + O(1)), Gerald Edgar's page and
+Mu-Ency's R2.C(1/2) entry. Measured the counts at both points against a 256-bit BigFloat orbit
+and double-double: errors O(ε) (neck offset N − π/ε in 0.35 ... 1.6) and O(√ε) (cusp offset
+about −2); textbook f64 never escapes at the neck from ε = 1e-8 and drifts at the cusp from
+1e-12; f64 in shifted coordinates drifts at the cusp from 1e-16; a compensated (TwoSum) shifted
+count matches double-double everywhere at 11–13 ns per iteration. Boll's 1e-7 neck entry
+(31415928) is not reproduced (31415927); Mu-Ency counts one higher (convention). Built the
+π meter, two places and guided flights. Raising the image's iteration limit near the points
+was measured and rejected (8 s GPU per frame at the cusp, minutes at the neck). Pages:
+[[techniques/pi-in-the-mandelbrot-set]], [[questions/pi-escape-count-conventions]],
+[[decisions/controls]] "π meter", [[synthesis/places]], [[ideas]], [[index]].

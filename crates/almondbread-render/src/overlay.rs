@@ -292,7 +292,7 @@ impl Scene {
 }
 
 /// Liang-Barsky: the part of segment a-b inside rectangle r.
-fn clip_segment(a: [f32; 2], b: [f32; 2], r: [f32; 4]) -> Option<([f32; 2], [f32; 2])> {
+pub(crate) fn clip_segment(a: [f32; 2], b: [f32; 2], r: [f32; 4]) -> Option<([f32; 2], [f32; 2])> {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let (mut t0, mut t1) = (0.0f32, 1.0f32);
     for (p, q) in [
@@ -433,6 +433,8 @@ pub struct Overlay<B: GpuBackend> {
     pub note: Option<(String, f64)>,
     /// A finished map click waiting to be applied by the host.
     pub pending_jump: Option<MapJump>,
+    /// The π meter (its own settings and thread; kb: techniques/pi-in-the-mandelbrot-set).
+    pub pi: crate::pi_meter::PiMeter,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -450,6 +452,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             snap: None,
             note: None,
             pending_jump: None,
+            pi: crate::pi_meter::PiMeter::default(),
         }
     }
 }
@@ -468,9 +471,16 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         &self.points
     }
 
-    /// Work left (probe analysing, maps rendering, a click resolving): keep frames coming.
+    /// Anything to draw (the overlay settings or the π meter).
+    pub fn active(&self) -> bool {
+        self.settings.any() || self.pi.enabled
+    }
+
+    /// Work left (probe analysing, maps rendering, a click resolving, a π count): keep
+    /// frames coming.
     pub fn busy(&self) -> bool {
-        self.probe.as_ref().is_some_and(|p| !p.done())
+        self.pi.busy()
+            || self.probe.as_ref().is_some_and(|p| !p.done())
             || self.snap.is_some()
             || self
                 .maps
@@ -483,7 +493,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// the renderer's frame. `size`: output pixels, `ppp`: view points per pixel.
     pub fn prepare(&mut self, renderer: &mut Renderer<B>, size: (usize, usize), ppp: f64, now: f64) {
         let s = self.settings.clone().sanitized();
-        if !s.any() || size.0 == 0 || size.1 == 0 || ppp <= 0.0 {
+        self.pi.update(&renderer.viewport);
+        if !(s.any() || self.pi.enabled) || size.0 == 0 || size.1 == 0 || ppp <= 0.0 {
             renderer.overlay = None;
             self.maps = None;
             self.probe = None;
@@ -505,7 +516,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             ((s.map_size * px_per_pt).round() as usize).max(32),
             ((s.map_size * 0.72 * px_per_pt).round() as usize).max(24),
         );
-        if let Err(e) = self.update_maps(renderer, &view, want_levels, panel, size, &s, px_per_pt) {
+        if !s.any() {
+            self.maps = None;
+        } else if let Err(e) = self.update_maps(renderer, &view, want_levels, panel, size, &s, px_per_pt) {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
         }
@@ -1026,6 +1039,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             );
             key.push_str(&t);
         }
+        key.push_str(&self.pi.draw(scene, w, h, px));
         let _ = renderer;
         key
     }

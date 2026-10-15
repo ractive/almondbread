@@ -59,7 +59,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let mut out = None;
     let analyse = r.settings.interior_mode.needs_analysis() || o.has("interior-stats");
     // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): `--orbit x,y` (view
-    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`.
+    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`,
+    // `--pi-overlay 1` (the π meter; kb: techniques/pi-in-the-mandelbrot-set).
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
@@ -145,12 +146,17 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     use almondbread_core::input::InputEvent;
     let orbit = o.pair("orbit")?;
     let map = o.get("map").is_some_and(|v| v != "0");
-    if orbit.is_none() && !map {
+    let pi = o.get("pi-overlay").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map && !pi {
         return Ok(None);
     }
     let mut ov = almondbread_render::overlay::Overlay::<B>::default();
     ov.settings.orbit = orbit.is_some();
     ov.settings.map = map;
+    ov.pi.enabled = pi;
+    if pi {
+        pi_history_for_still(&mut ov.pi, &r.viewport);
+    }
     if let Some(n) = o.usize("orbit-length") {
         ov.settings.orbit_length = n;
     }
@@ -174,6 +180,9 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     // The reference first (the probe perturbs against it at depth).
     r.render_offscreen(width.min(64), height.min(64), false)?;
     ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
+    if pi {
+        ov.pi.wait(&r.viewport);
+    }
     let deadline = r.clock() + 30.0;
     while r.clock() < deadline {
         ov.step_probe(0.05);
@@ -182,6 +191,27 @@ fn overlay_for_still<B: GpuBackend + Clone>(
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(4));
+    }
+    if pi {
+        ov.pi.wait(&r.viewport);
+        let s = ov.pi.state();
+        if s.point.is_empty() {
+            println!("pi meter: the view is not centred on the neck or the cusp");
+        } else {
+            println!(
+                "pi meter: {} eps {} N {} product {} ({} digits of pi){}",
+                s.point,
+                g(s.count_eps, 6),
+                s.count,
+                g(s.product, 15),
+                s.digits,
+                if s.too_deep {
+                    "; below the meter's depth limit"
+                } else {
+                    ""
+                }
+            );
+        }
     }
     let now = r.clock();
     // `--ppp 0.5`: overlay sizes as on a Retina display (view points per pixel).
@@ -195,6 +225,28 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         );
     }
     Ok(Some(ov))
+}
+
+/// The π meter's plot for a still: the counts a zoom along the line would have made, every
+/// half decade from ε = 0.1 down to the view's ε (shallower than it).
+fn pi_history_for_still(meter: &mut almondbread_render::pi_meter::PiMeter, view: &Viewport) {
+    use almondbread_core::pi_moment::{Count, MAX_COUNT, escape_count, target};
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    let Some(t) = target(view) else { return };
+    let mut k = 0.5;
+    while t.eps * 10f64.powf(k) <= 0.1 + 1e-12 {
+        let eps = t.eps * 10f64.powf(k);
+        let start = Instant::now();
+        if let Count::Escaped(n) = escape_count(t.point, eps, MAX_COUNT, &AtomicBool::new(false), &AtomicU64::new(0)) {
+            meter.add_measurement(almondbread_render::pi_meter::Measured {
+                point: t.point,
+                eps,
+                n,
+                seconds: start.elapsed().as_secs_f64(),
+            });
+        }
+        k += 0.5;
+    }
 }
 
 /// M5: what the seed passes of a locally approximated render did.

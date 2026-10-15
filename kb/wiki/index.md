@@ -27,12 +27,15 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
 - [[sources/beyer-mandelbrot-zoom-sequence]] — Wolfgang Beyer's 15-image Commons zoom into seahorse valley (2005): centre and width of each view, to 6e10 (digested)
 - [[sources/bids-viridis-colormaps]] — viridis, magma, inferno, plasma colour maps (CC0); 256-entry data (digested)
+- [[sources/boll-pi-post]] — Dave Boll's 1991 sci.math post (via brainwagon, 2011): neck escape counts 33, 315, 3143 ... whose product with ε is π; a C program that fails at ε = 1e-9 (digested)
+- [[sources/brockmoeller-pi-everywhere]] — Brockmoeller, Scherz, Srkalovic 2025 (arXiv): first proof at the neck -3/4, π at every parabolic parameter along its rays, N = π/ε + O(1) (digested)
 - [[sources/cheritat-mandelbrot-rendering]] — Rendering-techniques page by Arnaud Chéritat, a complex-dynamics mathematician (Toulouse), on "Techniques for computer generated pictures in... (digested)
 - [[sources/cividis-paper]] — cividis (PLOS ONE 2018): CVD-optimised blue-yellow map; article CC0, data Battelle BSD-style (digested)
 - [[sources/cmocean]] — cmocean oceanography colour maps (MIT), incl. cyclic phase (digested)
 - [[sources/colorcet]] — Kovesi's CET colour maps (CC BY 4.0): linear, cyclic, colour-blind sets (digested)
 - [[sources/crameri-scientific-colour-maps]] — Crameri Scientific colour maps v8 (MIT): batlow, cyclic romaO/vikO/bamO, ... (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
+- [[sources/edgar-pi-and-mandelbrot]] — Gerald Edgar's page on Boll's π (1992 alt.fractals post): Petry's tan heuristic at the cusp, Edgar's f∘f integral at the neck, -5/4 (digested)
 - [[sources/fractal-block-world-steam]] — Steam page and reviews of Fractal Block World: 1,652 reviews, 98% positive, 50k–100k owners; the only fractal game with traction (skimmed)
 - [[sources/fractal-dive-app-store]] — App Store listing of Fractal Dive (2026-09): perturbation to 4e331, Dive autopilot, free links, $1.99 Pro with 4K dive video; closest competitor (skimmed)
 - [[sources/fractalforums-interior-detection]] — Archived single-page thread started by GBy (fractalshades author) on 25 June 2022: interior detection via the derivative `dz/dZ_1` combined with... (digested)
@@ -58,6 +61,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/kf-manual]] — The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log from 2017 to kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu... (skimmed)
 - [[sources/kf-page]] — Home page of Kalles Fraktaler 2+ (KF2+), the fork of Karl Runmo's Kalles Fraktaler maintained by Claude Heiland-Allen: status, limits, downloads,... (digested)
 - [[sources/kisaka-julia-sets-in-mandelbrot]] — Kisaka 2015 (seminar abstract): zooming in shows a Julia-like figure, then nested preimages, then a small Mandelbrot set; the stage order the journey's embedded Julia targets rely on (skimmed)
+- [[sources/klebanoff-pi-in-mandelbrot]] — Klebanoff, Fractals 9(4) 2001: first proof that √ε·N → π at the cusp 1/4 + ε; Boll's neck and cusp tables (digested)
 - [[sources/kopf-2007-joint-bilateral-upsampling]] — Kopf et al. 2007: upsample a low-resolution solution with a full-resolution guide image; needs a cheap guide whose edges match (digested)
 - [[sources/kovesi-good-colour-maps]] — Kovesi 2015: lightness carries detail; recipes for vivid cyclic maps (digested)
 - [[sources/luma-gl-gpu-precision]] — A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than f32 precision on GPUs: double-single (float-float),... (digested)
@@ -80,6 +84,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/muency-named-places]] — Mu-Ency feature entries and favourite views with coordinates: valleys, medallions, embedded Julia sets, to 1.5e-27 (digested)
 - [[sources/muency-newton-raphson]] — Glossary entry (written 2010, updated 2023-06-22) on Newton's method and its use to find the nucleus of a mu-atom (hyperbolic component) of known... (digested)
 - [[sources/muency-newton-raphson-zooming]] — Mu-Ency on zooming to a minibrot by Newton; Heiland-Allen's estimate that the 2-fold embedded Julia set is about s^(3/4) of the island size s; "Julia morphing" (digested)
+- [[sources/muency-pi]] — Mu-Ency R2.C(1/2) on π: neck counts one higher than Boll's (another convention), "occurs in all the cusps" (digested)
 - [[sources/ottosson-oklab]] — OKLab/OKLCH definition; why OKLab gradients beat sRGB/HSV lerp (digested)
 - [[sources/philthompson-bla]] — A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on adding experimental BLA in its v0.10.0 release. (digested)
 - [[sources/quilez-cosine-palettes]] — cosine palettes a + b cos(2π(ct + d)); mean = a; integer c is seamless (digested)
@@ -135,6 +140,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/palette-design]] — fractal palette design: key colours + mapping, OKLab spline, lightness rhythm, cyclic/mirror, deep tones, CVD, licences, .ugr/.map/JSON formats; as built: the palette library
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured
+- [[techniques/pi-in-the-mandelbrot-set]] — Boll's π at the neck (N·ε) and cusp (N·√ε): proofs, O(ε) / O(√ε) errors measured, f64 drift, compensated shifted count, the π meter
 - [[techniques/rebasing]] — Zhuoran's rebase rule (|Z+z| < |z| or reference exhausted → z = Z+z, m = 0); one reference per critical point/phase; float32 pitfalls
 - [[techniques/sample-reuse]] — reuse samples while zooming/panning: XaoS row/column approximation, exact-position sample cache (R4), and the production cache as built: plane-fixed lattice in a toroidal tile window, GPU clear/resample/shade, per-tile planning, carry-over batches, the cache check
 - [[techniques/reference-orbit-precision]] — bits vs zoom rule, cost per iteration, MT3 threading, GPU NTT verdict, storage, Imagina orbit compression; our implementation and measured error growth
@@ -207,6 +213,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/metal-fast-math-defaults]] — default mathMode and reassociation/contraction in Metal; .fast erases TwoSum, .safe keeps it (M7)
 - [[questions/metal-watchdog-limit]] — exact watchdog threshold on macOS and iOS
 - [[questions/perturbation-convergent-formulas]] — perturbation/rebasing for Nova, Newton, magnet (contradiction)
+- [[questions/pi-escape-count-conventions]] — why Mu-Ency's neck counts are Boll's + 1 and why Boll's 1e-7 entry (31415928) is off by one (answered)
 - [[questions/precision-bits-formula]] — reference bits vs zoom; working rule
 - [[questions/record-zoom-live-feasibility]] — can a world-record zoom be played live without post-processing? (open; estimate: yes to ~1e1000–1e3000 along a known path)
 - [[questions/reference-orbit-compression]] — how Imagina/FractalShark compress orbits (answered from Imagina source; FractalShark part open)

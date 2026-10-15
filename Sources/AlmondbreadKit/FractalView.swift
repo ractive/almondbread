@@ -427,13 +427,17 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // Menu shortcuts and text fields keep their keys.
         if event.modifierFlags.contains(.command) { return false }
         if window?.firstResponder is NSText { return false }
-        // O / M: orbit overlay, mini-map (toggled on key-down; their key-ups are swallowed).
+        // O / M / P: orbit overlay, mini-map, π meter (toggled on key-down; their key-ups are
+        // swallowed).
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
         case "o":
             if event.type == .keyDown && !event.isARepeat { model.toggleOrbit() }
             return true
         case "m":
             if event.type == .keyDown && !event.isARepeat { model.toggleMap() }
+            return true
+        case "p":
+            if event.type == .keyDown && !event.isARepeat { model.togglePiMeter() }
             return true
         default: break
         }
@@ -747,6 +751,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 switch key.charactersIgnoringModifiers.lowercased() {
                 case "o": base.model.toggleOrbit(); continue
                 case "m": base.model.toggleMap(); continue
+                case "p": base.model.togglePiMeter(); continue
                 default: break
                 }
             }

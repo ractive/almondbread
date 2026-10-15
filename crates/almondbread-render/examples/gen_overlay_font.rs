@@ -24,7 +24,7 @@ const ATLAS_W: i32 = 512;
 /// ASCII plus the symbols the overlay prints.
 fn charset() -> Vec<char> {
     let mut v: Vec<char> = (0x21u8..0x7f).map(char::from).collect();
-    v.extend("λ×·°…–−μπ≈→←↑↓∞".chars());
+    v.extend("λ×·°…–−μπ≈→←↑↓∞ε√".chars());
     v
 }
 
