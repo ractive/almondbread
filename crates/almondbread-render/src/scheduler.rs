@@ -1207,7 +1207,11 @@ impl<B: GpuBackend> Renderer<B> {
             SaMode::On => true,
             SaMode::Auto => self
                 .interior_stats
-                .is_some_and(|s| s.fraction >= FILL_MIN_INTERIOR && s.exterior_iterations >= FILL_MIN_ITERATIONS),
+                // (Proven interior: the kernel counts pixels left unresolved as finished too; at
+                // sea-8007, 98 % unresolved, filling nothing cost 9 %.)
+                .is_some_and(|s| {
+                    s.fraction - s.unresolved >= FILL_MIN_INTERIOR && s.exterior_iterations >= FILL_MIN_ITERATIONS
+                }),
         }
     }
 
