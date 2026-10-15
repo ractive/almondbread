@@ -58,6 +58,10 @@ struct ContentView: View {
             }
         }
         #if os(iOS)
+        // iPhone portrait: the π panel sits left of the button column.
+        .onChange(of: compactWidth, initial: true) { model.piMeterInsetRight = compactWidth ? 56 : 0 }
+        #endif
+        #if os(iOS)
         // iPhone portrait: the buttons sit at the bottom, in thumb reach and clear of the HUD;
         // wider screens: top trailing, next to the HUD.
         .overlay(alignment: compactWidth ? .bottomTrailing : .topTrailing) {
@@ -126,6 +130,10 @@ struct ContentView: View {
                     Label("Mini-map", systemImage: "map")
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
+                Toggle(isOn: $model.piMeterEnabled) {
+                    Label("π Meter", systemImage: "pi")
+                }
+                .help("π meter (P): at the neck −3/4 + iε or the cusp 1/4 + ε the escape count times ε (√ε) closes in on π; View menu: guided flights")
                 Toggle(isOn: $model.cosmicScale) {
                     Label("Size Scale", systemImage: "ruler")
                 }

@@ -155,6 +155,14 @@ struct FractalCommands: Commands {
                                              set: { model?.mapEnabled = $0 }))
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
+            Toggle("π Meter", isOn: Binding(get: { model?.piMeterEnabled ?? false },
+                                            set: { model?.piMeterEnabled = $0 }))
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Button("Fly into the Neck (π)") { model?.piFlight("neck") }
+                .disabled(model == nil)
+            Button("Fly into the Cusp (π)") { model?.piFlight("cusp") }
+                .disabled(model == nil)
             Toggle("Cosmic Size Scale", isOn: Binding(get: { model?.cosmicScale ?? false },
                                                       set: { model?.cosmicScale = $0 }))
                 .disabled(model == nil)

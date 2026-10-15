@@ -185,6 +185,7 @@ public enum UIDemo {
         switch scene {
         case "palettes": "palette"
         case "autopilot": "autopilot"
+        case "pi", "pi-flight": "π"
         case "cosmic", "cosmic-deep", "cosmic-relative": "cosmic"
         case let s? where s.hasPrefix("howbig"): "googol"
         default: nil
@@ -220,6 +221,13 @@ public enum UIDemo {
         case "palettes":
             model.applyPalette(model.library.first { $0.category == "natural" }?.id ?? "aurora")
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+        case "pi":
+            // The π meter at the cusp (kb: techniques/pi-in-the-mandelbrot-set).
+            model.piMeterEnabled = true
+            try? explorer.setViewportText(re: "0.2500001", im: "0", scale: "3e-10")
+        case "pi-flight":
+            // The guided flight into the neck, captured on the way (after the first layout).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight("neck") }
         case "cosmic":
             // The size scale stacked above the mini-map (both bottom left).
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
@@ -262,7 +270,8 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                if Date().timeIntervalSince(start) > 8, model.stats?.settled == true || (scene == "autopilot" && Date().timeIntervalSince(start) > 6),
+                let moving = scene == "autopilot" || scene == "pi-flight"
+                if Date().timeIntervalSince(start) > 8, model.stats?.settled == true || (moving && Date().timeIntervalSince(start) > 6),
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)

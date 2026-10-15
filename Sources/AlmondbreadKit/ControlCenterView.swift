@@ -43,6 +43,12 @@ struct ControlCenterView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             resetAllBar
         }
+        #if os(macOS)
+        // On the Mac the canvas runs on under the sidebar: the π panel (bottom right) moves
+        // left of it while it shows.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.piMeterInsetRight = Double($0) }
+        .onDisappear { model.piMeterInsetRight = 0 }
+        #endif
     }
 
     // MARK: Search and sections
@@ -440,8 +446,40 @@ struct ControlCenterView: View {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }
         }
+        Toggle("π meter", isOn: $model.piMeterEnabled)
+            .help("At the neck −3/4 + iε or the cusp 1/4 + ε: the escape count N times ε (√ε) closes in on π (P)")
+        if model.piMeterEnabled {
+            piMeterRows
+        }
         CosmicScaleRows(model: model)
         Toggle("Status (HUD)", isOn: $model.showHUD)
+    }
+
+    @ViewBuilder
+    private var piMeterRows: some View {
+        if let m = model.piMeter, !m.point.isEmpty {
+            if m.count > 0 {
+                LabeledContent(m.point == "cusp" ? "N·√ε" : "N·ε") {
+                    Text(String(format: "%.10g", m.product)).monospacedDigit()
+                }
+                LabeledContent("N") { Text("\(m.count) at ε \(String(format: "%.3g", m.countEps))").monospacedDigit() }
+                LabeledContent("Digits of π") { Text("\(m.digits)").monospacedDigit() }
+            }
+            if m.counting {
+                ProgressView(value: m.progress) { Text("Counting …").font(.caption) }
+            }
+            if m.tooDeep {
+                Text("Closer than the meter counts (over 10⁹ iterations).").font(.caption).foregroundStyle(.secondary)
+            }
+        } else {
+            Text("Centre the view on the neck −3/4 + iε or the cusp 1/4 + ε, or take a guided flight:")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        HStack {
+            Button("Fly into the neck") { model.piFlight("neck") }
+            Button("Fly into the cusp") { model.piFlight("cusp") }
+        }
+        .help("Zoom down the line of approach to ε = 1e-8 (neck) or 1e-16 (cusp) with the meter on; Esc stops")
     }
 
     // MARK: Iterations & quality
@@ -592,7 +630,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
-        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck"]
+        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "pi", "π", "neck", "cusp"]
         case .quality: ["iterations", "auto", "maximum", "cap", "anti-aliasing", "aa", "samples", "preview", "quality"]
         case .diagnostics: ["gpu", "performance", "reference", "time", "chunks", "kernel", "deep", "stats"]
         case .controls: ["keys", "keyboard", "shortcuts", "mouse", "trackpad", "help", "gamepad"]
@@ -605,7 +643,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
-        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them."
+        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The π meter (P) counts the centre's iterations on a background thread, up to 10⁹ (about 13 s)."
         case .quality: "While you move, each frame renders as much as fits in a refresh; at rest the view refines and gathers anti-aliasing samples near the boundary."
         default: nil
         }
@@ -854,6 +892,7 @@ struct ControlsHelp: View {
         row("gauge.with.dots.needle.33percent", "Q / E", "Zoom speed − / + (\(Format.speed(model.zoomFactorPerSecond)))")
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
+        row("pi", "P", "π meter at the neck or the cusp")
         row("airplane", "Z", "Autopilot: steer with the mouse, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J", "Journey: on · resume after input · off")
@@ -871,7 +910,7 @@ struct ControlsHelp: View {
         row("scope", "Trackpad or mouse pointer", "Zoom at the pointer")
         row("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
         row("space", "Keyboard: Space / ⇧Space, Q / E", "Zoom, zoom speed")
-        row("map", "Keyboard: O / M", "Orbit overlay / mini-map")
+        row("map", "Keyboard: O / M / P", "Orbit overlay / mini-map / π meter")
         row("airplane", "Autopilot button or Z", "Fly on; a finger steers, a tap pauses")
         row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
         row("rotate.left", "Two-finger rotate", "Turn the view")

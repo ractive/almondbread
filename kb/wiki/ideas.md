@@ -61,8 +61,9 @@ User asked which unsolved questions the tool could explore. Pictures cannot sett
 density of hyperbolicity or the boundary's area; experimental maths can. Written up as
 [[decisions/minibrot-atlas]] (waits for go). Side idea, a "maths moment" in the app: π in
 the iteration counts. At `c = -0.75 + iε` the escape count times ε tends to π, and at
-`c = 0.25 + ε` the count times √ε does (Boll 1991; unverified, no source page yet; our own
-check: n·ε = 3.1416 at ε = 1e-5, n·√ε = 3.14157 at ε = 1e-10, Python float64, 2026-10-15).
+`c = 0.25 + ε` the count times √ε does (Boll 1991). **Built 2026-10-15** as the π meter with
+places and guided flights: sources, proofs, error orders and our precision measurements in
+[[techniques/pi-in-the-mandelbrot-set]], controls in [[decisions/controls]] "π meter".
 
 ## Cosmic size scale (2026-10-15)
 

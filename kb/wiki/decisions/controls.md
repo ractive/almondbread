@@ -677,3 +677,38 @@ sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
 Sources: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
 [[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
 [[sources/cosmic-history-timeline]]. Idea: [[ideas]] "Cosmic size scale".
+
+## π meter (as built, 2026-10-15)
+
+A maths moment ([[techniques/pi-in-the-mandelbrot-set]]), off by default, drawn in Rust/Metal
+like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
+`crates/almondbread-core/src/pi_moment.rs`).
+
+- **When it shows:** the view's centre lies on the neck's line `-3/4 + iε` (or `-3/4 - iε`) or
+  the cusp's line `1/4 + ε`, within 20 % of ε sideways, ε ≤ 0.1. Elsewhere a small hint panel
+  says where to go.
+- **Panel (bottom right):** `N·ε =` (or `N·√ε =`) with the digits that agree with π in gold and
+  the rest dimmed, π below it aligned digit for digit, N and ε, "k digits of π" or the progress
+  of the running count, and a log-log plot of |N·ε − π| against ε (ε falls to the right) that
+  gains a point each time a count finishes, with the expected ~ε (~√ε) trend dashed. On the
+  canvas: a dashed line of approach from the parabolic point (ringed, labelled) to the centre
+  (gold ring), since the image there is mostly unresolved.
+- **Counting:** a background thread per count (compensated f64 in shifted coordinates); the
+  frame only reads the result, so frames cost a scene rebuild when the text changes. A running
+  count is kept while the view goes deeper (it becomes a plot point) and dropped when the view
+  leaves the point or zooms out past it by more than a decade. **Depth limit 10⁹ iterations**
+  (ε ≥ 3.1e-9 neck, ε ≥ 1e-17 cusp; about 13 s); deeper, the panel says so. The image's
+  iteration limit is not raised (measurements on the technique page).
+- **Controls:** P toggles (macOS and iPad keyboards); toolbar toggle "π Meter" (SF Symbol
+  `pi`) with a tooltip; View menu "π Meter" (⌥⌘P), "Fly into the Neck (π)", "Fly into the Cusp
+  (π)"; control center Overlays: switch, reading (product, N, digits, progress) and the two
+  flight buttons (the iOS way in). Persisted with the other settings, off after Reset all and
+  the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset).
+- **Guided flight:** jumps to the place "π at the Neck" (ε = 0.02) or "π at the Cusp"
+  (ε = 2e-4), turns the meter on and zooms exponentially about the parabolic point to
+  ε = 1e-8 or 1e-16, every view framed like the place (about 10 s / 18 s at the default zoom
+  speed; Q / E change the speed, Esc or any move ends it). Driven by the meter in
+  `Overlay::prepare`, not the fly-to path (that pans first). FFI: `set_pi_meter`, `pi_meter`,
+  `pi_flight`.
+- **Headless:** `almondbread render out.png --pi-overlay 1 [--ppp 0.5]` waits for the count and
+  fills the plot with the counts every half decade from ε = 0.1 down to the view's ε.
