@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// button, ⌘I), a sheet on iPhone. App-wide preferences live in the Settings window (⌘,).
 struct ControlCenterView: View {
     @Bindable var model: ExplorerModel
-    @State private var search = ""
+    @State private var search = UIDemo.search ?? ""
     @State private var showFlyTo = false
     @AppStorage("controlCenter.collapsed") private var collapsedStorage = ""
 
@@ -164,7 +164,7 @@ struct ControlCenterView: View {
             Button {
                 model.toggleAutopilot()
             } label: {
-                Label(s?.autopilot.active == true ? "Stop autopilot" : "Autopilot",
+                Label(s?.autopilot.active == true ? "Stop" : "Autopilot",
                       systemImage: s?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
             }
             .help("Zoom on continuously, steer with the pointer; click pauses, Esc stops (Z)")
@@ -177,7 +177,7 @@ struct ControlCenterView: View {
             Button {
                 model.flyToCopiedCoordinates()
             } label: {
-                Label("Fly to copied", systemImage: "doc.on.clipboard")
+                Label("Copied", systemImage: "doc.on.clipboard")
             }
             .help("Fly to coordinates on the clipboard (⇧⌘G)")
         }
@@ -445,7 +445,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
-        case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed"]
+        case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed", "autopilot", "fly", "assist"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]

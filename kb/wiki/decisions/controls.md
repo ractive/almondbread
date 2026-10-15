@@ -238,7 +238,7 @@ crosshair once the area is under ~6 points. A level keeps its centre until the v
 middle 60 % of its panel; then it is re-centred and rendered again. Each level is rendered by
 a small renderer of its own (64 K live slots, 2 ms chunks, one in flight, 4 AA samples, no
 interior analysis) at the panel's pixel size; renderers of dropped levels are reused (making
-one compiles pipelines). They are stepped only while the main view is not in a gesture.
+one compiles pipelines). They are stepped every refresh while the main view rests and every 8th during a gesture or the autopilot (so the maps fill in during a long flight).
 The orbit overlay draws the orbit at full-set scale on level 0.
 
 **Click to jump.** A click (tap on iOS) on a panel maps the pixel to c with the level's

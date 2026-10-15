@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 APP="${1:-.build/xcode/Build/Products/Release/Almondbread.app/Contents/MacOS/Almondbread}"
 OUT="${2:-build/screens}"
 mkdir -p "$OUT"
-for scene in orbit interior deep; do
+for scene in ${SCENES:-orbit interior deep places palettes autopilot}; do
     LOG="$OUT/ui-demo-$scene.log"
     rm -f "$LOG"
     "$APP" "--ui-demo=$scene" "--ui-demo-out=$OUT" > "$LOG" 2>&1 &

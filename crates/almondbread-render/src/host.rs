@@ -72,6 +72,7 @@ struct Measurement {
 pub struct Host<B: GpuBackend> {
     /// Orbit overlay and mini-map (kb: decisions/controls, "Orbit overlay and mini-map").
     pub overlay: Overlay<B>,
+    overlay_tick: u32,
     pub renderer: Renderer<B>,
     width: usize,
     height: usize,
@@ -92,6 +93,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             fitted: false,
             measure: None,
             overlay: Overlay::default(),
+            overlay_tick: 0,
         }
     }
 
@@ -199,7 +201,10 @@ impl<B: GpuBackend + Clone> Host<B> {
             return;
         }
         self.overlay.step_probe(0.0015);
-        if !self.renderer.navigator.is_interacting(now) {
+        // During a gesture (or the autopilot, which never stops moving) only every 8th refresh,
+        // so a level still gets drawn; idle, every refresh.
+        self.overlay_tick = self.overlay_tick.wrapping_add(1);
+        if !self.renderer.navigator.is_interacting(now) || self.overlay_tick.is_multiple_of(8) {
             let settings = self.renderer.settings.clone();
             self.overlay.step_maps(&settings, now);
         }

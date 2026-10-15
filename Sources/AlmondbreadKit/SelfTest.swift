@@ -148,6 +148,15 @@ public enum UIDemo {
     }
     public static var enabled: Bool { scene != nil }
 
+    /// The control center's search text the scene starts with (shows that section on top).
+    static var search: String? {
+        switch scene {
+        case "palettes": "palette"
+        case "autopilot": "autopilot"
+        default: nil
+        }
+    }
+
     @MainActor
     static func configure(_ model: ExplorerModel, explorer: Explorer) {
         guard let scene else { return }
@@ -171,6 +180,17 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 4
             _ = explorer.input(event: .pointer(x: 10, y: 4))
+        case "places":
+            // (After the first layout: a place is fitted to the view size.)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace("elephants") }
+        case "palettes":
+            model.applyPalette(model.library.first { $0.category == "natural" }?.id ?? "aurora")
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+        case "autopilot":
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
+            model.mapEnabled = true
+            model.mapLevels = 2
+            model.toggleAutopilot()
         default:
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
             model.interiorColoring = .angle
@@ -186,7 +206,7 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                if Date().timeIntervalSince(start) > 8, model.stats?.settled == true,
+                if Date().timeIntervalSince(start) > 8, model.stats?.settled == true || (scene == "autopilot" && Date().timeIntervalSince(start) > 6),
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
