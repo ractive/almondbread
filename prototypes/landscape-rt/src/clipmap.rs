@@ -12,7 +12,7 @@ use crate::gpu::{LevelRef, RingDraw, RingParams, TileJob};
 pub const TILE: i64 = 16;
 pub const BLOCK: i64 = 16;
 /// Finer levels added below the zoom's finest when the eye is low over the ground.
-pub const EXTRA_LEVELS: usize = 4;
+pub const EXTRA_LEVELS: usize = 5;
 
 /// (level, world tile x, world tile y)
 pub type TileKey = (i32, i64, i64);
@@ -34,9 +34,12 @@ pub struct ClipConfig {
 }
 
 impl ClipConfig {
-    pub fn new(n: i64, k: i64, levels: usize, detail: f64) -> Self {
+    pub fn new(n: i64, k: i64, levels: usize, detail: f64, ring: i64) -> Self {
         // largest M (multiple of 2·BLOCK) whose ring plus snapping slack fits in the data window
         let mut m = (n / k) / (2 * BLOCK) * (2 * BLOCK);
+        if ring > 0 {
+            m = m.min(ring / (2 * BLOCK) * (2 * BLOCK));
+        }
         while m > 0 && m * k + 32 * k + TILE + 4 > n {
             m -= 2 * BLOCK;
         }
@@ -92,11 +95,17 @@ fn tile_tag(l: i32, div: [i64; 2]) -> u32 {
     level_bits(l) | (((div[0] & 255) as u32) << 8) | ((div[1] & 255) as u32)
 }
 
+/// Status bit: the tile's GPU job has finished (all 256 samples written). Without it, the tag
+/// alone means "requested" (computing, or waiting to resume).
+const DONE: u32 = 0x8000_0000;
+
 pub struct Candidate {
     score: f64,
     level: u16,
     tx: i64,
     ty: i64,
+    d3: f64,
+    vis: f64,
 }
 
 pub struct Clipmap {
@@ -107,19 +116,28 @@ pub struct Clipmap {
     status: Vec<Vec<u32>>,
     slot_level: Vec<Option<i32>>,
     pub missing: usize,
-    /// missing tiles ahead of the camera (within ±60° of the heading) and inside 2× the fog
+    /// unscheduled missing tiles in the view frustum and within 2× the fog (after this frame's batch)
     pub missing_ahead: usize,
-    /// missing tiles within 3 S of the camera (any level)
+    /// unscheduled missing tiles within 1.5 S of the eye (3D, any level)
     pub missing_near: usize,
+    /// missing tiles that wait for their parent tile (not schedulable yet)
+    pub blocked: usize,
     cands: Vec<Candidate>,
 }
 
 pub struct ScheduleCtx {
     pub cam: [f64; 2],
     pub s: f64,
-    pub heading: f64,
     pub ref_off: [f64; 2],
     pub fog: f64,
+    /// eye height above the ground, S
+    pub hag: f64,
+    /// camera basis (forward, right, up) and tan of the half FOV (horizontal) and aspect
+    pub fwd: [f64; 3],
+    pub right: [f64; 3],
+    pub up: [f64; 3],
+    pub tan_half: f64,
+    pub aspect: f64,
 }
 
 pub struct ViewCtx {
@@ -149,6 +167,7 @@ impl Clipmap {
             missing: 0,
             missing_ahead: 0,
             missing_near: 0,
+            blocked: 0,
             cands: Vec::new(),
         }
     }
@@ -190,52 +209,88 @@ impl Clipmap {
 
     /// Collects missing tiles, picks the `budget` most urgent ones and returns their jobs
     /// (marking them as requested).
+    ///
+    /// Priority (L2): a tile is schedulable only when its parent tile (level ℓ+1) is done, so
+    /// the valid levels at any point always form a complete pyramid from the coarsest level
+    /// down, and the shaders' fallback is never more than the pending depth away. Among
+    /// schedulable tiles the score is the screen-space error the tile removes: the parent's
+    /// sample spacing over the 3D distance from the eye (the eye height counts: flying low, the
+    /// ground under the camera is the nearest), times a visibility factor from the view
+    /// frustum (behind the camera 0.1, just outside the view 0.35), and fogged far tiles last.
     pub fn schedule(&mut self, ctx: &ScheduleCtx, budget: usize) -> Vec<(TileJob, TileKey)> {
         let cfg = self.cfg;
         let tn = cfg.tiles();
         self.cands.clear();
-        self.missing_ahead = 0;
-        self.missing_near = 0;
-        let (hx, hy) = (ctx.heading.cos(), ctx.heading.sin());
+        let (mut blocked, mut b_ahead, mut b_near) = (0usize, 0usize, 0usize);
+        let ez = ctx.hag.max(0.005);
+        let tv = ctx.tan_half / ctx.aspect;
+        let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
         for (li, lv) in self.levels.iter().enumerate() {
             let sp = spacing(lv.l);
+            let parent = self.levels.get(li + 1).copied();
             let st = &self.status[lv.slot];
             let t0 = [lv.data[0] / TILE, lv.data[1] / TILE];
             let sp_s = sp / ctx.s;
+            let half = 0.5 * TILE as f64 * sp_s; // tile half-width, S
             for ty in t0[1]..t0[1] + tn {
                 let row = ty.rem_euclid(tn) * tn;
                 let divy = ty.div_euclid(tn);
                 for tx in t0[0]..t0[0] + tn {
                     let idx = (row + tx.rem_euclid(tn)) as usize;
                     let tag = tile_tag(lv.l, [tx.div_euclid(tn), divy]);
-                    if st[idx] == tag {
+                    if st[idx] & !DONE == tag {
                         continue;
                     }
-                    // distance from the camera in units of S
+                    // tile centre relative to the camera, S
                     let cx = ((tx * TILE + TILE / 2) as f64 * sp - ctx.cam[0]) / ctx.s;
                     let cy = ((ty * TILE + TILE / 2) as f64 * sp - ctx.cam[1]) / ctx.s;
-                    let d = (cx * cx + cy * cy).sqrt();
-                    // error of the fallback ~ spacing / distance; ahead before behind; far fog last
-                    let mut score = sp_s / d.max(sp_s * TILE as f64);
-                    let facing = if d > 1e-9 { (cx * hx + cy * hy) / d } else { 1.0 };
-                    score *= 0.3 + 0.7 * ((facing + 0.3) / 0.8).clamp(0.0, 1.0);
-                    if d < 3.0 {
-                        self.missing_near += 1;
-                    }
-                    if facing > 0.5 && d < 2.0 * ctx.fog {
-                        self.missing_ahead += 1;
-                    }
-                    if d > 4.0 * ctx.fog {
+                    let dh = ((cx * cx + cy * cy).sqrt() - half * std::f64::consts::SQRT_2).max(0.0);
+                    let d3 = (dh * dh + ez * ez).sqrt();
+                    // error removed: the parent's spacing (what is shown now) over the distance
+                    let mut score = 2.0 * sp_s / d3.max(1e-9);
+                    // visibility: the tile's nearest point relative to the frustum
+                    let rel = [cx, cy, -ez];
+                    let z = dot(rel, ctx.fwd);
+                    let x = dot(rel, ctx.right).abs();
+                    let y = dot(rel, ctx.up).abs();
+                    let r = half * 1.5;
+                    let outside = ((x - r) / (z.max(0.0) + r)).max(0.0) / ctx.tan_half.max(1e-3) + ((y - r) / (z.max(0.0) + r)).max(0.0) / tv.max(1e-3);
+                    let vis = if z < -r { 0.1 } else if outside <= 1.0 { 1.0 } else if outside < 1.6 { 0.35 } else { 0.15 };
+                    score *= vis;
+                    if dh > 4.0 * ctx.fog {
                         score *= 0.1;
                     }
-                    self.cands.push(Candidate { score, level: li as u16, tx, ty });
+                    if let Some(p) = parent {
+                        let (px, py) = (tx.div_euclid(2), ty.div_euclid(2));
+                        let pidx = (py.rem_euclid(tn) * tn + px.rem_euclid(tn)) as usize;
+                        if self.status[p.slot][pidx] != tile_tag(p.l, [px.div_euclid(tn), py.div_euclid(tn)]) | DONE {
+                            blocked += 1;
+                            b_ahead += (vis >= 1.0 && d3 < 2.0 * ctx.fog) as usize;
+                            b_near += (d3 < 1.5) as usize;
+                            continue;
+                        }
+                    }
+                    self.cands.push(Candidate { score, level: li as u16, tx, ty, d3, vis });
                 }
             }
         }
-        self.missing = self.cands.len();
         let take = budget.min(self.cands.len());
         if take < self.cands.len() && take > 0 {
             self.cands.select_nth_unstable_by(take - 1, |a, b| b.score.total_cmp(&a.score));
+        }
+        // backlog after this frame's batch (what the zoom-in rate yields to): unscheduled
+        // schedulable tiles plus the blocked ones
+        self.missing = self.cands.len() - take + blocked;
+        self.blocked = blocked;
+        self.missing_ahead = b_ahead;
+        self.missing_near = b_near;
+        for c in self.cands.iter().skip(take) {
+            if c.vis >= 1.0 && c.d3 < 2.0 * ctx.fog {
+                self.missing_ahead += 1;
+            }
+            if c.d3 < 1.5 {
+                self.missing_near += 1;
+            }
         }
         let mut jobs = Vec::with_capacity(take);
         for c in self.cands.iter().take(take) {
@@ -246,7 +301,12 @@ impl Clipmap {
             self.status[lv.slot][idx] = tag;
             let x = (c.tx * TILE) as f64 * sp - ctx.ref_off[0];
             let y = (c.ty * TILE) as f64 * sp - ctx.ref_off[1];
+            let parent = self.levels.get(c.level as usize + 1);
+            let n = cfg.n;
             jobs.push((TileJob {
+                ptexel: [((c.tx * TILE / 2).rem_euclid(n)) as u32, ((c.ty * TILE / 2).rem_euclid(n)) as u32],
+                pslot: parent.map_or(u32::MAX, |p| p.slot as u32),
+                pad: 0,
                 dc0: [x as f32, y as f32],
                 spacing: sp as f32,
                 slot: lv.slot as u32,
@@ -256,6 +316,19 @@ impl Clipmap {
             }, (lv.l, c.tx, c.ty)));
         }
         jobs
+    }
+
+    /// Marks a requested tile as done (its job finished).
+    pub fn mark_done(&mut self, key: TileKey) {
+        let (l, tx, ty) = key;
+        let tn = self.cfg.tiles();
+        let tag = tile_tag(l, [tx.div_euclid(tn), ty.div_euclid(tn)]);
+        let idx = (ty.rem_euclid(tn) * tn + tx.rem_euclid(tn)) as usize;
+        for lv in &self.levels {
+            if lv.l == l && self.status[lv.slot][idx] == tag {
+                self.status[lv.slot][idx] = tag | DONE;
+            }
+        }
     }
 
     /// Ring draw parameters and visible blocks (frustum-culled), finest ring first.
@@ -284,24 +357,52 @@ impl Clipmap {
             if i + 1 == self.levels.len() {
                 p.alpha_start = 1e30; // no coarser ring
             }
-            p.level_bits = [0xFFFF_FFFF; 8];
-            for k in 0..6 {
-                if let Some(c) = self.levels.get(i + k) {
-                    let n = cfg.n;
-                    let shift = k as u32;
-                    p.lv[k] = LevelRef {
+            // the finer levels (fragment shading only) and every coarser active level: the shaders
+            // fall back through all of them (L2)
+            let n = cfg.n;
+            // all finer levels: the fragment picks its level by footprint and validity alone, so
+            // the shading at a point does not depend on which ring draws it (when a ring snapped,
+            // pixels changing ring changed level: the pop check's worst frames)
+            let fine = std::env::var("LRT_FINE").ok().and_then(|v| v.parse().ok()).unwrap_or(usize::MAX).min(i);
+            let mut count = 0;
+            for j in 0..crate::gpu::MAXLV {
+                let k = j as i64 - fine as i64; // level relative to the ring's
+                if let Some(c) = self.levels.get((i as i64 + k) as usize) {
+                    let sh = (k as f64).exp2();
+                    p.lv[j] = LevelRef {
                         data_mod: [c.data[0].rem_euclid(n) as i32, c.data[1].rem_euclid(n) as i32],
                         data_div: [c.data[0].div_euclid(n) as i32, c.data[1].div_euclid(n) as i32],
-                        ring_origin: [((lv.geo[0] >> shift) - c.data[0]) as i32, ((lv.geo[1] >> shift) - c.data[1]) as i32],
+                        ro: [(lv.geo[0] as f64 / sh - c.data[0] as f64) as f32, (lv.geo[1] as f64 / sh - c.data[1] as f64) as f32],
                         sp_over_s: (spacing(c.l) / v.s) as f32,
                         slot: c.slot as u32,
+                        level_bits: level_bits(c.l),
+                        lvl: c.l,
                     };
-                    debug_assert!(lv.geo[0] % (1 << shift) == 0);
-                    debug_assert!(p.lv[k].ring_origin[0] >= 0 && p.lv[k].ring_origin[1] >= 0);
-                    p.level_bits[k] = level_bits(c.l);
+                    count = j + 1;
                 } else {
-                    p.lv[k] = LevelRef { sp_over_s: 1.0, ..Default::default() };
-                    p.level_bits[k] = 0xFFFF_FFFF;
+                    p.lv[j] = LevelRef { sp_over_s: 1.0, level_bits: 0xFFFF_FFFF, ..Default::default() };
+                }
+            }
+            p.n_lv = count as i32;
+            p.fine = fine as i32;
+            p.lvl = lv.l;
+            // detail lattice: absolute sample index of data-local 0 (level ℓ) in octave units,
+            // mod 128 cells, exact; plus a fixed per-octave offset that decorrelates octaves
+            for (j, b) in p.nbase.iter_mut().enumerate() {
+                let oct = lv.l + j as i32 - 6;
+                let sh = lv.l - oct;
+                let per = crate::gpu::NOISE_CELLS as i64;
+                let off = [((oct * 37).rem_euclid(128)) as f64, ((oct * 71 + 13).rem_euclid(128)) as f64];
+                for a in 0..2 {
+                    let d = lv.data[a];
+                    let x = if sh >= 0 {
+                        ((d % per) << sh).rem_euclid(per) as f64
+                    } else {
+                        let n = -sh;
+                        let m = per << n;
+                        d.rem_euclid(m) as f64 / (1i64 << n) as f64
+                    };
+                    b[a] = ((x + off[a]) % per as f64) as f32;
                 }
             }
             // hole: the finer ring's footprint, in blocks of this ring
@@ -367,7 +468,7 @@ impl Clipmap {
                 && tx < lv.data[0] / TILE + tn
                 && ty >= lv.data[1] / TILE
                 && ty < lv.data[1] / TILE + tn
-                && self.status[lv.slot][(ty.rem_euclid(tn) * tn + tx.rem_euclid(tn)) as usize] == tile_tag(l, [tx.div_euclid(tn), ty.div_euclid(tn)])
+                && self.status[lv.slot][(ty.rem_euclid(tn) * tn + tx.rem_euclid(tn)) as usize] & !DONE == tile_tag(l, [tx.div_euclid(tn), ty.div_euclid(tn)])
         })
     }
 

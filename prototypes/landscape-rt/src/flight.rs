@@ -260,6 +260,11 @@ pub struct Script {
     /// then zoom in on it (manual zoom, or the auto-zoom mode's pitch rule)
     pub target: bool,
     pub auto_zoom: bool,
+    /// closed loop: (height above the ground to hold in S, zoom-in factor first; negative: no zoom
+    /// and no valley seeking): low flight
+    pub low: Option<(f64, f64)>,
+    /// target scripts: zoom until S reaches this
+    pub depth: f64,
 }
 
 impl Script {
@@ -281,6 +286,7 @@ impl Script {
     pub fn named(name: &str) -> Option<Script> {
         // i(pitch stick, turn, throttle, zoom)
         let i = |pitch: f64, turn: f64, throttle: f64, zoom: f64| Input { pitch, turn, throttle, zoom };
+        let mut low = None;
         let (segs, speed, target, auto) = match name {
             // level flight with S-turns at fixed zoom
             "cruise" => (vec![(2.0, i(0., 0., 0., 0.)), (3.0, i(0., 0.6, 0., 0.)), (3.5, i(0., -0.6, 0., 0.)), (3.5, i(0., 0., 0., 0.))], 1.0, false, false),
@@ -328,8 +334,27 @@ impl Script {
             ),
             "target" => (vec![(45.0, Input::default())], 1.0, true, false),
             "target-auto" => (vec![(45.0, Input::default())], 1.0, true, true),
+            // the target dive (manual zoom) down to the depth limit
+            "deep" => (vec![(70.0, Input::default())], 1.0, true, false),
+            // the user's L1 screenshot situation: low flight at ~0.04 S (the floor), speed 0.16
+            "low" => {
+                low = Some((0.05, 1.0));
+                (vec![(22.0, Input::default())], 1.0, false, false)
+            }
+            // the same low flight, but straight ahead with gentle S-turns (no valley seeking):
+            // with --turn-heading 180 it flies out over the plains away from the set
+            "lowplain" => {
+                low = Some((0.05, -1.0));
+                (vec![(22.0, Input::default())], 1.0, false, false)
+            }
+            // zoom in 300× (Shift+↑) while descending, then the same low valley flight
+            "zoomlow" => {
+                low = Some((0.05, 300.0));
+                (vec![(40.0, Input::default())], 1.0, false, false)
+            }
             _ => return None,
         };
-        Some(Script { name: name.into(), segs, start_speed: speed, target, auto_zoom: auto })
+        let depth = if name == "deep" { 1.5e-12 } else { 1e-7 };
+        Some(Script { name: name.into(), segs, start_speed: speed, target, auto_zoom: auto, low, depth })
     }
 }

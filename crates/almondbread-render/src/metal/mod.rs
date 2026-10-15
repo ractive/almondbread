@@ -675,6 +675,57 @@ mod tests {
         assert!(all(&v, 255), "{:?}", &v[..v.len().min(20)]);
     }
 
+    /// "Selected Lagoon and almondbread died" (2026-10-14): a colour change while progressive
+    /// AA samples were on the GPU dropped their levels; when the stale chunks were harvested
+    /// they indexed a level that was gone (index out of bounds, a Swift trap through the FFI).
+    /// Every palette and look is applied while AA chunks are in flight; nothing may panic and
+    /// the view must settle.
+    #[test]
+    fn colour_change_during_progressive_aa() {
+        use crate::backend::{GpuBackend, Storage, TextureFormat};
+        use crate::scheduler::Renderer;
+        use almondbread_core::palette::{Look, Palette};
+
+        let backend = MetalBackend::new().expect("metal");
+        let target = backend
+            .create_texture(640, 400, TextureFormat::Bgra8Unorm, Storage::Shared)
+            .expect("target");
+        let mut r = Renderer::new(backend).expect("renderer");
+        r.settings.supersampling = almondbread_core::Supersampling::from_factor(3).expect("x9");
+        r.viewport = almondbread_core::Viewport::new(-0.743643887037151, 0.13182590420533, 3e-6);
+        let start = std::time::Instant::now();
+        let now = || start.elapsed().as_secs_f64();
+        type Change = Box<dyn Fn(&mut almondbread_core::RenderSettings)>;
+        let mut changes: Vec<Change> = Vec::new();
+        for p in Palette::all() {
+            changes.push(Box::new(move |s| s.palette_id = p.id.to_string()));
+        }
+        for l in Look::all() {
+            changes.push(Box::new(move |s| l.apply(s)));
+        }
+        let mut next = 0;
+        let mut during_aa = 0;
+        for _ in 0..20_000 {
+            let t = now();
+            r.render_frame(t, 640, 400, 1.0, &mut |_| Some((target.clone(), None)));
+            if next < changes.len() && r.aa_chunks_in_flight() {
+                changes[next](&mut r.settings);
+                next += 1;
+                during_aa += 1;
+            }
+            if next == changes.len() && r.is_settled() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(
+            during_aa >= changes.len() / 2,
+            "only {during_aa} changes hit AA in flight"
+        );
+        assert!(r.is_settled(), "did not settle after {next} colour changes");
+        assert_eq!(r.finish_frames(), 0, "failed frames");
+    }
+
     /// The hosting path of R2b, headless: a `CAMetalLayer` (no window) as the surface, the
     /// per-refresh `render_frame` presenting drawables, a gesture then idle refinement.
     #[test]

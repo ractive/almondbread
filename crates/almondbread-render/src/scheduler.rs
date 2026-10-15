@@ -394,6 +394,11 @@ struct Job<B: GpuBackend> {
     complete_at: Option<f64>,
     /// AA samples composed into the history (besides the full level's centre sample).
     aa_composed: u32,
+    /// Bumped when the AA samples are dropped (a colour change recolours from the exact
+    /// samples): chunks of dropped AA levels still in flight carry the old value and are
+    /// ignored at harvest. Before this, such a chunk indexed a level that was gone (or a
+    /// newer AA level at the same index): "selected Lagoon and almondbread died".
+    aa_epoch: u64,
     /// Which pixels take AA samples (built once the view is refined).
     aa_list: Option<AaList<B>>,
 }
@@ -486,6 +491,7 @@ impl<B: GpuBackend> Job<B> {
     fn drop_aa(&mut self) {
         self.levels.retain(|l| l.aa.is_none());
         self.aa_composed = 0;
+        self.aa_epoch += 1;
     }
 }
 
@@ -515,6 +521,8 @@ struct ChunkRecord<B: GpuBackend> {
     submission: B::Submission,
     generation: u64,
     level: usize,
+    /// The job's AA epoch when this chunk belongs to an AA sample level (see `Job::aa_epoch`).
+    aa_epoch: Option<u64>,
     slot: usize,
     iterations: usize,
     /// K came from the throughput model (feeds `rate` back).
@@ -875,6 +883,22 @@ impl<B: GpuBackend> Renderer<B> {
         })
     }
 
+    /// After a panic inside a frame (caught at the FFI boundary): forget the job and the GPU
+    /// work in flight, so the next refresh starts the view afresh instead of tripping over the
+    /// same half-updated state. Counted as a failed frame.
+    pub fn recover_after_panic(&mut self) {
+        self.job = None;
+        self.in_flight.clear();
+        self.frames_in_flight.clear();
+        self.failed_frames += 1;
+    }
+
+    /// Chunks of anti-aliasing samples are on the GPU (tests).
+    #[doc(hidden)]
+    pub fn aa_chunks_in_flight(&self) -> bool {
+        self.in_flight.iter().any(|r| r.aa_epoch.is_some())
+    }
+
     pub fn backend(&self) -> &B {
         &self.backend
     }
@@ -1129,14 +1153,6 @@ impl<B: GpuBackend> Renderer<B> {
                     COMPOSE_AA => job.aa_composed += 1,
                     COMPOSE_EXACT => {
                         // Recoloured from the exact samples: anti-aliasing starts over.
-                        // AA chunks may still be in flight and their records index the levels
-                        // being dropped: a new generation makes `harvest` ignore them (it
-                        // indexed past the shrunken level list and panicked: the app died
-                        // when a look was chosen while AA samples were running).
-                        if job.levels.iter().any(|l| l.aa.is_some()) {
-                            self.generation += 1;
-                            job.generation = self.generation;
-                        }
                         job.drop_aa();
                         job.complete_at = Some(f64::NEG_INFINITY);
                     }
@@ -1494,6 +1510,7 @@ impl<B: GpuBackend> Renderer<B> {
             complete_presented: false,
             complete_at: None,
             aa_composed: 0,
+            aa_epoch: 0,
             aa_list: None,
         });
         // Offscreen renders always iterate with the table (deterministic results); views
@@ -2042,12 +2059,14 @@ impl<B: GpuBackend> Renderer<B> {
         let submission = enc.commit();
 
         let generation = job.generation;
+        let aa_epoch = job.levels[level_index].aa.map(|_| job.aa_epoch);
         self.ping = dst;
         self.job.as_mut().expect("job").levels[level_index].encoded += 1;
         self.in_flight.push_back(ChunkRecord {
             submission,
             generation,
             level: level_index,
+            aa_epoch,
             slot: self.stat_slot,
             iterations: k,
             adaptive,
@@ -2095,7 +2114,8 @@ impl<B: GpuBackend> Renderer<B> {
                     .job
                     .as_ref()
                     .filter(|j| j.generation == rec.generation)
-                    .map(|j| j.levels[rec.level].use_interior)
+                    .and_then(|j| j.levels.get(rec.level))
+                    .map(|l| l.use_interior)
                     .unwrap_or(false);
                 println!(
                     "chunk gen {} slot {:2}: liveIn {:8} fresh {:8} K {:8} -> liveOut {:8}  iters {}  steps {}  interior {} (test {})  gpu {:.2} ms  rate {}",
@@ -2117,7 +2137,11 @@ impl<B: GpuBackend> Renderer<B> {
                 fs.chunk_gpu += gpu;
             }
             let Some(job) = &mut self.job else { continue };
-            if job.generation != rec.generation {
+            // Another job's chunk, or one of AA samples dropped since (a colour change).
+            if job.generation != rec.generation
+                || rec.aa_epoch.is_some_and(|e| e != job.aa_epoch)
+                || rec.level >= job.levels.len()
+            {
                 continue;
             }
             job.gpu_time += gpu;

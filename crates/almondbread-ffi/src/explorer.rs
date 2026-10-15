@@ -757,6 +757,42 @@ pub struct Explorer {
     inner: Mutex<Inner>,
 }
 
+/// Logs every Rust panic (message, location, backtrace) to
+/// `~/Library/Logs/Almondbread/panic.log` before the default hook runs. A panic inside an FFI
+/// call becomes a Swift trap; an app started from Finder has no stderr, so without this the
+/// cause is lost when a crash report is not written.
+fn install_panic_log() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if let Some(home) = std::env::var_os("HOME") {
+                let dir = std::path::Path::new(&home).join("Library/Logs/Almondbread");
+                let _ = std::fs::create_dir_all(&dir);
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(dir.join("panic.log"))
+                {
+                    use std::io::Write;
+                    let when = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs());
+                    let bt = std::backtrace::Backtrace::force_capture();
+                    let _ = writeln!(
+                        f,
+                        "=== {} (unix {when}) pid {} thread {:?}\n{info}\n{bt}",
+                        env!("CARGO_PKG_VERSION"),
+                        std::process::id(),
+                        std::thread::current().name()
+                    );
+                }
+            }
+            previous(info);
+        }));
+    });
+}
+
 impl Explorer {
     fn lock(&self) -> MutexGuard<'_, Inner> {
         // A panic inside a call (caught by UniFFI) must not brick the view.
@@ -773,6 +809,7 @@ impl Explorer {
     /// kernels: create one per window, not per view update.
     #[uniffi::constructor]
     pub fn new(layer: u64, scale: f64) -> Result<Arc<Self>, CoreError> {
+        install_panic_log();
         if layer == 0 {
             return Err(invalid("layer must not be null"));
         }
@@ -814,24 +851,33 @@ impl Explorer {
     pub fn frame(&self, timestamp: f64) -> u8 {
         let mut g = self.lock();
         let Inner { host, surface, log } = &mut *g;
-        let animating = MetalBackend::pool(|| {
-            if let Some(log) = log {
-                let shown: Vec<(u64, f64)> = log.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
-                for (tag, t) in shown {
-                    host.on_presented(tag, t);
+        // A panic must not cross the FFI (UniFFI turns it into a Swift trap: the app dies, as
+        // in "selected Lagoon and almondbread died"). The panic hook has logged it to
+        // ~/Library/Logs/Almondbread/panic.log; the renderer drops its job and goes on.
+        let frame = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            MetalBackend::pool(|| {
+                if let Some(log) = log {
+                    let shown: Vec<(u64, f64)> = log.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
+                    for (tag, t) in shown {
+                        host.on_presented(tag, t);
+                    }
                 }
-            }
-            // macOS reports the last vsync as the timestamp, up to a refresh in the past:
-            // scheduling on it started refinement a refresh late (measured +15 ms to the final
-            // frame), so the later of it and the current time is "now".
-            let now = media_time().max(if timestamp.is_finite() { timestamp } else { 0.0 });
-            let ready = surface.drawable_ready(now);
-            host.frame(now, &media_time, ready, &mut |final_frame| {
-                surface
-                    .next_drawable(now, final_frame)
-                    .map(|target| (target, surface.last_tag()))
+                // macOS reports the last vsync as the timestamp, up to a refresh in the past:
+                // scheduling on it started refinement a refresh late (measured +15 ms to the final
+                // frame), so the later of it and the current time is "now".
+                let now = media_time().max(if timestamp.is_finite() { timestamp } else { 0.0 });
+                let ready = surface.drawable_ready(now);
+                host.frame(now, &media_time, ready, &mut |final_frame| {
+                    surface
+                        .next_drawable(now, final_frame)
+                        .map(|target| (target, surface.last_tag()))
+                })
+                .animating
             })
-            .animating
+        }));
+        let animating = frame.unwrap_or_else(|_| {
+            host.renderer.recover_after_panic();
+            true
         });
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
         (u8::from(animating) * FRAME_ANIMATING) | (u8::from(keyboard) * FRAME_KEYBOARD)
@@ -866,7 +912,13 @@ impl Explorer {
                 mode: g.host.renderer.navigator.mode().into(),
             };
         };
-        let o = g.host.input(e, media_time());
+        let host = &mut g.host;
+        let o = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.input(e, media_time()))).unwrap_or(
+            almondbread_render::host::InputOutcome {
+                handled: false,
+                redraw: true,
+            },
+        );
         InputResult {
             handled: o.handled,
             redraw: o.redraw,

@@ -367,3 +367,18 @@ Recommendation: local SA in M5 after a float32 kernel check. Pages:
 [[techniques/local-series-approximation]], [[questions/local-sa-float32]]; updated
 [[techniques/guessing-and-subdivision]], [[techniques/series-approximation]],
 [[techniques/anti-aliasing]], [[synthesis/benchmarks]] R3, [[index]].
+
+## [2026-10-15] decision | L2: landscape detail and robustness
+
+User verdict on L1: "ok, not wow"; zoom in more; low detail at the deepest zoom; screenshot with
+flat tile-shaped slabs at S = 1.76e-6, 0.04 S above the ground. Causes: point-sampled vertex
+fallback past ℓ+2 and geometry-only fragment shading (slabs); a fill-limited zoom that
+throttled itself to 0.1–0.15 e-folds/s; a per-tile cost estimate stuck high. L2: parent-first
+scheduling (complete pyramid), fallback through all levels, screen-space-error priority,
+post-batch backlog for the zoom limit, window DE budget from the render time, parent-sample
+reuse in the DE kernel (1.15–1.27× cold), world-anchored detail noise from a texture,
+equipotential ridges on plains (σ-weighted; baked into DE they striped every flank), 256²
+rings with footprint-based shading levels, curvature-correct geomorph. No-data pixels 0 in
+every run (L1: 45 % max starved, 99.9 % max in the target dive). Depth limit not lifted (what
+it takes is on the page). Pages: [[decisions/landscape-mode]] L2, [[synthesis/benchmarks]] L2,
+[[roadmap]].

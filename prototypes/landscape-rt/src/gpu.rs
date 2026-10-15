@@ -36,7 +36,7 @@ pub struct DeParams {
     pub now: f32,
     pub job_count: u32,
     pub chunk: u32,
-    pub pad: u32,
+    pub pad: f32,
 }
 
 #[repr(C)]
@@ -49,6 +49,11 @@ pub struct TileJob {
     pub tag: f32,
     /// state slot; high bit set: resume
     pub state: u32,
+    /// parent level: texel of the sample at this tile's sample (0,0)
+    pub ptexel: [u32; 2],
+    /// parent's layer, u32::MAX: no parent level (compute all 256 samples)
+    pub pslot: u32,
+    pub pad: u32,
 }
 
 #[repr(C)]
@@ -65,6 +70,8 @@ pub struct Globals {
     pub shade: [f32; 4],
     pub shade2: [f32; 4],
     pub overlay: [f32; 4],
+    pub detail: [f32; 4],
+    pub detail2: [f32; 4],
 }
 
 #[repr(C)]
@@ -72,29 +79,42 @@ pub struct Globals {
 pub struct LevelRef {
     pub data_mod: [i32; 2],
     pub data_div: [i32; 2],
-    pub ring_origin: [i32; 2],
+    /// ring vertex (0,0) in this level's data-local sample coords
+    pub ro: [f32; 2],
     pub sp_over_s: f32,
     pub slot: u32,
+    pub level_bits: u32,
+    /// absolute level (spacing 2^lvl)
+    pub lvl: i32,
 }
+
+pub const MAXLV: usize = 18;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Default, Debug)]
 pub struct RingParams {
-    pub lv: [LevelRef; 6],
-    pub level_bits: [u32; 8],
+    pub lv: [LevelRef; MAXLV],
     pub pos0: [f32; 2],
     pub g_s: f32,
     pub k: i32,
     pub alpha_start: f32,
     pub alpha_width: f32,
     pub block_verts: i32,
-    pub pad: i32,
+    pub n_lv: i32,
+    /// index of the ring's own level in `lv` (the entries before it are finer levels)
+    pub fine: i32,
+    /// the ring's absolute level ℓ
+    pub lvl: i32,
+    /// detail lattice base per octave ℓ−6 ..= ℓ+11 (see the shader)
+    pub nbase: [[f32; 2]; NOCT],
 }
 
-const _: () = assert!(std::mem::size_of::<TileJob>() == 32);
-const _: () = assert!(std::mem::size_of::<LevelRef>() == 32);
-const _: () = assert!(std::mem::size_of::<RingParams>() == 256);
-const _: () = assert!(std::mem::size_of::<Globals>() == 224);
+pub const NOCT: usize = 18;
+
+const _: () = assert!(std::mem::size_of::<TileJob>() == 48);
+const _: () = assert!(std::mem::size_of::<LevelRef>() == 40);
+const _: () = assert!(std::mem::size_of::<RingParams>() == 18 * 40 + 32 + 8 + 18 * 8);
+const _: () = assert!(std::mem::size_of::<Globals>() == 256);
 
 /// One ring's draw: its parameters and its visible blocks (offset/count into the frame's block list).
 pub struct RingDraw {
@@ -120,6 +140,11 @@ pub struct Gpu {
     sky_depth_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     pub data_tex: Texture,
     pub meta_tex: Texture,
+    /// R16Unorm: equipotential ridge phase sin²(πν/2) per sample (L2 plains relief; R8's
+    /// 256 steps made visible contour terraces)
+    pub ridge_tex: Texture,
+    /// periodic value noise (value, d/dx, d/dy per cell) for the detail octaves
+    pub noise_tex: Texture,
     index_buf: Buffer,
     index_count: usize,
     ref_buf: Option<Buffer>,
@@ -194,6 +219,7 @@ impl Gpu {
                 }
                 d.setStorageMode(MTLStorageMode::Private);
                 let mut usage = MTLTextureUsage::ShaderRead;
+                // the DE kernel reads parent samples from the same textures it writes
                 if write {
                     usage |= MTLTextureUsage::ShaderWrite;
                 }
@@ -207,6 +233,8 @@ impl Gpu {
             }
             let data_tex = tex(MTLPixelFormat::R32Float, n, true)?;
             let meta_tex = tex(MTLPixelFormat::RG32Float, n / 16, true)?;
+            let noise_tex = noise_texture(&device, &queue)?;
+            let ridge_tex = tex(MTLPixelFormat::R16Unorm, n, true)?;
 
             // one block: block_verts² quads over (block_verts+1)² vertices, diagonal (0,0)-(1,1)
             let b = block_verts as u16;
@@ -235,6 +263,8 @@ impl Gpu {
                 sky_depth_state,
                 data_tex,
                 meta_tex,
+                ridge_tex,
+                noise_tex,
                 index_buf,
                 index_count: idx.len(),
                 ref_buf: None,
@@ -356,6 +386,7 @@ impl Gpu {
         unsafe {
             enc.setTexture_atIndex(Some(&self.data_tex), 0);
             enc.setTexture_atIndex(Some(&self.meta_tex), 1);
+            enc.setTexture_atIndex(Some(&self.ridge_tex), 2);
             let p = bytemuck::bytes_of(&params);
             enc.setBytes_length_atIndex(NonNull::new(p.as_ptr() as *mut c_void).unwrap(), p.len(), 0);
             enc.setBuffer_offset_atIndex(Some(rb), 0, 1);
@@ -409,6 +440,10 @@ impl Gpu {
                 enc.setVertexTexture_atIndex(Some(&self.meta_tex), 1);
                 enc.setFragmentTexture_atIndex(Some(&self.data_tex), 0);
                 enc.setFragmentTexture_atIndex(Some(&self.meta_tex), 1);
+                enc.setVertexTexture_atIndex(Some(&self.noise_tex), 2);
+                enc.setFragmentTexture_atIndex(Some(&self.noise_tex), 2);
+                enc.setVertexTexture_atIndex(Some(&self.ridge_tex), 3);
+                enc.setFragmentTexture_atIndex(Some(&self.ridge_tex), 3);
             }
             for r in rings {
                 if r.blocks == 0 {
@@ -469,7 +504,7 @@ pub fn read_texture(tex: &ProtocolObject<dyn MTLTexture>, out: &mut Vec<u8>) {
 }
 
 impl Gpu {
-    /// Copies one slot of the data texture (R32Float) into host memory.
+    /// Copies one slot of the data texture into host memory.
     pub fn read_data_slot(&self, slot: usize, n: usize) -> Vec<f32> {
         let buf = new_buffer(&self.device, &vec![0u8; n * n * 4]).expect("readback buffer");
         let cb = self.command_buffer();
@@ -496,4 +531,95 @@ impl Gpu {
         unsafe { std::ptr::copy_nonoverlapping(buf.contents().as_ptr() as *const f32, out.as_mut_ptr(), n * n) };
         out
     }
+}
+
+/// Cells per period of the detail noise texture, and texels per cell.
+pub const NOISE_CELLS: usize = 128;
+const NOISE_TEXELS_PER_CELL: usize = 4;
+
+/// A periodic value-noise texture (L2 detail octaves): 512² RGBA16F holding the noise value and
+/// its gradient per cell at 4 texels per cell, quintic interpolation of hashed lattice values.
+/// Sampling it bilinearly costs one fetch per octave instead of four hashes and the
+/// interpolation (the hashed version doubled the fragment cost at 2560×1600).
+fn noise_texture(device: &Device, queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>) -> Result<Texture, String> {
+    let c = NOISE_CELLS;
+    let t = NOISE_TEXELS_PER_CELL;
+    let size = c * t;
+    let hash = |x: usize, y: usize| -> f32 {
+        let mut h = ((x % c) as u32).wrapping_mul(0x8da6_b343) ^ ((y % c) as u32).wrapping_mul(0xd816_3841) ^ 0x9e37_79b9;
+        h ^= h >> 13;
+        h = h.wrapping_mul(0x5bd1_e995);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x27d4_eb2d);
+        h ^= h >> 16;
+        (h & 0xFF_FFFF) as f32 * (2.0 / 16_777_216.0) - 1.0
+    };
+    let mut px: Vec<u16> = Vec::with_capacity(size * size * 4);
+    for y in 0..size {
+        for x in 0..size {
+            let (cx, cy) = (x / t, y / t);
+            let (fx, fy) = ((x % t) as f32 / t as f32, (y % t) as f32 / t as f32);
+            let (a, b, cc, d) = (hash(cx, cy), hash(cx + 1, cy), hash(cx, cy + 1), hash(cx + 1, cy + 1));
+            let q = |f: f32| f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+            let dq = |f: f32| 30.0 * f * f * (f * (f - 2.0) + 1.0);
+            let (ux, uy) = (q(fx), q(fy));
+            let (k1, k2, k4) = (b - a, cc - a, a - b - cc + d);
+            let v = a + k1 * ux + k2 * uy + k4 * ux * uy;
+            let gx = dq(fx) * (k1 + k4 * uy);
+            let gy = dq(fy) * (k2 + k4 * ux);
+            for val in [v, gx, gy, 0.0] {
+                px.push(f16_bits(val));
+            }
+        }
+    }
+    let d = MTLTextureDescriptor::new();
+    d.setPixelFormat(MTLPixelFormat::RGBA16Float);
+    // SAFETY: plain sizes.
+    unsafe {
+        d.setWidth(size);
+        d.setHeight(size);
+    }
+    d.setStorageMode(MTLStorageMode::Private);
+    d.setUsage(MTLTextureUsage::ShaderRead);
+    let tex = device.newTextureWithDescriptor(&d).ok_or("noise texture")?;
+    let staging = new_buffer(device, bytemuck::cast_slice(&px))?;
+    let cb = queue.commandBuffer().ok_or("cb")?;
+    let blit = cb.blitCommandEncoder().ok_or("blit")?;
+    // SAFETY: the buffer holds the whole texture.
+    unsafe {
+        blit.copyFromBuffer_sourceOffset_sourceBytesPerRow_sourceBytesPerImage_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin(
+            &staging,
+            0,
+            size * 8,
+            size * size * 8,
+            size3(size, size, 1),
+            &tex,
+            0,
+            0,
+            MTLOrigin { x: 0, y: 0, z: 0 },
+        );
+    }
+    blit.endEncoding();
+    cb.commit();
+    cb.waitUntilCompleted();
+    Ok(tex)
+}
+
+/// f32 → IEEE half bits (round to nearest; the noise values are small and normal).
+fn f16_bits(v: f32) -> u16 {
+    let b = v.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    let exp = ((b >> 23) & 0xff) as i32 - 127 + 15;
+    if exp <= 0 {
+        return sign;
+    }
+    if exp >= 31 {
+        return sign | 0x7c00;
+    }
+    let mant = b & 0x7f_ffff;
+    let mut h = sign as u32 | ((exp as u32) << 10) | (mant >> 13);
+    if mant & 0x1000 != 0 {
+        h += 1;
+    }
+    h as u16
 }

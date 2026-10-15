@@ -279,3 +279,14 @@ pub fn reference_orbit(c: (f64, f64), max_len: usize) -> Vec<[f32; 2]> {
     }
     out
 }
+
+/// The L2 equipotential ridge phase the DE kernel stores per sample: sin²(π·mu/2) (mu the
+/// smooth iteration count), faded where DE is under ~12 samples of `spacing` (two dwell bands,
+/// ≈ DE wide, would alias). Same formula as the shader.
+pub fn ridge_phase(s: &Sample, spacing: f64) -> f64 {
+    if s.interior {
+        return 0.0;
+    }
+    let sn = (std::f64::consts::FRAC_PI_2 * s.mu).sin();
+    sn * sn * (s.de / spacing / 6.0 - 1.0).clamp(0.0, 1.0)
+}

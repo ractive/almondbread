@@ -74,6 +74,24 @@ pub struct Settings {
     /// Z toggles at runtime.
     #[arg(long)]
     pub auto_zoom: bool,
+    /// Detail synthesis below the computed resolution: amplitude per octave as a fraction of its
+    /// wavelength (0 = off, the L1 look).
+    #[arg(long, default_value_t = 0.12)]
+    pub detail_amp: f64,
+    /// Detail octaves only on the normals, not in the geometry.
+    #[arg(long)]
+    pub no_vertex_detail: bool,
+    /// Equipotential ridges on plains: height ridges·σ·sin²(πν/2) (ν the smooth iteration
+    /// count) where DE/σ > 1.5 (full beyond 10). 0 = off (the L1 terrain).
+    #[arg(long, default_value_t = 0.3)]
+    pub ridges: f64,
+    /// Vertices per ring axis (multiple of 32; 0 = the largest that fits the data window, L1:
+    /// 448). Fewer vertices: the fragments still shade from the finest data level.
+    #[arg(long, default_value_t = 256)]
+    pub ring: i64,
+    /// No world-anchored colour variation (field bands, vegetation patches).
+    #[arg(long)]
+    pub no_variation: bool,
     /// Debug colouring (validity weights).
     #[arg(long)]
     pub debug: bool,
@@ -112,6 +130,7 @@ pub struct FrameRec {
     pub riser: f64,
     pub dive_rate: f64,
     pub blocks: usize,
+    pub hag: f64,
 }
 
 pub struct Sim {
@@ -130,7 +149,11 @@ pub struct Sim {
     pub serial: u64,
     /// EMA of GPU ms per DE tile
     pub ms_per_tile: f64,
+    /// (GPU ms, tiles) of finished DE batches not yet in the estimate
+    cost_acc: (f64, usize),
     pub tiles_per_frame: usize,
+    /// window: GPU time per refresh the frame must fit in (render + DE); None offscreen
+    pub frame_target_ms: Option<f64>,
     /// (serial, tiles) of submitted compute buffers awaiting their time
     pending: Vec<(u64, usize)>,
     pub gpu_ms: Vec<(u64, f64, f64)>, // serial, compute ms, render ms
@@ -144,6 +167,8 @@ pub struct Sim {
     resume: Vec<(TileJob, TileKey)>,
     inflight: Vec<(CommandBuffer, Buffer, Vec<(TileJob, TileKey)>)>,
     pub resumed_total: u64,
+    /// tiles finished (all 256 samples written)
+    pub tiles_done: u64,
     pub rereferences: u64,
     /// When set, each frame first renders its camera with the previous world state into it.
     pub popcheck: Option<crate::gpu::Texture>,
@@ -189,7 +214,7 @@ pub fn sigma_at(set: &Settings, s: f64) -> (f64, f64) {
 
 impl Sim {
     pub fn new(set: Settings, start_speed: f64) -> Result<Self, String> {
-        let cfg = ClipConfig::new(set.n, set.k, set.levels, set.detail);
+        let cfg = ClipConfig::new(set.n, set.k, set.levels, set.detail, set.ring);
         let gpu = Gpu::new(cfg.n as usize, cfg.slots, crate::clipmap::BLOCK as usize)?;
         let (c0, heading) = place(&set);
         let mut sim = Sim {
@@ -206,7 +231,9 @@ impl Sim {
             time: 0.0,
             serial: 0,
             ms_per_tile: 0.01,
+            cost_acc: (0.0, 0),
             tiles_per_frame: 64,
+            frame_target_ms: None,
             pending: Vec::new(),
             gpu_ms: Vec::new(),
             blocks: Vec::new(),
@@ -217,9 +244,12 @@ impl Sim {
             resume: Vec::new(),
             inflight: Vec::new(),
             resumed_total: 0,
+            tiles_done: 0,
             rereferences: 0,
             set,
         };
+        sim.ground.ridges = sim.set.ridges;
+        sim.ground.ridge_from = 1.5;
         sim.choose_reference()?;
         sim.flight.auto_zoom = sim.set.auto_zoom;
         sim.flight.settle(&mut sim.ground, 1.0);
@@ -269,12 +299,24 @@ impl Sim {
             now,
             job_count: jobs as u32,
             chunk: self.set.chunk,
-            pad: 0,
+            pad: 0.0,
         }
     }
 
     fn sched_ctx(&self) -> ScheduleCtx {
-        ScheduleCtx { cam: self.flight.pos, s: self.flight.s, heading: self.flight.heading, ref_off: self.ref_off, fog: self.set.fog }
+        let (fwd, right, up) = self.flight.basis();
+        ScheduleCtx {
+            cam: self.flight.pos,
+            s: self.flight.s,
+            ref_off: self.ref_off,
+            fog: self.set.fog,
+            hag: self.flight.hag,
+            fwd,
+            right,
+            up,
+            tan_half: (self.set.fov.to_radians() * 0.5).tan(),
+            aspect: 16.0 / 10.0,
+        }
     }
 
     /// Computes every missing tile now (cold start), already faded in.
@@ -283,18 +325,21 @@ impl Sim {
         let mut total = 0;
         loop {
             let ctx = self.sched_ctx();
-            let jobs = self.clip.schedule(&ctx, 4096);
-            if jobs.is_empty() {
+            let batch = self.clip.schedule(&ctx, 4096);
+            if batch.is_empty() {
                 break;
             }
-            total += jobs.len();
-            let jobs: Vec<TileJob> = jobs.iter().enumerate().map(|(i, j)| TileJob { state: i as u32, ..j.0 }).collect();
+            total += batch.len();
+            let jobs: Vec<TileJob> = batch.iter().enumerate().map(|(i, j)| TileJob { state: i as u32, ..j.0 }).collect();
             let cb = self.gpu.command_buffer();
             let mut p = self.de_params(-1e6, jobs.len());
             p.chunk = self.set.max_iter;
             self.gpu.encode_tiles(&cb, &jobs, p);
             cb.commit();
             cb.waitUntilCompleted();
+            for (_, k) in batch {
+                self.clip.mark_done(k);
+            }
         }
         total
     }
@@ -309,11 +354,18 @@ impl Sim {
             if kind == 0
                 && let Some(pos) = self.pending.iter().position(|p| p.0 == serial) {
                     let (_, tiles) = self.pending.remove(pos);
-                    if tiles > 0 {
-                        // fast rise, slow decay: a costly batch (minibrot shores, slow interior)
-                        // must shrink the next ones at once, or the GPU misses refreshes
-                        let per = ms / tiles as f64;
-                        self.ms_per_tile = if per > self.ms_per_tile { per } else { 0.95 * self.ms_per_tile + 0.05 * per };
+                    // EMA of the GPU cost per tile over at least 32 tiles (several small batches
+                    // pooled; a single small batch is dominated by its fixed overhead, and L2's
+                    // first version skipped batches under 24 tiles, which froze the estimate once
+                    // the budget had fallen to 16 tiles a frame). Only a large overshoot rises at
+                    // once. (L1 took every rise at once and decayed by 5 % per frame: small
+                    // batches kept the budget at a fraction for seconds while the GPU idled.)
+                    self.cost_acc.0 += ms;
+                    self.cost_acc.1 += tiles;
+                    if self.cost_acc.1 >= 32 {
+                        let per = self.cost_acc.0 / self.cost_acc.1 as f64;
+                        self.cost_acc = (0.0, 0);
+                        self.ms_per_tile = if per > 1.6 * self.ms_per_tile { per } else { 0.7 * self.ms_per_tile + 0.3 * per };
                     }
                 }
             match self.gpu_ms.iter_mut().find(|g| g.0 == serial) {
@@ -329,15 +381,35 @@ impl Sim {
         }
     }
 
+    /// GPU milliseconds for DE tiles this frame. Fixed (`budget_ms`) offscreen; in the window
+    /// (`frame_target_ms` set) whatever the render leaves of the refresh period: target minus
+    /// the recent render p90, at most 1.6 × `budget_ms`, at least 0.8 ms. The floor keeps the
+    /// terrain filling when another process shares the GPU (its work shows up in our command
+    /// buffers' GPU times, so the render looks expensive and nothing would be left).
+    pub fn de_budget_ms(&self) -> f64 {
+        match self.frame_target_ms {
+            None => self.set.budget_ms,
+            Some(t) => {
+                let r: Vec<f64> = self.gpu_ms.iter().rev().filter(|g| g.2 > 0.0).take(40).map(|g| g.2).collect();
+                if r.len() < 5 {
+                    return self.set.budget_ms;
+                }
+                (t - crate::stats::pct(&r, 0.9) - 0.3).clamp(0.8, 1.6 * self.set.budget_ms)
+            }
+        }
+    }
+
     /// The scale the finest clipmap level follows: the zoom S, or less when the eye is lower
-    /// than S above the ground (detail follows the eye's distance, at most 4 octaves below S).
+    /// than S above the ground (detail follows the eye's distance, at most 5 octaves below S).
     pub fn detail_scale(&self) -> f64 {
         let f = &self.flight;
         // while zooming, extra levels would be obsolete within a second: follow S only
         if f.zoom_rate.abs() > 0.1 {
             return f.s;
         }
-        (2.0 * f.hag.max(0.0) * f.s).clamp(f.s / 16.0, f.s)
+        // L2: one sample of the finest level ≈ 2 px at the ground under the eye (L1: 4 px, at
+        // most 4 octaves below S); the detail synthesis takes over below that
+        (f.hag.max(0.0) * f.s).clamp(f.s / 32.0, f.s)
     }
 
     /// Keeps the reference orbit near the camera. Tiles store dc = c − c_ref in float32; its
@@ -390,6 +462,8 @@ impl Sim {
                     self.resume.push((j, key));
                 } else {
                     self.free_states.push(j.state & 0x7FFF_FFFF);
+                    self.tiles_done += 1;
+                    self.clip.mark_done(key);
                 }
             }
         }
@@ -403,9 +477,12 @@ impl Sim {
         // zoom-in yields to the visible DE backlog: past 800 missing tiles ahead it slows down
         // (to 15 % at ~3800), so the terrain keeps up: with three missing levels in a row the
         // fallback is flat (tile-shaped blocks popping out of the "lake" on fast zooms)
+        // L2: the counts are the backlog *after* the previous frame's batch (L1 counted before
+        // scheduling, so each frame's fresh demand throttled the zoom to 0.1–0.15 e-folds/s while
+        // the GPU idled)
         let m = self.clip.missing_ahead as f64;
         let near = self.clip.missing_near as f64;
-        self.flight.zoom_limit = (1.0 - (m - 800.0) / 3500.0).clamp(0.15, 1.0).min((1.0 - near / 60.0).clamp(0.1, 1.0));
+        self.flight.zoom_limit = (1.0 - (m - 300.0) / 2500.0).clamp(0.15, 1.0).min((1.0 - near / 250.0).clamp(0.1, 1.0));
         let set = &self.set;
         self.flight.update(dt, input, &mut self.ground, &|s| sigma_at(set, s).0);
         // pop check: this camera with the previous frame's world (rings, levels, data, fades)
@@ -422,7 +499,7 @@ impl Sim {
 
         // DE tiles within the GPU budget
         self.drain_times();
-        let want = (self.set.budget_ms / self.ms_per_tile.max(1e-4)) as usize;
+        let want = (self.de_budget_ms() / self.ms_per_tile.max(1e-4)) as usize;
         self.tiles_per_frame = want.clamp(16, 6000);
         self.poll_inflight();
         self.maybe_rereference();
@@ -483,6 +560,7 @@ impl Sim {
             riser: sigma_at(&self.set, self.flight.s).1,
             dive_rate: self.flight.zoom_rate,
             blocks: self.blocks.len(),
+            hag: self.flight.hag,
         });
         cb
     }
@@ -566,7 +644,24 @@ impl Sim {
             shade2: [
                 fade as f32,
                 if self.set.colour == "legacy" { 1.0 } else { 0.0 },
-                if std::env::var("LRT_MASK").map(|v| v == "lake").unwrap_or(false) { 1.0 } else { 0.0 },
+                match std::env::var("LRT_MASK").as_deref() {
+                    Ok("lake") => 1.0,
+                    Ok("fallback") => 2.0,
+                    _ => 0.0,
+                },
+                0.0,
+            ],
+            detail: [
+                // largest detail wavelength: 0.05 S (continuous in S: the top octave fades)
+                (0.05 * self.flight.s).log2() as f32,
+                self.set.detail_amp as f32,
+                if self.set.detail_amp > 0.0 { 1.0 } else { 0.0 },
+                self.set.ridges as f32,
+            ],
+            detail2: [
+                if self.set.detail_amp > 0.0 && !self.set.no_vertex_detail { 1.0 } else { 0.0 },
+                if self.set.no_variation { 0.0 } else { 1.0 },
+                self.flight.s.log2() as f32,
                 0.0,
             ],
             misc: [
@@ -674,4 +769,27 @@ impl Sim {
             println!("level {:4} (spacing {:.2e}): {} samples, |log2 DE err| max {:.3}, >1: {}, lake mismatch {}", lv.l, sp, cnt, worst, bad, lake_mismatch);
         }
     }
+}
+
+/// Cold-prefill throughput at fixed locations, eye 0.04 S above the ground (so the 4 extra fine
+/// levels of low flight are included). Prints tiles, wall seconds (GPU-bound: one big batch
+/// after another, waited on) and tiles per second.
+pub fn bench(set: Settings) -> Result<(), String> {
+    let cases: [(&str, f64); 6] = [("seahorse", 1e-3), ("seahorse", 1.76e-6), ("elephant", 1e-5), ("minibrot3", 1e-6), ("neck", 1e-4), ("spiral", 1e-9)];
+    let (mut tot_t, mut tot_n) = (0.0, 0usize);
+    for (loc, scale) in cases {
+        let mut st = set.clone();
+        st.loc = loc.into();
+        st.scale = scale;
+        let mut sim = Sim::new(st, 0.0)?;
+        sim.flight.hag = 0.04;
+        let t = std::time::Instant::now();
+        let n = sim.prefill();
+        let dt = t.elapsed().as_secs_f64();
+        tot_t += dt;
+        tot_n += n;
+        println!("{loc:>10} {scale:9.2e}: {n:6} tiles in {dt:6.3} s = {:8.0} tiles/s  ({})", n as f64 / dt, sim.ref_note);
+    }
+    println!("total {tot_n} tiles in {tot_t:.3} s = {:.0} tiles/s", tot_n as f64 / tot_t);
+    Ok(())
 }

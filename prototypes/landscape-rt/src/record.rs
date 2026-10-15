@@ -109,10 +109,15 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
     let frames = (script.duration() * args.fps as f64).ceil() as usize;
     let mut buf = Vec::new();
     let mut stab = Stability::default();
+    let fallback_mask = std::env::var("LRT_MASK").as_deref() == Ok("fallback");
+    let mut fb: Vec<(f64, f64)> = Vec::new();
+    let done0 = sim.tiles_done;
     let t = std::time::Instant::now();
     for i in 0..frames {
-        let input = if script.target {
-            let (inp, done) = target_input(&sim, goal, script.auto_zoom);
+        let input = if let Some(h) = script.low {
+            low_input(&mut sim, i as f64 * dt, h)
+        } else if script.target {
+            let (inp, done) = target_input(&sim, goal, script.auto_zoom, script.depth);
             if done && target_done.is_none() {
                 target_done = Some(i);
             }
@@ -154,6 +159,15 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
             let r = sim.recs.last().unwrap();
             hills.push((r.riser, r.dive_rate, hsum as f64 / hn.max(1) as f64, 100.0 * h8 as f64 / hn.max(1) as f64, hn));
         }
+        if fallback_mask {
+            let (mut nd, mut co) = (0usize, 0usize);
+            for p in 0..w * h {
+                let a = buf[p * 4 + 3];
+                nd += (a >= 192) as usize;
+                co += (64..192).contains(&a) as usize;
+            }
+            fb.push((100.0 * nd as f64 / (w * h) as f64, 100.0 * co as f64 / (w * h) as f64));
+        }
         stab.push(luma_quarter(&buf, w, h));
         if let Some(ff) = &mut ff {
             ff.stdin.as_mut().unwrap().write_all(&buf).map_err(|e| e.to_string())?;
@@ -186,6 +200,15 @@ pub fn run(args: RecordArgs) -> Result<(), String> {
         stats::pct(&ahead, 0.95),
         stats::pct(&ahead, 1.0)
     );
+    let secs = sim.recs.len() as f64 * dt;
+    println!("  tiles completed {} in {:.1} s of flight = {:.0} tiles/s (sim time; budget per video frame = live x {:.1})", sim.tiles_done - done0, secs, (sim.tiles_done - done0) as f64 / secs.max(1e-9), args.live_hz / args.fps as f64);
+    if !fb.is_empty() {
+        let nd: Vec<f64> = fb.iter().map(|x| x.0).collect();
+        let co: Vec<f64> = fb.iter().map(|x| x.1).collect();
+        println!("  fallback pixels: no data (geometry only) % p50 {:.4} p99 {:.4} max {:.4}; 2+ levels coarse % p50 {:.3} p99 {:.3} max {:.3}", stats::pct(&nd, 0.5), stats::pct(&nd, 0.99), stats::pct(&nd, 1.0), stats::pct(&co, 0.5), stats::pct(&co, 0.99), stats::pct(&co, 1.0));
+    }
+    let hagv: Vec<f64> = sim.recs.iter().map(|r| r.hag).collect();
+    println!("  height above ground (S) p50 {:.3} min {:.3}", stats::pct(&hagv, 0.5), stats::pct(&hagv, 0.0));
     stab.report(&script.name);
     if args.check_end {
         sim.check(600);
@@ -285,9 +308,10 @@ pub fn framestats(path: &PathBuf) -> Result<(), String> {
 
 /// A pilot for the target dive, through the same stick: point the nose at the target (turn,
 /// push/pull), fly down to it; once the eye is within 0.6 S of the ground or the target is
-/// within 25° of straight down, hold Shift+↑ (manual mode) until S ≤ 1e-7. In the auto-zoom
+/// within 25° of straight down, hold Shift+↑ (manual mode) until S ≤ `depth` (1e-7; the `deep`
+/// script 1.5e-12, the depth limit). In the auto-zoom
 /// mode it only steers: the steep nose does the zooming. Returns (input, reached).
-fn target_input(sim: &Sim, t: [f64; 2], auto: bool) -> (crate::flight::Input, bool) {
+fn target_input(sim: &Sim, t: [f64; 2], auto: bool, depth: f64) -> (crate::flight::Input, bool) {
     let f = &sim.flight;
     let dx = t[0] - f.pos[0];
     let dy = t[1] - f.pos[1];
@@ -307,9 +331,42 @@ fn target_input(sim: &Sim, t: [f64; 2], auto: bool) -> (crate::flight::Input, bo
     let turn = if close { 0.0 } else { (dh * 2.0).clamp(-1.0, 1.0) * (horiz / f.s).min(1.0) };
     let pitch = (-dp * 3.0).clamp(-1.0, 1.0);
     let steep = f.pitch < (-65f64).to_radians();
-    let zoom = if !auto && (f.hag < 0.6 || steep) && f.s > 1e-7 { 1.0 } else { 0.0 };
-    let done = f.s <= 1.05e-7;
+    let zoom = if !auto && (f.hag < 0.6 || steep) && f.s > depth { 1.0 } else { 0.0 };
+    let done = f.s <= 1.05 * depth;
     // near the target, slow down (Q) so the turn radius does not make the pilot orbit it
     let throttle = if horiz < 2.0 * f.s && f.speed_target > 0.25 { -1.0 } else { 0.0 };
     (crate::flight::Input { pitch, turn, throttle, zoom }, done)
+}
+
+/// A pilot for low flight (the user's L1 screenshot: alt 0.04 S, speed 0.16). First zooms in by
+/// `zoom` (Shift+↑) while flying at ~0.5 S, then dives at −30° to 3× the wanted height, holds
+/// `h` S above the ground with the stick, throttles back to 0.16 and steers towards the lower
+/// ground ahead (follows valley floors, where the boundary detail is).
+pub fn low_input(sim: &mut Sim, t: f64, low: (f64, f64)) -> crate::flight::Input {
+    let (h, zoom) = low;
+    let seek = zoom > 0.0;
+    let zoom = zoom.abs();
+    let s0 = sim.set.scale;
+    let f = &sim.flight;
+    let zooming = f.s > s0 / zoom * 1.02;
+    let want_p = if zooming {
+        ((0.5 - f.hag) * 1.0).clamp(-0.3, 0.2)
+    } else if f.hag > 3.0 * h && f.pitch > (-29f64).to_radians() - 0.2 && f.hag > 0.2 {
+        (-30f64).to_radians()
+    } else {
+        ((h - f.hag) * 4.0).clamp(-0.35, 0.25)
+    };
+    let pitch = (-(want_p - f.pitch) * 3.0).clamp(-1.0, 1.0);
+    let throttle = if !zooming && f.hag < 4.0 * h && f.speed_target > 0.16 { -1.0 } else { 0.0 };
+    // valley seeking: compare the ground 0.4 S ahead, 35° left and right
+    let (pos, hd, s) = (f.pos, f.heading, f.s);
+    let probe = |a: f64, g: &mut crate::ground::Ground| {
+        let p = [pos[0] + 0.4 * s * (hd + a).cos(), pos[1] + 0.4 * s * (hd + a).sin()];
+        g.smooth(p, s / 16.0)
+    };
+    let l = probe(0.6, &mut sim.ground);
+    let r = probe(-0.6, &mut sim.ground);
+    let wiggle = 0.25 * (std::f64::consts::TAU * t / 9.0).sin();
+    let turn = if zooming || !seek { wiggle } else { (((r - l) / (0.05 * s)).clamp(-1.0, 1.0) * 0.6 + wiggle).clamp(-1.0, 1.0) };
+    crate::flight::Input { pitch, turn, throttle, zoom: if zooming { 1.0 } else { 0.0 } }
 }

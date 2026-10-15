@@ -164,6 +164,7 @@ impl App {
             self.refresh = 1000.0 / mhz as f64;
         }
         eprintln!("display refresh {:.1} Hz", 1.0 / self.refresh);
+        sim.frame_target_ms = Some(self.refresh * 1e3 * 0.9);
 
         let RawWindowHandle::AppKit(handle) = window.window_handle().map_err(|e| e.to_string())?.as_raw() else {
             return Err("not an AppKit window".into());
@@ -202,9 +203,10 @@ impl App {
     }
 
     fn draw(&mut self, el: &ActiveEventLoop) {
-        let input = match &self.script {
-            Some(s) => s.input_at(self.script_t),
-            None => self.input(),
+        let input = match (&self.script, &mut self.sim) {
+            (Some(s), Some(sim)) if s.low.is_some() => crate::record::low_input(sim, self.script_t, s.low.unwrap()),
+            (Some(s), _) => s.input_at(self.script_t),
+            _ => self.input(),
         };
         let (Some(layer), Some(sim)) = (&self.layer, &mut self.sim) else { return };
         let Some(drawable) = objc2::rc::autoreleasepool(|_| layer.nextDrawable()) else { return };
