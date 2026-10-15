@@ -9,6 +9,11 @@ import UIKit
 public struct AlmondbreadScene: Scene {
     public init() {
         TestLaunch.prepare()
+        #if os(macOS)
+        // Toolbar tooltips after 0.3 s instead of AppKit's default of about a second (user
+        // request). A registered default, so `defaults write ... NSInitialToolTipDelay` still wins.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 300])
+        #endif
     }
 
     public var body: some Scene {
