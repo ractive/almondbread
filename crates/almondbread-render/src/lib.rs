@@ -21,7 +21,9 @@
 pub use almondbread_core as core;
 
 pub mod backend;
+pub mod flight;
 pub mod floatfloat;
+pub mod font;
 pub mod gpu_types;
 pub mod host;
 pub mod la_gpu;

@@ -2647,10 +2647,10 @@ kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
 struct OverlayPrim {
     float4 geom;    // segment: p0, p1 | disc, ring: centre, radius, ring width | rect, image, glyph: x0, y0, x1, y1
     float4 color0;  // premultiplied linear rgba (segment: at p0)
-    float4 color1;  // segment: at p1; rect: border colour
+    float4 color1;  // segment: at p1; rect: border colour; glyph: halo colour
     float4 clip;    // x0, y0, x1, y1 (pixel centres outside are not drawn)
-    float4 param;   // segment: half width; rect: corner radius, border width; glyph: cell size; image: opacity, corner radius
-    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph), map / glyph index
+    float4 param;   // segment: half width; rect: corner radius, border width; glyph: atlas cell x0, y0, x1, y1; image: opacity, corner radius
+    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph), map index | glyph: atlas width, halo width, spread (float bits)
 };
 
 struct OverlayParams {
@@ -2663,22 +2663,20 @@ static inline float3 srgbToLinear(float3 c) {
     return select(pow((c + 0.055f) / 1.055f, float3(2.4f)), c / 12.92f, c <= 0.04045f);
 }
 
-// A 5x7 bitmap glyph (rows top-down, bit 4 = left column) covered by the pixel square
-// [p - 0.5, p + 0.5] in glyph cells of `cell` pixels: exact box-filtered coverage.
-static inline float glyphCoverage(device const uchar* font, uint g, float2 p, float2 origin, float cell) {
-    float2 lo = (p - 0.5f - origin) / cell, hi = (p + 0.5f - origin) / cell;
-    float cov = 0.0f;
-    int x0 = max(int(floor(lo.x)), 0), x1 = min(int(floor(hi.x)), 4);
-    int y0 = max(int(floor(lo.y)), 0), y1 = min(int(floor(hi.y)), 6);
-    for (int y = y0; y <= y1; y++) {
-        uint row = font[g * 8u + uint(y)];
-        for (int x = x0; x <= x1; x++) {
-            if (((row >> uint(4 - x)) & 1u) == 0u) continue;
-            float2 a = max(lo, float2(x, y)), b = min(hi, float2(x + 1, y + 1));
-            cov += max(b.x - a.x, 0.0f) * max(b.y - a.y, 0.0f);
-        }
-    }
-    return saturate(cov * cell * cell);
+// Overlay text (kb: platform/overlay-text): a glyph quad of a signed-distance-field atlas
+// (R8 bytes, `atlasW` wide; 128 + d / spread * 127, d in texels, inside positive). Returns the
+// distance to the outline in output pixels at p, sampled bilinearly inside the glyph's cell.
+static inline float glyphDistance(device const uchar* atlas, uint atlasW, float spread, float2 p,
+                                  float4 quad, float4 cell) {
+    float s = (quad.z - quad.x) / max(cell.z - cell.x, 1e-3f);      // pixels per texel
+    float2 t = clamp(cell.xy + (p - quad.xy) / s, cell.xy + 0.5f, cell.zw - 0.5f) - 0.5f;
+    float2 f = fract(t);
+    uint2 i = uint2(t);
+    uint2 j = min(i + 1u, uint2(cell.zw) - 1u);
+    float a = float(atlas[i.y * atlasW + i.x]), b = float(atlas[i.y * atlasW + j.x]);
+    float c = float(atlas[j.y * atlasW + i.x]), d = float(atlas[j.y * atlasW + j.x]);
+    float v = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    return (v - 128.0f) / 127.0f * spread * s;
 }
 
 static inline float roundedBox(float2 p, float4 r, float radius) {
@@ -2698,7 +2696,7 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                     device const uint* tileStart            [[buffer(2)]],
                     device const uint* tileList             [[buffer(3)]],
                     device const uint* active               [[buffer(4)]],
-                    device const uchar* font                [[buffer(5)]],
+                    device const uchar* font                [[buffer(5)]],   // overlay font SDF atlas
                     uint3 tid                               [[thread_position_in_grid]])
 {
     uint2 gid;
@@ -2753,9 +2751,18 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                 c = float4(srgbToLinear(m) * pr.param.x, pr.param.x);
                 break;
             }
-            default:    // glyph
-                cov = glyphCoverage(font, pr.info.y, p, pr.geom.xy, pr.param.x);
-                break;
+            default: {  // glyph: fill, then the halo under it
+                if (any(p < pr.geom.xy - 1.0f) || any(p > pr.geom.zw + 1.0f)) continue;
+                float d = glyphDistance(font, pr.info.y, as_type<float>(pr.info.w), p, pr.geom, pr.param);
+                float fill = saturate(d + 0.5f);
+                float hw = as_type<float>(pr.info.z);
+                // Opaque next to the glyph, fading out over its outer 40 % (a soft outline).
+                float halo = hw > 0.0f ? saturate((d + hw) / max(0.4f * hw, 1.0f)) : 0.0f;
+                float4 g = pr.color0 * fill;
+                g += pr.color1 * halo * (1.0f - g.a);
+                col = g.rgb + col * (1.0f - g.a);
+                continue;
+            }
         }
         c *= cov;
         col = c.rgb + col * (1.0f - c.a);

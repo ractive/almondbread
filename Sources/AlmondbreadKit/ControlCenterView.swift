@@ -1,5 +1,6 @@
 import AlmondbreadCore
 import SwiftUI
+import ImageIO
 import UniformTypeIdentifiers
 
 /// The control center: every per-window setting in grouped, searchable sections (kb:
@@ -693,31 +694,65 @@ struct PlacesSection: View {
     }
 }
 
-/// A place's thumbnail (HEIC package resource), loaded once.
+/// A place's thumbnail (HEIC package resource), decoded once, off the main thread.
 struct PlaceThumbnail: View {
     let id: String
+    @State private var image: CGImage?
+
     var body: some View {
-        if let image = Self.image(id) {
-            image.resizable()
-        } else {
-            Rectangle().fill(.quaternary)
+        Group {
+            if let image = image ?? PlaceThumbnails.cached(id) {
+                Image(decorative: image, scale: 2).resizable()
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+        }
+        .task(id: id) { image = await PlaceThumbnails.decoded(id) }
+    }
+}
+
+extension PlaceThumbnails {
+    /// One serial queue decodes every thumbnail into a plain bitmap. Lazily decoded HEIC
+    /// images were decoded by Core Animation on the main thread while SwiftUI's
+    /// prepare-image threads decoded others: in the iOS simulator the HEIF decoder's session
+    /// pool deadlocked the main thread when the control center opened (kb:
+    /// platform/ios-simulator). Fully decoded bitmaps also scroll without decode hitches.
+    private static let queue = DispatchQueue(label: "almondbread.place-thumbnails", qos: .userInitiated)
+    private nonisolated(unsafe) static var cache: [String: CGImage] = [:]
+    private static let lock = NSLock()
+
+    static func cached(_ id: String) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[id]
+    }
+
+    static func decoded(_ id: String) async -> CGImage? {
+        if let c = cached(id) { return c }
+        return await withCheckedContinuation { (k: CheckedContinuation<CGImage?, Never>) in
+            queue.async {
+                let image = cached(id) ?? decode(id)
+                if let image {
+                    lock.lock()
+                    cache[id] = image
+                    lock.unlock()
+                }
+                k.resume(returning: image)
+            }
         }
     }
 
-    @MainActor private static var cache: [String: Image] = [:]
-
-    @MainActor static func image(_ id: String) -> Image? {
-        if let i = cache[id] { return i }
-        guard let url = PlaceThumbnails.url(id: id) else { return nil }
-        #if os(macOS)
-        guard let ns = NSImage(contentsOf: url) else { return nil }
-        let i = Image(nsImage: ns)
-        #else
-        guard let ui = UIImage(contentsOfFile: url.path) else { return nil }
-        let i = Image(uiImage: ui)
-        #endif
-        cache[id] = i
-        return i
+    /// The @2x thumbnail drawn into an sRGB bitmap (no lazy decode left for later).
+    private static func decode(_ id: String) -> CGImage? {
+        guard let url = url(id: id), let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                    | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return ctx.makeImage()
     }
 }
 

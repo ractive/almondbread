@@ -535,6 +535,25 @@ where nothing is seeded; 0.000 % class change and no false interior at all 17 lo
 Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
 [[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
 
+## [2026-10-15] decision | FB: flight benchmark with a score
+
+Built `almondbread benchmark` (`make flight-bench`, `make flight-bench-live`). The flight
+`scripts/flights/benchmark-v1.json` is versioned, 60 s at 1920×1080: shallow pan and zoom,
+the dense spot, a dive into c = i to 1e−300, the heavy period-32412 spiral, a rotating zoom
+in elephant valley, and a jump to 1e−1004. Mode A renders every 5 Hz camera sample through
+the real scheduler to the settled full-quality frame, checks it against a fresh render and
+a from-scratch jump render, and reports wall, CPU and GPU time per segment. Mode B plays the
+flight live: headless at 120 Hz, or in a background window (`--flight-bench=`, never key).
+It reports shown/due frames, p99, late frames, input to photon, and time to first image and
+to sharp per landing. The score is geomean(A, B) against a **provisional** M1 Pro reference
+= 1000. Also: warm-up and repeated laps with medians and spread, a noise check (other
+processes' CPU, IOAccelerator utilisation), JSON in `build/benchmark/`, `--compare`, and A/B
+switches (`--sa 0`). The script player and real-time recorder moved into
+`almondbread_core::flight`, shared with `fly`; `jump` and `location` events were added. The
+first, noisy runs found a path-dependent black frame at the heavy spot after the dive (auto
+iterations stay at 10384, below the period), reported for M5. Pages:
+[[synthesis/flight-benchmark]], [[synthesis/benchmarks]] (FB), [[index]].
+
 ## [2026-10-15] decision | M5 fix: learned state across jumps
 
 The flight benchmark found the spiral settling black after a dive at c = i (1e-280): the
@@ -584,3 +603,45 @@ at all locations; regress all OK; selftest OK; interaction test OK except the au
 real-axis row at the needles (seeded pixels escape where the oracle does not). Pages:
 [[techniques/linear-approximation-imagina]] (As built), [[synthesis/benchmarks]] (M6),
 [[questions/bla-vs-la-benchmark]] (answered), [[roadmap]] (M6), [[overview]], [[index]].
+
+## [2026-10-15] decision | Overlay font, place thumbnail moiré, 120 Hz measurement, iOS simulator
+
+Overlay text in Rust/Metal is now Inter SemiBold (OFL 1.1, licence shipped) as a
+signed-distance-field atlas with a soft dark halo, crisp at any backing scale and legible on
+pale and dark palettes ([[platform/overlay-text]]); `render --ppp` sets the overlay scale for
+stills. Place thumbnails render 3× larger and resample with a Gaussian (σ 0.5 px, linear
+light); the three needle minibrots were re-rendered without moiré ([[synthesis/places]]).
+120 Hz: the interaction test reports the display link's actual and granted rate and can run
+from a CVDisplayLink; a background window gets 20–33 callbacks per second (granted 120) and,
+fed at 120 Hz, half the refreshes find no drawable, so real 120 Hz presentation needs a
+frontmost window: `make interaction-test-120` for a person to run
+([[synthesis/benchmarks]] "120 Hz on ProMotion"). iOS: simulator runtime installed, iPhone and
+iPad simulators, self-test and an XCTest touch UI test; fixed a crash (presented handlers
+missing on simulator drawables), a main-thread HEIC decode deadlock when the control center
+opened, the HUD under the buttons on narrow canvases and the status bar
+([[platform/ios-simulator]]). Updated [[platform/render-architecture]], [[index]].
+
+## [2026-10-15] decision | Journey variety: dives, cross-overs, novelty
+
+The journey planned well-framed targets but stayed in one region for a minute (one family of
+shapes: deep in a region every view carries the same local Julia set). Now a journey is a
+sequence of dives: a cross-over to another region (catalogue places to 1e16 and views from the
+maths of p/q bulbs: limb hubs M(q+1, 1), valleys beside the attachment point), then 1–2 legs
+in a seeded style (scenic, medium, deep); regions from the cardioid's internal angle, families
+(valley, limb, needle) alternate. Every landing gets a look descriptor (distance spectrum,
+structure dimension, interior, and the spiral pitch of the shadowed cycle's multiplier: the
+only measure that told seahorse spirals from dendrite carpets on 40-texel probes) and a
+novelty score; near-duplicates are rejected and a dive ends when nothing new is left. Long
+legs fly faster; with cinematic effects each dive gets its own palette phase. Contact sheets
+and three 3-minute review videos: 6–7 regions per 3 minutes instead of 2–3. Pages:
+[[decisions/controls]] (Journey, variety revision), [[synthesis/benchmarks]] (PJ variety).
+
+## [2026-10-15] decision | FB: window test took focus, fixed
+
+The flight bench's window run activated the app (three of four runs; one with a key
+window). `AlmondbreadMac/main.swift` activated a bare executable unless `--selftest` or
+`--interaction-test` was given. It now checks `TestLaunch.enabled`, which covers
+`--flight-bench=` and `--ui-demo=` too. The bench ends with `FOCUS TAKEN` and exit 1 on any
+activation or key window; 5 runs were clean. Also explained `stats.max_iterations` 10384
+against 41536 (nominal limit vs extension to the hard limit) and the 1e−1004 disc
+(supersampling of sub-pixel rings). Page: [[synthesis/flight-benchmark]].

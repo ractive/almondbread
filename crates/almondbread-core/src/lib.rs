@@ -16,6 +16,7 @@ pub mod autopilot;
 pub mod bla;
 pub mod cfmt;
 pub mod cinematic;
+pub mod flight;
 pub mod flyto;
 pub mod image;
 pub mod input;

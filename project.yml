@@ -58,6 +58,9 @@ targets:
         UILaunchScreen: {}
         UIRequiresFullScreen: false
         UIStatusBarHidden: true
+        # SwiftUI's statusBarHidden() on the canvas did not hide it (simulator, iOS 26.5):
+        # hide it app-wide.
+        UIViewControllerBasedStatusBarAppearance: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
         UISupportedInterfaceOrientations:
@@ -80,3 +83,26 @@ targets:
         CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO       # simulator builds; set a team to run on a device
+  # Touch gestures and buttons on the simulators (`make ios-uitest`): XCTest synthesises real
+  # UIKit touches; correctness and layout only (simulator Metal is not representative).
+  Almondbread iOS UITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/iOSUITests]
+    dependencies:
+      - target: Almondbread iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread.ios.uitests
+        TEST_TARGET_NAME: Almondbread iOS
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  Almondbread iOS:
+    build:
+      targets:
+        Almondbread iOS: all
+    test:
+      targets: [Almondbread iOS UITests]

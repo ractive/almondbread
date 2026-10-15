@@ -76,15 +76,24 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
 ```text
 almondbread places                          # list: id, category, depth, look
 almondbread render out.png --place spiral-1e1000 --size 1600x1000
-almondbread places --render-thumbs Sources/AlmondbreadKit/Resources/Places --inside bubbles --extend 16 [--only a,b]
+almondbread places --render-thumbs Sources/AlmondbreadKit/Resources/Places --inside bubbles --extend 16 [--only a,b] [--oversample 3 --blur 0.5]
 almondbread places --format landscape       # landscape-rt start commands (f64 places)
 ```
 
 Thumbnails (re-rendered 2026-10-15 after the merge into the control-center branch) use the
 calm dense regions and the *bubbles* interior colouring with extension passes
 ([[techniques/coloring-methods]] "Interior colouring as built"): the flat black interiors
-hid most landmarks, and the dense bands of deep minibrots were grey. The palette moiré
-rings of the needle minibrots stay (they are the look's density at that zoom). In the app,
+hid most landmarks, and the dense bands of deep minibrots were grey. The three needle
+minibrots (1e91, 1e302, 1e1000) showed moiré: their radial spokes and ring bands come
+within a pixel or two of the thumbnail grid, and the calm dense colouring does not touch
+them (it keys on the radial band density, the spokes are angular). More samples alone did
+not fix it: 9 → 81 samples per pixel (3× oversampling with a box filter) still left beats
+near the Nyquist rate, because a box filter passes them. Since 2026-10-15 `--render-thumbs`
+renders 3× larger (`--oversample 3`, times the `--ss 3` grid) and resamples with a Gaussian
+of σ 0.5 output pixels in linear light (`--blur 0.5`; response 0.29 at Nyquist instead of
+the box's 0.64); the needle thumbnails were re-rendered with it and the beats are gone
+(before/after looked at, `build/thumbs/`; the remaining fine rings are real bands). The
+other 66 thumbnails were not re-rendered (no visible aliasing). In the app,
 Go and Fly to a place switch a flat interior to bubbles, so the view matches its thumbnail;
 the control center's Places section shows them as a grid by category with Go, Fly
 (`Explorer.flyToPlace`) and Random.

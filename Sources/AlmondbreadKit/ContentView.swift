@@ -9,6 +9,19 @@ struct ContentView: View {
     @State private var showFlyTo = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
+    /// Width of the canvas in points (narrower than the window while the iPad sidebar shows).
+    @State private var canvasWidth: CGFloat = 1000
+
+    /// iPhone portrait, narrow iPad split views, and an iPad portrait canvas next to the
+    /// control center: the HUD drops its statistics and the buttons move to the bottom.
+    private var compactWidth: Bool {
+        #if os(iOS)
+        sizeClass == .compact || canvasWidth < 560
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
         explorer
             .overlay {
@@ -26,17 +39,21 @@ struct ContentView: View {
     private var explorer: some View {
         FractalCanvas(model: model)
         .ignoresSafeArea()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = $0 }
         .background(Color.black)
         .overlay(alignment: .topLeading) {
             if model.showHUD {
-                HUDView(model: model)
+                HUDView(model: model, compact: compactWidth)
                     .padding(12)
             }
         }
         .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
         #if os(iOS)
-        .overlay(alignment: .topTrailing) {
-            HStack(spacing: 10) {
+        // iPhone portrait: the buttons sit at the bottom, in thumb reach and clear of the HUD;
+        // wider screens: top trailing, next to the HUD.
+        .overlay(alignment: compactWidth ? .bottomTrailing : .topTrailing) {
+            let stack = compactWidth ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+            stack {
                 // Autopilot: on, a finger steers, a tap pauses.
                 Button {
                     model.toggleAutopilot()
@@ -69,6 +86,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Control center")
+                .accessibilityValue(showInspector ? "shown" : "hidden")
             }
             .padding(12)
         }
@@ -138,6 +156,18 @@ struct ContentView: View {
 /// Translucent status overlay. Does not take input, so gestures reach the canvas below.
 struct HUDView: View {
     let model: ExplorerModel
+    /// Narrow screens: no renderer statistics, lines wrap at a fixed width.
+    var compact = false
+
+    /// Long lines (journey, hints) wrap instead of running under the iOS buttons at the top
+    /// trailing corner (iPad portrait).
+    private var maxWidth: CGFloat? {
+        #if os(iOS)
+        compact ? 230 : 380
+        #else
+        nil
+        #endif
+    }
     @State private var speedHighlight = false
 
     var body: some View {
@@ -169,8 +199,10 @@ struct HUDView: View {
             .font(.callout)
             Group {
                 Text("iter \(s.maxIterations.formatted())\(model.autoIterations ? " auto" : "")")
-                Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks  ·  \(s.renderWidth)×\(s.renderHeight)\(s.isRendering ? "  ·  refining" : "")")
-                Text("ref \(s.referenceLength.formatted()) pts\(s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "")  ·  \(s.referenceBits) bit  ·  CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
+                if !compact {
+                    Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks  ·  \(s.renderWidth)×\(s.renderHeight)\(s.isRendering ? "  ·  refining" : "")")
+                    Text("ref \(s.referenceLength.formatted()) pts\(s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "")  ·  \(s.referenceBits) bit  ·  CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
+                }
                 if s.shown.angleDegrees != 0 {
                     Text(String(format: "turned %.1f°", s.shown.angleDegrees))
                 }
@@ -203,6 +235,8 @@ struct HUDView: View {
             }
         }
         .monospacedDigit()
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: maxWidth, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
