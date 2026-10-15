@@ -915,7 +915,7 @@ impl<B: GpuBackend> SampleCache<B> {
     /// Chooses the target ratio from the frame budget and the demand.
     fn steer(&mut self, inp: &PlanInput) {
         let cost = if self.cost > 0.0 { self.cost } else { inp.cost_hint };
-        if !(cost > 0.0) {
+        if cost.is_nan() || cost <= 0.0 {
             return;
         }
         let budget_texels = inp.budget / cost;
@@ -1252,10 +1252,7 @@ impl<B: GpuBackend> SampleCache<B> {
                     * 256.0;
             }
             let slots: Vec<u32> = cands.iter().map(|c| c.1).collect();
-            order = backend.create_buffer_with_data(bytemuck::cast_slice(&slots)).ok();
-            if order.is_none() {
-                return None;
-            }
+            order = Some(backend.create_buffer_with_data(bytemuck::cast_slice(&slots)).ok()?);
             let mut tiles = Vec::with_capacity(n);
             for &s in &slots {
                 let t = &mut self.tiles[s as usize];
@@ -1423,6 +1420,7 @@ impl<B: GpuBackend> SampleCache<B> {
     /// Shades the cache texels the view shows into the colour texture (own command buffer,
     /// committed now, so before the compose pass that reads it). Returns the colour texture
     /// and the mapping.
+    #[allow(clippy::too_many_arguments)]
     pub fn shade(
         &mut self,
         backend: &B,
@@ -1711,7 +1709,7 @@ impl<B: GpuBackend> SampleCache<B> {
     /// The current window as a lattice view for a fresh render of the same points (the cache
     /// check): centre and spacing of a `W` x `H` render whose texel t is window texel t, the
     /// angle, the texel of window texel (0, 0), and the cache iteration texture.
-    pub fn check_frame(&self) -> Option<(Center, Scale, f64, (usize, usize), [u32; 2], B::Texture)> {
+    pub fn check_frame(&self) -> Option<CheckFrame<B>> {
         let e = self.epoch.as_ref()?;
         let a = self.alloc.as_ref()?;
         let (tw, th) = (a.wt * TILE as usize, a.ht * TILE as usize);
@@ -1823,8 +1821,19 @@ struct Maintenance<B: GpuBackend> {
     clear: Vec<u32>,
     /// Resample parameters and the source set.
     resample: Option<(CacheParams, usize)>,
-    seed: Option<(CacheParams, B::Texture, B::Texture, Option<B::Texture>)>,
+    seed: Option<SeedSource<B>>,
 }
+
+/// Seeding: parameters and the full level's iteration, DE and interior analysis textures.
+type SeedSource<B> = (
+    CacheParams,
+    <B as GpuBackend>::Texture,
+    <B as GpuBackend>::Texture,
+    Option<<B as GpuBackend>::Texture>,
+);
+
+/// [`SampleCache::check_frame`]: render centre, spacing, angle, size, wrap, iteration texture.
+pub(crate) type CheckFrame<B> = (Center, Scale, f64, (usize, usize), [u32; 2], <B as GpuBackend>::Texture);
 
 impl<B: GpuBackend> Default for Maintenance<B> {
     fn default() -> Self {

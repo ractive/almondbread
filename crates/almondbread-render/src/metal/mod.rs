@@ -488,13 +488,13 @@ mod tests {
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
-        let out = b.create_buffer(64, Storage::Shared).unwrap();
+        let out = b.create_buffer(128, Storage::Shared).unwrap();
         let mut enc = b.begin("probe").unwrap();
         enc.set_pipeline(&p);
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 60];
+        let mut bytes = [0u8; 68];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -750,7 +750,8 @@ mod tests {
         let (w, h) = (320, 200);
         r.simulate(w, h, 1.0, 120.0, 0, 30.0, &mut |_, _, _| {})
             .expect("settle");
-        let steps: [(&str, Box<dyn Fn(&mut almondbread_core::Viewport, f64)>); 3] = [
+        type Step = Box<dyn Fn(&mut almondbread_core::Viewport, f64)>;
+        let steps: [(&str, Step); 3] = [
             ("zoom in", Box::new(|v, dt| v.zoom_by((1.4 * dt).exp(), 30.0, 10.0))),
             ("zoom out", Box::new(|v, dt| v.zoom_by((-1.4 * dt).exp(), 0.0, 0.0))),
             ("pan", Box::new(|v, dt| v.pan_by_points(-150.0 * dt, 60.0 * dt))),
