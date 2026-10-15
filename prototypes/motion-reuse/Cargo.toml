@@ -1,0 +1,24 @@
+[package]
+name = "motion-reuse"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "R4 prototype: sample reuse while zooming/panning (sample cache in fractal coordinates, XaoS-style nearest reuse) vs the FL temporal upsampling, and MetalFX upscaling, on scripted flights"
+
+# Own workspace root so the repository's root workspace does not claim this crate.
+[workspace]
+
+[dependencies]
+almondbread-core = { path = "../../crates/almondbread-core" }
+almondbread-render = { path = "../../crates/almondbread-render" }
+rayon = "1.10"
+serde_json = "1"
+metalfx-probe = { path = "../metalfx-probe", optional = true }
+
+[features]
+metalfx = ["dep:metalfx-probe"]
+
+[profile.release]
+debug = false
+codegen-units = 1
+lto = "thin"

@@ -1,0 +1,51 @@
+{
+ "_about": "Sample cache benchmark (kb: techniques/sample-reuse): pan (D, 2 s), zoom in (Space, 2 s), zoom out (Shift+Space, 1.4 s) at 4.6e-14, the boundary-dense M4 slow view.",
+ "size": "1600x1000",
+ "fps": 60,
+ "duration": 7.5,
+ "start": {
+  "re": "-1.4080321340304542",
+  "im": "0.13680236432900417",
+  "scale": "4.615e-14"
+ },
+ "events": [
+  {
+   "at": 0.8,
+   "key": "d",
+   "down": true
+  },
+  {
+   "at": 2.8,
+   "key": "d",
+   "down": false
+  },
+  {
+   "at": 3.0,
+   "key": "zoom",
+   "down": true
+  },
+  {
+   "at": 5.0,
+   "key": "zoom",
+   "down": false
+  },
+  {
+   "at": 5.2,
+   "shift": true
+  },
+  {
+   "at": 5.2,
+   "key": "zoom",
+   "down": true
+  },
+  {
+   "at": 6.6,
+   "key": "zoom",
+   "down": false
+  },
+  {
+   "at": 6.6,
+   "shift": false
+  }
+ ]
+}

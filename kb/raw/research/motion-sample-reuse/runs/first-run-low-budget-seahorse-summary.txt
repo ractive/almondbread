@@ -1,0 +1,11 @@
+flight seahorse-dive 1280x720: 726 gesture frames, 72 evaluated; mean FL preview ratio 0.274; budget 6.00e7/1080p frame, c0 30
+strategy           iter/frame     vs FL   new/frame    cached  dE mean   dE p99  flicker
+fl                    1.827e7     1.000       89117         0    2.512    18.67    0.893
+fl-full               6.189e8    33.870      921600         0    1.063     9.32    0.732
+sc-fill1-gauss        5.838e7     3.195       84210   1488060    1.167     9.93    0.732
+sc-fill1-box          5.838e7     3.195       84210   1488060    1.882    17.52    1.678
+sc-fill2-gauss        1.065e8     5.829      156053   2378341    1.013     8.65    0.674
+sc-budget             1.827e7     1.000       88452   1607824    1.932    15.84    1.057
+xn-0.5                6.503e7     3.559       95913   1207445    2.175    19.57    1.936
+xn-0.25               3.567e8    19.523      544814   1747253    1.814    17.09    1.780
+reference             0.000e0     0.000           0         0    0.000     0.00    0.817

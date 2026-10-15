@@ -163,3 +163,11 @@ pixels on centred ×2 zooms, keep the reference and skip table across zooms
 (KF "reuse reference"), and refine coarse-to-fine from the focus with chunked
 dispatches, then accumulate AA. Related: [[techniques/reference-selection]],
 [[techniques/auto-iterations]].
+
+## R4: reuse samples, not the image
+
+FL computes every gesture frame's preview fresh. R4 measured an alternative: a sample cache in
+fractal coordinates that keeps every computed sample at its exact position and re-shades it
+each frame. It matches FL's image with 2–50 % of FL's iterations per frame, or is sharper at
+the same iterations, except in the deep, sample-starved zoom. MetalFX upscaling gave no gain
+over the compose above. Details: [[techniques/sample-reuse]], [[synthesis/motion-sample-reuse]].

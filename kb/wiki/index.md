@@ -20,6 +20,9 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
+- [[sources/apple-metal-feature-set-tables]] — Apple Metal Feature Set Tables (May 2026): GPU families per MetalFX feature (temporal scaler Apple7+, denoiser Apple9+) (digested)
+- [[sources/apple-metalfx-docs]] — Apple docs and SDK headers for MetalFX: spatial/temporal scalers, jitter and motion conventions, texture usage, reactive mask, dynamic resolution (digested)
+- [[sources/apple-metalfx-taa-sample]] — Apple sample code: temporal antialiasing and upscaling with MetalFX (digested)
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
 - [[sources/beyer-mandelbrot-zoom-sequence]] — Wolfgang Beyer's 15-image Commons zoom into seahorse valley (2005): centre and width of each view, to 6e10 (digested)
 - [[sources/bids-viridis-colormaps]] — viridis, magma, inferno, plasma colour maps (CC0); 256-entry data (digested)
@@ -103,6 +106,8 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/wikipedia-misiurewicz-point]] — Wikipedia on Misiurewicz points M(k,n): six examples (tips, branch points, the seahorse spiral, whose label is off by one) (digested)
 - [[sources/wikipedia-plotting-algorithms]] — Encyclopedia survey of classic Mandelbrot rendering: escape time, colouring (histogram, smooth, exponential/cyclic, HSV/LCH), distance estimates,... (digested)
 - [[sources/wikipedia-xaos]] — Encyclopedia article on XaoS, the GPL real-time fractal zoomer by Jan Hubička and Thomas Marsh, mainly notable here for describing the Hubička... (digested)
+- [[sources/wwdc22-metalfx-upscaling]] — WWDC22 session 10103: MetalFX spatial and temporal upscaling, inputs, jitter example (digested)
+- [[sources/wwdc25-metal4-games]] — WWDC25 session 211: Metal 4 games, MetalFX frame interpolation and denoised upscaler, exposure and reactive-mask advice (digested)
 - [[sources/xaos-algorithms]] — XaoS algorithms document: frame reuse, line guessing, dynamic resolution, periodicity checking only after guessing (digested)
 - [[sources/van-wijk-nuij-smooth-zooming]] — van Wijk & Nuij (InfoVis 2003): the optimal zoom-and-pan path between two views, closed form with one parameter ρ; used for fly to coordinates (skimmed)
 - [[sources/xaos-readme]] — The README of XaoS (GNU XaoS), a real-time interactive fractal zoomer in development since 1996. (digested)
@@ -129,6 +134,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/perturbation]] — reference orbit in high precision, per-pixel delta z ← 2Zz + z² + c in floats; loop, costs, pitfalls
 - [[techniques/parallel-reference-orbit]] — R6: three-thread squaring orbit (bit-identical), progressive delivery of centre references, Newton with an f64 derivative, short-product round-down fix; measured
 - [[techniques/rebasing]] — Zhuoran's rebase rule (|Z+z| < |z| or reference exhausted → z = Z+z, m = 0); one reference per critical point/phase; float32 pitfalls
+- [[techniques/sample-reuse]] — reuse samples while zooming/panning: XaoS row/column approximation, exact-position sample cache in fractal coordinates, re-shading, density policies, the cache check (R4)
 - [[techniques/reference-orbit-precision]] — bits vs zoom rule, cost per iteration, MT3 threading, GPU NTT verdict, storage, Imagina orbit compression; our implementation and measured error growth
 - [[techniques/reference-selection]] — view centre vs nucleus; atom domain, box and ball period detection, Newton for the nucleus; Misiurewicz; measured period/Newton behaviour
 - [[techniques/series-approximation]] — SA recurrences, probe points, why BLA replaced it, Very Plotter SA-vs-BLA table, nanoMB (legacy)
@@ -165,6 +171,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/apple-gpu-architecture]] — M1-class GPU: fp32/fp16 rates, no fp64, int mul 1/8, SIMD 32, registers, occupancy, dynamic caching
 - [[platform/gpu-watchdog-and-chunking]] — ~5 s per-command-buffer watchdog, resumable per-pixel state, compaction, chunk scheduler
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
+- [[platform/metalfx]] — MetalFX temporal/spatial upscaling from Rust (objc2-metal-fx): conventions verified, 3× limit, GPU cost and memory, quality on fractal flights (R4: no gain over our compose)
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
 - [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) the pool-predictor fix, and FL's drawable pre-acquisition thread and compose pass
@@ -208,3 +215,4 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/fractal-games-and-steam]] — 2026 research report: fractal and maths games on Steam, mechanics ranked by evidence (daily, atlas, missions, journey, racing), Steam process/costs/marketing/Steamworks/Deck/macOS, no engine (wgpu + winit + steamworks-rs), crate layout, phased plan
 - [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use
 - [[synthesis/fractal-palettes]] — palette research and the 67-palette library: findings, licence table, what was dropped after the contact sheets, integration API
+- [[synthesis/motion-sample-reuse]] — R4: fewer iterations per gesture frame: sample cache vs FL vs MetalFX on five flights, how many iterations can go (2–50 %), bookkeeping cost, integration design, risks

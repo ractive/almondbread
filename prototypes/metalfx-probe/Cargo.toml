@@ -1,0 +1,22 @@
+[package]
+name = "metalfx-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "R4 prototype: Apple MetalFX temporal/spatial upscaling driven from Rust (objc2-metal-fx): conventions, sanity tests, GPU cost"
+
+# Own workspace root so the repository's root workspace does not claim this crate.
+[workspace]
+
+[dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3.2"
+objc2-metal = { version = "0.3.2", features = ["block2"] }
+objc2-metal-fx = "0.3.2"
+half = "2"
+png = "0.17"
+
+[profile.release]
+debug = false
+codegen-units = 1
+lto = "thin"

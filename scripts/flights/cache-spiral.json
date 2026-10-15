@@ -1,0 +1,51 @@
+{
+ "_about": "Sample cache benchmark: pan, zoom in, zoom out at spiral-32412-1e19 (period-32412 minibrot in a dense spiral, 4.2e-19 per point; 3.35 s GPU per full 1600x1000 frame).",
+ "size": "1600x1000",
+ "fps": 60,
+ "duration": 7.5,
+ "start": {
+  "re": "-0.13415002160674054265664",
+  "im": "-0.64991906714433853974391",
+  "scale": "4.19804e-19"
+ },
+ "events": [
+  {
+   "at": 0.8,
+   "key": "d",
+   "down": true
+  },
+  {
+   "at": 2.8,
+   "key": "d",
+   "down": false
+  },
+  {
+   "at": 3.0,
+   "key": "zoom",
+   "down": true
+  },
+  {
+   "at": 5.0,
+   "key": "zoom",
+   "down": false
+  },
+  {
+   "at": 5.2,
+   "shift": true
+  },
+  {
+   "at": 5.2,
+   "key": "zoom",
+   "down": true
+  },
+  {
+   "at": 6.6,
+   "key": "zoom",
+   "down": false
+  },
+  {
+   "at": 6.6,
+   "shift": false
+  }
+ ]
+}

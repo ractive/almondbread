@@ -1192,3 +1192,32 @@ Cost where views restart often: "looks deep idle" (a look or palette every 0.1 s
 every look that needs the distance estimate restarts the job, and its full level now starts
 with seed rounds. Previews of refined views seed in one bounded round since (they waited for
 several before: 12 fps).
+
+## R4: motion sample reuse and MetalFX (simulator), 2026-10-15
+
+Measured 2026-10-14/15 on an M1 Pro, release builds, `prototypes/motion-reuse`. Iteration
+counts and image metrics are deterministic. GPU timings were taken on a shared GPU; their
+spread is given. Method, all tables and the design: [[synthesis/motion-sample-reuse]].
+
+The table gives, per gesture frame, iterations relative to FL's compose at its
+dynamic-resolution ratio, then OKLab ΔE mean / p99 / temporal error against a 16-sample
+reference:
+
+| flight | FL | sample cache, 1 sample/pixel (fill) | cache at FL's iterations (hybrid) | MetalFX temporal at 1/2 (FL compose at 1/2) |
+|---|---|---|---|---|
+| seahorse dive 1 → 1e9, 1280×720 | 1, 2.07 / 15.7 / 0.84 | 1.31×, 1.18 / 9.9 / 0.72 | 0.95×, 1.48 / 11.8 / 0.78 | 3.5×, 1.61 / 14.5 / 0.81 (1.66 / 13.8 / 0.79) |
+| WASD pan at 1e5, 960×540 | 1, 0.99 / 9.7 / 0.57 | 0.024×, 0.93 / 8.8 / 0.50 | 0.60×, 0.72 / 6.9 / 0.47 | 0.65×, 1.14 / 11.0 / 0.62 (1.06 / 10.5 / 0.59) |
+| filament cruise at 1e6, 960×540 | 1, 1.65 / 13.8 / 0.79 | 0.15×, 1.11 / 9.7 / 0.66 | 0.99×, 0.94 / 8.1 / 0.62 | – |
+| fast dive 7.6 e-folds/s, 960×540 | 1, 0.41 / 7.8 / 0.22 | 0.32×, 0.33 / 6.8 / 0.21 | 0.83×, 0.29 / 6.0 / 0.20 | – |
+| deep zoom 1e-24 → 1e-33, 960×540 | 1, 5.79 / 26.1 / 2.30 | 7.0×, 2.91 / 14.2 / 1.80 | 1.00×, 5.92 / 29.8 / 2.20 | – |
+
+GPU time per frame:
+
+- **Sample-cache bookkeeping** (synthetic content, unoptimised, ±5 % over 4 repeats):
+  - 1280×720: 2.3–2.8 ms
+  - 1920×1080: 3.6–6.3 ms
+  - 3456×2160: 19–23 ms
+
+  A 16 B/px copy on the same GPU takes 0.1 / 0.3 / 1.1 ms; FL's compose takes 1.7 ms at 1080p.
+- **MetalFX temporal at 2×** (minimum over loaded runs): 1.0–1.1 ms at 1600×1000 output and
+  4.7–4.9 ms at 3456×2160.
