@@ -43,6 +43,12 @@ struct ControlCenterView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             resetAllBar
         }
+        #if os(macOS)
+        // On the Mac the canvas runs on under the sidebar: the π panel (bottom right) moves
+        // left of it while it shows.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.piMeterInsetRight = Double($0) }
+        .onDisappear { model.piMeterInsetRight = 0 }
+        #endif
     }
 
     // MARK: Search and sections

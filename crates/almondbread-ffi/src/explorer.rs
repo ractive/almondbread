@@ -1220,7 +1220,7 @@ impl Explorer {
         let mut g = self.lock();
         let m = &mut g.host.overlay.pi;
         m.enabled = on;
-        m.inset = [inset_right.clamp(0.0, 400.0), inset_bottom.clamp(0.0, 400.0)];
+        m.inset = [inset_right.clamp(0.0, 2000.0), inset_bottom.clamp(0.0, 2000.0)];
     }
 
     pub fn pi_meter(&self) -> PiMeterInfo {
@@ -1243,19 +1243,19 @@ impl Explorer {
 
     /// The guided π flight: jumps to the place at `point` ("neck" or "cusp"), switches the
     /// meter on and flies down the line of approach to ε = 1e-8 (neck) or 1e-16 (cusp), the
-    /// parabolic point held at the same place on screen (the fly-to path: Q / E speed, Esc
-    /// stops). Returns the place's settings. Resume the display link after this.
+    /// parabolic point held at the same place on screen (an exponential zoom about it at the
+    /// zoom speed: Q / E change it, Esc or any move stops). Returns the place's settings.
+    /// Resume the display link after this.
     pub fn pi_flight(&self, point: String) -> Result<ExplorerSettings, CoreError> {
         use almondbread_core::pi_moment::PiPoint;
         let p = PiPoint::named(&point).ok_or_else(|| invalid(format!("unknown π point {point}")))?;
         let settings = self.go_to_place(p.place_id().into())?;
         let mut g = self.lock();
-        let (w, h) = g.host.view_points();
-        g.host.overlay.pi.enabled = true;
-        let r = &mut g.host.renderer;
-        let target = p.view_at(p.flight_eps(), w.min(h)).with_angle(r.viewport.angle);
-        let start = r.viewport.clone();
-        r.navigator.fly_to(&target, &start, media_time());
+        g.host.renderer.navigator.cancel_flight();
+        let start =
+            almondbread_core::pi_moment::target(&g.host.renderer.viewport).map_or(p.flight_eps() * 1e6, |t| t.eps);
+        g.host.overlay.pi.start_flight(p, start, p.flight_eps());
+        g.host.renderer.note_interaction(media_time());
         Ok(settings)
     }
 

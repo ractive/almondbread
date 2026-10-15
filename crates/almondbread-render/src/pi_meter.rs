@@ -93,6 +93,20 @@ pub struct PiMeter {
     last: Option<Measured>,
     /// Finished counts per point (neck, cusp), for the plot.
     history: [Vec<Measured>; 2],
+    flight: Option<PiFlight>,
+}
+
+/// The guided flight: an exponential zoom about the parabolic point, ε = ε_0·e^(-rate·t),
+/// each frame's view framed like the place (the point stays put on screen). The fly-to path
+/// would not do: between two views this close it pans most of the way first.
+#[derive(Clone, Debug)]
+struct PiFlight {
+    point: PiPoint,
+    eps: f64,
+    end_eps: f64,
+    last_time: Option<f64>,
+    /// The view set last frame: any other view means the user took over.
+    last_view: Option<Viewport>,
 }
 
 fn slot(p: PiPoint) -> usize {
@@ -197,9 +211,54 @@ impl PiMeter {
         }
     }
 
-    /// A count is running (frames keep coming so its progress shows).
+    /// A count is running (frames keep coming so its progress shows) or the flight is on.
     pub fn busy(&self) -> bool {
-        self.job.is_some()
+        self.job.is_some() || self.flight.is_some()
+    }
+
+    /// Starts the guided flight from the view `start_eps` on the line down to `end_eps`.
+    pub fn start_flight(&mut self, point: PiPoint, start_eps: f64, end_eps: f64) {
+        self.enabled = true;
+        self.flight = Some(PiFlight {
+            point,
+            eps: start_eps,
+            end_eps,
+            last_time: None,
+            last_view: None,
+        });
+    }
+
+    pub fn stop_flight(&mut self) {
+        self.flight = None;
+    }
+
+    pub fn flying(&self) -> bool {
+        self.flight.is_some()
+    }
+
+    /// The flight's view for this refresh: `current` is the renderer's view (a different one
+    /// than set last frame ends the flight: the user moved), `short_side` the view's shorter
+    /// side in points, `rate` e-folds per second (the zoom speed: Q / E change it). None:
+    /// no flight (or it just ended).
+    pub fn flight_view(&mut self, current: &Viewport, short_side: f64, now: f64, rate: f64) -> Option<Viewport> {
+        let f = self.flight.as_mut()?;
+        if f.last_view.as_ref().is_some_and(|v| v != current) || !self.enabled {
+            self.flight = None;
+            return None;
+        }
+        let dt = f.last_time.map_or(0.0, |t| (now - t).clamp(0.0, 0.1));
+        f.last_time = Some(now);
+        // Ease out over the last e-fold so the flight lands rather than stops.
+        let left = (f.eps / f.end_eps).ln().max(0.0);
+        let r = rate.max(0.05) * left.min(1.0).max(0.08);
+        f.eps = (f.eps * (-r * dt).exp()).max(f.end_eps);
+        let v = f.point.view_at(f.eps, short_side).with_angle(current.angle);
+        if f.eps <= f.end_eps * (1.0 + 1e-9) {
+            self.flight = None;
+        } else {
+            f.last_view = Some(v.clone());
+        }
+        Some(v)
     }
 
     /// Waits for the running count (headless stills).
@@ -377,9 +436,9 @@ impl PiMeter {
         scene.text([x0, top + y_info], s_info, &info, white(0.8));
         let status = if state.too_deep {
             format!(
-                "ε below {}: N would pass {} iterations (the meter's limit)",
+                "past the depth limit: ε < {}, N > 1e{}",
                 g(point.min_eps(), 2),
-                g(MAX_COUNT as f64, 2)
+                (MAX_COUNT as f64).log10().round()
             )
         } else if let Some(j) = &self.job {
             let pct = (100.0 * state.progress).floor();
@@ -552,6 +611,39 @@ fn group(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flight_zooms_about_the_point_and_lands() {
+        let h = 800.0;
+        let p = PiPoint::Neck;
+        let mut m = PiMeter::default();
+        let mut v = p.view_at(0.02, h);
+        m.start_flight(p, 0.02, p.flight_eps());
+        let (mut t, mut prev) = (0.0, 0.02);
+        while m.flying() && t < 60.0 {
+            t += 1.0 / 60.0;
+            let Some(nv) = m.flight_view(&v, h, t, 1.6) else { break };
+            v = nv;
+            let tg = target(&v).unwrap();
+            assert!(tg.eps <= prev * (1.0 + 1e-12), "{t}: ε went up");
+            prev = tg.eps;
+            // The parabolic point stays a quarter of the height below the centre.
+            let (dx, dy) = Center::new(-0.75, 0.0).delta_in(&v.center, v.scale);
+            assert!(dx.abs() < 1e-6 && (dy / h + 0.25).abs() < 1e-6, "{t}: {dx} {dy}");
+        }
+        assert!(!m.flying());
+        assert!((prev / p.flight_eps() - 1.0).abs() < 1e-9, "{prev}");
+        // 14.5 e-folds at 1.6 per second, plus the eased landing.
+        assert!(t > 9.0 && t < 14.0, "{t}");
+        // A view moved by the user ends it.
+        m.start_flight(p, 0.02, p.flight_eps());
+        let v0 = p.view_at(0.02, h);
+        let v1 = m.flight_view(&v0, h, 0.0, 1.6).unwrap();
+        let mut moved = v1.clone();
+        moved.pan_by_points(5.0, 0.0);
+        assert!(m.flight_view(&moved, h, 0.1, 1.6).is_none());
+        assert!(!m.flying());
+    }
 
     #[test]
     fn groups_digits() {

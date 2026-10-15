@@ -233,9 +233,15 @@ fn pi_history_for_still(meter: &mut almondbread_render::pi_meter::PiMeter, view:
     use almondbread_core::pi_moment::{Count, MAX_COUNT, escape_count, target};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     let Some(t) = target(view) else { return };
-    let mut k = 0.5;
-    while t.eps * 10f64.powf(k) <= 0.1 + 1e-12 {
-        let eps = t.eps * 10f64.powf(k);
+    // Shallow to deep, as a zoom would make them (the deepest counted is the one shown), and
+    // only where the meter counts.
+    let mut list: Vec<f64> = (1..)
+        .map(|k| t.eps * 10f64.powf(0.5 * f64::from(k)))
+        .take_while(|&e| e <= 0.1 + 1e-12)
+        .filter(|&e| e >= t.point.min_eps())
+        .collect();
+    list.reverse();
+    for eps in list {
         let start = Instant::now();
         if let Count::Escaped(n) = escape_count(t.point, eps, MAX_COUNT, &AtomicBool::new(false), &AtomicU64::new(0)) {
             meter.add_measurement(almondbread_render::pi_meter::Measured {
@@ -245,7 +251,6 @@ fn pi_history_for_still(meter: &mut almondbread_render::pi_meter::PiMeter, view:
                 seconds: start.elapsed().as_secs_f64(),
             });
         }
-        k += 0.5;
     }
 }
 

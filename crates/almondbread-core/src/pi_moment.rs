@@ -477,34 +477,18 @@ mod tests {
     }
 
     #[test]
-    fn guided_flight_stays_on_the_line() {
-        use crate::input::{InputEvent, Navigator};
-        let (w, h) = (1280.0, 800.0);
-        for (p, eps0) in [(PiPoint::Neck, 0.02), (PiPoint::Cusp, 2e-4)] {
-            let start = p.view_at(eps0, h);
-            let target_view = p.view_at(p.flight_eps(), h);
-            let mut v = start.clone();
-            let mut nav = Navigator::default();
-            nav.handle(InputEvent::Resize { width: w, height: h }, &mut v, 0.0);
-            nav.fly_to(&target_view, &start, 0.0);
-            let mut t = 0.0;
-            let mut frames = 0;
-            let mut far = 0.0f64;
-            while nav.is_flying() && t < 300.0 {
-                t += 1.0 / 60.0;
-                nav.advance(&mut v, t);
-                frames += 1;
-                let tg = target(&v).unwrap_or_else(|| panic!("{} left the line at t {t}", p.name()));
-                assert_eq!(tg.point, p);
-                // The parabolic point stays near the frame (the zoom is about it).
+    fn flight_views_frame_the_point_alike() {
+        let h = 800.0;
+        for (p, ratio) in [(PiPoint::Neck, 0.25), (PiPoint::Cusp, 1.0 / 3.0)] {
+            for eps in [0.02, 1e-5, p.flight_eps()] {
+                let v = p.view_at(eps, h);
+                let t = target(&v).unwrap();
+                assert_eq!(t.point, p);
+                assert!((t.eps / eps - 1.0).abs() < 1e-9, "{} {eps} {}", p.name(), t.eps);
                 let (bre, bim) = p.base();
                 let (dx, dy) = Center::new(bre, bim).delta_in(&v.center, v.scale);
-                far = far.max(dx.hypot(dy) / h);
+                assert!((dx.hypot(dy) / h - ratio).abs() < 1e-6, "{} {eps}", p.name());
             }
-            let tg = target(&v).unwrap();
-            assert!((tg.eps / p.flight_eps() - 1.0).abs() < 1e-6, "{} {}", p.name(), tg.eps);
-            assert!(frames > 300, "{frames}");
-            assert!(far < 3.0, "{} base point {far} view heights away", p.name());
         }
     }
 

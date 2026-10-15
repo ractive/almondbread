@@ -140,6 +140,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         let interaction = self.renderer.navigator.last_interaction;
         let mode = self.renderer.navigator.mode();
         let handled = self.renderer.handle_input(event, now);
+        // Esc ends the π meter's guided flight too (other input ends it by moving the view).
+        if matches!(event, InputEvent::KeyDown(almondbread_core::input::NavKey::Stop)) && self.overlay.pi.flying() {
+            self.overlay.pi.stop_flight();
+        }
         if self.renderer.navigator.last_interaction != interaction
             && let Some(m) = &mut self.measure
         {

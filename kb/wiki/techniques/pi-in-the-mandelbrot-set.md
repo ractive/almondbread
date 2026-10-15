@@ -138,9 +138,13 @@ depths (ε = 0.02 neck, 2e-4 cusp) the automatic limit shows the wedges and thei
 ## In the app
 
 Places "π at the Neck" (ε = 0.02, N = 158) and "π at the Cusp" (ε = 2e-4, N = 220); the
-guided flight zooms about the parabolic point from the place to ε = 1e-8 (neck, 8 s at the
-default fly speed) or 1e-16 (cusp, 15 s), centre on the line all the way (unit test
-`guided_flight_stays_on_the_line`). Controls: [[decisions/controls]] "π meter". Code:
+guided flight zooms about the parabolic point from the place to ε = 1e-8 (neck, about 10 s at
+the default zoom speed of 1.6 e-folds per second) or 1e-16 (cusp, about 18 s): an exponential
+zoom ε(t) = ε₀·e^(−rate·t), each frame's view framed like the place, eased over the last
+e-fold (unit test `flight_zooms_about_the_point_and_lands`). The fly-to path was tried first
+and rejected: between two views on the line it pans most of the way before zooming, so the
+centre reached ε ≈ 1e-6 while the view was still wide and the parabolic point sat under the
+centre ring (seen in the ui-demo screenshot, 2026-10-15). Controls: [[decisions/controls]] "π meter". Code:
 `crates/almondbread-core/src/pi_moment.rs`, `crates/almondbread-render/src/pi_meter.rs`.
 
 ## Contradictions

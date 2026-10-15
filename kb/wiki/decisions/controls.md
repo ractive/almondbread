@@ -633,8 +633,10 @@ like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
   flight buttons (the iOS way in). Persisted with the other settings, off after Reset all and
   the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset).
 - **Guided flight:** jumps to the place "π at the Neck" (ε = 0.02) or "π at the Cusp"
-  (ε = 2e-4), turns the meter on and flies the fly-to path to ε = 1e-8 or 1e-16 framed like
-  the place, so the zoom is about the parabolic point (8 s / 15 s at the default speed; Q / E,
-  Esc as for any flight). FFI: `set_pi_meter`, `pi_meter`, `pi_flight`.
+  (ε = 2e-4), turns the meter on and zooms exponentially about the parabolic point to
+  ε = 1e-8 or 1e-16, every view framed like the place (about 10 s / 18 s at the default zoom
+  speed; Q / E change the speed, Esc or any move ends it). Driven by the meter in
+  `Overlay::prepare`, not the fly-to path (that pans first). FFI: `set_pi_meter`, `pi_meter`,
+  `pi_flight`.
 - **Headless:** `almondbread render out.png --pi-overlay 1 [--ppp 0.5]` waits for the count and
   fills the plot with the counts every half decade from ε = 0.1 down to the view's ε.

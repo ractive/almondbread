@@ -493,6 +493,14 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// the renderer's frame. `size`: output pixels, `ppp`: view points per pixel.
     pub fn prepare(&mut self, renderer: &mut Renderer<B>, size: (usize, usize), ppp: f64, now: f64) {
         let s = self.settings.clone().sanitized();
+        if size.0 > 0 && size.1 > 0 && ppp > 0.0 {
+            let short = size.0.min(size.1) as f64 * ppp;
+            let rate = renderer.navigator.zoom_speed();
+            if let Some(v) = self.pi.flight_view(&renderer.viewport, short, now, rate) {
+                renderer.viewport = v;
+                renderer.note_interaction(now);
+            }
+        }
         self.pi.update(&renderer.viewport);
         if !(s.any() || self.pi.enabled) || size.0 == 0 || size.1 == 0 || ppp <= 0.0 {
             renderer.overlay = None;
