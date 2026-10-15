@@ -934,6 +934,35 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "--pointer",
         "40,20",
     ],
+    // M5 (kb: techniques/local-series-approximation): the user's slowest view, a dense spiral
+    // at 4.2e-19/px (centre crop of the 1600-wide framing): a jump there (auto iterations: the
+    // reference's escape sets the limit at once, local SA seeds every tile) and a pan.
+    &[
+        "--history",
+        "jump",
+        "--location",
+        "spiral-32412-1e19",
+        "--at-width",
+        "1600",
+        "--size",
+        "640x400",
+        "--ppp",
+        "1",
+    ],
+    &[
+        "--history",
+        "pan",
+        "--location",
+        "spiral-32412-1e19",
+        "--at-width",
+        "1600",
+        "--size",
+        "640x400",
+        "--ppp",
+        "1",
+        "--seconds",
+        "1",
+    ],
     // Fly to coordinates (kb: decisions/controls, fly to): home to the period-8007 minibrot
     // at ~1e-34 and to c = i at 1e-300, through the navigator's path; lands exactly.
     &[

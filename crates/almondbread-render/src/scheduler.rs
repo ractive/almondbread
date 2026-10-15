@@ -143,6 +143,9 @@ pub struct SchedulerConfig {
     /// `SaMode` doubles as its mode: Auto fills where the last level's statistics forecast a
     /// gain.
     pub interior_fill: SaMode,
+    /// M5: auto iterations start at the big reference's floor (`period_floor`;
+    /// `ALMONDBREAD_ITER_FLOOR=0` off, for before/after measurements).
+    pub iteration_floor: bool,
 }
 
 /// When levels start their pixels from local series approximation seeds.
@@ -276,6 +279,7 @@ impl Default for SchedulerConfig {
                 .ok()
                 .and_then(|v| SaMode::parse(&v))
                 .unwrap_or(SaMode::Auto),
+            iteration_floor: std::env::var("ALMONDBREAD_ITER_FLOOR").map_or(true, |v| v != "0"),
         }
     }
 }
@@ -2018,7 +2022,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// reach it). Capped like the learner (4x the heuristic) and at the user's cap; a function
     /// of the reference alone, so the key `make_key` builds stays the job's. 0: none applies.
     fn period_floor(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> usize {
-        if !self.settings.auto_iterations {
+        if !self.settings.auto_iterations || !self.config.iteration_floor {
             return 0;
         }
         let Some(r) = self.reference.as_ref().filter(|r| r.big) else {
@@ -2959,6 +2963,7 @@ impl<B: GpuBackend> Renderer<B> {
             level.iterations,
             level.use_interior,
             level.params.max_iter as usize,
+            level.crossed,
         ));
         self.survey_level(index);
     }
