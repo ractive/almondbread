@@ -92,6 +92,15 @@ gear train after Ganson's "Machine with Concrete".
   maths in Rust. As built, with the convention, numbers and sources: [[synthesis/how-big-is-big]].
   Open: a link from the cosmic size scale overlay.
 
+## Money ladder for the relative mode (2026-10-15)
+
+User: a third ladder next to size and time: 1 cent at home (zero has no place on a log scale)
+up to world GDP at the 1e3000 limit, with milestones (coffee, salary, car, house, jackpot, big
+company, a country's GDP) and "the richest person in the world" as a role, not a name. Every
+value carries a year and a source (Forbes / World Bank / IMF); the richest person's figure
+goes stale fastest. Only 16 decades, so it needs the relative mode's milestone spacing. Build
+after the size/time relative mode has been tried.
+
 ## Earlier ideas already filed elsewhere
 
 - Landscape mode with altitude as zoom, flight recorder and rewind:
