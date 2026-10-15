@@ -159,7 +159,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     }
     // The reference first (the probe perturbs against it at depth).
     r.render_offscreen(width.min(64), height.min(64), false)?;
-    ov.prepare(r, (width, height), 1.0, now);
+    ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
     let deadline = r.clock() + 30.0;
     while r.clock() < deadline {
         ov.step_probe(0.05);
@@ -170,7 +170,8 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         std::thread::sleep(std::time::Duration::from_millis(4));
     }
     let now = r.clock();
-    ov.prepare(r, (width, height), 1.0, now);
+    // `--ppp 0.5`: overlay sizes as on a Retina display (view points per pixel).
+    ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
     if let Some(c) = ov.orbit_class() {
         println!(
             "orbit: {} ({} iterates drawn, |z_n| {})",
