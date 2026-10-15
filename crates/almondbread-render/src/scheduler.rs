@@ -41,8 +41,8 @@ use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 /// Dense-region colours cached per palette: (palette key, deep, filament).
 type DenseColors = (String, [f32; 3], [f32; 3]);
 
-/// M6 auto: LA when the limit spans at least this many periods of a nucleus reference.
-const LA_MIN_PERIODS: usize = 16;
+/// M6 auto: LA when the limit spans at least this many periods of a nucleus reference (deep kernel).
+const LA_MIN_PERIODS: usize = 4;
 /// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
 pub const BAILOUT: f64 = 65536.0;
 const STAT_SLOTS: usize = 64;
@@ -292,7 +292,7 @@ impl Default for SchedulerConfig {
                 .ok()
                 .and_then(|v| LaMode::parse(&v))
                 .unwrap_or(LaMode::Auto),
-            la_at: std::env::var("ALMONDBREAD_AT").map_or(true, |v| v != "0"),
+            la_at: std::env::var("ALMONDBREAD_AT").is_ok_and(|v| v == "1"),
         }
     }
 }
@@ -2604,17 +2604,20 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// Auto mode: whether the job's view should iterate through the LA table rather than BLA
     /// (kb: synthesis/benchmarks M6).
-    /// Measured (M6): LA (with the AT) beats BLA 2-3x where pixels run through many periods of
-    /// a short nucleus reference (needles: periods 79-834, limits 120-250 periods), loses at
-    /// sea-8007 (5 periods of 8007: the cost is the non-linear tail, where LA's lookups at
-    /// every near-return cost more than BLA's every 8th step) and is even with BLA on centre
-    /// references (dendrites, sea-1e20, spiral: deltas are non-linear or seeds did the work).
+    /// Measured (M6, deep kernel): LA beats BLA 1.8-2.5x where pixels run through many periods
+    /// of a short nucleus reference (needles: periods 79-834, limits of 120-250 periods) and
+    /// 1.1x at sea-8007 (5 periods of 8007); it is even with BLA or slower on centre references
+    /// (dendrites, sea-1e20, the spiral: deltas are non-linear, or the seeds did the work) and
+    /// 1.3-5x slower forced into the plain kernel's views (a lookup at every near-return where
+    /// nothing is linear).
     fn prefer_la(&self) -> bool {
         let Some(job) = &self.job else { return false };
-        self.reference
-            .as_ref()
-            .and_then(|r| r.period)
-            .is_some_and(|p| p >= 2 && job.key.max_iter >= LA_MIN_PERIODS * p)
+        job.deep
+            && self
+                .reference
+                .as_ref()
+                .and_then(|r| r.period)
+                .is_some_and(|p| p >= 2 && job.key.max_iter >= LA_MIN_PERIODS * p)
     }
 
     fn finish_la_build(&mut self, wait: bool) {
@@ -3001,6 +3004,12 @@ impl<B: GpuBackend> Renderer<B> {
             if !level.started() {
                 level.use_bla = has_bla;
                 level.use_la = has_la;
+                if self.config.trace {
+                    println!(
+                        "level {level_index} starts ({}x{}, preview {}): bla {has_bla} la {has_la} la decided {}",
+                        level.set.width, level.set.height, level.preview, job.la_decided
+                    );
+                }
             }
             if !level.started() && !level.is_extension() {
                 level.use_interior = autoiter::use_interior_test(interior_enabled, stats, key_max_iter);
