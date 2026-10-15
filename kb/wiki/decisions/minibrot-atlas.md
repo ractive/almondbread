@@ -67,6 +67,32 @@ file format so the app, the journey and later a game server can read them.
   look "new"? This feeds journey scoring directly.
 - Educational views: period histogram of a view, "the atlas so far", nearest unvisited minibrot.
 
+## Online atlas (user idea, 2026-10-15)
+
+User: users upload their atlas to ractive.ch, or the app sends what it discovers in the
+background; the server stores everything and publishes an online Mandelbrot atlas.
+
+Driver's assessment:
+- **Opt-in only.** The entries are mathematics, but an upload carries an IP address, a time and,
+  for credit, an account: personal data under the Swiss nFADP and GDPR, and an App Store
+  privacy label (unverified, needs a source page). Background sharing is a switch the user turns
+  on ("Share discoveries"), never the default; a manual "Upload my atlas" comes first.
+- **Never trust the client.** The server re-verifies every entry (Newton from the given nucleus,
+  period and size check) with the same Rust core, which already builds for Linux. Junk fails
+  verification; valid but boring entries are harmless.
+- **Canonical key from day one:** period plus the nucleus rounded to a precision relative to the
+  minibrot's size. The local atlas uses the same key, so uploading later needs no migration.
+- **Store coordinates, not images.** Thumbnails are deterministic from the coordinates and
+  settings; render them server-side (CPU oracle, slow but fine for small thumbnails) or in the
+  browser later (core compiled to WebAssembly). No user images means no moderation.
+- **Two kinds of data:** a server-side census (complete at shallow depth, systematic) plus user
+  discoveries (deep, biased to where people fly, with "first found by" credit). The bias is
+  itself interesting: a heatmap of where people explore.
+- **Fits the game ideas** ([[decisions/gamification]]): discovery credit, daily journeys, a
+  shared map.
+- Order: local atlas plus export file → manual upload → opt-in background sharing and the
+  website. Backend: a small Rust service with SQLite or Postgres on ractive.ch (not decided).
+
 ## Not in scope
 
 - Claims about MLC, queer components or the boundary's area: floating-point pixels cannot
