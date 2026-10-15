@@ -124,6 +124,27 @@ fn run_par(sizes: &[usize]) {
     }
 }
 
+/// Squaring kernels at deep-zoom sizes: the orbit's short Comba square (columns n-2..2n)
+/// against the full product (Comba below the Karatsuba threshold, Karatsuba above).
+/// Best of 5 timings of a loop each.
+fn run_kernels() {
+    println!("{:>6} {:>6} {:>14} {:>14} {:>8}", "limbs", "bits", "short Comba ns", "full sqr ns", "ratio");
+    for n in [18usize, 54, 64, 106, 157, 256] {
+        let a: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1 << 63).collect();
+        let mut r = vec![0u64; 2 * n];
+        let mut scratch = vec![0u64; limbs::product_scratch_limbs(n) + 8];
+        let reps = (20_000_000 / (n * n)).max(50);
+        let best = |f: &mut dyn FnMut()| {
+            (0..5)
+                .map(|_| secs(|| (0..reps).for_each(|_| f())) / reps as f64 * 1e9)
+                .fold(f64::INFINITY, f64::min)
+        };
+        let short = best(&mut || limbs::sqr_short(black_box(&mut r), black_box(&a), n));
+        let full = best(&mut || limbs::sqr(black_box(&mut r), black_box(&a), n, &mut scratch));
+        println!("{n:>6} {:>6} {short:>14.0} {full:>14.0} {:>8.2}", n * 64, full / short);
+    }
+}
+
 fn secs(body: impl FnOnce()) -> f64 {
     let t0 = Instant::now();
     body();
@@ -227,7 +248,8 @@ fn main() {
             run_par(&sizes)
         }
         "ops" => run_ops(),
+        "kernels" => run_kernels(),
         "nucleus" => run_nucleus(),
-        _ => println!("usage: math_check [bench [bits...]|par [bits...]|ops|nucleus]"),
+        _ => println!("usage: math_check [bench [bits...]|par [bits...]|kernels|ops|nucleus]"),
     }
 }

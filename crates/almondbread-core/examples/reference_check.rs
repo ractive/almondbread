@@ -69,8 +69,13 @@ fn main() {
             let mut req = ReferenceRequest::for_view(&v, v.scale, width, radius, max_iter * 2, 65536.0);
             req.period_limit = max_iter;
             let t0 = Instant::now();
-            let r = Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).expect("reference");
+            let mut first: Option<f64> = None;
+            let r = Reference::compute_big_progressive(&req, &AtomicBool::new(false), &AtomicUsize::new(0), &mut |_| {
+                first.get_or_insert(t0.elapsed().as_secs_f64());
+            })
+            .expect("reference");
             let total = t0.elapsed().as_secs_f64();
+            let total = first.unwrap_or(total);
             println!(
                 "{:<18} {:>6} {:>8.1}ms {:>8.1}ms {:>8.1}ms {:>8.1}ms {:>8}{}",
                 name,
