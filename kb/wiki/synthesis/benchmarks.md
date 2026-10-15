@@ -965,6 +965,13 @@ stretch of one look; (3) dendrite carpets of the 3/7 limb come back after ~60 s 
 | `journey-4711-3min` (final) | 6644 (36.9 fps) | 2578 (7478 ms) | 6.45 ms | load 120–190 |
 | `journey-20261015-cinematic-3min` (final) | 6377 (35.4 fps) | 236 (709 ms) | 11.21 ms | load 120–190 |
 | `journey-7-needle-3min` (final, starts in the needle) | 7860 (43.7 fps) | 810 (569 ms) | 6.63 ms | load 120–190 |
+| `journey-4711-3min` (final, after merging main d7ab9e1, re-recorded) | 7701 (42.8 fps) | 194 (424 ms) | 6.09 ms | load 20–40 |
+
+Interaction test (`ALMONDBREAD_SCENARIOS=journey make interaction-test`, screen unlocked, load
+~50, after the merge): 20.1 fps, interval p50 / p95 16.7 / 100 ms, latency p50 / p95 27.9 /
+44.5 ms, GPU 8.1 + 2.0 ms/frame, shown frame vs fresh render 0 % class difference; an earlier
+run at load ~150 gave 10.2 fps with one GPU hang retried (other agents' GPU work). No earlier
+journey interaction number exists to compare (PJ ran with the screen locked).
 
 The first-build runs match PJ (46.0 / 46.3 fps, 70 / 1 late refreshes over 85 s). The final
 runs' stalls are the recorder falling behind wall time while the view rested
