@@ -495,8 +495,9 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
 /// the refined final frame, diffs it against the CPU oracle at the hard limit and a fresh
 /// headless render. Fails on a preview final frame, more than `--max-false-interior` %
 /// (0.05) exterior painted interior, or more than `--max-mismatch` % (0.05) differing from
-/// the fresh render, or more than `--max-unresolved` % unresolved (off by default). `--then f`
-/// adds a one-step zoom of factor f. `jump` starts at the view itself with no history and
+/// the fresh render, or more than `--max-unresolved` % unresolved (off by default), or a
+/// median |Δmu| against the oracle above `--max-cpu-median` (off by default). `--then
+/// f[,f2,...]` adds one-step zooms by each factor in turn, each checked. `jump` starts at the view itself with no history and
 /// no learned limit ("Go to coordinates").
 pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let (width, height) = o.size("size", (1280, 820))?;
@@ -686,13 +687,21 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         );
     }
     sessions.push(first);
-    if let Some(f) = o.f64("then") {
-        let second = r
-            .simulate(width, height, ppp, 120.0, 1, 30.0, &mut |_, _, v: &mut Viewport| {
-                v.zoom_by(f, pointer.0, pointer.1)
-            })
-            .map_err(|_| crate::options::CommandError("second session did not finish".into()))?;
-        sessions.push(second);
+    // `--then f[,f2,...]`: one-step zooms by each factor in turn (> 1 in), each settled and
+    // checked like the gesture's final frame.
+    if let Some(list) = o.get("then") {
+        for f in list.split(',') {
+            let f: f64 = f
+                .trim()
+                .parse()
+                .map_err(|_| crate::options::CommandError(format!("bad --then {list}")))?;
+            let step = r
+                .simulate(width, height, ppp, 120.0, 1, 30.0, &mut |_, _, v: &mut Viewport| {
+                    v.zoom_by(f, pointer.0, pointer.1)
+                })
+                .map_err(|_| crate::options::CommandError("second session did not finish".into()))?;
+            sessions.push(step);
+        }
     }
     // The cache once more, seeded from the refined frame.
     let settled = r.sample_cache_check();
@@ -938,6 +947,18 @@ fn verify_session<B: GpuBackend + Clone>(
         // counts off by thousands almost everywhere (median 1.1e4 at spiral-1e1000 1e-302),
         // while a jump or a flight ends on the fresh render's reference (median <= 1e-4).
         // (Not after a zoom or pan: another reference, chaotic views reach a median ~0.9.)
+        // `--max-cpu-median m`: the median |Δmu| against the CPU oracle (off by default; chaotic
+        // views differ by up to ~1 with any reference). Near the -3/4 neck, extension passes
+        // past the end of an f64 orbit cut at the limit drew noise and black wedges (median 2.2
+        // to 6.5; with the whole orbit <= 3e-4, kb: techniques/rebasing "Truncated references").
+        if let Some(m) = o.f64("max-cpu-median")
+            && vs_cpu.median_error > m
+        {
+            failed.push(format!(
+                "{tag}smooth counts differ from the CPU oracle by {} in the median (> {m})",
+                g(vs_cpu.median_error, 3)
+            ));
+        }
         let max_median = o.f64("max-median-diff").unwrap_or(10.0);
         if (mode == "jump" || mode == "flyto") && vs_fresh.median_error > max_median {
             failed.push(format!(
@@ -1414,6 +1435,29 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "50000",
         "--size",
         "640x400",
+    ],
+    // Zoom in at the -3/4 neck (im 3.7e-4: the centre escapes at 17 019, the depth limit is
+    // ~4 500) to 1.6e-13 per point, then wheel out to 2e-12, 4e-12 and 1.6e-11 per point. The
+    // f64 orbit was cut at the limit it was made for and the extension passes iterated past
+    // the cut: blocky noise with black wedges after zooming out (median |Δmu| vs the oracle
+    // 2.2-6.5), grain at the user's view (kb: techniques/rebasing "Truncated references").
+    &[
+        "--history",
+        "zoom",
+        "--center",
+        "-0.74999994719705121,0.00036918485351065104",
+        "--scale",
+        "8e-14",
+        "--angle",
+        "-185.69",
+        "--size",
+        "960x600",
+        "--seconds",
+        "5.75",
+        "--then",
+        "0.05,0.5,0.25",
+        "--max-cpu-median",
+        "0.05",
     ],
 ];
 

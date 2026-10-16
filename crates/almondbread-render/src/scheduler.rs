@@ -2491,11 +2491,11 @@ impl<B: GpuBackend> Renderer<B> {
         // The extension iterates unresolved pixels past the limit: never past the end of a
         // truncated orbit (they would rebase there with a rounding loss and all continue as
         // one orbit, kb: techniques/rebasing "Truncated references").
-        let extension_cap = if reference.truncated_before(usize::MAX) {
-            reference.points.len() - 1
-        } else {
-            usize::MAX
-        };
+        // The same holds for an f64 orbit cut at the limit it was made for: near the -3/4 neck
+        // (centre escaping at 17 019, limit 4 533) passes to 18 132 against the 4 534-point cut
+        // drew blocky noise and black wedges (2026-10-16). `prepare_reference` makes f64 orbits
+        // long enough for the passes; this keeps any other reference honest.
+        let extension_cap = reference.exact_reach();
         let deep = reference.deep_kernel;
         let refx_buffer = if deep { self.refx_buffer.clone() } else { None };
         let big = reference.big;
@@ -5085,8 +5085,18 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         if viewport.scale.to_f64() >= DEEP_SCALE {
-            if fit != Fit::Good {
-                let r = Reference::compute_f64(viewport, max_iter, BAILOUT);
+            // The f64 orbit is cheap (no precision to pick, 1e5 steps in well under a ms; its
+            // BLA/LA tables build off the main thread): make it as long as the extension passes
+            // may iterate, so a centre that has not escaped at the limit does not stop them at
+            // its cut (`exact_reach`). Near the -3/4 neck the centre escapes long after the
+            // limit, and the passes are what resolve the view.
+            let factor = self.config.extension_factor.max(self.config.offscreen_extension).max(1);
+            let reach = max_iter
+                .saturating_mul(factor)
+                .min(max_iter.max(self.settings.max_iterations_cap));
+            let short = self.reference.as_ref().is_some_and(|r| r.exact_reach() < reach);
+            if fit != Fit::Good || short {
+                let r = Reference::compute_f64(viewport, reach, BAILOUT);
                 self.set_reference(r);
             }
             return self.reference_buffer.is_some();

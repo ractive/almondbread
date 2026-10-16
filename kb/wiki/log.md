@@ -901,3 +901,19 @@ in 62 700 recorded frames. Pages: [[platform/metal-compute]] "Pipeline warm-up",
 [[decisions/controls]] (Fly to stalls, target lock, Journey revision),
 [[techniques/pi-in-the-mandelbrot-set]], [[questions/metal-watchdog-limit]],
 [[synthesis/benchmarks]] "Motion fixes".
+
+## [2026-10-16] decision | Extension passes stop at the end of an f64 orbit cut at the limit
+
+User report near the −3/4 neck (`−0.74999994719705121 + 0.00036918485351065104 i`, 4.5e-12 per
+point): after zooming in to ~1e-13 and back out, black blobs with a straight-edged wedge and a
+mostly black frame, while a fresh `render` looked right. Reproduced headlessly with
+`verify --history zoom --scale 8e-14 --angle -185.69 --seconds 5.75 --then 0.05,0.5,0.25`
+(`--then` now takes a list of steps). Not the learner, local SA, tile fill, LA or the sample
+cache: the f64 reference (views ≥ 1e-12 per point) was computed to exactly the limit (~4 400
+there, the centre escapes at 17 019), and the extension passes to 16× restarted every pixel at
+that cut with the rounding loss of a truncated reference. Medians of |Δmu| against the oracle
+1.9–6.5 and class mismatch up to 25 % before; ≤ 3e-4 after. Fix: `Reference::exact_reach` caps
+the extension for every reference; the f64 orbit is computed as far as the passes may go. Bench
+iteration counts and verify metrics are unchanged; the regression is in `make regress`
+(`--max-cpu-median 0.05`, a new history gate). Pages: [[techniques/rebasing]] (Truncated
+references), [[techniques/auto-iterations]].

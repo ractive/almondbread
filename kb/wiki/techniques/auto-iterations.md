@@ -98,7 +98,10 @@ From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers
   inside it left a straight horizontal edge. An extension is all-or-nothing for
   the same reason (a view with more unresolved pixels than the list holds gets
   none). See [[platform/gpu-watchdog-and-chunking]] for why the passes restart
-  instead of keeping state.
+  instead of keeping state. The passes need a reference orbit that reaches as far
+  as they go, or one that escaped: an orbit cut at the nominal limit made them
+  draw noise near the −3/4 neck (fixed 2026-10-16; [[techniques/rebasing]]
+  "Truncated references").
 - **Learned limit.** When the passes found escapes past the nominal limit in at
   least 1 % of the pixels, later views start from the smallest of 2× or 4× the
   limit that leaves fewer than 1 % escaping beyond it. The learned limit is capped

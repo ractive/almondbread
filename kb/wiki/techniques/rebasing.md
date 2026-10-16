@@ -159,6 +159,26 @@ at `rock-bottom`) settled flat or as a tiled pattern, and so did a main view
 after a jump there (`verify --history jump --place spiral-1e1000 --scale
 1e-302 --iterations 50000`, now in `make regress`).
 
+**The iteration limit is an exact end only up to the limit.** Extension passes
+([[techniques/auto-iterations]]) iterate unresolved pixels to 16× the limit, so
+a centre orbit cut *at* the limit is truncated for them. The guard above only
+covered big references; the f64 orbit (views of 1e-12 per point and shallower)
+was computed to exactly the limit. User report (2026-10-16): near the −3/4 neck
+at `−0.749999947197051 + 3.69e-4 i` the centre escapes at 17 019 (≈ π/ε). After
+zooming in to 1e-13 and back out, the depth limit was ~4 400–4 750, and the
+passes to 18 000–70 000 restarted every pixel at the 4 400-point cut. The frame
+turned into blocky noise with black wedges with straight edges (the user's "black
+clover with a straight-edged wedge"; frames at slightly smaller limits came out
+grainy). Measured (2026-10-16, M1 Pro, release, `verify --history zoom ... --then
+0.05,...`): median |Δmu| against the oracle 1.9–6.5, class mismatch up to 25 %. A
+fresh `render` of the view looked right because it extends nothing. Fix:
+`Reference::exact_reach()` (unbounded after an escape or at a nucleus, else the
+last index) caps the extension for every reference, and the scheduler computes
+the f64 orbit as far as the passes may go (limit × extension factor, at most the
+cap; under a millisecond, and BLA builds off the main thread). Afterwards the same
+frames have a median ≤ 3e-4 and bench iteration counts are unchanged. `make regress`
+runs the path with `--max-cpu-median 0.05`.
+
 ## For almondbread
 
 Implement rebasing in the first GPU kernel, with norm tests that do not

@@ -299,6 +299,19 @@ impl Reference {
         self.big && self.period.is_none() && !self.escaped && self.points.len() - 1 < max_iter
     }
 
+    /// How far pixels may be iterated with this reference: unbounded when its end is an exact
+    /// rebase point (an escape or a nucleus period), else its last index. Holds for the f64
+    /// reference too: one cut at the limit it was made for (the centre did not escape) is exact
+    /// up to that limit, and an extension pass past it rebases every pixel at the cut with a
+    /// rounding loss (kb: techniques/rebasing, "Truncated references").
+    pub fn exact_reach(&self) -> usize {
+        if self.escaped || self.period.is_some() {
+            usize::MAX
+        } else {
+            self.points.len() - 1
+        }
+    }
+
     /// How well this reference serves `viewport` rendered with texels of `texel` complex units,
     /// `size` texels across (largest side) and `max_iter` iterations.
     pub fn fit(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> Fit {
@@ -485,6 +498,21 @@ pub fn radius_big(scale: Scale, points: f64) -> BigFloat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn f64_orbit_cut_at_its_limit_bounds_the_extension() {
+        // The -3/4 neck at im 3.7e-4: the centre escapes at 17 019 (about pi/eps).
+        let v = Viewport::new(-0.749_999_947_197_051_2, 0.000_369_184_853_510_651_04, 2e-12);
+        let cut = Reference::compute_f64(&v, 4_533, 65536.0);
+        assert!(!cut.escaped);
+        assert_eq!(cut.exact_reach(), 4_533);
+        let whole = Reference::compute_f64(&v, 72_528, 65536.0);
+        assert!(whole.escaped);
+        assert_eq!(whole.points.len() - 1, 17_018);
+        assert_eq!(whole.exact_reach(), usize::MAX);
+        // The prefix is the same orbit: extension passes may restart on the longer one.
+        assert_eq!(cut.points[..], whole.points[..cut.points.len()]);
+    }
 
     #[test]
     fn big_reference_finds_a_nucleus_and_serves_deeper_views() {
