@@ -913,7 +913,7 @@ struct PlacesSection: View {
             } label: {
                 PlaceThumbnail(id: p.id)
                     .aspectRatio(1.6, contentMode: .fit)
-                    .overlay(alignment: .bottom) { PlaceCaption(name: p.name, zoomLog10: p.zoomLog10) }
+                    .overlay(alignment: .bottomTrailing) { PlaceZoomPill(zoomLog10: p.zoomLog10) }
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     // Only the selected tile has a border (every shape is one more layer to
                     // build when the section opens).
@@ -924,9 +924,20 @@ struct PlacesSection: View {
                     }
             }
             .buttonStyle(.plain)
-            .help("\(p.name) · \(Format.zoom(log10: p.zoomLog10))")
+            // The name on hover (the tile shows only the zoom).
+            .help(p.name)
             .accessibilityLabel(p.name)
             .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
+            #if os(iOS)
+            // No hover on touch: a tap selects and shows the name and description below the
+            // grid; a long press names the place and offers Go / Fly.
+            .contextMenu {
+                Section(p.name) {
+                    Button { model.goToPlace(p.id) } label: { Label("Go", systemImage: "arrow.right.circle") }
+                    Button { model.flyToPlace(p.id) } label: { Label("Fly", systemImage: "airplane") }
+                }
+            }
+            #endif
         }
         if let id = selected, let p = ExplorerModel.places.first(where: { $0.id == id }) {
             VStack(alignment: .leading, spacing: 3) {
@@ -965,25 +976,22 @@ struct PlacesSection: View {
     }
 }
 
-/// The place's name (truncated) and zoom on a dark strip at the bottom of its thumbnail.
-/// Plain text: nothing changes per frame.
-struct PlaceCaption: View {
-    let name: String
+/// The place's zoom in a small dark pill at the bottom right of its thumbnail (the name is
+/// the tooltip). Plain text: nothing changes per frame.
+struct PlaceZoomPill: View {
     let zoomLog10: Double
 
     var body: some View {
-        HStack(spacing: 3) {
-            Text(name).lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 2)
-            Text(Format.zoom(log10: zoomLog10)).monospacedDigit().lineLimit(1).layoutPriority(1)
-        }
-        .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(.white)
-        .padding(.horizontal, 4)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
-        .background(LinearGradient(colors: [.black.opacity(0), .black.opacity(0.72)], startPoint: .top, endPoint: .bottom))
-        .accessibilityHidden(true)
+        Text(Format.zoom(log10: zoomLog10))
+            .font(.system(size: 9, weight: .semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1.5)
+            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+            .padding(3)
+            .accessibilityHidden(true)
     }
 }
 
@@ -1120,7 +1128,8 @@ struct ControlsHelp: View {
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J", "Journey: on · resume after input · off")
         row("rotate.left", ",  .  /", "Turn left / right · upright (or trackpad rotate)")
-        row("escape", "Esc", "Stop the autopilot, a flight or a journey")
+        row("escape", "Esc", "Stop the autopilot, a flight or a journey; then leave full screen")
+        row("arrow.up.backward.and.arrow.down.forward", "F or ⌃⌘F", "Full screen on / off")
         row("arrow.counterclockwise", "R or ⌘0", "Reset view")
         row("sidebar.trailing", "⌘I", "Control center")
         row("gearshape", "⌘,", "Settings")

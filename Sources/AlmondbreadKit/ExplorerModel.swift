@@ -305,6 +305,10 @@ public final class ExplorerModel {
     static let lockKey = "autopilotLock"
 
     /// The HUD's frame in SwiftUI's global space (the canvas shows the arrow cursor there).
+    /// The window is in (or entering) full screen (macOS): the control center closes then and
+    /// comes back as it was on leaving (ContentView; kb: decisions/controls "Full screen").
+    public var fullScreen = false
+
     @ObservationIgnored public var hudFrame: CGRect? {
         didSet { if hudFrame != oldValue { host?.hudFrameChanged() } }
     }

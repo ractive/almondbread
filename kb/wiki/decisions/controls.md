@@ -195,8 +195,10 @@ what can be set (user, 2026-10-16): no live values. The HUD shows zoom, centre a
 renderer statistics (iterations, GPU, render size, reference, kernel, state; the former
 "Performance & diagnostics" section) are the HUD's developer details, off by default
 (Overlays, View menu, Settings). On the Mac the sections are a lazy stack styled like a
-grouped form; Places thumbnails carry their name and zoom on a caption strip
-([[platform/swiftui-performance]]). A search field at the top
+grouped form; Places thumbnails show only their zoom, in a small dark pill at the bottom right,
+with the name as the tooltip (user, 2026-10-16: the caption strip cut names to "The Wh…"); iOS
+has no hover, so a tap selects and names the place under the grid and a long press opens a
+menu titled with the name (Go, Fly) ([[platform/swiftui-performance]]). A search field at the top
 filters sections by title and keywords ("dense", "orbit", "aa", ...); headers collapse
 (remembered). A trailing sidebar on the Mac and iPad, so nothing covers the image; a sheet on
 iPhone (medium/large detents, translucent material). Toggled by the toolbar button and ⌘I
@@ -872,3 +874,46 @@ triangle, kind 7); policy and maths in `crates/almondbread-core/src/compass.rs`;
   visibility and fade; Navigator: turn about the centre, frame-rate independence, drag ends a
   turn, autopilot and flight with spin), `almondbread_render::compass` (layout, click versus
   drag, nothing drawn while hidden).
+
+## Full screen (macOS, as built, 2026-10-16)
+
+Requested by the user: a clean view for watching flights. AppKit's own full screen; the
+policy is Swift's (it is window chrome, not navigation), the Esc decision uses the
+`Navigator`'s answer to `Stop`. iOS and iPadOS: nothing new (the canvas is already full screen).
+
+| Input | Action |
+| --- | --- |
+| F (canvas key, like O / M / P) | full screen on / off; key repeats are ignored |
+| ⌃⌘F, View ▸ Enter Full Screen, the green button | the same, AppKit's standard path |
+| Esc in full screen | stops the autopilot, a flight, a journey or a π hunt if one runs (eased); only an Esc that stopped nothing leaves full screen |
+
+- **Esc.** In full screen the key monitor swallows every Esc, so AppKit never sees one; the
+  key-down goes to Rust as `Stop`, and only when that is not handled (nothing moving) does the
+  window leave full screen. A held Esc's repeats never leave: the press that stopped the
+  autopilot must not also exit while the stop eases out. A second, separate Esc during the
+  0.5 s ease-out does leave (Rust no longer reports motion to stop). Outside full screen Esc is
+  unchanged: handled only while something moves, otherwise the system's. Text fields keep Esc.
+- **Clean view.** The control center closes as the window starts entering full screen and comes
+  back as it was when it starts leaving (opening or closing it in full screen does not count;
+  `FullScreenSidebar`, driven by `ExplorerModel.fullScreen` from the window's will-enter /
+  will-exit notifications, so ⌃⌘F and the green button behave like F). The toolbar hides and
+  slides in when the pointer reaches the top edge (`windowToolbarFullScreenVisibility(.onHover)`,
+  macOS 15+; macOS 14 keeps AppKit's always-visible toolbar). The HUD and the overlays keep
+  their settings. No HUD auto-fade: it would need an input timestamp observed by SwiftUI or a
+  timer, and the HUD can already be switched off (View ▸ Status Overlay).
+- **Insets.** The HUD (SwiftUI, inside the safe area) and the Rust overlays (compass, mini-maps,
+  pointer canvas, edge band: the `Insets` event) read the same safe area. Besides `layout()`,
+  the insets are sent again after each full-screen transition and whenever the window's
+  `contentLayoutRect` changes (KVO), so a hidden toolbar gives the overlays the top edge. While
+  the toolbar is slid in on hover it overlays the canvas (AppKit's standard behaviour; not
+  verifiable without entering full screen in a test, which window tests never do).
+- **Menu.** AppKit adds "Enter Full Screen" (⌃⌘F) to the View menu only for a menu bar it
+  shows; the canvas makes sure the View menu has an item with the `toggleFullScreen:` action
+  (AppKit's own check before it adds one, so there is never a duplicate) and AppKit titles it
+  Enter / Exit. The window is marked a primary full-screen window (a background test window,
+  an accessory app, reports `fullScreenNone`).
+- **Test.** Interaction-test scenario "esc full screen" replaces the window's full-screen state
+  and toggle with a probe (window tests never enter full screen): Z, then Esc stops the
+  autopilot and stays; 5 Esc repeats stay; Esc 1.2 s later (nothing moving) leaves; F enters,
+  an F repeat does nothing, F leaves; outside full screen an idle Esc passes to the system; the
+  control center's close-and-restore. All OK (2026-10-16, M1-class Mac, release).

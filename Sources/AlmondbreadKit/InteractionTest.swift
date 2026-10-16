@@ -489,6 +489,79 @@ final class InteractionTest: NSObject {
             }
             once("off", t >= 2.95) { v.model.piMeterEnabled = false }
         }
+        // Full screen (kb: decisions/controls "Full screen") through a probe instead of the
+        // window's own full screen (window tests never enter it): in "full screen", Z, then
+        // Esc stops the autopilot and stays; a held Esc's repeats stay; once the stop has
+        // eased out, Esc (nothing moving) leaves; F enters, F leaves. Plus the control
+        // center's close-and-restore across full screen.
+        var fsOn = false
+        var fsToggles = 0
+        var fsChecks: [String] = []
+        let escFullScreen: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            @MainActor func esc(repeating: Bool = false) {
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53, isARepeat: repeating)
+                if !repeating { InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53) }
+            }
+            @MainActor func check(_ name: String, _ ok: Bool) {
+                if !ok { self.failures += 1 }
+                fsChecks.append("\(name) \(ok ? "OK" : "FAILED")")
+            }
+            if i == 0 {
+                sent.removeAll()
+                fsChecks = []
+                fsOn = true
+                fsToggles = 0
+                v.fullScreenProbe = (isOn: { fsOn }, toggle: { fsOn.toggle(); fsToggles += 1 })
+                v.send(.pointer(x: 0, y: 0))
+                InteractionTest.key(v, "z", down: true)
+                InteractionTest.key(v, "z", down: false)
+            }
+            once("esc", t >= 1.2) {
+                let flying = explorer.stats().autopilot.active
+                esc()
+                check("Esc while flying stops it, stays in full screen", flying && fsOn && fsToggles == 0)
+                for _ in 0..<5 { esc(repeating: true) }
+                check("held Esc (repeats) stays", fsOn && fsToggles == 0)
+            }
+            once("esc2", t >= 2.4) {
+                let moving = explorer.stats().autopilot.active || explorer.stats().flight.active
+                esc()
+                check("Esc with nothing moving (autopilot \(moving ? "still on" : "off")) leaves", !moving && !fsOn && fsToggles == 1)
+                InteractionTest.key(v, "f", down: true)
+                InteractionTest.key(v, "f", down: false)
+                check("F enters", fsOn && fsToggles == 2)
+                InteractionTest.key(v, "f", down: true, isARepeat: true)
+                check("held F (repeat) does nothing", fsOn && fsToggles == 2)
+                InteractionTest.key(v, "f", down: true)
+                InteractionTest.key(v, "f", down: false)
+                check("F leaves", !fsOn && fsToggles == 3)
+                // Not in full screen: an Esc with nothing moving is the system's (unhandled).
+                let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                         timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: v.window?.windowNumber ?? 0, context: nil,
+                                         characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                         isARepeat: false, keyCode: 53)
+                check("Esc outside full screen passes to the system", (e.map { !v.handleKey($0) } ?? false) && fsToggles == 3)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                v.fullScreenProbe = nil
+                // The control center: closed in full screen, restored as it was on leaving.
+                var sidebar = FullScreenSidebar()
+                var shown = true
+                sidebar.update(fullScreen: true, shown: &shown)
+                let closed = !shown
+                shown = true   // opened in full screen
+                sidebar.update(fullScreen: true, shown: &shown)
+                let stillClosed = !shown
+                sidebar.update(fullScreen: false, shown: &shown)
+                let restoredOpen = shown
+                shown = false
+                sidebar.update(fullScreen: true, shown: &shown)
+                sidebar.update(fullScreen: false, shown: &shown)
+                check("control center closes in full screen and is restored", closed && stillClosed && restoredOpen && !shown)
+                self.refineLines.append("esc full screen: " + fsChecks.joined(separator: "; "))
+            }
+        }
         let seaDeep20 = View(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139", scale: 1e-20)
         // M5 benchmark views at their benchmark pixel size (1600 px wide framing; the window's
         // points are 2 px on a Retina display, so the scale per point is twice that).
@@ -520,6 +593,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "autopilot lock", viewport: sea, input: autopilotLock),
                 Scenario(name: "journey", viewport: sea, input: journey),
                 Scenario(name: "pi hunt", viewport: home, input: piHunt),
+                Scenario(name: "esc full screen", viewport: sea, input: escFullScreen),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
                 Scenario(name: "looks home pan", viewport: home, input: switcher(gesture: true)),
                 Scenario(name: "looks deep idle", viewport: seaDeep20, input: switcher(gesture: false)),
@@ -762,12 +836,12 @@ final class InteractionTest: NSObject {
     }
 
     /// A synthetic key event through the same handler the window's key monitor uses.
-    static func key(_ view: FractalNSView, _ chars: String, down: Bool, keyCode: UInt16 = 0) {
+    static func key(_ view: FractalNSView, _ chars: String, down: Bool, keyCode: UInt16 = 0, isARepeat: Bool = false) {
         guard let e = NSEvent.keyEvent(with: down ? .keyDown : .keyUp, location: .zero, modifierFlags: [],
                                        timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: view.window?.windowNumber ?? 0, context: nil,
                                        characters: chars, charactersIgnoringModifiers: chars,
-                                       isARepeat: false, keyCode: keyCode) else { return }
+                                       isARepeat: isARepeat, keyCode: keyCode) else { return }
         _ = view.handleKey(e)
     }
 

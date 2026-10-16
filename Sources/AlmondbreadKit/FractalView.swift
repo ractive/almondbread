@@ -210,6 +210,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     private var link: CADisplayLink?
     private var keyMonitor: Any?
     private var resignObserver: NSObjectProtocol?
+    private var fullScreenObservers: [NSObjectProtocol] = []
+    private var layoutRectObservation: NSKeyValueObservation?
     private var tracking: NSTrackingArea?
     private var sentInsets: NSEdgeInsets?
     /// The pointer is over the HUD (the canvas's arrow-cursor hole): reported as exited.
@@ -388,6 +390,88 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
                                                                 object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.send(.focusLost) }
         }
+        observeFullScreen(window)
+    }
+
+    // MARK: Full screen (kb: decisions/controls "Full screen")
+
+    /// Window tests never enter full screen: they replace the window's state and its toggle
+    /// with this probe (`--interaction-test` scenario "esc full screen").
+    var fullScreenProbe: (isOn: () -> Bool, toggle: () -> Void)?
+
+    var isFullScreen: Bool {
+        fullScreenProbe?.isOn() ?? window?.styleMask.contains(.fullScreen) ?? false
+    }
+
+    /// F and an Esc with nothing moving (the standard ⌃⌘F is AppKit's View menu item).
+    func toggleFullScreen() {
+        if let fullScreenProbe { fullScreenProbe.toggle(); return }
+        guard !TestLaunch.enabled else { return }
+        window?.toggleFullScreen(nil)
+    }
+
+    /// The model hears of full screen as the transition starts (the control center closes
+    /// before the animation, and comes back as the window leaves). The insets are sent again
+    /// at the end of each transition and whenever the window's content layout rect changes
+    /// (the title bar and toolbar hide in full screen and show when the pointer goes to the
+    /// top edge), so the compass and mini-maps sit right below whatever covers the canvas.
+    private func observeFullScreen(_ window: NSWindow) {
+        for o in fullScreenObservers { NotificationCenter.default.removeObserver(o) }
+        let nc = NotificationCenter.default
+        // will*: the state the transition goes to; did*: the window's actual state (a failed
+        // transition ends where it started).
+        let changes: [(Notification.Name, Bool?)] = [
+            (NSWindow.willEnterFullScreenNotification, true), (NSWindow.willExitFullScreenNotification, false),
+            (NSWindow.didEnterFullScreenNotification, nil), (NSWindow.didExitFullScreenNotification, nil),
+        ]
+        fullScreenObservers = changes.map { name, on in
+            nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let state = on ?? self.window?.styleMask.contains(.fullScreen) ?? false
+                    if self.model.fullScreen != state { self.model.fullScreen = state }
+                    self.insetsMayHaveChanged()
+                }
+            }
+        }
+        // ⌃⌘F: make sure the View menu has AppKit's full-screen item (below).
+        fullScreenObservers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window,
+                                                  queue: .main) { _ in
+            MainActor.assumeIsolated { FullScreenMenuItem.ensure() }
+        })
+        DispatchQueue.main.async { FullScreenMenuItem.ensure() }
+        // A background test window (accessory app) reports `fullScreenNone`; the app's window
+        // is a primary full-screen window, said explicitly so F and ⌃⌘F always work. Window
+        // tests never enter full screen, so they leave it alone.
+        if !TestLaunch.enabled {
+            window.collectionBehavior.remove(.fullScreenNone)
+            window.collectionBehavior.insert(.fullScreenPrimary)
+        }
+        layoutRectObservation = window.observe(\.contentLayoutRect, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in self?.insetsMayHaveChanged() }
+        }
+    }
+
+    /// The standard full-screen item in the View menu. AppKit normally adds "Enter Full
+    /// Screen" (⌃⌘F) itself, but only to a menu bar it shows and without telling us when; an
+    /// item with the `toggleFullScreen:` action is what it looks for before adding its own, so
+    /// this adds one only where none is (AppKit titles it Enter / Exit Full Screen when it
+    /// validates it against the key window). SwiftUI may rebuild the menu: checked again
+    /// whenever the window becomes key.
+    enum FullScreenMenuItem {
+        static func ensure() {
+            guard let view = NSApplication.shared.mainMenu?.items.first(where: { $0.title == "View" })?.submenu,
+                  !view.items.contains(where: { $0.action == #selector(NSWindow.toggleFullScreen(_:)) }) else { return }
+            let item = NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+            item.keyEquivalentModifierMask = [.control, .command]
+            view.addItem(.separator())
+            view.addItem(item)
+        }
+    }
+
+    private func insetsMayHaveChanged() {
+        needsLayout = true
+        sendInsets()
     }
 
     /// The navigation meaning of a key (kb: decisions/controls), or nil.
@@ -446,9 +530,22 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "p":
             if event.type == .keyDown && !event.isARepeat { model.togglePiMeter() }
             return true
+        case "f":
+            if event.type == .keyDown && !event.isARepeat { toggleFullScreen() }
+            return true
         default: break
         }
         guard let key = Self.navKey(event) else { return false }
+        // Esc in full screen: stops motion first; only an Esc that stopped nothing leaves full
+        // screen. Every Esc is swallowed there, so AppKit never sees one, and a held Esc
+        // (repeats) never leaves: the press that stopped the autopilot must not also exit.
+        if key == .stop && isFullScreen {
+            guard event.type == .keyDown else { return true }
+            if event.isARepeat { return true }
+            send(.shift(down: shift))
+            if !send(.keyDown(key: .stop)).handled { toggleFullScreen() }
+            return true
+        }
         // Z toggles: a held key's repeats must not toggle again.
         if (key == .autopilot || key == .journey || key == .straighten) && event.isARepeat { return true }
         if event.type == .keyUp { return send(.keyUp(key: key)).handled }
