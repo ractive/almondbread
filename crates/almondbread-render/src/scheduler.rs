@@ -458,6 +458,15 @@ const FILL_MIN_ITERATIONS: f64 = 300.0;
 /// Seed nodes the GPU runs at once (about; M1 Pro: 16 cores x 1024 threads).
 const SEED_WAVE: f64 = 16384.0;
 
+/// Seeds stop at this iteration at the latest (their expansion branches there; the pixels
+/// continue from it). A level admits no pixel until every seed is final, and seed rounds give
+/// each node about 256 steps, so seeds that stay valid for very long stall the whole level:
+/// near the -3/4 neck with a manual limit of 10 M (2026-10-17) the striped regions' nodes stay
+/// valid for 10^5..10^6 iterations, and after 20 s at 4000 x 2500, 210 000 of 830 000 nodes
+/// were still running and not one pixel had started. Auto limits rarely reach this, so it
+/// changes nothing there (kb: techniques/local-series-approximation "Seed horizon").
+const SEED_HORIZON: u32 = 1 << 16;
+
 /// The adaptive AA list of a refined view: the GPU pass that builds it and its length.
 struct AaList<B: GpuBackend> {
     count_buffer: B::Buffer,
@@ -1609,7 +1618,7 @@ impl<B: GpuBackend> Renderer<B> {
         let w = params.width as usize;
         let h = (params.height as usize).max(1);
         self.seed_epoch = self.seed_epoch.wrapping_add(1) & 0x3fff_ffff;
-        let mut layout = Self::seed_layout(sa, w, h, params.soft_iter, params.jitter);
+        let mut layout = Self::seed_layout(sa, w, h, params.soft_iter.min(SEED_HORIZON), params.jitter);
         // The gate's bar in seed steps, from the last level's cost per texel (see seedGate).
         let bar = self.steps_per_texel.map_or(0.0, |s| (sa.gate_rel * s).max(sa.gate_abs)) as f32;
         for l in &mut layout {
@@ -5494,6 +5503,16 @@ impl<B: GpuBackend> Renderer<B> {
                 break;
             }
             if self.clock() >= deadline {
+                // `ALMONDBREAD_SNAPSHOT=path.png`: what the view shows at the deadline (a
+                // frame still in progress, e.g. a 10M limit near the neck).
+                if let Ok(path) = std::env::var("ALMONDBREAD_SNAPSHOT") {
+                    self.wait_frames();
+                    self.drain_in_flight();
+                    let mut pixels = vec![0u8; width * height * 4];
+                    self.backend
+                        .read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut pixels)?;
+                    let _ = almondbread_core::image::write_png_bgra(&path, &pixels, width, height);
+                }
                 return Err(GpuError("simulated session did not finish".into()));
             }
             refresh(self, &mut tick, &mut frames);

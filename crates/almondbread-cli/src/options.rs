@@ -192,6 +192,11 @@ impl Options {
             s.manual_iterations = n;
             s.max_iterations_cap = s.max_iterations_cap.max(n);
         }
+        // `--cap n`: the auto-iteration cap (the app's "Cap" setting; manual `--iterations`
+        // raise it to themselves).
+        if let Some(n) = self.usize("cap") {
+            s.max_iterations_cap = n.max(1);
+        }
         if let Some(v) = self.get("interior") {
             s.interior_detection = v != "0";
         }

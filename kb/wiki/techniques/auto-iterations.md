@@ -201,6 +201,18 @@ behind the report (flight benchmark, below) is the *jump check's* fresh renderer
 its own learner and starts at 0, printing `learn: soft 41536 ... -> 0` right after the live
 renderer's AA; the live renderer's limit was unchanged.
 
+## Where the learner stops: the neck gap at 1e8–1e9 (2026-10-17)
+
+The learned limit is capped at 4× the depth heuristic whatever the user's cap: with a cap of
+10 M the −3/4 neck gap at 1.9e8–1.3e9 settles at 15 000–18 000, while its escape counts have
+a minimum of ~8 500 and medians of 42 000–434 000 ([[synthesis/neck-escape-statistics]]).
+At Retina window sizes (4000 × 2500) the ~9.7 M unresolved pixels overflow the 4 M-entry list,
+so no extension pass runs and `escapedPast` stays zero; at 1600 × 1000 the passes reach 57 008
+in the 2 s budget and the learner still stops at 4× depth. Lifting the cap would not be cheap:
+a resolved frame there needs 10^12–10^13 iterations (minutes of GPU). Escalation towards the
+user's cap belongs in an explicit or idle background refinement with progress, and the
+unresolved colour should differ from interior (open; proposal in the log, 2026-10-17).
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,

@@ -101,6 +101,11 @@ and quit by themselves):
   deep nucleus references only), `ALMONDBREAD_AT=1` (its AT, `--at 1`; off by default).
   `cargo run --release -p almondbread-core --example la_check -- [name...]`: CPU model step counts
   of exact / BLA / LA / LA+AT per location (kb: techniques/linear-approximation-imagina).
+- Ground truth for slow-escape views: `cargo run --release -p almondbread-core --example neck_truth
+  -- --center re,im --scale s --size 160x100 --limit 1e7 [--dd k]` (direct f64, escape histogram,
+  interior proof; `--paint a.iter [--cycle p]` paints any `verify --dump`; kb:
+  synthesis/neck-escape-statistics). `verify --history ... --cap n --timeout s` with
+  `ALMONDBREAD_SNAPSHOT=x.png` saves the frame shown at the timeout (a render in progress).
 - Stills of features: `almondbread render out.png --inside flat|bubbles|period|angle|distance`
   (interior colourings; prints the period histogram), `--orbit x,y --map 1` (orbit overlay and
   mini-map), `scripts/render-interior-stills.sh`, `scripts/render-dense-looks.sh`.
