@@ -76,6 +76,11 @@ and quit by themselves):
   oracle next to the oracle with its grid shifted 0.001–0.5 px (is a difference an artefact
   or chaos?), same-colouring PNGs; `--ff 1` the float-float field, `--kat 1` the float-float
   known-answer test and number-type speeds (kb: techniques/double-float). `verify --ff 1` too.
+- `almondbread autopilot --center re,im --scale s [--speed 4] [--seconds 90] [--lock 0|1]`:
+  Z with no input, headless on the CPU (synchronous target lock, CPU survey), prints the
+  timeline and the uniform-heading share; `fly ... --lock 0|1` measures the real pipeline
+  (`autopilot-metrics:` line). `ALMONDBREAD_LOCK_TRACE=1` prints each lock search;
+  `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the app's target-lock setting (A/B).
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms) and seed round.
 - M5 switches for before/after checks (default auto/on): `ALMONDBREAD_SA=0|1|auto` (local SA,
   CLI `--sa`), `ALMONDBREAD_FILL=0|1|auto` (interior tile fill, `--fill`),

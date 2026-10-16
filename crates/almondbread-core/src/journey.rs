@@ -151,7 +151,7 @@ impl TargetKind {
     }
 
     /// Spirals and dendrites are both Misiurewicz points: one family for the variety rules.
-    fn family(self) -> u8 {
+    pub(crate) fn family(self) -> u8 {
         match self {
             Self::Spiral | Self::Dendrite => 2,
             Self::Minibrot | Self::Approach => 0,
@@ -577,25 +577,25 @@ pub struct Plan {
 
 /// Candidate before probing.
 #[derive(Clone, Debug)]
-struct Candidate {
-    kind: TargetKind,
-    center: Center,
-    span: Scale,
-    period: Option<usize>,
-    preperiod: Option<usize>,
-    label: String,
-    prescore: f64,
+pub(crate) struct Candidate {
+    pub(crate) kind: TargetKind,
+    pub(crate) center: Center,
+    pub(crate) span: Scale,
+    pub(crate) period: Option<usize>,
+    pub(crate) preperiod: Option<usize>,
+    pub(crate) label: String,
+    pub(crate) prescore: f64,
     /// Extra probe iterations (a minibrot's period).
-    extra: usize,
+    pub(crate) extra: usize,
 }
 
-fn scale_of(d: DoubleExp) -> Option<Scale> {
+pub(crate) fn scale_of(d: DoubleExp) -> Option<Scale> {
     let l = d.log2_magnitude();
     l.is_finite().then(|| Scale::from_log2(l))
 }
 
 /// Bits a centre needs to frame `span` (with the probe's resolution and guard bits).
-fn bits_for(span: Scale) -> usize {
+pub(crate) fn bits_for(span: Scale) -> usize {
     Viewport::with_center(Center::new(0.0, 0.0), span / (4.0 * PROBE as f64)).needed_center_bits()
 }
 
@@ -1071,9 +1071,21 @@ fn boundary_points(f: &IterationField, rng: &mut Rng, count: usize) -> Vec<(f64,
 
 /// Minibrots, their Julia stages, Misiurewicz points and detail zooms in and near the view.
 fn find_candidates(center: &Center, span: Scale, rng: &mut Rng, cancel: &AtomicBool) -> Option<Vec<Candidate>> {
-    let texel = span / PROBE as f64;
     let view = probe(center, span, 0);
-    let points = boundary_points(&view, rng, SAMPLES);
+    find_candidates_in(center, span, &view, rng, cancel)
+}
+
+/// [`find_candidates`] with the view's probe already rendered (the autopilot's target lock
+/// measures it too, kb: decisions/controls "Autopilot").
+pub(crate) fn find_candidates_in(
+    center: &Center,
+    span: Scale,
+    view: &IterationField,
+    rng: &mut Rng,
+    cancel: &AtomicBool,
+) -> Option<Vec<Candidate>> {
+    let texel = span / PROBE as f64;
+    let points = boundary_points(view, rng, SAMPLES);
     let bits = bits_for(span).max(center.precision_bits());
     let base = center.with_min_precision(bits);
     let max_period = probe_iterations(span).clamp(64, 40_000);
@@ -1160,7 +1172,7 @@ fn find_candidates(center: &Center, span: Scale, rng: &mut Rng, cancel: &AtomicB
 }
 
 #[allow(clippy::too_many_arguments)]
-fn minibrot_candidates(
+pub(crate) fn minibrot_candidates(
     out: &mut Vec<Candidate>,
     span: Scale,
     nucleus: &Center,

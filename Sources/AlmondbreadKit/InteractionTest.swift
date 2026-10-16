@@ -421,6 +421,31 @@ final class InteractionTest: NSObject {
             }
             once("off", t >= 2.9) { v.model.cinematic = false }
         }
+        // Autopilot target lock (kb: decisions/controls, "Autopilot"): Z with the pointer resting
+        // at the centre; within 2.4 s the lock must aim at a boundary target (searched on a
+        // thread: frame pacing must not suffer), then Esc.
+        var lockLabel = ""
+        let autopilotLock: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                lockLabel = ""
+                explorer.setAutopilotLock(on: true)
+                v.send(.pointer(x: 0, y: 0))
+                InteractionTest.key(v, "z", down: true)
+                InteractionTest.key(v, "z", down: false)
+            }
+            let l = explorer.stats().autopilot.lockLabel
+            if l.hasPrefix("towards") { lockLabel = l }
+            once("esc", t >= 2.4) {
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let ok = !lockLabel.isEmpty
+                if !ok { self.failures += 1 }
+                self.refineLines.append("autopilot lock: \(lockLabel.isEmpty ? "no target" : lockLabel) \(ok ? "OK" : "FAILED")")
+                explorer.setAutopilotLock(on: v.model.autopilotLock)
+            }
+        }
         // Journey (kb: decisions/controls, "Journey"): J from the 1e5 view; within 2.8 s the
         // first leg must be planned and flying; Esc then stops it (the view settles for the
         // shown-vs-fresh check).
@@ -492,6 +517,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "rotate zoom", viewport: sea, input: rotateZoom),
                 Scenario(name: "cinematic autopilot", viewport: sea, input: cinematicAutopilot),
                 Scenario(name: "compass", viewport: sea, input: compass),
+                Scenario(name: "autopilot lock", viewport: sea, input: autopilotLock),
                 Scenario(name: "journey", viewport: sea, input: journey),
                 Scenario(name: "pi hunt", viewport: home, input: piHunt),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),

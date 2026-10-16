@@ -311,7 +311,8 @@ extension HUDView {
         }
         guard s.autopilot.active else { return nil }
         if s.autopilot.paused { return "Autopilot paused  ·  click to resume" }
-        return ["Autopilot", Self.hintText(s.autopilot.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+        let lock = s.autopilot.lockLabel.isEmpty ? nil : s.autopilot.lockLabel
+        return ["Autopilot", lock, Self.hintText(s.autopilot.hint)].compactMap { $0 }.joined(separator: "  ·  ")
     }
 
     static func hintText(_ h: AutopilotHint) -> String? {
@@ -322,6 +323,7 @@ extension HUDView {
         case .interior: "slower: heading into the interior"
         case .featureless: "slower: featureless ahead"
         case .limit: "depth limit"
+        case .rescue: "backing out: nothing ahead"
         }
     }
 }

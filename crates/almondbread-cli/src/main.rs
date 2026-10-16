@@ -17,6 +17,7 @@
 //! almondbread locate --center re,im [--radius r | --misiurewicz k,p]
 //! almondbread journey --seed 4711 [--legs 12] [--daily 2026-10-15] [--center re,im --span s] [--thumbs dir]
 //!                     [--describe 1] [--save views.txt] [--views views.txt] [--look-size 96]
+//! almondbread autopilot --center re,im --scale s [--speed 4] [--seconds 90] [--lock 0|1]
 //! ```
 //!
 //! `render`, `verify` and `fly` views take `--place id` (the places catalogue).
@@ -24,6 +25,7 @@
 // The commands are generic over the backend; only Apple targets have one yet.
 #![cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
 
+mod autopilot;
 mod benchmark;
 mod commands;
 mod fly;
@@ -34,7 +36,7 @@ mod precision;
 
 use options::Options;
 
-const USAGE: &str = "usage: almondbread render|verify|precision|bench|regress|fly|benchmark|places|locate|journey|palettes [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|precision|bench|regress|fly|benchmark|places|locate|journey|autopilot|palettes [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -72,6 +74,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "palettes" => palettes::palettes_command(&backend, o),
         "locate" => commands::locate_command(o),
         "journey" => commands::journey_command(&backend, o),
+        "autopilot" => autopilot::autopilot_command(o),
         "places" => places::places_command(&backend, o),
         "precision" => precision::precision_command(&backend, o),
         _ => options::err(USAGE),
