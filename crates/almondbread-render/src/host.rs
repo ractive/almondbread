@@ -226,7 +226,11 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         let turning = self.renderer.navigator.is_turning_north();
         self.overlay.compass.update(self.renderer.viewport.angle, turning, now);
-        if self.overlay.active() || self.overlay.compass.shown(now) || self.renderer.overlay.is_some() {
+        if self.overlay.active()
+            || self.overlay.compass.shown(now)
+            || self.renderer.overlay.is_some()
+            || self.renderer.progress.current().alpha > 0.0
+        {
             let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
             self.overlay.prepare(&mut self.renderer, (w, h), ppp, now);
         }
@@ -235,7 +239,9 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Overlay work after the frame: about 1.5 ms of orbit analysis, and the maps' renderers
     /// while the view is not in a gesture (they never take the gesture frame budget).
     fn overlay_after(&mut self, now: f64, outcome: &mut FrameOutcome) {
-        outcome.animating |= self.overlay.cosmic.animating(now) || self.overlay.compass.animating(now);
+        outcome.animating |= self.overlay.cosmic.animating(now)
+            || self.overlay.compass.animating(now)
+            || self.renderer.progress.animating();
         if !self.overlay.settings.any() {
             // The π meter alone: its count runs on its own thread; frames show its progress.
             outcome.animating |= self.overlay.busy();

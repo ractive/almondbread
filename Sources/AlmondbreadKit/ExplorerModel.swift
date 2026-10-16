@@ -331,6 +331,10 @@ public final class ExplorerModel {
     public private(set) var orbit: OrbitInfo?
     /// The π meter's reading (refreshed with the stats while it is on).
     public private(set) var piMeter: PiMeterInfo?
+    /// The HUD's render progress line ("refining · 2.1 M of 10 M steps · 3 % of pixels left ·
+    /// ~40 s"; empty: none), change-only so only its leaf view re-renders (kb:
+    /// decisions/controls "Render progress").
+    public private(set) var progressText = ""
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
@@ -989,6 +993,7 @@ public final class ExplorerModel {
         if journeySeed != new.journey.seed { journeySeed = new.journey.seed }
         let turned = new.shown.angleDegrees != 0
         if viewTurned != turned { viewTurned = turned }
+        if progressText != new.progress.text { progressText = new.progress.text }
     }
 
     /// Zoom speed as a magnification factor per second, for display.
