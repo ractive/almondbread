@@ -152,9 +152,11 @@ impl Reference {
     }
 
     /// [`Reference::compute_big`] that also hands out prefixes of a long centre orbit as
-    /// soon as they are computed (R6, kb: techniques/parallel-reference-orbit): rebasing
-    /// makes any prefix of at least two points a correct reference (pixels rebase at its
-    /// end), so the first frame need not wait for the whole orbit. `partial` gets the
+    /// soon as they are computed (R6, kb: techniques/parallel-reference-orbit), so the first
+    /// frame need not wait for the whole orbit. A prefix is exact only for pixels that
+    /// escape before its end: one that outruns it rebases with a rounding loss
+    /// ([`Reference::truncated_before`]), so a frame rendered with a prefix is provisional
+    /// and the scheduler renders it again when the whole orbit arrives. `partial` gets the
     /// prefix of [`PARTIAL_FIRST_FRACTION`] of the request (a short, `Stale` reference),
     /// then the prefix of half of it (the view's own limit when the request is the
     /// scheduler's 2x: `Good`). The final reference is bit-identical to an uninterrupted
@@ -286,6 +288,17 @@ impl Reference {
         self.select_time + self.orbit_time
     }
 
+    /// True when the orbit stops before `max_iter` although it neither escaped nor closed a
+    /// period: a prefix of a centre orbit still being computed, or one made for a lower limit.
+    /// Its end is no exact rebase point (kb: techniques/rebasing, "Truncated references"): a
+    /// pixel that reaches it has `|z| << |Z + z|`, and `z <- Z + z` rounds its offset from the
+    /// reference away, so every such pixel continues as the same orbit (a flat colour). After
+    /// an escape (`|z|` is then comparable to `|Z|`) or at a nucleus (`Z_p = 0`) the reset is
+    /// exact. Usable for a first frame, which must be rendered again once the whole orbit is in.
+    pub fn truncated_before(&self, max_iter: usize) -> bool {
+        self.big && self.period.is_none() && !self.escaped && self.points.len() - 1 < max_iter
+    }
+
     /// How well this reference serves `viewport` rendered with texels of `texel` complex units,
     /// `size` texels across (largest side) and `max_iter` iterations.
     pub fn fit(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> Fit {
@@ -321,7 +334,7 @@ impl Reference {
             return Fit::No;
         }
         let kernel_stale = !self.deep_kernel && vs < DEEP_KERNEL_SCALE;
-        let short = self.period.is_none() && !self.escaped && self.points.len() - 1 < max_iter;
+        let short = self.truncated_before(max_iter);
         let far = offset > 2.0 * size as f64;
         if self.precision_bits < needed_bits(&self.point, texel, size, GOOD_GUARD_BITS) || short || far || kernel_stale
         {
@@ -523,6 +536,9 @@ mod tests {
         }
         assert_eq!(parts[0].fit(&v, v.scale, 800, limit), Fit::Stale);
         assert_eq!(parts[1].fit(&v, v.scale, 800, limit), Fit::Good);
+        // The first prefix ends inside the limit without escaping: no exact rebase point.
+        assert!(parts[0].truncated_before(limit) && !parts[1].truncated_before(limit));
+        assert!(r.truncated_before(usize::MAX) && !r.truncated_before(2 * limit));
         let whole = Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
         assert!(whole.points == r.points && whole.extended == r.extended);
     }

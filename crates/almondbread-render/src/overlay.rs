@@ -429,6 +429,40 @@ impl<B: GpuBackend> OverlayDraw<B> {
 // MARK: Maps
 
 /// Complex units per pixel and centre of the whole-set map for a `w` x `h` panel.
+/// Mini-map level depths (decades below the whole set) for a view `depth` decades deep: the
+/// whole set (0), then `want - 1` levels spread evenly between it and the view, snapped to a
+/// 3-decade grid and at least 1.5 decades shallower than the view. Until 2026-10-16 the levels
+/// were the deepest grid steps just above the view, which left one huge jump after the whole set
+/// (whole set, 1e15, 1e18 at 1e20; user feedback). Even spacing shows the marker of the next
+/// level as a crosshair more often (a rectangle needs a gap below ~1.4 decades), but every map
+/// says something. Hysteresis: a level from `prev` (same slot) stays while its even target is
+/// within one grid step, so zooming re-renders a level only every few decades.
+fn map_decades(depth: f64, want: usize, prev: &[i32]) -> Vec<i32> {
+    const STEP: f64 = 3.0;
+    let mut out = vec![0];
+    let slots = want.saturating_sub(1);
+    let deepest = depth - 1.5;
+    if slots == 0 || deepest < STEP {
+        return out;
+    }
+    let same_slots = prev.len() == slots;
+    for k in 1..=slots {
+        let target = depth * k as f64 / want as f64;
+        let mut d = (target / STEP).round() * STEP;
+        if same_slots {
+            let p = f64::from(prev[k - 1]);
+            if (p - target).abs() <= STEP && p <= deepest {
+                d = p;
+            }
+        }
+        let d = d.clamp(STEP, (deepest / STEP).floor() * STEP) as i32;
+        if d > *out.last().expect("whole set") {
+            out.push(d);
+        }
+    }
+    out
+}
+
 fn full_set_view(w: usize, h: usize) -> Viewport {
     let s = (3.2 / w as f64).max(2.6 / h as f64);
     Viewport::new(-0.7, 0.0, s)
@@ -764,8 +798,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         s: &OverlaySettings,
         px_per_pt: f64,
     ) -> Result<(), GpuError> {
-        // Level decades: 0 (whole set), then multiples of 3 decades shallower than the view
-        // by at least 1.5 decades (its rectangle stays visible), the deepest `want - 1`.
+        // Level decades: 0 (whole set), then `want - 1` levels spread evenly between it and the
+        // view (`map_decades`).
         let full = full_set_view(panel.0, panel.1);
         let view_px = view.scale; // per point; maps are per pixel
         // In logs: the f64 ratio overflows to infinity past ~1e308, and the level loop below
@@ -774,16 +808,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if !depth.is_finite() {
             return Ok(());
         }
-        let mut decades: Vec<i32> = vec![0];
-        let mut deeper: Vec<i32> = (1..)
-            .map(|k| 3 * k)
-            .take_while(|&d| (d as f64) <= depth - 1.5)
-            .collect();
-        let keep = want.saturating_sub(1);
-        if deeper.len() > keep {
-            deeper.drain(..deeper.len() - keep);
-        }
-        decades.extend(deeper);
+        let prev: Vec<i32> = self
+            .maps
+            .as_ref()
+            .map(|m| m.levels.iter().map(|l| l.decade).filter(|&d| d > 0).collect())
+            .unwrap_or_default();
+        let decades = map_decades(depth, want, &prev);
         let stack = self.maps.get_or_insert_with(|| MapStack {
             levels: Vec::new(),
             panels: Vec::new(),
@@ -1299,6 +1329,20 @@ fn resolve_click(c: Center, map_scale: Scale, ratio: f64, bits: usize, max_iter:
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn map_levels_spread_evenly() {
+        use super::map_decades;
+        assert_eq!(map_decades(1.0, 3, &[]), vec![0]);
+        assert_eq!(map_decades(20.0, 3, &[]), vec![0, 6, 12]);
+        assert_eq!(map_decades(1000.0, 3, &[]), vec![0, 333, 666]);
+        assert_eq!(map_decades(300.0, 4, &[]), vec![0, 75, 150, 225]);
+        // Hysteresis: zooming from 20 to 22 decades keeps the levels.
+        assert_eq!(map_decades(22.0, 3, &[6, 12]), vec![0, 6, 12]);
+        // Shallow: levels never closer to the view than 1.5 decades, never repeated.
+        assert_eq!(map_decades(5.0, 3, &[]), vec![0, 3]);
+        assert_eq!(map_decades(4.0, 3, &[]), vec![0]);
+    }
+
     use super::*;
 
     #[test]

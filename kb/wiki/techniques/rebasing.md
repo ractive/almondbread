@@ -69,10 +69,13 @@ critical point), so one ordinary perturbation step always follows
 
 - **One reference** per critical point. Mandelbrot and Burning Ship need
   one (src: [[sources/mathr-deep-zoom-theory-again]] §Rebasing).
-- **Short references are fine.** A pixel that outruns the reference wraps
-  to the start. With a nucleus reference of period p, `Z_p = 0`, so wrapping
-  at `m = p` does not change the value (inference); see
-  [[techniques/reference-selection]].
+- **Short references are fine only where they end exactly.** A pixel that
+  outruns the reference wraps to the start. With a nucleus reference of
+  period p, `Z_p = 0`, so wrapping at `m = p` does not change the value
+  (inference); see [[techniques/reference-selection]]. After the reference
+  escaped, an unescaped pixel's `|z|` is comparable to `|Z|` and the reset
+  loses nothing either. A centre orbit cut off before it escaped is not such
+  a point: see "Truncated references" below.
 - **`n ≠ m`**: the kernel must carry both counters. Colouring uses `n`.
 - **Speed**: in a KF test at Dinkydau's "Flake", 1 reference took 18.5 s
   versus several minutes for 97 references, with smaller image differences
@@ -121,6 +124,40 @@ critical point), so one ordinary perturbation step always follows
   Mu-Ency says Zhuoran introduced the rebasing tests "in December 2021"
   (src: [[sources/muency-bla]]). The archived forum topic settles it:
   rebasing was posted 3 August 2021; BLA followed later in the same thread.
+
+### Truncated references
+
+The reset `z ← Z_m + z` is exact in real numbers but rounds to the delta
+type. At the end of a centre orbit that has *not* escaped, a pixel that got
+there typically has `|z| ≪ |Z_m|` (it follows the reference closely); in
+float32 the sum keeps only `|Z_m| · 2^-24` of it, so the pixel's offset from
+the reference is rounded away and every such pixel continues as one orbit.
+Our measurement (2026-10-16, M1 Pro, release): next to the Misiurewicz point
+of `spiral-1e1000` at 1e-302 per pixel, a 6,251-point prefix of a centre
+orbit that escapes at 20,899 made all 256,000 pixels escape at ~6,250-6,660
+(the prefix end plus the ~400 iterations float32 noise needs to escape near a
+repelling cycle) instead of 12,000-20,500: one flat colour, `escape-n differs
+100 %`, median |Δmu| 1.1e4 against the CPU oracle. With the whole orbit the
+same view agrees with the oracle as well as a 0.1-pixel grid shift does
+(inference from `almondbread precision`: chaotic at this sampling).
+
+Rule (inference): a reference may end only where the reset is exact: an
+escape, a nucleus period (`Z_p = 0`), or the iteration limit (a pixel's `m`
+never exceeds its `n`). A prefix of a longer orbit is fine for pixels that
+escape before its end and wrong for the rest, so a frame drawn with one is
+provisional. KF and Fraktaler compute the reference to the iteration limit
+before rendering, so they do not meet this (unverified).
+
+In almondbread: `Reference::truncated_before(limit)` names such a reference;
+the scheduler renders a view drawn with one again once the whole orbit is in,
+keeps the learner off its statistics, waits for the whole orbit offscreen,
+and never extends pixels past a truncated orbit's end. Before this
+(R6 progressive delivery, [[techniques/parallel-reference-orbit]]) nothing
+polled the worker while a job's key stood, so the provisional frame stayed:
+mini-maps between ~1e300 and ~1e670 near `spiral-1e1000` (and the 1e2007 level
+at `rock-bottom`) settled flat or as a tiled pattern, and so did a main view
+after a jump there (`verify --history jump --place spiral-1e1000 --scale
+1e-302 --iterations 50000`, now in `make regress`).
 
 ## For almondbread
 
