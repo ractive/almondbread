@@ -11,7 +11,7 @@
 //! ```text
 //! almondbread fly --script s.json [--out review/x.mp4 | --out dir/] [--fps 60] [--hz 60]
 //!                 [--size 1920x1080] [--converged 1] [--stills 0,60,120] [--codec hevc|h264]
-//!                 [--bitrate 40M] [--log x.csv]
+//!                 [--bitrate 40M] [--log x.csv] [--pi-flight neck|cusp]
 //! ```
 //!
 //! Script format and events: [`almondbread_core::flight`] (`jump` added for the flight
@@ -182,6 +182,27 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         0.0,
     );
     r.viewport = start_viewport(script.start.as_ref(), w_pts, h_pts, 1.0).map_err(crate::options::CommandError)?;
+    // `--pi-flight neck|cusp`: the π meter's guided flight (kb: decisions/controls "π
+    // meter") started at the first refresh, with the overlay drawn as in the app (the place's
+    // look, the probe, the panels, the orbit trail).
+    let pi_flight = match o.get("pi-flight") {
+        Some(name) => Some(
+            almondbread_core::pi_moment::PiPoint::named(name)
+                .ok_or_else(|| crate::options::CommandError(format!("--pi-flight: neck or cusp, not {name}")))?,
+        ),
+        None => None,
+    };
+    let mut overlay: Option<almondbread_render::overlay::Overlay<B>> = None;
+    if let Some(p) = pi_flight {
+        if let Some(place) = almondbread_core::places::place_named(p.place_id())
+            && let Some(look) = almondbread_core::palette::Look::named(place.look)
+        {
+            look.apply(&mut r.settings);
+        }
+        overlay = Some(Default::default());
+    }
+    // (One view point per pixel, as for the scripts.)
+    let ppp = 1.0;
     let refreshes = (duration * hz).round() as usize;
     let interval = 1.0 / hz;
     let null = out == "null";
@@ -302,6 +323,14 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         }
         let target = ring[next_slot].clone();
         let cpu0 = r.clock();
+        if let Some(ov) = &mut overlay {
+            if k == 0
+                && let Some(p) = pi_flight
+            {
+                ov.start_pi_flight(&mut r, p, w_pts.min(h_pts), now);
+            }
+            ov.prepare(&mut r, size, ppp, now);
+        }
         let outcome = r.render_frame(now, size.0, size.1, 1.0, &mut |_| Some((target.clone(), None)));
         let frame_cpu = r.clock() - cpu0;
         if r.navigator.last_interaction != before || r.navigator.is_moving() {

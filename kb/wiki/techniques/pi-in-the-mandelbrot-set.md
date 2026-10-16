@@ -123,6 +123,55 @@ for n = 1, 2, ...
 **Depth limit:** 10⁹ iterations (about 13 s at the neck, 11 s at the cusp), i.e. ε ≥ 3.1e-9 at
 the neck and ε ≥ 9.9e-18 at the cusp. Deeper, the panel says so instead of counting.
 
+## The orbit
+
+What the counted orbit looks like (ours: plotted with
+`cargo run --release -p almondbread-core --example pi_trail -- outdir`, 2026-10-15, M1 Pro,
+release; derivation ours, after the heuristics above).
+
+- **Full z-plane: nothing to see.** At the scale of the set the orbit is a dot at the
+  parabolic point with a cross through it: it comes in along one axis, spends almost all of
+  its N steps within a few √ε of −1/2 (neck) or 1/2 (cusp), and leaves along another.
+- **Neck, zoomed to the gate (±4√ε about −1/2): a universal shape.** The even and odd iterates
+  lie on opposite arms (the multiplier is −1): one arm comes in along the real axis from the
+  left and turns up, the other comes in from the right and turns down. They pass the gate
+  between the fixed point `−1/2 + iε/2` and the 2-cycle `−1/2 ± √ε·e^(−iπ/4)` (the 2-cycle of
+  `z² + c` solves `z² + z + c + 1 = 0`). Rescaled by √ε the picture is the same at 1e-3,
+  1e-5 and 1e-7; only the number of points grows.
+- **Cusp: the orbit is real.** In the z-plane it is a segment through the gate between the
+  complex fixed points `1/2 ± i√ε`. Plotted against n, `(z_n − 1/2)/√ε` over `√ε·n` is the
+  tangent curve `tan(√ε n − π/2)` from −∞ to +∞, so the escape sits at `√ε·n ≈ π`: the
+  heuristic made visible, again the same curve at every ε.
+- **Both: one turn.** Two steps of the neck map are `w'' = w − 2w³ − 2iεw + …`
+  (w = z + 1/2). With `u = 1/w²` this is `du/dk ≈ 4 + 4iεu` per pair of steps, so u moves on
+  a circle: `1 + iε/w²` lies on the unit circle and turns by 2ε per step, from 1 (start) back
+  to 1 (escape), one turn in `2π/2ε = π/ε` steps. At the cusp `−(√ε + iw)²/(ε + w²)` does the
+  same at 2√ε per step (it is `e^(iθ)` with `θ = 2·arctan(w/√ε) + π`). Checked numerically
+  (unit test `trail_turns_once_and_does_not_change_the_count`): the angle unwraps to one turn
+  within 5 %, and the point stays within 5 % of the unit circle away from the two ends.
+- **Where the time goes.** The turn is uniform in n, so the head of the orbit moves at a
+  constant pace through the gate, whatever ε: the crawl is visible only when the count is
+  long (a few seconds at ε = 1e-8 neck, 1e-16 cusp).
+
+The meter draws exactly this (below): the orbit plot (the neck's gate in the z-plane, the
+cusp's tangent curve) and the turn circle, as density accumulated on the counting thread.
+**Cost** (same run): drawing every k-th iterate (k = N / 4e6, odd at the neck so both arms
+stay) costs 20 % at the neck (one division per sample for the turn) and 5 % at the cusp at
+N = 3e8 (5.7 → 6.8 s and 3.8 → 4.0 s; the machine was shared with other builds); tone-mapping
+and blurring a 604 x 300 picture takes 5 ms per publish, every 0.12 s. Counts are identical
+with and without the trail.
+
+**Frame cost** (measured 2026-10-15, M1 Pro, release, interaction test in a background
+1280 x 820 pt window at 2x, machine shared with other agents): the "pi hunt" scenario (the
+flight from home with the meter and trail on) draws in 0.34–0.38 ms CPU at p50 and
+0.54–0.61 ms at p95 against 0.13–0.14 / 0.18–0.21 ms for "home zoom" in the same runs, so the
+meter costs about 0.25 ms (p50) and 0.4 ms (p95) a frame. Two fixes got it there: the overlay
+binning used a vector per 16 x 16 tile, which cost 0.68 ms a frame once the inset's large
+rectangles touched thousands of tiles (now two passes, count then fill: 0.054 ms for the
+same 453 primitives); and the trail picture (820 x 400 BGRA8 at 2x) goes up as a shared buffer
+(0.12 ms) instead of a shared texture (0.26 ms, almost all of it the copy into the tiled
+layout; allocation 0.008 ms). Unit test `trail_upload_is_cheap`.
+
 ## Rendering near the points
 
 The image is left alone (the meter does not raise the iteration limit). Measured 2026-10-15,
@@ -131,20 +180,41 @@ GPU per frame and showed a nearly uniform dark wedge; the neck view at ε = 1e-6
 1.3e7 iterations was killed after 10 minutes. Interior pixels next to a parabolic point have
 multipliers close to 1 in modulus, so interior detection needs about as many iterations as the
 exterior escape, and every pixel runs to the limit. The exterior at the neck is also a sliver:
-the two discs touch, so the gap at height ε is O(ε²) wide, far below a pixel. Instead the meter
-draws the line of approach from the parabolic point to the centre on the canvas. At the places'
-depths (ε = 0.02 neck, 2e-4 cusp) the automatic limit shows the wedges and their dwell bands.
+the two discs touch, so the gap at height ε is O(ε²) wide, far below a pixel. So a view
+zoomed into the point is honestly black; the guided flight no longer goes there (below). A
+magnifier showing the probe's surroundings at a scale of ε was considered and not built: its
+pixels would need about π/ε iterations each (the measurements above), and it would show black.
+At the places' depths (ε = 0.02 neck, 2e-4 cusp) the automatic limit shows the wedges and
+their dwell bands.
 
 ## In the app
 
-Places "π at the Neck" (ε = 0.02, N = 158) and "π at the Cusp" (ε = 2e-4, N = 220); the
-guided flight zooms about the parabolic point from the place to ε = 1e-8 (neck, about 10 s at
-the default zoom speed of 1.6 e-folds per second) or 1e-16 (cusp, about 18 s): an exponential
-zoom ε(t) = ε₀·e^(−rate·t), each frame's view framed like the place, eased over the last
-e-fold (unit test `flight_zooms_about_the_point_and_lands`). The fly-to path was tried first
-and rejected: between two views on the line it pans most of the way before zooming, so the
-centre reached ε ≈ 1e-6 while the view was still wide and the parabolic point sat under the
-centre ring (seen in the ui-demo screenshot, 2026-10-15). Controls: [[decisions/controls]] "π meter". Code:
+Places "π at the Neck" (ε = 0.02, N = 158) and "π at the Cusp" (ε = 2e-4, N = 220).
+
+**The π hunt (guided flight, reworked 2026-10-15 after "the π hunting is only on black
+regions, it's not really exciting").** The first version zoomed the view about the parabolic
+point down to ε = 1e-8 (neck) or 1e-16 (cusp), and the image there is black (above). Now:
+
+1. The navigator's fly-to eases the view to the valley the pinch point opens into: seahorse
+   valley above the neck (short side 0.45, the point 0.29 of it below the centre), elephant
+   valley right of the cusp (0.15, the point 0.3 of it left of the centre). Chosen by looking
+   at renders of six candidates each (`PiPoint::scenic_view`).
+2. A glowing **probe** slides down the line from ε = 0.1 to the end on a **log ruler** drawn
+   along the line (one tick per decade, two at the cusp; it is labelled "ε, log scale" and the
+   probe's true position is written next to it). ε falls at the zoom speed counted in e-folds
+   of the expected N (so both points take about 10 s at 1.6 e-folds per second; Q / E change
+   it), eased over the last e-fold. The view zooms gently about the pinch point meanwhile
+   (×1.4 at the neck, whose valley narrows to a wedge; ×2 at the cusp).
+3. The meter counts the probe as it goes (each finished count is a plot point, digits fill)
+   and draws its orbit (above, "The orbit"). The flight holds until the count at the end is
+   done (about 4–7 s at N = 3e8) and 2.5 s more.
+
+The probe stays after the flight while its pinch point is in view; it wins over a view
+centred on the line (the valley views are). The trail inset sits above the meter's panel
+(434 x ~280 points; left of it when the view is too low, hidden when neither fits), clear of
+the maps and the cosmic scale. Seen in `review/pi-neck.mp4`, `review/pi-cusp.mp4` (the `fly`
+tool with `--pi-flight neck|cusp`) and headless stills (`almondbread render out.png
+--pi-probe neck,1e-5`). Controls: [[decisions/controls]] "π meter". Code:
 `crates/almondbread-core/src/pi_moment.rs`, `crates/almondbread-render/src/pi_meter.rs`.
 
 ## Contradictions

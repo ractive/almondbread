@@ -444,6 +444,26 @@ final class InteractionTest: NSObject {
                 self.refineLines.append("journey: #\(s.journey.seed) leg \(journeyLegs) \"\(s.journey.label)\" \(s.journey.phase), off after Esc \(explorer.stats().journey.active ? "NO" : "yes") \(ok ? "OK" : "FAILED")")
             }
         }
+        // π hunt (kb: decisions/controls "π meter"): the guided flight from the home view with
+        // the meter and its orbit trail on (the counting thread publishes the trail picture,
+        // the frame uploads it); Esc at 2.8 s. Checks the meter counted at the neck and Esc
+        // ended the flight; the frame pacing and draw CPU are measured like every scenario.
+        let piHunt: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                v.model.piFlight("neck")
+            }
+            once("esc", t >= 2.8) {
+                let m = explorer.piMeter()
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let ok = m.enabled && m.point == "neck" && m.count > 0
+                if !ok { self.failures += 1 }
+                self.refineLines.append("pi hunt: \(m.point) ε \(String(format: "%.2g", m.eps)) N \(m.count) \(m.digits) digits \(ok ? "OK" : "FAILED")")
+            }
+            once("off", t >= 2.95) { v.model.piMeterEnabled = false }
+        }
         let seaDeep20 = View(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139", scale: 1e-20)
         // M5 benchmark views at their benchmark pixel size (1600 px wide framing; the window's
         // points are 2 px on a Retina display, so the scale per point is twice that).
@@ -473,6 +493,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "cinematic autopilot", viewport: sea, input: cinematicAutopilot),
                 Scenario(name: "compass", viewport: sea, input: compass),
                 Scenario(name: "journey", viewport: sea, input: journey),
+                Scenario(name: "pi hunt", viewport: home, input: piHunt),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
                 Scenario(name: "looks home pan", viewport: home, input: switcher(gesture: true)),
                 Scenario(name: "looks deep idle", viewport: seaDeep20, input: switcher(gesture: false)),

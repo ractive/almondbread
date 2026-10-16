@@ -2725,7 +2725,7 @@ struct OverlayPrim {
     float4 color1;  // segment: at p1; rect: border colour; glyph: halo colour
     float4 clip;    // x0, y0, x1, y1 (pixel centres outside are not drawn)
     float4 param;   // segment: half width; rect: corner radius, border width; glyph: atlas cell x0, y0, x1, y1; image: opacity, corner radius; triangle: p2
-    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph, 6 triangle: p0, p1 in geom), map index | glyph: atlas width, halo width, spread (float bits)
+    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph, 6 glow image, 7 triangle: p0, p1 in geom), map index | glyph: atlas width, halo width, spread (float bits)
 };
 
 struct OverlayParams {
@@ -2786,6 +2786,7 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                     device const uint* tileList             [[buffer(3)]],
                     device const uint* active               [[buffer(4)]],
                     device const uchar* font                [[buffer(5)]],   // overlay font SDF atlas
+                    device const uchar4* trail              [[buffer(6)]],   // π meter orbit trail (BGRA8)
                     uint3 tid                               [[thread_position_in_grid]])
 {
     uint2 gid;
@@ -2840,7 +2841,18 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                 c = float4(srgbToLinear(m) * pr.param.x, pr.param.x);
                 break;
             }
-            case 6:     // triangle
+            case 6: {   // glow image (the π meter's orbit trail): sRGB BGRA8 pixels in a buffer,
+                        // info.y x info.z, stretched over the rect and added to what is under it
+                        // (black adds nothing). A buffer, not a texture: the CPU copy into a
+                        // texture's tiled layout cost 0.26 ms per picture.
+                if (any(p < pr.geom.xy) || any(p >= pr.geom.zw)) continue;
+                float2 ts = float2(pr.info.y, pr.info.z);
+                uint2 t = uint2(min((p - pr.geom.xy) / (pr.geom.zw - pr.geom.xy) * ts, ts - 1.0f));
+                float4 v = float4(trail[t.y * pr.info.y + t.x]) / 255.0f;
+                col += srgbToLinear(v.zyx) * pr.param.x;
+                continue;
+            }
+            case 7:     // triangle
                 cov = saturate(0.5f - triangleDistance(p, pr.geom.xy, pr.geom.zw, pr.param.xy));
                 break;
             default: {  // glyph: fill, then the halo under it
