@@ -20,9 +20,9 @@ pub const SHOW_ANGLE: f64 = 0.5 * std::f64::consts::PI / 180.0;
 pub const HOLD: f64 = 2.5;
 pub const FADE: f64 = 0.5;
 /// Radius of the rose and its margin from the canvas edges, view points.
-pub const RADIUS: f64 = 22.0;
+pub const RADIUS: f64 = 27.0;
 pub const MARGIN: f64 = 14.0;
-/// Hits count a little outside the rose (a 22 pt rose is a small target), view points.
+/// Hits count a little outside the rose (a 27 pt rose is still a small target), view points.
 pub const HIT_SLOP: f64 = 5.0;
 /// Pointer travel (view points) below which a press and release is a click, not a drag.
 pub const CLICK_TRAVEL: f64 = 4.0;

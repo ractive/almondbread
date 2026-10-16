@@ -170,14 +170,14 @@ impl CompassOverlay {
         let p = at(n, 0.68 * r);
         let q = |x: f64, y: f64| [p[0] + x * px, p[1] + y * px];
         let ink = rgba(1.0, 1.0, 1.0, a(0.95));
-        let w = (1.1 * px) as f32;
+        let w = (0.85 * px) as f32;
         let stroke = |scene: &mut Scene, pts: &[(f64, f64)]| {
             for s in pts.windows(2) {
                 scene.segment(q(s[0].0, s[0].1), q(s[1].0, s[1].1), w, ink, ink);
             }
         };
         stroke(scene, &[(-1.4, -1.4), (0.8, -2.0), (-0.5, 3.0), (0.2, 3.7), (1.6, 3.0)]);
-        scene.disc(q(1.3, -4.6), (0.95 * px) as f32, ink);
+        scene.disc(q(1.3, -4.6), (0.8 * px) as f32, ink);
         key.push_str(&format!(
             "compass {cx:.1} {cy:.1} {:.5} {alpha:.3} {} ",
             n,
