@@ -159,6 +159,9 @@ struct FractalCommands: Commands {
             Toggle("Cosmic Size Scale", isOn: Binding(get: { model?.cosmicScale ?? false },
                                                       set: { model?.cosmicScale = $0 }))
                 .disabled(model == nil)
+            Toggle("Always Show Compass", isOn: Binding(get: { model?.compassAlways ?? false },
+                                                        set: { model?.compassAlways = $0 }))
+                .disabled(model == nil)
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)

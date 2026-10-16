@@ -2724,8 +2724,8 @@ struct OverlayPrim {
     float4 color0;  // premultiplied linear rgba (segment: at p0)
     float4 color1;  // segment: at p1; rect: border colour; glyph: halo colour
     float4 clip;    // x0, y0, x1, y1 (pixel centres outside are not drawn)
-    float4 param;   // segment: half width; rect: corner radius, border width; glyph: atlas cell x0, y0, x1, y1; image: opacity, corner radius
-    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph), map index | glyph: atlas width, halo width, spread (float bits)
+    float4 param;   // segment: half width; rect: corner radius, border width; glyph: atlas cell x0, y0, x1, y1; image: opacity, corner radius; triangle: p2
+    uint4  info;    // kind (0 segment, 1 disc, 2 ring, 3 rect, 4 image, 5 glyph, 6 triangle: p0, p1 in geom), map index | glyph: atlas width, halo width, spread (float bits)
 };
 
 struct OverlayParams {
@@ -2752,6 +2752,20 @@ static inline float glyphDistance(device const uchar* atlas, uint atlasW, float 
     float c = float(atlas[j.y * atlasW + i.x]), d = float(atlas[j.y * atlasW + j.x]);
     float v = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
     return (v - 128.0f) / 127.0f * spread * s;
+}
+
+// Signed distance to triangle p0 p1 p2 (negative inside; either winding).
+static inline float triangleDistance(float2 p, float2 p0, float2 p1, float2 p2) {
+    float2 e0 = p1 - p0, e1 = p2 - p1, e2 = p0 - p2;
+    float2 v0 = p - p0, v1 = p - p1, v2 = p - p2;
+    float2 q0 = v0 - e0 * saturate(dot(v0, e0) / max(dot(e0, e0), 1e-6f));
+    float2 q1 = v1 - e1 * saturate(dot(v1, e1) / max(dot(e1, e1), 1e-6f));
+    float2 q2 = v2 - e2 * saturate(dot(v2, e2) / max(dot(e2, e2), 1e-6f));
+    float s = sign(e0.x * e2.y - e0.y * e2.x);
+    float2 d = min(min(float2(dot(q0, q0), s * (v0.x * e0.y - v0.y * e0.x)),
+                       float2(dot(q1, q1), s * (v1.x * e1.y - v1.y * e1.x))),
+                   float2(dot(q2, q2), s * (v2.x * e2.y - v2.y * e2.x)));
+    return -sqrt(d.x) * sign(d.y);
 }
 
 static inline float roundedBox(float2 p, float4 r, float radius) {
@@ -2826,6 +2840,9 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                 c = float4(srgbToLinear(m) * pr.param.x, pr.param.x);
                 break;
             }
+            case 6:     // triangle
+                cov = saturate(0.5f - triangleDistance(p, pr.geom.xy, pr.geom.zw, pr.param.xy));
+                break;
             default: {  // glyph: fill, then the halo under it
                 if (any(p < pr.geom.xy - 1.0f) || any(p > pr.geom.zw + 1.0f)) continue;
                 float d = glyphDistance(font, pr.info.y, as_type<float>(pr.info.w), p, pr.geom, pr.param);

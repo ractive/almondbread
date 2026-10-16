@@ -451,6 +451,8 @@ struct ControlCenterView: View {
             piMeterRows
         }
         CosmicScaleRows(model: model)
+        Toggle("Always show compass", isOn: $model.compassAlways)
+            .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
         Toggle("Status (HUD)", isOn: $model.showHUD)
     }
 

@@ -333,6 +333,19 @@ impl Flight {
         f
     }
 
+    /// Turns the whole flight by `delta` radians (the compass: a drag or the turn to north
+    /// while flying, kb: decisions/controls "Compass"): the spin goes on from the new angle and
+    /// the flight lands turned by as much.
+    pub fn shift_angle(&mut self, delta: f64) {
+        if !delta.is_finite() || delta == 0.0 {
+            return;
+        }
+        self.angle0 += delta;
+        self.angle1 += delta;
+        self.land_angle = crate::viewport::wrap_angle(self.land_angle + delta);
+        self.path.target.angle = self.land_angle;
+    }
+
     /// The view at the current path parameter, rotation included (exactly the target at the end).
     pub fn viewport(&self) -> Viewport {
         let v = self.path.viewport_at(self.s);

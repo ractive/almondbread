@@ -186,6 +186,7 @@ struct SavedSettings: Codable {
     var piMeterEnabled: Bool?
     var cosmicScale: Bool?
     var cosmicAnchor: String?
+    var compassAlways: Bool?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -265,6 +266,11 @@ public final class ExplorerModel {
     public var cosmicScale = false { didSet { pushCosmic() } }
     /// "screen" or a thing the whole set is as big as (`cosmicAnchors()`).
     public var cosmicAnchor = "screen" { didSet { pushCosmic() } }
+    /// The compass (kb: decisions/controls, "Compass"): shown while the view is turned, or
+    /// always.
+    public var compassAlways = false { didSet { pushCompass() } }
+    /// Extra top margin of the compass (points): iPad's top-right buttons.
+    public var compassInsetTop = 0.0 { didSet { if compassInsetTop != oldValue { pushCompass() } } }
     /// Physical size of a view point (the platform view measures its screen; 0: unknown).
     var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
     /// The status overlay (zoom, iterations, GPU time) in the top-left corner.
@@ -339,6 +345,7 @@ public final class ExplorerModel {
         pushOverlay()
         pushPiMeter()
         pushCosmic()
+        pushCompass()
         refreshStats()
         // The Settings window writes user defaults: follow edge panning and the HUD.
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
@@ -467,6 +474,13 @@ public final class ExplorerModel {
         save()
     }
 
+    private func pushCompass() {
+        guard !pulling, let explorer else { return }
+        explorer.setCompass(always: compassAlways, insetTop: compassInsetTop)
+        host?.requestFrames()
+        save()
+    }
+
     // MARK: Persistence
 
     /// Writes the settings to user defaults (coalesced: at most every half second).
@@ -497,7 +511,7 @@ public final class ExplorerModel {
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, piMeterEnabled: piMeterEnabled,
-            cosmicScale: cosmicScale, cosmicAnchor: cosmicAnchor)
+            cosmicScale: cosmicScale, cosmicAnchor: cosmicAnchor, compassAlways: compassAlways)
     }
 
     private func writeSaved() {
@@ -562,11 +576,13 @@ public final class ExplorerModel {
         piMeterEnabled = s.piMeterEnabled ?? piMeterEnabled
         cosmicScale = s.cosmicScale ?? cosmicScale
         cosmicAnchor = s.cosmicAnchor ?? cosmicAnchor
+        compassAlways = s.compassAlways ?? compassAlways
         pulling = false
         push()
         pushOverlay()
         pushCosmic()
         pushPiMeter()
+        pushCompass()
     }
 
     // MARK: Reset (control center: "Reset all" and per section)
@@ -636,6 +652,7 @@ public final class ExplorerModel {
             piMeterEnabled = false
             cosmicScale = false
             cosmicAnchor = "screen"
+            compassAlways = false
         }
         pulling = false
         if scope == .all || scope == .overlays { showHUD = true }
@@ -656,6 +673,7 @@ public final class ExplorerModel {
         pushOverlay()
         pushPiMeter()
         pushCosmic()
+        pushCompass()
         if scope == .view || (scope == .all && withView) { reset() }
         undo?.registerUndo(withTarget: self) { m in
             MainActor.assumeIsolated {
@@ -698,11 +716,13 @@ public final class ExplorerModel {
         piMeterEnabled = false
         cosmicScale = false
         cosmicAnchor = "screen"
+        compassAlways = false
         pulling = false
         push()
         pushOverlay()
         pushCosmic()
         pushPiMeter()
+        pushCompass()
         applyLook("aurora")
     }
 
@@ -871,6 +891,32 @@ public final class ExplorerModel {
         let taken = explorer.mapClick(x: x, y: y, fly: fly)
         if taken { host?.requestFrames() }
         return taken
+    }
+
+    /// A press on the canvas at (x, y) points from the centre, y up: true if the compass took it
+    /// (send its drag and release here too; kb: decisions/controls "Compass").
+    func compassPress(x: Double, y: Double) -> Bool {
+        guard let explorer else { return false }
+        let taken = explorer.compassPress(x: x, y: y)
+        if taken { host?.requestFrames() }
+        return taken
+    }
+
+    func compassDrag(x: Double, y: Double) {
+        explorer?.compassDrag(x: x, y: y)
+        host?.requestFrames()
+    }
+
+    func compassRelease() {
+        explorer?.compassRelease()
+        host?.requestFrames()
+    }
+
+    /// A tap (iOS): on the compass it turns the view to north and returns true.
+    func compassTap(x: Double, y: Double) -> Bool {
+        guard compassPress(x: x, y: y) else { return false }
+        compassRelease()
+        return true
     }
 
     /// Centre and scale for the clipboard, full precision (as many digits as the depth needs).

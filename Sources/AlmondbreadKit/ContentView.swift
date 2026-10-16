@@ -50,7 +50,11 @@ struct ContentView: View {
         .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
-        .onChange(of: compactWidth, initial: true) { model.piMeterInsetRight = compactWidth ? 56 : 0 }
+        .onChange(of: compactWidth, initial: true) {
+            model.piMeterInsetRight = compactWidth ? 56 : 0
+            // iPad and wide iPhone: the compass sits below the top-right buttons (44 + 12 pt).
+            model.compassInsetTop = compactWidth ? 0 : 56
+        }
         #endif
         #if os(iOS)
         // iPhone portrait: the buttons sit at the bottom, in thumb reach and clear of the HUD;

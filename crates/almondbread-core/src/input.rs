@@ -318,6 +318,8 @@ pub struct Navigator {
     cinematic: Cinematic,
     /// The journey: planned flights from landmark to landmark (kb: decisions/controls).
     journey: Journey,
+    /// The compass's eased turn back to north (kb: decisions/controls "Compass").
+    north: Option<crate::compass::NorthTurn>,
 }
 
 /// A velocity following a target on a critically damped spring.
@@ -407,6 +409,7 @@ impl Default for Navigator {
             rot_step_left: 0.0,
             cinematic: Cinematic::default(),
             journey: Journey::default(),
+            north: None,
         }
     }
 }
@@ -714,6 +717,7 @@ impl Navigator {
             || !self.rot_rate.at_rest()
             || self.rot_step_left != 0.0
             || self.journey.is_running()
+            || self.north.is_some()
     }
 
     /// Current pan velocity (points/s) and zoom rate (e-folds/s), springs plus flings.
@@ -872,6 +876,13 @@ impl Navigator {
         }
         if self.flight.is_some() && Self::cancels_flight(&event) {
             self.hand_over_flight();
+        }
+        // Turning by hand ends the compass's turn to north.
+        if matches!(
+            event,
+            InputEvent::Rotate { .. } | InputEvent::KeyDown(NavKey::RotateCcw | NavKey::RotateCw | NavKey::Straighten)
+        ) {
+            self.north = None;
         }
         match event {
             InputEvent::KeyDown(k) => self.key(k, true, viewport, now),
@@ -1309,8 +1320,9 @@ impl Navigator {
             self.autopilot.update_throttle(dt);
             let done = f.step(dt, speed, self.autopilot.throttle());
             *viewport = f.viewport();
+            let stopped = f.stopping;
+            self.step_north(dt, viewport);
             if done {
-                let stopped = f.stopping;
                 self.flight = None;
                 if stopped {
                     self.journey.stop();
@@ -1320,6 +1332,7 @@ impl Navigator {
         }
         if self.journey.is_running() {
             // Resting at a target (it refines) or waiting for the plan.
+            self.step_north(dt, viewport);
             return true;
         }
         if !self.is_moving() {
@@ -1437,7 +1450,72 @@ impl Navigator {
                 self.step_at = None;
             }
         }
+        // Last, so it absorbs this frame's spin and ends at exactly north.
+        self.step_north(dt, viewport);
         true
+    }
+
+    // MARK: Compass (kb: decisions/controls "Compass"; geometry in `crate::compass`)
+
+    /// Starts the compass's eased turn back to north (a click on it), ~0.4 s. During the
+    /// autopilot, a flight or a journey the view straightens and their spin goes on from north.
+    /// A turn already under way goes on (a double click does not restart it).
+    pub fn turn_north(&mut self, now: f64) {
+        if self.north.is_some() {
+            return;
+        }
+        let was_animating = self.is_animating();
+        self.rot_step_left = 0.0;
+        self.rot_rate = Spring::default();
+        self.north = Some(crate::compass::NorthTurn::default());
+        self.note_interaction(now);
+        if !was_animating {
+            self.last_tick = Some(now);
+        }
+    }
+
+    /// The compass's turn to north is under way.
+    pub fn is_turning_north(&self) -> bool {
+        self.north.is_some()
+    }
+
+    /// Turns the view by `delta` radians about its centre (dragging the compass): a flight in
+    /// progress turns along (it keeps flying and spinning from the new angle). Ends a turn to
+    /// north.
+    pub fn turn_view(&mut self, delta: f64, viewport: &mut Viewport, now: f64) {
+        self.north = None;
+        self.rotate_about_centre(delta, viewport);
+        self.note_interaction(now);
+    }
+
+    fn rotate_about_centre(&mut self, delta: f64, viewport: &mut Viewport) {
+        if !delta.is_finite() || delta == 0.0 {
+            return;
+        }
+        viewport.angle = wrap_angle(viewport.angle + delta);
+        if let Some(f) = &mut self.flight {
+            f.shift_angle(delta);
+        }
+    }
+
+    fn step_north(&mut self, dt: f64, viewport: &mut Viewport) {
+        let Some(mut turn) = self.north else { return };
+        let a = viewport.angle;
+        let (b, done) = turn.step(a, dt);
+        self.rotate_about_centre(b - a, viewport);
+        if done {
+            // Exactly north (a + (0 − a) is 0, but wrapping may round).
+            viewport.angle = 0.0;
+            self.north = None;
+        } else {
+            self.north = Some(turn);
+        }
+    }
+
+    /// Insets of the canvas from the view edges (top, left, bottom, right; view points): the
+    /// title bar or toolbar overlapping the view (overlays keep clear of them).
+    pub fn insets(&self) -> (f64, f64, f64, f64) {
+        self.insets
     }
 }
 

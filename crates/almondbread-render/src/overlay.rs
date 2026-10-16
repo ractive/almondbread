@@ -56,6 +56,7 @@ const KIND_RING: u32 = 2;
 const KIND_RECT: u32 = 3;
 const KIND_IMAGE: u32 = 4;
 const KIND_GLYPH: u32 = 5;
+const KIND_TRIANGLE: u32 = 6;
 
 /// Premultiplied linear RGBA from linear RGB and alpha.
 pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
@@ -118,6 +119,17 @@ impl Scene {
             color1: border,
             param: [radius, border_width, 0.0, 0.0],
             info: [KIND_RECT, 0, 0, 0],
+            ..OverlayPrim::default()
+        });
+    }
+
+    /// A filled triangle (the compass needle).
+    pub fn triangle(&mut self, a: [f64; 2], b: [f64; 2], c: [f64; 2], color: [f32; 4]) {
+        self.push(OverlayPrim {
+            geom: [a[0] as f32, a[1] as f32, b[0] as f32, b[1] as f32],
+            color0: color,
+            param: [c[0] as f32, c[1] as f32, 0.0, 0.0],
+            info: [KIND_TRIANGLE, 0, 0, 0],
             ..OverlayPrim::default()
         });
     }
@@ -205,6 +217,15 @@ impl Scene {
                 let r = g[2] + 0.5 * g[3] + 1.5;
                 [g[0] - r, g[1] - r, g[0] + r, g[1] + r]
             }
+            KIND_TRIANGLE => {
+                let q = p.param;
+                [
+                    g[0].min(g[2]).min(q[0]) - 1.5,
+                    g[1].min(g[3]).min(q[1]) - 1.5,
+                    g[0].max(g[2]).max(q[0]) + 1.5,
+                    g[1].max(g[3]).max(q[1]) + 1.5,
+                ]
+            }
             _ => [g[0] - 1.5, g[1] - 1.5, g[2] + 1.5, g[3] + 1.5],
         };
         [
@@ -222,11 +243,12 @@ impl Scene {
     pub fn bin(&self, w: usize, h: usize) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
         let tx = w.div_ceil(TILE).max(1);
         let ty = h.div_ceil(TILE).max(1);
-        let mut per_tile: Vec<Vec<u32>> = vec![Vec::new(); tx * ty];
-        let add = |t: usize, i: u32, per_tile: &mut Vec<Vec<u32>>| {
-            let v = &mut per_tile[t];
-            if v.last() != Some(&i) {
-                v.push(i);
+        // (tile, primitive) pairs, sorted below: cheap for the usual few primitives on a
+        // large target (a grid of per-tile lists cost ~50 µs at 2560x1640 for the compass alone).
+        let mut pairs: Vec<(u32, u32)> = Vec::new();
+        let add = |t: usize, i: u32, pairs: &mut Vec<(u32, u32)>| {
+            if pairs.last() != Some(&(t as u32, i)) {
+                pairs.push((t as u32, i));
             }
         };
         let (wf, hf) = (w as f32, h as f32);
@@ -260,33 +282,37 @@ impl Scene {
                     let cy1 = ((py + reach).min(y1).max(0.0) as usize) / TILE;
                     for cy in cy0..=cy1.min(ty - 1) {
                         for cx in cx0..=cx1.min(tx - 1) {
-                            add(cy * tx + cx, i, &mut per_tile);
+                            add(cy * tx + cx, i, &mut pairs);
                         }
                     }
                 }
             } else {
                 for cy in (y0 as usize / TILE)..=((y1 as usize / TILE).min(ty - 1)) {
                     for cx in (x0 as usize / TILE)..=((x1 as usize / TILE).min(tx - 1)) {
-                        add(cy * tx + cx, i, &mut per_tile);
+                        add(cy * tx + cx, i, &mut pairs);
                     }
                 }
             }
         }
-        // Segments walked in steps can add a tile again after another primitive: keep each
-        // tile's list in draw order.
-        let mut start = Vec::with_capacity(tx * ty + 1);
-        let mut list = Vec::new();
+        // Segments walked in steps can add a tile again after another primitive: sorting by
+        // (tile, primitive) keeps each tile's list in draw order.
+        pairs.sort_unstable();
+        pairs.dedup();
+        let mut start = vec![0u32; tx * ty + 1];
+        let mut list = Vec::with_capacity(pairs.len());
         let mut active = Vec::new();
-        for (t, v) in per_tile.iter_mut().enumerate() {
-            start.push(list.len() as u32);
-            if !v.is_empty() {
-                v.sort_unstable();
-                v.dedup();
-                active.push(t as u32);
-                list.extend_from_slice(v);
+        for &(t, i) in &pairs {
+            if active.last() != Some(&t) {
+                active.push(t);
             }
+            start[t as usize + 1] += 1;
+            list.push(i);
         }
-        start.push(list.len() as u32);
+        let mut acc = 0;
+        for v in &mut start {
+            acc += *v;
+            *v = acc;
+        }
         (start, list, active)
     }
 }
@@ -437,6 +463,8 @@ pub struct Overlay<B: GpuBackend> {
     pub pi: crate::pi_meter::PiMeter,
     /// The cosmic size scale panel (kb: decisions/controls, "Cosmic size scale").
     pub cosmic: crate::cosmic::CosmicOverlay,
+    /// The compass (kb: decisions/controls, "Compass").
+    pub compass: crate::compass::CompassOverlay,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -456,6 +484,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             pending_jump: None,
             pi: crate::pi_meter::PiMeter::default(),
             cosmic: Default::default(),
+            compass: Default::default(),
         }
     }
 }
@@ -511,7 +540,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.maps = None;
             self.probe = None;
             self.probe_key = None;
-            if !(self.cosmic.enabled() || self.pi.enabled) || empty {
+            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now)) || empty {
                 renderer.overlay = None;
                 return;
             }
@@ -539,6 +568,17 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
+        }
+        // ---- Compass: top right, left of map panels there.
+        if self.compass.shown(now) {
+            let left_of = self
+                .maps
+                .as_ref()
+                .filter(|_| s.any() && s.map_corner == Corner::TopRight)
+                .and_then(|m| m.panels.iter().map(|p| p[0]).reduce(f32::min))
+                .map(|x0| (f64::from(x0) - size.0 as f64 / 2.0) * ppp - 8.0);
+            let view_pt = (size.0 as f64 * ppp, size.1 as f64 * ppp);
+            self.compass.layout(view_pt, renderer.navigator.insets(), left_of);
         }
         // ---- Scene.
         let mut scene = Scene::default();
@@ -758,15 +798,20 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let gap = (8.0 * px_per_pt) as f32;
         let (pw, ph) = (panel.0 as f32, panel.1 as f32);
         let (w, h) = (size.0 as f32, size.1 as f32);
+        // Clear of the toolbar and a sidebar over the canvas (safe-area insets, points).
+        let (top, left, bottom, right) = renderer.navigator.insets();
+        let px = |v: f64| (v * px_per_pt) as f32;
+        let (x0, x1) = (px(left) + margin, w - px(right) - margin);
+        let (y0, y1) = (px(top) + margin, h - px(bottom) - margin);
         let n = stack.levels.len();
         stack.panels = (0..n)
             .map(|i| {
                 let off = i as f32 * (pw + gap);
                 match s.map_corner {
-                    Corner::BottomLeft => [margin + off, h - margin - ph],
-                    Corner::BottomRight => [w - margin - pw - off, h - margin - ph],
-                    Corner::TopLeft => [margin + off, margin],
-                    Corner::TopRight => [w - margin - pw - off, margin],
+                    Corner::BottomLeft => [x0 + off, y1 - ph],
+                    Corner::BottomRight => [x1 - pw - off, y1 - ph],
+                    Corner::TopLeft => [x0 + off, y0],
+                    Corner::TopRight => [x1 - pw - off, y0],
                 }
             })
             .collect();
@@ -1073,6 +1118,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.cosmic.draw(scene, size, ppp, [left, cosmic_bottom], now, &mut key);
         }
         key.push_str(&self.pi.draw(scene, w, h, px));
+        self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
         let _ = renderer;
         key
     }

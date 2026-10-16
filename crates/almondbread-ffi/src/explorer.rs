@@ -982,6 +982,11 @@ impl Explorer {
     pub(crate) fn with_cosmic<R>(&self, f: impl FnOnce(&mut almondbread_render::cosmic::CosmicOverlay) -> R) -> R {
         f(&mut self.lock().host.overlay.cosmic)
     }
+
+    /// The hosted renderer (`crate::compass`).
+    pub(crate) fn with_host<R>(&self, f: impl FnOnce(&mut Host<MetalBackend>) -> R) -> R {
+        f(&mut self.lock().host)
+    }
 }
 
 #[uniffi::export]
