@@ -100,7 +100,11 @@ struct ControlCenterView: View {
                 withAnimation(.snappy(duration: 0.2)) { toggle(s) }
             } label: {
                 HStack {
+                    // Primary and headline weight: Form section headers default to small secondary text,
+                    // which read weaker than the rows inside (user, 2026-10-16).
                     Label(s.title, systemImage: s.symbol)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
                     Spacer()
                     Image(systemName: "chevron.right")
                         .rotationEffect(.degrees(isCollapsed(s) && search.isEmpty ? 0 : 90))
@@ -305,19 +309,19 @@ struct ControlCenterView: View {
             .help("Spin with the zoom, palette drift with depth and slow cycling while flying (autopilot, journeys, fly-to)")
         Group {
             LabeledContent("Spin") {
-                Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }
+                Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }.labelsHidden()
                     .help(String(format: "%.1f° per e-fold of zoom (×2.7)", model.cinematicSpin))
             }
             LabeledContent("Hue drift") {
-                Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }
+                Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }.labelsHidden()
                     .help(String(format: "%.1f° of hue per e-fold of depth", model.cinematicHueDrift))
             }
             LabeledContent("Phase drift") {
-                Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }
+                Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }.labelsHidden()
                     .help(String(format: "%.3f palette cycles per e-fold of depth", model.cinematicPhaseDrift))
             }
             LabeledContent("Cycling in flight") {
-                Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }
+                Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }.labelsHidden()
                     .help(String(format: "%.3f palette cycles per second while flying", model.cinematicFlyCycle))
             }
         }
