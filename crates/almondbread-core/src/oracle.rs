@@ -183,6 +183,9 @@ fn pow2(k: i64) -> f64 {
 
 /// `a = f 2^k` with f in [0.5, 1) (a > 0 finite).
 fn exponent_of(a: f64) -> i64 {
+    if a == 0.0 {
+        return 0; // the subnormal branch below would recurse forever
+    }
     let bits = a.to_bits();
     let be = ((bits >> 52) & 0x7ff) as i64;
     if be == 0 {

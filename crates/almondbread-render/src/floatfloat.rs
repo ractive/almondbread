@@ -47,6 +47,9 @@ pub struct FxRef {
 
 /// `x = 2^k f` with f in [0.5, 1) for finite x != 0.
 fn frexp(x: f64) -> (f64, i64) {
+    if x == 0.0 {
+        return (0.0, 0); // the subnormal branch below would recurse forever
+    }
     let bits = x.to_bits();
     let be = ((bits >> 52) & 0x7ff) as i64;
     if be == 0 {
@@ -369,7 +372,14 @@ impl<B: GpuBackend + Clone> FloatFloat<B> {
         let (simd, max_threads) = self.backend.pipeline_limits(&self.iterate);
         let group = (simd * 4).min(max_threads).max(1);
         let mut budget = 2048u32;
+        // Each dispatch takes every live pixel at least 64 iterations further; more dispatches
+        // than that allows means no progress: stop with those pixels unresolved
+        // (kb: techniques/hang-prevention).
+        let max_dispatches = max_iter / 64 + 1024;
         loop {
+            if stats.dispatches >= max_dispatches {
+                break;
+            }
             let active = self.backend.create_buffer_with_data(&[0u8; 4])?;
             let params = FfParams {
                 count: count as u32,

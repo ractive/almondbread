@@ -239,7 +239,8 @@ impl PiMeter {
     /// The output size in pixels and pixels per point (call before [`Self::update`] when it
     /// may have changed): the probe's visibility and the trail picture's resolution follow.
     pub fn set_layout(&mut self, width: usize, height: usize, px: f64) {
-        if px.is_nan() || px <= 0.0 {
+        // +inf too: the trail picture would be usize::MAX pixels wide.
+        if !px.is_finite() || px <= 0.0 {
             return;
         }
         self.px = px;
@@ -751,8 +752,9 @@ impl PiMeter {
         );
         // Ticks and labels: ε every few decades, the error at 1, 1e-5, 1e-10.
         let step = if xb < -12.0 { 4 } else { 2 };
-        let mut d = xa.round() as i64;
-        while d as f64 >= xb {
+        // Integer decades from xa down to xb, at most 64 (kb: techniques/hang-prevention).
+        let (d_hi, d_lo) = (xa.round() as i64, xb.ceil() as i64);
+        for d in (d_lo.max(d_hi.saturating_sub(64))..=d_hi).rev() {
             if (d as f64) <= xa && (d.unsigned_abs() as i64 - 1) % step == 0 {
                 let q = to(d as f64, yb);
                 scene.segment(q, [q[0], q[1] + 3.0 * px], hw, axis, axis);
@@ -765,7 +767,6 @@ impl PiMeter {
                     white(0.5),
                 );
             }
-            d -= 1;
         }
         for (e, lab) in [(0.0, "1"), (-5.0, "1e-5"), (-10.0, "1e-10")] {
             let q = to(xa, e);
@@ -893,8 +894,9 @@ impl PiMeter {
             PiPoint::Neck => 1,
             PiPoint::Cusp => 2,
         };
-        let mut dec = top_dec as i64;
-        while dec as f64 > bottom_dec {
+        // Integer decades above bottom_dec, at most 64 (kb: techniques/hang-prevention).
+        let (dec_hi, dec_lo) = (top_dec as i64, (bottom_dec.floor() as i64).saturating_add(1));
+        for dec in (dec_lo.max(dec_hi.saturating_sub(64))..=dec_hi).rev() {
             if (top_dec as i64 - dec) % step == 0 {
                 let q = at(pos(10f64.powi(dec as i32)));
                 let a = [q[0] - perp[0] * 4.0 * px, q[1] - perp[1] * 4.0 * px];
@@ -918,7 +920,6 @@ impl PiMeter {
                 };
                 scene.label([o[0] as f32, o[1] as f32], s_tick, &lab, white(0.75));
             }
-            dec -= 1;
         }
         let cap = "ε, log scale";
         let cw = f64::from(crate::font::layout(cap, s_tick).1);

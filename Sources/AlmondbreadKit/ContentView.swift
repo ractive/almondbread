@@ -375,7 +375,7 @@ extension HUDView {
             return s.flight.active && !s.journey.suspended ? Self.hintText(s.flight.hint) : nil
         }
         if s.flight.active {
-            let to = "Flying to \(Format.zoom(log10: s.flight.targetZoomLog10))  ·  \(Int(s.flight.progress * 100)) %"
+            let to = "Flying to \(Format.zoom(log10: s.flight.targetZoomLog10))  ·  \(String(format: "%.0f", s.flight.progress * 100)) %"
             if s.flight.stopping { return to + "  ·  stopping" }
             return [to, Self.hintText(s.flight.hint)].compactMap { $0 }.joined(separator: "  ·  ")
         }

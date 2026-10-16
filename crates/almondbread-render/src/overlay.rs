@@ -437,12 +437,14 @@ impl<B: GpuBackend> OverlayDraw<B> {
 /// level as a crosshair more often (a rectangle needs a gap below ~1.4 decades), but every map
 /// says something. Hysteresis: a level from `prev` (same slot) stays while its even target is
 /// within one grid step, so zooming re-renders a level only every few decades.
-fn map_decades(depth: f64, want: usize, prev: &[i32]) -> Vec<i32> {
+pub(crate) fn map_decades(depth: f64, want: usize, prev: &[i32]) -> Vec<i32> {
     const STEP: f64 = 3.0;
     let mut out = vec![0];
-    let slots = want.saturating_sub(1);
+    // At most 15 levels (the setting allows a few); a non-finite depth (an f64 overflow past
+    // 1e308 made the old level loop endless, kb: techniques/hang-prevention) has only the whole set.
+    let slots = want.saturating_sub(1).min(15);
     let deepest = depth - 1.5;
-    if slots == 0 || deepest < STEP {
+    if slots == 0 || !depth.is_finite() || deepest < STEP {
         return out;
     }
     let same_slots = prev.len() == slots;
@@ -662,8 +664,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // ---- Maps (the orbit overlay shows the whole-set map too).
         let want_levels = if s.map { s.map_levels } else { 1 };
         let panel = (
-            ((s.map_size * px_per_pt).round() as usize).max(32),
-            ((s.map_size * 0.72 * px_per_pt).round() as usize).max(24),
+            ((s.map_size * px_per_pt).round() as usize).clamp(32, 4096),
+            ((s.map_size * 0.72 * px_per_pt).round() as usize).clamp(24, 4096),
         );
         if s.any()
             && let Err(e) = self.update_maps(renderer, &view, want_levels, panel, size, &s, px_per_pt)

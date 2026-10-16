@@ -19,6 +19,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-dynamic-caching-talk]] — An Apple developer tech talk (video) on the GPU in M3 and A17 Pro, mainly Dynamic Caching. (unread)
 - [[sources/apple-eu-terms-oct-2026]] — Apple's EU terms effective 2026-10-01: 5% Core Technology Commission replaces the CTF; link-out 10% for program members (skimmed)
 - [[sources/apple-forums-fp64-emulation]] — An Apple Developer Forums thread on emulating 64-bit floating point on Apple GPUs, which have no FP64 hardware. (unread)
+- [[sources/apple-metrickit-hang-diagnostics]] — Apple docs on MetricKit `MXHangDiagnostic` and app hangs (thresholds, delivery); for the hang watchdog (skimmed)
 - [[sources/apple-metal-compile-options]] — Apple's reference page for the `mathMode` property of `MTLCompileOptions`, the per-library setting for how aggressively the Metal compiler may... (unread)
 - [[sources/apple-metal-feature-set-tables]] — Apple Metal Feature Set Tables (May 2026): GPU families per MetalFX feature (temporal scaler Apple7+, denoiser Apple9+) (digested)
 - [[sources/apple-metalfx-docs]] — Apple docs and SDK headers for MetalFX: spatial/temporal scalers, jitter and motion conventions, texture usage, reactive mask, dynamic resolution (digested)
@@ -150,6 +151,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/extended-range-floats]] — float32/64 range limits, floatexp, rescaled iterations with full floatexp steps, skip-table exponents, depth→type table
 - [[techniques/frame-reuse-and-progressive]] — XaoS row/column reuse, KF reuse reference and interlacing; as built: M2 gesture previews, FL history reprojection with temporal upsampling, per-pixel refinement fade, focus-first tiles
 - [[techniques/glitch-detection]] — Pauldelbrot's |Z+z|² < G|Z|² test and KF multi-reference correction (legacy; keep as debug overlay)
+- [[techniques/hang-prevention]] — hang patterns at extreme zoom (inf/NaN depths, f64 step loops, saturating casts, absurd allocations), the guards and lints, 13 extreme-value tests, the main-thread watchdog and its reports, MetricKit
 - [[techniques/guessing-and-subdivision]] — border tracing, Mariani–Silver, KF guessing (speckles, 1.5× on OpenCL); as built in M5: interior-only fill of 16 × 16 tiles (border-first admission, bit-identical, gated)
 - [[techniques/interior-detection]] — derivative test |dz/dz₁| < 1e-3 with perturbation/BLA, cardioid/bulb, periodicity, interior DE
 - [[techniques/linear-approximation-imagina]] — Imagina's period-aligned LA stages (non-linear first step, Chebyshev thresholds, O(1) walk) and the AT minibrot shortcut; as built in M6

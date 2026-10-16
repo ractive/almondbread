@@ -343,6 +343,15 @@ pub const MIN_SCALE_LOG2: i64 = -10_000;
 /// sub-point offsets kept exactly over long pans).
 pub const CENTER_GUARD_BITS: i64 = 96;
 
+/// Centre bits for `scale`, whole limbs. Capped a little past the deepest scale: a pasted
+/// "1e-999999999" asked for billions of bits before the caller clamped the scale, and the
+/// precision raise hung the UI (kb: techniques/hang-prevention).
+fn center_bits_for(scale: Scale) -> usize {
+    const MAX_CENTER_BITS: i64 = -MIN_SCALE_LOG2 + 1024 + CENTER_GUARD_BITS;
+    let bits = ((-scale.log2()).ceil() as i64).saturating_add(CENTER_GUARD_BITS);
+    (bits.clamp(MIN_CENTER_BITS as i64, MAX_CENTER_BITS) as usize).div_ceil(64) * 64
+}
+
 impl Viewport {
     pub fn new(re: f64, im: f64, scale: f64) -> Self {
         let mut v = Self {
@@ -427,8 +436,7 @@ impl Viewport {
 
     /// Centre precision needed for this scale (bits, whole limbs).
     pub fn needed_center_bits(&self) -> usize {
-        let bits = (-self.scale.log2()).ceil() as i64 + CENTER_GUARD_BITS;
-        (bits.max(MIN_CENTER_BITS as i64) as usize).div_ceil(64) * 64
+        center_bits_for(self.scale)
     }
 
     /// Raises the centre's precision to what the scale needs (never lowers it).
@@ -482,8 +490,7 @@ impl Viewport {
         self.scale = (self.scale / factor)
             .max(self.min_scale())
             .min(Scale::from_f64(MAX_SCALE));
-        let bits = (-self.scale.log2()).ceil() as i64 + CENTER_GUARD_BITS;
-        let bits = (bits.max(MIN_CENTER_BITS as i64) as usize).div_ceil(64) * 64;
+        let bits = center_bits_for(self.scale);
         let (rx, ry) = self.rotate(dx, dy);
         self.center = p.with_min_precision(bits).offset_scaled(-rx, -ry, self.scale);
     }

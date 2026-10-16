@@ -465,8 +465,9 @@ public final class ExplorerModel {
         save()
     }
 
-    private func push() {
+    private func push(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
+        HangWatchdog.note("settings", "push from \(origin)")
         do {
             try explorer.setSettings(settings: settings)
         } catch {
@@ -477,31 +478,35 @@ public final class ExplorerModel {
         save()
     }
 
-    private func pushOverlay() {
+    private func pushOverlay(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
+        HangWatchdog.note("settings", "pushOverlay from \(origin)")
         explorer.setOverlay(settings: overlaySettings)
         host?.requestFrames()
         save()
     }
 
-    private func pushPiMeter() {
+    private func pushPiMeter(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
+        HangWatchdog.note("settings", "pushPiMeter from \(origin)")
         explorer.setPiMeter(on: piMeterEnabled, insetRight: piMeterInsetRight, insetBottom: 0)
         if !piMeterEnabled { piMeter = nil }
         host?.requestFrames()
         save()
     }
 
-    private func pushCosmic() {
+    private func pushCosmic(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
+        HangWatchdog.note("settings", "pushCosmic from \(origin)")
         explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: cosmicScale, anchor: cosmicAnchor,
                                                               metresPerPoint: metresPerPoint))
         host?.requestFrames()
         save()
     }
 
-    private func pushCompass() {
+    private func pushCompass(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
+        HangWatchdog.note("settings", "pushCompass from \(origin)")
         explorer.setCompass(always: compassAlways, insetTop: compassInsetTop)
         host?.requestFrames()
         save()
