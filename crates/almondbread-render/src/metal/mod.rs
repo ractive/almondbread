@@ -53,6 +53,21 @@ pub struct MetalBackend {
 impl MetalBackend {
     /// The system default GPU with the kernels compiled from [`KERNEL_SOURCE`].
     pub fn new() -> Result<Self, GpuError> {
+        // `ALMONDBREAD_KERNEL_SALT=x` changes the iterate kernel's code (a test that
+        // never passes), so Metal's shader cache misses as after an app update: the cold cost
+        // of pipeline variants (kb: platform/metal-compute "Pipeline warm-up").
+        if let Ok(salt) = std::env::var("ALMONDBREAD_KERNEL_SALT") {
+            let n = salt
+                .bytes()
+                .fold(0x8000_0000u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)))
+                | 0x8000_0000;
+            let source = KERNEL_SOURCE.replacen(
+                "    const uint liveIn = *countIn;",
+                &format!("    if (p.total == {n}u) {{ return; }}\n    const uint liveIn = *countIn;"),
+                1,
+            );
+            return Self::with_source(&source);
+        }
         Self::with_source(KERNEL_SOURCE)
     }
 
@@ -402,6 +417,47 @@ impl GpuBackend for MetalBackend {
         })
     }
 
+    fn pipelines_in_background(
+        &self,
+        requests: Vec<(&'static str, Vec<bool>)>,
+    ) -> Option<std::sync::mpsc::Receiver<(usize, MetalPipeline)>> {
+        // A few threads take the requests in order (a cold variant of the iterate kernel costs
+        // 60-250 ms of one core; 57 of them on one thread took ~6 s, longer than a fast fly-to
+        // needs to reach the deep kernel).
+        let (tx, rx) = std::sync::mpsc::channel();
+        let queue = std::sync::Arc::new(std::sync::Mutex::new(
+            requests
+                .into_iter()
+                .enumerate()
+                .collect::<std::collections::VecDeque<_>>(),
+        ));
+        let threads = std::thread::available_parallelism().map_or(2, |n| (n.get() / 3).clamp(1, 4));
+        let mut spawned = false;
+        for k in 0..threads {
+            let (tx, queue, backend) = (tx.clone(), queue.clone(), self.clone());
+            let ok = std::thread::Builder::new()
+                .name(format!("almondbread-pipelines-{k}"))
+                .spawn(move || {
+                    loop {
+                        let Some((i, (function, constants))) = queue.lock().ok().and_then(|mut q| q.pop_front()) else {
+                            return;
+                        };
+                        match backend.pipeline(function, &constants) {
+                            Ok(p) => {
+                                if tx.send((i, p)).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(e) => eprintln!("almondbread: pipeline warm-up {function}: {e}"),
+                        }
+                    }
+                })
+                .is_ok();
+            spawned |= ok;
+        }
+        spawned.then_some(rx)
+    }
+
     fn pipeline_limits(&self, pipeline: &MetalPipeline) -> (usize, usize) {
         (
             pipeline.threadExecutionWidth(),
@@ -473,6 +529,16 @@ mod tests {
         BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState, SeedNode,
         SeedParams,
     };
+
+    /// Tests whose outcome depends on GPU time per frame (budgeted levels, e.g. the sample
+    /// cache's) and tests that load the GPU for seconds hold this, so the test harness's
+    /// parallel threads do not starve the former: `sample_cache_exact` cached a third of its
+    /// samples while `learned_limit_survives_aa` ran alongside.
+    static GPU_TIMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn gpu_timing() -> std::sync::MutexGuard<'static, ()> {
+        GPU_TIMING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
     #[test]
@@ -741,6 +807,7 @@ mod tests {
     #[test]
     fn sample_cache_exact() {
         use crate::scheduler::Renderer;
+        let _gpu = gpu_timing();
         let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
         r.viewport = almondbread_core::Viewport::new(-0.743643887037151, 0.13182590420533, 3.75e-6 * 4.0);
         // (One reference throughout: a fixed limit, moves within its reach. Samples of other
@@ -904,6 +971,70 @@ mod tests {
         host.overlay.settings.map = false;
         frames(&mut host, 30);
         assert_eq!(host.renderer.finish_frames(), 0, "frames failed on the GPU");
+    }
+
+    /// The learned iteration limit survives the idle anti-aliasing and is what the next view
+    /// starts from (kb: techniques/auto-iterations). At the -3/4 neck the passes find escapes
+    /// far past the depth limit, so the learner raises it; the view then anti-aliases (9
+    /// samples) and idles, and a short pan gesture follows. A from-scratch renderer at the
+    /// settled view (as the flight benchmark's jump check makes) has its own learner: its
+    /// `learn: ... -> 0` trace line is not the live renderer's.
+    #[test]
+    fn learned_limit_survives_aa() {
+        use crate::host::Host;
+        use crate::scheduler::Renderer;
+        use objc2_quartz_core::CAMetalLayer;
+        let _gpu = gpu_timing();
+        let backend = MetalBackend::new().expect("metal");
+        let mut surface = MetalLayerSurface::new(CAMetalLayer::new(), &backend);
+        surface.set_drawable_size(640, 410);
+        let mut host = Host::new(Renderer::new(backend).expect("renderer"));
+        assert_eq!(host.renderer.settings.supersampling.factor(), 3, "the app's default AA");
+        host.resize(320.0, 205.0, 2.0, 0.0);
+        host.renderer.viewport =
+            almondbread_core::Viewport::new(-0.7500016386523336, -0.002107342465685259, 6.77052e-8);
+        // (A cap keeps the extension passes short: the neck's slow escapes would otherwise run
+        // them to ~110 000 iterations, a second of GPU; the learned limit is ~7 000.)
+        host.renderer.settings.max_iterations_cap = 30_000;
+        let depth = almondbread_core::settings::depth_iterations(&host.renderer.viewport);
+        let start = std::time::Instant::now();
+        let now = || start.elapsed().as_secs_f64();
+        // (until_settled: stop once settled; pan: move the view as a gesture each refresh.)
+        let mut frames = |host: &mut Host<MetalBackend>, n: usize, pan: bool, until_settled: bool| {
+            for _ in 0..n {
+                let t = now();
+                if pan {
+                    host.renderer.note_interaction(t);
+                    host.renderer.viewport.pan_by_points(0.5, 0.0);
+                }
+                let ready = surface.drawable_ready(t);
+                host.frame(t, &now, ready, &mut |f| surface.next_drawable(t, f).map(|d| (d, 0)));
+                std::thread::sleep(std::time::Duration::from_millis(4));
+                if until_settled && host.renderer.is_settled() {
+                    return true;
+                }
+            }
+            false
+        };
+        assert!(frames(&mut host, 3000, false, true), "the view did not settle");
+        let learned = host.renderer.settings.learned_iterations;
+        assert!(learned > depth, "learned {learned}, depth {depth}");
+        // Idle after the AA: nothing changes.
+        frames(&mut host, 100, false, false);
+        assert_eq!(host.renderer.settings.learned_iterations, learned);
+        // A fresh renderer at the view does not touch the live one's state.
+        let mut fresh = Renderer::new(host.renderer.backend().clone()).expect("renderer");
+        fresh.viewport = host.renderer.viewport.clone();
+        fresh.render_offscreen(320, 205, false).expect("render");
+        assert_eq!(host.renderer.settings.learned_iterations, learned);
+        // The next view (a pan) starts from the learned limit.
+        frames(&mut host, 60, true, false);
+        assert!(frames(&mut host, 3000, false, true), "the pan did not settle");
+        assert!(
+            host.renderer.stats.max_iterations >= learned,
+            "next view at {} after learning {learned}",
+            host.renderer.stats.max_iterations
+        );
     }
 
     /// Interior cycle analysis (interior colourings): the period every interior pixel reports

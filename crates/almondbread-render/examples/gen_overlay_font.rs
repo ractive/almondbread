@@ -54,6 +54,8 @@ fn edt_1d(f: &[f64], d: &mut [f64], v: &mut [usize], z: &mut [f64]) {
     }
     k = 0;
     for q in 0..n {
+        // Bounded: z[n] is +inf (an out-of-range k would panic, not spin).
+        #[expect(clippy::while_float, reason = "k walks a finite breakpoint array ending at +inf")]
         while z[k + 1] < q as f64 {
             k += 1;
         }

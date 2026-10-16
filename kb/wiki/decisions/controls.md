@@ -462,6 +462,19 @@ navigator lands with `viewport == target`, and a pan hands the motion over witho
 `verify --history flyto` (in `make regress`) flies through the interactive scheduler and
 diffs the landed frame against the CPU oracle and a fresh render.
 
+**Stalls (2026-10-16, "a fly-to sometimes pauses mid-flight").** Measured per refresh with
+`fly --log` on eight flights (home to sea-8007, junction-1e300, needle-minibrot-1e302 and
+spiral-1e1000 at the default speed and at ×9 Q, junction-1e300 to spiral-1e1000): the motion
+model never stops (fly-to's own `waiting_reference` throttle of 0.06 never engaged: the target
+reference, requested once the view passes 1e-12, came in 26 ms as a progressive prefix; the
+renderer back-off slows it to 0.3 of the speed at most, where previews are at 1/8). Two things
+did freeze the picture: (1) frames of 165–310 ms CPU where the flight first needed a new kernel
+variant (BLA, LA, the deep kernel) with a cold Metal shader cache, fixed by the pipeline
+warm-up ([[platform/metal-compute]] "Pipeline warm-up"); a frame that long also made the
+scheduler see a jump (zoom ×20 between keys) and reset its learned state; (2) refreshes with
+nothing presented for up to 250 ms while two colorize passes waited on a GPU that other
+processes kept 83–100 % busy (our own chunks were ≤ 32 ms): load, not the app.
+
 **Reset (2026-10-15, user request).** "Reset all…" at the bottom of the control center asks
 "Reset settings" or "Reset settings and view" and puts every per-window setting (look,
 palette and mapping, lighting and outline, interior, overlays, iterations and quality, edge
@@ -471,6 +484,19 @@ alone. Both are undoable (Edit ▸ Undo, ⌘Z: the previous settings record and 
 window's undo manager). The Settings window's reset of app-wide preferences stays separate.
 Places, autopilot and fly-to are in the control center since the integration (Places: grid by
 category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, target lock).
+
+**Deep high-period minibrots (2026-10-16).** At sea-8007 (period 8007, 3.2e-31 across) the
+lock found nothing: its 40 × 40 CPU probe ran at the CPU cap of 30 000 iterations, where every
+texel near that minibrot is unresolved (the app's auto limit settles at ~118 000), so the view
+read as interior, the finder (which needs boundary texels) returned 0 candidates, and the
+autopilot backed out (rescue) or dived into the minibrot's interior. The view probe now
+escalates (`journey::probe_escalating`: 4× while more than half the probe never escaped and
+the step lets more escape, to 240 000 or 0.5 s), and candidate probes start at the view's
+limit. Newton at periods 8007 and 16014 was never the problem (both nuclei were found once the
+view resolved). `autopilot --center sea-8007 --scale 2.5e-34 --lock 1 --seconds 60`, whose CPU
+survey escalates the same way now: uniform 5.0 % → 0 %, rescue 2.6 → 0 s, 23 → 12 target
+switches, 1e52.0 → 1e54.4 (the first search: 0 → 10 candidates); lock off: 94 % uniform.
+`ALMONDBREAD_PROBE_ESCALATE=0` restores the fixed limit.
 
 ## Journey (as built, 2026-10-15)
 
@@ -627,6 +653,37 @@ precision; every target has boundary structure in its middle and < 60 % interior
 flying|resting|planning" and "journey speed ×4.06/s". `almondbread journey --seed n
 [--legs k] [--thumbs dir]` prints a journey's plan (and renders each target); `fly` scripts
 take `{"journey": 4711}` (`scripts/flights/journey-4711*.json`).
+
+**Revision 2026-10-16: deeper dives, faster through monotony.** User reports: "a slow,
+boring stretch along the needle" and "dives that stay too shallow". Criteria used: the median
+dive (cross-over plus its legs, deepest landing) at 1e10 or deeper across seeds, and the
+longest flight stretch whose look does not change below ~2 s at the default speed.
+
+- *Depth.* With gains of 2.5–5 / 4–8 / 11–17 e-folds (scenic / medium / deep), one or two
+  medium legs, and minibrots searched only where the lowest-period atom touches a disc of
+  0.7–2.5 probe texels (shallow ones), five of six dives of journeys #7, #4711 and #20261016
+  ended above 1e10 (median dive 1e4.5–1e7.2). Now: gains 4–8 / 7–12 / 13–19, medium dives
+  always two legs, style odds 25 / 40 / 35 % (deep still never twice in a row), legs shallower
+  than the style's lower gain cost 0.12 per e-fold, and every other sample of a dive's
+  period search uses a disc smaller by `e^-(mean gain − 6)` (deeper minibrots). Six seeds × 16
+  legs: median dive 1e8.4–1e16.9 (median of medians 1e11.1), deepest 1e17.7–1e26.2. Played
+  for 150 s: median zoom 1e3.1 → 1e7.5 (#2) and 1e3.3 → 1e8.9 (#20261015); time deeper than
+  1e10 32 → 50 s and 0 → 68 s.
+- *Monotony.* A dive into a self-similar spot (Pine Compass on the needle, re −1.4304) shows
+  the same picture for 19 e-folds; my first dullness test (no structure: interior, calm, few
+  crossings) did not flag it, because the needle's views are full of escape bands. The look
+  descriptor does: its distance per e-fold of zoom was 0.05–0.15 there against 0.2–0.5 in
+  varied dives. Each plan now probes its leg's path at 32 equal steps of the path parameter
+  (`journey::path_profile`, on the planning thread); a sample is dull when its probe has no
+  structure or its look changed less than 0.15 per e-fold over the last 2 e-folds; runs of 4
+  or more dull samples fly at 3× (`DULL_PACE`, through the navigator's speed spring; braking
+  onto the target is unchanged). Seed #20261015, 16 legs: flight 162 → 143 s at the default
+  speed, the longest dull stretch 5.9 → 2.0 s (the Pine Compass tail); seed #2's cross-over
+  out of the needle 7.5 → 2.5 s. `almondbread journey --path 1|2` prints each leg's profile.
+- *Black mid-flight frames* were not reproduced: five journeys played headless (seed 4711 for
+  85 s, seed 20261015 with the cinematic effects for 3 min, seed 7 from the needle for 3 min,
+  seeds 2 and 20261015 for 150 s before and after the change), 62 700 frames at 60 fps through ffmpeg `signalstats`: no frame with its 90th-percentile luma below
+  20 and no flash (mean luma below 35 % of the ten frames around it).
 
 ## View rotation (as built, 2026-10-15)
 

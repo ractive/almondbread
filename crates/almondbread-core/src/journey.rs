@@ -90,6 +90,92 @@ pub fn leg_pace(efolds: f64) -> f64 {
     }
 }
 
+/// Samples along a leg's flight path whose views are probed for dullness ([`path_profile`]).
+pub const PATH_SAMPLES: usize = 32;
+/// A leg flies this much faster through dull stretches of its path (needle, smooth exterior,
+/// interior): journey #7's needle legs spent 10-20 s zooming down a thin line.
+pub const DULL_PACE: f64 = 3.0;
+/// A stretch of path is monotonous where the look descriptor ([`Look::distance`]) changes less
+/// than `MONOTONE_RATE` per e-fold of zoom, over at least `MONOTONE_SPAN` e-folds.
+const MONOTONE_RATE: f64 = 0.15;
+const MONOTONE_SPAN: f64 = 2.0;
+/// Shortest run of dull samples that changes the pace (1/8 of the path).
+const DULL_RUN: usize = 4;
+/// Window shape the profile's path is computed for (width / shorter side): the path depends on
+/// it only weakly.
+const PATH_ASPECT: f64 = 1.6;
+
+/// Whether a view is dull to fly through by itself: almost all interior, or almost no structure (few band
+/// crossings and little filament: the needle's line, smooth exterior), or calm almost everywhere.
+pub fn dull(st: &ProbeStats) -> bool {
+    st.interior > 0.85 || st.calm > 0.85 || (st.detail < 4.0 && st.filament < 0.2)
+}
+
+/// The dullness of a leg's flight path from (`from`, `from_span`) to (`to`, `to_span`) (spans
+/// across the shorter side): [`PATH_SAMPLES`] views at equal steps of the path parameter (the
+/// fly-to path, kb: decisions/controls "Fly to"), each probed; true where [`dull`] or where
+/// the dive is monotonous (the same look for e-folds on end: the needle's self-similar
+/// stretches). The
+/// navigator flies dull stretches [`DULL_PACE`] times faster (kb: decisions/controls "Journey").
+/// None when cancelled.
+pub fn path_profile(
+    from: &Center,
+    from_span: Scale,
+    to: &Center,
+    to_span: Scale,
+    cancel: &AtomicBool,
+) -> Option<Vec<(ProbeStats, Look, bool)>> {
+    let side = 1000.0;
+    let a = Viewport::with_center(from.clone(), from_span / side);
+    let b = Viewport::with_center(to.clone(), to_span / side);
+    let path = crate::flyto::FlyPath::new(&a, &b, side * PATH_ASPECT);
+    let mut out: Vec<(ProbeStats, Look, bool)> = Vec::with_capacity(PATH_SAMPLES);
+    let mut zooms: Vec<f64> = Vec::with_capacity(PATH_SAMPLES);
+    for i in 0..PATH_SAMPLES {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        let s = path.length() * (i as f64 + 0.5) / PATH_SAMPLES as f64;
+        let v = path.viewport_at(s);
+        let f = probe(&v.center, v.scale * side, 0);
+        let st = ProbeStats::of(&f);
+        let look = look_of(&f, &v.center, v.scale * side);
+        // Monotonous: the look changes little per e-fold of zoom, measured against the last
+        // sample at least `MONOTONE_SPAN` e-folds away (a self-similar dive: Pine Compass's
+        // last 19 e-folds changed 0.05-0.15 per e-fold, varied dives 0.2-0.5).
+        let z = v.scale.ln();
+        let monotone = (0..i)
+            .rev()
+            .find(|&j| (z - zooms[j]).abs() >= MONOTONE_SPAN)
+            .is_some_and(|j| look.distance(&out[j].1) / (z - zooms[j]).abs() < MONOTONE_RATE);
+        zooms.push(z);
+        out.push((st, look, dull(&st) || monotone));
+    }
+    // Only sustained stretches change the pace (`DULL_RUN` samples or more): a Julia stage's
+    // doubling pauses for a moment between stages, which is part of the show.
+    let mut i = 0;
+    while i < out.len() {
+        let j = (i..out.len()).find(|&k| !out[k].2).unwrap_or(out.len());
+        if j - i < DULL_RUN {
+            for o in &mut out[i..j] {
+                o.2 = false;
+            }
+        }
+        i = j + 1;
+    }
+    Some(out)
+}
+
+/// The pace factor at flight progress `t` (0 … 1) of a leg with dullness `profile` (empty: 1):
+/// [`DULL_PACE`] over dull samples, 1 elsewhere; the navigator's speed spring smooths the steps.
+pub fn profile_pace(profile: &[bool], t: f64) -> f64 {
+    if profile.is_empty() || !t.is_finite() {
+        return 1.0;
+    }
+    let i = ((t.clamp(0.0, 1.0) * profile.len() as f64) as usize).min(profile.len() - 1);
+    if profile[i] { DULL_PACE } else { 1.0 }
+}
+
 /// Probe resolution (square, across the shorter side).
 pub const PROBE: usize = 40;
 /// Probe iteration cap (CPU).
@@ -355,8 +441,25 @@ pub fn probe(center: &Center, span: Scale, extra_iterations: usize) -> Iteration
 
 /// A `size` × `size` probe (see [`probe`]).
 pub fn probe_sized(center: &Center, span: Scale, extra_iterations: usize, size: usize) -> IterationField {
+    probe_limit(
+        center,
+        span,
+        (probe_iterations(span) + extra_iterations).min(PROBE_ITER_CAP * 2),
+        size,
+    )
+}
+
+/// Highest limit an escalated probe ([`probe_escalating`]) uses: the neighbourhoods of deep
+/// high-period minibrots need many times the period (sea-8007 settles at ~118 000 in the app;
+/// at the CPU cap of 30 000 every probe texel stays unresolved and the view looks interior).
+pub const PROBE_ESCALATE_CAP: usize = 8 * PROBE_ITER_CAP;
+/// An escalated probe goes on while more than this share of it never escaped.
+const ESCALATE_INTERIOR: f64 = 0.5;
+
+/// A `size` × `size` probe at exactly `iterations`.
+pub fn probe_limit(center: &Center, span: Scale, iterations: usize, size: usize) -> IterationField {
     let texel = span / size as f64;
-    let it = (probe_iterations(span) + extra_iterations).min(PROBE_ITER_CAP * 2);
+    let it = iterations.max(1);
     if texel.to_f64() >= 1e-13 {
         cpu_render(center.re(), center.im(), texel.to_f64(), size, size, it, 65536.0, 0.0)
     } else {
@@ -367,6 +470,32 @@ pub fn probe_sized(center: &Center, span: Scale, extra_iterations: usize, size: 
         );
         cpu_render_deep(&c, texel, size, size, it, 65536.0, 0.0).0
     }
+}
+
+/// The view's [`probe`], re-run at 4× the limit while most of it never escaped and each step
+/// lets more of it escape, up to [`PROBE_ESCALATE_CAP`] and while `budget` seconds last
+/// (kb: decisions/controls "Target lock"): near a deep high-period minibrot the CPU limit
+/// leaves every texel unresolved, the probe reads as interior and the finder, which looks for
+/// boundary texels, finds nothing. A view that really is interior stops after one step (no
+/// texel escapes). Returns the field and the limit it used.
+pub fn probe_escalating(center: &Center, span: Scale, budget: f64) -> (IterationField, usize) {
+    let t0 = std::time::Instant::now();
+    let mut it = probe_iterations(span);
+    let mut f = probe_limit(center, span, it, PROBE);
+    let mut interior = ProbeStats::of(&f).interior;
+    // (`ALMONDBREAD_PROBE_ESCALATE=0`: the old fixed limit, for before/after checks.)
+    let on = std::env::var("ALMONDBREAD_PROBE_ESCALATE").map_or(true, |v| v != "0");
+    while on && interior > ESCALATE_INTERIOR && it < PROBE_ESCALATE_CAP && t0.elapsed().as_secs_f64() < budget {
+        let next = (4 * it).min(PROBE_ESCALATE_CAP);
+        let g = probe_limit(center, span, next, PROBE);
+        let gi = ProbeStats::of(&g).interior;
+        if gi > interior - 0.02 {
+            // Nothing more escaped: interior (or beyond reach); keep the cheaper limit.
+            break;
+        }
+        (f, it, interior) = (g, next, gi);
+    }
+    (f, it)
 }
 
 /// The spiral pitch of a view, from its maths: the orbit of a point near the centre shadows
@@ -484,9 +613,9 @@ impl Target {
 /// How a dive goes: seeded at every cross-over (kb: decisions/controls "Journey", variety).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiveStyle {
-    /// The cross-over and one short leg near the surface: the region's scenery.
+    /// The cross-over and one leg a few decades down: the region's scenery.
     Scenic,
-    /// The cross-over and one or two legs, to 1e8 … 1e20.
+    /// The cross-over and two legs, to 1e10 … 1e26.
     Medium,
     /// The cross-over and two long legs, down to minibrots and their Julia stages (to 1e40).
     Deep,
@@ -494,19 +623,22 @@ pub enum DiveStyle {
 
 impl DiveStyle {
     /// The depth gain a leg prefers (e-folds, seeded within).
+    /// (Deepened 2026-10-16 after "dives that stay too shallow": with 2.5-5, 4-8 and 11-17
+    /// e-folds and one or two medium legs, five of six dives of journeys #7, #4711 and
+    /// #20261016 ended above 1e10, the median at 1e4.5-1e7; kb: decisions/controls "Journey".)
     fn gain(self) -> (f64, f64) {
         match self {
-            Self::Scenic => (2.5, 5.0),
-            Self::Medium => (4.0, 8.0),
-            Self::Deep => (11.0, 17.0),
+            Self::Scenic => (4.0, 8.0),
+            Self::Medium => (7.0, 12.0),
+            Self::Deep => (13.0, 19.0),
         }
     }
 
     /// Cross over once a dive is this deep (log10 of the magnification).
     fn max_depth_log10(self) -> f64 {
         match self {
-            Self::Scenic => 10.0,
-            Self::Medium => 22.0,
+            Self::Scenic => 12.0,
+            Self::Medium => 26.0,
             Self::Deep => MAX_DEPTH_LOG10,
         }
     }
@@ -569,6 +701,9 @@ impl Chain {
 pub struct Plan {
     pub target: Target,
     pub chain: Chain,
+    /// The leg's dull stretches ([`path_profile`]): [`PATH_SAMPLES`] flags over the flight's
+    /// progress.
+    pub pace: Vec<bool>,
     /// Candidates found and probed.
     pub candidates: usize,
     pub probed: usize,
@@ -669,12 +804,15 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
     let mut best: Option<Target> = None;
     let cross_due = chain.dive_left == 0 || depth > chain.style.max_depth_log10();
     if !cross_due {
-        let mut candidates = find_candidates(&center, span, &mut rng, cancel)?;
+        // Deeper dives look for deeper minibrots: half the samples search a smaller disc.
+        let (lo, hi) = chain.style.gain();
+        let deeper = (0.5 * (lo + hi) - 6.0).max(0.0);
+        let mut candidates = find_candidates(&center, span, deeper, &mut rng, cancel)?;
         // A short cross-over within the region: targets of a view 2-4 e-folds wider, away
         // from this one (the flight zooms out a little and back in beside it).
         if depth > 2.5 {
             let wide = span * rng.range(2.0, 4.0).exp();
-            let mut side = find_candidates(&center, wide, &mut rng, cancel)?;
+            let mut side = find_candidates(&center, wide, deeper, &mut rng, cancel)?;
             side.retain(|c| {
                 c.kind != TargetKind::Detail
                     && c.center.distance_in(&center, span) > 0.8
@@ -685,7 +823,7 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         if cancelled() {
             return None;
         }
-        let (lo, hi) = chain.style.gain();
+        // (lo, hi): the style's gains, above.
         let want_gain = rng.range(lo, hi);
         prescore_dive(&mut candidates, &center, span, &chain, want_gain, &mut rng);
         found += candidates.len();
@@ -714,9 +852,9 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
     if crossing {
         // The next dive's style: no two deep dives in a row.
         let r = rng.f64();
-        let style = if r < 0.35 {
+        let style = if r < 0.25 {
             DiveStyle::Scenic
-        } else if r < 0.72 || chain.style == DiveStyle::Deep || chain.regions.is_empty() {
+        } else if r < 0.65 || chain.style == DiveStyle::Deep || chain.regions.is_empty() {
             DiveStyle::Medium
         } else {
             DiveStyle::Deep
@@ -731,7 +869,7 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         best = b;
         chain.dive_left = match style {
             DiveStyle::Scenic => 1,
-            DiveStyle::Medium => 1 + rng.index(2) as u32,
+            DiveStyle::Medium => 2,
             DiveStyle::Deep => 2,
         };
     } else {
@@ -765,9 +903,16 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         chain.history.remove(0);
     }
     chain.rng = rng;
+    // The leg's dull stretches (the navigator flies them faster); from the plan's start, which
+    // is where the leg will start (the last target, or the view a resume plans from).
+    let pace = path_profile(&center, span, &target.center, target.span, cancel)?
+        .into_iter()
+        .map(|p| p.2)
+        .collect();
     Some(Plan {
         target,
         chain,
+        pace,
         candidates: found,
         probed,
         seconds: t0.elapsed().as_secs_f64(),
@@ -816,6 +961,12 @@ fn prescore_dive(
             s -= 0.6;
         }
         s -= 0.06 * (gain - want_gain).abs();
+        // Shallower than the dive's style asks for costs more (a 1.7 e-fold "towards a
+        // minibrot" leg in a deep dive left it at 1e13).
+        let lo = chain.style.gain().0;
+        if gain < lo {
+            s -= 0.12 * (lo - gain);
+        }
         // Directions change: a leg along the last one's direction costs a little.
         let (dx, dy) = c.center.delta_in(center, span);
         if dx.hypot(dy) > 0.05
@@ -1070,17 +1221,28 @@ fn boundary_points(f: &IterationField, rng: &mut Rng, count: usize) -> Vec<(f64,
 }
 
 /// Minibrots, their Julia stages, Misiurewicz points and detail zooms in and near the view.
-fn find_candidates(center: &Center, span: Scale, rng: &mut Rng, cancel: &AtomicBool) -> Option<Vec<Candidate>> {
+fn find_candidates(
+    center: &Center,
+    span: Scale,
+    deeper: f64,
+    rng: &mut Rng,
+    cancel: &AtomicBool,
+) -> Option<Vec<Candidate>> {
     let view = probe(center, span, 0);
-    find_candidates_in(center, span, &view, rng, cancel)
+    find_candidates_in(center, span, &view, deeper, rng, cancel)
 }
 
 /// [`find_candidates`] with the view's probe already rendered (the autopilot's target lock
 /// measures it too, kb: decisions/controls "Autopilot").
+/// `deeper` (e-folds): every other sample's period search uses a disc that much smaller, where
+/// the lowest-period atom touching it is a deeper minibrot (deep dives: at 1e2-1e5 every
+/// minibrot found within 0.7-2.5 probe texels framed 1-7 e-folds down, and a "deep" dive's legs
+/// gained 4-6 e-folds each).
 pub(crate) fn find_candidates_in(
     center: &Center,
     span: Scale,
     view: &IterationField,
+    deeper: f64,
     rng: &mut Rng,
     cancel: &AtomicBool,
 ) -> Option<Vec<Candidate>> {
@@ -1099,7 +1261,10 @@ pub(crate) fn find_candidates_in(
             return None;
         }
         let p = base.offset_scaled(px, py, texel);
-        let radius_f = rng.range(0.7, 2.5);
+        let mut radius_f = rng.range(0.7, 2.5);
+        if si % 2 == 1 && deeper > 0.0 {
+            radius_f *= (-deeper).exp();
+        }
         // ---- Minibrot.
         let radius = texel.big_times(radius_f, 64);
         let mut is_cancelled = || cancel.load(Ordering::Relaxed);
@@ -1402,6 +1567,8 @@ pub struct Journey {
     palette: (f64, f64),
     pub speed_changed: f64,
     current: Option<Target>,
+    /// The flying leg's dull stretches ([`Plan::pace`]).
+    leg_profile: Vec<bool>,
     next: Option<Plan>,
     chain: Chain,
     slot: Option<Arc<PlanSlot>>,
@@ -1426,6 +1593,7 @@ impl Default for Journey {
             palette: (0.0, 0.0),
             speed_changed: f64::NEG_INFINITY,
             current: None,
+            leg_profile: Vec::new(),
             next: None,
             chain: Chain::new(0),
             slot: None,
@@ -1479,6 +1647,12 @@ impl Journey {
     /// The speed this leg flies at: the journey speed times the leg's pace.
     pub fn leg_speed(&self) -> f64 {
         self.speed * self.pace
+    }
+
+    /// The speed at flight progress `t` (0 … 1): [`Journey::leg_speed`], [`DULL_PACE`] times
+    /// faster over the leg's dull stretches (kb: decisions/controls "Journey").
+    pub fn leg_speed_at(&self, t: f64) -> f64 {
+        self.leg_speed() * profile_pace(&self.leg_profile, t)
     }
 
     /// Sets the leg's pace from its path length in e-folds (the navigator, as a leg starts).
@@ -1647,6 +1821,7 @@ impl Journey {
                 let t = p.target.clone();
                 self.palette = (self.palette.1, t.palette_phase);
                 self.current = Some(t.clone());
+                self.leg_profile = p.pace;
                 // Plan the leg after this one from this target while it flies.
                 self.request(&t.center, t.span);
                 Some(Action::Fly(t))
@@ -1801,6 +1976,45 @@ mod tests {
         // 92 e-folds out and back in (a cross-over from 1e40) take what ~29.6 would.
         let p = leg_pace(92.0);
         assert!((92.0 / p - (LONG_LEG + LONG_LEG_SHARE * 78.0)).abs() < 1e-9, "{p}");
+    }
+
+    #[test]
+    fn self_similar_needle_dives_are_dull_and_fly_faster() {
+        // Pine Compass on the needle (re -1.4304, the catalogue place at 1e12.3): zooming
+        // straight in from 1e4 shows the same look all the way; the end of the path is flagged
+        // and flies at the dull pace.
+        let p = crate::places::place_named("pine-compass").expect("place");
+        let never = AtomicBool::new(false);
+        let prof =
+            path_profile(&p.center(), p.span_scale() * 1e8, &p.center(), p.span_scale(), &never).expect("profile");
+        let flags: Vec<bool> = prof.iter().map(|x| x.2).collect();
+        let dull = flags.iter().filter(|&&d| d).count();
+        assert!(dull >= PATH_SAMPLES / 2, "{flags:?}");
+        assert_eq!(profile_pace(&flags, 0.99), DULL_PACE);
+        // A seahorse-valley dive changes its look: not one long dull stretch.
+        let c = Center::new(-0.745, 0.11);
+        let prof = path_profile(&c, Scale::from_f64(0.3), &c, Scale::from_f64(3e-5), &never).expect("profile");
+        let dull = prof.iter().filter(|x| x.2).count();
+        assert!(dull < PATH_SAMPLES / 2, "{dull}");
+        assert_eq!(profile_pace(&[], 0.5), 1.0);
+    }
+
+    #[test]
+    fn deep_minibrot_views_raise_the_probe_limit() {
+        // The period-8007 minibrot in seahorse valley at 3.2e-31 (benchmark sea-8007): at the
+        // CPU cap of 30 000 every texel stays unresolved (reads as interior); the escalated probe
+        // resolves the rings.
+        let c = Center::parse(
+            "-0.74364388703715870475219150611477977822",
+            "0.13182590420531197049313205638514067897",
+        )
+        .expect("centre");
+        let span = Scale::from_f64(3.2e-31);
+        assert!(ProbeStats::of(&probe(&c, span, 0)).interior > 0.9);
+        let (f, it) = probe_escalating(&c, span, 5.0);
+        assert!(it > PROBE_ITER_CAP, "{it}");
+        let st = ProbeStats::of(&f);
+        assert!(st.interior < 0.5 && st.detail > 10.0, "{st:?}");
     }
 
     #[test]

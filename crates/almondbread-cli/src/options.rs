@@ -192,6 +192,11 @@ impl Options {
             s.manual_iterations = n;
             s.max_iterations_cap = s.max_iterations_cap.max(n);
         }
+        // `--cap n`: the auto-iteration cap (the app's "Cap" setting; manual `--iterations`
+        // raise it to themselves).
+        if let Some(n) = self.usize("cap") {
+            s.max_iterations_cap = n.max(1);
+        }
         if let Some(v) = self.get("interior") {
             s.interior_detection = v != "0";
         }
@@ -227,6 +232,11 @@ impl Options {
         }
         if let Some(v) = self.get("filter") {
             s.palette_filter = v != "0";
+        }
+        // Dense-region calm colour (kb: techniques/coloring-methods "Dense regions"): `--calm 0`
+        // for references whose pixel scale differs (it depends on the colour bands per pixel).
+        if let Some(v) = self.get("calm") {
+            s.dense_calm = v != "0";
         }
         // Interior colouring (kb: techniques/coloring-methods): flat|bubbles|period|angle|distance.
         if let Some(v) = self.get("inside") {

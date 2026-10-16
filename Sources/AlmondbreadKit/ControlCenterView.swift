@@ -596,7 +596,8 @@ struct QualitySectionRows: View {
         let _ = UIPerf.body("section.quality")
         Toggle("Automatic iterations", isOn: $model.autoIterations)
         if !model.autoIterations {
-            Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000), in: 0...1) {
+            Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000,
+                                          snap: ControlRows.twoDigits), in: 0...1) {
                 Text("Maximum")
             }
             TextField("Maximum", value: $model.manualIterations, format: .number)
@@ -784,14 +785,23 @@ enum ControlRows {
         Binding { Double(b.wrappedValue) } set: { b.wrappedValue = Int($0.rounded()) }
     }
 
-    /// Maps 0...1 onto `range` logarithmically.
-    static func log(_ b: Binding<Double>, range: ClosedRange<Double>) -> Binding<Double> {
+    /// Maps 0...1 onto `range` logarithmically; `snap` rounds what the slider sets.
+    static func log(_ b: Binding<Double>, range: ClosedRange<Double>,
+                    snap: @escaping (Double) -> Double = { $0 }) -> Binding<Double> {
         let lo = Foundation.log(range.lowerBound), hi = Foundation.log(range.upperBound)
         return Binding {
             (Foundation.log(min(max(b.wrappedValue, range.lowerBound), range.upperBound)) - lo) / (hi - lo)
         } set: {
-            b.wrappedValue = exp(lo + $0 * (hi - lo))
+            b.wrappedValue = min(max(snap(exp(lo + $0 * (hi - lo))), range.lowerBound), range.upperBound)
         }
+    }
+
+    /// Rounds to two significant digits (1,000,000, 1,100,000, ..., 9,900,000; 100, 110, ...):
+    /// readable values from a log slider, 1-10 % apart.
+    static func twoDigits(_ v: Double) -> Double {
+        guard v.isFinite, v > 0 else { return v }
+        let step = pow(10, floor(log10(v)) - 1)
+        return (v / step).rounded() * step
     }
 }
 

@@ -51,6 +51,10 @@ impl CosmicOverlay {
         let width_pt = size.0 as f64 * ppp;
         let d = SET_WIDTH.log10() - view.scale.log10() - width_pt.max(1.0).log10();
         let offset = d - view.zoom_log10();
+        if !(d.is_finite() && offset.is_finite()) {
+            // Nothing sane to show (kb: techniques/hang-prevention); keep the last scale.
+            return;
+        }
         let key = (
             self.settings.anchor.clone(),
             self.settings.metres_per_point.to_bits(),
@@ -150,9 +154,14 @@ impl CosmicOverlay {
             );
         }
         // Decade ticks where they are at least 5 points apart (physical modes).
-        let (dlo, dhi) = (d - 40.0, d + 40.0);
-        let mut k = dlo.ceil();
-        while k <= dhi && !scale.relative {
+        // An integer count, not `k += 1.0` up to d + 40: past 2^53 (or at inf) that never
+        // ended (kb: techniques/hang-prevention).
+        let k0 = (d - 40.0).ceil();
+        for i in 0..=80 {
+            let k = k0 + f64::from(i);
+            if scale.relative || !k.is_finite() || k > d + 40.0 {
+                break;
+            }
             let x = to_x(k);
             let slope = (to_x(k + 1.0) - x) / px;
             if x > rx0 && x < rx1 && slope >= 5.0 {
@@ -165,7 +174,6 @@ impl CosmicOverlay {
                     rgba(1.0, 1.0, 1.0, al),
                 );
             }
-            k += 1.0;
         }
         // Inside each ladder (cosmos length) past the milestones: its rungs as faint ticks,
         // so the repeats read as ladders.

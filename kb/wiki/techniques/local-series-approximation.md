@@ -300,3 +300,51 @@ iterate (kSeeded): a fresh pixel of a seeded tile starts from its leaf, offset b
   when their job was superseded.
 - Bounded gesture seeds are useless where the chain is long; skip them rather than pay ~3 ms
   per frame for leaves no tile uses.
+
+### Real axis (2026-10-16)
+
+With a reference on the real axis (every needle view, `im = 0` exactly) the plain kernel keeps
+`Im dz = 0` for a pixel with `Im c = 0` exactly (`dc.y = 0`, real `Z`, real BLA/LA
+coefficients), so an on-axis pixel of the needle stays bounded like the oracle's. A seeded
+start breaks that: its leaf centre sits half a texel or more off the axis and the expansion's
+error (a start about `ε² |δ|` away, `δ` up to a root node's radius) is isotropic. Near the needle
+the escape depends on `Im c` alone (the orbit is real and repelling across the axis), so
+relative to `Im c` the error is `|δ| / |Im c|` times larger:
+
+- **on the axis** the pixel gets a small imaginary part and escapes (near n = 2 200 at
+  needle-1e305): `bench`'s 400 × 259 verify showed 0.093–0.124 % GPU-ext/CPU-int (one row,
+  about a third of it seeded) at the three needles, 0 % with `ALMONDBREAD_SA=0`; a shallow
+  needle (−1.985, 2e−8/px, `ALMONDBREAD_SA=1`) lost the whole row (0.386 %);
+- **next to it** escape counts scatter: at −1.7864 (1e−7/px, SA forced) the row one pixel off
+  the axis had median |Δμ| 7.6e−3 and p90 0.21 against the oracle, plain 5.6e−4 and 0.025
+  (14×), asymmetric between the rows above and below; 9 px away still 8×, 29 px 3×;
+- **flipping between frames**: whether a tile is seeded depends on the gate's statistics, so a
+  frame and a fresh render of the same view could differ on these rows.
+
+Fix: `IterateParams.realAxis` = the reference point's `Im` is exactly zero; then pixels with
+`|Im c| < 16` texels (`AXIS_BAND`, one admission tile) do not start from seeds. Inside the band
+the field equals the plain one bit for bit; class mismatch 0.000 % at all three needles and the
+shallow needle; rows ≥ 16 px away keep SA's usual error. The cost is one band of plain tiles
+in needle views: bench GPU ms unchanged within noise (needle-1e94/1e305/1e1004 at 1600 × 1000:
+11.4/15.5/15.1 → 11.8/15.8/15.3, home 4.5 → 4.4, Feigenbaum 2 345 → 2 354; measured 2026-10-16,
+M1 Pro, release, load 7–15). A projection of the seeded start onto the axis (`Im` of dz, d, w
+set to 0, exact by conjugate symmetry) fixed the on-axis row alone and is subsumed by the band.
+`--sa-eps 1e-3` also restored plain accuracy at −1.7864, but it disables the seeds' gain
+(children fail on their first step, see above).
+
+### Seed horizon (2026-10-17)
+
+A seeded level admits no pixel until every seed node is final, and a node runs until its
+expansion fails the validity test, escapes, or reaches the limit, about 256 steps per round.
+Where the expansion stays valid for very long, a few slow nodes stall the whole level. In the
+−3/4 neck gap at 6.7e8 with a manual limit of 10 M ([[synthesis/neck-escape-statistics]]) the
+striped regions keep one passage count across a node, so their expansions hold for 10^5–10^6
+iterations: after 20 s at 4000 × 2500, 210 000 of 830 000 nodes were still running and not one
+pixel chunk had run (all-black frame; the user saw the previous gesture frame instead). Seeds
+now stop at `SEED_HORIZON` = 2^16 iterations at the latest (the layout's `softIter`), and the
+pixels continue from there; a node that stops there is still a valid start. Same run: seeds done
+in 224 rounds (~3.5 s), then pixels iterate. `render --iterations 1e6` of the same region at
+800 × 500: seeds 4 237 → 197 ms GPU, whole render 41.8 → 34.1 s (tiles seeded 65 → 0 of 1 600;
+the gate rejects those seeds anyway, 0.1 % of the steps). Auto limits rarely pass 2^16; `make
+bench` is unchanged within noise (feigenbaum 200 000, home-100k, needle-1e1004 included;
+measured 2026-10-17, M1 Pro, release) and `make regress` passes.

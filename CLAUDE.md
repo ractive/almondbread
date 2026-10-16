@@ -69,6 +69,10 @@ and quit by themselves):
   draw CPU and per-frame FFI overhead of pans, zooms and keys in a background window
   (`ALMONDBREAD_SCENARIOS=` to pick some); fails if a shown frame differs from a fresh
   render.
+- `make hang-test` (`AlmondbreadMac --hang-test`): the main-thread hang watchdog blocks its main
+  thread for 3 s in a background window and prints the report (kb: techniques/hang-prevention;
+  real reports go to `~/Library/Logs/Almondbread/hang-*.txt`). `cargo test extreme_`: the
+  extreme-value tests (inf/NaN/1e-3010 inputs return quickly).
 - `almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--then f]`:
   a scripted session through the real per-refresh scheduler, headless, diffed against
   the CPU oracle and a fresh render; `make regress` runs the -3/4 neck regressions.
@@ -82,6 +86,14 @@ and quit by themselves):
   (`autopilot-metrics:` line). `ALMONDBREAD_LOCK_TRACE=1` prints each lock search;
   `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the app's target-lock setting (A/B).
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms) and seed round.
+- Hitches: `ALMONDBREAD_FRAME_LOG=1` makes the interaction test print each scenario's longest
+  presentation gaps and slowest draws with their times; `ALMONDBREAD_KERNEL_SALT=x` (new x)
+  measures with a cold Metal shader cache (as after an update), `ALMONDBREAD_WARM_PIPELINES=0`
+  turns the pipeline warm-up off (kb: platform/metal-compute); `fly --log x.csv` has per-refresh
+  zoom, frame CPU and late ms (`fly_to` and `jump` take `{"place": id}`).
+- Journeys: `almondbread journey --seed n --path 1|2` prints each leg's dull stretches and the
+  per-dive depths; `ALMONDBREAD_PROBE_ESCALATE=0` restores the fixed CPU probe limit (target
+  lock near deep high-period minibrots, kb: decisions/controls).
 - M5 switches for before/after checks (default auto/on): `ALMONDBREAD_SA=0|1|auto` (local SA,
   CLI `--sa`), `ALMONDBREAD_FILL=0|1|auto` (interior tile fill, `--fill`),
   `ALMONDBREAD_ITER_FLOOR=0` (auto-iteration floor from the reference).
@@ -89,6 +101,11 @@ and quit by themselves):
   deep nucleus references only), `ALMONDBREAD_AT=1` (its AT, `--at 1`; off by default).
   `cargo run --release -p almondbread-core --example la_check -- [name...]`: CPU model step counts
   of exact / BLA / LA / LA+AT per location (kb: techniques/linear-approximation-imagina).
+- Ground truth for slow-escape views: `cargo run --release -p almondbread-core --example neck_truth
+  -- --center re,im --scale s --size 160x100 --limit 1e7 [--dd k]` (direct f64, escape histogram,
+  interior proof; `--paint a.iter [--cycle p]` paints any `verify --dump`; kb:
+  synthesis/neck-escape-statistics). `verify --history ... --cap n --timeout s` with
+  `ALMONDBREAD_SNAPSHOT=x.png` saves the frame shown at the timeout (a render in progress).
 - Stills of features: `almondbread render out.png --inside flat|bubbles|period|angle|distance`
   (interior colourings; prints the period histogram), `--orbit x,y --map 1` (orbit overlay and
   mini-map), `scripts/render-interior-stills.sh`, `scripts/render-dense-looks.sh`.

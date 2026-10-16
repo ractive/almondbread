@@ -30,7 +30,7 @@
 //! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
 //! | `{"at": t, "lock": false}` | autopilot target lock on / off (on by default); `"lock_synchronous": true` searches on the calling thread (reproducible, slower frames) |
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per script unit) |
-//! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates); `{"location": "spiral-32412-1e19", "pixels": 1920}` takes a benchmark location framed as at that width (also for `fly_to`) |
+//! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates); `{"location": "spiral-32412-1e19", "pixels": 1920}` takes a benchmark location framed as at that width (also for `fly_to`); `{"place": "spiral-1e1000"}` a place from the catalogue framed as at `pixels` × `rows` (1920 × 1080) |
 //! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); keys `j` (resume / stop), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
 //! | `{"from": a, "to": b, "rotate": rate}` | trackpad rotation at `rate` radians/s (counter-clockwise image) about `point` |
 //!
@@ -420,6 +420,18 @@ impl FlightPlayer {
 
     fn view_text(&self, f: &Value) -> Option<Viewport> {
         let text = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("");
+        if let Some(id) = f.get("place").and_then(Value::as_str) {
+            // A place from the catalogue, framed as at `pixels` × `rows` (1920 × 1080).
+            let w = f.get("pixels").and_then(Value::as_u64).unwrap_or(1920) as usize;
+            let h = f.get("rows").and_then(Value::as_u64).unwrap_or(1080) as usize;
+            let mut v = crate::places::place_named(id)?.viewport(w, h);
+            v.ensure_precision();
+            if self.unit != 1.0 {
+                v.scale = v.scale / self.unit;
+                v.ensure_precision();
+            }
+            return Some(v);
+        }
         let mut v = match f.get("location").and_then(Value::as_str) {
             // A benchmark location (`almondbread bench`), framed as at `pixels` (1920) wide.
             Some(name) => {

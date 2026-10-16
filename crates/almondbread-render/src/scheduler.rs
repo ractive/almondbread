@@ -108,6 +108,9 @@ pub struct SchedulerConfig {
     pub max_frames_in_flight: usize,
     /// Upper bound on queued chunk command buffers of the current job.
     pub max_chunks_in_flight: usize,
+    /// Compile the iterate and seed variants on a thread ahead of need
+    /// (`ALMONDBREAD_WARM_PIPELINES=0` turns it off, for before/after checks).
+    pub warm_pipelines: bool,
     /// Print every harvested chunk (`ALMONDBREAD_TRACE=1`).
     pub trace: bool,
     /// Size the gesture frame budget from the measured display refresh (about 70 % of a
@@ -268,6 +271,7 @@ impl Default for SchedulerConfig {
             extension_budget: 2.0,
             max_frames_in_flight: 2,
             max_chunks_in_flight: 3,
+            warm_pipelines: std::env::var("ALMONDBREAD_WARM_PIPELINES").map_or(true, |v| v != "0"),
             trace: std::env::var("ALMONDBREAD_TRACE").is_ok_and(|v| v == "1"),
             adaptive_budget: true,
             fade_tau: 0.03,
@@ -454,6 +458,15 @@ const FILL_MIN_ITERATIONS: f64 = 300.0;
 /// Seed nodes the GPU runs at once (about; M1 Pro: 16 cores x 1024 threads).
 const SEED_WAVE: f64 = 16384.0;
 
+/// Seeds stop at this iteration at the latest (their expansion branches there; the pixels
+/// continue from it). A level admits no pixel until every seed is final, and seed rounds give
+/// each node about 256 steps, so seeds that stay valid for very long stall the whole level:
+/// near the -3/4 neck with a manual limit of 10 M (2026-10-17) the striped regions' nodes stay
+/// valid for 10^5..10^6 iterations, and after 20 s at 4000 x 2500, 210 000 of 830 000 nodes
+/// were still running and not one pixel had started. Auto limits rarely reach this, so it
+/// changes nothing there (kb: techniques/local-series-approximation "Seed horizon").
+const SEED_HORIZON: u32 = 1 << 16;
+
 /// The adaptive AA list of a refined view: the GPU pass that builds it and its length.
 struct AaList<B: GpuBackend> {
     count_buffer: B::Buffer,
@@ -483,6 +496,9 @@ pub fn tiles(w: usize, h: usize) -> (usize, usize) {
 
 /// Halton low-discrepancy sequence, base `b`, index `i` >= 1, in (0, 1).
 pub fn halton(mut i: u32, b: u32) -> f32 {
+    if b < 2 {
+        return 0.5; // base 1 never ends (i /= 1), base 0 divides by zero
+    }
     let (mut f, mut r) = (1.0f32, 0.0f32);
     while i > 0 {
         f /= b as f32;
@@ -958,6 +974,12 @@ pub struct Renderer<B: GpuBackend> {
     /// (grown to the largest level, then kept) with their capacities; the round status; the
     /// seeding epoch (node stamps); the round on the GPU; the last seeding's layout and stats.
     seed_pipelines: [Option<B::Pipeline>; 16],
+    /// Pipeline warm-up (kb: platform/metal-compute "Pipeline warm-up"): the iterate and seed
+    /// variants a view may need next compile on a thread (cold, a variant costs 60-250 ms of
+    /// CPU, which the frame that first needed it used to spend: fly-to and π hunt hitches).
+    /// The keys of the requests in flight with their receiver, and whether the warm-up started.
+    warm: Option<Warming<B>>,
+    warmed: bool,
     seed_begin_pipeline: B::Pipeline,
     seed_gate_pipeline: B::Pipeline,
     seed_nodes: Option<(B::Buffer, usize)>,
@@ -1034,6 +1056,14 @@ pub struct Renderer<B: GpuBackend> {
     rate: f64,
     /// GPU seconds per texel of the last completed level.
     cost_per_texel: f64,
+    /// `cost_per_texel` was measured at this view (or a continuous move from it): false at
+    /// start and after a jump, when the last view's cost says nothing about this one. A gesture
+    /// frame then starts at 1/8 resolution (its measured cost sizes the next): a cheap view's
+    /// cost (or none) sized the first gesture frames at the period-32412 spiral at 1/2 to 3/4
+    /// resolution, each one chunk at K = the whole limit, 2.6 s of GPU in one command buffer;
+    /// the queue filled, the frame thread blocked in `commandBuffer` for seconds and the
+    /// "spiral zoom" interaction test presented nothing.
+    cost_known: bool,
     has_presented: bool,
     /// The current view waits for its (deep) reference: no job.
     waiting_reference: bool,
@@ -1054,6 +1084,44 @@ pub struct Renderer<B: GpuBackend> {
     /// (cleared when a job starts).
     retry_pending: bool,
     epoch: Instant,
+}
+
+/// Pipelines compiling on the warm-up threads: their keys and where they arrive.
+type Warming<B> = (
+    Vec<WarmKey>,
+    std::sync::mpsc::Receiver<(usize, <B as GpuBackend>::Pipeline)>,
+);
+
+/// A tier of the warm-up: deep kernel or not, the (BLA, LA) modes, the (DE, interior colouring)
+/// settings.
+type WarmTier<'a> = (bool, &'a [(bool, bool)], &'a [(bool, bool)]);
+
+/// The pipeline warm-up ran in this process (see `Renderer::warm_pipelines`).
+static WARM_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A pipeline the warm-up compiles: an iterate or seed variant (by key) or the overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WarmKey {
+    Iterate(usize),
+    Seed(usize),
+    Overlay,
+}
+
+/// Index of an iterate variant in `iterate_pipelines`.
+fn iterate_key(de: bool, interior: bool, bla: bool, deep: bool, ic: bool, seeded: bool, la: (bool, bool)) -> usize {
+    usize::from(de)
+        | (usize::from(interior) << 1)
+        | (usize::from(bla) << 2)
+        | (usize::from(deep) << 3)
+        | (usize::from(ic) << 4)
+        | (usize::from(seeded) << 5)
+        | (usize::from(la.0) << 6)
+        | (usize::from(la.1) << 7)
+}
+
+/// Index of a seed variant in `seed_pipelines`.
+fn seed_key(interior: bool, deep: bool, bla: bool, ic: bool) -> usize {
+    usize::from(interior) | (usize::from(deep) << 1) | (usize::from(bla) << 2) | (usize::from(ic) << 3)
 }
 
 impl<B: GpuBackend> Renderer<B> {
@@ -1128,6 +1196,8 @@ impl<B: GpuBackend> Renderer<B> {
             ic_buffers: None,
             want_aux: false,
             seed_pipelines: Default::default(),
+            warm: None,
+            warmed: false,
             seed_begin_pipeline,
             seed_gate_pipeline,
             seed_nodes: None,
@@ -1177,6 +1247,7 @@ impl<B: GpuBackend> Renderer<B> {
             in_flight: VecDeque::new(),
             rate: 3e10,
             cost_per_texel: 0.0,
+            cost_known: false,
             has_presented: false,
             waiting_reference: false,
             frames_in_flight: Vec::new(),
@@ -1265,14 +1336,7 @@ impl<B: GpuBackend> Renderer<B> {
         seeded: bool,
         la: (bool, bool),
     ) -> Result<B::Pipeline, GpuError> {
-        let k = usize::from(de)
-            | (usize::from(interior) << 1)
-            | (usize::from(bla) << 2)
-            | (usize::from(deep) << 3)
-            | (usize::from(interior_color) << 4)
-            | (usize::from(seeded) << 5)
-            | (usize::from(la.0) << 6)
-            | (usize::from(la.1) << 7);
+        let k = iterate_key(de, interior, bla, deep, interior_color, seeded, la);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
@@ -1370,6 +1434,111 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
+    // MARK: Pipeline warm-up (kb: platform/metal-compute "Pipeline warm-up")
+
+    /// Takes the warmed pipelines that are ready; on the first frame, starts warming the variants
+    /// not compiled yet. Once per frame; costs a channel poll.
+    fn warm_pipelines(&mut self) {
+        if let Some((keys, rx)) = &self.warm {
+            let mut done = false;
+            loop {
+                match rx.try_recv() {
+                    Ok((i, p)) => match keys[i] {
+                        WarmKey::Iterate(k) => {
+                            self.iterate_pipelines[k].get_or_insert(p);
+                        }
+                        WarmKey::Seed(k) => {
+                            self.seed_pipelines[k].get_or_insert(p);
+                        }
+                        WarmKey::Overlay => {
+                            self.overlay_pipeline.get_or_insert(p);
+                        }
+                    },
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        done = true;
+                        break;
+                    }
+                }
+            }
+            if !done {
+                return;
+            }
+            self.warm = None;
+        }
+        if !self.config.warm_pipelines {
+            return;
+        }
+        if self.warmed {
+            return;
+        }
+        self.warmed = true;
+        // Once per process: the mini-map's and the checks' renderers then find the variants in
+        // Metal's cache (0.1-1 ms each) instead of compiling them all again on more threads.
+        if WARM_STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let de = self.settings.de_needed();
+        let ic = self.settings.interior_mode.needs_analysis();
+        // Every DE and interior-colouring setting (looks with shading or outlines switch DE; the
+        // π hunt's place look switches both, and its first frame compiled the variant with
+        // interior colouring: 130-146 ms at its start with a cold shader cache), in tiers:
+        // shallow views for all four settings, deep ones (fly-to and journeys pass 1e-12 within
+        // seconds) for the current interior colouring, LA (deep nucleus references), the rest.
+        let all = [(de, ic), (!de, ic), (de, !ic), (!de, !ic)];
+        let plain: &[(bool, bool)] = &[(false, false), (true, false)];
+        let la: &[(bool, bool)] = &[(false, true)];
+        let tiers: [WarmTier; 6] = [
+            (false, plain, &all),
+            (true, plain, &all[..2]),
+            (false, la, &all[..2]),
+            (true, la, &all[..2]),
+            (true, plain, &all[2..]),
+            (false, la, &all[2..]),
+        ];
+        let mut keys = Vec::new();
+        let mut requests = Vec::new();
+        for (deep, modes, settings) in tiers {
+            for &(d, c) in settings {
+                for &(bla, la) in modes {
+                    for seeded in [true, false] {
+                        for interior in [true, false] {
+                            let k = iterate_key(d, interior, bla, deep, c, seeded, (la, false));
+                            if self.iterate_pipelines[k].is_none() && !keys.contains(&WarmKey::Iterate(k)) {
+                                keys.push(WarmKey::Iterate(k));
+                                requests.push((
+                                    "iterate",
+                                    vec![d, interior, bla, deep, c, seeded, false, false, la, false],
+                                ));
+                            }
+                        }
+                    }
+                    for interior in [true, false] {
+                        let k = seed_key(interior, deep, bla, c);
+                        if !la && self.seed_pipelines[k].is_none() && !keys.contains(&WarmKey::Seed(k)) {
+                            keys.push(WarmKey::Seed(k));
+                            requests.push(("seedLevel", vec![false, interior, bla, deep, c, false]));
+                        }
+                    }
+                }
+            }
+        }
+        if self.overlay_pipeline.is_none() {
+            // (First: the π meter, maps, compass and orbit overlay need it on their first frame.)
+            keys.insert(0, WarmKey::Overlay);
+            requests.insert(0, ("overlay", Vec::new()));
+        }
+        if requests.is_empty() {
+            return;
+        }
+        if self.config.trace {
+            println!("pipeline warm-up: {} variants", requests.len());
+        }
+        if let Some(rx) = self.backend.pipelines_in_background(requests) {
+            self.warm = Some((keys, rx));
+        }
+    }
+
     // MARK: Local series approximation (M5, kb: techniques/local-series-approximation)
 
     fn seed_pipeline(
@@ -1379,10 +1548,7 @@ impl<B: GpuBackend> Renderer<B> {
         bla: bool,
         interior_color: bool,
     ) -> Result<B::Pipeline, GpuError> {
-        let k = usize::from(interior)
-            | (usize::from(deep) << 1)
-            | (usize::from(bla) << 2)
-            | (usize::from(interior_color) << 3);
+        let k = seed_key(interior, deep, bla, interior_color);
         if let Some(p) = &self.seed_pipelines[k] {
             return Ok(p.clone());
         }
@@ -1452,7 +1618,7 @@ impl<B: GpuBackend> Renderer<B> {
         let w = params.width as usize;
         let h = (params.height as usize).max(1);
         self.seed_epoch = self.seed_epoch.wrapping_add(1) & 0x3fff_ffff;
-        let mut layout = Self::seed_layout(sa, w, h, params.soft_iter, params.jitter);
+        let mut layout = Self::seed_layout(sa, w, h, params.soft_iter.min(SEED_HORIZON), params.jitter);
         // The gate's bar in seed steps, from the last level's cost per texel (see seedGate).
         let bar = self.steps_per_texel.map_or(0.0, |s| (sa.gate_rel * s).max(sa.gate_abs)) as f32;
         for l in &mut layout {
@@ -1807,6 +1973,7 @@ impl<B: GpuBackend> Renderer<B> {
         target_ready: bool,
         acquire: &mut dyn FnMut(bool) -> Option<FrameTarget<B>>,
     ) -> FrameOutcome {
+        self.warm_pipelines();
         self.navigator.set_cinematic(self.settings.cinematic);
         if self.navigator.wants_feedback() {
             // How the renderer keeps up, for the autopilot's and fly-to's speed (kb: decisions/controls,
@@ -2177,6 +2344,7 @@ impl<B: GpuBackend> Renderer<B> {
                 if self.config.trace {
                     println!("jump: learned iteration state reset");
                 }
+                self.cost_known = false;
                 self.settings.learned_iterations = 0;
                 self.pinned_iterations = None;
                 self.interior_stats = None;
@@ -2272,7 +2440,12 @@ impl<B: GpuBackend> Renderer<B> {
             && l.cache.is_none()
         {
             let lower = l.gpu_time / (l.set.width * l.set.height).max(1) as f64;
-            self.cost_per_texel = self.cost_per_texel.max(lower);
+            self.cost_per_texel = if self.cost_known {
+                self.cost_per_texel.max(lower)
+            } else {
+                lower
+            };
+            self.cost_known = true;
         }
         self.waiting_reference = false;
         self.retry_pending = false;
@@ -2330,11 +2503,11 @@ impl<B: GpuBackend> Renderer<B> {
         // The extension iterates unresolved pixels past the limit: never past the end of a
         // truncated orbit (they would rebase there with a rounding loss and all continue as
         // one orbit, kb: techniques/rebasing "Truncated references").
-        let extension_cap = if reference.truncated_before(usize::MAX) {
-            reference.points.len() - 1
-        } else {
-            usize::MAX
-        };
+        // The same holds for an f64 orbit cut at the limit it was made for: near the -3/4 neck
+        // (centre escaping at 17 019, limit 4 533) passes to 18 132 against the 4 534-point cut
+        // drew blocky noise and black wedges (2026-10-16). `prepare_reference` makes f64 orbits
+        // long enough for the passes; this keeps any other reference honest.
+        let extension_cap = reference.exact_reach();
         let deep = reference.deep_kernel;
         let refx_buffer = if deep { self.refx_buffer.clone() } else { None };
         let big = reference.big;
@@ -2360,6 +2533,7 @@ impl<B: GpuBackend> Renderer<B> {
             (dre.hypot(dim) + viewport.scale.to_f64() * key.points_per_pixel * half_diag).log2()
         };
         let ref_point = reference.point.clone();
+        let ref_on_axis = reference.point.big().im.is_zero();
         let live_capacity = self.config.live_capacity as u32;
         let (rc, rs) = viewport.rotation();
         let rot = [rc as f32, rs as f32];
@@ -2388,6 +2562,7 @@ impl<B: GpuBackend> Renderer<B> {
                 soft_iter: key.max_iter as u32,
                 scale_exp,
                 rot,
+                real_axis: u32::from(ref_on_axis),
                 ..IterateParams::default()
             }
         };
@@ -2406,8 +2581,8 @@ impl<B: GpuBackend> Renderer<B> {
                 // cost fits the gesture frame budget. Always a preview level (also at scale 1):
                 // it is jittered for the temporal upsampling, and the refined frame is computed
                 // at the pixel centres afterwards.
-                let mut ratio = 0.5;
-                if self.cost_per_texel > 0.0 {
+                let mut ratio = 0.125;
+                if self.cost_known && self.cost_per_texel > 0.0 {
                     let fit = (self.gesture_budget() / (self.cost_per_texel * (key.width * key.height) as f64)).sqrt();
                     ratio = ((fit * 8.0).floor() / 8.0).clamp(0.125, 1.0);
                 }
@@ -3664,6 +3839,7 @@ impl<B: GpuBackend> Renderer<B> {
                 // dynamic resolution too fine for plain previews: 166 ms gesture frames at the
                 // spiral (M5).
                 self.cost_per_texel = gpu / pixels;
+                self.cost_known = true;
             }
             if self.config.trace {
                 let use_interior = self
@@ -3760,6 +3936,7 @@ impl<B: GpuBackend> Renderer<B> {
         let texels = level.set.width * level.set.height;
         if level.gpu_time > 0.0 && !level.is_extension() && texels > 0 && level.cache.is_none() {
             self.cost_per_texel = level.gpu_time / texels as f64;
+            self.cost_known = true;
         }
         // (A filled level skipped its insides: keep the last unfilled estimate, or the SA gate
         // would seed the next level, which then may not fill: elephant alternated 23 / 33 ms.)
@@ -4276,6 +4453,8 @@ impl<B: GpuBackend> Renderer<B> {
             COMPOSE_AA => 1.0 / (job.aa_composed as f32 + 2.0),
             _ => 1.0,
         };
+        // An AA sample stands for 1/samples of the pixel: its palette filter is that wide.
+        q.sample_width = (1.0 / f64::from(self.aa_target().max(1)).sqrt()) as f32;
         let (hist_in, hist_out) = (&history[self.history_ping], &history[1 - self.history_ping]);
         enc.set_pipeline(&self.compose_pipeline);
         enc.set_texture(0, &iter_tex);
@@ -4918,8 +5097,18 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         if viewport.scale.to_f64() >= DEEP_SCALE {
-            if fit != Fit::Good {
-                let r = Reference::compute_f64(viewport, max_iter, BAILOUT);
+            // The f64 orbit is cheap (no precision to pick, 1e5 steps in well under a ms; its
+            // BLA/LA tables build off the main thread): make it as long as the extension passes
+            // may iterate, so a centre that has not escaped at the limit does not stop them at
+            // its cut (`exact_reach`). Near the -3/4 neck the centre escapes long after the
+            // limit, and the passes are what resolve the view.
+            let factor = self.config.extension_factor.max(self.config.offscreen_extension).max(1);
+            let reach = max_iter
+                .saturating_mul(factor)
+                .min(max_iter.max(self.settings.max_iterations_cap));
+            let short = self.reference.as_ref().is_some_and(|r| r.exact_reach() < reach);
+            if fit != Fit::Good || short {
+                let r = Reference::compute_f64(viewport, reach, BAILOUT);
                 self.set_reference(r);
             }
             return self.reference_buffer.is_some();
@@ -5314,6 +5503,16 @@ impl<B: GpuBackend> Renderer<B> {
                 break;
             }
             if self.clock() >= deadline {
+                // `ALMONDBREAD_SNAPSHOT=path.png`: what the view shows at the deadline (a
+                // frame still in progress, e.g. a 10M limit near the neck).
+                if let Ok(path) = std::env::var("ALMONDBREAD_SNAPSHOT") {
+                    self.wait_frames();
+                    self.drain_in_flight();
+                    let mut pixels = vec![0u8; width * height * 4];
+                    self.backend
+                        .read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut pixels)?;
+                    let _ = almondbread_core::image::write_png_bgra(&path, &pixels, width, height);
+                }
                 return Err(GpuError("simulated session did not finish".into()));
             }
             refresh(self, &mut tick, &mut frames);

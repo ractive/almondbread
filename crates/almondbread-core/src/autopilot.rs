@@ -772,7 +772,13 @@ impl Autopilot {
         } else {
             0.0
         };
-        let n = (dt / 0.002).ceil().max(1.0);
+        // At most 1000 substeps (2 s): an infinite dt was usize::MAX of them
+        // (kb: techniques/hang-prevention).
+        let n = if dt.is_nan() {
+            1.0
+        } else {
+            (dt / 0.002).ceil().clamp(1.0, 1000.0)
+        };
         let h = dt / n;
         let (mut ln_zoom, mut pan, mut at) = (0.0, (0.0, 0.0), (0.0, 0.0));
         for _ in 0..n as usize {

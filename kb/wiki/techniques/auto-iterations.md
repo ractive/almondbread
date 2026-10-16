@@ -98,7 +98,10 @@ From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers
   inside it left a straight horizontal edge. An extension is all-or-nothing for
   the same reason (a view with more unresolved pixels than the list holds gets
   none). See [[platform/gpu-watchdog-and-chunking]] for why the passes restart
-  instead of keeping state.
+  instead of keeping state. The passes need a reference orbit that reaches as far
+  as they go, or one that escaped: an orbit cut at the nominal limit made them
+  draw noise near the −3/4 neck (fixed 2026-10-16; [[techniques/rebasing]]
+  "Truncated references").
 - **Learned limit.** When the passes found escapes past the nominal limit in at
   least 1 % of the pixels, later views start from the smallest of 2× or 4× the
   limit that leaves fewer than 1 % escaping beyond it. The learned limit is capped
@@ -185,6 +188,30 @@ a quarter reached the limit without the test renders again with it (a retry epoc
 key, also when the limit cannot grow). `verify --history` checks the settled frame against a
 from-scratch render (own auto iterations, no learned state), and `make regress` runs the
 dive-then-jump path (`--prior 0,1,1e-280 --prior-speed 40 --prior-seconds 0.8`).
+
+**The learned limit survives anti-aliasing** (checked 2026-10-16). A report said the learned
+limit reset after the AA pass. Not reproduced: AA sample levels are complete when created and
+`finish_level` returns before the learner for them, so they never change the learned state;
+neither does anything after the view settles. Checked headless with the app's defaults (9-sample
+AA): the neck regression session with `--ss 3` (learned 8 216 → 8 472 across the AA and the
+`--then` step), the dive-then-jump to the spiral, and Metal test `learned_limit_survives_aa`
+(Host at the neck: limit learned above the depth limit, unchanged by AA, 100 idle refreshes and
+a from-scratch renderer at the view; the next view after a pan renders at it). The trace line
+behind the report (flight benchmark, below) is the *jump check's* fresh renderer, which has
+its own learner and starts at 0, printing `learn: soft 41536 ... -> 0` right after the live
+renderer's AA; the live renderer's limit was unchanged.
+
+## Where the learner stops: the neck gap at 1e8–1e9 (2026-10-17)
+
+The learned limit is capped at 4× the depth heuristic whatever the user's cap: with a cap of
+10 M the −3/4 neck gap at 1.9e8–1.3e9 settles at 15 000–18 000, while its escape counts have
+a minimum of ~8 500 and medians of 42 000–434 000 ([[synthesis/neck-escape-statistics]]).
+At Retina window sizes (4000 × 2500) the ~9.7 M unresolved pixels overflow the 4 M-entry list,
+so no extension pass runs and `escapedPast` stays zero; at 1600 × 1000 the passes reach 57 008
+in the 2 s budget and the learner still stops at 4× depth. Lifting the cap would not be cheap:
+a resolved frame there needs 10^12–10^13 iterations (minutes of GPU). Escalation towards the
+user's cap belongs in an explicit or idle background refinement with progress, and the
+unresolved colour should differ from interior (open; proposal in the log, 2026-10-17).
 
 ## For almondbread
 

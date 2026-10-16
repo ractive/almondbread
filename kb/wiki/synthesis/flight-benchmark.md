@@ -235,7 +235,9 @@ the nominal limit, not the hard limit the shown level reached. A from-scratch of
 extension (`offscreen_extension` 1), so it raises the nominal limit instead. Left as is (the
 stat is the scheduler's); the HUD would need a "hard limit" field to show it. Side note
 from the same trace: after the AA level the learner returns 41536 → 0 (`escapedPast
-[64, 0, 0, 0]`), so a re-render of the same view would start at 10384 again.
+[64, 0, 0, 0]`). Correction (2026-10-16): that line is the segment-end jump check's fresh
+renderer (auto iterations, learned state 0), not the live renderer, whose limit survives AA
+([[techniques/auto-iterations]], test `learned_limit_survives_aa`).
 
 | | median of 3 | spread |
 |---|---|---|

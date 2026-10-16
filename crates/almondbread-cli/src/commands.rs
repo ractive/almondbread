@@ -234,6 +234,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         ov.pi.wait(&r.viewport);
     }
     let deadline = r.clock() + 30.0;
+    #[expect(clippy::while_float, reason = "a wall-clock deadline: the clock advances")]
     while r.clock() < deadline {
         ov.step_probe(0.05);
         ov.step_maps(&r.settings, r.clock());
@@ -291,7 +292,8 @@ fn pi_history_for_still(
     };
     // Shallow to deep, as a zoom would make them (the deepest counted is the one shown), and
     // only where the meter counts.
-    let mut list: Vec<f64> = (1..)
+    // At most 64 half-decades: with eps = 0 the sequence never passes 0.1 (unbounded before).
+    let mut list: Vec<f64> = (1..=64)
         .map(|k| t.eps * 10f64.powf(0.5 * f64::from(k)))
         .take_while(|&e| e <= 0.1 + 1e-12)
         .filter(|&e| e >= t.point.min_eps())
@@ -384,6 +386,8 @@ pub struct VerifyResult {
     pub heatmap: Vec<u8>,
     pub image: Vec<u8>,
     pub gpu: IterationField,
+    /// The oracle's field (`--dump-cpu`).
+    pub cpu: IterationField,
     pub gpu_time: f64,
     pub cpu_time: f64,
     pub chunks: usize,
@@ -409,6 +413,7 @@ pub fn verify<B: GpuBackend>(
         heatmap,
         image: res.pixels,
         gpu,
+        cpu,
         gpu_time: res.iterate_gpu_time,
         cpu_time,
         chunks: res.chunks,
@@ -479,6 +484,9 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     if let Some(path) = o.get("dump") {
         v.gpu.write(path)?;
     }
+    if let Some(path) = o.get("dump-cpu") {
+        v.cpu.write(path)?;
+    }
     Ok(0)
 }
 
@@ -489,8 +497,9 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
 /// the refined final frame, diffs it against the CPU oracle at the hard limit and a fresh
 /// headless render. Fails on a preview final frame, more than `--max-false-interior` %
 /// (0.05) exterior painted interior, or more than `--max-mismatch` % (0.05) differing from
-/// the fresh render, or more than `--max-unresolved` % unresolved (off by default). `--then f`
-/// adds a one-step zoom of factor f. `jump` starts at the view itself with no history and
+/// the fresh render, or more than `--max-unresolved` % unresolved (off by default), or a
+/// median |Δmu| against the oracle above `--max-cpu-median` (off by default). `--then
+/// f[,f2,...]` adds one-step zooms by each factor in turn, each checked. `jump` starts at the view itself with no history and
 /// no learned limit ("Go to coordinates").
 pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let (width, height) = o.size("size", (1280, 820))?;
@@ -653,7 +662,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             ppp,
             120.0,
             frames,
-            30.0,
+            o.f64("timeout").unwrap_or(30.0),
             &mut |_, dt, v: &mut Viewport| match m.as_str() {
                 "zoom" => v.zoom_by((speed * dt).exp(), pointer.0, pointer.1),
                 "out" => v.zoom_by((-speed * dt).exp(), pointer.0, pointer.1),
@@ -680,13 +689,21 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         );
     }
     sessions.push(first);
-    if let Some(f) = o.f64("then") {
-        let second = r
-            .simulate(width, height, ppp, 120.0, 1, 30.0, &mut |_, _, v: &mut Viewport| {
-                v.zoom_by(f, pointer.0, pointer.1)
-            })
-            .map_err(|_| crate::options::CommandError("second session did not finish".into()))?;
-        sessions.push(second);
+    // `--then f[,f2,...]`: one-step zooms by each factor in turn (> 1 in), each settled and
+    // checked like the gesture's final frame.
+    if let Some(list) = o.get("then") {
+        for f in list.split(',') {
+            let f: f64 = f
+                .trim()
+                .parse()
+                .map_err(|_| crate::options::CommandError(format!("bad --then {list}")))?;
+            let step = r
+                .simulate(width, height, ppp, 120.0, 1, 30.0, &mut |_, _, v: &mut Viewport| {
+                    v.zoom_by(f, pointer.0, pointer.1)
+                })
+                .map_err(|_| crate::options::CommandError("second session did not finish".into()))?;
+            sessions.push(step);
+        }
     }
     // The cache once more, seeded from the refined frame.
     let settled = r.sample_cache_check();
@@ -932,6 +949,18 @@ fn verify_session<B: GpuBackend + Clone>(
         // counts off by thousands almost everywhere (median 1.1e4 at spiral-1e1000 1e-302),
         // while a jump or a flight ends on the fresh render's reference (median <= 1e-4).
         // (Not after a zoom or pan: another reference, chaotic views reach a median ~0.9.)
+        // `--max-cpu-median m`: the median |Δmu| against the CPU oracle (off by default; chaotic
+        // views differ by up to ~1 with any reference). Near the -3/4 neck, extension passes
+        // past the end of an f64 orbit cut at the limit drew noise and black wedges (median 2.2
+        // to 6.5; with the whole orbit <= 3e-4, kb: techniques/rebasing "Truncated references").
+        if let Some(m) = o.f64("max-cpu-median")
+            && vs_cpu.median_error > m
+        {
+            failed.push(format!(
+                "{tag}smooth counts differ from the CPU oracle by {} in the median (> {m})",
+                g(vs_cpu.median_error, 3)
+            ));
+        }
         let max_median = o.f64("max-median-diff").unwrap_or(10.0);
         if (mode == "jump" || mode == "flyto") && vs_fresh.median_error > max_median {
             failed.push(format!(
@@ -1409,6 +1438,29 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "--size",
         "640x400",
     ],
+    // Zoom in at the -3/4 neck (im 3.7e-4: the centre escapes at 17 019, the depth limit is
+    // ~4 500) to 1.6e-13 per point, then wheel out to 2e-12, 4e-12 and 1.6e-11 per point. The
+    // f64 orbit was cut at the limit it was made for and the extension passes iterated past
+    // the cut: blocky noise with black wedges after zooming out (median |Δmu| vs the oracle
+    // 2.2-6.5), grain at the user's view (kb: techniques/rebasing "Truncated references").
+    &[
+        "--history",
+        "zoom",
+        "--center",
+        "-0.74999994719705121,0.00036918485351065104",
+        "--scale",
+        "8e-14",
+        "--angle",
+        "-185.69",
+        "--size",
+        "960x600",
+        "--seconds",
+        "5.75",
+        "--then",
+        "0.05,0.5,0.25",
+        "--max-cpu-median",
+        "0.05",
+    ],
 ];
 
 pub fn regress_command<B: GpuBackend + Clone>(backend: &B, extra: &Options) -> Result<i32> {
@@ -1469,6 +1521,11 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
     let never = std::sync::atomic::AtomicBool::new(false);
     let thumbs = o.get("thumbs");
     let show_look = o.get("describe").is_some();
+    // `--path 1`: probe each leg's flight path for dull stretches; per-dive depths at the end.
+    let path_stats = matches!(o.get("path"), Some("1" | "2"));
+    let path_detail = o.get("path") == Some("2");
+    let mut leg_seconds: Vec<(f64, f64, f64, f64)> = Vec::new();
+    let mut dives: Vec<f64> = Vec::new();
     let mut looks: Vec<almondbread_core::journey::Look> = Vec::new();
     if let Some(d) = thumbs {
         fs::create_dir_all(d)?;
@@ -1516,6 +1573,7 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
                         palette_phase: 0.0,
                     },
                     chain: chain.clone(),
+                    pace: Vec::new(),
                     candidates: 0,
                     probed: 0,
                     seconds: 0.0,
@@ -1576,6 +1634,63 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
             );
         }
         looks.push(t.look);
+        if path_stats {
+            // The leg's flight path probed at equal steps of the path parameter: dull stretches
+            // (needle, smooth exterior, interior) in seconds at the default journey speed, as
+            // flown before (uniform pace) and with the dull pace (kb: decisions/controls "Journey").
+            use almondbread_core::journey::{DULL_PACE, SPEED_DEFAULT, leg_pace, path_profile};
+            let never = std::sync::atomic::AtomicBool::new(false);
+            let a = Viewport::with_center(center.clone(), span / 1000.0);
+            let b = Viewport::with_center(t.center.clone(), t.span / 1000.0);
+            let fp = almondbread_core::flyto::FlyPath::new(&a, &b, 1600.0);
+            let efolds = fp.length() * almondbread_core::flyto::RHO;
+            let prof = path_profile(&center, span, &t.center, t.span, &never).unwrap_or_default();
+            let n = prof.len().max(1) as f64;
+            let per = efolds / n / (SPEED_DEFAULT * leg_pace(efolds));
+            let (mut longest, mut run, mut dull_s) = (0.0f64, 0.0f64, 0.0f64);
+            for (_, _, d) in &prof {
+                if *d {
+                    run += per;
+                    dull_s += per;
+                    longest = longest.max(run);
+                } else {
+                    run = 0.0;
+                }
+            }
+            let total = per * n;
+            let after = total - dull_s + dull_s / DULL_PACE;
+            let marks: String = prof.iter().map(|(_, _, d)| if *d { '#' } else { '.' }).collect();
+            println!(
+                "     path {efolds:.1} e-folds, {total:.1} s at the default speed: dull {dull_s:.1} s (longest {longest:.1} s) -> {after:.1} s with the dull pace  [{marks}]"
+            );
+            leg_seconds.push((total, after, longest, longest / DULL_PACE));
+            if path_detail {
+                let mut prev_z = f64::NAN;
+                for (i, (st, lk, d)) in prof.iter().enumerate() {
+                    let v = fp.viewport_at(fp.length() * (i as f64 + 0.5) / n);
+                    let dl = if i > 0 { lk.distance(&prof[i - 1].1) } else { f64::NAN };
+                    let de = (v.zoom_log10() - prev_z).abs() * std::f64::consts::LN_10;
+                    prev_z = v.zoom_log10();
+                    println!(
+                        "       {i:>2} zoom 10^{:<6.2} look step {dl:.2} ({:.2}/e-fold) re {:<10.6} detail {:>5.1} centre {:>5.1} interior {:.2} calm {:.2} filament {:.2}{}",
+                        v.zoom_log10(),
+                        dl / de,
+                        v.center.re(),
+                        st.detail,
+                        st.centre_detail,
+                        st.interior,
+                        st.calm,
+                        st.filament,
+                        if *d { "  dull" } else { "" }
+                    );
+                }
+            }
+            if t.kind == almondbread_core::journey::TargetKind::Crossing || leg == 1 {
+                dives.push(t.zoom_log10());
+            } else if let Some(d) = dives.last_mut() {
+                *d = d.max(t.zoom_log10());
+            }
+        }
         if let Some(d) = thumbs {
             let mut r = new_renderer(backend, o)?;
             r.settings = almondbread_core::RenderSettings::default();
@@ -1588,6 +1703,25 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
         center = t.center.clone();
         span = t.span;
         chain = p.chain;
+    }
+    if path_stats && !leg_seconds.is_empty() {
+        let sum = |k: usize| leg_seconds.iter().map(|l| [l.0, l.1, l.2, l.3][k]).sum::<f64>();
+        let max = |k: usize| leg_seconds.iter().map(|l| [l.0, l.1, l.2, l.3][k]).fold(0.0, f64::max);
+        let mut d = dives.clone();
+        d.sort_by(f64::total_cmp);
+        println!(
+            "journey-path: legs {} flight {:.0} s -> {:.0} s with the dull pace, longest dull stretch {:.1} s -> {:.1} s; dives {} deepest 1e{:.1} median 1e{:.1}, below 1e10 {} of {}",
+            leg_seconds.len(),
+            sum(0),
+            sum(1),
+            max(2),
+            max(3),
+            d.len(),
+            d.last().copied().unwrap_or(0.0),
+            d.get(d.len() / 2).copied().unwrap_or(0.0),
+            d.iter().filter(|&&z| z < 10.0).count(),
+            d.len()
+        );
     }
     if let Some(path) = o.get("save") {
         fs::write(path, saved)?;
@@ -1662,8 +1796,13 @@ pub fn locate_command(o: &Options) -> Result<i32> {
         // The nucleus must be resolved far below the minibrot's size (often ~ radius^2 near
         // the needle): refine at more bits until the precision covers it.
         let mut size = minibrot_size_complex(&nr.nucleus, p);
-        loop {
-            let need = ((-size.magnitude().log2_magnitude()) as usize + 96).div_ceil(64) * 64;
+        // A few precision rounds at most: each raise is to what the last size asked for.
+        for _round in 0..8 {
+            let need = ((-size.magnitude().log2_magnitude()) as usize)
+                .saturating_add(96)
+                .min(1 << 17)
+                .div_ceil(64)
+                * 64;
             if need <= bits {
                 break;
             }

@@ -107,8 +107,10 @@ pub fn recommended_precision_bits_with(
         + log2_int(image_size.max(1) as i64)
         + log2_int(center_magnitude.ceil().max(1.0) as i64)
         + 1.0;
-    let bits = raw.ceil() as i64 + guard_bits as i64;
-    (bits.max(1) as usize).div_ceil(64).max(1) * 64
+    // Capped (2^20 bits, far past the deepest view): a zero or absurd spacing gave i64::MAX
+    // and an allocation that never finished (kb: techniques/hang-prevention).
+    let bits = (raw.ceil() as i64).saturating_add(guard_bits as i64);
+    (bits.clamp(1, 1 << 20) as usize).div_ceil(64).max(1) * 64
 }
 
 fn log2_int(v: i64) -> f64 {

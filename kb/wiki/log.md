@@ -861,6 +861,111 @@ and leaves full screen only when nothing moved; repeats never leave. Interaction
 "esc full screen" checks it through a probe (no window enters full screen). Page:
 [[decisions/controls]] "Full screen".
 
+## [2026-10-16] decision | Needle axis band for local SA; AA samples filter over their share; learned limit survives AA
+
+Three rendering-quality reports, each reproduced headlessly first. (1) Needle pixels on and
+next to the real axis: M5 seeds start a pixel from an off-axis leaf with an isotropic error,
+and near the needle the escape depends on `Im c` alone; on-axis pixels escaped (0.09–0.12 %
+GPU-ext/CPU-int at the needles, a whole row at a shallow needle), the rows next to it had 14×
+the plain |Δμ|. A real reference now skips seeds within 16 texels of the axis: 0 % class
+mismatch, rows equal to plain, no cost. (2) "Learned limit resets after AA": not reproduced; the
+trace line was the flight benchmark's fresh jump-check renderer. Test
+`learned_limit_survives_aa` added. (3) Grey fine rings after AA: every AA sample was
+palette-filtered over the whole pixel, then averaged (a second box filter); samples now filter
+over `1/√N` of the pixel (the offscreen grid over `1/ss`): chroma 86 → 97 % of a 256-sample
+reference, error −33 %. CLI: `verify --dump-cpu`, `--calm 0|1`. Pages:
+[[techniques/local-series-approximation]], [[techniques/anti-aliasing]],
+[[techniques/coloring-methods]], [[techniques/auto-iterations]],
+[[synthesis/flight-benchmark]], [[synthesis/benchmarks]].
+
+## [2026-10-16] decision | Motion fixes: pipeline warm-up, gesture cost after jumps, lock probes, deeper journeys
+
+Five reported motion bugs, measured headless and in background windows on a shared machine.
+(1) Fly-to "pauses": the motion model never stopped in eight flights; the picture froze for
+161–310 ms where a flight first needed a new iterate variant (BLA, LA, deep kernel) with a
+cold Metal shader cache, and up to 250 ms when other processes held the GPU. (2) The π hunt's
+127–146 ms first frame was the same: its place look turns on DE and interior colouring. Fix:
+the renderer warms all 105 variants on `cores / 3` threads from its first frame
+(`GpuBackend::pipelines_in_background`); cold, no slow frame after start-up, π start 0.7–0.9
+ms. (5) "Spiral zoom" failed because after a jump the gesture frames used the old view's cost
+(or none): 1/2–3/4 resolution as one 2.6 s command buffer, the frame thread blocked in
+`commandBuffer`; a jump now resets the gesture resolution to 1/8 until it is measured
+(headless gesture frames 738 → 10 ms, settled 3 s after the input instead of never); the
+remaining window failures are load (GPU 76–100 % busy with other processes), threshold kept.
+(4) The target lock at sea-8007 found nothing: CPU probes at 30 000 iterations read the view as
+interior; the view probe now escalates to 240 000 (uniform 5 → 0 %, rescue 2.6 → 0 s).
+(3) Journeys: deeper dive styles and smaller period-search discs for deep dives (median dive
+1e4.5–1e7.2 → 1e8.4–1e16.9); each leg's path is probed and self-similar stretches (look change
+< 0.15 per e-fold) fly 3× faster (Pine Compass tail 5.9 → 2.0 s); black frames not reproduced
+in 62 700 recorded frames. Pages: [[platform/metal-compute]] "Pipeline warm-up",
+[[decisions/controls]] (Fly to stalls, target lock, Journey revision),
+[[techniques/pi-in-the-mandelbrot-set]], [[questions/metal-watchdog-limit]],
+[[synthesis/benchmarks]] "Motion fixes".
+
+## [2026-10-16] decision | Extension passes stop at the end of an f64 orbit cut at the limit
+
+User report near the −3/4 neck (`−0.74999994719705121 + 0.00036918485351065104 i`, 4.5e-12 per
+point): after zooming in to ~1e-13 and back out, black blobs with a straight-edged wedge and a
+mostly black frame, while a fresh `render` looked right. Reproduced headlessly with
+`verify --history zoom --scale 8e-14 --angle -185.69 --seconds 5.75 --then 0.05,0.5,0.25`
+(`--then` now takes a list of steps). Not the learner, local SA, tile fill, LA or the sample
+cache: the f64 reference (views ≥ 1e-12 per point) was computed to exactly the limit (~4 400
+there, the centre escapes at 17 019), and the extension passes to 16× restarted every pixel at
+that cut with the rounding loss of a truncated reference. Medians of |Δmu| against the oracle
+1.9–6.5 and class mismatch up to 25 % before; ≤ 3e-4 after. Fix: `Reference::exact_reach` caps
+the extension for every reference; the f64 orbit is computed as far as the passes may go. Bench
+iteration counts and verify metrics are unchanged; the regression is in `make regress`
+(`--max-cpu-median 0.05`, a new history gate). Pages: [[techniques/rebasing]] (Truncated
+references), [[techniques/auto-iterations]].
+
+## [2026-10-16] decision | Hang prevention: loop audit, lints, extreme-value tests, main-thread watchdog
+
+After two beach balls (the mini-map level loop at depths past 1e308; a SwiftUI layout loop
+under an open menu) every loop and recursion whose end depends on computed values was audited
+in all crates and the Swift sources. Real hazards found and guarded: the cosmic ruler's
+`k += 1.0` decade ticks (endless past 2^53 or at inf), π meter ticks over f64 bounds, the
+autopilot's `dt / 0.002` substeps at inf dt, Halton base 1, `frexp`/`exponent_of`/
+`exponent_significand` recursing on 0, the float-float GPU loop without a dispatch cap,
+`BigFloat::parse` computing 10^999999999 for pasted text (now `None` past 1e±100000), the
+centre precision for a 2^-1e9 scale before the caller clamps it, precision bits at inf, NaN/inf
+input events (a BigFloat panic) and NaN frame times in the navigator, inf view sizes. Clippy
+`maybe_infinite_iter`, `while_float`, `infinite_loop` (warn) and `infinite_iter` (deny) are on
+workspace-wide. 13 extreme-value unit tests (`cargo test extreme_`, ~10 ms in all). New
+`HangWatchdog` (heartbeat every 0.5 s, report after 2 s with the main thread's stack via
+public Mach calls and a ring buffer of recent events, to ~/Library/Logs/Almondbread) and
+`--hang-test`; MetricKit hang diagnostics saved alongside. Pages:
+[[techniques/hang-prevention]], [[sources/apple-metrickit-hang-diagnostics]].
+
+## [2026-10-17] query | The −3/4 neck gap at 1e8–1e9: ground truth, GPU check, seed horizon
+
+User report: just above the neck (`−0.74999996… + 0.00036918… i`, 1.9e8–1.3e9, −3.2°) the view
+is almost black with thin filaments, areas appear while zooming, and a 10 M limit changes
+nothing. New tool `examples/neck_truth` (direct f64 with an interior proof, escape histograms,
+`|dz/dc|`, double-double checks, `--paint` for any `.iter` dump). Findings
+([[synthesis/neck-escape-statistics]]): everything in view escapes (minimum ~8 500 ≈ π/ε,
+medians 4e4–4e5, a disc at 2e7–7e7), escape counts are chaotic far below the pixel (f64 vs
+double-double differ for 9 % of pixels; only statistics are meaningful); the GPU's float32
+histograms at 1e6 and 1e7 match the f64 oracle to sampling noise, and the straight seam of
+`render --iterations 1e6` is real structure. The app's black: the learner caps at 4× depth
+(15–18 k) whatever the user's cap, the extension list overflows at Retina sizes, and with a
+manual 10 M the local SA seeds stalled the level (no pixel ran in 20 s at 4000 × 2500; fixed:
+`SEED_HORIZON` = 2^16, [[techniques/local-series-approximation]] "Seed horizon"); after that the
+frame is a 10–20 minute render in progress, whose early escapes look like filaments ending
+mid-screen. `f77cf7b` is not involved (same reference, 7 283 203 points, escaped). CLI: `--cap n`
+(auto-iteration cap), history `--timeout s`, `ALMONDBREAD_SNAPSHOT=png` (the shown frame at a
+history timeout).
+
+UI proposal (not built): (1) draw unresolved pixels (`ITER_UNRESOLVED`) in their own colour,
+a dim desaturated tint of the palette's deep colour with a faint fixed dither or hatch, so
+"not escaped by the limit" never looks like proven interior; pixels still iterating in a frame in
+progress the same, slightly brighter or animated; (2) a HUD line when the shown frame has more
+than ~5 % unresolved: "62 % not resolved at 16 k iterations", with the reason (auto limit at 4×
+depth / cap / extension skipped) and an action "Resolve deeper" that starts an idle background
+refinement towards the user's cap, with progress and an estimate; (3) a progress ring or
+percentage while a long manual-limit frame is being computed (the 10 M frame here), so a
+partial frame does not read as the result; (4) in the settings, label the auto cap "Upper bound
+for automatic iterations" and show the current effective limit next to it.
+
 ## [2026-10-16] decision | Cosmic scale: "Your screen" keeps the window, the set grows
 
 The screen anchor no longer turns around at the observable universe (the set became the

@@ -9,6 +9,8 @@ import UIKit
 public struct AlmondbreadScene: Scene {
     public init() {
         TestLaunch.prepare()
+        HangWatchdog.start()
+        HangTest.start()
         #if os(macOS)
         // Toolbar tooltips after 0.3 s instead of AppKit's default of about a second (user
         // request). A registered default, so `defaults write ... NSInitialToolTipDelay` still wins.
@@ -184,9 +186,9 @@ public enum TestLaunch {
     /// executable to a regular, active app.
     public static var enabled: Bool {
         #if os(macOS)
-        SelfTest.enabled || InteractionTest.enabled || UIDemo.enabled || FlightBench.enabled
+        SelfTest.enabled || InteractionTest.enabled || UIDemo.enabled || FlightBench.enabled || HangTest.enabled
         #else
-        SelfTest.enabled
+        SelfTest.enabled || HangTest.enabled
         #endif
     }
     private static var activity: NSObjectProtocol?

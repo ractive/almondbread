@@ -26,6 +26,9 @@ mod parallel;
 pub mod raw;
 pub mod selection;
 
+#[cfg(test)]
+mod extreme_tests;
+
 pub use bigfloat::BigFloat;
 pub use complex::BigComplex;
 pub use floatexp::{DoubleExp, DoubleExpComplex, FloatExp, FloatExpComplex};

@@ -209,6 +209,13 @@ point down to ε = 1e-8 (neck) or 1e-16 (cusp), and the image there is black (ab
    and draws its orbit (above, "The orbit"). The flight holds until the count at the end is
    done (about 4–7 s at N = 3e8) and 2.5 s more.
 
+**Start hitch (fixed 2026-10-16).** The hunt's first frame took 127–146 ms (interaction test,
+"pi hunt", 3 of 3 runs with a cold Metal shader cache; 1–2 ms with a warm one, so it showed
+after every app update): the place's look turns on DE (shading, outline) and the app switches
+the interior colouring to bubbles, and the frame compiled that iterate variant. The renderer
+now warms the variants on threads at start ([[platform/metal-compute]] "Pipeline warm-up"):
+0.7–0.9 ms (3 of 3 cold runs).
+
 The probe stays after the flight while its pinch point is in view; it wins over a view
 centred on the line (the valley views are). The trail inset sits above the meter's panel
 (434 x ~280 points; left of it when the view is too low, hidden when neither fits), clear of

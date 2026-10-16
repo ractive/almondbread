@@ -63,6 +63,8 @@ pub struct InteractionReport {
 struct Measurement {
     start: f64,
     draw_cpu: Vec<f64>,
+    /// When each draw started (the worst-frames line, `ALMONDBREAD_FRAME_LOG=1`).
+    draw_at: Vec<f64>,
     pending_input: Option<f64>,
     input_to_draw: Vec<f64>,
     /// Presentation tag -> (draw start, input the frame shows).
@@ -108,7 +110,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         } else {
             1.0
         };
-        let (w, h) = (width.max(0.0), height.max(0.0));
+        // NaN gives 0 (max), +inf or absurd sizes a 16k-pixel cap: an unbounded size meant
+        // usize::MAX texels and tile loops (kb: techniques/hang-prevention).
+        let cap = 16384.0 / s;
+        let (w, h) = (width.max(0.0).min(cap), height.max(0.0).min(cap));
         self.width = (w * s).round() as usize;
         self.height = (h * s).round() as usize;
         self.points_per_pixel = 1.0 / s;
@@ -286,6 +291,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         self.overlay_after(now, &mut outcome);
         if let Some(m) = &mut self.measure {
             m.draw_cpu.push(clock() - start);
+            m.draw_at.push(start);
             if outcome.presented {
                 let input = m.pending_input.take();
                 if let Some(i) = input {
@@ -314,6 +320,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         self.measure = Some(Measurement {
             start: now,
             draw_cpu: Vec::new(),
+            draw_at: Vec::new(),
             pending_input: None,
             input_to_draw: Vec::new(),
             frames: HashMap::new(),
@@ -343,6 +350,27 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         shown.sort_by(f64::total_cmp);
         let intervals: Vec<f64> = shown.windows(2).map(|w| w[1] - w[0]).collect();
+        if std::env::var("ALMONDBREAD_FRAME_LOG").is_ok_and(|v| v == "1") {
+            // Where the hitches are: the longest gaps between presented frames and the slowest
+            // draws, with their time since the measurement started (interaction tests).
+            let t0 = shown.first().copied().unwrap_or(m.start).min(m.start);
+            let mut gaps: Vec<(f64, f64)> = shown.windows(2).map(|w| (w[1] - w[0], w[0] - t0)).collect();
+            gaps.sort_by(|a, b| b.0.total_cmp(&a.0));
+            let mut draws: Vec<(f64, f64)> = m.draw_cpu.iter().zip(&m.draw_at).map(|(&c, &a)| (c, a - t0)).collect();
+            draws.sort_by(|a, b| b.0.total_cmp(&a.0));
+            let fmt = |v: &[(f64, f64)]| {
+                v.iter()
+                    .take(5)
+                    .map(|(d, t)| format!("{:.1}@{:.2}s", d * 1000.0, t))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            println!(
+                "frame-log: longest gaps ms@t {} | slowest draws ms@t {}",
+                fmt(&gaps),
+                fmt(&draws)
+            );
+        }
         let n = fs.frames.max(1) as f64;
         let duration = (now - m.start).max(1e-9);
         InteractionReport {

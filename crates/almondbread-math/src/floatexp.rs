@@ -62,6 +62,9 @@ impl FloatExpComplex {
 /// |d| = significand * 2^exponent with significand in [1, 2) (also for subnormals).
 /// `d` must be finite and non-zero.
 pub(crate) fn exponent_significand(d: f64) -> (i64, f64) {
+    if d == 0.0 {
+        return (0, 0.0); // the subnormal branch below would recurse forever
+    }
     let bits = d.abs().to_bits();
     let be = (bits >> 52) as i64;
     if be == 0 {
@@ -78,11 +81,10 @@ pub(crate) fn log2_unit(x: f64) -> f64 {
     let t2 = t * t;
     let mut term = t;
     let mut sum = 0.0;
-    let mut k = 1.0;
-    while k < 60.0 {
-        sum += term / k;
+    // Odd k = 1, 3, ..., 59 as an integer loop (bounded by construction; same divisors).
+    for k in (1..60u32).step_by(2) {
+        sum += term / f64::from(k);
         term *= t2;
-        k += 2.0;
         if term.abs() < 1e-20 {
             break;
         }

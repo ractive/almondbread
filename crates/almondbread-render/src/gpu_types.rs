@@ -52,7 +52,10 @@ pub struct IterateParams {
     pub fill_epoch: u32,
     /// A border pixel counts as interior when proven within this many iterations.
     pub fill_proof: u32,
-    pub pad4: u32,
+    /// 1: the reference point lies on the real axis (its orbit is real). M5 seeds are then not
+    /// used within 16 texels of the axis, where the escape depends on `Im c` alone (kb:
+    /// techniques/local-series-approximation "Real axis").
+    pub real_axis: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -218,7 +221,9 @@ pub struct ComposeParams {
     pub new_rot: [f32; 2],
     pub wrap: [u32; 2],
     pub cache: u32,
-    pub pad: u32,
+    /// Mode 2 (AA): the palette filter's width of a sample in output pixels, `1/sqrt(samples)`
+    /// (its share of the pixel; filtering each over the whole pixel greyed fine rings).
+    pub sample_width: f32,
 }
 
 /// Parameters of the `aaList` kernel (adaptive anti-aliasing), 32 bytes.

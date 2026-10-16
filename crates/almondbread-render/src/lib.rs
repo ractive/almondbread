@@ -34,6 +34,9 @@ pub mod pi_meter;
 pub mod sample_cache;
 pub mod scheduler;
 
+#[cfg(test)]
+mod extreme_tests;
+
 #[cfg(target_vendor = "apple")]
 pub mod metal;
 

@@ -38,6 +38,13 @@ unsafe_op_in_unsafe_fn = "deny"
 [workspace.lints.clippy]
 # Limb arithmetic indexes several slices in lock-step; iterator rewrites hurt readability.
 needless_range_loop = "allow"
+# Hang prevention (kb: techniques/hang-prevention): loops whose end depends on computed values.
+# `infinite_iter` is deny by default already; the others are pedantic / nursery / restriction.
+infinite_iter = "deny"
+maybe_infinite_iter = "warn"
+while_float = "warn"
+infinite_loop = "warn"
+recursive_format_impl = "deny"
 
 [profile.release]
 lto = "fat"
