@@ -163,17 +163,21 @@ impl CompassOverlay {
         scene.triangle(south, left, right, rgba(0.62, 0.64, 0.68, a(1.0)));
         scene.triangle(south, right, centre, rgba(0.93, 0.94, 0.96, a(1.0)));
         scene.disc(centre, (1.4 * px) as f32, rgba(0.05, 0.05, 0.06, a(0.9)));
-        // "i", upright, beyond the needle's tip: north is the +imaginary direction (user idea).
-        let size = (11.0 * px) as f32;
-        let (_, gw) = crate::font::layout("i", size);
-        let cap = crate::font::cap_height() * size;
-        let p = at(n, 0.71 * r);
-        scene.text(
-            [p[0] as f32 - gw / 2.0, p[1] as f32 - cap / 2.0],
-            size,
-            "i",
-            rgba(1.0, 1.0, 1.0, a(0.95)),
-        );
+        // A math-italic "i", upright, beyond the needle's tip: north is the +imaginary direction
+        // (user idea). Drawn from strokes, not the font: Inter's sans "i" read as a tick mark.
+        // Points in view points around the label centre, y down: entry serif, slanted stem,
+        // foot curling right, round dot.
+        let p = at(n, 0.68 * r);
+        let q = |x: f64, y: f64| [p[0] + x * px, p[1] + y * px];
+        let ink = rgba(1.0, 1.0, 1.0, a(0.95));
+        let w = (1.1 * px) as f32;
+        let stroke = |scene: &mut Scene, pts: &[(f64, f64)]| {
+            for s in pts.windows(2) {
+                scene.segment(q(s[0].0, s[0].1), q(s[1].0, s[1].1), w, ink, ink);
+            }
+        };
+        stroke(scene, &[(-1.4, -1.4), (0.8, -2.0), (-0.5, 3.0), (0.2, 3.7), (1.6, 3.0)]);
+        scene.disc(q(1.3, -4.6), (0.95 * px) as f32, ink);
         key.push_str(&format!(
             "compass {cx:.1} {cy:.1} {:.5} {alpha:.3} {} ",
             n,
