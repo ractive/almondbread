@@ -935,3 +935,33 @@ workspace-wide. 13 extreme-value unit tests (`cargo test extreme_`, ~10 ms in al
 public Mach calls and a ring buffer of recent events, to ~/Library/Logs/Almondbread) and
 `--hang-test`; MetricKit hang diagnostics saved alongside. Pages:
 [[techniques/hang-prevention]], [[sources/apple-metrickit-hang-diagnostics]].
+
+## [2026-10-17] query | The −3/4 neck gap at 1e8–1e9: ground truth, GPU check, seed horizon
+
+User report: just above the neck (`−0.74999996… + 0.00036918… i`, 1.9e8–1.3e9, −3.2°) the view
+is almost black with thin filaments, areas appear while zooming, and a 10 M limit changes
+nothing. New tool `examples/neck_truth` (direct f64 with an interior proof, escape histograms,
+`|dz/dc|`, double-double checks, `--paint` for any `.iter` dump). Findings
+([[synthesis/neck-escape-statistics]]): everything in view escapes (minimum ~8 500 ≈ π/ε,
+medians 4e4–4e5, a disc at 2e7–7e7), escape counts are chaotic far below the pixel (f64 vs
+double-double differ for 9 % of pixels; only statistics are meaningful); the GPU's float32
+histograms at 1e6 and 1e7 match the f64 oracle to sampling noise, and the straight seam of
+`render --iterations 1e6` is real structure. The app's black: the learner caps at 4× depth
+(15–18 k) whatever the user's cap, the extension list overflows at Retina sizes, and with a
+manual 10 M the local SA seeds stalled the level (no pixel ran in 20 s at 4000 × 2500; fixed:
+`SEED_HORIZON` = 2^16, [[techniques/local-series-approximation]] "Seed horizon"); after that the
+frame is a 10–20 minute render in progress, whose early escapes look like filaments ending
+mid-screen. `f77cf7b` is not involved (same reference, 7 283 203 points, escaped). CLI: `--cap n`
+(auto-iteration cap), history `--timeout s`, `ALMONDBREAD_SNAPSHOT=png` (the shown frame at a
+history timeout).
+
+UI proposal (not built): (1) draw unresolved pixels (`ITER_UNRESOLVED`) in their own colour,
+a dim desaturated tint of the palette's deep colour with a faint fixed dither or hatch, so
+"not escaped by the limit" never looks like proven interior; pixels still iterating in a frame in
+progress the same, slightly brighter or animated; (2) a HUD line when the shown frame has more
+than ~5 % unresolved: "62 % not resolved at 16 k iterations", with the reason (auto limit at 4×
+depth / cap / extension skipped) and an action "Resolve deeper" that starts an idle background
+refinement towards the user's cap, with progress and an estimate; (3) a progress ring or
+percentage while a long manual-limit frame is being computed (the 10 M frame here), so a
+partial frame does not read as the result; (4) in the settings, label the auto cap "Upper bound
+for automatic iterations" and show the current effective limit next to it.

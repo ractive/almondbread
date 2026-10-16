@@ -662,7 +662,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             ppp,
             120.0,
             frames,
-            30.0,
+            o.f64("timeout").unwrap_or(30.0),
             &mut |_, dt, v: &mut Viewport| match m.as_str() {
                 "zoom" => v.zoom_by((speed * dt).exp(), pointer.0, pointer.1),
                 "out" => v.zoom_by((-speed * dt).exp(), pointer.0, pointer.1),

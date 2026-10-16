@@ -331,3 +331,20 @@ M1 Pro, release, load 7–15). A projection of the seeded start onto the axis (`
 set to 0, exact by conjugate symmetry) fixed the on-axis row alone and is subsumed by the band.
 `--sa-eps 1e-3` also restored plain accuracy at −1.7864, but it disables the seeds' gain
 (children fail on their first step, see above).
+
+### Seed horizon (2026-10-17)
+
+A seeded level admits no pixel until every seed node is final, and a node runs until its
+expansion fails the validity test, escapes, or reaches the limit, about 256 steps per round.
+Where the expansion stays valid for very long, a few slow nodes stall the whole level. In the
+−3/4 neck gap at 6.7e8 with a manual limit of 10 M ([[synthesis/neck-escape-statistics]]) the
+striped regions keep one passage count across a node, so their expansions hold for 10^5–10^6
+iterations: after 20 s at 4000 × 2500, 210 000 of 830 000 nodes were still running and not one
+pixel chunk had run (all-black frame; the user saw the previous gesture frame instead). Seeds
+now stop at `SEED_HORIZON` = 2^16 iterations at the latest (the layout's `softIter`), and the
+pixels continue from there; a node that stops there is still a valid start. Same run: seeds done
+in 224 rounds (~3.5 s), then pixels iterate. `render --iterations 1e6` of the same region at
+800 × 500: seeds 4 237 → 197 ms GPU, whole render 41.8 → 34.1 s (tiles seeded 65 → 0 of 1 600;
+the gate rejects those seeds anyway, 0.1 % of the steps). Auto limits rarely pass 2^16; `make
+bench` is unchanged within noise (feigenbaum 200 000, home-100k, needle-1e1004 included;
+measured 2026-10-17, M1 Pro, release) and `make regress` passes.
