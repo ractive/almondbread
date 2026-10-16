@@ -817,3 +817,15 @@ zoom on a caption strip. Measured (3 runs each): rendering with sections open 23
 busy (collapsed baseline 13-16 %), no sidebar body re-runs while rendering; section toggles
 160-400 ms → 10-20 ms; Places open/close 433 → 84 ms; search rebuild 425 → 78 ms. Page:
 [[platform/swiftui-performance]], [[decisions/controls]].
+
+## [2026-10-16] research | Places below 1e1000: four views to the depth limit
+
+Four deep places: `pinwheel-1e1500`, `star-1e2000` (M(5,1), a four-way junction found with
+`locate --misiurewicz 5,1`), `swirl-1e3000` and `rock-bottom` at 1e3007.5, one doubling above
+the depth limit (2^-10000 per point) in a 1000-point window. Deeper Misiurewicz points only
+repeat themselves, so these are embedded Julia sets: `locate --radius r` next to c = i, M(4,1)
+and M(5,1) gives a minibrot of size ~r²; centred on it, the junction appears with 4k arms at
+the geometric mean and 8k at 3/4 of the log-distance (by eye). Newton found no minibrot next
+to the seahorse spiral M(24,2) at any radius. Cost with `verify --history jump` at 1600×1000:
+first frame 85 ms to 1.0 s, resolved 0.2-1.1 s, all of it the reference (period 2659-17046 at
+5120-10176 bits); class mismatch 0 against the oracle. Page: [[synthesis/places]].

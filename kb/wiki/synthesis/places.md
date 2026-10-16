@@ -22,7 +22,7 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
 
 ## Conventions
 
-- **Centre** as decimal strings of any length (the deepest carry 1,050 digits).
+- **Centre** as decimal strings of any length (the deepest carry 3,050 digits).
 - **Span**: complex extent across the view's **shorter** side, so a place frames the
   same in portrait (iPhone) and landscape windows. Sources give other extents: Beyer's
   Commons files the horizontal diameter of 4:3 images (span = 0.75 × it), Mu-Ency
@@ -71,6 +71,80 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
 - Thumbnails: HEIC through `sips` (quality 70), 2 × 69 files, 4.6 MB; JPEG at the same
   size was 2× larger.
 
+## Below 1e1000: four places to the depth limit (2026-10-16)
+
+Four deep places beyond the two at 1e1000: `pinwheel-1e1500`, `star-1e2000`,
+`swirl-1e3000` and `rock-bottom`. The depth limit is `MIN_SCALE_LOG2 = -10000`
+(`viewport.rs`): 2^-10000 ≈ 5.0e-3011 per view point. A place's span is across the shorter
+side, so in a 1000-point window the deepest reachable span is 5e-3008; Rock Bottom's span
+1e-3007 (zoom 1e3007.5) is 2^-9999 per point there, one doubling above the limit, and
+`go_to_place` clamps to the limit in windows over 2000 points. A new test keeps every place
+reachable at 1000 points (it replaced a span floor of 1e-1100).
+
+**Why not deeper Misiurewicz points.** Zooming further into M(24,2) or M(4,1) only repeats
+`spiral-1e1000` and `junction-1e300`: a Misiurewicz point is asymptotically self-similar. The
+new places are embedded Julia sets instead, at a set fraction of the log-depth between a
+Misiurewicz point and a minibrot next to it. `locate --center M --radius r` (ball period +
+Newton) finds a minibrot about r away of size about r² (1e-1000 → 1e-1998 to 1e-2000 at
+c = i, M(4,1) and M(5,1)). Centred on that nucleus, the view at depth d shows the junction
+of M doubled once per halving of the remaining log-distance: at the geometric mean of r and
+the minibrot size a k-armed point shows 4k arms (c = i, a tip: 4; M(4,1): 12; M(5,1): 16),
+at 3/4 of the way 8k, near the minibrot 2^n k arms and then the rings of
+`starburst-1e112` and the needles (measured by eye, 2026-10-16). The point M decides the
+symmetry, the fraction the arm count, so four views from three points at four fractions
+look different:
+
+| id | depth | from | minibrot (period, size) | view | look |
+| --- | --- | --- | --- | --- | --- |
+| `pinwheel-1e1500` | 1500.5 | c = i, `--radius 1e-1000` | 2659, 1e-2000 | 1/2: four curved arms | moss |
+| `star-1e2000` | 2000.5 | M(5,1), `--radius 1e-1333` | 16857, 8e-2665 | 1/2: 16 straight spokes with four-armed crosses | ember |
+| `swirl-1e3000` | 3000.5 | c = i, `--radius 1e-1714` | 4556, 1e-3428 | 3/4: eight curling arms | lagoon |
+| `rock-bottom` | 3007.5 | M(4,1), `--radius 1e-2103` | 17046, 3e-4205 | 0.43: six-armed snowflake | classic |
+
+M(5,1) = 0.36636298342276434 + 0.59153377326144523i is a four-way junction: Newton
+(`locate --misiurewicz 5,1 --bits 11000`) from 0.29 + 0.58i, a guess; we did not check
+whether it is the 1/4 limb's principal branch point. c = i, M(4,1) and M(5,1) were taken to
+11,000 bits (3,300 digits) first; the centres are the nuclei cut to 40 digits below the span
+(1,540 to 3,047 digits after the point).
+
+**Rejected while looking** (640×400 renders, `build/deep/` in the worktree): the minibrots
+themselves at 1e2000 (c = i, M(4,1)) and 1e3007 (c = i, period 3998): ring moiré like the
+needle minibrots, and with the looks' calm dense colouring a flat disc around a small black
+minibrot (mostly flat colour); M(4,1) at 3/4 to 7/8 of the way (dense starburst rings, a copy
+of `starburst-1e112`); M(5,1) at 3/4 (the same); the 16-arm c = i swirl at 7/8 (too close to
+the 16 spokes of `star-1e2000`); the 12-arm M(4,1) star (same genre as the 16-spoke star); an
+`ice` snowflake at the bottom (a copy of the `snowflake` place's look). No minibrot was found
+next to M(24,2): `locate` at radii 1e-30 to 1e-1001 picks periods 1,552 to 60,410 and Newton
+gives up within 0.35 s every time (it leaves the 16-radius disc or stops converging; not
+traced), also from starts 4 and 22 radii off the spiral centre; and a
+second-order search on a branch point of the pinwheel at 1e-1503 (period 5,330) did not
+converge either.
+
+**Cost** (measured 2026-10-16, M1 Pro 10 cores, release, machine shared with other agents,
+load average 40-95; the jumps repeated at load 5 came out within 10 %): reference as the app's worker computes it (`ALMONDBREAD_TRACE=1`: ball
+period over the view, Newton, the nucleus orbit), `verify --history jump --size 1600x1000`
+(a "Go to" with no history through the real per-refresh scheduler) and `verify --place` at
+160×100 against the CPU oracle.
+
+| id | ref bits | ref (period = points − 1) | ref time | first frame | resolved | class mismatch | escape-n differs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `pinwheel-1e1500` | 5120 | 2660 | 49 ms | 85 ms | 218 ms | 0 % | 0.03 % |
+| `star-1e2000` | 6784 | 16858 | 400 ms | 460 ms | 593 ms | 0 % | 15 % |
+| `swirl-1e3000` | 10112 | 4557 | 240 ms | 294 ms | 426 ms | 0 % | 0.04 % |
+| `rock-bottom` | 10176 | 17047 | 939 ms | 1010 ms | 1143 ms | 0 % | 6.5 % |
+
+For comparison `spiral-1e1000` needs a 62,957-point centre orbit at 3456 bits (333 ms). The
+time is the reference: GPU iteration is 5-17 ms per 1600×1000 frame at every one of them
+(BLA/LA over the nucleus), and `almondbread render` takes 0.23-1.12 s wall in all. The escape-n
+differences at the star and Rock Bottom are float32 chaos, not error: `precision --place`
+puts the GPU at a grid shift of ≤ 0.1 px (a 0.1 px shift of the oracle alone differs 22 % and
+9 %). Finding the nuclei with `locate` took 0.5-12 s (Rock Bottom: 12.2 s at 14,080 bits);
+that is catalogue work, not app work.
+
+Thumbnails: `places --render-thumbs Sources/AlmondbreadKit/Resources/Places --inside bubbles
+--extend 16 --only <ids>` (oversample 3, blur 0.5 by default), 1.0-2.6 s each, 2 × 4 HEIC
+files, 192 KB; all four looked at, none flat.
+
 ## Using a place
 
 ```text
@@ -113,7 +187,7 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 ## The catalogue
 
 <!-- places-table -->
-71 places (landmark 11, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 9). By magnification: < 1e5: 36, 1e5-1e13: 20, 1e13-1e30: 6, 1e30-1e300: 5, >= 1e300: 4. Depth is log10 of the magnification relative to the whole set (span 3); `almondbread places --format tsv` prints centres and spans.
+75 places (landmark 11, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 13). By magnification: < 1e5: 36, 1e5-1e13: 20, 1e13-1e30: 6, 1e30-1e300: 5, >= 1e300: 8. Depth is log10 of the magnification relative to the whole set (span 3); `almondbread places --format tsv` prints centres and spans.
 
 | id | name | category | depth (log10 zoom) | look | source |
 | --- | --- | --- | --- | --- | --- |
@@ -188,3 +262,7 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 | `needle-minibrot-1e302` | Needle Minibrot at 1e302 | deep | 302.5 | aurora | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
 | `spiral-1e1000` | Spiral at 1e1000 | deep | 1000.5 | ice | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
 | `needle-minibrot-1e1000` | Needle Minibrot at 1e1000 | deep | 1000.9 | spectrum | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
+| `pinwheel-1e1500` | Pinwheel at 1e1500 | deep | 1500.5 | moss | [[sources/wikipedia-misiurewicz-point]] (c = i) + `locate --radius 1e-1000` (generated) |
+| `star-1e2000` | Sixteen-Point Star | deep | 2000.5 | ember | `locate --misiurewicz 5,1` + `locate --radius 1e-1333` (generated) |
+| `swirl-1e3000` | Swirl at 1e3000 | deep | 3000.5 | lagoon | [[sources/wikipedia-misiurewicz-point]] (c = i) + `locate --radius 1e-1714` (generated) |
+| `rock-bottom` | Rock Bottom | deep | 3007.5 | classic | [[sources/wikipedia-misiurewicz-point]] (M(4,1)) + `locate --radius 1e-2103` (generated) |

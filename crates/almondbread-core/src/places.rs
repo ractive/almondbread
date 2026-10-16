@@ -190,7 +190,15 @@ mod tests {
                 p.id
             );
             let s = Scale::parse(p.span).unwrap_or_else(|| panic!("{}: span", p.id));
-            assert!(s.log10() <= 1.0 && s.log10() >= -1100.0, "{}: span {}", p.id, p.span);
+            assert!(s.log10() <= 1.0, "{}: span {}", p.id, p.span);
+            // Reachable: in a window up to 1000 points on its shorter side the place's scale stays
+            // at or above the deepest scale zooming allows (`go_to_place` clamps larger windows).
+            assert!(
+                p.scale_for(1000, 1000) >= Scale::pow2(crate::viewport::MIN_SCALE_LOG2),
+                "{}: span {} beyond the depth limit",
+                p.id,
+                p.span
+            );
             // The centre carries enough digits for its depth (else it lands somewhere else).
             let digits =
                 p.re.trim_start_matches('-')
@@ -215,7 +223,8 @@ mod tests {
             assert!(PLACES.iter().any(|p| p.category == c), "no place in {c:?}");
         }
         let deepest = PLACES.iter().map(|p| p.zoom_log10()).fold(0.0, f64::max);
-        assert!(deepest > 1000.0);
+        // Rock Bottom sits at the depth limit (kb: synthesis/places).
+        assert!(deepest > 3000.0);
         assert!(PLACES.iter().any(|p| p.zoom_log10() < 1.0));
         // Grouped by category in menu order.
         let order: Vec<usize> = PLACES
