@@ -877,3 +877,27 @@ reference, error −33 %. CLI: `verify --dump-cpu`, `--calm 0|1`. Pages:
 [[techniques/local-series-approximation]], [[techniques/anti-aliasing]],
 [[techniques/coloring-methods]], [[techniques/auto-iterations]],
 [[synthesis/flight-benchmark]], [[synthesis/benchmarks]].
+
+## [2026-10-16] decision | Motion fixes: pipeline warm-up, gesture cost after jumps, lock probes, deeper journeys
+
+Five reported motion bugs, measured headless and in background windows on a shared machine.
+(1) Fly-to "pauses": the motion model never stopped in eight flights; the picture froze for
+161–310 ms where a flight first needed a new iterate variant (BLA, LA, deep kernel) with a
+cold Metal shader cache, and up to 250 ms when other processes held the GPU. (2) The π hunt's
+127–146 ms first frame was the same: its place look turns on DE and interior colouring. Fix:
+the renderer warms all 105 variants on `cores / 3` threads from its first frame
+(`GpuBackend::pipelines_in_background`); cold, no slow frame after start-up, π start 0.7–0.9
+ms. (5) "Spiral zoom" failed because after a jump the gesture frames used the old view's cost
+(or none): 1/2–3/4 resolution as one 2.6 s command buffer, the frame thread blocked in
+`commandBuffer`; a jump now resets the gesture resolution to 1/8 until it is measured
+(headless gesture frames 738 → 10 ms, settled 3 s after the input instead of never); the
+remaining window failures are load (GPU 76–100 % busy with other processes), threshold kept.
+(4) The target lock at sea-8007 found nothing: CPU probes at 30 000 iterations read the view as
+interior; the view probe now escalates to 240 000 (uniform 5 → 0 %, rescue 2.6 → 0 s).
+(3) Journeys: deeper dive styles and smaller period-search discs for deep dives (median dive
+1e4.5–1e7.2 → 1e8.4–1e16.9); each leg's path is probed and self-similar stretches (look change
+< 0.15 per e-fold) fly 3× faster (Pine Compass tail 5.9 → 2.0 s); black frames not reproduced
+in 62 700 recorded frames. Pages: [[platform/metal-compute]] "Pipeline warm-up",
+[[decisions/controls]] (Fly to stalls, target lock, Journey revision),
+[[techniques/pi-in-the-mandelbrot-set]], [[questions/metal-watchdog-limit]],
+[[synthesis/benchmarks]] "Motion fixes".

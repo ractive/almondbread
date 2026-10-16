@@ -14,7 +14,7 @@
 
 use almondbread_core::autopilot::{Survey, SurveyCell};
 use almondbread_core::input::{InputEvent, NavKey, Navigator};
-use almondbread_core::journey::probe_sized;
+use almondbread_core::journey::{self, probe_limit};
 use almondbread_core::viewport::{Center, Scale, Viewport};
 
 use crate::options::{CommandError, Options, Result, err};
@@ -23,9 +23,29 @@ use crate::options::{CommandError, Options, Result, err};
 const TEXELS: usize = 80;
 const CELLS: usize = 16;
 
-/// A survey of the square across the view's shorter side (`side` points), from a CPU probe.
-fn cpu_survey(v: &Viewport, side: f64, time: f64) -> Survey {
-    let f = probe_sized(&v.center, v.scale * side, 0, TEXELS);
+/// A survey of the square across the view's shorter side (`side` points), from a CPU probe
+/// at `*limit` iterations or the depth's probe limit, whichever is larger. Like the app's auto
+/// iterations, the limit rises (4x, up to the escalated probe's cap) while most of the probe
+/// never escapes and a higher limit lets more escape: at sea-8007 the CPU cap of 30 000 left
+/// the whole survey unresolved, read as interior (the GPU survey sees ~118 000 iterations).
+fn cpu_survey(v: &Viewport, side: f64, time: f64, limit: &mut usize) -> Survey {
+    let span = v.scale * side;
+    let unresolved = |f: &almondbread_core::oracle::IterationField| {
+        f.n.iter().filter(|&&n| n < 0.0).count() as f64 / f.n.len().max(1) as f64
+    };
+    let mut it = (*limit).max(journey::probe_iterations(span));
+    let mut f = probe_limit(&v.center, span, it, TEXELS);
+    let mut share = unresolved(&f);
+    while share > 0.5 && it < journey::PROBE_ESCALATE_CAP {
+        let next = (4 * it).min(journey::PROBE_ESCALATE_CAP);
+        let g = probe_limit(&v.center, span, next, TEXELS);
+        let gs = unresolved(&g);
+        if gs > share - 0.02 {
+            break;
+        }
+        (f, it, share) = (g, next, gs);
+        *limit = it;
+    }
     let cell = TEXELS / CELLS;
     let cls = |x: usize, y: usize| {
         let n = f.n[y * TEXELS + x];
@@ -91,7 +111,8 @@ pub fn autopilot_command(o: &Options) -> Result<i32> {
     let (mut run, mut longest, mut rescue) = (0.0f64, 0.0f64, 0.0f64);
     let mut max_zoom = zoom0;
     let t0 = std::time::Instant::now();
-    n.autopilot_mut().set_survey(cpu_survey(&v, side, 0.0));
+    let mut limit = 0;
+    n.autopilot_mut().set_survey(cpu_survey(&v, side, 0.0, &mut limit));
     for k in 1..=steps {
         let t = k as f64 / hz;
         n.advance(&mut v, t);
@@ -102,7 +123,7 @@ pub fn autopilot_command(o: &Options) -> Result<i32> {
         if k % every_k != 0 {
             continue;
         }
-        n.autopilot_mut().set_survey(cpu_survey(&v, side, t));
+        n.autopilot_mut().set_survey(cpu_survey(&v, side, t, &mut limit));
         let a = n.autopilot();
         let Some(assessment) = a.assessment(t) else { continue };
         let u = assessment.danger() > 0.5;

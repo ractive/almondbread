@@ -1475,6 +1475,11 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
     let never = std::sync::atomic::AtomicBool::new(false);
     let thumbs = o.get("thumbs");
     let show_look = o.get("describe").is_some();
+    // `--path 1`: probe each leg's flight path for dull stretches; per-dive depths at the end.
+    let path_stats = matches!(o.get("path"), Some("1" | "2"));
+    let path_detail = o.get("path") == Some("2");
+    let mut leg_seconds: Vec<(f64, f64, f64, f64)> = Vec::new();
+    let mut dives: Vec<f64> = Vec::new();
     let mut looks: Vec<almondbread_core::journey::Look> = Vec::new();
     if let Some(d) = thumbs {
         fs::create_dir_all(d)?;
@@ -1522,6 +1527,7 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
                         palette_phase: 0.0,
                     },
                     chain: chain.clone(),
+                    pace: Vec::new(),
                     candidates: 0,
                     probed: 0,
                     seconds: 0.0,
@@ -1582,6 +1588,63 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
             );
         }
         looks.push(t.look);
+        if path_stats {
+            // The leg's flight path probed at equal steps of the path parameter: dull stretches
+            // (needle, smooth exterior, interior) in seconds at the default journey speed, as
+            // flown before (uniform pace) and with the dull pace (kb: decisions/controls "Journey").
+            use almondbread_core::journey::{DULL_PACE, SPEED_DEFAULT, leg_pace, path_profile};
+            let never = std::sync::atomic::AtomicBool::new(false);
+            let a = Viewport::with_center(center.clone(), span / 1000.0);
+            let b = Viewport::with_center(t.center.clone(), t.span / 1000.0);
+            let fp = almondbread_core::flyto::FlyPath::new(&a, &b, 1600.0);
+            let efolds = fp.length() * almondbread_core::flyto::RHO;
+            let prof = path_profile(&center, span, &t.center, t.span, &never).unwrap_or_default();
+            let n = prof.len().max(1) as f64;
+            let per = efolds / n / (SPEED_DEFAULT * leg_pace(efolds));
+            let (mut longest, mut run, mut dull_s) = (0.0f64, 0.0f64, 0.0f64);
+            for (_, _, d) in &prof {
+                if *d {
+                    run += per;
+                    dull_s += per;
+                    longest = longest.max(run);
+                } else {
+                    run = 0.0;
+                }
+            }
+            let total = per * n;
+            let after = total - dull_s + dull_s / DULL_PACE;
+            let marks: String = prof.iter().map(|(_, _, d)| if *d { '#' } else { '.' }).collect();
+            println!(
+                "     path {efolds:.1} e-folds, {total:.1} s at the default speed: dull {dull_s:.1} s (longest {longest:.1} s) -> {after:.1} s with the dull pace  [{marks}]"
+            );
+            leg_seconds.push((total, after, longest, longest / DULL_PACE));
+            if path_detail {
+                let mut prev_z = f64::NAN;
+                for (i, (st, lk, d)) in prof.iter().enumerate() {
+                    let v = fp.viewport_at(fp.length() * (i as f64 + 0.5) / n);
+                    let dl = if i > 0 { lk.distance(&prof[i - 1].1) } else { f64::NAN };
+                    let de = (v.zoom_log10() - prev_z).abs() * std::f64::consts::LN_10;
+                    prev_z = v.zoom_log10();
+                    println!(
+                        "       {i:>2} zoom 10^{:<6.2} look step {dl:.2} ({:.2}/e-fold) re {:<10.6} detail {:>5.1} centre {:>5.1} interior {:.2} calm {:.2} filament {:.2}{}",
+                        v.zoom_log10(),
+                        dl / de,
+                        v.center.re(),
+                        st.detail,
+                        st.centre_detail,
+                        st.interior,
+                        st.calm,
+                        st.filament,
+                        if *d { "  dull" } else { "" }
+                    );
+                }
+            }
+            if t.kind == almondbread_core::journey::TargetKind::Crossing || leg == 1 {
+                dives.push(t.zoom_log10());
+            } else if let Some(d) = dives.last_mut() {
+                *d = d.max(t.zoom_log10());
+            }
+        }
         if let Some(d) = thumbs {
             let mut r = new_renderer(backend, o)?;
             r.settings = almondbread_core::RenderSettings::default();
@@ -1594,6 +1657,25 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
         center = t.center.clone();
         span = t.span;
         chain = p.chain;
+    }
+    if path_stats && !leg_seconds.is_empty() {
+        let sum = |k: usize| leg_seconds.iter().map(|l| [l.0, l.1, l.2, l.3][k]).sum::<f64>();
+        let max = |k: usize| leg_seconds.iter().map(|l| [l.0, l.1, l.2, l.3][k]).fold(0.0, f64::max);
+        let mut d = dives.clone();
+        d.sort_by(f64::total_cmp);
+        println!(
+            "journey-path: legs {} flight {:.0} s -> {:.0} s with the dull pace, longest dull stretch {:.1} s -> {:.1} s; dives {} deepest 1e{:.1} median 1e{:.1}, below 1e10 {} of {}",
+            leg_seconds.len(),
+            sum(0),
+            sum(1),
+            max(2),
+            max(3),
+            d.len(),
+            d.last().copied().unwrap_or(0.0),
+            d.get(d.len() / 2).copied().unwrap_or(0.0),
+            d.iter().filter(|&&z| z < 10.0).count(),
+            d.len()
+        );
     }
     if let Some(path) = o.get("save") {
         fs::write(path, saved)?;

@@ -50,3 +50,11 @@ with the display on/off and on an iPad. Record date, device and OS version here.
 - almondbread's chunked scheduler keeps command buffers at ~16 ms (p99 17.6 ms over a
   1e7-iteration render), so the question no longer constrains the design
   ([[platform/gpu-watchdog-and-chunking]], [[synthesis/benchmarks]]).
+- Seen 2026-10-16 (M1 Pro, background interaction-test window, GPU 83–100 % busy with other
+  processes): `kIOGPUCommandBufferCallbackErrorImpactingInteractivity` on iterate chunks of
+  the "spiral zoom" scenario. The gesture frames there were single command buffers of 2.6 s
+  GPU (a jump left the cost model unknown, so the first previews ran at 1/2 resolution and
+  K = the whole 41 604-iteration limit; [[synthesis/benchmarks]] "Motion fixes"). With
+  budgeted chunks after a jump the error still appeared in 2 of 6 runs under that load, on the
+  refine job's chunks; so a presenting process is killed well below the 10 s seen above when
+  the GPU is contended. Still no clean threshold.

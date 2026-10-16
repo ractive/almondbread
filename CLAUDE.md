@@ -82,6 +82,14 @@ and quit by themselves):
   (`autopilot-metrics:` line). `ALMONDBREAD_LOCK_TRACE=1` prints each lock search;
   `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the app's target-lock setting (A/B).
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms) and seed round.
+- Hitches: `ALMONDBREAD_FRAME_LOG=1` makes the interaction test print each scenario's longest
+  presentation gaps and slowest draws with their times; `ALMONDBREAD_KERNEL_SALT=x` (new x)
+  measures with a cold Metal shader cache (as after an update), `ALMONDBREAD_WARM_PIPELINES=0`
+  turns the pipeline warm-up off (kb: platform/metal-compute); `fly --log x.csv` has per-refresh
+  zoom, frame CPU and late ms (`fly_to` and `jump` take `{"place": id}`).
+- Journeys: `almondbread journey --seed n --path 1|2` prints each leg's dull stretches and the
+  per-dive depths; `ALMONDBREAD_PROBE_ESCALATE=0` restores the fixed CPU probe limit (target
+  lock near deep high-period minibrots, kb: decisions/controls).
 - M5 switches for before/after checks (default auto/on): `ALMONDBREAD_SA=0|1|auto` (local SA,
   CLI `--sa`), `ALMONDBREAD_FILL=0|1|auto` (interior tile fill, `--fill`),
   `ALMONDBREAD_ITER_FLOOR=0` (auto-iteration floor from the reference).
