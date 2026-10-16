@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
+.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -59,6 +59,11 @@ selftest: build app
 ## ALMONDBREAD_SCENARIOS="home pan,neck zoom" picks some. kb: synthesis/benchmarks
 interaction-test: build
 	.build/release/AlmondbreadMac --interaction-test
+
+## The main-thread hang watchdog in a background window: blocks the main thread for 3 s, prints
+## the report it wrote (build/hang/hang-*.txt) and "hang test OK". kb: techniques/hang-prevention
+hang-test: build
+	.build/release/AlmondbreadMac --hang-test --hang-dir=$(abspath build/hang)
 
 ## The same in FRONT of other windows (takes focus for ~2 minutes; run it yourself, never from
 ## an agent): the only way to measure 120 Hz presentation on a ProMotion panel. Results in

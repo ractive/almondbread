@@ -917,3 +917,21 @@ the extension for every reference; the f64 orbit is computed as far as the passe
 iteration counts and verify metrics are unchanged; the regression is in `make regress`
 (`--max-cpu-median 0.05`, a new history gate). Pages: [[techniques/rebasing]] (Truncated
 references), [[techniques/auto-iterations]].
+
+## [2026-10-16] decision | Hang prevention: loop audit, lints, extreme-value tests, main-thread watchdog
+
+After two beach balls (the mini-map level loop at depths past 1e308; a SwiftUI layout loop
+under an open menu) every loop and recursion whose end depends on computed values was audited
+in all crates and the Swift sources. Real hazards found and guarded: the cosmic ruler's
+`k += 1.0` decade ticks (endless past 2^53 or at inf), π meter ticks over f64 bounds, the
+autopilot's `dt / 0.002` substeps at inf dt, Halton base 1, `frexp`/`exponent_of`/
+`exponent_significand` recursing on 0, the float-float GPU loop without a dispatch cap,
+`BigFloat::parse` computing 10^999999999 for pasted text (now `None` past 1e±100000), the
+centre precision for a 2^-1e9 scale before the caller clamps it, precision bits at inf, NaN/inf
+input events (a BigFloat panic) and NaN frame times in the navigator, inf view sizes. Clippy
+`maybe_infinite_iter`, `while_float`, `infinite_loop` (warn) and `infinite_iter` (deny) are on
+workspace-wide. 13 extreme-value unit tests (`cargo test extreme_`, ~10 ms in all). New
+`HangWatchdog` (heartbeat every 0.5 s, report after 2 s with the main thread's stack via
+public Mach calls and a ring buffer of recent events, to ~/Library/Logs/Almondbread) and
+`--hang-test`; MetricKit hang diagnostics saved alongside. Pages:
+[[techniques/hang-prevention]], [[sources/apple-metrickit-hang-diagnostics]].

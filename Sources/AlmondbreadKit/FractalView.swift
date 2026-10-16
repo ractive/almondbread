@@ -150,6 +150,7 @@ class FractalHostBase {
     @discardableResult
     func send(_ event: InputEvent, host: ExplorerHost) -> InputResult {
         guard let explorer else { return InputResult(handled: false, redraw: false, mode: mode) }
+        HangWatchdog.note("input", "\(event)")
         let r = explorer.input(event: event)
         if r.redraw { host.requestFrames() }
         setMode(r.mode)
@@ -171,7 +172,9 @@ class FractalHostBase {
     func step(timestamp: CFTimeInterval) -> Bool {
         guard let explorer else { return false }
         let t0 = CACurrentMediaTime()
+        HangWatchdog.frame(begin: true)
         let bits = explorer.frame(timestamp: timestamp)
+        HangWatchdog.frame(begin: false)
         let t1 = CACurrentMediaTime()
         frameTimes?.append(t1 - t0)
         let animating = bits & frameAnimating != 0

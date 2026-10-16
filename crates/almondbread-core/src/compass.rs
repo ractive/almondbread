@@ -349,7 +349,7 @@ mod tests {
         n.turn_north(t);
         let mut tt = t;
         let mut min_abs = f64::MAX;
-        while tt < t + NORTH_DURATION + 0.05 {
+        for _ in 0..((NORTH_DURATION + 0.05) * 60.0).ceil() as usize {
             tt += 1.0 / 60.0;
             n.advance(&mut v, tt);
             min_abs = min_abs.min(v.angle.abs());

@@ -200,6 +200,35 @@ pub enum InputEvent {
     },
 }
 
+impl InputEvent {
+    /// Every number in the event is finite (NaN or inf from a platform bug would reach the
+    /// BigFloat centre and panic, or a size of usize::MAX; kb: techniques/hang-prevention).
+    pub fn is_finite(&self) -> bool {
+        let f = |v: &[f64]| v.iter().all(|x| x.is_finite());
+        match *self {
+            Self::KeyDown(_) | Self::KeyUp(_) | Self::Shift(_) | Self::FocusLost | Self::GestureEnd => true,
+            Self::Resize { width, height } => f(&[width, height]),
+            Self::Insets {
+                top,
+                left,
+                bottom,
+                right,
+            } => f(&[top, left, bottom, right]),
+            Self::Pointer(p) => p.is_none_or(|(x, y)| f(&[x, y])),
+            Self::Pan { dx, dy } | Self::Scroll { dx, dy, .. } => f(&[dx, dy]),
+            Self::Click { x, y } | Self::DoubleTap { x, y, .. } => f(&[x, y]),
+            Self::WheelZoom { delta, x, y } | Self::WheelNotch { delta, x, y } => f(&[delta, x, y]),
+            Self::Magnify { magnification, x, y } => f(&[magnification, x, y]),
+            Self::Pinch { ratio, x, y, dx, dy } => f(&[ratio, x, y, dx, dy]),
+            Self::ZoomBy { factor } => factor.is_finite(),
+            Self::Gamepad {
+                lx, ly, rx, ry, lt, rt, ..
+            } => f(&[lx, ly, rx, ry, lt, rt]),
+            Self::Rotate { radians, x, y } => f(&[radians, x, y]),
+        }
+    }
+}
+
 /// Pan speed of the direction keys, in view widths per second.
 pub const PAN_SPEED: f64 = 0.4;
 /// Zoom speed range, e-folds of magnification per second.
@@ -862,6 +891,16 @@ impl Navigator {
 
     /// Applies one event. Returns true if the event was ours (the platform swallows it).
     pub fn handle(&mut self, event: InputEvent, viewport: &mut Viewport, now: f64) -> bool {
+        if !event.is_finite() || !now.is_finite() {
+            return false;
+        }
+        let event = match event {
+            InputEvent::Resize { width, height } => InputEvent::Resize {
+                width: width.max(0.0),
+                height: height.max(0.0),
+            },
+            e => e,
+        };
         let was_animating = self.is_animating();
         let handled = self.apply(event, viewport, now);
         if !was_animating && self.is_animating() {
@@ -1293,7 +1332,8 @@ impl Navigator {
     pub fn advance(&mut self, viewport: &mut Viewport, now: f64) -> bool {
         let dt = match self.last_tick {
             // A frame may report a time before the event that started the motion.
-            Some(t) => (now - t).clamp(0.0, 0.1),
+            // NaN (a bad timestamp) counts as no time (clamp keeps NaN).
+            Some(t) => (now - t).clamp(0.0, 0.1).max(0.0),
             None => 1.0 / 60.0,
         };
         self.last_tick = Some(now);

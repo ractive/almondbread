@@ -234,6 +234,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         ov.pi.wait(&r.viewport);
     }
     let deadline = r.clock() + 30.0;
+    #[expect(clippy::while_float, reason = "a wall-clock deadline: the clock advances")]
     while r.clock() < deadline {
         ov.step_probe(0.05);
         ov.step_maps(&r.settings, r.clock());
@@ -291,7 +292,8 @@ fn pi_history_for_still(
     };
     // Shallow to deep, as a zoom would make them (the deepest counted is the one shown), and
     // only where the meter counts.
-    let mut list: Vec<f64> = (1..)
+    // At most 64 half-decades: with eps = 0 the sequence never passes 0.1 (unbounded before).
+    let mut list: Vec<f64> = (1..=64)
         .map(|k| t.eps * 10f64.powf(0.5 * f64::from(k)))
         .take_while(|&e| e <= 0.1 + 1e-12)
         .filter(|&e| e >= t.point.min_eps())
@@ -1794,8 +1796,13 @@ pub fn locate_command(o: &Options) -> Result<i32> {
         // The nucleus must be resolved far below the minibrot's size (often ~ radius^2 near
         // the needle): refine at more bits until the precision covers it.
         let mut size = minibrot_size_complex(&nr.nucleus, p);
-        loop {
-            let need = ((-size.magnitude().log2_magnitude()) as usize + 96).div_ceil(64) * 64;
+        // A few precision rounds at most: each raise is to what the last size asked for.
+        for _round in 0..8 {
+            let need = ((-size.magnitude().log2_magnitude()) as usize)
+                .saturating_add(96)
+                .min(1 << 17)
+                .div_ceil(64)
+                * 64;
             if need <= bits {
                 break;
             }

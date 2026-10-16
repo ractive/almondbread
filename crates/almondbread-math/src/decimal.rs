@@ -6,6 +6,10 @@ use crate::bignat::{self, Nat};
 use crate::raw;
 use core::cmp::Ordering;
 
+/// Largest decimal exponent (after folding the digits) [`BigFloat::parse`] accepts
+/// (kb: techniques/hang-prevention).
+pub const MAX_DECIMAL_EXPONENT: u64 = 100_000;
+
 impl BigFloat {
     /// Parses `[+-]digits[.digits][(e|E)[+-]digits]` (surrounding whitespace allowed) and
     /// rounds the exact decimal value to nearest-even at `precision_bits`. `None` if
@@ -76,6 +80,11 @@ impl BigFloat {
             dec += 1;
         }
         let d = bignat::from_decimal_digits(&digits[start..end]);
+        // 10^|dec| is computed exactly: "1e-999999999" took minutes (a hang when pasted into
+        // the app). Far past any view (1e-3010) or coordinate; zero keeps any exponent.
+        if !d.is_empty() && dec.unsigned_abs() > MAX_DECIMAL_EXPONENT {
+            return None;
+        }
         Some(Self::from_decimal_parts(&d, dec, negative, precision_bits))
     }
 

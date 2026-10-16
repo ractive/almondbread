@@ -69,6 +69,10 @@ and quit by themselves):
   draw CPU and per-frame FFI overhead of pans, zooms and keys in a background window
   (`ALMONDBREAD_SCENARIOS=` to pick some); fails if a shown frame differs from a fresh
   render.
+- `make hang-test` (`AlmondbreadMac --hang-test`): the main-thread hang watchdog blocks its main
+  thread for 3 s in a background window and prints the report (kb: techniques/hang-prevention;
+  real reports go to `~/Library/Logs/Almondbread/hang-*.txt`). `cargo test extreme_`: the
+  extreme-value tests (inf/NaN/1e-3010 inputs return quickly).
 - `almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--then f]`:
   a scripted session through the real per-refresh scheduler, headless, diffed against
   the CPU oracle and a fresh render; `make regress` runs the -3/4 neck regressions.

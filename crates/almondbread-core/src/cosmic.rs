@@ -753,7 +753,7 @@ impl CosmicScale {
         let mut out = Vec::new();
         let k0 = ((lo - self.offset) / len).floor().max(0.0) as i64;
         let k1 = ((hi - self.offset) / len).ceil() as i64;
-        for k in k0..=k1.min(k0 + 8) {
+        for k in k0..=k1.min(k0.saturating_add(8)) {
             let base = k as f64 * len + self.offset;
             for (i, t) in THINGS.iter().enumerate() {
                 let d = base + place(i);

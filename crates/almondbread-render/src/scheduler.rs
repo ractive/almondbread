@@ -487,6 +487,9 @@ pub fn tiles(w: usize, h: usize) -> (usize, usize) {
 
 /// Halton low-discrepancy sequence, base `b`, index `i` >= 1, in (0, 1).
 pub fn halton(mut i: u32, b: u32) -> f32 {
+    if b < 2 {
+        return 0.5; // base 1 never ends (i /= 1), base 0 divides by zero
+    }
     let (mut f, mut r) = (1.0f32, 0.0f32);
     while i > 0 {
         f /= b as f32;

@@ -110,7 +110,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         } else {
             1.0
         };
-        let (w, h) = (width.max(0.0), height.max(0.0));
+        // NaN gives 0 (max), +inf or absurd sizes a 16k-pixel cap: an unbounded size meant
+        // usize::MAX texels and tile loops (kb: techniques/hang-prevention).
+        let cap = 16384.0 / s;
+        let (w, h) = (width.max(0.0).min(cap), height.max(0.0).min(cap));
         self.width = (w * s).round() as usize;
         self.height = (h * s).round() as usize;
         self.points_per_pixel = 1.0 / s;
