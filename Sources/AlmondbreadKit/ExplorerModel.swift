@@ -130,6 +130,7 @@ public enum Preferences {
     public static let zoomUnitsKey = "zoomUnits"
     public static let restoreKey = "restoreSettings"
     public static let hudKey = "showHUD"
+    public static let hudDetailsKey = "hudDeveloperDetails"
     static let savedSettingsKey = "almondbread.settings.v1"
 
     static var gamepadEnabled: Bool { UserDefaults.standard.object(forKey: gamepadKey) as? Bool ?? true }
@@ -273,9 +274,14 @@ public final class ExplorerModel {
     public var compassInsetTop = 0.0 { didSet { if compassInsetTop != oldValue { pushCompass() } } }
     /// Physical size of a view point (the platform view measures its screen; 0: unknown).
     var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
-    /// The status overlay (zoom, iterations, GPU time) in the top-left corner.
+    /// The status overlay (zoom, centre, speed) in the top-left corner.
     public var showHUD: Bool = UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
+    }
+    /// The HUD's developer details (iterations, GPU, reference, kernel, state): off by default.
+    /// A demo window does not store it (it would change the user's preference).
+    public var hudDetails: Bool = UserDefaults.standard.bool(forKey: Preferences.hudDetailsKey) {
+        didSet { if !UIDemo.enabled { UserDefaults.standard.set(hudDetails, forKey: Preferences.hudDetailsKey) } }
     }
 
     // Navigation (an app-wide preference; the navigator in Rust applies it)
@@ -310,6 +316,13 @@ public final class ExplorerModel {
     /// `stats`, so it is not rebuilt at 10 Hz (that reset the hover timer and no tooltip showed).
     public private(set) var autopilotActive = false
     public private(set) var journeyActive = false
+    /// More change-only state for the control center's buttons (the sidebar shows no live
+    /// values: kb platform/swiftui-performance): a flight runs, the journey is paused, its
+    /// seed, the view is turned.
+    public private(set) var flightActive = false
+    public private(set) var journeySuspended = false
+    public private(set) var journeySeed: UInt64 = 0
+    public private(set) var viewTurned = false
     /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
     public private(set) var orbit: OrbitInfo?
     /// The π meter's reading (refreshed with the stats while it is on).
@@ -319,13 +332,6 @@ public final class ExplorerModel {
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
     /// showing it (control center, controls help) do not depend on the 10 Hz `stats`.
     public private(set) var zoomSpeed = 1.6
-    /// `stats` for the control center's readouts, at most 4 Hz (a discrete change, e.g. the
-    /// autopilot stopping or the view settling, passes at once; the latest value always lands).
-    /// Every update of a sidebar row re-lays out the whole open grouped form (~10 ms per update
-    /// with one section open; kb: platform/swiftui-performance), so it should not run at 10 Hz.
-    public private(set) var panelStats: ExplorerStats?
-    @ObservationIgnored private var panelUpdated = 0.0
-    @ObservationIgnored private var panelPending = false
     /// Why the renderer could not be created, if it could not.
     public internal(set) var failure: String?
 
@@ -375,6 +381,8 @@ public final class ExplorerModel {
         }
         let hud = d.object(forKey: Preferences.hudKey) as? Bool ?? true
         if hud != showHUD { showHUD = hud }
+        let details = d.bool(forKey: Preferences.hudDetailsKey)
+        if !UIDemo.enabled, details != hudDetails { hudDetails = details }
     }
 
     // MARK: Settings
@@ -964,36 +972,14 @@ public final class ExplorerModel {
             zoomSpeedChanged = Date()
         }
         stats = new
-        updatePanel(new)
         if zoomSpeed != new.zoomSpeed { zoomSpeed = new.zoomSpeed }
         if autopilotActive != new.autopilot.active { autopilotActive = new.autopilot.active }
         if journeyActive != new.journey.active { journeyActive = new.journey.active }
-    }
-
-    private func updatePanel(_ new: ExplorerStats) {
-        let now = Date.timeIntervalSinceReferenceDate
-        let discrete = panelStats.map {
-            $0.autopilot.active != new.autopilot.active || $0.flight.active != new.flight.active
-                || $0.journey.active != new.journey.active || $0.journey.suspended != new.journey.suspended
-                || $0.settled != new.settled
-        } ?? true
-        if discrete || now - panelUpdated >= 0.25 {
-            panelStats = new
-            panelUpdated = now
-            return
-        }
-        guard !panelPending else { return }
-        panelPending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.01, 0.25 - (now - panelUpdated))) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.panelPending = false
-                if let s = self.stats, s != self.panelStats {
-                    self.panelStats = s
-                    self.panelUpdated = Date.timeIntervalSinceReferenceDate
-                }
-            }
-        }
+        if flightActive != new.flight.active { flightActive = new.flight.active }
+        if journeySuspended != new.journey.suspended { journeySuspended = new.journey.suspended }
+        if journeySeed != new.journey.seed { journeySeed = new.journey.seed }
+        let turned = new.shown.angleDegrees != 0
+        if viewTurned != turned { viewTurned = turned }
     }
 
     /// Zoom speed as a magnification factor per second, for display.

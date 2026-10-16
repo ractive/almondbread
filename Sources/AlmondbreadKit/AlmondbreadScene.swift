@@ -165,6 +165,9 @@ struct FractalCommands: Commands {
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)
+            Toggle("Developer Details in Status", isOn: Binding(get: { model?.hudDetails ?? false },
+                                                                set: { model?.hudDetails = $0 }))
+                .disabled(model == nil || model?.showHUD == false)
             Divider()
         }
     }

@@ -54,7 +54,7 @@ neither depends on nor changes the user's sidebar.
    640×400 HEIC on first appearance, so the grid filled in over 733 ms. All of them decoded
    took ~71 MB (1 MB of bitmap each).
 
-## Fixes
+## Fixes (first pass)
 
 - **Sections as view structs** (`ControlSectionRows(section:model:)` and one struct per
   section). Their inputs are equal across parent updates, so SwiftUI skips their bodies when
@@ -64,7 +64,7 @@ neither depends on nor changes the user's sidebar.
   `JourneyControls`, `CurrentIterations`, `DiagnosticsRows`, `OrbitReadout`, `PiMeterRows`).
   Change-only model properties for what buttons need (`autopilotActive`, and now
   `zoomSpeed`, as in the toolbar fix for tooltips).
-- **`panelStats`: the stats for the sidebar at most 4 Hz.** A discrete change (autopilot,
+- **`panelStats`: the stats for the sidebar at most 4 Hz** (removed in the second pass). A discrete change (autopilot,
   flight or journey on or off, journey paused, view settled) passes at once, and a trailing
   update makes sure the latest value lands. The HUD keeps the 10 Hz `stats`. Because of
   pitfall 2 the update rate itself is the cost: rendering with View, Look, Quality and
@@ -101,10 +101,82 @@ neither depends on nor changes the user's sidebar.
 | Places first open: thumbnails with image at first body | 0 / 45 | 71 / 71 |
 | Places first open: last thumbnail visible | 733 ms | 51 ms |
 | thumbnail memory | ~71 MB (all decoded) | 13.3 MB |
-| section toggle, 5 heavy sections open | median 166 ms, max 388-430 ms | 75-410 ms by section (no clear change) |
+| section toggle, 5 heavy sections open | median 166 ms, max 388-430 ms | 75-410 ms by section (no clear change; fixed in the second pass below) |
 
-## Open
+## Resolved: no live values, a lazy container (second pass)
 
-The toggle cost and the ~0.4 s query rebuild come from pitfall 2. Removing it needs a lazy
-container (a `List`, or a `ScrollView` + `LazyVStack` styled like the grouped form). That
-changes how the sidebar looks, so it is a decision for the user, not part of this fix.
+The first pass left the toggle cost and the ~0.4 s query rebuild (pitfall 2) and 23 % busy
+while rendering. The user decided that **the sidebar holds only what can be set**, and that a
+lazy container may replace the form if it looks close to it.
+
+- **Live values out of the sidebar.** `ViewReadout` (centre, zoom, scale, zoom speed), the
+  rotation angle, the autopilot / flight speed line, the journey's leg / phase / speed lines,
+  `CurrentIterations`, the Diagnostics section, `OrbitReadout`, `MapNote` and the π meter
+  readouts are gone. `panelStats` had no readers left and was deleted. Where they went: the
+  HUD (`HUDView`, `ContentView.swift`) shows zoom, centre (cut to 34 characters; ⇧⌘C copies it
+  in full) and the speed line; the iterations and everything Diagnostics had are the HUD's
+  **developer details** (`HUDDeveloperDetails`), off by default: Overlays ▸ "Developer details
+  in the HUD", View ▸ "Developer Details in Status", or the Settings window. The orbit's c and
+  |zₙ|, the map note and the π reading were already drawn on the canvas by Rust. Buttons read
+  change-only model properties (`autopilotActive`, `journeyActive`, and new `flightActive`,
+  `journeySuspended`, `journeySeed`, `viewTurned`), assigned only when they change.
+- **macOS: a `ScrollView` + `LazyVStack` instead of the grouped `Form`.** Every row of every
+  open section is its own child of the lazy stack: `ControlCardRows` splits a section's rows
+  with `Group(subviews:)` (macOS 15) and draws each row's slice of the rounded card (corners on
+  the first and last, a separator between rows). Tile grids (Places, palettes) are split into
+  one stack row per grid row (`TileRows`; columns from the sidebar width, `controlRowTight`
+  container value: no separator between them). A `LabeledContentStyle` (label leading, value
+  trailing), a `ToggleStyle` (small switch trailing) and `ControlRows.picker` / `.color`
+  (labelled row, menu at its own size) give the grouped-form look outside a `Form`. iOS keeps
+  its `Form` (a collection view there, lazy already). macOS 14 falls back to one card per
+  section.
+- **Cheaper tiles**: only the selected thumbnail or swatch gets a border shape, and a
+  thumbnail attaches its `.task` only while it has no image.
+- `UIPerf` now counts every section body (`section.*`) and the HUD, and labels each toggle as
+  `open-*` / `close-*` (with min, median and max).
+
+Pitfall found on the way: in a `LazyVStack`, a custom `Layout` can be proposed an infinite
+width (the stack's ideal-size pass). `TileGrid` divided by it and crashed
+(`Int(+Inf)`); it now treats a non-finite width like nil.
+
+### Before and after (same scene, 3 runs each, median and range)
+
+Measured 2026-10-16, M1-class Mac, Release Xcode build, background window, machine shared with
+other agents' builds. Scene: `--ui-demo=perf`; "4 open" is View, Look, Quality (and
+Diagnostics before); the toggles have Places, View, Look and Quality open.
+
+| Phase | Before (main 4d6bf96) | After |
+| --- | --- | --- |
+| rendering, sections open: main busy | 23 % (23-23) | 14 % (13-16) |
+| rendering, all collapsed (baseline) | 13 % (10-14) | 16 % (15-16) |
+| rendering, sidebar bodies in 3 s | 12 + 12 leaf bodies (readout, diagnostics) | 1 (`section.view`, the autopilot button) |
+| rendering with Places open: main busy | 25 % (24-25) | 15 % (15-15) |
+| toggle View | 375 ms (357-390) | 10 ms (8-13) |
+| toggle Look | 308 ms (175-313) | 14 ms (11-17) |
+| toggle Journey | 400 ms (356-406) | 13 ms (10-23) |
+| toggle Lighting | 245 ms (109-253) | 11 ms (8-16) |
+| toggle Interior | 231 ms (212-237) | 20 ms (11-20) |
+| toggle Overlays | 179 ms (103-204) | 18 ms (15-24) |
+| toggle Quality | 160 ms (144-170) | 14 ms (11-16) |
+| toggle Controls | 82 ms (37-100) | 15 ms (11-17) |
+| toggle Places (open or close, the slower) | 433 ms (392-513) | 84 ms (74-110) |
+| Places alone (all else collapsed), the slower toggle | 121 ms (117-126) | 47 ms (36-57) |
+| first open of Places | 506 ms (462-517) | 167 ms (115-187) |
+| accordion phase: main busy | 49 % (46-51) | 5 % (4-5) |
+| search rebuild (worst keystroke, idle) | 425 ms (394-488) | 78 ms (74-92) |
+| ditto while rendering | 456 ms (415-468) | 67 ms (41-73) |
+| typing while rendering: main busy | 52 % (52-53) | 22 % (19-22) |
+
+Toggle rows: the slower of the two toggles per section, per run. The "rendering" busy share
+with sections open is now at the collapsed baseline (the remaining 13-16 % is the renderer's
+own main-thread work and the HUD at 10 Hz; both runs of the baseline are within the noise).
+
+### Still above 50 ms
+
+Opening or closing Places (74-110 ms) and the search rebuild (67-92 ms): both put ~40-70 new
+tiles or swatches and AppKit controls on screen at once (closing Places reveals View, the
+palette grid and Quality; clearing the search re-adds every section). `sample` shows the time
+in `NSHostingView.layout` and `DisplayList.ViewUpdater` (making the platform views and
+layers), not in bodies. The toggle animation makes no difference (measured with and without).
+Per-row laziness only helps for rows below the fold. What is left to try: fewer views per
+tile (one `Canvas` per grid row), or keeping a closed Places section's views alive.

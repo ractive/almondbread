@@ -803,3 +803,17 @@ a search field that owns its text with a 120 ms debounce to the form (one rebuil
 thumbnails pre-decoded at launch at display size (13.3 MB, all shown in the first frame, 51
 ms), and a fixed-geometry `TileGrid`. The toggle cost is not fixed: it needs a lazy container
 that would change how the sidebar looks. Page: [[platform/swiftui-performance]].
+
+## [2026-10-16] decision | Control center: settings only, lazy sidebar, place captions
+
+The user decided the sidebar holds only what can be set. Removed every live value (centre,
+zoom, scale, rotation angle, motion and journey status lines, current iterations, the
+Diagnostics section, orbit / map-note / π readouts) and `panelStats`; buttons read change-only
+model state. The HUD now shows zoom, centre and speed; iterations and the diagnostics are its
+developer details, off by default (Overlays, View menu, Settings). On the Mac the grouped
+`Form` became a `ScrollView` + `LazyVStack` with one stack row per settings row (and per tile
+grid row), styled like the grouped form; iOS keeps its `Form`. Places thumbnails show name and
+zoom on a caption strip. Measured (3 runs each): rendering with sections open 23 % → 14 % main
+busy (collapsed baseline 13-16 %), no sidebar body re-runs while rendering; section toggles
+160-400 ms → 10-20 ms; Places open/close 433 → 84 ms; search rebuild 425 → 78 ms. Page:
+[[platform/swiftui-performance]], [[decisions/controls]].

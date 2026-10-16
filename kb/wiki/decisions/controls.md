@@ -189,8 +189,14 @@ actually are", with nested levels and click-to-jump). Measured in [[synthesis/be
 ("Overlays").
 
 **Control center** (`Sources/AlmondbreadKit/ControlCenterView.swift`, replaces the inspector).
-Sections in order: Places, View & navigation, Look & colour, Lighting & outline, Interior,
-Overlays, Iterations & quality, Performance & diagnostics, Controls. A search field at the top
+Sections in order: Places, View & navigation, Journey & cinematic effects, Look & colour,
+Lighting & outline, Interior, Overlays, Iterations & quality, Controls. The sidebar holds only
+what can be set (user, 2026-10-16): no live values. The HUD shows zoom, centre and speed; the
+renderer statistics (iterations, GPU, render size, reference, kernel, state; the former
+"Performance & diagnostics" section) are the HUD's developer details, off by default
+(Overlays, View menu, Settings). On the Mac the sections are a lazy stack styled like a
+grouped form; Places thumbnails carry their name and zoom on a caption strip
+([[platform/swiftui-performance]]). A search field at the top
 filters sections by title and keywords ("dense", "orbit", "aa", ...); headers collapse
 (remembered). A trailing sidebar on the Mac and iPad, so nothing covers the image; a sheet on
 iPhone (medium/large detents, translucent material). Toggled by the toolbar button and ⌘I

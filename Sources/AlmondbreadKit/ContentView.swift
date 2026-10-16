@@ -187,6 +187,7 @@ struct HUDView: View {
     @State private var speedHighlight = false
 
     var body: some View {
+        let _ = UIPerf.body("HUD")
         if let s = model.stats {
             content(s)
         }
@@ -214,11 +215,13 @@ struct HUDView: View {
             }
             .font(.callout)
             Group {
-                Text("iter \(s.maxIterations.formatted())\(model.autoIterations ? " auto" : "")")
-                if !compact {
-                    Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks  ·  \(s.renderWidth)×\(s.renderHeight)\(s.isRendering ? "  ·  refining" : "")")
-                    Text("ref \(s.referenceLength.formatted()) pts\(s.referencePeriod > 0 ? " (period \(s.referencePeriod))" : "")  ·  \(s.referenceBits) bit  ·  CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
+                // The centre (the control center shows no live values; ⇧⌘C copies it in full).
+                Group {
+                    Text("re " + Self.digits(s.shown.re, compact ? 22 : 34))
+                    Text("im " + Self.digits(s.shown.im, compact ? 22 : 34))
                 }
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(1)
                 if s.shown.angleDegrees != 0 {
                     Text(String(format: "turned %.1f°", s.shown.angleDegrees))
                 }
@@ -238,6 +241,9 @@ struct HUDView: View {
                 Label(hint, systemImage: s.flight.active ? "location.north.line" : "airplane")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
+            }
+            if model.hudDetails {
+                HUDDeveloperDetails(stats: s, autoIterations: model.autoIterations)
             }
             if s.shown.atPrecisionLimit {
                 Label("Depth limit: zoom stops here (10^3000; reference orbits need 10 000 bits).",
@@ -267,6 +273,32 @@ struct HUDView: View {
                 if Date().timeIntervalSince(model.zoomSpeedChanged) >= 1.4 { speedHighlight = false }
             }
         }
+    }
+}
+
+/// The HUD's developer details (Overlays ▸ "Developer details in the HUD", View menu): what
+/// the control center's "Performance & diagnostics" section showed.
+struct HUDDeveloperDetails: View {
+    let stats: ExplorerStats
+    let autoIterations: Bool
+
+    var body: some View {
+        let s = stats
+        VStack(alignment: .leading, spacing: 2) {
+            Text("iterations \(s.maxIterations.formatted())\(autoIterations ? " (auto)" : "")")
+            Text("GPU \(Format.ms(s.gpuTime))  ·  \(s.chunks) chunks")
+            Text("render \(s.renderWidth)×\(s.renderHeight)\(s.isPreview ? " preview" : "")")
+            Text("ref \(s.referenceLength.formatted()) pts  ·  \(s.referenceBits) bit\(s.referencePeriod > 0 ? "  ·  period \(s.referencePeriod)" : "")")
+            Text("ref CPU \(Format.ms(s.referenceTime))\(s.referencePending ? "  ·  computing" : "")")
+            Text("kernel \(s.deep ? "deep (extended range)" : "plain float32")  ·  \(s.settled ? "settled" : (s.isRendering ? "refining" : "idle"))")
+            if s.failedFrames > 0 {
+                Text("failed frames \(s.failedFrames)").foregroundStyle(.red)
+            }
+        }
+        // Set off from the lines above by space (a `Divider` would stretch the HUD's width).
+        .padding(.top, 4)
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -313,6 +345,11 @@ extension HUDView {
         if s.autopilot.paused { return "Autopilot paused  ·  click to resume" }
         let lock = s.autopilot.lockLabel.isEmpty ? nil : s.autopilot.lockLabel
         return ["Autopilot", lock, Self.hintText(s.autopilot.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+    }
+
+    /// A coordinate cut to `n` characters (deep views have hundreds of digits; ⇧⌘C copies all).
+    static func digits(_ x: String, _ n: Int) -> String {
+        x.count <= n ? x : x.prefix(n - 1) + "…"
     }
 
     static func hintText(_ h: AutopilotHint) -> String? {

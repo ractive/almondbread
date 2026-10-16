@@ -115,7 +115,7 @@ enum UIPerf {
                           name, span, busy * 1000, 100 * busy / span, longest * 1000, counts)
         for (label, v) in latencies.sorted(by: { $0.key < $1.key }) {
             let s = v.sorted()
-            line += String(format: "; %@ n=%d median %.1f ms max %.1f ms", label, s.count, s[s.count / 2], s.last ?? 0)
+            line += String(format: "; %@ n=%d median %.1f ms min %.1f ms max %.1f ms", label, s.count, s[s.count / 2], s.first ?? 0, s.last ?? 0)
         }
         report.append(line)
         print(line)
@@ -209,20 +209,23 @@ enum UIPerf {
             // Each section opened and closed with every other one collapsed: its own cost.
             beginPhase()
             for s in ControlSection.allCases {
-                send(.toggle(s), label: "alone-\(s.rawValue)")
+                send(.toggle(s), label: "alone-open-\(s.rawValue)")
                 await wait(0.45)
-                send(.toggle(s), label: "alone-\(s.rawValue)")
+                send(.toggle(s), label: "alone-close-\(s.rawValue)")
                 await wait(0.45)
             }
             endPhase("accordion-alone")
             for s in open { send(.toggle(s), label: "expand") }
             await wait(1.5)
 
+            // With Places, View, Look and Quality open: each section closed and opened again (or
+            // opened and closed).
             beginPhase("accordion")
             for s in ControlSection.allCases {
-                send(.toggle(s), label: "toggle-\(s.rawValue)")
+                let first = open.contains(s) ? "close" : "open", second = open.contains(s) ? "open" : "close"
+                send(.toggle(s), label: "\(first)-\(s.rawValue)")
                 await wait(0.45)
-                send(.toggle(s), label: "toggle-\(s.rawValue)")
+                send(.toggle(s), label: "\(second)-\(s.rawValue)")
                 await wait(0.45)
             }
             endPhase("accordion")

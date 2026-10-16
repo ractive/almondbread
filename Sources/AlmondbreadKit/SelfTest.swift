@@ -89,7 +89,9 @@ public enum SelfTest {
 /// number (`screencapture -l <n>` captures it behind other windows). Prints
 /// "ui-demo: window <n>" once the view settled, then quits after 20 s. Scenes: `orbit`
 /// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
-/// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels);
+/// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels),
+/// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
+/// (the default scene with View and Look, or Lighting, Overlays and Quality open);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -168,6 +170,10 @@ public enum UIDemo {
         d.removePersistentDomain(forName: name)
         if scene == "perf" {
             d.set("controls,interior,journey,lighting,overlays,places", forKey: "controlCenter.collapsed")
+        } else if scene == "sidebar" || scene == "sidebar-2" {
+            // The settings rows: View, Look (or, scrolled past it, Overlays and Quality) open.
+            d.set(scene == "sidebar" ? "controls,interior,journey,lighting,places,overlays,quality"
+                  : "controls,interior,journey,look,places,view", forKey: "controlCenter.collapsed")
         }
         return d
     }()
@@ -188,6 +194,8 @@ public enum UIDemo {
         guard let scene else { return }
         model.applyLook("aurora")
         model.supersampling = .x9
+        // `developer`: the default scene with the HUD's developer details (not stored).
+        if scene == "developer" { model.hudDetails = true }
         switch scene {
         case "interior":
             try? explorer.setViewport(re: "-0.1225", im: "0.7445", scale: 0.0004)
