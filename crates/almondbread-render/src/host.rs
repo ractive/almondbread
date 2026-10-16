@@ -177,6 +177,30 @@ impl<B: GpuBackend + Clone> Host<B> {
         self.overlay.click(&self.renderer, px, py, ppp, fly)
     }
 
+    /// A press at (x, y) view points from the centre, y up: on the visible compass it starts
+    /// following the pointer (a drag turns the view, a click turns it to north on release) and
+    /// returns true (the platform then gives the press, its drag and its release to the
+    /// compass, and no double-click zoom; kb: decisions/controls "Compass").
+    pub fn compass_press(&mut self, x: f64, y: f64, now: f64) -> bool {
+        self.overlay.compass.press(x, y, now)
+    }
+
+    /// The pointer moved to (x, y) during a compass press: the needle follows it.
+    pub fn compass_drag(&mut self, x: f64, y: f64, now: f64) {
+        let turn = self.overlay.compass.drag_to(x, y);
+        if turn != 0.0 {
+            let r = &mut self.renderer;
+            r.navigator.turn_view(turn, &mut r.viewport, now);
+        }
+    }
+
+    /// The compass press ended: a click turns the view to north (eased).
+    pub fn compass_release(&mut self, now: f64) {
+        if self.overlay.compass.release() {
+            self.renderer.navigator.turn_north(now);
+        }
+    }
+
     /// Overlay work before the renderer's frame: a resolved map click is applied (a jump
     /// keeping the zoom), the probe and maps follow the view, the scene is rebuilt if it
     /// changed. Cheap when the overlays are off.
@@ -195,7 +219,9 @@ impl<B: GpuBackend + Clone> Host<B> {
                 self.renderer.note_interaction(now);
             }
         }
-        if self.overlay.active() || self.renderer.overlay.is_some() {
+        let turning = self.renderer.navigator.is_turning_north();
+        self.overlay.compass.update(self.renderer.viewport.angle, turning, now);
+        if self.overlay.active() || self.overlay.compass.shown(now) || self.renderer.overlay.is_some() {
             let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
             self.overlay.prepare(&mut self.renderer, (w, h), ppp, now);
         }
@@ -204,7 +230,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Overlay work after the frame: about 1.5 ms of orbit analysis, and the maps' renderers
     /// while the view is not in a gesture (they never take the gesture frame budget).
     fn overlay_after(&mut self, now: f64, outcome: &mut FrameOutcome) {
-        outcome.animating |= self.overlay.cosmic.animating(now);
+        outcome.animating |= self.overlay.cosmic.animating(now) || self.overlay.compass.animating(now);
         if !self.overlay.settings.any() {
             // The π meter alone: its count runs on its own thread; frames show its progress.
             outcome.animating |= self.overlay.busy();

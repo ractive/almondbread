@@ -339,6 +339,8 @@ pub enum AutopilotHint {
     Featureless,
     /// The depth limit.
     Limit,
+    /// Nothing ahead and no target: zooming out until there is.
+    Rescue,
 }
 
 impl From<almondbread_core::autopilot::Hint> for AutopilotHint {
@@ -351,6 +353,7 @@ impl From<almondbread_core::autopilot::Hint> for AutopilotHint {
             H::Interior => Self::Interior,
             H::Featureless => Self::Featureless,
             H::Limit => Self::Limit,
+            H::Rescue => Self::Rescue,
         }
     }
 }
@@ -406,7 +409,9 @@ pub struct AutopilotStatus {
     pub throttle: f64,
     pub safety: f64,
     pub hint: AutopilotHint,
-    pub assist: bool,
+    /// Target lock on, and what it aims at ("towards spiral M(36,2)"; "" while steered).
+    pub lock: bool,
+    pub lock_label: String,
 }
 
 /// Everything that affects the image except the viewport (the inspector's model).
@@ -982,6 +987,11 @@ impl Explorer {
     pub(crate) fn with_cosmic<R>(&self, f: impl FnOnce(&mut almondbread_render::cosmic::CosmicOverlay) -> R) -> R {
         f(&mut self.lock().host.overlay.cosmic)
     }
+
+    /// The hosted renderer (`crate::compass`).
+    pub(crate) fn with_host<R>(&self, f: impl FnOnce(&mut Host<MetalBackend>) -> R) -> R {
+        f(&mut self.lock().host)
+    }
 }
 
 #[uniffi::export]
@@ -1107,10 +1117,16 @@ impl Explorer {
         self.lock().host.renderer.navigator.edge_pan().into()
     }
 
-    /// Autopilot assist: lean the heading towards nearby boundary detail while the pointer
-    /// rests (off by default).
-    pub fn set_autopilot_assist(&self, on: bool) {
-        self.lock().host.renderer.navigator.autopilot_mut().set_assist(on);
+    /// Autopilot target lock: while the pointer rests the autopilot aims at boundary targets
+    /// and backs out of voids (on by default; off: a pure joystick; kb: decisions/controls
+    /// "Autopilot"). `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the setting (A/B tests).
+    pub fn set_autopilot_lock(&self, on: bool) {
+        let on = match std::env::var("ALMONDBREAD_AUTOPILOT_LOCK").ok().as_deref() {
+            Some("0") => false,
+            Some("1") => true,
+            _ => on,
+        };
+        self.lock().host.renderer.navigator.autopilot_mut().set_lock(on);
     }
 
     /// Forwards a decoded event. `handled`: swallow it; `redraw`: resume the display link.
@@ -1360,7 +1376,8 @@ impl Explorer {
                     throttle: a.throttle(),
                     safety: a.safety(),
                     hint: a.hint().into(),
-                    assist: a.assist(),
+                    lock: a.lock_enabled(),
+                    lock_label: a.lock_label(),
                 }
             },
             journey: {

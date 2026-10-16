@@ -28,7 +28,7 @@
 //! | `{"at": t, "click": [x, y]}` | single click (autopilot: pause / resume) |
 //! | `{"from": a, "to": b, "scroll": [vx, vy]}` | trackpad scroll at vx, vy points/s (autopilot: speed) |
 //! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
-//! | `{"at": t, "assist": true}` | autopilot assist on / off |
+//! | `{"at": t, "lock": false}` | autopilot target lock on / off (on by default); `"lock_synchronous": true` searches on the calling thread (reproducible, slower frames) |
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per script unit) |
 //! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates); `{"location": "spiral-32412-1e19", "pixels": 1920}` takes a benchmark location framed as at that width (also for `fly_to`) |
 //! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); keys `j` (resume / stop), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
@@ -472,8 +472,11 @@ impl FlightPlayer {
         if let Some((x, y)) = self.pt(e.get("click")) {
             r.input(InputEvent::Click { x, y }, now);
         }
-        if let Some(a) = e.get("assist").and_then(Value::as_bool) {
-            r.navigator().autopilot_mut().set_assist(a);
+        if let Some(a) = e.get("lock").and_then(Value::as_bool) {
+            r.navigator().autopilot_mut().set_lock(a);
+        }
+        if let Some(a) = e.get("lock_synchronous").and_then(Value::as_bool) {
+            r.navigator().autopilot_mut().lock_mut().synchronous = a;
         }
         if let Some(j) = e.get("journey") {
             let start = r.viewport().clone();

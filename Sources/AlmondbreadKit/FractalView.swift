@@ -218,6 +218,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     private var dragging = false
     /// The current mouse press landed on a mini-map (no drag, no double-click zoom).
     private var mapClicked = false
+    /// The current mouse press landed on the compass: its drag and release go there (Rust
+    /// hit-tests, turns and eases; kb: decisions/controls "Compass").
+    private var compassPressed = false
     private var gamepad: GamepadInput?
 
     init(model: ExplorerModel) {
@@ -525,6 +528,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if compassPressed {
+            // A click (or the second click of a double click) eases the view back to north.
+            compassPressed = false
+            model.compassRelease()
+            return
+        }
         // A drag released while moving flings on (mice have no OS momentum).
         if dragging {
             send(.gestureEnd)
@@ -539,6 +548,11 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if compassPressed {
+            let o = offset(event.locationInWindow)
+            model.compassDrag(x: o.x, y: o.y)
+            return
+        }
         // A press on a mini-map jumps; it does not drag the view.
         if mapClicked { return }
         dragging = true
@@ -552,6 +566,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        // The compass takes single and double clicks (no double-click zoom under it).
+        let p = offset(event.locationInWindow)
+        if model.compassPress(x: p.x, y: p.y) {
+            compassPressed = true
+            return
+        }
         if event.clickCount == 1 {
             // A click on a mini-map panel jumps there (Option: flies there).
             let o = offset(event.locationInWindow)
@@ -590,6 +610,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var pointerInteraction: UIPointerInteraction?
     private var sentInsets: UIEdgeInsets?
     private var gamepad: GamepadInput?
+    /// The current one-finger pan started on the compass: it turns the view.
+    private var compassPanning = false
 
     // The base creates the layer before the view exists; UIKit asks the class for its layer,
     // so the view's own layer is a plain one hosting the Metal layer as a sublayer.
@@ -829,6 +851,24 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     @objc private func handlePan(_ g: UIPanGestureRecognizer) {
+        // A drag that starts on the compass turns the view (the needle follows the finger).
+        if g.state == .began {
+            let p = g.location(in: self), t = g.translation(in: self)
+            let o = offset(CGPoint(x: p.x - t.x, y: p.y - t.y))
+            compassPanning = base.model.compassPress(x: o.x, y: o.y)
+        }
+        if compassPanning {
+            let o = offset(g.location(in: self))
+            switch g.state {
+            case .began, .changed:
+                base.model.compassDrag(x: o.x, y: o.y)
+            default:
+                compassPanning = false
+                base.model.compassRelease()
+            }
+            g.setTranslation(.zero, in: self)
+            return
+        }
         // Autopilot: the finger steers like the Mac pointer (its offset from the centre);
         // lifting it flies straight on.
         if base.autopilotOn {
@@ -851,12 +891,16 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
 
     @objc private func handleDoubleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
+        // On the compass a double tap turns to north, like a tap; no zoom.
+        if base.model.compassTap(x: o.x, y: o.y) { return }
         send(.doubleTap(x: o.x, y: o.y, out: false))
     }
 
     @objc private func handleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
-        // A tap on a mini-map jumps there; elsewhere it pauses / resumes the autopilot.
+        // A tap on the compass turns to north; on a mini-map it jumps there; elsewhere it
+        // pauses / resumes the autopilot.
+        if base.model.compassTap(x: o.x, y: o.y) { return }
         if base.model.mapClick(x: o.x, y: o.y, fly: false) { return }
         send(.click(x: o.x, y: o.y))
     }

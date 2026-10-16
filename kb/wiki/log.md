@@ -747,6 +747,19 @@ The maths (linear super-log convention, marker table, facts) stays in
 Pages: [[synthesis/how-big-is-big]], [[decisions/controls]], [[decisions/gamification]],
 [[ideas]], [[index]].
 
+## [2026-10-16] decision | Autopilot target lock and rescue
+
+The user reported that plain Z and Z with assist both end in featureless regions. Why: a
+continuous zoom towards a generic point ends on one side of the boundary; the centroid assist
+lags. Built: the target lock (Misiurewicz points, Julia stages, minibrots found off-thread with
+the journey's finder, retargeted ahead of each end span, minibrots followed through, gain law
+for the heading, pointer always wins) and rescue (backs out of a uniform heading region), on
+by default with a control-center toggle and `ALMONDBREAD_AUTOPILOT_LOCK=0|1`; the assist is
+gone. Headless tools: `almondbread autopilot` (CPU simulator), `fly --lock`, fly metrics.
+Uniform share over 90 s went from 94–100 % (plain Z) to 0–8 % at the default speed on 11 of
+12 starts; high-period minibrot starts at max speed stay weak (CPU probe iteration cap).
+Pages: [[decisions/controls]], [[synthesis/benchmarks]].
+
 ## [2026-10-15] decision | π hunt: the view stays in the valley, a probe and the orbit trail
 
 User feedback: "Since the π hunting is only on black regions, it's not really exciting." The
@@ -765,6 +778,15 @@ of the count. The magnifier at scale ε was not built (it would be black and cos
 iterations per pixel). Menu items renamed "Hunt π at the Neck/Cusp". Pages:
 [[techniques/pi-in-the-mandelbrot-set]] "The orbit", "In the app"; [[decisions/controls]]
 "π meter".
+
+## [2026-10-16] decision | Compass
+
+Built a compass after Apple Maps: a rose at the top right with a red north needle, shown while
+the view is turned (or always, a setting), fading 3 s after north. Click or tap eases back to
+north in 0.4 s (exactly 0, the spin of an autopilot, flight or journey goes on from north;
+flights are turned along); drag turns the view 1:1. Rust draws (new triangle overlay
+primitive), hit-tests and moves; Swift routes presses. Mini-map panels now respect the
+safe-area insets. Pages: [[decisions/controls]] "Compass", [[index]].
 
 ## [2026-10-16] decision | Control center performance: invalidation, search, thumbnails
 

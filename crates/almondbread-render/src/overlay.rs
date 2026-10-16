@@ -57,6 +57,7 @@ const KIND_RECT: u32 = 3;
 const KIND_IMAGE: u32 = 4;
 const KIND_GLYPH: u32 = 5;
 const KIND_GLOW: u32 = 6;
+const KIND_TRIANGLE: u32 = 7;
 
 /// Premultiplied linear RGBA from linear RGB and alpha.
 pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
@@ -119,6 +120,17 @@ impl Scene {
             color1: border,
             param: [radius, border_width, 0.0, 0.0],
             info: [KIND_RECT, 0, 0, 0],
+            ..OverlayPrim::default()
+        });
+    }
+
+    /// A filled triangle (the compass needle).
+    pub fn triangle(&mut self, a: [f64; 2], b: [f64; 2], c: [f64; 2], color: [f32; 4]) {
+        self.push(OverlayPrim {
+            geom: [a[0] as f32, a[1] as f32, b[0] as f32, b[1] as f32],
+            color0: color,
+            param: [c[0] as f32, c[1] as f32, 0.0, 0.0],
+            info: [KIND_TRIANGLE, 0, 0, 0],
             ..OverlayPrim::default()
         });
     }
@@ -216,6 +228,15 @@ impl Scene {
             KIND_RING => {
                 let r = g[2] + 0.5 * g[3] + 1.5;
                 [g[0] - r, g[1] - r, g[0] + r, g[1] + r]
+            }
+            KIND_TRIANGLE => {
+                let q = p.param;
+                [
+                    g[0].min(g[2]).min(q[0]) - 1.5,
+                    g[1].min(g[3]).min(q[1]) - 1.5,
+                    g[0].max(g[2]).max(q[0]) + 1.5,
+                    g[1].max(g[3]).max(q[1]) + 1.5,
+                ]
             }
             _ => [g[0] - 1.5, g[1] - 1.5, g[2] + 1.5, g[3] + 1.5],
         };
@@ -473,6 +494,8 @@ pub struct Overlay<B: GpuBackend> {
     pub pi: crate::pi_meter::PiMeter,
     /// The cosmic size scale panel (kb: decisions/controls, "Cosmic size scale").
     pub cosmic: crate::cosmic::CosmicOverlay,
+    /// The compass (kb: decisions/controls, "Compass").
+    pub compass: crate::compass::CompassOverlay,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
 }
@@ -494,6 +517,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             pending_jump: None,
             pi: crate::pi_meter::PiMeter::default(),
             cosmic: Default::default(),
+            compass: Default::default(),
             trail: None,
         }
     }
@@ -584,7 +608,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.maps = None;
             self.probe = None;
             self.probe_key = None;
-            if !(self.cosmic.enabled() || self.pi.enabled) || empty {
+            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now)) || empty {
                 renderer.overlay = None;
                 return;
             }
@@ -612,6 +636,17 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
+        }
+        // ---- Compass: top right, left of map panels there.
+        if self.compass.shown(now) {
+            let left_of = self
+                .maps
+                .as_ref()
+                .filter(|_| s.any() && s.map_corner == Corner::TopRight)
+                .and_then(|m| m.panels.iter().map(|p| p[0]).reduce(f32::min))
+                .map(|x0| (f64::from(x0) - size.0 as f64 / 2.0) * ppp - 8.0);
+            let view_pt = (size.0 as f64 * ppp, size.1 as f64 * ppp);
+            self.compass.layout(view_pt, renderer.navigator.insets(), left_of);
         }
         // ---- Scene.
         let mut scene = Scene::default();
@@ -832,15 +867,20 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let gap = (8.0 * px_per_pt) as f32;
         let (pw, ph) = (panel.0 as f32, panel.1 as f32);
         let (w, h) = (size.0 as f32, size.1 as f32);
+        // Clear of the toolbar and a sidebar over the canvas (safe-area insets, points).
+        let (top, left, bottom, right) = renderer.navigator.insets();
+        let px = |v: f64| (v * px_per_pt) as f32;
+        let (x0, x1) = (px(left) + margin, w - px(right) - margin);
+        let (y0, y1) = (px(top) + margin, h - px(bottom) - margin);
         let n = stack.levels.len();
         stack.panels = (0..n)
             .map(|i| {
                 let off = i as f32 * (pw + gap);
                 match s.map_corner {
-                    Corner::BottomLeft => [margin + off, h - margin - ph],
-                    Corner::BottomRight => [w - margin - pw - off, h - margin - ph],
-                    Corner::TopLeft => [margin + off, margin],
-                    Corner::TopRight => [w - margin - pw - off, margin],
+                    Corner::BottomLeft => [x0 + off, y1 - ph],
+                    Corner::BottomRight => [x1 - pw - off, y1 - ph],
+                    Corner::TopLeft => [x0 + off, y0],
+                    Corner::TopRight => [x1 - pw - off, y0],
                 }
             })
             .collect();
@@ -1168,6 +1208,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             reserve.bottom_left = reserve.bottom_left.max((364.0 * px) as f32);
         }
         key.push_str(&self.pi.draw(scene, w, h, px, reserve));
+        self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
         let _ = renderer;
         key
     }

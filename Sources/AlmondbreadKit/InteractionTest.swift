@@ -362,6 +362,90 @@ final class InteractionTest: NSObject {
             }
             once("off", t >= 2.9) { v.model.cinematic = false }
         }
+        // Compass (kb: decisions/controls, "Compass"): the cinematic autopilot spins a view
+        // turned to 50° (the compass shows and turns every frame: its overlay cost is in the
+        // draw CPU); at 0.3 s a drag a quarter turn around the compass centre turns the view by
+        // −90° (plus the spin), at 1.6 s a click eases it back to north (0.4 s) while the spin
+        // goes on, Esc at 2.5 s.
+        var compassAt = (x: 0.0, y: 0.0, angle: 0.0)
+        let compass: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                v.model.cinematic = true
+                explorer.setAngle(degrees: 50)
+                v.send(.pointer(x: 0, y: 0))
+                InteractionTest.key(v, "z", down: true)
+                InteractionTest.key(v, "z", down: false)
+            }
+            let r = 15.0
+            once("press", t >= 0.3) {
+                let c = explorer.compassCenter()
+                guard c.count == 2 else {
+                    self.failures += 1
+                    self.refineLines.append("compass: not shown at 50° FAILED")
+                    return
+                }
+                compassAt = (c[0], c[1], explorer.viewport().angleDegrees)
+                _ = v.model.compassPress(x: c[0] + r, y: c[1])
+            }
+            if t >= 0.3 && t < 1.0 && sent.contains("press") {
+                let phi = min((t - 0.3) / 0.6, 1) * .pi / 2
+                v.model.compassDrag(x: compassAt.x + r * cos(phi), y: compassAt.y + r * sin(phi))
+            }
+            once("release", t >= 1.0) {
+                v.model.compassDrag(x: compassAt.x, y: compassAt.y + r)
+                v.model.compassRelease()
+                let turned = explorer.viewport().angleDegrees - compassAt.angle
+                // −90° by the drag, plus up to a few degrees of spin meanwhile.
+                let ok = turned < -85 && turned > -95
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "compass drag: a quarter turn of the pointer turned the view %.1f° %@",
+                                               turned, ok ? "OK" : "FAILED"))
+            }
+            once("click", t >= 1.6) {
+                compassAt.angle = explorer.viewport().angleDegrees
+                _ = v.model.compassTap(x: compassAt.x, y: compassAt.y)
+            }
+            once("north", t >= 2.2) {
+                let a = explorer.viewport().angleDegrees
+                // North 0.4 s after the click; the spin then goes on (4° per e-fold).
+                let ok = abs(a) < 2 && abs(compassAt.angle) > 10
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "compass click: %.1f° to %.2f° 0.6 s later, spinning on %@",
+                                               compassAt.angle, a, ok ? "OK" : "FAILED"))
+            }
+            once("esc", t >= 2.5) {
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+            }
+            once("off", t >= 2.9) { v.model.cinematic = false }
+        }
+        // Autopilot target lock (kb: decisions/controls, "Autopilot"): Z with the pointer resting
+        // at the centre; within 2.4 s the lock must aim at a boundary target (searched on a
+        // thread: frame pacing must not suffer), then Esc.
+        var lockLabel = ""
+        let autopilotLock: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                lockLabel = ""
+                explorer.setAutopilotLock(on: true)
+                v.send(.pointer(x: 0, y: 0))
+                InteractionTest.key(v, "z", down: true)
+                InteractionTest.key(v, "z", down: false)
+            }
+            let l = explorer.stats().autopilot.lockLabel
+            if l.hasPrefix("towards") { lockLabel = l }
+            once("esc", t >= 2.4) {
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let ok = !lockLabel.isEmpty
+                if !ok { self.failures += 1 }
+                self.refineLines.append("autopilot lock: \(lockLabel.isEmpty ? "no target" : lockLabel) \(ok ? "OK" : "FAILED")")
+                explorer.setAutopilotLock(on: v.model.autopilotLock)
+            }
+        }
         // Journey (kb: decisions/controls, "Journey"): J from the 1e5 view; within 2.8 s the
         // first leg must be planned and flying; Esc then stops it (the view settles for the
         // shown-vs-fresh check).
@@ -432,6 +516,8 @@ final class InteractionTest: NSObject {
                 Scenario(name: "fly to", viewport: sea, input: flyTo),
                 Scenario(name: "rotate zoom", viewport: sea, input: rotateZoom),
                 Scenario(name: "cinematic autopilot", viewport: sea, input: cinematicAutopilot),
+                Scenario(name: "compass", viewport: sea, input: compass),
+                Scenario(name: "autopilot lock", viewport: sea, input: autopilotLock),
                 Scenario(name: "journey", viewport: sea, input: journey),
                 Scenario(name: "pi hunt", viewport: home, input: piHunt),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),

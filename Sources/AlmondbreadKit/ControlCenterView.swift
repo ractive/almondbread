@@ -265,8 +265,8 @@ struct ViewSectionRows: View {
         #endif
         .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
         MotionStatus(model: model)
-        Toggle("Autopilot assist", isOn: $model.autopilotAssist)
-            .help("Leans the autopilot's heading towards nearby detail while the pointer rests near the centre; it never steers against the pointer")
+        Toggle("Autopilot target lock", isOn: $model.autopilotLock)
+            .help("While the pointer rests near the centre the autopilot aims at spirals, branch points and minibrots, and backs out of empty regions; moving the pointer always steers. Off: a pure joystick")
         RotationRow(model: model)
     }
 }
@@ -531,6 +531,8 @@ struct OverlaySectionRows: View {
             PiMeterRows(model: model)
         }
         CosmicScaleRows(model: model)
+        Toggle("Always show compass", isOn: $model.compassAlways)
+            .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
         Toggle("Status (HUD)", isOn: $model.showHUD)
     }
 }
@@ -766,7 +768,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
-        case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed", "autopilot", "fly", "assist"]
+        case .view: ["coordinates", "re", "im", "zoom", "scale", "copy", "paste", "reset", "edge", "pan", "speed", "autopilot", "fly", "lock", "assist"]
         case .journey: ["journey", "seed", "daily", "share", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]

@@ -238,6 +238,19 @@ public enum UIDemo {
             try? explorer.setViewportText(re: "0", im: "1", scale: "1e-103")
             model.cosmicScale = true
             model.cosmicAnchor = "cosmos"
+        case "compass":
+            // A turned view: the compass at the top right (kb: decisions/controls "Compass").
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+            explorer.setAngle(degrees: 35)
+            model.mapEnabled = true
+            model.mapLevels = 2
+        case "compass-maps":
+            // Maps in the top-right corner too: the compass moves left of them.
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+            explorer.setAngle(degrees: -120)
+            model.mapEnabled = true
+            model.mapLevels = 2
+            model.mapPlacement = .topRight
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
             model.mapEnabled = true

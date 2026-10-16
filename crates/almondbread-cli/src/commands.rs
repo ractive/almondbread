@@ -65,6 +65,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     // `--screen-cm w` (the view's physical width; default 30 cm).
     // `--pi-overlay 1` (the π meter; kb: techniques/pi-in-the-mandelbrot-set), `--pi-probe
     // neck,1e-6` (the π hunt's probe there, with its orbit trail, in the hunt's valley view).
+    // `--compass 1` (the compass, shown even at north; kb: decisions/controls "Compass") with
+    // `--insets top,right` (view points kept clear, e.g. a toolbar).
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
     for i in 0..repeats {
         let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
@@ -152,10 +154,23 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     let map = o.get("map").is_some_and(|v| v != "0");
     let pi = o.get("pi-overlay").is_some_and(|v| v != "0") || o.has("pi-probe");
     let cosmic = o.get("scale-overlay").is_some_and(|v| v != "0");
-    if orbit.is_none() && !map && !pi && !cosmic {
+    let compass = o.get("compass").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map && !pi && !cosmic && !compass {
         return Ok(None);
     }
     let mut ov = almondbread_render::overlay::Overlay::<B>::default();
+    ov.compass.visibility.always = compass;
+    if let Some((top, right)) = o.pair("insets")? {
+        r.handle_input(
+            InputEvent::Insets {
+                top,
+                left: 0.0,
+                bottom: 0.0,
+                right,
+            },
+            r.clock(),
+        );
+    }
     ov.cosmic.settings.enabled = cosmic;
     if let Some(a) = o.get("scale-anchor") {
         if !almondbread_core::cosmic::ANCHORS.contains(&a) {

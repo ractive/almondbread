@@ -303,6 +303,8 @@ pub struct Navigator {
     autopilot: Autopilot,
     /// When the pointer last moved over the canvas (an idle pointer stops steering).
     pointer_moved: f64,
+    /// When manual input last moved the view (holds the autopilot's target lock off).
+    manual_at: f64,
     /// Fly to coordinates (kb: decisions/controls, fly to) and its speed (e-folds/s).
     flight: Option<Flight>,
     fly_speed: f64,
@@ -318,6 +320,8 @@ pub struct Navigator {
     cinematic: Cinematic,
     /// The journey: planned flights from landmark to landmark (kb: decisions/controls).
     journey: Journey,
+    /// The compass's eased turn back to north (kb: decisions/controls "Compass").
+    north: Option<crate::compass::NorthTurn>,
 }
 
 /// A velocity following a target on a critically damped spring.
@@ -398,6 +402,7 @@ impl Default for Navigator {
             pad: GamepadState::default(),
             autopilot: Autopilot::default(),
             pointer_moved: f64::NEG_INFINITY,
+            manual_at: f64::NEG_INFINITY,
             flight: None,
             fly_speed: flyto::SPEED_DEFAULT,
             fly_speed_changed: f64::NEG_INFINITY,
@@ -407,6 +412,7 @@ impl Default for Navigator {
             rot_step_left: 0.0,
             cinematic: Cinematic::default(),
             journey: Journey::default(),
+            north: None,
         }
     }
 }
@@ -714,6 +720,7 @@ impl Navigator {
             || !self.rot_rate.at_rest()
             || self.rot_step_left != 0.0
             || self.journey.is_running()
+            || self.north.is_some()
     }
 
     /// Current pan velocity (points/s) and zoom rate (e-folds/s), springs plus flings.
@@ -872,6 +879,16 @@ impl Navigator {
         }
         if self.flight.is_some() && Self::cancels_flight(&event) {
             self.hand_over_flight();
+        }
+        // Turning by hand ends the compass's turn to north.
+        if matches!(
+            event,
+            InputEvent::Rotate { .. } | InputEvent::KeyDown(NavKey::RotateCcw | NavKey::RotateCw | NavKey::Straighten)
+        ) {
+            self.north = None;
+        }
+        if Self::cancels_flight(&event) && event != InputEvent::KeyDown(NavKey::Autopilot) {
+            self.manual_at = now;
         }
         match event {
             InputEvent::KeyDown(k) => self.key(k, true, viewport, now),
@@ -1309,8 +1326,9 @@ impl Navigator {
             self.autopilot.update_throttle(dt);
             let done = f.step(dt, speed, self.autopilot.throttle());
             *viewport = f.viewport();
+            let stopped = f.stopping;
+            self.step_north(dt, viewport);
             if done {
-                let stopped = f.stopping;
                 self.flight = None;
                 if stopped {
                     self.journey.stop();
@@ -1320,6 +1338,7 @@ impl Navigator {
         }
         if self.journey.is_running() {
             // Resting at a target (it refines) or waiting for the plan.
+            self.step_north(dt, viewport);
             return true;
         }
         if !self.is_moving() {
@@ -1345,7 +1364,15 @@ impl Navigator {
         };
         let (x0, x1, y0, y1) = self.canvas();
         let radius = 0.5 * (x1 - x0).min(y1 - y0);
-        let target = self.autopilot.steer_target(steer_pointer, radius, now);
+        // Manual motion (pans, drags, flings, held keys) holds the target lock off.
+        let manual = now - self.manual_at < autopilot::MANUAL_HOLD
+            || tx != 0.0
+            || ty != 0.0
+            || self.fling != (0.0, 0.0)
+            || self.driven();
+        let target = self
+            .autopilot
+            .aim(viewport, self.min_side(), radius, steer_pointer, manual, now);
         let ap = self.autopilot.step(dt, target, now);
         let v = &mut self.pan;
         if tx == 0.0 && ty == 0.0 && v[0].v.hypot(v[1].v) < PAN_REST && v[0].a.hypot(v[1].a) < PAN_REST * PAN_OMEGA.1 {
@@ -1437,7 +1464,72 @@ impl Navigator {
                 self.step_at = None;
             }
         }
+        // Last, so it absorbs this frame's spin and ends at exactly north.
+        self.step_north(dt, viewport);
         true
+    }
+
+    // MARK: Compass (kb: decisions/controls "Compass"; geometry in `crate::compass`)
+
+    /// Starts the compass's eased turn back to north (a click on it), ~0.4 s. During the
+    /// autopilot, a flight or a journey the view straightens and their spin goes on from north.
+    /// A turn already under way goes on (a double click does not restart it).
+    pub fn turn_north(&mut self, now: f64) {
+        if self.north.is_some() {
+            return;
+        }
+        let was_animating = self.is_animating();
+        self.rot_step_left = 0.0;
+        self.rot_rate = Spring::default();
+        self.north = Some(crate::compass::NorthTurn::default());
+        self.note_interaction(now);
+        if !was_animating {
+            self.last_tick = Some(now);
+        }
+    }
+
+    /// The compass's turn to north is under way.
+    pub fn is_turning_north(&self) -> bool {
+        self.north.is_some()
+    }
+
+    /// Turns the view by `delta` radians about its centre (dragging the compass): a flight in
+    /// progress turns along (it keeps flying and spinning from the new angle). Ends a turn to
+    /// north.
+    pub fn turn_view(&mut self, delta: f64, viewport: &mut Viewport, now: f64) {
+        self.north = None;
+        self.rotate_about_centre(delta, viewport);
+        self.note_interaction(now);
+    }
+
+    fn rotate_about_centre(&mut self, delta: f64, viewport: &mut Viewport) {
+        if !delta.is_finite() || delta == 0.0 {
+            return;
+        }
+        viewport.angle = wrap_angle(viewport.angle + delta);
+        if let Some(f) = &mut self.flight {
+            f.shift_angle(delta);
+        }
+    }
+
+    fn step_north(&mut self, dt: f64, viewport: &mut Viewport) {
+        let Some(mut turn) = self.north else { return };
+        let a = viewport.angle;
+        let (b, done) = turn.step(a, dt);
+        self.rotate_about_centre(b - a, viewport);
+        if done {
+            // Exactly north (a + (0 − a) is 0, but wrapping may round).
+            viewport.angle = 0.0;
+            self.north = None;
+        } else {
+            self.north = Some(turn);
+        }
+    }
+
+    /// Insets of the canvas from the view edges (top, left, bottom, right; view points): the
+    /// title bar or toolbar overlapping the view (overlays keep clear of them).
+    pub fn insets(&self) -> (f64, f64, f64, f64) {
+        self.insets
     }
 }
 
@@ -2044,9 +2136,220 @@ mod tests {
         c.delta_in(&v.center, v.scale)
     }
 
+    /// The setup with the target lock off: the pure joystick.
+    fn joystick() -> (Navigator, Viewport) {
+        let (mut n, v) = setup();
+        n.autopilot_mut().set_lock(false);
+        (n, v)
+    }
+
+    /// The setup with the target lock searching on the calling thread (reproducible).
+    fn locked() -> (Navigator, Viewport) {
+        let (mut n, v) = setup();
+        n.autopilot_mut().lock_mut().synchronous = true;
+        (n, v)
+    }
+
+    /// The span across the view's shorter side (the setup's canvas is 1000 x 600).
+    fn span_of(v: &Viewport) -> crate::viewport::Scale {
+        v.scale * 600.0
+    }
+
+    /// The CPU probe of the view: (band crossings per width, interior share).
+    fn probe_view(v: &Viewport) -> (f64, f64) {
+        let st = journey::ProbeStats::of(&journey::probe(&v.center, span_of(v), 0));
+        (st.detail, st.interior)
+    }
+
+    #[test]
+    fn autopilot_lock_aims_at_boundary_targets_and_retargets_ahead() {
+        let (mut n, mut v) = locked();
+        n.handle(InputEvent::Pointer(None), &mut v, 0.0);
+        n.advance(&mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+        let mut t = 0.0;
+        let mut last_heading = (0.0, 0.0);
+        let mut worst_step: f64 = 0.0;
+        let mut labels: Vec<String> = Vec::new();
+        for _ in 0..(20 * 60) {
+            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+            let h = n.autopilot().heading();
+            worst_step = worst_step.max(dist((h.0 - last_heading.0, h.1 - last_heading.1)));
+            last_heading = h;
+            if let Some(lt) = n.autopilot().lock().target() {
+                if labels.last() != Some(&lt.label) {
+                    labels.push(lt.label.clone());
+                }
+                // Never far past a target's end: the next one was ready before.
+                assert!(
+                    span_of(&v).ratio(lt.end_span).ln() > -1.5,
+                    "{} passed by {:.2} e-folds at {t:.2}",
+                    lt.label,
+                    -span_of(&v).ratio(lt.end_span).ln()
+                );
+            }
+        }
+        let a = n.autopilot();
+        assert!(a.lock().switches >= 3, "retargeted: {labels:?}");
+        assert!(!a.is_rescuing());
+        // Steering eased: no jumps of the heading between frames (points at 60 Hz).
+        assert!(worst_step < 20.0, "heading jumped {worst_step:.1} points in a frame");
+        let depth = (1e-3 / v.scale.to_f64()).ln();
+        assert!(depth > 14.0, "{depth} e-folds");
+        let (detail, interior) = probe_view(&v);
+        assert!(
+            detail >= 3.0 && interior < 0.6,
+            "ended in a uniform view: {detail} {interior} ({labels:?})"
+        );
+    }
+
+    #[test]
+    fn autopilot_pointer_always_wins_over_the_lock() {
+        let (mut n, mut v) = locked();
+        n.handle(InputEvent::Pointer(Some((0.0, 0.0))), &mut v, 0.0);
+        n.advance(&mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+        let t = run(&mut n, &mut v, 0.0, 1.0, 60.0);
+        assert!(
+            n.autopilot().lock().target().is_some(),
+            "in the dead zone the lock aims"
+        );
+        // Deflected: the pointer's heading alone, the lock released.
+        n.handle(InputEvent::Pointer(Some((-250.0, 40.0))), &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+        let plain = n.autopilot().steer_target(Some((-250.0, 40.0)), 300.0);
+        assert_eq!(n.autopilot().heading_target(), plain);
+        assert!(n.autopilot().lock().target().is_none() && !n.autopilot().lock().is_searching());
+        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+        assert!(n.autopilot().lock().target().is_none());
+        // A manual pan holds it off too, with the pointer back in the dead zone.
+        n.handle(InputEvent::Pointer(Some((5.0, 5.0))), &mut v, t);
+        n.handle(InputEvent::Pan { dx: 30.0, dy: 0.0 }, &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+        assert!(n.autopilot().lock().target().is_none());
+        // Let go: the lock picks up again from the current view (a target in view; where the
+        // pointer led into sparse exterior, after backing out a little).
+        let mut t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        for _ in 0..600 {
+            if n.autopilot().lock().target().is_some() {
+                break;
+            }
+            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+        }
+        let lt = n.autopilot().lock().target().unwrap_or_else(|| {
+            panic!(
+                "not picked up again: view {:?} {} probe {:?}, free {}, void {}, searching {}, last {:?}",
+                v.center.to_strings_digits(8),
+                span_of(&v).to_text(3),
+                probe_view(&v),
+                n.autopilot().is_free(),
+                n.autopilot().lock().view_is_void(),
+                n.autopilot().lock().is_searching(),
+                n.autopilot().lock().last_search
+            )
+        });
+        assert!(lt.center.distance_in(&v.center, span_of(&v)) < 1.0);
+        // Idle pointer (deflected but still for STEER_IDLE s): the lock aims again.
+        n.handle(InputEvent::Pointer(Some((250.0, 0.0))), &mut v, t);
+        let t0 = t;
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert!(n.autopilot().lock().target().is_none() && !n.autopilot().is_free());
+        let mut t = run(&mut n, &mut v, t, t0 + autopilot::STEER_IDLE + 0.1, 60.0);
+        assert!(n.autopilot().is_free());
+        for _ in 0..600 {
+            if n.autopilot().lock().target().is_some() {
+                break;
+            }
+            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+        }
+        assert!(n.autopilot().lock().target().is_some());
+        // Off: a pure joystick, straight ahead with the pointer at rest.
+        n.autopilot_mut().set_lock(false);
+        run(&mut n, &mut v, t, t + 0.1, 60.0);
+        assert_eq!(n.autopilot().heading_target(), (0.0, 0.0));
+    }
+
+    #[test]
+    fn autopilot_recovers_after_steering_into_a_void() {
+        // The user steers into the main cardioid's interior on purpose, then lets go.
+        let (mut n, mut v) = locked();
+        let inside = crate::viewport::Center::new(-0.3, 0.1);
+        n.handle(InputEvent::Pointer(Some(v.offset_of(&inside))), &mut v, 0.0);
+        n.advance(&mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+        let mut t = 0.0;
+        for _ in 0..(10 * 30) {
+            // A hand keeping the point under the pointer (clamped to the canvas).
+            let (x, y) = v.offset_of(&inside);
+            n.handle(
+                InputEvent::Pointer(Some((x.clamp(-490.0, 490.0), y.clamp(-290.0, 290.0)))),
+                &mut v,
+                t,
+            );
+            t = run(&mut n, &mut v, t, t + 1.0 / 30.0, 60.0);
+        }
+        let (detail, interior) = probe_view(&v);
+        assert!(
+            detail < 1.0 && interior > 0.99,
+            "steered into the void: {detail} {interior}"
+        );
+        assert!(!n.autopilot().is_rescuing(), "never against the pointer");
+        let deepest = v.scale.ln();
+        // Let go.
+        n.handle(InputEvent::Pointer(None), &mut v, t);
+        let mut rescued = false;
+        for _ in 0..(40 * 60) {
+            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+            rescued |= n.autopilot().is_rescuing();
+            if rescued && n.autopilot().lock().target().is_some() {
+                break;
+            }
+        }
+        assert!(rescued, "it backed out");
+        assert!(n.autopilot().lock().target().is_some(), "found a target");
+        assert!(
+            v.scale.ln() > deepest + 2.0,
+            "zoomed out {:.1} e-folds",
+            v.scale.ln() - deepest
+        );
+        // ... and dives again, ending in detail.
+        let t = run(&mut n, &mut v, t, t + 10.0, 60.0);
+        assert!(
+            n.autopilot().rate() > 0.5 * autopilot::SPEED_DEFAULT,
+            "{} at {t}",
+            n.autopilot().rate()
+        );
+        let (detail, interior) = probe_view(&v);
+        assert!(detail >= 3.0 && interior < 0.6, "{detail} {interior}");
+    }
+
+    #[test]
+    fn autopilot_lock_is_frame_rate_independent() {
+        let path = |hz: f64| {
+            let (mut n, mut v) = locked();
+            n.handle(InputEvent::Pointer(None), &mut v, 0.0);
+            n.advance(&mut v, 0.0);
+            n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
+            run(&mut n, &mut v, 0.0, 8.0, hz);
+            let label = n.autopilot().lock().target().map(|t| t.label.clone());
+            (v, label)
+        };
+        let (a, la) = path(30.0);
+        for hz in [60.0, 120.0] {
+            let (b, lb) = path(hz);
+            assert_eq!(la, lb, "same target at {hz} Hz");
+            // The lock's aim (and the zoom's slowdown while it turns towards a far target) is set
+            // per frame, so 30, 60 and 120 Hz agree to first order: a small share of the view.
+            let dz = (a.scale.ln() - b.scale.ln()).abs();
+            assert!(dz < 0.02, "{hz} Hz: zoom {dz} e-folds apart");
+            let d = b.center.distance_in(&a.center, span_of(&a));
+            assert!(d < 0.01, "{hz} Hz: {d} of the view apart");
+        }
+    }
+
     #[test]
     fn autopilot_eases_in_cruises_and_glides_to_a_stop() {
-        let (mut n, mut v) = setup();
+        let (mut n, mut v) = joystick();
         n.advance(&mut v, 0.0);
         n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
         n.handle(InputEvent::KeyUp(NavKey::Autopilot), &mut v, 0.0);
@@ -2087,7 +2390,7 @@ mod tests {
     #[test]
     fn autopilot_dead_zone_and_no_pointer_fly_straight() {
         for pointer in [Some((20.0, -15.0)), None] {
-            let (mut n, mut v) = setup();
+            let (mut n, mut v) = joystick();
             n.handle(InputEvent::Pointer(pointer), &mut v, 0.0);
             let c0 = v.center.clone();
             n.advance(&mut v, 0.0);
@@ -2099,7 +2402,7 @@ mod tests {
             assert_eq!(n.autopilot().heading(), (0.0, 0.0));
         }
         // Keyboard mode: straight too (W A S D pan as usual).
-        let (mut n, mut v) = setup();
+        let (mut n, mut v) = joystick();
         n.handle(InputEvent::Pointer(Some((250.0, 0.0))), &mut v, 0.0);
         n.handle(InputEvent::KeyDown(NavKey::Up), &mut v, 0.0);
         n.handle(InputEvent::KeyUp(NavKey::Up), &mut v, 0.0);
@@ -2110,7 +2413,7 @@ mod tests {
 
     #[test]
     fn autopilot_steers_the_pointed_content_to_the_centre() {
-        let (mut n, mut v) = setup();
+        let (mut n, mut v) = joystick();
         n.handle(InputEvent::Pointer(Some((200.0, 0.0))), &mut v, 0.0);
         let c = v.point_at_offset(200.0, 0.0);
         let ahead = v.point_at_offset(0.0, 0.0);
@@ -2140,7 +2443,7 @@ mod tests {
     #[test]
     fn autopilot_is_frame_rate_independent() {
         let path = |hz: f64| {
-            let (mut n, mut v) = setup();
+            let (mut n, mut v) = joystick();
             let c0 = v.center.clone();
             let s0 = v.scale;
             n.handle(InputEvent::Pointer(Some((220.0, 90.0))), &mut v, 0.0);
@@ -2183,7 +2486,7 @@ mod tests {
 
     #[test]
     fn autopilot_speed_keys_scroll_and_click() {
-        let (mut n, mut v) = setup();
+        let (mut n, mut v) = joystick();
         // Off: Q / E set the Space speed, a scroll pans, a click is not ours.
         n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.0);
         assert!((n.zoom_speed() - 2.0).abs() < 1e-12);
@@ -2393,7 +2696,7 @@ mod tests {
     #[test]
     fn autopilot_spins_with_the_zoom_only_when_enabled() {
         for enabled in [false, true] {
-            let (mut n, mut v) = setup();
+            let (mut n, mut v) = joystick();
             n.set_cinematic(Cinematic {
                 enabled,
                 ..Cinematic::default()

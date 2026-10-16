@@ -18,10 +18,24 @@
 //! gesture-preview resolution that fits the frame budget, and whether a deep reference is
 //! still computing (the view then only shows the stretched history). `safety` drops when the
 //! heading region of the current frame is uniform (fully interior or featureless exterior);
-//! the HUD then shows a hint. With `assist` on, the heading leans towards nearby boundary
-//! detail while the pointer rests in the dead zone, never against a deflected pointer.
+//! the HUD then shows a hint.
+//!
+//! **Target lock** ([`lock`], on by default): while the user does not steer (pointer in the
+//! dead zone, idle or off the canvas, keyboard mode without pan keys), the heading aims at a
+//! boundary target found off-thread (a Misiurewicz point, an embedded Julia stage, a minibrot
+//! down to its framing), and the next one is found before the current one's depth is passed.
+//! A deflected pointer (or any manual pan) always wins and releases the lock; letting go
+//! picks up again from the current view.
+//!
+//! **Rescue**: with the lock on and the user not steering, a heading region that stays uniform
+//! (more than [`RESCUE_AFTER`] s without a target, [`RESCUE_AFTER_LOCKED`] s with one) eases
+//! the zoom into reverse until a search finds a target in the widening view.
+
+pub mod lock;
 
 use crate::input::Spring;
+use crate::viewport::Viewport;
+use lock::Lock;
 
 /// Default autopilot zoom speed, e-folds per second (×2.5 per second).
 pub const SPEED_DEFAULT: f64 = 0.9;
@@ -34,6 +48,19 @@ pub const RATE_OMEGA: (f64, f64) = (3.0, 4.0);
 pub const STEER_DEAD_ZONE: f64 = 0.1;
 /// Spring frequency (1/s) of the heading towards its target (90 % after 0.65 s).
 pub const STEER_OMEGA: f64 = 6.0;
+/// While the target lock aims: the heading spring's frequency (the aim point itself glides
+/// on a target change, [`lock::AIM_BLEND`]) and the rate (1/s) at which the aimed point
+/// converges to the centre. The heading for an aim point `p` is `g p` with
+/// `g = (z + λ) / (z + k)`: the point then moves at `z (p − h) − k h = −λ p` (zoom about `h`
+/// at rate z, pan `−k h`). Aiming the heading straight at `p` through the slower pointer
+/// spring oscillated at high zoom rates (the zoom amplifies the spring's lag at rate z).
+pub const LOCK_OMEGA: f64 = 20.0;
+pub const LOCK_CONVERGE: f64 = 1.5;
+/// While the lock aims at a point further out than `CAPTURE.0` steering radii the zoom slows,
+/// to `CAPTURE_MIN` at `CAPTURE.1`: the turn can then catch it (a point beyond about
+/// `R (1 + k / z)` escapes a dive at rate z).
+pub const CAPTURE: (f64, f64) = (0.5, 1.2);
+pub const CAPTURE_MIN: f64 = 0.3;
 /// Pan rate of the heading towards the centre, 1/s (content at `h` moves at `-k · h`), with
 /// `k = STEER_PAN + STEER_PAN_PER_RATE · zoom rate`: turning keeps pace with the dive, so a
 /// target up to `R (1 + k / z)` off-centre (R: the steering radius) can still be caught.
@@ -63,15 +90,28 @@ pub const SAFETY_MIN: f64 = 0.3;
 /// uniform, above `DETAIL_HI` it is detailed.
 pub const DETAIL_LO: f64 = 3.0;
 pub const DETAIL_HI: f64 = 12.0;
-/// Gaussian radius of the heading region and of the assist's search, as fractions of the
-/// view's smaller side.
+/// Gaussian radius of the heading region, as a fraction of the view's smaller side.
 pub const HEADING_SIGMA: f64 = 0.15;
-pub const ASSIST_SIGMA: f64 = 0.35;
-/// Assist: share of the detail centroid's offset it steers towards, its largest heading (in
-/// steering radii), and the pointer deflection (past the dead zone) at which it has faded out.
-pub const ASSIST_GAIN: f64 = 0.6;
-pub const ASSIST_MAX: f64 = 0.4;
-pub const ASSIST_OVERRIDE: f64 = 0.2;
+/// Rescue: seconds of a uniform heading region (danger > 0.5) without a lock target, and with
+/// one, before the zoom eases into reverse.
+pub const RESCUE_AFTER: f64 = 1.0;
+pub const RESCUE_AFTER_LOCKED: f64 = 2.5;
+/// Rescue zoom-out rate (e-folds/s): this share of the set speed, within the range.
+pub const RESCUE_SHARE: f64 = 0.6;
+pub const RESCUE_RATE: (f64, f64) = (0.5, 1.5);
+/// A rescue that finds nothing speeds up: by 1 + t / `RESCUE_ACCEL` after t s of it, up to
+/// `RESCUE_RATE_MAX` e-folds/s.
+pub const RESCUE_ACCEL: f64 = 2.0;
+pub const RESCUE_RATE_MAX: f64 = 3.0;
+/// Rescue ends at this span across the shorter side (the whole set is in view).
+pub const RESCUE_MAX_SPAN: f64 = 4.0;
+/// Rescue also ends after this long (s) with detail in the surveyed heading region.
+pub const RESCUE_CLEAR: f64 = 0.6;
+/// Such a rescue aims at the survey's busiest cell for this many e-folds.
+pub const SURVEY_PICK_GAIN: f64 = 2.0;
+pub const SURVEY_PICK_LABEL: &str = "detail in view";
+/// Manual pans, zooms and drags hold the lock off for this long (s).
+pub const MANUAL_HOLD: f64 = 1.0;
 /// A survey older than this (s) is ignored.
 pub const SURVEY_STALE: f64 = 0.6;
 
@@ -90,6 +130,8 @@ pub enum Hint {
     Featureless,
     /// The depth limit: zooming stops.
     Limit,
+    /// Nothing ahead and no target found: zooming out until there is.
+    Rescue,
 }
 
 /// How the renderer keeps up, reported every frame.
@@ -147,9 +189,13 @@ pub struct Assessment {
     pub interior: f64,
     /// Band crossings per view width in the heading region.
     pub detail: f64,
-    /// Detail-weighted centroid around the heading, view points from the centre (None: no
-    /// detail nearby).
-    pub detail_centroid: Option<(f64, f64)>,
+}
+
+impl Assessment {
+    /// 0 (detailed) ... 1 (uniform): how featureless the heading region is.
+    pub fn danger(&self) -> f64 {
+        1.0 - smoothstep((self.detail - DETAIL_LO) / (DETAIL_HI - DETAIL_LO))
+    }
 }
 
 impl Survey {
@@ -161,8 +207,34 @@ impl Survey {
         )
     }
 
-    /// Interior share and detail around `heading` (Gaussian weights), and the detail centroid
-    /// over a wider radius.
+    /// The centre (view points) of the cell with the most boundary detail (band crossings
+    /// per view width, discounted by interior), if any is detailed.
+    pub fn busiest(&self) -> Option<(f64, f64)> {
+        if self.cols == 0 || self.rows == 0 || self.cells.len() != self.cols * self.rows {
+            return None;
+        }
+        let mut best: Option<(f64, usize, usize)> = None;
+        for j in 0..self.rows {
+            for i in 0..self.cols {
+                let c = self.cells[j * self.cols + i];
+                if c.samples == 0 || c.pairs == 0 {
+                    continue;
+                }
+                let det = c.edges as f64 / c.pairs as f64 * self.texels_across;
+                let rich = det.min(4.0 * DETAIL_HI) * (1.0 - c.interior as f64 / c.samples as f64);
+                // Near the centre first: less turning.
+                let (x, y) = self.cell_center(i, j);
+                let side = 0.35 * self.view.0.min(self.view.1);
+                let score = rich * (-(x * x + y * y) / (2.0 * side * side)).exp();
+                if rich >= DETAIL_HI && best.is_none_or(|b| score > b.0) {
+                    best = Some((score, i, j));
+                }
+            }
+        }
+        best.map(|(_, i, j)| self.cell_center(i, j))
+    }
+
+    /// Interior share and detail around `heading` (Gaussian weights).
     pub fn assess(&self, heading: (f64, f64)) -> Option<Assessment> {
         if self.cols == 0 || self.rows == 0 || self.cells.len() != self.cols * self.rows {
             return None;
@@ -172,9 +244,7 @@ impl Survey {
             return None;
         }
         let s1 = HEADING_SIGMA * side;
-        let s2 = ASSIST_SIGMA * side;
         let (mut w_sum, mut interior, mut detail) = (0.0, 0.0, 0.0);
-        let (mut c_sum, mut cx, mut cy) = (0.0, 0.0, 0.0);
         for j in 0..self.rows {
             for i in 0..self.cols {
                 let c = self.cells[j * self.cols + i];
@@ -193,12 +263,6 @@ impl Survey {
                 w_sum += w;
                 interior += w * int;
                 detail += w * det;
-                // Boundary detail, not the inside of a busy interior edge.
-                let score = (det / DETAIL_HI).min(1.0) * (1.0 - 0.5 * int);
-                let w2 = (-d2 / (2.0 * s2 * s2)).exp() * score;
-                c_sum += w2;
-                cx += w2 * x;
-                cy += w2 * y;
             }
         }
         if w_sum <= 1e-9 {
@@ -207,7 +271,6 @@ impl Survey {
         Some(Assessment {
             interior: interior / w_sum,
             detail: detail / w_sum,
-            detail_centroid: (c_sum > 1e-6).then(|| (cx / c_sum, cy / c_sum)),
         })
     }
 }
@@ -246,7 +309,23 @@ pub struct Autopilot {
     hint: Hint,
     feedback: RenderFeedback,
     survey: Option<Survey>,
-    assist: bool,
+    /// Target lock (kb: decisions/controls "Autopilot").
+    lock: Lock,
+    /// The user does not steer (set by [`Autopilot::aim`] each frame).
+    free: bool,
+    /// Seconds the heading region has been uniform while free; zooming out to find detail.
+    uniform_for: f64,
+    /// Seconds the surveyed heading region has shown detail (ends a rescue).
+    clear_for: f64,
+    /// A rescue ended on survey detail without a target: aim at the busiest cell once.
+    survey_pick: bool,
+    rescue: bool,
+    /// ln of the view's span across its shorter side (last [`Autopilot::aim`]).
+    span_ln: f64,
+    /// The lock aims this frame (the heading spring is then [`LOCK_OMEGA`]).
+    lock_aiming: bool,
+    /// The lock's aim point's distance from the centre, in steering radii.
+    aim_far: f64,
     last_click: f64,
     /// The heading target of the last frame (tests, HUD).
     target: (f64, f64),
@@ -266,7 +345,15 @@ impl Default for Autopilot {
             hint: Hint::None,
             feedback: RenderFeedback::default(),
             survey: None,
-            assist: false,
+            lock: Lock::default(),
+            free: false,
+            uniform_for: 0.0,
+            clear_for: 0.0,
+            survey_pick: false,
+            rescue: false,
+            span_ln: f64::NEG_INFINITY,
+            lock_aiming: false,
+            aim_far: 0.0,
             last_click: f64::NEG_INFINITY,
             target: (0.0, 0.0),
         }
@@ -331,12 +418,57 @@ impl Autopilot {
         self.target
     }
 
-    pub fn assist(&self) -> bool {
-        self.assist
+    /// Target lock on (the default) or off (a pure joystick).
+    pub fn lock_enabled(&self) -> bool {
+        self.lock.is_enabled()
     }
 
-    pub fn set_assist(&mut self, on: bool) {
-        self.assist = on;
+    pub fn set_lock(&mut self, on: bool) {
+        self.lock.set_enabled(on);
+        if !on {
+            self.rescue = false;
+            self.uniform_for = 0.0;
+        }
+    }
+
+    pub fn lock(&self) -> &Lock {
+        &self.lock
+    }
+
+    pub fn lock_mut(&mut self) -> &mut Lock {
+        &mut self.lock
+    }
+
+    /// The zoom-rate factor while the lock turns towards a far aim point (1 otherwise).
+    pub fn capture(&self) -> f64 {
+        if !self.lock_aiming {
+            return 1.0;
+        }
+        1.0 - (1.0 - CAPTURE_MIN) * smoothstep((self.aim_far - CAPTURE.0) / (CAPTURE.1 - CAPTURE.0))
+    }
+
+    /// Zooming out to find detail.
+    pub fn is_rescuing(&self) -> bool {
+        self.rescue
+    }
+
+    /// The user did not steer in the last frame (the lock may aim).
+    pub fn is_free(&self) -> bool {
+        self.free
+    }
+
+    /// What the lock does, for the HUD ("" while off or steered).
+    pub fn lock_label(&self) -> String {
+        if !self.active || !self.lock.is_enabled() || !self.free {
+            return String::new();
+        }
+        match self.lock.target() {
+            // Journey labels read "period-34 minibrot", "towards a period-34 minibrot", ...
+            Some(t) if t.label.starts_with("towards") => t.label.clone(),
+            Some(t) => format!("towards {}", t.label),
+            None if self.lock.is_searching() => "looking for a target".into(),
+            None => String::new(),
+        }
     }
 
     pub fn survey(&self) -> Option<&Survey> {
@@ -348,6 +480,7 @@ impl Autopilot {
         if self.active {
             self.stop();
         } else {
+            self.lock.release();
             self.active = true;
             self.paused = false;
         }
@@ -358,6 +491,9 @@ impl Autopilot {
         let was = self.active;
         self.active = false;
         self.paused = false;
+        self.lock.release();
+        self.rescue = false;
+        self.uniform_for = 0.0;
         was
     }
 
@@ -368,6 +504,9 @@ impl Autopilot {
         self.rate = Spring::default();
         self.heading = [Spring::default(); 2];
         self.hint = Hint::None;
+        self.lock.release();
+        self.rescue = false;
+        self.uniform_for = 0.0;
     }
 
     /// A click on the canvas: pause / resume (eased). Returns whether it was used.
@@ -447,39 +586,93 @@ impl Autopilot {
     }
 
     /// The heading target from the steering deflection: `pointer` is the pointer's offset
-    /// (None: straight), `radius` the steering radius in points. Adds the assist's lean when
-    /// on. Returns view points.
-    pub fn steer_target(&self, pointer: Option<(f64, f64)>, radius: f64, now: f64) -> (f64, f64) {
+    /// (None: straight), `radius` the steering radius in points. Returns view points.
+    pub fn steer_target(&self, pointer: Option<(f64, f64)>, radius: f64) -> (f64, f64) {
         if radius <= 0.0 {
             return (0.0, 0.0);
         }
-        let (mut tx, mut ty, mut deflection) = (0.0, 0.0, 0.0);
         if let Some((x, y)) = pointer {
             let r = x.hypot(y) / radius;
             if r > 0.0 {
-                deflection = steer_response(r);
-                let k = deflection * radius / (r * radius);
-                tx = x * k;
-                ty = y * k;
+                let k = steer_response(r) / r;
+                return (x * k, y * k);
             }
         }
-        if self.assist
-            && let Some(a) = self.assessment(now)
-            && let Some((cx, cy)) = a.detail_centroid
-        {
-            // Fades out as the pointer deflects past the dead zone: never fights the user.
-            let w = 1.0 - smoothstep(deflection / ASSIST_OVERRIDE);
-            let (mut ax, mut ay) = (cx * ASSIST_GAIN, cy * ASSIST_GAIN);
-            let len = ax.hypot(ay);
-            let max = ASSIST_MAX * radius;
-            if len > max {
-                ax *= max / len;
-                ay *= max / len;
+        (0.0, 0.0)
+    }
+
+    /// The frame's heading target: the pointer's while it deflects past the dead zone (or
+    /// `manual` input moves the view), else the lock's target, else straight ahead. `view` is
+    /// the current view, `min_side` its shorter side and `radius` the steering radius (points).
+    pub fn aim(
+        &mut self,
+        view: &Viewport,
+        min_side: f64,
+        radius: f64,
+        pointer: Option<(f64, f64)>,
+        manual: bool,
+        now: f64,
+    ) -> (f64, f64) {
+        let steer = self.steer_target(pointer, radius);
+        self.free = steer == (0.0, 0.0) && !manual;
+        self.span_ln = lock::view_span(view, min_side).ln();
+        self.lock_aiming = false;
+        let running = self.active && !self.paused;
+        if !running {
+            if !self.active {
+                self.lock.release();
             }
-            tx += w * ax;
-            ty += w * ay;
+            return steer;
         }
-        (tx, ty)
+        if radius <= 0.0 {
+            return steer;
+        }
+        // A survey pick that reached its end with nothing found ahead: pick again (a chain of
+        // short legs, each towards detail the GPU shows).
+        let span_now = lock::view_span(view, min_side);
+        let pick_spent = self.lock.next_target().is_none()
+            && self
+                .lock
+                .target()
+                .is_some_and(|t| t.label == SURVEY_PICK_LABEL && span_now <= t.end_span);
+        if self.free && (pick_spent || (self.survey_pick && self.lock.target().is_none())) {
+            self.survey_pick = false;
+            if let Some((x, y)) = self
+                .survey
+                .as_ref()
+                .filter(|s| now - s.time <= SURVEY_STALE)
+                .and_then(Survey::busiest)
+            {
+                let span = lock::view_span(view, min_side);
+                self.lock.set_target(lock::LockTarget {
+                    kind: crate::journey::TargetKind::Detail,
+                    center: view.point_at_offset(x, y),
+                    end_span: span * (-SURVEY_PICK_GAIN).exp(),
+                    label: SURVEY_PICK_LABEL.into(),
+                    score: 0.0,
+                    period: None,
+                    preperiod: None,
+                });
+            }
+        }
+        let heading = self.heading();
+        let Some((px, py)) = self.lock.update(view, min_side, radius, self.free, heading, now) else {
+            return steer;
+        };
+        self.lock_aiming = true;
+        self.aim_far = px.hypot(py) / radius;
+        // The heading that brings the aim point to the centre at LOCK_CONVERGE (see there).
+        let z = self.rate.v.max(0.0);
+        let k = (STEER_PAN + STEER_PAN_PER_RATE * z) * self.throttle.max(0.05);
+        let g = ((z + LOCK_CONVERGE) / (z + k)).min(4.0);
+        let (hx, hy) = (g * px, g * py);
+        let r = hx.hypot(hy);
+        let max = lock::AIM_MAX * radius;
+        if r > max {
+            (hx * max / r, hy * max / r)
+        } else {
+            (hx, hy)
+        }
     }
 
     /// Advances by `dt` towards the heading `target` (view points) and returns the frame's
@@ -493,8 +686,9 @@ impl Autopilot {
 
         // Safety: the heading region of the current frame.
         let (mut safety_target, mut safety_hint) = (1.0, Hint::None);
-        if let Some(a) = self.assessment(now) {
-            let danger = 1.0 - smoothstep((a.detail - DETAIL_LO) / (DETAIL_HI - DETAIL_LO));
+        let assessment = self.assessment(now);
+        if let Some(a) = assessment {
+            let danger = a.danger();
             safety_target = 1.0 - (1.0 - SAFETY_MIN) * danger;
             if danger > 0.5 {
                 safety_hint = if a.interior > 0.5 {
@@ -514,8 +708,46 @@ impl Autopilot {
             self.safety = 0.0;
         }
 
+        // Rescue: nothing ahead and nothing to aim at while the user lets it fly.
+        let uniform = match assessment {
+            Some(a) => a.danger() > 0.5,
+            None => self.lock.view_is_void(),
+        };
+        if running && self.free && self.lock.is_enabled() {
+            self.uniform_for = if uniform { self.uniform_for + dt } else { 0.0 };
+            let locked = self.lock.target().is_some();
+            if !self.rescue && ((!locked && self.uniform_for > RESCUE_AFTER) || self.uniform_for > RESCUE_AFTER_LOCKED)
+            {
+                self.rescue = true;
+                self.lock.drop_target();
+            }
+            // Detail in the survey's heading region for a while ends it too, target or not: the
+            // CPU probes of the search cannot resolve views near very high-period minibrots
+            // (iteration cap), which the GPU shows in full.
+            self.clear_for = if assessment.is_some() && !uniform {
+                self.clear_for + dt
+            } else {
+                0.0
+            };
+            if self.rescue
+                && (self.lock.target().is_some()
+                    || self.clear_for > RESCUE_CLEAR
+                    || self.span_ln >= RESCUE_MAX_SPAN.ln())
+            {
+                self.rescue = false;
+                // Without a target, aim once at the survey's most detailed cell (next frame).
+                self.survey_pick = self.lock.target().is_none();
+                self.uniform_for = 0.0;
+            }
+        } else {
+            self.rescue = false;
+            self.uniform_for = 0.0;
+        }
+
         self.hint = if !running {
             Hint::None
+        } else if self.rescue {
+            Hint::Rescue
         } else if fb.at_limit {
             Hint::Limit
         } else if render_hint != Hint::None {
@@ -530,8 +762,13 @@ impl Autopilot {
         // it to the centre (faster with the zoom rate, slowed with the renderer). The pan rate
         // depends on the zoom rate, so their product is integrated in fixed substeps of at
         // most 2 ms: any frame rate gives the same flight to second order.
-        let rate_target = if running {
-            self.speed * self.throttle * self.safety
+        let rate_target = if running && self.rescue {
+            // Backing out of a long void speeds up (deep inside a big interior).
+            let longer = 1.0 + (self.uniform_for - RESCUE_AFTER).max(0.0) / RESCUE_ACCEL;
+            let base = (RESCUE_SHARE * self.speed).clamp(RESCUE_RATE.0, RESCUE_RATE.1);
+            -(base * longer).min(RESCUE_RATE_MAX) * self.throttle
+        } else if running {
+            self.speed * self.throttle * self.safety * self.capture()
         } else {
             0.0
         };
@@ -545,8 +782,9 @@ impl Autopilot {
                 RATE_OMEGA.1
             };
             let dz = self.rate.follow(rate_target, omega, h);
-            let ix = self.heading[0].follow(self.target.0, STEER_OMEGA, h);
-            let iy = self.heading[1].follow(self.target.1, STEER_OMEGA, h);
+            let omega = if self.lock_aiming { LOCK_OMEGA } else { STEER_OMEGA };
+            let ix = self.heading[0].follow(self.target.0, omega, h);
+            let iy = self.heading[1].follow(self.target.1, omega, h);
             let k = (STEER_PAN + STEER_PAN_PER_RATE * (dz / h).max(0.0)) * self.throttle;
             ln_zoom += dz;
             pan.0 -= k * ix;
@@ -603,23 +841,23 @@ mod tests {
         let a = Autopilot::default();
         let r = 500.0;
         // Inside the dead zone: straight ahead.
-        assert_eq!(a.steer_target(Some((40.0, -20.0)), r, 0.0), (0.0, 0.0));
-        assert_eq!(a.steer_target(None, r, 0.0), (0.0, 0.0));
+        assert_eq!(a.steer_target(Some((40.0, -20.0)), r), (0.0, 0.0));
+        assert_eq!(a.steer_target(None, r), (0.0, 0.0));
         // Monotonic and continuous past it, full deflection at the radius, direction kept.
         let mut last = 0.0;
         for k in 11..=100 {
             let x = r * k as f64 / 100.0;
-            let (tx, ty) = a.steer_target(Some((x * 0.6, x * 0.8)), r, 0.0);
+            let (tx, ty) = a.steer_target(Some((x * 0.6, x * 0.8)), r);
             let m = tx.hypot(ty);
             assert!(m >= last && ty / tx > 1.33 && ty / tx < 1.34);
             last = m;
         }
         assert!((last - r).abs() < 1e-9);
         // Beyond the radius: clamped.
-        let (tx, _) = a.steer_target(Some((3.0 * r, 0.0)), r, 0.0);
+        let (tx, _) = a.steer_target(Some((3.0 * r, 0.0)), r);
         assert!((tx - r).abs() < 1e-9);
         // Just past the dead zone the response is tiny (small mouse moves barely steer).
-        let (tx, _) = a.steer_target(Some((0.12 * r, 0.0)), r, 0.0);
+        let (tx, _) = a.steer_target(Some((0.12 * r, 0.0)), r);
         assert!(tx < 0.01 * r, "{tx}");
     }
 
@@ -692,36 +930,69 @@ mod tests {
         assert!(a.assessment(t + 1.0).is_none());
     }
 
+    /// Flies `secs` at 60 Hz with `pointer`, the survey re-dated every frame; returns the
+    /// lowest zoom rate seen.
+    fn fly(
+        a: &mut Autopilot,
+        v: &mut Viewport,
+        pointer: Option<(f64, f64)>,
+        secs: f64,
+        t: &mut f64,
+        s: &Survey,
+    ) -> f64 {
+        let mut lowest = f64::INFINITY;
+        for _ in 0..(secs * 60.0).round() as usize {
+            *t += 1.0 / 60.0;
+            let mut s = s.clone();
+            s.time = *t;
+            a.set_survey(s);
+            let target = a.aim(v, 600.0, 300.0, pointer, false, *t);
+            let m = a.step(1.0 / 60.0, target, *t);
+            v.pan_by_points(m.pan.0, m.pan.1);
+            v.zoom_by(m.ln_zoom.exp(), m.at.0, m.at.1);
+            lowest = lowest.min(a.rate());
+        }
+        lowest
+    }
+
     #[test]
-    fn assist_leans_towards_detail_but_yields_to_the_pointer() {
+    fn rescue_backs_out_of_a_void_and_never_fights_the_pointer() {
+        // Deep inside the main cardioid: the survey says interior, the search finds no boundary.
         let mut a = Autopilot::default();
-        a.set_assist(true);
-        // Detail only in the right-hand columns; interior elsewhere.
-        let mut s = uniform(100, 0);
-        for j in 0..s.rows {
-            for i in 12..s.cols {
-                s.cells[j * s.cols + i] = SurveyCell {
-                    samples: 100,
-                    interior: 0,
-                    pairs: 200,
-                    edges: 60,
-                };
+        a.lock_mut().synchronous = true;
+        a.toggle();
+        let mut v = Viewport::new(-0.1, 0.0, 1e-6);
+        let void = uniform(100, 0);
+        let mut t = 0.0;
+        fly(&mut a, &mut v, None, 0.8, &mut t, &void);
+        assert!(!a.is_rescuing() && a.rate() > 0.0, "not before {RESCUE_AFTER} s");
+        assert!(a.lock().view_is_void());
+        fly(&mut a, &mut v, None, 1.7, &mut t, &void);
+        assert!(a.is_rescuing() && a.rate() < 0.0, "rate {}", a.rate());
+        assert_eq!(a.hint(), Hint::Rescue);
+        // A deflected pointer wins at once: no rescue, the zoom eases forward again.
+        fly(&mut a, &mut v, Some((200.0, 0.0)), 1.0 / 60.0, &mut t, &void);
+        assert!(!a.is_rescuing());
+        fly(&mut a, &mut v, Some((200.0, 0.0)), 1.5, &mut t, &void);
+        assert!(a.rate() > 0.0 && a.lock().target().is_none());
+        // Let go: the void is found again, the zoom backs out until a search finds a target.
+        let ln0 = v.scale.ln();
+        let mut found = false;
+        for _ in 0..(40 * 60) {
+            fly(&mut a, &mut v, None, 1.0 / 60.0, &mut t, &void);
+            if a.lock().target().is_some() {
+                found = true;
+                break;
             }
         }
-        a.set_survey(s);
-        let r = 500.0;
-        let (tx, ty) = a.steer_target(None, r, 0.0);
-        assert!(tx > 50.0 && tx <= ASSIST_MAX * r + 1e-9 && ty.abs() < 1e-6, "{tx} {ty}");
-        // In the dead zone too.
-        let (tx2, _) = a.steer_target(Some((-30.0, 0.0)), r, 0.0);
-        assert!((tx2 - tx).abs() < 1e-9);
-        // A pointer deflected the other way wins outright.
-        let (tx3, _) = a.steer_target(Some((-0.6 * r, 0.0)), r, 0.0);
-        let (plain, _) = Autopilot::default().steer_target(Some((-0.6 * r, 0.0)), r, 0.0);
-        assert_eq!(tx3, plain);
-        // Off: no lean.
-        a.set_assist(false);
-        assert_eq!(a.steer_target(None, r, 0.0), (0.0, 0.0));
+        assert!(found, "no target after backing out to scale {}", v.scale.to_f64());
+        assert!(!a.is_rescuing());
+        assert!(
+            v.scale.ln() - ln0 > 3.0,
+            "it zoomed out: {} e-folds",
+            v.scale.ln() - ln0
+        );
+        assert!(lock::view_span(&v, 600.0).to_f64() < RESCUE_MAX_SPAN);
     }
 
     #[test]
