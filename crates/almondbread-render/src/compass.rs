@@ -132,7 +132,7 @@ impl CompassOverlay {
             let (dx, dy) = dir(phi);
             [cx + dx * rad, cy + dy * rad]
         };
-        // Ticks: east, south and west longer, the diagonals short (north has the letter).
+        // Ticks: east, south and west longer, the diagonals short (north has the label).
         for k in 1..8 {
             let phi = n - k as f64 * std::f64::consts::FRAC_PI_4;
             let long = k % 2 == 0;
@@ -163,15 +163,15 @@ impl CompassOverlay {
         scene.triangle(south, left, right, rgba(0.62, 0.64, 0.68, a(1.0)));
         scene.triangle(south, right, centre, rgba(0.93, 0.94, 0.96, a(1.0)));
         scene.disc(centre, (1.4 * px) as f32, rgba(0.05, 0.05, 0.06, a(0.9)));
-        // "N", upright, beyond the needle's tip.
-        let size = (9.5 * px) as f32;
-        let (_, gw) = crate::font::layout("N", size);
+        // "i", upright, beyond the needle's tip: north is the +imaginary direction (user idea).
+        let size = (11.0 * px) as f32;
+        let (_, gw) = crate::font::layout("i", size);
         let cap = crate::font::cap_height() * size;
         let p = at(n, 0.71 * r);
         scene.text(
             [p[0] as f32 - gw / 2.0, p[1] as f32 - cap / 2.0],
             size,
-            "N",
+            "i",
             rgba(1.0, 1.0, 1.0, a(0.95)),
         );
         key.push_str(&format!(
