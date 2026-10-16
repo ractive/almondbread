@@ -659,7 +659,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // by at least 1.5 decades (its rectangle stays visible), the deepest `want - 1`.
         let full = full_set_view(panel.0, panel.1);
         let view_px = view.scale; // per point; maps are per pixel
-        let depth = full.scale.ratio(view_px * (1.0 / px_per_pt)).log10();
+        // In logs: the f64 ratio overflows to infinity past ~1e308, and the level loop below
+        // then never ended (the app hung when the map was on at such depths).
+        let depth = full.scale.log10() - (view_px * (1.0 / px_per_pt)).log10();
+        if !depth.is_finite() {
+            return Ok(());
+        }
         let mut decades: Vec<i32> = vec![0];
         let mut deeper: Vec<i32> = (1..)
             .map(|k| 3 * k)
@@ -684,7 +689,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // Drop levels no longer wanted (or whose area the view left), add new ones.
         let mut kept: Vec<MapLevel<B>> = Vec::new();
         for d in &decades {
-            let scale = full.scale * 10f64.powi(-d);
+            // In logs too: 10^-d underflows f64 past d ≈ 308.
+            let scale = Scale::from_log2(full.scale.log2() - *d as f64 * std::f64::consts::LOG2_10);
             let existing = stack.levels.iter().position(|l| l.decade == *d);
             let usable = existing.is_some_and(|i| {
                 let l = &stack.levels[i];
