@@ -24,6 +24,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-metalfx-docs]] — Apple docs and SDK headers for MetalFX: spatial/temporal scalers, jitter and motion conventions, texture usage, reactive mask, dynamic resolution (digested)
 - [[sources/apple-metalfx-taa-sample]] — Apple sample code: temporal antialiasing and upscaling with MetalFX (digested)
 - [[sources/apple-simulator-tooling]] — Xcode 26.6 simctl, xcodebuild test and XCTest touch synthesis: what the iOS simulator checks use (digested)
+- [[sources/apple-swiftui-observation]] — Observation and SwiftUI update docs, plus our macOS 26 call stacks: the grouped Form is a non-lazy SwiftUI layout
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
 - [[sources/beyer-mandelbrot-zoom-sequence]] — Wolfgang Beyer's 15-image Commons zoom into seahorse valley (2005): centre and width of each view, to 6e10 (digested)
 - [[sources/bids-viridis-colormaps]] — viridis, magma, inferno, plasma colour maps (CC0); 256-entry data (digested)
@@ -200,6 +201,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings
 - [[platform/overlay-text]] — overlay labels: Inter SemiBold (OFL) as a signed-distance-field atlas, layout in Rust, bilinear SDF with a soft dark halo in the overlay kernel
+- [[platform/swiftui-performance]] — control center sidebar: 10 Hz stats re-running form rows, the non-lazy macOS grouped Form, debounced search, thumbnails pre-decoded at launch; `--ui-demo=perf` measures it
 - [[platform/render-architecture]] — Rust renderer: GpuBackend trait, chunked scheduler written once against it, Metal backend (objc2-metal) and CAMetalLayer surface, Host and app hosting as built (R2b: layer handover, one frame call per refresh, events), the drawable-wait finding (9.4 ms neck-zoom draw CPU) the pool-predictor fix, and FL's drawable pre-acquisition thread and compose pass
 - [[platform/rust-swift-ffi]] — Rust core to Swift: UniFFI proc macros, XCFramework build script, measured call costs (3.6 ns scalar, Vec return 1700x slower than a copy, frame call 2–7 µs), the Explorer interface (R2b), FFI rules
 

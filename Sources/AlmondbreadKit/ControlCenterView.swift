@@ -6,42 +6,56 @@ import UniformTypeIdentifiers
 /// The control center: every per-window setting in grouped, searchable sections (kb:
 /// decisions/controls, "Control center"). A trailing sidebar on the Mac and iPad (toolbar
 /// button, ⌘I), a sheet on iPhone. App-wide preferences live in the Settings window (⌘,).
+///
+/// Performance (kb: platform/swiftui-performance): this body reads no model property, each
+/// section is its own view struct (equal inputs: SwiftUI skips its body when another section
+/// opens or the query changes), and whatever follows the stats (`panelStats`, ≤ 4 Hz) sits in small leaf
+/// views. The search field keeps its own text; the form filters on a debounced copy.
 struct ControlCenterView: View {
-    @Bindable var model: ExplorerModel
-    @State private var search = UIDemo.search ?? ""
-    @State private var showFlyTo = false
+    let model: ExplorerModel
+    /// The applied query (the field's text, debounced).
+    @State private var query = UIDemo.search ?? ""
     @State private var confirmReset = false
-    @State private var journeySeed = ""
     @Environment(\.undoManager) private var undoManager
-    @AppStorage("controlCenter.collapsed") private var collapsedStorage = ""
+    @AppStorage("controlCenter.collapsed", store: UIDemo.enabled ? UIDemo.defaults : .standard)
+    private var collapsedStorage = ""
 
     var body: some View {
+        let _ = UIPerf.body("ControlCenterView")
+        let collapsed = Set(collapsedStorage.split(separator: ",").map(String.init))
+        let searching = !query.isEmpty
+        let shown = ControlSection.allCases.filter { $0.matches(query) }
         Form {
-            ForEach(ControlSection.allCases.filter(matches)) { section in
+            ForEach(shown) { section in
+                let open = searching || !collapsed.contains(section.rawValue)
                 Section {
-                    if !isCollapsed(section) || !search.isEmpty {
-                        content(section)
+                    if open {
+                        ControlSectionRows(section: section, model: model)
                     }
                 } header: {
-                    sectionHeader(section)
+                    ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
+                        withAnimation(.snappy(duration: 0.2)) { toggle(section) }
+                    }
                 } footer: {
-                    if !isCollapsed(section) || !search.isEmpty, let f = section.footer {
+                    if open, let f = section.footer {
                         Text(f)
                     }
                 }
             }
-            if ControlSection.allCases.filter(matches).isEmpty {
-                Text("No setting matches “\(search)”.").foregroundStyle(.secondary)
+            if shown.isEmpty {
+                Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .controlSize(.small)
-        .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
         .safeAreaInset(edge: .top, spacing: 0) {
-            searchField
+            ControlSearchField(query: $query)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             resetAllBar
+        }
+        .onReceive(UIPerf.actions) { action in
+            if case .toggle(let s) = action { withAnimation(.snappy(duration: 0.2)) { toggle(s) } }
         }
         #if os(macOS)
         // On the Mac the canvas runs on under the sidebar: the π panel (bottom right) moves
@@ -51,83 +65,10 @@ struct ControlCenterView: View {
         #endif
     }
 
-    // MARK: Search and sections
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search settings", text: $search)
-                .textFieldStyle(.plain)
-            if !search.isEmpty {
-                Button {
-                    search = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
-    }
-
-    private func matches(_ s: ControlSection) -> Bool {
-        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return true }
-        return s.title.lowercased().contains(q) || s.keywords.contains { $0.contains(q) }
-    }
-
-    private var collapsed: Set<String> {
-        Set(collapsedStorage.split(separator: ",").map(String.init))
-    }
-
-    private func isCollapsed(_ s: ControlSection) -> Bool { collapsed.contains(s.rawValue) }
-
     private func toggle(_ s: ControlSection) {
-        var c = collapsed
+        var c = Set(collapsedStorage.split(separator: ",").map(String.init))
         if c.contains(s.rawValue) { c.remove(s.rawValue) } else { c.insert(s.rawValue) }
         collapsedStorage = c.sorted().joined(separator: ",")
-    }
-
-    private func sectionHeader(_ s: ControlSection) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                withAnimation(.snappy(duration: 0.2)) { toggle(s) }
-            } label: {
-                HStack {
-                    // Primary and headline weight: Form section headers default to small secondary text,
-                    // which read weaker than the rows inside (user, 2026-10-16).
-                    Label(s.title, systemImage: s.symbol)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .rotationEffect(.degrees(isCollapsed(s) && search.isEmpty ? 0 : 90))
-                        .foregroundStyle(.tertiary)
-                        .font(.caption)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityHint(isCollapsed(s) ? "Expands the section" : "Collapses the section")
-            if let scope = s.resetScope {
-                Button {
-                    model.reset(scope, undo: undoManager)
-                } label: {
-                    Image(systemName: "arrow.counterclockwise").font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Reset \(s.title.lowercased()) to the defaults (⌘Z undoes)")
-                .accessibilityLabel("Reset \(s.title)")
-            }
-        }
     }
 
     /// "Reset all…" at the bottom: settings only, or settings and the view.
@@ -152,39 +93,124 @@ struct ControlCenterView: View {
         .padding(.vertical, 8)
         .background(.bar)
     }
+}
 
-    @ViewBuilder
-    private func content(_ s: ControlSection) -> some View {
-        switch s {
+/// The search field. It owns the typed text, so a keystroke re-renders only the field; the
+/// form gets the text as `query` once typing pauses (120 ms; clearing applies at once).
+/// Filtering is cheap, but every changed query inserts or removes whole sections, and the
+/// first character opens every matching one (measured 0.5-0.8 s per such keystroke before).
+struct ControlSearchField: View {
+    @Binding var query: String
+    @State private var text = UIDemo.search ?? ""
+
+    var body: some View {
+        let _ = UIPerf.body("ControlSearchField")
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search settings", text: $text)
+                .textFieldStyle(.plain)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .task(id: text) {
+            let q = text.trimmingCharacters(in: .whitespaces)
+            if !q.isEmpty { try? await Task.sleep(for: .milliseconds(120)) }
+            if !Task.isCancelled, q != query { query = q }
+        }
+        .onReceive(UIPerf.actions) { action in
+            if case .search(let s) = action { text = s }
+        }
+    }
+}
+
+/// A section's header: title (tap: open or close) and its ↺.
+struct ControlSectionHeader: View {
+    let section: ControlSection
+    let model: ExplorerModel
+    let open: Bool
+    let undoManager: UndoManager?
+    let toggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: toggle) {
+                HStack {
+                    // Primary and headline weight: Form section headers default to small secondary text,
+                    // which read weaker than the rows inside (user, 2026-10-16).
+                    Label(section.title, systemImage: section.symbol)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .foregroundStyle(.tertiary)
+                        .font(.caption)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityHint(open ? "Collapses the section" : "Expands the section")
+            if let scope = section.resetScope {
+                Button {
+                    model.reset(scope, undo: undoManager)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Reset \(section.title.lowercased()) to the defaults (⌘Z undoes)")
+                .accessibilityLabel("Reset \(section.title)")
+            }
+        }
+    }
+}
+
+/// One section's rows. Its inputs are a section and the model reference, so SwiftUI skips its
+/// body unless the model properties it read change (an accordion toggle used to re-run every
+/// open section's rows, the palette grid and the thumbnail grid included).
+struct ControlSectionRows: View {
+    let section: ControlSection
+    let model: ExplorerModel
+
+    var body: some View {
+        let _ = UIPerf.body("rows.\(section.rawValue)")
+        switch section {
         case .places: PlacesSection(model: model)
-        case .view: viewRows
-        case .journey: journeyRows
-        case .look: lookRows
-        case .lighting: lightingRows
-        case .interior: interiorRows
-        case .overlays: overlayRows
-        case .quality: qualityRows
-        case .diagnostics: diagnosticsRows
+        case .view: ViewSectionRows(model: model)
+        case .journey: JourneySectionRows(model: model)
+        case .look: LookSectionRows(model: model)
+        case .lighting: LightingSectionRows(model: model)
+        case .interior: InteriorSectionRows(model: model)
+        case .overlays: OverlaySectionRows(model: model)
+        case .quality: QualitySectionRows(model: model)
+        case .diagnostics: DiagnosticsRows(model: model)
         case .controls: ControlsHelp(model: model)
         }
     }
+}
 
-    // MARK: View & navigation
+// MARK: View & navigation
 
-    @ViewBuilder
-    private var viewRows: some View {
-        let v = model.stats?.shown
-        coordinateRow("Re", v?.re ?? "")
-        coordinateRow("Im", v?.im ?? "")
-        LabeledContent("Zoom") {
-            Text(Format.zoom(log10: v?.zoomLog10 ?? 0)).monospacedDigit()
-        }
-        LabeledContent("Scale") {
-            Text("\(v?.scaleText ?? "") / pt").monospacedDigit()
-        }
-        LabeledContent("Zoom speed") {
-            Text(Format.speed(model.zoomFactorPerSecond)).monospacedDigit()
-        }
+struct ViewSectionRows: View {
+    @Bindable var model: ExplorerModel
+    @State private var showFlyTo = false
+
+    var body: some View {
+        ViewReadout(model: model)
         HStack {
             Button {
                 Clipboard.copy(model.coordinatesText)
@@ -213,13 +239,12 @@ struct ControlCenterView: View {
             ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
         }
         // Autopilot and fly-to (kb: decisions/controls, autopilot).
-        let s = model.stats
         HStack {
             Button {
                 model.toggleAutopilot()
             } label: {
-                Label(s?.autopilot.active == true ? "Stop" : "Autopilot",
-                      systemImage: s?.autopilot.active == true ? "airplane.circle.fill" : "airplane")
+                Label(model.autopilotActive ? "Stop" : "Autopilot",
+                      systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
             }
             .help("Zoom on continuously, steer with the pointer; click pauses, Esc stops (Z)")
             Button {
@@ -238,30 +263,107 @@ struct ControlCenterView: View {
         #if os(iOS)
         .buttonStyle(.borderless)
         #endif
-        if let s, s.autopilot.active || s.flight.active {
+        .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
+        MotionStatus(model: model)
+        Toggle("Autopilot assist", isOn: $model.autopilotAssist)
+            .help("Leans the autopilot's heading towards nearby detail while the pointer rests near the centre; it never steers against the pointer")
+        RotationRow(model: model)
+    }
+}
+
+/// Centre, zoom and scale: follows the stats (`panelStats`, at most 4 Hz).
+struct ViewReadout: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let _ = UIPerf.body("leaf.readout")
+        let v = model.panelStats?.shown
+        ControlRows.coordinate("Re", v?.re ?? "")
+        ControlRows.coordinate("Im", v?.im ?? "")
+        LabeledContent("Zoom") {
+            Text(Format.zoom(log10: v?.zoomLog10 ?? 0)).monospacedDigit()
+        }
+        LabeledContent("Scale") {
+            Text("\(v?.scaleText ?? "") / pt").monospacedDigit()
+        }
+        LabeledContent("Zoom speed") {
+            Text(Format.speed(model.zoomFactorPerSecond)).monospacedDigit()
+        }
+    }
+}
+
+/// The autopilot's or a flight's speed while one runs (stats).
+struct MotionStatus: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        if let s = model.panelStats, s.autopilot.active || s.flight.active {
             Text(s.flight.active ? "fly speed \(Format.speed(exp(s.flight.speed)))"
                  : "autopilot \(Format.speed(exp(s.autopilot.speed)))")
                 .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             Button("Stop (Esc)") { model.stopMotion() }
         }
-        Toggle("Autopilot assist", isOn: $model.autopilotAssist)
-            .help("Leans the autopilot's heading towards nearby detail while the pointer rests near the centre; it never steers against the pointer")
-        // View rotation (kb: decisions/controls, "View rotation").
+    }
+}
+
+/// View rotation (kb: decisions/controls, "View rotation").
+struct RotationRow: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let angle = model.panelStats?.shown.angleDegrees ?? 0
         LabeledContent("Rotation") {
             HStack {
-                Text(String(format: "%.1f°", v?.angleDegrees ?? 0)).monospacedDigit()
+                Text(String(format: "%.1f°", angle)).monospacedDigit()
                 Button("Straighten") { model.straighten() }
-                    .disabled((v?.angleDegrees ?? 0) == 0)
+                    .disabled(angle == 0)
                     .help("Turn the view upright (/); , and . turn it, so does a trackpad rotation")
             }
         }
     }
+}
 
-    // MARK: Journey & cinematic effects
+// MARK: Journey & cinematic effects
 
-    @ViewBuilder
-    private var journeyRows: some View {
-        let j = model.stats?.journey
+struct JourneySectionRows: View {
+    @Bindable var model: ExplorerModel
+    @State private var journeySeed = ""
+
+    var body: some View {
+        JourneyControls(model: model, journeySeed: journeySeed)
+        TextField("Seed (empty: random)", text: $journeySeed)
+            .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
+        Toggle("Cinematic effects", isOn: $model.cinematic)
+            .help("Spin with the zoom, palette drift with depth and slow cycling while flying (autopilot, journeys, fly-to)")
+        Group {
+            LabeledContent("Spin") {
+                Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }.labelsHidden()
+                    .help(String(format: "%.1f° per e-fold of zoom (×2.7)", model.cinematicSpin))
+            }
+            LabeledContent("Hue drift") {
+                Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }.labelsHidden()
+                    .help(String(format: "%.1f° of hue per e-fold of depth", model.cinematicHueDrift))
+            }
+            LabeledContent("Phase drift") {
+                Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }.labelsHidden()
+                    .help(String(format: "%.3f palette cycles per e-fold of depth", model.cinematicPhaseDrift))
+            }
+            LabeledContent("Cycling in flight") {
+                Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }.labelsHidden()
+                    .help(String(format: "%.3f palette cycles per second while flying", model.cinematicFlyCycle))
+            }
+        }
+        .disabled(!model.cinematic)
+    }
+}
+
+/// Journey buttons and status: follow the stats' journey (leg, phase, speed).
+struct JourneyControls: View {
+    let model: ExplorerModel
+    let journeySeed: String
+
+    var body: some View {
+        let j = model.panelStats?.journey
         HStack {
             Button {
                 if j?.active == true && j?.suspended == true {
@@ -296,8 +398,6 @@ struct ControlCenterView: View {
         #if os(iOS)
         .buttonStyle(.borderless)
         #endif
-        TextField("Seed (empty: random)", text: $journeySeed)
-            .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
         if let j, j.active {
             Text(j.suspended ? "Journey #\(j.seed) paused" :
                  "#\(j.seed) · leg \(j.leg) · \(j.label.isEmpty ? j.phase : j.label) · \(j.phase)")
@@ -305,43 +405,15 @@ struct ControlCenterView: View {
             Text("journey speed \(Format.speed(exp(j.speed))) (Q / E)")
                 .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
-        Toggle("Cinematic effects", isOn: $model.cinematic)
-            .help("Spin with the zoom, palette drift with depth and slow cycling while flying (autopilot, journeys, fly-to)")
-        Group {
-            LabeledContent("Spin") {
-                Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }.labelsHidden()
-                    .help(String(format: "%.1f° per e-fold of zoom (×2.7)", model.cinematicSpin))
-            }
-            LabeledContent("Hue drift") {
-                Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }.labelsHidden()
-                    .help(String(format: "%.1f° of hue per e-fold of depth", model.cinematicHueDrift))
-            }
-            LabeledContent("Phase drift") {
-                Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }.labelsHidden()
-                    .help(String(format: "%.3f palette cycles per e-fold of depth", model.cinematicPhaseDrift))
-            }
-            LabeledContent("Cycling in flight") {
-                Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }.labelsHidden()
-                    .help(String(format: "%.3f palette cycles per second while flying", model.cinematicFlyCycle))
-            }
-        }
-        .disabled(!model.cinematic)
     }
+}
 
-    private func coordinateRow(_ label: String, _ value: String) -> some View {
-        LabeledContent(label) {
-            Text(value)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-    }
+// MARK: Look & colour
 
-    // MARK: Look & colour
+struct LookSectionRows: View {
+    @Bindable var model: ExplorerModel
 
-    @ViewBuilder
-    private var lookRows: some View {
+    var body: some View {
         Picker("Look", selection: Binding(get: { model.lookID }, set: { model.applyLook($0) })) {
             ForEach(ExplorerModel.looks, id: \.id) { l in
                 HStack {
@@ -359,9 +431,9 @@ struct ControlCenterView: View {
         .pickerStyle(.navigationLink)
         #endif
         PalettePicker(model: model)
-        sliderRow("Density", value: logBinding($model.colorDensity, range: 0.001...1), in: 0...1,
-                  text: String(format: "%.4g", model.colorDensity))
-        sliderRow("Offset", value: $model.colorOffset, in: 0...1, text: String(format: "%.2f", model.colorOffset))
+        ControlRows.slider("Density", value: ControlRows.log($model.colorDensity, range: 0.001...1), in: 0...1,
+                           text: String(format: "%.4g", model.colorDensity))
+        ControlRows.slider("Offset", value: $model.colorOffset, in: 0...1, text: String(format: "%.2f", model.colorOffset))
         Toggle("Logarithmic", isOn: $model.logColoring)
         Toggle("Smooth", isOn: $model.smoothColoring)
         Toggle("Palette anti-aliasing", isOn: $model.paletteFilter)
@@ -370,40 +442,46 @@ struct ControlCenterView: View {
         Toggle("Colour cycling", isOn: Binding(get: { model.cycleSpeed != 0 },
                                                set: { model.cycleSpeed = $0 ? 0.05 : 0 }))
         if model.cycleSpeed != 0 {
-            sliderRow("Cycle speed", value: logBinding($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
-                      text: String(format: "%.3g /s", model.cycleSpeed))
+            ControlRows.slider("Cycle speed", value: ControlRows.log($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
+                               text: String(format: "%.3g /s", model.cycleSpeed))
         }
-        sliderRow("Depth tint", value: $model.depthTint, in: 0...0.2,
-                  text: model.depthTint == 0 ? "off" : String(format: "%.3f / decade", model.depthTint))
+        ControlRows.slider("Depth tint", value: $model.depthTint, in: 0...0.2,
+                           text: model.depthTint == 0 ? "off" : String(format: "%.3f / decade", model.depthTint))
     }
+}
 
-    // MARK: Lighting
+// MARK: Lighting
 
-    @ViewBuilder
-    private var lightingRows: some View {
-        sliderRow("Shading", value: $model.shading, in: 0...1, text: String(format: "%.2f", model.shading))
-        sliderRow("Light angle", value: $model.lightAngle, in: 0...360, text: String(format: "%.0f°", model.lightAngle))
+struct LightingSectionRows: View {
+    @Bindable var model: ExplorerModel
+
+    var body: some View {
+        ControlRows.slider("Shading", value: $model.shading, in: 0...1, text: String(format: "%.2f", model.shading))
+        ControlRows.slider("Light angle", value: $model.lightAngle, in: 0...360, text: String(format: "%.0f°", model.lightAngle))
             .disabled(model.shading == 0)
-        sliderRow("Light height", value: $model.lightHeight, in: 0.2...4, text: String(format: "%.2f", model.lightHeight))
+        ControlRows.slider("Light height", value: $model.lightHeight, in: 0.2...4, text: String(format: "%.2f", model.lightHeight))
             .disabled(model.shading == 0)
-        sliderRow("Highlight", value: $model.specular, in: 0...1, text: String(format: "%.2f", model.specular))
+        ControlRows.slider("Highlight", value: $model.specular, in: 0...1, text: String(format: "%.2f", model.specular))
             .disabled(model.shading == 0)
-        sliderRow("Outline", value: $model.outline, in: 0...1, text: String(format: "%.2f", model.outline))
-        sliderRow("Outline width", value: $model.outlineWidth, in: 0.5...6, text: String(format: "%.1f px", model.outlineWidth))
+        ControlRows.slider("Outline", value: $model.outline, in: 0...1, text: String(format: "%.2f", model.outline))
+        ControlRows.slider("Outline width", value: $model.outlineWidth, in: 0.5...6, text: String(format: "%.1f px", model.outlineWidth))
             .disabled(model.outline == 0)
-        ColorPicker("Outline colour", selection: linearColorBinding(\.edgeColor), supportsOpacity: false)
+        ColorPicker("Outline colour", selection: ControlRows.linearColor(model, \.edgeColor), supportsOpacity: false)
             .disabled(model.outline == 0)
-        sliderRow("Glow", value: $model.glow, in: 0...0.5, text: String(format: "%.2f", model.glow))
-        sliderRow("Glow width", value: $model.glowWidth, in: 1...40, text: String(format: "%.0f px", model.glowWidth))
+        ControlRows.slider("Glow", value: $model.glow, in: 0...0.5, text: String(format: "%.2f", model.glow))
+        ControlRows.slider("Glow width", value: $model.glowWidth, in: 1...40, text: String(format: "%.0f px", model.glowWidth))
             .disabled(model.glow == 0)
-        ColorPicker("Glow colour", selection: linearColorBinding(\.glowColor), supportsOpacity: false)
+        ColorPicker("Glow colour", selection: ControlRows.linearColor(model, \.glowColor), supportsOpacity: false)
             .disabled(model.glow == 0)
     }
+}
 
-    // MARK: Interior
+// MARK: Interior
 
-    @ViewBuilder
-    private var interiorRows: some View {
+struct InteriorSectionRows: View {
+    @Bindable var model: ExplorerModel
+
+    var body: some View {
         Picker("Colouring", selection: $model.interiorColoring) {
             ForEach(InteriorColoring.allCases) { Text($0.label).tag($0) }
         }
@@ -412,54 +490,78 @@ struct ControlCenterView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         if model.interiorColoring == .flat {
-            ColorPicker("Colour", selection: linearColorBinding(\.interiorColor), supportsOpacity: false)
+            ColorPicker("Colour", selection: ControlRows.linearColor(model, \.interiorColor), supportsOpacity: false)
         } else {
-            sliderRow("Density", value: logBinding($model.interiorDensity, range: 0.02...4), in: 0...1,
-                      text: String(format: "%.3g", model.interiorDensity))
+            ControlRows.slider("Density", value: ControlRows.log($model.interiorDensity, range: 0.02...4), in: 0...1,
+                               text: String(format: "%.3g", model.interiorDensity))
         }
         if model.interiorColoring == .angle {
-            sliderRow("Stripes", value: $model.interiorStripes, in: 0...32,
-                      text: String(format: "%.0f", model.interiorStripes))
+            ControlRows.slider("Stripes", value: $model.interiorStripes, in: 0...32,
+                               text: String(format: "%.0f", model.interiorStripes))
         }
         Toggle("Interior detection", isOn: $model.interiorDetection)
     }
+}
 
-    // MARK: Overlays
+// MARK: Overlays
 
-    @ViewBuilder
-    private var overlayRows: some View {
+struct OverlaySectionRows: View {
+    @Bindable var model: ExplorerModel
+
+    var body: some View {
         Toggle("Orbit of the point under the pointer", isOn: $model.orbitEnabled)
         if model.orbitEnabled {
-            sliderRow("Iterates", value: logBinding(intBinding($model.orbitLength), range: 1...1000), in: 0...1,
-                      text: "\(model.orbitLength)")
-            if let o = model.orbit, !o.text.isEmpty {
-                LabeledContent("c") { Text(o.text).monospacedDigit().lineLimit(2) }
-                LabeledContent("|z\(o.iterates)|") { Text(String(format: "%.4g", o.lastAbs)).monospacedDigit() }
-            }
+            ControlRows.slider("Iterates", value: ControlRows.log(ControlRows.int($model.orbitLength), range: 1...1000), in: 0...1,
+                               text: "\(model.orbitLength)")
+            OrbitReadout(model: model)
         }
         Toggle("Mini-map", isOn: $model.mapEnabled)
         if model.mapEnabled {
             Stepper("Levels: \(model.mapLevels)", value: $model.mapLevels, in: 1...4)
                 .help("The whole set plus up to three deeper maps at thousands of times the zoom")
-            sliderRow("Size", value: $model.mapSize, in: 100...320, text: String(format: "%.0f pt", model.mapSize))
+            ControlRows.slider("Size", value: $model.mapSize, in: 100...320, text: String(format: "%.0f pt", model.mapSize))
             Picker("Corner", selection: $model.mapPlacement) {
                 ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
             }
-            if let note = model.orbit?.mapNote, !note.isEmpty {
-                Text(note).font(.caption).foregroundStyle(.secondary)
-            }
+            MapNote(model: model)
         }
         Toggle("π meter", isOn: $model.piMeterEnabled)
             .help("At the neck −3/4 + iε or the cusp 1/4 + ε: the escape count N times ε (√ε) closes in on π (P)")
         if model.piMeterEnabled {
-            piMeterRows
+            PiMeterRows(model: model)
         }
         CosmicScaleRows(model: model)
         Toggle("Status (HUD)", isOn: $model.showHUD)
     }
+}
 
-    @ViewBuilder
-    private var piMeterRows: some View {
+/// The orbit's point and last |z| (follow the pointer, refreshed with the stats).
+struct OrbitReadout: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        if let o = model.orbit, !o.text.isEmpty {
+            LabeledContent("c") { Text(o.text).monospacedDigit().lineLimit(2) }
+            LabeledContent("|z\(o.iterates)|") { Text(String(format: "%.4g", o.lastAbs)).monospacedDigit() }
+        }
+    }
+}
+
+struct MapNote: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        if let note = model.orbit?.mapNote, !note.isEmpty {
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// The π meter's reading (refreshed with the stats while it counts).
+struct PiMeterRows: View {
+    let model: ExplorerModel
+
+    var body: some View {
         if let m = model.piMeter, !m.point.isEmpty {
             if m.count > 0 {
                 LabeledContent(m.point == "cusp" ? "N·√ε" : "N·ε") {
@@ -484,18 +586,21 @@ struct ControlCenterView: View {
         }
         .help("Flies to seahorse valley (neck) or elephant valley (cusp) and slides a probe down the line to ε = 1e-8 or 1e-16 while the meter counts and draws its orbit; Q / E change the speed, Esc stops")
     }
+}
 
-    // MARK: Iterations & quality
+// MARK: Iterations & quality
+
+struct QualitySectionRows: View {
+    @Bindable var model: ExplorerModel
 
     private static let iterationCaps = [10_000, 50_000, 200_000, 1_000_000, 10_000_000]
 
-    @ViewBuilder
-    private var qualityRows: some View {
+    var body: some View {
         Toggle("Automatic iterations", isOn: $model.autoIterations)
         if model.autoIterations {
-            LabeledContent("Current", value: (model.stats?.maxIterations ?? 0).formatted())
+            CurrentIterations(model: model)
         } else {
-            Slider(value: logBinding(intBinding($model.manualIterations), range: 100...10_000_000), in: 0...1) {
+            Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000), in: 0...1) {
                 Text("Maximum")
             }
             TextField("Maximum", value: $model.manualIterations, format: .number)
@@ -510,12 +615,25 @@ struct ControlCenterView: View {
         }
         Toggle("Interactive preview", isOn: $model.interactivePreview)
     }
+}
 
-    // MARK: Performance & diagnostics
+struct CurrentIterations: View {
+    let model: ExplorerModel
 
-    @ViewBuilder
-    private var diagnosticsRows: some View {
-        if let s = model.stats {
+    var body: some View {
+        LabeledContent("Current", value: (model.panelStats?.maxIterations ?? 0).formatted())
+    }
+}
+
+// MARK: Performance & diagnostics
+
+/// Renderer statistics (all of it follows `panelStats`; a leaf by itself).
+struct DiagnosticsRows: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let _ = UIPerf.body("leaf.diagnostics")
+        if let s = model.panelStats {
             LabeledContent("GPU (view)") { Text("\(Format.ms(s.gpuTime)) · \(s.chunks) chunks").monospacedDigit() }
             LabeledContent("Render size") { Text("\(s.renderWidth)×\(s.renderHeight)\(s.isPreview ? " preview" : "")").monospacedDigit() }
             LabeledContent("Iterations") { Text(s.maxIterations.formatted()).monospacedDigit() }
@@ -533,11 +651,24 @@ struct ControlCenterView: View {
             Text("No renderer").foregroundStyle(.secondary)
         }
     }
+}
 
-    // MARK: Helpers
+// MARK: Row helpers
+
+enum ControlRows {
+    static func coordinate(_ label: String, _ value: String) -> some View {
+        LabeledContent(label) {
+            Text(value)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
 
     /// The model keeps colours in linear RGB (what the kernel blends in).
-    private func linearColorBinding(_ path: ReferenceWritableKeyPath<ExplorerModel, SIMD3<Float>>) -> Binding<Color> {
+    @MainActor
+    static func linearColor(_ model: ExplorerModel, _ path: ReferenceWritableKeyPath<ExplorerModel, SIMD3<Float>>) -> Binding<Color> {
         Binding {
             let c = model[keyPath: path]
             return Color(.sRGBLinear, red: Double(c.x), green: Double(c.y), blue: Double(c.z))
@@ -547,7 +678,7 @@ struct ControlCenterView: View {
         }
     }
 
-    private func sliderRow(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, text: String) -> some View {
+    static func slider(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, text: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(title)
@@ -561,15 +692,15 @@ struct ControlCenterView: View {
         }
     }
 
-    private func intBinding(_ b: Binding<Int>) -> Binding<Double> {
+    static func int(_ b: Binding<Int>) -> Binding<Double> {
         Binding { Double(b.wrappedValue) } set: { b.wrappedValue = Int($0.rounded()) }
     }
 
     /// Maps 0...1 onto `range` logarithmically.
-    private func logBinding(_ b: Binding<Double>, range: ClosedRange<Double>) -> Binding<Double> {
-        let lo = log(range.lowerBound), hi = log(range.upperBound)
+    static func log(_ b: Binding<Double>, range: ClosedRange<Double>) -> Binding<Double> {
+        let lo = Foundation.log(range.lowerBound), hi = Foundation.log(range.upperBound)
         return Binding {
-            (log(min(max(b.wrappedValue, range.lowerBound), range.upperBound)) - lo) / (hi - lo)
+            (Foundation.log(min(max(b.wrappedValue, range.lowerBound), range.upperBound)) - lo) / (hi - lo)
         } set: {
             b.wrappedValue = exp(lo + $0 * (hi - lo))
         }
@@ -625,6 +756,13 @@ enum ControlSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Whether the section matches a search query (title or keywords, case-insensitive).
+    func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return true }
+        return title.lowercased().contains(q) || keywords.contains { $0.contains(q) }
+    }
+
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
@@ -673,16 +811,17 @@ struct PlacesSection: View {
         ExplorerModel.places.filter { category == nil || $0.category == category }
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 88), spacing: 6)]
 
     var body: some View {
+        let _ = UIPerf.body("PlacesSection")
+        let _ = UIPerf.placesAppeared()
         Picker("Category", selection: $category) {
             Text("All (\(ExplorerModel.places.count))").tag(PlaceCategory?.none)
             ForEach(categories, id: \.1) { c in
                 Text(c.1).tag(PlaceCategory?.some(c.0))
             }
         }
-        LazyVGrid(columns: columns, spacing: 6) {
+        TileGrid(minWidth: 88, spacing: 6, aspect: 1.6) {
             ForEach(shown, id: \.id) { p in
                 Button {
                     selected = p.id
@@ -737,65 +876,27 @@ struct PlacesSection: View {
     }
 }
 
-/// A place's thumbnail (HEIC package resource), decoded once, off the main thread.
+/// A place's thumbnail from the pre-decoded cache (PlaceThumbnails.preload at launch); if the
+/// launch decode has not reached it yet, it waits for it off the main thread.
 struct PlaceThumbnail: View {
     let id: String
     @State private var image: CGImage?
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
+        let _ = UIPerf.body("PlaceThumbnail")
+        let shown = image ?? PlaceThumbnails.cached(id)
         Group {
-            if let image = image ?? PlaceThumbnails.cached(id) {
-                Image(decorative: image, scale: 2).resizable()
+            if let shown {
+                let _ = UIPerf.thumbnailVisible(id, immediate: image == nil)
+                Image(decorative: shown, scale: displayScale).resizable()
             } else {
                 Rectangle().fill(.quaternary)
             }
         }
-        .task(id: id) { image = await PlaceThumbnails.decoded(id) }
-    }
-}
-
-extension PlaceThumbnails {
-    /// One serial queue decodes every thumbnail into a plain bitmap. Lazily decoded HEIC
-    /// images were decoded by Core Animation on the main thread while SwiftUI's
-    /// prepare-image threads decoded others: in the iOS simulator the HEIF decoder's session
-    /// pool deadlocked the main thread when the control center opened (kb:
-    /// platform/ios-simulator). Fully decoded bitmaps also scroll without decode hitches.
-    private static let queue = DispatchQueue(label: "almondbread.place-thumbnails", qos: .userInitiated)
-    private nonisolated(unsafe) static var cache: [String: CGImage] = [:]
-    private static let lock = NSLock()
-
-    static func cached(_ id: String) -> CGImage? {
-        lock.lock()
-        defer { lock.unlock() }
-        return cache[id]
-    }
-
-    static func decoded(_ id: String) async -> CGImage? {
-        if let c = cached(id) { return c }
-        return await withCheckedContinuation { (k: CheckedContinuation<CGImage?, Never>) in
-            queue.async {
-                let image = cached(id) ?? decode(id)
-                if let image {
-                    lock.lock()
-                    cache[id] = image
-                    lock.unlock()
-                }
-                k.resume(returning: image)
-            }
+        .task(id: id) {
+            if shown == nil { image = await PlaceThumbnails.decoded(id) }
         }
-    }
-
-    /// The @2x thumbnail drawn into an sRGB bitmap (no lazy decode left for later).
-    private static func decode(_ id: String) -> CGImage? {
-        guard let url = url(id: id), let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                                    | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return nil }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        return ctx.makeImage()
     }
 }
 
@@ -809,7 +910,6 @@ struct PalettePicker: View {
     @State private var importing = false
     @State private var importNote: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 64), spacing: 6)]
 
     private var categories: [(key: String, label: String)] {
         var seen: [(key: String, label: String)] = []
@@ -820,6 +920,7 @@ struct PalettePicker: View {
     }
 
     var body: some View {
+        let _ = UIPerf.body("PalettePicker")
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Palette")
@@ -831,7 +932,7 @@ struct PalettePicker: View {
                 ForEach(categories, id: \.key) { c in Text(c.label).tag(c.key) }
             }
             .labelsHidden()
-            LazyVGrid(columns: columns, spacing: 6) {
+            TileGrid(minWidth: 64, spacing: 6, height: 16) {
                 ForEach(model.library.filter { category.isEmpty || $0.category == category }, id: \.id) { p in
                     Button {
                         model.applyPalette(p.id)
@@ -1012,3 +1113,39 @@ public struct AppSettingsView: View {
     }
 }
 #endif
+
+/// Tiles in adaptive columns, like `LazyVGrid(columns: [GridItem(.adaptive(minimum:), spacing:)])`
+/// but with the size computed from the width and the count alone: every tile has the same
+/// shape (an aspect ratio or a fixed height), so measuring the grid never asks the tiles. Inside
+/// the control center's (non-lazy) form a lazy grid re-estimated its tiles on every layout
+/// pass of the sidebar (kb: platform/swiftui-performance).
+struct TileGrid: Layout {
+    var minWidth: CGFloat
+    var spacing: CGFloat
+    /// Width over height of a tile, or a fixed `height`.
+    var aspect: CGFloat = 1
+    var height: CGFloat?
+
+    private func geometry(width: CGFloat) -> (columns: Int, tile: CGSize) {
+        let n = max(1, Int((width + spacing) / (minWidth + spacing)))
+        let w = max(0, (width - spacing * CGFloat(n - 1)) / CGFloat(n))
+        return (n, CGSize(width: w, height: height ?? w / aspect))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? (minWidth * 3 + spacing * 2)
+        let g = geometry(width: width)
+        let rows = (subviews.count + g.columns - 1) / g.columns
+        return CGSize(width: width, height: rows == 0 ? 0 : CGFloat(rows) * g.tile.height + CGFloat(rows - 1) * spacing)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let g = geometry(width: bounds.width)
+        let tile = ProposedViewSize(g.tile)
+        for (i, s) in subviews.enumerated() {
+            let x = bounds.minX + CGFloat(i % g.columns) * (g.tile.width + spacing)
+            let y = bounds.minY + CGFloat(i / g.columns) * (g.tile.height + spacing)
+            s.place(at: CGPoint(x: x, y: y), proposal: tile)
+        }
+    }
+}

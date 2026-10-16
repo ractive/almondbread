@@ -309,6 +309,16 @@ public final class ExplorerModel {
     public private(set) var piMeter: PiMeterInfo?
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
+    /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
+    /// showing it (control center, controls help) do not depend on the 10 Hz `stats`.
+    public private(set) var zoomSpeed = 1.6
+    /// `stats` for the control center's readouts, at most 4 Hz (a discrete change, e.g. the
+    /// autopilot stopping or the view settling, passes at once; the latest value always lands).
+    /// Every update of a sidebar row re-lays out the whole open grouped form (~10 ms per update
+    /// with one section open; kb: platform/swiftui-performance), so it should not run at 10 Hz.
+    public private(set) var panelStats: ExplorerStats?
+    @ObservationIgnored private var panelUpdated = 0.0
+    @ObservationIgnored private var panelPending = false
     /// Why the renderer could not be created, if it could not.
     public internal(set) var failure: String?
 
@@ -340,6 +350,9 @@ public final class ExplorerModel {
         pushPiMeter()
         pushCosmic()
         refreshStats()
+        // The Places grid's thumbnails, decoded in the background once the renderer exists, so
+        // the control center shows them at once (kb: platform/swiftui-performance).
+        PlaceThumbnails.preload()
         // The Settings window writes user defaults: follow edge panning and the HUD.
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil, queue: .main) { [weak self] _ in
@@ -904,12 +917,40 @@ public final class ExplorerModel {
             zoomSpeedChanged = Date()
         }
         stats = new
+        updatePanel(new)
+        if zoomSpeed != new.zoomSpeed { zoomSpeed = new.zoomSpeed }
         if autopilotActive != new.autopilot.active { autopilotActive = new.autopilot.active }
         if journeyActive != new.journey.active { journeyActive = new.journey.active }
     }
 
+    private func updatePanel(_ new: ExplorerStats) {
+        let now = Date.timeIntervalSinceReferenceDate
+        let discrete = panelStats.map {
+            $0.autopilot.active != new.autopilot.active || $0.flight.active != new.flight.active
+                || $0.journey.active != new.journey.active || $0.journey.suspended != new.journey.suspended
+                || $0.settled != new.settled
+        } ?? true
+        if discrete || now - panelUpdated >= 0.25 {
+            panelStats = new
+            panelUpdated = now
+            return
+        }
+        guard !panelPending else { return }
+        panelPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.01, 0.25 - (now - panelUpdated))) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.panelPending = false
+                if let s = self.stats, s != self.panelStats {
+                    self.panelStats = s
+                    self.panelUpdated = Date.timeIntervalSinceReferenceDate
+                }
+            }
+        }
+    }
+
     /// Zoom speed as a magnification factor per second, for display.
-    public var zoomFactorPerSecond: Double { exp(stats?.zoomSpeed ?? 1.6) }
+    public var zoomFactorPerSecond: Double { exp(zoomSpeed) }
 
     public var palette: PaletteInfo {
         if let p = Self.palettes.first(where: { $0.id == paletteID }) { return p }

@@ -89,7 +89,8 @@ public enum SelfTest {
 /// number (`screencapture -l <n>` captures it behind other windows). Prints
 /// "ui-demo: window <n>" once the view settled, then quits after 20 s. Scenes: `orbit`
 /// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
-/// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels).
+/// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels);
+/// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
     static var outDir: String {
@@ -157,6 +158,19 @@ public enum UIDemo {
         return a.hasPrefix(prefix + "=") ? String(a.dropFirst(prefix.count + 1)) : "orbit"
     }
     public static var enabled: Bool { scene != nil }
+
+    /// The control center's section state in a demo: a volatile suite, emptied at launch (all
+    /// sections open; the perf scene starts with Places and a few others collapsed), so a
+    /// scene neither depends on nor changes the user's sidebar.
+    static let defaults: UserDefaults = {
+        let name = "almondbread.ui-demo"
+        let d = UserDefaults(suiteName: name) ?? .standard
+        d.removePersistentDomain(forName: name)
+        if scene == "perf" {
+            d.set("controls,interior,journey,lighting,overlays,places", forKey: "controlCenter.collapsed")
+        }
+        return d
+    }()
 
     /// The control center's search text the scene starts with (shows that section on top).
     static var search: String? {
@@ -237,6 +251,10 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 3
             _ = explorer.input(event: .pointer(x: 150, y: -80))
+        }
+        if scene == "perf" {
+            UIPerf.run(model)
+            return
         }
         // Report the window once the view settled and the maps had time to render.
         let start = Date()

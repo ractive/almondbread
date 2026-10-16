@@ -765,3 +765,19 @@ of the count. The magnifier at scale ε was not built (it would be black and cos
 iterations per pixel). Menu items renamed "Hunt π at the Neck/Cusp". Pages:
 [[techniques/pi-in-the-mandelbrot-set]] "The orbit", "In the app"; [[decisions/controls]]
 "π meter".
+
+## [2026-10-16] decision | Control center performance: invalidation, search, thumbnails
+
+The user reported stuttering search, Places thumbnails that visibly load, and slow
+accordions. Measured with a new scripted background scene (`--ui-demo=perf`: body counters,
+main-thread busy time from run-loop observers, per-action latency, `sample`). Causes: the
+rows of open sections reading `stats` re-ran at 10 Hz through `ForEach` (main thread 43 %
+busy while rendering vs ~9 % collapsed); on macOS the grouped `Form` is a non-lazy SwiftUI
+stack, so any row change lays out every open row again (~10 ms per update, toggles 60-450 ms
+depending on what is open); search text was form state (worst keystroke 0.6-0.9 s);
+thumbnails were decoded on first view at full size (733 ms to fill, ~71 MB). Fixes: sections
+as view structs, leaf views, change-only `zoomSpeed`, `panelStats` at most 4 Hz (busy 23 %),
+a search field that owns its text with a 120 ms debounce to the form (one rebuild per pause),
+thumbnails pre-decoded at launch at display size (13.3 MB, all shown in the first frame, 51
+ms), and a fixed-geometry `TileGrid`. The toggle cost is not fixed: it needs a lazy container
+that would change how the sidebar looks. Page: [[platform/swiftui-performance]].
