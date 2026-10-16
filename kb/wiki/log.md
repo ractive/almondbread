@@ -860,3 +860,20 @@ after transitions and on `contentLayoutRect` changes. In full screen Esc stops m
 and leaves full screen only when nothing moved; repeats never leave. Interaction-test scenario
 "esc full screen" checks it through a probe (no window enters full screen). Page:
 [[decisions/controls]] "Full screen".
+
+## [2026-10-16] decision | Cosmic scale: "Your screen" keeps the window, the set grows
+
+The screen anchor no longer turns around at the observable universe (the set became the
+universe and the view shrank to the Planck length at zoom ~1e62: "very confusing", user). The
+window stays its 30 cm (or measured) width at every depth; only the whole set grows: "The whole
+set would be 3 km wide", "… as wide as Earth", "… as big as the observable universe", then "…
+5.2 million × the observable universe", "5e102 ×", "5e972 ×", "5e2972 ×" at zoom 1e3000,
+counted from the log so nothing overflows to the depth limit; line 2 "your window: 30 cm", no
+third line. Ruler: things up to "universe", then "1,000 × universe" … "1 trillion ×", "1e20 ×",
+"1e30 ×", "1e50 ×", "googol ×", every 100 decades to "1e4000 ×"; no small things, milestones or
+ladders; marks at least 25 points apart (unit test). Set-as-object anchors: the third line is
+plain words ("to see it you need X-rays", "Smaller than anything ever measured", "Smaller than
+the Planck length: only maths from here") instead of light times and GeV; the "GUT scale?" mark
+is gone everywhere (the metaphor grid now has 23 steps of 8.7 decades). Labels of marks close
+to the marker are nudged off it instead of hidden. Stills: `build/cosmic-stills/` (not
+committed). Page: [[decisions/controls]] "Cosmic size scale".

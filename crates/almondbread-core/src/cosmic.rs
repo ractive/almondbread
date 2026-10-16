@@ -6,14 +6,15 @@
 //!
 //! Depth coordinate: `d = log10(set width / view width)`, both in the complex plane (the set
 //! spans re -2 ... 1/4, width 2.25). Two anchors:
-//! - screen: the view is a physical width `L` (the window on the screen), so the whole set
-//!   is `L · 10^d` metres. Once that passes the observable universe the readout turns
-//!   around: the set *is* the universe, and the view is `U · 10^-d` (equal to `L` at the
-//!   turn, so nothing jumps), down to the Planck length at `d = log10(U / l_P) ≈ 61.7`.
+//! - screen: the view is a physical width `L` (the window on the screen) at every depth, so
+//!   the whole set is `L · 10^d` metres: things up to the observable universe, then
+//!   multiples of it ("2 million × the observable universe"), counted in logs to the depth
+//!   limit (no turn-around to the Planck length: "very confusing", user, 2026-10-16).
 //! - set as object X: the view is `X · 10^-d`, down to the Planck length.
 //!
-//! Past the Planck length the zoom factor itself is the story: milestones (Planck times
-//! since the Big Bang, atoms in the universe, a googol, ...) and then ladders.
+//! Past the Planck length (set-as-object anchors) the zoom factor itself is the story:
+//! milestones (Planck times since the Big Bang, atoms in the universe, a googol, ...) and
+//! then ladders.
 
 /// Width of the Mandelbrot set along the real axis: from -2 to 1/4 (both exact: the tip of
 /// the antenna and the cusp of the main cardioid).
@@ -277,15 +278,6 @@ pub static THINGS: &[Thing] = &[
         source: REFS,
     },
     Thing {
-        key: "gut",
-        label: "GUT scale?",
-        name: "the GUT scale (hypothetical)",
-        size_m: 2e-32,
-        what: "ħc / 1e16 GeV, where the forces may unify (hypothetical)",
-        group: Group::Limit,
-        source: "kb: sources/cosmic-history-timeline",
-    },
-    Thing {
         key: "planck",
         label: "Planck (strings?)",
         name: "the Planck length",
@@ -380,7 +372,7 @@ pub static EPOCHS: &[Epoch] = &[
 ];
 
 /// Relative mode maps zoom 1 ... 1e200 onto the cosmos, the things evenly spaced in zoom
-/// decades: 24 steps of 8.3 decades, about 12 s each at the default zoom speed (×4.95/s,
+/// decades: 23 steps of 8.7 decades, about 12.6 s each at the default zoom speed (×4.95/s,
 /// 0.69 decades/s), the whole cosmos in under 5 minutes. A first version spaced them in
 /// log10(1 + decades) over 1e3000: steps grew from 1 s to 20 min ("from hair to blood cell
 /// takes ages", user, 2026-10-15).
@@ -389,10 +381,10 @@ pub const RELATIVE_DEPTH: f64 = 200.0;
 /// Where the epochs sit on the things' grid (index into [`THINGS`], fractional allowed): from
 /// the CMB on, where the view is about the thermal wavelength `hc/kT` of the epoch's
 /// temperature (CMB ~3000 K: a cell; nucleosynthesis ~0.1 MeV: an atom; quark-hadron ~150
-/// MeV: a nucleus; electroweak ~160 GeV: below a proton; GUT/inflation: the GUT scale;
-/// Planck: Planck), so size and time do not drift apart; today, the Sun and the first stars
-/// spread over the astronomical part (kb: sources/cosmic-history-timeline).
-const EPOCH_GRID: [f64; 11] = [0.0, 7.0, 14.0, 15.0, 19.0, 19.5, 20.0, 21.5, 23.0, 23.5, 24.0];
+/// MeV: a nucleus; electroweak ~160 GeV: below a proton; inflation: inside the unexplored
+/// band; Planck: Planck), so size and time do not drift apart; today, the Sun and the first
+/// stars spread over the astronomical part (kb: sources/cosmic-history-timeline).
+const EPOCH_GRID: [f64; 11] = [0.0, 7.0, 14.0, 15.0, 19.0, 19.5, 20.0, 21.5, 22.5, 22.75, 23.0];
 
 /// Relative mode's grid coordinate of zoom decades `z`: 0 (the universe, today) ... the last
 /// thing (the Planck length, the Planck epoch).
@@ -512,7 +504,7 @@ pub fn anchor_label(key: &str) -> String {
 /// One line saying what an anchor compares.
 pub fn anchor_description(key: &str) -> String {
     match key {
-        "screen" => "Your window is fixed: how big would the whole set be?".into(),
+        "screen" => "Your window stays 30 cm (or its real size): how big would the whole set be?".into(),
         "cosmos" => {
             "A metaphor: home is the universe and today, the deepest zoom the Planck length and the Big Bang.".into()
         }
@@ -568,27 +560,50 @@ pub struct Reading {
 /// The scale for one anchor and window: marks in depth and the phase boundaries.
 #[derive(Clone, Debug)]
 pub struct CosmicScale {
-    /// The set's thing, None: the screen.
+    /// The set's thing, None: the screen (or relative mode).
     anchor: Option<usize>,
     /// The view's physical width (screen anchor), metres.
     screen_m: f64,
-    /// The screen width was measured (not assumed).
-    measured: bool,
     /// `d - log10(zoom)`: the HUD zoom of a depth (milestones count the zoom the HUD shows).
     offset: f64,
     /// Screen anchor: the set reaches the universe here.
     pub universe_d: Option<f64>,
-    /// The view reaches the Planck length here (end of the physical scale).
-    pub planck_d: f64,
-    /// The unexplored band (smallest probed scale to the Planck length), in depth.
-    pub desert: (f64, f64),
+    /// The view reaches the Planck length here (end of the physical scale); None: the screen
+    /// anchor, whose view never shrinks.
+    pub planck_d: Option<f64>,
+    /// The unexplored band (smallest probed scale to the Planck length), in depth; None: the
+    /// screen anchor.
+    pub desert: Option<(f64, f64)>,
+    /// The ruler is linear in depth up to here, compressed beyond.
+    compress_from: f64,
     /// Increasing in `d`.
     pub marks: Vec<Mark>,
-    /// Relative mode: the zoom range 1 ... 1e3000 stands for the universe ... the Planck
-    /// length and today ... the Planck epoch, milestones equally spaced in `log10(1 + zoom
-    /// decades)` (a metaphor, not a measurement).
+    /// Relative mode: the zoom range 1 ... 1e200 stands for the universe ... the Planck
+    /// length and today ... the Planck epoch (a metaphor, not a measurement).
     pub relative: bool,
 }
+
+/// Screen anchor: multiples of the observable universe on the ruler (log10 of the multiple).
+/// Dense while the ruler is linear, then sparse enough that they never crowd where it is
+/// compressed (100 decades ≈ 125 points there), up to past the depth limit (~1e3010).
+fn universe_multiples() -> impl Iterator<Item = (f64, String)> {
+    [
+        (3.0, "1,000 × universe".to_string()),
+        (6.0, "1 million ×".into()),
+        (9.0, "1 billion ×".into()),
+        (12.0, "1 trillion ×".into()),
+        (20.0, "1e20 ×".into()),
+        (30.0, "1e30 ×".into()),
+        (50.0, "1e50 ×".into()),
+        (100.0, "googol ×".into()),
+    ]
+    .into_iter()
+    .chain((2..=40).map(|k| (k as f64 * 100.0, format!("1e{} ×", k * 100))))
+}
+
+/// Screen anchor: the ruler is linear up to this many decades past the universe (just after
+/// "1 billion ×"), compressed beyond.
+const SCREEN_LINEAR: f64 = 10.0;
 
 impl CosmicScale {
     /// `view_width_pt`: the view's width in points; `offset`: `d - log10(HUD zoom)`.
@@ -602,38 +617,43 @@ impl CosmicScale {
         if s.anchor == "cosmos" {
             return Self::relative(offset);
         }
-        let anchor = thing(&s.anchor).filter(|_| s.anchor != "screen");
-        let u = size_of("universe");
-        let planck = size_of("planck");
-        let probed = size_of("probed");
         let mut marks = Vec::new();
-        let (universe_d, top) = match anchor {
-            None => {
-                let ud = (u / screen_m).log10();
-                // Growing set: every thing larger than the screen, by the set's size.
-                for t in THINGS.iter().filter(|t| t.size_m >= screen_m) {
-                    marks.push(Mark {
-                        d: (t.size_m / screen_m).log10(),
-                        // The turn: from here on the set is the universe and the view shrinks.
-                        label: if t.key == "universe" {
-                            "set = universe".into()
-                        } else {
-                            t.label.into()
-                        },
-                        group: t.group,
-                        row: None,
-                    });
-                }
-                (Some(ud), u)
+        let Some(i) = thing(&s.anchor).filter(|_| s.anchor != "screen") else {
+            // The window stays the window: only the set grows, through every thing larger
+            // than the window, then multiples of the universe.
+            let ud = (size_of("universe") / screen_m).log10();
+            for t in THINGS.iter().filter(|t| t.size_m >= screen_m) {
+                marks.push(Mark {
+                    d: (t.size_m / screen_m).log10(),
+                    label: t.label.into(),
+                    group: t.group,
+                    row: None,
+                });
             }
-            Some(i) => (None, THINGS[i].size_m),
+            for (n, label) in universe_multiples() {
+                marks.push(Mark {
+                    d: ud + n,
+                    label,
+                    group: Group::Cosmos,
+                    row: None,
+                });
+            }
+            marks.sort_by(|a, b| a.d.total_cmp(&b.d));
+            return Self {
+                anchor: None,
+                screen_m,
+                offset,
+                universe_d: Some(ud),
+                planck_d: None,
+                desert: None,
+                compress_from: ud + SCREEN_LINEAR,
+                marks,
+                relative: false,
+            };
         };
-        // Shrinking view inside a set of size `top`: things smaller than the turn.
-        let turn = if anchor.is_none() { screen_m } else { top };
-        for t in THINGS
-            .iter()
-            .filter(|t| t.size_m < turn || (anchor.is_some() && t.size_m <= turn))
-        {
+        let top = THINGS[i].size_m;
+        // Shrinking view inside a set of size `top`: things no larger than the set.
+        for t in THINGS.iter().filter(|t| t.size_m <= top) {
             marks.push(Mark {
                 d: (top / t.size_m).log10(),
                 label: t.label.into(),
@@ -641,8 +661,8 @@ impl CosmicScale {
                 row: None,
             });
         }
-        let planck_d = (top / planck).log10();
-        let desert = ((top / probed).log10(), planck_d);
+        let planck_d = (top / size_of("planck")).log10();
+        let desert = ((top / size_of("probed")).log10(), planck_d);
         for m in MILESTONES {
             marks.push(Mark {
                 d: m.log10 + offset,
@@ -663,13 +683,13 @@ impl CosmicScale {
         }
         marks.sort_by(|a, b| a.d.total_cmp(&b.d));
         Self {
-            anchor,
+            anchor: Some(i),
             screen_m,
-            measured,
             offset,
-            universe_d,
-            planck_d,
-            desert,
+            universe_d: None,
+            planck_d: Some(planck_d),
+            desert: Some(desert),
+            compress_from: planck_d + 1.0,
             marks,
             relative: false,
         }
@@ -708,19 +728,20 @@ impl CosmicScale {
         Self {
             anchor: None,
             screen_m: DEFAULT_SCREEN_M,
-            measured: false,
             offset,
             universe_d: None,
-            planck_d: RELATIVE_DEPTH + offset,
-            desert: (at("probed"), at("planck")),
+            planck_d: Some(RELATIVE_DEPTH + offset),
+            desert: Some((at("probed"), at("planck"))),
+            compress_from: RELATIVE_DEPTH + 4.0,
             marks,
             relative: true,
         }
     }
 
-    /// Ruler position of depth `d` in ruler decades: decades up to the Planck length, then
-    /// compressed (big numbers and ladders); relative mode: linear in zoom decades, compressed
-    /// past the end in the same way.
+    /// Ruler position of depth `d` in ruler decades: decades up to the Planck length (screen
+    /// anchor: up to a billion universes), then compressed (big numbers and ladders, or
+    /// multiples of the universe); relative mode: linear in zoom decades, compressed past the
+    /// end in the same way.
     pub fn ruler(&self, d: f64) -> f64 {
         let compress = |x: f64, a: f64, c: f64, tau: f64| {
             if x <= a {
@@ -731,15 +752,19 @@ impl CosmicScale {
             }
         };
         if self.relative {
-            return compress(d - self.offset, RELATIVE_DEPTH + 4.0, 6.0, 40.0) * REL_RULER;
+            return compress(d - self.offset, self.compress_from, 6.0, 40.0) * REL_RULER;
         }
-        compress(d, self.planck_d + 1.0, 12.0, 15.0)
+        compress(d, self.compress_from, 12.0, 15.0)
     }
 
     /// Faint rungs between `lo` and `hi`: the things repeated in every ladder (physical: from
     /// the big numbers on, universe-sized set to the Planck length; relative: every cosmos
     /// length past the first).
     pub fn rungs(&self, lo: f64, hi: f64) -> Vec<(f64, Group)> {
+        if self.planck_d.is_none() {
+            // The screen anchor has no ladders.
+            return Vec::new();
+        }
         let (len, from, place): (f64, f64, &dyn Fn(usize) -> f64) = if self.relative {
             (RELATIVE_DEPTH, RELATIVE_DEPTH, &|i| rel_z(i as f64))
         } else {
@@ -831,27 +856,11 @@ impl CosmicScale {
         if self.relative {
             return self.relative_reading(zoom);
         }
-        if let Some(ud) = self.universe_d
-            && d < ud
-        {
-            let m = self.screen_m * 10f64.powf(d);
-            let detail = if self.measured {
-                format!("if this view is your {} wide window", length(self.screen_m))
-            } else {
-                format!("if this view were {} wide", length(self.screen_m))
-            };
-            let line = if m < 1e4 {
-                format!("The whole set ≈ {}: {}", length(m), compare(m, THINGS))
-            } else {
-                format!("The whole set ≈ {}", compare(m, THINGS))
-            };
-            return Reading {
-                line,
-                detail,
-                physics: Some(format!("light crosses it in {}", duration(m / C_M_S))),
-            };
+        if let Some(ud) = self.universe_d {
+            return self.screen_reading(d, ud);
         }
-        if d < self.planck_d {
+        let planck_d = self.planck_d.unwrap_or(f64::INFINITY);
+        if d < planck_d {
             let top = self.set_size();
             let v = top * 10f64.powf(-d);
             let set_name = self.anchor.map_or("the observable universe", |i| THINGS[i].name);
@@ -865,18 +874,12 @@ impl CosmicScale {
                 format!("This view ≈ {}", compare(v, &smaller))
             };
             let light = duration(v / C_M_S);
-            let e = HC_EV_M / v;
             let physics = if v >= 1e-5 {
                 format!("light crosses it in {light}")
             } else if v >= probed {
-                format!(
-                    "light: {} · to see it: {} ({})",
-                    plain(&light),
-                    energy_text(e),
-                    band(v, e)
-                )
+                format!("to see it you need {}", band(v, HC_EV_M / v))
             } else {
-                format!("light: {} · to see it: {}, unexplored", plain(&light), energy_text(e))
+                "Smaller than anything ever measured".to_string()
             };
             return Reading {
                 line,
@@ -903,9 +906,114 @@ impl CosmicScale {
         Reading {
             line,
             detail,
+            physics: Some("Smaller than the Planck length: only maths from here".into()),
+        }
+    }
+
+    /// The screen anchor: the window keeps its width, the whole set grows; up to the universe
+    /// in things, then in multiples of it, counted in logs (`n = d - ud`, any depth).
+    fn screen_reading(&self, d: f64, ud: f64) -> Reading {
+        let detail = format!("your window: {}", length(self.screen_m));
+        let n = d - ud;
+        let line = if n >= 1.25f64.log10() {
+            match count(n) {
+                c if c == "a googol" => "The whole set would be a googol × the observable universe".to_string(),
+                c => format!("The whole set would be {c} × the observable universe"),
+            }
+        } else {
+            let m = self.screen_m * 10f64.powf(d);
+            if m < 1e4 {
+                format!("The whole set would be {} wide", length(m))
+            } else {
+                format!("The whole set would be {}", as_big_as(m))
+            }
+        };
+        Reading {
+            line,
+            detail,
             physics: None,
         }
     }
+}
+
+/// How a thing's size reads in "as … as": a distance is long, a height tall, the universe big.
+fn adjective(t: &Thing) -> &'static str {
+    match t.key {
+        "universe" => "big",
+        "andromeda" | "proxima" | "light-year" => "long",
+        "everest" | "human" => "tall",
+        _ => "wide",
+    }
+}
+
+/// "as wide as Earth", "3× as long as a light year", "40% as wide as the Sun": `m` metres
+/// against the nearest (in log) thing.
+fn as_big_as(m: f64) -> String {
+    let Some(t) = THINGS
+        .iter()
+        .min_by(|a, b| (m / a.size_m).log10().abs().total_cmp(&(m / b.size_m).log10().abs()))
+    else {
+        return length(m);
+    };
+    let (r, adj) = (m / t.size_m, adjective(t));
+    if (0.8..1.25).contains(&r) {
+        format!("as {adj} as {}", t.name)
+    } else if r >= 1.25 {
+        format!("{}× as {adj} as {}", factor(r), t.name)
+    } else if r >= 0.1 {
+        format!("{:.0}% as {adj} as {}", r * 100.0, t.name)
+    } else {
+        format!("1/{} as {adj} as {}", factor(1.0 / r), t.name)
+    }
+}
+
+/// A count given as its log10 `n` (any size, never overflows): "1.5", "200", "45,000",
+/// "3.4 million", "12 billion", "2 trillion", then "3e15", "1e16", ..., "a googol" (1e100),
+/// "3e2982".
+pub fn count(n: f64) -> String {
+    if !n.is_finite() {
+        return "∞".into();
+    }
+    if n < 3.0 {
+        return factor(10f64.powf(n));
+    }
+    // Two significant digits, from the log: `sig` in 10 ... 99 times 10^(e-1).
+    let mut e = n.floor();
+    let mut sig = 10f64.powf(n - e + 1.0).round();
+    if sig >= 100.0 {
+        sig = 10.0;
+        e += 1.0;
+    }
+    if e < 15.0 {
+        let v = sig * 10f64.powf(e - 1.0);
+        let (div, unit) = match e as i32 {
+            ..=5 => {
+                let k = v.round() as u64;
+                return format!("{},{:03}", k / 1000, k % 1000);
+            }
+            6..=8 => (1e6, "million"),
+            9..=11 => (1e9, "billion"),
+            _ => (1e12, "trillion"),
+        };
+        let x = v / div;
+        let t = format!("{x:.1}");
+        return format!("{} {unit}", t.strip_suffix(".0").unwrap_or(&t));
+    }
+    // One digit from here on: 1e15, 3e15, 1e16; 9.5 and up rounds to the next decade.
+    let mut e = n.floor();
+    let m = 10f64.powf(n - e);
+    let m = if m >= 9.5 {
+        e += 1.0;
+        1.0
+    } else if m < 1.5 {
+        1.0
+    } else {
+        m.round()
+    };
+    if m == 1.0 && e == 100.0 {
+        return "a googol".into();
+    }
+    format!("{m:.0}e{e:.0}")
 }
 
 /// "3× the Milky Way", "the Sun", "1/40 of a proton": `v` metres against the nearest (in
@@ -958,6 +1066,9 @@ fn factor(r: f64) -> String {
 fn length(m: f64) -> String {
     if m < 1.0 {
         format!("{:.0} cm", m * 100.0)
+    } else if m < 9.95 {
+        let t = format!("{m:.1}");
+        format!("{} m", t.strip_suffix(".0").unwrap_or(&t))
     } else if m < 1000.0 {
         format!("{m:.0} m")
     } else {
@@ -1052,39 +1163,21 @@ fn duration(t: f64) -> String {
     format!("{m:.0}e{e} s{remark}")
 }
 
-/// "12 keV", "6 TeV", "1e19 GeV".
-fn energy_text(ev: f64) -> String {
-    const UNITS: [(f64, &str); 5] = [(1e12, "TeV"), (1e9, "GeV"), (1e6, "MeV"), (1e3, "keV"), (1.0, "eV")];
-    if ev >= 1e15 {
-        return format!("{} GeV", factor(ev / 1e9));
-    }
-    for (u, n) in UNITS {
-        if ev >= u {
-            let x = ev / u;
-            return if x < 9.95 {
-                format!("{x:.1} {n}")
-            } else {
-                format!("{x:.0} {n}")
-            };
-        }
-    }
-    format!("{ev:.2} eV")
-}
-
-/// What kind of probe that is (rough band edges, kb: decisions/controls "Cosmic size scale").
+/// What it takes to see a view `v` metres wide with photons of `ev` (rough band edges, kb:
+/// decisions/controls "Cosmic size scale"), in plain words.
 fn band(v: f64, ev: f64) -> &'static str {
     if v >= 7.5e-7 {
         "infrared light"
     } else if v >= 3.8e-7 {
         "visible light"
     } else if v >= 1e-8 {
-        "ultraviolet"
+        "ultraviolet light"
     } else if v >= 1e-11 {
         "X-rays"
     } else if ev <= 13.6e12 {
         "gamma rays or particle beams"
     } else {
-        "more than the LHC's 13.6 TeV"
+        "a beam stronger than the LHC"
     }
 }
 
@@ -1117,36 +1210,105 @@ mod tests {
     }
 
     #[test]
-    fn screen_anchor_grows_then_turns_around() {
+    fn screen_anchor_only_grows() {
         let s = scale("screen");
-        // Home-ish: the set about 30 cm.
-        assert!(s.reading(0.0).line.contains("The whole set"), "{:?}", s.reading(0.0));
+        let line = |zoom: f64| s.reading(zoom).line;
+        // The window stays 30 cm: zoom 1e4 makes the set 3 km.
+        assert_eq!(line(4.0), "The whole set would be 3 km wide");
+        let r = s.reading(4.0);
+        assert_eq!(r.detail, "your window: 30 cm");
+        assert_eq!(r.physics, None);
         // Earth: 1.27e7 / 0.3 ≈ 4.2e7.
-        let d = (1.2742e7f64 / 0.3).log10();
-        assert_eq!(s.reading(d).line, "The whole set ≈ Earth");
+        assert_eq!(
+            line((1.2742e7f64 / 0.3).log10()),
+            "The whole set would be as wide as Earth"
+        );
+        assert_eq!(
+            line((2.0 * 9.4607e15f64 / 0.3).log10()),
+            "The whole set would be 2× as long as a light year"
+        );
         let ud = s.universe_d.unwrap();
         assert!((ud - 27.46).abs() < 0.01);
-        // Just past the turn the view is the screen again, inside a universe-sized set.
-        let r = s.reading(ud + 0.01);
-        assert!(r.line.starts_with("This view"), "{r:?}");
-        assert!(r.detail.contains("observable universe"));
-        assert!((s.planck_d - ladder_decades()).abs() < 1e-9);
-        // An atom-sized view asks for X-rays.
-        let r = s.reading((8.7e26f64 / 1e-10).log10());
-        assert!(r.line.contains("hydrogen atom"), "{r:?}");
-        assert!(r.physics.as_deref().unwrap().contains("X-rays"), "{r:?}");
-        // The desert counts Planck lengths.
-        let r = s.reading((8.7e26f64 / 1e-25).log10());
-        assert!(r.line.contains("Planck length"), "{r:?}");
-        assert!(r.physics.unwrap().ends_with("unexplored"));
+        assert_eq!(s.planck_d, None);
+        assert_eq!(s.desert, None);
+        // Zoom 3e27: the universe (no turn, no Planck).
+        assert_eq!(
+            line(3e27f64.log10()),
+            "The whole set would be as big as the observable universe"
+        );
+        let past = |zoom: f64| line(zoom).replace(" × the observable universe", "");
+        assert_eq!(past(1e34f64.log10()), "The whole set would be 3.4 million");
+        assert_eq!(past(127.0), "The whole set would be 3e99");
+        assert_eq!(past(ud + 100.0), "The whole set would be a googol");
+        assert_eq!(past(1000.0), "The whole set would be 3e972");
+        assert_eq!(past(3010.0), "The whole set would be 3e2982");
+        // Every depth to past the limit, finely: never a panic, NaN or Planck, always quick.
+        let t0 = std::time::Instant::now();
+        for k in -40..=40_000 {
+            let r = s.reading(k as f64 * 0.08);
+            assert!(r.line.starts_with("The whole set would be"), "{r:?}");
+            assert!(!r.line.contains("NaN") && !r.line.contains("inf") && !r.line.contains("Planck"));
+            assert_eq!(r.physics, None);
+        }
+        assert!(t0.elapsed().as_secs_f64() < 5.0);
+        // No small things, the multiples to past the limit, marks sorted.
+        assert!(
+            s.marks
+                .iter()
+                .all(|m| !["atom", "Planck (strings?)", "limit probed"].contains(&m.label.as_str()))
+        );
+        assert!(s.marks.iter().any(|m| m.label == "googol ×"));
+        assert!(s.marks.last().unwrap().d > 3100.0);
+        assert!(s.marks.windows(2).all(|w| w[0].d < w[1].d));
+        assert!(s.rungs(0.0, 4000.0).is_empty());
+        // Marks never crowd on the ruler: at least 25 ruler points (15 points per ruler decade)
+        // apart past the universe.
+        let past_universe: Vec<f64> = s.marks.iter().filter(|m| m.d >= ud).map(|m| s.ruler(m.d)).collect();
+        for w in past_universe.windows(2) {
+            assert!((w[1] - w[0]) * 15.0 >= 25.0, "{w:?}");
+        }
+        // A measured window says its own size.
+        let m = CosmicScale::new(
+            &CosmicScaleSettings {
+                enabled: true,
+                anchor: "screen".into(),
+                metres_per_point: 0.0003,
+            },
+            1500.0,
+            0.0,
+        );
+        assert_eq!(m.reading(4.0).detail, "your window: 45 cm");
+    }
+
+    #[test]
+    fn counts_read_plainly() {
+        assert_eq!(count(0.3), "2");
+        assert_eq!(count(2.3), "200");
+        assert_eq!(count(3.0), "1,000");
+        assert_eq!(count(4.653), "45,000");
+        assert_eq!(count(6.3), "2 million");
+        assert_eq!(count(6.53), "3.4 million");
+        assert_eq!(count(9.48), "3 billion");
+        assert_eq!(count(13.0), "10 trillion");
+        assert_eq!(count(14.999), "1e15");
+        assert_eq!(count(15.48), "3e15");
+        assert_eq!(count(99.99), "a googol");
+        assert_eq!(count(100.1), "a googol");
+        assert_eq!(count(100.5), "3e100");
+        assert_eq!(count(2982.5), "3e2982");
+        assert_eq!(count(f64::INFINITY), "∞");
     }
 
     #[test]
     fn past_planck_counts_milestones_then_ladders() {
-        let s = scale("screen");
+        let s = scale("universe");
         let r = s.reading(85.0);
         assert!(r.line.contains("atoms in the observable universe"), "{r:?}");
         assert!(r.detail.contains("googol"), "{r:?}");
+        assert_eq!(
+            r.physics.as_deref(),
+            Some("Smaller than the Planck length: only maths from here")
+        );
         let r = s.reading(3000.0);
         assert!(r.line.contains("48.6"), "{r:?}");
     }
@@ -1158,7 +1320,13 @@ mod tests {
         let r = s.reading((1.2742e7f64 / 1.058e-10).log10());
         assert_eq!(r.line, "This view ≈ a hydrogen atom");
         assert_eq!(r.detail, "if the whole set were Earth");
+        assert_eq!(r.physics.as_deref(), Some("to see it you need X-rays"));
+        // The unexplored band, in plain words.
+        let r = s.reading((1.2742e7f64 / 1e-25).log10());
+        assert!(r.line.contains("Planck length"), "{r:?}");
+        assert_eq!(r.physics.as_deref(), Some("Smaller than anything ever measured"));
         assert!(s.marks.windows(2).all(|w| w[0].d <= w[1].d));
+        assert!(s.marks.iter().all(|m| !m.label.contains("GUT")));
         assert_eq!(s.passed(-100.0), None);
     }
 
@@ -1178,9 +1346,9 @@ mod tests {
             assert!(v <= last.0 && t <= last.1);
             last = (v, t);
         }
-        // Even pacing: every step 200/24 decades, 12 s at ×4.95/s.
+        // Even pacing: every step 200/23 decades, 12.6 s at ×4.95/s.
         let step = RELATIVE_DEPTH / (THINGS.len() - 1) as f64;
-        assert!((step / 4.95f64.log10() - 12.1).abs() < 0.2);
+        assert!((step / 4.95f64.log10() - 12.6).abs() < 0.2);
         // Size and time stay together: the CMB at a cell, nuclei at an atom.
         assert!(s.reading(rel_z(15.0)).detail.contains("CMB"));
         assert!(s.reading(rel_z(19.0)).detail.contains("nuclei"));
@@ -1189,7 +1357,8 @@ mod tests {
             eprintln!("relative 1e{i}: {:?}", s.reading(i as f64));
         }
         assert!(s.reading(500.0).line.contains("2.5 cosmos lengths"));
-        assert!(s.desert.0 < s.desert.1 && s.desert.1 <= RELATIVE_DEPTH + 1e-9);
+        let (b0, b1) = s.desert.unwrap();
+        assert!(b0 < b1 && b1 <= RELATIVE_DEPTH + 1e-9);
         assert!(!s.rungs(450.0, 520.0).is_empty());
     }
 
@@ -1203,7 +1372,6 @@ mod tests {
         );
         assert_eq!(compare(t.size_m * 0.3, std::slice::from_ref(t)), "30% of the Milky Way");
         assert_eq!(compare(t.size_m * 3e9, std::slice::from_ref(t)), "3e9× the Milky Way");
-        assert_eq!(energy_text(12_400.0), "12 keV");
         assert_eq!(duration(500.0), "8.3 min");
         assert_eq!(duration(3.0 * YEAR_S), "3 years");
         assert_eq!(
@@ -1214,6 +1382,5 @@ mod tests {
         assert_eq!(duration(1e-20), "10 zs, shorter than any time measured");
         assert_eq!(duration(5.4e-44), "5e-44 s ≈ the Planck time");
         assert_eq!(duration(3.0 * AGE_UNIVERSE_S), "3× the age of the universe");
-        assert_eq!(energy_text(1.2e28), "1e19 GeV");
     }
 }

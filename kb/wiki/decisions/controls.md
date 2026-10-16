@@ -703,31 +703,54 @@ sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
 - **Screen anchor (default, physical)**: the view is the window on the screen. macOS reads the
   display's physical width (`CGDisplayScreenSize`, rejected outside 0.1 … 1 mm per point); iOS
   assumes 160 points per inch on iPhone and 132 on iPad (rule of thumb, unverified); otherwise
-  30 cm. The whole set is `L · 10^d`: "The whole set ≈ 1.6× the Milky Way". When it passes the
-  observable universe (`d ≈ 27.5` for 30 cm) the readout turns around without a jump: the set
-  *is* the universe and the view is `U · 10^-d`, down to the Planck length at `d ≈ 61.7`.
+  30 cm. **The window stays the window at every depth; only the whole set grows** (`L · 10^d`,
+  reworked 2026-10-16). Two lines, no third:
+  - line 1 up to the universe: "The whole set would be 3 km wide" (below 10 km), then the
+    nearest thing in log: "… would be as wide as Earth", "… 2× as long as a light year"
+    (distances read "long", Everest and you "tall"); at the universe (`d ≈ 27.5` for 30 cm,
+    zoom ≈ 3e27) "… would be as big as the observable universe";
+  - past it: "The whole set would be N × the observable universe", N from its log10
+    `n = d − d_universe` so it never overflows to the depth limit (~1e3010): "200", "45,000",
+    "3.4 million", "3 billion", "10 trillion", then one digit "3e15", "1e16", …, "a googol"
+    at 1e100 (one digit rounds to 1e100), "3e2982" at zoom 1e3010;
+  - line 2: "your window: 30 cm", or the measured width ("your window: 45 cm").
+  - Ruler: the things larger than the window up to "universe", then "1,000 × universe",
+    "1 million ×", "1 billion ×", "1 trillion ×", "1e20 ×", "1e30 ×", "1e50 ×", "googol ×",
+    then every 100 decades ("1e200 ×" … "1e4000 ×"). Linear up to 1e10 universes, then
+    compressed (slope 1 → 1/12 over 15 decades): every pair of marks past the universe is at
+    least 25 points apart (unit test). No small things, unexplored band, milestones or ladders
+    in this mode.
+  - Rejected (built 2026-10-15): past the universe the readout turned around, the set *was* the
+    universe and the view shrank to the Planck length (zoom ≈ 1e62), with "This view ≈ 1.8×
+    the Planck length / if the whole set were the observable universe / light: 1e-43 s · to see
+    it: 4e19 GeV, unexplored". The silent flip of what is fixed was "very confusing" (user,
+    2026-10-16).
 - **Set = X**: the view is `X · 10^-d` ("This view ≈ a hydrogen atom, if the whole set were
   Earth").
-- **Light and probes**: a third line gives light's crossing time ("light crosses it in 165
-  thousand years", "longer than humans have existed", "≈ the Planck time") and, for views
-  below 10 µm, the probe energy `E = hc/λ` with its band (visible, UV, X-rays, gamma, more than
-  the LHC's 13.6 TeV). Band edges are textbook ranges (unverified).
+- **Third line (set = X)**, plain words since 2026-10-16: light's crossing time ("light
+  crosses it in 165 thousand years", "longer than humans have existed") for views over 10 µm;
+  below that "to see it you need visible light / ultraviolet light / X-rays / gamma rays or
+  particle beams" (band edges by `E = hc/λ`, textbook ranges, unverified); inside the
+  unexplored band "Smaller than anything ever measured"; past the Planck length "Smaller than
+  the Planck length: only maths from here". Before, it read "light: 1e-43 s · to see it: 4e19
+  GeV, unexplored" (jargon).
 - **Small side**: cell, virus, DNA, atom, nucleus, proton, "limit probed" (~1e-19 m), then a
-  red band "unexplored" down to the Planck length; inside it the sentence counts Planck lengths
-  and the GUT scale (~2e-32 m) is marked hypothetical; the Planck mark reads "Planck
-  (strings?)": strings are hypothetical.
-- **Past the Planck length**: the zoom factor (as the HUD shows it) passes big numbers: Planck
+  red band "unexplored" down to the Planck length; inside it the sentence counts Planck lengths;
+  the Planck mark reads "Planck (strings?)": strings are hypothetical. The "GUT scale?" mark
+  (~2e-32 m, hypothetical) was dropped on 2026-10-16.
+- **Past the Planck length** (set = X): the zoom factor (as the HUD shows it) passes big numbers: Planck
   times since the Big Bang (8e60), atoms in the universe (1e80), a googol, Shannon's chess
   games (1e120), Planck volumes in the universe (8e184); then universe-to-Planck ladders
   (61.7 decades each; 48.6 at 1e3000), drawn as repeated faint rungs. The ruler compresses past
   the Planck length (slope 1 → 1/12 over 15 decades).
 - **Relative anchor "Zoom range as cosmos (metaphor)"**: zoom 1 … 1e200 (one constant) stands
-  for the universe … the Planck length and for today … the Planck epoch. The 25 things sit on
-  one grid evenly spaced in zoom decades: 8.3 decades a step, about 12 s at the default zoom
-  speed (×4.95/s), the whole cosmos in under 5 minutes. The epochs sit on the same grid where
+  for the universe … the Planck length and for today … the Planck epoch. The 24 things sit on
+  one grid evenly spaced in zoom decades: 8.7 decades a step (8.3 with the GUT scale before
+  2026-10-16), about 12.6 s at the default zoom speed (×4.95/s), the whole cosmos in under 5
+  minutes. The epochs sit on the same grid where
   the view is about the thermal wavelength `hc/kT` of their temperature (CMB at a cell,
   nucleosynthesis at an atom, quark-hadron at a nucleus, electroweak just below a proton,
-  inflation at the GUT scale, Planck at Planck; today, the Sun and the first stars spread over
+  inflation inside the unexplored band, Planck at Planck; today, the Sun and the first stars spread over
   the astronomical part; src: [[sources/cosmic-history-timeline]]), so size and time do not
   drift apart. Log size and log time are interpolated between grid points. Sizes are shown
   above the ruler, epochs below; the panel names the next thing and says it is a metaphor.
@@ -737,7 +760,8 @@ sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
   - Rejected before that: a linear map over 1e3000 (48.6 zoom decades per physical decade).
 - **Picker**: "Your screen", then "The set is …" (universe, Milky Way, Sun, Earth, you, a
   cell, an atom), then "Zoom range as cosmos (metaphor)", in groups. A caption under the picker
-  explains the chosen anchor ("Your window is fixed: how big would the whole set be?"), and the
+  explains the chosen anchor ("Your window stays 30 cm (or its real size): how big would the
+  whole set be?"), and the
   options carry the same text as tooltips.
 - **How big is big?** (removed 2026-10-15): past the Planck length a gold "How big is big? →"
   link above the panel opened the gear panel, placed from `Explorer.cosmicHint()`. Link, panel

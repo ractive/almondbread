@@ -1,6 +1,7 @@
 //! The cosmic size scale panel (kb: decisions/controls, "Cosmic size scale"): a log ruler of
 //! real things (`almondbread_core::cosmic`) sliding past a fixed marker as the view zooms,
-//! one sentence, its assumption, light's crossing time and the probe energy for small views. Drawn into the
+//! one sentence, its assumption and (set-as-object anchors) light's crossing time or what it
+//! takes to see the view. Drawn into the
 //! overlay scene like the mini-map; costs a scene rebuild per frame while the zoom changes
 //! (no GPU work of its own) and nothing when off.
 
@@ -136,8 +137,10 @@ impl CosmicOverlay {
             rgba(1.0, 1.0, 1.0, 0.35),
         );
         // The unexplored band: smallest probed scale to the Planck length.
-        let (b0, b1) = (to_x(scale.desert.0), to_x(scale.desert.1));
-        if b1 > rx0 && b0 < rx1 {
+        if let Some((b0, b1)) = scale.desert.map(|(a, b)| (to_x(a), to_x(b)))
+            && b1 > rx0
+            && b0 < rx1
+        {
             scene.rect(
                 [b0.max(rx0), yr - 4.0 * px, b1.min(rx1), yr + 4.0 * px],
                 2.0 * px,
@@ -210,7 +213,15 @@ impl CosmicOverlay {
             let (_, tw) = crate::font::layout(&m.label, sl);
             // Kept inside the ruler (a mark at the edge labels inwards, but a label never
             // strays far from its dot: it would read as its neighbour's).
-            let lx0 = (x - 0.5 * tw).clamp(rx0, (rx1 - tw).max(rx0));
+            let mut lx0 = (x - 0.5 * tw).clamp(rx0, (rx1 - tw).max(rx0));
+            // Nudged off the marker's clearance (within the stray limit below), so a mark
+            // close to the marker keeps its label (on a compressed ruler it stays there long).
+            let clear = 3.0 * px + gap + px;
+            if x > xc && lx0 < xc + clear {
+                lx0 = (xc + clear).min((rx1 - tw).max(rx0));
+            } else if x < xc && lx0 + tw > xc - clear {
+                lx0 = (xc - clear - tw).max(rx0);
+            }
             let lx1 = lx0 + tw;
             if x < rx0 || x > rx1 || lx1 > rx1 || (lx0 + 0.5 * tw - x).abs() > 0.3 * tw {
                 continue;
@@ -340,6 +351,8 @@ mod tests {
     fn panel_costs_little_and_tracks_the_zoom() {
         let mut o = CosmicOverlay::default();
         o.settings.enabled = true;
+        // The set as the universe crosses a mark every few decades all the way to 1e60.
+        o.settings.anchor = "universe".into();
         let mut scene = Scene::default();
         let mut key = String::new();
         let t0 = std::time::Instant::now();
