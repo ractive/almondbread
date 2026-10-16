@@ -419,6 +419,18 @@ impl Lock {
         self.glide = None;
     }
 
+    /// A target set from outside (the autopilot's survey pick after a rescue).
+    pub fn set_target(&mut self, t: LockTarget) {
+        if self.pending.as_ref().is_some_and(|p| p.purpose == Purpose::Pickup) {
+            self.cancel();
+        }
+        self.target = Some(t);
+        self.next = None;
+        self.failed = None;
+        self.ahead_failed = false;
+        self.switches += 1;
+    }
+
     /// Drops the target but keeps searching from the view (rescue).
     pub fn drop_target(&mut self) {
         if self.pending.as_ref().is_some_and(|p| p.purpose == Purpose::Ahead) {

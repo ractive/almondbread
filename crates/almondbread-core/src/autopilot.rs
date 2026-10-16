@@ -105,6 +105,10 @@ pub const RESCUE_ACCEL: f64 = 2.0;
 pub const RESCUE_RATE_MAX: f64 = 3.0;
 /// Rescue ends at this span across the shorter side (the whole set is in view).
 pub const RESCUE_MAX_SPAN: f64 = 4.0;
+/// Rescue also ends after this long (s) with detail in the surveyed heading region.
+pub const RESCUE_CLEAR: f64 = 0.6;
+/// Such a rescue aims at the survey's busiest cell for this many e-folds.
+pub const SURVEY_PICK_GAIN: f64 = 3.0;
 /// Manual pans, zooms and drags hold the lock off for this long (s).
 pub const MANUAL_HOLD: f64 = 1.0;
 /// A survey older than this (s) is ignored.
@@ -202,6 +206,29 @@ impl Survey {
         )
     }
 
+    /// The centre (view points) of the cell with the most boundary detail (band crossings
+    /// per view width, discounted by interior), if any is detailed.
+    pub fn busiest(&self) -> Option<(f64, f64)> {
+        if self.cols == 0 || self.rows == 0 || self.cells.len() != self.cols * self.rows {
+            return None;
+        }
+        let mut best: Option<(f64, usize, usize)> = None;
+        for j in 0..self.rows {
+            for i in 0..self.cols {
+                let c = self.cells[j * self.cols + i];
+                if c.samples == 0 || c.pairs == 0 {
+                    continue;
+                }
+                let det = c.edges as f64 / c.pairs as f64 * self.texels_across;
+                let score = det.min(4.0 * DETAIL_HI) * (1.0 - c.interior as f64 / c.samples as f64);
+                if score >= DETAIL_HI && best.is_none_or(|b| score > b.0) {
+                    best = Some((score, i, j));
+                }
+            }
+        }
+        best.map(|(_, i, j)| self.cell_center(i, j))
+    }
+
     /// Interior share and detail around `heading` (Gaussian weights).
     pub fn assess(&self, heading: (f64, f64)) -> Option<Assessment> {
         if self.cols == 0 || self.rows == 0 || self.cells.len() != self.cols * self.rows {
@@ -283,6 +310,10 @@ pub struct Autopilot {
     free: bool,
     /// Seconds the heading region has been uniform while free; zooming out to find detail.
     uniform_for: f64,
+    /// Seconds the surveyed heading region has shown detail (ends a rescue).
+    clear_for: f64,
+    /// A rescue ended on survey detail without a target: aim at the busiest cell once.
+    survey_pick: bool,
     rescue: bool,
     /// ln of the view's span across its shorter side (last [`Autopilot::aim`]).
     span_ln: f64,
@@ -312,6 +343,8 @@ impl Default for Autopilot {
             lock: Lock::default(),
             free: false,
             uniform_for: 0.0,
+            clear_for: 0.0,
+            survey_pick: false,
             rescue: false,
             span_ln: f64::NEG_INFINITY,
             lock_aiming: false,
@@ -589,6 +622,26 @@ impl Autopilot {
         if radius <= 0.0 {
             return steer;
         }
+        if self.survey_pick && self.free && self.lock.target().is_none() {
+            self.survey_pick = false;
+            if let Some((x, y)) = self
+                .survey
+                .as_ref()
+                .filter(|s| now - s.time <= SURVEY_STALE)
+                .and_then(Survey::busiest)
+            {
+                let span = lock::view_span(view, min_side);
+                self.lock.set_target(lock::LockTarget {
+                    kind: crate::journey::TargetKind::Detail,
+                    center: view.point_at_offset(x, y),
+                    end_span: span * (-SURVEY_PICK_GAIN).exp(),
+                    label: "detail in view".into(),
+                    score: 0.0,
+                    period: None,
+                    preperiod: None,
+                });
+            }
+        }
         let heading = self.heading();
         let Some((px, py)) = self.lock.update(view, min_side, radius, self.free, heading, now) else {
             return steer;
@@ -655,8 +708,22 @@ impl Autopilot {
                 self.rescue = true;
                 self.lock.drop_target();
             }
-            if self.rescue && (self.lock.target().is_some() || self.span_ln >= RESCUE_MAX_SPAN.ln()) {
+            // Detail in the survey's heading region for a while ends it too, target or not: the
+            // CPU probes of the search cannot resolve views near very high-period minibrots
+            // (iteration cap), which the GPU shows in full.
+            self.clear_for = if assessment.is_some() && !uniform {
+                self.clear_for + dt
+            } else {
+                0.0
+            };
+            if self.rescue
+                && (self.lock.target().is_some()
+                    || self.clear_for > RESCUE_CLEAR
+                    || self.span_ln >= RESCUE_MAX_SPAN.ln())
+            {
                 self.rescue = false;
+                // Without a target, aim once at the survey's most detailed cell (next frame).
+                self.survey_pick = self.lock.target().is_none();
                 self.uniform_for = 0.0;
             }
         } else {
