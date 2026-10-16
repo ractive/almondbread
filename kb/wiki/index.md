@@ -212,7 +212,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/landscape-mode]] — 2.5D terrain from the distance estimate; altitude = zoom; L0 stills, L1 real-time prototype (geometry clipmap, layered σ)
 - [[decisions/gamification]] — game mechanics: atlas, daily challenge, canyon racing, depth missions, journey mode (proposed)
 - [[decisions/distribution]] — stores and order: Apple first, Steam (+ itch.io) for the game edition, others only with traction (proposed)
-- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad; autopilot (Z, pointer steers, adaptive speed, safety, assist) and fly to coordinates (van Wijk & Nuij path at any depth, exact landing); cosmic size scale (C: screen, set-as-object and relative anchors)
+- [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad; autopilot (Z, pointer steers, adaptive speed, safety, assist) and fly to coordinates (van Wijk & Nuij path at any depth, exact landing); cosmic size scale (C: screen, set-as-object and relative anchors); compass (click to north, drag to turn)
 
 ## Questions
 

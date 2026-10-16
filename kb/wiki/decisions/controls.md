@@ -740,3 +740,59 @@ like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
   the hunt as the app shows it (`pi-cusp.json`, `--pi-flight cusp`); ui-demo scenes
   `pi-flight`, `pi-flight-late`, `pi-cusp`, `pi-cusp-late`; interaction-test scenario
   "pi hunt".
+
+## Compass (as built, 2026-10-16)
+
+The cinematic spin, the rotate keys and the trackpad turn the image, so a compass shows which
+way the plane's north (+im) is, after Apple Maps' compass. Drawn in Rust/Metal into the
+overlay scene (`crates/almondbread-render/src/compass.rs`; a new overlay primitive, a filled
+triangle, kind 7); policy and maths in `crates/almondbread-core/src/compass.rs`; motion in the
+`Navigator` (`turn_north`, `turn_view`). Swift only routes presses.
+
+- **Look:** a 22 pt rose (dark translucent disc, thin light rim, ticks at E/S/W and the
+  diagonals), a kite needle with a red north half and a pale south half (lit and shaded
+  sides), an upright "N" (overlay SDF font) beyond the north tip. On screen north points at
+  `π/2 − angle` (counter-clockwise from +x, y up).
+- **Placement:** top right of the canvas, 14 pt inside the safe area (below the toolbar, left of
+  the control center on macOS: the canvas runs under the sidebar and the safe-area insets
+  exclude it), left of mini-map panels when those sit top right; iPad and wide iPhone 56 pt
+  lower (the top-right button row; FFI `set_compass(always, inset_top)`). The HUD (top left),
+  the mini-map and cosmic scale (bottom left) and the π meter (bottom right) keep their
+  corners. Mini-map panels now also keep clear of the safe-area insets (top-right maps used to
+  sit under the toolbar and the control center).
+- **Visibility:** while the view is turned by more than 0.5°, during a drag or a turn to north,
+  then 2.5 s more and a 0.5 s fade (frames are requested only for the fade). Setting
+  "Always show compass" (control center Overlays, View menu "Always Show Compass"; persisted,
+  off after Reset all and the Overlays ↺). Hidden, it adds no primitive, no scene and no work.
+- **Click / tap:** eases the view back to north about the centre in 0.4 s (cubic ease in-out).
+  It is applied as the ratio of what is left of the ease, so motion added meanwhile (the
+  spin) is absorbed and the turn ends at exactly 0. A double click is two presses on the
+  compass: the second does not restart the turn and never reaches the canvas (no double-click
+  zoom, no autopilot pause). iOS: tap and double tap turn to north.
+- **Drag:** the needle follows the pointer around the compass centre 1:1 (the view's angle
+  falls by the pointer's angle change, the short way round); a press becomes a drag beyond
+  4 pt (a click otherwise). iOS: a one-finger pan that starts on the compass.
+- **Autopilot, flights, journeys with spin:** a turn to north (or a drag) does not stop them.
+  The autopilot keeps spinning about its dive point from the straightened angle. A flight is
+  turned along (`Flight::shift_angle`: start, end and landing angles shift by the same
+  amount), so it keeps spinning from north and lands turned by as much (a non-spinning
+  fly-to that turns to a target angle lands shifted too: the user turned the flight). The
+  journey's next leg starts from the current angle. Turning by hand (rotate keys, `/`,
+  trackpad rotation) ends a turn to north; `/` keeps its faster τ = 0.12 s ease and, unlike
+  the compass, cancels a flight.
+- **Hit test in Rust:** `Host::compass_press / compass_drag / compass_release` (FFI
+  `compass_press`, `compass_drag`, `compass_release`, `compass_center`), like the mini-map's
+  `map_click`; a hit counts within the rose plus 5 pt, only while it is clearly visible
+  (opacity > 0.25).
+- **Cost:** while shown and turning (the spin) the scene is rebuilt every frame: build and
+  binning of the compass alone 18 µs at 2560x1640 (measured 2026-10-16, M1 Pro,
+  release); interaction test "compass" (cinematic autopilot with the compass shown, a drag and
+  a click) draw CPU p50 0.33 ms, the same as "cinematic autopilot" without it (0.33 ms).
+- **Tools:** `almondbread render out.png --angle 30 --compass 1 [--insets top,right]`;
+  ui-demo scenes `compass`, `compass-maps`; interaction-test scenario "compass" (drag a
+  quarter turn: −88.7°; click at −36.7°: 0.66° 0.6 s later with the spin going on).
+- **Tests:** `almondbread_core::compass` (ease reaches exactly 0 and is the same at 30, 60,
+  120, 240 Hz; motion added meanwhile is absorbed; drag maths across the ±180° seam; hit test;
+  visibility and fade; Navigator: turn about the centre, frame-rate independence, drag ends a
+  turn, autopilot and flight with spin), `almondbread_render::compass` (layout, click versus
+  drag, nothing drawn while hidden).

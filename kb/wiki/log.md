@@ -765,3 +765,12 @@ of the count. The magnifier at scale ε was not built (it would be black and cos
 iterations per pixel). Menu items renamed "Hunt π at the Neck/Cusp". Pages:
 [[techniques/pi-in-the-mandelbrot-set]] "The orbit", "In the app"; [[decisions/controls]]
 "π meter".
+
+## [2026-10-16] decision | Compass
+
+Built a compass after Apple Maps: a rose at the top right with a red north needle, shown while
+the view is turned (or always, a setting), fading 3 s after north. Click or tap eases back to
+north in 0.4 s (exactly 0, the spin of an autopilot, flight or journey goes on from north;
+flights are turned along); drag turns the view 1:1. Rust draws (new triangle overlay
+primitive), hit-tests and moves; Swift routes presses. Mini-map panels now respect the
+safe-area insets. Pages: [[decisions/controls]] "Compass", [[index]].
