@@ -556,6 +556,13 @@ struct Job<B: GpuBackend> {
     reference_buffer: B::Buffer,
     /// Serial of the reference the job iterates against (its BLA table must match).
     reference_serial: u64,
+    /// That reference stops before the job's limit without escaping (a prefix still being
+    /// computed, kb: techniques/rebasing "Truncated references"): pixels that outrun it are
+    /// wrong, so the view is rendered again when a whole orbit arrives (`poll_longer_reference`).
+    short_reference: bool,
+    /// Texel size and texels across the reference was fitted with (for that poll).
+    ref_texel: Scale,
+    ref_size: usize,
     /// The BLA table of that reference, once built and if it is used for this view (levels
     /// started before stay without).
     bla: Option<BlaGpu<B>>,
@@ -1884,6 +1891,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.harvest();
         self.seed_sample_cache();
         self.poll_survey(now);
+        self.poll_longer_reference();
         let key = self.make_key(width, height, points_per_pixel, false);
         if self.job.as_ref().is_some_and(|j| j.failed) {
             self.job = None;
@@ -2095,6 +2103,7 @@ impl<B: GpuBackend> Renderer<B> {
             || !job.final_presented
             || job.key != key
             || self.retry_pending
+            || self.awaits_longer_reference()
             || self.settings.cycle_speed != 0.0;
         outcome.animating = keep_going || busy;
         outcome
@@ -2303,8 +2312,28 @@ impl<B: GpuBackend> Renderer<B> {
         key.max_iter = key
             .max_iter
             .max(self.period_floor(&viewport, full_texel, tex_w.max(tex_h), key.max_iter));
+        // The floor can lift the limit past the end of a centre orbit made for the old one:
+        // ask for a longer orbit (offscreen: wait for it).
+        if self
+            .reference
+            .as_ref()
+            .is_some_and(|r| r.truncated_before(key.max_iter))
+            && !self.prepare_reference(&key, full_texel, tex_w.max(tex_h), mode == JobMode::Offscreen)
+        {
+            self.waiting_reference = true;
+            return;
+        }
         let (Some(reference), Some(reference_buffer)) = (&self.reference, self.reference_buffer.clone()) else {
             return;
+        };
+        let short_reference = reference.truncated_before(key.max_iter);
+        // The extension iterates unresolved pixels past the limit: never past the end of a
+        // truncated orbit (they would rebase there with a rounding loss and all continue as
+        // one orbit, kb: techniques/rebasing "Truncated references").
+        let extension_cap = if reference.truncated_before(usize::MAX) {
+            reference.points.len() - 1
+        } else {
+            usize::MAX
         };
         let deep = reference.deep_kernel;
         let refx_buffer = if deep { self.refx_buffer.clone() } else { None };
@@ -2424,7 +2453,10 @@ impl<B: GpuBackend> Renderer<B> {
             && let Some(last) = levels.last_mut()
             && !last.preview
         {
-            last.extend_to = (key.max_iter * factor).min(key.max_iter.max(cap));
+            last.extend_to = (key.max_iter * factor).min(key.max_iter.max(cap)).min(extension_cap);
+            if last.extend_to <= key.max_iter {
+                last.extend_to = 0;
+            }
             last.params.list_capacity = self.list_capacity as u32;
         }
         if levels.is_empty() {
@@ -2437,8 +2469,10 @@ impl<B: GpuBackend> Renderer<B> {
             set: full,
             ratio: ss,
             params: template_params,
-            extend_to: if extension_factor > 1 {
-                (key.max_iter * extension_factor).min(key.max_iter.max(cap))
+            extend_to: if extension_factor > 1 && extension_cap > key.max_iter {
+                (key.max_iter * extension_factor)
+                    .min(key.max_iter.max(cap))
+                    .min(extension_cap)
             } else {
                 0
             },
@@ -2449,6 +2483,9 @@ impl<B: GpuBackend> Renderer<B> {
             key,
             reference_buffer,
             reference_serial,
+            short_reference,
+            ref_texel: full_texel,
+            ref_size: tex_w.max(tex_h),
             bla: None,
             max_dc_log2,
             deep,
@@ -3910,7 +3947,12 @@ impl<B: GpuBackend> Renderer<B> {
         if !self.settings.auto_iterations {
             return;
         }
+        // A provisional frame (truncated reference) is rendered again: its escape counts past
+        // the orbit's end are wrong (kb: techniques/rebasing "Truncated references").
         let Some(job) = &self.job else { return };
+        if job.short_reference {
+            return;
+        }
         let level = &job.levels[index];
         let outcome = LevelOutcome {
             soft_iter: level.params.soft_iter as usize,
@@ -4773,21 +4815,9 @@ impl<B: GpuBackend> Renderer<B> {
     /// Takes a finished background reference if it serves the view at least as well as the
     /// current one (kb: techniques/reference-selection).
     fn adopt_worker_reference(&mut self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize, wait: bool) {
-        let Some((started, _)) = self.reference_worker.running_for() else {
+        let Some(r) = self.take_worker_reference(wait) else {
             return;
         };
-        let Some(r) = self.reference_worker.poll(wait) else {
-            return;
-        };
-        self.reference_log.push(ReferenceLogEntry {
-            scale_log10: r.scale.log10(),
-            precision_bits: r.precision_bits,
-            length: r.points.len(),
-            period: r.period,
-            select_time: r.select_time,
-            orbit_time: r.orbit_time,
-            latency: started,
-        });
         let new_fit = r.fit(viewport, texel, size, max_iter);
         let old_fit = self
             .reference
@@ -4802,6 +4832,22 @@ impl<B: GpuBackend> Renderer<B> {
         } else {
             self.spare_reference = Some(r);
         }
+    }
+
+    /// The worker's finished reference (or, without `wait`, a prefix it handed out), logged.
+    fn take_worker_reference(&mut self, wait: bool) -> Option<Reference> {
+        let (started, _) = self.reference_worker.running_for()?;
+        let r = self.reference_worker.poll(wait)?;
+        self.reference_log.push(ReferenceLogEntry {
+            scale_log10: r.scale.log10(),
+            precision_bits: r.precision_bits,
+            length: r.points.len(),
+            period: r.period,
+            select_time: r.select_time,
+            orbit_time: r.orbit_time,
+            latency: started,
+        });
+        Some(r)
     }
 
     /// The journey rests at a target and knows the next one (kb: decisions/controls,
@@ -4823,7 +4869,7 @@ impl<B: GpuBackend> Renderer<B> {
         if self.reference.as_ref().is_some_and(serves) || self.spare_reference.as_ref().is_some_and(serves) {
             return;
         }
-        if self.pending_serves(&t, t_texel, size) {
+        if self.pending_serves(&t, t_texel, size, max_iter) {
             return;
         }
         let radius = 0.5 * size as f64 * t_texel.ratio(t.scale);
@@ -4839,10 +4885,12 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// Whether a pending request will give a reference that serves this view.
-    fn pending_serves(&self, viewport: &Viewport, texel: Scale, size: usize) -> bool {
+    /// (`max_iter`: the orbit must reach the view's limit; a nucleus orbit always does.)
+    fn pending_serves(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> bool {
         self.reference_worker.pending().is_some_and(|q| {
             q.precision_bits >= almondbread_core::reference::needed_bits(&viewport.center, texel, size, 40)
                 && viewport.center.distance_in(&q.center, texel) <= size as f64
+                && q.max_iter >= max_iter
         })
     }
 
@@ -4883,7 +4931,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
             return true;
         }
-        if !self.pending_serves(viewport, texel, size) {
+        if !self.pending_serves(viewport, texel, size, max_iter) {
             let radius = 0.5 * (key.width as f64).hypot(key.height as f64) * key.points_per_pixel;
             let req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
             let mut req = req;
@@ -4924,7 +4972,9 @@ impl<B: GpuBackend> Renderer<B> {
             }
             self.reference_worker.start(req);
         }
-        if fit == Fit::Stale {
+        // A truncated orbit is usable for a provisional frame, not for an offscreen render
+        // (pixels that outrun it are wrong): that waits for the longer one.
+        if fit == Fit::Stale && !(wait && self.reference.as_ref().is_some_and(|r| r.truncated_before(max_iter))) {
             return true;
         }
         if wait {
@@ -4977,6 +5027,42 @@ impl<B: GpuBackend> Renderer<B> {
         self.job
             .as_ref()
             .is_some_and(|j| j.final_presented && !j.interactive && j.key.viewport == self.viewport)
+            && !self.awaits_longer_reference()
+    }
+
+    /// The job iterates against a truncated reference and a longer one is being computed.
+    fn awaits_longer_reference(&self) -> bool {
+        self.job.as_ref().is_some_and(|j| j.short_reference) && self.reference_worker.pending().is_some()
+    }
+
+    /// The job's frame was rendered against a truncated reference (a prefix of a centre orbit,
+    /// kb: techniques/rebasing "Truncated references"): when the worker delivers an orbit that
+    /// serves the view to its limit, take it and render the view again (a new retry epoch makes
+    /// a new key). Before, nobody polled the worker while a job's key stood, so the provisional
+    /// frame stayed: mini-maps at 1e-300..1e-670 near spiral-1e1000 settled flat (every pixel
+    /// past the 1/16 prefix continued as one orbit), and so did a settled main view there.
+    fn poll_longer_reference(&mut self) {
+        let Some(job) = &self.job else { return };
+        if !job.short_reference || self.reference_worker.pending().is_none() {
+            return;
+        }
+        let (viewport, texel, size, max_iter) =
+            (job.key.viewport.clone(), job.ref_texel, job.ref_size, job.key.max_iter);
+        let Some(r) = self.take_worker_reference(false) else {
+            return;
+        };
+        if r.fit(&viewport, texel, size, max_iter) != Fit::No && !r.truncated_before(max_iter) {
+            if self.config.trace {
+                println!(
+                    "reference: {} points replace a truncated one: render again",
+                    r.points.len()
+                );
+            }
+            self.set_reference(r);
+            self.retry_epoch = self.retry_epoch.wrapping_add(1);
+        } else if !r.truncated_before(usize::MAX) {
+            self.spare_reference = Some(r);
+        }
     }
 
     fn drain_in_flight(&mut self) {
