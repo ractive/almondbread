@@ -149,6 +149,18 @@ pub trait GpuBackend {
 
     /// The kernel `function` specialised with boolean function constants 0, 1, ...
     fn pipeline(&self, function: &str, constants: &[bool]) -> Result<Self::Pipeline, GpuError>;
+    /// Compiles `requests` (kernel name, function constants) one after the other on a thread of
+    /// its own and sends `(index into requests, pipeline)` as each is ready: the renderer's
+    /// warm-up, so a frame that first needs a variant does not compile it (kb:
+    /// platform/metal-compute "Pipeline warm-up"). None: this backend compiles only where
+    /// [`GpuBackend::pipeline`] is called.
+    fn pipelines_in_background(
+        &self,
+        requests: Vec<(&'static str, Vec<bool>)>,
+    ) -> Option<std::sync::mpsc::Receiver<(usize, Self::Pipeline)>> {
+        let _ = requests;
+        None
+    }
     /// (SIMD width, max threads per threadgroup) of a pipeline.
     fn pipeline_limits(&self, pipeline: &Self::Pipeline) -> (usize, usize);
 

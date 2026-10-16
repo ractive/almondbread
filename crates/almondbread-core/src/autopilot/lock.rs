@@ -69,6 +69,8 @@ pub const DETAIL_SCORE: f64 = -0.5;
 /// of and dived into again).
 pub const TABU_LEN: usize = 4;
 pub const TABU_REACH: f64 = 2.0;
+/// Seconds a search may spend raising the view probe's limit ([`journey::probe_escalating`]).
+pub const ESCALATE_BUDGET: f64 = 0.5;
 /// Seed of the searches (each search advances it: reproducible from the same views).
 const SEED: u64 = 0x5eed_10c4;
 
@@ -146,12 +148,14 @@ pub fn search(
 ) -> Option<SearchResult> {
     let t0 = std::time::Instant::now();
     let mut rng = Rng::new(seed);
-    let view = journey::probe(center, span, 0);
+    // The view's limit escalates where the CPU limit leaves it unresolved (deep high-period
+    // minibrots); candidate probes start from the same limit, they are deeper.
+    let (view, view_iterations) = journey::probe_escalating(center, span, ESCALATE_BUDGET);
     let stats = ProbeStats::of(&view);
     // Fewer band crossings than the survey's "uniform" threshold (a 40-texel probe misses the
     // finest bands, so this is the stricter test).
     let view_uniform = stats.detail < super::DETAIL_LO;
-    let mut candidates = journey::find_candidates_in(center, span, &view, &mut rng, cancel)?;
+    let mut candidates = journey::find_candidates_in(center, span, &view, 0.0, &mut rng, cancel)?;
     if let Some(f) = follow
         && matches!(f.kind, TargetKind::Spiral | TargetKind::Dendrite)
         && let Some(k) = f.preperiod
@@ -218,7 +222,7 @@ pub fn search(
     let trace = std::env::var_os("ALMONDBREAD_LOCK_TRACE").is_some();
     if trace {
         println!(
-            "lock search at 1e{:.1} (view detail {:.1}, interior {:.2}): {found} candidates",
+            "lock search at 1e{:.1} (view detail {:.1}, interior {:.2}, probe limit {view_iterations}): {found} candidates",
             3.0f64.log10() - span.log10(),
             stats.detail,
             stats.interior
@@ -254,7 +258,8 @@ pub fn search(
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        let f = journey::probe(&c.center, c.span, c.extra);
+        let base = (journey::probe_iterations(c.span) + c.extra).min(journey::PROBE_ITER_CAP * 2);
+        let f = journey::probe_limit(&c.center, c.span, base.max(view_iterations), journey::PROBE);
         probed += 1;
         let st = ProbeStats::of(&f);
         if trace {

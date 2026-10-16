@@ -117,6 +117,29 @@ Measured 2026-10-14, M1 Pro, release, macOS 26 (Darwin 25.5), Xcode 26.
   blur) on every zoom event cut the view to ~67 draws/s at 120 Hz; publishing HUD
   values at 10 Hz restored ~114 fps.
 
+## Pipeline warm-up (measured 2026-10-16)
+
+The iterate kernel is specialised per (DE, interior test, BLA, deep kernel, interior
+colouring, seeded, LA, AT) and each variant is created on first use. With a cold Metal shader
+cache (after every app update or kernel change: the cache is keyed on the function's code, so a
+comment-only change still hits it; `ALMONDBREAD_KERNEL_SALT=x` changes the iterate kernel's code
+to measure the cold case, and `cargo run --release -p almondbread-render --example
+pipeline_cost` times each variant) a variant costs **64–245 ms** of one core in
+`newFunctionWithName:constantValues:` + `newComputePipelineState` (plain 83 ms, BLA 90 ms, deep
+158 ms, deep+BLA 245 ms, LA 94 ms, deep+LA 214 ms; seed variants 1–2 ms; warm cache 0.1–1.3 ms;
+M1 Pro, release). The frame that first needed a variant paid it: a fast fly-to to the needle
+minibrot at 1e302 had frames of 165–217 ms CPU where it entered BLA/LA and the deep kernel, and
+the π hunt's first frame (its place look turns on DE and interior colouring) took 127–146 ms.
+
+Since 2026-10-16 the renderer warms them (`Renderer::warm_pipelines`,
+`GpuBackend::pipelines_in_background`): on its first frame it queues every variant not yet made
+(105 with the overlay: shallow ones for all four DE × interior-colouring settings first, then
+deep, LA and the rest) to `cores / 3` threads (3 on a 10-core M1 Pro), and each frame takes the
+finished ones from a channel. Cold, the needle fly-to has no slow frame after the first two
+(late refreshes 29–37 → 5–8, all at start-up), and the π hunt's first frame takes 0.7–0.9 ms
+(3 of 3 runs each way, [[synthesis/benchmarks]] "Motion fixes"). `ALMONDBREAD_WARM_PIPELINES=0`
+turns it off for A/B runs.
+
 ## Gaps
 
 - No fetched Apple WWDC session on compute tuning (threadgroup sizing, 64-bit ints).

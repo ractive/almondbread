@@ -575,7 +575,8 @@ impl Navigator {
     /// The speed the flight runs at: the journey's during a journey, else the fly-to speed.
     fn flight_speed(&self) -> f64 {
         if self.journey.is_running() {
-            self.journey.leg_speed()
+            self.journey
+                .leg_speed_at(self.flight.as_ref().map_or(0.0, |f| f.progress()))
         } else {
             self.fly_speed
         }

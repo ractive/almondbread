@@ -53,6 +53,21 @@ pub struct MetalBackend {
 impl MetalBackend {
     /// The system default GPU with the kernels compiled from [`KERNEL_SOURCE`].
     pub fn new() -> Result<Self, GpuError> {
+        // `ALMONDBREAD_KERNEL_SALT=x` changes the iterate kernel's code (a test that
+        // never passes), so Metal's shader cache misses as after an app update: the cold cost
+        // of pipeline variants (kb: platform/metal-compute "Pipeline warm-up").
+        if let Ok(salt) = std::env::var("ALMONDBREAD_KERNEL_SALT") {
+            let n = salt
+                .bytes()
+                .fold(0x8000_0000u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)))
+                | 0x8000_0000;
+            let source = KERNEL_SOURCE.replacen(
+                "    const uint liveIn = *countIn;",
+                &format!("    if (p.total == {n}u) {{ return; }}\n    const uint liveIn = *countIn;"),
+                1,
+            );
+            return Self::with_source(&source);
+        }
         Self::with_source(KERNEL_SOURCE)
     }
 
@@ -400,6 +415,47 @@ impl GpuBackend for MetalBackend {
                 .newComputePipelineStateWithFunction_error(&f)
                 .map_err(|e| GpuError(format!("pipeline {function}: {}", e.localizedDescription())))
         })
+    }
+
+    fn pipelines_in_background(
+        &self,
+        requests: Vec<(&'static str, Vec<bool>)>,
+    ) -> Option<std::sync::mpsc::Receiver<(usize, MetalPipeline)>> {
+        // A few threads take the requests in order (a cold variant of the iterate kernel costs
+        // 60-250 ms of one core; 57 of them on one thread took ~6 s, longer than a fast fly-to
+        // needs to reach the deep kernel).
+        let (tx, rx) = std::sync::mpsc::channel();
+        let queue = std::sync::Arc::new(std::sync::Mutex::new(
+            requests
+                .into_iter()
+                .enumerate()
+                .collect::<std::collections::VecDeque<_>>(),
+        ));
+        let threads = std::thread::available_parallelism().map_or(2, |n| (n.get() / 3).clamp(1, 4));
+        let mut spawned = false;
+        for k in 0..threads {
+            let (tx, queue, backend) = (tx.clone(), queue.clone(), self.clone());
+            let ok = std::thread::Builder::new()
+                .name(format!("almondbread-pipelines-{k}"))
+                .spawn(move || {
+                    loop {
+                        let Some((i, (function, constants))) = queue.lock().ok().and_then(|mut q| q.pop_front()) else {
+                            return;
+                        };
+                        match backend.pipeline(function, &constants) {
+                            Ok(p) => {
+                                if tx.send((i, p)).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(e) => eprintln!("almondbread: pipeline warm-up {function}: {e}"),
+                        }
+                    }
+                })
+                .is_ok();
+            spawned |= ok;
+        }
+        spawned.then_some(rx)
     }
 
     fn pipeline_limits(&self, pipeline: &MetalPipeline) -> (usize, usize) {

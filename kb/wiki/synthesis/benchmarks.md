@@ -1657,3 +1657,78 @@ perturbation probes are the slowest). The first lock version aimed the heading s
 the target through the pointer spring and oscillated at 4 e-folds/s (target offsets ±450
 points, lost within 4 s at the 1e-50 start, 69 % uniform); the gain law fixed that (see
 [[decisions/controls]]).
+
+## Motion fixes: fly-to stalls, π hunt start, journeys, target lock, spiral zoom, 2026-10-16
+
+Measured 2026-10-16, M1 Pro, release, macOS 26. The machine was shared all day: before each
+window test the GPU was 52–100 % busy with other processes (IOAccelerator "Device
+Utilization", read with nothing of ours running), and every flight-benchmark run was marked
+noisy (other processes 93–755 % CPU, GPU 69–91 %). A/B runs were interleaved; ranges are
+given. Tools: `fly --log` (per refresh: zoom, frame CPU, late ms), `ALMONDBREAD_FRAME_LOG=1`
+in the interaction test (longest gaps and slowest draws with times), `ALMONDBREAD_KERNEL_SALT`
+(cold Metal shader cache), `journey --path 1|2`, ffmpeg `signalstats` over recorded journeys.
+
+**Fly-to stalls** ([[decisions/controls]] "Fly to", stalls). Eight headless flights (home →
+sea-8007, junction-1e300, needle-minibrot-1e302, spiral-1e1000 at the default speed and with
+nine E presses, junction-1e300 → spiral-1e1000): the path speed never stopped (lowest
+throttle 0.3, the preview back-off; the reference wait never engaged). Freezes came from
+kernel variants compiled on the frame thread (cold cache) and from GPU contention.
+`needle-minibrot-1e302` at ×9 speed, 4 s, cold cache (new salt per run):
+
+| | slow frames (> 20 ms CPU) | late refreshes (worst) |
+|---|---|---|
+| warm-up off (3 runs) | 81–88 ms at start, 53–64 ms, 55–63 ms at 1e0.9, **161–182 ms at 1e9.8, 196–238 ms at 1e11** | 29–37 (196–226 ms) |
+| warm-up on (5 runs) | 96–141 ms on the first frame only | 5–8 (85–130 ms, all at start) |
+
+Warm cache: no slow frame in 6 of 6 runs either way. Presentation gaps of 250 ms at 1e35–1e48
+in two spiral-1e1000 flights (none in a third) had our chunks at ≤ 32 ms GPU: two colorize
+passes waiting on a GPU other processes kept busy.
+
+**π hunt start** (interaction test "pi hunt", cold cache, 3 runs each, interleaved): slowest
+draw at the start 127.4–127.7 ms (warm-up off) vs 0.7–0.9 ms (on); presented 271–311 vs
+277–324 frames in 3 s, interval max 16.7–25 vs 16.7–33.3 ms. Warm cache, old build: the
+start draw was 1.7 ms, and the 125 ms interval max seen once was the first run after a build.
+
+**Spiral zoom** (interaction test, the period-32412 spiral at 4.2e-19/pt, a pinch 1 s after
+the jump). Headless with the same timing (`fly`, 2560×1640, 120 Hz): gesture frames
+3.5e9 iterations and 738 ms GPU each, 1 393 late refreshes (frame CPU up to 7 s, blocked in
+`commandBuffer` behind full queues), not settled 11 s after the input → 2.1e8 iterations
+and 10.3 ms, 0 late, settled 3.0–3.1 s after the input (2 runs). Cause: after a jump the cost
+model still held the last view's cost (or none), so the first gesture frames ran at 1/2–3/4
+resolution as one chunk at K = 41 604, 2.6 s per command buffer. In the window, alone, 3 + 3
+interleaved runs per build at 76–100 % foreign GPU load: old build 1 of 3 passed (0–1 frames
+presented, final 7.0 s), new build 2 of 3 passed (1 and 194 frames, final 7.3 s and 1.15 s);
+earlier runs at 82–99 % load: old 1 pass of 4 (76 frames), new 4 passes of 6 (175–195 frames,
+final 1.15–1.5 s). The remaining failures are load (no final frame within 10 s of a refine
+that takes ~1.2–1.5 s when the GPU is ours); the 10 s threshold was not changed.
+
+**Flight benchmark** (`benchmark --repeat 1 --warmup 1`, two interleaved pairs, all noisy):
+score old 892 / 1442, new 1528 / 978 (spread from load, no direction); jump landing first
+image old 308 / 50 ms, new 75 / 75 ms; shown-vs-fresh 0.000 % in all. A first version that
+sent every gesture frame after a jump to budgeted chunks pushed the jump's first image to
+850 ms; it was dropped (a jump now only resets the gesture resolution to 1/8).
+
+**Target lock at sea-8007** (`autopilot --center <sea-8007> --scale 2.5e-34 --lock 1
+--seconds 60`, whose CPU survey now escalates its limit like the view probe): first search
+0 → 10 candidates (view probe limit 30 000 → 118 892, interior 1.00 → 0.00); uniform 5.0 → 0 %,
+rescue 2.6 → 0 s, target switches 23 → 12, zoom reached 1e52.0 → 1e54.4; lock off 94 % uniform.
+With the old fixed survey the same start read as uniform interior for 4.5 s and the lock
+dived into the period-8007 minibrot's interior twice.
+
+**Journeys** ([[decisions/controls]] "Journey", revision 2026-10-16). Plans, 16 legs, median
+dive depth (deepest landing per cross-over and its legs):
+
+| seed | old: median / deepest | new: median / deepest | longest dull stretch at the default speed, new: uniform → dull pace |
+|---|---|---|---|
+| 7 | 1e6.0 / 1e18.6 | 1e12.4 / 1e26.2 | 1.1 → 0.4 s |
+| 4711 | 1e7.2 / 1e12.3 | 1e11.1 / 1e21.4 | 1.3 → 0.4 s |
+| 20261015 | – | 1e16.9 / 1e23.0 | 5.9 → 2.0 s (Pine Compass tail) |
+| 20261016 | 1e4.9 / 1e10.4 | 1e8.4 / 1e24.0 | 1.0 → 0.3 s |
+| 1 | – | 1e11.1 / 1e21.5 | 1.2 → 0.4 s |
+| 2 | – | 1e10.4 / 1e17.7 | 7.5 → 2.5 s (out of the needle) |
+| 7 from the needle | 1e4.5 / 1e7.3 | 1e12.3 / 1e12.9 | 1.9 → 0.6 s |
+
+(Old: the plans before the change, 14 legs, 10 from the needle; "–" not planned with the old code.)
+Played headless for 150 s (seeds 2 and 20261015): median zoom 1e3.1 → 1e7.5 and 1e3.3 → 1e8.9,
+time deeper than 1e10 32 → 50 s and 0 → 68 s, deepest 1e18.2 → 1e17.3 and 1e8.7 → 1e22.5.
+Black frames: none in 62 700 frames of five recorded journeys (the old and new builds).
