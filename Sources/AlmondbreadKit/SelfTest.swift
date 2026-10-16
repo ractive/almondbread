@@ -18,7 +18,7 @@ public enum SelfTest {
     /// `--selftest-png=path`. One argument: AppKit would take a separate path argument for
     /// a file to open, and SwiftUI then opens no window.
     /// On iOS a relative path goes to the app's Documents directory (the simulator's data
-    /// container: `xcrun simctl get_app_container <device> ch.ractive.almondbread.ios data`).
+    /// container: `xcrun simctl get_app_container <device> ch.ractive.almondbread data`).
     static var pngPath: String? {
         let prefix = "--selftest-png="
         guard let p = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }).map({ String($0.dropFirst(prefix.count)) })
@@ -290,6 +290,18 @@ public enum UIDemo {
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
+                    // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
+                    if let view = NSApplication.shared.mainMenu?.items.first(where: { $0.title == "View" })?.submenu {
+                        view.update()
+                        let items = view.items.filter { !$0.isSeparatorItem }.map { item in
+                            let mods = item.keyEquivalentModifierMask
+                            let key = item.keyEquivalent.isEmpty ? "" : " [" + (mods.contains(.control) ? "⌃" : "")
+                                + (mods.contains(.option) ? "⌥" : "") + (mods.contains(.shift) ? "⇧" : "")
+                                + (mods.contains(.command) ? "⌘" : "") + item.keyEquivalent.uppercased() + "]"
+                            return item.title + key
+                        }
+                        print("ui-demo: view menu: " + items.joined(separator: " | "))
+                    }
                     print("ui-demo: window \(w.windowNumber) orbit: \(model.orbit?.text ?? "")")
                     fflush(stdout)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }

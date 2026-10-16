@@ -113,6 +113,13 @@ impl Options {
             let Some(p) = almondbread_core::places::place_named(id) else {
                 return err(format!("unknown --place {id} (see `almondbread places`)"));
             };
+            // (`--scale s`: the place's centre at another depth, e.g. a mini-map level's.)
+            if let Some(s) = self.get("scale") {
+                let Some(scale) = Scale::parse(s) else {
+                    return err(format!("bad --scale {s}"));
+                };
+                return Ok(Viewport::with_center(p.center(), scale));
+            }
             return Ok(p.viewport(width, height));
         }
         if let Some(name) = self.get("location") {

@@ -934,6 +934,17 @@ fn verify_session<B: GpuBackend + Clone>(
         noise = noise
             .max(vs_cpu.escape_differs_pct())
             .max(vs_fresh.escape_differs_pct());
+        // A provisional frame (rendered against a truncated reference) that stayed: escape
+        // counts off by thousands almost everywhere (median 1.1e4 at spiral-1e1000 1e-302),
+        // while a jump or a flight ends on the fresh render's reference (median <= 1e-4).
+        // (Not after a zoom or pan: another reference, chaotic views reach a median ~0.9.)
+        let max_median = o.f64("max-median-diff").unwrap_or(10.0);
+        if (mode == "jump" || mode == "flyto") && vs_fresh.median_error > max_median {
+            failed.push(format!(
+                "{tag}smooth counts differ from a fresh render by {} in the median (> {max_median})",
+                g(vs_fresh.median_error, 3)
+            ));
+        }
         if vs_fresh.mismatch_pct() > max_mismatch {
             failed.push(format!(
                 "{tag}{:.3}% differ from a fresh render (> {:.3}%)",
@@ -1386,6 +1397,23 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "640x410",
         "--speed",
         "4",
+    ],
+    // A jump next to a Misiurewicz point (a mini-map level of spiral-1e1000): the centre orbit
+    // comes in prefixes and outlives the first one; the frame rendered against that prefix
+    // (every pixel past its end one orbit, a flat colour) settled and stayed until the view
+    // moved (kb: techniques/rebasing, "Truncated references"). Gated by the median smooth-count
+    // difference from a fresh render.
+    &[
+        "--history",
+        "jump",
+        "--place",
+        "spiral-1e1000",
+        "--scale",
+        "1e-302",
+        "--iterations",
+        "50000",
+        "--size",
+        "640x400",
     ],
 ];
 

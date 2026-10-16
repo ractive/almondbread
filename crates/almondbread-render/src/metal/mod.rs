@@ -474,6 +474,16 @@ mod tests {
         SeedParams,
     };
 
+    /// Tests whose outcome depends on GPU time per frame (budgeted levels, e.g. the sample
+    /// cache's) and tests that load the GPU for seconds hold this, so the test harness's
+    /// parallel threads do not starve the former: `sample_cache_exact` cached a third of its
+    /// samples while `learned_limit_survives_aa` ran alongside.
+    static GPU_TIMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn gpu_timing() -> std::sync::MutexGuard<'static, ()> {
+        GPU_TIMING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
     #[test]
     fn msl_layouts_match() {
@@ -741,6 +751,7 @@ mod tests {
     #[test]
     fn sample_cache_exact() {
         use crate::scheduler::Renderer;
+        let _gpu = gpu_timing();
         let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
         r.viewport = almondbread_core::Viewport::new(-0.743643887037151, 0.13182590420533, 3.75e-6 * 4.0);
         // (One reference throughout: a fixed limit, moves within its reach. Samples of other
@@ -917,6 +928,7 @@ mod tests {
         use crate::host::Host;
         use crate::scheduler::Renderer;
         use objc2_quartz_core::CAMetalLayer;
+        let _gpu = gpu_timing();
         let backend = MetalBackend::new().expect("metal");
         let mut surface = MetalLayerSurface::new(CAMetalLayer::new(), &backend);
         surface.set_drawable_size(640, 410);
@@ -925,6 +937,9 @@ mod tests {
         host.resize(320.0, 205.0, 2.0, 0.0);
         host.renderer.viewport =
             almondbread_core::Viewport::new(-0.7500016386523336, -0.002107342465685259, 6.77052e-8);
+        // (A cap keeps the extension passes short: the neck's slow escapes would otherwise run
+        // them to ~110 000 iterations, a second of GPU; the learned limit is ~7 000.)
+        host.renderer.settings.max_iterations_cap = 30_000;
         let depth = almondbread_core::settings::depth_iterations(&host.renderer.viewport);
         let start = std::time::Instant::now();
         let now = || start.elapsed().as_secs_f64();

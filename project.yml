@@ -77,7 +77,7 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true   # allow 120 Hz on ProMotion iPhones
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread.ios
+        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread    # one ID for Mac and iOS: Universal Purchase
         PRODUCT_NAME: Almondbread
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_IDENTITY: ""
@@ -93,7 +93,7 @@ targets:
       - target: Almondbread iOS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread.ios.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread.uitests
         TEST_TARGET_NAME: Almondbread iOS
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_IDENTITY: ""

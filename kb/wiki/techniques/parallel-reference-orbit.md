@@ -77,9 +77,11 @@ a carry merge) would cut the critical path by roughly another third at 1e-1000
 
 ## Progressive delivery of centre references
 
-With [[techniques/rebasing]] every prefix of an orbit is a correct reference: a pixel
-that reaches its end rebases to `m = 0`. So the reference worker no longer withholds
-the centre orbit until all 2x-limit points exist:
+With [[techniques/rebasing]] a prefix of an orbit is a correct reference for every
+pixel that escapes before its end; a pixel that reaches the end rebases to `m = 0`
+with a rounding loss and is wrong (rebasing, "Truncated references"). So the frame
+drawn with a prefix is provisional, and the reference worker hands prefixes out
+before all 2x-limit points exist:
 
 - `ReferenceOrbitComputer::resume` continues a computation from its `final_z`
   exactly (bit-identical to one long call), so the orbit runs in stages.
@@ -87,10 +89,14 @@ the centre orbit until all 2x-limit points exist:
   (1/8 of the view's limit; at least 4096 points), then the prefix of half the request
   (the view's limit itself), then the whole orbit.
 - `ReferenceWorker::poll(false)` returns such a prefix while the computation keeps
-  running; the scheduler's adoption rules are unchanged: a prefix shorter than the
-  limit is `Stale` (used now, the pending request still serves the view, so nothing is
-  restarted); the limit-length prefix is `Good`. Offscreen renders still wait for the
-  whole orbit.
+  running; a prefix shorter than the limit is `Stale` (used now, the pending request
+  still serves the view, so nothing is restarted); the limit-length prefix is `Good`.
+  Offscreen renders still wait for the whole orbit.
+- (2026-10-16) A job drawn with a prefix shorter than its limit polls the worker every
+  refresh and renders the view again when an orbit that reaches the limit arrives;
+  until then it is not settled and the learner ignores it. Before, nothing polled the
+  worker while a job's key stood, and the provisional frame stayed (flat mini-maps
+  near `spiral-1e1000`).
 
 A nucleus reference is one period long and is delivered whole.
 

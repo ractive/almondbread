@@ -830,6 +830,37 @@ to the seahorse spiral M(24,2) at any radius. Cost with `verify --history jump` 
 first frame 85 ms to 1.0 s, resolved 0.2-1.1 s, all of it the reference (period 2659-17046 at
 5120-10176 bits); class mismatch 0 against the oracle. Page: [[synthesis/places]].
 
+## [2026-10-16] decision | Truncated references: a prefix's end is no rebase point
+
+Mini-map levels between ~1e300 and ~1e670 near `spiral-1e1000` settled as one flat
+colour. Cause: the map's renderer got the 1/16 prefix of its centre orbit (R6
+progressive delivery), and pixels that outran it rebased with `z ← Z + z` in float32
+while `|z| ≪ |Z|`, losing their offset: all continued as one orbit and escaped at the
+prefix end plus ~400 (median |Δmu| 1.1e4 against the oracle). Nothing polled the
+worker while the job's key stood, so the whole orbit (20,899 points) never replaced
+it. Main views were affected the same way after a jump (`verify --history jump --place
+spiral-1e1000 --scale 1e-302 --iterations 50000`: 100 % escape counts wrong). Fix in
+the scheduler: `Reference::truncated_before`, re-render on arrival of an orbit that
+reaches the limit, no learning from provisional frames, offscreen waits, extension
+capped at a truncated orbit's end; `verify --history jump|flyto` now fails on a median
+|Δmu| > 10 against a fresh render. A second main-view case: at sea-8007 with
+`ALMONDBREAD_NUCLEUS=0` the period floor lifted the limit to 115,436 past a 57,719-point
+centre orbit (class mismatch 0.061 %, resolved 2.9 s); now 0 %, 0.5 s. In the flight
+benchmark's heavy segment the shown limit is now 41,536 like the jump render (was 10,384,
+the path-dependent black frame FB reported); noisy machine, no clean timing comparison. Pages: [[techniques/rebasing]] (Truncated
+references), [[techniques/parallel-reference-orbit]].
+
+## [2026-10-16] decision | Places zoom pills, full screen with F and Esc
+
+Places thumbnails show only the zoom in a small dark pill at the bottom right; the name is the
+tooltip (iOS: tap shows it under the grid, long press opens a menu titled with it). Full screen
+on macOS: F toggles (as well as ⌃⌘F, ensured in the View menu), the control center closes on
+entering and is restored on leaving, the toolbar auto-hides (macOS 15+), insets are re-sent
+after transitions and on `contentLayoutRect` changes. In full screen Esc stops motion first
+and leaves full screen only when nothing moved; repeats never leave. Interaction-test scenario
+"esc full screen" checks it through a probe (no window enters full screen). Page:
+[[decisions/controls]] "Full screen".
+
 ## [2026-10-16] decision | Needle axis band for local SA; AA samples filter over their share; learned limit survives AA
 
 Three rendering-quality reports, each reproduced headlessly first. (1) Needle pixels on and
