@@ -835,6 +835,56 @@ pub struct ExplorerStats {
     pub settled: bool,
     /// Frames the GPU failed to draw.
     pub failed_frames: u64,
+    /// Render progress of the settled view (the line at the top is drawn by Rust).
+    pub progress: RenderProgressInfo,
+}
+
+/// Render progress for the HUD (kb: decisions/controls "Render progress"): shown once a
+/// settled view has computed for about 0.5 s, gone when it is done.
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct RenderProgressInfo {
+    /// The HUD shows `text`.
+    pub visible: bool,
+    /// The line's length, 0..1 (honest: time-based, never decreasing).
+    pub fraction: f64,
+    /// "reference orbit", "preparing", "seeding", "preview", "refining", "resolving",
+    /// "anti-aliasing".
+    pub stage: String,
+    /// The HUD line: "refining · 2.1 M of 10 M steps · 3 % of pixels left · ~40 s" (each
+    /// part only once its number is stable).
+    pub text: String,
+    /// Remaining seconds once stable, else -1.
+    pub eta_seconds: f64,
+    /// The youngest live pixel's iteration count and the level's limit (0: not known).
+    pub steps_reached: u64,
+    pub steps_limit: u64,
+    /// Share of the view's pixels still computing, -1 when not known.
+    pub pixels_left: f64,
+    /// Pixels the last finished full or extension level left unresolved, of the full level's
+    /// pixels (both 0 before one finished).
+    pub unresolved: u64,
+    pub unresolved_of: u64,
+}
+
+impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo {
+    fn from(p: &almondbread_render::progress::RenderProgress) -> Self {
+        Self {
+            visible: p.visible,
+            fraction: p.fraction,
+            stage: if p.visible {
+                p.stage_label().to_string()
+            } else {
+                String::new()
+            },
+            text: p.text(),
+            eta_seconds: p.eta.unwrap_or(-1.0),
+            steps_reached: p.steps.map_or(0, |s| s.0),
+            steps_limit: p.steps.map_or(0, |s| s.1),
+            pixels_left: p.pixels_left.map_or(-1.0, |l| l.0),
+            unresolved: p.unresolved.map_or(0, |u| u.0 as u64),
+            unresolved_of: p.unresolved.map_or(0, |u| u.1 as u64),
+        }
+    }
 }
 
 /// An offscreen render written to a PNG.
@@ -1408,6 +1458,7 @@ impl Explorer {
             held_keys: r.navigator.held_count() as u32,
             settled: r.is_settled(),
             failed_frames: r.failed_frames as u64,
+            progress: r.progress.current().into(),
         }
     }
 

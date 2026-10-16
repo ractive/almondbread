@@ -91,7 +91,8 @@ public enum SelfTest {
 /// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
 /// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels),
 /// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
-/// (the default scene with View and Look, or Lighting, Overlays and Quality open);
+/// (the default scene with View and Look, or Lighting, Overlays and Quality open),
+/// `progress` / `progress-late` (render progress mid-render at a 2M limit);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -259,6 +260,13 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 2
             model.mapPlacement = .topRight
+        case "progress", "progress-late":
+            // Render progress (kb: decisions/controls "Render progress"): a high manual limit
+            // at the -3/4 neck, captured mid-render (`-late`: once the slowest pixels decide).
+            model.autoIterations = false
+            model.maxIterationsCap = 2_000_000
+            model.manualIterations = 2_000_000
+            try? explorer.setViewport(re: "-0.74999996120361811", im: "0.00036918279150454967", scale: 1e-11)
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
             model.mapEnabled = true
@@ -285,8 +293,15 @@ public enum UIDemo {
                 #if os(macOS)
                 let moving = scene == "autopilot" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
                 let movingAt: Double = scene.hasSuffix("-late") ? 17 : scene.hasPrefix("pi-") ? 9 : 8
-                if Date().timeIntervalSince(start) > (moving ? movingAt : 8),
-                   model.stats?.settled == true || moving,
+                let t = Date().timeIntervalSince(start)
+                // Progress scenes: mid-render, with the ETA shown (`-late`: the step count too).
+                let progress = model.stats?.progress
+                let progressReady = scene.hasPrefix("progress")
+                    && (progress?.etaSeconds ?? -1) > 0
+                    && (!scene.hasSuffix("-late") || (progress?.stepsReached ?? 0) > 0)
+                    && t > 6
+                if progressReady || !scene.hasPrefix("progress") && t > (moving ? movingAt : 8),
+                   progressReady || model.stats?.settled == true || moving,
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)

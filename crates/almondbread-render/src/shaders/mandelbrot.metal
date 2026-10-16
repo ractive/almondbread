@@ -208,7 +208,7 @@ struct ChunkStats {       // per-chunk counters, read back by the CPU
     atomic_uint stepsLo;        // loop steps (BLA steps + perturbation steps), 64-bit split
     atomic_uint escapedPast[4]; // escapes at n >= softIter << k (k = 0..3), for auto iterations
     atomic_uint stepsHi;
-    uint        pad2;
+    atomic_uint liveMinN;       // smallest n of the pixels still live after it (render progress)
 };
 
 // BLA table layout (kb: techniques/bla; built by almondbread_core::bla): level `lev` holds one
@@ -606,6 +606,7 @@ kernel void prepareChunk(constant IterateParams& p           [[buffer(0)]],
     atomic_store_explicit(&stats[p.statSlot].iterationsHi, 0u, memory_order_relaxed);
     atomic_store_explicit(&stats[p.statSlot].stepsLo, 0u, memory_order_relaxed);
     atomic_store_explicit(&stats[p.statSlot].stepsHi, 0u, memory_order_relaxed);
+    atomic_store_explicit(&stats[p.statSlot].liveMinN, 0xffffffffu, memory_order_relaxed);
 }
 
 // One thread: records the live count after the chunk for the CPU scheduler.
@@ -2059,6 +2060,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     threadgroup uint sgMaxEscape[32];
     threadgroup uint4 sgPast[32];
     threadgroup uint sgCollect[32];
+    threadgroup uint sgMinN[32];
     threadgroup uint tgListBase;
     threadgroup uint tgBase;
     uint live = alive ? 1u : 0u;
@@ -2072,6 +2074,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint simdCollect = simd_sum(collect ? 1u : 0u);
     uint escN = (active && escaped) ? st.n : 0u;
     uint simdMaxEscape = simd_max(escN);
+    // The youngest live pixel's n: how far the slowest pixels have got (render progress).
+    uint simdMinN = simd_min(alive ? st.n : 0xffffffffu);
     // Escapes past the nominal limit: only the extension produces them, so these sums are
     // nonzero in few chunks; packed 4 x 8 bits per SIMD-group would overflow, so 4 sums.
     uint4 past = uint4(escN >= p.softIter && escN > 0u, escN >= (p.softIter << 1) && escN > 0u,
@@ -2086,10 +2090,11 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         sgMaxEscape[sg] = simdMaxEscape;
         sgPast[sg] = simdPast;
         sgCollect[sg] = simdCollect;
+        sgMinN[sg] = simdMinN;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tidInGroup == 0) {
-        uint sum = 0, itSum = 0, stepSum = 0, intSum = 0, crossSum = 0, escMax = 0;
+        uint sum = 0, itSum = 0, stepSum = 0, intSum = 0, crossSum = 0, escMax = 0, minN = 0xffffffffu;
         uint4 pastSum = 0;
         uint collectSum = 0;
         for (uint i = 0; i < sgCount; i++) {
@@ -2101,6 +2106,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             intSum += sgInterior[i];
             crossSum += sgCrossed[i];
             escMax = max(escMax, sgMaxEscape[i]);
+            minN = min(minN, sgMinN[i]);
             pastSum += sgPast[i];
             uint c = sgCollect[i];
             sgCollect[i] = collectSum;
@@ -2111,6 +2117,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             if (pastSum[k] > 0) atomic_fetch_add_explicit(&stats[p.statSlot].escapedPast[k], pastSum[k], memory_order_relaxed);
         }
         if (escMax > 0) atomic_fetch_max_explicit(&stats[p.statSlot].maxEscape, escMax, memory_order_relaxed);
+        if (minN != 0xffffffffu) atomic_fetch_min_explicit(&stats[p.statSlot].liveMinN, minN, memory_order_relaxed);
         if (intSum > 0) atomic_fetch_add_explicit(&stats[p.statSlot].interior, intSum, memory_order_relaxed);
         if (crossSum > 0) atomic_fetch_add_explicit(&stats[p.statSlot].crossed, crossSum, memory_order_relaxed);
         tgBase = sum > 0 ? atomic_fetch_add_explicit(countOut, sum, memory_order_relaxed) : 0;

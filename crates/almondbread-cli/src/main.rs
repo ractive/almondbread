@@ -33,10 +33,11 @@ mod options;
 mod palettes;
 mod places;
 mod precision;
+mod progress;
 
 use options::Options;
 
-const USAGE: &str = "usage: almondbread render|verify|precision|bench|regress|fly|benchmark|places|locate|journey|autopilot|palettes [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|precision|progress|bench|regress|fly|benchmark|places|locate|journey|autopilot|palettes [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -77,6 +78,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "autopilot" => autopilot::autopilot_command(o),
         "places" => places::places_command(&backend, o),
         "precision" => precision::precision_command(&backend, o),
+        "progress" => progress::progress_command(&backend, o),
         _ => options::err(USAGE),
     })
 }

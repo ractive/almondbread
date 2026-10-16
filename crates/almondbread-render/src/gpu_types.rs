@@ -116,7 +116,9 @@ pub struct ChunkStats {
     /// Escapes at n >= softIter << k.
     pub escaped_past: [u32; 4],
     pub steps_hi: u32,
-    pub pad2: u32,
+    /// Smallest iteration count n of the pixels still live after the chunk (`u32::MAX`: none):
+    /// how far the slowest pixels have got (render progress).
+    pub live_min_n: u32,
 }
 
 impl ChunkStats {

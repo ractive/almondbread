@@ -644,7 +644,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.maps = None;
             self.probe = None;
             self.probe_key = None;
-            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now)) || empty {
+            let line = renderer.progress.current().alpha > 0.0;
+            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now) || line) || empty {
                 renderer.overlay = None;
                 return;
             }
@@ -1241,7 +1242,15 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
         key.push_str(&self.pi.draw(scene, w, h, px, reserve));
         self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
-        let _ = renderer;
+        // The render progress line along the top edge (kb: decisions/controls "Render progress").
+        crate::progress::draw_line(
+            scene,
+            size,
+            ppp,
+            renderer.navigator.insets(),
+            renderer.progress.current(),
+            &mut key,
+        );
         key
     }
 }

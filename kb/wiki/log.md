@@ -965,3 +965,15 @@ refinement towards the user's cap, with progress and an estimate; (3) a progress
 percentage while a long manual-limit frame is being computed (the 10 M frame here), so a
 partial frame does not read as the result; (4) in the settings, label the auto cap "Upper bound
 for automatic iterations" and show the current effective limit next to it.
+
+## [2026-10-17] decision | Render progress: a top line and HUD text for long renders
+
+A thin line at the top of the canvas (Rust overlay, below the toolbar) and a HUD line
+("refining · 2.1 M of 10 M steps · 3 % of pixels left · ~40 s") while a settled view computes
+for more than 0.5 s. Time-based and pessimistic: remaining = the level's pixels over their
+resolve rate blended with the youngest live pixel's steps to the limit (new `liveMinN` chunk
+counter), plus predicted extension and AA stages. Measured with the new `almondbread progress`
+command: at a 2 M limit at the neck (3–4 min) the line stays within −10 / +6 points of the
+share of real time, at a 10 M limit with a slow tail (8 s) within ±10. Shallow zooms show
+nothing. Found: the first AA sample at a 2 M limit costs as much as the full level. Page:
+[[decisions/controls]] "Render progress".

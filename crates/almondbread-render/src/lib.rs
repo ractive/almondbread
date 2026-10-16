@@ -31,6 +31,7 @@ pub mod host;
 pub mod la_gpu;
 pub mod overlay;
 pub mod pi_meter;
+pub mod progress;
 pub mod sample_cache;
 pub mod scheduler;
 

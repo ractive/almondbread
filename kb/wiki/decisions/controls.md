@@ -974,3 +974,77 @@ policy is Swift's (it is window chrome, not navigation), the Esc decision uses t
   autopilot and stays; 5 Esc repeats stay; Esc 1.2 s later (nothing moving) leaves; F enters,
   an F repeat does nothing, F leaves; outside full screen an idle Esc passes to the system; the
   control center's close-and-restore. All OK (2026-10-16, M1-class Mac, release).
+
+## Render progress (as built, 2026-10-17)
+
+User decision (2026-10-17): while a settled view computes for long (a jump, after zooming
+stops, a high manual limit such as 10 M with automatic iterations off) the app shows how far
+it is, honestly.
+
+- **The line.** A thin (2 pt) light-blue line along the top edge of the canvas, like a browser
+  loading bar, drawn by Rust into the overlay scene (`crates/almondbread-render/src/progress.rs`,
+  `draw_line`) just below the toolbar: it uses the navigator's canvas insets, the same the
+  compass and HUD use (full screen with the toolbar shown or hidden included). A faint dark
+  track under it keeps it readable on bright images; a brighter head over its last 48 pt.
+- **When.** It appears once the settled view has computed for 0.5 s, and only if the estimate
+  says more than 0.6 s is left (or after 1.5 s regardless; unknown stages, reference orbit,
+  tables, seeds, count as long). It fades in over 0.2 s; when done it runs to the end
+  (0.3 s), then fades out (0.45 s). Input (gesture frames, flights, the autopilot) hides it
+  within 0.15 s. Gesture frames never show it: shallow zooms show nothing.
+- **Honest fraction.** Time-based: `elapsed / (elapsed + remaining)`, never moving backwards and
+  closing at most half of the remaining gap per second (one optimistic estimate cannot throw
+  it ahead, where it would stall). The remaining time is the current level's plus predictions
+  for the stages after it:
+  - *Level*: pixels left (`total − admitted + live`) over their resolve rate in a window of
+    0.35 × the level's age (0.75–20 s); once every pixel is admitted also the youngest live
+    pixel's steps to the limit over its recent speed (`liveMinN`, a new chunk counter: one
+    `simd_min` and one `atomic_fetch_min` per threadgroup). The step bound is an upper bound
+    (pixels speed up as others finish); the estimate is `sqrt(min(by_pixels, by_steps) ×
+    by_steps)`: the resolve rate is right while most pixels finish, the step bound when the
+    last slow ones decide.
+  - *Preview*: the full level as the preview's time × the texel ratio.
+  - *Extension passes*: up to their GPU budget (2 s) × wall per GPU second, at most 4× the full
+    level.
+  - *AA samples*: each costs the full level's time × the adaptive list's share (0.5 until it
+    is built, then the last sample's time); they run until their GPU time passes the AA budget.
+  - Reference orbit, tables and the M5 seed passes are unknown: the line creeps towards 20 %
+    (25 s time constant) and claims nothing more.
+  The bias is pessimistic, so the line speeds up towards the end instead of racing to 95 %
+  and stalling.
+- **HUD text** (`HUDProgressLine`, a leaf view reading the change-only `progressText`), e.g.
+  "refining · 2.1 M of 10 M steps · 3 % of pixels left · ~40 s". Stage words: reference
+  orbit, preparing, seeding, preview, refining, resolving (extension), anti-aliasing (with
+  "sample n of m"). Steps show only once every pixel is admitted (before, the youngest pixel
+  is a fresh one); pixels left is monotonic. The ETA shows after the line has shown 3 s, the
+  level's pixels have run 8 s (or less than 16 s are left), and the raw finish time held
+  within 30 % over 3 s; it is then smoothed (time constant 0.1 × the remaining time, 2–8 s)
+  and rounded coarser as it grows (~7 s, ~40 s, ~4 min). It disappears when done.
+- **FFI.** `ExplorerStats.progress: RenderProgressInfo` (visible, fraction, stage, text, ETA,
+  steps reached / limit, pixels left, and `unresolved` / `unresolved_of`: what the last full or
+  extension level left unresolved, kept after the view settled, for a later "raise the limit?"
+  hint).
+- **Measuring.** `almondbread progress --location L | --place P | --center re,im --scale s
+  [--iterations N] [--zoom-seconds s]` jumps (or zooms, then stops) through the real
+  per-refresh scheduler headless and prints the line, the ETA and the counters against t / T
+  (T: when the view settled). `--ui-demo=progress` / `progress-late` capture the window
+  mid-render.
+
+Measured (2026-10-17, M1-class Mac, release, 2560×1600 px headless, other agents sharing the
+GPU):
+
+| case | settled | line vs t / T | ETA |
+| --- | ---: | --- | --- |
+| neck −0.74999996120361811 + 0.00036918279150454967i, 1e-11/pt, manual 2 M | 179–236 s (seeds 10–25 s, full ~105 s, one AA sample ~70 s at the 2 M limit) | within −10 / +6 points; 54 % at 57 %, 73 % at 76 %, 89 % at 96 % | first ~2 min at t = 23 s (true 2.6 min), then within ~25 % |
+| seahorse −0.743643887037151 + 0.13182590420533i, 2e-9/pt, manual 10 M (1316 pixels unresolved) | 7.8 s | within ±10 points (16 % at 13 %, 51 % at 45 %, 85 % at 91 %) | none (too short to be stable) |
+| spiral-1e1000 (jump) | 1.2–2.3 s | shown for the last ~0.6–1 s | none |
+| shallow zooms (2 s gesture at 1e-5 … 1e-12 per px, 5 places) | 0.3–0.9 s | never shown, except −1.25 + 0.02i at 1e-6 (1.3–1.8 s: 940 k interior pixels in extension passes) | — |
+
+Early versions failed in instructive ways: an AA "between samples" moment recorded as a sample
+duration predicted 0.1 s samples and threw the line from 55 % to 90 %, where it stalled for a
+minute; an ETA computed in the level's first seconds after its seeds said "~50 min" for a
+5-minute view (now gated on the pixels' age, and not smoothed before it shows).
+
+Findings for the scheduler (not changed here): at a 2 M manual limit the first AA sample
+lists 70 % of the view at the nominal limit and costs ~70 s, as much as the full level, before
+the 1.5 GPU-second AA budget is checked; and shallow views in the period-2 bulb spend their
+extension passes on ~1 M interior pixels.

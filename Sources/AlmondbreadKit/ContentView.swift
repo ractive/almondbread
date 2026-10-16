@@ -280,6 +280,7 @@ struct HUDView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
             }
+            HUDProgressLine(model: model)
             if model.hudDetails {
                 HUDDeveloperDetails(stats: s, autoIterations: model.autoIterations)
             }
@@ -310,6 +311,24 @@ struct HUDView: View {
                 try? await Task.sleep(for: .seconds(1.5))
                 if Date().timeIntervalSince(model.zoomSpeedChanged) >= 1.4 { speedHighlight = false }
             }
+        }
+    }
+}
+
+/// The render progress (kb: decisions/controls "Render progress"): stage, steps, pixels left
+/// and ETA while a settled view takes long; Rust draws the line at the top of the canvas. A
+/// leaf reading only the change-only `progressText`.
+struct HUDProgressLine: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let _ = UIPerf.body("HUDProgress")
+        let text = model.progressText
+        if !text.isEmpty {
+            Label(text, systemImage: "hourglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

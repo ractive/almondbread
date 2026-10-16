@@ -407,6 +407,9 @@ struct Level<B: GpuBackend> {
     /// A gesture level of the motion sample cache (kb: techniques/sample-reuse): its textures
     /// are the cache's toroidal window, it computes the listed tiles only.
     cache: Option<CacheLevel<B>>,
+    /// The youngest live pixel's iteration count after the last harvested chunk (`u32::MAX`:
+    /// none live); render progress only (kb: decisions/controls "Render progress").
+    live_min_n: u32,
 }
 
 /// [`Renderer::cache_regime`]: the regime, whether a table it needs is still building, and the
@@ -546,6 +549,7 @@ impl<B: GpuBackend> Level<B> {
             seeded: None,
             seeding: None,
             cache: None,
+            live_min_n: u32::MAX,
         }
     }
 
@@ -918,6 +922,8 @@ pub struct Renderer<B: GpuBackend> {
     pub config: SchedulerConfig,
     pub stats: ShownStats,
     pub frame_stats: Option<FrameStats>,
+    /// Render progress of the current view (kb: decisions/controls "Render progress").
+    pub progress: crate::progress::ProgressTracker,
 
     prepare_pipeline: B::Pipeline,
     finish_pipeline: B::Pipeline,
@@ -1164,6 +1170,7 @@ impl<B: GpuBackend> Renderer<B> {
             config,
             stats: ShownStats::default(),
             frame_stats: None,
+            progress: Default::default(),
             prepare_pipeline,
             finish_pipeline,
             colorize_pipeline,
@@ -2122,9 +2129,11 @@ impl<B: GpuBackend> Renderer<B> {
                     }
                 }
             }
+            self.update_progress(now);
             return outcome;
         }
         if self.job.is_none() {
+            self.update_progress(now);
             return outcome;
         }
         let aa_target = self.aa_target();
@@ -2264,6 +2273,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         self.publish_stats();
+        self.update_progress(now);
         let job = self.job.as_ref().expect("job");
         let busy = overlay_pending
             || interacting
@@ -3911,6 +3921,7 @@ impl<B: GpuBackend> Renderer<B> {
             level.interior_pixels += stats.interior as usize;
             level.admitted = stats.admitted as usize;
             level.live = stats.live_out as usize;
+            level.live_min_n = stats.live_min_n;
             level.crossed += stats.crossed as usize;
             level.max_escape = level.max_escape.max(stats.max_escape as usize);
             for k in 0..4 {
@@ -5210,6 +5221,111 @@ impl<B: GpuBackend> Renderer<B> {
     /// not settled yet even if [`Renderer::is_settled`] says so (flight benchmark).
     pub fn retry_pending(&self) -> bool {
         self.retry_pending
+    }
+
+    /// Feeds this refresh's progress counters to [`Renderer::progress`].
+    fn update_progress(&mut self, now: f64) {
+        let sample = self.progress_sample(now);
+        self.progress.update(&sample, now);
+    }
+
+    /// Render progress counters of the current view (read-only; kb: decisions/controls
+    /// "Render progress"). `now`: the refresh's timestamp.
+    pub fn progress_sample(&self, now: f64) -> crate::progress::ProgressSample {
+        use crate::progress::{ProgressSample, Stage};
+        let interacting = self.navigator.is_interacting(now);
+        let reference = self.reference_worker.pending().and_then(|req| {
+            self.reference_worker
+                .running_for()
+                .map(|(secs, done)| (secs, done, req.max_iter))
+        });
+        let Some(job) = &self.job else {
+            return ProgressSample {
+                interacting,
+                stage: if self.waiting_reference {
+                    Stage::Reference
+                } else {
+                    Stage::Idle
+                },
+                settled: !self.waiting_reference,
+                reference,
+                ..ProgressSample::default()
+            };
+        };
+        let full = job.levels.iter().find(|l| !l.preview && l.aa.is_none());
+        let unresolved = job
+            .levels
+            .iter()
+            .rfind(|l| !l.preview && l.aa.is_none() && l.done)
+            .map(|l| l.crossed);
+        let index = job.current();
+        let current = index.map(|i| &job.levels[i]);
+        let tables_pending = self.bla_build.is_some() || self.la_build.is_some();
+        let stage = if self.waiting_reference {
+            Stage::Reference
+        } else {
+            match current {
+                Some(l) if l.aa.is_some() => Stage::AntiAlias,
+                Some(l) if l.is_extension() => Stage::Extension,
+                Some(l) if l.preview => Stage::Preview,
+                Some(l) if !l.started() && tables_pending => Stage::Tables,
+                Some(_) => Stage::Full,
+                None if job.final_presented => Stage::Idle,
+                None => Stage::AntiAlias,
+            }
+        };
+        let level_index = index.unwrap_or(job.levels.len().saturating_sub(1));
+        let l = job.levels.get(level_index);
+        let extension = |l: &&Level<B>| l.is_extension() && l.aa.is_none();
+        ProgressSample {
+            generation: job.generation,
+            interacting: interacting || job.interactive,
+            stage,
+            settled: job.final_presented
+                && !job.interactive
+                && !self.retry_pending
+                && !self.awaits_longer_reference()
+                && job.key.viewport == self.viewport,
+            level_index,
+            level_total: l.map_or(0, |l| l.total),
+            level_admitted: l.map_or(0, |l| l.admitted),
+            level_live: l.map_or(0, |l| l.live),
+            level_limit: l.map_or(0, |l| l.params.max_iter as usize),
+            live_min_n: l
+                .filter(|l| l.live > 0 && l.live_min_n != u32::MAX)
+                .map(|l| u64::from(l.live_min_n)),
+            level_crossed: l.map_or(0, |l| l.crossed),
+            level_aa: current.and_then(|l| l.aa),
+            seeding: l.and_then(|l| l.seeding.as_ref()).filter(|s| !s.done).map(|s| {
+                (
+                    s.unfinished,
+                    s.layout.iter().map(|p| (p.grid_w * p.grid_h) as usize).sum(),
+                )
+            }),
+            level_gpu: l.map_or(0.0, |l| l.gpu_time),
+            soft_limit: job.key.max_iter,
+            full_total: full.map_or(0, |l| l.total),
+            unresolved,
+            extension_passes: job.levels.iter().filter(extension).count(),
+            extend_to: full.map_or(0, |l| l.extend_to),
+            extension_gpu: job.levels.iter().filter(extension).map(|l| l.gpu_time).sum(),
+            extension_budget: self.config.extension_budget,
+            aa_composed: job.aa_composed,
+            aa_target: self.aa_target(),
+            aa_pixels: job.aa_list.as_ref().and_then(|a| a.len),
+            aa_gpu: job
+                .levels
+                .iter()
+                .filter(|l| l.aa.is_some_and(|n| n <= job.aa_composed))
+                .map(|l| l.gpu_time)
+                .sum(),
+            aa_budget: self.config.aa_budget,
+            full_gpu: full.map_or(0.0, |l| l.gpu_time),
+            full_done: full.is_some_and(|l| l.done),
+            reference,
+            provisional: job.short_reference,
+            gpu_time: job.gpu_time,
+        }
     }
 
     pub fn is_settled(&self) -> bool {
