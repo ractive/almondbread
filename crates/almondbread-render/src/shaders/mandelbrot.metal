@@ -2310,13 +2310,13 @@ static inline float3 interiorShade(float2 it, float2 de, float2 ax, constant Col
 
 static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel, float sampleWidth = 1.0f) {
-    // Unresolved (past the nominal limit, neither escaped nor proven interior): drawn in the
-    // outline colour lifted by 0.5 % towards grey. They hug the boundary (slow exterior near
-    // minibrots and parabolic points, which extension passes may still resolve), so they read
-    // as boundary; FL: M2's 3 % grey lift showed as flat grey halos around minibrots in
-    // gesture frames, which get no extension passes. The same in every view, so stepping the
-    // limit does not recolour it.
-    if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.5f), 0.005f);
+    // Unresolved (past the nominal limit, neither escaped nor proven interior): a dark grey
+    // veil (25 %) over the outline colour, so "not computed yet" no longer looks like the
+    // interior (user decision 2026-10-17: near the -3/4 neck almost the whole view was
+    // unresolved and read as interior). Before, it was the outline colour lifted by 0.5 %;
+    // FL: M2's 3 % lift showed grey halos around minibrots in gesture frames (no extension
+    // passes), and minibrot bodies the interior test does not prove show this veil too.
+    if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.18f, 0.18f, 0.20f), 0.25f);
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense, calm;
     float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm, sampleWidth);
