@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var model = ExplorerModel()
     @State private var showInspector = UIDemo.enabled
     @State private var showFlyTo = false
+    @State private var fullScreenSidebar = FullScreenSidebar()
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// Width of the canvas in points (narrower than the window while the iPad sidebar shows).
@@ -162,12 +163,49 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Almondbread")
+        // Full screen (kb: decisions/controls "Full screen"): a clean view. The control center
+        // closes and comes back as it was; the toolbar hides and slides in when the pointer
+        // goes to the top edge (macOS 15+; macOS 14 keeps AppKit's visible toolbar).
+        .onChange(of: model.fullScreen) {
+            fullScreenSidebar.update(fullScreen: model.fullScreen, shown: &showInspector)
+        }
+        .modifier(FullScreenToolbarOnHover())
         #endif
         .focusedSceneValue(\.explorerModel, model)
         .focusedSceneValue(\.inspectorVisible, $showInspector)
         .focusedSceneValue(\.flyToVisible, $showFlyTo)
     }
 }
+
+/// The control center across full screen: closed on entering, back to how it was on leaving
+/// (opened or closed in full screen does not count).
+struct FullScreenSidebar: Equatable {
+    private(set) var saved: Bool?
+
+    mutating func update(fullScreen: Bool, shown: inout Bool) {
+        if fullScreen {
+            if saved == nil { saved = shown }
+            shown = false
+        } else if let s = saved {
+            shown = s
+            saved = nil
+        }
+    }
+}
+
+#if os(macOS)
+/// Full screen hides the toolbar until the pointer reaches the top edge (the standard
+/// auto-hide of Safari and Xcode). Without it AppKit keeps the toolbar showing.
+struct FullScreenToolbarOnHover: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.windowToolbarFullScreenVisibility(.onHover)
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 /// Translucent status overlay. Does not take input, so gestures reach the canvas below.
 struct HUDView: View {

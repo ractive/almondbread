@@ -849,3 +849,14 @@ centre orbit (class mismatch 0.061 %, resolved 2.9 s); now 0 %, 0.5 s. In the fl
 benchmark's heavy segment the shown limit is now 41,536 like the jump render (was 10,384,
 the path-dependent black frame FB reported); noisy machine, no clean timing comparison. Pages: [[techniques/rebasing]] (Truncated
 references), [[techniques/parallel-reference-orbit]].
+
+## [2026-10-16] decision | Places zoom pills, full screen with F and Esc
+
+Places thumbnails show only the zoom in a small dark pill at the bottom right; the name is the
+tooltip (iOS: tap shows it under the grid, long press opens a menu titled with it). Full screen
+on macOS: F toggles (as well as ⌃⌘F, ensured in the View menu), the control center closes on
+entering and is restored on leaving, the toolbar auto-hides (macOS 15+), insets are re-sent
+after transitions and on `contentLayoutRect` changes. In full screen Esc stops motion first
+and leaves full screen only when nothing moved; repeats never leave. Interaction-test scenario
+"esc full screen" checks it through a probe (no window enters full screen). Page:
+[[decisions/controls]] "Full screen".

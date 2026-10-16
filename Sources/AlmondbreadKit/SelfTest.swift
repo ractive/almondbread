@@ -290,6 +290,18 @@ public enum UIDemo {
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
+                    // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
+                    if let view = NSApplication.shared.mainMenu?.items.first(where: { $0.title == "View" })?.submenu {
+                        view.update()
+                        let items = view.items.filter { !$0.isSeparatorItem }.map { item in
+                            let mods = item.keyEquivalentModifierMask
+                            let key = item.keyEquivalent.isEmpty ? "" : " [" + (mods.contains(.control) ? "⌃" : "")
+                                + (mods.contains(.option) ? "⌥" : "") + (mods.contains(.shift) ? "⇧" : "")
+                                + (mods.contains(.command) ? "⌘" : "") + item.keyEquivalent.uppercased() + "]"
+                            return item.title + key
+                        }
+                        print("ui-demo: view menu: " + items.joined(separator: " | "))
+                    }
                     print("ui-demo: window \(w.windowNumber) orbit: \(model.orbit?.text ?? "")")
                     fflush(stdout)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }
