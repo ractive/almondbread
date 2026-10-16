@@ -367,7 +367,10 @@ with no target, or 2.5 s with one (a target that leads nowhere), eases the zoom 
 3 e-folds/s, so a deep interior start does not take half a minute) and keeps searching the widening view
 (every 0.6 s or 0.5 e-folds); the first target found ends it and the dive resumes. It also ends
 after 0.6 s of detail in the survey's heading region (target or not), and when the whole set
-is in view (span ≥ 4). The dropped target is remembered (the last 4; none within 2 of its end
+is in view (span ≥ 4). Ended that way without a target, the lock aims at the survey's busiest
+cell (band crossings × (1 − interior), Gaussian preference for the centre, σ = 0.35 side)
+for 2 e-folds and picks again when that is spent: a chain of short legs towards detail the
+GPU shows, for views the CPU search cannot resolve. The dropped target is remembered (the last 4; none within 2 of its end
 span is taken again): without that, the sea-8007 interior start dived into the minibrot,
 backed out, found its framing again and dived in again. *Limit*: the CPU probes stop at
 30 000–60 000 iterations, so views near minibrots of period ≳ 10 000 (sea-8007, the

@@ -1614,3 +1614,46 @@ Findings:
 5.9 / 18.7 ms, needle-1e305 15.5 / 67.9 ms, spiral 783 / 2639 ms GPU at 1600 × 1000 /
 3456 × 2234. Not measured: `make interaction-test` and `make selftest` (screen locked during
 this work).
+
+## AP: autopilot target lock, 90 s with no input, 2026-10-15
+
+Measured 2026-10-15/16, M1 Pro, release, `almondbread fly` (real-time pipeline, 60 Hz,
+1280 × 800, 1 still per second) with Z pressed and the pointer off the canvas, 90 s at the
+default speed (0.9 e-folds/s) and at the maximum (4). "Uniform" = frames whose survey heading
+region has danger > 0.5 (the HUD's "slower: featureless / interior" condition), share of
+surveyed frames; deepest zoom reached (log10). Lock off is the old plain Z (the pure joystick
+going straight ahead). See [[decisions/controls]] "Target lock and rescue".
+
+| Start | off, default: uniform / zoom | lock, default: uniform / longest / rescue / zoom | lock, max: uniform / longest / rescue / zoom |
+| --- | --- | --- | --- |
+| home | 94.5 % / 1e9.4 | 0 % / 0 s / 0 s / 1e34.6 | 0 % / 0 s / 0 s / 1e152 |
+| seahorse valley | 98.7 % / 1e12.7 | 0 % / 0 / 0 / 1e34.5 | 3.8 % / 3.1 s / 2.1 s / 1e120 |
+| elephant valley | 96.9 % / 1e12.4 | 0 % / 0 / 0 / 1e34.1 | 3.6 % / 3.2 s / 2.3 s / 1e146 |
+| triple spiral valley | 95.3 % / 1e13.8 | 0 % / 0 / 0 / 1e19.9 | 0 % / 0 / 0 / 1e60.6 |
+| needle (−1.985) | 0 % / 1e38.0 | 0 % / 0 / 0 / 1e38.0 | 3.0 % / 2.5 s / 1.5 s / 1e102 |
+| dendrite near i | 99.1 % / 1e13.2 | 4.8 % / 4.3 s / 2.0 s / 1e32.0 | 0 % / 0 / 0 / 1e76.4 |
+| deep 1e50 (off c = i) | 96.4 % / 1e58.9 | 0 % / 0 / 0 / 1e82.3 | 8.5 % / 4.3 s / 5.2 s / 1e180 |
+| needle-1e94 (on a nucleus) | 93.5 % / 1e101 | 0 % / 0 / 0 / 1e124 | 3.6 % / 3.2 s / 2.1 s / 1e234 |
+| main cardioid interior | 100 % / 1e14.0 | 8.3 % / 7.4 s / 6.3 s / 1e31.3 | 5.6 % / 5.0 s / 4.1 s / 1e135 |
+| smooth exterior | 100 % / 1e14.0 | 7.7 % / 6.9 s / 5.7 s / 1e30.8 | 12.7 % / 4.7 s / 7.7 s / 1e122 |
+| sea-8007 minibrot interior edge | 100 % / 1e44.7 | 7.6 % / 2.9 s / 2.5 s / 1e47.1 | 53 % / 17.9 s / 25 s / 1e55.6 |
+| period-32412 spiral | 100 % / 1e26.9 | 0 % / 0 / 8.8 s / 1e23.4 | 40 % / 6.8 s / 14 s / 1e45.3 |
+
+Rows marked by the later reruns (sea-8007, spiral-32412 max, exterior max, home max, deep
+max, interior default) are from the final code; the others ran one revision earlier, which
+differs only after a rescue ends on survey detail. Run-to-run spread is a few percent (home
+max: 0 % and 3.1 % in two runs of the same code). Interior and exterior starts are uniform by
+construction for the first 3–7 s (rescue backs out, then dives). Weak spots: the two starts
+around minibrots of period ≥ 8007 at maximum speed. The CPU probes of the search stop at
+30 000–60 000 iterations, see those views as interior and find few targets; the GPU is slow
+there too (40–48 fps, throttled previews). Scripted steering into the main cardioid
+(`void-steer`, pilot holds c = −0.3 + 0.1i under the pointer for 12 s, then lets go): lock off
+stays uniform for the remaining 33 s (99.5 %); lock on backs out (rescue 4.5 s) and dives
+into detail again (37.6 % uniform in all, of which ~12 s is the deliberate steering).
+
+Headless CPU simulator (`almondbread autopilot`, synchronous lock, CPU survey; same starts)
+agrees in tendency; it took 2–470 s CPU per 90 s run (deep max-speed runs with many
+perturbation probes are the slowest). The first lock version aimed the heading straight at
+the target through the pointer spring and oscillated at 4 e-folds/s (target offsets ±450
+points, lost within 4 s at the 1e-50 start, 69 % uniform); the gain law fixed that (see
+[[decisions/controls]]).
