@@ -18,7 +18,7 @@ public enum SelfTest {
     /// `--selftest-png=path`. One argument: AppKit would take a separate path argument for
     /// a file to open, and SwiftUI then opens no window.
     /// On iOS a relative path goes to the app's Documents directory (the simulator's data
-    /// container: `xcrun simctl get_app_container <device> ch.ractive.almondbread.ios data`).
+    /// container: `xcrun simctl get_app_container <device> ch.ractive.almondbread data`).
     static var pngPath: String? {
         let prefix = "--selftest-png="
         guard let p = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }).map({ String($0.dropFirst(prefix.count)) })

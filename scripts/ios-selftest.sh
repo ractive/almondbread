@@ -6,7 +6,7 @@
 set -euo pipefail
 devices=$1
 app=$2
-bundle=ch.ractive.almondbread.ios
+bundle=ch.ractive.almondbread
 root=${0:A:h:h}
 mkdir -p $root/build/ios-screens
 fail=0
