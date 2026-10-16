@@ -108,7 +108,8 @@ pub const RESCUE_MAX_SPAN: f64 = 4.0;
 /// Rescue also ends after this long (s) with detail in the surveyed heading region.
 pub const RESCUE_CLEAR: f64 = 0.6;
 /// Such a rescue aims at the survey's busiest cell for this many e-folds.
-pub const SURVEY_PICK_GAIN: f64 = 3.0;
+pub const SURVEY_PICK_GAIN: f64 = 2.0;
+pub const SURVEY_PICK_LABEL: &str = "detail in view";
 /// Manual pans, zooms and drags hold the lock off for this long (s).
 pub const MANUAL_HOLD: f64 = 1.0;
 /// A survey older than this (s) is ignored.
@@ -220,8 +221,12 @@ impl Survey {
                     continue;
                 }
                 let det = c.edges as f64 / c.pairs as f64 * self.texels_across;
-                let score = det.min(4.0 * DETAIL_HI) * (1.0 - c.interior as f64 / c.samples as f64);
-                if score >= DETAIL_HI && best.is_none_or(|b| score > b.0) {
+                let rich = det.min(4.0 * DETAIL_HI) * (1.0 - c.interior as f64 / c.samples as f64);
+                // Near the centre first: less turning.
+                let (x, y) = self.cell_center(i, j);
+                let side = 0.35 * self.view.0.min(self.view.1);
+                let score = rich * (-(x * x + y * y) / (2.0 * side * side)).exp();
+                if rich >= DETAIL_HI && best.is_none_or(|b| score > b.0) {
                     best = Some((score, i, j));
                 }
             }
@@ -622,7 +627,15 @@ impl Autopilot {
         if radius <= 0.0 {
             return steer;
         }
-        if self.survey_pick && self.free && self.lock.target().is_none() {
+        // A survey pick that reached its end with nothing found ahead: pick again (a chain of
+        // short legs, each towards detail the GPU shows).
+        let span_now = lock::view_span(view, min_side);
+        let pick_spent = self.lock.next_target().is_none()
+            && self
+                .lock
+                .target()
+                .is_some_and(|t| t.label == SURVEY_PICK_LABEL && span_now <= t.end_span);
+        if self.free && (pick_spent || (self.survey_pick && self.lock.target().is_none())) {
             self.survey_pick = false;
             if let Some((x, y)) = self
                 .survey
@@ -635,7 +648,7 @@ impl Autopilot {
                     kind: crate::journey::TargetKind::Detail,
                     center: view.point_at_offset(x, y),
                     end_span: span * (-SURVEY_PICK_GAIN).exp(),
-                    label: "detail in view".into(),
+                    label: SURVEY_PICK_LABEL.into(),
                     score: 0.0,
                     period: None,
                     preperiod: None,
