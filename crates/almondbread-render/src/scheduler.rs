@@ -2331,6 +2331,7 @@ impl<B: GpuBackend> Renderer<B> {
             (dre.hypot(dim) + viewport.scale.to_f64() * key.points_per_pixel * half_diag).log2()
         };
         let ref_point = reference.point.clone();
+        let ref_on_axis = reference.point.big().im.is_zero();
         let live_capacity = self.config.live_capacity as u32;
         let (rc, rs) = viewport.rotation();
         let rot = [rc as f32, rs as f32];
@@ -2359,6 +2360,7 @@ impl<B: GpuBackend> Renderer<B> {
                 soft_iter: key.max_iter as u32,
                 scale_exp,
                 rot,
+                real_axis: u32::from(ref_on_axis),
                 ..IterateParams::default()
             }
         };
@@ -4234,6 +4236,8 @@ impl<B: GpuBackend> Renderer<B> {
             COMPOSE_AA => 1.0 / (job.aa_composed as f32 + 2.0),
             _ => 1.0,
         };
+        // An AA sample stands for 1/samples of the pixel: its palette filter is that wide.
+        q.sample_width = (1.0 / f64::from(self.aa_target().max(1)).sqrt()) as f32;
         let (hist_in, hist_out) = (&history[self.history_ping], &history[1 - self.history_ping]);
         enc.set_pipeline(&self.compose_pipeline);
         enc.set_texture(0, &iter_tex);

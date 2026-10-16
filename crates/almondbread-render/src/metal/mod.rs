@@ -906,6 +906,66 @@ mod tests {
         assert_eq!(host.renderer.finish_frames(), 0, "frames failed on the GPU");
     }
 
+    /// The learned iteration limit survives the idle anti-aliasing and is what the next view
+    /// starts from (kb: techniques/auto-iterations). At the -3/4 neck the passes find escapes
+    /// far past the depth limit, so the learner raises it; the view then anti-aliases (9
+    /// samples) and idles, and a short pan gesture follows. A from-scratch renderer at the
+    /// settled view (as the flight benchmark's jump check makes) has its own learner: its
+    /// `learn: ... -> 0` trace line is not the live renderer's.
+    #[test]
+    fn learned_limit_survives_aa() {
+        use crate::host::Host;
+        use crate::scheduler::Renderer;
+        use objc2_quartz_core::CAMetalLayer;
+        let backend = MetalBackend::new().expect("metal");
+        let mut surface = MetalLayerSurface::new(CAMetalLayer::new(), &backend);
+        surface.set_drawable_size(640, 410);
+        let mut host = Host::new(Renderer::new(backend).expect("renderer"));
+        assert_eq!(host.renderer.settings.supersampling.factor(), 3, "the app's default AA");
+        host.resize(320.0, 205.0, 2.0, 0.0);
+        host.renderer.viewport =
+            almondbread_core::Viewport::new(-0.7500016386523336, -0.002107342465685259, 6.77052e-8);
+        let depth = almondbread_core::settings::depth_iterations(&host.renderer.viewport);
+        let start = std::time::Instant::now();
+        let now = || start.elapsed().as_secs_f64();
+        // (until_settled: stop once settled; pan: move the view as a gesture each refresh.)
+        let mut frames = |host: &mut Host<MetalBackend>, n: usize, pan: bool, until_settled: bool| {
+            for _ in 0..n {
+                let t = now();
+                if pan {
+                    host.renderer.note_interaction(t);
+                    host.renderer.viewport.pan_by_points(0.5, 0.0);
+                }
+                let ready = surface.drawable_ready(t);
+                host.frame(t, &now, ready, &mut |f| surface.next_drawable(t, f).map(|d| (d, 0)));
+                std::thread::sleep(std::time::Duration::from_millis(4));
+                if until_settled && host.renderer.is_settled() {
+                    return true;
+                }
+            }
+            false
+        };
+        assert!(frames(&mut host, 3000, false, true), "the view did not settle");
+        let learned = host.renderer.settings.learned_iterations;
+        assert!(learned > depth, "learned {learned}, depth {depth}");
+        // Idle after the AA: nothing changes.
+        frames(&mut host, 100, false, false);
+        assert_eq!(host.renderer.settings.learned_iterations, learned);
+        // A fresh renderer at the view does not touch the live one's state.
+        let mut fresh = Renderer::new(host.renderer.backend().clone()).expect("renderer");
+        fresh.viewport = host.renderer.viewport.clone();
+        fresh.render_offscreen(320, 205, false).expect("render");
+        assert_eq!(host.renderer.settings.learned_iterations, learned);
+        // The next view (a pan) starts from the learned limit.
+        frames(&mut host, 60, true, false);
+        assert!(frames(&mut host, 3000, false, true), "the pan did not settle");
+        assert!(
+            host.renderer.stats.max_iterations >= learned,
+            "next view at {} after learning {learned}",
+            host.renderer.stats.max_iterations
+        );
+    }
+
     /// Interior cycle analysis (interior colourings): the period every interior pixel reports
     /// at the centres of known components, shallow (plain kernel) and deep (needle-1e305,
     /// period-255 minibrot, deep kernel). Flat colouring keeps the legacy `.y` flag.

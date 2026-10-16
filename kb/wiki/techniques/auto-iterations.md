@@ -186,6 +186,18 @@ key, also when the limit cannot grow). `verify --history` checks the settled fra
 from-scratch render (own auto iterations, no learned state), and `make regress` runs the
 dive-then-jump path (`--prior 0,1,1e-280 --prior-speed 40 --prior-seconds 0.8`).
 
+**The learned limit survives anti-aliasing** (checked 2026-10-16). A report said the learned
+limit reset after the AA pass. Not reproduced: AA sample levels are complete when created and
+`finish_level` returns before the learner for them, so they never change the learned state;
+neither does anything after the view settles. Checked headless with the app's defaults (9-sample
+AA): the neck regression session with `--ss 3` (learned 8 216 → 8 472 across the AA and the
+`--then` step), the dive-then-jump to the spiral, and Metal test `learned_limit_survives_aa`
+(Host at the neck: limit learned above the depth limit, unchanged by AA, 100 idle refreshes and
+a from-scratch renderer at the view; the next view after a pan renders at it). The trace line
+behind the report (flight benchmark, below) is the *jump check's* fresh renderer, which has
+its own learner and starts at 0, printing `learn: soft 41536 ... -> 0` right after the live
+renderer's AA; the live renderer's limit was unchanged.
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,

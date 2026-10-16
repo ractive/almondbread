@@ -50,6 +50,9 @@ constant float ITER_UNRESOLVED = -3.0f;   // past the nominal limit, neither esc
 constant float ITER_SKIP       = -4.0f;   // AA sample textures: this pixel takes no AA samples
 constant float ITER_EMPTY      = -5.0f;   // sample cache: no sample here (yet)
 
+// M5: a real reference's seeds are not used within this many texels of the real axis.
+constant float AXIS_BAND = 16.0f;
+
 struct IterateParams {
     float2 halfSize;      // iteration texture size / 2, in texels
     float2 refOffset;     // view centre minus reference point (complex), small
@@ -88,7 +91,9 @@ struct IterateParams {
     uint   fillEpoch;     // the level's stamp in tileBad[]
     uint   fillProof;     // a border pixel counts as interior if proven within this many
                           // iterations
-    uint   pad4;
+    uint   realAxis;      // 1: the reference point is on the real axis (a real orbit): M5 seeds
+                          // are not used within AXIS_BAND texels of the axis (the needle is a
+                          // knife edge in Im c)
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -1104,6 +1109,13 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     bool fromSeed = false;
     if (kSeeded && fresh && active) {
         fromSeed = seedTiles[(gid.y >> 4) * leaf.tilesX + (gid.x >> 4)] != 0;
+        // Real reference: pixels within AXIS_BAND texels of the real axis iterate plainly. The
+        // seeds' error (a start ~eps^2 |delta| off, delta up to a root node's radius) is
+        // isotropic, but near the needle the escape depends on Im c alone: relative to Im c it is
+        // |delta| / |Im c| times larger, so axis rows (exact: plain keeps Im = 0) and their
+        // neighbours lost their escape counts (kb: techniques/local-series-approximation
+        // "Real axis").
+        if (fromSeed && p.realAxis != 0 && abs(dc.y) < AXIS_BAND * p.texelScale) fromSeed = false;
         if (fromSeed) {
             const uint2 lxy = gid / leaf.size;
             sd = seeds[leaf.offset + lxy.y * leaf.gridW + lxy.x];
@@ -2221,8 +2233,15 @@ static inline float3 paletteAt(float t, float lod, constant ColorParams& c, devi
 // (box-filtered halvings); the lookup takes the level whose entries match the footprint,
 // which is what infinite supersampling would average to. `dense` (0..1) says how far the
 // filter had to go (lod 7 -> 10: 1/8 to a whole palette cycle per pixel).
+// `sampleWidth`: the width of the area this sample stands for, in output pixels. A pixel made
+// of N samples (the supersampling grid, the progressive AA mean) filters each sample over its
+// share of the pixel (1/sqrt(N)), not the whole pixel: filtering every sample over the full
+// pixel and then averaging them filters twice, and fine rings lost their colour to the
+// palette's mean grey after AA (chroma 86 % of a 256-sample reference at dense-5e-14; 97 %
+// now; kb: techniques/anti-aliasing).
 static inline float3 paletteColor(float2 it, float deTexels, constant ColorParams& c, device const float4* pal,
-                                  float pixelsPerTexel, thread float& dense, thread float& calm) {
+                                  float pixelsPerTexel, thread float& dense, thread float& calm,
+                                  float sampleWidth) {
     float t, dtdmu;
     float mu = it.x + (c.smooth != 0 ? it.y : 0.0f);
     if (c.logScale != 0) {
@@ -2236,9 +2255,12 @@ static inline float3 paletteColor(float2 it, float deTexels, constant ColorParam
     float d = max(deTexels / pixelsPerTexel, 1e-3f);
     float footprint = dtdmu / (d * 0.6931472f);
     float rawLod = log2(max(footprint * float(c.paletteSize), 1.0f));
-    float lod = clamp(rawLod, 0.0f, float(c.paletteLevels - 1));
-    if (c.paletteFilter == 0.0f || deTexels >= 999.0f) lod = 0.0f;    // no filter, or no DE
-    dense = saturate((lod - 7.0f) / 3.0f);
+    float lod = clamp(log2(max(footprint * sampleWidth * float(c.paletteSize), 1.0f)), 0.0f,
+                      float(c.paletteLevels - 1));
+    const bool filtered = c.paletteFilter != 0.0f && deTexels < 999.0f;     // a filter and a DE
+    if (!filtered) lod = 0.0f;
+    // (dense and calm are looks of the pixel, judged at the pixel's footprint.)
+    dense = filtered ? saturate((min(rawLod, float(c.paletteLevels - 1)) - 7.0f) / 3.0f) : 0.0f;
     // Calm dense regions (kb: techniques/coloring-methods, "Dense regions"): from 1/16 of a
     // palette cycle per pixel (rawLod 6) to half a cycle (9) the colour is per-pixel noise
     // (unfiltered) or the palette's mean grey (filtered); fade to the deep colour instead.
@@ -2287,7 +2309,7 @@ static inline float3 interiorShade(float2 it, float2 de, float2 ax, constant Col
 }
 
 static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
-                           float pixelsPerTexel) {
+                           float pixelsPerTexel, float sampleWidth = 1.0f) {
     // Unresolved (past the nominal limit, neither escaped nor proven interior): drawn in the
     // outline colour lifted by 0.5 % towards grey. They hug the boundary (slow exterior near
     // minibrots and parabolic points, which extension passes may still resolve), so they read
@@ -2297,7 +2319,7 @@ static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams
     if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.5f), 0.005f);
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense, calm;
-    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm);
+    float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm, sampleWidth);
     float dist = de.x / pixelsPerTexel;                            // distance in output pixels
     if (calm > 0.0f) {
         // Dense regions (kb: techniques/coloring-methods, "Dense regions"): a calm deep colour
@@ -2401,7 +2423,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
             for (uint i = 0; i < ss; i++) {
                 uint2 s = min(base + uint2(i, j), maxSrc);
                 if (finished(iters, s, c, rank, admitted, it)) {
-                    acc += shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
+                    acc += shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale, 1.0f / float(ss));
                     count += 1.0f;
                 }
             }
@@ -2479,7 +2501,8 @@ struct ComposeParams {
     float2 newRot;
     uint2  wrap;
     uint   cache;
-    uint   pad;
+    float  sampleWidth;   // mode 2: the palette filter's width of an AA sample, output pixels
+                          // (1 / sqrt(samples): its share of the pixel); else unused
 };
 
 // A cache colour texel by window texel (zero outside the window).
@@ -2641,7 +2664,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             // An AA sample: unresolved samples do not count (they would grey the mean), and
             // pixels off the adaptive list (ITER_SKIP) keep their mean.
             bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
-            col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend) : hist;
+            col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f, q.sampleWidth), q.blend) : hist;
             conf = q.confCap;
         } else if (done) {
             float3 exact = shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);

@@ -221,6 +221,11 @@ impl Options {
         if let Some(v) = self.get("filter") {
             s.palette_filter = v != "0";
         }
+        // Dense-region calm colour (kb: techniques/coloring-methods "Dense regions"): `--calm 0`
+        // for references whose pixel scale differs (it depends on the colour bands per pixel).
+        if let Some(v) = self.get("calm") {
+            s.dense_calm = v != "0";
+        }
         // Interior colouring (kb: techniques/coloring-methods): flat|bubbles|period|angle|distance.
         if let Some(v) = self.get("inside") {
             match almondbread_core::InteriorMode::parse(v) {

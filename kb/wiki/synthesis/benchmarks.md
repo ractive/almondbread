@@ -1464,7 +1464,9 @@ needle-1e1004's bands): no seams or patches, LA and off look the same.
 `ALMONDBREAD_SA=0`: one pixel row lies exactly on the real axis, where c > −2 by 1e−301 and the
 orbit is bounded only on a knife edge; seeded pixels there escape near n = 2 200. Which runs show
 it depends on which tiles the M5 gate seeds (LA changes the statistics). Not an LA error; noted
-for the seed work ([[techniques/local-series-approximation]]).
+for the seed work ([[techniques/local-series-approximation]]). **Fixed 2026-10-16**: seeds are
+not used within 16 texels of the axis when the reference is real; 0.000 % at all three needles
+([[techniques/local-series-approximation]] "Real axis").
 
 ### `make bench` (M6 build, load average 440–550)
 
@@ -1657,3 +1659,28 @@ perturbation probes are the slowest). The first lock version aimed the heading s
 the target through the pointer spring and oscillated at 4 e-folds/s (target offsets ±450
 points, lost within 4 s at the 1e-50 start, 69 % uniform); the gain law fixed that (see
 [[decisions/controls]]).
+
+## Rendering-quality fixes (2026-10-16): needle axis band, AA palette filter width
+
+`make bench` before (main 38ce475) and after, alternating runs, 1600 × 1000 GPU ms, best of 2
+(3 for the second pass of the real-axis views); M1 Pro, release, shared machine (load 7–15, one
+spike during the first "after" run doubled neck-2e5 … sea-1e20, not repeated):
+
+| location | before | after | before | after |
+|---|---:|---:|---:|---:|
+| home | 4.3 | 4.7 | 4.5 | 4.4 |
+| home-100k | 25.9 | 26.6 | 25.9 | 27.0 |
+| elephant | 23.6 | 23.6 | | |
+| deep-5e-14 | 10.8 | 8.9 | | |
+| Feigenbaum | 2 354 | 2 346 | 2 345 | 2 354 |
+| cusp-1e5 | 108.1 | 110.5 | 110.6 | 108.3 |
+| dense-5e-14 | 24.6 | 24.8 | | |
+| sea-8007 | 400.6 | 344.7 | | |
+| needle-1e94 | 11.6 | 11.9 | 11.4 | 11.8 |
+| needle-1e305 | 15.6 | 15.8 | 15.5 | 15.8 |
+| needle-1e1004 | 15.4 | 15.8 | 15.1 | 15.3 |
+| spiral | 758 | 762 | | |
+
+No regression beyond noise. Verify (400 × 259): class mismatch at the needles 0.108 / 0.124 /
+0.093 % → 0.000 %, every other location unchanged. Details:
+[[techniques/local-series-approximation]] "Real axis", [[techniques/anti-aliasing]].

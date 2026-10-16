@@ -94,6 +94,21 @@ Built 2026-10-14 (measured M1 Pro, release; [[synthesis/benchmarks]] FL):
   1.5 GPU-s in all; heavier views settle with fewer samples.
 - **Pipelined.** The next sample is queued in the same refresh that composes the previous
   one (one refresh per sample instead of two).
+- **Each sample's palette filter is its share of the pixel** (fixed 2026-10-16). The palette
+  filter ([[techniques/coloring-methods]], palette anti-aliasing) already averages a pixel's
+  colour band over the pixel's footprint. Every AA sample (and every texel of the offscreen
+  supersampling grid) was filtered over the *whole* pixel and then averaged with the others:
+  a second box filter on top of the first, so fine rings went to the palette's mean grey after
+  AA. Now an AA sample filters over `1/√N` of a pixel (N = the AA target, 9 by default) and a
+  grid texel over `1/ss`; the dense-region calm and the outline's "dense" darkening still judge
+  the whole pixel. Against a 256-sample reference (2560 × 1600 at 4 × 4 grid, palette filter
+  off, box-filtered to 640 × 400 in linear light; dense-5e-14, Aurora palette, calm off so the
+  reference's styling is not pixel-scale dependent): AA mean |error| 0.0388 → 0.0261 and
+  chroma 86 % → 97 % of the reference; the 3 × 3 grid 0.0386 → 0.0232, 86 % → 97 %; refined
+  frames (one sample) bit-identical; elephant (no dense rings) unchanged (0.0095, 98 %).
+  Unfiltered AA samples are not the answer either: 0.0415 and 112 % (9 samples are too few
+  for the rings: noise). Averaging is in linear light throughout (rgba16f history, colorize's
+  box filter), as above. (measured 2026-10-16, M1 Pro, release)
 - **Measured.** Settled (refined + faded + 9 samples) 0.95–1.2 s after the last input in
   the shallow interaction scenarios at 60 Hz (refined frame itself 0.2–0.25 s); headless
   home view 0.42 s from a cold start. Views with long extension passes (the -3/4 neck)

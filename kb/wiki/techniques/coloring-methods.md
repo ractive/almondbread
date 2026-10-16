@@ -128,6 +128,9 @@ kernels). Our design; the OKLab matrices are Björn Ottosson's (unverified, not 
   a pixel is `density/(d ln 2)` cycles. The palette is uploaded as a cyclic mip chain
   (box-filtered halvings) and looked up at the matching level: dense regions get their band
   average instead of noise, and moving images shimmer less before any AA sample arrives.
+  A pixel made of N samples (AA, the supersampling grid) filters each sample over `1/√N` of
+  the pixel, not the whole of it: filtering every sample over the full pixel and averaging
+  them filters twice and greyed fine rings ([[techniques/anti-aliasing]], 2026-10-16).
 - **Order: outline, then light.** The DE outline (boundary emphasis and filament coverage)
   darkens towards the edge colour first, also where the palette filter averaged more than
   1/8 cycle per pixel; lighting (Lambert on Chéritat's normal lifted to 3D, plus a

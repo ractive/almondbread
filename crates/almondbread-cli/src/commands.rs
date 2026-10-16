@@ -384,6 +384,8 @@ pub struct VerifyResult {
     pub heatmap: Vec<u8>,
     pub image: Vec<u8>,
     pub gpu: IterationField,
+    /// The oracle's field (`--dump-cpu`).
+    pub cpu: IterationField,
     pub gpu_time: f64,
     pub cpu_time: f64,
     pub chunks: usize,
@@ -409,6 +411,7 @@ pub fn verify<B: GpuBackend>(
         heatmap,
         image: res.pixels,
         gpu,
+        cpu,
         gpu_time: res.iterate_gpu_time,
         cpu_time,
         chunks: res.chunks,
@@ -478,6 +481,9 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     }
     if let Some(path) = o.get("dump") {
         v.gpu.write(path)?;
+    }
+    if let Some(path) = o.get("dump-cpu") {
+        v.cpu.write(path)?;
     }
     Ok(0)
 }

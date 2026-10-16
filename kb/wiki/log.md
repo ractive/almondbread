@@ -829,3 +829,20 @@ the geometric mean and 8k at 3/4 of the log-distance (by eye). Newton found no m
 to the seahorse spiral M(24,2) at any radius. Cost with `verify --history jump` at 1600×1000:
 first frame 85 ms to 1.0 s, resolved 0.2-1.1 s, all of it the reference (period 2659-17046 at
 5120-10176 bits); class mismatch 0 against the oracle. Page: [[synthesis/places]].
+
+## [2026-10-16] decision | Needle axis band for local SA; AA samples filter over their share; learned limit survives AA
+
+Three rendering-quality reports, each reproduced headlessly first. (1) Needle pixels on and
+next to the real axis: M5 seeds start a pixel from an off-axis leaf with an isotropic error,
+and near the needle the escape depends on `Im c` alone; on-axis pixels escaped (0.09–0.12 %
+GPU-ext/CPU-int at the needles, a whole row at a shallow needle), the rows next to it had 14×
+the plain |Δμ|. A real reference now skips seeds within 16 texels of the axis: 0 % class
+mismatch, rows equal to plain, no cost. (2) "Learned limit resets after AA": not reproduced; the
+trace line was the flight benchmark's fresh jump-check renderer. Test
+`learned_limit_survives_aa` added. (3) Grey fine rings after AA: every AA sample was
+palette-filtered over the whole pixel, then averaged (a second box filter); samples now filter
+over `1/√N` of the pixel (the offscreen grid over `1/ss`): chroma 86 → 97 % of a 256-sample
+reference, error −33 %. CLI: `verify --dump-cpu`, `--calm 0|1`. Pages:
+[[techniques/local-series-approximation]], [[techniques/anti-aliasing]],
+[[techniques/coloring-methods]], [[techniques/auto-iterations]],
+[[synthesis/flight-benchmark]], [[synthesis/benchmarks]].
