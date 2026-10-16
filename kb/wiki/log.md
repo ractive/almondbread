@@ -759,3 +759,22 @@ gone. Headless tools: `almondbread autopilot` (CPU simulator), `fly --lock`, fly
 Uniform share over 90 s went from 94–100 % (plain Z) to 0–8 % at the default speed on 11 of
 12 starts; high-period minibrot starts at max speed stay weak (CPU probe iteration cap).
 Pages: [[decisions/controls]], [[synthesis/benchmarks]].
+
+## [2026-10-15] decision | π hunt: the view stays in the valley, a probe and the orbit trail
+
+User feedback: "Since the π hunting is only on black regions, it's not really exciting." The
+guided flight zoomed into the pinch point, where the gap is ~ε² and the image honestly black.
+Reworked: the view eases to seahorse valley (neck) or elephant valley (cusp), chosen from six
+rendered candidates each, and a glowing probe slides down the line on a log ruler (true
+position as text) while the meter counts it. The counting thread now also accumulates the
+probe's orbit as a glowing density picture (published every 0.12 s, uploaded as a shared
+buffer, added by a new overlay primitive; overlay binning made two-pass, 0.68 → 0.05 ms). Looked first: in the full z-plane the orbit is a cross at
+the parabolic point; zoomed to ±4√ε the neck's two arms pass the gate between the fixed point
+and the 2-cycle, the same shape at every ε; the cusp's orbit is real, and plotted against √ε·n
+it is the tangent curve with the escape at π; in `1 + iε/w²` (neck) or the Cayley angle (cusp)
+the orbit goes round the unit circle once at 2ε (2√ε) per step, which is where π comes from.
+The inset shows the orbit plot and that turn circle. Tracing costs 20 % (neck) and 5 % (cusp)
+of the count. The magnifier at scale ε was not built (it would be black and cost π/ε
+iterations per pixel). Menu items renamed "Hunt π at the Neck/Cusp". Pages:
+[[techniques/pi-in-the-mandelbrot-set]] "The orbit", "In the app"; [[decisions/controls]]
+"π meter".

@@ -202,9 +202,11 @@ public enum UIDemo {
             // The π meter at the cusp (kb: techniques/pi-in-the-mandelbrot-set).
             model.piMeterEnabled = true
             try? explorer.setViewportText(re: "0.2500001", im: "0", scale: "3e-10")
-        case "pi-flight":
-            // The guided flight into the neck, captured on the way (after the first layout).
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight("neck") }
+        case "pi-flight", "pi-flight-late", "pi-cusp", "pi-cusp-late":
+            // The π hunt (guided flight) at the neck or the cusp, captured on the way: 8 s in
+            // (the probe sliding) or 16 s ("-late": the deepest counts, the trail crawling).
+            let point = scene.hasPrefix("pi-cusp") ? "cusp" : "neck"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight(point) }
         case "cosmic":
             // The size scale stacked above the mini-map (both bottom left).
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
@@ -242,8 +244,10 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                let moving = scene == "autopilot" || scene == "pi-flight"
-                if Date().timeIntervalSince(start) > 8, model.stats?.settled == true || (moving && Date().timeIntervalSince(start) > 6),
+                let moving = scene == "autopilot" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
+                let movingAt: Double = scene.hasSuffix("-late") ? 17 : scene.hasPrefix("pi-") ? 9 : 8
+                if Date().timeIntervalSince(start) > (moving ? movingAt : 8),
+                   model.stats?.settled == true || moving,
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)

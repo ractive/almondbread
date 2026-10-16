@@ -56,6 +56,7 @@ const KIND_RING: u32 = 2;
 const KIND_RECT: u32 = 3;
 const KIND_IMAGE: u32 = 4;
 const KIND_GLYPH: u32 = 5;
+const KIND_GLOW: u32 = 6;
 
 /// Premultiplied linear RGBA from linear RGB and alpha.
 pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
@@ -127,6 +128,17 @@ impl Scene {
             geom: r,
             param: [opacity, radius, 0.0, 0.0],
             info: [KIND_IMAGE, map, 0, 0],
+            ..OverlayPrim::default()
+        });
+    }
+
+    /// The glow picture (the π meter's orbit trail, [`OverlayDraw::trail`], `size` pixels)
+    /// stretched over `r` and added to the image under it at `opacity`.
+    pub fn glow_image(&mut self, r: [f32; 4], size: (usize, usize), opacity: f32) {
+        self.push(OverlayPrim {
+            geom: r,
+            param: [opacity, 0.0, 0.0, 0.0],
+            info: [KIND_GLOW, size.0 as u32, size.1 as u32, 0],
             ..OverlayPrim::default()
         });
     }
@@ -215,78 +227,98 @@ impl Scene {
         ]
     }
 
+    /// Calls `f` with every tile (index in a `tx` x `ty` grid of a `w` x `h` target) that
+    /// primitive `p` touches; a segment's tiles can come more than once.
+    fn for_tiles(p: &OverlayPrim, w: usize, h: usize, tx: usize, ty: usize, mut f: impl FnMut(usize)) {
+        let (wf, hf) = (w as f32, h as f32);
+        let b = Self::bounds(p);
+        let (x0, y0) = (b[0].max(0.0), b[1].max(0.0));
+        let (x1, y1) = (b[2].min(wf - 1.0), b[3].min(hf - 1.0));
+        if !(x0 <= x1 && y0 <= y1) {
+            return;
+        }
+        if p.info[0] == KIND_SEGMENT {
+            // Clip the segment to the target (plus its width) and walk it.
+            let r = p.param[0] + 1.5;
+            let Some((a, bb)) = clip_segment(
+                [p.geom[0], p.geom[1]],
+                [p.geom[2], p.geom[3]],
+                [x0 - r, y0 - r, x1 + r, y1 + r],
+            ) else {
+                return;
+            };
+            let len = ((bb[0] - a[0]).hypot(bb[1] - a[1])).max(1e-3);
+            let steps = (len / (TILE as f32 * 0.5)).ceil() as usize + 1;
+            let reach = r.ceil();
+            for s in 0..=steps {
+                let t = s as f32 / steps as f32;
+                let (px, py) = (a[0] + (bb[0] - a[0]) * t, a[1] + (bb[1] - a[1]) * t);
+                let cx0 = ((px - reach).max(x0) as usize) / TILE;
+                let cx1 = ((px + reach).min(x1).max(0.0) as usize) / TILE;
+                let cy0 = ((py - reach).max(y0) as usize) / TILE;
+                let cy1 = ((py + reach).min(y1).max(0.0) as usize) / TILE;
+                for cy in cy0..=cy1.min(ty - 1) {
+                    for cx in cx0..=cx1.min(tx - 1) {
+                        f(cy * tx + cx);
+                    }
+                }
+            }
+        } else {
+            for cy in (y0 as usize / TILE)..=((y1 as usize / TILE).min(ty - 1)) {
+                for cx in (x0 as usize / TILE)..=((x1 as usize / TILE).min(tx - 1)) {
+                    f(cy * tx + cx);
+                }
+            }
+        }
+    }
+
     /// Bins the primitives into 16x16 tiles of a `w` x `h` target: per tile the indices of
     /// the primitives touching it, in draw order (CSR: `start[t]..start[t + 1]`), and the
     /// tiles that have any. Segments are walked along their length (a long segment touches
-    /// a thin band of tiles, not its bounding box).
+    /// a thin band of tiles, not its bounding box). Two passes over the primitives (count,
+    /// then fill) and no list per tile: large panels touch thousands of tiles, and a vector
+    /// per tile cost 0.6 ms a frame at Retina size (measured 2026-10-15, the π meter's inset).
     pub fn bin(&self, w: usize, h: usize) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
         let tx = w.div_ceil(TILE).max(1);
         let ty = h.div_ceil(TILE).max(1);
-        let mut per_tile: Vec<Vec<u32>> = vec![Vec::new(); tx * ty];
-        let add = |t: usize, i: u32, per_tile: &mut Vec<Vec<u32>>| {
-            let v = &mut per_tile[t];
-            if v.last() != Some(&i) {
-                v.push(i);
-            }
-        };
-        let (wf, hf) = (w as f32, h as f32);
+        let n = tx * ty;
+        // Primitives are visited in order, so a tile's entries come in draw order; a tile a
+        // segment touches twice is recognised by its last entry being that primitive.
+        let mut last = vec![u32::MAX; n];
+        let mut count = vec![0u32; n];
         for (i, p) in self.prims.iter().enumerate() {
             let i = i as u32;
-            let b = Self::bounds(p);
-            let (x0, y0) = (b[0].max(0.0), b[1].max(0.0));
-            let (x1, y1) = (b[2].min(wf - 1.0), b[3].min(hf - 1.0));
-            if !(x0 <= x1 && y0 <= y1) {
-                continue;
-            }
-            if p.info[0] == KIND_SEGMENT {
-                // Clip the segment to the target (plus its width) and walk it.
-                let r = p.param[0] + 1.5;
-                let Some((a, bb)) = clip_segment(
-                    [p.geom[0], p.geom[1]],
-                    [p.geom[2], p.geom[3]],
-                    [x0 - r, y0 - r, x1 + r, y1 + r],
-                ) else {
-                    continue;
-                };
-                let len = ((bb[0] - a[0]).hypot(bb[1] - a[1])).max(1e-3);
-                let steps = (len / (TILE as f32 * 0.5)).ceil() as usize + 1;
-                let reach = r.ceil();
-                for s in 0..=steps {
-                    let t = s as f32 / steps as f32;
-                    let (px, py) = (a[0] + (bb[0] - a[0]) * t, a[1] + (bb[1] - a[1]) * t);
-                    let cx0 = ((px - reach).max(x0) as usize) / TILE;
-                    let cx1 = ((px + reach).min(x1).max(0.0) as usize) / TILE;
-                    let cy0 = ((py - reach).max(y0) as usize) / TILE;
-                    let cy1 = ((py + reach).min(y1).max(0.0) as usize) / TILE;
-                    for cy in cy0..=cy1.min(ty - 1) {
-                        for cx in cx0..=cx1.min(tx - 1) {
-                            add(cy * tx + cx, i, &mut per_tile);
-                        }
-                    }
+            Self::for_tiles(p, w, h, tx, ty, |t| {
+                if last[t] != i {
+                    last[t] = i;
+                    count[t] += 1;
                 }
-            } else {
-                for cy in (y0 as usize / TILE)..=((y1 as usize / TILE).min(ty - 1)) {
-                    for cx in (x0 as usize / TILE)..=((x1 as usize / TILE).min(tx - 1)) {
-                        add(cy * tx + cx, i, &mut per_tile);
-                    }
-                }
-            }
+            });
         }
-        // Segments walked in steps can add a tile again after another primitive: keep each
-        // tile's list in draw order.
-        let mut start = Vec::with_capacity(tx * ty + 1);
-        let mut list = Vec::new();
+        let mut start = Vec::with_capacity(n + 1);
         let mut active = Vec::new();
-        for (t, v) in per_tile.iter_mut().enumerate() {
-            start.push(list.len() as u32);
-            if !v.is_empty() {
-                v.sort_unstable();
-                v.dedup();
+        let mut total = 0u32;
+        for (t, &c) in count.iter().enumerate() {
+            start.push(total);
+            if c > 0 {
                 active.push(t as u32);
-                list.extend_from_slice(v);
             }
+            total += c;
         }
-        start.push(list.len() as u32);
+        start.push(total);
+        let mut list = vec![0u32; total as usize];
+        let mut cursor: Vec<u32> = start[..n].to_vec();
+        last.fill(u32::MAX);
+        for (i, p) in self.prims.iter().enumerate() {
+            let i = i as u32;
+            Self::for_tiles(p, w, h, tx, ty, |t| {
+                if last[t] != i {
+                    last[t] = i;
+                    list[cursor[t] as usize] = i;
+                    cursor[t] += 1;
+                }
+            });
+        }
         (start, list, active)
     }
 }
@@ -336,6 +368,8 @@ pub struct OverlayDraw<B: GpuBackend> {
     pub size: (usize, usize),
     /// Map textures by index (unused slots bind the first, or the target).
     pub maps: Vec<B::Texture>,
+    /// The π meter's orbit trail picture, BGRA8 rows (glow primitives read it).
+    pub trail: Option<B::Buffer>,
     /// Changes whenever the scene does (the renderer re-presents when it differs from the
     /// shown one).
     pub version: u64,
@@ -347,6 +381,7 @@ impl<B: GpuBackend> OverlayDraw<B> {
         scene: &Scene,
         size: (usize, usize),
         maps: Vec<B::Texture>,
+        trail: Option<B::Buffer>,
         version: u64,
     ) -> Result<Self, GpuError> {
         let (start, list, active) = scene.bin(size.0, size.1);
@@ -364,6 +399,7 @@ impl<B: GpuBackend> OverlayDraw<B> {
             active_count: active.len(),
             size,
             maps,
+            trail,
             version,
         })
     }
@@ -437,6 +473,8 @@ pub struct Overlay<B: GpuBackend> {
     pub pi: crate::pi_meter::PiMeter,
     /// The cosmic size scale panel (kb: decisions/controls, "Cosmic size scale").
     pub cosmic: crate::cosmic::CosmicOverlay,
+    /// The π meter's uploaded trail picture and its serial.
+    trail: Option<(u64, B::Buffer)>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -456,6 +494,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             pending_jump: None,
             pi: crate::pi_meter::PiMeter::default(),
             cosmic: Default::default(),
+            trail: None,
         }
     }
 }
@@ -472,6 +511,25 @@ impl<B: GpuBackend + Clone> Overlay<B> {
 
     pub fn orbit_points(&self) -> &OrbitPoints {
         &self.points
+    }
+
+    /// Starts the π meter's guided flight to `point` (kb: decisions/controls "π meter"): the
+    /// navigator's fly-to eases the view to the valley at the pinch point, then the meter
+    /// slides its probe down the line. `short_side`: the view's shorter side in points.
+    pub fn start_pi_flight(
+        &mut self,
+        renderer: &mut Renderer<B>,
+        point: almondbread_core::pi_moment::PiPoint,
+        short_side: f64,
+        now: f64,
+    ) {
+        let start = renderer.viewport.clone();
+        let target = point.scenic_view(1.0, short_side).with_angle(start.angle);
+        renderer.navigator.cancel_flight();
+        renderer.navigator.fly_to(&target, &start, now);
+        self.pi
+            .start_flight(point, almondbread_core::pi_moment::MAX_EPS, point.flight_eps());
+        renderer.note_interaction(now);
     }
 
     /// Anything to draw (the host skips all overlay work otherwise): the overlay settings,
@@ -500,12 +558,27 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if size.0 > 0 && size.1 > 0 && ppp > 0.0 {
             let short = size.0.min(size.1) as f64 * ppp;
             let rate = renderer.navigator.zoom_speed();
-            if let Some(v) = self.pi.flight_view(&renderer.viewport, short, now, rate) {
+            self.pi.set_layout(size.0, size.1, 1.0 / ppp);
+            let navigating = renderer.navigator.flight().is_some();
+            if let Some(v) = self.pi.flight_view(&renderer.viewport, navigating, short, now, rate) {
                 renderer.viewport = v;
                 renderer.note_interaction(now);
             }
         }
         self.pi.update(&renderer.viewport);
+        // The π meter's orbit trail: a new picture becomes a new texture (a few per second).
+        match self.pi.trail_picture() {
+            Some(img) if self.trail.as_ref().is_none_or(|(s, _)| *s != img.serial) => {
+                // A new shared buffer per picture: one a submitted frame still reads is never
+                // written.
+                match renderer.backend().create_buffer_with_data(&img.bgra) {
+                    Ok(t) => self.trail = Some((img.serial, t)),
+                    Err(e) => eprintln!("almondbread: trail upload: {e}"),
+                }
+            }
+            Some(_) => {}
+            None => self.trail = None,
+        }
         let empty = size.0 == 0 || size.1 == 0 || ppp <= 0.0;
         if !s.any() || empty {
             self.maps = None;
@@ -554,7 +627,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 .as_ref()
                 .map(|m| m.levels.iter().map(|l| l.target.clone()).collect())
                 .unwrap_or_default();
-            match OverlayDraw::upload(renderer.backend(), &scene, size, maps, self.version) {
+            let trail = self.trail.as_ref().map(|(_, t)| t.clone());
+            match OverlayDraw::upload(renderer.backend(), &scene, size, maps, trail, self.version) {
                 Ok(d) => {
                     renderer.overlay_font = self.font.clone();
                     renderer.overlay = Some(d);
@@ -1072,7 +1146,28 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             let left = (12.0 * px) as f32;
             self.cosmic.draw(scene, size, ppp, [left, cosmic_bottom], now, &mut key);
         }
-        key.push_str(&self.pi.draw(scene, w, h, px));
+        // The π meter keeps clear of the maps in the right corners and of what is at the
+        // bottom left (maps, the cosmic scale).
+        let mut reserve = crate::pi_meter::Reserve::default();
+        if let Some(stack) = &self.maps
+            && !stack.panels.is_empty()
+        {
+            let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
+            let n = stack.panels.len() as f32;
+            let extent = (12.0 * px) as f32 + n * pw + (n - 1.0) * (8.0 * px) as f32;
+            // (Plus the info lines next to the first panel.)
+            let block = ph + (12.0 * px) as f32 + (44.0 * px) as f32;
+            match s.map_corner {
+                Corner::BottomRight => reserve.bottom_right = block,
+                Corner::TopRight => reserve.top_right = block,
+                Corner::BottomLeft => reserve.bottom_left = extent,
+                Corner::TopLeft => {}
+            }
+        }
+        if self.cosmic.enabled() {
+            reserve.bottom_left = reserve.bottom_left.max((364.0 * px) as f32);
+        }
+        key.push_str(&self.pi.draw(scene, w, h, px, reserve));
         let _ = renderer;
         key
     }

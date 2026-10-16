@@ -1109,3 +1109,28 @@ mod tests {
         assert!(smooth > 1000 && jumps * 1000 < smooth, "{jumps} of {smooth}");
     }
 }
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    /// The π meter's trail picture at Retina size (820 x 400 BGRA8) goes up as a shared
+    /// buffer: a few uploads a second must stay far below the frame budget. (A shared
+    /// texture took 0.26 ms per picture, nearly all of it the copy into the tiled layout.)
+    #[test]
+    fn trail_upload_is_cheap() {
+        let b = MetalBackend::new().expect("metal");
+        let data: Vec<u8> = (0..820 * 400 * 4).map(|i| (i * 7 % 251) as u8).collect();
+        let buf = b.create_buffer_with_data(&data).expect("upload");
+        let mut back = vec![0u8; data.len()];
+        b.read_buffer(&buf, 0, &mut back);
+        assert_eq!(back, data);
+        let t0 = std::time::Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(b.create_buffer_with_data(&data).expect("upload"));
+        }
+        let per = t0.elapsed().as_secs_f64() / 20.0;
+        eprintln!("trail upload 820x400 as a buffer: {:.3} ms", per * 1000.0);
+        assert!(per < 0.002, "{per}");
+    }
+}

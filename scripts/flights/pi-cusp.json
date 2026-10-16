@@ -1,0 +1,8 @@
+{
+ "_about": "π meter guided flight to the cusp (run with --pi-flight cusp): from the home view the view eases to elephant valley, the probe slides down 1/4 + ε to 1e-16 on its log ruler while the meter counts and the orbit trail grows, then a hold.",
+ "size": "1920x1080",
+ "fps": 30,
+ "duration": 30,
+ "start": {"re": "-0.5", "im": "0", "zoom": 1.0},
+ "events": []
+}
