@@ -1,0 +1,75 @@
+# cargo-deny policy (https://embarkstudios.github.io/cargo-deny/), modelled on saturnus.
+# Run locally: cargo deny check. CI: the `deny` job in .github/workflows/ci.yml.
+# kb: decisions/open-source-release.
+
+[graph]
+# The app ships for Apple platforms; the core crates must also build for Linux and Windows.
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-apple-ios",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+[advisories]
+# Upgrade the dependency rather than ignoring an advisory; each ignore has its reason.
+ignore = [
+    # ttf-parser is unmaintained: only via fontdue, a dev-dependency of almondbread-render used
+    # by examples/gen_overlay_font.rs to rasterise Inter once; not in any shipped binary.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser via fontdue, dev-dependency of the font generator only" },
+]
+
+[licenses]
+# What the tree needs (each entry is the only acceptable choice of some dependency's
+# expression; "X OR MIT" crates resolve to MIT):
+#   MIT          most crates, and our own (the workspace licence)
+#   Apache-2.0   ciborium (criterion, dev only), alone
+#   Unicode-3.0  unicode-ident is "(MIT OR Apache-2.0) AND Unicode-3.0"
+#   Zlib         foldhash, zlib-rs (alone)
+# No copyleft beyond MPL-2.0, which is scoped to uniffi below. GPL/AGPL would be a blocker.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = true
+
+# MPL-2.0 (file-level copyleft; used unmodified, source on crates.io): uniffi, the Rust-Swift
+# bindings generator and runtime (kb: platform/rust-swift-ffi).
+[[licenses.exceptions]]
+crate = "uniffi"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_bindgen"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_core"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_internal_macros"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_macros"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_meta"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_pipeline"
+allow = ["MPL-2.0"]
+[[licenses.exceptions]]
+crate = "uniffi_udl"
+allow = ["MPL-2.0"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

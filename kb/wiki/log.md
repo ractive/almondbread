@@ -1009,3 +1009,14 @@ Ruler: things, "1,000 × universe", "universe = galaxy" … "universe = Planck",
 "3× nested" …; linear to the Planck rung, then slope 1/8; marks ≥ 25 pt apart. No light times
 or GeV anywhere. Long sentences wrap onto a second line. Contact sheet of the stills:
 `~/Desktop/cosmic-scale-stills.png`. Page: [[decisions/controls]] "Cosmic size scale".
+
+## [2026-10-17] decision | Open-source release
+
+[[decisions/open-source-release]]: MIT with saturnus's AI notice, `THIRD_PARTY_NOTICES.md`
+(Inter OFL, colour-map licences, crates), `deny.toml`, and the pipeline: CI on push (Linux
+Rust gates without the Apple-only ffi crate, Windows check of math and core, kb lint, a
+clean-checkout macOS build), a tag-driven Developer ID signed, notarised and stapled `.dmg`
+in a draft release (saturnus's six Apple secrets), and the `almondbread` cask in
+`ractive/homebrew-tap`. Publication audit: no secrets or large files in history, no
+GPL/AGPL crates, no copied code from KF, F3, Imagina or FractalShark; the business pages
+are listed for the user to decide on. Donations dropped for the first release.

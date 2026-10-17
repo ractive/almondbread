@@ -1,0 +1,203 @@
+name: Release
+
+# Builds the macOS app into a .dmg (kb: decisions/open-source-release). Pushing a tag vX.Y.Z
+# builds that tag with version X.Y.Z (CFBundleShortVersionString; the run number is the build
+# number), signs it with the Developer ID, notarises and staples the app and the .dmg, and
+# attaches the .dmg and its checksum to a DRAFT GitHub release for that tag; publishing the
+# draft (by hand) starts cask.yml, which points the Homebrew cask at it. A manual run builds
+# the dispatched ref (or the given tag) and uploads the .dmg as a workflow artifact only.
+#
+# Signing mirrors saturnus's desktop.yml: the same six Apple secrets
+#   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD  its password
+#   APPLE_SIGNING_IDENTITY      "Developer ID Application: Name (TEAMID)"
+#   APPLE_API_ISSUER            App Store Connect API issuer ID
+#   APPLE_API_KEY_ID            the API key's ID
+#   APPLE_API_KEY               the .p8 (base64, or the PEM text)
+# in the `release` environment (deployments from v* tags and main only). Without them, or for
+# a ref that is neither a tag nor main, the build is unsigned and nothing is attached to a
+# release. Third-party actions are pinned to a commit SHA with the version in a comment.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Existing tag to build (empty: the dispatched ref); artifacts only"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.release-tag != '' || github.ref == 'refs/heads/main') && 'release' || 'unsigned' }}
+    outputs:
+      signed: ${{ steps.dmg.outputs.signed }}
+      version: ${{ steps.version.outputs.version }}
+    env:
+      # `secrets` cannot appear in a step's `if:`; this carries "the certificate is set and
+      # this ref may be signed" to the signing steps.
+      MACOS_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && (startsWith(github.ref, 'refs/tags/v') || inputs.release-tag != '' || github.ref == 'refs/heads/main') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release-tag != '' && format('refs/tags/{0}', inputs.release-tag) || github.ref }}
+          persist-credentials: false
+      - name: Version from the tag
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.release-tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="$INPUT_TAG"
+          if [ -z "$tag" ] && [ "$REF_TYPE" = tag ]; then tag="$REF_NAME"; fi
+          if [ -n "$tag" ]; then
+            version="${tag#v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::tag $tag is not vMAJOR.MINOR.PATCH"
+              exit 1
+            fi
+          else
+            version="$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"$/\1/p' project.yml | head -n 1)"
+          fi
+          echo "version=$version" | tee -a "$GITHUB_OUTPUT"
+          echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+      - name: Tools
+        run: |
+          brew install xcodegen
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+          xcodebuild -version
+      - name: Rust core, UniFFI bindings and XCFramework
+        run: make rust
+      - name: Xcode project
+        run: make project
+
+      # The certificate goes into a temporary keychain of its own, with Apple's "Developer ID
+      # - G2" intermediate (the .p12 holds only the leaf and its key). Pinned: SHA-256 of
+      # https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer (as in saturnus).
+      - name: Signing keychain
+        if: env.MACOS_SIGNING == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          sha256="f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a"
+          dir="$RUNNER_TEMP/signing"
+          mkdir -p "$dir"
+          keychain="$dir/almondbread-signing.keychain-db"
+          kc_pass="$(openssl rand -hex 24)"
+          echo "::add-mask::$kc_pass"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$dir/cert.p12"
+          curl -fsSL --retry 3 -o "$dir/DeveloperIDG2CA.cer" \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          if [ "$(shasum -a 256 "$dir/DeveloperIDG2CA.cer" | cut -d ' ' -f 1)" != "$sha256" ]; then
+            echo "DeveloperIDG2CA.cer does not match the pinned SHA-256; check and update it here" >&2
+            exit 1
+          fi
+          security create-keychain -p "$kc_pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kc_pass" "$keychain"
+          security import "$dir/cert.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security import "$dir/DeveloperIDG2CA.cer" -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kc_pass" "$keychain" > /dev/null
+          rm -f "$dir/cert.p12"
+          read -r -a current <<< "$(security list-keychains -d user | tr -d '"' | xargs)"
+          security list-keychains -d user -s "$keychain" "${current[@]}"
+          security find-identity -v -p codesigning "$keychain" | grep -q 'Developer ID Application' || {
+            echo "no Developer ID Application identity in APPLE_CERTIFICATE" >&2
+            exit 1
+          }
+      - name: Notarisation key file
+        if: env.MACOS_SIGNING == 'true'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/notary/AuthKey.p8"
+          mkdir -p "$(dirname "$key")"
+          # The secret is the base64 of the .p8; raw PEM text works too.
+          case "$APPLE_API_KEY_P8" in
+            -----BEGIN*) printf '%s\n' "$APPLE_API_KEY_P8" > "$key" ;;
+            *) printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$key" ;;
+          esac
+          echo "NOTARY_KEY_PATH=$key" >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarise and staple the .dmg
+        id: dmg
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          SIGN_IDENTITY: ${{ env.MACOS_SIGNING == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          NOTARY_KEY_ID: ${{ env.MACOS_SIGNING == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+          NOTARY_ISSUER: ${{ env.MACOS_SIGNING == 'true' && secrets.APPLE_API_ISSUER || '' }}
+        run: |
+          set -euo pipefail
+          scripts/make-dmg.sh
+          if [ "$MACOS_SIGNING" = true ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+          cd dist
+          shasum -a 256 -- *.dmg > almondbread-SHA256SUMS
+          cat almondbread-SHA256SUMS
+      - name: Remove the keychain and the notarisation key
+        if: always() && env.MACOS_SIGNING == 'true'
+        run: |
+          rm -rf "$RUNNER_TEMP/notary" "$RUNNER_TEMP/signing/cert.p12"
+          security delete-keychain "$RUNNER_TEMP/signing/almondbread-signing.keychain-db" 2> /dev/null || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: almondbread-dmg
+          path: |
+            dist/*.dmg
+            dist/almondbread-SHA256SUMS
+          if-no-files-found: error
+
+  # Only for a pushed tag, and only a signed build: a draft release with the .dmg. The one job
+  # that may write; it builds nothing. Publishing the draft is a deliberate manual step.
+  release:
+    if: github.ref_type == 'tag' && needs.build.outputs.signed == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: almondbread-dmg
+          path: dist
+      - name: Draft release with the .dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "almondbread $VERSION" \
+              --generate-notes
+          fi
+          # No --clobber: a release's assets are never replaced; delete them by hand first.
+          gh release upload "$TAG" dist/*.dmg dist/almondbread-SHA256SUMS

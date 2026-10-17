@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app ios-sim ios-selftest ios-uitest render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
+.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -23,6 +23,12 @@ app: project rust
 	xcodebuild -project Almondbread.xcodeproj -scheme Almondbread -configuration Release -destination 'platform=macOS,arch=arm64' \
 		-derivedDataPath $(DERIVED) -quiet build
 	@echo "$(abspath $(APP))"
+
+## Release .dmg in dist/ (scripts/make-dmg.sh): ad-hoc signed unless SIGN_IDENTITY is set;
+## notarised and stapled when NOTARY_PROFILE (a notarytool keychain profile) also is.
+## make dmg VERSION=0.2.0 [SIGN_IDENTITY="Developer ID Application: ..."] [NOTARY_PROFILE=name]
+dmg: project rust
+	scripts/make-dmg.sh
 
 ## iOS simulator build. Uses -sdk rather than -destination so it works without an installed
 ## simulator runtime (generic/platform=iOS Simulator needs one).
@@ -126,4 +132,4 @@ core-check: rust
 	swift run -c release almondbread-core-check $(abspath build/core-check.png)
 
 clean:
-	rm -rf .build Almondbread.xcodeproj
+	rm -rf .build Almondbread.xcodeproj dist
