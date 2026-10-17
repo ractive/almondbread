@@ -1361,3 +1361,7 @@ cheaper. Fix: throttle full at fit 1/10, floor at 1/16 (only a coarsest preview 
 budget slows), fit log filtered 0.5 s down / 1 s up. Rate sd 0.15–0.33 → 0.06–0.09 e-folds/s at
 the user point, 0.22 → 0.002 at seahorse; ~5 more decades per 90 s. Page: [[decisions/controls]]
 "Steady autopilot rate".
+
+## [2026-10-17] lint | Business pages removed from the tree
+
+The 24 business files were still tracked: the two research reports, the distribution and gamification decisions, 13 source pages and 7 raw research notes. The 2026-10-17 entry above had said they had moved. They are now deleted from the repository, after a byte-for-byte check that `../almondbread-private/kb/` holds identical copies. They remain in the git history until the user decides how the history goes public.
