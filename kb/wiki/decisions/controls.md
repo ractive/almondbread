@@ -838,10 +838,12 @@ rescue backs out).
 View; menu; iOS long-press menu; persisted `laneAssist`, default off): active only in C, and only
 while the user does not steer. Phase 1 (this build): setting, cockpit lane icon (dim off, lit on,
 brighter in C, a glow for 0.6 s after a nudge) and the hook `Navigator::assist_nudge(view,
-radius, now) -> Option<heading>` (returns None). Phase 2 wires it to the survey-based steering
-away from featureless regions (`ALMONDBREAD_SURVEY_STEER` work in `autopilot`): nudge gently
-towards the nearest boundary only when the region ahead is becoming featureless. The HUD then
-says "The Nothing ahead – steering away".
+radius, now) -> Option<heading>`. Wired 2026-10-17: the renderer surveys frames while assist
+is on in C (`Navigator::wants_survey`); when the survey (at most 0.5 s old) rates the centre
+uniform (danger > 0.5 or mostly interior), the nudge is a heading towards the survey's boundary
+point (`Survey::boundary_point`, the void-steer work), at most 0.6 of the steering radius; the
+cruise's heading spring smooths it. Detail ahead: no nudge. The HUD then says "The Nothing
+ahead – steering away". Not yet tried in a foreground window (default off).
 
 **Cockpit.** About 270 points wide at the bottom centre of the canvas (right of the cosmic scale,
 left of the iPhone button column), shown with the HUD: the four letters (current lit and

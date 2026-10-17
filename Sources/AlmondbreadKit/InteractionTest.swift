@@ -256,7 +256,7 @@ final class InteractionTest: NSObject {
                 let vp = explorer.viewport()
                 let zoomed = (ap.start?.zoomLog10).map { vp.zoomLog10 - $0 } ?? 0
                 let moved = ap.start.flatMap { s in Double(vp.re).flatMap { re in Double(s.re).map { (re - $0) / vp.scale } } } ?? 0
-                let ok = ap.active && ap.cruise && zoomed > 0.2 && abs(moved) > 1 && !explorer.stats().autopilot.active
+                let ok = ap.active && ap.cruise && zoomed > 0.5 && abs(moved) > 1 && !explorer.stats().autopilot.active
                 if !ok { self.failures += 1 }
                 self.refineLines.append(String(format: "autopilot: on %@, steering handed over to cruise %@, zoomed ×%.1f in 2.4 s, centre moved %.0f pt by steering, off after Esc %@ %@",
                                                ap.active ? "yes" : "NO", ap.cruise ? "yes" : "NO", pow(10, zoomed), moved,

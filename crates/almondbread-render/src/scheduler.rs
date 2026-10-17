@@ -4518,7 +4518,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// is committed now, before anything else is encoded this refresh, so it reads the level
     /// as finished (the preview allocation is reused by the next gesture job).
     fn survey_level(&mut self, index: usize) {
-        if !self.navigator.autopilot().is_active()
+        if !self.navigator.wants_survey()
             || self.pending_survey.is_some()
             || self.last_frame_time - self.last_survey < SURVEY_INTERVAL
         {

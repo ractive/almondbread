@@ -303,6 +303,11 @@ pub const ASSIST_FLASH: f64 = 0.6;
 const PAN_REST: f64 = 0.5;
 const ZOOM_REST: f64 = 1e-3;
 
+/// Lane assist (kb: decisions/controls "Driving levels"): a survey older than this (s) is not
+/// acted on, and the nudge's heading reaches at most this share of the steering radius.
+const ASSIST_SURVEY_AGE: f64 = 0.5;
+const ASSIST_REACH: f64 = 0.6;
+
 /// Held keys, modes and gesture state. Owned by the renderer host; see the module docs.
 #[derive(Clone, Debug)]
 pub struct Navigator {
@@ -624,8 +629,29 @@ impl Navigator {
     /// wires the GPU survey's steering away from featureless regions (the void-steer work in
     /// `autopilot`): a gentle nudge towards the nearest boundary only when the region ahead is
     /// becoming featureless; the user's steering always wins (this is not asked then).
-    fn assist_nudge(&self, _viewport: &Viewport, _radius: f64, _now: f64) -> Option<(f64, f64)> {
-        None
+    fn assist_nudge(&self, _viewport: &Viewport, radius: f64, now: f64) -> Option<(f64, f64)> {
+        let s = self.autopilot.survey()?;
+        if now - s.time > ASSIST_SURVEY_AGE {
+            return None;
+        }
+        // Straight ahead is the centre (the user does not steer when this is asked).
+        let a = s.assess((0.0, 0.0))?;
+        if a.danger() <= 0.5 && a.interior <= 0.5 {
+            return None;
+        }
+        let p = s.boundary_point((0.0, 0.0))?;
+        let d = p.0.hypot(p.1);
+        if !(d.is_finite() && d >= 1.0) {
+            return None;
+        }
+        // A gentle heading towards the boundary point (at most ASSIST_REACH of the radius).
+        let k = (ASSIST_REACH * radius).min(d) / d;
+        Some((p.0 * k, p.1 * k))
+    }
+
+    /// The renderer surveys frames for the autopilot, and for lane assist while cruising.
+    pub fn wants_survey(&self) -> bool {
+        self.autopilot.is_active() || (self.assist && self.cruise.is_engaged())
     }
 
     /// Depth below the home view fitted to the window, e-folds (negative: wider than home).
@@ -2058,6 +2084,53 @@ mod tests {
             0.0,
         );
         (n, v)
+    }
+
+    /// Lane assist: nothing while the centre shows detail; a gentle heading towards the
+    /// boundary point once the region ahead is uniform; nothing on a stale survey.
+    #[test]
+    fn lane_assist_nudges_only_when_the_nothing_is_ahead() {
+        use crate::autopilot::{Survey, SurveyCell};
+        let (mut n, v) = setup();
+        let survey = |centre_edges: u32, time: f64| {
+            let mut cells = vec![
+                SurveyCell {
+                    samples: 100,
+                    interior: 0,
+                    pairs: 200,
+                    edges: centre_edges,
+                    ..Default::default()
+                };
+                160
+            ];
+            // One detailed cell off to the upper right, its peak at (300, 200).
+            cells[2 * 16 + 13] = SurveyCell {
+                samples: 100,
+                interior: 50,
+                pairs: 200,
+                edges: 100,
+                peak: (300.0, 200.0),
+                peak_n: 5000.0,
+            };
+            Survey {
+                cols: 16,
+                rows: 10,
+                cells,
+                view: (1000.0, 600.0),
+                texels_across: 400.0,
+                texels_down: 240.0,
+                time,
+                viewport: None,
+            }
+        };
+        let r = 300.0;
+        n.autopilot_mut().set_survey(survey(100, 1.0));
+        assert_eq!(n.assist_nudge(&v, r, 1.1), None);
+        n.autopilot_mut().set_survey(survey(0, 1.0));
+        let h = n.assist_nudge(&v, r, 1.1).expect("nudge");
+        assert!(h.0 > 0.0 && h.1 > 0.0 && dist(h) <= ASSIST_REACH * r + 1e-9, "{h:?}");
+        assert!((h.1 / h.0 - 200.0 / 300.0).abs() < 1e-9);
+        assert_eq!(n.assist_nudge(&v, r, 1.0 + 2.0 * ASSIST_SURVEY_AGE), None);
     }
 
     fn dist(a: (f64, f64)) -> f64 {
