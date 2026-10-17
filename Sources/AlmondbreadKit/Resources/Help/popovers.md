@@ -30,7 +30,7 @@ Inside the set they settle into a loop; outside they wander off. The line under 
 
 How many steps each point gets before Almondbread stops and calls it undecided for now.
 
-**Automatic** raises the limit by itself as you zoom, up to the **upper limit**. **Manual** keeps the number you set. Dark grey points are not decided yet: wait, or raise the limit. A blue line at the top shows long renders.
+**Automatic** raises the limit by itself as you zoom, up to the **upper limit**. **Manual** keeps the number you set. Foggy points are not decided yet: wait, or raise the limit. A blue line at the top shows long renders.
 
 ## look
 

@@ -1103,3 +1103,22 @@ on home, seahorse and the neck with AA; 14 % with the compose mode disabled on p
 `verify --history` defaults to `--further 0`; one regress session (neck, 400 × 250, AA, 4 s
 budget) runs it: `make regress` 302.8 s against 300.2 s on main. Page:
 [[techniques/auto-iterations]] "Compute further".
+
+## [2026-10-17] decision | Unresolved pixels drawn as fog
+
+The flat dark grey veil over unresolved pixels became fog (user: "foggy, cloudy, darker and
+fuzzier towards the inner part"): light at the border in the blurred colours of the resolved
+pixels around, darker and softer with distance in display points (dark from ~128 pt), almost
+black deep inside with a faint blue-grey tint. A pyramid of resolved coverage and colour (one
+sampled texel per 2 × 2, box halvings, even/odd atlases) and a walk from fine to coarse give
+the distance in octaves and the colours at that scale; resolved at 4 × 4 texels, sampled
+bilinearly by `colorize` and `compose` (refine, exact, compute further). Gesture frames,
+previews, the sample cache and AA samples draw the plain deep fog. Built only when the view has
+unresolved pixels: 0 otherwise, +1.0 ms colour pass / +1.0–1.4 ms compose frame at
+3456 × 2234 with ~60 % unresolved (M1 Pro, release; `ALMONDBREAD_COLORIZE_BENCH`).
+`ALMONDBREAD_FOG=0` restores the plain fog. A texture from the orbit at the limit (log |z|,
+the probe multiplier) was looked at and dropped: near-constant near parabolic points, chunk
+seams elsewhere. The `verify --history` compute-further check now compares the texels it
+resolved with a fresh render by field data (the fog has no one colour); it found the last
+pass's texels left part faded (12 %), so compute further's compose runs on for 4 τ after the
+last pass. Help texts say "fog". Page: [[techniques/unresolved-fog]].
