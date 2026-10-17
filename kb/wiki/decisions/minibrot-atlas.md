@@ -27,7 +27,7 @@ features we already have:
   ([[decisions/controls]] "Journey", [[sources/muency-newton-raphson-zooming]]).
 - Places catalogue and thumbnails ([[synthesis/places]]).
 - Gamification ideas: an atlas to fill in, discoveries, depth missions
-  ([[decisions/gamification]]).
+  (private notes, not in this wiki).
 
 ## What one atlas entry holds
 
@@ -88,7 +88,7 @@ Driver's assessment:
 - **Two kinds of data:** a server-side census (complete at shallow depth, systematic) plus user
   discoveries (deep, biased to where people fly, with "first found by" credit). The bias is
   itself interesting: a heatmap of where people explore.
-- **Fits the game ideas** ([[decisions/gamification]]): discovery credit, daily journeys, a
+- **Fits the game ideas** (private notes): discovery credit, daily journeys, a
   shared map.
 - Order: local atlas plus export file → manual upload → opt-in background sharing and the
   website. Backend: a small Rust service with SQLite or Postgres on ractive.ch (not decided).

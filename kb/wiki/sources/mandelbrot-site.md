@@ -27,4 +27,4 @@ Primary description by the author. It shows that links and video export are avai
 
 ## Used by
 
-[[synthesis/fractal-app-market-research]], [[sources/hn-mandelbrot-site-thread]]
+[[sources/hn-mandelbrot-site-thread]]; market research notes (kept private)

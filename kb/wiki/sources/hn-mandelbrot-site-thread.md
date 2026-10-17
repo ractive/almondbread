@@ -28,4 +28,4 @@ Anecdotal comments from a technical audience; useful for qualitative demand, not
 
 ## Used by
 
-[[synthesis/fractal-app-market-research]]
+Market research notes (kept private, not in this wiki).

@@ -16,7 +16,7 @@ Background music derived from what you fly over.
 - Orbit sonification: the orbit of the point under the crosshair as
   waveform or melody (periodic points loop, chaotic ones sound noisy).
   CodeParade's "Sounds of the Mandelbrot Set" did this and got about 4M
-  views ([[synthesis/fractal-app-market-research]], audience notes).
+  views (unverified).
 - Periods as harmony: periods of nearby minibrots
   ([[techniques/reference-selection]]) as chords or overtones; approaching
   a period-p minibrot tunes in a matching harmony.
@@ -80,7 +80,7 @@ atoms, nuclei, strings, shown like the mini-map at the bottom left.
   counts ladders instead of naming objects.
 - Display: a log ruler with small icons in the overlay (Rust/Metal, like the mini-map), a
   marker for the current view, one line of text. Also in exported videos; possible depth
-  badges for the game ([[decisions/gamification]]).
+  badges for a game mode.
 - Strings are hypothetical (about the Planck length); label them as such.
 - **Status 2026-10-15: built** (off by default, key C): screen and set-as-object anchors
   (physical), light-crossing times and probe energies, the unexplored band, big numbers and
@@ -98,8 +98,7 @@ gear train after Ganson's "Machine with Concrete".
 - **Status 2026-10-15: built, then removed the same day.** User: "It's an own window, which
   is not like the rest; way too much text; not sure if people understand it." Panel, window,
   menu item, control-center button, the cosmic scale's link and the Rust maths are gone. The
-  convention, numbers and sources stay in [[synthesis/how-big-is-big]] for achievements later
-  ([[decisions/gamification]]).
+  convention, numbers and sources stay in [[synthesis/how-big-is-big]] for achievements later.
 
 ## Money ladder for the relative mode (2026-10-15)
 
@@ -115,5 +114,4 @@ after the size/time relative mode has been tried.
 - Landscape mode with altitude as zoom, flight recorder and rewind:
   [[decisions/landscape-mode]].
 - Game mechanics (atlas, daily challenge, canyon racing, depth missions,
-  journey mode): [[decisions/gamification]].
-- Selling on several stores: [[decisions/distribution]].
+  journey mode) and store distribution: kept in private notes, not in this wiki.

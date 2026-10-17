@@ -28,4 +28,4 @@ Primary project announcement. Compute-shader ergonomics are not covered.
 
 ## Used by
 
-[[synthesis/fractal-games-and-steam]]
+Game-edition research notes (kept private, not in this wiki).

@@ -11,8 +11,8 @@ tags: [distribution, licence, release, ci, macos]
 ## Context
 
 The user decided to publish almondbread as open source on GitHub, as the public repository
-`github.com/ractive/almondbread`, with a free signed build for the Mac now and a paid Mac/iOS
-App Store version later. Store options and the business side: [[decisions/distribution]].
+`github.com/ractive/almondbread`, with a free signed build for the Mac now and a Mac/iOS
+App Store version later.
 The release pipeline is modelled on the sibling project saturnus (its `desktop.yml`,
 `ci.yml` and Homebrew cask templates).
 
@@ -68,7 +68,8 @@ The release pipeline is modelled on the sibling project saturnus (its `desktop.y
 
 ## Open points (2026-10-17)
 
-- The business pages (market research, Steam analysis, pricing, gamification business case)
-  are in the public tree unless the user removes them before the first push.
+- Resolved 2026-10-17: the business pages (market research, Steam analysis, pricing,
+  gamification, distribution) moved out of the repository into private notes before the
+  first push.
 - Source pages point at `raw/web/...` files that are not committed (copyrighted); the
   manifest says how to fetch them.

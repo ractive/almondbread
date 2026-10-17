@@ -12,8 +12,8 @@ tags: [how-big, big-numbers, up-arrow, product, ui, removed]
 > like the rest; way too much text; not sure if people understand it." The panel, its window,
 > menu item, control-center button, the cosmic scale's "How big is big? →" link
 > (`Explorer.cosmicHint()`) and the Rust maths (`bignum_scale.rs`, `how_big.rs`) are gone. The
-> maths below stays here because it may be useful for achievements later
-> ([[decisions/gamification]]). The last commit with the code is `ab82452`
+> maths below stays here because it may be useful for achievements later. The last commit
+> with the code is `ab82452`
 > (`git show ab82452:crates/almondbread-core/src/bignum_scale.rs`, tests included).
 
 The user's idea ([[ideas]]): compare our zoom (up to about 10^3008, a 3009-digit number) with

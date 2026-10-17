@@ -169,19 +169,9 @@ instead. Preview textures are now allocated once at maximum size (sub-regions). 
 
 ## [2026-10-14] research | Fractal app market research
 
-Deep-research run on how to position almondbread against the fractal-app market. Notes
-in `raw/research/fractal-app-market-research/` (App Store apps, desktop/Steam/web tools,
-audience and demand, market size and business models). Report:
-[[synthesis/fractal-app-market-research]]. Findings: at least six 2025–26 App Store apps
-already claim perturbation depth, and several ship autopilot, links and video (closest:
-Fractal Dive, $1.99 Pro). Only sustained real-time motion at extreme depth is unclaimed.
-The Mac lacks any native deep-zoom creator tool. The niche is small (Frax: 232 US ratings
-in 13 years). Recommendation: position as a Mac/iPad flight and video studio; free tier
-with full depth, $9.99 one-time Universal Purchase Pro gated on output, later ~$29.99 Mac
-Studio tier, no subscription; launch through depth-titled videos and a technical HN
-write-up; defer Windows/Linux. New source pages: [[sources/fractal-dive-app-store]],
-[[sources/frax-app-store]], [[sources/frax-help-explore]], [[sources/mandelbrot-metal-app-store]],
-[[sources/revenuecat-subscription-apps-2026]], [[sources/apple-eu-terms-oct-2026]],
+Deep-research run on the fractal-app market (competitors, audience, business models). The
+report, its raw notes and the business source pages are kept private, outside this
+repository. Public source pages from the run: [[sources/frax-help-explore]],
 [[sources/maths-town-videos]], [[sources/maths-town-kfmoviemaker-guide]],
 [[sources/mandelbrot-site]], [[sources/hn-mandelbrot-site-thread]].
 
@@ -208,20 +198,11 @@ orders it back, a bare path argument suppresses the SwiftUI window. Pages:
 
 ## [2026-10-14] research | Fractal games and Steam
 
-Deep-research run on turning almondbread into a game and shipping a Steam edition. Notes in
-`raw/research/fractal-games-and-steam/` (fractal and maths games, Steam publishing, Steam tech
-stack); report [[synthesis/fractal-games-and-steam]]. Findings: no commercial deep-zoom
-Mandelbrot game exists; Fractal Block World is the only fractal hit (1,652 reviews) and fractal
-tools stall at 20–30 reviews; mechanics ranked daily challenge > atlas with discoverer naming >
-depth missions > journey mode > canyon racing; Steam costs $100 but wishlists decide the
-outcome (Bronze ~5k); Steamworks covers leaderboards and ghosts, the atlas needs an own
-backend; no engine: wgpu + winit + steamworks-rs, Metal kept on Apple, new crates
-`almondbread-wgpu`, `-game`, `-platform`, `-steam`, `-app`. New sources:
-[[sources/fractal-block-world-steam]], [[sources/steamworks-onboarding]],
-[[sources/steamworks-leaderboards]], [[sources/steamworks-steam-deck-compat]],
-[[sources/steam-hardware-survey-sept-2026]], [[sources/gamediscoverco-wishlist-conversion]],
-[[sources/htmag-benchmarks]], [[sources/wgpu-changelog-v30]], [[sources/steamworks-rs]],
-[[sources/bevy-0-20-release-notes]]. Research outcome added to [[decisions/gamification]].
+Deep-research run on a game edition and a Steam release. The report, its raw notes, the
+game-mechanics decision and the Steam source pages are kept private, outside this
+repository. Technical outcome: a portable edition would use no engine (wgpu + winit) and
+keep Metal on Apple. Public source pages: [[sources/wgpu-changelog-v30]],
+[[sources/bevy-0-20-release-notes]].
 
 ## [2026-10-14] decision | M2.5: pointer and keyboard modes, crosshair zoom target
 
@@ -744,8 +725,7 @@ and its Rust side (`CosmicOverlay::hint`, `Host::cosmic_hint_points`, `CosmicSca
 `almondbread-ffi/src/how_big.rs` and `almondbread-core/src/bignum_scale.rs` with its tests.
 The maths (linear super-log convention, marker table, facts) stays in
 [[synthesis/how-big-is-big]], marked removed, for achievements later; the sources pages stay.
-Pages: [[synthesis/how-big-is-big]], [[decisions/controls]], [[decisions/gamification]],
-[[ideas]], [[index]].
+Pages: [[synthesis/how-big-is-big]], [[decisions/controls]], [[ideas]], [[index]].
 
 ## [2026-10-16] decision | Autopilot target lock and rescue
 
@@ -1020,3 +1000,14 @@ in a draft release (saturnus's six Apple secrets), and the `almondbread` cask in
 `ractive/homebrew-tap`. Publication audit: no secrets or large files in history, no
 GPL/AGPL crates, no copied code from KF, F3, Imagina or FractalShark; the business pages
 are listed for the user to decide on. Donations dropped for the first release.
+
+## [2026-10-17] lint | Business pages moved out of the public repository
+
+Before the first public push, the business pages moved to a private folder outside the
+repository: the market and game/Steam research reports, the distribution and gamification
+decisions, thirteen business source pages (store listings, pricing and conversion benchmarks,
+Steam process) and their raw research notes. Links to them were replaced with plain text,
+index entries removed, and price and conversion figures trimmed from the remaining pages.
+Pages: [[index]], [[ideas]], [[decisions/open-source-release]], [[decisions/minibrot-atlas]],
+[[synthesis/places]], [[synthesis/how-big-is-big]], and the "Used by" sections of the
+remaining market and engine source pages.

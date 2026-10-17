@@ -28,4 +28,4 @@ Creator's own statements. Render times date from 2017 to 2020 KF + series-approx
 
 ## Used by
 
-[[synthesis/fractal-app-market-research]]
+Market research notes (kept private, not in this wiki).

@@ -28,4 +28,4 @@ Primary documentation of the leading creator's own pipeline; the best evidence o
 
 ## Used by
 
-[[synthesis/fractal-app-market-research]]
+Market research notes (kept private, not in this wiki).

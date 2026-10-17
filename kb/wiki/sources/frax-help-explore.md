@@ -24,8 +24,8 @@ Frax's own help page on exploring, zoom and image sizes.
 
 ## Reliability
 
-Primary statement by the vendor; the strongest evidence that the incumbent will not add deep zoom.
+Primary statement by the vendor.
 
 ## Used by
 
-[[synthesis/fractal-app-market-research]]
+Market research notes (kept private, not in this wiki).

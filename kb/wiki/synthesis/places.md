@@ -11,8 +11,8 @@ tags: [places, locations, misiurewicz, product, decision]
 **What.** A curated list of well-known, beautiful views of the Mandelbrot set
 ("places") that the app shows as a browsable list with thumbnails and can jump or fly to,
 plus a random pick. Asked for by the user ("a list of well known coordinates with
-landscapes that you can visit"); the market research lists curated destinations and
-autopilot dives as expected features ([[synthesis/fractal-app-market-research]]).
+landscapes that you can visit"); curated destinations and autopilot dives are common in
+other explorers.
 
 **Where.** Data and API in `crates/almondbread-core/src/places.rs` (+ `places_data.rs`),
 UniFFI in `crates/almondbread-ffi` (`places()`, `place(id)`, `random_place(seed,
