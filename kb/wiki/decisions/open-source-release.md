@@ -69,7 +69,10 @@ The release pipeline is modelled on the sibling project saturnus (its `desktop.y
 ## Open points (2026-10-17)
 
 - Resolved 2026-10-17: the business pages (market research, Steam analysis, pricing,
-  gamification, distribution) moved out of the repository into private notes before the
-  first push.
+  gamification, distribution) were removed from the tree (commit b51213f; private copies in
+  `../almondbread-private`). The git history is published as it is: the user saw what it
+  holds (the pages as of 2026-10-14, public competitor prices, early pricing and game-edition
+  ideas in old `index.md` / `log.md` versions) and chose not to rewrite it (outdated plans,
+  nothing secret).
 - Source pages point at `raw/web/...` files that are not committed (copyrighted); the
   manifest says how to fetch them.
