@@ -1849,7 +1849,10 @@ read 4.5e-8 s/texel at 1/8 against 1.5e-8 at 1/4 and never left 1/8. Forced rati
 at 1/8: the clock, not the work. Other GPU clients keep the clocks up, which is why the
 check passed "on a busy machine" earlier in the week and fails on an idle one.
 
-**Fix** (`scheduler.rs`, `probe_gesture_ratio`): (1) a probe: when the model's level fits the
+**Fix, behind `ALMONDBREAD_GESTURE_PROBE=1` (off by default** until compared in the foreground
+app; background-window numbers are not enough and skipped draws rose at the dense and deep
+views; off is exactly the old cost model; `ALMONDBREAD_GESTURE_PROBE=1 make interaction-test`
+measures it on). `scheduler.rs`, `probe_gesture_ratio`: (1) a probe: when the model's level fits the
 budget, a gesture tries one 1/8 step above for 0.25 s and keeps it if its own measured cost
 fits; the next probe waits 0.5 s, doubling to 4 s after failures; no probe in a gesture's
 first 0.5 s (its first frames are sized by the refined frame's cost); a probe aborts after
@@ -1858,7 +1861,7 @@ while the median fit of the last 5 gesture frames is ≥ 0.85 of it (single chun
 ±30 %, and every ~0.25 s one takes 2–3x). An exponential average instead of the median held
 steps too long when the cost really rose (2–10x the skipped draws).
 
-| interleaved runs, autopilot scenario alone | main 102e018 | fix |
+| interleaved runs, autopilot scenario alone | main 102e018 | `ALMONDBREAD_GESTURE_PROBE=1` |
 |---|---|---|
 | zoom in 2.4 s | ×2.3–2.4 (×4.4–4.7 when other GPU load kept the clocks up); 3/8 OK | ×4.3–4.7; 8/8 OK |
 | gesture preview scale (mean) | 0.13 | 0.26–0.30 |

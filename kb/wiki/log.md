@@ -1071,7 +1071,8 @@ single commit: the gesture resolution is bistable. Apple's GPU clocks follow the
 proportional cost model never leaves 1/8, and the autopilot throttles to ~0.4 from that
 `fit`. Other agents' GPU load kept the clocks up, which is why it "passed on a busy machine".
 Not the pipeline warm-up, the lock probes, the progress line or the watchdog (switches off:
-same ×2.2). Fix in `Renderer`: upward resolution probes and a median-fit hysteresis. Autopilot
+same ×2.2). Fix in `Renderer`, opt-in (`ALMONDBREAD_GESTURE_PROBE=1`, off until the user compares it in
+the foreground app): upward resolution probes and a median-fit hysteresis. Autopilot
 ×4.3–4.7 in 8/8 interleaved runs (main 3/8), preview scale about 2x in most gesture
 scenarios, skipped draws equal except a few more at dense views; numbers in
 [[synthesis/benchmarks]] "Autopilot throttle and GPU clocks".
