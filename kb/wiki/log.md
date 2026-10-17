@@ -1188,3 +1188,11 @@ home from 1e-10 / 1e-50 / 1e-300 / 1e-3000 in 17 / 29 / 42 / 58 s at the first r
 steering or pedal-to-zero in A or a journey leg hands over to cruise at the current speed; the
 autopilot no longer takes the wheel back. ⇧Z removed. Lane assist (L) is a setting and a hook,
 wired to the survey steering in phase 2. Page: [[decisions/controls]] "Driving levels".
+
+## [2026-10-17] decision | Gesture resolution probes on by default
+
+The user compared `ALMONDBREAD_GESTURE_PROBE=1` against the default in the foreground app (panning,
+zooming, the autopilot near 1e45): smooth, sharp, no stutter noticed, hard to tell apart by eye. The
+measured gains (autopilot ×4.5 vs ×2.2 in 2.4 s, preview resolution about doubled) decide: the probes
+and median-fit hysteresis are now the only gesture-resolution path; the switch is removed
+([[synthesis/benchmarks]] "Autopilot throttle and GPU clocks").

@@ -91,10 +91,7 @@ and quit by themselves):
 - Hitches: `ALMONDBREAD_FRAME_LOG=1` makes the interaction test print each scenario's longest
   presentation gaps and slowest draws with their times; `ALMONDBREAD_KERNEL_SALT=x` (new x)
   measures with a cold Metal shader cache (as after an update), `ALMONDBREAD_WARM_PIPELINES=0`
-  turns the pipeline warm-up off (kb: platform/metal-compute); `ALMONDBREAD_GESTURE_PROBE=1`
-  (off by default, also `ALMONDBREAD_GESTURE_PROBE=1 make interaction-test`) turns on the
-  gesture-resolution probes and hysteresis against GPU-clock-inflated costs (kb:
-  synthesis/benchmarks "Autopilot throttle and GPU clocks"); `ALMONDBREAD_PREVIEW_WAIT_BLA=0`
+  turns the pipeline warm-up off (kb: platform/metal-compute); `ALMONDBREAD_PREVIEW_WAIT_BLA=0`
   lets previews start without a new reference's BLA table again (the 200 ms+ GPU stalls of
   autopilot dives, kb: techniques/bla "Pitfalls"); `fly --log x.csv` has per-refresh
   zoom, frame CPU and late ms (`fly_to` and `jump` take `{"place": id}`).

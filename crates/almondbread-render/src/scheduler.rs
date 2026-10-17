@@ -160,10 +160,6 @@ pub struct SchedulerConfig {
     /// Compile the iterate and seed variants on a thread ahead of need
     /// (`ALMONDBREAD_WARM_PIPELINES=0` turns it off, for before/after checks).
     pub warm_pipelines: bool,
-    /// Gesture resolution probes and median-fit hysteresis (`probe_gesture_ratio`;
-    /// `ALMONDBREAD_GESTURE_PROBE=1`). Off by default until compared in the foreground app;
-    /// off is the plain cost model.
-    pub gesture_probe: bool,
     /// A job's first level waits for the BLA table of a new reference, showing the history
     /// (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: previews start without it, the old behaviour).
     pub preview_wait_bla: bool,
@@ -346,7 +342,6 @@ impl Default for SchedulerConfig {
             max_frames_in_flight: 2,
             max_chunks_in_flight: 3,
             warm_pipelines: std::env::var("ALMONDBREAD_WARM_PIPELINES").map_or(true, |v| v != "0"),
-            gesture_probe: std::env::var("ALMONDBREAD_GESTURE_PROBE").is_ok_and(|v| v == "1"),
             preview_wait_bla: std::env::var("ALMONDBREAD_PREVIEW_WAIT_BLA").map_or(true, |v| v != "0"),
             trace: std::env::var("ALMONDBREAD_TRACE").is_ok_and(|v| v == "1"),
             adaptive_budget: true,
@@ -2789,10 +2784,7 @@ impl<B: GpuBackend> Renderer<B> {
         // A gesture starts: its first frames are sized by the refined frame's cost, which
         // says little about gesture frames (interior fill, local SA); no probe before its own
         // frames have measured.
-        if self.config.gesture_probe
-            && mode == JobMode::Interactive
-            && !self.job.as_ref().is_some_and(|j| j.interactive)
-        {
+        if mode == JobMode::Interactive && !self.job.as_ref().is_some_and(|j| j.interactive) {
             self.probe_after = self.probe_after.max(now + PROBE_WAIT.0);
         }
         // A gesture frame superseded before its preview completed never reported its cost:
@@ -2962,20 +2954,19 @@ impl<B: GpuBackend> Renderer<B> {
                     ratio = ((fit * 8.0).floor() / 8.0).clamp(0.125, 1.0);
                     // Hysteresis against noise in the cost: a step up needs the fit, keeping a
                     // step (up to the last gesture frame's) needs RATIO_HOLD of the median fit
-                    // of the last frames (`gesture_probe` only).
-                    if self.config.gesture_probe {
-                        if self.gesture_fits.len() == FIT_WINDOW {
-                            self.gesture_fits.pop_front();
-                        }
-                        self.gesture_fits.push_back(fit);
-                        let mut fits: Vec<f64> = self.gesture_fits.iter().copied().collect();
-                        fits.sort_by(f64::total_cmp);
-                        let median = fits[fits.len() / 2];
-                        let held = ((median / RATIO_HOLD * 8.0).floor() / 8.0).min(self.gesture_ratio);
-                        ratio = ratio.max(held);
-                        ratio = self.probe_gesture_ratio(ratio, fit, now);
-                        self.gesture_ratio = ratio;
+                    // of the last frames; then the upward probes (GPU clocks, kb: synthesis/benchmarks
+                    // "Autopilot throttle and GPU clocks").
+                    if self.gesture_fits.len() == FIT_WINDOW {
+                        self.gesture_fits.pop_front();
                     }
+                    self.gesture_fits.push_back(fit);
+                    let mut fits: Vec<f64> = self.gesture_fits.iter().copied().collect();
+                    fits.sort_by(f64::total_cmp);
+                    let median = fits[fits.len() / 2];
+                    let held = ((median / RATIO_HOLD * 8.0).floor() / 8.0).min(self.gesture_ratio);
+                    ratio = ratio.max(held);
+                    ratio = self.probe_gesture_ratio(ratio, fit, now);
+                    self.gesture_ratio = ratio;
                 }
                 if !self.settings.interactive_preview {
                     ratio = 1.0;

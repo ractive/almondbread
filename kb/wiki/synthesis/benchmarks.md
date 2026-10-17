@@ -1849,7 +1849,7 @@ read 4.5e-8 s/texel at 1/8 against 1.5e-8 at 1/4 and never left 1/8. Forced rati
 at 1/8: the clock, not the work. Other GPU clients keep the clocks up, which is why the
 check passed "on a busy machine" earlier in the week and fails on an idle one.
 
-**Fix, behind `ALMONDBREAD_GESTURE_PROBE=1` (off by default** until compared in the foreground
+**Fix (default since 2026-10-17; the user found no stutter and sharp previews in the foreground app, and the switch was removed). First behind `ALMONDBREAD_GESTURE_PROBE=1` (off by default** until compared in the foreground
 app; background-window numbers are not enough and skipped draws rose at the dense and deep
 views; off is exactly the old cost model; `ALMONDBREAD_GESTURE_PROBE=1 make interaction-test`
 measures it on). `scheduler.rs`, `probe_gesture_ratio`: (1) a probe: when the model's level fits the
