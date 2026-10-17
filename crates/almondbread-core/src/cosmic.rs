@@ -511,21 +511,23 @@ fn as_big_as(m: f64) -> String {
     }
 }
 
-/// The subject of "… is as big as ours" for a thing of `v` metres, against the nearest (in
-/// log) familiar thing: "an atom is", "you are", "something 3× as big as the Sun is",
-/// "1/40 of a proton is".
+/// The subject of "… is as big as ours" for a thing of `v` metres, without numbers (deep
+/// down they stop meaning anything, user 2026-10-17): the familiar thing itself when it is
+/// within a factor 2 ("an atom is", "you are"), else "something between the solar system and
+/// the Milky Way is" (its neighbours in [`SMALL`]), or beyond the ends "something bigger than
+/// the Milky Way is" / "something smaller than the Planck length is".
 fn thing_is(v: f64) -> String {
-    let t = nearest(v, SMALL.iter().map(|k| &THINGS[thing(k).expect("small thing")]));
-    let r = v / t.size_m;
-    let verb = if t.key == "human" { "are" } else { "is" };
-    if (0.8..1.25).contains(&r) {
-        format!("{} {verb}", t.name)
-    } else if r >= 1.25 {
-        format!("something {}× as big as {} is", count(r.log10()), t.name)
-    } else if r >= 0.1 {
-        format!("something {:.0}% as big as {} is", r * 100.0, t.name)
-    } else {
-        format!("1/{} of {} is", count(-r.log10()), t.name)
+    let small: Vec<&Thing> = SMALL.iter().map(|k| &THINGS[thing(k).expect("small thing")]).collect();
+    let t = nearest(v, small.iter().copied());
+    if (v / t.size_m).log10().abs() <= 2f64.log10() {
+        let verb = if t.key == "human" { "are" } else { "is" };
+        return format!("{} {verb}", t.name);
+    }
+    // `small` runs from the largest down: the first thing smaller than v and the one before.
+    match small.iter().position(|t| t.size_m < v) {
+        Some(0) => format!("something bigger than {} is", small[0].name),
+        Some(i) => format!("something between {} and {} is", small[i].name, small[i - 1].name),
+        None => format!("something smaller than {} is", small[small.len() - 1].name),
     }
 }
 
@@ -644,14 +646,14 @@ mod tests {
         let detail = |d: f64| s.reading(d).detail;
         assert_eq!(
             detail(33.0),
-            "in which something 2.7× as big as the Milky Way is as big as ours"
+            "in which something bigger than the Milky Way is as big as ours"
         );
         assert_eq!(detail(64.4), "in which an atom is as big as ours");
         assert_eq!(detail(89.2), "in which the Planck length is as big as ours");
         assert_eq!(line(101.0), format!("{imaginary}, 2 levels deep"));
         assert_eq!(
             detail(101.0),
-            "at the bottom, something 150× as big as the solar system is as big as ours"
+            "at the bottom, something between the solar system and the Milky Way is as big as ours"
         );
         assert_eq!(line(1000.0), format!("{imaginary}, 16 levels deep"));
         assert_eq!(line(3010.0), format!("{imaginary}, 49 levels deep"));
