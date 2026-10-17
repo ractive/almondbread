@@ -1011,3 +1011,25 @@ index entries removed, and price and conversion figures trimmed from the remaini
 Pages: [[index]], [[ideas]], [[decisions/open-source-release]], [[decisions/minibrot-atlas]],
 [[synthesis/places]], [[synthesis/how-big-is-big]], and the "Used by" sections of the
 remaining market and engine source pages.
+
+## [2026-10-17] research | Finding good places at extreme depth
+
+How the deep-zoom community finds places past 1e100: shape stacking and Julia morphing (the
+path to a minibrot is recorded in its shells; a morph at 1/2 and a doubling at 3/4 of the
+log-depth to the target), Dinkydau's evolution method, Newton zooming in KF/F3,
+Heiland-Allen's automated Julia morphing (angle extrapolation O(p²), Misiurewicz/nucleus
+Newton O(p), the symmetry trap), domain maps and periodicity scans, FractalShark's Feature
+Finder. Known deep places and records from YouTube descriptions (e275 in 2010 to e122768 in
+2022; FractalShark's minibrot at 1e650452) and how they are shared (`.kfr`, descriptions,
+web pages, orbit save files). Density is a colouring problem (KF iteration division,
+log/histogram, DE and slopes); our flat 1.4 M-period needle minibrot is read as palette
+cycles per pixel, an inference. Recommendations: `locate --frame f`, a thumbnail scorer,
+period-aware colouring, a morph walker, a GPU domain scan. New pages:
+[[synthesis/finding-deep-places]], [[questions/julia-morph-depth-fractions]] and nine source
+pages ([[sources/mathr-julia-morphing-posts]], [[sources/mathr-embedded-julia-navigation]],
+[[sources/mathr-domains-and-periodicity-scan]],
+[[sources/heiland-allen-inflected-julia-sets-2025]], [[sources/dinkydau-evolution-journals]],
+[[sources/fractalforums-pathfinding-revisited]], [[sources/fractalforums-deepest-zoom-poll]],
+[[sources/deep-zoom-videos]], [[sources/wikibooks-emndl]]); "Used by" backlinks on seven
+existing sources and one line in [[synthesis/places]]. Nothing saved to `raw/` (read on the
+web; the forum thread via the Wayback Machine).

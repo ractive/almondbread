@@ -82,4 +82,4 @@ since 2022 and never got BLA, so its performance advice reflects SA-era practice
 [[techniques/anti-aliasing]], [[techniques/distance-estimation]], [[techniques/smooth-coloring]],
 [[techniques/coloring-methods]], [[techniques/interior-detection]], [[platform/gpu-watchdog-and-chunking]],
 [[questions/kf-bla-support]], [[questions/auto-iteration-heuristic]], [[questions/ball-period-recurrence]],
-[[implementations/mandel-machine]]
+[[implementations/mandel-machine]], [[synthesis/finding-deep-places]]

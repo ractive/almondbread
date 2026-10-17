@@ -92,7 +92,8 @@ the minibrot size a k-armed point shows 4k arms (c = i, a tip: 4; M(4,1): 12; M(
 at 3/4 of the way 8k, near the minibrot 2^n k arms and then the rings of
 `starburst-1e112` and the needles (measured by eye, 2026-10-16). The point M decides the
 symmetry, the fraction the arm count, so four views from three points at four fractions
-look different:
+look different (the community's version of this, Julia morphing and shape stacking, is in
+[[synthesis/finding-deep-places]]):
 
 | id | depth | from | minibrot (period, size) | view | look |
 | --- | --- | --- | --- | --- | --- |

@@ -28,4 +28,5 @@ Creator's own statements. Render times date from 2017 to 2020 KF + series-approx
 
 ## Used by
 
-Market research notes (kept private, not in this wiki).
+Market research notes (kept private, not in this wiki); [[synthesis/finding-deep-places]] (with
+fuller descriptions in [[sources/deep-zoom-videos]]).

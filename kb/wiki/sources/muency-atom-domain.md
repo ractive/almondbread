@@ -42,4 +42,4 @@ guesses (see [[sources/mathr-interior-distance]]) and Newton-zoom targets (KF "A
 ## Used by
 
 [[techniques/interior-detection]], [[techniques/coloring-methods]], [[techniques/reference-selection]],
-[[questions/ball-period-recurrence]]
+[[questions/ball-period-recurrence]], [[synthesis/finding-deep-places]]

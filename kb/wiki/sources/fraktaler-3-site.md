@@ -69,4 +69,4 @@ not the algorithms in depth. Timing example is one location on unspecified hardw
 [[techniques/exponential-map]], [[techniques/anti-aliasing]], [[techniques/interior-detection]],
 [[techniques/frame-reuse-and-progressive]], [[techniques/reference-orbit-precision]], [[formulas/hybrids]],
 [[formulas/burning-ship]], [[formulas/mandelbar]], [[platform/gpu-watchdog-and-chunking]],
-[[questions/metal-watchdog-limit]], [[questions/reference-orbit-compression]]
+[[questions/metal-watchdog-limit]], [[questions/reference-orbit-compression]], [[synthesis/finding-deep-places]]

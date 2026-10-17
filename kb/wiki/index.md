@@ -38,10 +38,14 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/cosmic-history-timeline]] — Times after the Big Bang (first stars, CMB, nucleosynthesis, transitions, inflation, Planck epoch) for the cosmic size scale (digested)
 - [[sources/cosmic-scale-references]] — Sizes, distances and big numbers for the cosmic size scale: Milky Way, universe, cells, nuclei, quark limit, googol, Shannon number (digested)
 - [[sources/crameri-scientific-colour-maps]] — Crameri Scientific colour maps v8 (MIT): batlow, cyclic romaO/vikO/bamO, ... (digested)
+- [[sources/deep-zoom-videos]] — YouTube descriptions of record and landmark deep zooms: e275 (2010) to e122768 (2022), iterations, `.kfr` and coordinate sharing, Maths Town record rules (digested)
 - [[sources/desarso-mandelbrot-webgpu-readme]] — The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), live at mandelbrot.gabrielmalek.com. (digested)
+- [[sources/dinkydau-evolution-journals]] — Dinkydau on evolution zooms, Julia-morph depth rules (morph at 1/2, doubling at 3/4 of log-depth), Newton zooming, ExploreFractals inflections (digested)
 - [[sources/edgar-pi-and-mandelbrot]] — Gerald Edgar's page on Boll's π (1992 alt.fractals post): Petry's tan heuristic at the cusp, Edgar's f∘f integral at the neck, -5/4 (digested)
 - [[sources/fractalforums-interior-detection]] — Archived single-page thread started by GBy (fractalshades author) on 25 June 2022: interior detection via the derivative `dz/dZ_1` combined with... (digested)
+- [[sources/fractalforums-deepest-zoom-poll]] — 2016 forum poll of members' deepest zooms (e450 to ~e22522) (skimmed)
 - [[sources/fractalforums-mandel-machine]] — Legacy fractalforums.com board for Mandel Machine, a closed-source freeware deep-zoom Mandelbrot renderer by Botond Kósa. (unread)
+- [[sources/fractalforums-pathfinding-revisited]] — 2019 thread: the path to a minibrot is recorded in its shells; 2/4/8 arms at 3/4, 7/8, 15/16 of the depth; "the path you choose BUILDS the shape" (digested)
 - [[sources/fractalforums-zhuoran-rebasing-bla]] — Archived forum thread where Zhuoran (later author of Imagina) posted the rebasing idea on 3 Aug 2021. (digested)
 - [[sources/fractalset-viewer]] — fractalset.com viewer: 24 palettes, log density 2^(d/10), sine ping-pong mapping (proprietary, described only) (digested)
 - [[sources/fractalshades-readme]] — The README of Fractalshades (GitHub `GBillotey/Fractalshades`, MIT, pushed 2026-08-30), a Python package for deep-zoom fractal rendering with a... (digested)
@@ -53,6 +57,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/frax-help-explore]] — Frax help page: the 64-bit limit (~2e14) is "absolute and final"; image sizes per tier (skimmed)
 - [[sources/gmp-fixed-size-mul]] — A gmp-devel reply by Albin Ahlbäck, 5 April 2024, in the thread "How to calculate cycles/limb in assembly routines". (digested)
 - [[sources/gmp-m1-discuss]] — A mailing-list post, "Surprise performance from Apple M1", by GMP's lead developer, 21 November 2020, after the project bought an M1 Mac mini. (digested)
+- [[sources/heiland-allen-inflected-julia-sets-2025]] — Alpaca 2025 paper: inflected Julia sets, disk/tree/line building blocks, evolution, half the zoom again per morph, automation open (digested)
 - [[sources/hn-mandelbrot-site-thread]] — HN thread on mandelbrot.site (2025, 86 points): "zoom forever", jerky zoom, iteration scaling, URL sharing (skimmed)
 - [[sources/iau-astronomical-units]] — IAU astronomical unit (exact) and the light year (digested)
 - [[sources/imagina-hinfla-evaluator]] — The main Mandelbrot evaluator of Imagina (pre-rewrite `master`, last pushed 2024-01-23), by Zhuoran, the originator of rebasing and of this "LA"... (skimmed)
@@ -71,7 +76,10 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/mathr-deep-zoom-page]] — mathr's maintained deep-zoom reference page as used in Fraktaler 3: perturbation, rebasing, BLA build/lookup, matrix and abs BLA, DE, interior detection (digested)
 - [[sources/mathr-deep-zoom-theory]] — Blog post (14 May 2021) by the maintainer of Kalles Fraktaler 2+ summarising the state of deep-zoom rendering as implemented in KF just before... (digested)
 - [[sources/mathr-deep-zoom-theory-again]] — Short follow-up blog post (21 Feb 2022) explaining Zhuoran's two 2021 ideas from fractalforums.org: rebasing and bilinear approximation (BLA),... (digested)
+- [[sources/mathr-domains-and-periodicity-scan]] — mathr: atom-domain size formula, Misiurewicz domains, periodicity scan listing every nucleus in a view (digested)
+- [[sources/mathr-embedded-julia-navigation]] — mathr: navigating embedded Julia sets in the hairs by external-angle blocks; binary period subdivision (digested)
 - [[sources/mathr-interior-distance]] — Blog post (2 Nov 2014) on computing Mandelbrot interior distance estimates in practice: find the period from atom-domain partials, find the... (digested)
+- [[sources/mathr-julia-morphing-posts]] — mathr 2016–2021: automated Julia morphing by angle extrapolation (O(p²)) and by alternating Misiurewicz/nucleus Newton (O(p)), symmetry trap (digested)
 - [[sources/maths-town-kfmoviemaker-guide]] — KF Movie Maker guide: KF keyframes into paid After Effects; weeks of export, manual keyframes, crashes (skimmed)
 - [[sources/maths-town-videos]] — Maths Town video catalogue and archived descriptions: depths to 4e2656, render times of weeks to months (skimmed)
 - [[sources/metal-benchmarks-readme]] — Philip Turner's long README describing the M1/M2 (Apple GPU families 7 and 8) GPU from his own microbenchmarks: per-chip FLOPS, on-chip memory,... (digested)
@@ -104,6 +112,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/very-plotter-readme]] — The short README of Phil Thompson's GitHub repository `visualize-primes`, which hosts Very Plotter, a browser (JavaScript) Mandelbrot explorer... (digested)
 - [[sources/wgpu-changelog-v30]] — wgpu CHANGELOG v27–v30 and Features docs: subgroups, indirect dispatch, timestamps, immediates, passthrough shaders; no Metal fast-math control (skimmed)
 - [[sources/wikibooks-fraktaler-3]] — Wikibooks page (part of Adam Majewski's "Fractals" book) about Fraktaler 3: usage notes and examples, including the metadata found in Fraktaler 3... (unread)
+- [[sources/wikibooks-emndl]] — Wikibooks on emndl and emndl_autotune, an undocumented "find points that might look nice" search over nuclei of growing period (skimmed)
 - [[sources/wikibooks-mandelbrot-interior]] — Wikibooks chapter (Adam Majewski's "Fractals" book) on the interior of the Mandelbrot set: how to detect interior points and how to colour them. (unread)
 - [[sources/wikibooks-triangle-inequality]] — Wikibooks page on averaging colouring methods, in particular Kerry Mitchell's Triangle Inequality Average (TIA) and the curvature average. (unread)
 - [[sources/wikipedia-fast-growing-hierarchy]] — f_ω is a unary Ackermann function, f_(ω+1)(64) > Graham's number (skimmed)
@@ -211,6 +220,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[questions/ball-period-recurrence]] — exact ball-method period recurrence
 - [[questions/bla-vs-la-benchmark]] — BLA tree vs Imagina LA+AT (and SA) on the GPU (answered M6: LA 1.9–2.4× at deep needle minibrots, no gain elsewhere)
 - [[questions/double-float-speed-on-m1]] — fma float-float vs integer emulation on Apple GPUs; answered: fma float-float correct under .safe, broken under .fast, 7–12× slower than float32
+- [[questions/julia-morph-depth-fractions]] — at which fractions of the log-depth to a minibrot the pattern doubles (1/2, 3/4, 7/8 …) and from where
 - [[questions/ffma32-latency]] — FFMA32 latency 2.21 vs 6 cycles in metal-benchmarks
 - [[questions/float32-error-long-orbits]] — how wrong float32 deltas get over long orbits; answered (M7): within a 0.001–0.2 px grid shift, no visible artefacts
 - [[questions/higher-order-bla]] — second-order BLA: 21× reported vs "nothing adopted" (contradiction)
@@ -230,6 +240,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[synthesis/deep-zoom-rendering-techniques]] — 2026 research report: settled pipeline, float32 constraints, renderer landscape, ranked roadmap
 - [[synthesis/flight-benchmark]] — the flight benchmark: one fixed versioned 60 s flight through every regime, mode A throughput (settled full quality, checked against fresh and jump renders), mode B real time (headless and window), score vs the M1 Pro reference, hygiene, calibration, first noisy findings (heavy spot settles black after the dive)
 - [[synthesis/dense-region-sampling]] — R3: fewer pixel-iterations in dense boundary regions; per-location numbers, recommendation (local SA in M5, interior-only tile fill), scheduler design, risks
+- [[synthesis/finding-deep-places]] — how the community finds deep places (shape stacking, Julia morphing, Newton zoom), known deep locations and records, density and colouring, what almondbread should build on `locate`
 - [[synthesis/how-big-is-big]] — the "How big is big?" panel (removed from the app 2026-10-15; maths kept): zoom depth vs googol, googolplex, Skewes, mega, Graham's g₁ on one dial per up-arrow; linear super-log convention, marker table, recomputed facts, TREE(3)
 - [[synthesis/places]] — the places catalogue: famous views with cited coordinates, conventions (span on the shorter side), generated Misiurewicz points and minibrots, checks, API, landscape-prototype use
 - [[synthesis/fractal-palettes]] — palette research and the 67-palette library: findings, licence table, what was dropped after the contact sheets, integration API

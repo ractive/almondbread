@@ -36,3 +36,4 @@ Primary but thin. The code on `master` is the pre-rewrite version; the rewrite m
 ## Used by
 
 - [[implementations/imagina]]
+- [[synthesis/finding-deep-places]]

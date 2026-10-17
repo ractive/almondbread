@@ -59,3 +59,4 @@ The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, push
 - [[techniques/double-float]]
 - [[questions/reference-orbit-compression]]
 - [[techniques/reference-selection]]
+- [[synthesis/finding-deep-places]]

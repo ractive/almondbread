@@ -42,4 +42,4 @@ only to propose framings that a probe render then accepts or rejects
 
 ## Used by
 
-[[decisions/controls]] (Journey: embedded Julia stages), [[techniques/reference-selection]]
+[[decisions/controls]] (Journey: embedded Julia stages), [[techniques/reference-selection]], [[synthesis/finding-deep-places]]
