@@ -10,7 +10,9 @@ Like a car, Almondbread has four ways to drive, shown at the bottom of the pictu
 
 You always steer yourself: point with the mouse (or a finger on iPhone and iPad) where you want to go, or use **W A S D**. Nothing pulls you anywhere.
 
-Zooming out gets faster the deeper you are, so the way home never takes long: about a minute from the deepest views at the first step. The speed builds up over a few seconds, and near the whole set it slows down evenly and comes to rest exactly on it.
+There are 26 gears, from ×1.1 to ×1000 per second; the cockpit shows the one you are in, for example *gear 5* zooming in or *reverse 3* zooming out.
+
+Zooming out gets faster the deeper you are (*boost*), more so in the higher gears: the low gears stay gentle (gear 1 takes about two minutes home from a zoom of ten billion), while gear 10 (×5) brings you home from the deepest views in about a minute and the top gear in about ten seconds. The speed builds up over a few seconds, and near the whole set it slows down evenly and comes to rest exactly on it.
 
 **Lane assist** (**L**, or the control center) keeps a cruise out of featureless areas with a gentle nudge; your own steering always wins. The lane icon in the gauge lights up while it is on.
 
@@ -25,7 +27,7 @@ Press **Z** (or click the plane in the cockpit at the bottom) and the view keeps
 - The **target marker**, a small ring, shows where the autopilot is heading and names what it found there for a moment (for example *spiral* or *minibrot · period 34*); a faint line from the middle shows the direction you suggested. Turn it off in View ▸ Autopilot Target Marker or the control center's **Overlays**.
 - **Esc** stops.
 
-When the picture ahead gets plain, or the computer needs time to keep up, the autopilot slows down by itself; the status overlay says why.
+When the picture ahead gets plain, or the computer needs time to keep up, the autopilot slows down by itself; the status overlay says why, and the cockpit shows the speed you set as *target* until it is back up to it.
 
 ## Journeys
 

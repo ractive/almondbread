@@ -13,11 +13,14 @@
 //! ladder.
 //!
 //! **Zoom-out dynamics.** In reverse the effective rate grows with the depth `D` (e-folds
-//! below the home view): `rate = set · (1 + D / BOOST_DEPTH)^ramp(t)`, `ramp` rising from
-//! 0 to 1 over [`BOOST_RAMP`] seconds after reversing began (smoothstep), so one press does
-//! not jump to a ludicrous speed: the log of the speed accelerates evenly. With the boost in full, `D + BOOST_DEPTH` decays
-//! exponentially: home from depth `D` takes `BOOST_DEPTH / set · ln(1 + D / BOOST_DEPTH)`
-//! seconds (logarithmic in the depth: about a minute from 1e-3000 at the first rung). The
+//! below the home view): `rate = set · (1 + D / BOOST_DEPTH)^(share · ramp(t))`, `ramp`
+//! rising from 0 to 1 over [`BOOST_RAMP`] seconds after reversing began (smoothstep), so one
+//! press does not jump to a ludicrous speed: the log of the speed accelerates evenly. The
+//! exponent's `share` ([`boost_share`]) grows with the gear, 0.5 in the first to 1 in the
+//! top one: the low gears are deliberately slow (gear 1 takes about 2 minutes from 1e-10,
+//! gear 10 (×5) about 70 s from 1e-3000, the top gear about 10 s; table in kb:
+//! decisions/controls "Driving levels"). With the full boost in the top gear, `D + BOOST_DEPTH`
+//! decays exponentially (home in a time logarithmic in the depth). The
 //! rate itself follows its target on the autopilot's rate spring (ω 3 / 4 per second), so the
 //! base speed eases in over about a second and a stop brakes on the spring's smooth curve.
 //! Near home the navigator hands the last stretch to a soft-landing flight
@@ -54,13 +57,13 @@ impl Level {
 }
 
 /// The pedal ladder: zoom factors per second of the rungs on either side of zero (E steps
-/// right, Q left: … ×2 out, ×1.5 out, stop, ×1.5 in, ×2 in …). It goes well beyond the
-/// autopilot's ×55 so that deep zoom-outs can be fast; forward the renderer back-off
-/// (throttle) still applies.
-/// 26 gears, each 1.1–1.4× the last up to ×100, then wider (user: finer than 12 steps).
+/// right, Q left: … ×1.2 out, ×1.1 out, stop, ×1.1 in, ×1.2 in …), the cockpit's gears 1–26.
+/// Each rung is 1.1–1.4× the last up to ×100, then wider (user: finer than the former 12).
+/// It goes well beyond the autopilot's ×55 so that deep zoom-outs can be fast; forward the
+/// renderer back-off (throttle) still applies.
 pub const LADDER: [f64; 26] = [
-    1.1, 1.2, 1.35, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0, 6.5, 8.0, 10.0, 13.0, 16.0, 20.0, 27.0, 35.0, 45.0, 60.0,
-    80.0, 100.0, 150.0, 250.0, 400.0, 1000.0,
+    1.1, 1.2, 1.35, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0, 6.5, 8.0, 10.0, 13.0, 16.0, 20.0, 27.0, 35.0, 45.0, 60.0, 80.0,
+    100.0, 150.0, 250.0, 400.0, 1000.0,
 ];
 
 /// A held pedal steps one more rung after [`HOLD_DELAY`] s, then every [`HOLD_REPEAT`] s.
@@ -508,7 +511,11 @@ mod tests {
             (25, 6908.0, 5.0, 15.0),
         ] {
             let (t, rates) = reverse(depth, -rung(gear), 60.0);
-            assert!((min_t..max_t).contains(&t), "gear {} from {depth} e-folds: {t} s", gear + 1);
+            assert!(
+                (min_t..max_t).contains(&t),
+                "gear {} from {depth} e-folds: {t} s",
+                gear + 1
+            );
             let at1 = -rates[59];
             assert!(at1 < 1.2 * rung(gear), "gear {}: {at1} e-folds/s after 1 s", gear + 1);
             for w in rates.windows(2) {

@@ -3,9 +3,11 @@
 //! (manual: a steering wheel, cruise: a speedometer, autopilot: a plane, journey: sparkles; the
 //! last two as in the toolbar), the current one lit with its name beside it; a thin gauge with
 //! zero in the middle showing the zoom rate flown now (reverse, zooming out, to the left); the
-//! rate as text ("↓ ×4.2/s") with the set speed under it in small type ("set ×1.5", plus
-//! "boost" while the reverse cruise's depth boost adds to it; lit for a moment after Q / E); a
-//! small lane icon for lane assist; and a (?) badge explaining the levels and their keys.
+//! rate as text ("↓ ×4.2/s") with a small line under it (lit for a moment after Q / E): in
+//! cruise the gear ("gear 5", "reverse 3", plus "boost" while the reverse depth boost adds to
+//! it), in the autopilot and a journey the set speed ("target ×20") only while the rate flown
+//! differs from it; a small lane icon for lane assist; and a (?) badge explaining the levels
+//! and their keys.
 //! Monochrome on a dark translucent plate, so it reads on bright and dark palettes; under 300
 //! points wide, so it fits a phone. Shown with the HUD; the state comes from the core
 //! `Navigator::cockpit`.
@@ -26,9 +28,12 @@ pub struct CockpitOverlay {
     /// Extra right and bottom margins (view points): iPhone buttons at the bottom right.
     pub inset_right: f64,
     pub inset_bottom: f64,
-    /// The set speed last drawn and when it changed (the "set" line lights up after Q / E).
+    /// The set speed last drawn and when it changed (the gear / target line lights up after
+    /// Q / E).
     last_set: Cell<f64>,
     set_at: Cell<f64>,
+    /// The "target" line showed in the last frame (its hysteresis).
+    target_shown: Cell<bool>,
     /// The level icons as last drawn: (level, centre x, centre y, half size), pixels. A click
     /// on one switches to that level (they replace the toolbar's autopilot and journey).
     icons: std::cell::RefCell<Vec<(Level, f64, f64, f64)>>,
@@ -36,25 +41,25 @@ pub struct CockpitOverlay {
     lane: Cell<Option<(f64, f64, f64)>>,
 }
 
-/// Font sizes (points): the level's name and the rate; the set-speed line.
+/// Font sizes (points): the level's name and the rate; the gear / target line.
 const NAME: f64 = 11.0;
 const VALUE: f64 = 11.0;
 const SMALL: f64 = 8.0;
 /// Horizontal metrics (points).
-const PAD: f64 = 8.0;
-const ICON_PITCH: f64 = 20.0;
+const PAD: f64 = 7.0;
+const ICON_PITCH: f64 = 19.0;
 const NAME_SLOT: f64 = 49.0;
 const GAUGE: f64 = 44.0;
-const VALUE_SLOT: f64 = 62.0;
+const VALUE_SLOT: f64 = 72.0;
 const LANE: f64 = 12.0;
-const GAP: f64 = 6.0;
+const GAP: f64 = 5.0;
 const BADGE: f64 = 2.0 * crate::help::RADIUS;
 const HEIGHT: f64 = 28.0;
 const MARGIN: f64 = 12.0;
 /// The cockpit is drawn this much larger where the window has room (at its base size on a
 /// phone).
 const ZOOM_MAX: f64 = 1.3;
-/// How long the set-speed line stays lit after it changed (s).
+/// How long the gear / target line stays lit after it changed (s).
 const SET_FLASH: f64 = 1.2;
 
 /// The panel's width in points.
@@ -80,13 +85,43 @@ pub fn value_text(c: &Cockpit) -> String {
     format!("{arrow} {}/s", cruise::factor_text(c.rate))
 }
 
-/// The set-speed line ("set ×1.5", "set ×1.5 · boost"); empty when nothing is set.
-pub fn set_text(c: &Cockpit) -> String {
-    if c.set == 0.0 {
+/// The autopilot's and journey's set speed shows ("target ×20") while the rate flown differs
+/// from it by more than this share (of the e-folds per second), and hides again under
+/// [`TARGET_HIDE`] (no flicker at the edge).
+pub const TARGET_SHOW: f64 = 0.05;
+pub const TARGET_HIDE: f64 = 0.03;
+
+/// The small line under the rate; empty when nothing is set. In cruise the gear, always:
+/// "gear 5" forward, "reverse 3" zooming out, plus " · boost" while the depth boost adds
+/// noticeably. In the autopilot and a journey the set speed, "target ×20", only while the rate
+/// flown differs from it (speeding up, braking, the renderer back-off; `shown`: it showed in
+/// the last frame, for the hysteresis).
+pub fn set_text(c: &Cockpit, shown: bool) -> String {
+    if c.set == 0.0 || !c.set.is_finite() {
         return String::new();
     }
-    let boost = if c.set < 0.0 && c.boost > 1.05 { " · boost" } else { "" };
-    format!("set {}{boost}", cruise::factor_text(c.set))
+    match c.level {
+        Level::Cruise => {
+            let Some(g) = cruise::gear(c.set) else {
+                return String::new();
+            };
+            if c.set > 0.0 {
+                format!("gear {g}")
+            } else {
+                let boost = if c.boost > 1.05 { " · boost" } else { "" };
+                format!("reverse {g}{boost}")
+            }
+        }
+        Level::Autopilot | Level::Journey => {
+            let tol = if shown { TARGET_HIDE } else { TARGET_SHOW };
+            if (c.rate - c.set).abs() > tol * c.set.abs() {
+                format!("target {}", cruise::factor_text(c.set))
+            } else {
+                String::new()
+            }
+        }
+        Level::Manual => String::new(),
+    }
 }
 
 /// The level's name in the cockpit.
@@ -274,7 +309,8 @@ impl CockpitOverlay {
         // The rate flown, and the set speed under it (lit for a moment after it changed).
         let tx = g1 + GAP * px;
         let text = value_text(c);
-        let set = set_text(c);
+        let set = set_text(c, self.target_shown.get());
+        self.target_shown.set(set.starts_with("target"));
         if c.set != self.last_set.get() {
             self.last_set.set(c.set);
             self.set_at.set(now);
@@ -398,7 +434,7 @@ mod tests {
         );
         assert!(s.prims.len() > 20, "{}", s.prims.len());
         assert!(
-            key.contains("↓ ×4/s") && key.contains("set ×2 · boost") && key.contains(" true "),
+            key.contains("↓ ×1.44/s") && key.contains("reverse 2 · boost") && key.contains(" true "),
             "{key}"
         );
         assert_eq!(help.len(), 1);
@@ -418,8 +454,8 @@ mod tests {
         );
         assert!(later.contains(" false "), "{later}");
         assert_eq!(value_text(&Cockpit::default()), "");
-        assert_eq!(set_text(&Cockpit::default()), "");
-        // Every glyph the cockpit writes is in the font.
+        assert_eq!(set_text(&Cockpit::default(), false), "");
+        // Every glyph the cockpit writes is in the font, and the longest lines fit their slot.
         let words = [
             "Manual",
             "Cruise",
@@ -427,13 +463,101 @@ mod tests {
             "Journey",
             "↑ ×1.5/s",
             "↓ ×1e434/s",
-            "set ×2 · boost",
+            "reverse 26 · boost",
+            "gear 26",
+            "target ×1000",
         ];
         for t in words {
             for ch in t.chars().filter(|c| !c.is_whitespace()) {
                 assert!(crate::font::glyph(ch) != crate::font::glyph('?') || ch == '?', "{ch}");
             }
         }
+        for t in ["reverse 26 · boost", "target ×1000", "target ×2.46"] {
+            let w = f64::from(crate::font::layout(t, SMALL as f32).1);
+            assert!(w <= VALUE_SLOT, "{t}: {w} points");
+        }
+        let w = f64::from(crate::font::layout("↓ ×1e869/s", VALUE as f32).1);
+        assert!(w <= VALUE_SLOT, "{w} points");
         assert!(gauge(0.0) == 0.0 && gauge(cruise::max_speed()) == 1.0 && gauge(1e6) == 1.0);
+    }
+
+    /// The small line: the gear in cruise (always), the target in A and J only while the rate
+    /// flown differs from it by more than 5 % (with hysteresis).
+    #[test]
+    fn small_line_shows_the_gear_or_a_differing_target() {
+        let at = |level, set: f64, rate: f64, boost: f64| Cockpit {
+            level,
+            set,
+            rate,
+            boost,
+            ..Default::default()
+        };
+        let r = cruise::rung;
+        assert_eq!(set_text(&at(Level::Cruise, r(4), 0.0, 1.0), false), "gear 5");
+        assert_eq!(set_text(&at(Level::Cruise, r(4), r(4), 1.0), false), "gear 5");
+        assert_eq!(set_text(&at(Level::Cruise, -r(2), -r(2), 1.0), false), "reverse 3");
+        assert_eq!(set_text(&at(Level::Cruise, -r(2), -r(2), 1.02), false), "reverse 3");
+        assert_eq!(
+            set_text(&at(Level::Cruise, -r(2), -3.0, 2.0), false),
+            "reverse 3 · boost"
+        );
+        assert_eq!(set_text(&at(Level::Cruise, r(25), r(25), 1.0), false), "gear 26");
+        // Braking to rest (nothing set): no line.
+        assert_eq!(set_text(&at(Level::Cruise, 0.0, 0.5, 1.0), false), "");
+        let s = 20f64.ln();
+        for level in [Level::Autopilot, Level::Journey] {
+            assert_eq!(set_text(&at(level, s, s, 1.0), false), "", "{level:?} on target");
+            assert_eq!(
+                set_text(&at(level, s, 0.97 * s, 1.0), false),
+                "",
+                "{level:?} within 5 %"
+            );
+            assert_eq!(set_text(&at(level, s, 0.9 * s, 1.0), false), "target ×20", "{level:?}");
+            assert_eq!(set_text(&at(level, s, 0.0, 1.0), false), "target ×20", "{level:?}");
+            assert_eq!(set_text(&at(level, s, -0.5, 1.0), false), "target ×20", "{level:?}");
+            // Hysteresis: shown, it stays until within 3 %.
+            assert_eq!(set_text(&at(level, s, 0.96 * s, 1.0), true), "target ×20");
+            assert_eq!(set_text(&at(level, s, 0.98 * s, 1.0), true), "");
+        }
+        assert_eq!(set_text(&at(Level::Manual, s, 0.0, 1.0), false), "");
+    }
+
+    #[test]
+    fn target_line_follows_the_rate_while_drawing() {
+        let c = CockpitOverlay {
+            enabled: true,
+            ..Default::default()
+        };
+        let mut s = Scene::default();
+        let mut help = Vec::new();
+        let set = 20f64.ln();
+        let mut draw = |rate: f64, t: f64| {
+            let mut key = String::new();
+            let state = Cockpit {
+                level: Level::Autopilot,
+                set,
+                rate,
+                ..Default::default()
+            };
+            c.draw(
+                &mut s,
+                &mut help,
+                (2000, 1200),
+                0.5,
+                (0.0, 0.0, 0.0, 0.0),
+                0.0,
+                &state,
+                t,
+                &mut key,
+            );
+            key
+        };
+        assert!(draw(0.5 * set, 0.0).contains("target ×20"));
+        assert!(draw(0.96 * set, 0.1).contains("target ×20"), "hysteresis");
+        assert!(!draw(0.99 * set, 0.2).contains("target"));
+        assert!(
+            !draw(0.96 * set, 0.3).contains("target"),
+            "hidden stays hidden within 5 %"
+        );
     }
 }
