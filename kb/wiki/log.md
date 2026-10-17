@@ -1061,3 +1061,17 @@ at high limits; satellite proven 1.1 → 3.4 % of 3.7 %, cardioid edge 55.7 → 
 cusp 35.7 → 87.9 %. Near-parabolic views (neck, 1/3 root) stay unresolved and cost 10–40 %
 offscreen. Pages: [[techniques/interior-detection]] "Attracting-cycle probe",
 [[synthesis/benchmarks]] "Interior probe". Contact sheet: `~/Desktop/interior-before-after.png`.
+
+## [2026-10-17] query | Autopilot check failure: GPU clocks trap the gesture resolution at 1/8
+
+The interaction test's "autopilot" scenario (×3.16 in 2.4 s) failed on main at ×2.2–2.5.
+Bisected over worktree builds back to the autopilot's own commit (4a1c949: ×3.3, passes); no
+single commit: the gesture resolution is bistable. Apple's GPU clocks follow the load, so at
+1/8 resolution the measured GPU time per texel rises 2.5x within ~15 frames, the
+proportional cost model never leaves 1/8, and the autopilot throttles to ~0.4 from that
+`fit`. Other agents' GPU load kept the clocks up, which is why it "passed on a busy machine".
+Not the pipeline warm-up, the lock probes, the progress line or the watchdog (switches off:
+same ×2.2). Fix in `Renderer`: upward resolution probes and a median-fit hysteresis. Autopilot
+×4.3–4.7 in 8/8 interleaved runs (main 3/8), preview scale about 2x in most gesture
+scenarios, skipped draws equal except a few more at dense views; numbers in
+[[synthesis/benchmarks]] "Autopilot throttle and GPU clocks".

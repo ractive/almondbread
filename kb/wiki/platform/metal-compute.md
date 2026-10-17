@@ -69,6 +69,13 @@ those are marked (unverified). The decision to use Metal is in
   `gpuStartTime`/`gpuEndTime` (or `kernelEndTime`) and adapt the per-dispatch
   iteration budget (inference; API (unverified)). Details and scheduler pseudocode:
   [[platform/gpu-watchdog-and-chunking]].
+- GPU time is measured at whatever clock the GPU runs at, and the clock follows the load:
+  a light per-frame load (a 1/8-resolution gesture preview) took 2.5x longer for the same
+  iterations within ~15 frames, and a fixed full-resolution pass 2x (measured 2026-10-17,
+  M1-class, release). Time per texel from light frames overstates the cost of heavier ones;
+  the gesture resolution probes upwards for that ([[synthesis/benchmarks]] "Autopilot
+  throttle and GPU clocks"). Other processes' GPU work keeps the clocks up, so timings on a
+  busy machine can be *faster*.
 - Indirect dispatch (`dispatchThreadgroups(indirectBuffer:...)`) launches the next
   chunk over a compacted list of still-live pixels whose count was produced on the
   GPU by an atomic counter, with no CPU round trip (inference).

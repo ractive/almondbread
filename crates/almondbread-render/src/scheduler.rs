@@ -51,6 +51,17 @@ const STAT_SLOTS: usize = 64;
 const SURVEY_COLS: usize = 16;
 const SURVEY_ROWS: usize = 10;
 const SURVEY_INTERVAL: f64 = 0.1;
+/// Gesture resolution probe (kb: synthesis/benchmarks "Autopilot throttle and GPU clocks"):
+/// how long a probe holds one 1/8 step above the cost model's resolution (s), and the wait
+/// before the next probe after a success and, doubling, after failures (s).
+const PROBE_TIME: f64 = 0.25;
+const PROBE_WAIT: (f64, f64) = (0.5, 4.0);
+/// A gesture keeps a resolution step while the median fit of its last `FIT_WINDOW` frames
+/// affords at least this share of it (up to 1/0.85^2 = 1.38x the budget): single chunks swing
+/// +-30 % with the GPU clocks, and every ~0.25 s one takes 2-3x (9 ms at 1/4 in the autopilot
+/// scenario), which alone dropped 1/4 back to 1/8.
+const RATIO_HOLD: f64 = 0.85;
+const FIT_WINDOW: usize = 5;
 const PALETTE_SIZE: usize = 1024;
 /// Derivative test threshold on |w| n² (kb: techniques/interior-detection, Pitfalls).
 const INTERIOR_EPS: f32 = 1e-3;
@@ -1151,6 +1162,22 @@ pub struct Renderer<B: GpuBackend> {
     /// the queue filled, the frame thread blocked in `commandBuffer` for seconds and the
     /// "spiral zoom" interaction test presented nothing.
     cost_known: bool,
+    /// Gesture resolution probe: the ratio tried above the cost model's (0: none pending),
+    /// until when, the earliest start of the next probe and the current wait between probes.
+    /// GPU time per texel is no constant: Apple's GPU clocks follow its load, so a
+    /// gesture at 1/8 resolution (little work per frame) runs at low clocks, measures 2-3x the
+    /// texel cost of 1/4 at the clocks that load brings, and the proportional model then never
+    /// leaves 1/8 (and the autopilot throttles to ~0.4 by it). A probe measures the step
+    /// above at its own clocks; the cost model keeps it when it fits the budget.
+    probe_ratio: f64,
+    probe_until: f64,
+    probe_after: f64,
+    probe_wait: f64,
+    probe_frames: usize,
+    /// The last gesture frame's resolution (0 after a jump) and the fits of the last gesture
+    /// frames (newest last), for `RATIO_HOLD`.
+    gesture_ratio: f64,
+    gesture_fits: VecDeque<f64>,
     has_presented: bool,
     /// The current view waits for its (deep) reference: no job.
     waiting_reference: bool,
@@ -1349,6 +1376,13 @@ impl<B: GpuBackend> Renderer<B> {
             rate: 3e10,
             cost_per_texel: 0.0,
             cost_known: false,
+            probe_ratio: 0.0,
+            probe_until: f64::NEG_INFINITY,
+            probe_after: f64::NEG_INFINITY,
+            probe_wait: PROBE_WAIT.0,
+            probe_frames: 0,
+            gesture_ratio: 0.0,
+            gesture_fits: VecDeque::with_capacity(FIT_WINDOW),
             has_presented: false,
             waiting_reference: false,
             frames_in_flight: Vec::new(),
@@ -2094,6 +2128,16 @@ impl<B: GpuBackend> Renderer<B> {
                 at_limit: self.viewport.at_precision_limit(),
             };
             self.navigator.autopilot_mut().set_feedback(feedback);
+            if self.config.trace {
+                let a = self.navigator.autopilot_mut();
+                println!(
+                    "feedback: fit {fit:.3} (cost/texel {:.2e}) throttle {:.2} safety {:.2} rate {:.3}",
+                    self.cost_per_texel,
+                    a.throttle(),
+                    a.safety(),
+                    a.rate()
+                );
+            }
         }
         let keep_going = self.navigator.advance(&mut self.viewport, now);
         let mut outcome = FrameOutcome {
@@ -2451,6 +2495,12 @@ impl<B: GpuBackend> Renderer<B> {
                     println!("jump: learned iteration state reset");
                 }
                 self.cost_known = false;
+                self.probe_ratio = 0.0;
+                self.probe_until = f64::NEG_INFINITY;
+                self.probe_after = f64::NEG_INFINITY;
+                self.probe_wait = PROBE_WAIT.0;
+                self.gesture_ratio = 0.0;
+                self.gesture_fits.clear();
                 self.settings.learned_iterations = 0;
                 self.pinned_iterations = None;
                 self.interior_stats = None;
@@ -2534,6 +2584,12 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     fn start_job(&mut self, mut key: ComputeKey, mode: JobMode, now: f64) {
+        // A gesture starts: its first frames are sized by the refined frame's cost, which
+        // says little about gesture frames (interior fill, local SA); no probe before its own
+        // frames have measured.
+        if mode == JobMode::Interactive && !self.job.as_ref().is_some_and(|j| j.interactive) {
+            self.probe_after = self.probe_after.max(now + PROBE_WAIT.0);
+        }
         // A gesture frame superseded before its preview completed never reported its cost:
         // what its finished chunks took is a lower bound (M5: after a refined frame made cheap
         // by local SA the dynamic resolution started too fine at the neck and stayed there).
@@ -2699,6 +2755,20 @@ impl<B: GpuBackend> Renderer<B> {
                 if self.cost_known && self.cost_per_texel > 0.0 {
                     let fit = (self.gesture_budget() / (self.cost_per_texel * (key.width * key.height) as f64)).sqrt();
                     ratio = ((fit * 8.0).floor() / 8.0).clamp(0.125, 1.0);
+                    // Hysteresis against noise in the cost: a step up needs the fit, keeping a
+                    // step (up to the last gesture frame's) needs RATIO_HOLD of the median fit
+                    // of the last frames.
+                    if self.gesture_fits.len() == FIT_WINDOW {
+                        self.gesture_fits.pop_front();
+                    }
+                    self.gesture_fits.push_back(fit);
+                    let mut fits: Vec<f64> = self.gesture_fits.iter().copied().collect();
+                    fits.sort_by(f64::total_cmp);
+                    let median = fits[fits.len() / 2];
+                    let held = ((median / RATIO_HOLD * 8.0).floor() / 8.0).min(self.gesture_ratio);
+                    ratio = ratio.max(held);
+                    ratio = self.probe_gesture_ratio(ratio, fit, now);
+                    self.gesture_ratio = ratio;
                 }
                 if !self.settings.interactive_preview {
                     ratio = 1.0;
@@ -3099,6 +3169,64 @@ impl<B: GpuBackend> Renderer<B> {
     /// Build time (s), entries, bytes and stages of the last LA table.
     pub fn la_info(&self) -> (f64, usize, usize, usize) {
         self.la_info
+    }
+
+    /// The gesture resolution with the probe (see `probe_ratio`): `model` is the cost model's
+    /// 1/8 step for `fit` (the unclamped ratio the measured cost affords). While a probe runs
+    /// it holds the step above `model`, unless the probe's own frames measure it too slow to
+    /// hold (`RATIO_HOLD`); after it the model decides (a success: the probe's measured cost fits
+    /// its step) and the next probe waits `PROBE_WAIT`, doubling after each failure. A probe
+    /// starts only when the model's level fits the budget, so at most one 1/8 step over:
+    /// never at views too slow even for 1/8 (the period-32412 spiral).
+    fn probe_gesture_ratio(&mut self, model: f64, fit: f64, now: f64) -> f64 {
+        if self.probe_ratio > 0.0 {
+            // Abort early once three fits in a row (after the frames sized before the probe
+            // have reported) say it does not hold: at the dense views 1/4 took 12 ms for 30
+            // frames otherwise.
+            self.probe_frames += 1;
+            let too_slow = self.probe_frames > 3
+                && self
+                    .gesture_fits
+                    .iter()
+                    .rev()
+                    .take(3)
+                    .all(|&f| f < RATIO_HOLD * self.probe_ratio);
+            if now < self.probe_until && !too_slow {
+                return self.probe_ratio.max(model);
+            }
+            // The probe ended (or measured far too slow): keep its step if the cost fits.
+            let ok = model >= self.probe_ratio;
+            self.probe_wait = if ok {
+                PROBE_WAIT.0
+            } else {
+                (2.0 * self.probe_wait).min(PROBE_WAIT.1)
+            };
+            if self.config.trace {
+                println!(
+                    "gesture probe {}: ratio {} {}, next in {:.2} s",
+                    if ok { "kept" } else { "dropped" },
+                    self.probe_ratio,
+                    if ok { "fits" } else { "does not fit" },
+                    self.probe_wait
+                );
+            }
+            self.probe_ratio = 0.0;
+            self.probe_after = now + self.probe_wait;
+            return model;
+        }
+        if model < 1.0 && fit >= model && now >= self.probe_after {
+            self.probe_ratio = model + 0.125;
+            self.probe_until = now + PROBE_TIME;
+            self.probe_frames = 0;
+            if self.config.trace {
+                println!(
+                    "gesture probe: ratio {} over the model's {model} (fit {fit:.3})",
+                    self.probe_ratio
+                );
+            }
+            return self.probe_ratio;
+        }
+        model
     }
 
     /// GPU seconds a gesture frame's iteration may take: half the measured refresh interval

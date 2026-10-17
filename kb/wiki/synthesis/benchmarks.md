@@ -1817,3 +1817,62 @@ not within 3 s / 1.84 s → 1.48 / 0.88 s), dense pan 308/300 → 308/267.
 
 Feigenbaum (full sequential runs, same caveat): 3456 12.9 → 13.6 s, 1600 2.35 → 2.37 s;
 sea-8007 unchanged (probe off: nucleus period 8007).
+
+## Autopilot throttle and GPU clocks, 2026-10-17
+
+Measured 2026-10-17, M1-class MacBook Pro (120 Hz panel), release, background interaction-test
+window (occluded: no presentation times); other agents' renders and the user's app often had
+the GPU 70–100 % busy (`ioreg -c IOAccelerator` "Device Utilization %" read before each run).
+
+**Symptom.** The interaction test's "autopilot" scenario (Z, Esc at 2.4 s, check: zoomed
+≥ ×3.16) failed on main at ×2.2–2.5, on every run with an idle GPU. The autopilot itself was
+fine: `throttle` (kb: [[decisions/controls]] Autopilot) followed `fit`, the gesture-preview
+resolution the cost model affords, and `fit` sat at 0.13–0.15, so the throttle settled at
+~0.4 and gesture frames stayed at 1/8 resolution.
+
+**Bisect** (worktree builds, 3–6 runs each): 4a1c949 (the autopilot's own commit) ×3.3–3.4
+3/3; e162c9d ×3.2–4.5 3/3; 2d32459 ×2.5–3.2 3/5; 2e7e59a bimodal (×2.8, ×2.8, ×4.6);
+0b952d4 ×2.5–4.4; 38ce475, 37ca2bc (before the motion-fixes merge) and main ×2.2–2.5.
+`ALMONDBREAD_WARM_PIPELINES=0`, `ALMONDBREAD_AUTOPILOT_LOCK=0` and
+`ALMONDBREAD_PROBE_ESCALATE=0` changed nothing. No single commit: a bistability whose low
+state got more likely as other work changed the start of the gesture.
+
+**Root cause: GPU time per texel is not a constant.** The dynamic resolution
+(`Renderer::start_job`) extrapolates the last chunk's GPU time per texel proportionally.
+Apple's GPU clocks follow the load: at 1/8 resolution a frame has little work, the clocks
+drop, and the same 9.4 M iterations went from 1.2 ms (first gesture frames, clocks still up
+from the refined frame) to 3.0–3.3 ms within ~15 frames (`ALMONDBREAD_TRACE`). The model then
+read 4.5e-8 s/texel at 1/8 against 1.5e-8 at 1/4 and never left 1/8. Forced ratios
+(temporary override, same view): 1/8 iterate 3.55 + colorize 2.66 ms per frame, 1/4
+4.14 + 1.51, 3/8 5.37 + 1.35; all three at 120 frames/s with nothing skipped and zooms of
+×2.2, ×4.6, ×4.7. The full-resolution colorize, a fixed amount of work, took twice as long
+at 1/8: the clock, not the work. Other GPU clients keep the clocks up, which is why the
+check passed "on a busy machine" earlier in the week and fails on an idle one.
+
+**Fix** (`scheduler.rs`, `probe_gesture_ratio`): (1) a probe: when the model's level fits the
+budget, a gesture tries one 1/8 step above for 0.25 s and keeps it if its own measured cost
+fits; the next probe waits 0.5 s, doubling to 4 s after failures; no probe in a gesture's
+first 0.5 s (its first frames are sized by the refined frame's cost); a probe aborts after
+three too-slow fits in a row (dense views: 1/4 took 12 ms). (2) Hysteresis: a step is kept
+while the median fit of the last 5 gesture frames is ≥ 0.85 of it (single chunks swing
+±30 %, and every ~0.25 s one takes 2–3x). An exponential average instead of the median held
+steps too long when the cost really rose (2–10x the skipped draws).
+
+| interleaved runs, autopilot scenario alone | main 102e018 | fix |
+|---|---|---|
+| zoom in 2.4 s | ×2.3–2.4 (×4.4–4.7 when other GPU load kept the clocks up); 3/8 OK | ×4.3–4.7; 8/8 OK |
+| gesture preview scale (mean) | 0.13 | 0.26–0.30 |
+| GPU ms per frame (iterate + colorize) | 3.1–3.4 + 2.2–2.7 | 3.9–4.7 + 1.5–1.6 |
+
+Whole interaction test, back to back (fix first, then main): fix passes every check (autopilot
+×4.6); main fails autopilot (×2.2). Mean preview scale rises in most gesture scenarios (1e5
+pan 0.13 → 0.35, rotate zoom 0.13 → 0.37, journey 0.13 → 0.42, wasd 0.13 → 0.43, home pan
+0.59 → 0.93) at similar total GPU per frame. Skipped draws (frame still in flight) are equal
+or lower except the dense views and the deep zoom, where failed probes cost a few frames:
+dense pan 3–4 → 10–11, dense zoom 3 → 5–8 (interleaved), deep zoom 1e-12 to 1e-40 2 → 16 (one
+run). Expensive views stay at 1/8 (sea-1e20, spiral, looks deep: unchanged). `make regress`
+20 sessions OK, selftest OK.
+
+Open: the cost model is still "time per texel at the current clock". A model of the
+clock-independent work (iterations, as `rate` does for the chunk sizes) or frame-time
+feedback (skipped draws) would remove the probe; not needed for the check.
