@@ -232,14 +232,16 @@ final class InteractionTest: NSObject {
             }
             zoom(v, i, t)
         }
-        // Autopilot (kb: decisions/controls, autopilot): Z, the synthetic pointer circles 220 pt
-        // off-centre (steering), Esc at 2.4 s (eased stop). Checks it zoomed and steered.
-        var ap = (start: ViewportInfo?.none, active: false)
+        // Autopilot (kb: decisions/controls, autopilot, "Driving levels"): Z, the synthetic
+        // pointer circles 220 pt off-centre: steering hands over to cruise (C) at the
+        // autopilot's speed, which goes on zooming and steering; Esc at 2.4 s (eased stop).
+        // Checks it zoomed, handed over and steered.
+        var ap = (start: ViewportInfo?.none, active: false, cruise: false)
         let autopilot: (FractalNSView, Int, Double) -> Void = { v, i, t in
             guard let explorer = v.explorer else { return }
             if i == 0 {
                 sent.removeAll()
-                ap = (explorer.viewport(), false)
+                ap = (explorer.viewport(), false, false)
                 v.send(.pointer(x: 0, y: 0))
                 InteractionTest.key(v, "z", down: true)
                 InteractionTest.key(v, "z", down: false)
@@ -247,16 +249,17 @@ final class InteractionTest: NSObject {
             let a = 0.8 * t
             v.send(.pointer(x: 220 * cos(a), y: 220 * sin(a)))
             if explorer.stats().autopilot.active { ap.active = true }
+            if ap.active && explorer.stats().cruise.level == .cruise { ap.cruise = true }
             once("esc", t >= 2.4) {
                 InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
                 InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
                 let vp = explorer.viewport()
                 let zoomed = (ap.start?.zoomLog10).map { vp.zoomLog10 - $0 } ?? 0
                 let moved = ap.start.flatMap { s in Double(vp.re).flatMap { re in Double(s.re).map { (re - $0) / vp.scale } } } ?? 0
-                let ok = ap.active && zoomed > 0.5 && abs(moved) > 1 && !explorer.stats().autopilot.active
+                let ok = ap.active && ap.cruise && zoomed > 0.2 && abs(moved) > 1 && !explorer.stats().autopilot.active
                 if !ok { self.failures += 1 }
-                self.refineLines.append(String(format: "autopilot: on %@, zoomed ×%.1f in 2.4 s, centre moved %.0f pt by steering, off after Esc %@ %@",
-                                               ap.active ? "yes" : "NO", pow(10, zoomed), moved,
+                self.refineLines.append(String(format: "autopilot: on %@, steering handed over to cruise %@, zoomed ×%.1f in 2.4 s, centre moved %.0f pt by steering, off after Esc %@ %@",
+                                               ap.active ? "yes" : "NO", ap.cruise ? "yes" : "NO", pow(10, zoomed), moved,
                                                explorer.stats().autopilot.active ? "NO" : "yes", ok ? "OK" : "FAILED"))
             }
         }
@@ -469,30 +472,33 @@ final class InteractionTest: NSObject {
                 self.refineLines.append("journey: #\(s.journey.seed) leg \(journeyLegs) \"\(s.journey.label)\" \(s.journey.phase), off after Esc \(explorer.stats().journey.active ? "NO" : "yes") \(ok ? "OK" : "FAILED")")
             }
         }
-        // Zoom-out autopilot (kb: decisions/controls "Zoom-out autopilot"): ⇧Z from the 1e5 view;
-        // by 2.4 s it must be zooming out at the autopilot speed (more than 1 e-fold so far);
-        // Esc then eases it to a stop on the way.
-        var zoomOutStart = 0.0
-        var zoomOutSeen = false
-        let zoomOut: (FractalNSView, Int, Double) -> Void = { v, i, t in
+        // Reverse cruise (kb: decisions/controls "Driving levels"): Q twice (×2/s out) from the
+        // 1e5 view; by 2.4 s it must be cruising out (more than 0.4 e-folds so far, the depth
+        // boost building up; the renderer back-off may halve it); Esc then brakes it to rest.
+        var cruiseStart = 0.0
+        var cruiseSeen = false
+        let cruiseOut: (FractalNSView, Int, Double) -> Void = { v, i, t in
             guard let explorer = v.explorer else { return }
             if i == 0 {
                 sent.removeAll()
-                zoomOutSeen = false
-                zoomOutStart = explorer.viewport().zoomLog10
-                InteractionTest.key(v, "Z", down: true, modifiers: .shift)
-                InteractionTest.key(v, "Z", down: false, modifiers: .shift)
-                v.send(.shift(down: false))
+                cruiseSeen = false
+                cruiseStart = explorer.viewport().zoomLog10
+                for _ in 0..<2 {
+                    InteractionTest.key(v, "q", down: true)
+                    InteractionTest.key(v, "q", down: false)
+                }
             }
-            if explorer.stats().flight.zoomOut { zoomOutSeen = true }
+            if explorer.stats().cruise.level == .cruise { cruiseSeen = true }
             once("esc", t >= 2.4) {
-                let out = (zoomOutStart - explorer.viewport().zoomLog10) * log(10.0)
+                let out = (cruiseStart - explorer.viewport().zoomLog10) * log(10.0)
+                let c = explorer.stats().cruise
                 InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
                 InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
-                let ok = zoomOutSeen && out > 1.0 && explorer.stats().flight.stopping
+                let braking = explorer.stats().cruise.set == 0
+                let ok = cruiseSeen && out > 0.4 && braking
                 if !ok { self.failures += 1 }
-                self.refineLines.append(String(format: "zoom out: %.2f e-folds out in 2.4 s, stopping after Esc %@ %@",
-                                               out, explorer.stats().flight.stopping ? "yes" : "NO", ok ? "OK" : "FAILED"))
+                self.refineLines.append(String(format: "cruise out: %.2f e-folds out in 2.4 s (rate %.2f e/s, boost ×%.2f), braking after Esc %@ %@",
+                                               out, c.rate, c.boost, braking ? "yes" : "NO", ok ? "OK" : "FAILED"))
             }
         }
         // Journey with stops (kb: decisions/controls "Journey with stops"): J in the "stop at
@@ -655,7 +661,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "compass", viewport: sea, input: compass),
                 Scenario(name: "autopilot lock", viewport: sea, input: autopilotLock),
                 Scenario(name: "journey", viewport: sea, input: journey),
-                Scenario(name: "zoom out", viewport: sea, input: zoomOut),
+                Scenario(name: "cruise out", viewport: sea, input: cruiseOut),
                 Scenario(name: "journey stops", viewport: sea, input: journeyStops),
                 Scenario(name: "pi hunt", viewport: home, input: piHunt),
                 Scenario(name: "esc full screen", viewport: sea, input: escFullScreen),

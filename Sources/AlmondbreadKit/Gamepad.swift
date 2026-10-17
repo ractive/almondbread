@@ -7,8 +7,8 @@ import GameController
 /// easing are Rust's `Navigator`; nothing here interprets motion.
 ///
 /// Mapping: left stick pans, right trigger / left trigger zoom in / out, right stick up /
-/// down zooms too, A (south button) is the speed boost, the shoulders change the zoom speed
-/// like Q / E, Y resets the view.
+/// down zooms too, A (south button) is the speed boost, the shoulders are the cruise
+/// pedals like Q / E, Y resets the view.
 @MainActor
 final class GamepadInput {
     private let send: (InputEvent) -> Void

@@ -302,7 +302,7 @@ struct ViewSectionRows: View {
                 Label(model.autopilotActive ? "Stop" : "Autopilot",
                       systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
             }
-            .help("Zoom on continuously, steer with the pointer; click pauses, Esc stops (Z)")
+            .help("Zoom on continuously towards interesting places; click pauses, Esc stops, steering hands over to cruise (Z)")
             if model.flightActive {
                 Button {
                     model.stopMotion()
@@ -330,7 +330,10 @@ struct ViewSectionRows: View {
         #endif
         .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
         Toggle("Autopilot target lock", isOn: $model.autopilotLock)
-            .help("While the pointer rests near the centre the autopilot aims at spirals, branch points and minibrots, and backs out of empty regions; moving the pointer always steers. Off: a pure joystick")
+            .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
+        // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
+        Toggle("Lane assist", isOn: $model.laneAssist)
+            .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
         // View rotation (kb: decisions/controls, "View rotation"); the compass shows the angle.
         LabeledContent("Rotation") {
             Button("Straighten") { model.straighten() }
@@ -886,7 +889,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
-        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "rotation", "straighten"]
+        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten"]
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
@@ -899,11 +902,11 @@ enum ControlSection: String, CaseIterable, Identifiable {
 
     var footer: String? {
         switch self {
-        case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Any input takes over; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
+        case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Steering or Q down to zero hands over to cruise, other input pauses it; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
-        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The π meter (P) counts the centre's iterations on a background thread, up to 10⁹ (about 13 s). The HUD shows the zoom, the centre and the speed; its developer details add the renderer's statistics."
+        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The π meter (P) counts the centre's iterations on a background thread, up to 10⁹ (about 13 s). The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
         case .quality: "While you move, each frame renders as much as fits in a refresh; at rest the view refines and gathers anti-aliasing samples near the boundary."
         default: nil
         }
@@ -1154,17 +1157,18 @@ struct ControlsHelp: View {
         row("hand.draw", "Two-finger scroll or drag", "Pan")
         row("cursorarrow.click.2", "Double-click / ⌥ double-click", "Zoom in / out there")
         row("arrow.up.and.down.and.arrow.left.and.right", "Pointer at an edge", "Pan that way (while zooming)")
-        row("gauge.with.dots.needle.33percent", "Q / E", "Zoom speed − / + (\(Format.speed(model.zoomFactorPerSecond)))")
+        row("gauge.with.dots.needle.33percent", "E / Q", "Cruise: one step in / out per press, hold for more; to zero and stop")
+        row("space", "Space held + Q / E", "Space zoom speed − / + (\(Format.speed(model.zoomFactorPerSecond)))")
+        row("road.lanes", "L", "Lane assist in cruise: keeps you out of featureless areas")
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
         row("pi", "P", "π meter at the neck or the cusp")
-        row("airplane", "Z", "Autopilot: steer with the mouse, click pauses")
-        row("minus.magnifyingglass", "⇧Z", "Zoom out to the whole set (Q / E speed)")
+        row("airplane", "Z", "Autopilot; steering hands over to cruise, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
         row("forward", "At a journey stop", "J next · Z deeper here · X somewhere else")
         row("rotate.left", ",  .  /", "Turn left / right · upright (or trackpad rotate)")
-        row("escape", "Esc", "Stop the autopilot, a flight or a journey; then leave full screen")
+        row("escape", "Esc", "Stop the cruise, the autopilot, a flight or a journey; then leave full screen")
         row("arrow.up.backward.and.arrow.down.forward", "F or ⌃⌘F", "Full screen on / off")
         row("arrow.counterclockwise", "R or ⌘0", "Reset view")
         row("sidebar.trailing", "⌘I", "Control center")
@@ -1177,12 +1181,13 @@ struct ControlsHelp: View {
         row("map", "Tap a mini-map", "Jump there")
         row("scope", "Trackpad or mouse pointer", "Zoom at the pointer")
         row("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
-        row("space", "Keyboard: Space / ⇧Space, Q / E", "Zoom, zoom speed")
+        row("space", "Keyboard: Space / ⇧Space", "Zoom")
+        row("gauge.with.dots.needle.33percent", "Keyboard: E / Q, L", "Cruise in / out, lane assist")
         row("map", "Keyboard: O / M / P", "Orbit overlay / mini-map / π meter")
-        row("airplane", "Autopilot button or Z", "Fly on; a finger steers, a tap pauses")
+        row("airplane", "Autopilot button or Z", "Fly on; a finger steers (cruise), a tap pauses")
         row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
         row("forward", "At a journey stop", "Next · deeper here · somewhere else")
-        row("minus.magnifyingglass", "Long-press autopilot or ⇧Z", "Zoom out to the whole set")
+        row("minus.magnifyingglass", "Long-press autopilot", "Cruise in / out, stop, lane assist")
         row("rotate.left", "Two-finger rotate", "Turn the view")
         #endif
     }
@@ -1268,7 +1273,7 @@ public struct AppSettingsView: View {
                 Text("With the pointer near an edge, the view also pans towards it. “While zooming” pans only while Space is held.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Game controllers", isOn: $gamepad)
-                Text("Left stick pans, triggers zoom, A boosts, shoulders change the zoom speed, Y resets. Takes effect in new windows.")
+                Text("Left stick pans, triggers zoom, A boosts, shoulders are the cruise pedals (Q / E), Y resets. Takes effect in new windows.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .formStyle(.grouped)

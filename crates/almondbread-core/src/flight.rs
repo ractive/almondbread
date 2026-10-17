@@ -31,7 +31,7 @@
 //! | `{"at": t, "lock": false}` | autopilot target lock on / off (on by default); `"lock_synchronous": true` searches on the calling thread (reproducible, slower frames) |
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per script unit) |
 //! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates); `{"location": "spiral-32412-1e19", "pixels": 1920}` takes a benchmark location framed as at that width (also for `fly_to`); `{"place": "spiral-1e1000"}` a place from the catalogue framed as at `pixels` × `rows` (1920 × 1080) |
-//! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); `"stops": true` stops at each find; keys `j` (resume / stop; at a stop: next), `J` (`journey_alt`), `x` (`elsewhere`, at a stop), `Z` (`autopilot_out`, the zoom-out autopilot), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
+//! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); `"stops": true` stops at each find; keys `j` (resume / stop; at a stop: next), `J` (`journey_alt`), `x` (`elsewhere`, at a stop), `q` / `e` (the pedals: cruise out / in, kb: decisions/controls "Driving levels"), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
 //! | `{"from": a, "to": b, "rotate": rate}` | trackpad rotation at `rate` radians/s (counter-clockwise image) about `point` |
 //!
 //! Settings also take `"cinematic": true` or `{"spin": 4, "hue_drift": 2.5, "phase_drift": 0.01, "fly_cycle": 0.02}`
@@ -197,7 +197,6 @@ pub fn nav_key(name: &str) -> Option<NavKey> {
         "straighten" | "/" => NavKey::Straighten,
         "journey" | "j" => NavKey::Journey,
         "journey_alt" | "J" => NavKey::JourneyAlt,
-        "autopilot_out" | "Z" => NavKey::AutopilotOut,
         "elsewhere" | "x" => NavKey::Elsewhere,
         _ => return None,
     })

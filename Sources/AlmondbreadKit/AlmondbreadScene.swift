@@ -124,7 +124,13 @@ struct FractalCommands: Commands {
             // would fire as well); the menu items are for discovery.
             Button("Autopilot On/Off (Z)") { model?.toggleAutopilot() }
                 .disabled(model == nil)
-            Button("Zoom Out to the Whole Set (⇧Z)") { model?.toggleZoomOut() }
+            // Q / E and L likewise (kb: decisions/controls "Driving levels").
+            Button("Cruise In / Faster (E)") { model?.pedalIn() }
+                .disabled(model == nil)
+            Button("Cruise Out / Slower (Q)") { model?.pedalOut() }
+                .disabled(model == nil)
+            Toggle("Lane Assist (L)", isOn: Binding(get: { model?.laneAssist ?? false },
+                                                    set: { model?.laneAssist = $0 }))
                 .disabled(model == nil)
             Button("Journey On/Off (J)") { model?.toggleJourney() }
                 .disabled(model == nil)
@@ -137,7 +143,7 @@ struct FractalCommands: Commands {
             Toggle("Cinematic Effects", isOn: Binding(get: { model?.cinematic ?? false },
                                                       set: { model?.cinematic = $0 }))
                 .disabled(model == nil)
-            Button("Stop Autopilot, Flight or Journey (Esc)") { model?.stopMotion() }
+            Button("Stop Cruise, Autopilot, Flight or Journey (Esc)") { model?.stopMotion() }
                 .disabled(model == nil)
             Divider()
             Button(inspectorVisible?.wrappedValue == true ? "Hide Control Center" : "Show Control Center") {

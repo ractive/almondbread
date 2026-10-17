@@ -41,9 +41,10 @@ pub enum NavKey {
     Right,
     /// Space: continuous zoom toward the zoom target (with Shift: out).
     Zoom,
-    /// Q: zoom speed x0.8.
+    /// Q: the pedal out (cruise; kb: decisions/controls "Driving levels"); with Space held the
+    /// Space zoom speed x0.8.
     SlowerZoom,
-    /// E: zoom speed x1.25.
+    /// E: the pedal in; with Space held the Space zoom speed x1.25.
     FasterZoom,
     /// + / =: one step in (x1.5) at the zoom target.
     StepIn,
@@ -66,8 +67,7 @@ pub enum NavKey {
     Journey,
     /// ⇧J: as J, a new journey in the other mode than the setting (continuous / stops).
     JourneyAlt,
-    /// ⇧Z: the zoom-out autopilot on / off (kb: decisions/controls "Zoom-out autopilot").
-    AutopilotOut,
+
     /// X: at a journey stop, somewhere else; not handled otherwise.
     Elsewhere,
 }
@@ -92,7 +92,7 @@ impl From<NavKey> for CoreNavKey {
             NavKey::Straighten => Self::Straighten,
             NavKey::Journey => Self::Journey,
             NavKey::JourneyAlt => Self::JourneyAlt,
-            NavKey::AutopilotOut => Self::AutopilotOut,
+
             NavKey::Elsewhere => Self::Elsewhere,
         }
     }
@@ -332,8 +332,45 @@ pub const FRAME_ANIMATING: u8 = 1;
 /// Keyboard mode: hide the cursor, draw the overlay crosshair at
 /// (`crosshair_x()`, `crosshair_y()`).
 pub const FRAME_KEYBOARD: u8 = 2;
-/// The autopilot is on (iOS: a finger steers instead of panning).
+/// The autopilot or the cruise drives (iOS: a finger steers instead of panning).
 pub const FRAME_AUTOPILOT: u8 = 4;
+
+/// The driving level (kb: decisions/controls "Driving levels").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum DrivingLevel {
+    Manual,
+    Cruise,
+    Autopilot,
+    Journey,
+}
+
+impl From<almondbread_core::cruise::Level> for DrivingLevel {
+    fn from(l: almondbread_core::cruise::Level) -> Self {
+        use almondbread_core::cruise::Level as L;
+        match l {
+            L::Manual => Self::Manual,
+            L::Cruise => Self::Cruise,
+            L::Autopilot => Self::Autopilot,
+            L::Journey => Self::Journey,
+        }
+    }
+}
+
+/// The driving level and the cruise for the HUD (the cockpit itself is drawn by Rust).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CruiseStatus {
+    pub level: DrivingLevel,
+    /// The level's set speed and the zoom rate now, signed e-folds per second (+ in).
+    pub set: f64,
+    pub rate: f64,
+    /// The reverse cruise's depth boost (1: none).
+    pub boost: f64,
+    /// The soft landing on the home view flies.
+    pub landing: bool,
+    /// Lane assist on (setting), and nudging just now.
+    pub assist: bool,
+    pub nudging: bool,
+}
 
 /// Why the autopilot flies slower than its set speed (kb: decisions/controls, autopilot).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -383,9 +420,8 @@ pub struct FlightStatus {
     pub stopping: bool,
     /// The target's zoom (log10, relative to home).
     pub target_zoom_log10: f64,
-    /// The flight is the zoom-out autopilot (⇧Z), flying to the home view at the autopilot's
-    /// speed (`speed` is then the autopilot's).
-    pub zoom_out: bool,
+    /// The flight is the cruise's soft landing on the home view (`speed` is then its rate).
+    pub landing: bool,
 }
 
 /// A journey for the HUD and the control center (kb: decisions/controls, "Journey").
@@ -851,6 +887,7 @@ pub struct ExplorerStats {
     pub autopilot: AutopilotStatus,
     pub flight: FlightStatus,
     pub journey: JourneyStatus,
+    pub cruise: CruiseStatus,
     pub held_keys: u32,
     /// The current view's refined frame is presented and nothing is left to iterate.
     pub settled: bool,
@@ -1164,7 +1201,8 @@ impl Explorer {
             true
         });
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
-        let autopilot = host.renderer.navigator.autopilot().is_active();
+        let autopilot =
+            host.renderer.navigator.autopilot().is_active() || host.renderer.navigator.cruise().is_engaged();
         (u8::from(animating) * FRAME_ANIMATING)
             | (u8::from(keyboard) * FRAME_KEYBOARD)
             | (u8::from(autopilot) * FRAME_AUTOPILOT)
@@ -1199,6 +1237,31 @@ impl Explorer {
             _ => on,
         };
         self.lock().host.renderer.navigator.autopilot_mut().set_lock(on);
+    }
+
+    /// Lane assist (setting "Assist", key L; default off; active in cruise only; kb:
+    /// decisions/controls "Driving levels").
+    pub fn set_assist(&self, on: bool) {
+        self.lock().host.renderer.navigator.set_assist(on);
+    }
+
+    /// The HUD cockpit (driving level, speed gauge, assist; drawn by Rust at the bottom of the
+    /// canvas) shown or not (with the HUD), and the canvas edges it keeps clear of (view
+    /// points: iPhone buttons at the bottom right).
+    pub fn set_cockpit(&self, on: bool, inset_right: f64, inset_bottom: f64) {
+        let mut g = self.lock();
+        let c = &mut g.host.overlay.cockpit;
+        c.enabled = on;
+        c.inset_right = if inset_right.is_finite() {
+            inset_right.max(0.0)
+        } else {
+            0.0
+        };
+        c.inset_bottom = if inset_bottom.is_finite() {
+            inset_bottom.max(0.0)
+        } else {
+            0.0
+        };
     }
 
     /// Forwards a decoded event. `handled`: swallow it; `redraw`: resume the display link.
@@ -1423,7 +1486,7 @@ impl Explorer {
                 FlightStatus {
                     active: f.is_some(),
                     progress: f.map_or(0.0, |f| f.progress()),
-                    speed: if n.is_zooming_out() {
+                    speed: if n.cruise().landing().is_some() {
                         n.flight_speed()
                     } else {
                         n.fly_speed()
@@ -1440,7 +1503,19 @@ impl Explorer {
                     },
                     stopping: f.is_some_and(|f| f.stopping),
                     target_zoom_log10: f.map_or(0.0, |f| f.path.target().zoom_log10()),
-                    zoom_out: n.is_zooming_out(),
+                    landing: n.cruise().landing().is_some(),
+                }
+            },
+            cruise: {
+                let c = r.navigator.cockpit(media_time());
+                CruiseStatus {
+                    level: c.level.into(),
+                    set: c.set,
+                    rate: c.rate,
+                    boost: c.boost,
+                    landing: c.landing,
+                    assist: c.assist,
+                    nudging: c.nudging,
                 }
             },
             autopilot: {

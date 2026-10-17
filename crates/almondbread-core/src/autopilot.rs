@@ -538,6 +538,11 @@ impl Autopilot {
         self.feedback = f;
     }
 
+    /// The renderer's last feedback (the cruise reads the depth limit and the back-off).
+    pub fn feedback(&self) -> RenderFeedback {
+        self.feedback
+    }
+
     pub fn set_survey(&mut self, s: Survey) {
         self.survey = Some(s);
     }

@@ -1135,3 +1135,14 @@ target), Z (`plan_with` `Choice::Deeper`: ≥ 1 e-fold deeper in this view, else
 "nothing deeper here") or X (`Choice::Elsewhere`: cross over now). Reproducible from seed, start view
 and the choices; `journey --choices jzx`. Page: [[decisions/controls]] "Zoom-out autopilot",
 "Journey with stops".
+
+## [2026-10-17] decision | Driving levels: M · C · A · J, pedals, reverse cruise, lane assist hook
+
+The user's car-like design: manual, cruise, autopilot, journey, shown in a Rust-drawn HUD
+cockpit with a zero-centred speed gauge and a lane-assist icon. Q / E are pedals on one signed
+ladder (×1.5 … ×1000 per second) with a detent at zero; held keys step on. Reverse cruise boosts
+with depth, `(1 + D/3)^ramp`, ramping over 4 s, and hands the last stretch to the soft landing:
+home from 1e-10 / 1e-50 / 1e-300 / 1e-3000 in 17 / 29 / 42 / 58 s at the first rung. User
+steering or pedal-to-zero in A or a journey leg hands over to cruise at the current speed; the
+autopilot no longer takes the wheel back. ⇧Z removed. Lane assist (L) is a setting and a hook,
+wired to the survey steering in phase 2. Page: [[decisions/controls]] "Driving levels".
