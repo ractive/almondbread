@@ -1765,6 +1765,15 @@ impl Explorer {
         self.lock().host.reset_viewport();
     }
 
+    /// The HUD's zoom at a place in this window, as log10: a place's `zoom_log10` counts from
+    /// the whole set across the shorter side, the HUD from `HOME_SCALE` (3/800 per point), so
+    /// in this view it shows `zoom_log10 + place_zoom_offset()` (the place pills use it).
+    pub fn place_zoom_offset(&self) -> f64 {
+        let (w, h) = self.lock().host.view_points();
+        let side = w.min(h);
+        if side.is_finite() && side > 0.0 { (side / 800.0).log10() } else { 0.0 }
+    }
+
     /// Jumps to a catalogue place (`places()`, kb: synthesis/places): its centre, its span
     /// fitted to the view's shorter side, its look and iteration limit (automatic unless the
     /// place sets one). Returns the new settings for the inspector. A frame follows: resume

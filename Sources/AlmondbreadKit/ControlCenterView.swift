@@ -950,6 +950,8 @@ struct PlacesSection: View {
                 Text(c.1).tag(PlaceCategory?.some(c.0))
             }
         }
+        // The HUD's zoom at each place in this window (place zooms count from the whole set).
+        let zoomOffset = model.explorer?.placeZoomOffset() ?? 0
         TileRows(ids: shown.map(\.id), minWidth: 88, spacing: 6, aspect: 1.6) { i in
             let p = shown[i]
             Button {
@@ -957,7 +959,7 @@ struct PlacesSection: View {
             } label: {
                 PlaceThumbnail(id: p.id)
                     .aspectRatio(1.6, contentMode: .fit)
-                    .overlay(alignment: .bottomTrailing) { PlaceZoomPill(zoomLog10: p.zoomLog10) }
+                    .overlay(alignment: .bottomTrailing) { PlaceZoomPill(zoomLog10: p.zoomLog10 + zoomOffset) }
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     // Only the selected tile has a border (every shape is one more layer to
                     // build when the section opens).
@@ -986,7 +988,7 @@ struct PlacesSection: View {
         if let id = selected, let p = ExplorerModel.places.first(where: { $0.id == id }) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.name).font(.callout.weight(.semibold))
-                Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10)) · \(p.feature)")
+                Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10 + (model.explorer?.placeZoomOffset() ?? 0))) · \(p.feature)")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(p.description).font(.caption).fixedSize(horizontal: false, vertical: true)
             }
