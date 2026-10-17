@@ -2,8 +2,8 @@
 
 **Fly into the Mandelbrot set.** Almondbread is a fast, smooth deep-zoom fractal explorer
 for Macs with Apple silicon. Zoom with the mouse, the trackpad or the keyboard, and keep
-going far past where ordinary explorers turn into blocky noise: to 10^100 and beyond, at the
-frame rate of your display.
+going far past where ordinary explorers turn into blocky noise: down to a zoom of 10^3000,
+at the frame rate of your display.
 
 ![Almondbread exploring near seahorse valley](docs/images/app.jpg)
 
@@ -22,7 +22,7 @@ frame rate of your display.
 - **Take a journey.** **J** flies from landmark to landmark on an endless planned route.
   Every journey has a number you can share, and there is a journey of the day.
 - **Visit famous places.** A catalogue of well-known spots (seahorse valley, the elephants,
-  embedded Julia sets, minibrots at 10^1000) with thumbnails, one click away.
+  embedded Julia sets, minibrots at 10^1000, places down to 10^3000) with thumbnails, one click away.
 - **Colour it your way.** Dozens of palettes, from classic gradients to scientific colour
   maps, several interior colourings, and imports of Ultra Fractal and Fractint palettes.
 - **Find π.** Turn on the π meter at the neck of the set and watch the iteration count spell
