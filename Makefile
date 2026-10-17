@@ -62,7 +62,8 @@ selftest: build app
 	$(APP)/Contents/MacOS/Almondbread --selftest --selftest-png=$(abspath build/selftest-app.png)
 
 ## Frame pacing and latency of pans, zooms and keys in a background window (Rust renderer);
-## ALMONDBREAD_SCENARIOS="home pan,neck zoom" picks some. kb: synthesis/benchmarks
+## ALMONDBREAD_SCENARIOS="home pan,neck zoom" picks some; renderer switches pass through the
+## environment (ALMONDBREAD_GESTURE_PROBE=1 make interaction-test). kb: synthesis/benchmarks
 interaction-test: build
 	.build/release/AlmondbreadMac --interaction-test
 
