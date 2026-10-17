@@ -297,6 +297,8 @@ const ROTATE_REST: f64 = 1e-4;
 /// or passing over the canvas on its way to a button, is not steering.
 pub const STEER_TRAVEL: f64 = 12.0;
 pub const STEER_ENGAGE: f64 = 0.25;
+/// A released cruise slower than this (e-folds/s) no longer holds a journey's next leg back.
+pub const LEG_CARRY_REST: f64 = 0.15;
 /// A lane-assist nudge lights the cockpit's lane icon this long (s).
 pub const ASSIST_FLASH: f64 = 0.6;
 /// Below these the velocities snap to rest (points/s, e-folds/s).
@@ -700,11 +702,35 @@ impl Navigator {
         } else if self.journey_flying() {
             self.journey.suspend();
             let z = self.take_flight_motion().unwrap_or(0.0);
-            self.cruise.engage(set.unwrap_or(z), z, (0.0, 0.0), now);
+            // The cruise goes on at the journey's speed, not at the leg's paced rate (long legs
+            // and dull stretches fly up to 9× faster: a hand-over during a cross-over set the
+            // cruise to ×55/s and more); the rate eases there from the flight's.
+            let set = set.unwrap_or(z.signum() * z.abs().min(self.journey.speed()));
+            self.cruise.engage(set, z, (0.0, 0.0), now);
             true
         } else {
             false
         }
+    }
+
+    /// A released cruise still glides out (after J resumed or chose a journey's next leg).
+    fn cruise_gliding(&self) -> bool {
+        !self.cruise.is_engaged() && self.cruise.landing().is_none() && self.cruise.is_moving()
+    }
+
+    /// The next leg waits while a released cruise still zooms faster than [`LEG_CARRY_REST`]
+    /// the other way than the leg starts (a leg that starts the same way takes its rate over).
+    fn leg_waits_for_cruise(&self, viewport: &Viewport) -> bool {
+        let rate = self.cruise.rate();
+        if rate.abs() <= LEG_CARRY_REST {
+            return false;
+        }
+        let Some(t) = self.journey.next_target() else {
+            return false;
+        };
+        let target = t.viewport(self.min_side());
+        let path = FlyPath::new(viewport, &target, self.view_size.0);
+        rate.signum() != flyto_start_sign(&path)
     }
 
     /// The pointer steers (pointer mode, over the canvas, moved lately and since the wheel was
@@ -831,7 +857,9 @@ impl Navigator {
         if self.journey.is_suspended() {
             let span = viewport.scale * self.min_side();
             self.autopilot.halt();
-            self.cruise.halt();
+            // The cruise brakes out on its spring; the next leg starts once it carries on the
+            // cruise's direction or the cruise is (nearly) at rest (no dead stop).
+            self.cruise.release();
             self.journey.resume(&viewport.center, span);
             self.note_interaction(now);
             self.last_tick.get_or_insert(now);
@@ -846,7 +874,7 @@ impl Navigator {
         let was = self.is_animating();
         let chose = self.journey.choose(choice, &viewport.center, span);
         if chose {
-            self.cruise.halt();
+            self.cruise.release();
             self.note_interaction(now);
             if !was {
                 self.last_tick = Some(now);
@@ -1735,19 +1763,30 @@ impl Navigator {
         } else {
             self.deflected_since = None;
         }
-        // The journey starts its next leg when one is due.
+        // The journey starts its next leg when one is due (after a cruise's glide, below).
+        let cruise_glide = self.cruise_gliding();
         if self.journey.is_running()
+            && !(cruise_glide && self.leg_waits_for_cruise(viewport))
             && let Some(journey::Action::Fly(t)) = self.journey.tick(now, self.flight.is_some())
         {
             let mut target = t.viewport(self.min_side());
             target.angle = viewport.angle;
             let speed = self.flight.as_ref().map(|f| f.speed);
+            let carry = if cruise_glide { self.cruise.rate() } else { 0.0 };
             self.cruise.halt();
             self.reset_wheel();
             let from = viewport.clone();
             self.begin_flight(&target, &from);
-            if let (Some(f), Some(s)) = (&mut self.flight, speed) {
-                f.speed = s;
+            if let Some(f) = &mut self.flight {
+                if let Some(s) = speed {
+                    f.speed = s;
+                } else if carry != 0.0 && carry.signum() == flyto_start_sign(&f.path) {
+                    // The cruise's zoom carries on into the leg (its path starts the same way).
+                    f.speed = Spring {
+                        v: carry.abs() / flyto::RHO,
+                        a: 0.0,
+                    };
+                }
             }
             // Long legs (cross-overs from deep dives) fly faster.
             let efolds = self
@@ -1777,8 +1816,9 @@ impl Navigator {
             }
             return true;
         }
-        if self.journey.wants_frames() {
-            // Resting at a target (it refines) or waiting for the plan.
+        if self.journey.wants_frames() && !self.cruise.is_moving() {
+            // Resting at a target (it refines) or waiting for the plan (a released cruise
+            // glides out first, below).
             self.step_north(dt, viewport);
             return true;
         }
@@ -2033,6 +2073,22 @@ impl Navigator {
     /// title bar or toolbar overlapping the view (overlays keep clear of them).
     pub fn insets(&self) -> (f64, f64, f64, f64) {
         self.insets
+    }
+}
+
+/// The direction a flight path starts in: +1 zooming in, −1 zooming out (0: no zoom).
+fn flyto_start_sign(path: &FlyPath) -> f64 {
+    let h = path.length().min(1e-3);
+    if h <= 0.0 {
+        return 0.0;
+    }
+    let d = path.state(0.0).1 - path.state(h).1;
+    if d > 0.0 {
+        1.0
+    } else if d < 0.0 {
+        -1.0
+    } else {
+        0.0
     }
 }
 
@@ -3315,6 +3371,149 @@ mod tests {
         assert_eq!(n.cruise().set_speed(), 0.0, "the detent: not reversing");
         run(&mut n, &mut v, t, t + 4.0, 60.0);
         assert_eq!(n.level(), Level::Manual);
+    }
+
+    /// Journey #4711's zoom rate per frame (e-folds/s, + in) and whether a leg flew, over
+    /// `secs` at `hz`, after `presses` of E.
+    fn journey_rates(presses: usize, secs: f64, hz: f64) -> Vec<(f64, bool)> {
+        let (mut n, mut v) = journey_nav(false);
+        n.start_journey(4711, false, &v.clone(), 0.0);
+        let mut t = 0.0;
+        for _ in 0..presses {
+            t = run(&mut n, &mut v, t, t + 0.25, hz);
+            tap(&mut n, &mut v, NavKey::FasterZoom, t);
+        }
+        let mut z = v.scale.ln();
+        let mut out = Vec::new();
+        for _ in 0..(secs * hz) as usize {
+            t += 1.0 / hz;
+            n.advance(&mut v, t);
+            let z1 = v.scale.ln();
+            out.push(((z - z1) * hz, n.flight().is_some()));
+            z = z1;
+        }
+        out
+    }
+
+    /// A journey's legs at the default and a raised speed (kb: decisions/controls "Journey",
+    /// smooth legs): no brake-and-accelerate pulse while a leg zooms one way, bounded zoom
+    /// acceleration (cross-overs brake into their turn), and every leg comes to rest instead
+    /// of stopping dead. Before: 38 e-folds/s² at the default speed (a dull stretch up to the
+    /// target braked from 10 e-folds/s in 0.3 s; a one-sample gap in a dull stretch braked
+    /// 10.7 → 8.6 → 10.7 e-folds/s), 460 at ×35/s (a turn from −28 to +23 in 0.15 s).
+    #[test]
+    fn journey_legs_have_no_pulses_or_dead_stops() {
+        for (presses, max_acc) in [(0, 16.0), (6, 24.0)] {
+            let r = journey_rates(presses, 75.0, 60.0);
+            let k = 6;
+            let mut legs = 0;
+            let mut worst = 0.0f64;
+            let mut i = 0;
+            while i < r.len() {
+                if !r[i].1 {
+                    i += 1;
+                    continue;
+                }
+                let j = (i..r.len()).find(|&j| !r[j].1).unwrap_or(r.len());
+                let leg: Vec<f64> = r[i..j].iter().map(|x| x.0).collect();
+                i = j;
+                if j == r.len() {
+                    break; // cut off by the end of the run
+                }
+                legs += 1;
+                let peak = leg.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+                // At rest on landing: the last 0.1 s slow.
+                let last = leg[leg.len().saturating_sub(k)..]
+                    .iter()
+                    .fold(0.0f64, |m, x| m.max(x.abs()));
+                assert!(last < 0.2 * peak, "E×{presses} leg {legs}: lands at {last} of {peak}");
+                // Zoom acceleration over 0.1 s.
+                for w in leg.windows(k + 1) {
+                    worst = worst.max((w[k] - w[0]).abs() * 60.0 / k as f64);
+                }
+                // No pulse: while zooming one way, the rate does not drop by more than 15 % of
+                // its peak so far and then rise again by 10 %.
+                let (mut hi, mut lo, mut sign) = (0.0f64, f64::INFINITY, 0.0);
+                for &x in &leg {
+                    let sg = if x > 0.05 {
+                        1.0
+                    } else if x < -0.05 {
+                        -1.0
+                    } else {
+                        0.0
+                    };
+                    if sg != sign {
+                        (hi, lo, sign) = (0.0, f64::INFINITY, sg);
+                    }
+                    let a = x.abs();
+                    if sg == 0.0 {
+                        continue;
+                    }
+                    if a >= hi && lo == f64::INFINITY {
+                        hi = a;
+                    } else {
+                        lo = lo.min(a);
+                        assert!(
+                            !(lo < 0.85 * hi && a > lo + 0.1 * hi),
+                            "E×{presses} leg {legs}: pulse {hi} → {lo} → {a}"
+                        );
+                    }
+                }
+            }
+            assert!(legs >= 4, "E×{presses}: {legs} legs");
+            assert!(worst < max_acc, "E×{presses}: zoom acceleration {worst} e-folds/s²");
+        }
+    }
+
+    /// J after the user took the wheel: the released cruise glides out and the next leg takes
+    /// its zoom over (or waits for it), no dead stop (before: the cruise halted at once).
+    #[test]
+    fn journey_resumes_from_cruise_without_a_dead_stop() {
+        // Cruising on in the leg's direction, then cruising out (Q into reverse).
+        for reverse in [false, true] {
+            let (mut n, mut v) = journey_nav(false);
+            n.start_journey(4711, false, &v.clone(), 0.0);
+            let mut t = 0.0;
+            while !(n.flight().is_some() && n.flight().unwrap().progress() > 0.5) {
+                t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+                assert!(t < 60.0, "no leg");
+            }
+            n.handle(InputEvent::KeyDown(NavKey::Left), &mut v, t);
+            n.handle(InputEvent::KeyUp(NavKey::Left), &mut v, t);
+            assert_eq!(n.level(), Level::Cruise);
+            // The cruise goes on at the journey speed, not at the leg's paced rate.
+            assert!(n.cruise().set_speed().abs() <= n.journey().speed() + 1e-9);
+            if reverse {
+                for _ in 0..12 {
+                    if n.cruise().set_speed() < 0.0 {
+                        break;
+                    }
+                    tap(&mut n, &mut v, NavKey::SlowerZoom, t);
+                }
+                assert!(n.cruise().set_speed() < 0.0);
+                t = run(&mut n, &mut v, t, t + 3.0, 60.0);
+            } else {
+                t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+            }
+            let rate = n.cruise().rate();
+            assert!(rate.abs() > 0.3, "cruising {rate}");
+            tap(&mut n, &mut v, NavKey::Journey, t);
+            assert_eq!(n.level(), Level::Journey);
+            let mut z = v.scale.ln();
+            let mut prev = rate;
+            let mut flew = false;
+            for _ in 0..(6 * 60) {
+                t += 1.0 / 60.0;
+                n.advance(&mut v, t);
+                let z1 = v.scale.ln();
+                let r = (z - z1) * 60.0;
+                z = z1;
+                assert!((r - prev).abs() < 0.25, "reverse {reverse}: jolt {prev} → {r} at {t}");
+                prev = r;
+                flew |= n.flight().is_some();
+            }
+            assert!(flew, "reverse {reverse}: the next leg flew");
+        }
     }
 
     #[test]

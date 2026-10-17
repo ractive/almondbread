@@ -27,9 +27,11 @@
 //! integrated, so nothing drifts.
 //!
 //! **Motion.** The path parameter advances at `speed / ρ · throttle` (speed in e-folds per
-//! second: the zoom rate at the ends; Q / E, scroll), eased in and out on a spring, and brakes
-//! at a constant deceleration onto the target. `throttle` is the autopilot's renderer back-off
-//! (preview resolution, deep reference computing).
+//! second: the zoom rate at the ends; Q / E, scroll), eased in and out on a spring. Speeds are
+//! capped ahead of the van Wijk part's apex (the turn from zooming out to zooming in:
+//! [`FlyPath::turn_limit`], [`TURN_TIME`]), and the flight lands on a curve whose speed falls
+//! as `(1 − t/T)²` ([`BRAKE_TIME`], rate-proportional). `throttle` is the autopilot's renderer
+//! back-off (preview resolution, deep reference computing).
 
 use crate::input::Spring;
 use crate::viewport::{Center, Scale, Viewport};
@@ -41,11 +43,23 @@ pub const SPEED_DEFAULT: f64 = 2.0;
 pub const SPEED_RANGE: (f64, f64) = (0.1, 16.0);
 /// Spring frequencies (1/s) of the path speed: speeding up, slowing down (Esc).
 pub const PATH_OMEGA: (f64, f64) = (3.0, 4.0);
-/// Braking onto the target: at least this many path units per second², and enough to stop
-/// from the set speed in `LAND_TIME` seconds (a fixed deceleration made fast flights brake
-/// for most of a short path: measured 4.6 s for 15 e-folds at 12 e-folds/s).
-pub const LAND_DECEL: f64 = 2.0;
-pub const LAND_TIME: f64 = 0.75;
+/// Braking (onto the target, and into the turn of a path that zooms out and back in) takes
+/// `BRAKE_TIME.0 · √(speed / BRAKE_REF)` seconds, within `BRAKE_TIME`: rate-proportional, so a
+/// fast flight does not stop dead (a fixed 0.75 s brake at the constant deceleration
+/// `v = √(2 a left)` stopped journey legs from 25 e-folds/s within 0.1 s, the spring reaching
+/// the end still moving and snapping; kb: decisions/controls "Journey", smooth legs). A fixed
+/// deceleration instead made fast flights brake for most of a short path (measured 4.6 s for
+/// 15 e-folds at 12 e-folds/s).
+pub const BRAKE_TIME: (f64, f64) = (0.8, 1.5);
+pub const BRAKE_REF: f64 = 1.4;
+/// The landing rides `v = c · left^(2/3)` (the speed falls as `(1 − t/T)²`: the deceleration
+/// eases to zero at the target instead of ending abruptly).
+const LAND_POWER: f64 = 2.0 / 3.0;
+/// The turn of a zoom-out-and-in path (its apex) takes at least this long (s) for the zoom
+/// rate to swing from zooming out to zooming in (between x = −1 and 1 of the van Wijk part),
+/// whatever the speed: a cross-over at a raised journey speed swung from −28 to +23 e-folds/s
+/// in 0.15 s before.
+pub const TURN_TIME: f64 = 1.0;
 /// A soft landing (the zoom-out autopilot, kb: decisions/controls "Zoom-out autopilot"): the
 /// deceleration stops the set speed in this many seconds, so the last e-fold or so eases out
 /// instead of braking hard.
@@ -57,6 +71,12 @@ pub const LAND_SNAP: f64 = 1e-4;
 const SPLIT: f64 = 1e-6;
 /// Targets closer than this fraction of the view width are zoomed to straight.
 const PURE: f64 = 1e-100;
+
+/// Seconds a flight at `speed` e-folds per second takes to brake (see [`BRAKE_TIME`]).
+pub fn brake_time(speed: f64) -> f64 {
+    let s = if speed.is_finite() { speed.max(0.0) } else { 0.0 };
+    (BRAKE_TIME.0 * (s / BRAKE_REF).sqrt()).clamp(BRAKE_TIME.0, BRAKE_TIME.1)
+}
 
 /// `ln cosh x`, without overflow.
 fn ln_cosh(x: f64) -> f64 {
@@ -277,6 +297,35 @@ impl FlyPath {
         Viewport::with_center(center, Scale::from_log2(log2))
     }
 
+    /// The highest path speed (units per second) at `s` from which the flight can ease into the
+    /// turn between zooming out and zooming in (the van Wijk part's apex, where `ln w` peaks):
+    /// near the apex the speed is at most `k cosh x` (x = ρ (s − apex): the zoom rate there is
+    /// `ρ k sinh x`, so it swings through zero at a pace that does not depend on the flight
+    /// speed), and before it the speed brakes onto that cap at `decel` path units per second²
+    /// (closed form: the cap plus the braking line is convex in the point braked to).
+    /// Infinite where no turn lies ahead (head, tail, pure zooms, past the apex region).
+    pub fn turn_limit(&self, s: f64, k: f64, decel: f64) -> f64 {
+        let Kind::VanWijk { r0, head, middle, .. } = self.kind else {
+            return f64::INFINITY;
+        };
+        let (m0, m1) = (head, head + middle);
+        // (Written so that NaN arguments give no limit.)
+        let ahead = s < m1 && k > 0.0 && decel > 0.0 && middle > 0.0;
+        if !ahead {
+            return f64::INFINITY;
+        }
+        let apex = head - r0 / RHO;
+        // Minimiser of g(p) = k² cosh²(ρ (p − apex)) + 2 decel (p − s) over p in [max(s, m0), m1].
+        let u = -(2.0 * decel / (k * k * RHO)).asinh() / (2.0 * RHO);
+        let p = (apex + u).clamp(s.max(m0), m1);
+        let x = RHO * (p - apex);
+        if x.abs() > 300.0 {
+            return f64::INFINITY;
+        }
+        let g = k * k * x.cosh().powi(2) + 2.0 * decel * (p - s);
+        if g.is_finite() { g.sqrt() } else { f64::INFINITY }
+    }
+
     /// The target's offset from the view centre at `s`, in view points (y up).
     pub fn target_on_screen(&self, s: f64) -> (f64, f64) {
         let (off, ln_w) = self.state(s);
@@ -306,6 +355,10 @@ pub struct Flight {
     pub land_angle: f64,
     /// Brake gently onto the target ([`SOFT_LAND_TIME`]) instead of at the fly-to deceleration.
     pub soft_landing: bool,
+    /// The flight rides its landing curve `v = c left^(2/3)` (from the first frame the spring
+    /// would outrun it to the target), with this `c` (kept: a pace change on the way down does
+    /// not move the curve).
+    landing: Option<f64>,
 }
 
 impl Flight {
@@ -320,6 +373,7 @@ impl Flight {
             angle1: a,
             land_angle: a,
             soft_landing: false,
+            landing: None,
         }
     }
 
@@ -375,14 +429,75 @@ impl Flight {
     /// Advances by `dt` at `speed` e-folds per second times `throttle`; returns true when the
     /// flight is over (landed, or stopped by Esc).
     pub fn step(&mut self, dt: f64, speed: f64, throttle: f64) -> bool {
+        if self.soft_landing {
+            return self.step_soft(dt, speed, throttle);
+        }
+        let left = (self.path.length - self.s).max(0.0);
+        let cruise = if self.stopping { 0.0 } else { speed / RHO * throttle };
+        // Braking into a turn, in path units: the set speed (not throttled: the renderer
+        // back-off must not move the curves) stops in `brake_time`.
+        let vp = (speed / RHO).max(1e-3);
+        let decel = vp / brake_time(speed);
+        // The landing curve v = c left^(2/3) through the current speed: from it to rest in
+        // `brake_time` of it (sized by the speed flown, not the set speed: a short leg that
+        // never reaches the set speed brakes as briefly as it flies).
+        let now = self.speed.v.max(1e-3);
+        let c = self
+            .landing
+            .unwrap_or_else(|| (3.0 * now.sqrt() / brake_time(now * RHO)).powf(2.0 / 3.0));
+        let k = 2.0 * 1f64.sinh().atan() / (RHO * TURN_TIME);
+        let turn = self.path.turn_limit(self.s, k, decel);
+        let target = cruise.min(turn);
+        let omega = if target > self.speed.v {
+            PATH_OMEGA.0
+        } else {
+            PATH_OMEGA.1
+        };
+        let mut ds = self.speed.follow(target, omega, dt).max(0.0);
+        if !self.stopping && turn.is_finite() && self.speed.v > turn {
+            // Ride the turn limit (braking at `decel` onto the apex cap) when the spring would
+            // lag above it: the lag of ω = 4 at this deceleration reached the apex at six times
+            // the cap.
+            let line = (turn * dt - 0.5 * decel * dt * dt).max(0.0);
+            if ds > line {
+                ds = line;
+                let v = self.path.turn_limit(self.s + line, k, decel).min(turn);
+                self.speed = Spring {
+                    v,
+                    a: (v - turn) / dt.max(1e-6),
+                };
+            }
+        }
+        if !self.stopping {
+            // Ride the landing curve once the spring would outrun it (it lags, and reached the
+            // end still moving), in closed form: left^(1/3) falls at c/3 per second, so 30, 60
+            // and 120 Hz agree.
+            let r = (left.cbrt() - c / 3.0 * dt).max(0.0);
+            let curve_left = r * r * r;
+            if self.landing.is_some() || ds > left - curve_left {
+                self.landing = Some(c);
+                ds = left - curve_left;
+                self.speed = Spring {
+                    v: c * curve_left.powf(LAND_POWER),
+                    a: -2.0 / 3.0 * c * c * r,
+                };
+            }
+        }
+        self.s = (self.s + ds).min(self.path.length);
+        if !self.stopping && self.path.length - self.s < LAND_SNAP {
+            self.s = self.path.length;
+            return true;
+        }
+        self.stopping && self.speed.v.abs() < 1e-3
+    }
+
+    /// [`Flight::step`] of a soft landing (the cruise's landing on the home view): a constant
+    /// deceleration over [`SOFT_LAND_TIME`] onto the target.
+    fn step_soft(&mut self, dt: f64, speed: f64, throttle: f64) -> bool {
         let left = (self.path.length - self.s).max(0.0);
         let cruise = if self.stopping { 0.0 } else { speed / RHO * throttle };
         // Constant deceleration onto the end: v = √(2 a s_left).
-        let decel = if self.soft_landing {
-            (speed / RHO / SOFT_LAND_TIME).max(1e-3)
-        } else {
-            LAND_DECEL.max(speed / RHO / LAND_TIME)
-        };
+        let decel = (speed / RHO / SOFT_LAND_TIME).max(1e-3);
         let target = cruise.min((2.0 * decel * left).sqrt());
         let omega = if target > self.speed.v {
             PATH_OMEGA.0
@@ -390,7 +505,7 @@ impl Flight {
             PATH_OMEGA.1
         };
         let mut ds = self.speed.follow(target, omega, dt).max(0.0);
-        if self.soft_landing && !self.stopping {
+        if !self.stopping {
             // On the brake curve v = √(2 a left) the spring lags (it reaches the end still
             // moving and snaps); a soft landing rides the curve itself once the spring would
             // outrun it, in closed form (√left falls at √(a/2) per second), so it decelerates
@@ -670,5 +785,64 @@ mod tests {
         assert!(view_from_text("-0.75", "0.1", "1.5e-300").is_some());
         assert!(view_from_text("x", "0.1", "1").is_none());
         assert!(view_from_text("0", "0.1", "-1").is_none());
+    }
+
+    /// The zoom rate (e-folds/s, + in) per step of a flight from `a` to `b` at `speed`, `hz`.
+    fn rates(a: &Viewport, b: &Viewport, speed: f64, hz: f64) -> Vec<f64> {
+        let mut f = Flight::new(FlyPath::new(a, b, W));
+        let mut z = f.path.state(0.0).1;
+        let mut out = Vec::new();
+        for _ in 0..(600.0 * hz) as usize {
+            let done = f.step(1.0 / hz, speed, 1.0);
+            let z1 = f.path.state(f.s).1;
+            out.push((z - z1) * hz);
+            z = z1;
+            if done {
+                return out;
+            }
+        }
+        panic!("no landing");
+    }
+
+    /// A cross-over (out of a deep needle view, across, into the seahorse valley) at the default
+    /// and the top journey speed: the zoom rate brakes into the turn, swings through zero over
+    /// at least ~TURN_TIME, and eases to rest on the target; bounded zoom acceleration (before:
+    /// −28 → +23 e-folds/s in 0.15 s, landings from 25 e-folds/s in one frame).
+    #[test]
+    fn cross_overs_turn_and_land_smoothly_at_any_speed() {
+        let a = view_from_text("-1.4304", "0", "1e-15").unwrap();
+        let b = view_from_text("-0.745", "0.11", "1e-6").unwrap();
+        for speed in [1.4, 4.0, 16.0] {
+            let mut by_hz = Vec::new();
+            for hz in [30.0, 60.0, 120.0] {
+                let r = rates(&a, &b, speed, hz);
+                let n = (0.1 * hz) as usize;
+                let peak = r.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+                assert!(peak > 0.9 * speed, "{speed}: peak {peak}");
+                // Zoom acceleration over 0.1 s: at most the spring's ease-in (V ω / e) or the
+                // landing's first braking (2 V / T).
+                let acc = r
+                    .windows(n + 1)
+                    .map(|w| (w[n] - w[0]).abs() * hz / n as f64)
+                    .fold(0.0, f64::max);
+                let bound = (speed * PATH_OMEGA.0 / std::f64::consts::E).max(2.0 * speed / brake_time(speed));
+                assert!(acc < 1.2 * bound + 0.5, "{speed} @{hz}: {acc} (bound {bound})");
+                // One turn: the rate changes sign once, and the swing from −1 to +1 e-fold/s
+                // takes over half a second at any speed.
+                let signs: Vec<f64> = r.iter().filter(|x| x.abs() > 1e-3).map(|x| x.signum()).collect();
+                let flips = signs.windows(2).filter(|w| w[0] != w[1]).count();
+                assert_eq!(flips, 1, "{speed} @{hz}");
+                let out = r.iter().rposition(|&x| x < -1.0).unwrap();
+                let back = r.iter().position(|&x| x > 1.0).unwrap();
+                let swing = (back - out) as f64 / hz;
+                assert!(swing > 0.5, "{speed} @{hz}: swing {swing} s");
+                // Lands at rest: the last 0.1 s is slow.
+                let last = r[r.len() - n..].iter().fold(0.0f64, |m, x| m.max(x.abs()));
+                assert!(last < 0.15 * speed, "{speed} @{hz}: last {last}");
+                by_hz.push(r.len() as f64 / hz);
+            }
+            // 30, 60 and 120 Hz take the same time.
+            assert!((by_hz[0] - by_hz[2]).abs() < 0.05 * by_hz[2], "{speed}: {by_hz:?}");
+        }
     }
 }

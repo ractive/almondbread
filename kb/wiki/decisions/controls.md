@@ -513,7 +513,9 @@ renderer back-off) on a spring (ω = 3 /s up, 4 /s down), capped by `√(2 a s_l
 brake at a constant deceleration onto the target, snapping within 1e-4 units;
 `a = max(2 units/s², set speed / 0.75 s)`. (A fixed 2 units/s² made fast flights brake for
 most of a short path: the interaction test's 15 e-folds at 12 e-folds/s had not landed after
-2.9 s.) **Reference
+2.9 s.) *Revised 2026-10-17 ("Journey", smooth legs below):* the landing rides
+`v = c · s_left^(2/3)` (speed `(1 − t/T)²`, `T = 0.8 s · √(v / 1.4)` within 0.8–1.5 s) and a
+zoom-out-and-in path brakes ahead of its apex onto `k cosh x` (`FlyPath::turn_limit`). **Reference
 prefetch:** when the target is inside the current view and deeper, a needed big reference is
 requested as a jump to the target would request it (nucleus search around the target, the
 target's precision and scale), and it then serves most of the rest of the dive
@@ -756,6 +758,53 @@ longest flight stretch whose look does not change below ~2 s at the default spee
   seeds 2 and 20261015 for 150 s before and after the change), 62 700 frames at 60 fps through ffmpeg `signalstats`: no frame with its 90th-percentile luma below
   20 and no flash (mean luma below 35 % of the ten frames around it).
 
+**Revision 2026-10-17: smooth legs.** User report (build c553b78, likely with E raised): "a bit
+jumpy … when just zooming in, it gets faster, then it brakes a bit, then accelerates again …
+zooms out super fast, comes to a very abrupt stop, then zooms in with high speed and also does
+a full stop". Reproduced headless with `fly --log` (journey #4711, 1920 × 1080, 60 Hz, zoom
+rate per refresh, measured 2026-10-17, M1 Pro, release). The renderer throttle was not
+involved (≥ 0.94 throughout); the motion was, all of it in code older than the driving levels
+(cba2d79 showed the same at raised speeds: 728 e-folds/s² at ×1.25⁶, 1448 at ×1.25¹⁰; at the
+default speed its #4711 legs, planned from the older catalogue, just happened to be calm):
+
+- *Dead stops.* The landing `v = √(2 a s_left)` through the ω = 4 spring lagged the curve and
+  reached the target still moving: every leg ended from 1.4–25 e-folds/s in one frame.
+- *Dull pace into the landing.* A dull stretch up to the target (the new needle anchors, Pine
+  Compass) flew at 3× until the brake: 10.3 e-folds/s to rest in 0.3 s at the default speed.
+- *Pulses.* A one-sample gap in a dull stretch: −10.7 → −8.6 → −10.7 e-folds/s within a second.
+- *Turns.* The van Wijk apex at a constant path speed swings the zoom rate from −V to +V in
+  ~2/V s: at ×35/s with the long-leg and dull paces −28 → +23 e-folds/s in 0.15 s.
+
+Fix (`flyto.rs`, `journey.rs`): the landing rides `v = c · left^(2/3)` from the frame the spring
+would outrun it, in closed form (speed `(1 − t/T)²`, `T = brake_time(v)` = 0.8 s · √(v / 1.4)
+within 0.8–1.5 s for the speed v actually flown, so a short leg that never reaches the set speed
+brakes as briefly as it flies; the deceleration eases to zero at the target); a path with an
+apex brakes ahead of it onto `k cosh x` (x = ρ (s − apex), `k` such that x = −1 … 1 takes
+`TURN_TIME` = 1 s, so the swing through zero does not depend on the speed) at `speed / brake_time` (in
+path units), riding that line when the spring lags (`FlyPath::turn_limit`, convex, minimised
+in closed form); the dull pace bridges gaps of fewer than 3 samples, ramps linearly between
+samples and is 1 over the last 3 samples; the pace factors (long legs, dull) raise a leg at most
+to 16 e-folds/s (`PACED_MAX`; a raised journey speed itself stays). Before → after, #4711 over
+100 s (main f5ff17b → this): default speed, worst zoom acceleration over 0.1 s 41 → 17
+e-folds/s² (the landing's first braking from a paced 10.8 e-folds/s), every landing from ≤ 0.2
+of the peak; E × 6 (×35/s): 462 → 23; E × 10 (×1000/s): 1069 → 20, peak rate 55 → 16 e-folds/s;
+no pulses (main: one per run). The default-speed cross-over to Pine Compass brakes −3.5 → 0 over
+0.9 s and is back at +3.4 after 1.8 s (before: ±3.4 in 0.6 s, then a landing from 9.7). Legs take
+longer: that cross-over 13.1 → 14.8 s; at E × 10 a short leg that zooms out 1 e-fold first
+(from the seahorse view at 1e5) 2.3 → 3.3–5.1 s, so the interaction test's "journey stops" now
+runs 7 s (`Scenario.seconds`). Tests:
+`cross_overs_turn_and_land_smoothly_at_any_speed` (1.4 / 4 / 16 e-folds/s at 30 / 60 / 120 Hz),
+`journey_legs_have_no_pulses_or_dead_stops` (#4711, default and E × 6; fails on c553b78:
+lands at 1.44 of 3.09 e-folds/s), `dull_pace_bridges_gaps_ramps_and_lands_at_the_journey_speed`.
+
+*Hand-over and resume* (see "Driving levels"): the ×55/s the user saw in C was the leg's paced
+rate taken over as the cruise's set speed (a deep cross-over flies 1.4 × 3.1 × 3 at the default
+speed); now the cruise's set speed is the journey speed (the rate eases there). The journey's
+and the cruise's speeds were already separate. J (and a choice at a stop) used to halt the
+cruise dead and start the leg from rest; now the cruise is released and glides out, and the
+next leg starts once it carries the cruise's direction (taking its rate over) or the cruise is
+below 0.15 e-folds/s (`journey_resumes_from_cruise_without_a_dead_stop`, both directions).
+
 ## Driving levels (as built, 2026-10-17)
 
 The user's design, like a car's gears: four levels, shown in the HUD cockpit as `M · C · A · J`.
@@ -823,13 +872,15 @@ or the pointer deflected past the dead zone for 0.25 s after moving 12 points si
 took the wheel: a pointer resting off-centre when Z was pressed, or crossing the canvas to a
 button, does not count) while the autopilot runs or a journey flies a leg engages the cruise
 with the current zoom rate and heading (A: set = the autopilot's set speed; J: set = the
-flight's zoom rate, the journey suspended, J resumes). The autopilot **no longer takes the wheel
+journey speed in the flight's zoom direction, at most the flight's rate, the journey suspended,
+J resumes after the cruise glides out or carries on into the leg; revised 2026-10-17, "Journey",
+smooth legs). The autopilot **no longer takes the wheel
 back**: the idle / dead-zone re-lock is gone because the autopilot is off after the hand-over; Z
 re-engages (at the cruise's speed if it went forward). Inside A the pointer no longer steers
 (it hands over); the lock aims whenever A runs. Other manual input (Space, pinch, wheel zoom,
 rotate) works on top as before. A journey stop counts as rest: E / Q there start a cruise and
-the journey stays at its stop (J / Z / X still choose; the cruise stops when the next leg
-starts). Esc stops the cruise first. Tests: `autopilot_hands_over_to_cruise_and_never_takes_the_wheel_back`,
+the journey stays at its stop (J / Z / X still choose; the cruise glides out, and the next leg
+starts when it carries the cruise's direction on or the cruise is at rest). Esc stops the cruise first. Tests: `autopilot_hands_over_to_cruise_and_never_takes_the_wheel_back`,
 `steering_or_pedal_to_zero_drops_a_journey_to_cruise`,
 `autopilot_recovers_after_cruising_into_a_featureless_region` (cruise into the cardioid, Z: the
 rescue backs out).
