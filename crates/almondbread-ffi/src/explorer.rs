@@ -1771,7 +1771,11 @@ impl Explorer {
     pub fn place_zoom_offset(&self) -> f64 {
         let (w, h) = self.lock().host.view_points();
         let side = w.min(h);
-        if side.is_finite() && side > 0.0 { (side / 800.0).log10() } else { 0.0 }
+        if side.is_finite() && side > 0.0 {
+            (side / 800.0).log10()
+        } else {
+            0.0
+        }
     }
 
     /// Jumps to a catalogue place (`places()`, kb: synthesis/places): its centre, its span
