@@ -1337,3 +1337,10 @@ from `z = 0` before its scan, and the existing Kantorovich bound proves each pix
 chunk dropped the probe state of probing pixels; that is fixed. Results: period-22 view
 unresolved 8.3 → 4.4 %; period-64 view 79 → 22 %, settled 20.6 → 3.0 s in the app scheduler.
 0 false interior in 13 views. Page: [[techniques/interior-detection]] "Component Newton".
+
+## [2026-10-17] decision | Pointer hand-over from the autopilot needs real steering
+
+The user: "when in Autopilot mode, moving the mouse just a bit throws you into cruise mode".
+The hand-over now needs all three: 60 points of pointer travel (was 12), the pointer more
+than 0.35 of the steering radius off-centre (was the 0.1 dead zone), and that held for 0.6 s
+(was 0.25). WASD, a drag and the stick still hand over at once. [[decisions/controls]] "Driving levels".

@@ -299,8 +299,13 @@ const ROTATE_REST: f64 = 1e-4;
 /// (s) a deflection past the steering dead zone must last, before it counts as the user
 /// steering (it then hands over to cruise): the pointer resting off-centre when Z was pressed,
 /// or passing over the canvas on its way to a button, is not steering.
-pub const STEER_TRAVEL: f64 = 12.0;
-pub const STEER_ENGAGE: f64 = 0.25;
+/// Raised 2026-10-17 (user: "moving the mouse just a bit throws you into cruise"): 60 points
+/// of travel, a deflection past [`STEER_HANDOVER`] of the steering radius, held 0.6 s.
+pub const STEER_TRAVEL: f64 = 60.0;
+pub const STEER_ENGAGE: f64 = 0.6;
+/// Share of the steering radius the pointer must be off-centre to count as steering against
+/// the autopilot (well outside the steering dead zone: a nudge of the mouse is not steering).
+pub const STEER_HANDOVER: f64 = 0.35;
 /// A released cruise slower than this (e-folds/s) no longer holds a journey's next leg back.
 pub const LEG_CARRY_REST: f64 = 0.15;
 /// A lane-assist nudge lights the cockpit's lane icon this long (s).
@@ -772,7 +777,8 @@ impl Navigator {
         let Some(p) = self.pointer_on_canvas() else {
             return false;
         };
-        self.autopilot.steer_target(Some(p), self.steer_radius()) != (0.0, 0.0)
+        let r = self.steer_radius();
+        p.0.hypot(p.1) >= STEER_HANDOVER * r && self.autopilot.steer_target(Some(p), r) != (0.0, 0.0)
     }
 
     fn steer_radius(&self) -> f64 {
@@ -3492,12 +3498,16 @@ mod tests {
         let t = run(&mut n, &mut v, 0.0, 2.0, 60.0);
         assert_eq!(n.level(), Level::Autopilot);
         let rate = n.autopilot().rate();
-        // Moving it (deflected past the dead zone, sustained): cruise.
-        n.handle(InputEvent::Pointer(Some((230.0, 10.0))), &mut v, t);
+        // A small nudge of the mouse is not steering.
+        n.handle(InputEvent::Pointer(Some((255.0, 5.0))), &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert_eq!(n.level(), Level::Autopilot, "a nudge keeps the autopilot");
+        // Moving it (far, deflected past the hand-over zone, sustained): cruise.
+        n.handle(InputEvent::Pointer(Some((180.0, 10.0))), &mut v, t);
         n.handle(InputEvent::Pointer(Some((250.0, 20.0))), &mut v, t);
         let t1 = run(&mut n, &mut v, t, t + 0.1, 60.0);
         assert_eq!(n.level(), Level::Autopilot, "not before {STEER_ENGAGE} s");
-        let t = run(&mut n, &mut v, t1, t + 0.4, 60.0);
+        let t = run(&mut n, &mut v, t1, t + STEER_ENGAGE + 0.15, 60.0);
         assert_eq!(n.level(), Level::Cruise);
         assert!(!n.autopilot().is_active());
         assert_eq!(n.cruise().set_speed(), autopilot::SPEED_DEFAULT);
