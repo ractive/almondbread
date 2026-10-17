@@ -14,9 +14,10 @@
 //! the canvas, over the HUD, idle for [`STEER_IDLE`] s, keyboard mode): straight ahead.
 //!
 //! **Speed.** The zoom rate eases in and out on a spring towards
-//! `speed · throttle · safety`. `throttle` (0...1) follows how the renderer keeps up: the
-//! gesture-preview resolution that fits the frame budget, and whether a deep reference is
-//! still computing (the view then only shows the stretched history). `safety` drops when the
+//! `speed · throttle · safety`. `throttle` (0...1) follows how the renderer keeps up: whether
+//! even the coarsest gesture preview misses the frame budget (filtered, [`FIT_TAU`]; the
+//! preview step it runs at is the scheduler's business, not a reason to slow), and whether a
+//! deep reference is still computing (the view then only shows the stretched history). `safety` drops when the
 //! heading region of the current frame is uniform (fully interior or featureless exterior);
 //! the HUD then shows a hint.
 //!
@@ -84,9 +85,18 @@ pub const CLICK_UNDO: f64 = 0.5;
 /// gently.
 pub const THROTTLE_TAU: (f64, f64) = (0.25, 1.0);
 /// Gesture-preview resolution (preview texels per pixel, unclamped) at which the throttle is
-/// 1, and at which it reaches its floor.
-pub const FIT_FULL: f64 = 0.25;
-pub const FIT_FLOOR: f64 = 0.1;
+/// 1, and at which it reaches its floor. The fit reads back the resolution step the scheduler
+/// is at (its frames fill the budget at any step, and the GPU clocks follow the load), so it is
+/// no measure of headroom; only a fit below the coarsest step (1/8) says that the frames do not
+/// fit the budget. 0.1 at 1/8: GPU time 1.56x the budget (half the refresh interval), 0.78 of
+/// the interval; 1/16: 4x the budget, every other refresh (kb: decisions/controls "Autopilot",
+/// "Steady autopilot rate").
+pub const FIT_FULL: f64 = 0.1;
+pub const FIT_FLOOR: f64 = 0.0625;
+/// The fit enters the throttle through a filter of its log with these time constants (s): a
+/// single slow chunk (another process's GPU work) does not dip the rate, an overload that
+/// lasts does within about a second.
+pub const FIT_TAU: (f64, f64) = (0.5, 1.0);
 /// Throttle floor while previews are too coarse, and while the view waits for a reference.
 pub const THROTTLE_MIN: f64 = 0.3;
 pub const THROTTLE_WAITING: f64 = 0.06;
@@ -392,6 +402,8 @@ pub struct Autopilot {
     rate: Spring,
     heading: [Spring; 2],
     throttle: f64,
+    /// ln of the renderer's fit, filtered with [`FIT_TAU`] (None while unknown).
+    fit_ln: Option<f64>,
     safety: f64,
     hint: Hint,
     feedback: RenderFeedback,
@@ -441,6 +453,7 @@ impl Default for Autopilot {
             rate: Spring::default(),
             heading: [Spring::default(); 2],
             throttle: 1.0,
+            fit_ln: None,
             safety: 1.0,
             hint: Hint::None,
             feedback: RenderFeedback::default(),
@@ -696,10 +709,20 @@ impl Autopilot {
     /// fly-to). Returns the hint that applies while it is low.
     pub fn update_throttle(&mut self, dt: f64) -> Hint {
         let fb = self.feedback;
+        self.fit_ln = if fb.fit.is_finite() && fb.fit > 0.0 {
+            let x = fb.fit.ln();
+            Some(match self.fit_ln {
+                Some(f) => approach(f, x, if x < f { FIT_TAU.0 } else { FIT_TAU.1 }, dt),
+                None => x,
+            })
+            .filter(|f| f.is_finite())
+        } else {
+            None
+        };
         let (target, hint) = if fb.waiting_reference {
             (THROTTLE_WAITING, Hint::Reference)
-        } else if fb.fit.is_finite() {
-            let t = smoothstep((fb.fit - FIT_FLOOR) / (FIT_FULL - FIT_FLOOR));
+        } else if let Some(f) = self.fit_ln {
+            let t = smoothstep((f.exp() - FIT_FLOOR) / (FIT_FULL - FIT_FLOOR));
             (THROTTLE_MIN + (1.0 - THROTTLE_MIN) * t, Hint::Rendering)
         } else {
             (1.0, Hint::None)
@@ -1119,6 +1142,62 @@ mod tests {
         // Just past the dead zone the response is tiny (small mouse moves barely steer).
         let (tx, _) = a.steer_target(Some((0.12 * r, 0.0)), r);
         assert!(tx < 0.01 * r, "{tx}");
+    }
+
+    /// The rate under a fit that is a function of time, at `hz`: (min, max) after `settle` s.
+    fn rate_under(hz: f64, secs: f64, settle: f64, fit: impl Fn(f64) -> f64) -> (f64, f64, Autopilot) {
+        let mut a = Autopilot::default();
+        a.toggle();
+        let dt = 1.0 / hz;
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for k in 0..(secs * hz).round() as usize {
+            let t = (k + 1) as f64 * dt;
+            a.set_feedback(RenderFeedback {
+                fit: fit(t),
+                ..Default::default()
+            });
+            a.step(dt, (0.0, 0.0), t);
+            if t >= settle {
+                lo = lo.min(a.rate());
+                hi = hi.max(a.rate());
+            }
+        }
+        (lo, hi, a)
+    }
+
+    #[test]
+    fn throttle_is_steady_while_frames_fit_and_drops_on_a_real_overload() {
+        // The fits a 120 Hz flight at 1e-250 reads (measured): ~0.13 at the 1/8 step, ~0.24
+        // while a probe holds 1/4, toggling every 0.5-4 s; the old mapping swung the rate
+        // between 0.36 and 0.95 of the speed with them. Plus a slow chunk (fit 0.05 for 30 ms)
+        // twice a second. All frames fit: the rate stays at the speed.
+        let toggling = |t: f64| {
+            let base = if (t / 1.7).floor() as i64 % 2 == 0 { 0.13 } else { 0.24 };
+            if t.fract() < 0.03 || (t + 0.5).fract() < 0.03 {
+                0.05
+            } else {
+                base
+            }
+        };
+        for hz in [30.0, 60.0, 120.0] {
+            let (lo, hi, _) = rate_under(hz, 20.0, 5.0, toggling);
+            assert!(lo > 0.97 * SPEED_DEFAULT, "{hz} Hz: rate dips to {lo}");
+            assert!(hi <= SPEED_DEFAULT + 1e-9, "{hz} Hz: {hi}");
+        }
+        // A real overload (the coarsest preview takes 4x the budget) slows it within ~1.5 s,
+        // the same at any frame rate.
+        let overload = |t: f64| if t < 5.0 { 0.13 } else { 0.06 };
+        let at = |hz: f64, secs: f64| rate_under(hz, secs, 0.0, overload).2;
+        for hz in [30.0, 60.0, 120.0] {
+            let a = at(hz, 6.5);
+            assert!(a.rate() < 0.5 * SPEED_DEFAULT, "{hz} Hz: still {}", a.rate());
+            assert_eq!(a.hint(), Hint::Rendering);
+            let a = at(hz, 9.0);
+            assert!((a.throttle() - THROTTLE_MIN).abs() < 0.02, "{hz} Hz: {}", a.throttle());
+        }
+        // Mid-transient (falling at ~0.5 e-folds/s²): within one 30 Hz frame of the step's timing.
+        let (r30, r120) = (at(30.0, 6.0).rate(), at(120.0, 6.0).rate());
+        assert!((r30 - r120).abs() < 0.04, "30 Hz {r30} vs 120 Hz {r120}");
     }
 
     #[test]
