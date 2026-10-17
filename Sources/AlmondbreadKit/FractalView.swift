@@ -622,8 +622,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         overHUD = false
         let o = offset(event.locationInWindow)
         // A pointing hand over a help badge (the "?" Rust draws): it is a button.
-        let onBadge = model.explorer?.helpHit(x: o.x, y: o.y) != nil
-            || model.explorer?.cockpitHit(x: o.x, y: o.y) != nil
+        let control = model.explorer?.cockpitHit(x: o.x, y: o.y)
+        let tip = control.flatMap(ExplorerModel.cockpitTooltip)
+        if toolTip != tip { toolTip = tip }
+        let onBadge = model.explorer?.helpHit(x: o.x, y: o.y) != nil || control != nil
         if onBadge != overBadge {
             overBadge = onBadge
             (onBadge ? NSCursor.pointingHand : NSCursor.crosshair).set()

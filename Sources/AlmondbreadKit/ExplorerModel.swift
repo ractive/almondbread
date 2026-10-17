@@ -933,6 +933,18 @@ public final class ExplorerModel {
     /// A click on a cockpit icon (they replace the toolbar's autopilot and journey buttons):
     /// manual stops everything (Esc), cruise starts cruising in (E) unless already cruising,
     /// autopilot and journey toggle like Z and J.
+    /// The tooltip of a cockpit control (`cockpitHit`'s id).
+    static func cockpitTooltip(_ id: String) -> String? {
+        switch id {
+        case "manual": "Manual: you steer and zoom yourself. Click (or Esc) stops all motion"
+        case "cruise": "Cruise (E / Q): a set zoom speed in or out, you steer"
+        case "autopilot": "Autopilot (Z): zooms on and steers to interesting places"
+        case "journey": "Journey (J): flies from landmark to landmark"
+        case "lane": "Lane assist (L): in cruise, nudges you away from featureless areas"
+        default: nil
+        }
+    }
+
     func cockpitClick(_ level: String) {
         switch level {
         case "manual": stopMotion()
@@ -943,6 +955,7 @@ public final class ExplorerModel {
             }
         case "autopilot": toggleAutopilot()
         case "journey": toggleJourney()
+        case "lane": toggleLaneAssist()
         default: break
         }
         host?.requestFrames()

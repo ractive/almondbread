@@ -32,6 +32,8 @@ pub struct CockpitOverlay {
     /// The level icons as last drawn: (level, centre x, centre y, half size), pixels. A click
     /// on one switches to that level (they replace the toolbar's autopilot and journey).
     icons: std::cell::RefCell<Vec<(Level, f64, f64, f64)>>,
+    /// The lane-assist icon as last drawn (centre x, y, half size; pixels): a click toggles it.
+    lane: Cell<Option<(f64, f64, f64)>>,
 }
 
 /// Font sizes (points): the level's name and the rate; the set-speed line.
@@ -143,13 +145,27 @@ fn icon(scene: &mut Scene, l: Level, c: [f64; 2], u: f64, col: [f32; 4]) {
 }
 
 impl CockpitOverlay {
-    /// The level icon under (x, y) pixels, if any (the last drawn cockpit).
-    pub fn hit(&self, x: f64, y: f64) -> Option<Level> {
-        self.icons
+    /// The control under (x, y) pixels, if any (the last drawn cockpit): a level icon
+    /// ("manual", "cruise", "autopilot", "journey") or the lane-assist icon ("lane").
+    pub fn hit(&self, x: f64, y: f64) -> Option<&'static str> {
+        let level = self
+            .icons
             .borrow()
             .iter()
             .find(|(_, cx, cy, h)| (x - cx).abs() <= *h && (y - cy).abs() <= *h)
-            .map(|(l, ..)| *l)
+            .map(|(l, ..)| *l);
+        if let Some(l) = level {
+            return Some(match l {
+                Level::Manual => "manual",
+                Level::Cruise => "cruise",
+                Level::Autopilot => "autopilot",
+                Level::Journey => "journey",
+            });
+        }
+        self.lane
+            .get()
+            .filter(|(cx, cy, h)| (x - cx).abs() <= *h && (y - cy).abs() <= *h)
+            .map(|_| "lane")
     }
 
     /// The panel in pixels (x0, y0, x1, y1) for a `size` pixel target with `ppp` points per
@@ -198,6 +214,7 @@ impl CockpitOverlay {
     ) {
         if !self.enabled || ppp <= 0.0 || size.0 == 0 || size.1 == 0 {
             self.icons.borrow_mut().clear();
+            self.lane.set(None);
             return;
         }
         // Points of the cockpit's own design, scaled (`zoom`), in pixels.
@@ -287,6 +304,7 @@ impl CockpitOverlay {
         if c.nudging {
             scene.disc([lx, yc], p(9.0), rgba(1.0, 1.0, 1.0, 0.18));
         }
+        self.lane.set(Some((lx, yc, (LANE / 2.0 + GAP / 2.0) * px)));
         let col = rgba(1.0, 1.0, 1.0, if c.nudging { 1.0 } else { alpha });
         let (hh, wb, wt) = (6.0 * px, 5.5 * px, 2.5 * px);
         scene.segment([lx - wb, yc + hh], [lx - wt, yc - hh], p(0.7), col, col);

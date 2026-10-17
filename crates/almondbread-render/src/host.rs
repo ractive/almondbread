@@ -195,8 +195,8 @@ impl<B: GpuBackend + Clone> Host<B> {
         crate::help::hit(&self.overlay.help, px, py, 1.0 / ppp).map(|b| self.help_badge_points(&b))
     }
 
-    /// The cockpit's level icon under a press at (x, y) view points from the centre, y up.
-    pub fn cockpit_hit(&self, x: f64, y: f64) -> Option<almondbread_core::cruise::Level> {
+    /// The cockpit control under a press at (x, y) view points from the centre, y up.
+    pub fn cockpit_hit(&self, x: f64, y: f64) -> Option<&'static str> {
         let ppp = self.points_per_pixel;
         if ppp <= 0.0 {
             return None;
