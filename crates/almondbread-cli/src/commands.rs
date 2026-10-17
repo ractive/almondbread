@@ -1829,6 +1829,9 @@ pub fn locate_command(o: &Options) -> Result<i32> {
         BigComplex, BigFloat, DoubleExp, NewtonOptions, PeriodMethod, find_nucleus, find_period_from,
         minibrot_size_complex,
     };
+    if let Some(seed) = o.get("endless-seed") {
+        return locate_endless(seed, o);
+    }
     let Some(c) = o.get("center") else {
         return err("missing --center re,im");
     };
@@ -1935,6 +1938,109 @@ pub fn locate_command(o: &Options) -> Result<i32> {
         );
         min_period = p + 1;
     }
+    Ok(0)
+}
+
+/// `locate --endless-seed n [--preperiod 1000] [--period 3] [--bits 11000] [--sharpness 4]
+/// [--doublings d]`: a never-repeating endless dive (kb: synthesis/places "Endless dives"). The
+/// external angle is `preperiod` pseudo-random bits from the seed followed by a `period`-bit
+/// tail; its ray is traced inward for `d` doublings (default preperiod + 4 periods), then
+/// Newton refines the landing point, a Misiurewicz point of preperiod `preperiod + 1`, at
+/// `bits`. Prints the angle, timings, the point, its cycle multiplier and the depth below which
+/// the view settles into repetition (estimate 1 / |dz_k/dc|).
+fn locate_endless(seed: &str, o: &Options) -> Result<i32> {
+    use almondbread_core::math::{
+        BigComplex, BinaryAngle, NewtonOptions, RayOptions, find_misiurewicz, trace_ray_inward,
+    };
+    let Ok(seed) = seed.parse::<u64>() else {
+        return err("bad --endless-seed");
+    };
+    let pre = o.usize("preperiod").unwrap_or(1000);
+    let per = o.usize("period").unwrap_or(3).max(2);
+    let bits = o.usize("bits").unwrap_or(11000);
+    let doublings = o.usize("doublings").unwrap_or(pre + 4 * per);
+    let angle = BinaryAngle::seeded(seed, pre, per);
+    println!("angle {}", angle.to_binary_string());
+    let ray_opts = RayOptions {
+        sharpness: o.usize("sharpness").unwrap_or(4),
+        ..RayOptions::default()
+    };
+    let t0 = Instant::now();
+    let Some(c) = trace_ray_inward(&angle, doublings, &ray_opts, &mut |n| {
+        if n % 250 == 0 {
+            eprintln!("  ray: doubling {n}/{doublings}, {:.1} s", t0.elapsed().as_secs_f64());
+        }
+    }) else {
+        println!("ray tracing failed (Newton did not converge)");
+        return Ok(1);
+    };
+    let t_ray = t0.elapsed().as_secs_f64();
+    let [cr, ci] = c.to_f64();
+    println!("ray: {doublings} doublings, {t_ray:.2} s, end point {cr:.17} {ci:+.17}i");
+    let k = pre + 1;
+    let t1 = Instant::now();
+    let opts = NewtonOptions {
+        precision_bits: Some(bits),
+        max_steps: 200,
+        max_distance: None,
+    };
+    let Some(m) = find_misiurewicz(&c, k, per, &opts) else {
+        println!("M_{{{k},{per}}}: Newton did not converge from the ray's end");
+        return Ok(1);
+    };
+    let t_newton = t1.elapsed().as_secs_f64();
+    // Orbit checks: exact preperiod, the cycle multiplier, |dz_k/dc|, distance ray -> point.
+    let b = m.point.precision_bits();
+    let one = BigComplex::from_f64(1.0, 0.0, b);
+    let (mut z, mut dz) = (BigComplex::zero(b), BigComplex::zero(b));
+    let mut zs = vec![z.clone()];
+    let mut dz_k = None;
+    for i in 1..=k + per {
+        dz = &(&z * &dz).times_power_of_two(1) + &one;
+        z = &z.square() + &m.point;
+        zs.push(z.clone());
+        if i == k {
+            dz_k = Some(dz.magnitude_double_exp());
+        }
+    }
+    let gap =
+        |a: usize, b2: usize| (&zs[a] - &zs[b2]).magnitude_double_exp().log2_magnitude() * std::f64::consts::LOG10_2;
+    let mut lambda = (1.0f64, 0.0f64);
+    for z in &zs[k..k + per] {
+        let [zr, zi] = z.to_f64();
+        lambda = (
+            lambda.0 * 2.0 * zr - lambda.1 * 2.0 * zi,
+            lambda.0 * 2.0 * zi + lambda.1 * 2.0 * zr,
+        );
+    }
+    let lam_abs = lambda.0.hypot(lambda.1);
+    let settle = -dz_k.map_or(0.0, |d| d.log2_magnitude() * std::f64::consts::LOG10_2);
+    let digits = ((b as f64 * std::f64::consts::LOG10_2) as usize)
+        .saturating_sub(6)
+        .max(17);
+    println!(
+        "M_{{{k},{per}}} re {}\n        im {}\n        newton {} steps, {t_newton:.2} s at {b} bits ({digits} digits)",
+        m.point.re.to_decimal_string(Some(digits)),
+        m.point.im.to_decimal_string(Some(digits)),
+        m.steps,
+    );
+    println!(
+        "checks: log10 |z_{{k+p}} - z_k| {:.0}, log10 |z_{{k-1+p}} - z_{{k-1}}| {:.1} (nonzero: preperiod exact), ray end to point 1e{:.1}",
+        gap(k + per, k),
+        gap(k - 1 + per, k - 1),
+        (&c.with_precision(b) - &m.point)
+            .magnitude_double_exp()
+            .log2_magnitude()
+            * std::f64::consts::LOG10_2
+    );
+    println!(
+        "multiplier {:.6} {:+.6}i, |lambda| {lam_abs:.6}, arg {:.3} deg; settles into repetition below about 1e{:.0} (1/|dz_k/dc|); total {:.2} s",
+        lambda.0,
+        lambda.1,
+        lambda.1.atan2(lambda.0).to_degrees(),
+        settle,
+        t0.elapsed().as_secs_f64()
+    );
     Ok(0)
 }
 

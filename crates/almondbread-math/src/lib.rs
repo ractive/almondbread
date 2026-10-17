@@ -24,6 +24,7 @@ mod orbit;
 mod parallel;
 #[doc(hidden)]
 pub mod raw;
+pub mod rays;
 pub mod selection;
 
 #[cfg(test)]
@@ -37,6 +38,7 @@ pub use orbit::{
     recommended_precision_bits, recommended_precision_bits_with, with_no_control,
 };
 pub use parallel::{PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS};
+pub use rays::{BinaryAngle, RayOptions, trace_ray_inward};
 pub use selection::{
     MisiurewiczResult, NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period,
     find_misiurewicz, find_nucleus, find_period, find_period_from, minibrot_size, minibrot_size_complex,

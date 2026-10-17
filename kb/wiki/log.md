@@ -1135,3 +1135,12 @@ target), Z (`plan_with` `Choice::Deeper`: ≥ 1 e-fold deeper in this view, else
 "nothing deeper here") or X (`Choice::Elsewhere`: cross over now). Reproducible from seed, start view
 and the choices; `journey --choices jzx`. Page: [[decisions/controls]] "Zoom-out autopilot",
 "Journey with stops".
+
+## [2026-10-17] decision | Endless dives: places centred exactly on Misiurewicz points
+
+New place category "Endless dives": `endless-forking` (c = i), `endless-spiral` (M(24,2)),
+`endless-junction` (M(4,1)), each repeating every |λ| times magnified turned by arg λ (5.657 at
+45°, 1.0789 at −14.87°, 1.3283 at 119.55°), and `endless-wander`, a never-repeating point from
+`locate --endless-seed 2026` (1,000 random angle bits, ray tracing + Newton, 42 s; changes down
+to ~1e-295, then repeats ×4.605). M(24,2) and M(4,1) extended to 3,307 digits (agree with the
+stored digits). Page: [[synthesis/places]] "Endless dives".
