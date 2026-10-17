@@ -303,6 +303,8 @@ pub const ASSIST_FLASH: f64 = 0.6;
 const PAN_REST: f64 = 0.5;
 const ZOOM_REST: f64 = 1e-3;
 
+/// Two-finger scroll set to zoom: e-folds per scrolled point (100 points: about ×2.7).
+const SCROLL_ZOOM_PER_POINT: f64 = 0.01;
 /// Lane assist (kb: decisions/controls "Driving levels"): a survey older than this (s) is not
 /// acted on, and the nudge's heading reaches at most this share of the steering radius.
 const ASSIST_SURVEY_AGE: f64 = 0.5;
@@ -386,6 +388,8 @@ pub struct Navigator {
     deflected_since: Option<f64>,
     /// Lane assist (setting, default off; active in cruise only) and when it last nudged.
     assist: bool,
+    /// Two-finger scrolling zooms (vertical) instead of panning (setting "Two-finger scroll").
+    scroll_zooms: bool,
     assist_nudged: f64,
     /// The compass's eased turn back to north (kb: decisions/controls "Compass").
     north: Option<crate::compass::NorthTurn>,
@@ -485,6 +489,7 @@ impl Default for Navigator {
             wheel_travel: 0.0,
             deflected_since: None,
             assist: false,
+            scroll_zooms: false,
             assist_nudged: f64::NEG_INFINITY,
             north: None,
         }
@@ -622,6 +627,12 @@ impl Navigator {
 
     pub fn set_assist(&mut self, on: bool) {
         self.assist = on;
+    }
+
+    /// Two-finger scroll: zoom (vertical only, about the pointer; horizontal ignored) instead of
+    /// pan (setting "Two-finger scroll: Pan / Zoom", default pan). Click-and-drag still pans.
+    pub fn set_scroll_zooms(&mut self, on: bool) {
+        self.scroll_zooms = on;
     }
 
     /// Lane assist's nudge of the cruise's heading target (view points from the centre), asked
@@ -1332,6 +1343,14 @@ impl Navigator {
                     if !momentum {
                         self.autopilot
                             .scale_speed((dy * autopilot::SCROLL_PER_POINT).exp(), now);
+                    }
+                    true
+                } else if self.scroll_zooms {
+                    // Fingers up zoom in, like the wheel; the momentum after lifting coasts on.
+                    if dy != 0.0 && dy.is_finite() {
+                        self.manual_zoom_ends_cruise();
+                        let (tx, ty) = self.zoom_target();
+                        self.zoom_at(viewport, (dy * SCROLL_ZOOM_PER_POINT).exp(), tx, ty, now);
                     }
                     true
                 } else {
@@ -2154,6 +2173,58 @@ mod tests {
         assert!(h.0 > 0.0 && h.1 > 0.0 && dist(h) <= ASSIST_REACH * r + 1e-9, "{h:?}");
         assert!((h.1 / h.0 - 200.0 / 300.0).abs() < 1e-9);
         assert_eq!(n.assist_nudge(&v, r, 1.0 + 2.0 * ASSIST_SURVEY_AGE), None);
+    }
+
+    /// Setting "Two-finger scroll: Zoom": up zooms in, down out, sideways nothing; default pans.
+    #[test]
+    fn two_finger_scroll_zooms_when_set() {
+        let (mut n, mut v) = setup();
+        let s0 = v.scale.to_f64();
+        let c0 = v.center.clone();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 40.0,
+                dy: 0.0,
+                momentum: false,
+            },
+            &mut v,
+            0.0,
+        );
+        assert_ne!(v.center, c0, "default: scrolling pans");
+        n.set_scroll_zooms(true);
+        let (mut n2, mut v2) = setup();
+        n2.set_scroll_zooms(true);
+        n2.handle(
+            InputEvent::Scroll {
+                dx: 40.0,
+                dy: 0.0,
+                momentum: false,
+            },
+            &mut v2,
+            0.0,
+        );
+        assert!((v2.scale.to_f64() - s0).abs() < 1e-15, "sideways does nothing");
+        n2.handle(
+            InputEvent::Scroll {
+                dx: 0.0,
+                dy: 100.0,
+                momentum: false,
+            },
+            &mut v2,
+            0.0,
+        );
+        let s1 = v2.scale.to_f64();
+        assert!((s0 / s1 - 1f64.exp()).abs() < 1e-9, "{}", s0 / s1);
+        n2.handle(
+            InputEvent::Scroll {
+                dx: 0.0,
+                dy: -100.0,
+                momentum: false,
+            },
+            &mut v2,
+            0.0,
+        );
+        assert!((v2.scale.to_f64() / s0 - 1.0).abs() < 1e-9);
     }
 
     fn dist(a: (f64, f64)) -> f64 {

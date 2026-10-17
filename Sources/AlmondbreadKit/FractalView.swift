@@ -229,6 +229,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     /// The current press is on a help badge (its popover opened on the press): its drag and
     /// release go nowhere.
     private var helpPressed = false
+    /// The pointer is over a help badge (the cursor shows a pointing hand).
+    private var overBadge = false
     private var gamepad: GamepadInput?
 
     init(model: ExplorerModel) {
@@ -617,6 +619,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         }
         overHUD = false
         let o = offset(event.locationInWindow)
+        // A pointing hand over a help badge (the "?" Rust draws): it is a button.
+        let onBadge = model.explorer?.helpHit(x: o.x, y: o.y) != nil
+        if onBadge != overBadge {
+            overBadge = onBadge
+            (onBadge ? NSCursor.pointingHand : NSCursor.crosshair).set()
+        }
         let r = send(.pointer(x: o.x, y: o.y))
         // A nudge below the switch threshold keeps keyboard mode: keep the cursor hidden.
         if r.mode == .keyboard && !TestLaunch.enabled { NSCursor.setHiddenUntilMouseMoves(true) }

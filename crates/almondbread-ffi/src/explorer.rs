@@ -1240,6 +1240,11 @@ impl Explorer {
         self.lock().host.renderer.navigator.set_assist(on);
     }
 
+    /// Two-finger scroll zooms instead of panning (macOS setting; default off: pan).
+    pub fn set_scroll_zooms(&self, on: bool) {
+        self.lock().host.renderer.navigator.set_scroll_zooms(on);
+    }
+
     /// The HUD cockpit (driving level, speed gauge, assist; drawn by Rust at the bottom of the
     /// canvas) shown or not (with the HUD), and the canvas edges it keeps clear of (view
     /// points: iPhone buttons at the bottom right).

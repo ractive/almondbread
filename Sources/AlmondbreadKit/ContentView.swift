@@ -39,9 +39,12 @@ struct ContentView: View {
     @ViewBuilder
     private var explorer: some View {
         FractalCanvas(model: model)
-        .ignoresSafeArea()
         // Popovers of the help badges Rust draws on its panels (kb: decisions/controls "Help").
+        // Inside `ignoresSafeArea`: the badge rects are in the canvas's full frame (under the
+        // toolbar), and an anchor in the safe-area frame sat a toolbar lower, below the window
+        // for the cockpit's badge at the bottom edge (no popover at all).
         .modifier(CanvasHelpPopover(model: model))
+        .ignoresSafeArea()
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = $0 }
         .background(Color.black)
         .overlay(alignment: .topLeading) {

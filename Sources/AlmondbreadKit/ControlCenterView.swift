@@ -334,6 +334,13 @@ struct ViewSectionRows: View {
         // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
         Toggle("Lane assist", isOn: $model.laneAssist)
             .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
+        #if os(macOS)
+        Picker("Two-finger scroll", selection: $model.scrollZooms) {
+            Text("Pan").tag(false)
+            Text("Zoom").tag(true)
+        }
+        .help("On a trackpad: two fingers pan the view, or zoom (up and down; then click and drag pans). Pinching always zooms")
+        #endif
         // View rotation (kb: decisions/controls, "View rotation"); the compass shows the angle.
         LabeledContent("Rotation") {
             Button("Straighten") { model.straighten() }

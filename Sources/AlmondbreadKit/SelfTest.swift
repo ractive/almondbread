@@ -267,7 +267,7 @@ public enum UIDemo {
             // (the probe sliding) or 16 s ("-late": the deepest counts, the trail crawling).
             let point = scene.hasPrefix("pi-cusp") ? "cusp" : "neck"
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight(point) }
-        case "help-canvas":
+        case "help-canvas", "help-cockpit":
             // The cosmic scale's help popover (kb: decisions/controls "Help"): the scale above
             // the mini-map, then a press on its "?" badge (below, once the view settled).
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
@@ -374,6 +374,19 @@ public enum UIDemo {
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil && $0 !== helpWindow
                        && !String(describing: type(of: $0)).contains("Popover") }) {
                     // help-canvas: press the cosmic scale's badge, capture once its popover is up.
+                    // help-cockpit: the cockpit's badge, pressed through the real hit test.
+                    if scene == "help-cockpit" {
+                        if helpShownAt == nil, let root = w.contentView, let fractal = findFractalView(root) {
+                            let badges = explorer.helpBadges()
+                            print("ui-demo: badges " + badges.map { "\($0.topic) \(Int($0.x)),\(Int($0.y))" }.joined(separator: " · "))
+                            if let b = badges.first(where: { $0.topic == "cockpit" }) {
+                                let hit = model.helpPress(x: b.x, y: b.y, size: fractal.bounds.size)
+                                print("ui-demo: cockpit badge press hit=\(hit) popover=\(model.canvasHelp?.topic.rawValue ?? "none")")
+                            }
+                            helpShownAt = Date()
+                        }
+                        if Date().timeIntervalSince(helpShownAt ?? Date()) < 2 { return }
+                    }
                     if scene == "help-canvas" {
                         if helpShownAt == nil,
                            let b = explorer.helpBadges().first(where: { $0.topic == "cosmic-scale" }),

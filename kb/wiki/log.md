@@ -1231,3 +1231,20 @@ view's coordinates and ⌘V goes to copied ones while the canvas has focus, and 
 normal copy and paste; ⇧⌘C / ⇧⌘V stay as menu items. A jump (pasted coordinates, a link, a
 place) now calls `Navigator::jumped`: cruise, autopilot, flights and flings stop dead and a
 journey ends (user request). [[decisions/controls]].
+
+## [2026-10-17] decision | Cockpit polish; two-finger scroll setting; help popovers at the bottom edge
+
+User review of the cockpit:
+- Icons spaced wider; the cockpit is drawn up to 1.3× where the window has room (base size on
+  a phone).
+- The pointer turns into a pointing hand over every (?) badge.
+- The cockpit's (?) did not open its popover. The canvas popover was anchored in the safe-area
+  frame (one toolbar lower than the badge rects, which are in the full canvas frame), so it fell
+  below the window for a badge at the bottom edge. The popover modifier now sits inside
+  `ignoresSafeArea`. `--ui-demo=help-cockpit` presses the badge through the real hit test.
+
+New setting "Two-finger scroll: Pan / Zoom" (macOS, persisted, default pan). With Zoom, vertical
+two-finger scroll zooms about the pointer (0.01 e-folds per point), sideways does nothing,
+click-and-drag pans, and a cruise stops as on any manual zoom. Shifting gears with sideways
+swipes was rejected: diagonal scrolls would shift by accident, horizontal swipes mean back /
+forward in many apps, and continuous deltas feel mushy next to Q / E.

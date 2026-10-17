@@ -37,15 +37,18 @@ const VALUE: f64 = 11.0;
 const SMALL: f64 = 8.0;
 /// Horizontal metrics (points).
 const PAD: f64 = 8.0;
-const ICON_PITCH: f64 = 16.0;
-const NAME_SLOT: f64 = 50.0;
-const GAUGE: f64 = 52.0;
-const VALUE_SLOT: f64 = 58.0;
+const ICON_PITCH: f64 = 20.0;
+const NAME_SLOT: f64 = 49.0;
+const GAUGE: f64 = 44.0;
+const VALUE_SLOT: f64 = 62.0;
 const LANE: f64 = 12.0;
 const GAP: f64 = 6.0;
 const BADGE: f64 = 2.0 * crate::help::RADIUS;
 const HEIGHT: f64 = 28.0;
 const MARGIN: f64 = 12.0;
+/// The cockpit is drawn this much larger where the window has room (at its base size on a
+/// phone).
+const ZOOM_MAX: f64 = 1.3;
 /// How long the set-speed line stays lit after it changed (s).
 const SET_FLASH: f64 = 1.2;
 
@@ -143,7 +146,8 @@ impl CockpitOverlay {
     pub fn layout(&self, size: (usize, usize), ppp: f64, insets: (f64, f64, f64, f64), left: f64) -> [f64; 4] {
         let px = 1.0 / ppp;
         let (w, h) = (size.0 as f64 * ppp, size.1 as f64 * ppp);
-        let pw = width();
+        let k = self.zoom(size, ppp, insets, left);
+        let pw = width() * k;
         let lo = insets.1.max(left) + MARGIN;
         let hi = w - insets.3 - self.inset_right - MARGIN;
         let mut x0 = (w - pw) / 2.0;
@@ -154,7 +158,15 @@ impl CockpitOverlay {
             x0 = (hi - pw).max(insets.1 + MARGIN.min(4.0));
         }
         let y1 = h - insets.2 - self.inset_bottom - MARGIN;
-        [x0 * px, (y1 - HEIGHT) * px, (x0 + pw) * px, y1 * px]
+        [x0 * px, (y1 - HEIGHT * k) * px, (x0 + pw) * px, y1 * px]
+    }
+
+    /// The drawing scale: up to [`ZOOM_MAX`] while the panel still fits between `left` and
+    /// the right edge, never below 1.
+    pub fn zoom(&self, size: (usize, usize), ppp: f64, insets: (f64, f64, f64, f64), left: f64) -> f64 {
+        let w = size.0 as f64 * ppp;
+        let room = w - insets.3 - self.inset_right - MARGIN - (insets.1.max(left) + MARGIN);
+        (room / width()).clamp(1.0, ZOOM_MAX)
     }
 
     /// Draws the cockpit and its (?) badge (into `help`); appends what it drew to `key`.
@@ -175,7 +187,8 @@ impl CockpitOverlay {
         if !self.enabled || ppp <= 0.0 || size.0 == 0 || size.1 == 0 {
             return;
         }
-        let px = 1.0 / ppp;
+        // Points of the cockpit's own design, scaled (`zoom`), in pixels.
+        let px = self.zoom(size, ppp, insets, left) / ppp;
         let r = self.layout(size, ppp, insets, left);
         let p = |v: f64| (v * px) as f32;
         scene.set_clip(None);
@@ -300,7 +313,7 @@ mod tests {
             inset_right: 56.0,
             ..Default::default()
         };
-        assert!(width() < 300.0, "{}", width());
+        assert!(width() < 310.0, "{}", width());
         // iPhone portrait (375 points, 3 px per point): inside the canvas, left of the buttons.
         let r = c.layout((1125, 2436), 1.0 / 3.0, (0.0, 0.0, 0.0, 0.0), 0.0);
         assert!(r[0] >= 0.0 && r[2] <= (375.0 - 56.0) * 3.0, "{r:?}");

@@ -9,7 +9,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Move the mouse** to choose where to zoom. The pointer becomes a small crosshair over the picture.
 - **Hold Space** to zoom in, **Shift + Space** to zoom out.
 - **Pinch** on the trackpad, scroll with **⌘** held, or turn the mouse wheel to zoom.
-- **Drag**, or scroll with two fingers, to move the picture.
+- **Drag**, or scroll with two fingers, to move the picture. (Control center ▸ View ▸ "Two-finger scroll: Zoom" makes two fingers up and down zoom instead; then drag to move.)
 - **Double-click** zooms in there; **⌥ double-click** zooms out.
 - **W A S D** or the **arrow keys** move the picture; zooming then goes to the middle.
 - **E** and **Q** are pedals: **E** starts a steady zoom in (cruise), **Q** a zoom out, each press a step faster; press the other one to slow down. Hold Space while pressing them to change the Space zoom speed instead.

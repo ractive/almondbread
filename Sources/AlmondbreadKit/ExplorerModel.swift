@@ -319,6 +319,16 @@ public final class ExplorerModel {
     }
     static let assistKey = "laneAssist"
 
+    /// Two-finger scroll on a trackpad: false pans (default), true zooms (up and down; click
+    /// and drag pans). Persisted; window tests start from (and never store) the default.
+    public var scrollZooms: Bool = !TestLaunch.enabled && UserDefaults.standard.bool(forKey: ExplorerModel.scrollZoomsKey) {
+        didSet {
+            if !TestLaunch.enabled { UserDefaults.standard.set(scrollZooms, forKey: Self.scrollZoomsKey) }
+            explorer?.setScrollZooms(on: scrollZooms)
+        }
+    }
+    static let scrollZoomsKey = "scrollZooms"
+
     /// "Journey: continuous / stop at each find" (persisted; off: continuous; kb:
     /// decisions/controls "Journey with stops"): J and the Journey button start this mode, ⇧J
     /// the other.
@@ -405,6 +415,7 @@ public final class ExplorerModel {
         explorer.setAutopilotLock(on: autopilotLock)
         explorer.setJourneyStops(on: journeyStops)
         explorer.setAssist(on: laneAssist)
+        explorer.setScrollZooms(on: scrollZooms)
         if !TestLaunch.enabled { restoreUserPalettes() }
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
@@ -741,6 +752,7 @@ public final class ExplorerModel {
             edgePanning = .whileZooming
             autopilotLock = true
             laneAssist = false
+            scrollZooms = false
         }
         if scope == .all || scope == .cinematic { journeyStops = false }
         if scope == .all || scope == .view || scope == .cinematic {
