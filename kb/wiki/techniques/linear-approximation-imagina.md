@@ -244,8 +244,9 @@ gives `y = A z`, `y ← y² + c'`, `c' = A(A+B)dc + A Z_P`, valid while
 `|y|² < |A|²(R − (K+1)|dc|)` (bound capped at 2^100), each AT step `P` iterations, `D = A·dz/dc·texel`
 and `w` (`w = A` after the first step from `z_0 = 0`, then `w ← 2y w`) in floatexp. A pixel
 inside the AT between chunks keeps `y` itself in its state (`e = AT_MODE`), so results do not
-depend on chunk cuts. Built and verified, **off by default** (`ALMONDBREAD_AT=1`, `--at 1`):
-it saved 4–10 % of the steps but ran between 2 % faster and 17 % slower on the GPU.
+depend on chunk cuts. Built and verified, **off by default**:
+it saved 4–10 % of the steps but ran between 2 % faster and 17 % slower on the GPU. **Removed
+2026-10-17** (switch `ALMONDBREAD_AT`, `--at`, the kAT kernel path and `AtInfo`), never enabled.
 
 **Tables** are small and fast to build on a thread (needle-1e1004: 277 entries, 17 KB, 0.3 ms;
 sea-8007: 2 913 entries in 4 stages, 187 KB, 2.6 ms; 40 000-point centre references ~10 ms).

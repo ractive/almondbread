@@ -393,7 +393,7 @@ impl ReferenceRequest {
             period_limit: max_iter,
             precision_bits: bits.div_ceil(64) * 64,
             bailout,
-            nucleus: std::env::var("ALMONDBREAD_NUCLEUS").map_or(true, |v| v != "0"),
+            nucleus: true,
         }
     }
 }

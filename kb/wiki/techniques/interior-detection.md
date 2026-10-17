@@ -269,7 +269,7 @@ float32 and stay unresolved.
   chunks cap steps at `max(128, 2^24 / live)` so long probes are compacted. Off for previews
   and gesture frames, for a nucleus reference with `4 P >` the limit, and for the rest of a
   level (and its extension and AA levels) once 4096 probed pixels show < 5 % success.
-- `ALMONDBREAD_PROBE=0` switches it off, `=n` sets the divisor.
+- Always on, divisor 8 (the switch `ALMONDBREAD_PROBE` was removed 2026-10-17).
 
 **Results** (measured 2026-10-17, M1 Pro, release; `verify`, GPU at the view's limit vs the
 CPU oracle at a high limit; "proven" = GPU detected / CPU non-escaping; false interior 0 in

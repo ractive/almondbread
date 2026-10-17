@@ -1229,13 +1229,8 @@ impl Explorer {
 
     /// Autopilot target lock: while the pointer rests the autopilot aims at boundary targets
     /// and backs out of voids (on by default; off: a pure joystick; kb: decisions/controls
-    /// "Autopilot"). `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the setting (A/B tests).
+    /// "Autopilot").
     pub fn set_autopilot_lock(&self, on: bool) {
-        let on = match std::env::var("ALMONDBREAD_AUTOPILOT_LOCK").ok().as_deref() {
-            Some("0") => false,
-            Some("1") => true,
-            _ => on,
-        };
         self.lock().host.renderer.navigator.autopilot_mut().set_lock(on);
     }
 

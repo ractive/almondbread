@@ -169,7 +169,7 @@ of the reference alone, so the job's key is stable):
 
 A high limit costs only the pixels that reach it, so the floor is cheap where most pixels
 escape earlier. Spiral, 1600 × 1000, plain kernel (measured 2026-10-15, M1 Pro): one pass at
-41 536, 2 257 ms instead of two (10 384 + 41 536). `ALMONDBREAD_ITER_FLOOR=0` turns it off.
+41 536, 2 257 ms instead of two (10 384 + 41 536). (The switch `ALMONDBREAD_ITER_FLOOR=0` was removed 2026-10-17.)
 
 **The adaptive interior-test switch must not drop the test while pixels end unresolved**
 (M5): with the test off, limit pixels are drawn interior and the extension passes (which need
@@ -273,8 +273,9 @@ loop:
   "pixels resolved by compute further not showing their colour" (by the field data against a
   fresh render; [[techniques/unresolved-fog]] "Checks"), which found the last pass's texels
   left part faded; the compose now runs on for 4 τ after the last pass.
-- Switches: `ALMONDBREAD_FURTHER=0|1` (default 1); `--further 0|1` and `--further-budget s` on
-  `verify --history` (default off there, so `make regress` stays as fast: 302.8 s against
+- Switches: always on in the app (the env switch `ALMONDBREAD_FURTHER` and `--further 0|1` were removed
+  2026-10-17); `--further-budget s` on
+  `verify --history` (which runs it only when given, so `make regress` stays as fast: 302.8 s against
   300.2 s on main, the 2.4 s being its one compute further session, the neck at 400 × 250 with
   AA and a 4 s budget) and `progress`; `ALMONDBREAD_UNRESOLVED_AT=1,5,20,60` prints the shown
   frame's unresolved texels at those seconds.

@@ -80,31 +80,15 @@ and quit by themselves):
   oracle next to the oracle with its grid shifted 0.001–0.5 px (is a difference an artefact
   or chaos?), same-colouring PNGs; `--ff 1` the float-float field, `--kat 1` the float-float
   known-answer test and number-type speeds (kb: techniques/double-float). `verify --ff 1` too.
-- `almondbread autopilot --center re,im --scale s [--speed 4] [--seconds 90] [--lock 0|1]`:
+- `almondbread autopilot --center re,im --scale s [--speed 4] [--seconds 90]`:
   Z with no input, headless on the CPU (synchronous target lock, CPU survey), prints the
-  timeline and the uniform-heading share; `fly ... --lock 0|1` measures the real pipeline
-  (`autopilot-metrics:` line). `ALMONDBREAD_LOCK_TRACE=1` prints each lock search;
-  `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the app's target-lock setting (A/B);
-  `ALMONDBREAD_SURVEY_STEER=1` steers to the GPU survey's boundary point while no lock target is
-  followed (opt-in, kb: decisions/controls "Survey steering").
-- `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms) and seed round.
-- Hitches: `ALMONDBREAD_FRAME_LOG=1` makes the interaction test print each scenario's longest
-  presentation gaps and slowest draws with their times; `ALMONDBREAD_KERNEL_SALT=x` (new x)
-  measures with a cold Metal shader cache (as after an update), `ALMONDBREAD_WARM_PIPELINES=0`
-  turns the pipeline warm-up off (kb: platform/metal-compute); `ALMONDBREAD_PREVIEW_WAIT_BLA=0`
-  lets previews start without a new reference's BLA table again (the 200 ms+ GPU stalls of
-  autopilot dives, kb: techniques/bla "Pitfalls"); `fly --log x.csv` has per-refresh
-  zoom, frame CPU and late ms (`fly_to` and `jump` take `{"place": id}`).
+  timeline and the uniform-heading share; `fly ...` measures the real pipeline
+  (`autopilot-metrics:` line). `fly --log x.csv` has per-refresh zoom, frame CPU and late ms
+  (`fly_to` and `jump` take `{"place": id}`).
 - Journeys: `almondbread journey --seed n --path 1|2` prints each leg's dull stretches and the
-  per-dive depths; `ALMONDBREAD_PROBE_ESCALATE=0` restores the fixed CPU probe limit (target
-  lock near deep high-period minibrots, kb: decisions/controls).
-- M5 switches for before/after checks (default auto/on): `ALMONDBREAD_SA=0|1|auto` (local SA,
-  CLI `--sa`), `ALMONDBREAD_FILL=0|1|auto` (interior tile fill, `--fill`),
-  `ALMONDBREAD_ITER_FLOOR=0` (auto-iteration floor from the reference).
-- M6 switches: `ALMONDBREAD_LA=0|1|auto` (Imagina-style LA instead of BLA, CLI `--la`; auto =
-  deep nucleus references only), `ALMONDBREAD_AT=1` (its AT, `--at 1`; off by default).
-  `cargo run --release -p almondbread-core --example la_check -- [name...]`: CPU model step counts
-  of exact / BLA / LA / LA+AT per location (kb: techniques/linear-approximation-imagina).
+  per-dive depths.
+- `cargo run --release -p almondbread-core --example la_check -- [name...]`: CPU model step
+  counts of exact / BLA / LA per location (kb: techniques/linear-approximation-imagina).
 - Ground truth for slow-escape views: `cargo run --release -p almondbread-core --example neck_truth
   -- --center re,im --scale s --size 160x100 --limit 1e7 [--dd k]` (direct f64, escape histogram,
   interior proof; `--paint a.iter [--cycle p]` paints any `verify --dump`; kb:
@@ -116,6 +100,27 @@ and quit by themselves):
 - `scripts/ui-screenshots.sh`: control center and overlays from background `--ui-demo`
   windows; the app captures its own window (no screen-recording permission, no focus) into
   `build/screens/window-*.png`.
+
+## Environment variables
+
+Behaviour is not switched by environment variables: a decided choice is the only code. What
+is left measures, traces or drives tests.
+
+| Variable | Purpose |
+|---|---|
+| `ALMONDBREAD_TRACE=1` | Print every iterate chunk (live counts, K, GPU ms) and seed round. |
+| `ALMONDBREAD_LOCK_TRACE=1` | Print each autopilot target-lock search. |
+| `ALMONDBREAD_JOURNEY_TRACE` | Print the journey planner's decisions. |
+| `ALMONDBREAD_FRAME_LOG=1` | Interaction test: longest presentation gaps and slowest draws, with times. |
+| `ALMONDBREAD_SNAPSHOT=x.png` | `verify --history`: save the frame shown at the timeout. |
+| `ALMONDBREAD_KERNEL_SALT=x` | Cold Metal shader cache (a new x), as after an update. |
+| `ALMONDBREAD_COLORIZE_BENCH=n` | Run the colour pass n times more; GPU ms min / median. |
+| `ALMONDBREAD_UNRESOLVED_AT=1,5,20` | Unresolved texels of the shown frame at those seconds (compute further). |
+| `ALMONDBREAD_SURVEY_STEER=1` | Autopilot steers to the GPU survey's boundary point while no lock target is followed (off by default, being decided by the user; then removed). |
+| `ALMONDBREAD_SCENARIOS="a,b"` | Interaction test: run only these scenarios. |
+| `ALMONDBREAD_SELFTEST=1` | Same as `--selftest` (launch check; iOS simulator). |
+| `ALMONDBREAD_TEST_FOREGROUND=1`, `_SCREEN=main`, `_LINK=cv` | Interaction test window: front/key, main display, own CVDisplayLink. |
+| `ALMONDBREAD_UITEST_SHOTS=dir` | iOS UI test: save screenshots there. |
 
 ## Working mode
 

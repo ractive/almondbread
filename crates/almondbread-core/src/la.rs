@@ -28,13 +28,6 @@
 //! valid block ends at a boundary of its stage (hence of stage 0): the next lookup follows one
 //! exact step later. Rebasing brings the pixel to `m = 0 = b_0`, so it re-enters the chains
 //! after every rebase ("skip one period, rebase" at a minibrot).
-//!
-//! **AT.** For a periodic (nucleus) reference of period `P`, the top-stage step `[0, P)` maps
-//! the full `z` at a period boundary to the next: `z' = Z_P + A (z^2 + dc) + B dc`. In
-//! `y = A z` that is the Mandelbrot map itself, `y' = y^2 + c'` with `c' = A (A + B) dc +
-//! A Z_P`, valid while the step is (`|z|^2 + K |dc| < R`, i.e. `|y|^2 < |A|^2 (R - K |dc|)`).
-//! A pixel at `m = 0` iterates `y` in float32 while that holds, `P` iterations per step
-//! (kb: techniques/linear-approximation-imagina "AT"; knighty's renormalisation).
 
 use std::time::Instant;
 
@@ -80,35 +73,15 @@ impl Default for LaBuild {
     }
 }
 
-/// The kernel's LA parameters (`LaParams` in MSL, 96 bytes): the lookup boundary count and the
-/// AT of a periodic reference (`period` 0: none). Complex values are floatexp (mantissa with
-/// max-abs in [0.5, 1), exponent), reals mantissa + exponent.
+/// The kernel's LA parameters (`LaParams` in MSL, 16 bytes): the lookup boundary count.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LaParams {
     pub count: u32,
-    pub period: u32,
-    pub pad0: u32,
-    pub pad1: u32,
-    pub at_a: [f32; 2],
-    pub at_ae: i32,
-    pub pad2: i32,
-    pub at_ai: [f32; 2],
-    pub at_aie: i32,
-    pub pad3: i32,
-    pub at_cc: [f32; 2],
-    pub at_cce: i32,
-    pub pad4: i32,
-    pub at_rc: [f32; 2],
-    pub at_rce: i32,
-    pub pad5: i32,
-    pub at_r: f32,
-    pub at_re: i32,
-    pub at_k1: f32,
-    pub at_k1e: i32,
+    pub pad: [u32; 3],
 }
 
-const _: () = assert!(std::mem::size_of::<LaParams>() == 96);
+const _: () = assert!(std::mem::size_of::<LaParams>() == 16);
 
 /// One step of a stage as built: the block over the inner points (None: no inner point, the
 /// step is a single exact iteration), its start and end in the reference.
@@ -353,24 +326,7 @@ pub struct LaTable {
     pub next_j: Vec<u32>,
     /// Steps per stage (diagnostics).
     pub stage_steps: Vec<usize>,
-    /// Approximation table of a periodic reference, if usable.
-    pub at: Option<AtInfo>,
     pub build_time: f64,
-}
-
-/// The AT of a periodic reference (see the module docs): `y = A z`, `y <- y^2 + c'` with
-/// `c' = cc dc + ref_c`, valid while `|y|^2 < |A|^2 (R - K |dc|)`; each step is `period`
-/// iterations.
-#[derive(Clone, Copy, Debug)]
-pub struct AtInfo {
-    pub period: usize,
-    pub(crate) a: Xc,
-    /// `A (A + B)`.
-    pub(crate) cc: Xc,
-    /// `A Z_P` (0 for an exact nucleus).
-    pub(crate) ref_c: Xc,
-    pub(crate) r: Xr,
-    pub(crate) k: Xr,
 }
 
 impl LaTable {
@@ -472,7 +428,6 @@ impl LaTable {
         // Next lookup per m: the smallest j with L_j >= m.
         t.next_j = (0..points.len()).map(|m| next_of(m) as u32).collect();
 
-        t.at = Self::make_at(points, &stages, epsilon);
         t.build_time = start.elapsed().as_secs_f64();
         t
     }
@@ -502,70 +457,12 @@ impl LaTable {
         Self::build_with(&x, epsilon, params)
     }
 
-    /// The AT, from a top-stage step that covers the whole reference `[0, last)`: only for a
-    /// periodic reference (its end point `Z_P` near 0, so the step closes a period).
-    fn make_at(points: &[FloatExpComplex], stages: &[Vec<Step>], epsilon: f64) -> Option<AtInfo> {
-        let last = points.len() - 1;
-        // Periodic: |Z_P| far below the orbit's scale (a nucleus reference).
-        if last < 2 || log2_abs(&points[last]) > -20.0 {
-            return None;
-        }
-        // The period step [0, P): the top stage's steps composed (its boundaries linearised).
-        let top = stages.last()?;
-        let mut block = top[0].block;
-        for st in &top[1..] {
-            let with_b = then_opt(block, &MergedX::single(&points[st.start], epsilon));
-            block = Some(match st.block {
-                None => with_b,
-                Some(y) => with_b.then(&y),
-            });
-        }
-        let block = block?;
-        if block.r.is_zero() {
-            return None;
-        }
-        let a = block.a;
-        let ab = a.add(block.b);
-        let zp = Xc::new(
-            f64::from(points[last].mantissa[0]),
-            f64::from(points[last].mantissa[1]),
-            i64::from(points[last].exponent),
-        );
-        let at = AtInfo {
-            period: last,
-            a,
-            cc: a.mul(ab),
-            ref_c: a.mul(zp),
-            r: block.r,
-            k: block.k,
-        };
-        // Useful only if y may pass |y| = 2 (Imagina: SqrEscapeRadius > 4).
-        if log2_xr(at.a.abs()) * 2.0 + log2_xr(at.r) < 2.0 {
-            return None;
-        }
-        Some(at)
-    }
-
-    /// The kernel's parameters (`at`: include the AT if there is one).
-    pub fn gpu_params(&self, at: bool) -> LaParams {
-        let mut p = LaParams {
+    /// The kernel's parameters.
+    pub fn gpu_params(&self) -> LaParams {
+        LaParams {
             count: self.boundaries() as u32,
             ..LaParams::default()
-        };
-        if let (true, Some(a)) = (at, &self.at) {
-            let inv = {
-                let d = a.a.re * a.a.re + a.a.im * a.a.im;
-                Xc::new(a.a.re / d, -a.a.im / d, -a.a.e)
-            };
-            p.period = a.period as u32;
-            (p.at_a, p.at_ae) = a.a.gpu();
-            (p.at_ai, p.at_aie) = inv.gpu();
-            (p.at_cc, p.at_cce) = a.cc.gpu();
-            (p.at_rc, p.at_rce) = a.ref_c.gpu();
-            (p.at_r, p.at_re) = a.r.gpu();
-            (p.at_k1, p.at_k1e) = a.k.add(Xr::from_f64(1.0)).gpu();
         }
-        p
     }
 
     pub fn boundaries(&self) -> usize {
@@ -649,12 +546,11 @@ impl LaTable {
 pub struct ModelOutcome {
     pub n: usize,
     pub escaped: bool,
-    /// Loop steps: exact steps plus blocks (plus AT steps).
+    /// Loop steps: exact steps plus blocks.
     pub steps: usize,
     pub blocks: usize,
     /// Table entries tested.
     pub tests: usize,
-    pub at_steps: usize,
     /// log2 |z| at escape.
     pub log2_r: f64,
 }
@@ -684,7 +580,7 @@ pub enum Skip<'a> {
     None,
     /// Deep BLA with lookups at `m = 1 (mod every)` (the GPU policy).
     Bla(&'a crate::bla::BlaTableX, usize),
-    La(&'a LaTable, bool),
+    La(&'a LaTable),
 }
 
 /// CPU model of a deep pixel (extended range throughout) against the floatexp reference:
@@ -709,45 +605,6 @@ pub fn iterate_model(
     let mut j = 0usize; // LA: next lookup boundary
     let mut hint = 0usize; // LA: the stage that served last
     loop {
-        // AT at m = 0 (LA with `at`).
-        if let Skip::La(t, true) = skip
-            && m == 0
-            && let Some(at) = &t.at
-            && n + at.period <= max_iter
-        {
-            // The step [0, P) is valid while |z|^2 + |dc| + K |dc| < R: |y|^2 < |A|^2 (R - (K + 1) |dc|).
-            let kc = at.k.add(Xr::from_f64(1.0)).mul(cn);
-            if kc.lt(at.r) {
-                let (lr, lk) = (log2_xr(at.r), log2_xr(kc));
-                let rad = 2.0 * log2_xr(at.a.abs()) + lr + (1.0 - (lk - lr).exp2()).log2();
-                let cp = at.cc.mul(dc).add(at.ref_c);
-                let mut y = at.a.mul(dz);
-                let mut moved = false;
-                while n + at.period <= max_iter {
-                    let y2 = y.mul(y).add(cp);
-                    if 2.0 * log2_xc(y) >= rad || rad.is_nan() {
-                        break;
-                    }
-                    y = y2;
-                    n += at.period;
-                    out.at_steps += 1;
-                    out.steps += 1;
-                    moved = true;
-                    if log2_xc(y) > 60.0 {
-                        break;
-                    }
-                }
-                if moved {
-                    // Back: z = y / A at m = 0 (a period boundary).
-                    let ainv = {
-                        let a = at.a;
-                        let d = a.re * a.re + a.im * a.im;
-                        Xc::new(a.re / d, -a.im / d, -a.e)
-                    };
-                    dz = y.mul(ainv);
-                }
-            }
-        }
         if n >= max_iter {
             out.n = n;
             return out;
@@ -781,7 +638,7 @@ pub fn iterate_model(
                     }
                 }
             }
-            Skip::La(t, _) => {
+            Skip::La(t) => {
                 while j < t.boundaries() && t.bounds[j][0] as usize == m && m < last {
                     let (best, tests) = t.longest(j, n, max_iter, dz.abs(), cn, hint);
                     hint = best.map_or(0, |b| b.0);
@@ -950,7 +807,7 @@ mod tests {
                     0,
                 );
                 let a = iterate_model(&pts, Skip::None, dc, 12000, 65536.0 * 65536.0);
-                let b = iterate_model(&pts, Skip::La(&t, true), dc, 12000, 65536.0 * 65536.0);
+                let b = iterate_model(&pts, Skip::La(&t), dc, 12000, 65536.0 * 65536.0);
                 exact += a.steps;
                 la += b.steps;
                 if a.escaped != b.escaped {

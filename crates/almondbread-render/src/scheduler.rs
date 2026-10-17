@@ -35,8 +35,7 @@ use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
     PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams, UnresolvedListParams,
 };
-use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
-use crate::sample_cache::{CacheMap, CacheStats, PlanInput, Regime, SampleCache};
+use crate::la_gpu::{LaBuildJob, LaGpu};
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
 /// Dense-region colours cached per palette: (palette key, deep, filament).
@@ -100,6 +99,10 @@ fn probe_limit(max_iter: usize, div: u32) -> u32 {
 /// steps added 9 ms for 300 pixels). Proves periods up to ~400 (a few periods to find the cycle
 /// and the Newton passes); longer ones are left to the extension passes' |w| n^2 test.
 const PROBE_MAX_STEPS: usize = 2048;
+/// Interior probe for pixels still unresolved at the limit: Newton on the attracting cycle with
+/// a Kantorovich bound on its multiplier (kb: techniques/interior-detection "Attracting-cycle
+/// probe"). At most `max_iter / INTERIOR_PROBE + 256` extra steps per pixel.
+const INTERIOR_PROBE: u32 = 8;
 const ITERATE_THREADS: usize = 256;
 /// Compose modes (the `compose` kernel's `mode`).
 const COMPOSE_GESTURE: u32 = 0;
@@ -109,30 +112,6 @@ const COMPOSE_EXACT: u32 = 3;
 /// Compute further after AA (kb: techniques/auto-iterations "Compute further"): the texels
 /// marked unresolved fade to their new colour, every other pixel keeps its history (samples).
 const COMPOSE_FURTHER: u32 = 4;
-
-/// When the iterate kernel steps through the BLA table (kb: techniques/bla).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BlaMode {
-    /// Never (no table is built).
-    Off,
-    /// Always when a table exists (skip-on/skip-off diffs, benchmarks).
-    On,
-    /// When the table's forecast for the view says it pays (`BlaForecast::pays`): a block
-    /// costs a few exact steps on the GPU, so short skips lose (M4: every view the f64
-    /// reference reaches; deep views win).
-    Auto,
-}
-
-impl BlaMode {
-    pub fn parse(v: &str) -> Option<Self> {
-        match v {
-            "0" | "off" => Some(Self::Off),
-            "1" | "on" => Some(Self::On),
-            "auto" => Some(Self::Auto),
-            _ => None,
-        }
-    }
-}
 
 /// Tunables. Defaults are the Swift renderer's.
 #[derive(Clone, Debug)]
@@ -157,12 +136,6 @@ pub struct SchedulerConfig {
     pub max_frames_in_flight: usize,
     /// Upper bound on queued chunk command buffers of the current job.
     pub max_chunks_in_flight: usize,
-    /// Compile the iterate and seed variants on a thread ahead of need
-    /// (`ALMONDBREAD_WARM_PIPELINES=0` turns it off, for before/after checks).
-    pub warm_pipelines: bool,
-    /// A job's first level waits for the BLA table of a new reference, showing the history
-    /// (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: previews start without it, the old behaviour).
-    pub preview_wait_bla: bool,
     /// Print every harvested chunk (`ALMONDBREAD_TRACE=1`).
     pub trace: bool,
     /// Size the gesture frame budget from the measured display refresh (about 70 % of a
@@ -182,14 +155,6 @@ pub struct SchedulerConfig {
     /// GPU seconds the AA samples of one view may take in all (heavy views settle with
     /// fewer samples).
     pub aa_budget: f64,
-    /// BLA iteration skipping (kb: techniques/bla; `ALMONDBREAD_BLA=0|1|auto`).
-    pub bla: BlaMode,
-    /// Wait for the frame's chunks before its colour passes (measurements only;
-    /// `ALMONDBREAD_SERIAL_COMPOSE=1`).
-    pub serial_compose: bool,
-    /// BLA validity: dropped terms at most `bla_epsilon` of the linear term per step
-    /// (`ALMONDBREAD_BLA_EPS=e` sets 2^-e).
-    pub bla_epsilon: f64,
     /// References at least this long build their BLA table on a thread (the UI never waits
     /// for it; previews start without, full levels wait for it), shorter ones inline
     /// (~20 ns per point on M1 Pro, so inline builds stay under ~0.4 ms).
@@ -197,30 +162,11 @@ pub struct SchedulerConfig {
     /// BLA lookups only at reference indices m = 1 (mod this): a lookup costs several exact
     /// steps on the GPU, and a rule on m keeps results independent of chunking.
     pub bla_lookup_every: u32,
-    /// M5: local series approximation (`ALMONDBREAD_SA=0|1|auto`; kb:
-    /// techniques/local-series-approximation).
+    /// M5: local series approximation (kb: techniques/local-series-approximation).
     pub local_sa: LocalSa,
-    /// M5: interior-only tile fill on full levels with the interior test and flat interior
-    /// colouring (`ALMONDBREAD_FILL=0|1|auto`; kb: techniques/guessing-and-subdivision).
-    /// `SaMode` doubles as its mode: Auto fills where the last level's statistics forecast a
-    /// gain.
-    pub interior_fill: SaMode,
-    /// M5: auto iterations start at the big reference's floor (`period_floor`;
-    /// `ALMONDBREAD_ITER_FLOOR=0` off, for before/after measurements).
-    pub iteration_floor: bool,
-    /// M6: Imagina-style LA instead of BLA for the pixels (kb:
-    /// techniques/linear-approximation-imagina; `ALMONDBREAD_LA=0|1|auto`), and its AT for
-    /// periodic references (`ALMONDBREAD_AT=0|1`).
-    pub la: LaMode,
-    pub la_at: bool,
-    /// Interior probe for pixels still unresolved at the limit: Newton on the attracting cycle
-    /// with a Kantorovich bound on its multiplier (kb: techniques/interior-detection
-    /// "Attracting-cycle probe"). At most `max_iter / interior_probe + 256` extra steps per
-    /// pixel; 0 off (`ALMONDBREAD_PROBE=0|n`, default 8).
-    pub interior_probe: u32,
     /// "Compute further" (kb: techniques/auto-iterations "Compute further"): once a refined
     /// view settles with unresolved pixels, keep iterating them in passes of x4 the limit, in
-    /// segments, up to the iteration cap (`ALMONDBREAD_FURTHER=0|1`, default on).
+    /// segments, up to the iteration cap (default on; offline sessions of the CLI turn it off).
     pub further: bool,
     /// Estimated GPU seconds all extension passes of a view may take with compute further
     /// (the 2 s `extension_budget` stays the first passes' share).
@@ -228,45 +174,18 @@ pub struct SchedulerConfig {
     /// Unresolved share of the view's texels below which it counts as finished (no further
     /// passes, no "not finished" in the HUD).
     pub further_min_share: f64,
-    /// Unresolved pixels as fog lit by the resolved ones around (kb: techniques/unresolved-fog);
-    /// off: the plain deep fog everywhere (`ALMONDBREAD_FOG=0|1`, default on).
-    pub fog: bool,
-}
-
-/// When levels start their pixels from local series approximation seeds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SaMode {
-    /// Never (no seed passes).
-    Off,
-    /// Every tile of every level (skip-on/skip-off diffs, benchmarks).
-    On,
-    /// Seed every level; a 16 x 16 tile starts from its seeds where they saved enough (the
-    /// per-tile forecast of `seedGate`, decided from the seeds alone, so deterministic).
-    Auto,
-}
-
-impl SaMode {
-    pub fn parse(v: &str) -> Option<Self> {
-        match v {
-            "0" | "off" => Some(Self::Off),
-            "1" | "on" => Some(Self::On),
-            "auto" => Some(Self::Auto),
-            _ => None,
-        }
-    }
 }
 
 /// Quadtree seeds of the local series approximation (M5).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LocalSa {
-    pub mode: SaMode,
     /// Root node size in texels (a power of two).
     pub top: usize,
     /// Leaf node size (pixels start from it; a power of two in 2..=16).
     pub leaf: usize,
     /// Branch when the quadratic term exceeds `eps` of the linear one over the node.
     pub eps: f64,
-    /// Auto: a tile is seeded when its leaves saved on average at least `gate_rel` of the last
+    /// A tile is seeded when its leaves saved on average at least `gate_rel` of the last
     /// level's (unseeded-equivalent) steps per texel and at least `gate_abs` seed steps;
     /// without that estimate, when their mean branch iteration is `gate_rel` of the limit.
     pub gate_rel: f64,
@@ -278,10 +197,6 @@ pub struct LocalSa {
 impl Default for LocalSa {
     fn default() -> Self {
         Self {
-            mode: std::env::var("ALMONDBREAD_SA")
-                .ok()
-                .and_then(|v| SaMode::parse(&v))
-                .unwrap_or(SaMode::Auto),
             top: 32,
             leaf: 4,
             eps: 1e-2,
@@ -322,16 +237,8 @@ impl SeedReport {
 impl Default for SchedulerConfig {
     fn default() -> Self {
         let ios = cfg!(target_os = "ios");
-        let mut live = if ios { 1 << 19 } else { 1 << 20 };
-        if let Some(v) = std::env::var("ALMONDBREAD_CAPACITY")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|&v| v > 0)
-        {
-            live = v;
-        }
         Self {
-            live_capacity: live,
+            live_capacity: if ios { 1 << 19 } else { 1 << 20 },
             max_list_capacity: if ios { 1 << 21 } else { 1 << 22 },
             chunk_target: 0.016,
             interactive_chunk_target: 0.008,
@@ -341,8 +248,6 @@ impl Default for SchedulerConfig {
             extension_budget: 2.0,
             max_frames_in_flight: 2,
             max_chunks_in_flight: 3,
-            warm_pipelines: std::env::var("ALMONDBREAD_WARM_PIPELINES").map_or(true, |v| v != "0"),
-            preview_wait_bla: std::env::var("ALMONDBREAD_PREVIEW_WAIT_BLA").map_or(true, |v| v != "0"),
             trace: std::env::var("ALMONDBREAD_TRACE").is_ok_and(|v| v == "1"),
             adaptive_budget: true,
             fade_tau: 0.03,
@@ -351,36 +256,12 @@ impl Default for SchedulerConfig {
             taa_base_weight: 0.02,
             aa_chunk_target: 0.008,
             aa_budget: 1.5,
-            serial_compose: std::env::var("ALMONDBREAD_SERIAL_COMPOSE").is_ok_and(|v| v == "1"),
-            bla: std::env::var("ALMONDBREAD_BLA")
-                .ok()
-                .and_then(|v| BlaMode::parse(&v))
-                .unwrap_or(BlaMode::Auto),
-            bla_epsilon: std::env::var("ALMONDBREAD_BLA_EPS")
-                .ok()
-                .and_then(|v| v.parse::<f64>().ok())
-                .map_or(BLA_EPSILON, |e| 2f64.powf(-e)),
             bla_async_from: 16_384,
             bla_lookup_every: 8,
             local_sa: LocalSa::default(),
-            interior_fill: std::env::var("ALMONDBREAD_FILL")
-                .ok()
-                .and_then(|v| SaMode::parse(&v))
-                .unwrap_or(SaMode::Auto),
-            iteration_floor: std::env::var("ALMONDBREAD_ITER_FLOOR").map_or(true, |v| v != "0"),
-            la: std::env::var("ALMONDBREAD_LA")
-                .ok()
-                .and_then(|v| LaMode::parse(&v))
-                .unwrap_or(LaMode::Auto),
-            la_at: std::env::var("ALMONDBREAD_AT").is_ok_and(|v| v == "1"),
-            interior_probe: std::env::var("ALMONDBREAD_PROBE")
-                .ok()
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(8),
-            further: std::env::var("ALMONDBREAD_FURTHER").map_or(true, |v| v != "0"),
+            further: true,
             further_budget: 60.0,
             further_min_share: 0.001,
-            fog: std::env::var("ALMONDBREAD_FOG").map_or(true, |v| v != "0"),
         }
     }
 }
@@ -491,25 +372,11 @@ struct Level<B: GpuBackend> {
     seeded: Option<SeedParams>,
     /// The level's own seed passes (None: not seeded by this level).
     seeding: Option<Seeding>,
-    /// A gesture level of the motion sample cache (kb: techniques/sample-reuse): its textures
-    /// are the cache's toroidal window, it computes the listed tiles only.
-    cache: Option<CacheLevel<B>>,
     /// The youngest live pixel's iteration count after the last harvested chunk (`u32::MAX`:
     /// none live); render progress only (kb: decisions/controls "Render progress").
     live_min_n: u32,
     /// A segment of a "compute further" pass (an extension level over a scanned list).
     further: bool,
-}
-
-/// [`Renderer::cache_regime`]: the regime, whether a table it needs is still building, and the
-/// BLA and LA tables.
-type CacheRegime<B> = (Regime, bool, Option<BlaGpu<B>>, Option<LaGpu<B>>);
-
-/// What a sample cache level iterates with: the epoch's pinned regime and its BLA table.
-struct CacheLevel<B: GpuBackend> {
-    regime: Regime,
-    bla: Option<BlaGpu<B>>,
-    la: Option<LaGpu<B>>,
 }
 
 /// A level's seed passes (M5): the quadtree layout and how far the rounds got.
@@ -747,7 +614,6 @@ impl<B: GpuBackend> Level<B> {
             list_buffer: None,
             seeded: None,
             seeding: None,
-            cache: None,
             live_min_n: u32::MAX,
             further: false,
         }
@@ -919,7 +785,7 @@ impl<B: GpuBackend> Job<B> {
         }
         self.levels
             .iter()
-            .any(|l| !l.preview && l.aa.is_none() && l.cache.is_none() && l.crossed > 0)
+            .any(|l| !l.preview && l.aa.is_none() && l.crossed > 0)
     }
     fn current(&self) -> Option<usize> {
         self.levels.iter().position(|l| !l.done)
@@ -965,8 +831,6 @@ struct PreviewColor<B: GpuBackend> {
     size: (usize, usize),
     ratio: f64,
     jitter: [f32; 2],
-    /// The sample cache's colour window and how the view maps onto it.
-    cache: Option<CacheMap>,
 }
 
 /// The last composed image (FL): which view it shows, at what scale, with which colours.
@@ -993,10 +857,8 @@ struct ChunkRecord<B: GpuBackend> {
     iterations: usize,
     /// K came from the throughput model (feeds `rate` back).
     adaptive: bool,
-    /// A chunk of a preview level (gesture frames, the sample cache's tiles).
+    /// A chunk of a preview level (gesture frames).
     preview: bool,
-    /// A chunk of a sample cache level (its tiles are no sample of the view's cost).
-    cache: bool,
     /// Ran the interior probe (kProbe pipeline).
     probe: bool,
 }
@@ -1115,9 +977,8 @@ pub struct OffscreenResult {
     /// The BLA table's forecast for the view (None: no table), and whether it was used.
     pub bla_forecast: Option<BlaForecast>,
     pub bla_used: bool,
-    /// M6: the pixels iterated through the LA table (and its AT).
+    /// M6: the pixels iterated through the LA table.
     pub la_used: bool,
-    pub at_used: bool,
     /// Raw iteration texels (n, smooth offset), row-major, if requested.
     pub iterations: Option<Vec<[f32; 2]>>,
     /// M5: the seed passes of the last seeded level (None: not seeded).
@@ -1211,14 +1072,6 @@ pub struct Renderer<B: GpuBackend> {
     last_frame_time: f64,
     /// Placeholder bound where no tile order buffer is used.
     dummy_buffer: B::Buffer,
-    /// Exact samples of earlier gesture frames, reused while moving (kb: techniques/sample-reuse).
-    sample_cache: SampleCache<B>,
-    /// GPU seconds per loop step of a sample cache chunk's slowest pixels (sets its K).
-    cache_step_latency: f64,
-    /// Scripted sessions (`simulate`) check the sample cache after their input frames with this
-    /// renderer and collect the results (`verify --history`).
-    pub cache_check_renderer: Option<Box<Renderer<B>>>,
-    pub cache_checks: Vec<Option<CacheCheck>>,
     /// Colour cycling: accumulated phase (cycles) and when it last advanced.
     cycle_phase: f64,
     cycle_time: f64,
@@ -1398,7 +1251,7 @@ fn iterate_key(
     deep: bool,
     ic: bool,
     seeded: bool,
-    la: (bool, bool),
+    la: bool,
     probe: bool,
 ) -> usize {
     usize::from(de)
@@ -1407,9 +1260,8 @@ fn iterate_key(
         | (usize::from(deep) << 3)
         | (usize::from(ic) << 4)
         | (usize::from(seeded) << 5)
-        | (usize::from(la.0) << 6)
-        | (usize::from(la.1) << 7)
-        | (usize::from(probe) << 8)
+        | (usize::from(la) << 6)
+        | (usize::from(probe) << 7)
 }
 
 /// Index of a seed variant in `seed_pipelines`.
@@ -1424,8 +1276,6 @@ impl<B: GpuBackend> Renderer<B> {
 
     pub fn with_config(backend: B, config: SchedulerConfig) -> Result<Self, GpuError> {
         let prepare_pipeline = backend.pipeline("prepareChunk", &[])?;
-        let mut sample_cache = SampleCache::new();
-        sample_cache.warm_up(&backend);
         let finish_pipeline = backend.pipeline("finishChunk", &[])?;
         let colorize_pipeline = backend.pipeline("colorize", &[])?;
         let compose_pipeline = backend.pipeline("compose", &[])?;
@@ -1485,10 +1335,6 @@ impl<B: GpuBackend> Renderer<B> {
             refresh_interval: 1.0 / 60.0,
             last_frame_time: 0.0,
             dummy_buffer,
-            sample_cache,
-            cache_step_latency: 2e-7,
-            cache_check_renderer: None,
-            cache_checks: Vec::new(),
             cycle_phase: 0.0,
             cycle_time: 0.0,
             iterate_pipelines: std::array::from_fn(|_| None),
@@ -1580,22 +1426,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.seed_round = None;
         self.frames_in_flight.clear();
         self.pending_survey = None;
-        self.sample_cache.reset();
         self.failed_frames += 1;
-    }
-
-    /// The motion sample cache's measurements.
-    pub fn sample_cache_stats(&self) -> &CacheStats {
-        &self.sample_cache.stats
-    }
-
-    pub fn reset_sample_cache_stats(&mut self) {
-        self.sample_cache.stats = CacheStats::default();
-    }
-
-    /// The sample cache's settings (on/off, ratio cap, memory bound).
-    pub fn sample_cache_config(&mut self) -> &mut crate::sample_cache::CacheConfig {
-        &mut self.sample_cache.config
     }
 
     /// Chunks of anti-aliasing samples are on the GPU (tests).
@@ -1642,14 +1473,14 @@ impl<B: GpuBackend> Renderer<B> {
         deep: bool,
         interior_color: bool,
         seeded: bool,
-        la: (bool, bool),
+        la: bool,
         probe: bool,
     ) -> Result<B::Pipeline, GpuError> {
         let k = iterate_key(de, interior, bla, deep, interior_color, seeded, la, probe);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
-        // (Constant 6 is kProbe, 7 is unused by `iterate`; 8 and 9 are M6's kLA and kAT.)
+        // (Constant 6 is kProbe, 7 is unused by `iterate`; 8 is M6's kLA.)
         let p = self.backend.pipeline(
             "iterate",
             &[
@@ -1661,8 +1492,7 @@ impl<B: GpuBackend> Renderer<B> {
                 seeded,
                 probe && interior,
                 false,
-                la.0,
-                la.1,
+                la,
             ],
         )?;
         self.iterate_pipelines[k] = Some(p.clone());
@@ -1690,24 +1520,19 @@ impl<B: GpuBackend> Renderer<B> {
         {
             return false;
         }
-        // Auto: the border-first admission costs chunk occupancy (the borders are 23 % of the
+        // The border-first admission costs chunk occupancy (the borders are 23 % of the
         // texels, admitted alone), a short wait, and the seeds' admission coherence; it pays
         // where many pixels are interior and proving them is slow (measured M5: elephant
         // 1.38x; home-100k and minibrot-p4, whose interior proves in tens of iterations, 5-17 %
         // slower; cusp-1e5 seeded 16 % slower, no tile filled). Decided from the last level's
         // statistics, which a fill does not change (filled pixels count as interior; the
         // iterations per pixel stay above the bar where it fills).
-        match self.config.interior_fill {
-            SaMode::Off => false,
-            SaMode::On => true,
-            SaMode::Auto => self
-                .interior_stats
-                // (Proven interior: the kernel counts pixels left unresolved as finished too; at
-                // sea-8007, 98 % unresolved, filling nothing cost 9 %.)
-                .is_some_and(|s| {
-                    s.fraction - s.unresolved >= FILL_MIN_INTERIOR && s.exterior_iterations >= FILL_MIN_ITERATIONS
-                }),
-        }
+        self.interior_stats
+            // (Proven interior: the kernel counts pixels left unresolved as finished too; at
+            // sea-8007, 98 % unresolved, filling nothing cost 9 %.)
+            .is_some_and(|s| {
+                s.fraction - s.unresolved >= FILL_MIN_INTERIOR && s.exterior_iterations >= FILL_MIN_ITERATIONS
+            })
     }
 
     /// When a full level starts: its fill decision (`fill_wanted`, and in auto only where no
@@ -1718,9 +1543,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let Some(job) = &self.job else { return };
         let level = &job.levels[level_index];
-        if self.config.interior_fill == SaMode::Auto
-            && level.seeding.as_ref().is_some_and(|s| !s.done || s.tiles_seeded > 0)
-        {
+        if level.seeding.as_ref().is_some_and(|s| !s.done || s.tiles_seeded > 0) {
             return;
         }
         let (tx, ty) = tiles(level.set.width, level.set.height);
@@ -1775,9 +1598,6 @@ impl<B: GpuBackend> Renderer<B> {
             }
             self.warm = None;
         }
-        if !self.config.warm_pipelines {
-            return;
-        }
         if self.warmed {
             return;
         }
@@ -1813,13 +1633,10 @@ impl<B: GpuBackend> Renderer<B> {
                     for seeded in [true, false] {
                         // (kProbe: the variant for the chunks of parked interior-probe pixels.)
                         for (interior, probe) in [(true, false), (false, false), (true, true)] {
-                            let k = iterate_key(d, interior, bla, deep, c, seeded, (la, false), probe);
+                            let k = iterate_key(d, interior, bla, deep, c, seeded, la, probe);
                             if self.iterate_pipelines[k].is_none() && !keys.contains(&WarmKey::Iterate(k)) {
                                 keys.push(WarmKey::Iterate(k));
-                                requests.push((
-                                    "iterate",
-                                    vec![d, interior, bla, deep, c, seeded, probe, false, la, false],
-                                ));
+                                requests.push(("iterate", vec![d, interior, bla, deep, c, seeded, probe, false, la]));
                             }
                         }
                     }
@@ -1895,7 +1712,7 @@ impl<B: GpuBackend> Renderer<B> {
                 budget: 0,
                 jitter,
                 tiles_x: tx as u32,
-                gate_mode: if sa.mode == SaMode::On { 2 } else { 1 },
+                pad0: 0,
                 gate_rel: sa.gate_rel as f32,
                 gate_abs: 0.0,
                 tiles_y: ty as u32,
@@ -1965,7 +1782,7 @@ impl<B: GpuBackend> Renderer<B> {
             let chain = 0.3 * self.gesture_budget() / (self.seed_unit * layout.len() as f64);
             let b = chain.clamp(64.0, f64::from(params.soft_iter.max(64))) as u32;
             // (Seeds that cannot get as far as the auto gate's bar would only cost time.)
-            if sa.mode == SaMode::Auto && f64::from(b) * (layout.len() as f64) < f64::from(bar) {
+            if f64::from(b) * (layout.len() as f64) < f64::from(bar) {
                 return Ok(());
             }
             for l in &mut layout {
@@ -2144,7 +1961,7 @@ impl<B: GpuBackend> Renderer<B> {
         if seeding.done && seeded_tiles == 0 {
             // No tile starts from its seeds: the rest of the level (and its extension passes
             // and AA samples) runs the plain pipeline, which is a few % faster and gives the
-            // same fields bit for bit (checked: elephant, `--sa 0` vs auto).
+            // same fields bit for bit (checked: elephant, seeds off vs auto).
             level.seeded = None;
         }
         if trace {
@@ -2173,7 +1990,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let first = seeding.rounds <= 1;
         if self.seed_round.is_some() {
-            return first && !(self.config.interior_fill == SaMode::Auto && self.fill_wanted(level_index));
+            return first && !self.fill_wanted(level_index);
         }
         if let Err(e) = self.encode_seed_round(level_index, 0) {
             eprintln!("almondbread: seed round failed: {e}");
@@ -2376,7 +2193,6 @@ impl<B: GpuBackend> Renderer<B> {
             return outcome;
         }
         self.harvest();
-        self.seed_sample_cache();
         self.poll_survey(now);
         self.poll_longer_reference();
         self.poll_further();
@@ -2393,18 +2209,7 @@ impl<B: GpuBackend> Renderer<B> {
             // Every frame of a gesture shows its own view: a preview level sized to fit the
             // frame budget, computed to completion (kb: techniques/frame-reuse-and-progressive).
             if !same_key || !job_interactive {
-                // An unfinished sample cache batch carries over into the new frame's job.
-                let carried = self.take_cache_level();
-                let old = self.job.as_ref().map(|j| j.generation);
                 self.start_job(key.clone(), JobMode::Interactive, now);
-                if self.job.as_ref().map(|j| j.generation) == old {
-                    // (No new job: the level goes back.)
-                    if let (Some((l, _)), Some(j)) = (carried, &mut self.job) {
-                        j.levels.insert(0, l);
-                    }
-                } else {
-                    self.attach_cache_level(carried);
-                }
             }
         } else if has_job && same_key {
             // Input idle: refine the gesture's last frame at full resolution over its preview.
@@ -2494,15 +2299,6 @@ impl<B: GpuBackend> Renderer<B> {
         if let Some((mode, aa_level)) = plan
             && let Some((target, drawable)) = acquire(final_frame)
         {
-            // Measurement mode (`ALMONDBREAD_SERIAL_COMPOSE=1`): the GPU runs the frame's
-            // chunks to the end first, so the colour passes' GPU times are their own (Apple GPUs
-            // overlap consecutive command buffers; a compose overlapping a 20 ms chunk reports
-            // 20 ms).
-            if self.config.serial_compose {
-                for r in &self.in_flight {
-                    r.submission.wait();
-                }
-            }
             if let Ok(mut enc) = self.encode_compose(&target, &colors, mode, aa_level, now) {
                 if let Some(d) = &drawable {
                     enc.present(d);
@@ -2702,10 +2498,6 @@ impl<B: GpuBackend> Renderer<B> {
                 self.pinned_iterations = None;
                 self.interior_stats = None;
                 self.steps_per_texel = None;
-                // No sample reuse across a jump either (its statistics would come back too).
-                if !offscreen {
-                    self.sample_cache.reset();
-                }
             }
         }
         self.last_key_view = Some(self.viewport.clone());
@@ -2760,7 +2552,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// reach it). Capped like the learner (4x the heuristic) and at the user's cap; a function
     /// of the reference alone, so the key `make_key` builds stays the job's. 0: none applies.
     fn period_floor(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> usize {
-        if !self.settings.auto_iterations || !self.config.iteration_floor {
+        if !self.settings.auto_iterations {
             return 0;
         }
         let Some(r) = self.reference.as_ref().filter(|r| r.big) else {
@@ -2796,7 +2588,6 @@ impl<B: GpuBackend> Renderer<B> {
             && let Some(l) = old.levels.first()
             && !l.complete
             && l.gpu_time > 0.0
-            && l.cache.is_none()
         {
             let lower = l.gpu_time / (l.set.width * l.set.height).max(1) as f64;
             self.cost_per_texel = if self.cost_known {
@@ -2897,7 +2688,7 @@ impl<B: GpuBackend> Renderer<B> {
         // (A nucleus reference whose period needs more probe steps than the limit allows, about
         // 4 periods: its minibrot and the bulbs and islands around it, of longer periods, cannot
         // be proven; probing them only costs. sea-8007 at 3456 x 2234: +13 %, nothing proven.)
-        let mut probe = probe_limit(key.max_iter, self.config.interior_probe);
+        let mut probe = probe_limit(key.max_iter, INTERIOR_PROBE);
         if reference.period.is_some_and(|p| 4 * p > probe as usize) {
             probe = 0;
         }
@@ -3086,18 +2877,14 @@ impl<B: GpuBackend> Renderer<B> {
     /// Attaches the BLA table of the job's reference once it is built; `wait` joins a build
     /// still running on its thread.
     /// The job's first level has not started, would use the BLA table (no LA table attached)
-    /// and the table is still building on its thread (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: the
-    /// old behaviour, previews start without it).
+    /// and the table is still building on its thread.
     fn first_level_waits_for_table(&mut self) -> bool {
-        if !self.config.preview_wait_bla {
-            return false;
-        }
         let Some(job) = &self.job else { return false };
         if job.bla.is_some() || job.la.is_some() {
             return false;
         }
         let Some(first) = job.levels.first() else { return false };
-        if first.started() || first.done || first.cache.is_some() {
+        if first.started() || first.done {
             return false;
         }
         self.job_bla(false) == BlaReady::Pending
@@ -3110,8 +2897,8 @@ impl<B: GpuBackend> Renderer<B> {
         if job.bla.is_some() {
             return BlaReady::Ready;
         }
-        // Off, or Auto decided against it for this view.
-        if self.config.bla == BlaMode::Off || job.bla_forecast.is_some() {
+        // Decided against it for this view.
+        if job.bla_forecast.is_some() {
             return BlaReady::Without;
         }
         let serial = job.reference_serial;
@@ -3120,7 +2907,7 @@ impl<B: GpuBackend> Renderer<B> {
         if !building {
             // Built on demand: no block is valid for a pixel at |dc| >= eps max|2 Z| (a block's
             // R is at most a single step's eps |2 Z|), so shallow views never build one.
-            if self.config.bla == BlaMode::Auto && job.max_dc_log2 >= self.bla_reach_log2 {
+            if job.max_dc_log2 >= self.bla_reach_log2 {
                 self.job.as_mut().expect("job").bla_forecast = Some(BlaForecast::default());
                 return BlaReady::Without;
             }
@@ -3147,7 +2934,7 @@ impl<B: GpuBackend> Renderer<B> {
                 } else {
                     forecast.pays()
                 };
-                if self.config.bla == BlaMode::Auto && !pays {
+                if !pays {
                     return BlaReady::Without;
                 }
                 job.bla = Some(t);
@@ -3239,7 +3026,7 @@ impl<B: GpuBackend> Renderer<B> {
     fn start_bla_build(&mut self) {
         let Some(r) = &self.reference else { return };
         let serial = self.reference_serial;
-        let eps = self.config.bla_epsilon;
+        let eps = BLA_EPSILON;
         let build: Box<dyn FnOnce() -> BlaCpu + Send> = if r.deep_kernel {
             let points = r.extended.clone();
             Box::new(move || BlaCpu::Deep(Arc::new(BlaTableX::build(&points, eps))))
@@ -3275,7 +3062,7 @@ impl<B: GpuBackend> Renderer<B> {
         if job.la.is_some() {
             return BlaReady::Ready;
         }
-        if self.config.la == LaMode::Off || job.la_decided {
+        if job.la_decided {
             return BlaReady::Without;
         }
         let serial = job.reference_serial;
@@ -3283,7 +3070,7 @@ impl<B: GpuBackend> Renderer<B> {
             || self.la_build.as_ref().is_some_and(|(s, _)| *s == serial);
         if !building {
             // As for BLA: no block is valid for a pixel beyond eps max|2 Z|.
-            if self.config.la == LaMode::Auto && (job.max_dc_log2 >= self.bla_reach_log2 || !self.prefer_la()) {
+            if job.max_dc_log2 >= self.bla_reach_log2 || !self.prefer_la() {
                 self.job.as_mut().expect("job").la_decided = true;
                 return BlaReady::Without;
             }
@@ -3293,7 +3080,7 @@ impl<B: GpuBackend> Renderer<B> {
         match &self.la {
             Some(t) if t.serial == serial => {
                 let t = t.clone();
-                let use_la = self.config.la == LaMode::On || self.prefer_la();
+                let use_la = self.prefer_la();
                 let job = self.job.as_mut().expect("job");
                 job.la_decided = true;
                 if use_la {
@@ -3311,7 +3098,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
-    /// Auto mode: whether the job's view should iterate through the LA table rather than BLA
+    /// Whether the job's view should iterate through the LA table rather than BLA
     /// (kb: synthesis/benchmarks M6).
     /// Measured (M6, deep kernel): LA beats BLA 1.8-2.5x where pixels run through many periods
     /// of a short nucleus reference (needles: periods 79-834, limits of 120-250 periods) and
@@ -3354,14 +3141,10 @@ impl<B: GpuBackend> Renderer<B> {
         let deep = self.reference.as_ref().is_some_and(|r| r.deep_kernel);
         if self.config.trace {
             println!(
-                "LA table: {} boundaries, {} entries, stages {:?}, AT {}, {:.2} ms",
+                "LA table: {} boundaries, {} entries, stages {:?}, {:.2} ms",
                 table.boundaries(),
                 table.entries.len(),
                 table.stage_steps,
-                table
-                    .at
-                    .as_ref()
-                    .map_or("none".to_string(), |a| format!("period {}", a.period)),
                 table.build_time * 1e3
             );
         }
@@ -3378,7 +3161,7 @@ impl<B: GpuBackend> Renderer<B> {
     fn start_la_build(&mut self) {
         let Some(r) = &self.reference else { return };
         let serial = self.reference_serial;
-        let build = crate::la_gpu::build_table(r, self.config.bla_epsilon);
+        let build = crate::la_gpu::build_table(r, BLA_EPSILON);
         if r.points.len() >= self.config.bla_async_from / 4 {
             match std::thread::Builder::new().name("almondbread-la".into()).spawn(build) {
                 Ok(h) => self.la_build = Some((serial, h)),
@@ -3544,299 +3327,6 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
-    // MARK: Motion sample cache (kb: techniques/sample-reuse)
-
-    /// The regime new cache samples of the current job would be computed in, whether its BLA
-    /// table is still building, and the table.
-    fn cache_regime(&self) -> Option<CacheRegime<B>> {
-        let job = self.job.as_ref()?;
-        let key = &job.key;
-        let pinned = self.sample_cache.regime();
-        let table = job.bla.clone().or_else(|| {
-            self.bla
-                .clone()
-                .filter(|t| t.serial == job.reference_serial && self.reference_serial == job.reference_serial)
-        });
-        let building = self.bla_build.as_ref().is_some_and(|(s, _)| *s == job.reference_serial);
-        // BLA as pinned by the epoch, or (a new epoch, or one that started before the table
-        // was built) as the job decided: an epoch moves to BLA once, never back while its table
-        // exists.
-        let want = job.bla.is_some() || pinned.is_some_and(|r| r.bla);
-        let (bla, pending) = match (want, table.is_some(), building) {
-            (false, _, _) => (false, false),
-            (true, true, _) => (true, false),
-            (true, false, true) => (true, true),
-            (true, false, false) => (false, false),
-        };
-        // The interior test whenever it is enabled: cached samples live for many frames, and an
-        // interior pixel without the test runs to the limit (a 1e-305 needle: 200 000
-        // iterations per interior texel, 0.5 s chunks). The statistics-driven switch is for
-        // fresh levels.
-        let interior = key.interior;
-        // LA (M6) the same way: where the job takes it (deep nucleus references), cache tiles
-        // iterate through it too (1e-305 needle: 100x fewer steps per sample).
-        let la_table = job.la.clone().or_else(|| {
-            self.la
-                .clone()
-                .filter(|t| t.serial == job.reference_serial && self.reference_serial == job.reference_serial)
-        });
-        let la_building = self.la_build.as_ref().is_some_and(|(s, _)| *s == job.reference_serial);
-        let la_want = job.la.is_some() || pinned.is_some_and(|r| r.la);
-        let (la, la_pending) = match (la_want, la_table.is_some(), la_building) {
-            (false, _, _) => (false, false),
-            (true, true, _) => (true, false),
-            (true, false, true) => (true, true),
-            (true, false, false) => (false, false),
-        };
-        let regime = Regime {
-            deep: job.deep,
-            bla,
-            la,
-            interior,
-            de: key.de,
-            interior_color: key.interior_color && self.ic_buffers.is_some(),
-        };
-        Some((
-            regime,
-            pending || la_pending,
-            if bla { table } else { None },
-            if la { la_table } else { None },
-        ))
-    }
-
-    /// Replaces a fresh gesture job's preview level by a level of the sample cache: the
-    /// cache's window, computing only the tiles the view lacks within the frame budget. Keeps
-    /// the fresh preview when the cache cannot serve the view.
-    /// The current gesture job's sample cache level if its batch is unfinished (it continues in
-    /// the next frame's job), with the job's generation.
-    fn take_cache_level(&mut self) -> Option<(Level<B>, u64)> {
-        let job = self.job.as_mut()?;
-        let l = job.levels.first()?;
-        if !job.interactive || l.cache.is_none() || l.done || !l.started() {
-            return None;
-        }
-        Some((job.levels.remove(0), job.generation))
-    }
-
-    fn attach_cache_level(&mut self, carried: Option<(Level<B>, u64)>) {
-        if !self.sample_cache.config.enabled || !self.settings.interactive_preview {
-            return;
-        }
-        let Some(job) = &self.job else { return };
-        if !job.interactive || job.levels.len() != 1 || !job.levels[0].preview || job.levels[0].started() {
-            return;
-        }
-        if self.sample_cache.fresh_view {
-            self.sample_cache.stats.fallback_frames += 1;
-            return;
-        }
-        let Some((regime, bla_pending, table, la_table)) = self.cache_regime() else {
-            return;
-        };
-        let job = self.job.as_ref().expect("job");
-        let key = job.key.clone();
-        let generation = job.generation;
-        let template = job.levels[0].params;
-        let mut live: Vec<u64> = self.in_flight.iter().map(|r| r.generation).collect();
-        live.dedup();
-        let (fx, fy) = self.navigator.zoom_target();
-        let ppp = key.points_per_pixel;
-        let input = PlanInput {
-            view: &key.viewport,
-            ppp,
-            width: key.width,
-            height: key.height,
-            regime,
-            bla_pending,
-            limit: key.max_iter,
-            budget: self.gesture_budget(),
-            cost_hint: self.cost_per_texel,
-            focus: (fx / ppp, -fy / ppp),
-            generation,
-            live_capacity: self.config.live_capacity,
-            live_generations: &live,
-            want_aux: regime.interior_color,
-            carry: carried.as_ref().map(|c| c.1),
-        };
-        let Some(plan) = self.sample_cache.plan(&self.backend, &input) else {
-            return;
-        };
-        if plan.carried
-            && let Some((l, old)) = carried
-        {
-            // The unfinished batch goes on: its chunks on the GPU now count for this job.
-            for r in &mut self.in_flight {
-                if r.generation == old && r.level == 0 {
-                    r.generation = generation;
-                }
-            }
-            self.job.as_mut().expect("job").levels[0] = l;
-            return;
-        }
-        if self.config.trace {
-            println!(
-                "sample cache level: gen {generation} {} tiles, ratio {:.3}, regime {regime:?}",
-                plan.tiles, plan.ratio
-            );
-        }
-        let Some(reference) = &self.reference else { return };
-        let f = &plan.frame;
-        let mut p = template;
-        if regime.deep {
-            let (tm, te) = f.h.parts();
-            let (ox, oy) = f.anchor.delta_in(&reference.point, Scale::pow2(te));
-            p.texel_scale = tm as f32;
-            p.ref_offset = [ox as f32, oy as f32];
-            p.scale_exp = te as i32;
-        } else {
-            let (dre, dim) = if reference.big {
-                f.anchor.delta_in(&reference.point, Scale::from_f64(1.0))
-            } else {
-                f.anchor.delta_from(&reference.point)
-            };
-            p.texel_scale = f.h.to_f64() as f32;
-            p.ref_offset = [dre as f32, dim as f32];
-            p.scale_exp = 0;
-        }
-        // Sample position of window texel t: lattice index origin + t (jitter 0).
-        p.half_size = [-(f.origin.0 as f32), -(f.origin.1 as f32)];
-        p.jitter = [0.0, 0.0];
-        p.rot = [f.rot.0 as f32, f.rot.1 as f32];
-        p.width = plan.width as u32;
-        p.wrap = f.wrap;
-        p.list_mode = 0;
-        let set = TextureSet {
-            iter: plan.set.iter,
-            de: plan.set.de,
-            color: Some(plan.color),
-            aux: plan.set.aux,
-            width: plan.width,
-            height: plan.height,
-        };
-        let mut l = Level::new(set, plan.ratio, true, p, Some(plan.tiles * 256));
-        l.params.tile_order = 1;
-        l.order = plan.order.map(|order| TileOrder {
-            order,
-            rank: self.dummy_buffer.clone(),
-        });
-        l.cache = Some(CacheLevel {
-            regime,
-            bla: table,
-            la: la_table,
-        });
-        l.use_bla = regime.bla;
-        l.use_interior = regime.interior;
-        let empty = plan.tiles == 0;
-        if empty {
-            l.done = true;
-            l.complete = true;
-        }
-        self.job.as_mut().expect("job").levels[0] = l;
-        if empty {
-            self.interior_stats = self.cache_interior_stats();
-            self.survey_level(0);
-        }
-    }
-
-    /// The interior-test statistics after a sample cache frame. Its new tiles are a biased
-    /// sample of the view, so the counts come from the whole cached view (its shade pass);
-    /// those may only turn the test on: cached samples carry no record of what was unresolved
-    /// at the view's limit before an extension pass resolved them, and the test off draws
-    /// such pixels interior (the refined frame then differed from a fresh render by 0.1 %).
-    fn cache_interior_stats(&self) -> Option<InteriorStats> {
-        let max_iter = self.job.as_ref().map_or(0, |j| j.key.max_iter);
-        match (self.sample_cache.view_stats(), self.interior_stats) {
-            (Some(v), Some(old))
-                if autoiter::use_interior_test(true, Some(v), max_iter)
-                    && !autoiter::use_interior_test(true, Some(old), max_iter) =>
-            {
-                Some(v)
-            }
-            (Some(_), old) => old,
-            (None, old) => old,
-        }
-    }
-
-    /// Seeds the sample cache from the refined frame once a view's full level (and its
-    /// extension passes) are done: a gesture starting here reuses every sample.
-    fn seed_sample_cache(&mut self) {
-        if !self.sample_cache.config.enabled || !self.settings.interactive_preview {
-            return;
-        }
-        let Some(job) = &self.job else { return };
-        if job.interactive || job.failed || self.sample_cache.seeded_generation == job.generation {
-            return;
-        }
-        let Some(full) = job
-            .levels
-            .iter()
-            .find(|l| !l.preview && l.aa.is_none() && !l.is_extension())
-        else {
-            return;
-        };
-        if !job.levels.iter().filter(|l| l.aa.is_none()).all(|l| l.done)
-            || full.set.width != job.key.width
-            || full.set.height != job.key.height
-        {
-            return;
-        }
-        // Tiles whose pixels started from local SA seeds (M5) are not exact samples: the cache
-        // leaves them out (their 16 x 16 tiles of the full level, from the seed pass's flags).
-        let mut seeded_tiles: Vec<bool> = Vec::new();
-        if let (Some(leaf), Some((buf, n))) = (full.seeded, &self.seed_tiles) {
-            let (tx, ty) = tiles(full.set.width, full.set.height);
-            if leaf.tiles_x as usize != tx || *n < tx * ty {
-                return;
-            }
-            let mut bytes = vec![0u8; tx * ty * 4];
-            self.backend.read_buffer(buf, 0, &mut bytes);
-            seeded_tiles = bytes
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|c| u32::from_le_bytes(*c) != 0)
-                .collect();
-            // Mostly seeded: the gesture's own samples serve better than what is left.
-            if seeded_tiles.iter().filter(|&&t| t).count() * 4 > seeded_tiles.len() {
-                self.sample_cache.seeded_generation = job.generation;
-                self.sample_cache.fresh_view = full.use_la && job.la.is_some();
-                return;
-            }
-        }
-        // Where the view's pixels step through the LA table (M6, deep nucleus references), a
-        // fresh preview with LA and SA seeds costs a fraction of cache tiles, which take neither
-        // effectively (1e-305 needle: 2e8 iterations in 6 ms against 121 cache texels per 7 ms
-        // frame, the panned-in area left empty): gestures from here render fresh previews.
-        // (SA alone does not: the dense spiral's fresh previews take 120 ms per frame.)
-        let fresh = full.use_la && job.la.is_some();
-        self.sample_cache.fresh_view = fresh;
-        if fresh {
-            self.sample_cache.seeded_generation = job.generation;
-            return;
-        }
-        let key = &job.key;
-        let regime = Regime {
-            deep: job.deep,
-            bla: full.use_bla && !(full.use_la && job.la.is_some()),
-            la: full.use_la && job.la.is_some(),
-            interior: full.use_interior,
-            de: key.de,
-            interior_color: key.interior_color && self.ic_buffers.is_some() && full.set.aux.is_some(),
-        };
-        let set = full.set.clone();
-        let (view, ppp, limit, generation) = (key.viewport.clone(), key.points_per_pixel, key.max_iter, job.generation);
-        self.sample_cache.seed(
-            &self.backend,
-            (&set.iter, &set.de, set.aux.as_ref(), set.width, set.height),
-            &view,
-            ppp,
-            regime,
-            limit,
-            generation,
-            &seeded_tiles,
-        );
-    }
-
     /// Builds the adaptive AA list once the refined view is shown and everything but AA is
     /// done (one small GPU pass), and reads its length when the pass has finished.
     fn prepare_aa_list(&mut self, target: u32) {
@@ -3965,26 +3455,7 @@ impl<B: GpuBackend> Renderer<B> {
     fn encode_interactive(&mut self) {
         let Some(job) = &self.job else { return };
         let Some(level) = job.levels.first() else { return };
-        // (A sample cache level with nothing to compute is done at once.)
         if level.done {
-            return;
-        }
-        if level.cache.is_some() {
-            // A sample cache batch runs one chunk per frame whose K keeps its latency within the
-            // budget (its slowest pixels set the time, not its total work: 256 texels with a few
-            // pixels running to a 200 000 limit took 187 ms in one chunk and stalled the queue);
-            // unfinished pixels go on in the next frames' jobs (the batch carries over).
-            let generation = job.generation;
-            if self
-                .in_flight
-                .iter()
-                .any(|r| r.generation == generation && r.level == 0)
-            {
-                return;
-            }
-            let k = ((0.8 * self.gesture_budget() / self.cache_step_latency) as usize)
-                .clamp(64, level.params.max_iter as usize);
-            self.encode_chunk(0, k, false);
             return;
         }
         if level.encoded != 0 {
@@ -4118,12 +3589,7 @@ impl<B: GpuBackend> Renderer<B> {
             let has_bla = job.bla.is_some();
             let has_la = job.la.is_some();
             let level = &mut job.levels[level_index];
-            if let Some(c) = &level.cache {
-                // The cache epoch's pinned regime (samples of one epoch never mix regimes).
-                level.use_bla = c.regime.bla;
-                level.use_la = c.regime.la;
-                level.use_interior = c.regime.interior;
-            } else if !level.started() {
+            if !level.started() {
                 level.use_bla = has_bla;
                 level.use_la = has_la;
                 if self.config.trace {
@@ -4137,7 +3603,7 @@ impl<B: GpuBackend> Renderer<B> {
                 level.params.probe = 0;
                 level.probe_skipped = true;
             }
-            if !level.started() && !level.is_extension() && level.cache.is_none() {
+            if !level.started() && !level.is_extension() {
                 level.use_interior = autoiter::use_interior_test(interior_enabled, stats, key_max_iter);
                 // Collect unresolved pixels for extension passes.
                 if level.use_interior && level.extend_to > level.params.soft_iter as usize {
@@ -4151,13 +3617,7 @@ impl<B: GpuBackend> Renderer<B> {
             let l = &j.levels[level_index];
             // (M6: LA replaces BLA in the pixel loop; seeds keep BLA blocks, below.)
             let ic = j.key.interior_color && l.set.aux.is_some() && self.ic_buffers.is_some();
-            let seed_now = self.config.local_sa.mode != SaMode::Off
-                && l.aa.is_none()
-                && !l.started()
-                && !l.is_extension()
-                && l.seeding.is_none()
-                // (Sample cache levels compute scattered toroidal tiles, exact samples only.)
-                && l.cache.is_none();
+            let seed_now = l.aa.is_none() && !l.started() && !l.is_extension() && l.seeding.is_none();
             (l.use_interior, l.use_bla, j.deep, ic, seed_now)
         };
         if seed_now {
@@ -4169,7 +3629,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         // (A fill candidate waits for its seeds' tile count before its first chunk.)
-        if seed_now && self.config.interior_fill == SaMode::Auto && self.fill_wanted(level_index) {
+        if seed_now && self.fill_wanted(level_index) {
             return false;
         }
         self.decide_fill(level_index);
@@ -4177,14 +3637,11 @@ impl<B: GpuBackend> Renderer<B> {
             let l = &self.job.as_ref().expect("job").levels[level_index];
             (l.seeded, l.seeding.is_some())
         };
-        let (use_la, use_at) = {
+        let use_la = {
             let j = self.job.as_ref().expect("job");
-            let l = &j.levels[level_index];
-            let table = l.cache.as_ref().map_or(j.la.as_ref(), |c| c.la.as_ref());
-            let la = l.use_la && table.is_some();
-            (la, la && self.config.la_at && table.is_some_and(LaGpu::has_at))
+            j.levels[level_index].use_la && j.la.is_some()
         };
-        if use_interior && self.config.interior_probe != 0 && self.probe_buffer.is_none() {
+        if use_interior && self.probe_buffer.is_none() {
             let bytes = 2 * self.config.live_capacity * std::mem::size_of::<PixelStateProbe>();
             self.probe_buffer = self.backend.create_buffer(bytes, Storage::Private).ok();
         }
@@ -4203,7 +3660,7 @@ impl<B: GpuBackend> Renderer<B> {
             deep,
             interior_color,
             seeded.is_some(),
-            (use_la, use_at),
+            use_la,
             probe_now,
         ) {
             Ok(p) => p,
@@ -4271,8 +3728,7 @@ impl<B: GpuBackend> Renderer<B> {
             enc.set_buffer(18, &ic[src], 0);
             enc.set_buffer(19, &ic[dst], 0);
         }
-        let table = level.cache.as_ref().map_or(job.bla.as_ref(), |c| c.bla.as_ref());
-        match (table, use_bla) {
+        match (job.bla.as_ref(), use_bla) {
             (Some(b), true) => {
                 enc.set_bytes(14, bytes_of(&b.params));
                 // Plain tables at 15, extended-range (deep) tables at 17.
@@ -4287,8 +3743,8 @@ impl<B: GpuBackend> Renderer<B> {
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
         enc.set_buffer(30, self.probe_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
-        if use_la && let Some(t) = level.cache.as_ref().map_or(job.la.as_ref(), |c| c.la.as_ref()) {
-            t.bind(&mut enc, deep, use_at, &self.dummy_buffer);
+        if use_la && let Some(t) = job.la.as_ref() {
+            t.bind(&mut enc, deep, &self.dummy_buffer);
         }
         enc.set_buffer(23, self.tile_bad.as_ref().map_or(&self.dummy_buffer, |t| &t.0), 0);
         enc.set_buffer(24, &self.level_buffer, 0);
@@ -4316,7 +3772,6 @@ impl<B: GpuBackend> Renderer<B> {
             iterations: k,
             adaptive,
             preview: self.job.as_ref().is_some_and(|j| j.levels[level_index].preview),
-            cache: self.job.as_ref().is_some_and(|j| j.levels[level_index].cache.is_some()),
             probe: probe_now,
         });
         self.stat_slot = (self.stat_slot + 1) % STAT_SLOTS;
@@ -4359,7 +3814,7 @@ impl<B: GpuBackend> Renderer<B> {
                 self.rate = (work / gpu).max(self.rate / 4.0).min(self.rate * 4.0);
             }
             let pixels = stats.live_in as f64 + stats.fresh as f64;
-            if !rec.adaptive && gpu > 2e-4 && pixels > 0.0 && !rec.cache {
+            if !rec.adaptive && gpu > 2e-4 && pixels > 0.0 {
                 // A gesture frame's chunk ran its pixels to the limit: their cost per texel,
                 // also when the job was superseded before it finished (every frame of a
                 // gesture is). Without this, a refined frame made cheap by local SA left the
@@ -4399,22 +3854,6 @@ impl<B: GpuBackend> Renderer<B> {
                     fs.preview_iterations += stats.iterations() as f64;
                     fs.preview_chunk_gpu += gpu;
                 }
-            }
-            // A sample cache chunk with pixels left after its K: GPU seconds per loop step of its
-            // slowest chains (few threads: latency-bound).
-            if rec.cache && stats.live_out > 0 && gpu > 5e-4 && rec.iterations > 0 {
-                let l = gpu / rec.iterations as f64;
-                self.cache_step_latency = (0.7 * self.cache_step_latency + 0.3 * l).clamp(1e-9, 1e-4);
-            }
-            // The sample cache's batches complete even after their job was superseded.
-            if rec.level == 0 {
-                self.sample_cache.on_chunk(
-                    rec.generation,
-                    stats.admitted as usize,
-                    stats.live_out as usize,
-                    gpu,
-                    stats.iterations() as f64,
-                );
             }
             let Some(job) = &mut self.job else { continue };
             // Another job's chunk, or one of AA samples dropped since (a colour change).
@@ -4471,37 +3910,25 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         level.complete = true;
-        // (A sample cache level computes the tiles a frame lacks, no sample of the view's cost:
-        // the cost per texel stays the fresh previews' and refined levels', which a fresh
-        // preview is sized by.)
         let texels = level.set.width * level.set.height;
-        if level.gpu_time > 0.0 && !level.is_extension() && texels > 0 && level.cache.is_none() {
+        if level.gpu_time > 0.0 && !level.is_extension() && texels > 0 {
             self.cost_per_texel = level.gpu_time / texels as f64;
             self.cost_known = true;
         }
         // (A filled level skipped its insides: keep the last unfilled estimate, or the SA gate
         // would seed the next level, which then may not fill: elephant alternated 23 / 33 ms.)
-        if !level.is_extension()
-            && level.aa.is_none()
-            && level.total > 0
-            && level.params.fill_border == 0
-            && level.cache.is_none()
-        {
+        if !level.is_extension() && level.aa.is_none() && level.total > 0 && level.params.fill_border == 0 {
             let skipped = level.seeding.as_ref().map_or(0.0, |s| s.path_sum as f64 * 256.0);
             self.steps_per_texel = Some((level.steps + skipped) / level.total as f64);
         }
-        self.interior_stats = if level.cache.is_some() {
-            self.cache_interior_stats()
-        } else {
-            Some(InteriorStats::from_level(
-                level.total,
-                level.interior_pixels,
-                level.iterations,
-                level.use_interior,
-                level.params.max_iter as usize,
-                level.crossed,
-            ))
-        };
+        self.interior_stats = Some(InteriorStats::from_level(
+            level.total,
+            level.interior_pixels,
+            level.iterations,
+            level.use_interior,
+            level.params.max_iter as usize,
+            level.crossed,
+        ));
         self.survey_level(index);
     }
 
@@ -4520,19 +3947,7 @@ impl<B: GpuBackend> Renderer<B> {
         if level.aa.is_some() || level.is_extension() {
             return;
         }
-        let (mut w, mut h) = (level.set.width, level.set.height);
-        let (mut origin, mut wrap, mut tex) = ([0u32; 2], 0u32, w as u32 | ((h as u32) << 16));
-        if level.cache.is_some() {
-            // The view's rectangle of the sample cache's window.
-            let k = &job.key;
-            let Some((o, size, wr, t)) =
-                self.sample_cache
-                    .survey_rect(&k.viewport, k.points_per_pixel, k.width, k.height)
-            else {
-                return;
-            };
-            (w, h, origin, wrap, tex) = (size[0] as usize, size[1] as usize, o, wr, t);
-        }
+        let (w, h) = (level.set.width, level.set.height);
         let iter = level.set.iter.clone();
         let view = (
             job.key.width as f64 * job.key.points_per_pixel,
@@ -4546,9 +3961,6 @@ impl<B: GpuBackend> Renderer<B> {
             height: h as u32,
             cols: SURVEY_COLS as u32,
             rows: SURVEY_ROWS as u32,
-            origin,
-            wrap,
-            tex,
         };
         enc.set_pipeline(&self.survey_pipeline);
         enc.set_texture(0, &iter);
@@ -4623,7 +4035,7 @@ impl<B: GpuBackend> Renderer<B> {
         let budget = self.config.extension_budget;
         let list_capacity = self.list_capacity;
         let trace = self.config.trace;
-        let probe_div = self.config.interior_probe;
+        let probe_div = INTERIOR_PROBE;
         let job = self.job.as_mut().expect("job");
         let deep = job.deep;
         let is_last = index + 1 == job.levels.len();
@@ -4705,7 +4117,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let level = &job.levels[index];
         // (Without the interior test, pixels at the limit are drawn interior: nothing to scan.)
-        if !level.use_interior || level.crossed == 0 || level.cache.is_some() {
+        if !level.use_interior || level.crossed == 0 {
             return;
         }
         let (tx, ty) = tiles(level.set.width, level.set.height);
@@ -4849,7 +4261,7 @@ impl<B: GpuBackend> Renderer<B> {
         let cap = self.settings.max_iterations_cap;
         let budget = self.config.further_budget;
         let min_share = self.config.further_min_share;
-        let probe_div = self.config.interior_probe;
+        let probe_div = INTERIOR_PROBE;
         let rate = self.rate;
         let Some(job) = &self.job else { return };
         let Some(f) = &job.further else { return };
@@ -5037,7 +4449,7 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The scanned segment's `count` texels as an extension level to the pass's limit.
     fn push_further_level(&mut self, count: usize) {
-        let probe_div = self.config.interior_probe;
+        let probe_div = INTERIOR_PROBE;
         let list_capacity = self.list_capacity;
         let job = self.job.as_mut().expect("job");
         let limit = job.further.as_ref().map_or(0, |f| f.limit);
@@ -5262,14 +4674,7 @@ impl<B: GpuBackend> Renderer<B> {
             reference_bits: self.reference.as_ref().map_or(0, |r| r.precision_bits),
             reference_pending: self.reference_worker.pending().is_some(),
             deep: job.deep,
-            render_size: if shown.cache.is_some() {
-                (
-                    (job.key.width as f64 * shown.ratio).round() as usize,
-                    (job.key.height as f64 * shown.ratio).round() as usize,
-                )
-            } else {
-                (shown.set.width, shown.set.height)
-            },
+            render_size: (shown.set.width, shown.set.height),
             is_preview: shown.preview,
             gpu_time: job.gpu_time,
             chunks: job.chunks,
@@ -5325,7 +4730,7 @@ impl<B: GpuBackend> Renderer<B> {
         let palette = self.palette_buffer.as_ref().expect("palette");
         // Fog over unresolved pixels (kb: techniques/unresolved-fog): its pyramid first.
         let fog = match level {
-            Some(l) if self.config.fog && job.has_unresolved() => crate::fog::build(
+            Some(l) if job.has_unresolved() => crate::fog::build(
                 &mut self.fog,
                 &self.backend,
                 &mut enc,
@@ -5437,29 +4842,6 @@ impl<B: GpuBackend> Renderer<B> {
         };
         let mut under: Option<PreviewColor<B>> = None;
         if let Some(p) = preview
-            && p.cache.is_some()
-        {
-            // The sample cache: its visible samples re-shaded with the current colours.
-            let palette = self.palette_buffer.clone().expect("palette");
-            if let Some((texture, m)) = self.sample_cache.shade(
-                &self.backend,
-                &key.viewport,
-                key.points_per_pixel,
-                key.width,
-                key.height,
-                colors,
-                &palette,
-                key.max_iter,
-            ) {
-                under = Some(PreviewColor {
-                    texture,
-                    size: m.size,
-                    ratio: m.ratio,
-                    jitter: [0.0, 0.0],
-                    cache: Some(m),
-                });
-            }
-        } else if let Some(p) = preview
             && let Some(color) = &p.set.color
         {
             self.encode_preview_color(&mut enc, p, color, colors);
@@ -5468,7 +4850,6 @@ impl<B: GpuBackend> Renderer<B> {
                 size: (p.set.width, p.set.height),
                 ratio: p.ratio,
                 jitter: p.params.jitter,
-                cache: None,
             });
         }
 
@@ -5512,21 +4893,11 @@ impl<B: GpuBackend> Renderer<B> {
             q.new_ratio = u.ratio as f32;
             q.jitter = u.jitter;
             q.new_centre = [uw as f32 / 2.0, uh as f32 / 2.0];
-            if let Some(m) = &u.cache {
-                q.new_centre = [m.centre[0] as f32, m.centre[1] as f32];
-                q.new_rot = [m.rot[0] as f32, m.rot[1] as f32];
-                q.wrap = m.wrap;
-                q.cache = 1;
-            }
         }
         // Fog over unresolved pixels (kb: techniques/unresolved-fog): the pyramid of the exact
         // level (texel = output pixel) for the passes that draw its unresolved texels.
         let fog = match exact {
-            Some(l)
-                if self.config.fog
-                    && matches!(mode, COMPOSE_REFINE | COMPOSE_EXACT | COMPOSE_FURTHER)
-                    && job.has_unresolved() =>
-            {
+            Some(l) if matches!(mode, COMPOSE_REFINE | COMPOSE_EXACT | COMPOSE_FURTHER) && job.has_unresolved() => {
                 crate::fog::build(
                     &mut self.fog,
                     &self.backend,
@@ -6088,7 +5459,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.bla_build = None;
         self.la = None;
         self.la_build = None;
-        let eps = self.config.bla_epsilon;
+        let eps = BLA_EPSILON;
         self.bla_reach_log2 = if r.deep_kernel {
             BlaTableX::reach_log2(&r.extended, eps)
         } else {
@@ -6707,9 +6078,6 @@ impl<B: GpuBackend> Renderer<B> {
             bla_forecast: job.bla_forecast,
             bla_used: job.levels.iter().any(|l| l.use_bla && !l.use_la),
             la_used: job.levels.iter().any(|l| l.use_la),
-            at_used: self.config.la_at
-                && job.levels.iter().any(|l| l.use_la)
-                && job.la.as_ref().is_some_and(LaGpu::has_at),
             iterations,
             seeds: if job.levels.iter().any(|l| l.seeding.is_some()) {
                 self.seed_report()
@@ -6764,13 +6132,6 @@ impl<B: GpuBackend> Renderer<B> {
             input(i, dt, &mut self.viewport);
             prev = now;
             refresh(self, &mut tick, &mut frames);
-        }
-        if input_frames > 0
-            && let Some(mut f) = self.cache_check_renderer.take()
-        {
-            let c = self.sample_cache_check_with(&mut f);
-            self.cache_checks.push(c);
-            self.cache_check_renderer = Some(f);
         }
         // A jump (no input frames) counts from the start.
         let input_end = if input_frames == 0 {
@@ -6911,111 +6272,4 @@ impl<B: GpuBackend + Clone> Renderer<B> {
             height: set.height,
         })
     }
-
-    /// The sample cache check (kb: techniques/sample-reuse): every sample the cache holds
-    /// against a fresh offscreen render of the same lattice points (a new renderer: its own
-    /// reference, the epoch's BLA and interior regime). A wrong transform, wrap, resample or
-    /// seed, or a stale sample, changes escape counts in chaotic regions at once. Blocks.
-    /// None without a cache epoch.
-    pub fn sample_cache_check(&mut self) -> Option<CacheCheck> {
-        let mut fresh = Renderer::with_config(self.backend.clone(), self.config.clone()).ok()?;
-        self.sample_cache_check_with(&mut fresh)
-    }
 }
-
-impl<B: GpuBackend> Renderer<B> {
-    /// [`Renderer::sample_cache_check`] rendering with `fresh` (a renderer of its own on the
-    /// same device; its settings are replaced).
-    pub fn sample_cache_check_with(&mut self, fresh: &mut Renderer<B>) -> Option<CacheCheck> {
-        self.wait_frames();
-        self.drain_in_flight();
-        for r in std::mem::take(&mut self.in_flight) {
-            r.submission.wait();
-        }
-        let regime = self.sample_cache.regime()?;
-        let (centre, h, angle, (w, hgt), wrap, tex) = self.sample_cache.check_frame()?;
-        // (Any sample computing is finished: the queue is serial and drained above.)
-        let mut mine = vec![[0f32; 2]; w * hgt];
-        self.backend
-            .read_texture(
-                &tex,
-                w,
-                hgt,
-                TextureFormat::Rg32Float,
-                bytemuck::cast_slice_mut(&mut mine),
-            )
-            .ok()?;
-        let limit = self.job.as_ref().map_or(self.max_iterations(), |j| j.key.max_iter);
-        fresh.config.bla = if regime.bla { BlaMode::On } else { BlaMode::Off };
-        fresh.config.la = if regime.la { LaMode::On } else { LaMode::Off };
-        fresh.job = None;
-        // The live reference (used if it serves the check's view): float32 escape counts in
-        // chaotic regions depend on the reference, which is not what this check is about.
-        match self.reference.clone() {
-            Some(r) => fresh.set_reference(r),
-            None => fresh.reference = None,
-        }
-        fresh.viewport = Viewport::with_center(centre, h).with_angle(angle);
-        fresh.settings = self.settings.clone();
-        fresh.settings.auto_iterations = false;
-        fresh.settings.manual_iterations = limit;
-        fresh.settings.max_iterations_cap = self.settings.max_iterations_cap.max(limit);
-        fresh.settings.interior_detection = regime.interior;
-        fresh.settings.supersampling = almondbread_core::settings::Supersampling::Off;
-        fresh.sample_cache.config.enabled = false;
-        let theirs = fresh.render_offscreen(w, hgt, true).ok()?.iterations?;
-        let mut check = CacheCheck::default();
-        for y in 0..hgt {
-            for x in 0..w {
-                let s = ((y + wrap[1] as usize) % hgt) * w + (x + wrap[0] as usize) % w;
-                let a = mine[s];
-                let b = theirs[y * w + x];
-                if a[0] == ITER_EMPTY || a[0] == ITER_PENDING_CODE {
-                    continue;
-                }
-                check.samples += 1;
-                if a[0] == ITER_UNRESOLVED || b[0] == ITER_UNRESOLVED {
-                    continue;
-                }
-                // Escaped vs not; escape counts beyond the fresh limit are not compared.
-                if (a[0] < 0.0) != (b[0] < 0.0) {
-                    if !(a[0] >= limit as f32 || b[0] >= limit as f32) {
-                        check.class_differ += 1;
-                    }
-                } else if a[0] >= 0.0 && a[0] != b[0] {
-                    check.escape_differ += 1;
-                }
-                if a[0] >= 0.0 && b[0] >= 0.0 {
-                    check.escaped += 1;
-                }
-            }
-        }
-        Some(check)
-    }
-}
-
-/// [`Renderer::sample_cache_check`]: the cache's samples against a fresh render of their points.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CacheCheck {
-    /// Samples compared (texels holding one).
-    pub samples: usize,
-    /// Escaped in both.
-    pub escaped: usize,
-    /// Escaped in one but not the other (unresolved ones not counted).
-    pub class_differ: usize,
-    /// Escaped in both at different iterations.
-    pub escape_differ: usize,
-}
-
-impl CacheCheck {
-    pub fn class_pct(&self) -> f64 {
-        100.0 * self.class_differ as f64 / self.samples.max(1) as f64
-    }
-    pub fn escape_pct(&self) -> f64 {
-        100.0 * self.escape_differ as f64 / self.escaped.max(1) as f64
-    }
-}
-
-/// Iteration texture codes of the sample cache (kernel constants).
-const ITER_EMPTY: f32 = -5.0;
-const ITER_PENDING_CODE: f32 = -2.0;

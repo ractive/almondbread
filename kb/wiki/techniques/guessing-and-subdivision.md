@@ -101,7 +101,7 @@ or the other. Related: [[techniques/frame-reuse-and-progressive]].
 ## As built (M5, 2026-10-15): interior-only tile fill
 
 Interior-only Mariani–Silver on the 16 × 16 admission tiles of a full level, one level of
-tiles (no subdivision). `ALMONDBREAD_FILL=0|1|auto` (auto), CLI `--fill`. Code: `tileTexel` /
+tiles (no subdivision). Always auto (the switch `ALMONDBREAD_FILL` and `--fill` were removed 2026-10-17). Code: `tileTexel` /
 `tileIndex` (fill order), `prepareChunk` (border-first gate), `iterate` (fill and the tile
 stamps), scheduler `fill_wanted` / `decide_fill`.
 

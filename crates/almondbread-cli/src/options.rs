@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use almondbread_core::settings::{RenderSettings, Supersampling};
 use almondbread_core::viewport::{Center, Scale, Viewport};
-use almondbread_render::scheduler::{BlaMode, SaMode};
 use almondbread_render::{GpuBackend, Renderer};
 
 #[derive(Debug)]
@@ -259,8 +258,7 @@ impl Options {
     }
 
     /// `--chunk-ms` (GPU time per iterate command buffer), `--extend k` (offscreen
-    /// unresolved pixels continue to k x the limit), `--bla 0|1|auto`, `--bla-eps e`, `--la 0|1|auto`,
-    /// `--at 0|1`.
+    /// unresolved pixels continue to k x the limit), `--further-budget s`, the local SA tunables `--sa-*`.
     pub fn apply_renderer<B: GpuBackend>(&self, r: &mut Renderer<B>) {
         if let Some(v) = self.f64("chunk-ms") {
             r.config.chunk_target = v / 1000.0;
@@ -268,43 +266,12 @@ impl Options {
         if let Some(v) = self.usize("extend") {
             r.config.offscreen_extension = v.max(1);
         }
-        // Compute further (`--further 0|1`, default `ALMONDBREAD_FURTHER`, on; `--further-budget
-        // s` GPU seconds; kb: techniques/auto-iterations "Compute further"): refined views of
-        // `verify --history` and the app keep iterating unresolved pixels.
-        if let Some(v) = self.get("further") {
-            r.config.further = v != "0";
-        }
+        // Compute further's GPU budget in seconds (`--further-budget s`, kb: techniques/auto-iterations
+        // "Compute further"); `verify --history` runs it only when asked for.
         if let Some(v) = self.f64("further-budget") {
             r.config.further_budget = v;
         }
-        // BLA iteration skipping (kb: techniques/bla): `--bla 0` off (the skip-off diff),
-        // `1` whenever a table exists, `auto` (default) where the forecast says it pays;
-        // `--bla-eps e` for validity epsilon 2^-e.
-        if let Some(v) = self.get("bla") {
-            match BlaMode::parse(v) {
-                Some(m) => r.config.bla = m,
-                None => eprintln!("almondbread: --bla {v}: expected 0, 1 or auto"),
-            }
-        }
-        if let Some(e) = self.f64("bla-eps") {
-            r.config.bla_epsilon = 2f64.powf(-e);
-        }
-        // M6: Imagina-style LA instead of BLA (`--la 0|1|auto`) and its AT (`--at 0|1`; kb:
-        // techniques/linear-approximation-imagina).
-        if let Some(v) = self.get("la") {
-            match almondbread_render::la_gpu::LaMode::parse(v) {
-                Some(m) => r.config.la = m,
-                None => eprintln!("almondbread: --la {v}: expected 0, 1 or auto"),
-            }
-        }
-        if let Some(v) = self.get("at") {
-            r.config.la_at = v != "0";
-        }
-        // M5: local series approximation (`--sa 0|1|auto`, tunables `--sa-eps`, `--sa-top`,
-        // `--sa-leaf`, `--sa-gate rel,abs`, `--sa-budget`; kb: techniques/local-series-approximation).
-        if let Some(m) = self.get("sa").and_then(SaMode::parse) {
-            r.config.local_sa.mode = m;
-        }
+        // Local series approximation tunables (kb: techniques/local-series-approximation).
         let sa = &mut r.config.local_sa;
         if let Some(e) = self.f64("sa-eps") {
             sa.eps = e;
@@ -321,10 +288,6 @@ impl Options {
         }
         if let Some(b) = self.usize("sa-budget") {
             sa.budget = b as u32;
-        }
-        // M5 interior-only tile fill (`--fill 0|1|auto`).
-        if let Some(m) = self.get("fill").and_then(SaMode::parse) {
-            r.config.interior_fill = m;
         }
     }
 }

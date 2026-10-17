@@ -41,8 +41,6 @@ constant bool kProbe    [[function_constant(6)]];   // interior probe of pixels 
                                                     // limit (needs kInterior; see "Attracting-cycle probe")
 constant bool kLA       [[function_constant(8)]];   // M6: period-aligned linear approximation
                                                     // (kb: techniques/linear-approximation-imagina)
-constant bool kAT       [[function_constant(9)]];   // M6: the approximation table of a periodic
-                                                    // reference (needs kLA)
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -50,7 +48,6 @@ constant float ITER_PENDING    = -2.0f;   // admitted but still iterating
 constant float ITER_UNRESOLVED = -3.0f;   // past the nominal limit, neither escaped nor proven
                                           // interior (.y = the nominal limit); may still resolve
 constant float ITER_SKIP       = -4.0f;   // AA sample textures: this pixel takes no AA samples
-constant float ITER_EMPTY      = -5.0f;   // sample cache: no sample here (yet)
 
 // M5: a real reference's seeds are not used within this many texels of the real axis.
 constant float AXIS_BAND = 16.0f;
@@ -84,8 +81,7 @@ struct IterateParams {
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
-    uint   wrap;          // toroidal levels (sample cache, kb: techniques/sample-reuse): texel gid
-                          // holds window texel (gid + wrap) mod size, wrap = x | y << 16; 0: none
+    uint   pad0;
     // View rotation (cos, sin) of the texel offset (kb: decisions/controls "View rotation");
     // (1, 0) unrotated, which keeps the plain products bit for bit.
     float2 rot;
@@ -302,19 +298,11 @@ struct LaEntry {          // the plain form (float32, r = 0: never valid)
     uint   len;
     uint   endJ;
 };
-// AT (kAT): for a periodic reference of period P, y = A z at m = 0 iterates y <- y^2 + c',
-// c' = CC dc + RC, while |y|^2 < |A|^2 (R - (K + 1) |dc|): P iterations per step.
 struct LaParams {
     uint   count;
-    uint   period;        // AT period (0: none)
     uint   pad0;
     uint   pad1;
-    float2 atA;   int atAe;  int pad2;
-    float2 atAi;  int atAie; int pad3;    // 1 / A
-    float2 atCC;  int atCCe; int pad4;    // A (A + B)
-    float2 atRC;  int atRCe; int pad5;    // A Z_P
-    float  atR;   int atRe;               // R and K + 1 of the period step
-    float  atK1;  int atK1e;
+    uint   pad2;
 };
 
 // Admission state of the running level, on the GPU so admission needs no CPU round trip:
@@ -385,7 +373,7 @@ struct SeedParams {
     uint  budget;        // seed steps per node in this pass
     float2 jitter;       // the seeded level's sample position inside a texel
     uint  tilesX;        // 16 x 16 tiles per row of the seeded level
-    uint  gateMode;      // seedGate: 1 per-tile forecast, 2 every tile seeded
+    uint  pad0;
     float gateRel;       // a tile is seeded when its leaves' mean path (seed steps) is at
     float gateAbs;       // least gateAbs, or without a cost estimate (gateAbs 0) when their
                          // mean branch iteration is at least gateRel * softIter
@@ -570,47 +558,6 @@ static inline int laFind(device const LaEntry* E, uint first, uint end, float zn
         if (laValid(E[mid], zn2, cn, n, maxIter)) lo = mid; else hi = mid;
     }
     return int(lo);
-}
-
-// Pixel state of a pixel inside the AT between chunks: st.e == AT_MODE, st.dz = y (float32),
-// st.d / st.dExp = A dz/dc * texel, st.w / st.wExp = dz/dz1 (floatexp), m = 0. Keeping y itself
-// (not z = y / A) makes the result independent of where chunks cut the AT run.
-constant int AT_MODE = 0x40000000;
-
-// |y|^2 bound of the AT for a pixel at c: |A|^2 (R - (K + 1) |c|), 0 when the period step is
-// not valid at all for it (capped at 2^100: y stays in float32 range).
-static inline float atRadius(constant LaParams& la, FE C) {
-    const FE kc = feMul(FE{float2(la.atK1, 0.0f), la.atK1e}, feNorm(float2(length(C.m), 0.0f), C.e));
-    const FE t = feAdd(FE{float2(la.atR, 0.0f), la.atRe}, FE{-kc.m, kc.e});
-    if (!(t.m.x > 0.0f)) return 0.0f;
-    const FE r = feNorm(float2(t.m.x * dot(la.atA, la.atA), 0.0f), t.e + 2 * la.atAe);
-    if (r.e > 100) return 0x1p100f;
-    return r.e < -100 ? 0.0f : feFloat(r).x;
-}
-
-// The AT loop: y <- y^2 + c' (P iterations each) while |y|^2 < rad. D = A dz/dc * texel and
-// W = dz/dz1 ride along (floatexp): D' = 2 y D + CC texel, W' = 2 y W (W = A after the first
-// step from z = 0, n = 0: dz_P/dz_1 of the remaining steps). Returns 0: left the AT (y no
-// longer valid, or the limit is less than a period away), 1: chunk budget spent, 2: interior.
-static inline uint atLoop(constant LaParams& la, float rad, float2 cp, FE CCts,
-                          thread float2& y, thread FE& D, thread FE& W, thread uint& n, thread uint& budget,
-                          uint maxIter, float interiorEps, thread float& icMinLog2, thread uint& icQ) {
-    const float lA = log2(length(la.atA)) + float(la.atAe);
-    while (true) {
-        if (n + la.period > maxIter || !(dot(y, y) < rad)) return 0u;
-        if (budget == 0) return 1u;
-        const FE y2 = feNorm(2.0f * y, 0);
-        if (kDE) D = feAdd(feMul(y2, D), CCts);
-        if (kInterior) W = n == 0 ? FE{la.atA, la.atAe} : feMul(y2, W);
-        y = cmul(y, y) + cp;
-        n += la.period;
-        budget--;
-        if (kInteriorColor) {
-            const float l = 0.5f * log2(dot(y, y)) - lA;
-            if (l < icMinLog2) { icMinLog2 = l; icQ = n; }
-        }
-        if (kInterior && max(abs(W.m.x), abs(W.m.y)) * (float(n) * float(n)) * pow2f(clamp(W.e, -126, 127)) < interiorEps) return 2u;
-    }
 }
 
 // One thread: admits fresh pixels into free capacity, sizes the indirect dispatch for
@@ -1036,7 +983,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
 // tile). Starting a pixel at its leaf's reference index costs SIMD coherence (neighbouring
 // leaves start at unrelated m, and pixels that run long keep the phase offset for their whole
 // orbit: ~10-25 % per remaining step), so a tile is seeded only where its leaves saved a good
-// share of a pixel's work (auto, gateMode 1): mean path (seed steps a pixel saves) >= gateAbs,
+// share of a pixel's work: mean path (seed steps a pixel saves) >= gateAbs,
 // which the scheduler sets to a share of the last level's steps per texel; without that
 // estimate (a fresh renderer), mean branch iteration >= gateRel * softIter. Measured: home-100k,
 // Feigenbaum, minibrot-p4, sea-8007 5-25 % slower seeded, dense/spiral/neck 3-6x faster.
@@ -1047,11 +994,6 @@ kernel void seedGate(device const SeedNode* nodes [[buffer(18)]],
                      uint tid                     [[thread_position_in_grid]])
 {
     if (tid >= sp.tilesX * sp.tilesY) return;
-    if (sp.gateMode == 2u) {
-        tiles[tid] = 1u;
-        atomic_fetch_add_explicit(&status.seededTiles, 1u, memory_order_relaxed);
-        return;
-    }
     const uint2 t = uint2(tid % sp.tilesX, tid / sp.tilesX);
     const uint per = max(16u / sp.size, 1u);
     const uint2 l0 = t * per;
@@ -1170,9 +1112,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     }
 
     uint2 gid = uint2(st.pixel % p.width, st.pixel / p.width);
-    // (A sample cache level is toroidal: the texel's sample position is its window texel's.)
-    const uint2 gw = (gid + uint2(p.wrap & 0xffffu, p.wrap >> 16)) % uint2(p.width, p.height);
-    float2 pix = float2(gw) + p.jitter - p.halfSize;
+    float2 pix = float2(gid) + p.jitter - p.halfSize;
     float2 off = float2(pix.x, -pix.y);
     off = float2(off.x * p.rot.x - off.y * p.rot.y, off.x * p.rot.y + off.y * p.rot.x);
     float2 dc = off * p.texelScale + p.refOffset;
@@ -1260,17 +1200,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         float2 w, dm, zw;
         int e, dExp, wExp;
         uint m, n;
-        // M6 AT (kAT): this pixel's |y|^2 bound (0: the period step is never valid for it) and c'.
-        float atRad = 0.0f;
-        float2 atCp = 0.0f;
-        FE atCCts = FE{float2(0.0f), FE_ZERO};
-        bool atMode = false;   // resumed inside the AT: w holds y (AT_MODE)
-        if (kAT) {
-            atRad = atRadius(la, C);
-            const FE cpx = feAdd(feMul(FE{la.atCC, la.atCCe}, C), FE{la.atRC, la.atRCe});
-            if (cpx.e > 60) atRad = 0.0f; else atCp = feFloat(cpx);
-            atCCts = feMul(FE{la.atCC, la.atCCe}, TS);
-        }
         if (fromSeed) {
             // Start from the leaf's expansion: dz + a delta + b delta^2/2, d = a + b delta,
             // w + wd delta.
@@ -1287,12 +1216,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             zw = wx.m; wExp = wx.e;
             m = sd.m; n = sd.n;
             st.n = n;
-        } else if (fresh && kAT && atRad > 0.0f && la.period <= p.maxIter) {
-            // M6: from z_0 = 0 at m = 0, so the AT takes the first periods.
-            w = 0.0f; e = 0; dm = 0.0f; dExp = FE_ZERO;
-            zw = float2(1.0f, 0.0f); wExp = 0;
-            m = 0; n = 0;
-            st.n = 0;
         } else if (fresh) {
             // z_1 = c, d_1 = texel, w_1 = 1.
             if (C.e >= DEEP_PLAIN_EXP) { w = feFloat(C); e = 0; } else { w = C.m; e = C.e; }
@@ -1301,10 +1224,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             m = 1; n = 1;
             st.n = 0;   // the first iteration counts in this chunk
             steps = 1;
-        } else if (kAT && st.e == AT_MODE) {
-            atMode = true;
-            w = st.dz; e = 0; dm = st.d; dExp = st.dExp; zw = st.w; wExp = st.wExp;
-            m = 0; n = st.n;
         } else {
             w = st.dz; e = st.e; dm = st.d; dExp = st.dExp; zw = st.w; wExp = st.wExp;
             m = st.m; n = st.n;
@@ -1323,53 +1242,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             laJ = laNext[min(m, last)];
             laLook = laBounds[laJ].x;
         }
-        bool atSave = false;
         bool done = false;
         while (!done) {
-            // ---- M6 AT at m = 0 (kAT): iterate y = A z while the period step is valid.
-            if (kAT && m == 0 && atRad > 0.0f && n != lookedAt && n < p.maxIter && budget > 0) {
-                lookedAt = n;
-                const FE A = FE{la.atA, la.atAe};
-                float2 y;
-                FE D, W;
-                bool ok = true;
-                if (atMode) {
-                    y = w; D = FE{dm, dExp}; W = FE{zw, wExp};
-                } else {
-                    const FE Y = feMul(A, feNorm(w, e));
-                    ok = Y.e <= 62;
-                    y = feFloat(Y);
-                    D = kDE ? feMul(A, feNorm(dm, dExp)) : FE{float2(0.0f), FE_ZERO};
-                    W = feNorm(zw, wExp);
-                }
-                if (ok) {
-                    const uint n0 = n;
-                    const uint r = atLoop(la, atRad, atCp, atCCts, y, D, W, n, budget, p.maxIter, p.interiorEps,
-                                          icMinLog2, icQ);
-                    if (kInteriorColor) icR2 = exp2(max(2.0f * icMinLog2, -160.0f));
-                    if (r == 1u) {
-                        // Budget spent inside the AT: keep y itself (chunk-independent results).
-                        w = y; dm = D.m; dExp = D.e; zw = W.m; wExp = W.e;
-                        atSave = true;
-                        break;
-                    }
-                    if (n != n0 || atMode) {
-                        // Back to z = y / A at m = 0 (a period boundary of the reference).
-                        const FE Ai = FE{la.atAi, la.atAie};
-                        const FE zx = feMul(Ai, feNorm(y, 0));
-                        if (kDE) {
-                            const FE dx = feMul(Ai, D);
-                            dm = dx.m; dExp = dx.e;
-                            tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
-                        }
-                        if (kInterior) { zw = W.m; wExp = W.e; }
-                        if (zx.e >= DEEP_PLAIN_EXP) { w = feFloat(zx); e = 0; } else { w = zx.m; e = zx.e; }
-                        deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
-                    }
-                    atMode = false;
-                    if (r == 2u) { interior = true; break; }
-                }
-            }
             // ---- M6 LA (kLA): at m == L_j, the longest valid block of boundary j's chain (a
             // valid block keeps |z| <= 2^-24 |2 Z| at its inner steps: no rebase or escape inside;
             // the tests follow in the regime loop).
@@ -1486,7 +1360,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     }
                     if (n >= p.maxIter || budget == 0) { done = true; break; }
                     if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
-                    if (((kLA && m == laLook) || (kAT && m == 0 && atRad > 0.0f)) && n != lookedAt) break;
+                    if (kLA && m == laLook && n != lookedAt) break;
                     if (kDE) dm = 2.0f * cmul(z, dm) + tsd;
                     if (kInterior) zw = 2.0f * cmul(z, zw);
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
@@ -1556,7 +1430,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
                             break;
                         }
-                        if (((kLA && m == laLook) || (kAT && m == 0 && atRad > 0.0f)) && n != lookedAt) {
+                        if (kLA && m == laLook && n != lookedAt) {
                             deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
                             break;
                         }
@@ -1648,20 +1522,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         }
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
-        st.dz = w; st.e = atSave ? AT_MODE : e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
+        st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
     } else if (active && !inB && !parked && !filled) {
-        // M6 AT (kAT): as in the deep path, with C and the texel at exponent 0.
-        float atRad = 0.0f;
-        float2 atCp = 0.0f;
-        FE atCCts = FE{float2(0.0f), FE_ZERO};
-        bool atMode = false;
-        if (kAT) {
-            const FE C = feNorm(dc, 0);
-            atRad = atRadius(la, C);
-            const FE cpx = feAdd(feMul(FE{la.atCC, la.atCCe}, C), FE{la.atRC, la.atRCe});
-            if (cpx.e > 60) atRad = 0.0f; else atCp = feFloat(cpx);
-            atCCts = feMul(FE{la.atCC, la.atCCe}, feNorm(tsDelta, 0));
-        }
         if (fromSeed) {
             // M5: start from the leaf's expansion (iterations counted from its n).
             const float ts = p.texelScale;
@@ -1690,15 +1552,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 st.dz = z;
                 st.m = 0;
             }
-        } else if (fresh && kAT && atRad > 0.0f && la.period <= p.maxIter) {
-            // M6: from z_0 = 0 at m = 0, so the AT takes the first periods.
-            st.dz = 0.0f;
-            st.d = 0.0f;
-            st.w = float2(1.0f, 0.0f);
-            st.wExp = 0;
-            st.m = 0;
-            st.n = 0;
-            z = 0.0f;
         } else if (fresh) {
             // First step done here, from z_0 = 0: z_1 = c, dz_1 = dc, d_1 = texelScale,
             // w_1 = 1 (the generic step would multiply w by z_0 = 0).
@@ -1719,8 +1572,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 st.dz = z;
                 st.m = 0;
             }
-        } else if (kAT && st.e == AT_MODE) {
-            atMode = true;   // st holds y and the derivatives as floatexp (AT_MODE)
         } else {
             z = ref[st.m] + st.dz;
         }
@@ -1737,64 +1588,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             laJ = laNext[min(m, last)];
             laLook = laBounds[laJ].x;
         }
-        bool atSave = false;
-        float2 atY = 0.0f;
-        FE atD = FE{float2(0.0f), FE_ZERO}, atW = atD;
         // Lookups only at m = 1 (mod bla.lookupEvery): a lookup costs several exact steps
         // (dependent table loads, divergence), and a rule on m alone keeps results independent
         // of how chunks cut the orbit (shown frame = fresh render).
         const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
         uint budget = p.chunkIters;
         while (!escaped && !interior && n < p.maxIter && budget > 0) {
-            // M6 AT at m = 0 (kAT): iterate y = A z while the period step is valid.
-            if (kAT && m == 0 && atRad > 0.0f && n != lookedAt) {
-                lookedAt = n;
-                const FE A = FE{la.atA, la.atAe};
-                float2 y;
-                FE D, W;
-                bool ok = true;
-                if (atMode) {
-                    y = st.dz; D = FE{st.d, st.dExp}; W = FE{st.w, st.wExp};
-                } else {
-                    const FE Y = feMul(A, feNorm(dz, 0));
-                    ok = Y.e <= 62;
-                    y = feFloat(Y);
-                    D = kDE ? feMul(A, feNorm(d, 0)) : FE{float2(0.0f), FE_ZERO};
-                    W = feNorm(w, wExp);
-                }
-                if (ok) {
-                    const uint n0 = n;
-                    const uint r = atLoop(la, atRad, atCp, atCCts, y, D, W, n, budget, p.maxIter, p.interiorEps,
-                                          icMinLog2, icQ);
-                    if (kInteriorColor) icR2 = exp2(max(2.0f * icMinLog2, -160.0f));
-                    if (r == 1u) {
-                        atY = y; atD = D; atW = W;
-                        atSave = true;
-                        break;
-                    }
-                    if (n != n0 || atMode) {
-                        // Back to z = y / A at m = 0.
-                        const FE Ai = FE{la.atAi, la.atAie};
-                        dz = feFloat(feMul(Ai, feNorm(y, 0)));
-                        if (kDE) d = feFloat(feMul(Ai, D));
-                        if (kInterior) {
-                            if (W.e <= 0) {
-                                w = scale2(W.m, max(W.e, -250));
-                                wExp = 0;
-                            } else {
-                                const int k = ((W.e + 59) / 60) * 60;
-                                w = scale2(W.m, W.e - k);
-                                wExp = k;
-                            }
-                        }
-                        z = dz;
-                        r2 = dot(z, z);
-                    }
-                    atMode = false;
-                    if (r == 2u) { interior = true; break; }
-                    if (n >= p.maxIter || budget == 0) break;
-                }
-            }
             // M6 LA (kLA): at m == L_j, the longest valid block of boundary j's chain.
             if (kLA && m == laLook && n != lookedAt) {
                 lookedAt = n;
@@ -1945,17 +1744,13 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kLA) { laJ = 0; laLook = la0; }
                 }
                 if (kBLA && m == 1) break;
-                if ((kLA && m == laLook) || (kAT && m == 0 && atRad > 0.0f)) break;
+                if (kLA && m == laLook) break;
             }
             budget -= max(n - n0, 1u);
         }
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = dz; st.d = d; st.w = w; st.m = m; st.n = n; st.wExp = wExp;
-        if (kAT) {
-            st.e = atSave ? AT_MODE : 0;
-            if (atSave) { st.dz = atY; st.d = atD.m; st.dExp = atD.e; st.w = atW.m; st.wExp = atW.e; }
-        }
     }
 
     // ---- Attracting-cycle probe (kProbe, p.probe != 0; kb: techniques/interior-detection
@@ -2004,7 +1799,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     const uint pBudget = pRem == 0u ? 0u : max(pRem / pCost, 1u);
     // (A pixel enters with a step to take: probing state always has n > maxIter.)
     if (kProbe && p.probe != 0 && active && !inB && !inP && !filled && !escaped && !interior
-        && st.n == p.maxIter && pBudget > 0u && !(kAT && st.e == AT_MODE)) {
+        && st.n == p.maxIter && pBudget > 0u) {
         if (kDeep) {
             const FE dzx = feNorm(st.dz, st.e);
             st.dz = dzx.m; st.e = dzx.e;
@@ -2352,7 +2147,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
 
     // (Parked: unresolved at maxIter with the probe on, waiting for a kProbe chunk.)
     bool alive = active && (inB ? !bDone : probing ? !pDone
-        : (!escaped && !interior && (st.n < p.maxIter || (kInterior && p.probe != 0 && !(kAT && st.e == AT_MODE)))));
+        : (!escaped && !interior && (st.n < p.maxIter || (kInterior && p.probe != 0))));
     // Reached the limit neither escaped nor proven interior: unresolved, never drawn as
     // interior (with the test on), and collected for an extension pass.
     bool crossed = active && !inB && !alive && !escaped && !interior;
@@ -2701,7 +2496,7 @@ static inline float3 interiorShade(float2 it, float2 de, float2 ax, constant Col
 // fog over the fractal, light where it meets resolved pixels and taking their colours there,
 // darker and softer further in (fogResolve, from the fog pyramid), down to this deep fog:
 // almost black with a faint cool blue-grey tint, so it still reads as "not computed" next to a
-// black interior. Previews, gesture frames and the sample cache (no pyramid) draw it plain.
+// black interior. Previews and gesture frames (no pyramid) draw it plain.
 constant float3 FOG_DEEP = float3(0.0065f, 0.0080f, 0.0125f);   // linear
 static inline float3 fogDeep() {
     return FOG_DEEP;
@@ -2710,7 +2505,7 @@ static inline float3 fogDeep() {
 static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel, float sampleWidth = 1.0f) {
     // Unresolved: the deep fog. The callers that have the fog pyramid draw fogAt() instead
-    // (light at resolved neighbours); previews, gesture frames and the sample cache draw this.
+    // (light at resolved neighbours); previews and gesture frames draw this.
     if (it.x == ITER_UNRESOLVED) return fogDeep();
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense, calm;
@@ -3041,24 +2836,10 @@ struct ComposeParams {
     uint   mode;
     float2 outCentre;     // output size / 2
     float2 histRot;       // (cos, sin): output pixel offsets turned into history axes (view rotation)
-    // Sample cache (kb: techniques/sample-reuse): the new samples are the cache's lattice, turned
-    // by newRot against the output; window texel t (sample at t itself, no jitter) is colour
-    // texel (t + wrap) mod size, premultiplied (alpha 0: no sample). cache 0: a preview level.
-    float2 newRot;
-    uint2  wrap;
-    uint   cache;
     float  sampleWidth;   // mode 2: the palette filter's width of an AA sample, output pixels
                           // (1 / sqrt(samples): its share of the pixel); else unused
+    uint   pad;
 };
-
-// A cache colour texel by window texel (zero outside the window).
-static inline float4 cacheColor(texture2d<float, access::sample> t, int2 i, constant ComposeParams& q,
-                                float2 size) {
-    if (any(i < 0) || any(float2(i) >= size)) return float4(0.0f);
-    // (t + wrap) mod size with t, wrap < size: one conditional subtraction, no division.
-    const uint2 n = uint2(size), u = uint2(i) + q.wrap;
-    return t.read(select(u, u - n, u >= n));
-}
 
 // Catmull-Rom from five bilinear taps (the four corner taps of the 4x4 kernel dropped, their
 // weight is tiny). `p` in texel coordinates (centres at i + 0.5).
@@ -3103,37 +2884,11 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     const float2 pc = float2(gid) + 0.5f;
     // New-sample level: texel coordinate of this pixel's centre (texel t's sample sits at t + jitter).
     const float2 g = pc - q.outCentre;
-    const float2 v = q.cache != 0
-        ? q.newCentre + q.newRatio * float2(g.x * q.newRot.x + g.y * q.newRot.y, g.y * q.newRot.x - g.x * q.newRot.y)
-        : (pc - q.outCentre) * q.newRatio + q.newCentre;
+    const float2 v = g * q.newRatio + q.newCentre;
 
     // The bilinear preview: the fallback where nothing better exists.
     float3 base = c.interior.rgb;
-    // Sample cache: the 2 x 2 lattice samples around the pixel (point samples in mode 0; their
-    // bilinear mean, over the ones present, as the base).
-    float3 cacheSum = 0.0f;
-    float cacheW = 0.0f;
-    bool cacheMiss = false;
-    if (c.hasUnder > 0.0f && q.cache != 0) {
-        const int2 b0 = int2(floor(v));
-        const float2 f = v - float2(b0);
-        float4 bl = 0.0f;
-        for (int j = 0; j < 2; j++) {
-            for (int i = 0; i < 2; i++) {
-                const int2 t = b0 + int2(i, j);
-                const float4 s = cacheColor(preview, t, q, c.underSize);
-                bl += s * ((i == 0 ? 1.0f - f.x : f.x) * (j == 0 ? 1.0f - f.y : f.y));
-                const float2 d = (float2(t) - v) / q.newRatio;
-                const float w = exp(-dot(d, d) * q.invTwoSigma2) * s.a;
-                cacheSum += s.rgb * w;
-                cacheW += w;
-            }
-        }
-        // (Only a cell with all four samples is interpolated: one with fewer would show its
-        // samples as flat squares where they are sparse.)
-        if (bl.a > 1e-3f) base = bl.rgb / bl.a;
-        cacheMiss = bl.a < 0.999f;
-    } else if (c.hasUnder > 0.0f) {
+    if (c.hasUnder > 0.0f) {
         float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
         base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
     }
@@ -3153,41 +2908,13 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         }
     }
 
-    if (cacheMiss) {
-        // Not all four cache samples around (a level just switched finer, or not filled yet):
-        // the history where there is one, else the samples of the 4 x 4 texels around.
-        if (wh > 0.0f) {
-            base = hist;
-        } else {
-            // (A Gaussian over the samples there, about 1.5 texels wide: sparse samples blend
-            // instead of showing as squares.)
-            const int2 b0 = int2(floor(v));
-            float3 acc = 0.0f;
-            float wsum = 0.0f;
-            for (int j = -1; j <= 2; j++) {
-                for (int i = -1; i <= 2; i++) {
-                    const int2 t = b0 + int2(i, j);
-                    const float4 s = cacheColor(preview, t, q, c.underSize);
-                    if (s.a > 0.0f) {
-                        const float2 d = float2(t) - v;
-                        const float w = exp(-0.5f * dot(d, d));
-                        acc += s.rgb * w;
-                        wsum += w;
-                    }
-                }
-            }
-            if (wsum > 0.0f) base = acc / wsum;
-            hist = base;
-        }
-    }
-
     float3 col;
     float conf;
     if (q.mode == 0) {
         // Point samples of the jittered preview within the 2 x 2 texels around this pixel.
-        float3 sum = cacheSum;
-        float wn = cacheW;
-        if (q.newRatio > 0.0f && q.cache == 0) {
+        float3 sum = 0.0f;
+        float wn = 0.0f;
+        if (q.newRatio > 0.0f) {
             int2 t0 = int2(floor(v - q.jitter));
             for (int j = 0; j < 2; j++) {
                 for (int i = 0; i < 2; i++) {
@@ -3513,19 +3240,11 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
 // MARK: Autopilot survey (kb: decisions/controls, autopilot)
 
 struct SurveyParams {
-    uint width;          // level texels (sample cache: the surveyed rectangle)
+    uint width;          // level texels
     uint height;
     uint cols;           // survey cells
     uint rows;
-    uint2 origin;        // sample cache: the rectangle's first window texel; window texel t is
-    uint wrap;           // texel (t + wrap) mod tex (packed x | y << 16); plain levels: 0, 0, size
-    uint tex;
 };
-
-static inline float surveyRead(texture2d<float, access::read> iters, constant SurveyParams& p, uint2 xy) {
-    const uint2 tex = uint2(p.tex & 0xffffu, p.tex >> 16);
-    return iters.read((xy + p.origin + uint2(p.wrap & 0xffffu, p.wrap >> 16)) % tex).x;
-}
 
 /// A coarse picture of a finished level for the autopilot: per cell, sampled texels, interior
 /// (or unresolved) ones, and the share of neighbour pairs whose class or integer escape count
@@ -3548,8 +3267,8 @@ kernel void survey(texture2d<float, access::read> iters [[texture(0)]],
     float peakN = -1.0f;
     for (uint y = y0; y < y1; y += step) {
         for (uint x = x0; x < x1; x += step) {
-            float n = surveyRead(iters, p, uint2(x, y));
-            if (n == ITER_PENDING || n == ITER_SKIP || n == ITER_EMPTY) continue;
+            float n = iters.read(uint2(x, y)).x;
+            if (n == ITER_PENDING || n == ITER_SKIP) continue;
             samples++;
             bool in = n < 0.0f;
             if (in) interior++;
@@ -3557,8 +3276,8 @@ kernel void survey(texture2d<float, access::read> iters [[texture(0)]],
             for (uint k = 0; k < 2; k++) {
                 uint2 q = k == 0 ? uint2(x + 1, y) : uint2(x, y + 1);
                 if (q.x >= p.width || q.y >= p.height) continue;
-                float m = surveyRead(iters, p, q);
-                if (m == ITER_PENDING || m == ITER_SKIP || m == ITER_EMPTY) continue;
+                float m = iters.read(q).x;
+                if (m == ITER_PENDING || m == ITER_SKIP) continue;
                 pairs++;
                 bool min = m < 0.0f;
                 if (min != in || (!in && m != n)) edges++;
