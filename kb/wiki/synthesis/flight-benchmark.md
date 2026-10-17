@@ -50,7 +50,7 @@ as the view, then the real per-refresh scheduler (`Renderer::render_frame`) runs
 back, with no display and no sleeping, until the view is **settled**: `is_settled()` (refined,
 extended, anti-aliased within the app's AA budget), no retry pending, and the last frame
 finished on the GPU. Then the next sample starts. Reuse (reprojection, temporal history,
-seeds, any future sample cache) is allowed because it is part of the app, but it cannot
+seeds; the sample cache, deleted 2026-10-17, was one) is allowed because it is part of the app, but it cannot
 fake a frame, because two quality checks run outside the timed part:
 
 1. **Shown vs fresh** (`displayed_frame_mismatch`, as in the interaction test): the shown

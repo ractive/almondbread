@@ -8,6 +8,8 @@ tags: [frame-reuse, sample-reuse, temporal, metalfx, interactive, measured, deci
 
 # Motion sample reuse: fewer iterations per gesture frame (R4)
 
+> **Code removed 2026-10-17.** The production sample cache this page recommends and describes "as built" was opt-in, never the default, and is deleted ([[techniques/sample-reuse]] has the note and what stays). The research and measurements below are history.
+
 **Question.** While zooming and panning continuously (Space at 1–8 e-folds/s, WASD,
 autopilot), how many pixel-iterations per displayed frame can we avoid while the shown image
 stays as sharp and stable as now or better? FL computes every gesture frame's samples fresh

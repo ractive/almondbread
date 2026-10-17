@@ -79,7 +79,7 @@ region count (any coverage at a scale stops the walk), unlike a mean-coverage di
   modes 1 (refine fade), 3 (exact, colours changed) and 4 (compute further after AA). Mode 4
   recomposes marked texels that are still unresolved too: the fog fades to its new shape as
   the region shrinks.
-- **Not** in gesture frames (mode 0), preview colour passes, the sample cache and AA samples:
+- **Not** in gesture frames (mode 0), preview colour passes and AA samples (the sample cache, deleted 2026-10-17, was another):
   they draw the plain deep fog (`fogDeep()` in `shade()`), at no cost. The history carries the
   full fog into gesture frames by reprojection.
 - The off switch for before/after checks (`ALMONDBREAD_FOG=0`) was removed 2026-10-17; fog is always on.

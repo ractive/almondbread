@@ -147,6 +147,26 @@ finished ones from a channel. Cold, the needle fly-to has no slow frame after th
 (3 of 3 runs each way, [[synthesis/benchmarks]] "Motion fixes"). The switch
 `ALMONDBREAD_WARM_PIPELINES=0` (off for A/B runs) was removed 2026-10-17; the warm-up is always on.
 
+## Gesture resolution and GPU clocks (2026-10-17)
+
+Gesture frames (pan, zoom, autopilot) render at a fraction of the screen resolution, sized so
+that the iterate pass fits the frame budget. The first cost model assumed a constant GPU time
+per texel. It is not: Apple's GPU clocks follow the load, so after a few frames at 1/8 resolution
+(little work) the clocks drop and the measured time per texel rises about 2.5x; the model then
+never left 1/8, the autopilot's throttle followed it (zoomed only ×2.2 in 2.4 s) and previews
+stayed blurry. Which state you land in depended on what else used the GPU.
+
+The fix (`Renderer`, `probe_gesture_ratio`) has two parts: an upward probe (a gesture tries one
+1/8 step more resolution for 0.25 s and keeps it if its own measured cost fits; failed probes
+back off from 0.5 s to 4 s) and hysteresis (a step is kept while the median fit of the last 5
+frames is at least 0.85 of it; a moving average held steps too long). Result: autopilot ×4.3–4.7
+in 2.4 s, preview resolution about doubled in most gestures, skipped draws equal except a few
+more at dense and deep views. Always on since the user compared it in the foreground app.
+Numbers and the bisect: [[synthesis/benchmarks]] "Autopilot throttle and GPU clocks". Related:
+a jump resets the gesture resolution to 1/8 until it is measured ("Pipeline warm-up" above and
+[[synthesis/benchmarks]] "Motion fixes"). Open: a model of clock-independent work, or
+frame-time feedback, would remove the probe.
+
 ## Gaps
 
 - No fetched Apple WWDC session on compute tuning (threadgroup sizing, 64-bit ints).

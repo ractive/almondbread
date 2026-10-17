@@ -1291,3 +1291,11 @@ of growth). The text says "escapes after 48 213 steps", "settles into a period-3
   one: the tuned copy of the period-3 minibrot (period 3p) or a lower period in a ring of discs
   around it. Bounded (4 s, cancel flag, fixed discs and retries). Home → 3 → 7; needle →
   4640 → 13920. [[decisions/controls]] "Seek minibrot".
+
+## [2026-10-17] lint | Consolidation pass after the 2026-10-16/17 features
+
+Read the log entries of both days and swept the wiki for what they removed or changed.
+- Stale claims fixed: [[decisions/controls]] (cockpit levels shown as icons, not M · C · A · J, and clickable; toolbar buttons for the π meter, autopilot and journey gone; the iOS zoom-out long press and `NavKey::AutopilotOut` went with ⇧Z; the cosmic scale phases 2 and 3 and the ruler reworded to imaginary universes and 61.7-decade Planck levels; survey steering marked as still an env switch, shared with lane assist), [[techniques/interior-detection]] and [[decisions/controls]] (the grey veil is fog now), sample-cache mentions in [[synthesis/motion-sample-reuse]], [[techniques/frame-reuse-and-progressive]], [[platform/metalfx]], [[synthesis/flight-benchmark]] and [[techniques/unresolved-fog]] (code deleted), a switch-names note on [[synthesis/benchmarks]], its gesture-probe paragraph (no longer opt-in), the M6 row of [[roadmap]] (AT deleted). Other pages already carried "removed 2026-10-17" notes.
+- Technique homes: new section "Gesture resolution and GPU clocks" in [[platform/metal-compute]] (the explanation; numbers stay in [[synthesis/benchmarks]]). The other techniques already had one home section each (interior-detection probe and closed-form test, auto-iterations "Compute further", unresolved-fog, bla "Pitfalls", places "Endless dives", controls driving levels, lane assist, survey steering, journey stops, cosmic scale); cross-links added.
+- [[overview]] rewritten for the current state (LA without AT, interior tests, fog, compute further, controls, switches removed); [[index]] one-liners updated.
+- Links: no broken links, no orphans, `hyalo lint` clean. Left alone: the business pages (market, Steam, gamification, distribution and their sources) are still in the tree but not in the index, although the 2026-10-17 entry says they moved out of the repository.
