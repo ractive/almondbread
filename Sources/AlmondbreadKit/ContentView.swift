@@ -5,7 +5,7 @@ struct ContentView: View {
     // One model per window; the platform view creates the Rust explorer (it compiles the
     // kernels) once, when SwiftUI makes the view.
     @State private var model = ExplorerModel()
-    @State private var showInspector = UIDemo.enabled
+    @State private var showInspector = UIDemo.enabled && !UIDemo.hidesSidebar
     @State private var showFlyTo = false
     @State private var fullScreenSidebar = FullScreenSidebar()
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -54,6 +54,15 @@ struct ContentView: View {
             }
         }
         .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
+        // A guided tour's card (kb: decisions/controls "Guided tours"): bottom trailing, clear of the
+        // HUD (top left), the maps (bottom left) and the cockpit (bottom centre); on iPhone portrait
+        // left of the button column.
+        .overlay(alignment: compactWidth ? .bottomLeading : .bottomTrailing) {
+            TourCard(model: model, compact: compactWidth)
+                .padding(.leading, 12)
+                .padding(.trailing, compactWidth ? 68 : 12)
+                .padding(.bottom, 12)
+        }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
         .onChange(of: compactWidth, initial: true) {

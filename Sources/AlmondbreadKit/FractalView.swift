@@ -568,6 +568,20 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // Menu shortcuts and text fields keep their keys.
         if event.modifierFlags.contains(.command) { return false }
         if window?.firstResponder is NSText { return false }
+        // A guided tour (kb: decisions/controls "Guided tours"): → next, ← back, Esc ends it.
+        // Only the key-downs: a release still reaches Rust (harmless if nothing was held).
+        if model.tour != nil, event.type == .keyDown, !event.modifierFlags.contains(.option) {
+            let tourKey: (() -> Void)? = switch (event.keyCode, event.specialKey) {
+            case (53, _): { self.model.endTour() }
+            case (_, .rightArrow?): { self.model.tourNext() }
+            case (_, .leftArrow?): { self.model.tourBack() }
+            default: nil
+            }
+            if let tourKey {
+                if !event.isARepeat { tourKey() }
+                return true
+            }
+        }
         // O / M / C / P / L: orbit overlay, mini-map, cosmic size scale, π meter, lane assist (toggled on
         // key-down; their key-ups are swallowed).
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
@@ -967,6 +981,15 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         var unhandled = Set<UIPress>()
         for press in presses {
             if let key = press.key, key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) {
+                // A guided tour: → next, ← back, Esc ends it (kb: decisions/controls "Guided tours").
+                if base.model.tour != nil {
+                    switch key.keyCode {
+                    case .keyboardRightArrow: base.model.tourNext(); continue
+                    case .keyboardLeftArrow: base.model.tourBack(); continue
+                    case .keyboardEscape: base.model.endTour(); continue
+                    default: break
+                    }
+                }
                 switch key.charactersIgnoringModifiers.lowercased() {
                 case "o": base.model.toggleOrbit(); continue
                 case "m": base.model.toggleMap(); continue

@@ -1716,3 +1716,143 @@ the panels and the canvas keep every other click.
 `help-control` (the Iterations & quality popover) and `help-window` (the help window, a
 window of its own behind all others) write `build/screens/help-*.png`, the window plus its
 popover windows composited (`UIDemo.captureWithPopovers`).
+
+## Guided tours (as built, 2026-10-17)
+
+Requested by the user: guided tours, with an engine where a new tour is easy to add, and a first
+tour on the Feigenbaum point. Core: `crates/almondbread-core/src/tour.rs` (format, validation,
+`TourPlayer`); render: `Host::start_tour` / `tour_go` / `end_tour` (`host.rs`) and
+`crates/almondbread-render/src/tour.rs` (probe point and marker on the overlay); FFI:
+`crates/almondbread-ffi/src/tour.rs` (`tours()`, `Explorer.start_tour`, `tour_go`, `tour_step`,
+`end_tour`); Swift: `Tours.swift` (card, control center section, View menu) and the tour calls in
+`ExplorerModel`.
+
+| Input | Action |
+| --- | --- |
+| View ▸ Tours ▸ (a tour); control center "Tours" ▸ Start; a place's "Tour" button (places a tour names) | starts it at step 1 |
+| → or "Next ›" (last step: "Finish") | next step |
+| ← or "‹ Back" | previous step |
+| Esc or "End tour" | ends the tour |
+| anything else (pan, zoom, places, autopilot, journey, overlays) | as without a tour; the card stays |
+
+**Tours are data.** One Markdown file per tour in `crates/almondbread-core/tours/<id>.md`, listed in
+`tour::BUNDLED` (one line per file; a unit test fails when a file in `tours/` is not listed, does
+not parse, or its id is not its file name). The core reads them (`include_str!`), so every UI gets
+the same tours. A header between `---` lines, then one `## Title` per step. The lines right under
+a step's heading, up to the first blank line, are its settings (`key: value`); everything after
+that blank line, up to the next `## `, is the step's text (Markdown: paragraphs, `**bold**`,
+`*italic*`, `- ` bullets; keep it to two or three short paragraphs, the card is 340 points wide).
+
+```text
+---
+id: feigenbaum
+title: The Feigenbaum point
+summary: Period doubling into chaos along the spike.
+place: feigenbaum-point
+---
+
+## Two points
+center: -0.6, 0
+span: 2.6
+orbit: on
+probe: -1.1, 0
+
+The orbit now swings between **two points** ...
+```
+
+Header keys: `id` (kebab-case, the file name), `title`, `summary` (one line for the list), `place`
+(optional: that place's detail gets a "Tour" button).
+
+Step keys (all optional; unknown keys, repeated keys and bad values are errors with their line):
+
+| Key | Value | Effect |
+| --- | --- | --- |
+| `center` | `re, im` (decimals, any precision) | the view's centre; needs `span` or `zoom` |
+| `span` | number | extent across the window's shorter side, like a place's span |
+| `zoom` | number (`1e5`, any depth) | magnification of the whole set: span = 3 / zoom |
+| `angle` | degrees | the view's turn (with a view) |
+| `place` | place id | the place's view and look (no `center`, `span`, `zoom` with it) |
+| `move` | `fly` (default) or `jump` | how the step's view is reached (with a view) |
+| `look` | look id | the look (palette, lighting, outline) |
+| `palette` | palette id (built-in or library) | the palette with its mapping, after the look |
+| `interior` | `flat`, `bubbles`, `period`, `angle`, `distance` | interior colouring |
+| `iterations` | `auto` or a whole number | the iteration limit (a deliberately low one too) |
+| `orbit`, `map`, `cosmic`, `pi-meter`, `compass` | `on` / `off` | orbit overlay, mini-map, cosmic size scale, π meter, always-on compass |
+| `orbit-length` | 1 to 1000 | iterates drawn |
+| `map-levels` | 1 to 4 | mini-map levels |
+| `probe` | `re, im` or `pointer` | the orbit overlay's point c: fixed, or back to the pointer |
+| `probe-path` | `re, im -> re, im -> ...` | c moves along the points (f64: shallow paths), each segment in equal time |
+| `probe-seconds` | number (default 10) | one pass along the path |
+| `probe-motion` | `bounce` (default), `once`, `loop` | back and forth (eased at the turns), once and rest, or start over |
+| `marker` | `re, im` or `off` | a gold double ring at a point |
+| `marker-label` | text | its label (with `marker`) |
+
+**Carry-over.** A setting stays until a later step changes it (`Tour::effective`): step n shows
+the saved user settings with steps 1..n applied in order, so going back shows exactly what the step
+showed before (a look after a palette replaces it, a palette after a look keeps the look's
+lighting). A step without a view leaves the view where it is going forward, and returns to the
+last view set before it going back. `move` belongs to its own step.
+
+**Playback** (`TourPlayer`). Start saves the image settings, the overlays (orbit, map, cosmic, π
+meter, compass) and the view, and stops other motion like a jump (autopilot, cruise, flight,
+journey, the π hunt). Each step's settings replace the renderer's (the learned iteration floor
+stays) and its view is flown to (the fly-to path) or jumped to; Rust returns the step with the
+resulting settings, which the Swift model mirrors without pushing back (as after `go_to_place`).
+While a tour runs, the settings persisted to user defaults are the saved ones, so quitting
+mid-tour keeps the user's look. The end restores the saved settings and flies back to the saved
+view; changes made during the tour are dropped with them. Manual exploring during a step is
+allowed; Next continues from the next step's definition.
+
+**Probe point.** The orbit overlay's c normally follows the pointer (`Navigator::zoom_target`).
+A tour's `probe` replaces it: `Overlay::tour.probe`, filled by the host every refresh from
+`TourPlayer::probe_at(now)`; the existing ring and dots show it, with the whole-set map's dot
+cloud and the plain-text fate ("settles into a period-4 cycle"). A path is a closed form of the
+time since the step began (`ProbePath::at`: `u = (1 − cos πt/T) / 2` for bounce, so it turns
+smoothly; the polyline's segments take equal time, so points placed closer make c move slower
+there), the same at any refresh rate (unit test at 30, 60, 120 Hz). While a path moves the host
+keeps frames coming; each new c is a new probe (about 1.5 ms of analysis per refresh, as with
+the pointer), so the fate line mostly reads "following the orbit" while c moves and settles
+when it rests. Without `probe` (or `probe: pointer`) the pointer drives it again; the tour's end
+clears both probe and marker.
+
+**Tests.** `tour::tests`: every bundled tour parses, every step resolves to valid settings and a
+view, every listed file exists (and the other way round); carry-over; errors with their lines
+(unknown key, view without span, bad point, span and zoom, unknown look, palette, place, bad
+flag, counts, probe keys without a path, marker label without marker, `move` without a view,
+repeated key, missing text, text right under the heading); the probe path's ends, turns and
+equal-time segments, the same samples at 30/60/120 Hz, once and loop; steps apply their
+settings (look, iterations, overlays, untouched switches kept), back returns to the step's view
+and settings, and the end restores the saved settings and view exactly. FFI `tours()` lists the
+Feigenbaum tour. `--ui-demo=tour-<id>` captures every step of a tour in a background window
+(`window-tour-<id>-<n>.png`, `--ui-demo-tour-wait=n:s` for moving probes) and the restored view
+at the end.
+
+### The Feigenbaum tour
+
+`tours/feigenbaum.md`, 9 steps, on the real axis with the period interior colouring (one colour
+per period) and the orbit overlay. Every number was computed (Newton on `f^p(0) = 0` for nuclei,
+on `f^p(z) = z, (f^p)'(z) = −1` for the period-doubling points, attractors after 4·10⁵
+iterations; f64, 2026-10-17), not taken from memory:
+
+| Step | c (probe) | What the orbit does |
+| --- | --- | --- |
+| Square and add | −0.2 | fixed point −0.1708 (hops around it) |
+| Two points | −1.1 | 2-cycle −1.0916, 0.0916 |
+| Watch it split | path −0.7 → −1.45, 24 s per pass, bounce | 1, 2, 4, 8, … points, then chaos |
+| Period 4 | −1.3107026413 (nucleus) | −1.3107, 0.4072, −1.1449, 0 |
+| Ever smaller | −1.3815474844 (period-8 nucleus) | 8 points |
+| The Feigenbaum point | −1.4011551890920506, marked | never settles, never escapes |
+| Chaos | path −1.4012 → −1.46, 16 s, bounce | a band of dots; windows of period 12 (−1.417), 10 (−1.447), 14 (−1.458) flash by |
+| Order returns | −1.7548776662 (period-3 nucleus) | 3-cycle −1.7549, 0, 1.3248 |
+| Your turn | the pointer | — |
+
+Period-doubling points on the axis: −0.75, −1.25, −1.3680989394, −1.3940461566, −1.3996312389;
+the bulbs between them are 0.5, 0.1181, 0.02595, 0.005585 long, ratios 4.234, 4.552, 4.646 →
+δ = 4.669… (src: [[sources/muency-atom-domain]] for the Feigenbaum series of sizes;
+the numbers are our computation). Nuclei: period 16 at −1.3969453597, 32 at −1.4002530812.
+
+Checked in the app (2026-10-17, M1 Pro, release, background window, `--ui-demo=tour-feigenbaum
+--ui-demo-tour-wait=3:14,7:12`): the overlay's fate line at each step's capture read "settles on
+a fixed point", "period-2", "period-8" (step 3, c ≈ −1.378 at 14 s), "period-4", "period-8", "still
+undecided after 100 000 steps" (the Feigenbaum point), "following the orbit" (step 7, c ≈ −1.451,
+chaotic), "period-3", as the texts say; the end flew back to the start view with the user's look.

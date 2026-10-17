@@ -38,6 +38,7 @@ pub mod overlay;
 pub mod pi_meter;
 pub mod progress;
 pub mod scheduler;
+pub mod tour;
 
 #[cfg(test)]
 mod extreme_tests;

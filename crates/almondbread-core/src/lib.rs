@@ -38,6 +38,7 @@ pub mod places;
 pub mod reference;
 pub mod seek;
 pub mod settings;
+pub mod tour;
 pub mod viewport;
 
 #[cfg(test)]

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use almondbread_core::cfmt::g;
 use almondbread_core::input::InputEvent;
+use almondbread_core::tour::{Snapshot, StepPlan, Tour, TourPlayer};
 use almondbread_core::viewport::Viewport;
 
 use crate::backend::GpuBackend;
@@ -84,6 +85,8 @@ pub struct Host<B: GpuBackend> {
     view_points: (f64, f64),
     fitted: bool,
     measure: Option<Measurement>,
+    /// The guided tour being played (kb: decisions/controls "Guided tours").
+    pub tour: Option<TourPlayer>,
 }
 
 impl<B: GpuBackend + Clone> Host<B> {
@@ -98,6 +101,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             measure: None,
             overlay: Overlay::default(),
             overlay_tick: 0,
+            tour: None,
         }
     }
 
@@ -264,9 +268,18 @@ impl<B: GpuBackend + Clone> Host<B> {
         self.overlay.compass.update(self.renderer.viewport.angle, turning, now);
         let aim = self.renderer.navigator.aim_marker();
         self.overlay.marker.update(aim.as_ref(), &self.renderer.viewport, now);
+        // A tour sets the orbit probe's point (fixed or moving) and its marker.
+        match &self.tour {
+            Some(t) => {
+                self.overlay.tour.probe = t.probe_at(now);
+                self.overlay.tour.marker = t.marker().cloned();
+            }
+            None => self.overlay.tour = Default::default(),
+        }
         if self.overlay.active()
             || self.overlay.compass.shown(now)
             || self.overlay.marker.visible()
+            || self.overlay.tour.marker.is_some()
             || self.renderer.overlay.is_some()
             || self.renderer.progress.current().alpha > 0.0
         {
@@ -284,6 +297,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         outcome.animating |= self.overlay.cosmic.animating(now)
             || self.overlay.compass.animating(now)
             || self.overlay.marker.animating(now)
+            || self.tour.as_ref().is_some_and(|t| t.animating(now))
             || self.renderer.progress.animating();
         if !self.overlay.settings.any() {
             // The π meter alone: its count runs on its own thread; frames show its progress.
@@ -299,6 +313,88 @@ impl<B: GpuBackend + Clone> Host<B> {
             self.overlay.step_maps(&settings, now);
         }
         outcome.animating |= self.overlay.busy();
+    }
+
+    // MARK: Guided tours (kb: decisions/controls "Guided tours")
+
+    /// The settings a tour changes, as they are now.
+    pub fn tour_snapshot(&self) -> Snapshot {
+        Snapshot {
+            settings: self.renderer.settings.clone(),
+            overlay: self.overlay.settings.clone(),
+            cosmic: self.overlay.cosmic.settings.enabled,
+            pi_meter: self.overlay.pi.enabled,
+            compass: self.overlay.compass.visibility.always,
+        }
+    }
+
+    fn apply_tour_snapshot(&mut self, s: &Snapshot) {
+        // What the renderer learned about iterations stays.
+        let learned = self.renderer.settings.learned_iterations;
+        self.renderer.settings = s.settings.clone();
+        self.renderer.settings.learned_iterations = learned;
+        self.overlay.settings = s.overlay.clone().sanitized();
+        self.overlay.cosmic.settings.enabled = s.cosmic;
+        self.overlay.pi.enabled = s.pi_meter;
+        self.overlay.compass.visibility.always = s.compass;
+    }
+
+    fn apply_tour_plan(&mut self, plan: StepPlan, now: f64) {
+        self.apply_tour_snapshot(&plan.snapshot);
+        if let Some((v, jump)) = plan.view {
+            let (w, h) = self.view_points;
+            let target = v.viewport(w.min(h).max(1.0));
+            let r = &mut self.renderer;
+            if jump {
+                r.navigator.jumped();
+                r.viewport = target;
+                r.note_interaction(now);
+            } else {
+                let start = r.viewport.clone();
+                r.navigator.cancel_flight();
+                r.navigator.fly_to(&target, &start, now);
+            }
+        }
+    }
+
+    /// Starts `tour` at its first step. Like a jump it stops other motion (autopilot, cruise,
+    /// flight, journey, the π hunt); the current settings and view are saved for the end.
+    pub fn start_tour(&mut self, tour: Tour, now: f64) {
+        if let Some(old) = self.tour.take() {
+            // A tour started during another: the first one's saved state is the user's.
+            let (s, v) = old.finish();
+            self.apply_tour_snapshot(&s);
+            self.renderer.viewport = v;
+        }
+        self.renderer.navigator.jumped();
+        if self.overlay.pi.flying() {
+            self.overlay.pi.stop_flight();
+        }
+        let (player, plan) = TourPlayer::start(tour, self.tour_snapshot(), self.renderer.viewport.clone(), now);
+        self.tour = Some(player);
+        self.apply_tour_plan(plan, now);
+    }
+
+    /// Goes to step `index` of the running tour (clamped). False without a tour.
+    pub fn tour_go(&mut self, index: usize, now: f64) -> bool {
+        let Some(t) = &mut self.tour else { return false };
+        let plan = t.go(index, now);
+        self.apply_tour_plan(plan, now);
+        true
+    }
+
+    /// Ends the tour: the saved settings come back and the view flies back to where it was.
+    /// False without a tour.
+    pub fn end_tour(&mut self, now: f64) -> bool {
+        let Some(t) = self.tour.take() else { return false };
+        let (saved, view) = t.finish();
+        self.apply_tour_snapshot(&saved);
+        self.overlay.tour = Default::default();
+        let r = &mut self.renderer;
+        let start = r.viewport.clone();
+        r.navigator.jumped();
+        r.navigator.fly_to(&view, &start, now);
+        true
     }
 
     /// The home view fitted to the view.

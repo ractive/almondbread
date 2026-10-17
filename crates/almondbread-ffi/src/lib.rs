@@ -28,6 +28,7 @@ mod cosmic;
 mod explorer;
 mod flight_bench;
 mod help;
+mod tour;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {

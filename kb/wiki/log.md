@@ -1387,3 +1387,17 @@ target changes and fades. A short label shows for 2.5 s for known kinds ("spiral
 period 34"), and a faint line points towards the wish. Toggle: View ▸ "Autopilot Target Marker",
 control center Overlays; on by default; persisted. [[decisions/controls]] "Pointer wish",
 "Target marker".
+
+## [2026-10-17] decision | Guided tours; the Feigenbaum tour
+
+The user asked for guided tours with an engine where new tours are easy to add. A tour is one
+Markdown file in `crates/almondbread-core/tours/` (header, then `## Title` per step with
+`key: value` settings under the heading and the text after a blank line), parsed and checked in
+the core with line-numbered errors; settings carry over between steps, so Back shows a step as
+it was. A step sets the view (flown or jumped), look, palette, interior, iterations, overlays,
+the orbit probe's c (fixed, or moving along a path as a closed form of time, the same at 30, 60
+and 120 Hz) and a marker. The start saves the user's settings and view and stops other motion;
+the end restores them. Card with Back / Next / End tour (→ ← Esc), a Tours section in the
+control center, View ▸ Tours, and a Tour button on places a tour names. First tour: the
+Feigenbaum point in 9 steps, every number computed (nuclei, doubling points, attractors).
+Format and keys: [[decisions/controls]] "Guided tours".
