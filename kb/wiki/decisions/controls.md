@@ -434,7 +434,7 @@ with a scripted pilot that keeps a target under the pointer, clamped to the wind
 - The first heading straight into the main cardioid from the home view slowed to 0.3 with
   the "interior" hint, as designed.
 
-### Survey steering (as built, 2026-10-17; opt-in)
+### Survey steering (as built, 2026-10-17; default since the user's foreground comparison the same day)
 
 Still an env switch (`ALMONDBREAD_SURVEY_STEER=1`, not yet decided by the user). Its boundary-point pick is also what lane assist uses in cruise ("Driving levels" below).
 

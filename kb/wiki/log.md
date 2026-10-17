@@ -1314,3 +1314,7 @@ acceleration 41 → 17 e-folds/s² (default), 462 → 23 (×35/s), 1069 → 20 (
 over from a leg is set to the journey speed (it was the leg's paced rate, ×55/s), and J lets a
 released cruise glide out or carry on into the leg instead of halting it. Page:
 [[decisions/controls]] "Journey" (revision "smooth legs").
+
+## [2026-10-17] decision | Survey steering on by default
+
+The user tried `ALMONDBREAD_SURVEY_STEER=1` in the foreground at the 1e247 path. It ran into featureless regions twice, backed out quickly and resumed. Headless numbers: 1.3 s instead of 6.7 s featureless per 90 s, 1 reversal instead of 6. Survey steering is now always on, and the switch is removed. [[decisions/controls]] "Survey steering".

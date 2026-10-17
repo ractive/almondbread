@@ -27,7 +27,7 @@
 //! A deflected pointer (or any manual pan) always wins and releases the lock; letting go
 //! picks up again from the current view.
 //!
-//! **Survey steering** (`ALMONDBREAD_SURVEY_STEER=1`, off by default): whenever no lock target
+//! **Survey steering** (on since 2026-10-17, after the user's foreground comparison): whenever no lock target
 //! is followed (none yet, a search pending, a target past its end span with nothing next, or
 //! one heading into a uniform region), the heading aims at the GPU survey's boundary point near
 //! the current aim: the highest-escape-count texel of a detailed cell, or uphill in escape
@@ -118,10 +118,8 @@ pub const SURVEY_PICK_GAIN: f64 = 2.0;
 pub const SURVEY_PICK_LABEL: &str = "detail in view";
 /// Survey steering (kb: decisions/controls "Survey steering"): while no lock target is
 /// followed, the autopilot aims at the survey's boundary point nearest the heading
-/// ([`Survey::boundary_point`]). `ALMONDBREAD_SURVEY_STEER=1` turns it on (off by default
-/// until compared in the foreground). The aim point eases towards each new pick with this
+/// ([`Survey::boundary_point`]). The aim point eases towards each new pick with this
 /// time constant (s): surveys arrive at 10 Hz and the peak moves within its cell.
-pub const SURVEY_STEER_ENV: &str = "ALMONDBREAD_SURVEY_STEER";
 pub const SURVEY_STEER_TAU: f64 = 0.3;
 /// Survey steering prefers detail near the current aim: Gaussian radius, as a fraction of
 /// the view's shorter side.
@@ -418,7 +416,7 @@ pub struct Autopilot {
     last_click: f64,
     /// The heading target of the last frame (tests, HUD).
     target: (f64, f64),
-    /// Survey steering on ([`SURVEY_STEER_ENV`]), and it aimed in the last frame.
+    /// Survey steering on (always, outside tests that compare), and it aimed in the last frame.
     survey_steer: bool,
     survey_steering: bool,
     /// Survey steering: the latest pick, the aim point easing towards it, the survey picked
@@ -458,7 +456,7 @@ impl Default for Autopilot {
             aim_far: 0.0,
             last_click: f64::NEG_INFINITY,
             target: (0.0, 0.0),
-            survey_steer: std::env::var(SURVEY_STEER_ENV).is_ok_and(|v| v.trim() == "1"),
+            survey_steer: true,
             survey_steering: false,
             steer_pick: None,
             steer_aim: None,
@@ -545,7 +543,7 @@ impl Autopilot {
         &self.lock
     }
 
-    /// Survey steering on (see [`SURVEY_STEER_ENV`]).
+    /// Survey steering on.
     pub fn survey_steer(&self) -> bool {
         self.survey_steer
     }
@@ -843,7 +841,7 @@ impl Autopilot {
         }
     }
 
-    /// Survey steering's aim point this frame (view points), see [`SURVEY_STEER_ENV`]: the
+    /// Survey steering's aim point this frame (view points), see [`Survey::boundary_point`]: the
     /// pick (a complex point, so the zoom and pan since its survey do not move it) is kept while
     /// each new survey finds detail around it ([`Survey::holds_detail`]); then the survey's
     /// boundary point near it is picked ([`Survey::boundary_point`]), a chain of short legs. The
@@ -1373,6 +1371,7 @@ mod tests {
         // Survey steering off: no survey aim at all (straight ahead without a target).
         let (b, _) = {
             let mut b = Autopilot::default();
+            b.set_survey_steer(false);
             b.lock_mut().synchronous = true;
             b.toggle();
             let mut w = Viewport::new(-0.1, 0.0, 1e-6);

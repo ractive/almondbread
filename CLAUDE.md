@@ -116,7 +116,6 @@ is left measures, traces or drives tests.
 | `ALMONDBREAD_KERNEL_SALT=x` | Cold Metal shader cache (a new x), as after an update. |
 | `ALMONDBREAD_COLORIZE_BENCH=n` | Run the colour pass n times more; GPU ms min / median. |
 | `ALMONDBREAD_UNRESOLVED_AT=1,5,20` | Unresolved texels of the shown frame at those seconds (compute further). |
-| `ALMONDBREAD_SURVEY_STEER=1` | Autopilot steers to the GPU survey's boundary point while no lock target is followed (off by default, being decided by the user; then removed). |
 | `ALMONDBREAD_SCENARIOS="a,b"` | Interaction test: run only these scenarios. |
 | `ALMONDBREAD_SELFTEST=1` | Same as `--selftest` (launch check; iOS simulator). |
 | `ALMONDBREAD_TEST_FOREGROUND=1`, `_SCREEN=main`, `_LINK=cv` | Interaction test window: front/key, main display, own CVDisplayLink. |
