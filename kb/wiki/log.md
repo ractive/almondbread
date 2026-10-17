@@ -1048,6 +1048,7 @@ anchors a SwiftUI popover at the badge's rect from the one change-only model pro
 Interaction test unchanged: every shown-frame check OK; the one failure, "autopilot" zooming
 ×2.2–2.3 in 2.4 s (check wants ×3.2), fails identically on the base commit b466f42 (measured
 2026-10-17, M1-class Mac, release, loaded machine), so it is not from this change.
+
 ## [2026-10-17] decision | Attracting-cycle probe for interior detection
 
 The `|w| n²` test proved only the fast core of a component (satellite: `|λ| < ~0.7` at 51
