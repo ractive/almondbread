@@ -195,6 +195,17 @@ impl<B: GpuBackend + Clone> Host<B> {
         crate::help::hit(&self.overlay.help, px, py, 1.0 / ppp).map(|b| self.help_badge_points(&b))
     }
 
+    /// The cockpit's level icon under a press at (x, y) view points from the centre, y up.
+    pub fn cockpit_hit(&self, x: f64, y: f64) -> Option<almondbread_core::cruise::Level> {
+        let ppp = self.points_per_pixel;
+        if ppp <= 0.0 {
+            return None;
+        }
+        let px = self.width as f64 / 2.0 + x / ppp;
+        let py = self.height as f64 / 2.0 - y / ppp;
+        self.overlay.cockpit.hit(px, py)
+    }
+
     /// Every help badge of the last scene, in view points from the centre, y up (window tests).
     pub fn help_badges(&self) -> Vec<(crate::help::HelpTopic, (f64, f64), f64)> {
         self.overlay.help.iter().map(|b| self.help_badge_points(b)).collect()

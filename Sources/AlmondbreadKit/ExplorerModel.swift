@@ -923,6 +923,24 @@ public final class ExplorerModel {
     }
 
     /// Stops the autopilot or a flight (eased), like Esc.
+    /// A click on a cockpit icon (they replace the toolbar's autopilot and journey buttons):
+    /// manual stops everything (Esc), cruise starts cruising in (E) unless already cruising,
+    /// autopilot and journey toggle like Z and J.
+    func cockpitClick(_ level: String) {
+        switch level {
+        case "manual": stopMotion()
+        case "cruise":
+            if stats?.cruise.level != .cruise {
+                send(.keyDown(key: .fasterZoom))
+                send(.keyUp(key: .fasterZoom))
+            }
+        case "autopilot": toggleAutopilot()
+        case "journey": toggleJourney()
+        default: break
+        }
+        host?.requestFrames()
+    }
+
     public func stopMotion() {
         send(.keyDown(key: .stop))
         send(.keyUp(key: .stop))

@@ -35,6 +35,24 @@ impl Explorer {
         self.with_host(|h| h.help_hit(x, y)).map(info)
     }
 
+    /// The cockpit's level icon under a press at (x, y) view points from the centre, y up:
+    /// "manual", "cruise", "autopilot" or "journey"; None elsewhere.
+    pub fn cockpit_hit(&self, x: f64, y: f64) -> Option<String> {
+        if !(x.is_finite() && y.is_finite()) {
+            return None;
+        }
+        use almondbread_core::cruise::Level;
+        self.with_host(|h| h.cockpit_hit(x, y)).map(|l| {
+            match l {
+                Level::Manual => "manual",
+                Level::Cruise => "cruise",
+                Level::Autopilot => "autopilot",
+                Level::Journey => "journey",
+            }
+            .to_string()
+        })
+    }
+
     /// Every help badge drawn in the last frame (window tests aim at them).
     pub fn help_badges(&self) -> Vec<HelpBadgeInfo> {
         self.with_host(|h| h.help_badges()).into_iter().map(info).collect()

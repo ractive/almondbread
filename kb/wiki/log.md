@@ -1248,3 +1248,13 @@ two-finger scroll zooms about the pointer (0.01 e-folds per point), sideways doe
 click-and-drag pans, and a cruise stops as on any manual zoom. Shifting gears with sideways
 swipes was rejected: diagonal scrolls would shift by accident, horizontal swipes mean back /
 forward in many apps, and continuous deltas feel mushy next to Q / E.
+
+## [2026-10-17] decision | Cosmic scale reworded; toolbar slimmed, cockpit icons clickable
+
+The user reworded the cosmic scale's deep phases.
+- Readout subject: "The whole Mandelbrot set" ("set" alone is jargon for newcomers).
+- Phase 2: "… would be as big as an imaginary universe" / "in which an atom is as big as ours".
+- Phase 3: imaginary universes nest. At each level the Planck length is as big as the universe below, so a level is P = log10(U / Planck) ≈ 61.7 decades. The readout says "…, 16 levels deep" / "at the bottom, 1/72,000 of a proton is as big as ours".
+- The atom-ratio nesting (and `level_decades`) is gone. Ruler marks "Earth = universe" … "Planck = universe", then "3 levels" … "52 levels".
+
+The π meter, autopilot and journey buttons left the macOS toolbar: the π meter is niche, and the cockpit shows the levels. The cockpit's icons now take clicks: manual stops (Esc), cruise starts cruising in (E), autopilot and journey toggle (Z, J). The pointer shows a hand over them as over (?) badges. [[decisions/controls]].

@@ -16,7 +16,7 @@ Zooming out gets faster the deeper you are, so the way home never takes long: ab
 
 ## Autopilot
 
-Press **Z** (or the plane button) and the view keeps zooming on its own, heading for interesting places: spirals, branch points and tiny copies of the whole set.
+Press **Z** (or click the plane in the cockpit at the bottom) and the view keeps zooming on its own, heading for interesting places: spirals, branch points and tiny copies of the whole set.
 
 - **E** and **Q**, the mouse wheel or a two-finger scroll change the speed.
 - **Click** (or tap) pauses and resumes.
@@ -27,7 +27,7 @@ When the picture ahead gets plain, or the computer needs time to keep up, the au
 
 ## Journeys
 
-Press **J** (or the sparkles button) for a journey: an endless flight from landmark to landmark. Almondbread finds the landmarks in the maths itself: tiny copies of the whole set, spirals, and the patterns on the way to them. Each leg flies to one, rests a moment so the view can sharpen, and flies on.
+Press **J** (or click the sparkles in the cockpit) for a journey: an endless flight from landmark to landmark. Almondbread finds the landmarks in the maths itself: tiny copies of the whole set, spirals, and the patterns on the way to them. Each leg flies to one, rests a moment so the view can sharpen, and flies on.
 
 - Steering yourself, or **Q** down to zero, takes the wheel: the view cruises on (or stops) and the journey pauses. Other input pauses it too; **J** or a click resumes. **E** and **Q** change its speed.
 - **Esc** stops.

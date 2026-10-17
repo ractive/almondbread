@@ -6,7 +6,7 @@ The short texts behind the (?) buttons. One section per topic; the heading is th
 
 Your window stays its real size (30 cm if the screen does not say). As you zoom in, the whole set grows instead: a few kilometres across, as big as Earth, then as big as the observable universe.
 
-Go deeper and our universe would be as small as an atom inside the whole set. Deeper still: a universe in a universe in a universe…
+Go deeper and the whole Mandelbrot set would be as big as an imaginary universe in which an atom is as big as ours. Deeper still, such imaginary universes nest, level after level.
 
 ## pi-meter
 
@@ -28,7 +28,7 @@ Inside the set they settle into a loop; outside they wander off. The line under 
 
 ## cockpit
 
-How the zoom is driven, like the levels of a car: **Manual** (the steering wheel: you do everything), **Cruise** (the speedometer: **E** / **Q** set a speed in or out, you steer), **Autopilot** (the plane, **Z**: it steers to interesting places), **Journey** (the sparkles, **J**: from landmark to landmark). The lit icon is the level now.
+How the zoom is driven, like the levels of a car: **Manual** (the steering wheel: you do everything), **Cruise** (the speedometer: **E** / **Q** set a speed in or out, you steer), **Autopilot** (the plane, **Z**: it steers to interesting places), **Journey** (the sparkles, **J**: from landmark to landmark). The lit icon is the level now; click an icon to switch.
 
 The bar and the big number are the speed flown now; "set" is the speed you chose. Deep down, zooming out gets a boost. The lane icon is lane assist (**L**): in cruise it steers you away from featureless areas. Steering by hand or zooming with the wheel or trackpad takes over.
 

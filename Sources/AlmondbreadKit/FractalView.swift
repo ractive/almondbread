@@ -621,6 +621,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         let o = offset(event.locationInWindow)
         // A pointing hand over a help badge (the "?" Rust draws): it is a button.
         let onBadge = model.explorer?.helpHit(x: o.x, y: o.y) != nil
+            || model.explorer?.cockpitHit(x: o.x, y: o.y) != nil
         if onBadge != overBadge {
             overBadge = onBadge
             (onBadge ? NSCursor.pointingHand : NSCursor.crosshair).set()
@@ -717,6 +718,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // A help badge (the "?" Rust draws on a panel) opens its popover; its double click
         // does not zoom (kb: decisions/controls "Help").
         if model.helpPress(x: p.x, y: p.y, size: bounds.size, show: event.clickCount == 1) {
+            helpPressed = true
+            return
+        }
+        // A cockpit icon switches the driving level (its drag and release go nowhere).
+        if let level = model.explorer?.cockpitHit(x: p.x, y: p.y) {
+            if event.clickCount == 1 { model.cockpitClick(level) }
             helpPressed = true
             return
         }

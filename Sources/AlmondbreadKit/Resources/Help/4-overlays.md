@@ -8,8 +8,8 @@ The cosmic scale turns the zoom into sizes you know. Imagine your window stays i
 
 - First the set grows past things you know: a few kilometres across, as big as Earth, as big as the Sun.
 - Then it becomes as big as the observable universe.
-- Deeper, our universe would be tiny inside the whole set: as small as a cell, then as small as an atom.
-- Deeper still, it becomes a universe in a universe: imagine every atom were a universe, and every atom in it too.
+- Deeper, the whole Mandelbrot set would be as big as an imaginary universe in which a planet, then a cell, then an atom is as big as ours.
+- Deeper still, the imaginary universes nest: in each, the Planck length (the smallest length physics knows) is as big as the universe below. The scale counts the levels and says what is as big as our universe at the bottom.
 
 The ruler shows what you are passing; a gold flash marks each one.
 

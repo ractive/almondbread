@@ -168,26 +168,13 @@ struct ContentView: View {
                     Label("Mini-map", systemImage: "map")
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
-                Toggle(isOn: $model.piMeterEnabled) {
-                    Label("π Meter", systemImage: "pi")
-                }
-                .help("π meter (P): at the neck −3/4 + iε or the cusp 1/4 + ε the escape count times ε (√ε) closes in on π; View menu: guided flights")
+                // The π meter is in the View menu (⌥⌘P) and on P, not in the toolbar: a niche
+                // feature you use once (user, 2026-10-17).
                 Toggle(isOn: $model.cosmicScale) {
                     Label("Size Scale", systemImage: "ruler")
                 }
                 .help("Cosmic size scale: how big the whole set would be if your window stayed its real size (C)")
-                Button {
-                    model.toggleAutopilot()
-                } label: {
-                    Label("Autopilot", systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
-                }
-                .help("Autopilot (Z): zoom on continuously towards interesting places; click pauses, Esc stops; steering hands over to cruise (E / Q)")
-                Button {
-                    model.toggleJourney()
-                } label: {
-                    Label("Journey", systemImage: model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
-                }
-                .help("Journey (J): an endless planned flight from landmark to landmark; any input takes over, J resumes, Esc stops; ⇧J in the other mode (continuous / stop at each find)")
+                // Autopilot and journey: the cockpit's icons (clickable) and Z / J, not here.
                 Button {
                     showFlyTo = true
                 } label: {

@@ -29,6 +29,9 @@ pub struct CockpitOverlay {
     /// The set speed last drawn and when it changed (the "set" line lights up after Q / E).
     last_set: Cell<f64>,
     set_at: Cell<f64>,
+    /// The level icons as last drawn: (level, centre x, centre y, half size), pixels. A click
+    /// on one switches to that level (they replace the toolbar's autopilot and journey).
+    icons: std::cell::RefCell<Vec<(Level, f64, f64, f64)>>,
 }
 
 /// Font sizes (points): the level's name and the rate; the set-speed line.
@@ -140,6 +143,15 @@ fn icon(scene: &mut Scene, l: Level, c: [f64; 2], u: f64, col: [f32; 4]) {
 }
 
 impl CockpitOverlay {
+    /// The level icon under (x, y) pixels, if any (the last drawn cockpit).
+    pub fn hit(&self, x: f64, y: f64) -> Option<Level> {
+        self.icons
+            .borrow()
+            .iter()
+            .find(|(_, cx, cy, h)| (x - cx).abs() <= *h && (y - cy).abs() <= *h)
+            .map(|(l, ..)| *l)
+    }
+
     /// The panel in pixels (x0, y0, x1, y1) for a `size` pixel target with `ppp` points per
     /// pixel and canvas `insets` (top, left, bottom, right; view points), centred at the bottom
     /// between `left` (view points from the left edge, e.g. the cosmic scale) and the right edge.
@@ -185,6 +197,7 @@ impl CockpitOverlay {
         key: &mut String,
     ) {
         if !self.enabled || ppp <= 0.0 || size.0 == 0 || size.1 == 0 {
+            self.icons.borrow_mut().clear();
             return;
         }
         // Points of the cockpit's own design, scaled (`zoom`), in pixels.
@@ -206,17 +219,16 @@ impl CockpitOverlay {
         let cap = |size: f64| f64::from(crate::font::cap_height()) * size * px;
         // Level icons, the current one lit; its name after them.
         let mut x = r[0] + PAD * px;
+        let mut icons = self.icons.borrow_mut();
+        icons.clear();
         for l in Level::ALL {
             let on = l == c.level;
-            icon(
-                scene,
-                l,
-                [x + ICON_PITCH * px / 2.0, yc],
-                px,
-                if on { lit } else { dim },
-            );
+            let cx = x + ICON_PITCH * px / 2.0;
+            icon(scene, l, [cx, yc], px, if on { lit } else { dim });
+            icons.push((l, cx, yc, ICON_PITCH * px / 2.0));
             x += ICON_PITCH * px;
         }
+        drop(icons);
         x += GAP * px;
         scene.label(
             [x as f32, (yc - cap(NAME) / 2.0) as f32],

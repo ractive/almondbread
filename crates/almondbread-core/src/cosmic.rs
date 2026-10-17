@@ -8,11 +8,13 @@
 //! wide. Three phases, all computed from `n = d - d_U` (log10 of set / universe) so nothing
 //! overflows at any depth:
 //! 1. the set grows up to the observable universe `U` ("as big as Earth");
-//! 2. the universe shrinks inside the set: set / U = U / thing, down to the Planck length
-//!    ("our universe would be as small as an atom");
-//! 3. past the Planck rung, nested universes: `k = floor(n / a) + 1` universes with
-//!    `a = log10(U / atom)` ≈ 36.9 ("a universe in a universe in …"): at `n = a` our universe
-//!    is an atom of the set, so the set is already a universe of universes (k = 2).
+//! 2. the set is an imaginary universe in which a familiar thing is as big as ours:
+//!    set / U = U / thing, down to the Planck length ("… an imaginary universe in which an
+//!    atom is as big as our universe");
+//! 3. past the Planck rung, the imaginary universes nest: at each level the Planck length is as
+//!    big as the universe below (`P = log10(U / Planck)` ≈ 61.7 decades a level), and at the
+//!    bottom a familiar thing is as big as ours: `n = k·P + r` reads "k + 1 levels deep, at the
+//!    bottom <thing of U / 10^r>" (user's wording, 2026-10-17).
 
 /// Width of the Mandelbrot set along the real axis: from -2 to 1/4 (both exact: the tip of
 /// the antenna and the cusp of the main cardioid).
@@ -256,17 +258,18 @@ pub static THINGS: &[Thing] = &[
     },
 ];
 
-/// Phase 2's rungs on the ruler ("universe = galaxy"): familiar things, spaced at least
-/// ~4.7 decades (70 points) apart.
+/// Phase 2's rungs on the ruler ("Earth = universe": in the imaginary universe as big as the
+/// set, Earth is as big as ours): familiar things, spaced at least ~4.7 decades (70 points)
+/// apart.
 const RUNGS: &[(&str, &str)] = &[
-    ("milky-way", "universe = galaxy"),
-    ("solar-system", "universe = solar system"),
-    ("earth", "universe = Earth"),
-    ("human", "universe = you"),
-    ("cell", "universe = cell"),
-    ("atom", "universe = atom"),
-    ("proton", "universe = proton"),
-    ("planck", "universe = Planck"),
+    ("milky-way", "galaxy = universe"),
+    ("solar-system", "solar system = universe"),
+    ("earth", "Earth = universe"),
+    ("human", "you = universe"),
+    ("cell", "cell = universe"),
+    ("atom", "atom = universe"),
+    ("proton", "proton = universe"),
+    ("planck", "Planck = universe"),
 ];
 
 /// Phase 2's sentence compares with these (familiar ones; no distances).
@@ -300,11 +303,6 @@ pub fn planck_decades() -> f64 {
     (size_of("universe") / size_of("planck")).log10()
 }
 
-/// Decades per nesting level: universe / atom (≈ 36.9).
-pub fn level_decades() -> f64 {
-    (size_of("universe") / size_of("atom")).log10()
-}
-
 /// What the overlay shows.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct CosmicScaleSettings {
@@ -329,12 +327,12 @@ pub struct Reading {
 }
 
 /// The ruler is linear up to just past the Planck rung, then compressed with this final
-/// slope (a nesting level of 36.9 decades ≈ 69 points at 15 points per decade).
+/// slope (a nesting level of 61.7 decades ≈ 116 points at 15 points per decade).
 const COMPRESS: f64 = 8.0;
 /// Decades over which the slope eases from 1 to 1/COMPRESS.
 const COMPRESS_TAU: f64 = 15.0;
-/// Nested levels marked on the ruler (level 85 is past zoom 1e3100).
-const LEVELS: u32 = 90;
+/// Nested levels marked on the ruler (level 52 is past zoom 1e3100 for a 30 cm window).
+const LEVELS: u32 = 52;
 
 /// The scale for one window: marks in depth and the phase boundaries.
 #[derive(Clone, Debug)]
@@ -385,12 +383,13 @@ impl CosmicScale {
                 group: THINGS[i].group,
             });
         }
-        // Phase 3: k universes nested from n = (k - 1) a (k = 2 is the atom rung, inside phase 2).
-        let a = level_decades();
+        // Phase 3: `k` levels of imaginary universes from n = (k - 1) P (level 2 starts at the
+        // Planck rung).
+        let p = planck_decades();
         for k in 3..=LEVELS {
             marks.push(Mark {
-                d: ud + f64::from(k - 1) * a,
-                label: format!("{k}× nested"),
+                d: ud + f64::from(k - 1) * p,
+                label: format!("{k} levels"),
                 group: Group::Ladder,
             });
         }
@@ -433,7 +432,7 @@ impl CosmicScale {
         if (0.8f64.log10()..0.3).contains(&n) {
             // The turn (zoom ≈ 3e27 for 30 cm): the set is the universe.
             return Reading {
-                line: "The whole set would be as big as the observable universe".into(),
+                line: format!("{WHOLE} would be as big as the observable universe"),
                 detail: window,
             };
         }
@@ -442,7 +441,7 @@ impl CosmicScale {
             // Between the turn and the first rung no familiar thing is near (only distances
             // to galaxies); the ruler shows "1,000 × universe".
             return Reading {
-                line: "The whole set would be bigger than the observable universe".into(),
+                line: format!("{WHOLE} would be bigger than the observable universe"),
                 detail: window,
             };
         }
@@ -450,35 +449,47 @@ impl CosmicScale {
             // Phase 1: the set grows.
             let m = self.screen_m * 10f64.powf(d);
             let line = if m < 1e4 {
-                format!("The whole set would be {} across", length(m))
+                format!("{WHOLE} would be {} across", length(m))
             } else {
-                format!("The whole set would be {}", as_big_as(m))
+                format!("{WHOLE} would be {}", as_big_as(m))
             };
             return Reading { line, detail: window };
         }
-        if n < planck_decades() + 1.25f64.log10() {
-            // Phase 2: the universe shrinks inside the set; set / U = U / v.
+        let p = planck_decades();
+        if n < p + 1.25f64.log10() {
+            // Phase 2: an imaginary universe as big as the set; set / U = U / v.
             let v = size_of("universe") * 10f64.powf(-n);
             return Reading {
-                line: format!("In the whole set, our universe would be {}", as_small_as(v)),
-                detail: window,
+                line: format!("{WHOLE} would be as big as an imaginary universe"),
+                detail: format!("in which {} as big as ours", thing_is(v)),
             };
         }
-        // Phase 3: nested universes.
-        let k = ((n / level_decades()).floor() + 1.0).max(2.0);
-        let line = match k {
-            2.0 => "A universe in a universe".to_string(),
-            3.0 => "A universe in a universe in a universe".to_string(),
-            4.0 => "A universe in a universe in a universe in a universe".to_string(),
-            k if k.is_finite() => format!("A universe in a universe in … ({k:.0} times)"),
-            _ => "A universe in a universe in … (countless times)".to_string(),
+        // Phase 3: imaginary universes nested; at each level the Planck length is as big as
+        // the universe below; n = k·P + r.
+        let k = (n / p).floor();
+        let r = n - k * p;
+        let line = if (k + 1.0).is_finite() && k < 1e15 {
+            format!(
+                "{WHOLE} would be as big as an imaginary universe, {} levels deep",
+                count((k + 1.0).log10())
+            )
+        } else {
+            format!("{WHOLE} would be as big as an imaginary universe, countless levels deep")
         };
-        Reading {
-            line,
-            detail: "imagine every atom were a universe, and every atom in it too".into(),
-        }
+        let detail = if r < 0.3 {
+            "at the bottom: our universe itself".to_string()
+        } else {
+            format!(
+                "at the bottom, {} as big as ours",
+                thing_is(size_of("universe") * 10f64.powf(-r))
+            )
+        };
+        Reading { line, detail }
     }
 }
+
+/// How the whole set is named in the readout (not "the whole set": jargon for newcomers).
+const WHOLE: &str = "The whole Mandelbrot set";
 
 /// "as big as Earth", "3× as big as the Sun", "40% as big as the Moon": `m` metres against
 /// the nearest (in log) thing.
@@ -496,19 +507,21 @@ fn as_big_as(m: f64) -> String {
     }
 }
 
-/// "as small as an atom", "only 3× as big as the Milky Way", "as small as 1/40 of a proton":
-/// `v` metres against the nearest (in log) familiar thing.
-fn as_small_as(v: f64) -> String {
+/// The subject of "… is as big as ours" for a thing of `v` metres, against the nearest (in
+/// log) familiar thing: "an atom is", "you are", "something 3× as big as the Sun is",
+/// "1/40 of a proton is".
+fn thing_is(v: f64) -> String {
     let t = nearest(v, SMALL.iter().map(|k| &THINGS[thing(k).expect("small thing")]));
     let r = v / t.size_m;
+    let verb = if t.key == "human" { "are" } else { "is" };
     if (0.8..1.25).contains(&r) {
-        format!("as small as {}", t.name)
+        format!("{} {verb}", t.name)
     } else if r >= 1.25 {
-        format!("only {}× as big as {}", count(r.log10()), t.name)
+        format!("something {}× as big as {} is", count(r.log10()), t.name)
     } else if r >= 0.1 {
-        format!("as small as {:.0}% of {}", r * 100.0, t.name)
+        format!("something {:.0}% as big as {} is", r * 100.0, t.name)
     } else {
-        format!("as small as 1/{} of {}", count(-r.log10()), t.name)
+        format!("1/{} of {} is", count(-r.log10()), t.name)
     }
 }
 
@@ -604,31 +617,43 @@ mod tests {
             assert!(w[0].size_m > w[1].size_m, "{} {}", w[0].key, w[1].key);
         }
         assert!((planck_decades() - 61.73).abs() < 0.01);
-        assert!((level_decades() - 36.92).abs() < 0.01);
     }
 
     #[test]
     fn readout_through_the_three_phases() {
         let s = scale(0.0);
         let line = |zoom: f64| s.reading(zoom).line;
-        assert_eq!(line(4.0), "The whole set would be 3 km across");
+        assert_eq!(line(4.0), "The whole Mandelbrot set would be 3 km across");
         assert_eq!(
             line((1.2742e7f64 / 0.3).log10()),
-            "The whole set would be as big as Earth"
+            "The whole Mandelbrot set would be as big as Earth"
         );
         assert_eq!(
             line(3e27f64.log10()),
-            "The whole set would be as big as the observable universe"
+            "The whole Mandelbrot set would be as big as the observable universe"
         );
-        let inside = "In the whole set, our universe would be ";
-        assert_eq!(line(33.0), format!("{inside}only 2.7× as big as the Milky Way"));
-        assert_eq!(line(64.4), format!("{inside}as small as an atom"));
-        assert_eq!(line(89.0), format!("{inside}only 1.6× as big as the Planck length"));
-        assert_eq!(line(101.0), "A universe in a universe");
-        assert_eq!(line(1000.0), "A universe in a universe in … (27 times)");
-        assert_eq!(line(3010.0), "A universe in a universe in … (81 times)");
+        let imaginary = "The whole Mandelbrot set would be as big as an imaginary universe";
+        assert_eq!(line(33.0), imaginary);
+        let detail = |d: f64| s.reading(d).detail;
+        assert_eq!(
+            detail(33.0),
+            "in which something 2.7× as big as the Milky Way is as big as ours"
+        );
+        assert_eq!(detail(64.4), "in which an atom is as big as ours");
+        assert_eq!(detail(89.2), "in which the Planck length is as big as ours");
+        assert_eq!(line(101.0), format!("{imaginary}, 2 levels deep"));
+        assert_eq!(
+            detail(101.0),
+            "at the bottom, something 150× as big as the solar system is as big as ours"
+        );
+        assert_eq!(line(1000.0), format!("{imaginary}, 16 levels deep"));
+        assert_eq!(line(3010.0), format!("{imaginary}, 49 levels deep"));
+        // "you are", not "you is".
+        let you = (0..2000)
+            .map(|k| s.reading(30.0 + k as f64 * 0.05).detail)
+            .find(|t| t.starts_with("in which you "));
+        assert_eq!(you.as_deref(), Some("in which you are as big as ours"));
         assert_eq!(s.reading(4.0).detail, "your window: 30 cm");
-        assert!(s.reading(101.0).detail.starts_with("imagine every atom"));
         assert_eq!(scale(0.00045).reading(4.0).detail, "your window: 45 cm");
         // Every depth, finely and absurdly: never a panic, NaN or jargon.
         for k in -40..=40_000 {
