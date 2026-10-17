@@ -14,9 +14,9 @@ The inside can be coloured too. The control center's **Interior** section shows 
 
 Every coloured point escapes. The colour tells how many steps it took: points far from the set escape after a few steps, points close to its edge take thousands or millions. The palette turns those counts into bands of colour, which is why the bands follow the shape of the edge.
 
-## Dark grey: not finished yet
+## Fog: not finished yet
 
-A dark grey veil means "not decided yet". Those points have neither escaped nor been proven inside within the steps tried so far. They sit close to the edge, often near the narrow pinches between bulbs, where points take a very long time to decide.
+Fog means "not decided yet". Those points have neither escaped nor been proven inside within the steps tried so far. They sit close to the edge, often near the narrow pinches between bulbs, where points take a very long time to decide. The fog is lit by the colours around it where it meets finished points and turns almost black further in, with a faint blue-grey tint, so a large patch of it still looks different from the black inside.
 
 What to do: wait a moment while the view refines, or raise the **upper limit** in **Iterations & quality**. With manual iterations, raise the maximum.
 

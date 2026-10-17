@@ -2559,7 +2559,10 @@ struct ColorParams {
     float4 deep;          // dense regions: calm colour (linear RGB), w = 1 on (0: mean grey)
     float4 filament;      // dense regions: colour of the thin lines along the boundary
     uint   fillBorder;    // M5: the main level's admission order has tile borders first
-    uint   pad3[3];
+    uint   fogLevels;     // fog over unresolved pixels: levels of the fog pyramid (0: none, the
+                          // plain deep fog; kb: techniques/unresolved-fog)
+    float  fogPoints;     // display points per iteration texel (fog widths in points)
+    uint   pad3;
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -2691,15 +2694,24 @@ static inline float3 interiorShade(float2 it, float2 de, float2 ax, constant Col
     return max(col, 0.0f);
 }
 
+// Fog over unresolved pixels (kb: techniques/unresolved-fog): past the nominal limit, neither
+// escaped nor proven interior, so compute further may still resolve them. Not the interior
+// colour (user decision 2026-10-17: near the -3/4 neck almost the whole view was unresolved and
+// read as interior) and not a flat patch either (the grey veil it replaced, user 2026-10-17):
+// fog over the fractal, light where it meets resolved pixels and taking their colours there,
+// darker and softer further in (fogResolve, from the fog pyramid), down to this deep fog:
+// almost black with a faint cool blue-grey tint, so it still reads as "not computed" next to a
+// black interior. Previews, gesture frames and the sample cache (no pyramid) draw it plain.
+constant float3 FOG_DEEP = float3(0.0065f, 0.0080f, 0.0125f);   // linear
+static inline float3 fogDeep() {
+    return FOG_DEEP;
+}
+
 static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel, float sampleWidth = 1.0f) {
-    // Unresolved (past the nominal limit, neither escaped nor proven interior): a dark grey
-    // veil (25 %) over the outline colour, so "not computed yet" no longer looks like the
-    // interior (user decision 2026-10-17: near the -3/4 neck almost the whole view was
-    // unresolved and read as interior). Before, it was the outline colour lifted by 0.5 %;
-    // FL: M2's 3 % lift showed grey halos around minibrots in gesture frames (no extension
-    // passes), and minibrot bodies the interior test does not prove show this veil too.
-    if (it.x == ITER_UNRESOLVED) return mix(c.edge.rgb, float3(0.18f, 0.18f, 0.20f), 0.25f);
+    // Unresolved: the deep fog. The callers that have the fog pyramid draw fogAt() instead
+    // (light at resolved neighbours); previews, gesture frames and the sample cache draw this.
+    if (it.x == ITER_UNRESOLVED) return fogDeep();
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense, calm;
     float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm, sampleWidth);
@@ -2779,11 +2791,160 @@ static inline float2 auxAt(texture2d<float, access::read> aux, uint2 s, constant
     return (c.interiorMode != 0 && it.x == ITER_INTERIOR && it.y >= 1.0f) ? aux.read(s).xy : float2(0.0f);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Fog pyramid (kb: techniques/unresolved-fog): how far an unresolved texel is from resolved ones,
+// in display points, and the colours around it at that distance, for any size of unresolved
+// region at the cost of a mip chain. Level 0 has a texel per 2 x 2 iteration texels: whether a
+// sampled one is resolved (a) and its colour times a (premultiplied); each further level halves
+// (box mean of 2 x 2), so a becomes the resolved share around. Even levels live in atlas A (level 0 at the origin, 2, 4, ...
+// stacked to its right), odd levels in atlas B (1 at the origin, 3, 5, ... to its right), so a
+// pass never reads and writes one texture. Built only for frames with unresolved pixels.
+// The fog colour is resolved at pyramid level FOG_RES (a texel per 4 x 4 iteration texels): the
+// fog is soft anyway, and at level 0 the walk cost 0.6 ms at 3456 x 2234 on M1 Pro.
+constant uint FOG_RES = 1u;
+
+struct FogParams {
+    uint2 src;            // iteration level size
+    uint  level;          // the level fogDown writes
+    uint  pad;
+};
+
+// Size of pyramid level L of an iteration level of size `src`.
+static inline uint2 fogLevelSize(uint2 src, uint L) {
+    uint2 s = (src + 1u) / 2u;
+    for (uint k = 0; k < L; k++) s = (s + 1u) / 2u;
+    return max(s, uint2(1u));
+}
+
+// Origin of level L in its atlas.
+static inline uint2 fogLevelOrigin(uint2 src, uint L) {
+    if (L < 2u) return uint2(0u);
+    uint2 s = fogLevelSize(src, L & 1u);
+    const uint x = s.x;
+    uint y = 0u;
+    for (uint k = (L & 1u) + 2u; k < L; k += 2u) y += fogLevelSize(src, k).y;
+    return uint2(x, y);
+}
+
+kernel void fogSeed(texture2d<float, access::read>  iters [[texture(0)]],
+                    texture2d<float, access::read>  des   [[texture(1)]],
+                    texture2d<float, access::read>  auxs  [[texture(2)]],
+                    texture2d<float, access::write> atlas [[texture(3)]],
+                    constant ColorParams& c               [[buffer(0)]],
+                    device const float4* pal              [[buffer(1)]],
+                    device const LevelCounters& level     [[buffer(2)]],
+                    device const uint* rank               [[buffer(3)]],
+                    uint2 gid                             [[thread_position_in_grid]])
+{
+    const uint2 size0 = fogLevelSize(c.srcSize, 0u);
+    if (gid.x >= size0.x || gid.y >= size0.y) return;
+    const uint admitted = c.admittedOnGPU != 0 ? level.admitted : c.admitted;
+    // One texel per block, its position in the block cycling over 2 x 2 blocks (an ordered
+    // pattern, so level 1 sees all four): the pyramid wants the colours around, blurred. The
+    // pass is bound by memory (whole cache lines): all four texels cost 0.6 ms at 3456 x 2234
+    // on M1 Pro, one 0.45 ms.
+    const uint k = (gid.x & 1u) | ((gid.y & 1u) << 1);
+    const uint2 s = min(gid * 2u + uint2(k >> 1, (k ^ (k >> 1)) & 1u), c.srcSize - 1u);
+    float2 it;
+    const bool resolved = finished(iters, s, c, rank, admitted, it) && it.x != ITER_UNRESOLVED
+        && it.x != ITER_SKIP;
+    const float3 col = resolved ? shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale) : float3(0.0f);
+    const float a = resolved ? 1.0f : 0.0f;
+    atlas.write(float4(col * a, a), gid);
+}
+
+kernel void fogDown(texture2d<float, access::read>  from [[texture(0)]],
+                    texture2d<float, access::write> to   [[texture(1)]],
+                    constant FogParams& p                [[buffer(0)]],
+                    uint2 gid                            [[thread_position_in_grid]])
+{
+    const uint2 size = fogLevelSize(p.src, p.level);
+    if (gid.x >= size.x || gid.y >= size.y) return;
+    const uint2 fs = fogLevelSize(p.src, p.level - 1u);
+    const uint2 fo = fogLevelOrigin(p.src, p.level - 1u);
+    float4 sum = float4(0.0f);
+    for (uint k = 0; k < 4u; k++) {
+        sum += from.read(fo + min(gid * 2u + uint2(k & 1u, k >> 1), fs - 1u));
+    }
+    to.write(0.25f * sum, fogLevelOrigin(p.src, p.level) + gid);
+}
+
+// The fog of each level-FOG_RES texel (kb: techniques/unresolved-fog), into `fog` (that level's
+// size; the colour passes sample it bilinearly at their unresolved texels). Walks the pyramid from fine to
+// coarse: s_L = how surely level L's footprint holds resolved texels (saturated resolved share,
+// bilinear); the expected first level with resolved texels is the distance in octaves, the
+// colour the mean of each level's resolved colour weighted by that level being the first.
+// Distance in points makes the look independent of zoom and display scale.
+kernel void fogResolve(texture2d<float, access::sample> fa  [[texture(0)]],
+                       texture2d<float, access::sample> fb  [[texture(1)]],
+                       texture2d<float, access::write>  fog [[texture(2)]],
+                       constant ColorParams& c              [[buffer(0)]],
+                       uint2 gid                            [[thread_position_in_grid]])
+{
+    const uint2 s0 = fogLevelSize(c.srcSize, 0u), s1 = fogLevelSize(c.srcSize, 1u);
+    const uint2 sr = fogLevelSize(c.srcSize, FOG_RES);
+    if (gid.x >= sr.x || gid.y >= sr.y) return;
+    constexpr sampler bl(coord::normalized, filter::linear, address::clamp_to_edge);
+    const float3 deep = fogDeep();
+    const float2 p0 = (float2(gid) + 0.5f) * float(1u << FOG_RES);   // level-0 coordinates
+    const float2 inva = 1.0f / float2(fa.get_width(), fa.get_height());
+    const float2 invb = 1.0f / float2(fb.get_width(), fb.get_height());
+    // Deep inside a region (nothing resolved within level 4's bilinear footprint, +-32 texels)
+    // the finer levels hold nothing either: start at level 5.
+    uint first = 0u;
+    if (c.fogLevels > 5u) {
+        const uint2 o4 = fogLevelOrigin(c.srcSize, 4u);
+        const float2 q = clamp(p0 * 0.0625f, float2(0.5f), float2(fogLevelSize(c.srcSize, 4u)) - 0.5f) + float2(o4);
+        if (fa.sample(bl, q * inva, level(0)).a < 1e-4f) first = 5u;
+    }
+    uint2 size = first == 0u ? s0 : fogLevelSize(c.srcSize, first);
+    float yA = 0.0f, yB = 0.0f;                       // stacking offsets of levels >= 2
+    for (uint L = 2u; L < first; L++) {
+        if ((L & 1u) != 0u) yB += float(fogLevelSize(c.srcSize, L).y); else yA += float(fogLevelSize(c.srcSize, L).y);
+    }
+    float survive = 1.0f, octaves = float(first);
+    float3 border = float3(0.0f);
+    float scale = 1.0f / float(1u << first);
+    for (uint L = first; L < c.fogLevels && survive > 1e-3f; L++) {
+        const bool odd = (L & 1u) != 0u;
+        float2 origin = float2(0.0f);
+        if (L >= 2u) origin = odd ? float2(float(s1.x), yB) : float2(float(s0.x), yA);
+        const float2 q = clamp(p0 * scale, float2(0.5f), float2(size) - 0.5f) + origin;
+        const float4 v = odd ? fb.sample(bl, q * invb, level(0)) : fa.sample(bl, q * inva, level(0));
+        const float found = saturate(3.0f * v.a);
+        if (v.a > 1e-6f) border += survive * found * v.rgb / v.a;
+        survive *= 1.0f - found;
+        octaves += survive;
+        if (L >= 2u) {
+            if (odd) yB += float(size.y); else yA += float(size.y);
+        }
+        size = max((size + 1u) / 2u, uint2(1u));
+        scale *= 0.5f;
+    }
+    border += survive * deep;
+    // Distance from the resolved pixels in points (log2): a level-L texel is 2^(L+1) iteration
+    // texels wide.
+    const float lg = octaves + 1.0f + log2(max(c.fogPoints, 1e-6f));
+    // Light at the border, darker over the first ~100 points; deep inside, the colours around
+    // (the coarse levels: very blurred) still tint it faintly, like light in a cloud.
+    const float t = pow(saturate(lg / 7.0f), 0.7f);
+    fog.write(float4(mix(border, deep + 0.02f * border, 0.2f + 0.8f * t), 1.0f), gid);
+}
+
+// The fog at unresolved texel s: the resolved fog texture (bilinear), or the deep fog without it.
+static inline float3 fogAt(uint2 s, constant ColorParams& c, texture2d<float, access::sample> fog) {
+    if (c.fogLevels == 0u) return fogDeep();
+    constexpr sampler bl(coord::normalized, filter::linear, address::clamp_to_edge);
+    const float2 p = (float2(s) + 0.5f) / float(2u << FOG_RES) / float2(fog.get_width(), fog.get_height());
+    return fog.sample(bl, p, level(0)).rgb;
+}
+
 kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
                      texture2d<float, access::read>  des        [[texture(1)]],
                      texture2d<float, access::write> out        [[texture(2)]],
                      texture2d<float, access::sample> under     [[texture(3)]],
                      texture2d<float, access::read>  auxs       [[texture(4)]],
+                     texture2d<float, access::sample> fog       [[texture(5)]],   // fogResolve's
                      constant ColorParams& c                    [[buffer(0)]],
                      device const float4* pal                   [[buffer(1)]],
                      device const LevelCounters& level          [[buffer(2)]],
@@ -2806,7 +2967,8 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
             for (uint i = 0; i < ss; i++) {
                 uint2 s = min(base + uint2(i, j), maxSrc);
                 if (finished(iters, s, c, rank, admitted, it)) {
-                    acc += shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale, 1.0f / float(ss));
+                    acc += it.x == ITER_UNRESOLVED ? fogAt(s, c, fog)
+                        : shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale, 1.0f / float(ss));
                     count += 1.0f;
                 }
             }
@@ -2814,7 +2976,8 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
     } else {
         uint2 s = min(uint2(float2(gid) * c.ratio), maxSrc);
         if (finished(iters, s, c, rank, admitted, it)) {
-            acc = shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
+            acc = it.x == ITER_UNRESOLVED ? fogAt(s, c, fog)
+                : shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
             count = 1.0f;
         }
     }
@@ -2932,6 +3095,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     device const uint* rank                   [[buffer(3)]],
                     constant ComposeParams& q                 [[buffer(4)]],
                     device const uint* furtherMask            [[buffer(5)]],   // mode 4
+                    texture2d<float, access::sample> fog      [[texture(7)]],   // fogResolve's
                     uint2 gid                                 [[thread_position_in_grid]])
 {
     if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
@@ -3052,15 +3216,18 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             conf = q.confCap;
         } else if (q.mode == 4) {
             // Compute further after AA: a texel unresolved when its passes started fades to its
-            // new colour once resolved; every other pixel keeps its (anti-aliased) history.
+            // new colour once resolved, or to the fog as it is now (the region shrinks, so its
+            // border moves); every other pixel keeps its (anti-aliased) history.
             const uint i = gid.y * c.outSize.x + gid.x;
             const bool marked = ((furtherMask[i >> 5] >> (i & 31u)) & 1u) != 0u;
-            col = (marked && done && it.x != ITER_UNRESOLVED)
-                ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend)
+            col = (marked && done)
+                ? mix(hist, it.x == ITER_UNRESOLVED ? fogAt(gid, c, fog)
+                      : shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend)
                 : hist;
             conf = q.confCap;
         } else if (done) {
-            float3 exact = shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);
+            float3 exact = it.x == ITER_UNRESOLVED ? fogAt(gid, c, fog)
+                : shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);
             col = q.mode == 1 ? mix(prior, exact, q.blend) : exact;
             conf = q.confCap;
         } else {

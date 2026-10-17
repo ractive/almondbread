@@ -9,6 +9,7 @@
 //!   test, stats ring, cancellation), written once against the trait.
 //! - [`host`]: [`Host`], the renderer hosted in an interactive view (size, input, one
 //!   frame per refresh, interaction measurements); platform UIs wrap it.
+//! - [`fog`]: the fog pyramid behind the look of unresolved pixels.
 //! - [`floatfloat`]: M7 float-float kernels in their own safe-math library (known-answer
 //!   test, verify-only field renderer, benchmarks); not used by the renderer.
 //! - [`gpu_types`]: `#[repr(C)]` mirrors of the kernel structs with layout assertions.
@@ -25,6 +26,7 @@ pub mod compass;
 pub mod cosmic;
 pub mod flight;
 pub mod floatfloat;
+pub mod fog;
 pub mod font;
 pub mod gpu_types;
 pub mod help;

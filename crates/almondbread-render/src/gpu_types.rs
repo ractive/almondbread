@@ -220,7 +220,21 @@ pub struct ColorParams {
     pub filament: [f32; 4],
     /// M5 interior fill: the main level's admission order has the tile borders first.
     pub fill_border: u32,
-    pub pad3: [u32; 3],
+    /// Fog over unresolved pixels (kb: techniques/unresolved-fog): levels of the fog pyramid
+    /// bound with this pass (0: none, the plain deep fog), and display points per iteration
+    /// texel.
+    pub fog_levels: u32,
+    pub fog_points: f32,
+    pub pad3: u32,
+}
+
+/// Parameters of the `fogDown` kernel (fog pyramid), 16 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct FogParams {
+    pub src: [u32; 2],
+    pub level: u32,
+    pub pad: u32,
 }
 
 /// Parameters of the `compose` kernel (FL: history reprojection, temporal upsampling,
@@ -372,6 +386,9 @@ const _: () = {
 
     assert!(size_of::<ColorParams>() == 240);
     assert!(offset_of!(ColorParams, fill_border) == 224);
+    assert!(offset_of!(ColorParams, fog_levels) == 228);
+    assert!(offset_of!(ColorParams, fog_points) == 232);
+    assert!(size_of::<FogParams>() == 16);
     assert!(offset_of!(ColorParams, deep) == 192);
     assert!(offset_of!(ColorParams, interior_mode) == 172);
     assert!(offset_of!(ColorParams, hue_rot) == 184);

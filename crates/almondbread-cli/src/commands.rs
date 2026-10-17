@@ -786,44 +786,32 @@ fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, noise: f64, failed:
     }
 }
 
-/// Resolved pixels of a shown frame drawn in the unresolved colour (the median colour of its
-/// unresolved pixels), and the resolved pixel count; None when the frame's texels are not its
-/// pixels or fewer than 100 are unresolved.
-fn stale_unresolved_colour(sim: &SimulationResult) -> Option<(usize, usize)> {
+/// Compute further after AA: of the texels its passes recolour (unresolved when they started,
+/// `further_marked`) and resolved by now, those whose shown colour is not their colour. Their
+/// colour is the fresh render's where its field agrees (both draw one sample of the same texel
+/// with the same dither); a stale texel still shows its fog. By the field data, not by a colour:
+/// the fog is lit by the pixels around and has no one colour (kb: techniques/unresolved-fog).
+/// Returns (stale, compared); None when the frame's texels are not its pixels, compute further
+/// did not run after AA, or fewer than 100 such texels resolved.
+fn stale_further_pixels(sim: &SimulationResult, fresh_pixels: &[u8], fresh: &[[f32; 2]]) -> Option<(usize, usize)> {
     if sim.level_width != sim.width || sim.level_height != sim.height {
         return None;
     }
-    let unresolved = almondbread_core::oracle::ITER_UNRESOLVED;
-    let px = |i: usize| [sim.pixels[4 * i], sim.pixels[4 * i + 1], sim.pixels[4 * i + 2]];
-    let mut chans: [Vec<u8>; 3] = Default::default();
+    let marked = sim.further_marked.as_ref()?;
+    let (mut stale, mut compared) = (0, 0);
     for (i, t) in sim.iterations.iter().enumerate() {
-        if t[0] == unresolved {
-            let c = px(i);
-            for k in 0..3 {
-                chans[k].push(c[k]);
-            }
-        }
-    }
-    if chans[0].len() < 100 {
-        return None;
-    }
-    let mut veil = [0u8; 3];
-    for k in 0..3 {
-        chans[k].sort_unstable();
-        veil[k] = chans[k][chans[k].len() / 2];
-    }
-    let (mut stale, mut resolved) = (0, 0);
-    for (i, t) in sim.iterations.iter().enumerate() {
-        if t[0] == unresolved {
+        let on = marked.get(i / 32).is_some_and(|w| (w >> (i % 32)) & 1 != 0);
+        if !on || t[0] == almondbread_core::oracle::ITER_UNRESOLVED || fresh.get(i) != Some(t) {
             continue;
         }
-        resolved += 1;
-        let c = px(i);
-        if (0..3).all(|k| c[k].abs_diff(veil[k]) <= 2) {
+        compared += 1;
+        let (a, b) = (&sim.pixels[4 * i..4 * i + 3], &fresh_pixels[4 * i..4 * i + 3]);
+        // (The fade-in converges geometrically; a few levels of it may be left.)
+        if (0..3).any(|k| a[k].abs_diff(b[k]) > 12) {
             stale += 1;
         }
     }
-    Some((stale, resolved))
+    (compared >= 100).then_some((stale, compared))
 }
 
 /// Checks the final frames of `history` sessions against the CPU oracle and a fresh render.
@@ -865,20 +853,6 @@ fn verify_session<B: GpuBackend + Clone>(
             sim.unresolved,
             r.settings.learned_iterations
         );
-        // Compute further after AA (kb: techniques/auto-iterations "Compute further"): pixels
-        // its passes resolved must show their colour, not the unresolved one they had when the
-        // anti-aliased frame was composed. The unresolved colour is the median of the pixels
-        // still unresolved; resolved pixels drawn in it (within 2 levels) are stale.
-        if let Some((stale, resolved)) = stale_unresolved_colour(sim) {
-            let pct = 100.0 * stale as f64 / resolved.max(1) as f64;
-            println!("{tag}resolved pixels in the unresolved colour: {stale} of {resolved} ({pct:.3}%)");
-            let max_stale = o.f64("max-stale").unwrap_or(0.1);
-            if pct > max_stale {
-                failed.push(format!(
-                    "{tag}{pct:.3}% of the resolved pixels show the unresolved colour (> {max_stale}%)"
-                ));
-            }
-        }
         let field = IterationField::from_texels(sim.level_width, sim.level_height, &sim.iterations);
         let cpu_iter = o.usize("cpu-iterations").unwrap_or(sim.hard_iter);
         let cpu = oracle(
@@ -908,6 +882,23 @@ fn verify_session<B: GpuBackend + Clone>(
         );
         let (vs_fresh, fresh_heatmap) = compare(&field, &fresh_field);
         println!("{tag}vs fresh GPU:   {}", vs_fresh.summary());
+        // Compute further after AA (kb: techniques/auto-iterations "Compute further"): pixels
+        // its passes resolved must show their colour, not the fog they had when the
+        // anti-aliased frame was composed.
+        if let Some((stale, compared)) =
+            stale_further_pixels(sim, &gres.pixels, gres.iterations.as_deref().unwrap_or(&[]))
+        {
+            let pct = 100.0 * stale as f64 / compared.max(1) as f64;
+            println!(
+                "{tag}pixels resolved by compute further not showing their colour: {stale} of {compared} ({pct:.3}%)"
+            );
+            let max_stale = o.f64("max-stale").unwrap_or(0.1);
+            if pct > max_stale {
+                failed.push(format!(
+                    "{tag}{pct:.3}% of the pixels compute further resolved do not show their colour (> {max_stale}%)"
+                ));
+            }
+        }
         // From scratch (M5 invariant): a new renderer with its own auto iterations and
         // extension at the same texel grid, no learned state. The fresh render above shares
         // the session's limit, so a limit learned elsewhere (a view settled all black after a
@@ -1186,7 +1177,7 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
     // 4e8 settles 15 % unresolved; the passes after the AA samples resolve most of the rest to
     // the 200 k Upper limit in a 4 s budget (after the 3x3 AA samples), checked against the
     // oracle at that limit, a fresh render and the AA-consistency check (no resolved pixel
-    // left in the unresolved colour).
+    // left showing its fog).
     &[
         "--history",
         "jump",

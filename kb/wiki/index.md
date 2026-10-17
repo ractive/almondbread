@@ -162,6 +162,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[techniques/reference-selection]] — view centre vs nucleus; atom domain, box and ball period detection, Newton for the nucleus; Misiurewicz; measured period/Newton behaviour
 - [[techniques/series-approximation]] — SA recurrences, probe points, why BLA replaced it, Very Plotter SA-vs-BLA table, nanoMB (legacy)
 - [[techniques/smooth-coloring]] — smooth iteration count μ, bailout ≥ 256, split uint n + float fraction at 1e6–1e9 iterations
+- [[techniques/unresolved-fog]] — as built: pixels unresolved at the limit drawn as fog (lit by the resolved colours around, almost black inside) from a coverage/colour pyramid; ~1 ms at 3456 × 2234, 0 without unresolved pixels; orbit textures tried and dropped; the compute-further fade check
 
 ## Formulas
 

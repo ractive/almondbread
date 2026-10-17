@@ -230,6 +230,9 @@ pub struct SchedulerConfig {
     /// Unresolved share of the view's texels below which it counts as finished (no further
     /// passes, no "not finished" in the HUD).
     pub further_min_share: f64,
+    /// Unresolved pixels as fog lit by the resolved ones around (kb: techniques/unresolved-fog);
+    /// off: the plain deep fog everywhere (`ALMONDBREAD_FOG=0|1`, default on).
+    pub fog: bool,
 }
 
 /// When levels start their pixels from local series approximation seeds.
@@ -380,6 +383,7 @@ impl Default for SchedulerConfig {
             further: std::env::var("ALMONDBREAD_FURTHER").map_or(true, |v| v != "0"),
             further_budget: 60.0,
             further_min_share: 0.001,
+            fog: std::env::var("ALMONDBREAD_FOG").map_or(true, |v| v != "0"),
         }
     }
 }
@@ -827,6 +831,10 @@ struct Job<B: GpuBackend> {
     complete_presented: bool,
     /// When the complete frame was first composed (the per-pixel fade runs on from there).
     complete_at: Option<f64>,
+    /// Compute further after AA: when its compose first ran after the passes stopped, every
+    /// level done (the texels the last segment resolved, and the fog around them, fade on from
+    /// there).
+    further_done_at: Option<f64>,
     /// AA samples composed into the history (besides the full level's centre sample).
     aa_composed: u32,
     /// Bumped when the AA samples are dropped (a colour change recolours from the exact
@@ -905,6 +913,16 @@ impl<B: GpuBackend> Job<B> {
     }
     fn complete(&self) -> bool {
         self.levels.iter().all(|l| l.complete)
+    }
+    /// Pixels may be unresolved (drawn as fog, kb: techniques/unresolved-fog): a full level
+    /// or extension pass left some, and compute further has not resolved them all since.
+    fn has_unresolved(&self) -> bool {
+        if let Some(f) = &self.further {
+            return f.unresolved > 0;
+        }
+        self.levels
+            .iter()
+            .any(|l| !l.preview && l.aa.is_none() && l.cache.is_none() && l.crossed > 0)
     }
     fn current(&self) -> Option<usize> {
         self.levels.iter().position(|l| !l.done)
@@ -1140,6 +1158,9 @@ pub struct SimulationResult {
     pub first_after: f64,
     pub unresolved: usize,
     pub reference_length: usize,
+    /// Compute further after AA: one bit per texel of the level (row-major), set for the texels
+    /// unresolved when its passes started (the ones its compose recolours); None without.
+    pub further_marked: Option<Vec<u32>>,
 }
 
 /// The renderer: scheduler state plus the GPU resources it owns.
@@ -1169,6 +1190,9 @@ pub struct Renderer<B: GpuBackend> {
     pub overlay_font: Option<B::Buffer>,
     overlay_pipeline: Option<B::Pipeline>,
     overlay_shown: Option<u64>,
+    /// The fog pyramid (kb: techniques/unresolved-fog), made when a view first has unresolved
+    /// pixels.
+    fog: Option<crate::fog::FogPyramid<B>>,
     /// Autopilot: the survey kernel, its result buffer, the survey in flight (its view
     /// geometry filled in) and when the last one was encoded.
     survey_pipeline: B::Pipeline,
@@ -1450,6 +1474,7 @@ impl<B: GpuBackend> Renderer<B> {
             overlay_font: None,
             overlay_pipeline: None,
             overlay_shown: None,
+            fog: None,
             survey_pipeline,
             survey_buffer,
             pending_survey: None,
@@ -2505,6 +2530,11 @@ impl<B: GpuBackend> Renderer<B> {
                 job.presented = true;
                 match mode {
                     COMPOSE_AA => job.aa_composed += 1,
+                    COMPOSE_FURTHER
+                        if !job.further_running() && job.levels.iter().all(|l| l.done || l.aa.is_some()) =>
+                    {
+                        job.further_done_at.get_or_insert(now);
+                    }
                     COMPOSE_EXACT => {
                         // Recoloured from the exact samples: anti-aliasing starts over.
                         job.drop_aa();
@@ -2545,6 +2575,8 @@ impl<B: GpuBackend> Renderer<B> {
             && job.levels.iter().all(|l| l.done || l.aa.is_some())
             && !job.further_running()
             && job.complete_at.is_some_and(|t| now - t >= fade)
+            && (job.further.as_ref().is_none_or(|f| f.mask.is_none())
+                || job.further_done_at.is_some_and(|t| now - t >= fade))
             && !job.aa_pending()
             && job.aa_finished(aa_target, self.config.aa_budget)
         {
@@ -2621,8 +2653,11 @@ impl<B: GpuBackend> Renderer<B> {
             return Some((COMPOSE_EXACT, None));
         }
         let fading = job.complete_at.is_none_or(|t| now - t < 4.0 * self.config.fade_tau);
-        // Compute further after AA: only the texels it may resolve are recomposed.
-        if !exact_done && job.further.as_ref().is_some_and(|f| f.mask.is_some()) {
+        // Compute further after AA: only the texels it may resolve are recomposed, until the
+        // last segment's texels have faded in (stopping when it finished left them part fog,
+        // found by the `verify --history` check of kb: techniques/unresolved-fog).
+        let further_fading = job.further_done_at.is_none_or(|t| now - t < 4.0 * self.config.fade_tau);
+        if (!exact_done || further_fading) && job.further.as_ref().is_some_and(|f| f.mask.is_some()) {
             return Some((COMPOSE_FURTHER, None));
         }
         if fading || !exact_done {
@@ -3038,6 +3073,7 @@ impl<B: GpuBackend> Renderer<B> {
             final_presented: false,
             complete_presented: false,
             complete_at: None,
+            further_done_at: None,
             aa_composed: 0,
             aa_epoch: 0,
             aa_list: None,
@@ -4730,7 +4766,8 @@ impl<B: GpuBackend> Renderer<B> {
         let (w, h) = (full.set.width, full.set.height);
         let iter = full.set.iter.clone();
         let words = (w * h).div_ceil(32);
-        let mask = self.backend.create_buffer(words.max(1) * 4, Storage::Private).ok();
+        // (Shared: `verify --history` reads it back, kb: techniques/unresolved-fog "Checks".)
+        let mask = self.backend.create_buffer(words.max(1) * 4, Storage::Shared).ok();
         let encoded = mask.as_ref().is_some_and(|m| {
             let Ok(mut enc) = self.backend.begin("further mask") else {
                 return false;
@@ -5282,15 +5319,38 @@ impl<B: GpuBackend> Renderer<B> {
         let rank = level
             .and_then(|l| l.order.as_ref())
             .map_or(&self.dummy_buffer, |o| &o.rank);
+        let aux = src.aux.as_ref().unwrap_or(&src.iter);
+        let palette = self.palette_buffer.as_ref().expect("palette");
+        // Fog over unresolved pixels (kb: techniques/unresolved-fog): its pyramid first.
+        let fog = match level {
+            Some(l) if self.config.fog && job.has_unresolved() => crate::fog::build(
+                &mut self.fog,
+                &self.backend,
+                &mut enc,
+                &crate::fog::FogSource {
+                    iter: &src.iter,
+                    de: &src.de,
+                    aux,
+                    palette,
+                    level_counters: &self.level_buffer,
+                    rank,
+                    size: (src.width, src.height),
+                },
+                &mut c,
+                job.key.points_per_pixel / l.ratio,
+            ),
+            _ => None,
+        };
         enc.set_pipeline(&self.colorize_pipeline);
-        enc.set_buffer(1, self.palette_buffer.as_ref().expect("palette"), 0);
+        enc.set_buffer(1, palette, 0);
         enc.set_buffer(2, &self.level_buffer, 0);
         enc.set_buffer(3, rank, 0);
         enc.set_texture(0, &src.iter);
         enc.set_texture(1, &src.de);
         enc.set_texture(2, target);
         enc.set_texture(3, under.map_or(target, |u| u.0));
-        enc.set_texture(4, src.aux.as_ref().unwrap_or(&src.iter));
+        enc.set_texture(4, aux);
+        enc.set_texture(5, fog.as_ref().unwrap_or(&src.iter));
         enc.set_bytes(0, bytes_of(&c));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([target_w, target_h, 1], [tw, th, 1]);
@@ -5337,6 +5397,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_texture(2, color);
         enc.set_texture(3, color);
         enc.set_texture(4, p.set.aux.as_ref().unwrap_or(&p.set.iter));
+        enc.set_texture(5, &p.set.iter); // (no fog: c.fog_levels = 0)
         enc.set_bytes(0, bytes_of(&c));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([p.set.width, p.set.height, 1], [tw, th, 1]);
@@ -5456,6 +5517,33 @@ impl<B: GpuBackend> Renderer<B> {
                 q.cache = 1;
             }
         }
+        // Fog over unresolved pixels (kb: techniques/unresolved-fog): the pyramid of the exact
+        // level (texel = output pixel) for the passes that draw its unresolved texels.
+        let fog = match exact {
+            Some(l)
+                if self.config.fog
+                    && matches!(mode, COMPOSE_REFINE | COMPOSE_EXACT | COMPOSE_FURTHER)
+                    && job.has_unresolved() =>
+            {
+                crate::fog::build(
+                    &mut self.fog,
+                    &self.backend,
+                    &mut enc,
+                    &crate::fog::FogSource {
+                        iter: &iter_tex,
+                        de: &de_tex,
+                        aux: &aux_tex,
+                        palette: self.palette_buffer.as_ref().expect("palette"),
+                        level_counters: &self.level_buffer,
+                        rank: &rank,
+                        size: (l.set.width, l.set.height),
+                    },
+                    &mut c,
+                    key.points_per_pixel,
+                )
+            }
+            _ => None,
+        };
         // Reprojection of the history into this view: scale, rotation and translation.
         let s = key.viewport.scale * key.points_per_pixel;
         q.hist_rot = [1.0, 0.0];
@@ -5497,6 +5585,7 @@ impl<B: GpuBackend> Renderer<B> {
             .filter(|m| m.1 == out_w)
             .map_or(&self.dummy_buffer, |m| &m.0);
         enc.set_buffer(5, mask, 0);
+        enc.set_texture(7, fog.as_ref().unwrap_or(&iter_tex));
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5601,6 +5690,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(3, &self.dummy_buffer, 0);
         enc.set_bytes(4, bytes_of(&q));
         enc.set_buffer(5, &self.dummy_buffer, 0);
+        enc.set_texture(7, hist_in);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -6563,6 +6653,27 @@ impl<B: GpuBackend> Renderer<B> {
             self.encode_overlay(&mut enc, &lin, &target, true);
             enc
         } else {
+            // `ALMONDBREAD_COLORIZE_BENCH=n`: the colour pass n times more, GPU ms min / median
+            // (the cost of the fog over unresolved pixels was measured so, kb:
+            // techniques/unresolved-fog).
+            if let Some(n) = std::env::var("ALMONDBREAD_COLORIZE_BENCH")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&n| n > 0)
+            {
+                let mut ms = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let sub = self.encode_colorize(&target, false)?.commit();
+                    sub.wait();
+                    ms.push(sub.gpu_time() * 1000.0);
+                }
+                ms.sort_by(f64::total_cmp);
+                println!(
+                    "colorize bench: GPU min {:.3} ms, median {:.3} ms over {n}",
+                    ms[0],
+                    ms[n / 2]
+                );
+            }
             self.encode_colorize(&target, false)?
         };
         let sub = enc.commit();
@@ -6718,6 +6829,16 @@ impl<B: GpuBackend> Renderer<B> {
         let shown = &job.levels[job.display()];
         let iterations = self.read_iterations(&shown.set)?;
         let unresolved = iterations.iter().filter(|t| t[0] == ITER_UNRESOLVED).count();
+        let further_marked = job
+            .further
+            .as_ref()
+            .and_then(|f| f.mask.as_ref())
+            .filter(|m| m.1 == shown.set.width)
+            .map(|m| {
+                let mut words = vec![0u32; (shown.set.width * shown.set.height).div_ceil(32)];
+                self.backend.read_buffer(&m.0, 0, bytemuck::cast_slice_mut(&mut words));
+                words
+            });
         Ok(SimulationResult {
             pixels,
             width,
@@ -6737,6 +6858,7 @@ impl<B: GpuBackend> Renderer<B> {
             unresolved,
             reference_length: shown.params.ref_len as usize,
             iterations,
+            further_marked,
         })
     }
 }

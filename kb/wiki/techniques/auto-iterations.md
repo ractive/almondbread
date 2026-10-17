@@ -83,9 +83,10 @@ From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers
 
 - **Unresolved is not interior.** A pixel that reaches the limit without being
   proven interior by the derivative test ([[techniques/interior-detection]]) is
-  stored as *unresolved* (iteration code −3). It is drawn as the interior colour
-  lifted 3 % (linear) towards neutral grey: the same in every view, distinguishable
-  from interior, and still reading as "inside" at a glance. Most such pixels are
+  stored as *unresolved* (iteration code −3). It was drawn as the interior colour
+  lifted 3 % (linear) towards neutral grey, then (2026-10-17) as a flat dark grey veil;
+  since 2026-10-17 it is fog, lit by the resolved pixels around and almost black further
+  in ([[techniques/unresolved-fog]]). Most such pixels are
   slow-converging interior near parabolic points. Without the test (the adaptive
   switch turned it off) nothing can be told apart, and limit pixels are drawn as
   interior as before.
@@ -211,7 +212,7 @@ so no extension pass runs and `escapedPast` stays zero; at 1600 × 1000 the pass
 in the 2 s budget and the learner still stops at 4× depth. Lifting the cap would not be cheap:
 a resolved frame there needs 10^12–10^13 iterations (minutes of GPU). Escalation towards the
 user's cap belongs in an explicit or idle background refinement with progress, and the
-unresolved colour should differ from interior (open; proposal in the log, 2026-10-17).
+unresolved colour should differ from interior (done 2026-10-17: [[techniques/unresolved-fog]]).
 
 ## Compute further (2026-10-17)
 
@@ -267,8 +268,11 @@ loop:
   sample only, as extension-resolved pixels always did (AA samples iterate to the nominal
   limit and skip unresolved samples). AA done (M1 Pro, 1600 × 1000): neck 2.3 s on main,
   1.9–2.3 s with compute further; seahorse 0.30 / 0.30 s; home 0.33 / 0.35 s. The `verify
-  --history` check "resolved pixels in the unresolved colour" is 0 on home, seahorse and the
-  neck with `--ss 3`, and 14 % when the mode is disabled on purpose.
+  --history` check "resolved pixels in the unresolved colour" was 0 on home, seahorse and the
+  neck with `--ss 3`, and 14 % when the mode is disabled on purpose. With the fog it became
+  "pixels resolved by compute further not showing their colour" (by the field data against a
+  fresh render; [[techniques/unresolved-fog]] "Checks"), which found the last pass's texels
+  left part faded; the compose now runs on for 4 τ after the last pass.
 - Switches: `ALMONDBREAD_FURTHER=0|1` (default 1); `--further 0|1` and `--further-budget s` on
   `verify --history` (default off there, so `make regress` stays as fast: 302.8 s against
   300.2 s on main, the 2.4 s being its one compute further session, the neck at 400 × 250 with
