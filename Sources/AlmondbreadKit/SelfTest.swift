@@ -147,6 +147,39 @@ public enum UIDemo {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/chrome-\(scene).png"))
     }
 
+    /// `--ui-demo=help-window`: the help window, kept behind all others.
+    @MainActor static var helpWindow: NSWindow?
+
+    /// The window as the window server has it plus its popovers (child windows of their own),
+    /// composited in place: `help-<scene>.png`.
+    @MainActor
+    static func captureWithPopovers(window: NSWindow, scene: String) {
+        func image(_ w: NSWindow) -> CGImage? {
+            CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(w.windowNumber),
+                                    [.boundsIgnoreFraming, .bestResolution])
+        }
+        guard let base = image(window) else { print("ui-demo: popover capture failed"); return }
+        let popovers = NSApplication.shared.windows.filter {
+            $0 !== window && $0.isVisible && String(describing: type(of: $0)).contains("Popover")
+        }
+        var union = window.frame
+        for p in popovers { union = union.union(p.frame) }
+        let scale = CGFloat(base.width) / window.frame.width
+        guard let ctx = CGContext(data: nil, width: Int(union.width * scale), height: Int(union.height * scale),
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        func draw(_ img: CGImage, _ frame: NSRect) {
+            ctx.draw(img, in: CGRect(x: (frame.minX - union.minX) * scale, y: (frame.minY - union.minY) * scale,
+                                     width: frame.width * scale, height: frame.height * scale))
+        }
+        draw(base, window.frame)
+        for p in popovers { if let img = image(p) { draw(img, p.frame) } }
+        guard let out = ctx.makeImage() else { return }
+        let rep = NSBitmapImageRep(cgImage: out)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/help-\(scene).png"))
+        print("ui-demo: help capture \(scene): \(popovers.count) popover(s)")
+    }
+
     @MainActor
     private static func findFractalView(_ v: NSView) -> NSView? {
         if v is FractalNSView { return v }
@@ -186,6 +219,7 @@ public enum UIDemo {
         case "autopilot": "autopilot"
         case "pi", "pi-flight": "π"
         case "cosmic", "cosmic-deep": "cosmic"
+        case "help-control": "iterations"
         default: nil
         }
     }
@@ -230,6 +264,27 @@ public enum UIDemo {
             // (the probe sliding) or 16 s ("-late": the deepest counts, the trail crawling).
             let point = scene.hasPrefix("pi-cusp") ? "cusp" : "neck"
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight(point) }
+        case "help-canvas":
+            // The cosmic scale's help popover (kb: decisions/controls "Help"): the scale above
+            // the mini-map, then a press on its "?" badge (below, once the view settled).
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
+            model.mapEnabled = true
+            model.mapLevels = 2
+            model.cosmicScale = true
+            model.piMeterEnabled = true
+        case "help-window":
+            // The help window's page "What am I seeing?" in a window of its own, behind all others.
+            #if os(macOS)
+            HelpCenter.shared.page = .seeing
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 660),
+                             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                             backing: .buffered, defer: false)
+            w.title = "Almondbread Help"
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: HelpView().preferredColorScheme(.dark))
+            w.orderBack(nil)
+            helpWindow = w
+            #endif
         case "cosmic":
             // The size scale stacked above the mini-map (both bottom left).
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
@@ -281,6 +336,7 @@ public enum UIDemo {
         }
         // Report the window once the view settled and the maps had time to render.
         let start = Date()
+        var helpShownAt: Date?
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
             MainActor.assumeIsolated {
                 model.refreshStats()
@@ -296,9 +352,23 @@ public enum UIDemo {
                     && t > 6
                 if progressReady || !scene.hasPrefix("progress") && t > (moving ? movingAt : 8),
                    progressReady || model.stats?.settled == true || moving,
-                   let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
+                   let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil && $0 !== helpWindow
+                       && !String(describing: type(of: $0)).contains("Popover") }) {
+                    // help-canvas: press the cosmic scale's badge, capture once its popover is up.
+                    if scene == "help-canvas" {
+                        if helpShownAt == nil,
+                           let b = explorer.helpBadges().first(where: { $0.topic == "cosmic-scale" }),
+                           let root = w.contentView, let fractal = findFractalView(root) {
+                            model.showCanvasHelp(.cosmicScale, x: b.x, y: b.y, radius: b.radius, size: fractal.bounds.size)
+                            helpShownAt = Date()
+                            print("ui-demo: badges " + explorer.helpBadges().map { "\($0.topic) \(Int($0.x)),\(Int($0.y))" }.joined(separator: " · "))
+                        }
+                        if Date().timeIntervalSince(helpShownAt ?? Date()) < 2 { return }
+                    }
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
+                    if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
+                    if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
                     if let view = NSApplication.shared.mainMenu?.items.first(where: { $0.title == "View" })?.submenu {
                         view.update()

@@ -182,6 +182,31 @@ impl<B: GpuBackend + Clone> Host<B> {
         self.overlay.click(&self.renderer, px, py, ppp, fly)
     }
 
+    /// The help badge (kb: decisions/controls "Help") under a press at (x, y) view points from
+    /// the centre, y up: its topic, centre (same coordinates) and radius in points. The platform
+    /// then shows the topic's popover there and gives the press to nothing else.
+    pub fn help_hit(&self, x: f64, y: f64) -> Option<(crate::help::HelpTopic, (f64, f64), f64)> {
+        let ppp = self.points_per_pixel;
+        if ppp <= 0.0 {
+            return None;
+        }
+        let px = self.width as f64 / 2.0 + x / ppp;
+        let py = self.height as f64 / 2.0 - y / ppp;
+        crate::help::hit(&self.overlay.help, px, py, 1.0 / ppp).map(|b| self.help_badge_points(&b))
+    }
+
+    /// Every help badge of the last scene, in view points from the centre, y up (window tests).
+    pub fn help_badges(&self) -> Vec<(crate::help::HelpTopic, (f64, f64), f64)> {
+        self.overlay.help.iter().map(|b| self.help_badge_points(b)).collect()
+    }
+
+    fn help_badge_points(&self, b: &crate::help::HelpBadge) -> (crate::help::HelpTopic, (f64, f64), f64) {
+        let ppp = self.points_per_pixel;
+        let x = (f64::from(b.centre[0]) - self.width as f64 / 2.0) * ppp;
+        let y = (self.height as f64 / 2.0 - f64::from(b.centre[1])) * ppp;
+        (b.topic, (x, y), f64::from(b.radius) * ppp)
+    }
+
     /// A press at (x, y) view points from the centre, y up: on the visible compass it starts
     /// following the pointer (a drag turns the view, a click turns it to north on release) and
     /// returns true (the platform then gives the press, its drag and its release to the
@@ -233,6 +258,9 @@ impl<B: GpuBackend + Clone> Host<B> {
         {
             let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
             self.overlay.prepare(&mut self.renderer, (w, h), ppp, now);
+        } else {
+            // Nothing drawn: no badge to press.
+            self.overlay.help.clear();
         }
     }
 

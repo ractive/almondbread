@@ -218,6 +218,9 @@ struct ControlSectionHeader: View {
             .buttonStyle(.plain)
             .accessibilityAddTraits(.isHeader)
             .accessibilityHint(open ? "Collapses the section" : "Expands the section")
+            if let topic = section.helpTopic {
+                HelpButton(topic: topic)
+            }
             if let scope = section.resetScope {
                 Button {
                     model.reset(scope, undo: undoManager)
@@ -839,6 +842,18 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .overlays: "square.on.square.dashed"
         case .quality: "sparkles"
         case .controls: "keyboard"
+        }
+    }
+
+    /// What the header's (?) explains (kb: decisions/controls "Help"); nil: no (?).
+    var helpTopic: HelpTopic? {
+        switch self {
+        case .quality: .iterations
+        case .look: .look
+        case .interior: .interior
+        case .overlays: .overlays
+        case .controls: .controls
+        default: nil
         }
     }
 

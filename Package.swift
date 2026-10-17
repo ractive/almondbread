@@ -17,8 +17,9 @@ let package = Package(
         .target(
             name: "AlmondbreadKit",
             dependencies: ["AlmondbreadCore"],
-            // Places catalogue thumbnails (`almondbread places --render-thumbs`; PlaceThumbnails).
-            resources: [.copy("Resources/Places")]
+            // Places catalogue thumbnails (`almondbread places --render-thumbs`; PlaceThumbnails) and
+            // the help texts (Markdown, kb: decisions/controls "Help").
+            resources: [.copy("Resources/Places"), .copy("Resources/Help")]
         ),
         // `swift run AlmondbreadMac`: the macOS app without an Xcode project, for quick iteration.
         .executableTarget(

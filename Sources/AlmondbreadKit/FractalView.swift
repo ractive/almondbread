@@ -226,6 +226,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     /// The current mouse press landed on the compass: its drag and release go there (Rust
     /// hit-tests, turns and eases; kb: decisions/controls "Compass").
     private var compassPressed = false
+    /// The current press is on a help badge (its popover opened on the press): its drag and
+    /// release go nowhere.
+    private var helpPressed = false
     private var gamepad: GamepadInput?
 
     init(model: ExplorerModel) {
@@ -628,6 +631,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if helpPressed {
+            helpPressed = false
+            return
+        }
         if compassPressed {
             // A click (or the second click of a double click) eases the view back to north.
             compassPressed = false
@@ -648,6 +655,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if helpPressed { return }
         if compassPressed {
             let o = offset(event.locationInWindow)
             model.compassDrag(x: o.x, y: o.y)
@@ -668,6 +676,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         window?.makeFirstResponder(self)
         // The compass takes single and double clicks (no double-click zoom under it).
         let p = offset(event.locationInWindow)
+        // A help badge (the "?" Rust draws on a panel) opens its popover; its double click
+        // does not zoom (kb: decisions/controls "Help").
+        if model.helpPress(x: p.x, y: p.y, size: bounds.size, show: event.clickCount == 1) {
+            helpPressed = true
+            return
+        }
         if model.compassPress(x: p.x, y: p.y) {
             compassPressed = true
             return
@@ -991,7 +1005,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
 
     @objc private func handleDoubleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
-        // On the compass a double tap turns to north, like a tap; no zoom.
+        // On a help badge a double tap does nothing more; on the compass it turns to north,
+        // like a tap; no zoom.
+        if base.model.helpPress(x: o.x, y: o.y, size: bounds.size, show: false) { return }
         if base.model.compassTap(x: o.x, y: o.y) { return }
         send(.doubleTap(x: o.x, y: o.y, out: false))
     }
@@ -999,7 +1015,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     @objc private func handleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
         // A tap on the compass turns to north; on a mini-map it jumps there; elsewhere it
-        // pauses / resumes the autopilot.
+        // pauses / resumes the autopilot. A help badge opens its popover first.
+        if base.model.helpPress(x: o.x, y: o.y, size: bounds.size) { return }
         if base.model.compassTap(x: o.x, y: o.y) { return }
         if base.model.mapClick(x: o.x, y: o.y, fly: false) { return }
         send(.click(x: o.x, y: o.y))

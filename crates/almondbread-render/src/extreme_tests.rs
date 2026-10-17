@@ -56,7 +56,7 @@ fn extreme_cosmic_panel_past_f64_depths() {
             o.update(&view, size, ppp, now);
             let mut scene = Scene::default();
             let mut key = String::new();
-            o.draw(&mut scene, size, ppp, [24.0, 1176.0], now, &mut key);
+            o.draw(&mut scene, &mut Vec::new(), size, ppp, [24.0, 1176.0], now, &mut key);
             assert!(scene.prims.len() < 10_000);
         }
     }
@@ -104,7 +104,7 @@ fn extreme_pi_meter_layout_and_flight() {
         (1e300, 1e300, 1e-300),
     ] {
         let mut scene = Scene::default();
-        let _ = m.draw(&mut scene, w, h, px, Reserve::default());
+        let _ = m.draw(&mut scene, &mut Vec::new(), w, h, px, Reserve::default());
         assert!(scene.prims.len() < 100_000);
     }
     assert!(t0.elapsed().as_secs_f64() < 0.5, "{:?}", t0.elapsed());

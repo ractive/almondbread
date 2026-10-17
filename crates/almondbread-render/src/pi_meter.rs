@@ -551,7 +551,15 @@ impl PiMeter {
 
     /// Draws the panels into `scene` (output pixels `w` x `h`, `px` pixels per point), clear
     /// of `reserve`, and returns the scene key part (the scene is rebuilt when it changes).
-    pub fn draw(&self, scene: &mut Scene, w: f64, h: f64, px: f64, reserve: Reserve) -> String {
+    pub fn draw(
+        &self,
+        scene: &mut Scene,
+        help: &mut Vec<crate::help::HelpBadge>,
+        w: f64,
+        h: f64,
+        px: f64,
+        reserve: Reserve,
+    ) -> String {
         if !self.enabled {
             return String::new();
         }
@@ -571,14 +579,17 @@ impl PiMeter {
             ];
             let size = 12.0 * p;
             let wmax = lines.iter().map(|l| crate::font::layout(l, size).1).fold(0.0, f32::max);
-            let bw = wmax + 2.0 * pad;
+            let bw = wmax + 2.0 * pad + crate::help::reserve(p);
             let bh = 2.0 * pad + size * (1.0 + 1.5);
             let r = [right - bw, bottom - bh, right, bottom];
             scene.rect(r, 8.0 * p, fill, border, p);
             for (k, l) in lines.iter().enumerate() {
                 scene.text([r[0] + pad, r[1] + pad + k as f32 * 1.5 * size], size, l, white(0.85));
             }
-            return format!("pi hint {w}x{h} {px} {:?} {reserve:?}", self.inset);
+            let mut key = format!("pi hint {w}x{h} {px} {:?} {reserve:?}", self.inset);
+            let c = crate::help::top_right(r, p);
+            crate::help::draw(scene, help, crate::help::HelpTopic::PiMeter, c, p, &mut key);
+            return key;
         };
         let point = t.point;
         let last = self.last.filter(|m| m.point == point);
@@ -648,6 +659,14 @@ impl PiMeter {
         debug_assert!((bh - panel_height(p)).abs() < 1e-3);
         let r = [right - bw, bottom - bh, right, bottom];
         scene.rect(r, 8.0 * p, fill, border, p);
+        crate::help::draw(
+            scene,
+            help,
+            crate::help::HelpTopic::PiMeter,
+            crate::help::top_right(r, p),
+            p,
+            &mut canvas_key,
+        );
         let x0 = r[0] + pad;
         let top = r[1] + pad;
         let (sym, line) = match point {
@@ -1301,7 +1320,7 @@ mod tests {
         assert_eq!((s.point.as_str(), s.count, s.digits), ("neck", 31417, 4));
         assert!(m.trail_picture().is_some_and(|i| i.done && i.n == 31417));
         let mut scene = Scene::default();
-        let key = m.draw(&mut scene, 1600.0, 1000.0, 1.0, Reserve::default());
+        let key = m.draw(&mut scene, &mut Vec::new(), 1600.0, 1000.0, 1.0, Reserve::default());
         assert!(key.contains("31417") && key.contains("trail ["), "{key}");
         assert!(scene.prims.len() > 50);
         // A probe in the scenic view: the ruler and the probe are drawn.
@@ -1309,7 +1328,7 @@ mod tests {
         let v = PiPoint::Neck.scenic_view(1.0, 1000.0);
         m.update(&v);
         let mut scene = Scene::default();
-        let key = m.draw(&mut scene, 1600.0, 1000.0, 1.0, Reserve::default());
+        let key = m.draw(&mut scene, &mut Vec::new(), 1600.0, 1000.0, 1.0, Reserve::default());
         assert!(key.contains("probe ") && !key.contains("probe off"), "{key}");
         m.wait(&v);
         // What a frame pays when the panels change: update, build, bin at Retina size.
@@ -1318,7 +1337,7 @@ mod tests {
         for _ in 0..100 {
             m.update(&v);
             let mut s = Scene::default();
-            m.draw(&mut s, 2880.0, 1800.0, 2.0, Reserve::default());
+            m.draw(&mut s, &mut Vec::new(), 2880.0, 1800.0, 2.0, Reserve::default());
             std::hint::black_box(s.bin(2880, 1800));
         }
         let per = t0.elapsed().as_secs_f64() / 100.0;
@@ -1346,7 +1365,10 @@ mod tests {
         m.update(&view);
         assert!(!m.busy());
         let mut scene = Scene::default();
-        assert!(m.draw(&mut scene, 1600.0, 1000.0, 1.0, Reserve::default()).is_empty());
+        assert!(
+            m.draw(&mut scene, &mut Vec::new(), 1600.0, 1000.0, 1.0, Reserve::default())
+                .is_empty()
+        );
         assert!(scene.prims.is_empty());
     }
 }

@@ -40,6 +40,8 @@ struct ContentView: View {
     private var explorer: some View {
         FractalCanvas(model: model)
         .ignoresSafeArea()
+        // Popovers of the help badges Rust draws on its panels (kb: decisions/controls "Help").
+        .modifier(CanvasHelpPopover(model: model))
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = $0 }
         .background(Color.black)
         .overlay(alignment: .topLeading) {
@@ -115,6 +117,9 @@ struct ContentView: View {
         .sheet(isPresented: $showFlyTo) {
             FlyToSheet(model: model, isPresented: $showFlyTo)
         }
+        #if os(iOS)
+        .modifier(HelpSheet())
+        #endif
         #if os(macOS)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
