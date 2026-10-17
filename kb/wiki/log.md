@@ -1280,3 +1280,14 @@ whole-set map draws the first 50 steps as a line and the rest as one-pixel dots 
 picture blended by the overlay kernel (0.43 ms per rebuild of 10^5 points, rebuilt every ~19 %
 of growth). The text says "escapes after 48 213 steps", "settles into a period-34 cycle",
 "still undecided after 100 000 steps". [[decisions/controls]] "Orbit overlay".
+
+## [2026-10-17] decision | Seek minibrot (N)
+
+- Built the user's "seek minibrot": N (menu View ▸ Seek Minibrot, iOS long press on the plane
+  button) finds the lowest-period minibrot in or near the view (ball period detection over discs
+  of 1, 3, 9 view spans, Newton refined until its last step is far below the size), tells
+  minibrots from satellite bulbs by the attracting cycle at w = −0.6, and flies to a framing of
+  3.2 |s| centred inside the cardioid. From a minibrot's framing it goes on to the next smaller
+  one: the tuned copy of the period-3 minibrot (period 3p) or a lower period in a ring of discs
+  around it. Bounded (4 s, cancel flag, fixed discs and retries). Home → 3 → 7; needle →
+  4640 → 13920. [[decisions/controls]] "Seek minibrot".

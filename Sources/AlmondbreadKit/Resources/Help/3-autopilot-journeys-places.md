@@ -35,6 +35,14 @@ Press **J** (or click the sparkles in the cockpit) for a journey: an endless fli
 - **J** starts a journey in the mode set in the control center, **Shift + J** in the other one.
 - Every journey has a number, its seed. The same seed from the same start gives the same journey, so you can share it. The **daily journey** is the same for everyone on the same day.
 
+## Seek a minibrot
+
+Press **N** (or View ▸ Seek Minibrot; on iPhone and iPad, a long press on the plane button) to find the simplest tiny copy of the whole set in or near the view, the one with the lowest period, and fly there until it fills the picture. The status overlay names it, for example *Minibrot, period 4640 · 1.0e69×*. Press **N** again and it looks around that one for the next, smaller copy, and so on down.
+
+- Finding one usually takes a moment; meanwhile the overlay says *Seeking a minibrot…*. **Esc** or any other key or move cancels the search.
+- The flight is an ordinary flight: **E** and **Q** change its speed, **Esc** stops it, and steering yourself takes over.
+- If there is none close by, the overlay says so and nothing moves.
+
 ## Places
 
 The control center starts with **Places**: famous views, from the seahorse valley to views deeper than a googol. **Go** jumps there, **Fly** flies there, **Random** picks one for you.

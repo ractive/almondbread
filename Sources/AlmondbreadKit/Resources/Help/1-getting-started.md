@@ -29,6 +29,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Z**: autopilot (flies on by itself)
 - **L**: lane assist while cruising
 - **J**: journey (a planned trip from landmark to landmark); **Shift + J** in the other mode (continuous, or stop at each find)
+- **N**: seek a minibrot (fly to the nearest tiny copy of the set; again: a smaller one)
 - **Esc**: stop the cruise, the autopilot, a flight or a journey; then leave full screen
 - **C**: cosmic size scale
 - **O**: orbit overlay

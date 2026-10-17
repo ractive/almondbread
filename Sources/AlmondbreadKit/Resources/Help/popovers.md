@@ -60,4 +60,4 @@ Each panel has its own **?** in the corner.
 
 Point where you want to go and hold **Space** to zoom in (**Shift + Space** zooms out). Drag to move, **R** to start over.
 
-**E** / **Q** cruise in / out (more presses: faster; **Q** home from any depth), **Z** flies on its own, **J** goes on a journey, **L** is lane assist, **F** is full screen, **Esc** stops.
+**E** / **Q** cruise in / out (more presses: faster; **Q** home from any depth), **Z** flies on its own, **J** goes on a journey, **N** seeks a minibrot, **L** is lane assist, **F** is full screen, **Esc** stops.

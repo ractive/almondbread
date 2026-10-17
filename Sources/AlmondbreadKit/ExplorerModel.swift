@@ -875,6 +875,13 @@ public final class ExplorerModel {
         send(.keyUp(key: .journey))
     }
 
+    /// Seek minibrot (N; kb: decisions/controls "Seek minibrot"): the lowest-period minibrot in
+    /// or near the view, or the next smaller one from a minibrot's framing; flies there.
+    public func seekMinibrot() {
+        send(.keyDown(key: .seekMinibrot))
+        send(.keyUp(key: .seekMinibrot))
+    }
+
     /// A journey with a given seed ("Journey #4711" is reproducible from the same start view).
     public func startJourney(seed: UInt64) {
         explorer?.startJourney(seed: seed)

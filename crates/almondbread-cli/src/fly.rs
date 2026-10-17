@@ -420,6 +420,14 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         final_after.map_or("not".into(), |s| format!("{:.0} ms", s * 1000.0)),
     );
     {
+        let (re, im) = r.viewport.center.to_strings();
+        println!(
+            "  final view: --center {re},{im} --scale {} (zoom {})",
+            r.viewport.scale.to_text(6),
+            almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
+        );
+    }
+    {
         // Gesture work.
         let pf = fs.preview_frames.max(1) as f64;
         println!(

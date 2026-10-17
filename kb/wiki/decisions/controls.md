@@ -890,6 +890,78 @@ nudging), `Explorer::set_cockpit(on, inset_right, inset_bottom)`, `set_assist(on
 Screens: `scripts/ui-screenshots.sh` scenes `cruise-reverse` and `autopilot`. Interaction test
 "cruise out" replaces "zoom out"; the "autopilot" scenario now checks the hand-over.
 
+## Seek minibrot (as built, 2026-10-17)
+
+Requested by the user: one key that finds the simplest minibrot near the view and flies there,
+and again from there the next smaller one. Core: `crates/almondbread-core/src/seek.rs` (`seek`,
+the pure bounded search; `Seeker`, its thread and HUD state, owned by the `Navigator`); FFI
+`NavKey::SeekMinibrot`, `ExplorerStats.seek` (`SeekStatus`: phase, period, target zoom).
+
+| Input | Action |
+| --- | --- |
+| N (free on the macOS and iOS key maps), View ▸ "Seek Minibrot (N)", iOS: long press on the plane button | search off the main thread ("Seeking a minibrot…"), then a normal fly-to to the minibrot's framing; HUD "Minibrot, period 4640 · 1.0e69× · 42 %", for 6 s after landing without the percentage |
+| N again from a minibrot's framing | the next smaller one around it |
+| Esc, any other key, click, scroll, any navigation | cancels the search (Esc is then handled); during the flight Q / E / scroll set its speed and the rest takes over as from any fly-to |
+| nothing found | "No minibrot found nearby" for 3 s; nothing moves |
+
+No toolbar button: the macOS toolbar already holds eight items, and N plus the menu item are
+the discovery path (help: keys list, the controls popover, "Seek a minibrot" on the
+autopilot/journeys page).
+
+**Search** (all bounded: 4 s wall clock, a cancel flag, at most 3 discs × 6 retries in the view,
+1 + 8 discs × 6 around a minibrot, periods ≤ 200 000; [[techniques/hang-prevention]]):
+
+1. Ball period detection over discs about the view centre of radius 1, 3 and 9 view spans
+   (shorter side; radius 1 covers the whole view up to 16:9), lowest period first, Newton for
+   the nucleus from the disc centre within 16 radii (as `almondbread locate`). The nucleus is
+   refined until its precision is −log2 σ + 96 bits *and* Newton's last step is 2^-48 σ or
+   smaller: Newton can stall at half the working precision, and such a "nucleus" (found at
+   period 18560 near the needle) gave a size of 1e-83 instead of 1e-70 and failed every test.
+   Newton landing on the nucleus of a divisor of p (z_p = 0 there too) shows as a size estimate
+   of 0 or above the whole set's and is skipped.
+2. **Minibrot, not bulb.** Ball detection mostly returns satellite bulbs (2p, 3p … of a
+   minibrot in the disc). With the complex size s (a point w of the whole set maps to
+   nucleus + s w), a cardioid is interior at w = −0.6 with a period-p attracting cycle
+   (|λ| ≈ 0.84), a satellite (a disc of radius ~0.5 |s|) has its own period-2 bulb there.
+   Perturbation about the nucleus's periodic orbit (extended range, rebased at each period and
+   when the orbit comes back near 0) for at most 160 periods: the orbit after successive
+   periods settles to 1e-4 → minibrot; settles every second period → satellite; escapes →
+   neither. The first test tried w = 0.4 beyond the cusp (escapes for a cardioid): it failed
+   for the airship at −1.7549, whose cusp, like every embedded minibrot's, sits on the filament
+   it hangs from (the real axis).
+3. A minibrot whose framing (2.8 |s| on the shorter side) is at most half the view is the
+   target. One wider than that, within 2 spans of the centre and under 8 views wide, is the one
+   in view: the search goes on to a smaller one around it. Larger ones (the view is in their
+   decorations) are skipped.
+4. **Around a minibrot of period p:** the copy of the period-3 minibrot on its antenna (tuning:
+   period 3p at w = −1.75488, Newton directly, no ball search: from period p + 1 the ball over
+   that small disc inflated past the bailout and found nothing), and ball searches from period
+   p + 1 in eight discs of radius |s| at |w| = 2.6 (the structure it sits in) for a lower
+   period than the best so far, skipping 2p (its period-2 bulb). Only minibrots under 0.6 of
+   its size count; the lowest period wins.
+
+**Framing.** Centre at w = −0.55 (inside the cardioid, between cusp and period-2 bulb), the
+shorter side 2.8 |s|: the minibrot with its antenna (w = −2 … 0.47 along its axis) fills most of the
+view (the first 3.2 |s| left the body at half the window height in the needle flight); the
+view's angle is kept.
+
+**Numbers** (measured 2026-10-17, M1 Pro, release, machine under heavy load): home → the
+period-3 airship (0.1 ms); N again → the period-7 minibrot at −1.6741; the needle view (scale
+4.2e-48 per point) → period 4640, size 1.0e-67, ~7 view radii off (0.02 s); N again → period
+13920 (its airship copy, size 2e-69, 0.1 s; before skipping 2p and capping the ring's periods at
+the best so far: 0.9 s); seahorse valley at span 1e-6 (inside the period-39 minibrot's
+decorations, which is larger than the view) → period 117 (2 ms). Headless
+`scripts/flights/seek-needle.json` (1280 × 800, N at 0.5 s and 34 s) ends on the period-13920
+framing; rendered with 3e6 iterations its centre is interior.
+
+**Tests.** `seek::tests`: home finds the airship and from its framing a smaller one; bulbs
+(period 2, the 1/3 bulb, period 4 at −1.3107) are not minibrots, the cardioid and airship are;
+the needle finds 4640 then 13920 (< 2 s); seahorse valley; cancel; the navigator flies N twice
+and lands bit-exactly on the framing, the HUD state times out, a pan clears it, far outside the
+set "not found" moves nothing, Esc cancels a threaded search and is handled, a threaded search
+lands as a flight. Headless: `scripts/flights/seek-needle.json` (`fly` prints the final view;
+key `n` / `seek` in scripts).
+
 ## Zoom-out autopilot (as built 2026-10-17; removed the same day, replaced by reverse cruise)
 
 Removed with the driving levels (above): ⇧Z, `Navigator::start_zoom_out`, `NavKey::AutopilotOut`,

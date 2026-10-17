@@ -29,6 +29,7 @@ use crate::cinematic::Cinematic;
 use crate::cruise::{self, Cruise, Level};
 use crate::flyto::{self, Flight, FlyPath};
 use crate::journey::{self, Choice, Journey};
+use crate::seek::{SeekPhase, Seeker};
 use crate::viewport::{Scale, Viewport, wrap_angle};
 
 /// Keys with a navigation meaning. The platform layer decodes its key events into these
@@ -72,6 +73,9 @@ pub enum NavKey {
 
     /// X: at a journey stop, somewhere else (the next leg crosses over); not handled otherwise.
     Elsewhere,
+    /// N: seek the lowest-period minibrot in or near the view (the next smaller one from a
+    /// minibrot's framing) and fly there (kb: decisions/controls "Seek minibrot").
+    SeekMinibrot,
 }
 
 impl NavKey {
@@ -375,6 +379,8 @@ pub struct Navigator {
     cinematic: Cinematic,
     /// The journey: planned flights from landmark to landmark (kb: decisions/controls).
     journey: Journey,
+    /// Seek minibrot (N): its search thread and what the HUD says.
+    seek: Seeker,
     /// The setting "Journey: stop at each find" (J starts that mode, ⇧J the other).
     journey_stops: bool,
     /// Cruise: the pedal-driven zoom of level C (kb: decisions/controls "Driving levels").
@@ -483,6 +489,7 @@ impl Default for Navigator {
             rot_step_left: 0.0,
             cinematic: Cinematic::default(),
             journey: Journey::default(),
+            seek: Seeker::default(),
             journey_stops: false,
             cruise: Cruise::default(),
             pedal_hold: None,
@@ -895,6 +902,7 @@ impl Navigator {
     /// on, the view turns with the zoom on the way (the target's angle is then where the
     /// spin ends); otherwise it turns to the target's angle the short way round.
     pub fn fly_to(&mut self, target: &Viewport, viewport: &Viewport, now: f64) {
+        self.seek.clear();
         let was = self.is_animating();
         self.stop_motion();
         self.journey.stop();
@@ -942,10 +950,43 @@ impl Navigator {
     /// The view was set directly (go to coordinates, reset): a flight ends where it is.
     pub fn cancel_flight(&mut self) {
         self.flight = None;
+        self.seek.clear();
     }
 
     pub fn flight(&self) -> Option<&Flight> {
         self.flight.as_ref()
+    }
+
+    /// A finished minibrot search: fly to the minibrot found (the view's angle kept).
+    fn poll_seek(&mut self, viewport: &Viewport, now: f64) {
+        if let Some(m) = self.seek.poll(now) {
+            let target = m.viewport(self.min_side()).with_angle(viewport.angle);
+            self.fly_to(&target, viewport, now);
+            self.seek.flying(&m, target.zoom_log10(), now);
+        }
+    }
+
+    /// Navigation ends a minibrot seek (its search, or the label of its flight): any key but N
+    /// (Q / E and scrolling only while it searches: during the flight they set its speed), a
+    /// click, or input that takes over a flight.
+    fn ends_seek(&self, event: &InputEvent) -> bool {
+        let searching = self.seek.is_searching();
+        match *event {
+            InputEvent::KeyDown(NavKey::SeekMinibrot) => false,
+            InputEvent::KeyDown(NavKey::SlowerZoom | NavKey::FasterZoom) => searching,
+            InputEvent::KeyDown(_) => true,
+            InputEvent::Click { .. } | InputEvent::Scroll { .. } | InputEvent::WheelNotch { .. } => searching,
+            ref e => Self::cancels_flight(e),
+        }
+    }
+
+    /// Seek minibrot's state for the HUD: phase, period, the target's zoom (log10).
+    pub fn seek_status(&self, now: f64) -> (SeekPhase, usize, f64) {
+        self.seek.status(now)
+    }
+
+    pub fn seek_mut(&mut self) -> &mut Seeker {
+        &mut self.seek
     }
 
     /// The flight's target, for an early reference.
@@ -1236,7 +1277,12 @@ impl Navigator {
             e => e,
         };
         let was_animating = self.is_animating();
-        let handled = self.apply(event, viewport, now);
+        let seeking = self.seek.is_searching();
+        if self.ends_seek(&event) {
+            self.seek.clear();
+        }
+        // Esc while seeking was handled (it cancelled the search).
+        let handled = self.apply(event, viewport, now) || (seeking && event == InputEvent::KeyDown(NavKey::Stop));
         if !was_animating && self.is_animating() {
             // Motion starts now: the first frame integrates from this event, not from the
             // last frame before the display link paused (that was up to 0.1 s of jump).
@@ -1551,6 +1597,10 @@ impl Navigator {
 
             // X means something only at a journey stop (handled before).
             NavKey::Elsewhere => return false,
+            NavKey::SeekMinibrot if down => {
+                self.seek.start(viewport, self.min_side(), now);
+                self.poll_seek(viewport, now);
+            }
             // Q / E: the Space speed while Space is held, a fly-to's speed, else the pedals
             // (kb: decisions/controls "Driving levels").
             NavKey::SlowerZoom | NavKey::FasterZoom => {
@@ -1751,6 +1801,7 @@ impl Navigator {
             None => 1.0 / 60.0,
         };
         self.last_tick = Some(now);
+        self.poll_seek(viewport, now);
         let gliding = self.is_gliding();
         // The zoom follows the crosshair while it glides: the target is where it is drawn.
         self.glide(dt);
@@ -1810,6 +1861,7 @@ impl Navigator {
             self.step_north(dt, viewport);
             if done {
                 self.flight = None;
+                self.seek.landed(now, stopped);
                 if self.cruise.landing().is_some() {
                     // The cruise's soft landing rests on the home view (or stopped on the way).
                     self.cruise.end_landing();
@@ -1825,7 +1877,8 @@ impl Navigator {
             return true;
         }
         if !self.is_moving() {
-            return gliding;
+            // A minibrot search wants frames (to be polled), not motion.
+            return gliding || self.seek.is_searching();
         }
         self.note_interaction(now);
         let (tx, ty, tz) = self.target_velocity();
