@@ -262,6 +262,10 @@ public final class ExplorerModel {
     /// cusp 1/4 + ε, the escape count times ε (√ε) closing in on π, drawn by Rust.
     public var piMeterEnabled = false { didSet { pushPiMeter() } }
     /// Extra right margin of the π panel (points): iPhone portrait keeps its buttons clear.
+    /// The HUD's zoom at a place in this window minus the place's catalogue zoom (log10;
+    /// `Explorer.placeZoomOffset`), cached at each resize. Not observed: the place pills read it
+    /// when Places draws, and a live window resize does not redraw 79 tiles per frame.
+    @ObservationIgnored var placeZoomOffset = 0.0
     public var piMeterInsetRight = 0.0 { didSet { if piMeterInsetRight != oldValue { pushPiMeter() } } }
     /// Cosmic size scale (kb: decisions/controls, "Cosmic size scale"): off by default.
     public var cosmicScale = false { didSet { pushCosmic() } }

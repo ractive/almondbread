@@ -120,7 +120,8 @@ lazy container may replace the form if it looks close to it.
   |zₙ|, the map note and the π reading were already drawn on the canvas by Rust. Buttons read
   change-only model properties (`autopilotActive`, `journeyActive`, and new `flightActive`,
   `journeySuspended`, `journeySeed`, `viewTurned`), assigned only when they change.
-- **macOS: a `ScrollView` + `LazyVStack` instead of the grouped `Form`.** Every row of every
+- **macOS: a `ScrollView` + `LazyVStack` instead of the grouped `Form`** (the `LazyVStack`
+  became a plain `VStack` on 2026-10-17 after a second permanent hang; see the last section). Every row of every
   open section is its own child of the lazy stack: `ControlCardRows` splits a section's rows
   with `Group(subviews:)` (macOS 15) and draws each row's slice of the rounded card (corners on
   the first and last, a separator between rows). Tile grids (Places, palettes) are split into
@@ -180,3 +181,76 @@ in `NSHostingView.layout` and `DisplayList.ViewUpdater` (making the platform vie
 layers), not in bodies. The toggle animation makes no difference (measured with and without).
 Per-row laziness only helps for rows below the fold. What is left to try: fewer views per
 tile (one `Canvas` per grid row), or keeping a closed Places section's views alive.
+
+## Hang: opening and scrolling the sidebar (2026-10-17)
+
+The user opened the control center and scrolled down (Places, Overlays and Quality open,
+window 1728 × 1083); the main thread never answered again (hang report
+`hang-20261017-205937.txt`, no "recovered" line). The stack was pure SwiftUI graph update
+(`NSHostingView.beginTransaction` → `GraphHost.flushTransactions` → `DynamicBody.updateValue`),
+the renderer idle. The ring buffer showed the canvas insets growing 157 → 330 pt in 0.13 s:
+in a key window AppKit animates the reveal and lays the sidebar out at every width on the way
+(the buffer had dropped the widths below 157).
+
+How it was measured: `--ui-demo=perf-open` (background window) opens the control center the
+first time after launch and again, scrolls it top to bottom and back with continuous
+(trackpad-phase) scroll events at 1200 pt/s, with the user's sections, all of them, only
+Places, and with legacy scroll bars. A background window does not animate the reveal, so
+`perf-open` replays it: the split view's divider stepped from 20 to 330 pt in 16 steps of
+8 ms (the item's minimum lowered for the replay). `--ui-demo=perf-stress` runs 40 seeded
+rounds of open, random scrolls (200-4000 pt/s, random distances and pauses) and close, with
+the user's sections or all of them, 30 % of them while the canvas renders, in a full-screen
+window; it prints every run-loop iteration over 150 ms with what the script was doing, and a
+stall watchdog `sample`s the process and quits when the main thread is stuck for 4 s.
+
+What we found (measured 2026-10-17, M1-class Mac, `swift build -c release`, background window,
+other agents' builds running):
+
+- **Not reproduced as a permanent hang** with the real code paths. Two stuck runs (main thread
+  busy for good, `sample`d) came from the replayed reveal while the split item could still
+  collapse: each `NSSplitViewItem setCollapsed:` spent 1.3-1.5 s in `NSHostingView.layout` of
+  the lazy stack (`LazySubviewPlacements`, `ForEach` node enumeration, text measuring), and the
+  sidebar width bounced 290 ↔ 330 pt dozens of times. Partly an artefact of the replay, but
+  the same layout work that the reveal triggers.
+- **Every width change re-laid the whole sidebar out**: 20-60 ms per step with the
+  `LazyVStack` (100-300 ms with a plain `VStack`), and the tile grids rebuilt with new row
+  identities whenever the column count changed (1 → 2 → 3 columns while the sidebar grows).
+  After a reveal from 20 pt the lazy stack's document height jumped to 15 000-17 000 pt (rows
+  measured at a few points wide) against ~2 700 pt settled; scrolling then corrected those
+  estimates. Before: 63 iterations over 150 ms in the stress run, the worst 566 ms (opening with
+  all sections; 704 ms in another run), 98 s main-thread busy.
+- The same lazy-stack cycle as the menu hang above (prefetch / placement in
+  `LazyLayoutViewCache`) is the only mechanism we have seen keep the main thread for good, and
+  it cannot be reproduced in a background window. The place zoom pill also called into Rust
+  from `PlacesSection.body` (`placeZoomOffset()`, the explorer's mutex): cheap and uncontended
+  (no other thread takes that lock), but against the rule that a body never calls into Rust.
+
+The fix (`ControlCenterView.swift`):
+
+1. **The content is laid out at the sidebar's settled width** (`LayoutWidth`): it reports the
+   width it is given but lays its content out at `layoutWidth`, clipped; `layoutWidth` follows
+   the live width 150 ms after it stops changing (never below the 290 pt minimum). The reveal,
+   the hide and a divider drag cost no content layouts; the tile columns change once.
+2. **A plain `VStack` instead of the `LazyVStack`**: no prefetch / placement machinery that can
+   fail to settle. Its cost (below) is the price of a sidebar that cannot hang that way.
+3. **The pill's offset is cached in the model** (`placeZoomOffset`, set on each canvas resize,
+   not observed: a live window resize does not redraw 79 tiles per frame).
+
+| perf-open (user's sections unless noted) | Before (lazy) | After |
+| --- | --- | --- |
+| first open after launch: longest iteration | 77 ms | 40 ms |
+| second open | 60 ms | 40 ms |
+| open, all sections | 42-69 ms | 60-119 ms |
+| scroll down / up 1200 pt/s: longest iteration | 31-38 ms (10-11 ms 2nd pass) | 3-5 ms |
+| scroll, all sections: longest / main busy | 32-36 ms / 40-44 % | 5 ms / 17-20 % |
+| one width step (the reveal) | 20-64 ms | 16 ms median |
+| stress: iterations over 150 ms, worst | 63, 566 ms | 8, 444 ms (all on opens with every section freshly built) |
+| stress: main busy over 40 rounds | 98 s | 51 s |
+
+What the plain stack costs elsewhere (`--ui-demo=perf`, same build): opening a section
+30-150 ms (Look with the palette grid the slowest, Places 67-105 ms) against 10-20 ms lazy;
+closing 5-35 ms; the search rebuild when the query clears (every section back) 327-350 ms
+against 67-92 ms. Rendering with Places open stays at the collapsed baseline (8 % busy). The
+lazy stack with only the settled width (fix 1) measured in between: stress worst 281 ms,
+scroll longest 25-40 ms. If the hang never returns with a `VStack`, the remaining cost to
+attack is the palette grid and the Places grid (fewer views per tile).

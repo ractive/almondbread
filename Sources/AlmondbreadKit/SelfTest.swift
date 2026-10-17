@@ -383,7 +383,7 @@ public enum UIDemo {
             model.mapLevels = 3
             _ = explorer.input(event: .pointer(x: 150, y: -80))
         }
-        if scene == "perf" {
+        if UIPerf.enabled {
             UIPerf.run(model)
             return
         }

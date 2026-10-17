@@ -165,6 +165,9 @@ class FractalHostBase {
 
     func resize(width: CGFloat, height: CGFloat, scale: CGFloat, host: ExplorerHost) {
         explorer?.resize(width: Double(width), height: Double(height), scale: Double(scale))
+        // Cached for the place pills: a view body never calls into Rust (kb:
+        // platform/swiftui-performance).
+        model.placeZoomOffset = explorer?.placeZoomOffset() ?? 0
         host.requestFrames()
     }
 
