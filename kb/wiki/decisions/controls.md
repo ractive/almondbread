@@ -777,19 +777,20 @@ default.
   set/U = 2 and a factor 4 above the galaxy rung no familiar thing is near (only distances
   between galaxies): "The whole set would be bigger than the observable universe". Line 2:
   "your window: 30 cm".
-- **Phase 3, nested universes (from the Planck rung)**: level `k = max(2, floor(n / a))` with
-  `a = log10(U / atom) ≈ 36.92` decades (set/U = (U/atom)^k: imagine every atom were a
-  universe). Phase 3 starts at the Planck rung (`n ≈ 61.7`, zoom ≈ 1e89), where the atom count
-  would give level 1.67; the shown level is 2 from there, so phase 2 ends cleanly at Planck and
-  the count follows the atom ratio from level 3 on (level 3 at zoom ≈ 1e138, level 26 at
-  ≈ 1e987–1e1024, level 80 at ≈ 1e2981–1e3018). Line 1: "A universe in a universe", "A universe
+- **Phase 3, nested universes (from the Planck rung)**: `k = floor(n / a) + 1` universes with
+  `a = log10(U / atom) ≈ 36.92` decades (set/U = (U/atom)^(k-1): imagine every atom were a
+  universe). At `n = a` our universe is an atom of the set, so the set is already a universe of
+  universes (k = 2, the "universe = atom" rung, still read in phase 2's words). Phase 3 starts
+  at the Planck rung (`n ≈ 61.7`, zoom ≈ 1e89, k = 2) and k counts on from there (k = 3 at zoom
+  ≈ 1e101, 27 at ≈ 1e987–1e1024, 81 at ≈ 1e2981–1e3018). Fixed 2026-10-17: the count was
+  `max(2, floor(n / a))`, one universe short (the user asked whether the maths was right). Line 1: "A universe in a universe", "A universe
   in a universe in a universe", "A universe in a universe in a universe in a universe", from
-  level 5 "A universe in a universe in … (26 times)". Line 2: "imagine every atom were a
+  k = 5 "A universe in a universe in … (27 times)" (at 1e1000). Line 2: "imagine every atom were a
   universe, and every atom in it too".
 - **Ruler**: the things larger than the window up to "universe"; then "1,000 × universe",
   phase 2's rungs "universe = galaxy", "= solar system", "= Earth", "= you", "= cell", "= atom",
-  "= proton", "= Planck"; "googol ×" (set/U = 1e100); then "3× nested" … "90× nested" at the
-  level starts. "1 million ×" is not marked: it falls on "universe = galaxy". Linear in depth up
+  "= proton", "= Planck"; "googol ×" (set/U = 1e100); then "3× nested" … "90× nested" where
+  k starts. "1 million ×" is not marked: it falls on "universe = galaxy". Linear in depth up
   to one decade past the Planck rung, then compressed (slope 1 → 1/8 over 15 decades; a level is
   then ~69 points). A unit test keeps every pair of marks past the universe at least 25 points
   apart. A label whose dot is near the marker is nudged off the marker (within 30 % of its width)

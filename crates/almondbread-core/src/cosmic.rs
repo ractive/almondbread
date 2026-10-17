@@ -10,8 +10,9 @@
 //! 1. the set grows up to the observable universe `U` ("as big as Earth");
 //! 2. the universe shrinks inside the set: set / U = U / thing, down to the Planck length
 //!    ("our universe would be as small as an atom");
-//! 3. past the Planck rung, nested universes: level `k = max(2, floor(n / a))` with
-//!    `a = log10(U / atom)` ≈ 36.9 ("a universe in a universe in …").
+//! 3. past the Planck rung, nested universes: `k = floor(n / a) + 1` universes with
+//!    `a = log10(U / atom)` ≈ 36.9 ("a universe in a universe in …"): at `n = a` our universe
+//!    is an atom of the set, so the set is already a universe of universes (k = 2).
 
 /// Width of the Mandelbrot set along the real axis: from -2 to 1/4 (both exact: the tip of
 /// the antenna and the cusp of the main cardioid).
@@ -384,11 +385,11 @@ impl CosmicScale {
                 group: THINGS[i].group,
             });
         }
-        // Phase 3: level 2 starts at the Planck rung; levels 3, 4, ... on the atom ratio.
+        // Phase 3: k universes nested from n = (k - 1) a (k = 2 is the atom rung, inside phase 2).
         let a = level_decades();
         for k in 3..=LEVELS {
             marks.push(Mark {
-                d: ud + f64::from(k) * a,
+                d: ud + f64::from(k - 1) * a,
                 label: format!("{k}× nested"),
                 group: Group::Ladder,
             });
@@ -464,7 +465,7 @@ impl CosmicScale {
             };
         }
         // Phase 3: nested universes.
-        let k = (n / level_decades()).floor().max(2.0);
+        let k = ((n / level_decades()).floor() + 1.0).max(2.0);
         let line = match k {
             2.0 => "A universe in a universe".to_string(),
             3.0 => "A universe in a universe in a universe".to_string(),
@@ -624,8 +625,8 @@ mod tests {
         assert_eq!(line(64.4), format!("{inside}as small as an atom"));
         assert_eq!(line(89.0), format!("{inside}only 1.6× as big as the Planck length"));
         assert_eq!(line(101.0), "A universe in a universe");
-        assert_eq!(line(1000.0), "A universe in a universe in … (26 times)");
-        assert_eq!(line(3010.0), "A universe in a universe in … (80 times)");
+        assert_eq!(line(1000.0), "A universe in a universe in … (27 times)");
+        assert_eq!(line(3010.0), "A universe in a universe in … (81 times)");
         assert_eq!(s.reading(4.0).detail, "your window: 30 cm");
         assert!(s.reading(101.0).detail.starts_with("imagine every atom"));
         assert_eq!(scale(0.00045).reading(4.0).detail, "your window: 45 cm");

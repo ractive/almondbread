@@ -1103,3 +1103,12 @@ on home, seahorse and the neck with AA; 14 % with the compose mode disabled on p
 `verify --history` defaults to `--further 0`; one regress session (neck, 400 × 250, AA, 4 s
 budget) runs it: `make regress` 302.8 s against 300.2 s on main. Page:
 [[techniques/auto-iterations]] "Compute further".
+
+## [2026-10-17] decision | Cosmic scale: nested-universe count off by one
+
+The user asked whether the cosmic comparison's maths is right. Phase 1 and 2 check out (set width
+`L · 2.25 / w` with the window in points; the universe is reached at zoom ≈ 3e27 for 30 cm, so a
+flight passes all of astronomy in its first 27 decades). Phase 3 counted `max(2, floor(n / a))`
+universes, one short: at `n = a` the set is already a universe whose atoms are universes. Now
+`floor(n / a) + 1` ("… (27 times)" at 1e1000), and the "k× nested" ruler marks sit at
+`n = (k - 1) a`. [[decisions/controls]] "Cosmic size scale" updated.
