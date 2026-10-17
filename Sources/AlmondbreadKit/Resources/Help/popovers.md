@@ -24,7 +24,7 @@ Click a map to jump there at your current zoom; ⌥-click flies there. **M** sho
 
 The ring is the point under the pointer. The dots are the numbers the rule makes from it, step by step.
 
-Inside the set they settle into a loop; outside they wander off. The line under the map says which. **O** shows or hides it.
+On the whole-set map the first steps are joined by a line, and the next 100 000 are fine dots, the newest brightest. Inside the set they settle into a loop; outside they wander off, sometimes only after tens of thousands of steps. The line under the map says which: "escapes after 48 213 steps", "settles into a period-3 cycle" or "still undecided". **O** shows or hides it.
 
 ## cockpit
 

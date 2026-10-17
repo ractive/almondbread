@@ -89,6 +89,7 @@ public enum SelfTest {
 /// number (`screencapture -l <n>` captures it behind other windows). Prints
 /// "ui-demo: window <n>" once the view settled, then quits after 20 s. Scenes: `orbit`
 /// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
+/// `orbit-neck` / `orbit-slow` (the orbit's dot cloud for slow escapes by the -3/4 neck),
 /// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels),
 /// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
 /// (the default scene with View and Look, or Lighting, Overlays and Quality open),
@@ -252,6 +253,18 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 4
             _ = explorer.input(event: .pointer(x: 10, y: 4))
+        case "orbit-neck", "orbit-slow":
+            // Slow escapes by the -3/4 neck at 1373× (the orbit-only whole-set map with its dot
+            // cloud): the user's example point (escapes after a few hundred steps) and one that
+            // takes ~31 000.
+            let (re, im) = scene == "orbit-neck" ? ("-0.7486543886670294", "0.04900223068004966")
+                : ("-0.75", "0.0001")
+            try? explorer.setViewport(re: re, im: im, scale: 3.75e-3 / 1373)
+            model.interiorColoring = .angle
+            model.orbitEnabled = true
+            model.orbitLength = 120
+            model.mapEnabled = false
+            _ = explorer.input(event: .pointer(x: 0, y: 0))
         case "places":
             // (After the first layout: a place is fitted to the view size.)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace("elephants") }

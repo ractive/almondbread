@@ -3150,6 +3150,7 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                     device const uint* active               [[buffer(4)]],
                     device const uchar* font                [[buffer(5)]],   // overlay font SDF atlas
                     device const uchar4* trail              [[buffer(6)]],   // π meter orbit trail (BGRA8)
+                    device const uchar4* cloud              [[buffer(7)]],   // orbit dot cloud (BGRA8, alpha)
                     uint3 tid                               [[thread_position_in_grid]])
 {
     uint2 gid;
@@ -3208,9 +3209,16 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                         // info.y x info.z, stretched over the rect and added to what is under it
                         // (black adds nothing). A buffer, not a texture: the CPU copy into a
                         // texture's tiled layout cost 0.26 ms per picture.
+                // info.w 1: the orbit's dot cloud, straight sRGB colour with alpha, blended over.
                 if (any(p < pr.geom.xy) || any(p >= pr.geom.zw)) continue;
                 float2 ts = float2(pr.info.y, pr.info.z);
                 uint2 t = uint2(min((p - pr.geom.xy) / (pr.geom.zw - pr.geom.xy) * ts, ts - 1.0f));
+                if (pr.info.w == 1) {
+                    float4 v = float4(cloud[t.y * pr.info.y + t.x]) / 255.0f;
+                    float a = v.w * pr.param.x;
+                    col = srgbToLinear(v.zyx) * a + col * (1.0f - a);
+                    continue;
+                }
                 float4 v = float4(trail[t.y * pr.info.y + t.x]) / 255.0f;
                 col += srgbToLinear(v.zyx) * pr.param.x;
                 continue;
