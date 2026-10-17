@@ -21,12 +21,18 @@
 //! heading region of the current frame is uniform (fully interior or featureless exterior);
 //! the HUD then shows a hint.
 //!
-//! **Target lock** ([`lock`], on by default): while the user does not steer (pointer in the
-//! dead zone, idle or off the canvas, keyboard mode without pan keys), the heading aims at a
-//! boundary target found off-thread (a Misiurewicz point, an embedded Julia stage, a minibrot
-//! down to its framing), and the next one is found before the current one's depth is passed.
-//! A deflected pointer (or any manual pan) always wins and releases the lock; letting go
-//! picks up again from the current view.
+//! (In A the navigator passes no pointer since 2026-10-17: the steering law above is the
+//! cruise's; any user steering hands over to cruise.)
+//!
+//! **Target lock** ([`lock`], on by default): while A runs and no manual pan holds it off, the
+//! heading aims at a boundary target found off-thread (a Misiurewicz point, an embedded Julia
+//! stage, a minibrot down to its framing), and the next one is found before the current one's
+//! depth is passed.
+//!
+//! **Pointer wish** ([`Autopilot::set_wish`], kb: decisions/controls "Pointer wish"): the
+//! pointer's direction past [`WISH_DEAD_ZONE`], settled with hysteresis, makes the lock's
+//! searches and survey steering prefer targets that way and re-targets once when it changes.
+//! The aim is always a found target, never the pointer.
 //!
 //! **Survey steering** (on since 2026-10-17, after the user's foreground comparison): whenever no lock target
 //! is followed (none yet, a search pending, a target past its end span with nothing next, or
@@ -143,6 +149,49 @@ pub const SURVEY_STEER_OVERRIDE: f64 = 0.4;
 pub const MANUAL_HOLD: f64 = 1.0;
 /// A survey older than this (s) is ignored.
 pub const SURVEY_STALE: f64 = 0.6;
+/// Pointer wish (kb: decisions/controls "Autopilot", "Pointer wish"): in A the pointer does not
+/// steer; its direction, once deflected past `WISH_DEAD_ZONE.1` steering radii (kept down to
+/// `WISH_DEAD_ZONE.0`: no flicker at the edge), is a coarse wish. The lock's searches and the
+/// survey's boundary point prefer candidates in that direction; the aim is always a found
+/// target or boundary point, never the pointer itself.
+pub const WISH_DEAD_ZONE: (f64, f64) = (0.15, 0.2);
+/// The wish counts once it has held this long (s), and a new wish replaces the settled one
+/// once it points more than `WISH_TURN` radians away for that long: the aim does not jitter
+/// with the hand, and a changed wish re-targets once.
+pub const WISH_SETTLE: f64 = 0.3;
+pub const WISH_TURN: f64 = std::f64::consts::FRAC_PI_4;
+/// Candidates closer to the centre than this share of the shorter side are "straight ahead":
+/// neutral to the wish (their direction means nothing).
+pub const WISH_NEAR: f64 = 0.08;
+/// Survey steering's weight of a cell against the wish: `exp(WISH_SHARPNESS (agreement − 1))`
+/// (opposite ×0.007, sideways ×0.08).
+pub const WISH_SHARPNESS: f64 = 2.5;
+/// Survey steering's distance preference is centred this share of the shorter side ahead of
+/// its usual point, in the wished direction.
+pub const WISH_LEAD: f64 = 0.25;
+/// HUD suffix while a wish is settled.
+pub const WISH_LABEL: &str = "your direction";
+
+/// A settled pointer wish: a unit direction in view points (y up).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Wish {
+    pub dir: (f64, f64),
+    /// Bumped whenever the settled wish appears or turns (re-target once per change).
+    pub epoch: u32,
+}
+
+impl Wish {
+    /// How well the offset `p` (view points) agrees with the wish: the cosine of the angle
+    /// between them, faded to 0 within `near` points of the centre (straight ahead).
+    pub fn agreement(&self, p: (f64, f64), near: f64) -> f64 {
+        let r = p.0.hypot(p.1);
+        if !(r.is_finite() && r > 0.0) {
+            return 0.0;
+        }
+        let cos = (p.0 * self.dir.0 + p.1 * self.dir.1) / r;
+        cos * smoothstep(r / near.max(1e-9))
+    }
+}
 
 /// Why the autopilot is slower than its set speed (the HUD shows it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -293,11 +342,26 @@ impl Survey {
     /// share × a Gaussian of the distance, σ = [`STEER_SIGMA`] of the shorter side); with none
     /// detailed, the highest peak in view (the escape count rises towards the set: uphill is
     /// where something is).
-    pub fn boundary_point(&self, from: (f64, f64)) -> Option<(f64, f64)> {
+    ///
+    /// With a pointer `wish`, each cell's score is weighted by its direction from the view
+    /// centre (`exp(WISH_SHARPNESS (agreement − 1))`) and its distance preference is centred
+    /// [`WISH_LEAD`] ahead in that direction; a detailed cell whose peak lies in the wished half
+    /// wins over any other, and uphill takes the highest peak in the wished half if any.
+    pub fn boundary_point(&self, from: (f64, f64), wish: Option<&Wish>) -> Option<(f64, f64)> {
         if self.cols == 0 || self.rows == 0 || self.cells.len() != self.cols * self.rows {
             return None;
         }
-        let sigma = STEER_SIGMA * self.view.0.min(self.view.1).max(1.0);
+        let side = self.view.0.min(self.view.1).max(1.0);
+        let sigma = STEER_SIGMA * side;
+        let agree = |p: (f64, f64)| wish.map_or(0.0, |w| w.agreement(p, WISH_NEAR * side));
+        // The distance preference is centred ahead of `from` in the wished direction.
+        let from = wish.map_or(from, |w| {
+            (from.0 + WISH_LEAD * side * w.dir.0, from.1 + WISH_LEAD * side * w.dir.1)
+        });
+        // The best detailed cell and the highest escape count in the wished half (with a wish):
+        // they win over the others (detail elsewhere still beats uphill here).
+        let mut best_wished: Option<(f64, (f64, f64))> = None;
+        let mut high_wished: Option<(f64, (f64, f64))> = None;
         // (score, peak): the best detailed cell, and the highest escape count.
         let mut best: Option<(f64, (f64, f64))> = None;
         let mut high: Option<(f64, (f64, f64))> = None;
@@ -312,17 +376,28 @@ impl Survey {
                     let (x, y) = self.cell_center(i, j);
                     let d2 = (x - from.0).powi(2) + (y - from.1).powi(2);
                     let escaped = 1.0 - c.interior as f64 / c.samples as f64;
-                    let score = det.min(4.0 * DETAIL_HI) * escaped * (-d2 / (2.0 * sigma * sigma)).exp();
+                    let wished = if wish.is_some() {
+                        (WISH_SHARPNESS * (agree((x, y)) - 1.0)).exp()
+                    } else {
+                        1.0
+                    };
+                    let score = det.min(4.0 * DETAIL_HI) * escaped * (-d2 / (2.0 * sigma * sigma)).exp() * wished;
                     if best.is_none_or(|b| score > b.0) {
                         best = Some((score, c.peak));
+                    }
+                    if agree(c.peak) > 0.0 && best_wished.is_none_or(|b| score > b.0) {
+                        best_wished = Some((score, c.peak));
                     }
                 }
                 if high.is_none_or(|b| c.peak_n > b.0) {
                     high = Some((c.peak_n, c.peak));
                 }
+                if agree(c.peak) > 0.0 && high_wished.is_none_or(|b| c.peak_n > b.0) {
+                    high_wished = Some((c.peak_n, c.peak));
+                }
             }
         }
-        best.or(high).map(|b| b.1)
+        best_wished.or(best).or(high_wished).or(high).map(|b| b.1)
     }
 
     /// The region around `p` (view points) is not uniform by the heading test (danger ≤ 0.5,
@@ -441,6 +516,14 @@ pub struct Autopilot {
     target_uniform: (f64, u32),
     /// `ALMONDBREAD_LOCK_TRACE`: survey steering prints its picks.
     trace: bool,
+    /// The pointer's direction past the wish dead zone this frame (unit, view points), the
+    /// settled wish, and since when the pointer has differed from the settled wish.
+    wish_raw: Option<(f64, f64)>,
+    wish: Option<Wish>,
+    wish_epochs: u32,
+    wish_change: Option<f64>,
+    /// The wish epoch survey steering's pick was made with.
+    steer_epoch: u32,
 }
 
 impl Default for Autopilot {
@@ -477,6 +560,11 @@ impl Default for Autopilot {
             steer_time: f64::NEG_INFINITY,
             target_uniform: (0.0, 0),
             trace: std::env::var_os("ALMONDBREAD_LOCK_TRACE").is_some(),
+            wish_raw: None,
+            wish: None,
+            wish_epochs: 0,
+            wish_change: None,
+            steer_epoch: 0,
         }
     }
 }
@@ -566,6 +654,11 @@ impl Autopilot {
         self.reset_steer();
     }
 
+    /// Survey steering's current pick (a complex point), if any.
+    pub fn survey_pick(&self) -> Option<&crate::viewport::Center> {
+        self.steer_pick.as_ref()
+    }
+
     /// Survey steering aimed in the last frame.
     pub fn is_survey_steering(&self) -> bool {
         self.survey_steering
@@ -604,15 +697,70 @@ impl Autopilot {
         if !self.active || !self.lock.is_enabled() || !self.free {
             return String::new();
         }
-        if self.survey_steering {
-            return SURVEY_STEER_LABEL.into();
+        let label = if self.survey_steering {
+            SURVEY_STEER_LABEL.into()
+        } else {
+            match self.lock.target() {
+                // Journey labels read "period-34 minibrot", "towards a period-34 minibrot", ...
+                Some(t) if t.label.starts_with("towards") => t.label.clone(),
+                Some(t) => format!("towards {}", t.label),
+                None if self.lock.is_searching() => "looking for a target".into(),
+                None => String::new(),
+            }
+        };
+        if self.wish.is_some() && !label.is_empty() {
+            format!("{label} · {WISH_LABEL}")
+        } else {
+            label
         }
-        match self.lock.target() {
-            // Journey labels read "period-34 minibrot", "towards a period-34 minibrot", ...
-            Some(t) if t.label.starts_with("towards") => t.label.clone(),
-            Some(t) => format!("towards {}", t.label),
-            None if self.lock.is_searching() => "looking for a target".into(),
-            None => String::new(),
+    }
+
+    /// The settled pointer wish (kb: decisions/controls "Pointer wish").
+    pub fn wish(&self) -> Option<Wish> {
+        self.wish
+    }
+
+    /// The pointer's offset from the view centre this frame (None: no wish: off the canvas,
+    /// keyboard mode, not moved since A took the wheel), `radius` the steering radius. Past
+    /// [`WISH_DEAD_ZONE`] its direction becomes the settled wish after [`WISH_SETTLE`] s; a
+    /// wish turning more than [`WISH_TURN`] (or appearing) bumps the epoch, so the lock and
+    /// survey steering re-target once. Letting go clears it after the same delay; nothing is
+    /// re-targeted then (the current aim is as good as any).
+    pub fn set_wish(&mut self, pointer: Option<(f64, f64)>, radius: f64, now: f64) {
+        if !self.active {
+            self.wish_raw = None;
+            self.wish = None;
+            self.wish_change = None;
+            return;
+        }
+        let edge = if self.wish_raw.is_some() {
+            WISH_DEAD_ZONE.0
+        } else {
+            WISH_DEAD_ZONE.1
+        };
+        self.wish_raw = pointer.and_then(|(x, y)| {
+            let r = x.hypot(y);
+            (radius > 0.0 && r.is_finite() && r >= edge * radius).then(|| (x / r, y / r))
+        });
+        let changed = match (self.wish_raw, self.wish) {
+            (Some(d), Some(w)) => d.0 * w.dir.0 + d.1 * w.dir.1 < WISH_TURN.cos(),
+            (Some(_), None) | (None, Some(_)) => true,
+            (None, None) => false,
+        };
+        if !changed {
+            self.wish_change = None;
+            return;
+        }
+        let since = *self.wish_change.get_or_insert(now);
+        if now - since >= WISH_SETTLE {
+            self.wish_change = None;
+            self.wish = self.wish_raw.map(|dir| {
+                self.wish_epochs += 1;
+                Wish {
+                    dir,
+                    epoch: self.wish_epochs,
+                }
+            });
         }
     }
 
@@ -628,6 +776,9 @@ impl Autopilot {
             self.lock.release();
             self.active = true;
             self.paused = false;
+            self.wish = None;
+            self.wish_raw = None;
+            self.wish_change = None;
         }
     }
 
@@ -828,7 +979,9 @@ impl Autopilot {
             self.lock.drop_target();
         }
         let heading = self.heading();
-        let lock_aim = self.lock.update(view, min_side, radius, self.free, heading, now);
+        let lock_aim = self
+            .lock
+            .update(view, min_side, radius, self.free, heading, self.wish.as_ref(), now);
         // A target past its end span with nothing next leads nowhere (the CPU search found
         // nothing ahead): survey steering until the lock has the next one.
         let spent = self.lock.next_target().is_none() && self.lock.target().is_some_and(|t| span_now <= t.end_span);
@@ -887,12 +1040,16 @@ impl Autopilot {
             // The current pick is kept while the region around it holds detail (a re-pick every
             // survey hopped between cells near the detail threshold: measured, it oscillated
             // in a sparse region until the rescue); then the next one is picked near it.
+            // A new wish (appeared or turned) re-picks once, from the centre towards it.
+            let rewish = self.wish.is_some_and(|w| w.epoch != self.steer_epoch);
             let held = self
                 .steer_pick
                 .as_ref()
+                .filter(|_| !rewish)
                 .map(|c| base.offset_of(c))
                 .filter(|&(x, y)| x.is_finite() && y.is_finite() && s.holds_detail((x, y)));
             let from = match (&self.steer_pick, &self.steer_aim) {
+                _ if rewish => base.offset_of(&view.center),
                 (Some(c), _) | (None, Some(c)) => base.offset_of(c),
                 (None, None) => base.offset_of(&view.point_at_offset(heading.0, heading.1)),
             };
@@ -901,7 +1058,16 @@ impl Autopilot {
             } else {
                 (0.0, 0.0)
             };
-            let p = if held.is_some() { None } else { s.boundary_point(from) };
+            // Heading into a uniform region: the nearest detail in any direction, the wish is
+            // ignored (kb: decisions/controls "Pointer wish"). With the wish the deep test path at
+            // 1e239 picked sparse cells in the wished half and backed out in 6 of 10 runs; with
+            // the wish as a soft weight only, still 5 of 8; ignored, 1 of 8.
+            let wish = self.wish.filter(|_| self.uniform_for <= 0.0);
+            let p = if held.is_some() {
+                None
+            } else {
+                s.boundary_point(from, wish.as_ref())
+            };
             if self.trace && held.is_none() {
                 let detailed = s
                     .cells
@@ -920,6 +1086,7 @@ impl Autopilot {
             self.steer_survey = s.time;
             if pick.is_some() {
                 self.steer_pick = pick;
+                self.steer_epoch = self.wish.map_or(self.steer_epoch, |w| w.epoch);
             }
         }
         let (px, py) = view.offset_of(self.steer_pick.as_ref()?);
@@ -1355,23 +1522,23 @@ mod tests {
     #[test]
     fn boundary_point_prefers_detail_near_the_heading_else_uphill() {
         let mut s = one_detailed_cell(None, 0.0);
-        assert_eq!(s.boundary_point((0.0, 0.0)), Some((260.0, 140.0)));
+        assert_eq!(s.boundary_point((0.0, 0.0), None), Some((260.0, 140.0)));
         // Two detailed cells: the one nearer `from` wins (hysteresis: the cell containing it).
         s.cells[7 * 16 + 2] = SurveyCell {
             peak: (-350.0, -150.0),
             ..s.cells[2 * 16 + 12]
         };
-        assert_eq!(s.boundary_point((-300.0, -100.0)), Some((-350.0, -150.0)));
-        assert_eq!(s.boundary_point((200.0, 100.0)), Some((260.0, 140.0)));
+        assert_eq!(s.boundary_point((-300.0, -100.0), None), Some((-350.0, -150.0)));
+        assert_eq!(s.boundary_point((200.0, 100.0), None), Some((260.0, 140.0)));
         // Featureless exterior: no detailed cell, the highest escape count (uphill).
         let mut flat = uniform(0, 0);
         for (k, c) in flat.cells.iter_mut().enumerate() {
             c.peak = (k as f64, -(k as f64));
             c.peak_n = if k == 37 { 900.0 } else { 100.0 + k as f64 };
         }
-        assert_eq!(flat.boundary_point((0.0, 0.0)), Some((37.0, -37.0)));
+        assert_eq!(flat.boundary_point((0.0, 0.0), None), Some((37.0, -37.0)));
         // All interior: nothing to aim at.
-        assert_eq!(uniform(100, 0).boundary_point((0.0, 0.0)), None);
+        assert_eq!(uniform(100, 0).boundary_point((0.0, 0.0), None), None);
     }
 
     /// Flies `secs` at `hz` with survey steering, the survey taken once at the start view.
@@ -1459,6 +1626,159 @@ mod tests {
             (b, w)
         };
         assert!(!b.is_survey_steering() && b.heading_target() == (0.0, 0.0));
+    }
+
+    /// A 960 × 600 interior survey with `n` detailed cells at pseudo-random places (seed `k`).
+    fn scattered(k: u64, n: usize) -> Survey {
+        let mut s = uniform(100, 0);
+        s.view = (960.0, 600.0);
+        let mut x = k.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        for _ in 0..n {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let (i, j) = ((x >> 33) as usize % 16, (x >> 45) as usize % 10);
+            let (cx, cy) = s.cell_center(i, j);
+            s.cells[j * 16 + i] = SurveyCell {
+                samples: 100,
+                interior: 40,
+                pairs: 200,
+                edges: 60 + (x >> 20) as u32 % 100,
+                peak: (cx + 5.0, cy - 5.0),
+                peak_n: 5000.0,
+            };
+        }
+        s
+    }
+
+    /// Kb: decisions/controls "Pointer wish": survey steering's boundary point lies in the
+    /// wished half whenever detail is there; without a wish the pick is the old one.
+    #[test]
+    fn survey_boundary_point_follows_the_wish() {
+        let mut checked = 0;
+        for k in 0..20 {
+            let s = scattered(k, 6);
+            for dir in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                let w = Wish { dir, epoch: 1 };
+                let side = 600.0;
+                let any = s.cells.iter().any(|c| {
+                    c.has_peak() && s.cell_detail(c) >= DETAIL_HI && w.agreement(c.peak, WISH_NEAR * side) > 0.0
+                });
+                let Some(p) = s.boundary_point((0.0, 0.0), Some(&w)) else {
+                    panic!("survey {k}: no pick");
+                };
+                if any {
+                    checked += 1;
+                    assert!(p.0 * dir.0 + p.1 * dir.1 > 0.0, "survey {k}, wish {dir:?}: {p:?}");
+                }
+            }
+        }
+        assert!(checked >= 60, "{checked}");
+        // Featureless: uphill within the wished half.
+        let mut flat = uniform(0, 0);
+        flat.view = (960.0, 600.0);
+        for j in 0..10 {
+            for i in 0..16 {
+                let c = flat.cell_center(i, j);
+                flat.cells[j * 16 + i].peak = c;
+                // Highest on the left.
+                flat.cells[j * 16 + i].peak_n = 1000.0 - c.0;
+            }
+        }
+        assert!(flat.boundary_point((0.0, 0.0), None).unwrap().0 < 0.0);
+        let right = Wish {
+            dir: (1.0, 0.0),
+            epoch: 1,
+        };
+        assert!(flat.boundary_point((0.0, 0.0), Some(&right)).unwrap().0 > 0.0);
+    }
+
+    #[test]
+    fn wish_settles_with_hysteresis() {
+        let mut a = Autopilot::default();
+        a.toggle();
+        let r = 300.0;
+        let mut t = 0.0;
+        let mut hold = |a: &mut Autopilot, p: Option<(f64, f64)>, secs: f64, hz: f64| {
+            for _ in 0..(secs * hz).round() as usize {
+                t += 1.0 / hz;
+                a.set_wish(p, r, t);
+            }
+        };
+        // Inside the dead zone: none.
+        hold(&mut a, Some((50.0, 0.0)), 1.0, 60.0);
+        assert!(a.wish().is_none());
+        // Deflected: not before WISH_SETTLE, then a wish (epoch 1).
+        hold(&mut a, Some((200.0, 0.0)), 0.2, 60.0);
+        assert!(a.wish().is_none());
+        hold(&mut a, Some((200.0, 0.0)), 0.15, 60.0);
+        let w = a.wish().expect("wish");
+        assert_eq!((w.dir, w.epoch), ((1.0, 0.0), 1));
+        // A wobble of the hand (30°) and a brief swing to the other side change nothing.
+        hold(&mut a, Some((200.0, 115.0)), 1.0, 120.0);
+        hold(&mut a, Some((-200.0, 0.0)), 0.2, 30.0);
+        hold(&mut a, Some((200.0, 10.0)), 0.5, 60.0);
+        assert_eq!(a.wish().map(|w| (w.dir, w.epoch)), Some(((1.0, 0.0), 1)));
+        // Between the dead zone's two edges it stays.
+        hold(&mut a, Some((51.0, 0.0)), 1.0, 60.0);
+        assert!(a.wish().is_some());
+        // A real turn: a new epoch after WISH_SETTLE.
+        hold(&mut a, Some((0.0, -200.0)), 0.4, 60.0);
+        let w = a.wish().expect("wish");
+        assert_eq!(w.epoch, 2);
+        assert!(w.dir.1 < -0.99);
+        // Let go (centre): cleared without a new epoch.
+        hold(&mut a, Some((10.0, 0.0)), 0.4, 60.0);
+        assert!(a.wish().is_none());
+        // Off: nothing.
+        a.stop();
+        hold(&mut a, Some((200.0, 0.0)), 1.0, 60.0);
+        assert!(a.wish().is_none());
+    }
+
+    /// Flies `secs` at `hz` from `v` with the pointer held at `pointer` (wish), the lock
+    /// synchronous, no survey.
+    fn wish_flight(a: &mut Autopilot, v: &mut Viewport, pointer: (f64, f64), secs: f64, t: &mut f64, hz: f64) {
+        for _ in 0..(secs * hz).round() as usize {
+            *t += 1.0 / hz;
+            a.set_wish(Some(pointer), 300.0, *t);
+            let target = a.aim(v, 600.0, 300.0, None, false, *t);
+            let m = a.step(1.0 / hz, target, *t);
+            v.pan_by_points(m.pan.0, m.pan.1);
+            v.zoom_by(m.ln_zoom.exp(), m.at.0, m.at.1);
+        }
+    }
+
+    /// A wish to the right locks a target on the right; turning the wish left re-targets once
+    /// to a target on the left; the autopilot never follows the pointer itself.
+    #[test]
+    fn a_changed_wish_retargets_once() {
+        for hz in [30.0, 60.0, 120.0] {
+            let mut a = Autopilot::default();
+            a.lock_mut().synchronous = true;
+            a.toggle();
+            let mut v = Viewport::new(-0.745, 0.11, 0.01 / 600.0);
+            let mut t = 0.0;
+            wish_flight(&mut a, &mut v, (250.0, 0.0), 0.5, &mut t, hz);
+            let tr = a.lock().target().expect("target").clone();
+            assert!(
+                v.offset_of(&tr.center).0 > 0.0,
+                "{hz} Hz: {:?}",
+                v.offset_of(&tr.center)
+            );
+            assert_eq!(a.lock_label(), format!("towards {} · {WISH_LABEL}", tr.label));
+            // (The first target was picked up before the wish settled; it re-targeted then.)
+            let (switches, re) = (a.lock().switches, a.lock().retargets);
+            wish_flight(&mut a, &mut v, (-250.0, 0.0), 0.6, &mut t, hz);
+            let tl = a.lock().target().expect("target").clone();
+            let (x, _) = v.offset_of(&tl.center);
+            assert!(x < 0.0, "{hz} Hz: {x}");
+            assert_eq!(a.lock().retargets, re + 1, "{hz} Hz");
+            assert!(a.lock().switches <= switches + 1, "{hz} Hz: one switch");
+            // Holding it left: no further re-targets (hysteresis).
+            wish_flight(&mut a, &mut v, (-240.0, 30.0), 1.0, &mut t, hz);
+            assert_eq!(a.lock().retargets, re + 1, "{hz} Hz");
+            // The heading aims at the target, not at the pointer.
+            assert_ne!(a.heading_target(), a.steer_target(Some((-240.0, 30.0)), 300.0));
+        }
     }
 
     #[test]

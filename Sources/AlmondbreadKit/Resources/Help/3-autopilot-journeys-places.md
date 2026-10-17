@@ -20,7 +20,9 @@ Press **Z** (or click the plane in the cockpit at the bottom) and the view keeps
 
 - **E** and **Q**, the mouse wheel or a two-finger scroll change the speed.
 - **Click** (or tap) pauses and resumes.
-- Steer yourself (move the mouse, **W A S D**, drag) and you take the wheel: the view cruises on at the same speed. The autopilot does not take over again by itself; press **Z** for that. **Q** down to zero also hands over to cruise, which then stops.
+- **Point with the mouse** to suggest a direction: move the pointer away from the middle, for example to the right, and the autopilot looks for its next spiral, minibrot or detail on that side. It still picks the places itself and does not simply follow the pointer; the status overlay then says *your direction*. Back in the middle, it chooses freely again.
+- Steer yourself (**W A S D**, drag, a game controller's stick) and you take the wheel: the view cruises on at the same speed. The autopilot does not take over again by itself; press **Z** for that. **Q** down to zero also hands over to cruise, which then stops.
+- The **target marker**, a small ring, shows where the autopilot is heading and names what it found there for a moment (for example *spiral* or *minibrot · period 34*); a faint line from the middle shows the direction you suggested. Turn it off in View ▸ Autopilot Target Marker or the control center's **Overlays**.
 - **Esc** stops.
 
 When the picture ahead gets plain, or the computer needs time to keep up, the autopilot slows down by itself; the status overlay says why.

@@ -24,6 +24,12 @@ impl Explorer {
         });
     }
 
+    /// "Autopilot Target Marker" (kb: decisions/controls "Target marker"): a ring where the
+    /// autopilot or a journey leg is heading, its label and the pointer wish's line.
+    pub fn set_target_marker(&self, on: bool) {
+        self.with_host(|h| h.overlay.marker.enabled = on);
+    }
+
     /// A press (mouse down, touch down) at (x, y): true if the visible compass took it. Then
     /// send its moves to `compass_drag` and its end to `compass_release`, and do not treat it
     /// (or its double click) as a canvas click.

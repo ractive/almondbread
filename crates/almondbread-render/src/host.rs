@@ -262,8 +262,11 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         let turning = self.renderer.navigator.is_turning_north();
         self.overlay.compass.update(self.renderer.viewport.angle, turning, now);
+        let aim = self.renderer.navigator.aim_marker();
+        self.overlay.marker.update(aim.as_ref(), &self.renderer.viewport, now);
         if self.overlay.active()
             || self.overlay.compass.shown(now)
+            || self.overlay.marker.visible()
             || self.renderer.overlay.is_some()
             || self.renderer.progress.current().alpha > 0.0
         {
@@ -280,6 +283,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     fn overlay_after(&mut self, now: f64, outcome: &mut FrameOutcome) {
         outcome.animating |= self.overlay.cosmic.animating(now)
             || self.overlay.compass.animating(now)
+            || self.overlay.marker.animating(now)
             || self.renderer.progress.animating();
         if !self.overlay.settings.any() {
             // The π meter alone: its count runs on its own thread; frames show its progress.

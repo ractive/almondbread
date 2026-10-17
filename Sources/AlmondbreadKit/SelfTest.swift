@@ -351,6 +351,18 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 2
             model.toggleAutopilot()
+        case "autopilot-wish":
+            // The target marker (kb: decisions/controls "Target marker"): the autopilot from the
+            // seahorse valley with a synthetic pointer held to the right (a direction wish; the
+            // real mouse is never moved), captured 8 s in.
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
+            model.targetMarker = true
+            model.toggleAutopilot()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                _ = explorer.input(event: .pointer(x: 0, y: 0))
+                _ = explorer.input(event: .pointer(x: 150, y: 10))
+                _ = explorer.input(event: .pointer(x: 300, y: 20))
+            }
         default:
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
             model.interiorColoring = .angle
@@ -371,7 +383,7 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                let moving = scene == "autopilot" || scene == "cruise-reverse" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
+                let moving = scene.hasPrefix("autopilot") || scene == "cruise-reverse" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
                 // journey-stop: captured once the journey rests at its first landmark.
                 let stopReady = scene != "journey-stop" || model.journeyAtStop
                 let movingAt: Double = scene.hasSuffix("-late") ? 17 : scene.hasPrefix("pi-") ? 9 : 8

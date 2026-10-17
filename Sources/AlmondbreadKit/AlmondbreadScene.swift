@@ -175,6 +175,9 @@ struct FractalCommands: Commands {
             Toggle("Always Show Compass", isOn: Binding(get: { model?.compassAlways ?? false },
                                                         set: { model?.compassAlways = $0 }))
                 .disabled(model == nil)
+            Toggle("Autopilot Target Marker", isOn: Binding(get: { model?.targetMarker ?? true },
+                                                            set: { model?.targetMarker = $0 }))
+                .disabled(model == nil)
             Toggle("Status Overlay", isOn: Binding(get: { model?.showHUD ?? true },
                                                    set: { model?.showHUD = $0 }))
                 .disabled(model == nil)

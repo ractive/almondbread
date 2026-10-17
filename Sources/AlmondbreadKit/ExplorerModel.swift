@@ -187,6 +187,7 @@ struct SavedSettings: Codable {
     var piMeterEnabled: Bool?
     var cosmicScale: Bool?
     var compassAlways: Bool?
+    var targetMarker: Bool?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -267,6 +268,9 @@ public final class ExplorerModel {
     /// The compass (kb: decisions/controls, "Compass"): shown while the view is turned, or
     /// always.
     public var compassAlways = false { didSet { pushCompass() } }
+    /// The autopilot's target marker (kb: decisions/controls, "Target marker"): a ring where
+    /// the autopilot or a journey leg is heading, drawn by Rust. On by default.
+    public var targetMarker = true { didSet { pushCompass() } }
     /// Extra top margin of the compass (points): iPad's top-right buttons.
     public var compassInsetTop = 0.0 { didSet { if compassInsetTop != oldValue { pushCompass() } } }
     /// Physical size of a view point (the platform view measures its screen; 0: unknown).
@@ -573,6 +577,7 @@ public final class ExplorerModel {
         guard !pulling, let explorer else { return }
         HangWatchdog.note("settings", "pushCompass from \(origin)")
         explorer.setCompass(always: compassAlways, insetTop: compassInsetTop)
+        explorer.setTargetMarker(on: targetMarker)
         host?.requestFrames()
         save()
     }
@@ -607,7 +612,7 @@ public final class ExplorerModel {
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, piMeterEnabled: piMeterEnabled,
-            cosmicScale: cosmicScale, compassAlways: compassAlways)
+            cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker)
     }
 
     private func writeSaved() {
@@ -672,6 +677,7 @@ public final class ExplorerModel {
         piMeterEnabled = s.piMeterEnabled ?? piMeterEnabled
         cosmicScale = s.cosmicScale ?? cosmicScale
         compassAlways = s.compassAlways ?? compassAlways
+        targetMarker = s.targetMarker ?? targetMarker
         pulling = false
         push()
         pushOverlay()
@@ -747,6 +753,7 @@ public final class ExplorerModel {
             piMeterEnabled = false
             cosmicScale = false
             compassAlways = false
+            targetMarker = true
         }
         pulling = false
         if scope == .all || scope == .overlays { showHUD = true }
@@ -813,6 +820,7 @@ public final class ExplorerModel {
         piMeterEnabled = false
         cosmicScale = false
         compassAlways = false
+        targetMarker = true
         pulling = false
         push()
         pushOverlay()
@@ -940,7 +948,7 @@ public final class ExplorerModel {
         switch id {
         case "manual": "Manual: you steer and zoom yourself. Click (or Esc) stops all motion"
         case "cruise": "Cruise (E / Q): a set zoom speed in or out, you steer"
-        case "autopilot": "Autopilot (Z): zooms on and steers to interesting places"
+        case "autopilot": "Autopilot (Z): zooms on and steers to interesting places; the mouse suggests a direction"
         case "journey": "Journey (J): flies from landmark to landmark"
         case "lane": "Lane assist (L): in cruise, nudges you away from featureless areas"
         default: nil
