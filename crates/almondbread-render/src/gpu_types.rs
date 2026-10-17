@@ -84,6 +84,13 @@ pub struct ComponentParams {
     pub log2_texel: f32,
     /// Bit 0: cardioid, bit 1: period-2 bulb; 0: no test.
     pub flags: u32,
+    /// Component Newton (kb: techniques/interior-detection "Component Newton"): periods of the
+    /// attracting cycles found at sample points of the view, most samples first
+    /// (`almondbread_core::cycles`); the interior probe tries Newton from z = 0 for each.
+    pub periods: [u32; 4],
+    pub period_count: u32,
+    /// Probe steps per pixel added for those Newton tries.
+    pub seed_steps: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -115,12 +122,15 @@ pub struct PixelStateProbe {
     pub k: u32,
     pub info: u32,
     /// Newton passes: the scan's orbit point (delta, exponent, reference index) to resume
-    /// from if they fail, and the rejected period (candidates must be longer).
+    /// from if they fail, and the rejected period (candidates must be longer; during Component
+    /// Newton the bits of log2 of the last step).
     pub o_b: [f32; 2],
     pub o_b_exp: i32,
     pub o_m: u32,
     pub p_rej: u32,
-    pub _pad: u32,
+    /// Component Newton: the period candidate tried (bits 0..2) and the probe step at which
+    /// the scan started (bits 3..31).
+    pub seed: u32,
 }
 
 /// Interior cycle analysis state of one live pixel (`PixelStateIC` in MSL, kInteriorColor
@@ -329,7 +339,7 @@ const _: () = {
     assert!(size_of::<AaListParams>() == 32);
     assert!(size_of::<UnresolvedListParams>() == 32);
     assert!(size_of::<IterateParams>() == 136);
-    assert!(size_of::<ComponentParams>() == 168);
+    assert!(size_of::<ComponentParams>() == 192);
     assert!(offset_of!(ComponentParams, cardioid) == 24);
     assert!(offset_of!(ComponentParams, slack) == 144);
     assert!(offset_of!(ComponentParams, flags) == 164);

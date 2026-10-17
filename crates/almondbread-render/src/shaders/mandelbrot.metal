@@ -192,9 +192,12 @@ struct PixelStateProbe {
     float2 oB;            // Newton passes: the scan's orbit point to resume from if they fail
     int    oBExp;         // (its delta, floatexp in the deep kernel, and reference index)
     uint   oM;
-    uint   pRej;          // candidates must be longer than this rejected period
-    uint   pad;
+    uint   pRej;          // candidates must be longer than this rejected period (Component
+                          // Newton: the bits of log2 |Delta| of its last pass)
+    uint   seed;          // Component Newton: candidate index (bits 0..2), probe step at which
+                          // the scan started (bits 3..31; its leads count from there)
 };
+constant uint PROBE_SEED   = 0x80000000u;   // Component Newton from z = 0 (period in the low bits)
 constant uint PROBE_NEWTON = 0x40000000u;
 constant uint PROBE_LOW    = 0x03ffffffu;   // lead / period (26 bits)
 constant uint PROBE_PASS   = 0x04000000u;   // Newton passes (bits 26..29)
@@ -204,6 +207,7 @@ constant uint PROBE_COST_DEEP  = 16u;       // float32 in the plain kernel, floa
 constant uint PA_SCAN = 0u, PA_EVAL = 1u, PA_RESET = 2u, PA_PROVEN = 3u, PA_NEWTON = 4u, PA_REJECT = 5u,
               PA_STUCK = 6u, PA_REPEL = 7u;
 constant uint PROBE_PASSES = 8u;            // Newton passes per probe at most
+constant uint SEED_PASSES = 8u;             // Component Newton passes per candidate period at most
 
 // Interior cycle analysis of one live pixel (kInteriorColor only; a buffer parallel to the
 // live state, same slots). Complex values are floatexp: mantissa, exponent.
@@ -338,6 +342,12 @@ struct ComponentParams {
     float  invL, L;       // u' = u / L (powers of two)
     float  log2Texel;
     uint   flags;         // bit 0: cardioid, bit 1: period-2 bulb
+    // Component Newton (kb: techniques/interior-detection "Component Newton"): periods of
+    // attracting cycles found at sample points of the view (most samples first), tried by the
+    // interior probe as Newton from z = 0 before its scan; seedSteps: extra probe steps for them.
+    uint   periods[4];
+    uint   periodCount;
+    uint   seedSteps;
 };
 constant float COMP_GAMMA = 0x1p-16f;
 
@@ -736,6 +746,7 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
 // PA_REPEL (surely repelling: look for longer periods) or PA_STUCK (at the noise floor, give
 // up); PA_REJECT.
 static inline uint probeEval(FE g, FE lam, FE fzz, FE zB, float lgMag, uint P, uint info, thread FE& delta) {
+    delta = FE{float2(0.0f), FE_ZERO};
     const FE d1 = feSub(lam, FE{float2(0.5f, 0.0f), 1});
     const float lgD = feLog2(d1);
     if (!(lgD > -1e29f)) return PA_REJECT;
@@ -1301,6 +1312,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     // runs it; n > maxIter: probing (its probe state is valid).
     const bool parked = kInterior && p.probe != 0 && active && !fresh && !inB && st.n >= p.maxIter;
     const bool inP = kProbe && parked && st.n > p.maxIter;
+    // A probing pixel in a chunk of the lean pipeline (chunks in flight may still be lean when
+    // probing started) keeps its probe state: copied to the slot it moves to. (Before, it was
+    // left behind in the other half, and the next probe chunk read another pixel's.)
+    const bool carryP = !kProbe && parked && st.n > p.maxIter;
 #define IC_TRACK(r2v, nv) if (kInteriorColor && (r2v) < icR2) { icR2 = (r2v); icMinLog2 = 0.5f * log2(icR2); icQ = (nv); }
 
     if (active && !inB && !parked && !filled && kDeep) {
@@ -1910,6 +1925,18 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     // lambda itself. (Measured margin: either bound 2^12 times smaller alone still gave no
     // false interior at the -3/4 neck and the 1/3 root; both 2^8 times smaller did.) Escaping
     // (|z| >= 2) or out of steps: unresolved, as before.
+    // Component Newton (kb: techniques/interior-detection "Component Newton"), before the scan
+    // when the CPU found periods of attracting cycles at sample points of the view
+    // (comp.periods): near a component's edge (|lambda| ~ 0.99) the orbit takes thousands of
+    // periods to settle, so the scan finds no candidate within its steps. Newton on
+    // f^P(z) - z from z = 0 (the reference's Z_0 = 0: base delta 0 at index 0; the first pass
+    // has lambda = 0 and steps to F(0)) needs no settled orbit: it converges in ~5 passes
+    // across the component. Each pass is evaluated by probeEval as above (the same proof); a
+    // pass must move by less than 2 and, from the 4th on, at least halve the step (else
+    // Newton is not converging), at most SEED_PASSES passes; a surely repelling or stuck fixed
+    // point or an escaping iterate fails the period. Then the next period from z = 0, and
+    // after the last the scan from the pixel's orbit point (oB, oM) with its own leads.
+    // comp.seedSteps extends the step limit by the passes the periods need.
     bool probing = inP, pDone = false, pProven = false;
     uint pPeriod = 0;
     PixelStateProbe ps;
@@ -1935,12 +1962,23 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         ps.k = 0;
         ps.info = min(st.n - p.maxIter, PROBE_LOW);
         ps.pRej = 0;
+        ps.seed = 0;
+        if (comp.periodCount > 0u) {
+            // Component Newton first: base point z = 0 (the reference's Z_0 = 0, delta 0),
+            // Newton for the view's first period; the orbit point is kept for the scan.
+            ps.oB = st.dz; ps.oBExp = st.e; ps.oM = st.m;
+            st.dz = 0.0f; st.e = kDeep ? FE_ZERO : 0; st.m = 0;
+            st.d = 0.0f; st.dExp = kDeep ? FE_ZERO : 0;
+            ps.mB = 0;
+            ps.info = PROBE_SEED | PROBE_NEWTON | comp.periods[0];
+        }
         probing = true;
     }
     if (kProbe && probing) {
         uint m = st.m, mB = ps.mB, k = ps.k, info = ps.info;
         uint used = st.n - p.maxIter;
-        const uint limit = min(p.probe, PROBE_LOW);
+        const uint limit = min(p.probe + comp.seedSteps, PROBE_LOW);
+        uint scan0 = ps.seed >> 3;   // the scan's leads count from its start
         uint spent = 0;
         if (kDeep) {
             // Floatexp: dz * 2^e, lambda, F'' and the base delta each with their exponent.
@@ -1961,7 +1999,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     m = 0;
                     Zx = FE{float2(0.0f), FE_ZERO};
                 }
-                if (zf.e >= 3) { pDone = true; break; }   // |z| >= 2: escapes
+                // |z| >= 2: escapes (a Component Newton iterate: that period failed)
+                bool seedNext = false;
+                if (zf.e >= 3) {
+                    if ((info & PROBE_SEED) == 0u) { pDone = true; break; }
+                    seedNext = true;
+                }
                 const uint low = info & PROBE_LOW;
                 uint act = PA_SCAN;
                 if ((info & PROBE_NEWTON) != 0) {
@@ -1971,7 +2014,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (k > ps.pRej && feLess(FE{dv.m, dv.e + 2}, zB)) act = low >= k ? PA_EVAL : PA_RESET;
                     else if (feLess(zf, zB)) act = PA_RESET;
                 }
-                if (act == PA_EVAL) {
+                if (!seedNext && act == PA_EVAL) {
                     // g = F(z_B) - z_B, exact in Z where the reference indices agree.
                     const FE dd = feSub(dzx, dB);
                     const FE g = m == mB ? dd : feAdd(feSub(Zx, ZB), dd);
@@ -1980,45 +2023,89 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     FE delta;
                     act = probeEval(g, lam, fzz, zB, lgMag, k, info, delta);
                     if (act == PA_PROVEN) { pProven = true; pDone = true; pPeriod = k; break; }
-                    if (act == PA_STUCK || (act == PA_NEWTON && ((info >> 26) & 15u) >= PROBE_PASSES)) {
-                        pDone = true;
-                        break;
+                    if ((info & PROBE_SEED) != 0u) {
+                        // Component Newton: step on while it moves by less than 2 (the first
+                        // pass from z_B = 0 has lambda = 0 and steps to F(0)); a surely
+                        // repelling, stuck or non-converging one fails.
+                        // From the 4th step on it must at least halve (converging Newton is
+                        // quadratic by then; measured: never violated by an attracting pixel).
+                        const uint passes = (info >> 26) & 15u;
+                        const float lgDl = feLog2(delta);
+                        const bool shrinks = passes < 3u || lgDl <= as_type<float>(ps.pRej) - 1.0f;
+                        if (act != PA_STUCK && act != PA_REPEL && passes < SEED_PASSES && shrinks
+                            && lgDl > -1e29f && lgDl < 1.0f) {
+                            ps.pRej = as_type<uint>(lgDl);   // (pRej is free while seeding)
+                            dB = feSub(dB, delta);
+                            dzx = dB;
+                            m = mB;
+                            zB = feAdd(ZB, dB);
+                            info = PROBE_SEED | PROBE_NEWTON | ((passes + 1u) << 26) | k;
+                            k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                            spent++;
+                            continue;
+                        }
+                        seedNext = true;
+                    } else {
+                        if (act == PA_STUCK || (act == PA_NEWTON && ((info >> 26) & 15u) >= PROBE_PASSES)) {
+                            pDone = true;
+                            break;
+                        }
+                        // (Also after a hopeless candidate: the next one is a multiple of it, F = f^(jP),
+                        // evaluated once the orbit has had a few more periods to converge.)
+                        if (act == PA_REPEL || act == PA_REJECT) ps.pRej = max(ps.pRej, k);
+                        if (act == PA_NEWTON) {
+                            // z_B <- z_B + Delta (delta = -Delta), iterate F again from there. (The
+                            // scan's orbit point is kept to resume from.)
+                            if ((info & PROBE_NEWTON) == 0) { ps.oB = dzx.m; ps.oBExp = dzx.e; ps.oM = m; }
+                            dB = feSub(dB, delta);
+                            dzx = dB;
+                            m = mB;
+                            zB = feAdd(ZB, dB);
+                            info = PROBE_NEWTON | ((((info >> 26) & 15u) + 1u) << 26) | k;
+                            k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                            spent++;
+                            continue;
+                        }
+                        if ((info & PROBE_NEWTON) != 0) {
+                            // Newton failed (e.g. converged to a repelling cycle: the parent's
+                            // fixed point inside a satellite bulb of period q P): resume the scan
+                            // from its orbit point, for periods longer than P only.
+                            ps.pRej = max(ps.pRej, k);
+                            dzx = FE{ps.oB, ps.oBExp};
+                            m = ps.oM;
+                            dB = dzx; mB = m; ZB = refAt(refx, m); zB = feAdd(ZB, dB);
+                            k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                            info = (info & (15u << 26)) | (used - scan0);
+                            spent++;
+                            continue;
+                        }
                     }
-                    // (Also after a hopeless candidate: the next one is a multiple of it, F = f^(jP),
-                    // evaluated once the orbit has had a few more periods to converge.)
-                    if (act == PA_REPEL || act == PA_REJECT) ps.pRej = max(ps.pRej, k);
-                    if (act == PA_NEWTON) {
-                        // z_B <- z_B + Delta (delta = -Delta), iterate F again from there. (The
-                        // scan's orbit point is kept to resume from.)
-                        if ((info & PROBE_NEWTON) == 0) { ps.oB = dzx.m; ps.oBExp = dzx.e; ps.oM = m; }
-                        dB = feSub(dB, delta);
-                        dzx = dB;
-                        m = mB;
-                        zB = feAdd(ZB, dB);
-                        info = PROBE_NEWTON | ((((info >> 26) & 15u) + 1u) << 26) | k;
-                        k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
-                        spent++;
-                        continue;
+                }
+                if (seedNext) {
+                    // This period failed: the next one from z = 0, else the scan from the orbit
+                    // point (its leads count from here).
+                    const uint j = (ps.seed & 7u) + 1u;
+                    if (j < comp.periodCount) {
+                        ps.seed = j;
+                        dB = FE{float2(0.0f), FE_ZERO}; mB = 0;
+                        info = PROBE_SEED | PROBE_NEWTON | comp.periods[j];
+                    } else {
+                        ps.seed = used << 3;
+                        ps.pRej = 0;
+                        scan0 = used;
+                        dB = FE{ps.oB, ps.oBExp}; mB = ps.oM;
+                        info = 0u;
                     }
-                    if ((info & PROBE_NEWTON) != 0) {
-                        // Newton failed (e.g. converged to a repelling cycle: the parent's
-                        // fixed point inside a satellite bulb of period q P): resume the scan
-                        // from its orbit point, for periods longer than P only.
-                        ps.pRej = max(ps.pRej, k);
-                        dzx = FE{ps.oB, ps.oBExp};
-                        m = ps.oM;
-                        dB = dzx; mB = m; ZB = refAt(refx, m); zB = feAdd(ZB, dB);
-                        k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
-                        info = (info & (15u << 26)) | used;
-                        spent++;
-                        continue;
-                    }
+                    dzx = dB; m = mB; ZB = refAt(refx, mB); zB = feAdd(ZB, dB);
+                    k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                    spent++;
+                    continue;
                 }
                 if (act != PA_SCAN) {
                     // New base point here (a new minimum, a too early return, a hopeless candidate).
                     dB = dzx; mB = m; ZB = Zx; zB = feAdd(ZB, dB);
                     k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
-                    info = (info & (15u << 26)) | used;
+                    info = (info & (15u << 26)) | (used - scan0);
                 }
                 // F'' first (old lambda), then lambda, then the step.
                 const FE z2 = feTwice(zf);
@@ -2057,7 +2144,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     m = 0;
                     Z = 0.0f;
                 }
-                if (!(r2 < 4.0f)) { pDone = true; break; }   // |z| >= 2: escapes
+                // |z| >= 2: escapes (a Component Newton iterate: that period failed)
+                bool seedNext = false;
+                if (!(r2 < 4.0f)) {
+                    if ((info & PROBE_SEED) == 0u) { pDone = true; break; }
+                    seedNext = true;
+                }
                 const uint low = info & PROBE_LOW;
                 uint act = PA_SCAN;
                 if ((info & PROBE_NEWTON) != 0) {
@@ -2067,7 +2159,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (k > ps.pRej && 16.0f * dot(dv, dv) < zB2) act = low >= k ? PA_EVAL : PA_RESET;
                     else if (r2 < zB2) act = PA_RESET;
                 }
-                if (act == PA_EVAL) {
+                if (!seedNext && act == PA_EVAL) {
                     const float2 dd = dz - dB;
                     const float2 g = m == mB ? dd : (Z - ZB) + dd;
                     float mag = length(dz) + length(dB);
@@ -2076,42 +2168,84 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     act = probeEval(feNorm(g, 0), feNorm(l, le), feNorm(f, fe), feNorm(zB, 0),
                                     log2(max(mag, 1e-37f)), k, info, delta);
                     if (act == PA_PROVEN) { pProven = true; pDone = true; pPeriod = k; break; }
-                    if (act == PA_STUCK || (act == PA_NEWTON && ((info >> 26) & 15u) >= PROBE_PASSES)) {
-                        pDone = true;
-                        break;
+                    if ((info & PROBE_SEED) != 0u) {
+                        // Component Newton (see the deep loop).
+                        const uint passes = (info >> 26) & 15u;
+                        const float lgDl = feLog2(delta);
+                        const bool shrinks = passes < 3u || lgDl <= as_type<float>(ps.pRej) - 1.0f;
+                        if (act != PA_STUCK && act != PA_REPEL && passes < SEED_PASSES && shrinks
+                            && lgDl > -1e29f && lgDl < 1.0f) {
+                            ps.pRej = as_type<uint>(lgDl);
+                            dB -= feFloat(delta);
+                            dz = dB;
+                            m = mB;
+                            zB = ZB + dB;
+                            zB2 = dot(zB, zB);
+                            l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                            info = PROBE_SEED | PROBE_NEWTON | ((passes + 1u) << 26) | k;
+                            k = 0;
+                            spent++;
+                            continue;
+                        }
+                        seedNext = true;
+                    } else {
+                        if (act == PA_STUCK || (act == PA_NEWTON && ((info >> 26) & 15u) >= PROBE_PASSES)) {
+                            pDone = true;
+                            break;
+                        }
+                        // (Also after a hopeless candidate: the next one is a multiple of it, F = f^(jP),
+                        // evaluated once the orbit has had a few more periods to converge.)
+                        if (act == PA_REPEL || act == PA_REJECT) ps.pRej = max(ps.pRej, k);
+                        if (act == PA_NEWTON) {
+                            if ((info & PROBE_NEWTON) == 0) { ps.oB = dz; ps.oBExp = 0; ps.oM = m; }
+                            dB -= feFloat(delta);
+                            dz = dB;
+                            m = mB;
+                            zB = ZB + dB;
+                            zB2 = dot(zB, zB);
+                            l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                            info = PROBE_NEWTON | ((((info >> 26) & 15u) + 1u) << 26) | k;
+                            k = 0;
+                            spent++;
+                            continue;
+                        }
+                        if ((info & PROBE_NEWTON) != 0) {
+                            // Newton failed: resume the scan (see the deep loop).
+                            ps.pRej = max(ps.pRej, k);
+                            dz = ps.oB;
+                            m = ps.oM;
+                            dB = dz; mB = m; ZB = ref[m]; zB = ZB + dB; zB2 = dot(zB, zB);
+                            k = 0; l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                            info = (info & (15u << 26)) | (used - scan0);
+                            spent++;
+                            continue;
+                        }
                     }
-                    // (Also after a hopeless candidate: the next one is a multiple of it, F = f^(jP),
-                    // evaluated once the orbit has had a few more periods to converge.)
-                    if (act == PA_REPEL || act == PA_REJECT) ps.pRej = max(ps.pRej, k);
-                    if (act == PA_NEWTON) {
-                        if ((info & PROBE_NEWTON) == 0) { ps.oB = dz; ps.oBExp = 0; ps.oM = m; }
-                        dB -= feFloat(delta);
-                        dz = dB;
-                        m = mB;
-                        zB = ZB + dB;
-                        zB2 = dot(zB, zB);
-                        l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
-                        info = PROBE_NEWTON | ((((info >> 26) & 15u) + 1u) << 26) | k;
-                        k = 0;
-                        spent++;
-                        continue;
+                }
+                if (seedNext) {
+                    // This period failed: the next one from z = 0, else the scan from the orbit
+                    // point (see the deep loop).
+                    const uint j = (ps.seed & 7u) + 1u;
+                    if (j < comp.periodCount) {
+                        ps.seed = j;
+                        dB = 0.0f; mB = 0;
+                        info = PROBE_SEED | PROBE_NEWTON | comp.periods[j];
+                    } else {
+                        ps.seed = used << 3;
+                        ps.pRej = 0;
+                        scan0 = used;
+                        dB = ps.oB; mB = ps.oM;
+                        info = 0u;
                     }
-                    if ((info & PROBE_NEWTON) != 0) {
-                        // Newton failed: resume the scan (see the deep loop).
-                        ps.pRej = max(ps.pRej, k);
-                        dz = ps.oB;
-                        m = ps.oM;
-                        dB = dz; mB = m; ZB = ref[m]; zB = ZB + dB; zB2 = dot(zB, zB);
-                        k = 0; l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
-                        info = (info & (15u << 26)) | used;
-                        spent++;
-                        continue;
-                    }
+                    dz = dB; m = mB; ZB = ref[mB]; zB = ZB + dB; zB2 = dot(zB, zB);
+                    k = 0; l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                    spent++;
+                    continue;
                 }
                 if (act != PA_SCAN) {
                     dB = dz; mB = m; ZB = Z; zB = z; zB2 = r2;
                     k = 0; l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
-                    info = (info & (15u << 26)) | used;
+                    info = (info & (15u << 26)) | (used - scan0);
                 }
                 // F'' first (old lambda; f aligned to l's exponent), then lambda, then the step.
                 const float2 z2 = 2.0f * z;
@@ -2438,7 +2572,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     if (alive) {
         stateOut[tgBase + sgLive[sg] + offset] = st;
         if (kInteriorColor) icOut[tgBase + sgLive[sg] + offset] = ic;
-        if (kProbe && probing) probeBuf[(1u - p.probeHalf) * p.capacity + tgBase + sgLive[sg] + offset] = ps;
+        const uint pOut = (1u - p.probeHalf) * p.capacity + tgBase + sgLive[sg] + offset;
+        if (kProbe && probing) probeBuf[pOut] = ps;
+        else if (carryP) probeBuf[pOut] = probeBuf[p.probeHalf * p.capacity + tid];
     }
     if (collect) {
         uint slot = tgListBase + sgCollect[sg] + collectOffset;

@@ -20,6 +20,7 @@ pub mod compass;
 pub mod components;
 pub mod cosmic;
 pub mod cruise;
+pub mod cycles;
 pub mod flight;
 pub mod flyto;
 pub mod image;
