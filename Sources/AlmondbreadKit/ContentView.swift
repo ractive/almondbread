@@ -332,7 +332,8 @@ struct HUDView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .allowsHitTesting(false)
+        // Hit-testable for the progress line's "Continue" button; the canvas already treats the
+        // HUD as off-canvas (arrow cursor, no edge pan), so a click there is not lost for zooms.
         // The canvas shows the arrow cursor over the HUD and treats it as off-canvas.
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.hudFrame = $0 }
         .accessibilityElement(children: .combine)
@@ -356,10 +357,20 @@ struct HUDProgressLine: View {
         let _ = UIPerf.body("HUDProgress")
         let text = model.progressText
         if !text.isEmpty {
-            Label(text, systemImage: "hourglass")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Label(text, systemImage: "hourglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                // At the time limit: one more round of compute further (kb: techniques/
+                // auto-iterations "Compute further").
+                if model.canContinue {
+                    Button("Continue") { model.continueComputing() }
+                        .font(.caption)
+                        .controlSize(.small)
+                        .help("Compute another minute on this view (G)")
+                }
+            }
         }
     }
 }

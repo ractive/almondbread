@@ -940,6 +940,9 @@ pub struct RenderProgressInfo {
     /// pixels (both 0 before one finished).
     pub unresolved: u64,
     pub unresolved_of: u64,
+    /// Compute further stopped at its time limit: the HUD offers "Continue"
+    /// (`Explorer::continue_computing`).
+    pub can_continue: bool,
 }
 
 impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo {
@@ -959,6 +962,7 @@ impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo 
             pixels_left: p.pixels_left.map_or(-1.0, |l| l.0),
             unresolved: p.unresolved.map_or(0, |u| u.0 as u64),
             unresolved_of: p.unresolved.map_or(0, |u| u.1 as u64),
+            can_continue: p.not_finished.is_some_and(|n| n.why == Some("time limit")),
         }
     }
 }
@@ -1255,6 +1259,12 @@ impl Explorer {
     /// decisions/controls "Driving levels").
     pub fn set_assist(&self, on: bool) {
         self.lock().host.renderer.navigator.set_assist(on);
+    }
+
+    /// "Continue" (HUD button, key G): compute further gets another time budget for this view
+    /// after stopping at its time limit. Returns whether it resumed.
+    pub fn continue_computing(&self) -> bool {
+        self.lock().host.renderer.continue_further()
     }
 
     /// Two-finger scroll zooms instead of panning (macOS setting; default off: pan).

@@ -498,6 +498,8 @@ struct Further<B: GpuBackend> {
     /// One bit per texel (row-major, the full level's width): unresolved when the passes
     /// started after AA (None: AA did not run first; the passes compose as refinement).
     mask: Option<(B::Buffer, usize)>,
+    /// GPU seconds added to `further_budget` by "Continue" (the HUD's offer at the time limit).
+    extra_budget: f64,
 }
 
 impl<B: GpuBackend> Further<B> {
@@ -4232,6 +4234,7 @@ impl<B: GpuBackend> Renderer<B> {
             segments: 0,
             deferred: false,
             mask: None,
+            extra_budget: 0.0,
         });
         // AA first when the view takes samples and its texels are the output's (live views:
         // no supersampling grid), so a still view is anti-aliased as soon as without compute
@@ -4306,6 +4309,23 @@ impl<B: GpuBackend> Renderer<B> {
         false
     }
 
+    /// "Continue" at the time limit (kb: techniques/auto-iterations "Compute further"): another
+    /// `further_budget` GPU seconds for this view, and the passes go on where they stopped.
+    /// Returns whether it resumed (only a view stopped by the time limit does).
+    pub fn continue_further(&mut self) -> bool {
+        let budget = self.config.further_budget;
+        let Some(f) = self.job.as_mut().and_then(|j| j.further.as_mut()) else {
+            return false;
+        };
+        if f.stop != Some(FurtherStop::Budget) {
+            return false;
+        }
+        f.extra_budget += budget;
+        f.stop = None;
+        self.further_next_pass();
+        self.job.as_ref().is_some_and(Job::further_running)
+    }
+
     fn stop_further(&mut self, why: FurtherStop) {
         let trace = self.config.trace;
         let Some(job) = &mut self.job else { return };
@@ -4355,7 +4375,12 @@ impl<B: GpuBackend> Renderer<B> {
     /// reach and the budget) or why there is none; starts its first segment scan.
     fn further_next_pass(&mut self) {
         let cap = self.settings.max_iterations_cap;
-        let budget = self.config.further_budget;
+        let extra = self
+            .job
+            .as_ref()
+            .and_then(|j| j.further.as_ref())
+            .map_or(0.0, |f| f.extra_budget);
+        let budget = self.config.further_budget + extra;
         let min_share = self.config.further_min_share;
         let probe_div = INTERIOR_PROBE;
         let rate = self.rate;
@@ -4649,7 +4674,7 @@ impl<B: GpuBackend> Renderer<B> {
         });
         let unresolved = f.unresolved.saturating_sub(f.resolved + current);
         let gpu = Self::extension_gpu(job);
-        let budget = self.config.further_budget;
+        let budget = self.config.further_budget + f.extra_budget;
         // What is left: the rest of this pass, then x4 passes up to the cap, at worst every
         // pixel running to each limit (bounded by the budget left).
         let mut remaining_gpu = 0.0;

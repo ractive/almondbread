@@ -182,7 +182,9 @@ impl NotFinished {
     /// "12 % not finished", "0.4 % not finished".
     fn share_text(&self) -> String {
         let pct = 100.0 * self.share;
-        if pct >= 9.5 {
+        if pct >= 99.95 {
+            "nothing finished yet".to_string()
+        } else if pct >= 9.5 {
             format!("{pct:.0} % not finished")
         } else if pct >= 0.95 {
             format!("{pct:.1} % not finished")

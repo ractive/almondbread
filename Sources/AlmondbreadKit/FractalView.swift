@@ -569,6 +569,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "f":
             if event.type == .keyDown && !event.isARepeat { toggleFullScreen() }
             return true
+        case "g":
+            // Compute further at its time limit: another round (the HUD's "Continue").
+            if event.type == .keyDown && !event.isARepeat && model.canContinue { model.continueComputing() }
+            return true
         default: break
         }
         guard let key = Self.navKey(event) else { return false }

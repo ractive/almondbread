@@ -384,6 +384,8 @@ public final class ExplorerModel {
     /// ~40 s"; empty: none), change-only so only its leaf view re-renders (kb:
     /// decisions/controls "Render progress").
     public private(set) var progressText = ""
+    /// Compute further stopped at its time limit: the HUD offers "Continue" (G).
+    public private(set) var canContinue = false
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
@@ -1137,6 +1139,13 @@ public final class ExplorerModel {
         let turned = new.shown.angleDegrees != 0
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }
+        if canContinue != new.progress.canContinue { canContinue = new.progress.canContinue }
+    }
+
+    /// "Continue" (HUD button, G): another time budget for compute further on this view.
+    public func continueComputing() {
+        guard canContinue, let explorer else { return }
+        if explorer.continueComputing() { host?.requestFrames() }
     }
 
     /// Zoom speed as a magnification factor per second, for display.

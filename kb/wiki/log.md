@@ -1318,3 +1318,9 @@ released cruise glide out or carry on into the leg instead of halting it. Page:
 ## [2026-10-17] decision | Survey steering on by default
 
 The user tried `ALMONDBREAD_SURVEY_STEER=1` in the foreground at the 1e247 path. It ran into featureless regions twice, backed out quickly and resumed. Headless numbers: 1.3 s instead of 6.7 s featureless per 90 s, 1 reversal instead of 6. Survey steering is now always on, and the switch is removed. [[decisions/controls]] "Survey steering".
+
+## [2026-10-17] decision | Compute further: "Continue" at the time limit; cosmic scale without numbers
+
+When compute further stops at its time limit (`further_budget`, 60 GPU s), the HUD's progress line offers **Continue** (button, key G). `Renderer::continue_further` adds another budget to this view's passes (`Further::extra_budget`) and resumes where they stopped. Only a stop at the time limit is offered; at the upper limit more time does not help. The HUD is hit-testable now, for the button. At 100 % the line reads "nothing finished yet" (user: "Is there a reason why not saying 0% finished?").
+
+The cosmic scale's deep phases name no numbers any more (user: "concrete numbers don't make sense anymore"). The thing as big as our universe is named when within a factor 2. Otherwise it reads "something between the solar system and the Milky Way", or beyond the ends "bigger than the Milky Way" / "smaller than the Planck length". [[techniques/auto-iterations]], [[decisions/controls]].
