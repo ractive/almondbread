@@ -635,6 +635,8 @@ pub struct Overlay<B: GpuBackend> {
     pub cockpit: crate::cockpit::CockpitOverlay,
     /// The autopilot's target marker (kb: decisions/controls, "Target marker").
     pub marker: crate::marker::TargetMarker,
+    /// A guided tour's probe point and marker (kb: decisions/controls "Guided tours").
+    pub tour: crate::tour::TourOverlay,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
     /// Counts new probes (the dot cloud's key).
@@ -666,6 +668,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             compass: Default::default(),
             cockpit: Default::default(),
             marker: Default::default(),
+            tour: Default::default(),
             trail: None,
             probe_serial: 0,
             cloud: None,
@@ -829,7 +832,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 || self.compass.shown(now)
                 || line
                 || self.cockpit.enabled
-                || self.marker.visible())
+                || self.marker.visible()
+                || self.tour.marker.is_some())
                 || empty
             {
                 renderer.overlay = None;
@@ -902,7 +906,11 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     }
 
     fn update_probe(&mut self, renderer: &Renderer<B>, view: &Viewport, ppp: f64, length: usize) {
-        let (tx, ty) = renderer.navigator.zoom_target();
+        // A tour may set the point (kb: decisions/controls "Guided tours"); else the pointer.
+        let (tx, ty) = match &self.tour.probe {
+            Some(c) => view.offset_of(c),
+            None => renderer.navigator.zoom_target(),
+        };
         // Key: the view, the target to 1/64 point, the length and the reference.
         let serial = renderer.reference_serial();
         let key = (
@@ -928,7 +936,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         } else {
             None
         };
-        let c = view.point_at_offset(tx, ty);
+        let c = match &self.tour.probe {
+            Some(c) => c.clone(),
+            None => view.point_at_offset(tx, ty),
+        };
         let scale = view.scale.double_exp();
         let (point, ref_offset, centre) = match reference {
             Some((rp, r)) => {
@@ -1206,6 +1217,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // The cosmic scale sits bottom left, above the maps when they are there too.
         let mut cosmic_bottom = (h - 12.0 * px) as f32;
         let to_px = |v: [f64; 2]| [w / 2.0 + v[0] * px, h / 2.0 - v[1] * px];
+        // ---- A tour's marker, under the orbit.
+        self.tour.draw(scene, size, ppp, view, &mut key);
         // ---- Orbit in the view.
         if s.orbit && !self.points.view.is_empty() {
             let pts: Vec<[f64; 2]> = self.points.view.iter().map(|&v| to_px(v)).collect();

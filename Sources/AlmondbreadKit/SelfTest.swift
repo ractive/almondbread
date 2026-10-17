@@ -197,6 +197,8 @@ public enum UIDemo {
         return a.hasPrefix(prefix + "=") ? String(a.dropFirst(prefix.count + 1)) : "orbit"
     }
     public static var enabled: Bool { scene != nil }
+    /// `tour-<id>` scenes show the canvas and the tour card without the control center.
+    static var hidesSidebar: Bool { scene?.hasPrefix("tour-") == true }
 
     /// The control center's section state in a demo: a volatile suite, emptied at launch (all
     /// sections open; the perf scene starts with Places and a few others collapsed), so a
@@ -224,6 +226,7 @@ public enum UIDemo {
         case "cosmic", "cosmic-deep": "cosmic"
         case "help-control": "iterations"
         case "journey-stop": "journey"
+        case "tours": "tour"
         default: nil
         }
     }
@@ -235,6 +238,14 @@ public enum UIDemo {
         model.supersampling = .x9
         // `developer`: the default scene with the HUD's developer details (not stored).
         if scene == "developer" { model.hudDetails = true }
+        // `tour-<id>`: every step of a guided tour captured in turn (kb: decisions/controls "Guided
+        // tours"); `--ui-demo-tour-wait=3:14,7:12` sets the seconds before a step's capture.
+        if scene.hasPrefix("tour-") {
+            #if os(macOS)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { runTour(model, explorer: explorer, id: String(scene.dropFirst(5))) }
+            #endif
+            return
+        }
         switch scene {
         case "interior":
             try? explorer.setViewport(re: "-0.1225", im: "0.7445", scale: 0.0004)

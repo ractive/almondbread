@@ -49,6 +49,15 @@ Press **N** (or View ▸ Seek Minibrot; on iPhone and iPad, a long press on the 
 
 The control center starts with **Places**: famous views, from the seahorse valley to views deeper than a googol. **Go** jumps there, **Fly** flies there, **Random** picks one for you.
 
+## Tours
+
+A tour walks you through one piece of the maths, step by step. Start one from **View ▸ Tours**, the **Tours** section of the control center, or the **Tour** button of a place that has one (for example the *Feigenbaum Point*).
+
+- A card at the bottom right explains each step. The tour flies the view there, sets the colours and overlays, and moves the orbit's point for you, so you can watch what the text describes.
+- **Next ›** or **→** goes on, **‹ Back** or **←** goes back, **End tour** or **Esc** ends it.
+- Look around in between as you like; **Next** carries on from the tour's own next view.
+- When the tour ends, your view and settings come back as they were.
+
 ## Fly to coordinates
 
 Every view has an address: its centre and its zoom. **⌘C** copies it, **⌘V** jumps to a copied one (also **⇧⌘C** / **⇧⌘V** while a text field has focus), **⇧⌘G** flies to it, and **⌘G** flies to an address you type.

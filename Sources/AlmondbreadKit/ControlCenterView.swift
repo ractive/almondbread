@@ -247,6 +247,7 @@ struct ControlSectionRows: View {
         let _ = UIPerf.body("rows.\(section.rawValue)")
         switch section {
         case .places: PlacesSection(model: model)
+        case .tours: ToursSectionRows(model: model)
         case .view: ViewSectionRows(model: model)
         case .journey: JourneySectionRows(model: model)
         case .look: LookSectionRows(model: model)
@@ -831,12 +832,13 @@ enum ControlRows {
 
 /// The control center's sections, in order, with what the search matches.
 enum ControlSection: String, CaseIterable, Identifiable {
-    case places, view, journey, look, lighting, interior, overlays, quality, controls
+    case places, tours, view, journey, look, lighting, interior, overlays, quality, controls
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .places: "Places"
+        case .tours: "Tours"
         case .view: "View & navigation"
         case .journey: "Journey & cinematic effects"
         case .look: "Look & colour"
@@ -851,6 +853,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .places: "mappin.and.ellipse"
+        case .tours: "signpost.right"
         case .view: "scope"
         case .journey: "film"
         case .look: "paintpalette"
@@ -884,7 +887,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .interior: .interior
         case .overlays: .overlays
         case .quality: .quality
-        case .places, .controls: nil
+        case .places, .tours, .controls: nil
         }
     }
 
@@ -898,6 +901,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
+        case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain"]
         case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten"]
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
@@ -911,6 +915,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
 
     var footer: String? {
         switch self {
+        case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. → and ← step through it, Esc ends it and brings back your view and settings. Look around in between as you like."
         case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Steering or Q down to zero hands over to cruise, other input pauses it; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
@@ -1010,6 +1015,15 @@ struct PlacesSection: View {
             }
             .disabled(selected == nil)
             .help("Fly there: out, across and in; Esc stops")
+            // A place with a guided tour (kb: decisions/controls "Guided tours").
+            if let id = selected, let tour = ExplorerModel.tour(forPlace: id) {
+                Button {
+                    model.startTour(tour.id)
+                } label: {
+                    Label("Tour", systemImage: "signpost.right")
+                }
+                .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc ends it")
+            }
             Spacer()
             Button {
                 selected = model.randomPlace(category: category).id
@@ -1178,6 +1192,7 @@ struct ControlsHelp: View {
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
         row("forward", "At a journey stop", "J next · Z deeper here · X somewhere else")
+        row("signpost.right", "In a tour  → / ← / Esc", "Next step / back / end the tour")
         row("rotate.left", ",  .  /", "Turn left / right · upright (or trackpad rotate)")
         row("escape", "Esc", "Stop the cruise, the autopilot, a flight or a journey; then leave full screen")
         row("arrow.up.backward.and.arrow.down.forward", "F or ⌃⌘F", "Full screen on / off")

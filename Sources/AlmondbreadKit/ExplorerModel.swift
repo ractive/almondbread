@@ -616,7 +616,8 @@ public final class ExplorerModel {
     }
 
     private func writeSaved() {
-        if let data = try? JSONEncoder().encode(snapshot()) {
+        // During a tour the user's own settings persist, not the tour's.
+        if let data = try? JSONEncoder().encode(tourSaved ?? snapshot()) {
             UserDefaults.standard.set(data, forKey: Preferences.savedSettingsKey)
         }
     }
@@ -1032,6 +1033,71 @@ public final class ExplorerModel {
         let p = AlmondbreadCore.randomPlace(seed: UInt64.random(in: 0...UInt64.max), category: category)
         if fly { flyToPlace(p.id) } else { goToPlace(p.id) }
         return p
+    }
+
+    // MARK: Guided tours (kb: decisions/controls "Guided tours"; Rust plays them)
+
+    public static let tours: [TourInfo] = AlmondbreadCore.tours()
+
+    /// The running tour's step (nil: no tour); set only by the tour calls below.
+    public private(set) var tour: TourStepInfo?
+    /// The settings before the tour (what persists meanwhile; the look id is ours alone).
+    @ObservationIgnored private var tourSaved: SavedSettings?
+
+    /// Starts a tour at its first step: other motion stops, the settings and view are saved.
+    public func startTour(_ id: String) {
+        guard let explorer else { return }
+        let before = tourSaved ?? snapshot()
+        guard let info = try? explorer.startTour(id: id) else { return }
+        tourSaved = before
+        takeTour(info)
+    }
+
+    /// "Next ›" (→): the next step; on the last one the tour ends.
+    public func tourNext() {
+        guard let t = tour else { return }
+        if Int(t.index) + 1 >= Int(t.count) { endTour() } else { tourGo(Int(t.index) + 1) }
+    }
+
+    /// "‹ Back" (←).
+    public func tourBack() {
+        guard let t = tour, t.index > 0 else { return }
+        tourGo(Int(t.index) - 1)
+    }
+
+    public func tourGo(_ index: Int) {
+        guard let explorer, let info = explorer.tourGo(index: UInt32(max(0, index))) else { return }
+        takeTour(info)
+    }
+
+    /// "End tour" (Esc): the settings before the tour come back and the view flies back.
+    public func endTour() {
+        guard let explorer else { return }
+        let saved = tourSaved
+        tourSaved = nil
+        if let info = explorer.endTour() { takeTour(info) }
+        tour = nil
+        if let look = saved?.lookID { lookID = look }
+        save()
+    }
+
+    /// Mirrors what Rust applied for a step (or restored at the end), without pushing it back.
+    private func takeTour(_ info: TourStepInfo) {
+        pull(info.settings)
+        pulling = true
+        orbitEnabled = info.orbit
+        orbitLength = Int(info.orbitLength)
+        mapEnabled = info.map
+        mapLevels = Int(info.mapLevels)
+        cosmicScale = info.cosmic
+        piMeterEnabled = info.piMeter
+        compassAlways = info.compass
+        if !info.look.isEmpty { lookID = info.look }
+        pulling = false
+        if !piMeterEnabled { piMeter = nil }
+        let next = info.active ? info : nil
+        if tour != next { tour = next }
+        host?.requestFrames()
     }
 
     public func toggleOrbit() { orbitEnabled.toggle() }

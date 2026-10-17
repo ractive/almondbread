@@ -165,6 +165,8 @@ struct FractalCommands: Commands {
                                             set: { model?.piMeterEnabled = $0 }))
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(model == nil)
+            // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas.
+            TourMenu(model: model)
             Button("Hunt π at the Neck") { model?.piFlight("neck") }
                 .disabled(model == nil)
             Button("Hunt π at the Cusp") { model?.piFlight("cusp") }
