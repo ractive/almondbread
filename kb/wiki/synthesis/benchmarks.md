@@ -1759,3 +1759,61 @@ dive depth (deepest landing per cross-over and its legs):
 Played headless for 150 s (seeds 2 and 20261015): median zoom 1e3.1 → 1e7.5 and 1e3.3 → 1e8.9,
 time deeper than 1e10 32 → 50 s and 0 → 68 s, deepest 1e18.2 → 1e17.3 and 1e8.7 → 1e22.5.
 Black frames: none in 62 700 frames of five recorded journeys (the old and new builds).
+
+## Interior probe (attracting-cycle proof), 2026-10-17
+
+kb: [[techniques/interior-detection]] "Attracting-cycle probe". `bench` (offscreen, fixed
+limit, no extension passes), M1 Pro, release, base b466f42 against the probe, interleaved per
+location (3 rounds × `--repeat 4`, min GPU ms). Other agents were loading the GPU: rows the
+probe never touches (dendrites, spiral, deep-5e-14) still moved by 15–50 %, so differences under
+~20 % are noise. The probe costs where many pixels stay unresolved at the limit without being
+provable (near-parabolic): the neck views +16–42 %, root-third +10–26 %, cusp-1e5 at 3456 +24 %,
+home at 1600 +0.9 ms. Verify (400×259): GPU-int/CPU-ext 0.000 everywhere; detected interior
+elephant 23.3 → 28.3 %, cusp-1e5 6.9 → 88.1 %, home 14.2 → 15.3 %, needle-1e94 0.8 → 1.0 %.
+With extension passes (the app) the same views settle as fast or faster with far fewer
+unresolved pixels (technique page). Interaction test (window occluded, frame rate not
+measurable; final full-resolution frame after the input, two interleaved runs per build): home
+pan 175/191 → 183/200 ms, 1e5 pan 225/225 → 242/216, neck2e5 pan 233/217 → 258/242 (settled
+not within 3 s / 1.84 s → 1.48 / 0.88 s), dense pan 308/300 → 308/267.
+
+| location | size | maxIter | GPU ms before | GPU ms after | change |
+|---|---|---:|---:|---:|---:|
+| home | 3456x2234 | 1000 | 15.9 | 17.3 | +9 % |
+| home | 1600x1000 | 1000 | 3.6 | 4.5 | +25 % |
+| home-100k | 3456x2234 | 100000 | 49.7 | 53.9 | +8 % |
+| home-100k | 1600x1000 | 100000 | 26.1 | 27.3 | +5 % |
+| seahorse-1e5 | 3456x2234 | 2000 | 23.1 | 23.4 | +1 % |
+| seahorse-1e5 | 1600x1000 | 2000 | 5.7 | 5.3 | -7 % |
+| elephant | 3456x2234 | 5000 | 182.8 | 171.9 | -6 % |
+| elephant | 1600x1000 | 5000 | 23.4 | 25.0 | +7 % |
+| minibrot-p4 | 3456x2234 | 50000 | 68.3 | 68.9 | +1 % |
+| minibrot-p4 | 1600x1000 | 50000 | 23.8 | 24.5 | +3 % |
+| deep-5e-14 | 3456x2234 | 6000 | 54.9 | 41.8 | -24 % |
+| deep-5e-14 | 1600x1000 | 6000 | 9.4 | 10.7 | +14 % |
+| neck-2e5 | 3456x2234 | 2053 | 41.6 | 48.2 | +16 % |
+| neck-2e5 | 1600x1000 | 2053 | 12.9 | 16.6 | +29 % |
+| neck-7e6 | 3456x2234 | 2907 | 85.2 | 103.8 | +22 % |
+| neck-7e6 | 1600x1000 | 2907 | 37.9 | 53.7 | +42 % |
+| cusp-1e5 | 3456x2234 | 3000 | 415.3 | 513.0 | +24 % |
+| cusp-1e5 | 1600x1000 | 3000 | 111.4 | 115.8 | +4 % |
+| dense-5e-14 | 3456x2234 | 5791 | 96.5 | 98.1 | +2 % |
+| dense-5e-14 | 1600x1000 | 5791 | 24.6 | 25.7 | +4 % |
+| root-third | 3456x2234 | 3000 | 100.2 | 109.9 | +10 % |
+| root-third | 1600x1000 | 3000 | 32.2 | 40.6 | +26 % |
+| sea-1e20 | 3456x2234 | 20000 | 80.1 | 82.3 | +3 % |
+| sea-1e20 | 1600x1000 | 20000 | 22.8 | 27.3 | +20 % |
+| needle-1e94 | 3456x2234 | 20000 | 77.2 | 78.5 | +2 % |
+| needle-1e94 | 1600x1000 | 20000 | 16.7 | 12.5 | -25 % |
+| needle-1e305 | 3456x2234 | 50000 | 71.7 | 78.1 | +9 % |
+| needle-1e305 | 1600x1000 | 50000 | 15.8 | 20.0 | +27 % |
+| needle-1e1004 | 3456x2234 | 100000 | 107.2 | 89.5 | -17 % |
+| needle-1e1004 | 1600x1000 | 100000 | 16.1 | 20.9 | +30 % |
+| dendrite-1e50 | 3456x2234 | 20000 | 11.2 | 8.9 | -21 % |
+| dendrite-1e50 | 1600x1000 | 20000 | 2.5 | 2.2 | -12 % |
+| dendrite-1e1000 | 3456x2234 | 20000 | 17.6 | 8.8 | -50 % |
+| dendrite-1e1000 | 1600x1000 | 20000 | 3.6 | 2.1 | -42 % |
+| spiral-32412-1e19 | 3456x2234 | 41536 | 2570.3 | 2642.0 | +3 % |
+| spiral-32412-1e19 | 1600x1000 | 41536 | 782.7 | 769.4 | -2 % |
+
+Feigenbaum (full sequential runs, same caveat): 3456 12.9 → 13.6 s, 1600 2.35 → 2.37 s;
+sea-8007 unchanged (probe off: nucleus period 8007).

@@ -1048,3 +1048,15 @@ anchors a SwiftUI popover at the badge's rect from the one change-only model pro
 Interaction test unchanged: every shown-frame check OK; the one failure, "autopilot" zooming
 ×2.2–2.3 in 2.4 s (check wants ×3.2), fails identically on the base commit b466f42 (measured
 2026-10-17, M1-class Mac, release, loaded machine), so it is not from this change.
+## [2026-10-17] decision | Attracting-cycle probe for interior detection
+
+The `|w| n²` test proved only the fast core of a component (satellite: `|λ| < ~0.7` at 51
+periods), so minibrot bodies and bulbs stayed unresolved grey. Pixels unresolved at the limit
+now park and a kProbe pipeline variant searches their orbit for the cycle (near-0 base point,
+candidate period from a return), runs Newton on `f^P` and proves an attracting fixed point
+with a Kantorovich bound and float32 noise margins; repelling parents of satellite bulbs
+resume the search for longer periods. No false interior in 19 views against the CPU oracle
+at high limits; satellite proven 1.1 → 3.4 % of 3.7 %, cardioid edge 55.7 → 84.0 % of 86.1 %,
+cusp 35.7 → 87.9 %. Near-parabolic views (neck, 1/3 root) stay unresolved and cost 10–40 %
+offscreen. Pages: [[techniques/interior-detection]] "Attracting-cycle probe",
+[[synthesis/benchmarks]] "Interior probe". Contact sheet: `~/Desktop/interior-before-after.png`.

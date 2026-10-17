@@ -550,7 +550,7 @@ mod tests {
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
              out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX);\n\
              out[12] = sizeof(PixelStateIC); out[13] = sizeof(SeedNode); out[14] = sizeof(SeedParams);\n\
-             out[15] = sizeof(CacheParams); out[16] = sizeof(SurveyParams); }}\n"
+             out[15] = sizeof(CacheParams); out[16] = sizeof(SurveyParams); out[17] = sizeof(PixelStateProbe); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -560,7 +560,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 68];
+        let mut bytes = [0u8; 72];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -588,6 +588,7 @@ mod tests {
                 size_of::<SeedParams>() as u32,
                 size_of::<crate::gpu_types::CacheParams>() as u32,
                 size_of::<crate::gpu_types::SurveyParams>() as u32,
+                size_of::<crate::gpu_types::PixelStateProbe>() as u32,
             ]
         );
     }

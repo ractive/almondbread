@@ -37,6 +37,8 @@ constant bool kInteriorColor [[function_constant(4)]];  // analyse interior cycl
 constant bool kSeeded   [[function_constant(5)]];   // M5: fresh pixels of seeded tiles start from their
                                                     // quadtree leaf's local series expansion
                                                     // (kb: techniques/local-series-approximation)
+constant bool kProbe    [[function_constant(6)]];   // interior probe of pixels unresolved at the
+                                                    // limit (needs kInterior; see "Attracting-cycle probe")
 constant bool kLA       [[function_constant(8)]];   // M6: period-aligned linear approximation
                                                     // (kb: techniques/linear-approximation-imagina)
 constant bool kAT       [[function_constant(9)]];   // M6: the approximation table of a periodic
@@ -94,6 +96,10 @@ struct IterateParams {
     uint   realAxis;      // 1: the reference point is on the real axis (a real orbit): M5 seeds
                           // are not used within AXIS_BAND texels of the axis (the needle is a
                           // knife edge in Im c)
+    uint   probe;         // interior probe of pixels unresolved at maxIter: at most this many
+                          // probe steps per pixel (0: off)
+    uint   probeHalf;     // probe state buffer: this chunk reads half probeHalf (capacity
+                          // entries each) and writes the other
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -175,6 +181,33 @@ struct PixelState {
     int    e;             // deep: delta exponent (0: plain regime)
     int    dExp;          // deep: DE exponent
 };
+
+// Interior probe state of one live pixel past maxIter (kInterior; see "Attracting-cycle probe"
+// below). A separate buffer (binding 30, two halves: in = probeHalf, out = the other) so the
+// main loop carries none of it. While probing, the PixelState holds dz * 2^e = the delta as
+// floatexp (also in the plain kernel), w * 2^wExp = the multiplier lambda = (f^k)'(z_B),
+// d * 2^dExp = the base point's delta and n = maxIter + probe steps.
+struct PixelStateProbe {
+    float2 zz;            // (f^k)''(z_B) mantissa
+    int    zzExp;
+    uint   mB;            // the base point's reference index
+    uint   k;             // steps since the base point
+    uint   info;          // PROBE_NEWTON | passes << 26 | lead (scan) or period (Newton)
+    float2 oB;            // Newton passes: the scan's orbit point to resume from if they fail
+    int    oBExp;         // (its delta, floatexp in the deep kernel, and reference index)
+    uint   oM;
+    uint   pRej;          // candidates must be longer than this rejected period
+    uint   pad;
+};
+constant uint PROBE_NEWTON = 0x40000000u;
+constant uint PROBE_LOW    = 0x03ffffffu;   // lead / period (26 bits)
+constant uint PROBE_PASS   = 0x04000000u;   // Newton passes (bits 26..29)
+constant uint PROBE_COST_PLAIN = 4u;        // main-loop steps per probe step (chunk budget):
+constant uint PROBE_COST_DEEP  = 16u;       // float32 in the plain kernel, floatexp in the deep one
+// Probe step actions.
+constant uint PA_SCAN = 0u, PA_EVAL = 1u, PA_RESET = 2u, PA_PROVEN = 3u, PA_NEWTON = 4u, PA_REJECT = 5u,
+              PA_STUCK = 6u, PA_REPEL = 7u;
+constant uint PROBE_PASSES = 8u;            // Newton passes per probe at most
 
 // Interior cycle analysis of one live pixel (kInteriorColor only; a buffer parallel to the
 // live state, same slots). Complex values are floatexp: mantissa, exponent.
@@ -447,6 +480,29 @@ static inline FE feTwice(FE a) {
     return FE{a.m, a.e == FE_ZERO ? FE_ZERO : a.e + 1};
 }
 
+static inline FE feSub(FE a, FE b) {
+    return feAdd(a, FE{-b.m, b.e});
+}
+
+// a / b (b != 0; zero otherwise).
+static inline FE feDiv(FE a, FE b) {
+    const float n = dot(b.m, b.m);
+    if (!(n > 0.0f)) return FE{float2(0.0f), FE_ZERO};
+    return feNorm(cmul(a.m, float2(b.m.x, -b.m.y)) / n, a.e - b.e);
+}
+
+// log2 |a| (-1e30 for zero).
+static inline float feLog2(FE a) {
+    const float l = length(a.m);
+    return l > 0.0f ? log2(l) + float(a.e) : -1e30f;
+}
+
+// log2(2^a + 2^b).
+static inline float lgSum(float a, float b) {
+    const float hi = max(a, b);
+    return hi + log2(1.0f + exp2(max(min(a, b) - hi, -60.0f)));
+}
+
 // After the delta's exponent e changed: s = 2^e and dd = c 2^-e for the scaled step. A delta
 // far below |c| (2^-60) is re-expressed relative to c's exponent `ce`, so dd stays in range.
 static inline void deepRescale(thread float2& w, thread int& e, thread float& s, thread float2& dd,
@@ -627,6 +683,40 @@ kernel void finishChunk(constant IterateParams& p            [[buffer(0)]],
 // Node centres are texel corners (u, v) = (i + 1/2) size; a sample at texel x has the complex
 // offset of (x + jitter), the node that of ((u, v) + jitter - 1/2) (same level jitter).
 
+
+// Interior probe, evaluation of a candidate period P at the base point z_B (kb:
+// techniques/interior-detection "Attracting-cycle probe"; see the kernel): g = F(z_B) - z_B,
+// lambda = F'(z_B), fzz = F''(z_B) for F = f^P, lgMag = log2 of the magnitudes g's float32
+// noise is relative to. PA_PROVEN: an attracting fixed point of F exists (c is interior);
+// PA_NEWTON: try again from z_B + Delta (delta = -Delta); located but not attracting enough:
+// PA_REPEL (surely repelling: look for longer periods) or PA_STUCK (at the noise floor, give
+// up); PA_REJECT.
+static inline uint probeEval(FE g, FE lam, FE fzz, FE zB, float lgMag, uint P, uint info, thread FE& delta) {
+    const FE d1 = feSub(lam, FE{float2(0.5f, 0.0f), 1});
+    const float lgD = feLog2(d1);
+    if (!(lgD > -1e29f)) return PA_REJECT;
+    delta = feDiv(g, d1);
+    const float lgEta = -22.0f + log2(1.0f + sqrt(float(P))) + lgMag;
+    const float lgZB = feLog2(zB);
+    const float lgL = 1.0f + feLog2(fzz);
+    const float lgDelta = feLog2(delta);
+    const float lgH = lgL + lgSum(feLog2(g), lgEta) - 2.0f * lgD;
+    const float lgR = 1.0f + lgSum(lgDelta, lgEta - lgD);
+    const float lamAbs = exp2(min(feLog2(lam), 8.0f)), spread = exp2(min(lgL + lgR, 8.0f));
+    const float mu = 0x1p-20f * (float(P) + 16.0f);
+    if (lgH <= -2.0f && lgR <= lgZB - 6.0f) {
+        // The fixed point z* is located: |F'(z*) - lambda| <= L r.
+        if (lamAbs + spread <= 1.0f - mu) return PA_PROVEN;
+        // Surely repelling: a parent cycle inside a satellite component of period q P, or a
+        // ghost on an exterior orbit (look for longer periods).
+        if (lamAbs - spread > 1.0f + 0x1p-10f) return PA_REPEL;
+        // Newton is at its noise floor (it cannot shrink r further): near-parabolic, no
+        // float32 proof will come (give up).
+        if (lgDelta <= lgEta - lgD + 1.0f) return PA_STUCK;
+    }
+    if ((lgH <= 1.0f || lgDelta <= lgZB - 2.0f) && lgDelta <= lgZB) return PA_NEWTON;
+    return PA_REJECT;
+}
 
 // Interior-test value |w| n^2 of a floatexp w.
 static inline float feWTest(FE w, uint n) {
@@ -1047,6 +1137,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const LaEntry* laP               [[buffer(27), function_constant(kLA)]],
                     device const uint* laNext               [[buffer(28), function_constant(kLA)]],
                     constant LaParams& la                   [[buffer(29), function_constant(kLA)]],
+                    device PixelStateProbe* probeBuf        [[buffer(30)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -1143,9 +1234,14 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     float icR2 = kInteriorColor ? exp2(min(2.0f * ic.minLog2, 127.0f)) : 0.0f;
     float icMinLog2 = ic.minLog2;
     uint icQ = ic.k;
+    // Interior probe (see "Attracting-cycle probe" after the main loops): with p.probe on, a
+    // pixel unresolved at maxIter stays live ("parked", n = maxIter) until a kProbe pipeline
+    // runs it; n > maxIter: probing (its probe state is valid).
+    const bool parked = kInterior && p.probe != 0 && active && !fresh && !inB && st.n >= p.maxIter;
+    const bool inP = kProbe && parked && st.n > p.maxIter;
 #define IC_TRACK(r2v, nv) if (kInteriorColor && (r2v) < icR2) { icR2 = (r2v); icMinLog2 = 0.5f * log2(icR2); icQ = (nv); }
 
-    if (active && !inB && !filled && kDeep) {
+    if (active && !inB && !parked && !filled && kDeep) {
         // M3b deep loop (kb: techniques/extended-range-floats "Rescaled iterations", rebasing,
         // bla). The pixel's delta is z = w 2^e. Two regimes:
         //  P (e == 0): |z| >= 2^-50, w is the plain float32 delta; the loop is the plain one
@@ -1553,7 +1649,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = atSave ? AT_MODE : e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
-    } else if (active && !inB && !filled) {
+    } else if (active && !inB && !parked && !filled) {
         // M6 AT (kAT): as in the deep path, with C and the texel at exponent 0.
         float atRad = 0.0f;
         float2 atCp = 0.0f;
@@ -1862,6 +1958,283 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         }
     }
 
+    // ---- Attracting-cycle probe (kProbe, p.probe != 0; kb: techniques/interior-detection
+    // "Attracting-cycle probe"). The |w| n^2 test proves only the fast-converging core of a
+    // component: with multiplier lambda per period P the orbit needs |lambda|^(n/P) n^2 < eps,
+    // so at the satellite (P 39, limit 1994 = 51 periods) only |lambda| < ~0.7 was proven and
+    // the rest of the minibrot body and its bulbs stayed unresolved. A pixel unresolved at
+    // maxIter parks (stays live, see `parked`); the scheduler runs the kProbe variant once only
+    // parked pixels are left (the probe's registers would slow every main-loop pixel). It then
+    // looks for the cycle itself in exact perturbation steps (no BLA; float32 in the plain
+    // kernel, floatexp in the deep one) for at most p.probe steps (maxIter / 8 + 256, capped so
+    // the probes add at most half of the level's work):
+    //  Scan: base point z_B = the smallest |z| since the probe (re)started: the cycle's point
+    //    nearest 0, where z is known to its own relative precision. A return within |z_B| / 4
+    //    at k steps (k > pRej) is a candidate period P = k if z_B was the minimum for at least
+    //    k steps before it too (a window of 2P around it: z_B is the near-0 point, not a point
+    //    of a slow spiral that happens to come back).
+    //  Evaluate (probeEval): F = f^P with g = F(z_B) - z_B, lambda = F'(z_B), F'' (both
+    //    accumulated from z_B). Newton step Delta = -g / (lambda - 1). With L = 2 |F''| (a
+    //    bound on |F''| near z_B), noise eta in g and h = L (|g| + eta) / |lambda - 1|^2 <= 1/4,
+    //    Kantorovich puts a fixed point z* of F within r = 2 (|Delta| + eta / |lambda - 1|) of
+    //    z_B, and |F'(z*)| <= |lambda| + L r. If that is <= 1 - mu, f has an attracting cycle:
+    //    c is interior (a proof up to the noise bounds, not a heuristic: an exterior c has no
+    //    attracting cycle). Also r <= |z_B| / 64, where F'' cannot change much.
+    //  Otherwise: Newton (h <= 2 or |Delta| <= |z_B| / 4) moves the base point to z_B + Delta
+    //    and iterates F again from there (8 passes per probe at most), keeping the scan's orbit
+    //    point; a located but surely repelling fixed point (|lambda| - L r > 1 + 2^-10: the
+    //    parent cycle inside a satellite bulb of period q P, or a ghost on an exterior orbit)
+    //    resumes the scan from that point for periods > P only; one located at the noise floor
+    //    but not provably attracting (near-parabolic) gives up; a hopeless candidate restarts
+    //    the scan at the current point.
+    // eta = 2^-22 (1 + sqrt P) (|dz| + |dz_B|, plus |Z_m| + |Z_mB| if the reference indices
+    // differ): the float32 representation error of both points (rebasing keeps |dz| <= |z|),
+    // with sqrt P for the rounding of the P steps. mu = 2^-20 (P + 16) covers the rounding of
+    // lambda itself. (Measured margin: either bound 2^12 times smaller alone still gave no
+    // false interior at the -3/4 neck and the 1/3 root; both 2^8 times smaller did.) Escaping
+    // (|z| >= 2) or out of steps: unresolved, as before.
+    bool probing = inP, pDone = false, pProven = false;
+    uint pPeriod = 0;
+    PixelStateProbe ps;
+    if (inP) ps = probeBuf[p.probeHalf * p.capacity + tid];
+    // A probe step costs about PROBE_COST_* loop steps of the main loop: the chunk budget in those
+    // units (at least one step for a pixel that starts the chunk here, so it always advances).
+    const uint pCost = kDeep ? PROBE_COST_DEEP : PROBE_COST_PLAIN;
+    const uint pRem = p.chunkIters > steps ? p.chunkIters - steps : 0u;
+    const uint pBudget = pRem == 0u ? 0u : max(pRem / pCost, 1u);
+    // (A pixel enters with a step to take: probing state always has n > maxIter.)
+    if (kProbe && p.probe != 0 && active && !inB && !inP && !filled && !escaped && !interior
+        && st.n == p.maxIter && pBudget > 0u && !(kAT && st.e == AT_MODE)) {
+        if (kDeep) {
+            const FE dzx = feNorm(st.dz, st.e);
+            st.dz = dzx.m; st.e = dzx.e;
+            st.w = float2(0.5f, 0.0f); st.wExp = 1;
+        } else {
+            st.w = float2(1.0f, 0.0f); st.wExp = 0;
+        }
+        st.d = st.dz; st.dExp = st.e;
+        ps.mB = st.m;
+        ps.zz = 0.0f; ps.zzExp = kDeep ? FE_ZERO : 0;
+        ps.k = 0;
+        ps.info = min(st.n - p.maxIter, PROBE_LOW);
+        ps.pRej = 0;
+        probing = true;
+    }
+    if (kProbe && probing) {
+        uint m = st.m, mB = ps.mB, k = ps.k, info = ps.info;
+        uint used = st.n - p.maxIter;
+        const uint limit = min(p.probe, PROBE_LOW);
+        uint spent = 0;
+        if (kDeep) {
+            // Floatexp: dz * 2^e, lambda, F'' and the base delta each with their exponent.
+            const FE C = feNorm(dc, p.scaleExp);
+            const FE one = FE{float2(0.5f, 0.0f), 1};
+            FE dzx = FE{st.dz, st.e};
+            FE lam = FE{st.w, st.wExp};
+            FE fzz = FE{ps.zz, ps.zzExp};
+            FE dB = FE{st.d, st.dExp};
+            FE ZB = refAt(refx, mB);
+            FE zB = feAdd(ZB, dB);
+            while (spent < pBudget) {
+                if (used >= limit) { pDone = true; break; }
+                FE Zx = refAt(refx, m);
+                const FE zf = feAdd(Zx, dzx);
+                if (m == last || (m != 0 && feLess(zf, dzx))) {
+                    dzx = zf;
+                    m = 0;
+                    Zx = FE{float2(0.0f), FE_ZERO};
+                }
+                if (zf.e >= 3) { pDone = true; break; }   // |z| >= 2: escapes
+                const uint low = info & PROBE_LOW;
+                uint act = PA_SCAN;
+                if ((info & PROBE_NEWTON) != 0) {
+                    act = k == low ? PA_EVAL : PA_SCAN;
+                } else if (k > 0) {
+                    const FE dv = feSub(zf, zB);
+                    if (k > ps.pRej && feLess(FE{dv.m, dv.e + 2}, zB)) act = low >= k ? PA_EVAL : PA_RESET;
+                    else if (feLess(zf, zB)) act = PA_RESET;
+                }
+                if (act == PA_EVAL) {
+                    // g = F(z_B) - z_B, exact in Z where the reference indices agree.
+                    const FE dd = feSub(dzx, dB);
+                    const FE g = m == mB ? dd : feAdd(feSub(Zx, ZB), dd);
+                    float lgMag = lgSum(feLog2(dzx), feLog2(dB));
+                    if (m != mB) lgMag = lgSum(lgMag, lgSum(feLog2(Zx), feLog2(ZB)));
+                    FE delta;
+                    act = probeEval(g, lam, fzz, zB, lgMag, k, info, delta);
+                    if (act == PA_PROVEN) { pProven = true; pDone = true; pPeriod = k; break; }
+                    if (act == PA_STUCK || (act == PA_NEWTON && ((info >> 26) & 15u) >= PROBE_PASSES)) {
+                        pDone = true;
+                        break;
+                    }
+                    // (Also after a hopeless candidate: the next one is a multiple of it, F = f^(jP),
+                    // evaluated once the orbit has had a few more periods to converge.)
+                    if (act == PA_REPEL || act == PA_REJECT) ps.pRej = max(ps.pRej, k);
+                    if (act == PA_NEWTON) {
+                        // z_B <- z_B + Delta (delta = -Delta), iterate F again from there. (The
+                        // scan's orbit point is kept to resume from.)
+                        if ((info & PROBE_NEWTON) == 0) { ps.oB = dzx.m; ps.oBExp = dzx.e; ps.oM = m; }
+                        dB = feSub(dB, delta);
+                        dzx = dB;
+                        m = mB;
+                        zB = feAdd(ZB, dB);
+                        info = PROBE_NEWTON | ((((info >> 26) & 15u) + 1u) << 26) | k;
+                        k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                        spent++;
+                        continue;
+                    }
+                    if ((info & PROBE_NEWTON) != 0) {
+                        // Newton failed (e.g. converged to a repelling cycle: the parent's
+                        // fixed point inside a satellite bulb of period q P): resume the scan
+                        // from its orbit point, for periods longer than P only.
+                        ps.pRej = max(ps.pRej, k);
+                        dzx = FE{ps.oB, ps.oBExp};
+                        m = ps.oM;
+                        dB = dzx; mB = m; ZB = refAt(refx, m); zB = feAdd(ZB, dB);
+                        k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                        info = (info & (15u << 26)) | used;
+                        spent++;
+                        continue;
+                    }
+                }
+                if (act != PA_SCAN) {
+                    // New base point here (a new minimum, a too early return, a hopeless candidate).
+                    dB = dzx; mB = m; ZB = Zx; zB = feAdd(ZB, dB);
+                    k = 0; lam = one; fzz = FE{float2(0.0f), FE_ZERO};
+                    info = (info & (15u << 26)) | used;
+                }
+                // F'' first (old lambda), then lambda, then the step.
+                const FE z2 = feTwice(zf);
+                fzz = feAdd(feMul(z2, fzz), feTwice(feMul(lam, lam)));
+                lam = feMul(z2, lam);
+                dzx = feAdd(feMul(feAdd(feTwice(Zx), dzx), dzx), C);
+                m++;
+                k++;
+                used++;
+                spent++;
+            }
+            if (pProven) {
+                st.m = mB; st.dz = dB.m; st.e = dB.e;
+            } else {
+                st.dz = dzx.m; st.e = dzx.e; st.m = m;
+            }
+            st.w = lam.m; st.wExp = lam.e;
+            st.d = dB.m; st.dExp = dB.e;
+            ps.zz = fzz.m; ps.zzExp = fzz.e;
+        } else {
+            // Float32 (plain kernel: deltas far above float32's floor), as the main loop's step;
+            // lambda = l 2^le and F'' = f 2^fe keep exponents (the product of 2z over P steps
+            // leaves the float range).
+            float2 dz = st.dz, dB = st.d, l = st.w, f = ps.zz;
+            int le = st.wExp, fe = ps.zzExp;
+            float2 ZB = ref[mB];
+            float2 zB = ZB + dB;
+            float zB2 = dot(zB, zB);
+            while (spent < pBudget) {
+                if (used >= limit) { pDone = true; break; }
+                float2 Z = ref[m];
+                const float2 z = Z + dz;
+                const float r2 = dot(z, z);
+                if (r2 < dot(dz, dz) || m == last) {
+                    dz = z;
+                    m = 0;
+                    Z = 0.0f;
+                }
+                if (!(r2 < 4.0f)) { pDone = true; break; }   // |z| >= 2: escapes
+                const uint low = info & PROBE_LOW;
+                uint act = PA_SCAN;
+                if ((info & PROBE_NEWTON) != 0) {
+                    act = k == low ? PA_EVAL : PA_SCAN;
+                } else if (k > 0) {
+                    const float2 dv = z - zB;
+                    if (k > ps.pRej && 16.0f * dot(dv, dv) < zB2) act = low >= k ? PA_EVAL : PA_RESET;
+                    else if (r2 < zB2) act = PA_RESET;
+                }
+                if (act == PA_EVAL) {
+                    const float2 dd = dz - dB;
+                    const float2 g = m == mB ? dd : (Z - ZB) + dd;
+                    float mag = length(dz) + length(dB);
+                    if (m != mB) mag += length(Z) + length(ZB);
+                    FE delta;
+                    act = probeEval(feNorm(g, 0), feNorm(l, le), feNorm(f, fe), feNorm(zB, 0),
+                                    log2(max(mag, 1e-37f)), k, info, delta);
+                    if (act == PA_PROVEN) { pProven = true; pDone = true; pPeriod = k; break; }
+                    if (act == PA_STUCK || (act == PA_NEWTON && ((info >> 26) & 15u) >= PROBE_PASSES)) {
+                        pDone = true;
+                        break;
+                    }
+                    // (Also after a hopeless candidate: the next one is a multiple of it, F = f^(jP),
+                    // evaluated once the orbit has had a few more periods to converge.)
+                    if (act == PA_REPEL || act == PA_REJECT) ps.pRej = max(ps.pRej, k);
+                    if (act == PA_NEWTON) {
+                        if ((info & PROBE_NEWTON) == 0) { ps.oB = dz; ps.oBExp = 0; ps.oM = m; }
+                        dB -= feFloat(delta);
+                        dz = dB;
+                        m = mB;
+                        zB = ZB + dB;
+                        zB2 = dot(zB, zB);
+                        l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                        info = PROBE_NEWTON | ((((info >> 26) & 15u) + 1u) << 26) | k;
+                        k = 0;
+                        spent++;
+                        continue;
+                    }
+                    if ((info & PROBE_NEWTON) != 0) {
+                        // Newton failed: resume the scan (see the deep loop).
+                        ps.pRej = max(ps.pRej, k);
+                        dz = ps.oB;
+                        m = ps.oM;
+                        dB = dz; mB = m; ZB = ref[m]; zB = ZB + dB; zB2 = dot(zB, zB);
+                        k = 0; l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                        info = (info & (15u << 26)) | used;
+                        spent++;
+                        continue;
+                    }
+                }
+                if (act != PA_SCAN) {
+                    dB = dz; mB = m; ZB = Z; zB = z; zB2 = r2;
+                    k = 0; l = float2(1.0f, 0.0f); le = 0; f = 0.0f; fe = 0;
+                    info = (info & (15u << 26)) | used;
+                }
+                // F'' first (old lambda; f aligned to l's exponent), then lambda, then the step.
+                const float2 z2 = 2.0f * z;
+                if (f.x == 0.0f && f.y == 0.0f) fe = 2 * le;
+                int sh = 2 * le - fe;
+                if (sh > 100) { f = 0.0f; fe = 2 * le; sh = 0; }
+                f = cmul(z2, f) + (2.0f * pow2f(max(sh, -127))) * cmul(l, l);
+                l = cmul(z2, l);
+                const float al = max(abs(l.x), abs(l.y));
+                if (al > 0x1p30f || (al < 0x1p-30f && al > 0.0f)) { const int t = expOf(al); l = scale2(l, -t); le += t; }
+                const float af = max(abs(f.x), abs(f.y));
+                if (af > 0x1p30f || (af < 0x1p-30f && af > 0.0f)) { const int t = expOf(af); f = scale2(f, -t); fe += t; }
+                dz = cmul(2.0f * Z + dz, dz) + dc;
+                m++;
+                k++;
+                used++;
+                spent++;
+            }
+            if (pProven) {
+                st.m = mB; st.dz = dB;
+            } else {
+                st.dz = dz; st.m = m;
+            }
+            st.e = 0;
+            st.w = l; st.wExp = le;
+            st.d = dB; st.dExp = 0;
+            ps.zz = f; ps.zzExp = fe;
+        }
+        iters += spent;
+        steps += spent;   // (one loop step per probe step: steps == iterations without BLA)
+        if (pProven) {
+            // Continue from the cycle point (the interior colouring's analysis starts here,
+            // with the period as its search cap).
+            interior = true;
+            icQ = pPeriod;
+        }
+        ps.mB = mB; ps.k = k; ps.info = info;
+        st.n = p.maxIter + used;
+    }
+
     // ---- Interior cycle analysis (kInteriorColor; kb: techniques/coloring-methods, "Interior
     // colouring as built"). A pixel proven interior (or at the limit without the test, which
     // the flat colouring draws as interior) keeps iterating its orbit, now settled near the
@@ -1977,7 +2350,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         }
     }
 
-    bool alive = active && (inB ? !bDone : (!escaped && !interior && st.n < p.maxIter));
+    // (Parked: unresolved at maxIter with the probe on, waiting for a kProbe chunk.)
+    bool alive = active && (inB ? !bDone : probing ? !pDone
+        : (!escaped && !interior && (st.n < p.maxIter || (kInterior && p.probe != 0 && !(kAT && st.e == AT_MODE)))));
     // Reached the limit neither escaped nor proven interior: unresolved, never drawn as
     // interior (with the test on), and collected for an extension pass.
     bool crossed = active && !inB && !alive && !escaped && !interior;
@@ -2137,6 +2512,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     if (alive) {
         stateOut[tgBase + sgLive[sg] + offset] = st;
         if (kInteriorColor) icOut[tgBase + sgLive[sg] + offset] = ic;
+        if (kProbe && probing) probeBuf[(1u - p.probeHalf) * p.capacity + tgBase + sgLive[sg] + offset] = ps;
     }
     if (collect) {
         uint slot = tgListBase + sgCollect[sg] + collectOffset;
