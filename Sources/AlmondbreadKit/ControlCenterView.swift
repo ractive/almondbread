@@ -227,10 +227,6 @@ struct ControlSectionHeader: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                        .foregroundStyle(.tertiary)
-                        .font(.caption)
                 }
                 .contentShape(Rectangle())
             }
@@ -251,6 +247,17 @@ struct ControlSectionHeader: View {
                 .help("Reset \(section.title.lowercased()) to the defaults (⌘Z undoes)")
                 .accessibilityLabel("Reset \(section.title)")
             }
+            // The chevron at the far right (user, 2026-10-17); it toggles like the title.
+            Button(action: toggle) {
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+                    .frame(width: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHidden(true)
         }
     }
 }
