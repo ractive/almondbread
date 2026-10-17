@@ -78,13 +78,14 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Autopilot")
-                // A long press: the cruise pedals and lane assist (the keyboard's E, Q, Esc, L;
-                // kb: decisions/controls "Driving levels").
+                // A long press: the cruise pedals, lane assist and seek minibrot (the keyboard's E, Q,
+                // Esc, L, N; kb: decisions/controls "Driving levels", "Seek minibrot").
                 .contextMenu {
                     Button("Cruise In / Faster", systemImage: "plus.magnifyingglass") { model.pedalIn() }
                     Button("Cruise Out / Slower", systemImage: "minus.magnifyingglass") { model.pedalOut() }
                     Button("Stop", systemImage: "stop.circle") { model.stopMotion() }
                     Toggle("Lane Assist", systemImage: "road.lanes", isOn: $model.laneAssist)
+                    Button("Seek Minibrot", systemImage: "scope") { model.seekMinibrot() }
                 }
                 // Journey: planned flights from landmark to landmark; a tap on the canvas pauses.
                 // At a stop it flies on, and two more buttons go deeper here or elsewhere.
@@ -443,6 +444,7 @@ extension HUDView {
     }
 
     func motionHint(_ s: ExplorerStats) -> String? {
+        if let seek = Self.seekLine(s) { return seek }
         if s.journey.active {
             // The journey line says it all; only a back-off is worth a second line.
             return s.flight.active && !s.journey.suspended ? Self.hintText(s.flight.hint) : nil
@@ -465,6 +467,23 @@ extension HUDView {
         if s.autopilot.paused { return "Autopilot paused  ·  click to resume" }
         let lock = s.autopilot.lockLabel.isEmpty ? nil : s.autopilot.lockLabel
         return ["Autopilot", lock, Self.hintText(s.autopilot.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+    }
+
+    /// Seek minibrot (N; kb: decisions/controls "Seek minibrot"): searching, the minibrot it
+    /// flies to or landed on ("Minibrot, period 4640 · 1.0e69×"), or that none was found.
+    static func seekLine(_ s: ExplorerStats) -> String? {
+        let k = s.seek
+        switch k.phase {
+        case "searching": return "Seeking a minibrot…"
+        case "not found": return "No minibrot found nearby"
+        case "flying", "arrived":
+            let name = "Minibrot, period \(k.period)  ·  \(Format.zoom(log10: k.targetZoomLog10))"
+            guard k.phase == "flying", s.flight.active else { return name }
+            if s.flight.stopping { return name + "  ·  stopping" }
+            let to = name + "  ·  \(String(format: "%.0f", s.flight.progress * 100)) %"
+            return [to, hintText(s.flight.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+        default: return nil
+        }
     }
 
     /// A coordinate cut to `n` characters (deep views have hundreds of digits; ⇧⌘C copies all).

@@ -34,6 +34,7 @@ pub mod palette_library;
 pub mod pi_moment;
 pub mod places;
 pub mod reference;
+pub mod seek;
 pub mod settings;
 pub mod viewport;
 

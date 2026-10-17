@@ -504,10 +504,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "-", "_": return .stepOut
         case "r": return .reset
         // Q / E: the pedals (kb: decisions/controls "Driving levels"); ⇧J: a journey in the
-        // other mode; X: somewhere else at a journey stop ("Journey with stops").
+        // other mode; X: somewhere else at a journey stop ("Journey with stops"); N: seek a
+        // minibrot ("Seek minibrot").
         case "z": return .autopilot
         case "j": return shift ? .journeyAlt : .journey
         case "x": return .elsewhere
+        case "n": return .seekMinibrot
         case ",", "<": return .rotateCcw
         case ".", ">": return .rotateCw
         case "/": return .straighten
@@ -562,7 +564,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         }
         // Z toggles: a held key's repeats must not toggle again. Q / E: Rust steps a held pedal
         // itself (a repeat would count as a new press and cross the detent at zero).
-        if [.autopilot, .journey, .journeyAlt, .elsewhere, .straighten, .slowerZoom, .fasterZoom].contains(key)
+        if [.autopilot, .journey, .journeyAlt, .elsewhere, .seekMinibrot, .straighten, .slowerZoom, .fasterZoom].contains(key)
             && event.isARepeat {
             return true
         }
@@ -892,6 +894,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case "z": return .autopilot
         case "j": return shift ? .journeyAlt : .journey
         case "x": return .elsewhere
+        case "n": return .seekMinibrot
         case ",", "<": return .rotateCcw
         case ".", ">": return .rotateCw
         case "/": return .straighten

@@ -1222,3 +1222,14 @@ is deleted. Default behaviour is unchanged.
   CLAUDE.md now has one "Environment variables" table. Wiki pages that described a removed
   switch as current carry a "removed 2026-10-17" note; history pages (this log, benchmarks) are
   unchanged and still name the old switches.
+
+## [2026-10-17] decision | Seek minibrot (N)
+
+- Built the user's "seek minibrot": N (menu View ▸ Seek Minibrot, iOS long press on the plane
+  button) finds the lowest-period minibrot in or near the view (ball period detection over discs
+  of 1, 3, 9 view spans, Newton refined until its last step is far below the size), tells
+  minibrots from satellite bulbs by the attracting cycle at w = −0.6, and flies to a framing of
+  3.2 |s| centred inside the cardioid. From a minibrot's framing it goes on to the next smaller
+  one: the tuned copy of the period-3 minibrot (period 3p) or a lower period in a ring of discs
+  around it. Bounded (4 s, cancel flag, fixed discs and retries). Home → 3 → 7; needle →
+  4640 → 13920. [[decisions/controls]] "Seek minibrot".

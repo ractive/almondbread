@@ -70,6 +70,9 @@ pub enum NavKey {
 
     /// X: at a journey stop, somewhere else; not handled otherwise.
     Elsewhere,
+    /// N: seek the lowest-period minibrot in or near the view (from a minibrot's framing: the
+    /// next smaller one) and fly there (kb: decisions/controls "Seek minibrot").
+    SeekMinibrot,
 }
 
 impl From<NavKey> for CoreNavKey {
@@ -94,6 +97,7 @@ impl From<NavKey> for CoreNavKey {
             NavKey::JourneyAlt => Self::JourneyAlt,
 
             NavKey::Elsewhere => Self::Elsewhere,
+            NavKey::SeekMinibrot => Self::SeekMinibrot,
         }
     }
 }
@@ -422,6 +426,17 @@ pub struct FlightStatus {
     pub target_zoom_log10: f64,
     /// The flight is the cruise's soft landing on the home view (`speed` is then its rate).
     pub landing: bool,
+}
+
+/// Seek minibrot for the HUD (kb: decisions/controls "Seek minibrot"): `phase` is
+/// "searching" ("seeking a minibrot…"), "flying" or "arrived" ("Minibrot, period 4640 ·
+/// 1e69"), "not found" (for a few seconds) or "" (nothing to say).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SeekStatus {
+    pub phase: String,
+    pub period: u64,
+    /// The minibrot's framing: zoom (log10, relative to home).
+    pub target_zoom_log10: f64,
 }
 
 /// A journey for the HUD and the control center (kb: decisions/controls, "Journey").
@@ -887,6 +902,7 @@ pub struct ExplorerStats {
     pub autopilot: AutopilotStatus,
     pub flight: FlightStatus,
     pub journey: JourneyStatus,
+    pub seek: SeekStatus,
     pub cruise: CruiseStatus,
     pub held_keys: u32,
     /// The current view's refined frame is presented and nothing is left to iterate.
@@ -1555,6 +1571,22 @@ impl Explorer {
                     at_stop: j.at_stop(),
                     title: t.map_or(String::new(), |t| t.title()),
                     note: j.note().unwrap_or("").to_string(),
+                }
+            },
+            seek: {
+                use almondbread_core::seek::SeekPhase;
+                let (phase, period, zoom) = r.navigator.seek_status(media_time());
+                SeekStatus {
+                    phase: match phase {
+                        SeekPhase::Idle => "",
+                        SeekPhase::Searching => "searching",
+                        SeekPhase::Flying => "flying",
+                        SeekPhase::Arrived => "arrived",
+                        SeekPhase::NotFound => "not found",
+                    }
+                    .to_string(),
+                    period: period as u64,
+                    target_zoom_log10: zoom,
                 }
             },
             held_keys: r.navigator.held_count() as u32,

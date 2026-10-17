@@ -1,0 +1,21 @@
+{
+ "_about": "Seek minibrot (N, kb: decisions/controls \"Seek minibrot\") twice from the needle view: the first N finds the period-4640 minibrot (size 1e-67, ~7 view radii off) and flies there, the second goes on to the copy of the period-3 minibrot on its antenna (period 13920). The final view is the second framing, interior at the centre.",
+ "size": "1280x800",
+ "fps": 30,
+ "duration": 50,
+ "start": {
+  "re": "-1.4303584327259864377084589925832673307971990283708853",
+  "im": "-1.3419188621437467531262066807358441689824585030600614e-11",
+  "scale": "4.21597e-48"
+ },
+ "events": [
+  {
+   "at": 0.5,
+   "key": "n"
+  },
+  {
+   "at": 34.0,
+   "key": "n"
+  }
+ ]
+}

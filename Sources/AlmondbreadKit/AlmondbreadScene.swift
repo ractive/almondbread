@@ -136,6 +136,8 @@ struct FractalCommands: Commands {
                 .disabled(model == nil)
             Button("Daily Journey") { model?.startDailyJourney() }
                 .disabled(model == nil)
+            Button("Seek Minibrot (N)") { model?.seekMinibrot() }
+                .disabled(model == nil)
             Button("Copy Journey Seed") { model?.copyJourney() }
                 .disabled(model?.journeyShareText == nil)
             Button("Straighten View (/)") { model?.straighten() }
