@@ -251,9 +251,9 @@ struct ControlSectionHeader: View {
             Button(action: toggle) {
                 Image(systemName: "chevron.right")
                     .rotationEffect(.degrees(open ? 90 : 0))
-                    .foregroundStyle(.tertiary)
-                    .font(.caption)
-                    .frame(width: 14)
+                    .foregroundStyle(.primary)
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 16)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
