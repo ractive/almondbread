@@ -510,6 +510,11 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let mut r = new_renderer(backend, o)?;
     // Deterministic for the diff: let the extension run to its limit.
     r.config.extension_budget = o.f64("extension-budget").unwrap_or(120.0);
+    // Compute further runs for up to a minute per view: off unless asked for (`--further 1`),
+    // so the regression sessions stay fast (one session checks it).
+    if o.get("further").is_none() {
+        r.config.further = false;
+    }
     let mode = o.get("history").unwrap_or("zoom").to_string();
     let pan_length = (pointer.0 * pointer.0 + pointer.1 * pointer.1).sqrt();
     let pan = if pan_length > 0.0 {
@@ -781,6 +786,46 @@ fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, noise: f64, failed:
     }
 }
 
+/// Resolved pixels of a shown frame drawn in the unresolved colour (the median colour of its
+/// unresolved pixels), and the resolved pixel count; None when the frame's texels are not its
+/// pixels or fewer than 100 are unresolved.
+fn stale_unresolved_colour(sim: &SimulationResult) -> Option<(usize, usize)> {
+    if sim.level_width != sim.width || sim.level_height != sim.height {
+        return None;
+    }
+    let unresolved = almondbread_core::oracle::ITER_UNRESOLVED;
+    let px = |i: usize| [sim.pixels[4 * i], sim.pixels[4 * i + 1], sim.pixels[4 * i + 2]];
+    let mut chans: [Vec<u8>; 3] = Default::default();
+    for (i, t) in sim.iterations.iter().enumerate() {
+        if t[0] == unresolved {
+            let c = px(i);
+            for k in 0..3 {
+                chans[k].push(c[k]);
+            }
+        }
+    }
+    if chans[0].len() < 100 {
+        return None;
+    }
+    let mut veil = [0u8; 3];
+    for k in 0..3 {
+        chans[k].sort_unstable();
+        veil[k] = chans[k][chans[k].len() / 2];
+    }
+    let (mut stale, mut resolved) = (0, 0);
+    for (i, t) in sim.iterations.iter().enumerate() {
+        if t[0] == unresolved {
+            continue;
+        }
+        resolved += 1;
+        let c = px(i);
+        if (0..3).all(|k| c[k].abs_diff(veil[k]) <= 2) {
+            stale += 1;
+        }
+    }
+    Some((stale, resolved))
+}
+
 /// Checks the final frames of `history` sessions against the CPU oracle and a fresh render.
 #[allow(clippy::too_many_arguments)]
 fn verify_session<B: GpuBackend + Clone>(
@@ -820,6 +865,20 @@ fn verify_session<B: GpuBackend + Clone>(
             sim.unresolved,
             r.settings.learned_iterations
         );
+        // Compute further after AA (kb: techniques/auto-iterations "Compute further"): pixels
+        // its passes resolved must show their colour, not the unresolved one they had when the
+        // anti-aliased frame was composed. The unresolved colour is the median of the pixels
+        // still unresolved; resolved pixels drawn in it (within 2 levels) are stale.
+        if let Some((stale, resolved)) = stale_unresolved_colour(sim) {
+            let pct = 100.0 * stale as f64 / resolved.max(1) as f64;
+            println!("{tag}resolved pixels in the unresolved colour: {stale} of {resolved} ({pct:.3}%)");
+            let max_stale = o.f64("max-stale").unwrap_or(0.1);
+            if pct > max_stale {
+                failed.push(format!(
+                    "{tag}{pct:.3}% of the resolved pixels show the unresolved colour (> {max_stale}%)"
+                ));
+            }
+        }
         let field = IterationField::from_texels(sim.level_width, sim.level_height, &sim.iterations);
         let cpu_iter = o.usize("cpu-iterations").unwrap_or(sim.hard_iter);
         let cpu = oracle(
@@ -1123,6 +1182,27 @@ pub fn bench_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<
 /// techniques/interior-detection, Pitfalls; synthesis/benchmarks M4): Space zoom, then
 /// (neck) one wheel step.
 pub const REGRESS_SESSIONS: &[&[&str]] = &[
+    // Compute further (kb: techniques/auto-iterations "Compute further"): the -3/4 neck at
+    // 4e8 settles 15 % unresolved; the passes after the AA samples resolve most of the rest to
+    // the 200 k Upper limit in a 4 s budget (after the 3x3 AA samples), checked against the
+    // oracle at that limit, a fresh render and the AA-consistency check (no resolved pixel
+    // left in the unresolved colour).
+    &[
+        "--history",
+        "jump",
+        "--center",
+        "-0.74999994719705121,0.00036918485351065104",
+        "--scale",
+        "1.79254e-11",
+        "--size",
+        "400x250",
+        "--ss",
+        "3",
+        "--further",
+        "1",
+        "--further-budget",
+        "4",
+    ],
     &[
         "--history",
         "zoom",

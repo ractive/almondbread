@@ -1076,3 +1076,30 @@ the foreground app): upward resolution probes and a median-fit hysteresis. Autop
 ×4.3–4.7 in 8/8 interleaved runs (main 3/8), preview scale about 2x in most gesture
 scenarios, skipped draws equal except a few more at dense views; numbers in
 [[synthesis/benchmarks]] "Autopilot throttle and GPU clocks".
+
+## [2026-10-17] decision | Compute further: background passes up to the Upper limit
+
+Refined views left unresolved by the levels and extension passes keep iterating exactly those
+texels in passes of x4 the limit, each over the view in segments of at most the unresolved
+list's capacity (a GPU scan of the iteration texture lists a segment's unresolved texels), up
+to the Upper limit, the reference's exact reach (a cut f64 orbit is extended on a thread) and
+60 GPU s; small chunks, any input drops it. The learner's 4x depth cap stays: the base limit
+keeps first frames fast (61 ms at 1600 x 1000 near the -3/4 neck) and the deep work is
+incremental. Neck at 4.48e-12/px: 1600 x 1000 15.2 -> 3.78 % unresolved (200 k cap, 3.6 s),
+0.06 % with a 10 M cap (14 s); 4000 x 2500, where the overflowing list gave no pass at all,
+100 -> 6.9 % (24 s) and 0.064 % with 10 M (75 s). Matches `neck_truth` (15.1 % at 65 536,
+~3.8 % at 200 k); class mismatch against the CPU oracle 0.020 % at 8.3 M, all chaos. HUD:
+"computing further · ... · 12 % not finished", settled "3.8 % not finished at 200 k steps
+(upper limit)". Page: [[techniques/auto-iterations]] "Compute further". Image:
+`~/Desktop/compute-further.png`.
+
+## [2026-10-17] decision | Compute further after AA; off by default in `verify --history`
+
+Compute further now waits for the view's AA samples, then marks the texels still unresolved
+(one bit each) and composes only those as they resolve, so a still view is anti-aliased as
+soon as before (neck 1.9–2.3 s against 2.3 s on main, seahorse and home unchanged) and keeps
+its samples. New `verify --history` check: resolved pixels drawn in the unresolved colour (0
+on home, seahorse and the neck with AA; 14 % with the compose mode disabled on purpose).
+`verify --history` defaults to `--further 0`; one regress session (neck, 400 × 250, AA, 4 s
+budget) runs it: `make regress` 302.8 s against 300.2 s on main. Page:
+[[techniques/auto-iterations]] "Compute further".

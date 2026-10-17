@@ -268,6 +268,15 @@ impl Options {
         if let Some(v) = self.usize("extend") {
             r.config.offscreen_extension = v.max(1);
         }
+        // Compute further (`--further 0|1`, default `ALMONDBREAD_FURTHER`, on; `--further-budget
+        // s` GPU seconds; kb: techniques/auto-iterations "Compute further"): refined views of
+        // `verify --history` and the app keep iterating unresolved pixels.
+        if let Some(v) = self.get("further") {
+            r.config.further = v != "0";
+        }
+        if let Some(v) = self.f64("further-budget") {
+            r.config.further_budget = v;
+        }
         // BLA iteration skipping (kb: techniques/bla): `--bla 0` off (the skip-off diff),
         // `1` whenever a table exists, `auto` (default) where the forecast says it pays;
         // `--bla-eps e` for validity epsilon 2^-e.

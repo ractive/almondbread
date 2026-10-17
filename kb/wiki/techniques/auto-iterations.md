@@ -213,6 +213,97 @@ a resolved frame there needs 10^12–10^13 iterations (minutes of GPU). Escalati
 user's cap belongs in an explicit or idle background refinement with progress, and the
 unresolved colour should differ from interior (open; proposal in the log, 2026-10-17).
 
+## Compute further (2026-10-17)
+
+The idle background refinement the section above asked for. When a refined view's levels and
+extension passes are done and at least `further_min_share` (0.1 %) of its texels are still
+unresolved, the scheduler keeps iterating exactly those texels (`scheduler.rs`, `Further`):
+
+```text
+reached = limit of the last pass, u = unresolved texels
+loop:
+    stop "finished" if u < 0.1 % of the texels
+    ceiling = max(view limit, Upper limit)          # as extend_to; a manual limit is its own
+    stop "upper limit" if reached >= ceiling
+    next = min(4 reached, ceiling)
+    if next > exact_reach of the reference:
+        f64 orbit cut at its limit -> recompute it to next (<= 16 M points) on a thread, retry
+        else next = exact_reach, or stop "orbit length"
+    next = 2 reached if 4x does not fit the GPU budget; stop "time limit" if 2x does not
+    for each segment of <= list capacity admission slots (tiles in priority order):
+        GPU scan lists the segment's ITER_UNRESOLVED texels (`unresolvedList` kernel)
+        an extension level (list mode 2) iterates them from the start to next
+    reached = next, u = what the segments left
+```
+
+- **Segments lift the all-or-nothing list.** The full level's own unresolved list is
+  all-or-nothing (4 M entries): at 4000 × 2500 the neck's 10 M unresolved texels got no
+  extension pass at all. A scan of the iteration texture per segment of at most the list
+  capacity always fits; the segments follow the tile priority order, so the centre fills first.
+- **Budget**: all extension passes of a view at most `further_budget` = 60 GPU s, estimated
+  as `u × next / rate` per pass (pessimistic: every pixel to the limit), with the passes' own
+  measured iterations per GPU second. The throughput model's rate read 10–30x too high after
+  levels whose pixels are proven early (1e7 neck pixels to 65 k looked like 0.3 s).
+- **Smoothness**: compute further's chunks are as small as AA samples' (8 ms, two in flight),
+  so input waits at most ~16 ms of GPU; any input starts a new job and drops all of it. Gesture
+  frames that start while it runs (4000 × 2500 neck, cap 10 M): 27–36 fps against 28 fps with
+  it off (the gesture itself is that heavy; run-to-run noise 28–60 fps both ways).
+- **Longer f64 orbits**: an f64 reference cut at its limit (centre not escaped) is recomputed
+  longer on a thread and swapped into the job; it is bit-identical up to the old end (same
+  arithmetic), so levels done stay exact. Later segments iterate without BLA/LA (their tables
+  belong to the old orbit; f64 views rarely use them). A `verify` of the result: identical to a
+  fresh offscreen render to the same limit (0 of 100 000 pixels differ). Big (deep) references
+  are not extended: compute further stops at their `exact_reach` (they are usually escaped or
+  periodic, so unbounded).
+- **Not learned from**: the learner sees only the base level and the first extension passes,
+  so the next view (a pan, a wheel step) starts at the fast base limit again.
+- **HUD**: "computing further · 1.2 M of 4 M steps · 12 % not finished · ~40 s" while it runs;
+  once settled with 0.1 % or more left, "3.8 % not finished at 200 k steps (upper limit)" (or
+  "time limit", "orbit length"); nothing once finished.
+- **AA first.** Compute further waits for the view's AA samples (they take a second or two, it
+  can take a minute), then a GPU pass marks the texels still unresolved (one bit each) and its
+  passes compose in a mode of their own: a marked texel fades to its colour once resolved,
+  every other pixel keeps its anti-aliased history. Pixels it resolves carry their centre
+  sample only, as extension-resolved pixels always did (AA samples iterate to the nominal
+  limit and skip unresolved samples). AA done (M1 Pro, 1600 × 1000): neck 2.3 s on main,
+  1.9–2.3 s with compute further; seahorse 0.30 / 0.30 s; home 0.33 / 0.35 s. The `verify
+  --history` check "resolved pixels in the unresolved colour" is 0 on home, seahorse and the
+  neck with `--ss 3`, and 14 % when the mode is disabled on purpose.
+- Switches: `ALMONDBREAD_FURTHER=0|1` (default 1); `--further 0|1` and `--further-budget s` on
+  `verify --history` (default off there, so `make regress` stays as fast: 302.8 s against
+  300.2 s on main, the 2.4 s being its one compute further session, the neck at 400 × 250 with
+  AA and a 4 s budget) and `progress`; `ALMONDBREAD_UNRESOLVED_AT=1,5,20,60` prints the shown
+  frame's unresolved texels at those seconds.
+
+**The 4x depth cap stays.** With compute further it is not what limits a still view any more;
+lifting it would make the *base* limit of every neck view, and every frame of a pan, slower:
+the pass from 16 k to 65 k alone took 1.4–1.8 GPU s at 1600 × 1000 and ~3 s per 4 M-texel
+segment at 4000 × 2500. Keeping it, the first complete frame stays at 61 ms (1600 × 1000) and
+the deeper work is incremental and interruptible.
+
+Measured 2026-10-17, M1 Pro, release, `verify --history jump --extension-budget 2` (the app's
+extension budget), view `−0.74999994719705121 + 0.00036918485351065104 i`, 4.48e−12 per pixel
+(zoom 4.2e8), unresolved share of the shown frame:
+
+| size, Upper limit | further | 1 s | 5 s | 20 s | 60 s | settles |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1600 × 1000, 200 k | off | 100 %* | 15.2 % | 15.2 % | 15.2 % | 3.0 s at 65 k |
+| 1600 × 1000, 200 k | on | 100 %* | 3.78 % | 3.78 % | 3.78 % | 3.6 s at 200 k |
+| 1600 × 1000, 10 M | on | 100 %* | 6.57 % | 0.06 % | 0.06 % | 14 s at 8.3 M |
+| 4000 × 2500, 200 k | off | 100 % | 100 % | 100 % | 100 % | 1.4 s at 16 k (no pass) |
+| 4000 × 2500, 200 k | on | 100 % | 60.2 % | 12–22 % | 6.94 % | 24 s at 200 k |
+| 4000 × 2500, 10 M | on | | | | | 75 s at 10 M, 0.064 % |
+
+(* the preview or first extension pass still running.) Against the ground truth (`neck_truth`,
+160 × 100 of the same window): unresolved by 65 536 15.1 % (GPU 15.2 %), by 200 000 ~3.8 %
+(GPU 3.78 %), by 8.33 M 0.11 % of 16 000 samples (GPU 0.059 %). Against the CPU oracle at the
+reached limit: class mismatch 0.020 % at 8.3 M, all of it chaos (GPU escapes where f64 does not
+and the reverse in equal shares, see [[synthesis/neck-escape-statistics]]); no wrong escapes.
+Ordinary views are unaffected: home (0.015 % unresolved) and needle-minibrot-1e91 (0.007 %)
+stop at once ("finished"), junction-1e100 has none, seahorse goes 0.35 → 0.10 % in +45 ms.
+A view whose f64 orbit is cut (`−0.74999996120361811 + 0.00036918279150454967 i`, 1e−11/px,
+cap 10 M): five orbit extensions to 3.97 M (escape), 98.7 → 1.2 % unresolved at 60 s.
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,

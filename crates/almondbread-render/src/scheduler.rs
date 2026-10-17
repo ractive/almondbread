@@ -26,14 +26,14 @@ use almondbread_core::bla::{BLA_EPSILON, BlaForecast, BlaTable, BlaTableX};
 use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::oracle::ITER_UNRESOLVED;
 use almondbread_core::reference::{DEEP_SCALE, Fit, Reference, ReferenceRequest, ReferenceWorker};
-use almondbread_core::settings::{RenderSettings, depth_iterations};
+use almondbread_core::settings::{MANUAL_ITERATIONS_MAX, RenderSettings, depth_iterations};
 use almondbread_core::viewport::{Scale, Viewport};
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
-    PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams,
+    PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams, UnresolvedListParams,
 };
 use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
 use crate::sample_cache::{CacheMap, CacheStats, PlanInput, Regime, SampleCache};
@@ -104,6 +104,9 @@ const COMPOSE_GESTURE: u32 = 0;
 const COMPOSE_REFINE: u32 = 1;
 const COMPOSE_AA: u32 = 2;
 const COMPOSE_EXACT: u32 = 3;
+/// Compute further after AA (kb: techniques/auto-iterations "Compute further"): the texels
+/// marked unresolved fade to their new colour, every other pixel keeps its history (samples).
+const COMPOSE_FURTHER: u32 = 4;
 
 /// When the iterate kernel steps through the BLA table (kb: techniques/bla).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,6 +217,16 @@ pub struct SchedulerConfig {
     /// "Attracting-cycle probe"). At most `max_iter / interior_probe + 256` extra steps per
     /// pixel; 0 off (`ALMONDBREAD_PROBE=0|n`, default 8).
     pub interior_probe: u32,
+    /// "Compute further" (kb: techniques/auto-iterations "Compute further"): once a refined
+    /// view settles with unresolved pixels, keep iterating them in passes of x4 the limit, in
+    /// segments, up to the iteration cap (`ALMONDBREAD_FURTHER=0|1`, default on).
+    pub further: bool,
+    /// Estimated GPU seconds all extension passes of a view may take with compute further
+    /// (the 2 s `extension_budget` stays the first passes' share).
+    pub further_budget: f64,
+    /// Unresolved share of the view's texels below which it counts as finished (no further
+    /// passes, no "not finished" in the HUD).
+    pub further_min_share: f64,
 }
 
 /// When levels start their pixels from local series approximation seeds.
@@ -360,6 +373,9 @@ impl Default for SchedulerConfig {
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(8),
+            further: std::env::var("ALMONDBREAD_FURTHER").map_or(true, |v| v != "0"),
+            further_budget: 60.0,
+            further_min_share: 0.001,
         }
     }
 }
@@ -476,6 +492,8 @@ struct Level<B: GpuBackend> {
     /// The youngest live pixel's iteration count after the last harvested chunk (`u32::MAX`:
     /// none live); render progress only (kb: decisions/controls "Render progress").
     live_min_n: u32,
+    /// A segment of a "compute further" pass (an extension level over a scanned list).
+    further: bool,
 }
 
 /// [`Renderer::cache_regime`]: the regime, whether a table it needs is still building, and the
@@ -535,6 +553,107 @@ const SEED_WAVE: f64 = 16384.0;
 /// were still running and not one pixel had started. Auto limits rarely reach this, so it
 /// changes nothing there (kb: techniques/local-series-approximation "Seed horizon").
 const SEED_HORIZON: u32 = 1 << 16;
+
+/// Why "compute further" stopped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FurtherStop {
+    /// Fewer than `further_min_share` of the texels are unresolved.
+    Finished,
+    /// The iteration cap ("Upper limit"; a manual limit itself) is reached.
+    Limit,
+    /// The reference orbit ends (truncated, not extendable).
+    Reach,
+    /// The next pass does not fit the GPU budget.
+    Budget,
+    /// A GPU pass failed.
+    Failed,
+}
+
+impl FurtherStop {
+    pub fn name(self) -> &'static str {
+        match self {
+            FurtherStop::Finished => "finished",
+            FurtherStop::Limit => "upper limit",
+            FurtherStop::Reach => "reference length",
+            FurtherStop::Budget => "time limit",
+            FurtherStop::Failed => "failed",
+        }
+    }
+}
+
+/// Longest f64 reference orbit compute further asks for (8 bytes per point on the CPU and the
+/// GPU): 16 M points, ~128 MB each, ~60 ms on a thread.
+const FURTHER_REF_MAX: usize = 1 << 24;
+
+/// Iterations per GPU second compute further assumes before its passes have measured their own
+/// (the plain kernel near the -3/4 neck: 2–3e10 on M1 Pro, 2026-10-17).
+const FURTHER_RATE_GUESS: f64 = 3e10;
+
+/// "Compute further" (kb: techniques/auto-iterations "Compute further"): when a refined view's
+/// levels and extension passes are done and pixels are still unresolved, those pixels are
+/// iterated again in passes of x4 (or x2) the last limit, each from the start, up to the
+/// iteration cap, the reference's exact reach (a short f64 orbit is extended on a thread) and
+/// `further_budget` GPU seconds. A pass goes over the view in segments of at most the
+/// unresolved list's capacity in admission order (tiles by priority): a GPU scan lists the
+/// segment's unresolved texels, then an extension level iterates them (small chunks, so input
+/// waits as little as for AA samples). Any input starts a new job, which drops all of it.
+struct Further<B: GpuBackend> {
+    /// The limit every unresolved pixel has reached (the last finished pass's).
+    reached: usize,
+    /// Unresolved texels at `reached`.
+    unresolved: usize,
+    /// The pass in progress: its limit (0: between passes).
+    limit: usize,
+    /// Admission index the next segment starts at, and the full level's slots.
+    next_slot: usize,
+    slots: usize,
+    /// Of the pass's finished segments: texels resolved and texels left unresolved.
+    resolved: usize,
+    left: usize,
+    /// The segment scan on the GPU and its count buffer.
+    scan: Option<(B::Submission, B::Buffer)>,
+    /// A longer f64 orbit being computed on a thread (the next pass passes the orbit's end).
+    longer: Option<std::sync::mpsc::Receiver<Reference>>,
+    /// Why it ended (None: running).
+    stop: Option<FurtherStop>,
+    passes: usize,
+    segments: usize,
+    /// Waits for the view's AA samples first (they take a second or two; compute further can
+    /// take a minute). Its passes then compose only the texels unresolved when it started
+    /// (`mask`), so the anti-aliased pixels keep their samples.
+    deferred: bool,
+    /// One bit per texel (row-major, the full level's width): unresolved when the passes
+    /// started after AA (None: AA did not run first; the passes compose as refinement).
+    mask: Option<(B::Buffer, usize)>,
+}
+
+impl<B: GpuBackend> Further<B> {
+    fn running(&self) -> bool {
+        self.stop.is_none()
+    }
+    /// Running and not waiting for the AA samples.
+    fn active(&self) -> bool {
+        self.running() && !self.deferred
+    }
+}
+
+/// What compute further is doing, for the HUD and reports.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FurtherInfo {
+    /// Still computing (else stopped, see `stop`).
+    pub running: bool,
+    /// The limit every unresolved pixel has reached, and the running pass's limit (0: none).
+    pub reached: usize,
+    pub limit: usize,
+    /// Texels still unresolved now (finished segments and chunks counted).
+    pub unresolved: usize,
+    pub passes: usize,
+    pub gpu: f64,
+    pub budget: f64,
+    /// Estimated GPU seconds still to come (the passes up to the cap, within the budget).
+    pub remaining_gpu: f64,
+    pub stop: Option<FurtherStop>,
+}
 
 /// The adaptive AA list of a refined view: the GPU pass that builds it and its length.
 struct AaList<B: GpuBackend> {
@@ -625,6 +744,7 @@ impl<B: GpuBackend> Level<B> {
             seeding: None,
             cache: None,
             live_min_n: u32::MAX,
+            further: false,
         }
     }
 
@@ -712,6 +832,15 @@ struct Job<B: GpuBackend> {
     aa_epoch: u64,
     /// Which pixels take AA samples (built once the view is refined).
     aa_list: Option<AaList<B>>,
+    /// An offscreen render (no compute further: results at the asked limit).
+    offscreen: bool,
+    /// How far pixels may be iterated against the job's reference (`Reference::exact_reach`),
+    /// and the points of its buffer.
+    exact_reach: usize,
+    ref_len: u32,
+    /// "Compute further" once the levels and extension passes are done (kb:
+    /// techniques/auto-iterations "Compute further").
+    further: Option<Further<B>>,
 }
 
 /// The CPU copy of a BLA table: float32 (plain kernel, f64 references) or extended range
@@ -762,8 +891,13 @@ enum BlaReady {
 }
 
 impl<B: GpuBackend> Job<B> {
+    /// Every level is done and compute further is not iterating (it may wait for AA).
     fn done(&self) -> bool {
-        self.levels.iter().all(|l| l.done)
+        self.levels.iter().all(|l| l.done) && !self.further.as_ref().is_some_and(Further::active)
+    }
+    /// Compute further is not finished (iterating, or waiting for the AA samples).
+    fn further_running(&self) -> bool {
+        self.further.as_ref().is_some_and(Further::running)
     }
     fn complete(&self) -> bool {
         self.levels.iter().all(|l| l.complete)
@@ -1021,6 +1155,10 @@ pub struct Renderer<B: GpuBackend> {
     colorize_pipeline: B::Pipeline,
     compose_pipeline: B::Pipeline,
     aa_list_pipeline: B::Pipeline,
+    /// Compute further: lists a segment's unresolved texels.
+    unresolved_list_pipeline: B::Pipeline,
+    /// Compute further after AA: marks the texels unresolved when its passes start.
+    unresolved_mask_pipeline: B::Pipeline,
     /// Overlay scene to composite over presented frames (orbit, maps; see `overlay`), its font,
     /// the pipeline (made on first use) and the version last presented (None: none shown).
     pub overlay: Option<crate::overlay::OverlayDraw<B>>,
@@ -1267,6 +1405,8 @@ impl<B: GpuBackend> Renderer<B> {
         let colorize_pipeline = backend.pipeline("colorize", &[])?;
         let compose_pipeline = backend.pipeline("compose", &[])?;
         let aa_list_pipeline = backend.pipeline("aaList", &[])?;
+        let unresolved_list_pipeline = backend.pipeline("unresolvedList", &[])?;
+        let unresolved_mask_pipeline = backend.pipeline("unresolvedMask", &[])?;
         let survey_pipeline = backend.pipeline("survey", &[])?;
         let seed_begin_pipeline = backend.pipeline("seedBegin", &[])?;
         let seed_gate_pipeline = backend.pipeline("seedGate", &[])?;
@@ -1300,6 +1440,8 @@ impl<B: GpuBackend> Renderer<B> {
             colorize_pipeline,
             compose_pipeline,
             aa_list_pipeline,
+            unresolved_list_pipeline,
+            unresolved_mask_pipeline,
             overlay: None,
             overlay_font: None,
             overlay_pipeline: None,
@@ -2211,6 +2353,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.seed_sample_cache();
         self.poll_survey(now);
         self.poll_longer_reference();
+        self.poll_further();
         let key = self.make_key(width, height, points_per_pixel, false);
         if self.job.as_ref().is_some_and(|j| j.failed) {
             self.job = None;
@@ -2388,6 +2531,7 @@ impl<B: GpuBackend> Renderer<B> {
         if !job.interactive
             && job.complete_presented
             && job.levels.iter().all(|l| l.done || l.aa.is_some())
+            && !job.further_running()
             && job.complete_at.is_some_and(|t| now - t >= fade)
             && !job.aa_pending()
             && job.aa_finished(aa_target, self.config.aa_budget)
@@ -2465,6 +2609,10 @@ impl<B: GpuBackend> Renderer<B> {
             return Some((COMPOSE_EXACT, None));
         }
         let fading = job.complete_at.is_none_or(|t| now - t < 4.0 * self.config.fade_tau);
+        // Compute further after AA: only the texels it may resolve are recomposed.
+        if !exact_done && job.further.as_ref().is_some_and(|f| f.mask.is_some()) {
+            return Some((COMPOSE_FURTHER, None));
+        }
         if fading || !exact_done {
             return Some((COMPOSE_REFINE, None));
         }
@@ -2881,6 +3029,10 @@ impl<B: GpuBackend> Renderer<B> {
             aa_composed: 0,
             aa_epoch: 0,
             aa_list: None,
+            offscreen: mode == JobMode::Offscreen,
+            exact_reach: extension_cap,
+            ref_len,
+            further: None,
         });
         // Offscreen renders always iterate with the table (deterministic results); views
         // take it when it is there (previews), and full levels wait for it (encode_chunks).
@@ -3642,6 +3794,7 @@ impl<B: GpuBackend> Renderer<B> {
             || !job.complete_presented
             || job.failed
             || !job.levels.iter().all(|l| l.done || l.aa.is_some())
+            || job.further.as_ref().is_some_and(Further::active)
         {
             return;
         }
@@ -3803,8 +3956,12 @@ impl<B: GpuBackend> Renderer<B> {
             let generation = job.generation;
             // Idle AA samples keep two small chunks queued: input waits for at most ~16 ms of
             // GPU (FL: AA is interruptible).
-            let aa = job.current().is_some_and(|i| job.levels[i].aa.is_some());
-            let max = if aa { 2 } else { self.config.max_chunks_in_flight };
+            // Compute further runs for up to a minute on a still view: its chunks are as small
+            // (input waits as little) as AA samples', two per refresh.
+            let small = job
+                .current()
+                .is_some_and(|i| job.levels[i].aa.is_some() || job.levels[i].further);
+            let max = if small { 2 } else { self.config.max_chunks_in_flight };
             if !(encoded < 8 && spent < budget)
                 || job.failed
                 || self.in_flight.iter().filter(|r| r.generation == generation).count() >= max
@@ -3844,7 +4001,10 @@ impl<B: GpuBackend> Renderer<B> {
             // Upper bound on the threads of this chunk, from the last harvested counts.
             let threads = self.config.live_capacity.min(level.live + level.total - level.admitted);
             // K from the throughput model: work <= threads x K lane-iterations.
-            let target = (budget - spent).max(0.002);
+            let mut target = (budget - spent).max(0.002);
+            if level.further {
+                target = target.min(self.config.aa_chunk_target);
+            }
             // (Parked interior-probe pixels only: up to their whole probe in one chunk, in the
             // probe's units of PROBE_COST_* loop steps.)
             let cap = if level.probe_phase() {
@@ -4408,6 +4568,10 @@ impl<B: GpuBackend> Renderer<B> {
                 level.params.list_mode, level.params.max_iter, level.total, level.crossed, level.gpu_time
             );
         }
+        if level.further {
+            self.further_segment_done(index);
+            return;
+        }
         if level.params.list_mode != 0
             && level.crossed > 0
             && level.crossed <= list_capacity
@@ -4449,6 +4613,496 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         self.learn_iterations(index);
+        if is_last {
+            self.start_further(index);
+        }
+    }
+
+    // MARK: Compute further (kb: techniques/auto-iterations "Compute further")
+
+    /// The view's levels and extension passes are done (`index` is the last of them): start
+    /// computing further if enough pixels are left unresolved.
+    fn start_further(&mut self, index: usize) {
+        if !self.config.further || self.retry_pending {
+            return;
+        }
+        let Some(job) = &mut self.job else { return };
+        // (A gesture frame is superseded; an offscreen render keeps its limit; a provisional
+        // frame against a truncated reference is rendered again anyway.)
+        if job.interactive || job.offscreen || job.short_reference || job.failed || job.further.is_some() {
+            return;
+        }
+        let level = &job.levels[index];
+        // (Without the interior test, pixels at the limit are drawn interior: nothing to scan.)
+        if !level.use_interior || level.crossed == 0 || level.cache.is_some() {
+            return;
+        }
+        let (tx, ty) = tiles(level.set.width, level.set.height);
+        job.further = Some(Further {
+            reached: level.params.max_iter as usize,
+            unresolved: level.crossed,
+            limit: 0,
+            next_slot: 0,
+            slots: tx * ty * 256,
+            resolved: 0,
+            left: 0,
+            scan: None,
+            longer: None,
+            stop: None,
+            passes: 0,
+            segments: 0,
+            deferred: false,
+            mask: None,
+        });
+        // AA first when the view takes samples and its texels are the output's (live views:
+        // no supersampling grid), so a still view is anti-aliased as soon as without compute
+        // further.
+        let (w, out_w) = (level.set.width, job.key.width);
+        if self.aa_target() > 1 && w == out_w {
+            self.job
+                .as_mut()
+                .expect("job")
+                .further
+                .as_mut()
+                .expect("further")
+                .deferred = true;
+            if self.config.trace {
+                println!("further: waits for the AA samples");
+            }
+            return;
+        }
+        self.further_next_pass();
+    }
+
+    /// Compute further waits for the AA samples: once they are done (or none are wanted), mark
+    /// the texels still unresolved and start the passes.
+    fn undefer_further(&mut self) -> bool {
+        let aa_target = self.aa_target();
+        let aa_budget = self.config.aa_budget;
+        let Some(job) = &self.job else { return false };
+        let Some(f) = &job.further else { return false };
+        if !f.deferred {
+            return false;
+        }
+        let aa_done = aa_target <= 1
+            || job.aa_list.as_ref().is_some_and(|l| l.len.is_some())
+                && !job.aa_pending()
+                && job.aa_finished(aa_target, aa_budget);
+        if !aa_done || !job.complete_presented {
+            return true;
+        }
+        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+            return true;
+        };
+        let (w, h) = (full.set.width, full.set.height);
+        let iter = full.set.iter.clone();
+        let words = (w * h).div_ceil(32);
+        let mask = self.backend.create_buffer(words.max(1) * 4, Storage::Private).ok();
+        let encoded = mask.as_ref().is_some_and(|m| {
+            let Ok(mut enc) = self.backend.begin("further mask") else {
+                return false;
+            };
+            enc.set_pipeline(&self.unresolved_mask_pipeline);
+            enc.set_texture(0, &iter);
+            enc.set_bytes(0, bytes_of(&[w as u32, h as u32]));
+            enc.set_buffer(1, m, 0);
+            enc.dispatch_threads([words.max(1), 1, 1], [ITERATE_THREADS, 1, 1]);
+            let _ = enc.commit();
+            true
+        });
+        let trace = self.config.trace;
+        let job = self.job.as_mut().expect("job");
+        // (The settled frame is shown and anti-aliased; the passes change it again.)
+        job.final_presented = false;
+        let f = job.further.as_mut().expect("further");
+        f.deferred = false;
+        if encoded {
+            f.mask = mask.map(|m| (m, w));
+        }
+        if trace {
+            println!("further: AA done, passes start (mask {encoded})");
+        }
+        self.further_next_pass();
+        false
+    }
+
+    fn stop_further(&mut self, why: FurtherStop) {
+        let trace = self.config.trace;
+        let Some(job) = &mut self.job else { return };
+        let Some(f) = &mut job.further else { return };
+        f.stop = Some(why);
+        f.scan = None;
+        f.longer = None;
+        f.limit = 0;
+        if trace {
+            println!(
+                "further: stop ({}) at {} with {} unresolved after {} passes",
+                why.name(),
+                f.reached,
+                f.unresolved,
+                f.passes
+            );
+        }
+    }
+
+    /// Iterations per GPU second for the budget: the throughput model's rate counts
+    /// lane-iterations of every chunk, and levels whose pixels are proven interior early read
+    /// it high (1e7 neck pixels to 65 k looked like 0.3 s); the extension passes' own
+    /// iterations per GPU second once they have run a while.
+    fn further_rate(job: &Job<B>, model: f64) -> f64 {
+        let (iterations, gpu) = job
+            .levels
+            .iter()
+            .filter(|l| l.is_extension() && l.aa.is_none())
+            .fold((0.0, 0.0), |(i, g), l| (i + l.iterations, g + l.gpu_time));
+        if gpu > 0.2 && iterations > 0.0 {
+            iterations / gpu
+        } else {
+            model.min(FURTHER_RATE_GUESS)
+        }
+    }
+
+    /// GPU seconds of the job's extension passes (compute further's included).
+    fn extension_gpu(job: &Job<B>) -> f64 {
+        job.levels
+            .iter()
+            .filter(|l| l.is_extension() && l.aa.is_none())
+            .map(|l| l.gpu_time)
+            .sum()
+    }
+
+    /// Decides the next pass: its limit (x4, else x2 the last, within the cap, the reference's
+    /// reach and the budget) or why there is none; starts its first segment scan.
+    fn further_next_pass(&mut self) {
+        let cap = self.settings.max_iterations_cap;
+        let budget = self.config.further_budget;
+        let min_share = self.config.further_min_share;
+        let probe_div = self.config.interior_probe;
+        let rate = self.rate;
+        let Some(job) = &self.job else { return };
+        let Some(f) = &job.further else { return };
+        if !f.running() || f.longer.is_some() {
+            return;
+        }
+        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+            return;
+        };
+        let texels = full.set.width * full.set.height;
+        if (f.unresolved as f64) < min_share * texels as f64 || f.unresolved == 0 {
+            return self.stop_further(FurtherStop::Finished);
+        }
+        // The cap bounds the auto limit; a manual limit above it is its own ceiling (as for the
+        // extension passes' `extend_to`).
+        let ceiling = job.key.max_iter.max(cap).min(MANUAL_ITERATIONS_MAX);
+        if f.reached >= ceiling {
+            return self.stop_further(FurtherStop::Limit);
+        }
+        let mut next = f.reached.saturating_mul(4).min(ceiling);
+        if next > job.exact_reach {
+            // An f64 orbit that ended at its limit (the centre did not escape) is extended on a
+            // thread; it is bit-identical up to its old end, so the frame stays exact.
+            let want = next.min(FURTHER_REF_MAX);
+            let extendable = self.reference_serial == job.reference_serial
+                && self
+                    .reference
+                    .as_ref()
+                    .is_some_and(|r| !r.big && !r.escaped && r.period.is_none() && r.points.len() - 1 < want);
+            if extendable && want > f.reached {
+                let r = self.reference.as_ref().expect("reference");
+                let viewport = Viewport {
+                    center: r.point.clone(),
+                    scale: r.scale,
+                    angle: 0.0,
+                };
+                let (tx, rx) = std::sync::mpsc::channel();
+                let spawned = std::thread::Builder::new()
+                    .name("almondbread-further-ref".into())
+                    .spawn(move || {
+                        let _ = tx.send(Reference::compute_f64(&viewport, want, BAILOUT));
+                    })
+                    .is_ok();
+                if spawned {
+                    if self.config.trace {
+                        println!("further: extending the f64 orbit to {want}");
+                    }
+                    self.job
+                        .as_mut()
+                        .expect("job")
+                        .further
+                        .as_mut()
+                        .expect("further")
+                        .longer = Some(rx);
+                    return;
+                }
+            }
+            if job.exact_reach <= f.reached {
+                return self.stop_further(FurtherStop::Reach);
+            }
+            next = job.exact_reach;
+        }
+        // Budget: every pixel left runs to the new limit at worst (and its interior probe),
+        // from the start.
+        let count = f.unresolved as f64;
+        let probe_cost = if job.deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
+        let per_pixel = |n: usize| (n + probe_limit(n, probe_div) as usize * probe_cost) as f64;
+        let spent = Self::extension_gpu(job);
+        let rate = Self::further_rate(job, rate);
+        let fits = |n: usize| spent + count * per_pixel(n) / rate <= budget;
+        if !fits(next) {
+            next = next.min(f.reached.saturating_mul(2));
+        }
+        if !fits(next) || next <= f.reached {
+            return self.stop_further(FurtherStop::Budget);
+        }
+        let trace = self.config.trace;
+        let f = self.job.as_mut().expect("job").further.as_mut().expect("further");
+        f.limit = next;
+        f.next_slot = 0;
+        f.resolved = 0;
+        f.left = 0;
+        f.passes += 1;
+        if trace {
+            println!(
+                "further: pass {} from {} to {next}, {} unresolved",
+                f.passes, f.reached, f.unresolved
+            );
+        }
+        self.further_scan();
+    }
+
+    /// Lists the unresolved texels of the pass's next segment (a GPU scan; `poll_further`
+    /// reads its count).
+    fn further_scan(&mut self) {
+        let list_capacity = self.list_capacity;
+        let Some(job) = &self.job else { return };
+        let Some(f) = &job.further else { return };
+        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+            return;
+        };
+        // Whole tiles per segment.
+        let segment = list_capacity / 256 * 256;
+        let Some(lists) = self.list_buffers.clone().filter(|_| segment > 0) else {
+            return self.stop_further(FurtherStop::Failed);
+        };
+        let start = f.next_slot;
+        let count = segment.min(f.slots.saturating_sub(start));
+        let (w, h) = (full.set.width, full.set.height);
+        let iter = full.set.iter.clone();
+        let order = full.order.clone();
+        let (tx, _) = tiles(w, h);
+        let Ok(count_buffer) = self.backend.create_buffer_with_data(&[0u8; 4]) else {
+            return self.stop_further(FurtherStop::Failed);
+        };
+        let Ok(mut enc) = self.backend.begin("further list") else {
+            return self.stop_further(FurtherStop::Failed);
+        };
+        let p = UnresolvedListParams {
+            width: w as u32,
+            height: h as u32,
+            tiles_x: tx as u32,
+            tile_order: u32::from(order.is_some()),
+            start: start as u32,
+            count: count as u32,
+            capacity: list_capacity as u32,
+            pad: 0,
+        };
+        enc.set_pipeline(&self.unresolved_list_pipeline);
+        enc.set_texture(0, &iter);
+        enc.set_bytes(0, bytes_of(&p));
+        enc.set_buffer(1, order.as_ref().map_or(&self.dummy_buffer, |o| &o.order), 0);
+        enc.set_buffer(2, &count_buffer, 0);
+        enc.set_buffer(3, &lists[0], 0);
+        enc.dispatch_threads([count.max(1), 1, 1], [ITERATE_THREADS, 1, 1]);
+        let submission = enc.commit();
+        let f = self.job.as_mut().expect("job").further.as_mut().expect("further");
+        f.next_slot = start + count;
+        f.scan = Some((submission, count_buffer));
+    }
+
+    /// Per refresh: a finished segment scan becomes an extension level (or the next segment
+    /// is scanned), a longer orbit is taken.
+    fn poll_further(&mut self) {
+        if self.undefer_further() {
+            return;
+        }
+        let Some(job) = &mut self.job else { return };
+        let Some(f) = &mut job.further else { return };
+        if !f.running() {
+            return;
+        }
+        if let Some(rx) = &f.longer {
+            match rx.try_recv() {
+                Ok(r) => {
+                    f.longer = None;
+                    self.adopt_further_reference(r);
+                    self.further_next_pass();
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.stop_further(FurtherStop::Failed),
+            }
+            return;
+        }
+        let Some((sub, count_buffer)) = &f.scan else { return };
+        match sub.status() {
+            SubmissionStatus::Pending => {}
+            SubmissionStatus::Failed(_) => self.stop_further(FurtherStop::Failed),
+            SubmissionStatus::Completed => {
+                let mut bytes = [0u8; 4];
+                self.backend.read_buffer(count_buffer, 0, &mut bytes);
+                let count = (u32::from_le_bytes(bytes) as usize).min(self.list_capacity);
+                f.scan = None;
+                f.segments += 1;
+                if count > 0 {
+                    self.push_further_level(count);
+                } else if f.next_slot < f.slots {
+                    self.further_scan();
+                } else {
+                    self.further_pass_done();
+                }
+            }
+        }
+    }
+
+    /// The scanned segment's `count` texels as an extension level to the pass's limit.
+    fn push_further_level(&mut self, count: usize) {
+        let probe_div = self.config.interior_probe;
+        let list_capacity = self.list_capacity;
+        let job = self.job.as_mut().expect("job");
+        let limit = job.further.as_ref().map_or(0, |f| f.limit);
+        let ref_len = job.ref_len;
+        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+            return;
+        };
+        let mut p = full.params;
+        p.max_iter = limit as u32;
+        p.probe = probe_limit(limit, probe_div);
+        p.list_mode = 2;
+        p.total = count as u32;
+        p.fill_border = 0;
+        p.list_capacity = list_capacity as u32;
+        // (The orbit may have been extended since the full level started.)
+        p.ref_len = ref_len;
+        let mut ext = Level::new(full.set.clone(), full.ratio, false, p, Some(count));
+        ext.use_interior = true;
+        ext.seeded = full.seeded;
+        ext.complete = true;
+        ext.list_in = 0;
+        ext.list_out = 1;
+        ext.further = true;
+        job.levels.push(ext);
+        job.final_presented = false;
+    }
+
+    /// A segment level finished: count it; the next segment, or the pass is done.
+    fn further_segment_done(&mut self, index: usize) {
+        let Some(job) = &mut self.job else { return };
+        let level = &job.levels[index];
+        let (total, crossed) = (level.total, level.crossed);
+        let Some(f) = &mut job.further else { return };
+        f.resolved += total.saturating_sub(crossed);
+        f.left += crossed;
+        if !f.running() {
+            return;
+        }
+        if f.next_slot < f.slots {
+            self.further_scan();
+        } else {
+            self.further_pass_done();
+        }
+    }
+
+    fn further_pass_done(&mut self) {
+        let Some(f) = self.job.as_mut().and_then(|j| j.further.as_mut()) else {
+            return;
+        };
+        // (Texels the scans found beyond the list capacity cannot be: segments are at most
+        // its size. Texels resolved count once.)
+        f.reached = f.limit;
+        f.unresolved = f.left;
+        f.limit = 0;
+        f.resolved = 0;
+        f.left = 0;
+        self.further_next_pass();
+    }
+
+    /// Takes a longer f64 orbit of the job's reference point: bit-identical up to the old end
+    /// (same arithmetic), so levels already computed stay exact. The job iterates the rest
+    /// without the BLA / LA tables (they belong to the old orbit; f64 views rarely use them).
+    fn adopt_further_reference(&mut self, r: Reference) {
+        let same = self
+            .job
+            .as_ref()
+            .is_some_and(|j| j.reference_serial == self.reference_serial)
+            && self.reference.as_ref().is_some_and(|old| {
+                old.point == r.point
+                    && r.points.len() >= old.points.len()
+                    && r.points[..old.points.len()] == old.points[..]
+            });
+        if !same {
+            return self.stop_further(FurtherStop::Reach);
+        }
+        let reach = r.exact_reach();
+        let len = r.points.len() as u32;
+        self.set_reference(r);
+        let (Some(buffer), serial) = (self.reference_buffer.clone(), self.reference_serial) else {
+            return self.stop_further(FurtherStop::Failed);
+        };
+        let job = self.job.as_mut().expect("job");
+        job.reference_buffer = buffer;
+        job.reference_serial = serial;
+        job.exact_reach = reach;
+        job.ref_len = len;
+        job.bla = None;
+        job.bla_forecast = Some(BlaForecast::default());
+        job.la = None;
+        job.la_decided = true;
+    }
+
+    /// What compute further is doing (None: not started for this view).
+    pub fn further_info(&self) -> Option<FurtherInfo> {
+        let job = self.job.as_ref()?;
+        let f = job.further.as_ref()?;
+        // The running segment level so far: texels finished, and of those resolved.
+        let (finished, current) = job.levels.iter().rfind(|l| l.further && !l.done).map_or((0, 0), |l| {
+            let finished = l.admitted.saturating_sub(l.live);
+            (finished, finished.saturating_sub(l.crossed))
+        });
+        let unresolved = f.unresolved.saturating_sub(f.resolved + current);
+        let gpu = Self::extension_gpu(job);
+        let budget = self.config.further_budget;
+        // What is left: the rest of this pass, then x4 passes up to the cap, at worst every
+        // pixel running to each limit (bounded by the budget left).
+        let mut remaining_gpu = 0.0;
+        if f.running() {
+            let ceiling = job
+                .key
+                .max_iter
+                .max(self.settings.max_iterations_cap)
+                .min(MANUAL_ITERATIONS_MAX);
+            let rate = Self::further_rate(job, self.rate).max(1.0);
+            let mut n = f.limit.max(f.reached);
+            let pass_left = f.unresolved.saturating_sub(f.resolved + f.left + finished);
+            remaining_gpu += pass_left as f64 * f.limit as f64 / rate;
+            for _ in 0..16 {
+                if n >= ceiling {
+                    break;
+                }
+                n = n.saturating_mul(4).min(ceiling);
+                remaining_gpu += unresolved as f64 * n as f64 / rate;
+            }
+            remaining_gpu = remaining_gpu.min((budget - gpu).max(0.0));
+        }
+        Some(FurtherInfo {
+            running: f.running(),
+            reached: f.reached,
+            limit: f.limit,
+            unresolved,
+            passes: f.passes,
+            gpu,
+            budget,
+            remaining_gpu,
+            stop: f.stop,
+        })
     }
 
     /// Statistics-driven auto iterations (kb: techniques/auto-iterations).
@@ -4778,7 +5432,7 @@ impl<B: GpuBackend> Renderer<B> {
             Self::reproject(h, &key.viewport, s, (out_w, out_h), &mut q);
         }
         q.blend = match mode {
-            COMPOSE_REFINE => {
+            COMPOSE_REFINE | COMPOSE_FURTHER => {
                 let dt = (now - self.last_compose).clamp(0.0, 0.1);
                 (1.0 - (-dt / self.config.fade_tau).exp()) as f32
             }
@@ -4801,6 +5455,15 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(2, &self.level_buffer, 0);
         enc.set_buffer(3, &rank, 0);
         enc.set_bytes(4, bytes_of(&q));
+        // (Compute further's texel mask; mode 4 only.)
+        let mask = self
+            .job
+            .as_ref()
+            .and_then(|j| j.further.as_ref())
+            .and_then(|f| f.mask.as_ref())
+            .filter(|m| m.1 == out_w)
+            .map_or(&self.dummy_buffer, |m| &m.0);
+        enc.set_buffer(5, mask, 0);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -4904,6 +5567,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(2, &self.level_buffer, 0);
         enc.set_buffer(3, &self.dummy_buffer, 0);
         enc.set_bytes(4, bytes_of(&q));
+        enc.set_buffer(5, &self.dummy_buffer, 0);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5574,11 +6238,15 @@ impl<B: GpuBackend> Renderer<B> {
             };
         };
         let full = job.levels.iter().find(|l| !l.preview && l.aa.is_none());
-        let unresolved = job
-            .levels
-            .iter()
-            .rfind(|l| !l.preview && l.aa.is_none() && l.done)
-            .map(|l| l.crossed);
+        let further = self.further_info();
+        let unresolved = match further {
+            Some(f) => Some(f.unresolved),
+            None => job
+                .levels
+                .iter()
+                .rfind(|l| !l.preview && l.aa.is_none() && l.done)
+                .map(|l| l.crossed),
+        };
         let index = job.current();
         let current = index.map(|i| &job.levels[i]);
         let tables_pending = self.bla_build.is_some() || self.la_build.is_some();
@@ -5587,10 +6255,12 @@ impl<B: GpuBackend> Renderer<B> {
         } else {
             match current {
                 Some(l) if l.aa.is_some() => Stage::AntiAlias,
+                Some(l) if l.further => Stage::Further,
                 Some(l) if l.is_extension() => Stage::Extension,
                 Some(l) if l.preview => Stage::Preview,
                 Some(l) if !l.started() && tables_pending => Stage::Tables,
                 Some(_) => Stage::Full,
+                None if job.further.as_ref().is_some_and(Further::active) => Stage::Further,
                 None if job.final_presented => Stage::Idle,
                 None => Stage::AntiAlias,
             }
@@ -5646,6 +6316,9 @@ impl<B: GpuBackend> Renderer<B> {
             reference,
             provisional: job.short_reference,
             gpu_time: job.gpu_time,
+            further,
+            full_texels: full.map_or(0, |l| l.set.width * l.set.height),
+            finished_share: self.config.further_min_share,
         }
     }
 
@@ -5726,6 +6399,36 @@ impl<B: GpuBackend> Renderer<B> {
             if *s <= serial {
                 sub.wait();
             }
+        }
+    }
+
+    /// `ALMONDBREAD_UNRESOLVED_AT`: prints the shown frame's unresolved texels (`t` seconds
+    /// after the input) and what compute further is doing.
+    fn print_unresolved(&mut self, t: f64) {
+        self.drain_in_flight();
+        let Some(job) = &self.job else { return };
+        let shown = &job.levels[job.display()];
+        let (set, hard) = (shown.set.clone(), shown.params.max_iter);
+        let further = self.further_info();
+        if let Ok(it) = self.read_iterations(&set) {
+            let n = it.iter().filter(|t| t[0] == ITER_UNRESOLVED).count();
+            println!(
+                "unresolved at {t:.0} s: {n} of {} ({:.2} %), shown limit {hard}, further {}",
+                it.len(),
+                100.0 * n as f64 / it.len().max(1) as f64,
+                match further {
+                    Some(f) => format!(
+                        "{} reached {} pass limit {} passes {} gpu {:.1} s{}",
+                        if f.running { "running" } else { "stopped" },
+                        f.reached,
+                        f.limit,
+                        f.passes,
+                        f.gpu,
+                        f.stop.map_or(String::new(), |w| format!(" ({})", w.name()))
+                    ),
+                    None => "none".into(),
+                }
+            );
         }
     }
 
@@ -5930,7 +6633,20 @@ impl<B: GpuBackend> Renderer<B> {
             self.navigator.last_interaction
         };
         let deadline = self.clock() + timeout;
+        // `ALMONDBREAD_UNRESOLVED_AT=1,5,20,60`: the shown frame's unresolved texels at those
+        // seconds after the input (compute further measurements; reads the frame back).
+        let mut sample_at: Vec<f64> = std::env::var("ALMONDBREAD_UNRESOLVED_AT")
+            .ok()
+            .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+            .unwrap_or_default();
+        sample_at.sort_by(|a, b| b.total_cmp(a));
         loop {
+            if let Some(&t) = sample_at.last()
+                && self.clock() - input_end >= t
+            {
+                sample_at.pop();
+                self.print_unresolved(t);
+            }
             let finished = self
                 .job
                 .as_ref()
@@ -5953,6 +6669,9 @@ impl<B: GpuBackend> Renderer<B> {
                 return Err(GpuError("simulated session did not finish".into()));
             }
             refresh(self, &mut tick, &mut frames);
+        }
+        while let Some(t) = sample_at.pop() {
+            self.print_unresolved(t);
         }
         let final_after = self.last_final_frame.0 - input_end;
         let done_after = self.clock() - input_end;

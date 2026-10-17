@@ -2931,6 +2931,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     device const LevelCounters& level         [[buffer(2)]],
                     device const uint* rank                   [[buffer(3)]],
                     constant ComposeParams& q                 [[buffer(4)]],
+                    device const uint* furtherMask            [[buffer(5)]],   // mode 4
                     uint2 gid                                 [[thread_position_in_grid]])
 {
     if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
@@ -3049,6 +3050,15 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
             col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f, q.sampleWidth), q.blend) : hist;
             conf = q.confCap;
+        } else if (q.mode == 4) {
+            // Compute further after AA: a texel unresolved when its passes started fades to its
+            // new colour once resolved; every other pixel keeps its (anti-aliased) history.
+            const uint i = gid.y * c.outSize.x + gid.x;
+            const bool marked = ((furtherMask[i >> 5] >> (i & 31u)) & 1u) != 0u;
+            col = (marked && done && it.x != ITER_UNRESOLVED)
+                ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend)
+                : hist;
+            conf = q.confCap;
         } else if (done) {
             float3 exact = shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);
             col = q.mode == 1 ? mix(prior, exact, q.blend) : exact;
@@ -3109,6 +3119,59 @@ kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
         }
         if (!want) aaIter.write(float4(ITER_SKIP, 0.0f, 0.0f, 0.0f), xy);
     }
+    uint off = simd_prefix_exclusive_sum(want ? 1u : 0u);
+    uint total = simd_sum(want ? 1u : 0u);
+    uint base = 0;
+    if (lane == 0 && total > 0) base = atomic_fetch_add_explicit(count, total, memory_order_relaxed);
+    base = simd_broadcast_first(base);
+    if (want && base + off < p.capacity) list[base + off] = xy.y * p.width + xy.x;
+}
+
+// "Compute further" (kb: techniques/auto-iterations "Compute further"): lists the texels still
+// unresolved among admission indices [start, start + count) of a full level (tiles in its priority
+// order, Morton order inside a tile), for an extension pass over that segment. Segments are at
+// most `capacity` slots, so every unresolved texel of one fits: the passes no longer depend on the
+// level's own all-or-nothing list (9.7 M unresolved at 4000 x 2500 near the -3/4 neck overflowed
+// the 4 M entries and got no pass at all).
+// The texels unresolved when compute further's passes start after AA, one bit each (row-major):
+// its compose (mode 4) recolours only those, so anti-aliased pixels keep their samples.
+kernel void unresolvedMask(texture2d<float, access::read> iters [[texture(0)]],
+                           constant uint2& size                 [[buffer(0)]],
+                           device uint* mask                    [[buffer(1)]],
+                           uint tid                             [[thread_position_in_grid]])
+{
+    const uint n = size.x * size.y, base = tid * 32u;
+    if (base >= n) return;
+    uint bits = 0u;
+    for (uint k = 0u; k < 32u && base + k < n; k++) {
+        const uint i = base + k;
+        if (iters.read(uint2(i % size.x, i / size.x)).x == ITER_UNRESOLVED) bits |= 1u << k;
+    }
+    mask[tid] = bits;
+}
+
+struct UnresolvedListParams {
+    uint width;
+    uint height;
+    uint tilesX;
+    uint tileOrder;
+    uint start;          // first admission index of the segment
+    uint count;          // admission indices in the segment
+    uint capacity;       // list entries
+    uint pad;
+};
+
+kernel void unresolvedList(texture2d<float, access::read> iters [[texture(0)]],
+                           constant UnresolvedListParams& p     [[buffer(0)]],
+                           device const uint* order             [[buffer(1)]],
+                           device atomic_uint* count            [[buffer(2)]],
+                           device uint* list                    [[buffer(3)]],
+                           uint tid                             [[thread_position_in_grid]],
+                           uint lane                            [[thread_index_in_simdgroup]])
+{
+    uint2 xy = uint2(0);
+    bool want = tid < p.count && tileTexel(p.start + tid, p.tilesX, p.width, p.height, p.tileOrder, order, xy)
+        && iters.read(xy).x == ITER_UNRESOLVED;
     uint off = simd_prefix_exclusive_sum(want ? 1u : 0u);
     uint total = simd_sum(want ? 1u : 0u);
     uint base = 0;
