@@ -186,7 +186,6 @@ struct SavedSettings: Codable {
     var mapPlacement: MapPlacement?
     var piMeterEnabled: Bool?
     var cosmicScale: Bool?
-    var cosmicAnchor: String?
     var compassAlways: Bool?
 }
 
@@ -265,8 +264,6 @@ public final class ExplorerModel {
     public var piMeterInsetRight = 0.0 { didSet { if piMeterInsetRight != oldValue { pushPiMeter() } } }
     /// Cosmic size scale (kb: decisions/controls, "Cosmic size scale"): off by default.
     public var cosmicScale = false { didSet { pushCosmic() } }
-    /// "screen" or a thing the whole set is as big as (`cosmicAnchors()`).
-    public var cosmicAnchor = "screen" { didSet { pushCosmic() } }
     /// The compass (kb: decisions/controls, "Compass"): shown while the view is turned, or
     /// always.
     public var compassAlways = false { didSet { pushCompass() } }
@@ -502,7 +499,7 @@ public final class ExplorerModel {
     private func pushCosmic(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
         HangWatchdog.note("settings", "pushCosmic from \(origin)")
-        explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: cosmicScale, anchor: cosmicAnchor,
+        explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: cosmicScale,
                                                               metresPerPoint: metresPerPoint))
         host?.requestFrames()
         save()
@@ -546,7 +543,7 @@ public final class ExplorerModel {
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, piMeterEnabled: piMeterEnabled,
-            cosmicScale: cosmicScale, cosmicAnchor: cosmicAnchor, compassAlways: compassAlways)
+            cosmicScale: cosmicScale, compassAlways: compassAlways)
     }
 
     private func writeSaved() {
@@ -610,7 +607,6 @@ public final class ExplorerModel {
         mapPlacement = s.mapPlacement ?? mapPlacement
         piMeterEnabled = s.piMeterEnabled ?? piMeterEnabled
         cosmicScale = s.cosmicScale ?? cosmicScale
-        cosmicAnchor = s.cosmicAnchor ?? cosmicAnchor
         compassAlways = s.compassAlways ?? compassAlways
         pulling = false
         push()
@@ -686,7 +682,6 @@ public final class ExplorerModel {
             mapPlacement = .bottomLeft
             piMeterEnabled = false
             cosmicScale = false
-            cosmicAnchor = "screen"
             compassAlways = false
         }
         pulling = false
@@ -750,7 +745,6 @@ public final class ExplorerModel {
         mapPlacement = .bottomLeft
         piMeterEnabled = false
         cosmicScale = false
-        cosmicAnchor = "screen"
         compassAlways = false
         pulling = false
         push()

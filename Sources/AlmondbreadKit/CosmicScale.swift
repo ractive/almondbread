@@ -32,27 +32,17 @@ enum ScreenMetrics {
     #endif
 }
 
-/// Control center rows: the switch and the anchor.
+/// Control center rows: the switch and what it compares (one mode: your screen).
 struct CosmicScaleRows: View {
     @Bindable var model: ExplorerModel
-    private let anchors = cosmicAnchors()
 
     var body: some View {
         Toggle("Cosmic size scale", isOn: $model.cosmicScale)
-            .help("How big the view is compared with real things, from the universe to the Planck length (C)")
+            .help("Your window stays its real size: how big would the whole set be? (C)")
         if model.cosmicScale {
-            Picker("Compare", selection: $model.cosmicAnchor) {
-                ForEach(0..<3) { group in
-                    if group > 0 { Divider() }
-                    ForEach(anchors.filter { $0.group == UInt32(group) }, id: \.key) {
-                        Text($0.label).tag($0.key).help($0.description)
-                    }
-                }
-            }
-            if let a = anchors.first(where: { $0.key == model.cosmicAnchor }) {
-                Text(a.description).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Your window stays 30 cm (or its real size): how big would the whole set be?")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

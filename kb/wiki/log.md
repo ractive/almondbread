@@ -977,3 +977,35 @@ command: at a 2 M limit at the neck (3–4 min) the line stays within −10 / +6
 share of real time, at a 10 M limit with a slow tail (8 s) within ±10. Shallow zooms show
 nothing. Found: the first AA sample at a 2 M limit costs as much as the full level. Page:
 [[decisions/controls]] "Render progress".
+
+## [2026-10-16] decision | Cosmic scale: "Your screen" keeps the window, the set grows
+
+The screen anchor no longer turns around at the observable universe (the set became the
+universe and the view shrank to the Planck length at zoom ~1e62: "very confusing", user). The
+window stays its 30 cm (or measured) width at every depth; only the whole set grows: "The whole
+set would be 3 km wide", "… as wide as Earth", "… as big as the observable universe", then "…
+5.2 million × the observable universe", "5e102 ×", "5e972 ×", "5e2972 ×" at zoom 1e3000,
+counted from the log so nothing overflows to the depth limit; line 2 "your window: 30 cm", no
+third line. Ruler: things up to "universe", then "1,000 × universe" … "1 trillion ×", "1e20 ×",
+"1e30 ×", "1e50 ×", "googol ×", every 100 decades to "1e4000 ×"; no small things, milestones or
+ladders; marks at least 25 points apart (unit test). Set-as-object anchors: the third line is
+plain words ("to see it you need X-rays", "Smaller than anything ever measured", "Smaller than
+the Planck length: only maths from here") instead of light times and GeV; the "GUT scale?" mark
+is gone everywhere (the metaphor grid now has 23 steps of 8.7 decades). Labels of marks close
+to the marker are nudged off it instead of hidden. Stills: `build/cosmic-stills/` (not
+committed). Page: [[decisions/controls]] "Cosmic size scale".
+
+## [2026-10-17] decision | Cosmic scale: one mode, three phases, nested universes
+
+Agreed with the user after the "N × the observable universe" version: the scale has one mode
+(your window stays 30 cm or its measured width; the picker, "The set is X" and the cosmos
+metaphor are removed from the UI, the FFI, the CLI and the core). Three phases from
+`n = log10(set / universe)`: the set grows ("The whole set would be as big as Earth"), the
+universe shrinks inside the set with set/U = U/thing ("In the whole set, our universe would be
+as small as an atom", zoom ≈ 1e64; Planck at ≈ 1e89), then nested universes from the Planck
+rung, level `max(2, floor(n / 36.92))` ("A universe in a universe", "… (26 times)" at 1e1000,
+"(80 times)" at 1e3010; line 2 "imagine every atom were a universe, and every atom in it too").
+Ruler: things, "1,000 × universe", "universe = galaxy" … "universe = Planck", "googol ×",
+"3× nested" …; linear to the Planck rung, then slope 1/8; marks ≥ 25 pt apart. No light times
+or GeV anywhere. Long sentences wrap onto a second line. Contact sheet of the stills:
+`~/Desktop/cosmic-scale-stills.png`. Page: [[decisions/controls]] "Cosmic size scale".

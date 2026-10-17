@@ -741,64 +741,78 @@ like the phase, is left out of the "same colours" test) and is replaced within a
 Tests: `flights_turn_and_land_exactly`, `autopilot_spins_with_the_zoom_only_when_enabled`, the
 `cinematic` unit test; `fly` scripts take `"cinematic": true` or the strengths.
 
-## Cosmic size scale (as built, 2026-10-15)
+## Cosmic size scale (as built 2026-10-15, one mode since 2026-10-17)
 
 A panel at the bottom left (above the mini-map when that sits there too) that compares the zoom
-with real things: a log ruler with coloured dots for things sliding past a gold marker, one
-sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
-(`crates/almondbread-render/src/cosmic.rs`); the table, the sentences and the mappings live in
-`crates/almondbread-core/src/cosmic.rs`, every size with its source page. Off by default.
+with real things: a log ruler with coloured dots sliding past a gold marker, a sentence (wrapped
+onto a second line when it is long) and one explanation line. Drawn in Rust/Metal into the
+overlay scene (`crates/almondbread-render/src/cosmic.rs`); the table, the sentences and the
+marks live in `crates/almondbread-core/src/cosmic.rs`, every size with its source page. Off by
+default.
 
-- **Controls**: C toggles it (macOS key and iPad/iPhone hardware keyboard; free before: WASD,
-  arrows, Q/E, Z, J, O, M, R, `,` `.` `/`, Space, `+`/`-`, Esc), toolbar toggle "Size Scale"
-  (ruler icon, with a tooltip), menu item "Cosmic Size Scale", control center "Overlays":
-  switch plus a "Compare" picker. Persisted with the other overlay settings; "Reset all" and
-  the overlays ↺ turn it off. iOS: the control center row (no extra button: the bottom-right
-  stack is full on iPhone). CLI: `render out.png --scale-overlay 1 [--scale-anchor
-  screen|cosmos|universe|milky-way|sun|earth|human|cell|atom] [--screen-cm 30]`.
-- **Depth**: `d = log10(2.25 / view width)` in the plane (the set spans re −2 … 1/4).
-- **Screen anchor (default, physical)**: the view is the window on the screen. macOS reads the
-  display's physical width (`CGDisplayScreenSize`, rejected outside 0.1 … 1 mm per point); iOS
-  assumes 160 points per inch on iPhone and 132 on iPad (rule of thumb, unverified); otherwise
-  30 cm. The whole set is `L · 10^d`: "The whole set ≈ 1.6× the Milky Way". When it passes the
-  observable universe (`d ≈ 27.5` for 30 cm) the readout turns around without a jump: the set
-  *is* the universe and the view is `U · 10^-d`, down to the Planck length at `d ≈ 61.7`.
-- **Set = X**: the view is `X · 10^-d` ("This view ≈ a hydrogen atom, if the whole set were
-  Earth").
-- **Light and probes**: a third line gives light's crossing time ("light crosses it in 165
-  thousand years", "longer than humans have existed", "≈ the Planck time") and, for views
-  below 10 µm, the probe energy `E = hc/λ` with its band (visible, UV, X-rays, gamma, more than
-  the LHC's 13.6 TeV). Band edges are textbook ranges (unverified).
-- **Small side**: cell, virus, DNA, atom, nucleus, proton, "limit probed" (~1e-19 m), then a
-  red band "unexplored" down to the Planck length; inside it the sentence counts Planck lengths
-  and the GUT scale (~2e-32 m) is marked hypothetical; the Planck mark reads "Planck
-  (strings?)": strings are hypothetical.
-- **Past the Planck length**: the zoom factor (as the HUD shows it) passes big numbers: Planck
-  times since the Big Bang (8e60), atoms in the universe (1e80), a googol, Shannon's chess
-  games (1e120), Planck volumes in the universe (8e184); then universe-to-Planck ladders
-  (61.7 decades each; 48.6 at 1e3000), drawn as repeated faint rungs. The ruler compresses past
-  the Planck length (slope 1 → 1/12 over 15 decades).
-- **Relative anchor "Zoom range as cosmos (metaphor)"**: zoom 1 … 1e200 (one constant) stands
-  for the universe … the Planck length and for today … the Planck epoch. The 25 things sit on
-  one grid evenly spaced in zoom decades: 8.3 decades a step, about 12 s at the default zoom
-  speed (×4.95/s), the whole cosmos in under 5 minutes. The epochs sit on the same grid where
-  the view is about the thermal wavelength `hc/kT` of their temperature (CMB at a cell,
-  nucleosynthesis at an atom, quark-hadron at a nucleus, electroweak just below a proton,
-  inflation at the GUT scale, Planck at Planck; today, the Sun and the first stars spread over
-  the astronomical part; src: [[sources/cosmic-history-timeline]]), so size and time do not
-  drift apart. Log size and log time are interpolated between grid points. Sizes are shown
-  above the ruler, epochs below; the panel names the next thing and says it is a metaphor.
-  Past 1e200 it counts "cosmos lengths" (2.5 at 1e500) with the things repeated as faint rungs.
-  - Rejected first: spacing in `log10(1 + zoom decades)` over 1e3000. Steps grew from 1 s to
-    20 min ("from hair to blood cell it takes ages", user, 2026-10-15).
-  - Rejected before that: a linear map over 1e3000 (48.6 zoom decades per physical decade).
-- **Picker**: "Your screen", then "The set is …" (universe, Milky Way, Sun, Earth, you, a
-  cell, an atom), then "Zoom range as cosmos (metaphor)", in groups. A caption under the picker
-  explains the chosen anchor ("Your window is fixed: how big would the whole set be?"), and the
-  options carry the same text as tooltips.
+- **Controls**: C toggles it (macOS key and iPad/iPhone hardware keyboard), toolbar toggle
+  "Size Scale" (ruler icon, with a tooltip), menu item "Cosmic Size Scale", control center
+  "Overlays": a switch with the caption "Your window stays 30 cm (or its real size): how big
+  would the whole set be?". No picker: there is one mode. Persisted with the other overlay
+  settings; "Reset all" and the overlays ↺ turn it off. CLI: `render out.png --scale-overlay 1
+  [--screen-cm 30]`.
+- **The concept (agreed with the user 2026-10-17)**: your window stays the window, 30 cm or its
+  measured width, at every depth; only the whole set grows. macOS reads the display's physical
+  width (`CGDisplayScreenSize`, rejected outside 0.1 … 1 mm per point); iOS assumes 160 points
+  per inch on iPhone and 132 on iPad (rule of thumb, unverified). Depth `d = log10(2.25 / view
+  width)` in the plane, so the whole set is `L · 10^d` metres. Everything is computed from
+  `n = d − d_U` (log10 of set over universe, `U` = 8.7e26 m), so nothing overflows to the depth
+  limit (~1e3010). Ratios only, never counts of universes; no physics jargon (no light times, no
+  GeV).
+- **Phase 1, the set grows (to zoom ≈ 3e27 for 30 cm)**: "The whole set would be 4 km across"
+  below 10 km, then the nearest thing in log: "… as big as Earth", "… 3× as big as the Sun";
+  at the turn (set/U from 0.8 to 2) "The whole set would be as big as the observable universe".
+  Line 2: "your window: 30 cm" (or "your window: 45 cm").
+- **Phase 2, the universe shrinks inside the set (to ≈ 1e89)**: set/U = U/thing, so the
+  universe would be as small as a thing of size `U · 10^-n`: "In the whole set, our universe
+  would be as small as an atom", "… only 2.7× as big as the Milky Way", "… as small as 40% of a
+  cell". Compared with familiar things only (Milky Way, solar system, Sun, Earth, Moon, Everest,
+  you, ant, hair, cell, virus, atom, proton, Planck length). Galaxy ≈ 1e33, solar system ≈ 1e41,
+  Earth ≈ 1e47, you ≈ 1e54, cell ≈ 1e59, atom ≈ 1e64, proton ≈ 1e69, Planck ≈ 1e89. Between
+  set/U = 2 and a factor 4 above the galaxy rung no familiar thing is near (only distances
+  between galaxies): "The whole set would be bigger than the observable universe". Line 2:
+  "your window: 30 cm".
+- **Phase 3, nested universes (from the Planck rung)**: level `k = max(2, floor(n / a))` with
+  `a = log10(U / atom) ≈ 36.92` decades (set/U = (U/atom)^k: imagine every atom were a
+  universe). Phase 3 starts at the Planck rung (`n ≈ 61.7`, zoom ≈ 1e89), where the atom count
+  would give level 1.67; the shown level is 2 from there, so phase 2 ends cleanly at Planck and
+  the count follows the atom ratio from level 3 on (level 3 at zoom ≈ 1e138, level 26 at
+  ≈ 1e987–1e1024, level 80 at ≈ 1e2981–1e3018). Line 1: "A universe in a universe", "A universe
+  in a universe in a universe", "A universe in a universe in a universe in a universe", from
+  level 5 "A universe in a universe in … (26 times)". Line 2: "imagine every atom were a
+  universe, and every atom in it too".
+- **Ruler**: the things larger than the window up to "universe"; then "1,000 × universe",
+  phase 2's rungs "universe = galaxy", "= solar system", "= Earth", "= you", "= cell", "= atom",
+  "= proton", "= Planck"; "googol ×" (set/U = 1e100); then "3× nested" … "90× nested" at the
+  level starts. "1 million ×" is not marked: it falls on "universe = galaxy". Linear in depth up
+  to one decade past the Planck rung, then compressed (slope 1 → 1/8 over 15 decades; a level is
+  then ~69 points). A unit test keeps every pair of marks past the universe at least 25 points
+  apart. A label whose dot is near the marker is nudged off the marker (within 30 % of its width)
+  instead of hidden; a dot right under the marker stays unlabelled.
+- **Rejected variants**:
+  - Built 2026-10-15: the screen anchor turned around at the universe (the set *was* the
+    universe and the view shrank to the Planck length at zoom ≈ 1e62: "This view ≈ 1.8× the
+    Planck length / if the whole set were the observable universe / light: 1e-43 s · to see it:
+    4e19 GeV, unexplored"). The silent flip of what is fixed was "very confusing" (user,
+    2026-10-16).
+  - Built 2026-10-16: the set kept growing in counts of universes ("The whole set would be
+    5e972 × the observable universe", ruler marks every 100 decades). Replaced by ratios to
+    familiar things and nested universes (user, 2026-10-17).
+  - Other modes, removed 2026-10-17: "The set is X" (universe, Milky Way, Sun, Earth, you,
+    cell, atom: the view `X · 10^-d` down to the Planck length, then big-number milestones and
+    universe-to-Planck ladders) and "Zoom range as cosmos (metaphor)" (zoom 1 … 1e200 as the
+    universe … the Planck length and today … the Planck epoch, epochs from
+    [[sources/cosmic-history-timeline]]; its pacing was tuned twice, see [[log]]). One mode is
+    easier to understand; the picker is gone.
+  - Dropped with them: the third line (light's crossing time, probe energy and band, "GUT
+    scale?" mark, the red "unexplored" band).
 - **How big is big?** (removed 2026-10-15): past the Planck length a gold "How big is big? →"
-  link above the panel opened the gear panel, placed from `Explorer.cosmicHint()`. Link, panel
-  and `cosmicHint()` are gone with the panel ([[synthesis/how-big-is-big]]).
+  link above the panel opened the gear panel ([[synthesis/how-big-is-big]]).
 - **Readability**: the backing is 86 % opaque black, and the labels and lines have a 2.4 to
   2.6 px dark outline. Labels go above or below the ruler, whichever row is free, at least
   9 pt from the next label and never far from their dot; a label that does not fit is hidden.
@@ -811,7 +825,7 @@ sentence and two smaller lines. Drawn in Rust/Metal into the overlay scene
 
 Sources: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
 [[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
-[[sources/cosmic-history-timeline]]. Idea: [[ideas]] "Cosmic size scale".
+[[sources/cosmic-history-timeline]] (removed metaphor). Idea: [[ideas]] "Cosmic size scale".
 
 ## π meter (as built, 2026-10-15)
 

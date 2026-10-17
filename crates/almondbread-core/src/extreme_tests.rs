@@ -103,33 +103,18 @@ fn extreme_navigator_survives_bad_times_and_sizes() {
 
 #[test]
 fn extreme_cosmic_scale_readings() {
-    for anchor in ["screen", "cosmos", "earth", "no such thing"] {
-        for mpp in [f64::NAN, f64::INFINITY, -1.0, 0.0, 3e-4] {
-            for (w, off) in [
-                (f64::NAN, 0.0),
-                (0.0, f64::NAN),
-                (-10.0, f64::INFINITY),
-                (1e300, -1e300),
-            ] {
-                let s = CosmicScaleSettings {
-                    enabled: true,
-                    anchor: anchor.into(),
-                    metres_per_point: mpp,
-                };
-                let c = CosmicScale::new(&s, w, off);
-                for d in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 3010.0, 1e300, -1e300] {
-                    let r = c.reading(d);
-                    assert!(!r.line.is_empty());
-                    let _ = (c.ruler(d), c.passed(d));
-                }
-                // At most 9 ladders of rungs whatever the window (k0 + 8 overflowed at inf).
-                for (lo, hi) in [
-                    (f64::INFINITY, f64::INFINITY),
-                    (f64::NEG_INFINITY, f64::INFINITY),
-                    (1e300, 1e301),
-                ] {
-                    assert!(c.rungs(lo, hi).len() <= 9 * crate::cosmic::THINGS.len());
-                }
+    for mpp in [f64::NAN, f64::INFINITY, -1.0, 0.0, 3e-4] {
+        for w in [f64::NAN, 0.0, -10.0, f64::INFINITY, 1e300] {
+            let s = CosmicScaleSettings {
+                enabled: true,
+                metres_per_point: mpp,
+            };
+            let c = CosmicScale::new(&s, w);
+            assert!(c.universe_d.is_finite());
+            for d in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 3010.0, 1e300, -1e300] {
+                let r = c.reading(d);
+                assert!(!r.line.is_empty());
+                let _ = (c.ruler(d), c.passed(d));
             }
         }
     }

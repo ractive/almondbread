@@ -185,7 +185,7 @@ public enum UIDemo {
         case "palettes": "palette"
         case "autopilot": "autopilot"
         case "pi", "pi-flight": "π"
-        case "cosmic", "cosmic-deep", "cosmic-relative": "cosmic"
+        case "cosmic", "cosmic-deep": "cosmic"
         default: nil
         }
     }
@@ -241,12 +241,6 @@ public enum UIDemo {
                 re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",
                 im: "0", scale: "1.25e-94")
             model.cosmicScale = true
-            model.cosmicAnchor = "earth"
-        case "cosmic-relative":
-            // Relative mode (the zoom range as the cosmos) at 1e100.
-            try? explorer.setViewportText(re: "0", im: "1", scale: "1e-103")
-            model.cosmicScale = true
-            model.cosmicAnchor = "cosmos"
         case "compass":
             // A turned view: the compass at the top right (kb: decisions/controls "Compass").
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
