@@ -104,14 +104,29 @@ impl CosmicOverlay {
         let avail = pw - 2.0 * pad;
         let mut lines: Vec<(&str, f32, [f32; 4])> = Vec::with_capacity(3);
         let white = rgba(1.0, 1.0, 1.0, 0.95);
-        match wrap_point(&reading.line, s1, avail) {
-            Some(i) => {
-                lines.push((&reading.line[..i], s1, white));
-                lines.push((reading.line[i..].trim_start(), s1, white));
+        // Every line wraps at spaces in its own size (the sentence can take three lines).
+        let wrap = |text: &'_ str, size: f32, color: [f32; 4], lines: &mut Vec<(String, f32, [f32; 4])>| {
+            let mut rest = text.trim();
+            for _ in 0..6 {
+                if rest.is_empty() {
+                    break;
+                }
+                match wrap_point(rest, size, avail) {
+                    Some(i) => {
+                        lines.push((rest[..i].to_string(), size, color));
+                        rest = rest[i..].trim_start();
+                    }
+                    None => {
+                        lines.push((rest.to_string(), size, color));
+                        break;
+                    }
+                }
             }
-            None => lines.push((reading.line.as_str(), s1, white)),
-        }
-        lines.push((reading.detail.as_str(), s2, rgba(0.9, 0.92, 0.95, 0.95)));
+        };
+        let mut owned: Vec<(String, f32, [f32; 4])> = Vec::with_capacity(4);
+        wrap(&reading.line, s1, white, &mut owned);
+        wrap(&reading.detail, s2, rgba(0.9, 0.92, 0.95, 0.95), &mut owned);
+        lines.extend(owned.iter().map(|(t, s, c)| (t.as_str(), *s, *c)));
         let ruler_h = 2.0 * (sl * cap + 6.0 * px) + 10.0 * px;
         let text_h: f32 = lines.iter().map(|l| l.1 * 1.45).sum();
         let ph = pad + ruler_h + text_h + pad * 0.6;
