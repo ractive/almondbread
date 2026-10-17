@@ -58,6 +58,15 @@ fn cpu_survey(v: &Viewport, side: f64, time: f64, limit: &mut usize) -> Survey {
             c.samples += 1;
             let a = cls(x, y);
             c.interior += u32::from(a < 0);
+            // The escaped texel with the highest count (survey steering aims there).
+            let n = f.n[y * TEXELS + x] as f64;
+            if a >= 0 && (c.samples == c.interior + 1 || n > c.peak_n) {
+                c.peak_n = n;
+                c.peak = (
+                    ((x as f64 + 0.5) / TEXELS as f64 - 0.5) * side,
+                    (0.5 - (y as f64 + 0.5) / TEXELS as f64) * side,
+                );
+            }
             for (nx, ny) in [(x + 1, y), (x, y + 1)] {
                 if nx < TEXELS && ny < TEXELS {
                     c.pairs += 1;
@@ -72,7 +81,9 @@ fn cpu_survey(v: &Viewport, side: f64, time: f64, limit: &mut usize) -> Survey {
         cells,
         view: (side, side),
         texels_across: TEXELS as f64,
+        texels_down: TEXELS as f64,
         time,
+        viewport: Some(v.clone()),
     }
 }
 

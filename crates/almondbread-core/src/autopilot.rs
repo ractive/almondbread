@@ -27,6 +27,12 @@
 //! A deflected pointer (or any manual pan) always wins and releases the lock; letting go
 //! picks up again from the current view.
 //!
+//! **Survey steering** (`ALMONDBREAD_SURVEY_STEER=1`, off by default): whenever no lock target
+//! is followed (none yet, a search pending, a target past its end span with nothing next, or
+//! one heading into a uniform region), the heading aims at the GPU survey's boundary point near
+//! the current aim: the highest-escape-count texel of a detailed cell, or uphill in escape
+//! count when nothing is detailed. Cheap "where is even something" steering.
+//!
 //! **Rescue**: with the lock on and the user not steering, a heading region that stays uniform
 //! (more than [`RESCUE_AFTER`] s without a target, [`RESCUE_AFTER_LOCKED`] s with one) eases
 //! the zoom into reverse until a search finds a target in the widening view.
@@ -110,6 +116,21 @@ pub const RESCUE_CLEAR: f64 = 0.6;
 /// Such a rescue aims at the survey's busiest cell for this many e-folds.
 pub const SURVEY_PICK_GAIN: f64 = 2.0;
 pub const SURVEY_PICK_LABEL: &str = "detail in view";
+/// Survey steering (kb: decisions/controls "Survey steering"): while no lock target is
+/// followed, the autopilot aims at the survey's boundary point nearest the heading
+/// ([`Survey::boundary_point`]). `ALMONDBREAD_SURVEY_STEER=1` turns it on (off by default
+/// until compared in the foreground). The aim point eases towards each new pick with this
+/// time constant (s): surveys arrive at 10 Hz and the peak moves within its cell.
+pub const SURVEY_STEER_ENV: &str = "ALMONDBREAD_SURVEY_STEER";
+pub const SURVEY_STEER_TAU: f64 = 0.3;
+/// Survey steering prefers detail near the current aim: Gaussian radius, as a fraction of
+/// the view's shorter side.
+pub const STEER_SIGMA: f64 = 0.25;
+pub const SURVEY_STEER_LABEL: &str = "towards the nearest detail";
+/// With survey steering on, a lock target whose heading region has been uniform this long (s)
+/// leads nowhere: it is dropped (and not taken again) and survey steering takes over at once
+/// instead of after [`RESCUE_AFTER_LOCKED`].
+pub const SURVEY_STEER_OVERRIDE: f64 = 0.4;
 /// Manual pans, zooms and drags hold the lock off for this long (s).
 pub const MANUAL_HOLD: f64 = 1.0;
 /// A survey older than this (s) is ignored.
@@ -157,7 +178,7 @@ impl Default for RenderFeedback {
 }
 
 /// Counts of one survey cell (a GPU pass over the shown level's iteration texture).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SurveyCell {
     /// Sampled texels (pending ones are skipped).
     pub samples: u32,
@@ -166,6 +187,18 @@ pub struct SurveyCell {
     /// Neighbour pairs compared, and those whose class or integer escape count differ.
     pub pairs: u32,
     pub edges: u32,
+    /// The escaped sample with the highest escape count (view points from the centre of the
+    /// surveyed view, y up) and that count; meaningful when `samples > interior`. The escape
+    /// count rises towards the set, so this is the cell's sample nearest the boundary.
+    pub peak: (f64, f64),
+    pub peak_n: f64,
+}
+
+impl SurveyCell {
+    /// Some sample escaped (the peak is meaningful).
+    pub fn has_peak(&self) -> bool {
+        self.samples > self.interior
+    }
 }
 
 /// A coarse picture of a frame: `cols` x `rows` cells in raster order from the top-left.
@@ -176,10 +209,14 @@ pub struct Survey {
     pub cells: Vec<SurveyCell>,
     /// Size of the surveyed view in view points.
     pub view: (f64, f64),
-    /// Texels across the surveyed level (band crossings per view width = edge rate × this).
+    /// Texels across and down the surveyed level (band crossings per view width = edge rate
+    /// × `texels_across`).
     pub texels_across: f64,
+    pub texels_down: f64,
     /// When it was taken (the navigator's clock).
     pub time: f64,
+    /// The surveyed view (cell positions are view points in it); None: the current view.
+    pub viewport: Option<Viewport>,
 }
 
 /// What a survey says about a heading.
@@ -232,6 +269,58 @@ impl Survey {
             }
         }
         best.map(|(_, i, j)| self.cell_center(i, j))
+    }
+
+    /// Band crossings per view width in cell `c`.
+    fn cell_detail(&self, c: &SurveyCell) -> f64 {
+        if c.pairs == 0 {
+            return 0.0;
+        }
+        c.edges as f64 / c.pairs as f64 * self.texels_across
+    }
+
+    /// Survey steering (kb: decisions/controls "Survey steering"): the boundary point to steer
+    /// to from `from` (view points): the peak of the detailed cell (band crossings ≥
+    /// [`DETAIL_HI`], not all interior) with the most detail near `from` (detail × escaped
+    /// share × a Gaussian of the distance, σ = [`STEER_SIGMA`] of the shorter side); with none
+    /// detailed, the highest peak in view (the escape count rises towards the set: uphill is
+    /// where something is).
+    pub fn boundary_point(&self, from: (f64, f64)) -> Option<(f64, f64)> {
+        if self.cols == 0 || self.rows == 0 || self.cells.len() != self.cols * self.rows {
+            return None;
+        }
+        let sigma = STEER_SIGMA * self.view.0.min(self.view.1).max(1.0);
+        // (score, peak): the best detailed cell, and the highest escape count.
+        let mut best: Option<(f64, (f64, f64))> = None;
+        let mut high: Option<(f64, (f64, f64))> = None;
+        for j in 0..self.rows {
+            for i in 0..self.cols {
+                let c = &self.cells[j * self.cols + i];
+                if !c.has_peak() || !(c.peak.0.is_finite() && c.peak.1.is_finite() && c.peak_n.is_finite()) {
+                    continue;
+                }
+                let det = self.cell_detail(c);
+                if det >= DETAIL_HI {
+                    let (x, y) = self.cell_center(i, j);
+                    let d2 = (x - from.0).powi(2) + (y - from.1).powi(2);
+                    let escaped = 1.0 - c.interior as f64 / c.samples as f64;
+                    let score = det.min(4.0 * DETAIL_HI) * escaped * (-d2 / (2.0 * sigma * sigma)).exp();
+                    if best.is_none_or(|b| score > b.0) {
+                        best = Some((score, c.peak));
+                    }
+                }
+                if high.is_none_or(|b| c.peak_n > b.0) {
+                    high = Some((c.peak_n, c.peak));
+                }
+            }
+        }
+        best.or(high).map(|b| b.1)
+    }
+
+    /// The region around `p` (view points) is not uniform by the heading test (danger ≤ 0.5,
+    /// not mostly interior): a survey-steering pick there is kept.
+    pub fn holds_detail(&self, p: (f64, f64)) -> bool {
+        self.assess(p).is_some_and(|a| a.danger() <= 0.5 && a.interior <= 0.5)
     }
 
     /// Interior share and detail around `heading` (Gaussian weights).
@@ -329,6 +418,19 @@ pub struct Autopilot {
     last_click: f64,
     /// The heading target of the last frame (tests, HUD).
     target: (f64, f64),
+    /// Survey steering on ([`SURVEY_STEER_ENV`]), and it aimed in the last frame.
+    survey_steer: bool,
+    survey_steering: bool,
+    /// Survey steering: the latest pick, the aim point easing towards it, the survey picked
+    /// from (its time) and the last frame's time.
+    steer_pick: Option<crate::viewport::Center>,
+    steer_aim: Option<crate::viewport::Center>,
+    steer_survey: f64,
+    steer_time: f64,
+    /// Seconds the current lock target (by [`Lock::switches`]) has headed into a uniform region.
+    target_uniform: (f64, u32),
+    /// `ALMONDBREAD_LOCK_TRACE`: survey steering prints its picks.
+    trace: bool,
 }
 
 impl Default for Autopilot {
@@ -356,6 +458,14 @@ impl Default for Autopilot {
             aim_far: 0.0,
             last_click: f64::NEG_INFINITY,
             target: (0.0, 0.0),
+            survey_steer: std::env::var(SURVEY_STEER_ENV).is_ok_and(|v| v.trim() == "1"),
+            survey_steering: false,
+            steer_pick: None,
+            steer_aim: None,
+            steer_survey: f64::NEG_INFINITY,
+            steer_time: f64::NEG_INFINITY,
+            target_uniform: (0.0, 0),
+            trace: std::env::var_os("ALMONDBREAD_LOCK_TRACE").is_some(),
         }
     }
 }
@@ -435,6 +545,27 @@ impl Autopilot {
         &self.lock
     }
 
+    /// Survey steering on (see [`SURVEY_STEER_ENV`]).
+    pub fn survey_steer(&self) -> bool {
+        self.survey_steer
+    }
+
+    pub fn set_survey_steer(&mut self, on: bool) {
+        self.survey_steer = on;
+        self.reset_steer();
+    }
+
+    /// Survey steering aimed in the last frame.
+    pub fn is_survey_steering(&self) -> bool {
+        self.survey_steering
+    }
+
+    fn reset_steer(&mut self) {
+        self.survey_steering = false;
+        self.steer_pick = None;
+        self.steer_aim = None;
+    }
+
     pub fn lock_mut(&mut self) -> &mut Lock {
         &mut self.lock
     }
@@ -461,6 +592,9 @@ impl Autopilot {
     pub fn lock_label(&self) -> String {
         if !self.active || !self.lock.is_enabled() || !self.free {
             return String::new();
+        }
+        if self.survey_steering {
+            return SURVEY_STEER_LABEL.into();
         }
         match self.lock.target() {
             // Journey labels read "period-34 minibrot", "towards a period-34 minibrot", ...
@@ -617,11 +751,13 @@ impl Autopilot {
         self.free = steer == (0.0, 0.0) && !manual;
         self.span_ln = lock::view_span(view, min_side).ln();
         self.lock_aiming = false;
+        self.survey_steering = false;
         let running = self.active && !self.paused;
         if !running {
             if !self.active {
                 self.lock.release();
             }
+            self.reset_steer();
             return steer;
         }
         if radius <= 0.0 {
@@ -635,7 +771,8 @@ impl Autopilot {
                 .lock
                 .target()
                 .is_some_and(|t| t.label == SURVEY_PICK_LABEL && span_now <= t.end_span);
-        if self.free && (pick_spent || (self.survey_pick && self.lock.target().is_none())) {
+        // (Survey steering does this every frame.)
+        if self.free && !self.survey_steer && (pick_spent || (self.survey_pick && self.lock.target().is_none())) {
             self.survey_pick = false;
             if let Some((x, y)) = self
                 .survey
@@ -655,8 +792,34 @@ impl Autopilot {
                 });
             }
         }
+        if self.survey_steer
+            && self.free
+            && !self.rescue
+            && self.target_uniform.0 > SURVEY_STEER_OVERRIDE
+            && self.lock.target().is_some()
+        {
+            // A target that leads into a void: survey steering now, the lock looks again.
+            self.lock.drop_target();
+        }
         let heading = self.heading();
-        let Some((px, py)) = self.lock.update(view, min_side, radius, self.free, heading, now) else {
+        let lock_aim = self.lock.update(view, min_side, radius, self.free, heading, now);
+        // A target past its end span with nothing next leads nowhere (the CPU search found
+        // nothing ahead): survey steering until the lock has the next one.
+        let spent = self.lock.next_target().is_none() && self.lock.target().is_some_and(|t| span_now <= t.end_span);
+        let aim = match lock_aim {
+            Some(p) if !(self.survey_steer && spent) => {
+                self.reset_steer();
+                Some(p)
+            }
+            _ if self.survey_steer && self.free && self.lock.is_enabled() => {
+                let a = self.survey_aim(view, min_side, now);
+                self.survey_steering = a.is_some();
+                a
+            }
+            other => other,
+        };
+        let Some((px, py)) = aim else {
+            self.reset_steer();
             return steer;
         };
         self.lock_aiming = true;
@@ -673,6 +836,83 @@ impl Autopilot {
         } else {
             (hx, hy)
         }
+    }
+
+    /// Survey steering's aim point this frame (view points), see [`SURVEY_STEER_ENV`]: the
+    /// pick (a complex point, so the zoom and pan since its survey do not move it) is kept while
+    /// each new survey finds detail around it ([`Survey::holds_detail`]); then the survey's
+    /// boundary point near it is picked ([`Survey::boundary_point`]), a chain of short legs. The
+    /// aim point eases towards it with [`SURVEY_STEER_TAU`] (exact for any frame rate between
+    /// surveys). Starts from where the heading points. None without a pick.
+    fn survey_aim(&mut self, view: &Viewport, min_side: f64, now: f64) -> Option<(f64, f64)> {
+        let dt = if self.steer_aim.is_some() {
+            (now - self.steer_time).clamp(0.0, 0.25)
+        } else {
+            0.0
+        };
+        self.steer_time = now;
+        let heading = self.heading();
+        let fresh = self
+            .survey
+            .as_ref()
+            .filter(|s| now - s.time <= SURVEY_STALE && s.time != self.steer_survey);
+        if let Some(s) = fresh {
+            let base = s.viewport.as_ref().unwrap_or(view);
+            // The current pick is kept while the region around it holds detail (a re-pick every
+            // survey hopped between cells near the detail threshold: measured, it oscillated
+            // in a sparse region until the rescue); then the next one is picked near it.
+            let held = self
+                .steer_pick
+                .as_ref()
+                .map(|c| base.offset_of(c))
+                .filter(|&(x, y)| x.is_finite() && y.is_finite() && s.holds_detail((x, y)));
+            let from = match (&self.steer_pick, &self.steer_aim) {
+                (Some(c), _) | (None, Some(c)) => base.offset_of(c),
+                (None, None) => base.offset_of(&view.point_at_offset(heading.0, heading.1)),
+            };
+            let from = if from.0.is_finite() && from.1.is_finite() {
+                from
+            } else {
+                (0.0, 0.0)
+            };
+            let p = if held.is_some() { None } else { s.boundary_point(from) };
+            if self.trace && held.is_none() {
+                let detailed = s
+                    .cells
+                    .iter()
+                    .filter(|c| c.has_peak() && s.cell_detail(c) >= DETAIL_HI)
+                    .count();
+                println!(
+                    "survey steer at 1e{:.2}: from ({:.0},{:.0}) pick {} ({detailed} detailed cells)",
+                    view.zoom_log10(),
+                    from.0,
+                    from.1,
+                    p.map_or("none".into(), |(x, y)| format!("({x:.0},{y:.0})")),
+                );
+            }
+            let pick = p.map(|(x, y)| base.point_at_offset(x, y));
+            self.steer_survey = s.time;
+            if pick.is_some() {
+                self.steer_pick = pick;
+            }
+        }
+        let (px, py) = view.offset_of(self.steer_pick.as_ref()?);
+        if !(px.is_finite() && py.is_finite()) || px.hypot(py) > lock::LOST * min_side {
+            self.reset_steer();
+            return None;
+        }
+        let (ax, ay) = match &self.steer_aim {
+            Some(c) => view.offset_of(c),
+            None => heading,
+        };
+        let f = 1.0 - (-dt / SURVEY_STEER_TAU).exp();
+        let (x, y) = (ax + (px - ax) * f, ay + (py - ay) * f);
+        if !(x.is_finite() && y.is_finite()) {
+            self.reset_steer();
+            return None;
+        }
+        self.steer_aim = Some(view.point_at_offset(x, y));
+        Some((x, y))
     }
 
     /// Advances by `dt` towards the heading `target` (view points) and returns the frame's
@@ -715,7 +955,14 @@ impl Autopilot {
         };
         if running && self.free && self.lock.is_enabled() {
             self.uniform_for = if uniform { self.uniform_for + dt } else { 0.0 };
-            let locked = self.lock.target().is_some();
+            let switches = self.lock.switches;
+            self.target_uniform = match self.lock.target() {
+                Some(_) if uniform && self.target_uniform.1 == switches => (self.target_uniform.0 + dt, switches),
+                Some(_) if uniform => (dt, switches),
+                _ => (0.0, switches),
+            };
+            // Survey steering heads for detail the GPU shows: as patient as a target.
+            let locked = self.lock.target().is_some() || self.survey_steering;
             if !self.rescue && ((!locked && self.uniform_for > RESCUE_AFTER) || self.uniform_for > RESCUE_AFTER_LOCKED)
             {
                 self.rescue = true;
@@ -736,12 +983,13 @@ impl Autopilot {
             {
                 self.rescue = false;
                 // Without a target, aim once at the survey's most detailed cell (next frame).
-                self.survey_pick = self.lock.target().is_none();
+                self.survey_pick = self.lock.target().is_none() && !self.survey_steer;
                 self.uniform_for = 0.0;
             }
         } else {
             self.rescue = false;
             self.uniform_for = 0.0;
+            self.target_uniform.0 = 0.0;
         }
 
         self.hint = if !running {
@@ -833,12 +1081,15 @@ mod tests {
                     interior,
                     pairs: 200,
                     edges,
+                    ..Default::default()
                 };
                 160
             ],
             view: (1600.0, 1000.0),
             texels_across: 400.0,
+            texels_down: 250.0,
             time: 0.0,
+            viewport: None,
         }
     }
 
@@ -999,6 +1250,132 @@ mod tests {
             v.scale.ln() - ln0
         );
         assert!(lock::view_span(&v, 600.0).to_f64() < RESCUE_MAX_SPAN);
+    }
+
+    /// A 960 × 600 view surveyed as interior except cell (12, 2) (centre (270, 150)): detailed,
+    /// half escaped, its peak at (260, 140).
+    fn one_detailed_cell(viewport: Option<Viewport>, time: f64) -> Survey {
+        let mut s = uniform(100, 0);
+        s.view = (960.0, 600.0);
+        s.viewport = viewport;
+        s.time = time;
+        s.cells[2 * 16 + 12] = SurveyCell {
+            samples: 100,
+            interior: 50,
+            pairs: 200,
+            edges: 100,
+            peak: (260.0, 140.0),
+            peak_n: 5000.0,
+        };
+        s
+    }
+
+    #[test]
+    fn boundary_point_prefers_detail_near_the_heading_else_uphill() {
+        let mut s = one_detailed_cell(None, 0.0);
+        assert_eq!(s.boundary_point((0.0, 0.0)), Some((260.0, 140.0)));
+        // Two detailed cells: the one nearer `from` wins (hysteresis: the cell containing it).
+        s.cells[7 * 16 + 2] = SurveyCell {
+            peak: (-350.0, -150.0),
+            ..s.cells[2 * 16 + 12]
+        };
+        assert_eq!(s.boundary_point((-300.0, -100.0)), Some((-350.0, -150.0)));
+        assert_eq!(s.boundary_point((200.0, 100.0)), Some((260.0, 140.0)));
+        // Featureless exterior: no detailed cell, the highest escape count (uphill).
+        let mut flat = uniform(0, 0);
+        for (k, c) in flat.cells.iter_mut().enumerate() {
+            c.peak = (k as f64, -(k as f64));
+            c.peak_n = if k == 37 { 900.0 } else { 100.0 + k as f64 };
+        }
+        assert_eq!(flat.boundary_point((0.0, 0.0)), Some((37.0, -37.0)));
+        // All interior: nothing to aim at.
+        assert_eq!(uniform(100, 0).boundary_point((0.0, 0.0)), None);
+    }
+
+    /// Flies `secs` at `hz` with survey steering, the survey taken once at the start view.
+    fn steer_flight(hz: f64, secs: f64) -> (Autopilot, Viewport) {
+        let mut a = Autopilot::default();
+        a.set_survey_steer(true);
+        a.lock_mut().synchronous = true;
+        a.toggle();
+        let mut v = Viewport::new(-0.1, 0.0, 1e-6);
+        a.set_survey(one_detailed_cell(Some(v.clone()), 0.0));
+        let dt = 1.0 / hz;
+        for k in 1..=(secs * hz).round() as usize {
+            let t = k as f64 * dt;
+            let target = a.aim(&v, 600.0, 300.0, None, false, t);
+            let m = a.step(dt, target, t);
+            v.pan_by_points(m.pan.0, m.pan.1);
+            v.zoom_by(m.ln_zoom.exp(), m.at.0, m.at.1);
+        }
+        (a, v)
+    }
+
+    #[test]
+    fn survey_steering_brings_the_boundary_point_to_the_centre_at_any_frame_rate() {
+        let start = Viewport::new(-0.1, 0.0, 1e-6);
+        let peak = start.point_at_offset(260.0, 140.0);
+        let mut ends = Vec::new();
+        for hz in [30.0, 60.0, 120.0] {
+            let (a, v) = steer_flight(hz, 2.0);
+            assert!(a.is_survey_steering() && a.lock().target().is_none() && !a.is_rescuing());
+            assert_eq!(a.lock_label(), SURVEY_STEER_LABEL);
+            // The peak moved from 297 points out to near the centre while the view dove.
+            let (x, y) = v.offset_of(&peak);
+            assert!(x.hypot(y) < 60.0, "{hz} Hz: peak at ({x:.1}, {y:.1})");
+            assert!(v.scale.to_f64() < 0.5e-6, "it zoomed in: {}", v.scale.to_f64());
+            ends.push((v.clone(), (x, y)));
+        }
+        // 30 and 120 Hz agree with 60 Hz to a few points of where the peak ends up, and in zoom
+        // to 0.02 e-folds (as the lock: the capture slow-down is set once per frame).
+        for (v, (x, y)) in &ends {
+            let (x0, y0) = ends[1].1;
+            assert!((x - x0).hypot(y - y0) < 3.0, "({x:.2}, {y:.2}) vs ({x0:.2}, {y0:.2})");
+            assert!(
+                (v.scale.ln() - ends[1].0.scale.ln()).abs() < 0.02,
+                "{} vs {}",
+                v.scale.ln(),
+                ends[1].0.scale.ln()
+            );
+        }
+    }
+
+    #[test]
+    fn lock_target_and_pointer_win_over_survey_steering() {
+        let (mut a, mut v) = steer_flight(60.0, 1.0);
+        assert!(a.is_survey_steering());
+        let mut t = 1.0;
+        let s = one_detailed_cell(Some(v.clone()), t);
+        // A deflected pointer wins at once: its heading alone.
+        fly(&mut a, &mut v, Some((250.0, 0.0)), 1.0 / 60.0, &mut t, &s);
+        assert!(!a.is_survey_steering() && !a.is_free());
+        assert_eq!(a.heading_target(), a.steer_target(Some((250.0, 0.0)), 300.0));
+        // Let go: survey steering again; a lock target takes over.
+        fly(&mut a, &mut v, None, 0.1, &mut t, &s);
+        assert!(a.is_survey_steering());
+        a.lock_mut().set_target(lock::LockTarget {
+            kind: crate::journey::TargetKind::Spiral,
+            center: v.point_at_offset(-100.0, 50.0),
+            end_span: lock::view_span(&v, 600.0) * (-5.0f64).exp(),
+            label: "spiral".into(),
+            score: 0.0,
+            period: None,
+            preperiod: None,
+        });
+        fly(&mut a, &mut v, None, 1.0 / 60.0, &mut t, &s);
+        assert!(!a.is_survey_steering() && a.lock().target().is_some());
+        assert_eq!(a.lock_label(), "towards spiral");
+        // Survey steering off: no survey aim at all (straight ahead without a target).
+        let (b, _) = {
+            let mut b = Autopilot::default();
+            b.lock_mut().synchronous = true;
+            b.toggle();
+            let mut w = Viewport::new(-0.1, 0.0, 1e-6);
+            let mut t = 0.0;
+            fly(&mut b, &mut w, None, 0.5, &mut t, &one_detailed_cell(None, 0.0));
+            (b, w)
+        };
+        assert!(!b.is_survey_steering() && b.heading_target() == (0.0, 0.0));
     }
 
     #[test]

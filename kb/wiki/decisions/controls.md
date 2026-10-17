@@ -402,6 +402,72 @@ with a scripted pilot that keeps a target under the pointer, clamped to the wind
 - The first heading straight into the main cardioid from the home view slowed to 0.3 with
   the "interior" hint, as designed.
 
+### Survey steering (as built, 2026-10-17; opt-in)
+
+User report: at deep zoom (around 1e247 at re −1.76866783140550194…, im 0.00164555778036987…)
+Z "often flies into the void"; asked for a simple, fast "where is even something" steering,
+not a smarter "what is interesting" search.
+
+**Diagnosis** (`fly --out null --log`, `ALMONDBREAD_LOCK_TRACE=1`, 40 s from 1e240 at that
+point, 1600 × 1000; measured 2026-10-17, M1 Pro, release, shared machine). The lock's maths
+finds nothing there: every candidate of every search is a probe "boundary detail" texel (no
+nucleus or Misiurewicz point resolves), and most probe to detail 0–1 at their end framing
+(gain 3–6 e-folds: a texel of the 40 × 40 probe is on the boundary only to 1/40 of the span,
+so 4 e-folds deeper it is off it). In the failing runs a detail target was followed to its end
+span, the search ahead and the pickup found nothing, and the lock kept aiming at the spent
+point: detail in the heading region fell from ~20 to ~2 within a second, safety 0.3, a
+rescue after 2.5 s (zoom reversal 1e248.2 → 1e247.2), then a survey pick. So: not too slow
+and not wrong in place, but the target runs out (probe precision of the fallback target) and
+nothing steers while the lock has no usable target. Baseline counts over 5 + 5 interleaved
+runs below; typical bad run: 4.3 s uniform, 1 rescue, 3–6 s without a target.
+
+**Steering.** `ALMONDBREAD_SURVEY_STEER=1` (off by default until compared in the foreground):
+whenever the user does not steer and no lock target is followed (none, search pending, a
+target past its end span with no next one, or a target whose heading region has been uniform
+for 0.4 s, which is then dropped into the tabu list), the heading aims at a point from the GPU
+survey:
+
+- The survey kernel also returns per cell the escaped sample with the highest escape count and
+  its texel (second `uint4` per cell; negligible cost, it already reads those texels). The
+  escape count rises towards the set, so this is the cell's sample nearest the boundary, at
+  survey resolution (16 × 16 samples per cell).
+- Pick: among cells with ≥ `DETAIL_HI` band crossings and escaped samples, the best of
+  detail (capped at 4 × `DETAIL_HI`) × escaped share × Gaussian of the distance from the
+  current aim (σ = 0.25 of the shorter side); none detailed: the highest peak in view
+  (uphill in escape count). The pick is stored as a complex point using the surveyed view
+  (`Survey::viewport`), so the zoom and pan since the survey do not shift it.
+- Hold: the pick is kept while each new survey finds the region around it non-uniform (the
+  heading test: danger ≤ 0.5, interior ≤ 0.5); then the next pick is made near it. The first
+  version re-picked the nearest detailed cell on every survey: near the detail threshold it
+  hopped between cells 10 times a second, oscillated in a sparse region and ended in a rescue
+  (one run 20.6 % uniform, 2 rescues).
+- The aim point eases towards the pick (τ = 0.3 s, exact for any frame rate between surveys)
+  and is aimed like a lock target (gain law, ω = 20, capture slow-down). HUD label "towards
+  the nearest detail". A lock target found later takes over at once; a deflected pointer wins
+  as always; the rescue waits the "locked" 2.5 s while survey steering aims. It replaces the
+  post-rescue "detail in view" pick while on.
+
+**Measured** (interleaved base/survey runs, same frozen binary, loads 5–110):
+
+| Path | Config | uniform s (mean) | rescues (total) | zoom gained (mean decades) |
+| --- | --- | --- | --- | --- |
+| user point, 90 s, 5 runs | off | 9.3, 14.2, 0, 4.6, 5.3 (6.7) | 6 | 25.4 |
+| user point, 90 s, 5 runs | on | 0.9, 0.3, 4.3, 0.4, 0.8 (1.3) | 1 | 26.8 |
+| user point, 40 s, 5 runs | off | 4.3, 2.0, 0.6, 0, 0 (1.4) | 1 | 13.8 |
+| user point, 40 s, 5 runs | on | 0, 0.4, 0, 0, 1.3 (0.3) | 0 | 13.1 |
+
+Time without a lock target or survey aim: 2.4–4.9 s per run → 0. Seahorse medallion (1e8),
+needle minibrot 1e91, junction 1e100, starburst 1e112: 0 % uniform and no rescue with and
+without (4 runs per path and config, 3 of them with the first version; the lock always had a
+target there, survey steering never engaged), the
+same zoom reached within run-to-run noise. Headless `almondbread autopilot` (CPU survey of 16
+× 16 cells of 5 × 5 texels every 0.25 s) at the user point: uniform 15.6 % → 10.6 %, still one
+rescue: the coarse CPU survey is a much weaker guide than the GPU one. Unit tests:
+`boundary_point_prefers_detail_near_the_heading_else_uphill`,
+`survey_steering_brings_the_boundary_point_to_the_centre_at_any_frame_rate` (30/60/120 Hz
+agree within 3 points and 0.02 e-folds), `lock_target_and_pointer_win_over_survey_steering`.
+Foreground check: `open --env ALMONDBREAD_SURVEY_STEER=1 <Almondbread.app>`.
+
 ## Fly to coordinates (as built, 2026-10-14)
 
 Requested by the user ("give it a coordinate and it automatically zooms in there; control the

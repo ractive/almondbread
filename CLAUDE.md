@@ -84,7 +84,9 @@ and quit by themselves):
   Z with no input, headless on the CPU (synchronous target lock, CPU survey), prints the
   timeline and the uniform-heading share; `fly ... --lock 0|1` measures the real pipeline
   (`autopilot-metrics:` line). `ALMONDBREAD_LOCK_TRACE=1` prints each lock search;
-  `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the app's target-lock setting (A/B).
+  `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides the app's target-lock setting (A/B);
+  `ALMONDBREAD_SURVEY_STEER=1` steers to the GPU survey's boundary point while no lock target is
+  followed (opt-in, kb: decisions/controls "Survey steering").
 - `ALMONDBREAD_TRACE=1` prints every iterate chunk (live counts, K, GPU ms) and seed round.
 - Hitches: `ALMONDBREAD_FRAME_LOG=1` makes the interaction test print each scenario's longest
   presentation gaps and slowest draws with their times; `ALMONDBREAD_KERNEL_SALT=x` (new x)
