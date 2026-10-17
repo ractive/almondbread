@@ -79,6 +79,9 @@ impl InteriorMode {
     }
 }
 
+/// Upper bound of a manual iteration limit (the kernel counts in 32 bits).
+pub const MANUAL_ITERATIONS_MAX: usize = 1_000_000_000;
+
 /// Everything that affects the image except the viewport.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderSettings {
@@ -197,10 +200,12 @@ impl RenderSettings {
     }
 
     /// Iteration limit for `viewport`: manual, or automatic: the depth heuristic raised to what
-    /// the renderer learned from the last views' escape statistics.
+    /// the renderer learned from the last views' escape statistics. The cap bounds only the
+    /// automatic limit (the UI hides it in manual mode; before 2026-10-17 it silently clipped a
+    /// manual 10 M to the default 200 k).
     pub fn max_iterations(&self, viewport: &Viewport) -> usize {
         if !self.auto_iterations {
-            return self.manual_iterations.min(self.max_iterations_cap);
+            return self.manual_iterations.clamp(1, MANUAL_ITERATIONS_MAX);
         }
         depth_iterations(viewport)
             .max(self.learned_iterations)

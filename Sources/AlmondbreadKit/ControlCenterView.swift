@@ -604,8 +604,12 @@ struct QualitySectionRows: View {
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
         }
-        ControlRows.picker("Cap", selection: $model.maxIterationsCap) {
-            ForEach(Self.iterationCaps, id: \.self) { Text($0.formatted()).tag($0) }
+        if model.autoIterations {
+            // Bounds only the automatic limit (a manual limit is used as set).
+            ControlRows.picker("Upper limit", selection: $model.maxIterationsCap) {
+                ForEach(Self.iterationCaps, id: \.self) { Text($0.formatted()).tag($0) }
+            }
+            .help("The most iterations automatic mode may use. It raises the limit only as far as the view needs.")
         }
         ControlRows.picker("Anti-aliasing", selection: $model.supersampling) {
             ForEach(Supersampling.allCases) { Text($0.label).tag($0) }
@@ -868,7 +872,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
         case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "pi", "π", "neck", "cusp", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats"]
-        case .quality: ["iterations", "auto", "maximum", "cap", "anti-aliasing", "aa", "samples", "preview", "quality"]
+        case .quality: ["iterations", "auto", "maximum", "cap", "upper limit", "anti-aliasing", "aa", "samples", "preview", "quality"]
         case .controls: ["keys", "keyboard", "shortcuts", "mouse", "trackpad", "help", "gamepad"]
         }
     }
