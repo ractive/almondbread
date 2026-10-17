@@ -124,6 +124,8 @@ struct FractalCommands: Commands {
             // would fire as well); the menu items are for discovery.
             Button("Autopilot On/Off (Z)") { model?.toggleAutopilot() }
                 .disabled(model == nil)
+            Button("Zoom Out to the Whole Set (⇧Z)") { model?.toggleZoomOut() }
+                .disabled(model == nil)
             Button("Journey On/Off (J)") { model?.toggleJourney() }
                 .disabled(model == nil)
             Button("Daily Journey") { model?.startDailyJourney() }

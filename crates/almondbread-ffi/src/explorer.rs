@@ -61,8 +61,15 @@ pub enum NavKey {
     RotateCw,
     /// `/`: turn back upright.
     Straighten,
-    /// J: journey on (random seed) / resume after manual input / off.
+    /// J: journey on (random seed) / resume after manual input / off; at a journey stop: on
+    /// as planned.
     Journey,
+    /// ⇧J: as J, a new journey in the other mode than the setting (continuous / stops).
+    JourneyAlt,
+    /// ⇧Z: the zoom-out autopilot on / off (kb: decisions/controls "Zoom-out autopilot").
+    AutopilotOut,
+    /// X: at a journey stop, somewhere else; not handled otherwise.
+    Elsewhere,
 }
 
 impl From<NavKey> for CoreNavKey {
@@ -84,6 +91,9 @@ impl From<NavKey> for CoreNavKey {
             NavKey::RotateCw => Self::RotateCw,
             NavKey::Straighten => Self::Straighten,
             NavKey::Journey => Self::Journey,
+            NavKey::JourneyAlt => Self::JourneyAlt,
+            NavKey::AutopilotOut => Self::AutopilotOut,
+            NavKey::Elsewhere => Self::Elsewhere,
         }
     }
 }
@@ -373,6 +383,9 @@ pub struct FlightStatus {
     pub stopping: bool,
     /// The target's zoom (log10, relative to home).
     pub target_zoom_log10: f64,
+    /// The flight is the zoom-out autopilot (⇧Z), flying to the home view at the autopilot's
+    /// speed (`speed` is then the autopilot's).
+    pub zoom_out: bool,
 }
 
 /// A journey for the HUD and the control center (kb: decisions/controls, "Journey").
@@ -395,6 +408,14 @@ pub struct JourneyStatus {
     pub target_zoom_log10: f64,
     /// Set speed, e-folds per second at the zoom ends.
     pub speed: f64,
+    /// This journey stops at each find (kb: decisions/controls "Journey with stops").
+    pub stops: bool,
+    /// At a stop: J continues, Z goes deeper, X goes somewhere else.
+    pub at_stop: bool,
+    /// The landmark's name for the stop line ("Minibrot, period 34", "Spiral M(36,2)").
+    pub title: String,
+    /// Why this leg is not what was asked for ("nothing deeper here"), or "".
+    pub note: String,
 }
 
 /// The autopilot for the HUD.
@@ -1402,7 +1423,11 @@ impl Explorer {
                 FlightStatus {
                     active: f.is_some(),
                     progress: f.map_or(0.0, |f| f.progress()),
-                    speed: n.fly_speed(),
+                    speed: if n.is_zooming_out() {
+                        n.flight_speed()
+                    } else {
+                        n.fly_speed()
+                    },
                     throttle,
                     hint: if f.is_some() && throttle < 0.85 {
                         if s.reference_pending || r.waiting_reference() {
@@ -1415,6 +1440,7 @@ impl Explorer {
                     },
                     stopping: f.is_some_and(|f| f.stopping),
                     target_zoom_log10: f.map_or(0.0, |f| f.path.target().zoom_log10()),
+                    zoom_out: n.is_zooming_out(),
                 }
             },
             autopilot: {
@@ -1447,6 +1473,7 @@ impl Explorer {
                             almondbread_core::journey::Phase::Flying => "flying",
                             almondbread_core::journey::Phase::Dwelling => "resting",
                             almondbread_core::journey::Phase::Planning => "planning",
+                            almondbread_core::journey::Phase::Stopped => "stopped",
                         }
                     }
                     .to_string(),
@@ -1454,6 +1481,10 @@ impl Explorer {
                     label: t.map_or(String::new(), |t| t.label.clone()),
                     target_zoom_log10: t.map_or(0.0, |t| t.zoom_log10()),
                     speed: j.speed(),
+                    stops: j.stops(),
+                    at_stop: j.at_stop(),
+                    title: t.map_or(String::new(), |t| t.title()),
+                    note: j.note().unwrap_or("").to_string(),
                 }
             },
             held_keys: r.navigator.held_count() as u32,
@@ -1584,6 +1615,12 @@ impl Explorer {
     /// Stops a journey (its flight eases out).
     pub fn stop_journey(&self) {
         self.lock().host.renderer.navigator.stop_journey();
+    }
+
+    /// The setting "Journey: stop at each find" (kb: decisions/controls "Journey with stops"):
+    /// J and the Journey button start that mode, ⇧J the other.
+    pub fn set_journey_stops(&self, on: bool) {
+        self.lock().host.renderer.navigator.set_journey_stops(on);
     }
 
     /// Resumes a journey that manual input took over.

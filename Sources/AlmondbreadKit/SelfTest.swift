@@ -92,7 +92,9 @@ public enum SelfTest {
 /// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels),
 /// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
 /// (the default scene with View and Look, or Lighting, Overlays and Quality open),
-/// `progress` / `progress-late` (render progress mid-render at a 2M limit);
+/// `progress` / `progress-late` (render progress mid-render at a 2M limit), `journey-stop`
+/// (journey #4711 in the "stop at each find" mode, captured at its first stop), `zoom-out`
+/// (the zoom-out autopilot from 1e-20, 8 s in);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -220,6 +222,7 @@ public enum UIDemo {
         case "pi", "pi-flight": "π"
         case "cosmic", "cosmic-deep": "cosmic"
         case "help-control": "iterations"
+        case "journey-stop": "journey"
         default: nil
         }
     }
@@ -316,6 +319,14 @@ public enum UIDemo {
             model.maxIterationsCap = 2_000_000
             model.manualIterations = 2_000_000
             try? explorer.setViewport(re: "-0.74999996120361811", im: "0.00036918279150454967", scale: 1e-11)
+        case "journey-stop":
+            // (After the first layout: the journey starts from the fitted home view.)
+            model.journeyStops = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.startJourney(seed: 4711) }
+        case "zoom-out":
+            try? explorer.setViewport(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139",
+                                      scale: 1e-20)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.toggleZoomOut() }
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
             model.mapEnabled = true
@@ -341,7 +352,9 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                let moving = scene == "autopilot" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
+                let moving = scene == "autopilot" || scene == "zoom-out" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
+                // journey-stop: captured once the journey rests at its first landmark.
+                let stopReady = scene != "journey-stop" || model.journeyAtStop
                 let movingAt: Double = scene.hasSuffix("-late") ? 17 : scene.hasPrefix("pi-") ? 9 : 8
                 let t = Date().timeIntervalSince(start)
                 // Progress scenes: mid-render, with the ETA shown (`-late`: the step count too).
@@ -350,7 +363,7 @@ public enum UIDemo {
                     && (progress?.etaSeconds ?? -1) > 0
                     && (!scene.hasSuffix("-late") || (progress?.stepsReached ?? 0) > 0)
                     && t > 6
-                if progressReady || !scene.hasPrefix("progress") && t > (moving ? movingAt : 8),
+                if progressReady || !scene.hasPrefix("progress") && t > (moving ? movingAt : 8) && stopReady,
                    progressReady || model.stats?.settled == true || moving,
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil && $0 !== helpWindow
                        && !String(describing: type(of: $0)).contains("Popover") }) {

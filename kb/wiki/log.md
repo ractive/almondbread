@@ -1103,3 +1103,14 @@ on home, seahorse and the neck with AA; 14 % with the compose mode disabled on p
 `verify --history` defaults to `--further 0`; one regress session (neck, 400 × 250, AA, 4 s
 budget) runs it: `make regress` 302.8 s against 300.2 s on main. Page:
 [[techniques/auto-iterations]] "Compute further".
+
+## [2026-10-17] decision | Zoom-out autopilot (⇧Z) and journey with stops (⇧J, Z / X at a stop)
+
+⇧Z flies a van Wijk–Nuij path from the view to the home view at the autopilot's speed with a soft
+landing that rides the brake curve in closed form (the fly-to landing reached the end still moving);
+from 1e-3000 without overflow. The journey's new "stop at each find" mode (control center setting;
+J the set mode, ⇧J the other) rests at each landmark until J (as planned: the continuous journey's
+target), Z (`plan_with` `Choice::Deeper`: ≥ 1 e-fold deeper in this view, else the plan with
+"nothing deeper here") or X (`Choice::Elsewhere`: cross over now). Reproducible from seed, start view
+and the choices; `journey --choices jzx`. Page: [[decisions/controls]] "Zoom-out autopilot",
+"Journey with stops".

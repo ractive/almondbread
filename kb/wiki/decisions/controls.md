@@ -685,6 +685,112 @@ longest flight stretch whose look does not change below ~2 s at the default spee
   seeds 2 and 20261015 for 150 s before and after the change), 62 700 frames at 60 fps through ffmpeg `signalstats`: no frame with its 90th-percentile luma below
   20 and no flash (mean luma below 35 % of the ten frames around it).
 
+## Zoom-out autopilot (as built, 2026-10-17)
+
+Requested by the user: the autopilot in reverse, a scenic flight back to the whole set that can be
+stopped anywhere, not a quick reset. Core: `Navigator::start_zoom_out` (`crates/almondbread-core/src/input.rs`),
+a fly-to flight ([[sources/van-wijk-nuij-smooth-zooming]], `flyto.rs`) with a soft landing.
+
+| Input | Action |
+| --- | --- |
+| ⇧Z, menu "Zoom Out to the Whole Set (⇧Z)" (iOS: long press on the plane button) | on: eased start towards the home view fitted to the window |
+| Q / E, wheel notch, trackpad scroll | the autopilot's speed (shared with Z: 0.1–4 e-folds/s, default 0.9) |
+| Esc, Z, ⇧Z | eased stop where it is (Z does not start the autopilot) |
+| any navigation (pan, drag, pinch, wheel zoom, keys) | takes over as from a fly-to (the motion glides out in the springs) |
+| R, J | reset / journey as usual (the zoom out ends) |
+
+**Path and pace.** The van Wijk–Nuij path from the view to the home view: from any depth mostly
+the head (a pure zoom out about the view's centre, `ln w` only, so 1e-3000 does not overflow), then
+the van Wijk part drifts the centre to −0.75 while it widens. The path parameter runs at the
+autopilot speed / ρ, so the zoom rate is the autopilot speed in e-folds/s at the ends (measured in
+the test: the rate halfway is within 2 % of the set speed from 1e-300 and 1e-3000), throttled by the
+renderer back-off like every flight. Bounded: one closed-form path evaluation per frame, no loop over
+the depth. At the default speed 1e-3000 → home takes 6908 e-folds / 0.9 ≈ 2.1 h, at 4 e-folds/s
+≈ 29 min (E); the user asked for a constant-speed flight, so it is not faster at depth.
+
+**Soft landing** (`Flight::soft_landing`, `SOFT_LAND_TIME` = 2.5 s). The fly-to landing brakes at
+`max(2, v/0.75 s)` on `v = √(2 a s_left)` through the ω = 4 /s spring; the spring lags the curve, so
+a flight reaches the end still moving and snaps (the first version: 2.3 → 0.75 e-folds/s in the last
+frame at 4 e-folds/s). The soft landing decelerates at `v / 2.5 s` and, once the spring would outrun
+the curve, rides it in closed form (`√s_left` falls at `√(a/2)` per second), so the last e-fold or so
+eases out evenly to rest, identically at 30, 60 and 120 Hz. Resizing during the zoom out replans the
+path to the new home view.
+
+**HUD.** "Zooming out to the whole set · 37 % · (back-off hint)" and "zoom-out speed ×2.46/s";
+FFI `FlightStatus.zoom_out`.
+
+**Tests.** `zoom_out_autopilot_lands_softly_at_home_from_any_depth` (1e-300, 1e-3000 at 4
+e-folds/s: monotone, lands bit-exactly on the home view, flight time = e-folds / speed + < 6 s,
+the last second decelerates monotonically from below 0.8 × speed),
+`zoom_out_autopilot_is_frame_rate_independent_and_stops_on_request` (30/60/120 Hz agree to 1e-3
+e-folds after 6 s; Q/E; Esc, Z, ⇧Z glide 0.05–1 e-fold and stop on the way; a pan takes over; R).
+Interaction test scenario "zoom out" (⇧Z from 1e5: 1.28 e-folds in 2.4 s, Esc stops; 102 fps
+presented at 120 Hz, frame vs fresh render 0.000 %; measured 2026-10-17, release).
+
+## Journey with stops (as built, 2026-10-17)
+
+Requested by the user: a journey mode that stops at each landmark until you choose how to go on.
+The continuous journey (J by default) is unchanged. Core: `journey.rs` (`Phase::Stopped`,
+`Choice`, `plan_with`, `Journey::choose`), `Navigator::journey_choose`.
+
+| Input | Action |
+| --- | --- |
+| control center "Journey: Continuous / Stop at each find" (persisted, default continuous; ↺ of the section resets it) | the mode J and the Journey button start |
+| J / ⇧J (not at a stop) | journey in the set mode / in the other mode; resume and stop as before |
+| at a stop: J (iOS: the journey button, ▶) | next as planned |
+| at a stop: Z (iOS: ↘ button) | deeper here |
+| at a stop: X (iOS: ⑂ button) | somewhere else |
+| at a stop: Esc | the journey ends, the view stays |
+| at a stop: pan, zoom, wheel, palette, overlays, help, full screen, click | as without a journey; the journey stays at its stop (not paused) |
+
+Z and X keep their usual meaning when not at a stop (Z the autopilot; X is unbound and not
+handled). Bindings: Swift decodes keys in `FractalView.navKey` (macOS and iOS tables) into
+`NavKey::{Journey, JourneyAlt, Autopilot, AutopilotOut, Elsewhere}`; all meaning is in the
+navigator.
+
+**At a stop** the leg has landed exactly on the landmark and nothing moves: the navigator asks for
+no frames (`Journey::wants_frames`), so the picture finishes rendering (compute further included),
+and the planned next leg is already waiting (planned while the leg flew). HUD: "Minibrot, period 34 ·
+1.2e8× — J next · Z deeper here · X somewhere else" (`Target::title`; the zoom is the shown view's)
+and "planning" while a choice is planned; the next leg's line carries a note ("nothing deeper here").
+
+**Choices** (`Choice`, `plan_with`):
+
+- *J, next*: the plan already made from the landmark, exactly the continuous journey's next target
+  (test: the stop journey's second landmark equals the continuous one's).
+- *Z, deeper*: a plan from the landmark that skips the cross-over and the style's depth cap, keeps
+  only candidates of this view at least 1 e-fold deeper (`DEEPER_MIN_GAIN`; no wider view, a
+  boundary detail is allowed after a detail) and relaxes the novelty threshold to the duplicate
+  rule (0.22; within a dive it is otherwise 0.33). If nothing qualifies, it returns the plain plan
+  (J behaviour) with the note "nothing deeper here". It counts as one of the dive's legs.
+- *X, elsewhere*: a plan from the landmark that crosses over now (new style, another region).
+- *Moved away*: the next leg is planned from the landmark while its centre is within half a view
+  span of the view's centre and its zoom within 2 e-folds (`NEAR_SPANS`, `NEAR_EFOLDS`); beyond,
+  from the current view, as a resume after manual input does. The flight always starts from the
+  current view.
+
+**Determinism.** The choices are user input. Every plan is a function of (start view, chain,
+choice), and the chain only advances when a leg starts, so a stop journey is reproducible from its
+seed, the start view and the sequence of choices; pressing only J reproduces the continuous journey
+target for target. Moving far away and then choosing plans from the view: from there on the journey
+depends on where the user went (as after a resume). CLI: `almondbread journey --seed n --choices
+jzx...` plays a choice per stop (from the second leg). Seed 4711, `--choices xzzzx`: Triple Spiral →
+over to Elephant Medallion → embedded Julia (period 125) 1e11.6 → towards a period-237 minibrot
+1e15.6 → embedded Julia (period 237) 1e18.2 → over to Sunflower Island; `zzzzz` stays in the 1/3
+valley to 1e16.6 (deep-dive cap 1e12 of the medium style ignored).
+
+**Tests.** `journey_stops_at_each_find_and_takes_choices` (30/60/120 Hz: the same landmarks, exactly
+on them, no frames at a stop; pan, wheel and click keep the stop; J = the continuous next target; X
+crosses into another region; Z gains ≥ 1 e-fold or notes "nothing deeper here" and stays within a
+view of the landmark; a view moved far away is planned from; Esc ends where it is; X not ours
+otherwise). Interaction test scenario "journey stops" (J at E × 10 from 1e5: stopped at "Minibrot,
+period 68", X flew on to "over to Pine Compass"; frame vs fresh render 0.000 %; measured
+2026-10-17, release). `scripts/ui-screenshots.sh` scenes `journey-stop` and `zoom-out`.
+
+**iOS.** The journey button turns into ▶ at a stop and two buttons (deeper, elsewhere) appear next
+to it; a long press on the plane button offers the zoom out. Not tried on a device or simulator run
+(no simulator runtime installed; the target builds).
+
 ## View rotation (as built, 2026-10-15)
 
 `Viewport.angle` (radians, the camera's counter-clockwise turn: a view point (dx, dy) is

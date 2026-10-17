@@ -1561,12 +1561,14 @@ pub fn regress_command<B: GpuBackend + Clone>(backend: &B, extra: &Options) -> R
 
 // MARK: journey
 
-/// `journey --seed n [--legs k] [--daily yyyy-mm-dd] [--center re,im --span s] [--thumbs dir]`:
-/// the targets a journey plans from the whole set (or the given view), leg by leg, with their
-/// probe statistics; `--thumbs` renders each target at 480x270 with the app's look (kb:
-/// decisions/controls, "Journey").
+/// `journey --seed n [--legs k] [--daily yyyy-mm-dd] [--center re,im --span s] [--thumbs dir]
+/// [--choices jzx...]`: the targets a journey plans from the whole set (or the given view), leg
+/// by leg, with their probe statistics; `--thumbs` renders each target at 480x270 with the
+/// app's look; `--choices` plays the stop choices of the "stop at each find" mode, one letter
+/// per leg from the second (j: as planned, z: deeper here, x: somewhere else; kb:
+/// decisions/controls, "Journey", "Journey with stops").
 pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
-    use almondbread_core::journey::{Chain, daily_seed, plan};
+    use almondbread_core::journey::{Chain, Choice, daily_seed, plan_with};
     let seed = match o.get("daily") {
         Some(d) => {
             let p: Vec<i64> = d.split('-').filter_map(|x| x.parse().ok()).collect();
@@ -1648,16 +1650,29 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
                     candidates: 0,
                     probed: 0,
                     seconds: 0.0,
+                    note: None,
                 }
             }
             None => {
-                let Some(p) = plan(&center, span, &chain, &never) else {
+                // The choice made at the stop before this leg (the first leg has none).
+                let choice = match o.get("choices").and_then(|c| c.chars().nth(leg.wrapping_sub(2))) {
+                    Some('z' | 'Z') if leg > 1 => Choice::Deeper,
+                    Some('x' | 'X') if leg > 1 => Choice::Elsewhere,
+                    _ => Choice::Next,
+                };
+                if choice != Choice::Next {
+                    println!("     choice: {choice:?}");
+                }
+                let Some(p) = plan_with(&center, span, &chain, choice, &never) else {
                     return err("cancelled");
                 };
                 p
             }
         };
         let t = &p.target;
+        if let Some(n) = p.note {
+            println!("     note: {n}");
+        }
         let (re, im) = t.center.to_strings();
         saved.push_str(&format!("{re} {im} {} {}\n", t.span.to_text(17), t.label));
         println!(

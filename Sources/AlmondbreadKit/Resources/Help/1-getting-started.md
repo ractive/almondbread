@@ -25,8 +25,8 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 ## Keys
 
 - **F**: full screen on or off
-- **Z**: autopilot (flies on by itself)
-- **J**: journey (a planned trip from landmark to landmark)
+- **Z**: autopilot (flies on by itself); **Shift + Z** zooms out to the whole set
+- **J**: journey (a planned trip from landmark to landmark); **Shift + J** in the other mode (continuous, or stop at each find)
 - **Esc**: stop the autopilot, a flight or a journey; then leave full screen
 - **C**: cosmic size scale
 - **O**: orbit overlay

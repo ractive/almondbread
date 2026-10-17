@@ -8,6 +8,8 @@ Press **Z** (or the plane button) and the view keeps zooming on its own. Steer w
 - **Q** and **E**, the mouse wheel or a two-finger scroll change the speed.
 - **Esc** stops.
 
+**Shift + Z** zooms out instead: a steady flight back to the whole set at the autopilot's speed, drifting towards it and coming to a gentle stop. **Q** and **E** change its speed; **Esc**, **Z** or **Shift + Z** stop it wherever you are. On iPhone and iPad, press and hold the plane button.
+
 When the picture ahead gets plain, or the computer needs time to keep up, the autopilot slows down by itself; the status overlay says why.
 
 ## Journeys
@@ -16,6 +18,8 @@ Press **J** (or the sparkles button) for a journey: an endless flight from landm
 
 - Any input takes over; **J** or a click resumes.
 - **Esc** stops.
+- **Stop at each find** (control center, Journey): the journey waits at each landmark, so the picture can finish. The status overlay names it, for example *Minibrot, period 34*. Then **J** flies on as planned, **Z** goes deeper here, **X** goes somewhere else, and **Esc** ends the journey. Look around in the meantime as you like; if you wander far off, the journey continues from where you are. On iPhone and iPad, use the buttons next to the journey button.
+- **J** starts a journey in the mode set in the control center, **Shift + J** in the other one.
 - Every journey has a number, its seed. The same seed from the same start gives the same journey, so you can share it. The **daily journey** is the same for everyone on the same day.
 
 ## Places

@@ -46,6 +46,10 @@ pub const PATH_OMEGA: (f64, f64) = (3.0, 4.0);
 /// for most of a short path: measured 4.6 s for 15 e-folds at 12 e-folds/s).
 pub const LAND_DECEL: f64 = 2.0;
 pub const LAND_TIME: f64 = 0.75;
+/// A soft landing (the zoom-out autopilot, kb: decisions/controls "Zoom-out autopilot"): the
+/// deceleration stops the set speed in this many seconds, so the last e-fold or so eases out
+/// instead of braking hard.
+pub const SOFT_LAND_TIME: f64 = 2.5;
 /// Within this many path units of the end the flight snaps onto the target.
 pub const LAND_SNAP: f64 = 1e-4;
 /// The head and tail start where the view is this fraction of the distance (or of the start
@@ -300,6 +304,8 @@ pub struct Flight {
     pub angle0: f64,
     pub angle1: f64,
     pub land_angle: f64,
+    /// Brake gently onto the target ([`SOFT_LAND_TIME`]) instead of at the fly-to deceleration.
+    pub soft_landing: bool,
 }
 
 impl Flight {
@@ -313,6 +319,7 @@ impl Flight {
             angle0: a,
             angle1: a,
             land_angle: a,
+            soft_landing: false,
         }
     }
 
@@ -371,14 +378,32 @@ impl Flight {
         let left = (self.path.length - self.s).max(0.0);
         let cruise = if self.stopping { 0.0 } else { speed / RHO * throttle };
         // Constant deceleration onto the end: v = √(2 a s_left).
-        let decel = LAND_DECEL.max(speed / RHO / LAND_TIME);
+        let decel = if self.soft_landing {
+            (speed / RHO / SOFT_LAND_TIME).max(1e-3)
+        } else {
+            LAND_DECEL.max(speed / RHO / LAND_TIME)
+        };
         let target = cruise.min((2.0 * decel * left).sqrt());
         let omega = if target > self.speed.v {
             PATH_OMEGA.0
         } else {
             PATH_OMEGA.1
         };
-        let ds = self.speed.follow(target, omega, dt).max(0.0);
+        let mut ds = self.speed.follow(target, omega, dt).max(0.0);
+        if self.soft_landing && !self.stopping {
+            // On the brake curve v = √(2 a left) the spring lags (it reaches the end still
+            // moving and snaps); a soft landing rides the curve itself once the spring would
+            // outrun it, in closed form (√left falls at √(a/2) per second), so it decelerates
+            // evenly to rest and 30, 60 and 120 Hz agree.
+            let curve_left = (left.sqrt() - (0.5 * decel).sqrt() * dt).max(0.0).powi(2);
+            if ds > left - curve_left {
+                ds = left - curve_left;
+                self.speed = Spring {
+                    v: (2.0 * decel * curve_left).sqrt(),
+                    a: -decel,
+                };
+            }
+        }
         self.s = (self.s + ds).min(self.path.length);
         if !self.stopping && self.path.length - self.s < LAND_SNAP {
             self.s = self.path.length;

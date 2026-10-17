@@ -469,6 +469,69 @@ final class InteractionTest: NSObject {
                 self.refineLines.append("journey: #\(s.journey.seed) leg \(journeyLegs) \"\(s.journey.label)\" \(s.journey.phase), off after Esc \(explorer.stats().journey.active ? "NO" : "yes") \(ok ? "OK" : "FAILED")")
             }
         }
+        // Zoom-out autopilot (kb: decisions/controls "Zoom-out autopilot"): ⇧Z from the 1e5 view;
+        // by 2.4 s it must be zooming out at the autopilot speed (more than 1 e-fold so far);
+        // Esc then eases it to a stop on the way.
+        var zoomOutStart = 0.0
+        var zoomOutSeen = false
+        let zoomOut: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                zoomOutSeen = false
+                zoomOutStart = explorer.viewport().zoomLog10
+                InteractionTest.key(v, "Z", down: true, modifiers: .shift)
+                InteractionTest.key(v, "Z", down: false, modifiers: .shift)
+                v.send(.shift(down: false))
+            }
+            if explorer.stats().flight.zoomOut { zoomOutSeen = true }
+            once("esc", t >= 2.4) {
+                let out = (zoomOutStart - explorer.viewport().zoomLog10) * log(10.0)
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let ok = zoomOutSeen && out > 1.0 && explorer.stats().flight.stopping
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "zoom out: %.2f e-folds out in 2.4 s, stopping after Esc %@ %@",
+                                               out, explorer.stats().flight.stopping ? "yes" : "NO", ok ? "OK" : "FAILED"))
+            }
+        }
+        // Journey with stops (kb: decisions/controls "Journey with stops"): J in the "stop at
+        // each find" mode from the 1e5 view at a high journey speed (E); at the first stop X
+        // (somewhere else) must start the next leg; Esc at 2.9 s.
+        var stopSeen = ""
+        var legAtStop = 0
+        let journeyStops: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            guard let explorer = v.explorer else { return }
+            if i == 0 {
+                sent.removeAll()
+                stopSeen = ""
+                legAtStop = 0
+                explorer.setJourneyStops(on: true)
+                InteractionTest.key(v, "j", down: true)
+                InteractionTest.key(v, "j", down: false)
+                for _ in 0..<10 {
+                    InteractionTest.key(v, "e", down: true)
+                    InteractionTest.key(v, "e", down: false)
+                }
+            }
+            let j = explorer.stats().journey
+            if j.atStop && j.phase == "stopped" && stopSeen.isEmpty {
+                stopSeen = j.title
+                legAtStop = Int(j.leg)
+                InteractionTest.key(v, "x", down: true)
+                InteractionTest.key(v, "x", down: false)
+            }
+            once("esc", t >= 2.9) {
+                let s = explorer.stats().journey
+                let went = Int(s.leg) > legAtStop || s.phase == "planning"
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                explorer.setJourneyStops(on: v.model.journeyStops)
+                let ok = !stopSeen.isEmpty && went && !explorer.stats().journey.active
+                if !ok { self.failures += 1 }
+                self.refineLines.append("journey stops: stopped at \"\(stopSeen)\" (leg \(legAtStop)), after X leg \(s.leg) \(s.phase) \"\(s.label)\" \(ok ? "OK" : "FAILED")")
+            }
+        }
         // π hunt (kb: decisions/controls "π meter"): the guided flight from the home view with
         // the meter and its orbit trail on (the counting thread publishes the trail picture,
         // the frame uploads it); Esc at 2.8 s. Checks the meter counted at the neck and Esc
@@ -592,6 +655,8 @@ final class InteractionTest: NSObject {
                 Scenario(name: "compass", viewport: sea, input: compass),
                 Scenario(name: "autopilot lock", viewport: sea, input: autopilotLock),
                 Scenario(name: "journey", viewport: sea, input: journey),
+                Scenario(name: "zoom out", viewport: sea, input: zoomOut),
+                Scenario(name: "journey stops", viewport: sea, input: journeyStops),
                 Scenario(name: "pi hunt", viewport: home, input: piHunt),
                 Scenario(name: "esc full screen", viewport: sea, input: escFullScreen),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
@@ -836,8 +901,9 @@ final class InteractionTest: NSObject {
     }
 
     /// A synthetic key event through the same handler the window's key monitor uses.
-    static func key(_ view: FractalNSView, _ chars: String, down: Bool, keyCode: UInt16 = 0, isARepeat: Bool = false) {
-        guard let e = NSEvent.keyEvent(with: down ? .keyDown : .keyUp, location: .zero, modifierFlags: [],
+    static func key(_ view: FractalNSView, _ chars: String, down: Bool, keyCode: UInt16 = 0, isARepeat: Bool = false,
+                    modifiers: NSEvent.ModifierFlags = []) {
+        guard let e = NSEvent.keyEvent(with: down ? .keyDown : .keyUp, location: .zero, modifierFlags: modifiers,
                                        timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: view.window?.windowNumber ?? 0, context: nil,
                                        characters: chars, charactersIgnoringModifiers: chars,
