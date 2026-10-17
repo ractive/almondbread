@@ -1,0 +1,133 @@
+name: Homebrew cask
+
+# Points the `almondbread` cask in ractive/homebrew-tap at a published release's .dmg (kb:
+# decisions/open-source-release), as saturnus's desktop.yml does for its casks: a direct
+# commit to the tap with the HOMEBREW_TAP_TOKEN secret (in the `release` environment), the
+# cask rendered from packaging/homebrew/almondbread.rb. It never publishes an unsigned app:
+# the .dmg is downloaded from the release and must pass Gatekeeper (Developer ID, notarised,
+# stapled) and carry the expected bundle ID and version before anything is pushed. Only the
+# latest release may move the cask, and never below what the tap already has.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Published release tag to point the cask at"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    runs-on: macos-26
+    timeout-minutes: 15
+    environment: release
+    env:
+      CASK: almondbread
+      BUNDLE: Almondbread.app
+      BUNDLE_ID: ch.ractive.almondbread
+      TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+      - name: Check the release and download its .dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          skip() {
+            echo "::notice::$1; the cask is left alone"
+            echo "CASK_SKIP=true" >> "$GITHUB_ENV"
+            exit 0
+          }
+          if ! state=$(gh release view "$TAG" --json isDraft,isPrerelease \
+                       --jq '"\(.isDraft) \(.isPrerelease)"' 2> /dev/null); then
+            skip "$TAG is not a published release visible to this job (a draft?)"
+          fi
+          [ "$state" = "false false" ] || skip "$TAG is a draft or a pre-release"
+          latest=$(gh release view --json tagName --jq .tagName)
+          [ "$TAG" = "$latest" ] || skip "$TAG is not the latest release ($latest)"
+          version="${TAG#v}"
+          # The tap is public: cloned without credentials, the token comes in only for the push.
+          git clone --depth 1 https://github.com/ractive/homebrew-tap.git tap
+          current=""
+          if [ -f "tap/Casks/$CASK.rb" ]; then
+            current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "tap/Casks/$CASK.rb")
+          fi
+          if [ -n "$current" ] && [ "$current" != "$version" ]; then
+            newest=$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)
+            [ "$newest" = "$version" ] || skip "the tap's cask is at $current, newer than $version"
+          fi
+          dmg="almondbread_${version}_aarch64.dmg"
+          mkdir dmg
+          gh release download "$TAG" --pattern "$dmg" --dir dmg
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "DMG=dmg/$dmg" >> "$GITHUB_ENV"
+      - name: Check the .dmg is signed, notarised and the right app
+        if: env.CASK_SKIP != 'true'
+        run: |
+          set -euo pipefail
+          xcrun stapler validate "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$DMG" > /dev/null
+          trap 'hdiutil detach -quiet "$mnt"' EXIT
+          app="$mnt/$BUNDLE"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          signature=$(codesign --display --verbose=2 "$app" 2>&1)
+          grep -q '^Authority=Developer ID Application:' <<< "$signature"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          plist="$app/Contents/Info.plist"
+          id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")
+          ver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+          if [ "$id" != "$BUNDLE_ID" ] || [ "$ver" != "$VERSION" ]; then
+            echo "expected $BUNDLE_ID $VERSION, the .dmg holds $id $ver" >&2
+            exit 1
+          fi
+      - name: Update the cask in the tap
+        if: env.CASK_SKIP != 'true'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN secret is not set" >&2
+            exit 1
+          fi
+          sha=$(shasum -a 256 "$DMG" | cut -d ' ' -f 1)
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@SHA256@/${sha}/" \
+            "packaging/homebrew/$CASK.rb" > "$CASK.rb"
+          if grep -q '@[A-Z0-9]*@' "$CASK.rb"; then
+            echo "packaging/homebrew/$CASK.rb has a placeholder left" >&2
+            exit 1
+          fi
+          cat "$CASK.rb"
+          mkdir -p tap/Casks
+          cp "$CASK.rb" "tap/Casks/$CASK.rb"
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "Casks/$CASK.rb"
+          if git diff --cached --quiet; then
+            echo "Cask unchanged, skipping commit"
+            exit 0
+          fi
+          git commit -m "Update $CASK to ${VERSION}"
+          # The token reaches git only through the environment, for this push: not in argv,
+          # not in tap/.git/config.
+          auth=$(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::${auth}"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git push origin HEAD
+      - name: Remove the tap clone
+        if: always()
+        run: rm -rf tap dmg "$CASK.rb"

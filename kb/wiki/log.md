@@ -965,3 +965,14 @@ refinement towards the user's cap, with progress and an estimate; (3) a progress
 percentage while a long manual-limit frame is being computed (the 10 M frame here), so a
 partial frame does not read as the result; (4) in the settings, label the auto cap "Upper bound
 for automatic iterations" and show the current effective limit next to it.
+
+## [2026-10-17] decision | Open-source release
+
+[[decisions/open-source-release]]: MIT with saturnus's AI notice, `THIRD_PARTY_NOTICES.md`
+(Inter OFL, colour-map licences, crates), `deny.toml`, and the pipeline: CI on push (Linux
+Rust gates without the Apple-only ffi crate, Windows check of math and core, kb lint, a
+clean-checkout macOS build), a tag-driven Developer ID signed, notarised and stapled `.dmg`
+in a draft release (saturnus's six Apple secrets), and the `almondbread` cask in
+`ractive/homebrew-tap`. Publication audit: no secrets or large files in history, no
+GPL/AGPL crates, no copied code from KF, F3, Imagina or FractalShark; the business pages
+are listed for the user to decide on. Donations dropped for the first release.

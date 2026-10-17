@@ -32,6 +32,9 @@ targets:
       properties:
         CFBundleDisplayName: Almondbread
         CFBundleName: Almondbread
+        # XcodeGen writes "1.0" / "1" unless told; the release sets both from the tag.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         NSHighResolutionCapable: true
@@ -55,6 +58,9 @@ targets:
       properties:
         CFBundleDisplayName: Almondbread
         CFBundleName: Almondbread
+        # XcodeGen writes "1.0" / "1" unless told; the release sets both from the tag.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UIRequiresFullScreen: false
         UIStatusBarHidden: true

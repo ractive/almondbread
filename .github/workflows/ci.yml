@@ -1,0 +1,143 @@
+name: CI
+
+# Checks on every push to main and every pull request (kb: decisions/open-source-release).
+# Modelled on saturnus's ci.yml: third-party actions are pinned to a commit SHA with the
+# version in a comment; ractive/setup-hyalo floats on its first-party major tag.
+#
+# - Linux (cheap): rustfmt, clippy -D warnings, cargo test and cargo-deny for every crate
+#   but almondbread-ffi (the UniFFI surface hosts the Metal renderer and is Apple-only).
+#   math and core must build for Linux and Windows (CLAUDE.md); render and cli build there
+#   without a GPU backend. `make rust-check` runs the same locally (plus the ffi crate).
+# - macOS: a clean-checkout build of the app (xcodegen, `make rust` with the iOS and macOS
+#   targets, the UniFFI bindings, the Release .app), unsigned. No GPU tests: hosted macOS
+#   runners are virtual machines without a representative Metal device, so the renderer's
+#   GPU checks (`make selftest`, `bench`, `verify`, `interaction-test`) stay local.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --exclude almondbread-ffi --all-targets --locked -- -D warnings
+
+  # Release mode, as `make rust-check`: the oracle and property tests are slow unoptimised.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --workspace --exclude almondbread-ffi --release --locked
+
+  # math and core on Windows: they must stay platform-neutral (CLAUDE.md).
+  windows-core:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+      - run: cargo check -p almondbread-math -p almondbread-core --all-targets --locked
+
+  # Advisories, licences (no GPL/AGPL; deny.toml), bans and sources.
+  deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+
+  lint-kb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ractive/setup-hyalo@v1
+      - name: Lint the knowledge base
+        run: hyalo lint --strict --format github
+
+  # The app from a clean checkout, exactly as the release builds it, but unsigned.
+  macos-app:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Tools
+        run: |
+          brew install xcodegen
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+          xcodebuild -version
+      - name: Rust core, UniFFI bindings and XCFramework
+        run: make rust
+      - name: Swift package build (swift run target)
+        run: make build
+      - name: Release .app via XcodeGen
+        run: make app
+      - name: Unsigned .dmg
+        run: scripts/make-dmg.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: almondbread-unsigned-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 7

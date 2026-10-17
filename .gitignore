@@ -6,6 +6,20 @@
 __pycache__/
 *.part
 .env
+.env.*
+!.env.example
+
+# Signing material never enters the repository (kb: decisions/open-source-release)
+*.p8
+*.p12
+*.pem
+*.cer
+*.mobileprovision
+*.provisionprofile
+
+# Release artefacts (scripts/make-dmg.sh)
+/dist/
+*.dmg
 
 # Raw sources: copyrighted or large; kb/sources/manifest.json says how to fetch them.
 # Our own research notes are kept.
