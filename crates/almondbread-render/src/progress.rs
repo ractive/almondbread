@@ -7,6 +7,7 @@
 //! a [`RenderProgress`]: an honest fraction for the line and stable numbers for the HUD.
 
 use crate::overlay::{Scene, rgba};
+use crate::scheduler::FurtherInfo;
 
 /// What the scheduler is doing for the current view.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,6 +25,9 @@ pub enum Stage {
     Full,
     /// Extension passes: unresolved pixels continued past the limit.
     Extension,
+    /// Compute further: the passes after the extension passes, up to the iteration cap (kb:
+    /// techniques/auto-iterations "Compute further").
+    Further,
     /// Idle anti-aliasing samples (and the fade-in before them).
     AntiAlias,
 }
@@ -37,6 +41,7 @@ impl Stage {
             Stage::Preview => "preview",
             Stage::Full => "full",
             Stage::Extension => "extension",
+            Stage::Further => "further",
             Stage::AntiAlias => "anti-aliasing",
         }
     }
@@ -100,6 +105,11 @@ pub struct ProgressSample {
     pub provisional: bool,
     /// GPU seconds of the job's iterate chunks so far.
     pub gpu_time: f64,
+    /// Compute further of the view (None: not started), the full level's texels and the
+    /// unresolved share below which a view counts as finished.
+    pub further: Option<FurtherInfo>,
+    pub full_texels: usize,
+    pub finished_share: f64,
 }
 
 /// The line appears once the settled view has computed this long (seconds).
@@ -153,6 +163,42 @@ pub struct RenderProgress {
     /// Pixels the last finished full or extension level left unresolved, and the full
     /// level's slot count (for a "raise the limit?" hint).
     pub unresolved: Option<(usize, usize)>,
+    /// Compute further: the share of the view's texels not finished and the limit they have
+    /// reached; while it runs, the pass's limit (else 0) and why it stopped.
+    pub not_finished: Option<NotFinished>,
+}
+
+/// A settled (or still computing) view with unresolved pixels (kb: techniques/auto-iterations
+/// "Compute further").
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NotFinished {
+    pub share: f64,
+    pub reached: u64,
+    pub limit: u64,
+    pub why: Option<&'static str>,
+}
+
+impl NotFinished {
+    /// "12 % not finished", "0.4 % not finished".
+    fn share_text(&self) -> String {
+        let pct = 100.0 * self.share;
+        if pct >= 9.5 {
+            format!("{pct:.0} % not finished")
+        } else if pct >= 0.95 {
+            format!("{pct:.1} % not finished")
+        } else {
+            format!("{pct:.2} % not finished")
+        }
+    }
+
+    /// The settled HUD line: "12 % not finished at 1.2 M steps (upper limit)".
+    pub fn text(&self) -> String {
+        let mut t = format!("{} at {} steps", self.share_text(), count_text(self.reached as f64));
+        if let Some(w) = self.why {
+            t.push_str(&format!(" ({w})"));
+        }
+        t
+    }
 }
 
 impl RenderProgress {
@@ -160,9 +206,29 @@ impl RenderProgress {
     /// empty while hidden.
     pub fn text(&self) -> String {
         if !self.visible {
-            return String::new();
+            // Settled with pixels left unresolved: say so (compute further stopped).
+            return self.not_finished.map_or_else(String::new, |n| n.text());
         }
         let mut parts = vec![self.stage_label().to_string()];
+        if self.stage == Stage::Further {
+            // "computing further · 1.2 M of 4 M steps · 12 % not finished · ~40 s"
+            if let Some((n, limit)) = self.steps {
+                parts.push(format!(
+                    "{} of {} steps",
+                    count_text(n as f64),
+                    count_text(limit as f64)
+                ));
+            } else if let Some(n) = self.not_finished.filter(|n| n.limit > 0) {
+                parts.push(format!("to {} steps", count_text(n.limit as f64)));
+            }
+            if let Some(n) = self.not_finished {
+                parts.push(n.share_text());
+            }
+            if let Some(e) = self.eta {
+                parts.push(eta_text(e));
+            }
+            return parts.join(" · ");
+        }
         if let Some((n, of)) = self.aa_sample {
             parts.push(format!("sample {n} of {of}"));
         }
@@ -191,6 +257,7 @@ impl RenderProgress {
             Stage::Full if self.seeding => "seeding",
             Stage::Full => "refining",
             Stage::Extension => "resolving",
+            Stage::Further => "computing further",
             Stage::AntiAlias => "anti-aliasing",
         }
     }
@@ -307,6 +374,7 @@ impl ProgressTracker {
         self.step(s, now);
         // (Kept while idle too: what the settled view left unresolved.)
         self.shown.unresolved = s.unresolved.map(|u| (u, s.full_total));
+        self.shown.not_finished = not_finished(s);
     }
 
     fn step(&mut self, s: &ProgressSample, now: f64) {
@@ -502,6 +570,12 @@ impl ProgressTracker {
                 let full = self.full.unwrap_or(1.0);
                 Some(level + more + self.aa_remaining(s, full, wall_per_gpu))
             }
+            // The scheduler's estimate of the passes still to come (bounded by the budget).
+            Stage::Further => {
+                let f = s.further?;
+                let full = self.full.unwrap_or(1.0);
+                Some(f.remaining_gpu * wall_per_gpu + self.aa_remaining(s, full, wall_per_gpu))
+            }
             Stage::AntiAlias => {
                 let full = self.full.unwrap_or_else(|| self.level_age(now));
                 if s.level_aa.is_none() || pixels_left(s) == 0 {
@@ -661,7 +735,7 @@ impl ProgressTracker {
             Stage::Preview | Stage::AntiAlias if s.level_admitted > 0 => {
                 Some((left as f64 / s.level_total.max(1) as f64, left))
             }
-            Stage::Full | Stage::Extension if s.level_admitted > 0 && s.full_total > 0 => {
+            Stage::Full | Stage::Extension | Stage::Further if s.level_admitted > 0 && s.full_total > 0 => {
                 Some((left as f64 / s.full_total as f64, left))
             }
             _ => None,
@@ -684,8 +758,33 @@ impl ProgressTracker {
                 .filter(|_| self.eta_shown && visible)
                 .map(|f| (f - self.last_now).max(1.0)),
             unresolved: s.unresolved.map(|u| (u, s.full_total)),
+            not_finished: not_finished(s),
         }
     }
+}
+
+/// Compute further's state for the HUD: while it runs, and once the settled view still has at
+/// least `finished_share` of its texels unresolved (hidden while the view moves).
+fn not_finished(s: &ProgressSample) -> Option<NotFinished> {
+    if s.interacting || s.full_texels == 0 {
+        return None;
+    }
+    let f = s.further?;
+    let share = f.unresolved as f64 / s.full_texels as f64;
+    if !f.running && (share < s.finished_share || f.unresolved == 0) {
+        return None;
+    }
+    Some(NotFinished {
+        share,
+        reached: f.reached as u64,
+        limit: f.limit as u64,
+        why: f.stop.and_then(|w| match w {
+            crate::scheduler::FurtherStop::Limit => Some("upper limit"),
+            crate::scheduler::FurtherStop::Budget => Some("time limit"),
+            crate::scheduler::FurtherStop::Reach => Some("orbit length"),
+            _ => None,
+        }),
+    })
 }
 
 /// The share of the view an AA sample computes (the adaptive list), a guess until it is built.
@@ -889,6 +988,54 @@ mod tests {
             p.text(),
             "refining · 2.1 M of 10 M steps · 3.0 % of pixels left · ~40 s"
         );
+    }
+
+    /// Compute further (kb: techniques/auto-iterations "Compute further"): the HUD while it
+    /// runs and once the settled view still has unresolved pixels.
+    #[test]
+    fn not_finished_texts() {
+        let mut p = RenderProgress {
+            visible: true,
+            stage: Stage::Further,
+            steps: Some((1_200_000, 4_000_000)),
+            not_finished: Some(NotFinished {
+                share: 0.12,
+                reached: 1_000_000,
+                limit: 4_000_000,
+                why: None,
+            }),
+            ..RenderProgress::default()
+        };
+        assert_eq!(p.text(), "computing further · 1.2 M of 4 M steps · 12 % not finished");
+        p.steps = None;
+        assert_eq!(p.text(), "computing further · to 4 M steps · 12 % not finished");
+        p.visible = false;
+        p.not_finished = Some(NotFinished {
+            share: 0.038,
+            reached: 200_000,
+            limit: 0,
+            why: Some("upper limit"),
+        });
+        assert_eq!(p.text(), "3.8 % not finished at 200 k steps (upper limit)");
+        p.not_finished = None;
+        assert_eq!(p.text(), "");
+        // Settled and finished (below the share): nothing; moving: nothing.
+        let mut s = ProgressSample {
+            settled: true,
+            full_texels: 1_000_000,
+            finished_share: 0.001,
+            further: Some(FurtherInfo {
+                unresolved: 500,
+                reached: 200_000,
+                ..FurtherInfo::default()
+            }),
+            ..ProgressSample::default()
+        };
+        assert_eq!(not_finished(&s), None);
+        s.further.as_mut().expect("further").unresolved = 50_000;
+        assert!((not_finished(&s).expect("not finished").share - 0.05).abs() < 1e-12);
+        s.interacting = true;
+        assert_eq!(not_finished(&s), None);
     }
 
     #[test]

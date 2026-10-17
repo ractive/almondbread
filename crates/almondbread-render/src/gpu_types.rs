@@ -269,6 +269,20 @@ pub struct AaListParams {
     pub pad: u32,
 }
 
+/// Parameters of the `unresolvedList` kernel ("compute further" segments), 32 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct UnresolvedListParams {
+    pub width: u32,
+    pub height: u32,
+    pub tiles_x: u32,
+    pub tile_order: u32,
+    pub start: u32,
+    pub count: u32,
+    pub capacity: u32,
+    pub pad: u32,
+}
+
 /// Parameters of the `survey` kernel (autopilot), 32 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -316,6 +330,7 @@ const _: () = {
     assert!(offset_of!(CacheParams, num) == 64);
     assert!(offset_of!(CacheParams, has_aux) == 80);
     assert!(size_of::<AaListParams>() == 32);
+    assert!(size_of::<UnresolvedListParams>() == 32);
     assert!(size_of::<IterateParams>() == 136);
     assert!(offset_of!(IterateParams, probe) == 128);
     assert!(offset_of!(IterateParams, fill_border) == 112);

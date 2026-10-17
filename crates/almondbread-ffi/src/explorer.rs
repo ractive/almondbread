@@ -848,10 +848,11 @@ pub struct RenderProgressInfo {
     /// The line's length, 0..1 (honest: time-based, never decreasing).
     pub fraction: f64,
     /// "reference orbit", "preparing", "seeding", "preview", "refining", "resolving",
-    /// "anti-aliasing".
+    /// "computing further", "anti-aliasing".
     pub stage: String,
     /// The HUD line: "refining · 2.1 M of 10 M steps · 3 % of pixels left · ~40 s" (each
-    /// part only once its number is stable).
+    /// part only once its number is stable); also once settled, "12 % not finished at 1.2 M
+    /// steps (upper limit)" when compute further stopped with pixels left unresolved.
     pub text: String,
     /// Remaining seconds once stable, else -1.
     pub eta_seconds: f64,

@@ -3117,6 +3117,42 @@ kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
     if (want && base + off < p.capacity) list[base + off] = xy.y * p.width + xy.x;
 }
 
+// "Compute further" (kb: techniques/auto-iterations "Compute further"): lists the texels still
+// unresolved among admission indices [start, start + count) of a full level (tiles in its priority
+// order, Morton order inside a tile), for an extension pass over that segment. Segments are at
+// most `capacity` slots, so every unresolved texel of one fits: the passes no longer depend on the
+// level's own all-or-nothing list (9.7 M unresolved at 4000 x 2500 near the -3/4 neck overflowed
+// the 4 M entries and got no pass at all).
+struct UnresolvedListParams {
+    uint width;
+    uint height;
+    uint tilesX;
+    uint tileOrder;
+    uint start;          // first admission index of the segment
+    uint count;          // admission indices in the segment
+    uint capacity;       // list entries
+    uint pad;
+};
+
+kernel void unresolvedList(texture2d<float, access::read> iters [[texture(0)]],
+                           constant UnresolvedListParams& p     [[buffer(0)]],
+                           device const uint* order             [[buffer(1)]],
+                           device atomic_uint* count            [[buffer(2)]],
+                           device uint* list                    [[buffer(3)]],
+                           uint tid                             [[thread_position_in_grid]],
+                           uint lane                            [[thread_index_in_simdgroup]])
+{
+    uint2 xy = uint2(0);
+    bool want = tid < p.count && tileTexel(p.start + tid, p.tilesX, p.width, p.height, p.tileOrder, order, xy)
+        && iters.read(xy).x == ITER_UNRESOLVED;
+    uint off = simd_prefix_exclusive_sum(want ? 1u : 0u);
+    uint total = simd_sum(want ? 1u : 0u);
+    uint base = 0;
+    if (lane == 0 && total > 0) base = atomic_fetch_add_explicit(count, total, memory_order_relaxed);
+    base = simd_broadcast_first(base);
+    if (want && base + off < p.capacity) list[base + off] = xy.y * p.width + xy.x;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Overlay (orbit overlay, mini-map; kb: decisions/controls "Orbit overlay and mini-map"): vector
 // primitives in output pixels, composited over the shown image without entering the history.
