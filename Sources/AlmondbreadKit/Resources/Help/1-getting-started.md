@@ -38,7 +38,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **+** and **−**: one zoom step
 - **R** or **⌘0**: back to the whole set
 - **⌘I**: show or hide the control center
-- **⌘G**: fly to coordinates; **⇧⌘C** copies where you are
+- **⌘G**: fly to coordinates; **⌘C** copies where you are
 - **⌘?**: this help
 
 ## The control center

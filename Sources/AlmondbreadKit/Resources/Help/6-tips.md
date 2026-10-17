@@ -6,6 +6,6 @@
 - **Try a look.** **Look & colour** in the control center changes palette, lighting and the inside in one click.
 - **Sit back.** Press **J** for a journey or **Z** for the autopilot; or cruise with **E** and steer with the mouse.
 - **Way home.** Press **Q** a few times: the zoom out speeds up with the depth and stops softly on the whole set.
-- **Share a view.** **⇧⌘C** copies its address; anyone can paste it with **⇧⌘V**.
+- **Share a view.** **⌘C** copies its address; anyone can paste it with **⌘V**.
 - **Full screen.** Press **F** for a clean picture; **Esc** leaves.
 - **Slow deep views?** Less anti-aliasing (**Iterations & quality**) or a smaller window makes them quicker.

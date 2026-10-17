@@ -251,6 +251,24 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    // ⌘C / ⌘V on the canvas (Edit > Copy / Paste reach the focused view): copy the view's
+    // coordinates, go to copied ones. Text fields keep ordinary copy and paste.
+    @objc func copy(_ sender: Any?) {
+        Clipboard.copy(model.coordinatesText)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        if !model.pasteCoordinates() { NSSound.beep() }
+    }
+
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(copy(_:)): true
+        case #selector(paste(_:)): Clipboard.text() != nil
+        default: true
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         link?.invalidate()

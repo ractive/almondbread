@@ -41,4 +41,4 @@ The control center starts with **Places**: famous views, from the seahorse valle
 
 ## Fly to coordinates
 
-Every view has an address: its centre and its zoom. **⇧⌘C** copies it, **⇧⌘V** jumps to a copied one, **⇧⌘G** flies to it, and **⌘G** flies to an address you type.
+Every view has an address: its centre and its zoom. **⌘C** copies it, **⌘V** jumps to a copied one (also **⇧⌘C** / **⇧⌘V** while a text field has focus), **⇧⌘G** flies to it, and **⌘G** flies to an address you type.

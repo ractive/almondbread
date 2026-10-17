@@ -1222,3 +1222,12 @@ is deleted. Default behaviour is unchanged.
   CLAUDE.md now has one "Environment variables" table. Wiki pages that described a removed
   switch as current carry a "removed 2026-10-17" note; history pages (this log, benchmarks) are
   unchanged and still name the old switches.
+
+## [2026-10-17] decision | ⌘C / ⌘V on the canvas; jumps stop all motion
+
+The user asked why coordinates used ⇧⌘C / ⇧⌘V. The canvas view now answers the standard copy: /
+paste: actions itself (macOS routes Edit > Copy / Paste to the focused view), so ⌘C copies the
+view's coordinates and ⌘V goes to copied ones while the canvas has focus, and text fields keep
+normal copy and paste; ⇧⌘C / ⇧⌘V stay as menu items. A jump (pasted coordinates, a link, a
+place) now calls `Navigator::jumped`: cruise, autopilot, flights and flings stop dead and a
+journey ends (user request). [[decisions/controls]].
