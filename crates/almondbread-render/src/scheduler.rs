@@ -104,6 +104,9 @@ const COMPOSE_GESTURE: u32 = 0;
 const COMPOSE_REFINE: u32 = 1;
 const COMPOSE_AA: u32 = 2;
 const COMPOSE_EXACT: u32 = 3;
+/// Compute further after AA (kb: techniques/auto-iterations "Compute further"): the texels
+/// marked unresolved fade to their new colour, every other pixel keeps its history (samples).
+const COMPOSE_FURTHER: u32 = 4;
 
 /// When the iterate kernel steps through the BLA table (kb: techniques/bla).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -615,11 +618,22 @@ struct Further<B: GpuBackend> {
     stop: Option<FurtherStop>,
     passes: usize,
     segments: usize,
+    /// Waits for the view's AA samples first (they take a second or two; compute further can
+    /// take a minute). Its passes then compose only the texels unresolved when it started
+    /// (`mask`), so the anti-aliased pixels keep their samples.
+    deferred: bool,
+    /// One bit per texel (row-major, the full level's width): unresolved when the passes
+    /// started after AA (None: AA did not run first; the passes compose as refinement).
+    mask: Option<(B::Buffer, usize)>,
 }
 
 impl<B: GpuBackend> Further<B> {
     fn running(&self) -> bool {
         self.stop.is_none()
+    }
+    /// Running and not waiting for the AA samples.
+    fn active(&self) -> bool {
+        self.running() && !self.deferred
     }
 }
 
@@ -877,10 +891,11 @@ enum BlaReady {
 }
 
 impl<B: GpuBackend> Job<B> {
-    /// Every level is done and compute further is not running.
+    /// Every level is done and compute further is not iterating (it may wait for AA).
     fn done(&self) -> bool {
-        self.levels.iter().all(|l| l.done) && !self.further_running()
+        self.levels.iter().all(|l| l.done) && !self.further.as_ref().is_some_and(Further::active)
     }
+    /// Compute further is not finished (iterating, or waiting for the AA samples).
     fn further_running(&self) -> bool {
         self.further.as_ref().is_some_and(Further::running)
     }
@@ -1142,6 +1157,8 @@ pub struct Renderer<B: GpuBackend> {
     aa_list_pipeline: B::Pipeline,
     /// Compute further: lists a segment's unresolved texels.
     unresolved_list_pipeline: B::Pipeline,
+    /// Compute further after AA: marks the texels unresolved when its passes start.
+    unresolved_mask_pipeline: B::Pipeline,
     /// Overlay scene to composite over presented frames (orbit, maps; see `overlay`), its font,
     /// the pipeline (made on first use) and the version last presented (None: none shown).
     pub overlay: Option<crate::overlay::OverlayDraw<B>>,
@@ -1389,6 +1406,7 @@ impl<B: GpuBackend> Renderer<B> {
         let compose_pipeline = backend.pipeline("compose", &[])?;
         let aa_list_pipeline = backend.pipeline("aaList", &[])?;
         let unresolved_list_pipeline = backend.pipeline("unresolvedList", &[])?;
+        let unresolved_mask_pipeline = backend.pipeline("unresolvedMask", &[])?;
         let survey_pipeline = backend.pipeline("survey", &[])?;
         let seed_begin_pipeline = backend.pipeline("seedBegin", &[])?;
         let seed_gate_pipeline = backend.pipeline("seedGate", &[])?;
@@ -1423,6 +1441,7 @@ impl<B: GpuBackend> Renderer<B> {
             compose_pipeline,
             aa_list_pipeline,
             unresolved_list_pipeline,
+            unresolved_mask_pipeline,
             overlay: None,
             overlay_font: None,
             overlay_pipeline: None,
@@ -2590,6 +2609,10 @@ impl<B: GpuBackend> Renderer<B> {
             return Some((COMPOSE_EXACT, None));
         }
         let fading = job.complete_at.is_none_or(|t| now - t < 4.0 * self.config.fade_tau);
+        // Compute further after AA: only the texels it may resolve are recomposed.
+        if !exact_done && job.further.as_ref().is_some_and(|f| f.mask.is_some()) {
+            return Some((COMPOSE_FURTHER, None));
+        }
         if fading || !exact_done {
             return Some((COMPOSE_REFINE, None));
         }
@@ -3771,7 +3794,7 @@ impl<B: GpuBackend> Renderer<B> {
             || !job.complete_presented
             || job.failed
             || !job.levels.iter().all(|l| l.done || l.aa.is_some())
-            || job.further_running()
+            || job.further.as_ref().is_some_and(Further::active)
         {
             return;
         }
@@ -4628,8 +4651,79 @@ impl<B: GpuBackend> Renderer<B> {
             stop: None,
             passes: 0,
             segments: 0,
+            deferred: false,
+            mask: None,
         });
+        // AA first when the view takes samples and its texels are the output's (live views:
+        // no supersampling grid), so a still view is anti-aliased as soon as without compute
+        // further.
+        let (w, out_w) = (level.set.width, job.key.width);
+        if self.aa_target() > 1 && w == out_w {
+            self.job
+                .as_mut()
+                .expect("job")
+                .further
+                .as_mut()
+                .expect("further")
+                .deferred = true;
+            if self.config.trace {
+                println!("further: waits for the AA samples");
+            }
+            return;
+        }
         self.further_next_pass();
+    }
+
+    /// Compute further waits for the AA samples: once they are done (or none are wanted), mark
+    /// the texels still unresolved and start the passes.
+    fn undefer_further(&mut self) -> bool {
+        let aa_target = self.aa_target();
+        let aa_budget = self.config.aa_budget;
+        let Some(job) = &self.job else { return false };
+        let Some(f) = &job.further else { return false };
+        if !f.deferred {
+            return false;
+        }
+        let aa_done = aa_target <= 1
+            || job.aa_list.as_ref().is_some_and(|l| l.len.is_some())
+                && !job.aa_pending()
+                && job.aa_finished(aa_target, aa_budget);
+        if !aa_done || !job.complete_presented {
+            return true;
+        }
+        let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+            return true;
+        };
+        let (w, h) = (full.set.width, full.set.height);
+        let iter = full.set.iter.clone();
+        let words = (w * h).div_ceil(32);
+        let mask = self.backend.create_buffer(words.max(1) * 4, Storage::Private).ok();
+        let encoded = mask.as_ref().is_some_and(|m| {
+            let Ok(mut enc) = self.backend.begin("further mask") else {
+                return false;
+            };
+            enc.set_pipeline(&self.unresolved_mask_pipeline);
+            enc.set_texture(0, &iter);
+            enc.set_bytes(0, bytes_of(&[w as u32, h as u32]));
+            enc.set_buffer(1, m, 0);
+            enc.dispatch_threads([words.max(1), 1, 1], [ITERATE_THREADS, 1, 1]);
+            let _ = enc.commit();
+            true
+        });
+        let trace = self.config.trace;
+        let job = self.job.as_mut().expect("job");
+        // (The settled frame is shown and anti-aliased; the passes change it again.)
+        job.final_presented = false;
+        let f = job.further.as_mut().expect("further");
+        f.deferred = false;
+        if encoded {
+            f.mask = mask.map(|m| (m, w));
+        }
+        if trace {
+            println!("further: AA done, passes start (mask {encoded})");
+        }
+        self.further_next_pass();
+        false
     }
 
     fn stop_further(&mut self, why: FurtherStop) {
@@ -4828,6 +4922,9 @@ impl<B: GpuBackend> Renderer<B> {
     /// Per refresh: a finished segment scan becomes an extension level (or the next segment
     /// is scanned), a longer orbit is taken.
     fn poll_further(&mut self) {
+        if self.undefer_further() {
+            return;
+        }
         let Some(job) = &mut self.job else { return };
         let Some(f) = &mut job.further else { return };
         if !f.running() {
@@ -5335,7 +5432,7 @@ impl<B: GpuBackend> Renderer<B> {
             Self::reproject(h, &key.viewport, s, (out_w, out_h), &mut q);
         }
         q.blend = match mode {
-            COMPOSE_REFINE => {
+            COMPOSE_REFINE | COMPOSE_FURTHER => {
                 let dt = (now - self.last_compose).clamp(0.0, 0.1);
                 (1.0 - (-dt / self.config.fade_tau).exp()) as f32
             }
@@ -5358,6 +5455,15 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(2, &self.level_buffer, 0);
         enc.set_buffer(3, &rank, 0);
         enc.set_bytes(4, bytes_of(&q));
+        // (Compute further's texel mask; mode 4 only.)
+        let mask = self
+            .job
+            .as_ref()
+            .and_then(|j| j.further.as_ref())
+            .and_then(|f| f.mask.as_ref())
+            .filter(|m| m.1 == out_w)
+            .map_or(&self.dummy_buffer, |m| &m.0);
+        enc.set_buffer(5, mask, 0);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5461,6 +5567,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(2, &self.level_buffer, 0);
         enc.set_buffer(3, &self.dummy_buffer, 0);
         enc.set_bytes(4, bytes_of(&q));
+        enc.set_buffer(5, &self.dummy_buffer, 0);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -6153,7 +6260,7 @@ impl<B: GpuBackend> Renderer<B> {
                 Some(l) if l.preview => Stage::Preview,
                 Some(l) if !l.started() && tables_pending => Stage::Tables,
                 Some(_) => Stage::Full,
-                None if job.further_running() => Stage::Further,
+                None if job.further.as_ref().is_some_and(Further::active) => Stage::Further,
                 None if job.final_presented => Stage::Idle,
                 None => Stage::AntiAlias,
             }

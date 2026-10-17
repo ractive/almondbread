@@ -1092,3 +1092,14 @@ incremental. Neck at 4.48e-12/px: 1600 x 1000 15.2 -> 3.78 % unresolved (200 k c
 "computing further · ... · 12 % not finished", settled "3.8 % not finished at 200 k steps
 (upper limit)". Page: [[techniques/auto-iterations]] "Compute further". Image:
 `~/Desktop/compute-further.png`.
+
+## [2026-10-17] decision | Compute further after AA; off by default in `verify --history`
+
+Compute further now waits for the view's AA samples, then marks the texels still unresolved
+(one bit each) and composes only those as they resolve, so a still view is anti-aliased as
+soon as before (neck 1.9–2.3 s against 2.3 s on main, seahorse and home unchanged) and keeps
+its samples. New `verify --history` check: resolved pixels drawn in the unresolved colour (0
+on home, seahorse and the neck with AA; 14 % with the compose mode disabled on purpose).
+`verify --history` defaults to `--further 0`; one regress session (neck, 400 × 250, AA, 4 s
+budget) runs it: `make regress` 302.8 s against 300.2 s on main. Page:
+[[techniques/auto-iterations]] "Compute further".

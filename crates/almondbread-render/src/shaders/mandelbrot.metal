@@ -2931,6 +2931,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     device const LevelCounters& level         [[buffer(2)]],
                     device const uint* rank                   [[buffer(3)]],
                     constant ComposeParams& q                 [[buffer(4)]],
+                    device const uint* furtherMask            [[buffer(5)]],   // mode 4
                     uint2 gid                                 [[thread_position_in_grid]])
 {
     if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
@@ -3049,6 +3050,15 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
             col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f, q.sampleWidth), q.blend) : hist;
             conf = q.confCap;
+        } else if (q.mode == 4) {
+            // Compute further after AA: a texel unresolved when its passes started fades to its
+            // new colour once resolved; every other pixel keeps its (anti-aliased) history.
+            const uint i = gid.y * c.outSize.x + gid.x;
+            const bool marked = ((furtherMask[i >> 5] >> (i & 31u)) & 1u) != 0u;
+            col = (marked && done && it.x != ITER_UNRESOLVED)
+                ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend)
+                : hist;
+            conf = q.confCap;
         } else if (done) {
             float3 exact = shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);
             col = q.mode == 1 ? mix(prior, exact, q.blend) : exact;
@@ -3123,6 +3133,23 @@ kernel void aaList(texture2d<float, access::read>  iters  [[texture(0)]],
 // most `capacity` slots, so every unresolved texel of one fits: the passes no longer depend on the
 // level's own all-or-nothing list (9.7 M unresolved at 4000 x 2500 near the -3/4 neck overflowed
 // the 4 M entries and got no pass at all).
+// The texels unresolved when compute further's passes start after AA, one bit each (row-major):
+// its compose (mode 4) recolours only those, so anti-aliased pixels keep their samples.
+kernel void unresolvedMask(texture2d<float, access::read> iters [[texture(0)]],
+                           constant uint2& size                 [[buffer(0)]],
+                           device uint* mask                    [[buffer(1)]],
+                           uint tid                             [[thread_position_in_grid]])
+{
+    const uint n = size.x * size.y, base = tid * 32u;
+    if (base >= n) return;
+    uint bits = 0u;
+    for (uint k = 0u; k < 32u && base + k < n; k++) {
+        const uint i = base + k;
+        if (iters.read(uint2(i % size.x, i / size.x)).x == ITER_UNRESOLVED) bits |= 1u << k;
+    }
+    mask[tid] = bits;
+}
+
 struct UnresolvedListParams {
     uint width;
     uint height;

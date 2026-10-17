@@ -259,9 +259,20 @@ loop:
   so the next view (a pan, a wheel step) starts at the fast base limit again.
 - **HUD**: "computing further · 1.2 M of 4 M steps · 12 % not finished · ~40 s" while it runs;
   once settled with 0.1 % or more left, "3.8 % not finished at 200 k steps (upper limit)" (or
-  "time limit", "orbit length"); nothing once finished. AA samples run after it.
-- Switches: `ALMONDBREAD_FURTHER=0|1` (default 1), `--further 0|1` and `--further-budget s` on
-  `verify --history` / `progress`; `ALMONDBREAD_UNRESOLVED_AT=1,5,20,60` prints the shown
+  "time limit", "orbit length"); nothing once finished.
+- **AA first.** Compute further waits for the view's AA samples (they take a second or two, it
+  can take a minute), then a GPU pass marks the texels still unresolved (one bit each) and its
+  passes compose in a mode of their own: a marked texel fades to its colour once resolved,
+  every other pixel keeps its anti-aliased history. Pixels it resolves carry their centre
+  sample only, as extension-resolved pixels always did (AA samples iterate to the nominal
+  limit and skip unresolved samples). AA done (M1 Pro, 1600 × 1000): neck 2.3 s on main,
+  1.9–2.3 s with compute further; seahorse 0.30 / 0.30 s; home 0.33 / 0.35 s. The `verify
+  --history` check "resolved pixels in the unresolved colour" is 0 on home, seahorse and the
+  neck with `--ss 3`, and 14 % when the mode is disabled on purpose.
+- Switches: `ALMONDBREAD_FURTHER=0|1` (default 1); `--further 0|1` and `--further-budget s` on
+  `verify --history` (default off there, so `make regress` stays as fast: 302.8 s against
+  300.2 s on main, the 2.4 s being its one compute further session, the neck at 400 × 250 with
+  AA and a 4 s budget) and `progress`; `ALMONDBREAD_UNRESOLVED_AT=1,5,20,60` prints the shown
   frame's unresolved texels at those seconds.
 
 **The 4x depth cap stays.** With compute further it is not what limits a still view any more;
