@@ -51,6 +51,8 @@ const STAT_SLOTS: usize = 64;
 const SURVEY_COLS: usize = 16;
 const SURVEY_ROWS: usize = 10;
 const SURVEY_INTERVAL: f64 = 0.1;
+/// Bytes per survey cell: the counts, then the peak (the kernel's two uint4).
+const SURVEY_CELL_BYTES: usize = 32;
 /// Gesture resolution probe (kb: synthesis/benchmarks "Autopilot throttle and GPU clocks"):
 /// how long a probe holds one 1/8 step above the cost model's resolution (s), and the wait
 /// before the next probe after a success and, doubling, after failures (s).
@@ -1415,7 +1417,7 @@ impl<B: GpuBackend> Renderer<B> {
         let seed_begin_pipeline = backend.pipeline("seedBegin", &[])?;
         let seed_gate_pipeline = backend.pipeline("seedGate", &[])?;
         let seed_status = backend.create_buffer_with_data(&[0u8; 16])?;
-        let survey_buffer = backend.create_buffer(SURVEY_COLS * SURVEY_ROWS * 16, Storage::Shared)?;
+        let survey_buffer = backend.create_buffer(SURVEY_COLS * SURVEY_ROWS * SURVEY_CELL_BYTES, Storage::Shared)?;
         let dummy_buffer = backend.create_buffer(16, Storage::Private)?;
         let state_bytes = config.live_capacity * std::mem::size_of::<PixelState>();
         let state_buffers = [
@@ -4534,7 +4536,9 @@ impl<B: GpuBackend> Renderer<B> {
             cells: Vec::new(),
             view,
             texels_across: w as f64,
+            texels_down: h as f64,
             time: self.last_frame_time,
+            viewport: Some(job.key.viewport.clone()),
         };
         self.pending_survey = Some((submission, survey));
     }
@@ -4547,10 +4551,11 @@ impl<B: GpuBackend> Renderer<B> {
             SubmissionStatus::Failed(_) => self.pending_survey = None,
             SubmissionStatus::Completed => {
                 let (_, mut survey) = self.pending_survey.take().expect("survey");
-                let mut bytes = vec![0u8; SURVEY_COLS * SURVEY_ROWS * 16];
+                let mut bytes = vec![0u8; SURVEY_COLS * SURVEY_ROWS * SURVEY_CELL_BYTES];
                 self.backend.read_buffer(&self.survey_buffer, 0, &mut bytes);
+                let (tw, th, view) = (survey.texels_across, survey.texels_down, survey.view);
                 survey.cells = bytes
-                    .as_chunks::<16>()
+                    .as_chunks::<SURVEY_CELL_BYTES>()
                     .0
                     .iter()
                     .map(|c| {
@@ -4560,6 +4565,12 @@ impl<B: GpuBackend> Renderer<B> {
                             interior: u(1),
                             pairs: u(2),
                             edges: u(3),
+                            // The peak texel's centre in view points from the centre, y up.
+                            peak: (
+                                ((u(4) as f64 + 0.5) / tw - 0.5) * view.0,
+                                (0.5 - (u(5) as f64 + 0.5) / th) * view.1,
+                            ),
+                            peak_n: f32::from_bits(u(6)) as f64,
                         }
                     })
                     .collect();

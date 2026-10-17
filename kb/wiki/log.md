@@ -1124,3 +1124,17 @@ the dive every job is a gesture job: no full levels, probe chunks, further passe
 a job's first level waits for the table (1.3–6.4 ms) and the history is shown meanwhile
 (`ALMONDBREAD_PREVIEW_WAIT_BLA=0` restores the old behaviour). Largest chunk 937–1086 →
 10–14 ms, longest unpresented run 13–15 → 0–2 refreshes. Page: [[techniques/bla]] "Pitfalls".
+
+## [2026-10-17] decision | Autopilot survey steering (opt-in)
+
+User report: Z often flies into the void near 1e247 (−1.7686678314…, 0.0016455577…).
+Diagnosis with `fly --log` and `ALMONDBREAD_LOCK_TRACE=1`: the lock finds only probe
+"boundary detail" targets there (no nucleus or Misiurewicz point resolves); they are exact to
+1/40 of the span, run out of detail 3–6 e-folds deeper, and when the search ahead fails the
+lock keeps aiming at the spent point until a rescue. New `ALMONDBREAD_SURVEY_STEER=1` (off by
+default): whenever no lock target is followed, aim at the GPU survey's boundary point (per
+cell the highest-escape-count texel, a new field of the survey kernel), kept while its region
+holds detail, uphill in escape count when nothing is detailed. User point, 90 s × 5
+interleaved runs: uniform 6.7 → 1.3 s per run, rescues 6 → 1, zoom 25.4 → 26.8 decades;
+other deep paths unchanged (no voids either way). Page: [[decisions/controls]] "Survey
+steering".
