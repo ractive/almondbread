@@ -1068,12 +1068,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 scene.rect(
                     [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad],
                     radius + pad,
-                    rgba(0.02, 0.02, 0.03, 0.55),
+                    // Opaque: the view must not show through a map (it read as part of it).
+                    rgba(0.02, 0.02, 0.03, 1.0),
                     rgba(1.0, 1.0, 1.0, 0.22),
                     (1.0 * px) as f32,
                 );
                 if l.shown {
-                    scene.image(r, i as u32, 0.92, radius);
+                    scene.image(r, i as u32, 1.0, radius);
                 }
                 scene.set_clip(Some(r));
                 // Marker: the next level's area, or the view's on the deepest map.
