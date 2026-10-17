@@ -5,7 +5,7 @@ struct ContentView: View {
     // One model per window; the platform view creates the Rust explorer (it compiles the
     // kernels) once, when SwiftUI makes the view.
     @State private var model = ExplorerModel()
-    @State private var showInspector = UIDemo.enabled
+    @State private var showInspector = UIDemo.enabled && !UIPerf.openScene
     @State private var showFlyTo = false
     @State private var fullScreenSidebar = FullScreenSidebar()
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -146,7 +146,7 @@ struct ContentView: View {
         // a sheet on iPhone.
         .inspector(isPresented: $showInspector) {
             ControlCenterView(model: model)
-                .inspectorColumnWidth(min: 290, ideal: 330, max: 440)
+                .inspectorColumnWidth(min: ControlCenterView.minimumWidth, ideal: 330, max: 440)
                 #if os(iOS)
                 .presentationDetents(sizeClass == .compact ? [.medium, .large] : [.large])
                 .presentationBackground(.regularMaterial)
@@ -154,6 +154,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showFlyTo) {
             FlyToSheet(model: model, isPresented: $showFlyTo)
+        }
+        .onReceive(UIPerf.actions) { action in
+            if case .inspector(let shown) = action { showInspector = shown }
         }
         #if os(iOS)
         .modifier(HelpSheet())

@@ -11,17 +11,26 @@ import UniformTypeIdentifiers
 /// nothing in it follows the 10 Hz stats (live values are in the HUD and its developer
 /// details); buttons read change-only model properties. This body reads no model property,
 /// each section is its own view struct (equal inputs: SwiftUI skips its body when another
-/// section opens or the query changes). On the Mac the sections sit in a `LazyVStack` styled
-/// like a grouped form: a grouped `Form` there is a non-lazy stack that lays out every open row
-/// on any change (75-410 ms per section toggle). iOS keeps its `Form` (a collection view, lazy).
-/// The search field keeps its own text; the sections filter on a debounced copy.
+/// section opens or the query changes). On the Mac the sections sit in a plain `VStack` styled
+/// like a grouped form. Not a `LazyVStack`: its prefetch / placement cycle twice hung the main
+/// thread for good (a menu open, then opening and scrolling the sidebar), and a reveal
+/// animation laid it out at every width from 0 up. The content is laid out at the sidebar's
+/// settled width (`LayoutWidth`), so the show / hide animation costs no layouts. iOS keeps its
+/// `Form` (a collection view, lazy). The search field keeps its own text; the sections filter
+/// on a debounced copy.
 struct ControlCenterView: View {
     let model: ExplorerModel
     /// The applied query (the field's text, debounced).
     @State private var query = UIDemo.search ?? ""
     @State private var confirmReset = false
-    /// The sidebar's width (the tile grids' columns follow it).
-    @State private var sidebarWidth: CGFloat = 330
+    /// The width the content is laid out at (the tile grids' columns follow it): the sidebar's
+    /// width once it has settled for 150 ms.
+    @State private var layoutWidth: CGFloat = 330
+    /// The sidebar's width as it is now (it animates when the sidebar shows or hides).
+    @State private var liveWidth: CGFloat = 330
+    /// The inspector column's minimum width (ContentView) and the narrowest width the content
+    /// is laid out at.
+    static let minimumWidth: CGFloat = 290
     @Environment(\.undoManager) private var undoManager
     @AppStorage("controlCenter.collapsed", store: UIDemo.enabled ? UIDemo.defaults : .standard)
     private var collapsedStorage = ""
@@ -43,11 +52,22 @@ struct ControlCenterView: View {
             if case .toggle(let s) = action { withAnimation(.snappy(duration: 0.2)) { toggle(s) } }
         }
         #if os(macOS)
+        // AppKit's reveal and hide animations (and a drag of the divider) give the sidebar a
+        // new width every frame, from 0 to its own. The content keeps the width it was laid
+        // out at (clipped) and follows once the width has settled: one layout, not one per
+        // frame (kb: platform/swiftui-performance).
+        .modifier(LayoutWidth(width: layoutWidth))
         // On the Mac the canvas runs on under the sidebar: the π panel (bottom right) moves
         // left of it while it shows.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
             model.piMeterInsetRight = Double($0)
-            sidebarWidth = $0
+            liveWidth = $0
+        }
+        .task(id: liveWidth) {
+            let w = max(liveWidth, ControlCenterView.minimumWidth)
+            guard w != layoutWidth else { return }
+            try? await Task.sleep(for: .milliseconds(150))
+            if !Task.isCancelled { layoutWidth = w }
         }
         .onDisappear { model.piMeterInsetRight = 0 }
         #endif
@@ -56,9 +76,8 @@ struct ControlCenterView: View {
     #if os(macOS)
     private func sections(shown: [ControlSection], collapsed: Set<String>) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                // Every row is a child of the lazy stack (ControlCardRows), so opening a section
-                // builds and lays out only the rows that come into view.
+            VStack(alignment: .leading, spacing: 0) {
+                // Not lazy: see the type's comment (kb: platform/swiftui-performance).
                 ForEach(shown) { section in
                     let open = !collapsed.contains(section.rawValue)
                     ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
@@ -90,7 +109,7 @@ struct ControlCenterView: View {
         }
         .labeledContentStyle(ControlRowLabeledStyle())
         .toggleStyle(ControlRowToggleStyle())
-        .environment(\.controlRowWidth, max(100, sidebarWidth - 48))
+        .environment(\.controlRowWidth, max(100, layoutWidth - 48))
     }
     #else
     private func sections(shown: [ControlSection], collapsed: Set<String>) -> some View {
@@ -640,9 +659,8 @@ struct QualitySectionRows: View {
 
 #if os(macOS)
 /// A section's rows on a rounded background with separators between them, like a grouped
-/// `Form` section. Each row is its own child of the sidebar's `LazyVStack` (with its slice of the
-/// card: rounded corners on the first and the last), so the stack builds only the visible rows.
-/// Rows marked `controlRowTight` (tile grid rows) sit closer and without a separator.
+/// `Form` section. Each row is its own child of the sidebar's stack (with its slice of the card:
+/// rounded corners on the first and the last). Rows marked `controlRowTight` (tile grid rows) sit closer and without a separator.
 struct ControlCardRows<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -709,9 +727,34 @@ struct ControlRowToggleStyle: ToggleStyle {
 }
 #endif
 
-/// Same-shape tiles in rows: on the Mac each row of the grid is a row of the sidebar's lazy
-/// stack (only the visible ones are built: kb platform/swiftui-performance); the columns follow
-/// the sidebar's width. iOS: one grid in one form row.
+#if os(macOS)
+/// Lays its content out `width` wide whatever width it is given (clipped, leading), and reports
+/// the width it is given: the control center while its width animates.
+struct LayoutWidth: ViewModifier {
+    let width: CGFloat
+
+    func body(content: Content) -> some View {
+        FixedWidthLayout(width: width) { content }.clipped()
+    }
+
+    private struct FixedWidthLayout: Layout {
+        let width: CGFloat
+
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            let size = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: proposal.height)) ?? .zero
+            return CGSize(width: proposal.width ?? size.width, height: proposal.height ?? size.height)
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                                  proposal: ProposedViewSize(width: width, height: bounds.height))
+        }
+    }
+}
+#endif
+
+/// Same-shape tiles in rows: on the Mac each row of the grid is a row of the sidebar's stack;
+/// the columns follow the sidebar's settled width. iOS: one grid in one form row.
 struct TileRows<Tile: View>: View {
     let ids: [String]
     var minWidth: CGFloat
@@ -951,7 +994,7 @@ struct PlacesSection: View {
             }
         }
         // The HUD's zoom at each place in this window (place zooms count from the whole set).
-        let zoomOffset = model.explorer?.placeZoomOffset() ?? 0
+        let zoomOffset = model.placeZoomOffset
         TileRows(ids: shown.map(\.id), minWidth: 88, spacing: 6, aspect: 1.6) { i in
             let p = shown[i]
             Button {
@@ -988,7 +1031,7 @@ struct PlacesSection: View {
         if let id = selected, let p = ExplorerModel.places.first(where: { $0.id == id }) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.name).font(.callout.weight(.semibold))
-                Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10 + (model.explorer?.placeZoomOffset() ?? 0))) · \(p.feature)")
+                Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10 + model.placeZoomOffset)) · \(p.feature)")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(p.description).font(.caption).fixedSize(horizontal: false, vertical: true)
             }
@@ -1084,7 +1127,7 @@ struct PalettePicker: View {
     var body: some View {
         let _ = UIPerf.body("PalettePicker")
         // The Mac: header, category, each grid row and the import button are rows of their own
-        // (lazy, kb: platform/swiftui-performance); iOS: one form row.
+        // (card rows, kb: platform/swiftui-performance); iOS: one form row.
         #if os(macOS)
         parts
         #else

@@ -1365,3 +1365,18 @@ the user point, 0.22 → 0.002 at seahorse; ~5 more decades per 90 s. Page: [[de
 ## [2026-10-17] lint | Business pages removed from the tree
 
 The 24 business files were still tracked: the two research reports, the distribution and gamification decisions, 13 source pages and 7 raw research notes. The 2026-10-17 entry above had said they had moved. They are now deleted from the repository, after a byte-for-byte check that `../almondbread-private/kb/` holds identical copies. They remain in the git history until the user decides how the history goes public.
+
+## [2026-10-17] query | Beach ball opening and scrolling the control center
+
+Hang report: opening the control center and scrolling it hung the main thread for good in a
+SwiftUI graph update. New scenes `--ui-demo=perf-open` (open, scroll, the reveal animation
+replayed with the split view's divider) and `--ui-demo=perf-stress` (40 seeded rounds, stall
+watchdog that `sample`s). Not reproduced as a permanent hang in a background window; found
+that the reveal laid the lazy sidebar out at every width from 20 pt up (20-64 ms per step, tile
+grids rebuilt, document height estimates of 15 000+ pt) and 63 iterations over 150 ms per
+stress run (worst 566 ms). Fix: the content is laid out at the settled width (`LayoutWidth`),
+a plain `VStack` replaces the `LazyVStack` (whose prefetch cycle is the only mechanism seen to
+hang for good), the place pill offset is cached in the model (no Rust call in a body). Scroll
+longest iteration 31-38 → 3-5 ms, first open 77 → 40 ms, stress 63 → 8 long iterations; section
+opens 10-20 → 30-150 ms and the search rebuild 67-92 → 330-350 ms are the price. Page:
+[[platform/swiftui-performance]] "Hang: opening and scrolling the sidebar".
