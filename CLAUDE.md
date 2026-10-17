@@ -92,7 +92,9 @@ and quit by themselves):
   turns the pipeline warm-up off (kb: platform/metal-compute); `ALMONDBREAD_GESTURE_PROBE=1`
   (off by default, also `ALMONDBREAD_GESTURE_PROBE=1 make interaction-test`) turns on the
   gesture-resolution probes and hysteresis against GPU-clock-inflated costs (kb:
-  synthesis/benchmarks "Autopilot throttle and GPU clocks"); `fly --log x.csv` has per-refresh
+  synthesis/benchmarks "Autopilot throttle and GPU clocks"); `ALMONDBREAD_PREVIEW_WAIT_BLA=0`
+  lets previews start without a new reference's BLA table again (the 200 ms+ GPU stalls of
+  autopilot dives, kb: techniques/bla "Pitfalls"); `fly --log x.csv` has per-refresh
   zoom, frame CPU and late ms (`fly_to` and `jump` take `{"place": id}`).
 - Journeys: `almondbread journey --seed n --path 1|2` prints each leg's dull stretches and the
   per-dive depths; `ALMONDBREAD_PROBE_ESCALATE=0` restores the fixed CPU probe limit (target

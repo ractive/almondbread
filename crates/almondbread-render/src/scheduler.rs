@@ -162,6 +162,9 @@ pub struct SchedulerConfig {
     /// `ALMONDBREAD_GESTURE_PROBE=1`). Off by default until compared in the foreground app;
     /// off is the plain cost model.
     pub gesture_probe: bool,
+    /// A job's first level waits for the BLA table of a new reference, showing the history
+    /// (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: previews start without it, the old behaviour).
+    pub preview_wait_bla: bool,
     /// Print every harvested chunk (`ALMONDBREAD_TRACE=1`).
     pub trace: bool,
     /// Size the gesture frame budget from the measured display refresh (about 70 % of a
@@ -339,6 +342,7 @@ impl Default for SchedulerConfig {
             max_chunks_in_flight: 3,
             warm_pipelines: std::env::var("ALMONDBREAD_WARM_PIPELINES").map_or(true, |v| v != "0"),
             gesture_probe: std::env::var("ALMONDBREAD_GESTURE_PROBE").is_ok_and(|v| v == "1"),
+            preview_wait_bla: std::env::var("ALMONDBREAD_PREVIEW_WAIT_BLA").map_or(true, |v| v != "0"),
             trace: std::env::var("ALMONDBREAD_TRACE").is_ok_and(|v| v == "1"),
             adaptive_budget: true,
             fade_tau: 0.03,
@@ -2390,11 +2394,19 @@ impl<B: GpuBackend> Renderer<B> {
         } else {
             self.start_job(key.clone(), JobMode::Refine, now);
         }
-        if self.waiting_reference {
+        // The job's first level would start before the BLA table of a new reference is built
+        // (on its thread, 1-7 ms for 31 000 points): wait for it as for the reference. Started
+        // without it, a deep preview iterates every pixel through the whole orbit, in one
+        // K = maxIter chunk sized by the cost measured with BLA: 200-560 ms of GPU per new
+        // reference while the autopilot dived at 1e-247 (kb: techniques/bla "Pitfalls").
+        let waiting_table = !self.waiting_reference && self.first_level_waits_for_table();
+        if self.waiting_reference || waiting_table {
             // M3b: a deep view whose reference is still computing (kb:
             // techniques/frame-reuse-and-progressive): no job yet; show the history reprojected
             // into the current view and keep polling.
-            self.job = None;
+            if self.waiting_reference {
+                self.job = None;
+            }
             outcome.animating = true;
             if self.history_view.as_ref().is_none_or(|h| h.viewport != key.viewport)
                 && let Some((target, drawable)) = acquire(false)
@@ -3044,6 +3056,24 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// Attaches the BLA table of the job's reference once it is built; `wait` joins a build
     /// still running on its thread.
+    /// The job's first level has not started, would use the BLA table (no LA table attached)
+    /// and the table is still building on its thread (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: the
+    /// old behaviour, previews start without it).
+    fn first_level_waits_for_table(&mut self) -> bool {
+        if !self.config.preview_wait_bla {
+            return false;
+        }
+        let Some(job) = &self.job else { return false };
+        if job.bla.is_some() || job.la.is_some() {
+            return false;
+        }
+        let Some(first) = job.levels.first() else { return false };
+        if first.started() || first.done || first.cache.is_some() {
+            return false;
+        }
+        self.job_bla(false) == BlaReady::Pending
+    }
+
     fn job_bla(&mut self, wait: bool) -> BlaReady {
         let Some(job) = &self.job else {
             return BlaReady::Without;
@@ -3149,6 +3179,9 @@ impl<B: GpuBackend> Renderer<B> {
             ),
         };
         self.bla_info = (build_time, entries, bytes);
+        if self.config.trace {
+            println!("BLA table: {entries} entries, built in {:.1} ms", build_time * 1e3);
+        }
         self.bla = None;
         if entries == 0 {
             return;
