@@ -1258,3 +1258,15 @@ The user reworded the cosmic scale's deep phases.
 - The atom-ratio nesting (and `level_decades`) is gone. Ruler marks "Earth = universe" … "Planck = universe", then "3 levels" … "52 levels".
 
 The π meter, autopilot and journey buttons left the macOS toolbar: the π meter is niche, and the cockpit shows the levels. The cockpit's icons now take clicks: manual stops (Esc), cruise starts cruising in (E), autopilot and journey toggle (Z, J). The pointer shows a hand over them as over (?) badges. [[decisions/controls]].
+
+## [2026-10-17] decision | Closed-form cardioid / period-2 bulb test at any depth
+
+User report: views at the main cardioid's and the period-2 bulb's boundaries (the −3/4 neck at
+4176×) showed large fog areas that compute further could not resolve. Built an exact test:
+per level the CPU expands both closed forms in BigFloat as degree-4 polynomials of the
+kernel's texel offset. The kernel marks a fresh texel interior iff the float32 sum is below
+−(2^-16 · sum of magnitudes + slack), which is a proof at any depth. Neck at 4176×: 45 % →
+0.05 % unresolved, GPU 25 → 2.5 ms. Cusp at 1e-9: 100 % → 0 %, 210 → 4 ms. No class mismatch
+anywhere. The user's second view (−0.6443−0.3662i) is inside a period-64 component, not the
+cardioid, and is unchanged. Page: [[techniques/interior-detection]] "Closed-form component
+test".
