@@ -33,7 +33,7 @@ use bytemuck::bytes_of;
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 use crate::gpu_types::{
     AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
-    PixelStateIC, SeedNode, SeedParams, SurveyParams,
+    PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams,
 };
 use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
 use crate::sample_cache::{CacheMap, CacheStats, PlanInput, Regime, SampleCache};
@@ -54,6 +54,39 @@ const SURVEY_INTERVAL: f64 = 0.1;
 const PALETTE_SIZE: usize = 1024;
 /// Derivative test threshold on |w| n² (kb: techniques/interior-detection, Pitfalls).
 const INTERIOR_EPS: f32 = 1e-3;
+/// Loop steps per interior-probe step (`PROBE_COST_PLAIN` / `PROBE_COST_DEEP` in MSL): a probe
+/// step (float32 in the plain kernel, floatexp in the deep one) costs about this many main-loop
+/// steps, and the chunk budget counts them so.
+const PROBE_COST_PLAIN: usize = 4;
+const PROBE_COST_DEEP: usize = 16;
+/// Probe steps per chunk at most: most probes finish within a few dozen steps, and the
+/// compaction after a chunk gathers the long ones into full SIMD groups (one long probe in a
+/// group of short ones holds the whole group).
+const PROBE_CHUNK_STEPS: usize = 128;
+/// ... unless few pixels are left: probe steps x pixels per chunk.
+const PROBE_CHUNK_WORK: usize = 1 << 24;
+/// The probe's work (in loop steps) at most this share of the level's work before it.
+const PROBE_SHARE: f64 = 0.5;
+/// Probe steps per pixel at least (when the share allows fewer).
+const PROBE_MIN_STEPS: usize = 64;
+/// Probed pixels of a level before its success rate is judged, and the least success rate
+/// that keeps the probe on.
+const PROBE_TRIAL: usize = 4096;
+const PROBE_MIN_SUCCESS: f64 = 0.05;
+
+/// Probe steps per pixel at limit `max_iter` (`IterateParams::probe`; 0 off).
+fn probe_limit(max_iter: usize, div: u32) -> u32 {
+    if div == 0 {
+        0
+    } else {
+        (max_iter / div as usize + 256).min(PROBE_MAX_STEPS) as u32
+    }
+}
+/// Probe steps per pixel at most: a probe runs its steps one after another (a few pixels that
+/// fail at the limit make the level's tail; ~1.2 us per step there, M1 Pro: home-100k's 12756
+/// steps added 9 ms for 300 pixels). Proves periods up to ~400 (a few periods to find the cycle
+/// and the Newton passes); longer ones are left to the extension passes' |w| n^2 test.
+const PROBE_MAX_STEPS: usize = 2048;
 const ITERATE_THREADS: usize = 256;
 /// Compose modes (the `compose` kernel's `mode`).
 const COMPOSE_GESTURE: u32 = 0;
@@ -161,6 +194,11 @@ pub struct SchedulerConfig {
     /// periodic references (`ALMONDBREAD_AT=0|1`).
     pub la: LaMode,
     pub la_at: bool,
+    /// Interior probe for pixels still unresolved at the limit: Newton on the attracting cycle
+    /// with a Kantorovich bound on its multiplier (kb: techniques/interior-detection
+    /// "Attracting-cycle probe"). At most `max_iter / interior_probe + 256` extra steps per
+    /// pixel; 0 off (`ALMONDBREAD_PROBE=0|n`, default 8).
+    pub interior_probe: u32,
 }
 
 /// When levels start their pixels from local series approximation seeds.
@@ -302,6 +340,10 @@ impl Default for SchedulerConfig {
                 .and_then(|v| LaMode::parse(&v))
                 .unwrap_or(LaMode::Auto),
             la_at: std::env::var("ALMONDBREAD_AT").is_ok_and(|v| v == "1"),
+            interior_probe: std::env::var("ALMONDBREAD_PROBE")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(8),
         }
     }
 }
@@ -385,6 +427,14 @@ struct Level<B: GpuBackend> {
     iterations: f64,
     interior_pixels: usize,
     use_interior: bool,
+    /// The interior probe's step limit was capped by its work share (when only parked pixels
+    /// were left first).
+    probe_checked: bool,
+    /// Pixels finished unescaped in probe chunks, and of those unresolved (probe failed).
+    probe_finished: usize,
+    probe_failed: usize,
+    /// Started without the probe because the last level's probes failed.
+    probe_skipped: bool,
     /// Loop steps (BLA + perturbation) the GPU did for this level.
     steps: f64,
     /// Iterates through the BLA table (decided when the level starts).
@@ -519,6 +569,11 @@ impl<B: GpuBackend> Level<B> {
         params.tiles_x = tx as u32;
         params.height = set.height as u32;
         params.total = total as u32;
+        // (Previews and gesture frames are superseded within frames: no interior probe, which
+        // would add chunks to a frame that must complete in its budget.)
+        if preview {
+            params.probe = 0;
+        }
         Self {
             set,
             ratio,
@@ -539,6 +594,10 @@ impl<B: GpuBackend> Level<B> {
             iterations: 0.0,
             interior_pixels: 0,
             use_interior: false,
+            probe_checked: false,
+            probe_finished: 0,
+            probe_failed: 0,
+            probe_skipped: false,
             steps: 0.0,
             use_bla: false,
             use_la: false,
@@ -555,6 +614,20 @@ impl<B: GpuBackend> Level<B> {
 
     fn started(&self) -> bool {
         self.encoded > 0
+    }
+
+    /// The last chunk read back left only pixels parked for the interior probe (unresolved at
+    /// the limit), and either every texel is admitted or they hold half the live capacity: the
+    /// next chunks run the kProbe pipeline. (Not while texels are still being admitted: they
+    /// would iterate in the probe variant, ~1.5x slower; with K = maxIter every chunk ends
+    /// with parked pixels only, and home at 3456 x 2234 took 22 instead of 15 ms.)
+    fn probe_phase(&self) -> bool {
+        self.params.probe != 0
+            && self.use_interior
+            && self.started()
+            && self.live_min_n != u32::MAX
+            && self.live_min_n >= self.params.max_iter
+            && (self.admitted >= self.total || 2 * self.live >= self.params.capacity as usize)
     }
 
     fn is_extension(&self) -> bool {
@@ -755,6 +828,8 @@ struct ChunkRecord<B: GpuBackend> {
     preview: bool,
     /// A chunk of a sample cache level (its tiles are no sample of the view's cost).
     cache: bool,
+    /// Ran the interior probe (kProbe pipeline).
+    probe: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -970,7 +1045,13 @@ pub struct Renderer<B: GpuBackend> {
     cycle_time: f64,
     /// Iterate pipelines keyed by `de | interior << 1 | bla << 2 | deep << 3 | interior_color << 4 |
     /// seeded << 5`.
-    iterate_pipelines: [Option<B::Pipeline>; 256],
+    iterate_pipelines: [Option<B::Pipeline>; 512],
+    /// Interior probe state (two halves parallel to `state_buffers`, allocated on first use;
+    /// kb: techniques/interior-detection "Attracting-cycle probe").
+    probe_buffer: Option<B::Buffer>,
+    /// A level of this job probed and found almost nothing to prove (`PROBE_MIN_SUCCESS`): its
+    /// later levels (extension passes, AA samples) start without the probe.
+    probe_low_success: bool,
     /// Interior cycle analysis state, parallel to `state_buffers` (allocated on first use).
     ic_buffers: Option<[B::Buffer; 2]>,
     /// Level textures carry the interior analysis texture (set per job).
@@ -1114,7 +1195,17 @@ enum WarmKey {
 }
 
 /// Index of an iterate variant in `iterate_pipelines`.
-fn iterate_key(de: bool, interior: bool, bla: bool, deep: bool, ic: bool, seeded: bool, la: (bool, bool)) -> usize {
+#[allow(clippy::too_many_arguments)]
+fn iterate_key(
+    de: bool,
+    interior: bool,
+    bla: bool,
+    deep: bool,
+    ic: bool,
+    seeded: bool,
+    la: (bool, bool),
+    probe: bool,
+) -> usize {
     usize::from(de)
         | (usize::from(interior) << 1)
         | (usize::from(bla) << 2)
@@ -1123,6 +1214,7 @@ fn iterate_key(de: bool, interior: bool, bla: bool, deep: bool, ic: bool, seeded
         | (usize::from(seeded) << 5)
         | (usize::from(la.0) << 6)
         | (usize::from(la.1) << 7)
+        | (usize::from(probe) << 8)
 }
 
 /// Index of a seed variant in `seed_pipelines`.
@@ -1201,6 +1293,8 @@ impl<B: GpuBackend> Renderer<B> {
             cycle_time: 0.0,
             iterate_pipelines: std::array::from_fn(|_| None),
             ic_buffers: None,
+            probe_buffer: None,
+            probe_low_success: false,
             want_aux: false,
             seed_pipelines: Default::default(),
             warm: None,
@@ -1342,12 +1436,13 @@ impl<B: GpuBackend> Renderer<B> {
         interior_color: bool,
         seeded: bool,
         la: (bool, bool),
+        probe: bool,
     ) -> Result<B::Pipeline, GpuError> {
-        let k = iterate_key(de, interior, bla, deep, interior_color, seeded, la);
+        let k = iterate_key(de, interior, bla, deep, interior_color, seeded, la, probe);
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
-        // (Constants 6 and 7 are unused by `iterate`; 8 and 9 are M6's kLA and kAT.)
+        // (Constant 6 is kProbe, 7 is unused by `iterate`; 8 and 9 are M6's kLA and kAT.)
         let p = self.backend.pipeline(
             "iterate",
             &[
@@ -1357,7 +1452,7 @@ impl<B: GpuBackend> Renderer<B> {
                 deep,
                 interior_color,
                 seeded,
-                false,
+                probe && interior,
                 false,
                 la.0,
                 la.1,
@@ -1509,13 +1604,14 @@ impl<B: GpuBackend> Renderer<B> {
             for &(d, c) in settings {
                 for &(bla, la) in modes {
                     for seeded in [true, false] {
-                        for interior in [true, false] {
-                            let k = iterate_key(d, interior, bla, deep, c, seeded, (la, false));
+                        // (kProbe: the variant for the chunks of parked interior-probe pixels.)
+                        for (interior, probe) in [(true, false), (false, false), (true, true)] {
+                            let k = iterate_key(d, interior, bla, deep, c, seeded, (la, false), probe);
                             if self.iterate_pipelines[k].is_none() && !keys.contains(&WarmKey::Iterate(k)) {
                                 keys.push(WarmKey::Iterate(k));
                                 requests.push((
                                     "iterate",
-                                    vec![d, interior, bla, deep, c, seeded, false, false, la, false],
+                                    vec![d, interior, bla, deep, c, seeded, probe, false, la, false],
                                 ));
                             }
                         }
@@ -2545,6 +2641,13 @@ impl<B: GpuBackend> Renderer<B> {
         let ref_point = reference.point.clone();
         let ref_on_axis = reference.point.big().im.is_zero();
         let live_capacity = self.config.live_capacity as u32;
+        // (A nucleus reference whose period needs more probe steps than the limit allows, about
+        // 4 periods: its minibrot and the bulbs and islands around it, of longer periods, cannot
+        // be proven; probing them only costs. sea-8007 at 3456 x 2234: +13 %, nothing proven.)
+        let mut probe = probe_limit(key.max_iter, self.config.interior_probe);
+        if reference.period.is_some_and(|p| 4 * p > probe as usize) {
+            probe = 0;
+        }
         let (rc, rs) = viewport.rotation();
         let rot = [rc as f32, rs as f32];
         let params = |ratio: f64, w: usize, h: usize| {
@@ -2573,6 +2676,7 @@ impl<B: GpuBackend> Renderer<B> {
                 scale_exp,
                 rot,
                 real_axis: u32::from(ref_on_axis),
+                probe,
                 ..IterateParams::default()
             }
         };
@@ -2663,6 +2767,9 @@ impl<B: GpuBackend> Renderer<B> {
             },
         };
         self.generation += 1;
+        // (The probe's success memory is per job: a retry at a higher limit or another view
+        // probes again; only the extension and AA levels after a failed full level skip it.)
+        self.probe_low_success = false;
         self.job = Some(Job {
             generation: self.generation,
             key,
@@ -3600,7 +3707,18 @@ impl<B: GpuBackend> Renderer<B> {
             let threads = self.config.live_capacity.min(level.live + level.total - level.admitted);
             // K from the throughput model: work <= threads x K lane-iterations.
             let target = (budget - spent).max(0.002);
-            let k = (level.params.max_iter as f64).min((target * self.rate / threads.max(1) as f64).max(16.0)) as usize;
+            // (Parked interior-probe pixels only: up to their whole probe in one chunk, in the
+            // probe's units of PROBE_COST_* loop steps.)
+            let cap = if level.probe_phase() {
+                let probe = level.params.probe as usize;
+                // (Fewer pixels: longer chunks, the tail is latency-bound and every chunk a
+                // round trip.)
+                let steps = (PROBE_CHUNK_WORK / level.live.max(1)).max(PROBE_CHUNK_STEPS);
+                probe.min(steps) * if job.deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN }
+            } else {
+                level.params.max_iter as usize
+            };
+            let k = (cap as f64).min((target * self.rate / threads.max(1) as f64).max(16.0)) as usize;
             if !self.encode_chunk(i, k, true) {
                 break;
             }
@@ -3619,6 +3737,22 @@ impl<B: GpuBackend> Renderer<B> {
             None => return false,
         };
         let stats = self.interior_stats;
+        let probe_low_success = self.probe_low_success;
+        {
+            let job = self.job.as_mut().expect("job");
+            let deep = job.deep;
+            let level = &mut job.levels[level_index];
+            if !level.probe_checked && level.probe_phase() {
+                // Once, when only parked pixels are left first: the probe may add at most
+                // PROBE_SHARE of the level's loop steps so far (sea-8007 at 29456: a million
+                // slowly escaping pixels took 2.7 s of probes for 0.1 s of level, then the
+                // learner rendered the view again at 4x anyway).
+                level.probe_checked = true;
+                let cost = if deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN } as f64;
+                let share = PROBE_SHARE * level.steps / (level.live.max(1) as f64 * cost);
+                level.params.probe = level.params.probe.min(share.max(PROBE_MIN_STEPS as f64) as u32);
+            }
+        }
         {
             let job = self.job.as_mut().expect("job");
             let has_bla = job.bla.is_some();
@@ -3638,6 +3772,10 @@ impl<B: GpuBackend> Renderer<B> {
                         level.set.width, level.set.height, level.preview, job.la_decided
                     );
                 }
+            }
+            if !level.started() && level.params.probe != 0 && probe_low_success {
+                level.params.probe = 0;
+                level.probe_skipped = true;
             }
             if !level.started() && !level.is_extension() && level.cache.is_none() {
                 level.use_interior = autoiter::use_interior_test(interior_enabled, stats, key_max_iter);
@@ -3686,6 +3824,18 @@ impl<B: GpuBackend> Renderer<B> {
             let la = l.use_la && table.is_some();
             (la, la && self.config.la_at && table.is_some_and(LaGpu::has_at))
         };
+        if use_interior && self.config.interior_probe != 0 && self.probe_buffer.is_none() {
+            let bytes = 2 * self.config.live_capacity * std::mem::size_of::<PixelStateProbe>();
+            self.probe_buffer = self.backend.create_buffer(bytes, Storage::Private).ok();
+        }
+        // Interior probe (kb: techniques/interior-detection "Attracting-cycle probe"): pixels
+        // unresolved at the limit park (stay live) in the lean pipeline; once the last chunk
+        // read back had nothing but parked pixels left, the kProbe variant runs them (its probe
+        // code costs registers, which slowed every main-loop pixel by up to 20 % when always
+        // on: sea-8007 120 -> 145 ms).
+        let probe_now = use_interior
+            && self.probe_buffer.is_some()
+            && self.job.as_ref().expect("job").levels[level_index].probe_phase();
         let pipeline = match self.iterate_pipeline(
             de,
             use_interior,
@@ -3694,6 +3844,7 @@ impl<B: GpuBackend> Renderer<B> {
             interior_color,
             seeded.is_some(),
             (use_la, use_at),
+            probe_now,
         ) {
             Ok(p) => p,
             Err(e) => {
@@ -3716,6 +3867,10 @@ impl<B: GpuBackend> Renderer<B> {
         p.seed_gate = u32::from(seed_gate);
         let tg = ITERATE_THREADS as u32;
         let (src, dst) = (self.ping, 1 - self.ping);
+        if self.probe_buffer.is_none() {
+            p.probe = 0;
+        }
+        p.probe_half = src as u32;
 
         enc.set_pipeline(&self.prepare_pipeline);
         enc.set_bytes(0, bytes_of(&p));
@@ -3771,6 +3926,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        enc.set_buffer(30, self.probe_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
         if use_la && let Some(t) = level.cache.as_ref().map_or(job.la.as_ref(), |c| c.la.as_ref()) {
             t.bind(&mut enc, deep, use_at, &self.dummy_buffer);
         }
@@ -3801,6 +3957,7 @@ impl<B: GpuBackend> Renderer<B> {
             adaptive,
             preview: self.job.as_ref().is_some_and(|j| j.levels[level_index].preview),
             cache: self.job.as_ref().is_some_and(|j| j.levels[level_index].cache.is_some()),
+            probe: probe_now,
         });
         self.stat_slot = (self.stat_slot + 1) % STAT_SLOTS;
         true
@@ -3923,6 +4080,19 @@ impl<B: GpuBackend> Renderer<B> {
             level.live = stats.live_out as usize;
             level.live_min_n = stats.live_min_n;
             level.crossed += stats.crossed as usize;
+            if rec.probe {
+                // Probes that mostly fail (a view nearly all unresolved at a limit the learner
+                // raises, or near-parabolic everywhere: the -3/4 neck at 7e6, 99 % unresolved)
+                // are stopped for the rest of the level: the parked pixels finish unresolved.
+                level.probe_finished += stats.interior as usize;
+                level.probe_failed += stats.crossed as usize;
+                let proven = level.probe_finished.saturating_sub(level.probe_failed);
+                if level.probe_finished >= PROBE_TRIAL
+                    && (proven as f64) < PROBE_MIN_SUCCESS * level.probe_finished as f64
+                {
+                    level.params.probe = 0;
+                }
+            }
             level.max_escape = level.max_escape.max(stats.max_escape as usize);
             for k in 0..4 {
                 level.escaped_past[k] += stats.escaped_past[k] as usize;
@@ -4073,11 +4243,20 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         self.complete_level(index);
+        if let Some(l) = self.job.as_ref().map(|j| &j.levels[index])
+            && !l.probe_skipped
+            && l.probe_finished >= PROBE_TRIAL
+        {
+            let proven = l.probe_finished.saturating_sub(l.probe_failed);
+            self.probe_low_success = (proven as f64) < PROBE_MIN_SUCCESS * l.probe_finished as f64;
+        }
         let rate = self.rate;
         let budget = self.config.extension_budget;
         let list_capacity = self.list_capacity;
         let trace = self.config.trace;
+        let probe_div = self.config.interior_probe;
         let job = self.job.as_mut().expect("job");
+        let deep = job.deep;
         let is_last = index + 1 == job.levels.len();
         let spent: f64 = job.levels.iter().filter(|l| l.is_extension()).map(|l| l.gpu_time).sum();
         let level = &mut job.levels[index];
@@ -4101,7 +4280,10 @@ impl<B: GpuBackend> Renderer<B> {
             // each from the start; a pass runs only if its estimated cost fits the budget and
             // is never cut short (a scanline-ordered list cut short leaves a straight edge).
             let count = level.crossed;
-            let fits = |n: usize| spent + count as f64 * n as f64 / rate <= budget;
+            // (With the interior probe: plus its steps, in loop steps, for each pixel.)
+            let probe_cost = if deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
+            let per_pixel = |n: usize| n + probe_limit(n, probe_div) as usize * probe_cost;
+            let fits = |n: usize| spent + count as f64 * per_pixel(n) as f64 / rate <= budget;
             let mut next = level.extend_to.min(level.params.max_iter as usize * 4);
             if !fits(next) {
                 next = level.extend_to.min(level.params.max_iter as usize * 2);
@@ -4109,6 +4291,7 @@ impl<B: GpuBackend> Renderer<B> {
             if fits(next) {
                 let mut p = level.params;
                 p.max_iter = next as u32;
+                p.probe = probe_limit(next, probe_div);
                 p.list_mode = 2;
                 p.total = count as u32;
                 p.fill_border = 0;

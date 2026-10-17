@@ -5,7 +5,7 @@
 use bytemuck::{Pod, Zeroable};
 use core::mem::{offset_of, size_of};
 
-/// Parameters of one iterate chunk (`IterateParams` in MSL), 112 bytes.
+/// Parameters of one iterate chunk (`IterateParams` in MSL), 136 bytes.
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct IterateParams {
@@ -56,6 +56,12 @@ pub struct IterateParams {
     /// used within 16 texels of the axis, where the escape depends on `Im c` alone (kb:
     /// techniques/local-series-approximation "Real axis").
     pub real_axis: u32,
+    /// Interior probe (kb: techniques/interior-detection "Attracting-cycle probe"): a pixel
+    /// still unresolved at `max_iter` searches its orbit for an attracting cycle for at most
+    /// this many more steps; 0: off.
+    pub probe: u32,
+    /// The probe state buffer half this chunk reads (it writes the other).
+    pub probe_half: u32,
 }
 
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
@@ -72,6 +78,27 @@ pub struct PixelState {
     /// Deep kernel: delta and DE exponents.
     pub e: i32,
     pub d_exp: i32,
+}
+
+/// Interior probe state of one live pixel past the limit (`PixelStateProbe` in MSL; one buffer
+/// of two halves of `capacity` entries, binding 30), 48 bytes: d²f^k/dz² at the base point
+/// (floatexp), the base point's reference index, steps since it, and Newton flag | passes |
+/// lead or period. kb: techniques/interior-detection "Attracting-cycle probe".
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct PixelStateProbe {
+    pub zz: [f32; 2],
+    pub zz_exp: i32,
+    pub m_b: u32,
+    pub k: u32,
+    pub info: u32,
+    /// Newton passes: the scan's orbit point (delta, exponent, reference index) to resume
+    /// from if they fail, and the rejected period (candidates must be longer).
+    pub o_b: [f32; 2],
+    pub o_b_exp: i32,
+    pub o_m: u32,
+    pub p_rej: u32,
+    pub _pad: u32,
 }
 
 /// Interior cycle analysis state of one live pixel (`PixelStateIC` in MSL, kInteriorColor
@@ -289,7 +316,8 @@ const _: () = {
     assert!(offset_of!(CacheParams, num) == 64);
     assert!(offset_of!(CacheParams, has_aux) == 80);
     assert!(size_of::<AaListParams>() == 32);
-    assert!(size_of::<IterateParams>() == 128);
+    assert!(size_of::<IterateParams>() == 136);
+    assert!(offset_of!(IterateParams, probe) == 128);
     assert!(offset_of!(IterateParams, fill_border) == 112);
     assert!(offset_of!(IterateParams, scale_exp) == 96);
     assert!(offset_of!(IterateParams, rot) == 104);
@@ -306,6 +334,7 @@ const _: () = {
     assert!(offset_of!(IterateParams, list_capacity) == 76);
 
     assert!(size_of::<PixelState>() == 48);
+    assert!(size_of::<PixelStateProbe>() == 48);
     assert!(offset_of!(PixelState, e) == 40);
     assert!(offset_of!(PixelState, pixel) == 24);
     assert!(offset_of!(PixelState, w_exp) == 36);

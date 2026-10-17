@@ -219,6 +219,91 @@ Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
   period-4 minibrot at 50 000 790 → 52 ms (15×), elephant 222 → 112 ms, home at 1 000
   26 → 14 ms, home at 1e7 (800×500) 11.4 s → 83 ms.
 
+## Attracting-cycle probe (built 2026-10-17)
+
+**Problem.** `|w| n² < ε` proves only the fast core of a component. With multiplier `λ` per
+period `P`, an interior orbit needs `|λ|^(n/P) n² < ε`. At the place `satellite` (P 39, auto
+limit 1994 = 51 periods) that is `|λ| < ~0.7`: the core disc of the cardioid. The rest of the
+body, the bulbs (P 78, 117, …) and small attached minibrots stayed unresolved, which since
+the grey unresolved veil (2026-10-17) is visible. Root cause is the test itself, not ε, the
+check stride, BLA/LA or float32 range (measured 2026-10-17, M1 Pro, release: at limit 100 000
+the same pixels are proven, 3.6 % of 3.7 %).
+
+**Method** (our own; Newton on the cycle as in mathr's interior DE, src:
+[[sources/mathr-interior-distance]] §Practical interior distance rendering, plus a
+Kantorovich bound for a proof). A pixel unresolved at the limit continues its orbit:
+
+1. Scan: base point `z_B` = smallest `|z|` so far (the cycle's point nearest 0, where `z` has
+   full relative precision). A return within `|z_B|/4` after `k` steps is a candidate `P = k`
+   if `z_B` was the minimum for `k` steps before it too.
+2. Evaluate `F = f^P` at `z_B`: `g = F(z_B) − z_B`, `λ = F′(z_B)`, `F″(z_B)` (accumulated:
+   `F″ ← 2 z F″ + 2 λ²` before `λ ← 2 z λ`). Newton step `Δ = −g/(λ − 1)`. With `L = 2|F″|`,
+   float32 noise `η` in `g`, `h = L(|g| + η)/|λ − 1|² ≤ 1/4` and `r = 2(|Δ| + η/|λ − 1|) ≤ |z_B|/64`,
+   a fixed point `z*` of `F` lies within `r`, with `|F′(z*)| ≤ |λ| + L r`. If that is
+   `≤ 1 − μ`, `f` has an attracting cycle and `c` is interior (an exterior `c` has none).
+3. Otherwise Newton moves the base point to `z_B + Δ` (≤ 8 passes); a located but surely
+   repelling fixed point (`|λ| − L r > 1 + 2^-10`: the parent cycle inside a satellite bulb
+   of period `qP`, e.g. P 1 inside the 1/10 bulb, or a ghost on an exterior orbit) resumes
+   the scan from the saved orbit point for periods `> P` only; a hopeless candidate also
+   raises that floor (the next candidate is `f^(jP)`, after more convergence); a fixed point
+   located at the noise floor but not provably attracting (near-parabolic) gives up.
+
+Noise: `η = 2^-22 (1 + √P)(|δ| + |δ_B|` (+ `|Z_m| + |Z_mB|` if the reference indices
+differ)`)`, `μ = 2^-20 (P + 16)`. Measured margin: either bound alone 2^12 times smaller still
+gave no false interior at neck-2e5 and root-third against the CPU at 100 000; both 2^8 times
+smaller (2^-30, 2^-28) gave 0.004 % and 0.002 % false interior there. Near-parabolic pixels
+(`|λ| ≳ 0.99–0.998`: the −3/4 neck, the 1/3 root, the cusp's rim) cannot be proven in
+float32 and stay unresolved.
+
+**As built** (`mandelbrot.metal`, "Attracting-cycle probe"; scheduler `probe_*`):
+
+- Float32 steps in the plain kernel, floatexp in the deep one. `λ` and `F″` carry exponents.
+- Its registers cost every main-loop pixel 10–20 % when compiled into the main pipeline
+  (sea-8007 120 → 145 ms with the probe off). So it is a function-constant variant (kProbe,
+  constant 6): an unresolved pixel *parks* (stays live at `n = maxIter`), and the scheduler
+  switches to the kProbe pipeline when the last chunk read back held parked pixels only and
+  either everything is admitted or they fill half the live capacity. State in a separate
+  48-byte buffer (binding 30, two halves); `PixelState` unchanged.
+- Limits per pixel: `maxIter/8 + 256` steps, at most 2048 (a few failing pixels form a
+  latency-bound tail, ~1.2 µs per step), and at most half the level's work so far. Probe
+  chunks cap steps at `max(128, 2^24 / live)` so long probes are compacted. Off for previews
+  and gesture frames, for a nucleus reference with `4 P >` the limit, and for the rest of a
+  level (and its extension and AA levels) once 4096 probed pixels show < 5 % success.
+- `ALMONDBREAD_PROBE=0` switches it off, `=n` sets the divisor.
+
+**Results** (measured 2026-10-17, M1 Pro, release; `verify`, GPU at the view's limit vs the
+CPU oracle at a high limit; "proven" = GPU detected / CPU non-escaping; false interior 0 in
+every view):
+
+| view | CPU interior | proven before | after | unresolved before | after |
+|---|---:|---:|---:|---:|---:|
+| satellite (800×500) | 3.7 % | 1.1 | 3.4 | 2.84 % | 0.54 % |
+| period-2 bulb (−1, 7.5e-4/px) | 84.5 | 66.8 | 83.9 | 18.3 | 1.2 |
+| main cardioid edge (0.3272+0.0562i) | 86.1 | 55.7 | 84.0 | 31.0 | 4.4 |
+| p2 bulb edge (−0.8649+0.2104i, 1.25e-7/px) | 57.9 | 10.7 | 47.8 | 71.3 | 34.3 |
+| satellite-head | 40.0 | 4.9 | 32.4 | 36.4 | 13.1 |
+| satellite-antenna | 23.9 | 4.1 | 21.7 | 21.3 | 3.7 |
+| period-4-minibrot (place) | 7.5 | 5.5 | 7.4 | 2.0 | 0.2 |
+| home-100k | 15.8 | 12.9 | 15.7 | 3.1 | 0.24 |
+| minibrot-p4 | 11.6 | 8.7 | 11.5 | 3.0 | 0.23 |
+| elephant | 28.3 | 5.6 | 27.6 | 23.6 | 1.7 |
+| cusp-1e5 | 97.5 | 35.7 | 87.9 | 61.9 | 9.9 |
+| feigenbaum, neck-2e5, neck-7e6, root-third, sea-8007 | | 0 | 0 | unchanged | |
+| needle-1e94 / 1e305 / 1e1004 | 1.2 / 1.3 / 0.6 | 1.1 / 1.1 / 0.4 | same | | |
+
+Settle time in the app scheduler (`almondbread progress`, 1600×1000, plain settings) with
+extension passes: satellite 0.18 → 0.19 s, unresolved 6597 → 331 pixels; cardioid edge
+0.26 → 0.20 s (140 489 → 23 235); elephant 43 034 → 9 456; cusp 0.80 → 0.51 s
+(276 810 → 126 074); satellite-head 0.88 → 0.32 s (216 268 → 10 256). Offscreen renders
+without extension passes (`bench`) pay for the probe: see [[synthesis/benchmarks]].
+
+**Known limits.** Periods above ~400 (2048 steps) are not proven: Feigenbaum (P 2048+),
+sea-8007, deep needles. Where the probe needs about its whole step budget (the satellite
+head's P 78 bulb near its root at limit 2743), success varies from pixel to pixel: the edge
+of the proven region shows steps along horizontal lines, and small minibrots near the limit
+come out speckled black and grey at 3×3 supersampling; extension passes (higher limit) clear
+most of it. A slow exterior pixel that escapes during the probe is still reported unresolved.
+
 ## For almondbread
 
 Use the derivative test as the default interior test: one extra complex
