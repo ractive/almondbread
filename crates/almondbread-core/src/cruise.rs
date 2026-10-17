@@ -13,11 +13,14 @@
 //! ladder.
 //!
 //! **Zoom-out dynamics.** In reverse the effective rate grows with the depth `D` (e-folds
-//! below the home view): `rate = set · (1 + D / BOOST_DEPTH)^ramp(t)`, `ramp` rising from
-//! 0 to 1 over [`BOOST_RAMP`] seconds after reversing began (smoothstep), so one press does
-//! not jump to a ludicrous speed: the log of the speed accelerates evenly. With the boost in full, `D + BOOST_DEPTH` decays
-//! exponentially: home from depth `D` takes `BOOST_DEPTH / set · ln(1 + D / BOOST_DEPTH)`
-//! seconds (logarithmic in the depth: about a minute from 1e-3000 at the first rung). The
+//! below the home view): `rate = set · (1 + D / BOOST_DEPTH)^(share · ramp(t))`, `ramp`
+//! rising from 0 to 1 over [`BOOST_RAMP`] seconds after reversing began (smoothstep), so one
+//! press does not jump to a ludicrous speed: the log of the speed accelerates evenly. The
+//! exponent's `share` ([`boost_share`]) grows with the gear, 0.5 in the first to 1 in the
+//! top one: the low gears are deliberately slow (gear 1 takes about 2 minutes from 1e-10,
+//! gear 10 (×5) about 70 s from 1e-3000, the top gear about 10 s; table in kb:
+//! decisions/controls "Driving levels"). With the full boost in the top gear, `D + BOOST_DEPTH`
+//! decays exponentially (home in a time logarithmic in the depth). The
 //! rate itself follows its target on the autopilot's rate spring (ω 3 / 4 per second), so the
 //! base speed eases in over about a second and a stop brakes on the spring's smooth curve.
 //! Near home the navigator hands the last stretch to a soft-landing flight
@@ -54,18 +57,25 @@ impl Level {
 }
 
 /// The pedal ladder: zoom factors per second of the rungs on either side of zero (E steps
-/// right, Q left: … ×2 out, ×1.5 out, stop, ×1.5 in, ×2 in …). It goes well beyond the
-/// autopilot's ×55 so that deep zoom-outs can be fast; forward the renderer back-off
-/// (throttle) still applies.
-pub const LADDER: [f64; 12] = [1.5, 2.0, 3.0, 5.0, 8.0, 13.0, 20.0, 35.0, 60.0, 100.0, 250.0, 1000.0];
+/// right, Q left: … ×1.2 out, ×1.1 out, stop, ×1.1 in, ×1.2 in …), the cockpit's gears 1–26.
+/// Each rung is 1.1–1.4× the last up to ×100, then wider (user: finer than the former 12).
+/// It goes well beyond the autopilot's ×55 so that deep zoom-outs can be fast; forward the
+/// renderer back-off (throttle) still applies.
+pub const LADDER: [f64; 26] = [
+    1.1, 1.2, 1.35, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0, 6.5, 8.0, 10.0, 13.0, 16.0, 20.0, 27.0, 35.0, 45.0, 60.0, 80.0,
+    100.0, 150.0, 250.0, 400.0, 1000.0,
+];
 
 /// A held pedal steps one more rung after [`HOLD_DELAY`] s, then every [`HOLD_REPEAT`] s.
 pub const HOLD_DELAY: f64 = 0.4;
-pub const HOLD_REPEAT: f64 = 0.25;
+pub const HOLD_REPEAT: f64 = 0.15;
 /// Depth boost in reverse: +1× per this many e-folds of depth below home, ramping in over
-/// [`BOOST_RAMP`] seconds after reversing began.
+/// [`BOOST_RAMP`] seconds after reversing began, and scaled by the gear ([`boost_share`]):
+/// the low gears barely boost, the top gears fully (user, 2026-10-17).
 pub const BOOST_DEPTH: f64 = 3.0;
-pub const BOOST_RAMP: f64 = 4.0;
+pub const BOOST_RAMP: f64 = 10.0;
+/// The boost exponent's share in the first gear (it rises linearly to 1 in the top gear).
+pub const BOOST_SHARE_LOW: f64 = 0.5;
 /// The effective rate never exceeds this (e-folds/s; the boost at 1e-3000 at the top rung).
 pub const RATE_MAX: f64 = 2000.0;
 /// The renderer back-off (throttle) slows a reverse cruise at most to this share: zooming out
@@ -81,6 +91,25 @@ const REST: f64 = 1e-3;
 /// The rung values in e-folds per second.
 pub fn rung(i: usize) -> f64 {
     LADDER[i.min(LADDER.len() - 1)].ln()
+}
+
+/// The gear (1-based) of a set speed (signed e-folds/s): the nearest rung; None at rest.
+pub fn gear(set: f64) -> Option<usize> {
+    let m = set.abs();
+    if !(m.is_finite() && m > 1e-9) {
+        return None;
+    }
+    (0..LADDER.len())
+        .min_by(|a, b| (rung(*a) - m).abs().total_cmp(&(rung(*b) - m).abs()))
+        .map(|i| i + 1)
+}
+
+/// The share of the depth boost's exponent for a set speed: [`BOOST_SHARE_LOW`] in the first
+/// gear, 1 in the top one (linear in the gear; beyond the ladder 1).
+pub fn boost_share(set: f64) -> f64 {
+    let Some(g) = gear(set) else { return 0.0 };
+    let f = (g - 1) as f64 / (LADDER.len() - 1) as f64;
+    BOOST_SHARE_LOW + (1.0 - BOOST_SHARE_LOW) * f.clamp(0.0, 1.0)
 }
 
 /// The fastest rung (e-folds per second).
@@ -305,7 +334,7 @@ impl Cruise {
         }
         // The boost ramps in on a log scale: (1 + D / D0)^ramp, an even acceleration of the
         // log speed rather than a jump to a large multiple.
-        let ramp = smoothstep(self.reverse_for / BOOST_RAMP);
+        let ramp = smoothstep(self.reverse_for / BOOST_RAMP) * boost_share(self.set);
         let boost = (ramp * (depth / BOOST_DEPTH).ln_1p()).exp();
         (self.set * boost * throttle.max(REVERSE_THROTTLE_MIN)).max(-RATE_MAX)
     }
@@ -440,13 +469,13 @@ mod tests {
         assert_eq!(pedal(v, -1.0, false), 0.0, "held: stops at zero");
         assert_eq!(pedal(v, -1.0, true), -r(0), "a new press reverses");
         // Off-ladder values (the autopilot's 0.9 e-folds/s) step to the neighbouring rungs.
-        assert_eq!(pedal(0.9, 1.0, true), r(2));
-        assert_eq!(pedal(0.9, -1.0, true), r(1));
-        assert_eq!(pedal(-0.3, 1.0, true), 0.0);
-        assert_eq!(factor_text(r(0)), "×1.5");
-        assert_eq!(factor_text(-r(1)), "×2");
+        assert_eq!(pedal(0.9, 1.0, true), r(6));
+        assert_eq!(pedal(0.9, -1.0, true), r(5));
+        assert_eq!(pedal(-0.05, 1.0, true), 0.0);
+        assert_eq!(factor_text(r(0)), "×1.1");
+        assert_eq!(factor_text(-r(5)), "×2");
         assert_eq!(factor_text(0.9), "×2.46");
-        assert_eq!(factor_text(r(11)), "×1000");
+        assert_eq!(factor_text(r(25)), "×1000");
         assert_eq!(factor_text(-1000.0), "×1e434");
     }
 
@@ -458,7 +487,7 @@ mod tests {
         let mut d = depth;
         let mut t = 0.0;
         let mut rates = Vec::new();
-        for _ in 0..(600.0 * hz) as usize {
+        for _ in 0..(3600.0 * hz) as usize {
             if d <= 0.0 {
                 return (t, rates);
             }
@@ -470,19 +499,33 @@ mod tests {
         panic!("never home from {depth}");
     }
 
+    /// The boost depends on the gear: first gear crawls (no hurry from 1e10), the default-ish
+    /// gears bring 1e69 home in under a minute, the top gear brings 1e3000 home in seconds;
+    /// always gradual (no jumps between frames, near the base speed after 1 s).
     #[test]
-    fn reverse_boost_builds_up_and_brings_any_depth_home_in_about_a_minute() {
-        for (depth, max_t) in [(23.0, 22.0), (690.0, 48.0), (6908.0, 66.0)] {
-            let (t, rates) = reverse(depth, -rung(0), 60.0);
-            assert!(t < max_t, "{depth} e-folds: {t} s");
-            // Gradual: after 1 s still near the base speed, the boost only builds over seconds.
+    fn reverse_boost_depends_on_the_gear_and_builds_up_gradually() {
+        for (gear, depth, min_t, max_t) in [
+            (0, 23.0, 90.0, 180.0),
+            (5, 159.0, 30.0, 60.0),
+            (9, 6908.0, 50.0, 90.0),
+            (25, 6908.0, 5.0, 15.0),
+        ] {
+            let (t, rates) = reverse(depth, -rung(gear), 60.0);
+            assert!(
+                (min_t..max_t).contains(&t),
+                "gear {} from {depth} e-folds: {t} s",
+                gear + 1
+            );
             let at1 = -rates[59];
-            assert!(at1 < 4.5 * rung(0), "{depth}: {at1} e-folds/s after 1 s");
-            // No jumps between frames.
+            assert!(at1 < 1.2 * rung(gear), "gear {}: {at1} e-folds/s after 1 s", gear + 1);
             for w in rates.windows(2) {
-                assert!((w[1] - w[0]).abs() < 0.12 * w[0].abs().max(1.0), "{depth}: jump {w:?}");
+                assert!((w[1] - w[0]).abs() < 0.12 * w[0].abs().max(1.0), "jump {w:?}");
             }
         }
+        assert_eq!(gear(-rung(0)), Some(1));
+        assert_eq!(gear(rung(25)), Some(26));
+        assert_eq!(gear(0.0), None);
+        assert!(boost_share(rung(0)) < boost_share(rung(10)) && boost_share(rung(25)) == 1.0);
     }
 
     #[test]

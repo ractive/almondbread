@@ -30,7 +30,7 @@ On the whole-set map the first steps are joined by a line, and the next 100 000 
 
 How the zoom is driven, like the levels of a car: **Manual** (the steering wheel: you do everything), **Cruise** (the speedometer: **E** / **Q** set a speed in or out, you steer), **Autopilot** (the plane, **Z**: it steers to interesting places), **Journey** (the sparkles, **J**: from landmark to landmark). The lit icon is the level now; click an icon to switch.
 
-The bar and the big number are the speed flown now; "set" is the speed you chose. Deep down, zooming out gets a boost. The lane icon is lane assist (**L**): in cruise it steers you away from featureless areas. Steering by hand (**W A S D**, drag, stick) or zooming with the wheel or trackpad takes over. In the autopilot the mouse only suggests a direction: it picks its next places on that side, shown by the target marker's ring.
+The bar and the big number are the speed flown now. In cruise the small line is the gear you chose, 1 to 26: "gear 5" zooming in, "reverse 3" zooming out, with "boost" while depth speeds the zoom-out up (more in the higher gears). In the autopilot and on a journey, "target" shows your set speed while the speed flown differs from it, for example while speeding up, braking or waiting for the picture. The lane icon is lane assist (**L**): in cruise it steers you away from featureless areas. Steering by hand (**W A S D**, drag, stick) or zooming with the wheel or trackpad takes over. In the autopilot the mouse only suggests a direction: it picks its next places on that side, shown by the target marker's ring.
 
 ## iterations
 

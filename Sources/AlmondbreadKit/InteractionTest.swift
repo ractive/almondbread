@@ -488,7 +488,7 @@ final class InteractionTest: NSObject {
                 self.refineLines.append("journey: #\(s.journey.seed) leg \(journeyLegs) \"\(s.journey.label)\" \(s.journey.phase), off after Esc \(explorer.stats().journey.active ? "NO" : "yes") \(ok ? "OK" : "FAILED")")
             }
         }
-        // Reverse cruise (kb: decisions/controls "Driving levels"): Q twice (×2/s out) from the
+        // Reverse cruise (kb: decisions/controls "Driving levels"): Q six times (gear 6, ×2/s out) from the
         // 1e5 view; by 2.4 s it must be cruising out (more than 0.4 e-folds so far, the depth
         // boost building up; the renderer back-off may halve it); Esc then brakes it to rest.
         var cruiseStart = 0.0
@@ -499,7 +499,7 @@ final class InteractionTest: NSObject {
                 sent.removeAll()
                 cruiseSeen = false
                 cruiseStart = explorer.viewport().zoomLog10
-                for _ in 0..<2 {
+                for _ in 0..<6 {
                     InteractionTest.key(v, "q", down: true)
                     InteractionTest.key(v, "q", down: false)
                 }
@@ -518,7 +518,8 @@ final class InteractionTest: NSObject {
             }
         }
         // Journey with stops (kb: decisions/controls "Journey with stops"): J in the "stop at
-        // each find" mode from the 1e5 view at a high journey speed (E); at the first stop X
+        // each find" mode from the 1e5 view at a high journey speed (E ×18: past the top gear,
+        // 8.6 e-folds/s); at the first stop X
         // (somewhere else) must start the next leg; Esc at 2.9 s.
         var stopSeen = ""
         var legAtStop = 0
@@ -531,7 +532,7 @@ final class InteractionTest: NSObject {
                 explorer.setJourneyStops(on: true)
                 InteractionTest.key(v, "j", down: true)
                 InteractionTest.key(v, "j", down: false)
-                for _ in 0..<10 {
+                for _ in 0..<18 {
                     InteractionTest.key(v, "e", down: true)
                     InteractionTest.key(v, "e", down: false)
                 }

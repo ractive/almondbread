@@ -1416,3 +1416,17 @@ hang for good), the place pill offset is cached in the model (no Rust call in a 
 longest iteration 31-38 → 3-5 ms, first open 77 → 40 ms, stress 63 → 8 long iterations; section
 opens 10-20 → 30-150 ms and the search rebuild 67-92 → 330-350 ms are the price. Page:
 [[platform/swiftui-performance]] "Hang: opening and scrolling the sidebar".
+
+## [2026-10-17] decision | Cruise: 26 gears, gear-scaled reverse boost, gear / target line
+
+User-approved: the pedal ladder has 26 gears (×1.1 … ×1000/s), a held pedal repeats every
+0.15 s, the reverse depth boost ramps over 10 s and its exponent is scaled by the gear (0.5 in
+gear 1 to 1 in gear 26), so low gears zoom out gently: home from 1e-10 in gear 1 takes 126 s,
+from 1e-3000 in gear 10 (×5) 69 s, in the top gear 10 s (table in [[decisions/controls]]
+"Driving levels"). Two real bugs surfaced while adapting the navigator tests: the soft landing
+stalled about 1e-4 of path short of home and snapped after 1.5 s (it left its brake curve for
+the spring; now it stays on the curve), and Q could not bring the autopilot or a journey to zero
+(their speed floor 0.1 sat above gear 1, 0.095; now 0.09). The cockpit's small line shows the
+gear in cruise ("gear 5", "reverse 3 · boost") and the set speed in A and J ("target ×20") only
+while the rate flown differs from it by more than 5 %; in J it now compares the journey speed
+with the leg's flown speed. Cockpit 306 points wide (fits a phone).

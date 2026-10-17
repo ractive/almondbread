@@ -1013,10 +1013,14 @@ autopilot" below), its menu item and the iOS long-press.
 | A autopilot | speed and steering (target lock; the pointer is only a direction wish) | Z | W A S D, drag, stick or pedal ≤ 0 (C at the current speed); Z / Esc (eased stop) |
 | J journey | planned legs (fly-to flights too) | J, a fly-to | as A for a journey leg; fly-to keeps its old take-over |
 
-**Pedals.** Q / E are one signed speed axis. Each press is one rung of `LADDER` (factors per
-second 1.5, 2, 3, 5, 8, 13, 20, 35, 60, 100, 250, 1000; ln of them in e-folds/s), E towards
-"in", Q towards "out"; off-ladder values (the autopilot's 0.9) step to the neighbouring rung.
-Holding steps again after 0.4 s and every 0.25 s (stepped by the navigator per frame; the Mac
+**Pedals.** Q / E are one signed speed axis. Each press is one rung of `LADDER`, the cockpit's
+gears 1–26 (factors per second 1.1, 1.2, 1.35, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6.5, 8, 10, 13, 16,
+20, 27, 35, 45, 60, 80, 100, 150, 250, 400, 1000; ln of them in e-folds/s; 12 rungs from ×1.5
+until 2026-10-17, the user asked for finer steps), E towards "in", Q towards "out"; off-ladder
+values (the autopilot's 0.9) step to the neighbouring rung. The autopilot's and journey's speed
+ranges start at 0.09 e-folds/s, below gear 1 (0.095): with 0.1 a Q at the bottom stepped to
+×1.1, was clamped back to 0.1 and never reached zero (found by the hand-over tests).
+Holding steps again after 0.4 s and every 0.15 s (0.25 s before the 26 gears; stepped by the navigator per frame; the Mac
 key repeats are swallowed, else a repeat would count as a new press). Towards zero the speed
 stops *at* zero (detent): repeats never cross, a new press does. In A and J the pedals step that
 level's speed on the same ladder (E above the top rung multiplies by 1.25 up to the level's
@@ -1036,29 +1040,55 @@ scales the rate and the depth limit stops it. Integration in ≤ 2 ms substeps; 
 is the heading weighted by `e^{−z_j}(1 − e^{−dz_j})` per substep and the pan is converted to
 the frame's midpoint scale, so the composed frame equals the substeps exactly.
 
-**Zoom-out dynamics.** In reverse `rate = set · (1 + D/3)^{ramp(t)}`, D the e-folds below the
-fitted home view, `ramp` a smoothstep over 4 s since reversing began: the log of the speed
-accelerates evenly (no jump on one press), and with the boost in full `D + 3` decays
-exponentially, so home takes `(3/set) ln(1 + D/3)`: logarithmic in the depth. Throttle applies
+**Zoom-out dynamics.** In reverse `rate = set · (1 + D/3)^{share · ramp(t)}`, D the e-folds
+below the fitted home view, `ramp` a smoothstep over 10 s since reversing began (4 s until
+2026-10-17): the log of the speed accelerates evenly (no jump on one press). The exponent's
+`share` (`cruise::boost_share`) grows linearly with the gear, 0.5 in gear 1 to 1 in gear 26
+(user, 2026-10-17: "with lower speed setting, the deep zoom factor should not kick in so
+heavily"), so the low gears are deliberately slow. With the full boost (top gear) `D + 3` decays
+exponentially, home in `(3/set) ln(1 + D/3)`: logarithmic in the depth; with share s < 1 the
+time grows like `D^{1−s}`. Seconds home (cruise unit model, 60 Hz, no steering, no throttle,
+`reverse_boost_depends_on_the_gear_and_builds_up_gradually` checks the bold ones; measured
+2026-10-17, release):
+
+| Gear | from 1e-10 | 1e-50 | 1e-69 | 1e-300 | 1e-3000 |
+| --- | --- | --- | --- | --- | --- |
+| 1 (×1.1) | **126** | 337 | 405 | 900 | 2964 |
+| 4 (×1.5) | 31 | 73 | 86 | 173 | 496 |
+| 6 (×2) | 19 | 41 | **48** | 90 | 234 |
+| 10 (×5) | 10 | 18 | 20 | 33 | **69** |
+| 16 (×20) | 7 | 11 | 12 | 15 | 23 |
+| 22 (×100) | 5 | 8 | 9 | 10 | 11 |
+| 26 (×1000) | 4 | 7 | 7 | 8 | **10** |
+
+Throttle applies
 in reverse only down to 0.5 (zooming out mostly shows the shrinking history), the rate is capped
 at 2000 e-folds/s. Once the path home (`FlyPath` length × ρ) is no longer than 1.25 s of the
 current rate (the soft landing's brake curve then matches the rate), or a braking glide would
 reach home, or the depth is gone, a fly-to flight with `Flight::soft_landing` takes the last
 stretch at that rate and rests exactly on the home framing (centre −0.75 too); level stays C.
 Zooming out stops at the whole set; Q from home does nothing. Measured in the navigator tests at
-30 Hz, first rung (×1.5/s out) from the seahorse spiral, release build, 2026-10-17:
+30 Hz, gear 10 (×5/s out) from the seahorse spiral, release build, 2026-10-17 (the 12-rung
+ladder's first rung ×1.5 took 17, 29, 42 and 58 s):
 
 | From | Home after | Landing from | Peak rate |
 | --- | --- | --- | --- |
-| 1e-10 | 17.2 s | 14.7 s | 2 e-folds/s |
-| 1e-50 | 29.4 s | 27.0 s | 13 e-folds/s |
-| 1e-300 | 42.2 s | 39.7 s | 80 e-folds/s |
-| 1e-3000 | 58.2 s | 55.7 s | 813 e-folds/s |
+| 1e-10 | 9.8 s | 7.3 s | 3 e-folds/s |
+| 1e-50 | 19.0 s | 16.5 s | 13 e-folds/s |
+| 1e-300 | 33.8 s | 31.3 s | 54 e-folds/s |
+| 1e-3000 | 69.9 s | 67.4 s | 287 e-folds/s |
 
 Each zooms out monotonically, moves less than 1.5 e-folds in the first second, eases out over
 the last second and rests bit-exactly on home. 30 / 60 / 120 Hz agree to 2e-3 of the zoom and
-3 points of the steered centre after 26 e-folds out (the boost depends on the depth the zoom
-changes: first order in the substep length).
+3 points of the steered centre after about 9 e-folds out in gear 10 (the boost depends on the
+depth the zoom changes: first order in the substep length).
+
+**Pitfall: the soft landing stalled short of home** (found with gear 10 from 1e-50, fixed
+2026-10-17). `Flight::step_soft` rode its brake curve `v = √(2 a left)` only on frames where the
+speed spring would have outrun it; on the next frame it handed back to the spring, which carried
+the curve's deceleration `a` as its own rate of change, undershot to a standstill about 1e-4 of
+path short of the end, sat there for 1.5 s and then snapped (0.0045 e-folds). Once on the curve
+the flight now stays on it (`Flight::soft_curve`), so it lands in the frame the curve ends.
 
 **Hand-overs.** User steering (W A S D / arrows, a drag or touch pan, the gamepad's left stick;
 during a journey leg also the pointer deflected past 0.35 of the steering radius for 0.6 s after
@@ -1090,14 +1120,22 @@ point (`Survey::boundary_point`, the void-steer work), at most 0.6 of the steeri
 cruise's heading spring smooths it. Detail ahead: no nudge. The HUD then says "The Nothing
 ahead – steering away". Not yet tried in a foreground window (default off).
 
-**Cockpit.** About 296 points wide at the bottom centre of the canvas (right of the cosmic scale,
+**Cockpit.** About 306 points wide at the bottom centre of the canvas (right of the cosmic scale,
 left of the iPhone button column), shown with the HUD. Revised 2026-10-17 after the user's
 review ("M C A J … I don't think people understand what those mean", and a set-speed notch the bar
 overshot during the reverse boost): four icons (steering wheel = manual, speedometer = cruise,
 plane = autopilot, sparkles = journey), clickable since 2026-10-17 (manual stops = Esc, cruise starts cruising in = E, autopilot and journey toggle = Z, J), the current one lit and
 named ("Cruise"); a gauge with zero in the middle showing only the rate flown (reverse left, log
-scale to the top rung); the rate as text ("↓ ×4.2/s") with the set speed under it in small type
-("set ×1.5", "· boost" while the depth boost adds), lit for 1.2 s after Q / E; the lane icon; a
+scale to the top rung); the rate as text ("↓ ×4.2/s") with a small line under it, lit for 1.2 s
+after Q / E (user-approved 2026-10-17, replacing "set ×1.5"): in C the gear, always while one is
+set ("gear 5" forward, "reverse 3" zooming out, "· boost" while the depth boost adds more than
+5 %); in A and J the set speed, "target ×20", only while the rate flown differs from it by more
+than 5 % (speeding up, braking, the renderer back-off; hidden again within 3 %, so it does not
+flicker). In J the cockpit's set is now the journey speed and its rate the leg's flown path speed
+(`Flight::speed` × ρ; before, both were the paced leg speed, so set and rate were always equal
+and the set changed every frame). Metrics rebalanced for the longer line ("reverse 26 · boost"
+is 72 points at 8 pt): value slot 72, gaps 5, icon pitch 19, padding 7: 306 points wide; the
+lane icon; a
 (?) badge (help topic `cockpit`: the levels and their keys). A manual zoom (wheel, trackpad,
 pinch, double tap, menu) while cruising stops the cruise dead and drops to manual (user request:
 zooming by hand must not fight a set speed). Dark translucent plate, haloed text: legible on bright and dark

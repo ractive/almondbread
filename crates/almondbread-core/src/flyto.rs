@@ -359,6 +359,8 @@ pub struct Flight {
     /// would outrun it to the target), with this `c` (kept: a pace change on the way down does
     /// not move the curve).
     landing: Option<f64>,
+    /// A soft landing rides its brake curve `v = √(2 a left)` with this deceleration `a`.
+    soft_curve: Option<f64>,
 }
 
 impl Flight {
@@ -374,6 +376,7 @@ impl Flight {
             land_angle: a,
             soft_landing: false,
             landing: None,
+            soft_curve: None,
         }
     }
 
@@ -496,8 +499,10 @@ impl Flight {
     fn step_soft(&mut self, dt: f64, speed: f64, throttle: f64) -> bool {
         let left = (self.path.length - self.s).max(0.0);
         let cruise = if self.stopping { 0.0 } else { speed / RHO * throttle };
-        // Constant deceleration onto the end: v = √(2 a s_left).
-        let decel = (speed / RHO / SOFT_LAND_TIME).max(1e-3);
+        // Constant deceleration onto the end: v = √(2 a s_left) (kept once on the curve).
+        let decel = self
+            .soft_curve
+            .unwrap_or_else(|| (speed / RHO / SOFT_LAND_TIME).max(1e-3));
         let target = cruise.min((2.0 * decel * left).sqrt());
         let omega = if target > self.speed.v {
             PATH_OMEGA.0
@@ -509,9 +514,13 @@ impl Flight {
             // On the brake curve v = √(2 a left) the spring lags (it reaches the end still
             // moving and snaps); a soft landing rides the curve itself once the spring would
             // outrun it, in closed form (√left falls at √(a/2) per second), so it decelerates
-            // evenly to rest and 30, 60 and 120 Hz agree.
+            // evenly to rest and 30, 60 and 120 Hz agree. Once on the curve it stays on it:
+            // released from the curve with its deceleration, the spring undershot to a
+            // standstill just short of the end and snapped there after a pause (seen landing
+            // from 1e-50 in gear 10).
             let curve_left = (left.sqrt() - (0.5 * decel).sqrt() * dt).max(0.0).powi(2);
-            if ds > left - curve_left {
+            if self.soft_curve.is_some() || ds > left - curve_left {
+                self.soft_curve = Some(decel);
                 ds = left - curve_left;
                 self.speed = Spring {
                     v: (2.0 * decel * curve_left).sqrt(),

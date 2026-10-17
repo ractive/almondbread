@@ -78,9 +78,10 @@ pub use look::Look;
 use crate::oracle::{IterationField, cpu_render, cpu_render_deep};
 use crate::viewport::{Center, Scale, Viewport};
 
-/// Default journey speed, e-folds per second at the zoom ends, and its range (Q / E, scroll).
+/// Default journey speed, e-folds per second at the zoom ends, and its range (Q / E, scroll;
+/// the lower end below the first gear, as the autopilot's).
 pub const SPEED_DEFAULT: f64 = 1.4;
-pub const SPEED_RANGE: (f64, f64) = (0.1, 16.0);
+pub const SPEED_RANGE: (f64, f64) = (0.09, 16.0);
 /// Seconds at a target (it refines and anti-aliases meanwhile), at the default speed.
 pub const DWELL: f64 = 3.0;
 /// Legs longer than this many e-folds of path (zoom out, across, zoom in: cross-overs from

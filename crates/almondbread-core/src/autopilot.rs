@@ -52,8 +52,9 @@ use lock::Lock;
 
 /// Default autopilot zoom speed, e-folds per second (×2.5 per second).
 pub const SPEED_DEFAULT: f64 = 0.9;
-/// Autopilot zoom speed range (Q / E, scroll).
-pub const SPEED_RANGE: (f64, f64) = (0.1, 4.0);
+/// Autopilot zoom speed range (Q / E, scroll). The lower end is below the first gear (×1.1/s,
+/// 0.095 e-folds/s): Q steps down through it to zero, the cruise taking over.
+pub const SPEED_RANGE: (f64, f64) = (0.09, 4.0);
 /// Spring frequencies (1/s) of the autopilot zoom rate: speeding up (from rest 50 % after
 /// 0.56 s, 90 % after 1.3 s) and slowing down (a stop glides on 2/ω = 0.5 s worth of rate).
 pub const RATE_OMEGA: (f64, f64) = (3.0, 4.0);

@@ -952,7 +952,7 @@ public final class ExplorerModel {
     static func cockpitTooltip(_ id: String) -> String? {
         switch id {
         case "manual": "Manual: you steer and zoom yourself. Click (or Esc) stops all motion"
-        case "cruise": "Cruise (E / Q): a set zoom speed in or out, you steer"
+        case "cruise": "Cruise (E / Q): zoom in or out in one of 26 gears, you steer"
         case "autopilot": "Autopilot (Z): zooms on and steers to interesting places; the mouse suggests a direction"
         case "journey": "Journey (J): flies from landmark to landmark"
         case "lane": "Lane assist (L): in cruise, nudges you away from featureless areas"

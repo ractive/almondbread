@@ -348,14 +348,14 @@ public enum UIDemo {
             model.journeyStops = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.startJourney(seed: 4711) }
         case "cruise-reverse":
-            // The HUD cockpit in reverse cruise (kb: decisions/controls "Driving levels"): Q twice
-            // (×2/s out) from 1e-20, captured 8 s in, lane assist on.
+            // The HUD cockpit in reverse cruise (kb: decisions/controls "Driving levels"): Q ten
+            // times (gear 10, ×5/s out, "reverse 10 · boost") from 1e-20, captured 8 s in, lane
+            // assist on.
             try? explorer.setViewport(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139",
                                       scale: 1e-20)
             model.laneAssist = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                model.pedalOut()
-                model.pedalOut()
+                for _ in 0..<10 { model.pedalOut() }
             }
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
