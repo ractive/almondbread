@@ -425,15 +425,19 @@ impl CosmicScale {
     }
 
     pub fn reading(&self, d: f64) -> Reading {
-        let window = format!("your window: {}", length(self.screen_m));
+        // The screen stays its real size; the sentence says so first (user's wording).
+        let whole = format!(
+            "Compared to what you see on your {} wide screen, the whole Mandelbrot set",
+            length(self.screen_m)
+        );
         let d = if d.is_nan() { 0.0 } else { d };
         // log10(set / universe).
         let n = d - self.universe_d;
         if (0.8f64.log10()..0.3).contains(&n) {
             // The turn (zoom ≈ 3e27 for 30 cm): the set is the universe.
             return Reading {
-                line: format!("{WHOLE} would be as big as the observable universe"),
-                detail: window,
+                line: format!("{whole} would be as big as the observable universe"),
+                detail: String::new(),
             };
         }
         let galaxy = (size_of("universe") / size_of("milky-way")).log10();
@@ -441,26 +445,29 @@ impl CosmicScale {
             // Between the turn and the first rung no familiar thing is near (only distances
             // to galaxies); the ruler shows "1,000 × universe".
             return Reading {
-                line: format!("{WHOLE} would be bigger than the observable universe"),
-                detail: window,
+                line: format!("{whole} would be bigger than the observable universe"),
+                detail: String::new(),
             };
         }
         if n < 0.3 {
             // Phase 1: the set grows.
             let m = self.screen_m * 10f64.powf(d);
             let line = if m < 1e4 {
-                format!("{WHOLE} would be {} across", length(m))
+                format!("{whole} would be {} across", length(m))
             } else {
-                format!("{WHOLE} would be {}", as_big_as(m))
+                format!("{whole} would be {}", as_big_as(m))
             };
-            return Reading { line, detail: window };
+            return Reading {
+                line,
+                detail: String::new(),
+            };
         }
         let p = planck_decades();
         if n < p + 1.25f64.log10() {
             // Phase 2: an imaginary universe as big as the set; set / U = U / v.
             let v = size_of("universe") * 10f64.powf(-n);
             return Reading {
-                line: format!("{WHOLE} would be as big as an imaginary universe"),
+                line: format!("{whole} would be as big as an imaginary universe"),
                 detail: format!("in which {} as big as ours", thing_is(v)),
             };
         }
@@ -470,11 +477,11 @@ impl CosmicScale {
         let r = n - k * p;
         let line = if (k + 1.0).is_finite() && k < 1e15 {
             format!(
-                "{WHOLE} would be as big as an imaginary universe, {} levels deep",
+                "{whole} would be as big as an imaginary universe, {} levels deep",
                 count((k + 1.0).log10())
             )
         } else {
-            format!("{WHOLE} would be as big as an imaginary universe, countless levels deep")
+            format!("{whole} would be as big as an imaginary universe, countless levels deep")
         };
         let detail = if r < 0.3 {
             "at the bottom: our universe itself".to_string()
@@ -487,9 +494,6 @@ impl CosmicScale {
         Reading { line, detail }
     }
 }
-
-/// How the whole set is named in the readout (not "the whole set": jargon for newcomers).
-const WHOLE: &str = "The whole Mandelbrot set";
 
 /// "as big as Earth", "3× as big as the Sun", "40% as big as the Moon": `m` metres against
 /// the nearest (in log) thing.
@@ -623,16 +627,19 @@ mod tests {
     fn readout_through_the_three_phases() {
         let s = scale(0.0);
         let line = |zoom: f64| s.reading(zoom).line;
-        assert_eq!(line(4.0), "The whole Mandelbrot set would be 3 km across");
+        assert_eq!(
+            line(4.0),
+            "Compared to what you see on your 30 cm wide screen, the whole Mandelbrot set would be 3 km across"
+        );
         assert_eq!(
             line((1.2742e7f64 / 0.3).log10()),
-            "The whole Mandelbrot set would be as big as Earth"
+            "Compared to what you see on your 30 cm wide screen, the whole Mandelbrot set would be as big as Earth"
         );
         assert_eq!(
             line(3e27f64.log10()),
-            "The whole Mandelbrot set would be as big as the observable universe"
+            "Compared to what you see on your 30 cm wide screen, the whole Mandelbrot set would be as big as the observable universe"
         );
-        let imaginary = "The whole Mandelbrot set would be as big as an imaginary universe";
+        let imaginary = "Compared to what you see on your 30 cm wide screen, the whole Mandelbrot set would be as big as an imaginary universe";
         assert_eq!(line(33.0), imaginary);
         let detail = |d: f64| s.reading(d).detail;
         assert_eq!(
@@ -653,8 +660,7 @@ mod tests {
             .map(|k| s.reading(30.0 + k as f64 * 0.05).detail)
             .find(|t| t.starts_with("in which you "));
         assert_eq!(you.as_deref(), Some("in which you are as big as ours"));
-        assert_eq!(s.reading(4.0).detail, "your window: 30 cm");
-        assert_eq!(scale(0.00045).reading(4.0).detail, "your window: 45 cm");
+        assert!(scale(0.00045).reading(4.0).line.contains("your 45 cm wide screen"));
         // Every depth, finely and absurdly: never a panic, NaN or jargon.
         for k in -40..=40_000 {
             let r = s.reading(k as f64 * 0.08);
