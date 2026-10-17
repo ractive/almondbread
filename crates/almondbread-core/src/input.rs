@@ -27,7 +27,7 @@
 use crate::autopilot::{self, Autopilot};
 use crate::cinematic::Cinematic;
 use crate::flyto::{self, Flight, FlyPath};
-use crate::journey::{self, Journey};
+use crate::journey::{self, Choice, Journey};
 use crate::viewport::{Scale, Viewport, wrap_angle};
 
 /// Keys with a navigation meaning. The platform layer decodes its key events into these
@@ -59,8 +59,16 @@ pub enum NavKey {
     RotateCw,
     /// `/`: turn back upright (animated).
     Straighten,
-    /// J: journey on (a random seed) / resume after manual input / off.
+    /// J: journey on (a random seed) / resume after manual input / off; at a journey stop:
+    /// on as planned.
     Journey,
+    /// ⇧J: as J, but a new journey starts in the other mode than the setting (continuous /
+    /// stop at each find; kb: decisions/controls "Journey with stops").
+    JourneyAlt,
+    /// ⇧Z: the zoom-out autopilot on / off (kb: decisions/controls "Zoom-out autopilot").
+    AutopilotOut,
+    /// X: at a journey stop, somewhere else (the next leg crosses over); not handled otherwise.
+    Elsewhere,
 }
 
 impl NavKey {
@@ -349,6 +357,11 @@ pub struct Navigator {
     cinematic: Cinematic,
     /// The journey: planned flights from landmark to landmark (kb: decisions/controls).
     journey: Journey,
+    /// The setting "Journey: stop at each find" (J starts that mode, ⇧J the other).
+    journey_stops: bool,
+    /// The flight is the zoom-out autopilot (⇧Z): it flies at the autopilot's speed to the
+    /// home view and lands softly (kb: decisions/controls "Zoom-out autopilot").
+    zoom_out: bool,
     /// The compass's eased turn back to north (kb: decisions/controls "Compass").
     north: Option<crate::compass::NorthTurn>,
 }
@@ -441,6 +454,8 @@ impl Default for Navigator {
             rot_step_left: 0.0,
             cinematic: Cinematic::default(),
             journey: Journey::default(),
+            journey_stops: false,
+            zoom_out: false,
             north: None,
         }
     }
@@ -499,7 +514,7 @@ impl Navigator {
 
     /// The autopilot, a journey or a flight runs: the renderer reports how it keeps up.
     pub fn wants_feedback(&self) -> bool {
-        self.autopilot.is_active() || self.flight.is_some() || self.journey.is_running()
+        self.autopilot.is_active() || self.flight.is_some() || self.journey.wants_frames()
     }
 
     /// Automatic motion (autopilot, journey, flight) is under way: colours may cycle.
@@ -535,12 +550,28 @@ impl Navigator {
         &mut self.journey
     }
 
-    /// Starts a journey with `seed` from `viewport` (the autopilot and any flight stop).
+    /// The setting "Journey: stop at each find" (J starts that mode, ⇧J the other).
+    pub fn journey_stops(&self) -> bool {
+        self.journey_stops
+    }
+
+    pub fn set_journey_stops(&mut self, on: bool) {
+        self.journey_stops = on;
+    }
+
+    /// Starts a journey with `seed` from `viewport` in the set mode (the autopilot and any
+    /// flight stop).
     pub fn start_journey(&mut self, seed: u64, daily: bool, viewport: &Viewport, now: f64) {
+        self.start_journey_mode(seed, daily, self.journey_stops, viewport, now);
+    }
+
+    /// Starts a journey with `seed`, stopping at each find or not.
+    pub fn start_journey_mode(&mut self, seed: u64, daily: bool, stops: bool, viewport: &Viewport, now: f64) {
         let was = self.is_animating();
         self.stop_motion();
         let span = viewport.scale * self.min_side();
         self.journey.start(seed, daily, &viewport.center, span);
+        self.journey.set_stops(stops);
         self.note_interaction(now);
         if !was {
             self.last_tick = Some(now);
@@ -566,6 +597,47 @@ impl Navigator {
         }
     }
 
+    /// A choice at a journey stop (J, Z, X; kb: decisions/controls "Journey with stops"):
+    /// the next leg is planned from the landmark, or from the view if the user moved far away.
+    /// Returns whether the journey was at a stop.
+    pub fn journey_choose(&mut self, choice: Choice, viewport: &Viewport, now: f64) -> bool {
+        let span = viewport.scale * self.min_side();
+        let was = self.is_animating();
+        let chose = self.journey.choose(choice, &viewport.center, span);
+        if chose {
+            self.note_interaction(now);
+            if !was {
+                self.last_tick = Some(now);
+            }
+        }
+        chose
+    }
+
+    /// ⇧Z: the zoom-out autopilot (kb: decisions/controls "Zoom-out autopilot"): a fly-to
+    /// flight from the view to the home view at the autopilot's speed (Q / E, scroll change it),
+    /// easing in and landing softly; Esc, Z or ⇧Z ease it to a stop where it is, navigation
+    /// takes over as from a flight. The autopilot and a journey stop.
+    pub fn start_zoom_out(&mut self, viewport: &Viewport, now: f64) {
+        let was = self.is_animating();
+        self.stop_motion();
+        self.journey.stop();
+        let home = Viewport::fitting(self.view_size.0, self.view_size.1);
+        self.begin_flight(&home, viewport);
+        if let Some(f) = &mut self.flight {
+            f.soft_landing = true;
+        }
+        self.zoom_out = true;
+        self.note_interaction(now);
+        if !was {
+            self.last_tick = Some(now);
+        }
+    }
+
+    /// The zoom-out autopilot flies.
+    pub fn is_zooming_out(&self) -> bool {
+        self.zoom_out && self.flight.is_some()
+    }
+
     /// The view's shorter side in points (spans of places and journey targets).
     fn min_side(&self) -> f64 {
         let s = self.view_size.0.min(self.view_size.1);
@@ -575,7 +647,7 @@ impl Navigator {
     /// The journey's next target view once planned (the renderer prefetches its reference
     /// while the journey rests).
     pub fn prefetch_target(&self) -> Option<Viewport> {
-        if !self.journey.is_running() || self.flight.is_some() {
+        if !self.journey.is_running() || self.flight.is_some() || self.journey.choice().is_some() {
             return None;
         }
         self.journey.next_target().map(|t| t.viewport(self.min_side()))
@@ -597,13 +669,17 @@ impl Navigator {
     }
 
     fn begin_flight(&mut self, target: &Viewport, viewport: &Viewport) {
+        self.zoom_out = false;
         let path = FlyPath::new(viewport, target, self.view_size.0);
         self.flight = Some(Flight::turning(path, viewport.angle, self.cinematic.spin_per_efold()));
     }
 
-    /// The speed the flight runs at: the journey's during a journey, else the fly-to speed.
-    fn flight_speed(&self) -> f64 {
-        if self.journey.is_running() {
+    /// The speed the flight runs at: the journey's during a journey, the autopilot's for the
+    /// zoom-out autopilot, else the fly-to speed.
+    pub fn flight_speed(&self) -> f64 {
+        if self.is_zooming_out() {
+            self.autopilot.speed()
+        } else if self.journey.is_running() {
             self.journey
                 .leg_speed_at(self.flight.as_ref().map_or(0.0, |f| f.progress()))
         } else {
@@ -613,7 +689,9 @@ impl Navigator {
 
     /// Q / E, wheel and scroll during a flight or journey.
     fn scale_flight_speed(&mut self, f: f64, now: f64) {
-        if self.journey.is_running() {
+        if self.is_zooming_out() {
+            self.autopilot.scale_speed(f, now);
+        } else if self.journey.is_running() {
             self.journey.scale_speed(f, now);
         } else {
             self.set_fly_speed(self.fly_speed * f, now);
@@ -749,7 +827,7 @@ impl Navigator {
             || self.flight.is_some()
             || !self.rot_rate.at_rest()
             || self.rot_step_left != 0.0
-            || self.journey.is_running()
+            || self.journey.wants_frames()
             || self.north.is_some()
     }
 
@@ -912,9 +990,31 @@ impl Navigator {
     }
 
     fn apply(&mut self, event: InputEvent, viewport: &mut Viewport, now: f64) -> bool {
+        // The zoom-out autopilot: Z or ⇧Z again ease it to a stop (not the autopilot).
+        if self.is_zooming_out() && matches!(event, InputEvent::KeyDown(NavKey::Autopilot | NavKey::AutopilotOut)) {
+            self.stop_flight();
+            return true;
+        }
+        // At a journey stop J / ⇧J, Z and X choose the next leg (kb: decisions/controls
+        // "Journey with stops"); everything else works as without a journey.
+        if self.journey.at_stop() {
+            let choice = match event {
+                InputEvent::KeyDown(NavKey::Journey | NavKey::JourneyAlt) => Some(Choice::Next),
+                InputEvent::KeyDown(NavKey::Autopilot) => Some(Choice::Deeper),
+                InputEvent::KeyDown(NavKey::Elsewhere) => Some(Choice::Elsewhere),
+                _ => None,
+            };
+            if let Some(c) = choice {
+                return self.journey_choose(c, viewport, now);
+            }
+        }
         // Manual input takes over from a journey (eased: the flight's motion glides out); J,
-        // the button or a click resumes it.
-        if self.journey.is_running() && Self::cancels_flight(&event) && event != InputEvent::KeyDown(NavKey::Journey) {
+        // the button or a click resumes it. Not at a stop: looking around there is allowed.
+        if self.journey.is_running()
+            && !self.journey.at_stop()
+            && Self::cancels_flight(&event)
+            && !matches!(event, InputEvent::KeyDown(NavKey::Journey | NavKey::JourneyAlt))
+        {
             self.journey.suspend();
         }
         if self.flight.is_some() && Self::cancels_flight(&event) {
@@ -943,10 +1043,15 @@ impl Navigator {
             }
             InputEvent::Resize { width, height } => {
                 self.view_size = (width, height);
-                // A flight continues from where it is, planned for the new width.
+                // A flight continues from where it is, planned for the new width (the
+                // zoom-out autopilot to the new home view).
                 if let Some(f) = self.flight.take() {
-                    let target = f.path.target().clone();
+                    let mut target = f.path.target().clone();
+                    if self.zoom_out {
+                        target = Viewport::fitting(width, height).with_angle(target.angle);
+                    }
                     let mut next = Flight::new(FlyPath::new(viewport, &target, width));
+                    next.soft_landing = f.soft_landing;
                     // The turn continues from here to where it would have ended.
                     next.angle0 = viewport.angle;
                     next.angle1 = viewport.angle + (f.angle1 - f.angle0) * (1.0 - f.progress());
@@ -972,7 +1077,7 @@ impl Navigator {
                 true
             }
             InputEvent::Scroll { dx, dy, momentum } => {
-                if self.flight.is_some() || self.journey.is_running() {
+                if self.flight.is_some() || self.journey.wants_frames() {
                     if !momentum {
                         self.scale_flight_speed((dy * autopilot::SCROLL_PER_POINT).exp(), now);
                     }
@@ -988,7 +1093,7 @@ impl Navigator {
                     self.apply(InputEvent::Pan { dx, dy }, viewport, now)
                 }
             }
-            InputEvent::Click { .. } if self.journey.is_active() => {
+            InputEvent::Click { .. } if self.journey.is_active() && !self.journey.at_stop() => {
                 // A click pauses a journey (its flight glides out) and resumes it.
                 if self.journey.is_running() {
                     self.journey.suspend();
@@ -1021,7 +1126,7 @@ impl Navigator {
                 self.zoom_at(viewport, 1.15f64.powf(delta), tx, ty, now);
                 true
             }
-            InputEvent::WheelNotch { delta, .. } if self.flight.is_some() || self.journey.is_running() => {
+            InputEvent::WheelNotch { delta, .. } if self.flight.is_some() || self.journey.wants_frames() => {
                 self.scale_flight_speed(autopilot::NOTCH_FACTOR.powf(delta), now);
                 true
             }
@@ -1159,21 +1264,25 @@ impl Navigator {
                 self.rot_rate = Spring::default();
                 self.rot_step_left = -viewport.angle;
             }
-            NavKey::Journey if down => {
+            NavKey::Journey | NavKey::JourneyAlt if down => {
                 if self.journey.is_suspended() {
                     self.resume_journey(viewport, now);
                 } else if self.journey.is_active() {
                     self.stop_journey();
                 } else {
                     let seed = random_seed(now);
-                    self.start_journey(seed, false, viewport, now);
+                    let stops = self.journey_stops != (k == NavKey::JourneyAlt);
+                    self.start_journey_mode(seed, false, stops, viewport, now);
                 }
             }
+            NavKey::AutopilotOut if down => self.start_zoom_out(viewport, now),
+            // X means something only at a journey stop (handled before).
+            NavKey::Elsewhere => return false,
             // While flying or the autopilot is on, Q / E set that speed.
-            NavKey::SlowerZoom if down && (self.flight.is_some() || self.journey.is_running()) => {
+            NavKey::SlowerZoom if down && (self.flight.is_some() || self.journey.wants_frames()) => {
                 self.scale_flight_speed(1.0 / autopilot::SPEED_STEP, now);
             }
-            NavKey::FasterZoom if down && (self.flight.is_some() || self.journey.is_running()) => {
+            NavKey::FasterZoom if down && (self.flight.is_some() || self.journey.wants_frames()) => {
                 self.scale_flight_speed(autopilot::SPEED_STEP, now);
             }
             NavKey::SlowerZoom if down && self.autopilot.is_active() => {
@@ -1371,13 +1480,14 @@ impl Navigator {
             self.step_north(dt, viewport);
             if done {
                 self.flight = None;
+                self.zoom_out = false;
                 if stopped {
                     self.journey.stop();
                 }
             }
             return true;
         }
-        if self.journey.is_running() {
+        if self.journey.wants_frames() {
             // Resting at a target (it refines) or waiting for the plan.
             self.step_north(dt, viewport);
             return true;
@@ -2789,5 +2899,271 @@ mod tests {
         // Esc stops it.
         n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t + 1.0);
         assert!(!n.journey().is_active());
+    }
+
+    fn zoom_out_setup(scale: &str) -> (Navigator, Viewport) {
+        let (mut n, _) = setup();
+        let mut v = crate::flyto::view_from_text("-0.743643887037151", "0.13182590420533", scale).unwrap();
+        n.advance(&mut v, 0.0);
+        (n, v)
+    }
+
+    /// ⇧Z: steady zoom out at the autopilot speed, a soft stop exactly at the home view, from
+    /// 1e-300 and 1e-3000 (kb: decisions/controls "Zoom-out autopilot").
+    #[test]
+    fn zoom_out_autopilot_lands_softly_at_home_from_any_depth() {
+        for (scale, speed) in [
+            ("1e-300", autopilot::SPEED_RANGE.1),
+            ("1e-3000", autopilot::SPEED_RANGE.1),
+        ] {
+            let (mut n, mut v) = zoom_out_setup(scale);
+            n.autopilot_mut().set_speed(speed, 0.0);
+            assert!(n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0));
+            assert!(n.is_zooming_out() && !n.autopilot().is_active());
+            assert_eq!(n.flight_speed(), speed);
+            let home = Viewport::fitting(W, 600.0);
+            let hz = 10.0;
+            let mut t = 0.0;
+            let mut last = v.scale.ln();
+            let mut rates = Vec::new();
+            while n.is_zooming_out() {
+                t += 1.0 / hz;
+                n.advance(&mut v, t);
+                let l = v.scale.ln();
+                assert!(l >= last - 1e-9, "{scale}: never zooms in ({last} -> {l} at {t})");
+                rates.push((t, (l - last) * hz));
+                last = l;
+                assert!(t < 2.0e4, "{scale}: never landed");
+            }
+            assert_eq!(v, home, "{scale}: lands exactly on the home view");
+            let efolds = home.scale.ln() - crate::flyto::view_from_text("0", "0", scale).unwrap().scale.ln();
+            // Cruise at the set speed: the whole flight takes the e-folds / speed plus the
+            // ease-in and the soft landing (a few seconds).
+            let expected = efolds / speed;
+            assert!(
+                t > expected && t < expected + 6.0,
+                "{scale}: {t} s for {efolds} e-folds at {speed}"
+            );
+            let cruise = rates[rates.len() / 2].1;
+            assert!(
+                (cruise - speed).abs() < 0.02 * speed,
+                "{scale}: cruise {cruise} e-folds/s"
+            );
+            // The soft stop: the last second still moves, slower and slower.
+            let tail: Vec<f64> = rates.iter().filter(|r| r.0 > t - 1.0).map(|r| r.1).collect();
+            assert!(
+                tail.windows(2).all(|w| w[1] <= w[0] + 1e-9),
+                "{scale}: eases out {tail:?}"
+            );
+            assert!(
+                tail[0] > 0.05 && tail[0] < 0.8 * speed,
+                "{scale}: soft landing {tail:?}"
+            );
+            assert!(!n.advance(&mut v, t + 0.1), "{scale}: at rest");
+        }
+    }
+
+    #[test]
+    fn zoom_out_autopilot_is_frame_rate_independent_and_stops_on_request() {
+        let mut views = Vec::new();
+        for hz in [30.0, 60.0, 120.0] {
+            let (mut n, mut v) = zoom_out_setup("1e-20");
+            n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
+            run(&mut n, &mut v, 0.0, 6.0, hz);
+            views.push(v.scale.ln());
+        }
+        for l in &views {
+            assert!((l - views[0]).abs() < 1e-3, "30/60/120 Hz agree: {views:?}");
+        }
+        let (n0, v0) = zoom_out_setup("1e-20");
+        let moved = views[0] - v0.scale.ln();
+        let d = n0.autopilot().speed();
+        assert!(
+            moved > d * 4.5 && moved < d * 6.0,
+            "eased in, then the autopilot speed: {moved}"
+        );
+        // Q / E change the autopilot's speed while zooming out.
+        let (mut n, mut v) = zoom_out_setup("1e-20");
+        n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
+        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.0);
+        assert!((n.autopilot().speed() - autopilot::SPEED_DEFAULT * autopilot::SPEED_STEP).abs() < 1e-12);
+        assert!((n.flight_speed() - n.autopilot().speed()).abs() < 1e-12);
+        // Esc, Z and ⇧Z ease it to a stop where it is (Z does not start the autopilot).
+        for key in [NavKey::Stop, NavKey::Autopilot, NavKey::AutopilotOut] {
+            let (mut n, mut v) = zoom_out_setup("1e-20");
+            n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
+            let t = run(&mut n, &mut v, 0.0, 3.0, 60.0);
+            assert!(n.handle(InputEvent::KeyDown(key), &mut v, t), "{key:?}");
+            assert!(!n.autopilot().is_active(), "{key:?}");
+            let l0 = v.scale.ln();
+            let t = run(&mut n, &mut v, t, t + 3.0, 60.0);
+            assert!(n.flight().is_none() && !n.advance(&mut v, t + 0.01), "{key:?} stopped");
+            let glide = v.scale.ln() - l0;
+            assert!(glide > 0.05 && glide < 1.0, "{key:?}: glides out {glide}");
+            assert!(v.scale.to_f64() < 1e-10, "{key:?}: stopped on the way");
+        }
+        // Navigation takes over as from a flight; R resets.
+        let (mut n, mut v) = zoom_out_setup("1e-20");
+        n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
+        let t = run(&mut n, &mut v, 0.0, 2.0, 60.0);
+        n.handle(InputEvent::Pan { dx: 3.0, dy: 0.0 }, &mut v, t);
+        assert!(!n.is_zooming_out());
+        n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, t);
+        n.handle(InputEvent::KeyDown(NavKey::Reset), &mut v, t);
+        assert!(!n.is_zooming_out() && v == Viewport::fitting(W, 600.0));
+    }
+
+    fn journey_nav(stops: bool) -> (Navigator, Viewport) {
+        let mut n = Navigator::default();
+        let mut v = Viewport::fitting(1000.0, 600.0);
+        n.handle(
+            InputEvent::Resize {
+                width: 1000.0,
+                height: 600.0,
+            },
+            &mut v,
+            0.0,
+        );
+        n.journey_mut().synchronous = true;
+        n.set_journey_stops(stops);
+        (n, v)
+    }
+
+    /// Runs frames at `hz` until the journey is at a stop with nothing pending; returns the time.
+    fn until_stop(n: &mut Navigator, v: &mut Viewport, mut t: f64, hz: f64) -> f64 {
+        let t0 = t;
+        while !(n.journey().at_stop() && n.journey().choice().is_none()) {
+            t += 1.0 / hz;
+            n.advance(v, t);
+            assert!(t < t0 + 120.0, "never stopped");
+        }
+        t
+    }
+
+    /// The journey in "stop at each find" mode: it rests at each landmark (no frames needed),
+    /// J flies the continuous journey's next target, X crosses over, Z goes deeper, looking
+    /// around does not pause it, Esc ends it where it is (kb: decisions/controls "Journey with
+    /// stops").
+    #[test]
+    fn journey_stops_at_each_find_and_takes_choices() {
+        // The continuous journey's first targets, for comparison.
+        let (mut c, mut cv) = journey_nav(false);
+        c.handle(InputEvent::KeyDown(NavKey::JourneyAlt), &mut cv, 0.0);
+        assert!(c.journey().stops(), "⇧J starts the other mode");
+        c.stop_journey();
+        c.start_journey(4711, false, &cv.clone(), 0.0);
+        let mut t = 0.0;
+        let mut cont = Vec::new();
+        while cont.len() < 2 {
+            t += 1.0 / 60.0;
+            c.advance(&mut cv, t);
+            if let Some(cur) = c.journey().current()
+                && cont.last() != Some(cur)
+            {
+                cont.push(cur.clone());
+            }
+            assert!(t < 120.0);
+        }
+
+        let mut lands = Vec::new();
+        for hz in [30.0, 60.0, 120.0] {
+            let (mut n, mut v) = journey_nav(true);
+            n.start_journey(4711, false, &v.clone(), 0.0);
+            assert!(n.journey().stops());
+            let t = until_stop(&mut n, &mut v, 0.0, hz);
+            let first = n.journey().current().unwrap().clone();
+            assert_eq!(first, cont[0]);
+            assert_eq!(
+                v,
+                first.viewport(600.0).with_angle(v.angle),
+                "{hz} Hz: at rest on the landmark"
+            );
+            assert!(
+                !n.is_moving() && !n.advance(&mut v, t + 0.5),
+                "{hz} Hz: no frames needed at a stop"
+            );
+            assert!(n.journey().is_running() && !n.journey().is_planning());
+            // Looking around (pan, zoom step, click) keeps the stop.
+            n.handle(InputEvent::Pan { dx: 20.0, dy: 5.0 }, &mut v, t + 1.0);
+            n.handle(
+                InputEvent::WheelNotch {
+                    delta: 1.0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                &mut v,
+                t + 1.0,
+            );
+            n.handle(InputEvent::Click { x: 0.0, y: 0.0 }, &mut v, t + 1.1);
+            let t = run(&mut n, &mut v, t + 1.0, t + 2.0, hz);
+            assert!(
+                n.journey().at_stop() && !n.journey().is_suspended(),
+                "{hz} Hz: still at the stop"
+            );
+            // J: as planned, the continuous journey's second target.
+            assert!(n.handle(InputEvent::KeyDown(NavKey::Journey), &mut v, t));
+            let t = until_stop(&mut n, &mut v, t, hz);
+            assert_eq!(
+                n.journey().current().unwrap(),
+                &cont[1],
+                "{hz} Hz: J = the planned next target"
+            );
+            assert_eq!(n.journey().leg(), 2);
+            lands.push((v.clone(), n.journey().current().unwrap().clone()));
+
+            if hz != 60.0 {
+                continue;
+            }
+            // X: somewhere else, a cross-over to another region.
+            let here = n.journey().current().unwrap().clone();
+            assert!(n.handle(InputEvent::KeyDown(NavKey::Elsewhere), &mut v, t));
+            let t = until_stop(&mut n, &mut v, t, hz);
+            let x = n.journey().current().unwrap().clone();
+            assert!(
+                matches!(x.kind, journey::TargetKind::Crossing | journey::TargetKind::Surface),
+                "X crosses over: {}",
+                x.label
+            );
+            assert_ne!(region_of(&x), region_of(&here), "{} -> {}", here.label, x.label);
+            // Z: deeper here (or the plan as it was, with a note).
+            let t = until_stop(&mut n, &mut v, t, hz);
+            assert!(n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, t));
+            assert!(!n.autopilot().is_active(), "Z at a stop is not the autopilot");
+            let t = until_stop(&mut n, &mut v, t, hz);
+            let z = n.journey().current().unwrap().clone();
+            let gain = x.span.ratio(z.span).ln();
+            assert!(
+                gain >= journey::DEEPER_MIN_GAIN || n.journey().note() == Some(journey::NOTHING_DEEPER),
+                "Z goes deeper: {} e-folds ({})",
+                gain,
+                z.label
+            );
+            assert!(
+                z.center.distance_in(&x.center, x.span) < 1.0,
+                "Z stays here: {}",
+                z.label
+            );
+            // Moved far away (zoomed out a long way): J plans from the view instead.
+            v.zoom_by(1e-4, 0.0, 0.0);
+            assert!(n.handle(InputEvent::KeyDown(NavKey::Journey), &mut v, t));
+            let span = v.scale * 600.0;
+            let (pc, ps) = n.journey().planned_from().unwrap();
+            assert!(pc == &v.center && *ps == span, "planned from the view");
+            let t = until_stop(&mut n, &mut v, t, hz);
+            // Esc ends the journey where it is.
+            let here = v.clone();
+            assert!(n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t));
+            assert!(!n.journey().is_active() && !n.advance(&mut v, t + 0.1) && v == here);
+            // X is not ours when no journey stops.
+            assert!(!n.handle(InputEvent::KeyDown(NavKey::Elsewhere), &mut v, t + 0.2));
+        }
+        for l in &lands {
+            assert_eq!(l.1, lands[0].1, "30/60/120 Hz: the same landmarks");
+            assert_eq!(l.0, lands[0].0, "30/60/120 Hz: exactly on them");
+        }
+    }
+
+    fn region_of(t: &journey::Target) -> journey::RegionId {
+        journey::region_of(t.center.re(), t.center.im()).0
     }
 }

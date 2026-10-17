@@ -491,6 +491,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case .downArrow?: return .down
         default: break
         }
+        let shift = event.modifierFlags.contains(.shift)
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
         case "w": return .up
         case "s": return .down
@@ -502,8 +503,11 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "+", "=": return .stepIn
         case "-", "_": return .stepOut
         case "r": return .reset
-        case "z": return .autopilot
-        case "j": return .journey
+        // ⇧Z: the zoom-out autopilot; ⇧J: a journey in the other mode; X: somewhere else at
+        // a journey stop (kb: decisions/controls "Zoom-out autopilot", "Journey with stops").
+        case "z": return shift ? .autopilotOut : .autopilot
+        case "j": return shift ? .journeyAlt : .journey
+        case "x": return .elsewhere
         case ",", "<": return .rotateCcw
         case ".", ">": return .rotateCw
         case "/": return .straighten
@@ -553,7 +557,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             return true
         }
         // Z toggles: a held key's repeats must not toggle again.
-        if (key == .autopilot || key == .journey || key == .straighten) && event.isARepeat { return true }
+        if [.autopilot, .autopilotOut, .journey, .journeyAlt, .elsewhere, .straighten].contains(key) && event.isARepeat {
+            return true
+        }
         if event.type == .keyUp { return send(.keyUp(key: key)).handled }
         send(.shift(down: shift))
         return send(.keyDown(key: key)).handled
@@ -865,6 +871,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case .keyboardDownArrow: return .down
         default: break
         }
+        let shift = key.modifierFlags.contains(.shift)
         switch key.charactersIgnoringModifiers.lowercased() {
         case "w": return .up
         case "s": return .down
@@ -876,8 +883,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case "+", "=": return .stepIn
         case "-", "_": return .stepOut
         case "r": return .reset
-        case "z": return .autopilot
-        case "j": return .journey
+        case "z": return shift ? .autopilotOut : .autopilot
+        case "j": return shift ? .journeyAlt : .journey
+        case "x": return .elsewhere
         case ",", "<": return .rotateCcw
         case ".", ">": return .rotateCw
         case "/": return .straighten

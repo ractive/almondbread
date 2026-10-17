@@ -51,6 +51,14 @@
 //! at the target while it refines, then the next leg. The next target is planned on a thread
 //! while the current leg flies, so it is ready at landing; its reference is prefetched during
 //! the dwell (scheduler).
+//!
+//! **Stops** (kb: decisions/controls "Journey with stops"): in the "stop at each find" mode a
+//! leg ends at rest at its landmark ([`Phase::Stopped`]) until the user chooses
+//! ([`Choice`]): J flies the planned next target (exactly the continuous journey's), Z plans a
+//! leg that stays in this dive and goes deeper ([`plan_with`] with [`Choice::Deeper`]; when
+//! nothing deeper is found, the planned next target with a note), X forces the cross-over
+//! ([`Choice::Elsewhere`]). The choices are user input: the chain after them is a function of
+//! the seed, the start view and the sequence of choices.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -570,6 +578,22 @@ pub struct Visit {
     pub region: RegionId,
 }
 
+/// What the next leg should do: the planner's choice, or the user's at a journey stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Choice {
+    /// As planned (J).
+    #[default]
+    Next,
+    /// Stay in this dive and go deeper (Z at a stop): candidates at least
+    /// [`DEEPER_MIN_GAIN`] e-folds deeper than the view, no cross-over, no depth cap.
+    Deeper,
+    /// Cross over to another region now (X at a stop).
+    Elsewhere,
+}
+
+/// A forced deeper leg gains at least this many e-folds (×2.7).
+pub const DEEPER_MIN_GAIN: f64 = 1.0;
+
 /// One planned target.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {
@@ -597,6 +621,24 @@ impl Target {
     /// log10 of the magnification (whole set: span 3).
     pub fn zoom_log10(&self) -> f64 {
         3.0f64.log10() - self.span.log10()
+    }
+
+    /// A name for the HUD at a journey stop: "Minibrot, period 34", "Spiral M(36,2)",
+    /// "Embedded Julia, period 87", "Seahorse valley" (cross-overs: the anchor's name).
+    pub fn title(&self) -> String {
+        let cap = |t: &str| {
+            let mut c = t.chars();
+            c.next()
+                .map_or_else(String::new, |f| f.to_uppercase().collect::<String>() + c.as_str())
+        };
+        match (self.kind, self.period) {
+            (TargetKind::Minibrot, Some(p)) => format!("Minibrot, period {p}"),
+            (TargetKind::Julia, Some(p)) => format!("Embedded Julia, period {p}"),
+            (TargetKind::Approach, Some(p)) => format!("On the way to a period-{p} minibrot"),
+            (TargetKind::Crossing, _) => cap(self.label.trim_start_matches("over to ")),
+            (TargetKind::Surface, _) => cap(self.label.trim_start_matches("resurfacing: ")),
+            _ => cap(&self.label),
+        }
     }
 
     /// The view for a window whose shorter side is `min_side` points.
@@ -708,6 +750,9 @@ pub struct Plan {
     pub candidates: usize,
     pub probed: usize,
     pub seconds: f64,
+    /// Why the plan is not what was asked for ("nothing deeper here": a [`Choice::Deeper`]
+    /// that found no deeper target and fell back to the planned next one).
+    pub note: Option<&'static str>,
 }
 
 /// Candidate before probing.
@@ -790,6 +835,15 @@ pub fn novelty(look: &Look, history: &[Visit], dup: f64) -> (f64, bool) {
 /// probe is scored for structure and for novelty against the last landings; near-duplicates
 /// are rejected, and a dive whose candidates all look like what was just seen ends early.
 pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) -> Option<Plan> {
+    plan_with(center, span, chain, Choice::Next, cancel)
+}
+
+/// [`plan`] with a choice made at a journey stop (kb: decisions/controls "Journey with
+/// stops"). [`Choice::Elsewhere`] crosses over whatever the dive had left. [`Choice::Deeper`]
+/// keeps only candidates of this view at least [`DEEPER_MIN_GAIN`] e-folds deeper (no wider
+/// view, no depth cap, no cross-over); if there is none, it returns the plain [`plan`] with the
+/// note "nothing deeper here". Deterministic in (`center`, `span`, `chain`, `choice`).
+pub fn plan_with(center: &Center, span: Scale, chain: &Chain, choice: Choice, cancel: &AtomicBool) -> Option<Plan> {
     let t0 = std::time::Instant::now();
     let (center, span) = canonical_start(center, span);
     let mut chain = chain.clone();
@@ -802,7 +856,11 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
 
     // ---- Within the dive.
     let mut best: Option<Target> = None;
-    let cross_due = chain.dive_left == 0 || depth > chain.style.max_depth_log10();
+    let cross_due = match choice {
+        Choice::Next => chain.dive_left == 0 || depth > chain.style.max_depth_log10(),
+        Choice::Deeper => false,
+        Choice::Elsewhere => true,
+    };
     if !cross_due {
         // Deeper dives look for deeper minibrots: half the samples search a smaller disc.
         let (lo, hi) = chain.style.gain();
@@ -810,7 +868,9 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         let mut candidates = find_candidates(&center, span, deeper, &mut rng, cancel)?;
         // A short cross-over within the region: targets of a view 2-4 e-folds wider, away
         // from this one (the flight zooms out a little and back in beside it).
-        if depth > 2.5 {
+        if choice == Choice::Deeper {
+            candidates.retain(|c| span.ratio(c.span).ln() >= DEEPER_MIN_GAIN);
+        } else if depth > 2.5 {
             let wide = span * rng.range(2.0, 4.0).exp();
             let mut side = find_candidates(&center, wide, deeper, &mut rng, cancel)?;
             side.retain(|c| {
@@ -835,13 +895,29 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
             .rev()
             .take_while(|v| !matches!(v.kind, TargetKind::Crossing | TargetKind::Surface))
             .count();
-        let dup = if in_dive == 0 { DUPLICATE } else { FAMILIAR };
+        // (Deeper on request: only near-duplicates are out; the user asked to stay.)
+        let dup = if in_dive == 0 || choice == Choice::Deeper {
+            DUPLICATE
+        } else {
+            FAMILIAR
+        };
         let (b, n) = probe_best(candidates, span, &chain.history, dup, trace, cancel)?;
         probed += n;
         // A boundary detail after a boundary detail: the dive has run out of landmarks.
         best = b.filter(|t| {
-            t.kind != TargetKind::Detail || chain.history.last().is_none_or(|v| v.kind != TargetKind::Detail)
+            choice == Choice::Deeper
+                || t.kind != TargetKind::Detail
+                || chain.history.last().is_none_or(|v| v.kind != TargetKind::Detail)
         });
+        if best.is_none() && choice == Choice::Deeper {
+            if trace {
+                println!("    nothing deeper here: as planned");
+            }
+            let mut p = plan_with(&center, span, &chain, Choice::Next, cancel)?;
+            p.note = Some(NOTHING_DEEPER);
+            p.seconds = t0.elapsed().as_secs_f64();
+            return Some(p);
+        }
         if best.is_none() && trace {
             println!("    dive ends: nothing new here");
         }
@@ -916,8 +992,12 @@ pub fn plan(center: &Center, span: Scale, chain: &Chain, cancel: &AtomicBool) ->
         candidates: found,
         probed,
         seconds: t0.elapsed().as_secs_f64(),
+        note: None,
     })
 }
+
+/// The note of a [`Choice::Deeper`] that found nothing deeper.
+pub const NOTHING_DEEPER: &str = "nothing deeper here";
 
 /// Variety rules before probing (kinds alternate, the leg's preferred gain, directions
 /// change, no place twice) and a seeded share.
@@ -1547,7 +1627,15 @@ pub enum Phase {
     Flying,
     /// Resting at a target while it refines.
     Dwelling,
+    /// At rest at a landmark until the user chooses (the "stop at each find" mode).
+    Stopped,
 }
+
+/// A landmark still counts as "here" for a choice at a stop while its centre is within this
+/// many view spans (shorter side) of the view's centre and its zoom within [`NEAR_EFOLDS`]:
+/// the next leg is planned from the landmark (reproducible); beyond, from the view.
+pub const NEAR_SPANS: f64 = 0.5;
+pub const NEAR_EFOLDS: f64 = 2.0;
 
 /// The journey's state in the navigator; see the module docs.
 #[derive(Clone, Debug)]
@@ -1574,8 +1662,16 @@ pub struct Journey {
     slot: Option<Arc<PlanSlot>>,
     /// Plan synchronously (tests and recorded flights: reproducible timing).
     pub synchronous: bool,
-    /// The view the running plan started from (resume replans when the view moved).
+    /// The view the running plan started from (resume replans when the view moved), and the
+    /// choice it was planned with.
     planned_from: Option<(Center, Scale)>,
+    planned_choice: Choice,
+    /// "Stop at each find": each leg ends at rest at its landmark until the user chooses.
+    stops: bool,
+    /// The choice made at the stop, until its leg starts.
+    choice: Option<Choice>,
+    /// Why this leg is not what was asked for (a deeper leg that found nothing deeper).
+    note: Option<&'static str>,
 }
 
 impl Default for Journey {
@@ -1599,6 +1695,10 @@ impl Default for Journey {
             slot: None,
             synchronous: false,
             planned_from: None,
+            planned_choice: Choice::Next,
+            stops: false,
+            choice: None,
+            note: None,
         }
     }
 }
@@ -1622,6 +1722,77 @@ impl Journey {
 
     pub fn is_suspended(&self) -> bool {
         self.active && self.suspended
+    }
+
+    /// The "stop at each find" mode of this journey.
+    pub fn stops(&self) -> bool {
+        self.stops
+    }
+
+    /// Sets the mode (the navigator, as a journey starts; a running journey switches at its
+    /// next landing).
+    pub fn set_stops(&mut self, on: bool) {
+        self.stops = on;
+        if !on && self.phase == Phase::Stopped && self.choice.is_none() {
+            self.phase = Phase::Planning;
+        }
+    }
+
+    /// At a stop: resting at a landmark until the user chooses, or the chosen leg is being
+    /// planned. J / Z / X mean continue / deeper / elsewhere here, and manual input does not
+    /// pause the journey.
+    pub fn at_stop(&self) -> bool {
+        self.is_running() && (self.phase == Phase::Stopped || self.choice.is_some())
+    }
+
+    /// The journey needs frames: it flies, rests, plans, or a choice is being planned (not
+    /// while it waits at a stop).
+    pub fn wants_frames(&self) -> bool {
+        self.is_running() && self.phase != Phase::Stopped
+    }
+
+    /// The choice being planned at a stop.
+    pub fn choice(&self) -> Option<Choice> {
+        self.choice
+    }
+
+    /// Why the current leg is not what was asked for ("nothing deeper here").
+    pub fn note(&self) -> Option<&'static str> {
+        self.note
+    }
+
+    /// A choice at a stop (J, Z, X; kb: decisions/controls "Journey with stops"), with the
+    /// view now (`center`, shorter-side `span`). The next leg is planned from the landmark
+    /// while it is still near the view (within [`NEAR_SPANS`] and [`NEAR_EFOLDS`]), else from
+    /// the view (as a resume after manual input does). J near the landmark flies the target
+    /// already planned, exactly the continuous journey's. Returns whether it was at a stop.
+    pub fn choose(&mut self, choice: Choice, center: &Center, span: Scale) -> bool {
+        if !self.at_stop() {
+            return false;
+        }
+        let (from_c, from_s) = match &self.current {
+            Some(t)
+                if t.center.distance_in(center, span) < NEAR_SPANS && t.span.ratio(span).ln().abs() < NEAR_EFOLDS =>
+            {
+                (t.center.clone(), t.span)
+            }
+            _ => (center.clone(), span),
+        };
+        self.choice = Some(choice);
+        self.note = None;
+        self.phase = Phase::Planning;
+        let same = self.planned_choice == choice
+            && self
+                .planned_from
+                .as_ref()
+                .is_some_and(|(c, s)| c == &from_c && *s == from_s)
+            && (self.next.is_some() || self.slot.is_some());
+        if !same {
+            self.cancel_plan();
+            self.next = None;
+            self.request_with(&from_c, from_s, choice);
+        }
+        true
     }
 
     pub fn seed(&self) -> u64 {
@@ -1711,6 +1882,8 @@ impl Journey {
         self.palette = (self.palette.1, self.palette.1);
         self.chain.palette_phase = self.palette.1;
         self.phase = Phase::Planning;
+        self.choice = None;
+        self.note = None;
         self.request(center, span);
     }
 
@@ -1721,6 +1894,8 @@ impl Journey {
         self.suspended = false;
         self.next = None;
         self.current = None;
+        self.choice = None;
+        self.note = None;
     }
 
     /// Manual input took over: the journey waits for a resume.
@@ -1737,6 +1912,7 @@ impl Journey {
             return;
         }
         self.suspended = false;
+        self.choice = None;
         let unchanged = self
             .planned_from
             .as_ref()
@@ -1768,18 +1944,24 @@ impl Journey {
 
     /// Plans the next target from (`center`, `span`) with the current chain.
     fn request(&mut self, center: &Center, span: Scale) {
+        self.request_with(center, span, Choice::Next);
+    }
+
+    /// Plans the next target from (`center`, `span`) with the current chain and a choice.
+    fn request_with(&mut self, center: &Center, span: Scale, choice: Choice) {
         self.planned_from = Some((center.clone(), span));
+        self.planned_choice = choice;
         let chain = self.chain.clone();
         if self.synchronous {
             let never = AtomicBool::new(false);
-            self.next = plan(center, span, &chain, &never);
+            self.next = plan_with(center, span, &chain, choice, &never);
             return;
         }
         let slot = Arc::new(PlanSlot::default());
         let s = slot.clone();
         let c = center.clone();
         let spawned = std::thread::Builder::new().name("journey-plan".into()).spawn(move || {
-            let p = plan(&c, span, &chain, &s.cancel);
+            let p = plan_with(&c, span, &chain, choice, &s.cancel);
             if let Ok(mut r) = s.result.lock() {
                 *r = Some(p);
             }
@@ -1807,14 +1989,16 @@ impl Journey {
         self.poll();
         match self.phase {
             Phase::Flying if !flying => {
-                self.phase = Phase::Dwelling;
+                self.phase = if self.stops { Phase::Stopped } else { Phase::Dwelling };
                 self.since = now;
                 None
             }
-            Phase::Flying => None,
+            Phase::Flying | Phase::Stopped => None,
             Phase::Dwelling if now - self.since < self.dwell_time() => None,
             Phase::Dwelling | Phase::Planning => {
                 let p = self.next.take()?;
+                self.choice = None;
+                self.note = p.note;
                 self.chain = p.chain.clone();
                 self.leg += 1;
                 self.phase = Phase::Flying;
@@ -1831,12 +2015,17 @@ impl Journey {
 
     /// Waiting for a plan longer than the dwell (the HUD says "planning").
     pub fn is_planning(&self) -> bool {
-        self.is_running() && self.next.is_none() && self.phase != Phase::Flying
+        self.is_running() && self.next.is_none() && !matches!(self.phase, Phase::Flying | Phase::Stopped)
     }
 
     /// The chain after the last leg started (tests).
     pub fn chain(&self) -> &Chain {
         &self.chain
+    }
+
+    /// The view (centre, shorter-side span) the pending or ready plan started from.
+    pub fn planned_from(&self) -> Option<&(Center, Scale)> {
+        self.planned_from.as_ref()
     }
 }
 

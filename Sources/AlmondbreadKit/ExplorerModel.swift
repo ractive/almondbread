@@ -301,6 +301,18 @@ public final class ExplorerModel {
     }
     static let lockKey = "autopilotLock"
 
+    /// "Journey: continuous / stop at each find" (persisted; off: continuous; kb:
+    /// decisions/controls "Journey with stops"): J and the Journey button start this mode, ⇧J
+    /// the other.
+    /// Window tests start from (and never store) the default.
+    public var journeyStops: Bool = !TestLaunch.enabled && UserDefaults.standard.bool(forKey: ExplorerModel.journeyStopsKey) {
+        didSet {
+            if !TestLaunch.enabled { UserDefaults.standard.set(journeyStops, forKey: Self.journeyStopsKey) }
+            explorer?.setJourneyStops(on: journeyStops)
+        }
+    }
+    static let journeyStopsKey = "journeyStops"
+
     /// The HUD's frame in SwiftUI's global space (the canvas shows the arrow cursor there).
     /// The window is in (or entering) full screen (macOS): the control center closes then and
     /// comes back as it was on leaving (ContentView; kb: decisions/controls "Full screen").
@@ -331,6 +343,10 @@ public final class ExplorerModel {
     public private(set) var flightActive = false
     public private(set) var journeySuspended = false
     public private(set) var journeySeed: UInt64 = 0
+    /// The journey rests at a landmark and waits for a choice (J, Z, X; iOS: buttons).
+    public private(set) var journeyAtStop = false
+    /// The zoom-out autopilot (⇧Z) flies.
+    public private(set) var zoomingOut = false
     public private(set) var viewTurned = false
     /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
     public private(set) var orbit: OrbitInfo?
@@ -369,6 +385,7 @@ public final class ExplorerModel {
         self.host = host
         explorer.setEdgePan(mode: edgePanning.ffi)
         explorer.setAutopilotLock(on: autopilotLock)
+        explorer.setJourneyStops(on: journeyStops)
         if !TestLaunch.enabled { restoreUserPalettes() }
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
@@ -698,6 +715,7 @@ public final class ExplorerModel {
             edgePanning = .whileZooming
             autopilotLock = true
         }
+        if scope == .all || scope == .cinematic { journeyStops = false }
         if scope == .all || scope == .view || scope == .cinematic {
             pulling = true
             cinematic = d.cinematic
@@ -783,6 +801,24 @@ public final class ExplorerModel {
     public func toggleAutopilot() {
         send(.keyDown(key: .autopilot))
         send(.keyUp(key: .autopilot))
+    }
+
+    /// The zoom-out autopilot on / off (⇧Z): a steady zoom out at the autopilot speed to the
+    /// whole set (kb: decisions/controls "Zoom-out autopilot").
+    public func toggleZoomOut() {
+        send(.keyDown(key: .autopilotOut))
+        send(.keyUp(key: .autopilotOut))
+    }
+
+    /// At a journey stop: Z (deeper here) and X (somewhere else); J is `toggleJourney`.
+    public func journeyDeeper() {
+        send(.keyDown(key: .autopilot))
+        send(.keyUp(key: .autopilot))
+    }
+
+    public func journeyElsewhere() {
+        send(.keyDown(key: .elsewhere))
+        send(.keyUp(key: .elsewhere))
     }
 
     // MARK: Journey and rotation (kb: decisions/controls, "Journey", "View rotation")
@@ -1011,6 +1047,8 @@ public final class ExplorerModel {
         if flightActive != new.flight.active { flightActive = new.flight.active }
         if journeySuspended != new.journey.suspended { journeySuspended = new.journey.suspended }
         if journeySeed != new.journey.seed { journeySeed = new.journey.seed }
+        if journeyAtStop != new.journey.atStop { journeyAtStop = new.journey.atStop }
+        if zoomingOut != new.flight.zoomOut { zoomingOut = new.flight.zoomOut }
         let turned = new.shown.angleDegrees != 0
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }

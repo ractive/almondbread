@@ -349,6 +349,11 @@ struct JourneySectionRows: View {
     var body: some View {
         let _ = UIPerf.body("section.journey")
         JourneyControls(model: model, journeySeed: journeySeed)
+        Picker("Journey", selection: $model.journeyStops) {
+            Text("Continuous").tag(false)
+            Text("Stop at each find").tag(true)
+        }
+        .help("Continuous: rest a moment at each landmark and fly on. Stop at each find: stay until you choose: J next, Z deeper here, X somewhere else. J starts this mode, ⇧J the other.")
         TextField("Seed (empty: random)", text: $journeySeed)
             .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
         Toggle("Cinematic effects", isOn: $model.cinematic)
@@ -882,7 +887,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "rotation", "straighten"]
-        case .journey: ["journey", "seed", "daily", "share", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
+        case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
@@ -894,7 +899,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
 
     var footer: String? {
         switch self {
-        case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Any input takes over; J or a click resumes, Esc stops. Effects apply to the autopilot, journeys, fly-to and recorded flights."
+        case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Any input takes over; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
@@ -1154,8 +1159,10 @@ struct ControlsHelp: View {
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
         row("pi", "P", "π meter at the neck or the cusp")
         row("airplane", "Z", "Autopilot: steer with the mouse, click pauses")
+        row("minus.magnifyingglass", "⇧Z", "Zoom out to the whole set (Q / E speed)")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
-        row("sparkles", "J", "Journey: on · resume after input · off")
+        row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
+        row("forward", "At a journey stop", "J next · Z deeper here · X somewhere else")
         row("rotate.left", ",  .  /", "Turn left / right · upright (or trackpad rotate)")
         row("escape", "Esc", "Stop the autopilot, a flight or a journey; then leave full screen")
         row("arrow.up.backward.and.arrow.down.forward", "F or ⌃⌘F", "Full screen on / off")
@@ -1174,6 +1181,8 @@ struct ControlsHelp: View {
         row("map", "Keyboard: O / M / P", "Orbit overlay / mini-map / π meter")
         row("airplane", "Autopilot button or Z", "Fly on; a finger steers, a tap pauses")
         row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
+        row("forward", "At a journey stop", "Next · deeper here · somewhere else")
+        row("minus.magnifyingglass", "Long-press autopilot or ⇧Z", "Zoom out to the whole set")
         row("rotate.left", "Two-finger rotate", "Turn the view")
         #endif
     }

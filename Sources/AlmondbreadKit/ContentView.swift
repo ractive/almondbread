@@ -76,17 +76,47 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Autopilot")
+                // A long press: the zoom-out autopilot (⇧Z).
+                .contextMenu {
+                    Button(model.zoomingOut ? "Stop Zooming Out" : "Zoom Out to the Whole Set", systemImage: "minus.magnifyingglass") {
+                        model.toggleZoomOut()
+                    }
+                }
                 // Journey: planned flights from landmark to landmark; a tap on the canvas pauses.
+                // At a stop it flies on, and two more buttons go deeper here or elsewhere.
                 Button {
                     model.toggleJourney()
                 } label: {
-                    Image(systemName: model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
+                    Image(systemName: model.journeyAtStop ? "forward.fill"
+                          : model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
                         .font(.title3)
                         .frame(width: 44, height: 44)
                         .background(.ultraThinMaterial, in: Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Journey")
+                .accessibilityLabel(model.journeyAtStop ? "Journey: next landmark" : "Journey")
+                if model.journeyAtStop {
+                    Button {
+                        model.journeyDeeper()
+                    } label: {
+                        Image(systemName: "arrow.down.right.circle")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Journey: deeper here")
+                    Button {
+                        model.journeyElsewhere()
+                    } label: {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Journey: somewhere else")
+                }
                 Button {
                     showInspector.toggle()
                 } label: {
@@ -144,13 +174,13 @@ struct ContentView: View {
                 } label: {
                     Label("Autopilot", systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
                 }
-                .help("Autopilot (Z): zoom on continuously, steer with the mouse; click pauses, Esc stops")
+                .help("Autopilot (Z): zoom on continuously, steer with the mouse; click pauses, Esc stops; ⇧Z zooms out to the whole set")
                 Button {
                     model.toggleJourney()
                 } label: {
                     Label("Journey", systemImage: model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
                 }
-                .help("Journey (J): an endless planned flight from landmark to landmark; any input takes over, J resumes, Esc stops")
+                .help("Journey (J): an endless planned flight from landmark to landmark; any input takes over, J resumes, Esc stops; ⇧J in the other mode (continuous / stop at each find)")
                 Button {
                     showFlyTo = true
                 } label: {
@@ -281,7 +311,8 @@ struct HUDView: View {
                     .foregroundStyle(.primary)
             }
             if let hint = motionHint(s) {
-                Label(hint, systemImage: s.flight.active ? "location.north.line" : "airplane")
+                Label(hint, systemImage: s.flight.zoomOut ? "minus.magnifyingglass"
+                      : s.flight.active ? "location.north.line" : "airplane")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
             }
@@ -367,8 +398,11 @@ struct HUDDeveloperDetails: View {
 extension HUDView {
     /// The speed Q / E change right now: the flight's, the autopilot's or Space's.
     func speedLine(_ s: ExplorerStats) -> String {
-        if s.journey.active && !s.journey.suspended {
+        if s.journey.active && !s.journey.suspended && !s.journey.atStop {
             return "journey speed \(Format.speed(exp(s.journey.speed)))"
+        }
+        if s.flight.zoomOut {
+            return "zoom-out speed \(Format.speed(exp(s.flight.speed)))"
         }
         if s.flight.active {
             return "fly speed \(Format.speed(exp(s.flight.speed)))"
@@ -386,7 +420,18 @@ extension HUDView {
         guard j.active else { return nil }
         let name = j.daily ? "Daily journey #\(j.seed)" : "Journey #\(j.seed)"
         if j.suspended { return "\(name) paused  ·  J or click to resume" }
+        // At a stop (kb: decisions/controls "Journey with stops"): the landmark and the choices.
+        if j.atStop {
+            let here = [j.title, Format.zoom(log10: s.shown.zoomLog10)].filter { !$0.isEmpty }.joined(separator: "  ·  ")
+            if j.phase == "planning" { return here + "  ·  planning" }
+            #if os(macOS)
+            return here + "  —  J next  ·  Z deeper here  ·  X somewhere else"
+            #else
+            return here + "  —  next  ·  deeper  ·  elsewhere"
+            #endif
+        }
         var parts = [name, "leg \(j.leg)"]
+        if !j.note.isEmpty { parts.append(j.note) }
         if !j.label.isEmpty { parts.append(j.label) }
         if j.leg > 0 { parts.append(Format.zoom(log10: j.targetZoomLog10)) }
         parts.append(j.phase)
@@ -397,6 +442,11 @@ extension HUDView {
         if s.journey.active {
             // The journey line says it all; only a back-off is worth a second line.
             return s.flight.active && !s.journey.suspended ? Self.hintText(s.flight.hint) : nil
+        }
+        if s.flight.zoomOut {
+            let to = "Zooming out to the whole set  ·  \(String(format: "%.0f", s.flight.progress * 100)) %"
+            if s.flight.stopping { return to + "  ·  stopping" }
+            return [to, Self.hintText(s.flight.hint)].compactMap { $0 }.joined(separator: "  ·  ")
         }
         if s.flight.active {
             let to = "Flying to \(Format.zoom(log10: s.flight.targetZoomLog10))  ·  \(String(format: "%.0f", s.flight.progress * 100)) %"
