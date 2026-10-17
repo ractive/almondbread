@@ -217,7 +217,7 @@ reference, plus temporal error, the change of the error from frame to frame alon
   synthetic pan sweep above: with fractional motion the history adds little.
 - **Spatial scaler**: grainy and aliased, with 2–3× the ΔE and 5–6× the temporal error of
   the bilinear preview path. Unusable for this content.
-- **The sample cache does better at FL's own iteration budget** (`hy-b1`): ΔE 1.45 on the
+- **The sample cache (since deleted, 2026-10-17) did better at FL's own iteration budget** (`hy-b1`): ΔE 1.45 on the
   seahorse dive and 0.72 on the pan.
 
 Verdict: MetalFX does not pay for almondbread's fractal content. It gives no quality gain over

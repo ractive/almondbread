@@ -28,22 +28,26 @@ orbits on the CPU) with a Swift + SwiftUI/AppKit UI on Apple platforms
 3. **Iteration skipping** with a precomputed table: mathr's binary-tree
    [[techniques/bla]] (general, works for Burning Ship, Mandelbar, hybrids)
    or Imagina's period-aligned [[techniques/linear-approximation-imagina]]
-   with the AT minibrot shortcut (Mandelbrot only; measured in M6: 1.9–2.4× over BLA at deep
-   needle minibrots, no gain on centre references or in float32 views, the AT no gain on the
-   GPU, so almondbread uses LA only on deep nucleus references and keeps BLA elsewhere). Series
+   (Mandelbrot only; measured in M6: 1.9–2.4× over BLA at deep needle minibrots, no gain on
+   centre references or in float32 views, so almondbread uses LA only on deep nucleus references
+   and BLA elsewhere; the AT shortcut gave no gain on the GPU and its code was deleted
+   2026-10-17). A preview waits for a new reference's table. Series
    approximation and nanoMB are legacy ([[techniques/series-approximation]]).
 4. **Range handling** for float32: plain deltas to about 1e-25, then
    rescaled float32 with floatexp scale and floatexp skip-table entries
    ([[techniques/extended-range-floats]]); [[techniques/double-float]] only
    as a precision repair.
-5. **Cheap per-pixel extras**: derivative interior detection, exterior
-   distance estimation, split smooth counts, a separate colouring pass
+5. **Cheap per-pixel extras**: derivative interior detection, completed by the closed-form
+   cardioid / period-2 test and the attracting-cycle probe (Newton proof of an interior cycle),
+   exterior distance estimation, split smooth counts, a separate colouring pass
    ([[techniques/interior-detection]], [[techniques/distance-estimation]],
-   [[techniques/smooth-coloring]], [[techniques/coloring-methods]]).
+   [[techniques/smooth-coloring]], [[techniques/coloring-methods]]). What stays unresolved at the
+   limit is drawn as fog ([[techniques/unresolved-fog]]).
 6. **Image-level work**: progressive jittered anti-aliasing, frame reuse,
    coarse-to-fine refinement, auto iterations, exponential-map movies
    ([[techniques/anti-aliasing]], [[techniques/frame-reuse-and-progressive]],
-   [[techniques/auto-iterations]], [[techniques/exponential-map]]).
+   [[techniques/auto-iterations]], [[techniques/exponential-map]]). Auto iterations end with
+   "compute further": background passes on the unresolved texels up to an Upper limit.
    Solid guessing is weak on GPUs ([[techniques/guessing-and-subdivision]]).
 
 ## What is specific to almondbread
@@ -73,10 +77,23 @@ exists, though small Swift/Metal projects such as
 
 ## Status and controls
 
-Milestone 2 (2026-10-14) built the chunked, resumable iterate pass, derivative
-interior detection and the verification harness; measurements live in
-[[synthesis/benchmarks]]. The controls (WASD/arrows pan, Space zoom, Q/E zoom speed,
-pointer and touch gestures) are fixed in [[decisions/controls]].
+Milestones 2 to 7 are built (chunked resumable iterate pass, interior detection, BLA, local
+series approximation, Imagina LA, float-float as a verification tool); measurements live in
+[[synthesis/benchmarks]]. [[decisions/controls]] holds the interaction design: WASD/arrows pan,
+Space zoom, pointer and touch gestures, and since 2026-10-17 the driving levels (manual, cruise,
+autopilot, journey; Q / E are pedals, reverse cruise zooms home, a cockpit with clickable icons
+shows the level), the autopilot's target lock and rescue (survey steering opt-in, lane assist in
+cruise), journeys with stops, the compass, full screen, a render-progress line, help popovers,
+and the cosmic size scale (your window stays, the set grows, then imaginary universes nest).
+Places, including endless dives on Misiurewicz points, are in [[synthesis/places]].
+Smoothness while moving is measured, not assumed: gesture-resolution probes follow the GPU
+clocks ([[platform/metal-compute]], [[synthesis/benchmarks]]), hang prevention guards every
+loop that depends on computed values ([[techniques/hang-prevention]]).
+
+Decided choices are the only code: the behaviour env switches (SA, fill, BLA, LA, fog, compute
+further, probes, warm-up, ...) and the opt-in motion sample cache were deleted 2026-10-17
+([[techniques/sample-reuse]] keeps the research). The app is MIT-licensed open source
+([[decisions/open-source-release]]).
 
 ## Roadmap and open questions
 
@@ -86,5 +103,4 @@ reference → interaction → Imagina LA/AT → float-float → more formulas) i
 [[synthesis/deep-zoom-rendering-techniques]]. Open questions and
 contradictions between sources are in `questions/` (see [[index]]).
 
-State: first research run ingested (2026-10-14). No measurements of our own
-yet.
+State (2026-10-17): the research run is ingested and the app is built through M7 plus the 2026-10-16/17 features; open items are in [[roadmap]] and `questions/`.

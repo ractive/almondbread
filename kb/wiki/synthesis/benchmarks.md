@@ -13,6 +13,8 @@ section per milestone; keep older tables for comparison. All numbers are ours:
 `measured 2026-10-14, M1 Pro (16-core GPU), macOS 26 (Darwin 25.5), release`
 unless a section says otherwise.
 
+> **Switches named below were removed 2026-10-17** (`ALMONDBREAD_SA`, `_FILL`, `_BLA`, `_LA`, `_AT`, `_ITER_FLOOR`, `_SAMPLE_CACHE`, `_SERIAL_COMPOSE`, `_WARM_PIPELINES`, `_AUTOPILOT_LOCK`, `_PROBE_ESCALATE`, `--sa/--fill/--bla/--la/--at/--lock/--further`; the auto path is the only one). Sections are measurement history and keep the names; see [[log]] "Behaviour switches removed".
+
 ## Tools
 
 Since R2b the headless tools are the Rust CLI (`target/release/almondbread`, `make
@@ -1849,10 +1851,11 @@ read 4.5e-8 s/texel at 1/8 against 1.5e-8 at 1/4 and never left 1/8. Forced rati
 at 1/8: the clock, not the work. Other GPU clients keep the clocks up, which is why the
 check passed "on a busy machine" earlier in the week and fails on an idle one.
 
-**Fix (default since 2026-10-17; the user found no stutter and sharp previews in the foreground app, and the switch was removed). First behind `ALMONDBREAD_GESTURE_PROBE=1` (off by default** until compared in the foreground
-app; background-window numbers are not enough and skipped draws rose at the dense and deep
-views; off is exactly the old cost model; `ALMONDBREAD_GESTURE_PROBE=1 make interaction-test`
-measures it on). `scheduler.rs`, `probe_gesture_ratio`: (1) a probe: when the model's level fits the
+**Fix (the only path since 2026-10-17).** It was first built behind `ALMONDBREAD_GESTURE_PROBE=1`
+(off by default, because background-window numbers are not enough and skipped draws rose at the
+dense and deep views). The user then compared both in the foreground app (smooth, sharp, no
+stutter noticed) and the switch was removed; the table column below named after it is the
+fixed build. Short explanation: [[platform/metal-compute]] "Gesture resolution and GPU clocks". `scheduler.rs`, `probe_gesture_ratio`: (1) a probe: when the model's level fits the
 budget, a gesture tries one 1/8 step above for 0.25 s and keeps it if its own measured cost
 fits; the next probe waits 0.5 s, doubling to 4 s after failures; no probe in a gesture's
 first 0.5 s (its first frames are sized by the refined frame's cost); a probe aborts after

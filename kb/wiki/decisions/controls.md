@@ -273,7 +273,7 @@ HUD.
 
 | Input | Action |
 | --- | --- |
-| Z, menu "Autopilot On/Off", toolbar ✈ (iOS: overlay button) | on (eased start) / off (eased stop); Z key repeats are ignored |
+| Z, menu "Autopilot On/Off", the cockpit's plane icon (iOS: overlay button; the macOS toolbar button was removed 2026-10-17) | on (eased start) / off (eased stop); Z key repeats are ignored |
 | Esc, menu "Stop Autopilot or Flight" | eased stop; not handled (the system keeps Esc) while nothing flies |
 | Pointer offset from the view centre | steers like a joystick (below) |
 | Click (iOS: tap) | pause / resume (eased); a double click undoes its first click's toggle and zooms as usual |
@@ -408,6 +408,8 @@ with a scripted pilot that keeps a target under the pointer, clamped to the wind
   the "interior" hint, as designed.
 
 ### Survey steering (as built, 2026-10-17; opt-in)
+
+Still an env switch (`ALMONDBREAD_SURVEY_STEER=1`, not yet decided by the user). Its boundary-point pick is also what lane assist uses in cruise ("Driving levels" below).
 
 User report: at deep zoom (around 1e247 at re −1.76866783140550194…, im 0.00164555778036987…)
 Z "often flies into the void"; asked for a simple, fast "where is even something" steering,
@@ -578,7 +580,7 @@ landmark, with targets chosen from the maths rather than by taste. Core:
 
 | Input | Action |
 | --- | --- |
-| J, menu "Journey On/Off", toolbar ✦, control center "Journey" (iOS: overlay button) | start with a random seed (1 … 999 999) / resume after manual input / stop |
+| J, menu "Journey On/Off", the cockpit's sparkles icon, control center "Journey" (iOS: overlay button; the macOS toolbar button was removed 2026-10-17) | start with a random seed (1 … 999 999) / resume after manual input / stop |
 | control center seed field, "Daily" | start a given seed; the daily journey's seed is the date (yyyymmdd), the same for everyone |
 | Q / E, wheel notch, trackpad scroll | journey speed ×0.8 / ×1.25 (0.1–16 e-folds/s at the zoom ends, default 1.4) |
 | any navigation (keys, drag, pinch, wheel zoom, rotate, gamepad, Z) | takes over: the leg's motion glides out in the springs (as for fly-to); the HUD says "paused · J or click to resume" |
@@ -758,7 +760,7 @@ longest flight stretch whose look does not change below ~2 s at the default spee
 
 ## Driving levels (as built, 2026-10-17)
 
-The user's design, like a car's gears: four levels, shown in the HUD cockpit as `M · C · A · J`.
+The user's design, like a car's gears: four levels, shown in the HUD cockpit as four icons (first built as the letters `M · C · A · J`, replaced by icons the same day, see "Cockpit").
 Core: `crates/almondbread-core/src/cruise.rs` (`Level`, `LADDER`, `pedal`, `Cruise`), the
 hand-overs in `Navigator` (`level`, `take_wheel`, `pedal`, `cruise_landing`, `cockpit`); the
 cockpit is drawn by Rust (`crates/almondbread-render/src/cockpit.rs`). Replaces ⇧Z ("Zoom-out
@@ -849,7 +851,7 @@ ahead – steering away". Not yet tried in a foreground window (default off).
 left of the iPhone button column), shown with the HUD. Revised 2026-10-17 after the user's
 review ("M C A J … I don't think people understand what those mean", and a set-speed notch the bar
 overshot during the reverse boost): four icons (steering wheel = manual, speedometer = cruise,
-plane = autopilot, sparkles = journey; the last two as in the toolbar), the current one lit and
+plane = autopilot, sparkles = journey), clickable since 2026-10-17 (manual stops = Esc, cruise starts cruising in = E, autopilot and journey toggle = Z, J), the current one lit and
 named ("Cruise"); a gauge with zero in the middle showing only the rate flown (reverse left, log
 scale to the top rung); the rate as text ("↓ ×4.2/s") with the set speed under it in small type
 ("set ×1.5", "· boost" while the depth boost adds), lit for 1.2 s after Q / E; the lane icon; a
@@ -926,7 +928,7 @@ The continuous journey (J by default) is unchanged. Core: `journey.rs` (`Phase::
 
 Z and X keep their usual meaning when not at a stop (Z the autopilot; X is unbound and not
 handled). Bindings: Swift decodes keys in `FractalView.navKey` (macOS and iOS tables) into
-`NavKey::{Journey, JourneyAlt, Autopilot, AutopilotOut, Elsewhere}`; all meaning is in the
+`NavKey::{Journey, JourneyAlt, Autopilot, Elsewhere}` (`AutopilotOut` went with ⇧Z); all meaning is in the
 navigator.
 
 **At a stop** the leg has landed exactly on the landmark and nothing moves: the navigator asks for
@@ -969,7 +971,7 @@ period 68", X flew on to "over to Pine Compass"; frame vs fresh render 0.000 %; 
 2026-10-17, release). `scripts/ui-screenshots.sh` scenes `journey-stop` and `zoom-out`.
 
 **iOS.** The journey button turns into ▶ at a stop and two buttons (deeper, elsewhere) appear next
-to it; a long press on the plane button offers the zoom out. Not tried on a device or simulator run
+to it (the long-press zoom out went with ⇧Z, 2026-10-17). Not tried on a device or simulator run
 (no simulator runtime installed; the target builds).
 
 ## View rotation (as built, 2026-10-15)
@@ -1051,37 +1053,33 @@ default.
   `n = d − d_U` (log10 of set over universe, `U` = 8.7e26 m), so nothing overflows to the depth
   limit (~1e3010). Ratios only, never counts of universes; no physics jargon (no light times, no
   GeV).
-- **Phase 1, the set grows (to zoom ≈ 3e27 for 30 cm)**: "The whole set would be 4 km across"
+- **Phase 1, the set grows (to zoom ≈ 3e27 for 30 cm)**: "The whole Mandelbrot set would be 4 km across"
   below 10 km, then the nearest thing in log: "… as big as Earth", "… 3× as big as the Sun";
   at the turn (set/U from 0.8 to 2) "The whole set would be as big as the observable universe".
   Line 2: "your window: 30 cm" (or "your window: 45 cm").
-- **Phase 2, the universe shrinks inside the set (to ≈ 1e89)**: set/U = U/thing, so the
-  universe would be as small as a thing of size `U · 10^-n`: "In the whole set, our universe
-  would be as small as an atom", "… only 2.7× as big as the Milky Way", "… as small as 40% of a
-  cell". Compared with familiar things only (Milky Way, solar system, Sun, Earth, Moon, Everest,
-  you, ant, hair, cell, virus, atom, proton, Planck length). Galaxy ≈ 1e33, solar system ≈ 1e41,
-  Earth ≈ 1e47, you ≈ 1e54, cell ≈ 1e59, atom ≈ 1e64, proton ≈ 1e69, Planck ≈ 1e89. Between
-  set/U = 2 and a factor 4 above the galaxy rung no familiar thing is near (only distances
-  between galaxies): "The whole set would be bigger than the observable universe". Line 2:
-  "your window: 30 cm".
-- **Phase 3, nested universes (from the Planck rung)**: `k = floor(n / a) + 1` universes with
-  `a = log10(U / atom) ≈ 36.92` decades (set/U = (U/atom)^(k-1): imagine every atom were a
-  universe). At `n = a` our universe is an atom of the set, so the set is already a universe of
-  universes (k = 2, the "universe = atom" rung, still read in phase 2's words). Phase 3 starts
-  at the Planck rung (`n ≈ 61.7`, zoom ≈ 1e89, k = 2) and k counts on from there (k = 3 at zoom
-  ≈ 1e101, 27 at ≈ 1e987–1e1024, 81 at ≈ 1e2981–1e3018). Fixed 2026-10-17: the count was
-  `max(2, floor(n / a))`, one universe short (the user asked whether the maths was right). Line 1: "A universe in a universe", "A universe
-  in a universe in a universe", "A universe in a universe in a universe in a universe", from
-  k = 5 "A universe in a universe in … (27 times)" (at 1e1000). Line 2: "imagine every atom were a
-  universe, and every atom in it too".
+- **Phase 2, an imaginary universe (to ≈ 1e89)**: set/U = U/thing. Reworded 2026-10-17 (user):
+  the subject is "The whole Mandelbrot set" ("set" alone is jargon for newcomers) and the
+  sentence reads "… would be as big as an imaginary universe", "in which an atom is as big as
+  ours" (before: "In the whole set, our universe would be as small as an atom"). Compared with
+  familiar things only (Milky Way, solar system, Sun, Earth, Moon, Everest, you, ant, hair, cell,
+  virus, atom, proton, Planck length). Galaxy ≈ 1e33, solar system ≈ 1e41, Earth ≈ 1e47, you ≈
+  1e54, cell ≈ 1e59, atom ≈ 1e64, proton ≈ 1e69, Planck ≈ 1e89. Between set/U = 2 and a factor 4
+  above the galaxy rung no familiar thing is near (only distances between galaxies): "The whole
+  set would be bigger than the observable universe". Line 2: "your window: 30 cm".
+- **Phase 3, imaginary universes nest (from the Planck rung; reworded 2026-10-17)**: at each
+  level the Planck length is as big as the universe below, so one level is
+  `P = log10(U / Planck) ≈ 61.7` decades of zoom. The readout counts levels: "…, 16 levels
+  deep" (at ≈ 1e1000) and, at the bottom, "1/72,000 of a proton is as big as ours". Replaced
+  the atom-ratio nesting (`a = log10(U / atom) ≈ 36.92`, "A universe in a universe … (27
+  times)"; the 2026-10-17 off-by-one fix of that count is moot) and `level_decades`, both gone
+  from the code. Exact level offsets: see `crates/almondbread-core/src/cosmic.rs` (unverified here).
 - **Ruler**: the things larger than the window up to "universe"; then "1,000 × universe",
-  phase 2's rungs "universe = galaxy", "= solar system", "= Earth", "= you", "= cell", "= atom",
-  "= proton", "= Planck"; "googol ×" (set/U = 1e100); then "3× nested" … "90× nested" where
-  k starts. "1 million ×" is not marked: it falls on "universe = galaxy". Linear in depth up
-  to one decade past the Planck rung, then compressed (slope 1 → 1/8 over 15 decades; a level is
-  then ~69 points). A unit test keeps every pair of marks past the universe at least 25 points
-  apart. A label whose dot is near the marker is nudged off the marker (within 30 % of its width)
-  instead of hidden; a dot right under the marker stays unlabelled.
+  phase 2's rungs "Earth = universe" … "Planck = universe" (reworded: the thing is as big as the
+  imaginary universe), "googol ×"; then "3 levels" … "52 levels" (phase 3; before "3× nested"
+  … "90× nested"). Linear in depth up to one decade past the Planck rung, then compressed
+  (slope 1 → 1/8; marks at least 25 points apart, unit test; was: "a level ~69 points", 36.92-based
+  and so outdated). A label whose dot is near the marker is nudged off the marker (within 30 %
+  of its width) instead of hidden; a dot right under the marker stays unlabelled.
 - **Rejected variants**:
   - Built 2026-10-15: the screen anchor turned around at the universe (the set *was* the
     universe and the view shrank to the Planck length at zoom ≈ 1e62: "This view ≈ 1.8× the
@@ -1155,8 +1153,7 @@ like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
   leaves the point or zooms out past it by more than a decade. **Depth limit 10⁹ iterations**
   (ε ≥ 3.1e-9 neck, ε ≥ 1e-17 cusp; about 13 s); deeper, the panel says so. The image's
   iteration limit is not raised (measurements on the technique page).
-- **Controls:** P toggles (macOS and iPad keyboards); toolbar toggle "π Meter" (SF Symbol
-  `pi`) with a tooltip; View menu "π Meter" (⌥⌘P), "Hunt π at the Neck", "Hunt π at the Cusp"
+- **Controls:** P toggles (macOS and iPad keyboards; the toolbar toggle was removed 2026-10-17: the meter is niche); View menu "π Meter" (⌥⌘P), "Hunt π at the Neck", "Hunt π at the Cusp"
   (renamed from "Fly into the …": the view no longer flies into the point); control center
   Overlays: switch, reading (product, N, digits, progress) and the two hunt buttons (the iOS
   way in). Persisted with the other settings, off after Reset all and
@@ -1361,7 +1358,7 @@ non-mathematicians (what you see and what to do, no jargon).
 2. **One help window**, "Almondbread Help" (macOS: Help ▸ Almondbread Help, ⌘?, a SwiftUI
    `Window` scene with a sidebar of pages; iOS: a sheet with a page menu, opened by "More…").
    Pages: Getting started & controls; What am I seeing? (the rule, black = proven inside,
-   colours = escape speed, the dark grey "not decided yet" veil and what to do about it,
+   colours = escape speed, the "not decided yet" fog (first a dark grey veil, [[techniques/unresolved-fog]]) and what to do about it,
    automatic vs manual iterations and the upper limit, the progress line); Autopilot,
    journeys & places; Overlays (cosmic scale, π meter, mini-map, orbit, compass, status);
    Deep zoom & precision (briefly); Tips.

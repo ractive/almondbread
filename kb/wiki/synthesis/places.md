@@ -148,6 +148,8 @@ files, 192 KB; all four looked at, none flat.
 
 ## Endless dives (2026-10-17)
 
+How such points are found: [[synthesis/finding-deep-places]]; the autopilot and journey that fly into them: [[decisions/controls]].
+
 A category (`endless-dive`, "Endless dives") of places centred **exactly** on a Misiurewicz
 point, so a straight zoom with no steering keeps the boundary in the middle of the view down
 to the depth limit (2^-10000 per point) and never ends in a featureless area. The deep places

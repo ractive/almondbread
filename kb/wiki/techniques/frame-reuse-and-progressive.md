@@ -170,4 +170,4 @@ FL computes every gesture frame's preview fresh. R4 measured an alternative: a s
 fractal coordinates that keeps every computed sample at its exact position and re-shades it
 each frame. It matches FL's image with 2–50 % of FL's iterations per frame, or is sharper at
 the same iterations, except in the deep, sample-starved zoom. MetalFX upscaling gave no gain
-over the compose above. Details: [[techniques/sample-reuse]], [[synthesis/motion-sample-reuse]].
+over the compose above. (The cache was built opt-in and deleted again 2026-10-17, never default.) Details: [[techniques/sample-reuse]], [[synthesis/motion-sample-reuse]].

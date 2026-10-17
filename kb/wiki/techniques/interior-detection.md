@@ -228,7 +228,7 @@ Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
 period `P`, an interior orbit needs `|λ|^(n/P) n² < ε`. At the place `satellite` (P 39, auto
 limit 1994 = 51 periods) that is `|λ| < ~0.7`: the core disc of the cardioid. The rest of the
 body, the bulbs (P 78, 117, …) and small attached minibrots stayed unresolved, which since
-the grey unresolved veil (2026-10-17) is visible. Root cause is the test itself, not ε, the
+the unresolved fog ([[techniques/unresolved-fog]]) is visible. Root cause is the test itself, not ε, the
 check stride, BLA/LA or float32 range (measured 2026-10-17, M1 Pro, release: at limit 100 000
 the same pixels are proven, 3.6 % of 3.7 %).
 
