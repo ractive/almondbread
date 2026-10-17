@@ -221,7 +221,7 @@ final class InteractionTest: NSObject {
         // The cosmic size scale alone during a zoom (its panel is rebuilt every frame).
         let cosmicZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
             if i == 0 {
-                v.explorer?.setCosmicScale(settings: CosmicScaleSettings(enabled: true, anchor: "screen", metresPerPoint: 0))
+                v.explorer?.setCosmicScale(settings: CosmicScaleSettings(enabled: true, metresPerPoint: 0))
             }
             zoom(v, i, t)
         }
@@ -708,7 +708,7 @@ final class InteractionTest: NSObject {
         // Overlays off unless a scenario turns them on (measures that off costs nothing).
         explorer.setOverlay(settings: OverlaySettings(orbit: false, orbitLength: 50, map: false, mapLevels: 3,
                                                       mapSize: 180, mapCorner: .bottomLeft))
-        explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: false, anchor: "screen", metresPerPoint: 0))
+        explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: false, metresPerPoint: 0))
         view.requestFrames()
         settling = true
         reported = false

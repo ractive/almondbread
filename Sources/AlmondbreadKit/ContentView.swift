@@ -133,7 +133,7 @@ struct ContentView: View {
                 Toggle(isOn: $model.cosmicScale) {
                     Label("Size Scale", systemImage: "ruler")
                 }
-                .help("Cosmic size scale: the view compared with real things, from the universe to the Planck length (C)")
+                .help("Cosmic size scale: how big the whole set would be if your window stayed its real size (C)")
                 Button {
                     model.toggleAutopilot()
                 } label: {

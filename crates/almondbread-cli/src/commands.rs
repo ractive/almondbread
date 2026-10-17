@@ -61,7 +61,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let analyse = r.settings.interior_mode.needs_analysis() || o.has("interior-stats");
     // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): `--orbit x,y` (view
     // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`,
-    // `--scale-overlay 1` (cosmic size scale) with `--scale-anchor screen|earth|...` and
+    // `--scale-overlay 1` (cosmic size scale) with
     // `--screen-cm w` (the view's physical width; default 30 cm).
     // `--pi-overlay 1` (the π meter; kb: techniques/pi-in-the-mandelbrot-set), `--pi-probe
     // neck,1e-6` (the π hunt's probe there, with its orbit trail, in the hunt's valley view).
@@ -172,15 +172,6 @@ fn overlay_for_still<B: GpuBackend + Clone>(
         );
     }
     ov.cosmic.settings.enabled = cosmic;
-    if let Some(a) = o.get("scale-anchor") {
-        if !almondbread_core::cosmic::ANCHORS.contains(&a) {
-            return err(format!(
-                "--scale-anchor: one of {}",
-                almondbread_core::cosmic::ANCHORS.join(", ")
-            ));
-        }
-        ov.cosmic.settings.anchor = a.to_string();
-    }
     if let Some(cm) = o.f64("screen-cm") {
         let ppp = o.f64("ppp").unwrap_or(1.0);
         ov.cosmic.settings.metres_per_point = cm / 100.0 / (width as f64 * ppp);

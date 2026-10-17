@@ -982,3 +982,18 @@ the Planck length: only maths from here") instead of light times and GeV; the "G
 is gone everywhere (the metaphor grid now has 23 steps of 8.7 decades). Labels of marks close
 to the marker are nudged off it instead of hidden. Stills: `build/cosmic-stills/` (not
 committed). Page: [[decisions/controls]] "Cosmic size scale".
+
+## [2026-10-17] decision | Cosmic scale: one mode, three phases, nested universes
+
+Agreed with the user after the "N × the observable universe" version: the scale has one mode
+(your window stays 30 cm or its measured width; the picker, "The set is X" and the cosmos
+metaphor are removed from the UI, the FFI, the CLI and the core). Three phases from
+`n = log10(set / universe)`: the set grows ("The whole set would be as big as Earth"), the
+universe shrinks inside the set with set/U = U/thing ("In the whole set, our universe would be
+as small as an atom", zoom ≈ 1e64; Planck at ≈ 1e89), then nested universes from the Planck
+rung, level `max(2, floor(n / 36.92))` ("A universe in a universe", "… (26 times)" at 1e1000,
+"(80 times)" at 1e3010; line 2 "imagine every atom were a universe, and every atom in it too").
+Ruler: things, "1,000 × universe", "universe = galaxy" … "universe = Planck", "googol ×",
+"3× nested" …; linear to the Planck rung, then slope 1/8; marks ≥ 25 pt apart. No light times
+or GeV anywhere. Long sentences wrap onto a second line. Contact sheet of the stills:
+`~/Desktop/cosmic-scale-stills.png`. Page: [[decisions/controls]] "Cosmic size scale".

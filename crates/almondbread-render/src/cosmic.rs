@@ -1,8 +1,6 @@
 //! The cosmic size scale panel (kb: decisions/controls, "Cosmic size scale"): a log ruler of
 //! real things (`almondbread_core::cosmic`) sliding past a fixed marker as the view zooms,
-//! one sentence, its assumption and (set-as-object anchors) light's crossing time or what it
-//! takes to see the view. Drawn into the
-//! overlay scene like the mini-map; costs a scene rebuild per frame while the zoom changes
+//! a sentence and its explanation. Drawn into the overlay scene like the mini-map; costs a scene rebuild per frame while the zoom changes
 //! (no GPU work of its own) and nothing when off.
 
 use almondbread_core::cosmic::{CosmicScale, CosmicScaleSettings, Group, SET_WIDTH};
@@ -19,7 +17,7 @@ const POINTS_PER_DECADE: f64 = 15.0;
 #[derive(Default)]
 pub struct CosmicOverlay {
     pub settings: CosmicScaleSettings,
-    scale: Option<((String, u64, u64, i64), CosmicScale)>,
+    scale: Option<((u64, u64), CosmicScale)>,
     /// Current depth (log10 of set width over view width).
     d: f64,
     passed: Option<usize>,
@@ -50,19 +48,16 @@ impl CosmicOverlay {
         }
         let width_pt = size.0 as f64 * ppp;
         let d = SET_WIDTH.log10() - view.scale.log10() - width_pt.max(1.0).log10();
-        let offset = d - view.zoom_log10();
-        if !(d.is_finite() && offset.is_finite()) {
+        if !d.is_finite() {
             // Nothing sane to show (kb: techniques/hang-prevention); keep the last scale.
             return;
         }
         let key = (
-            self.settings.anchor.clone(),
             self.settings.metres_per_point.to_bits(),
             (width_pt * 4.0).round() as u64,
-            (offset * 1e4).round() as i64,
         );
         if self.scale.as_ref().is_none_or(|(k, _)| *k != key) {
-            self.scale = Some((key, CosmicScale::new(&self.settings, width_pt, offset)));
+            self.scale = Some((key, CosmicScale::new(&self.settings, width_pt)));
             self.passed = None;
         }
         let scale = &self.scale.as_ref().expect("scale").1;
@@ -103,14 +98,18 @@ impl CosmicOverlay {
         let s2 = 10.5 * px;
         let sl = 9.5 * px;
         let cap = crate::font::cap_height();
-        let lines: Vec<(&str, f32, [f32; 4])> = [
-            Some((reading.line.as_str(), s1, rgba(1.0, 1.0, 1.0, 0.95))),
-            Some((reading.detail.as_str(), s2, rgba(0.9, 0.92, 0.95, 0.95))),
-            reading.physics.as_deref().map(|e| (e, s2, rgba(0.8, 0.9, 1.0, 0.95))),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        // The sentence wraps onto a second line rather than shrinking to a small size.
+        let avail = pw - 2.0 * pad;
+        let mut lines: Vec<(&str, f32, [f32; 4])> = Vec::with_capacity(3);
+        let white = rgba(1.0, 1.0, 1.0, 0.95);
+        match wrap_point(&reading.line, s1, avail) {
+            Some(i) => {
+                lines.push((&reading.line[..i], s1, white));
+                lines.push((reading.line[i..].trim_start(), s1, white));
+            }
+            None => lines.push((reading.line.as_str(), s1, white)),
+        }
+        lines.push((reading.detail.as_str(), s2, rgba(0.9, 0.92, 0.95, 0.95)));
         let ruler_h = 2.0 * (sl * cap + 6.0 * px) + 10.0 * px;
         let text_h: f32 = lines.iter().map(|l| l.1 * 1.45).sum();
         let ph = pad + ruler_h + text_h + pad * 0.6;
@@ -140,26 +139,13 @@ impl CosmicOverlay {
             rgba(1.0, 1.0, 1.0, 0.35),
             rgba(1.0, 1.0, 1.0, 0.35),
         );
-        // The unexplored band: smallest probed scale to the Planck length.
-        if let Some((b0, b1)) = scale.desert.map(|(a, b)| (to_x(a), to_x(b)))
-            && b1 > rx0
-            && b0 < rx1
-        {
-            scene.rect(
-                [b0.max(rx0), yr - 4.0 * px, b1.min(rx1), yr + 4.0 * px],
-                2.0 * px,
-                rgba(1.0, 0.35, 0.3, 0.22),
-                [0.0; 4],
-                0.0,
-            );
-        }
         // Decade ticks where they are at least 5 points apart (physical modes).
         // An integer count, not `k += 1.0` up to d + 40: past 2^53 (or at inf) that never
         // ended (kb: techniques/hang-prevention).
         let k0 = (d - 40.0).ceil();
         for i in 0..=80 {
             let k = k0 + f64::from(i);
-            if scale.relative || !k.is_finite() || k > d + 40.0 {
+            if !k.is_finite() || k > d + 40.0 {
                 break;
             }
             let x = to_x(k);
@@ -172,22 +158,6 @@ impl CosmicOverlay {
                     0.4 * px,
                     rgba(1.0, 1.0, 1.0, al),
                     rgba(1.0, 1.0, 1.0, al),
-                );
-            }
-        }
-        // Inside each ladder (cosmos length) past the milestones: its rungs as faint ticks,
-        // so the repeats read as ladders.
-        for (md, g) in scale.rungs(d - 400.0, d + 600.0) {
-            let x = to_x(md);
-            if x > rx0 && x < rx1 {
-                let c = group_color(g);
-                let al = 0.55 * fade(x);
-                scene.segment(
-                    [f64::from(x), f64::from(yr - 3.0 * px)],
-                    [f64::from(x), f64::from(yr + 3.0 * px)],
-                    0.5 * px,
-                    rgba(c[0], c[1], c[2], al),
-                    rgba(c[0], c[1], c[2], al),
                 );
             }
         }
@@ -235,12 +205,12 @@ impl CosmicOverlay {
                 continue;
             }
             let free = |r: &Vec<(f32, f32)>| r.iter().all(|&(a0, a1)| lx1 + gap < a0 || lx0 > a1 + gap);
-            let row = match m.row {
-                Some(r) if free(&rows[r]) => r,
-                Some(_) => continue,
-                None if free(&rows[0]) => 0,
-                None if free(&rows[1]) => 1,
-                None => continue,
+            let row = if free(&rows[0]) {
+                0
+            } else if free(&rows[1]) {
+                1
+            } else {
+                continue;
             };
             rows[row].push((lx0, lx1));
             let ly = if row == 0 {
@@ -334,6 +304,18 @@ impl CosmicOverlay {
     }
 }
 
+/// Where to break `text` (at size `s`) so its first part fits `avail`: the last space that
+/// fits, None when it fits whole (or has no usable space; it is then shrunk to fit).
+fn wrap_point(text: &str, s: f32, avail: f32) -> Option<usize> {
+    if crate::font::layout(text, s).1 <= avail {
+        return None;
+    }
+    text.match_indices(' ')
+        .map(|(i, _)| i)
+        .take_while(|&i| crate::font::layout(&text[..i], s).1 <= avail)
+        .last()
+}
+
 /// Ruler colours by kind.
 fn group_color(g: Group) -> [f32; 3] {
     match g {
@@ -359,16 +341,14 @@ mod tests {
     fn panel_costs_little_and_tracks_the_zoom() {
         let mut o = CosmicOverlay::default();
         o.settings.enabled = true;
-        // The set as the universe crosses a mark every few decades all the way to 1e60.
-        o.settings.anchor = "universe".into();
         let mut scene = Scene::default();
         let mut key = String::new();
         let t0 = std::time::Instant::now();
         let n = 200;
         let mut flashes = 0;
         for k in 0..n {
-            // Zoom in steadily from home to 1e60 (big steps: every frame crosses something).
-            let z = 60.0 * k as f64 / n as f64;
+            // Zoom in steadily from home to 1e100 (big steps: most frames cross something).
+            let z = 100.0 * k as f64 / n as f64;
             let view = Viewport::new(-0.75, 0.1, 3.0 / 1000.0 / 10f64.powf(z));
             o.update(&view, (2000, 1200), 0.5, k as f64 * 0.016);
             scene.prims.clear();
@@ -390,7 +370,7 @@ mod tests {
             per * 1e3,
             scene.prims.len()
         );
-        assert!(flashes > 20, "{flashes}");
+        assert!(flashes > 15, "{flashes}");
         if !cfg!(debug_assertions) {
             assert!(per < 3e-4, "{per}");
         }
@@ -398,46 +378,25 @@ mod tests {
 
     #[test]
     fn font_covers_every_reading_and_label() {
-        use almondbread_core::cosmic::ANCHORS;
         let missing = |t: &str| {
             t.chars()
-                .filter(|c| !c.is_whitespace() && *c != '?')
+                .filter(|c| !c.is_whitespace())
                 .find(|c| crate::font::glyph(*c) == crate::font::glyph('?'))
         };
-        for a in ANCHORS {
-            let settings = CosmicScaleSettings {
+        let s = CosmicScale::new(
+            &CosmicScaleSettings {
                 enabled: true,
-                anchor: (*a).into(),
                 metres_per_point: 0.0,
-            };
-            let s = CosmicScale::new(&settings, 1000.0, 0.2);
-            for m in &s.marks {
-                assert_eq!(missing(&m.label), None, "{a}: {}", m.label);
-            }
-            for k in -4..6200 {
-                let r = s.reading(k as f64 * 0.5);
-                for t in [Some(&r.line), Some(&r.detail), r.physics.as_ref()]
-                    .into_iter()
-                    .flatten()
-                {
-                    assert_eq!(missing(t), None, "{a}: {t}");
-                }
-            }
+            },
+            1000.0,
+        );
+        for m in &s.marks {
+            assert_eq!(missing(&m.label), None, "{}", m.label);
         }
-    }
-
-    #[test]
-    fn font_covers_the_panel_texts() {
-        for t in [
-            "The whole set ≈ 3× the Milky Way",
-            "seeing it takes ≈ 12 keV (X-rays)",
-            "1 ladder: observable universe → Planck length, ×1e61.7",
-            "if this view is your 31 cm wide window",
-            "Neptune's orbit 1/40 of",
-            "238 μs after the Big Bang: quarks bind into protons",
-        ] {
-            for ch in t.chars().filter(|c| !c.is_whitespace()) {
-                assert!(crate::font::glyph(ch) != crate::font::glyph('?') || ch == '?', "{ch}");
+        for k in -4..6200 {
+            let r = s.reading(k as f64 * 0.5);
+            for t in [&r.line, &r.detail] {
+                assert_eq!(missing(t), None, "{t}");
             }
         }
     }
