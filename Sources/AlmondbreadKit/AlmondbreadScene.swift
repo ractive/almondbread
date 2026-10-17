@@ -153,6 +153,12 @@ struct FractalCommands: Commands {
             }
             .keyboardShortcut("i", modifiers: .command)
             .disabled(inspectorVisible == nil)
+            Button("Search Settings") {
+                inspectorVisible?.wrappedValue = true
+                model?.requestSearchFocus()
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .disabled(inspectorVisible == nil || model == nil)
             Toggle("Orbit Overlay", isOn: Binding(get: { model?.orbitEnabled ?? false },
                                                   set: { model?.orbitEnabled = $0 }))
                 .keyboardShortcut("o", modifiers: [.command, .option])

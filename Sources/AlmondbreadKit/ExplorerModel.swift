@@ -337,6 +337,15 @@ public final class ExplorerModel {
     }
     static let scrollZoomsKey = "scrollZooms"
 
+    /// ⌘F: the control center's search field takes focus (counted, so each press is a change;
+    /// pending until a field that has just appeared takes it).
+    var searchFocusRequest = 0
+    @ObservationIgnored var searchFocusPending = false
+    func requestSearchFocus() {
+        searchFocusPending = true
+        searchFocusRequest += 1
+    }
+
     /// "Journey: continuous / stop at each find" (persisted; off: continuous; kb:
     /// decisions/controls "Journey with stops"): J and the Journey button start this mode, ⇧J
     /// the other.

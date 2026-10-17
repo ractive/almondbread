@@ -43,7 +43,7 @@ struct ControlCenterView: View {
         sections(shown: shown, collapsed: searching ? [] : collapsed)
         .controlSize(.small)
         .safeAreaInset(edge: .top, spacing: 0) {
-            ControlSearchField(query: $query)
+            ControlSearchField(model: model, query: $query)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             resetAllBar
@@ -173,8 +173,10 @@ struct ControlCenterView: View {
 /// Filtering is cheap, but every changed query inserts or removes whole sections, and the
 /// first character opens every matching one (measured 0.5-0.8 s per such keystroke before).
 struct ControlSearchField: View {
+    let model: ExplorerModel
     @Binding var query: String
     @State private var text = UIDemo.search ?? ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         let _ = UIPerf.body("ControlSearchField")
@@ -182,6 +184,7 @@ struct ControlSearchField: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("Search settings", text: $text)
                 .textFieldStyle(.plain)
+                .focused($focused)
             if !text.isEmpty {
                 Button {
                     text = ""
@@ -206,6 +209,14 @@ struct ControlSearchField: View {
         .onReceive(UIPerf.actions) { action in
             if case .search(let s) = action { text = s }
         }
+        // ⌘F (Edit menu): also when the sidebar has only just opened for it.
+        .onChange(of: model.searchFocusRequest) { takeFocus() }
+        .onAppear { if model.searchFocusPending { takeFocus() } }
+    }
+
+    private func takeFocus() {
+        model.searchFocusPending = false
+        DispatchQueue.main.async { focused = true }
     }
 }
 
