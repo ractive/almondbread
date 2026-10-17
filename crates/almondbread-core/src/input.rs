@@ -2768,7 +2768,7 @@ mod tests {
         n.advance(&mut v, 0.0);
         // A drag at 600 pt/s, 120 Hz events, released while moving.
         let mut t = 0.0;
-        for _ in 0..12 {
+        for _ in 0..cruise::LADDER.len() + 2 {
             t += 1.0 / 120.0;
             n.handle(InputEvent::Pan { dx: 5.0, dy: 0.0 }, &mut v, t);
         }
@@ -3346,7 +3346,7 @@ mod tests {
         // Holding Q from rest: reverse, one rung more after 0.4 s and every 0.25 s.
         n.handle(InputEvent::KeyDown(NavKey::SlowerZoom), &mut v, t);
         let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
-        assert_eq!(n.cruise().set_speed(), -cruise::rung(3), "held 1 s: three repeats");
+        assert_eq!(n.cruise().set_speed(), -cruise::rung(4), "held 1 s: four repeats (0.4 s, then every 0.15 s)");
         n.handle(InputEvent::KeyUp(NavKey::SlowerZoom), &mut v, t);
         // Holding E brakes rung by rung and stops at the detent: never across zero.
         n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, t);
@@ -3392,15 +3392,17 @@ mod tests {
         assert_eq!(n.level(), Level::Manual);
     }
 
-    /// Reverse from any depth at the first rung: the boost builds up over seconds, the zoom out
+    /// Reverse from any depth in gear 10 (×5/s): the boost builds up over seconds, the zoom out
     /// never turns back in, home within about a minute, a soft landing exactly on home.
     #[test]
     fn cruise_reverse_lands_softly_on_home_from_any_depth() {
         let home = Viewport::fitting(W, 600.0);
-        for (scale, limit) in [("1e-10", 25.0), ("1e-50", 40.0), ("1e-300", 55.0), ("1e-3000", 72.0)] {
+        for (scale, limit) in [("1e-10", 25.0), ("1e-50", 40.0), ("1e-300", 55.0), ("1e-3000", 85.0)] {
             let (mut n, mut v) = deep(scale);
             let l0 = v.scale.ln();
-            tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            for _ in 0..10 {
+                tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            }
             let hz = 30.0;
             let mut t = 0.0;
             let mut last = l0;
@@ -3447,8 +3449,10 @@ mod tests {
             let c0 = v.center.clone();
             let s0 = v.scale;
             n.handle(InputEvent::Pointer(Some((150.0, 80.0))), &mut v, 0.0);
-            tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
-            tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            // Gear 6 (×2/s out).
+            for _ in 0..6 {
+                tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            }
             let mut out = Vec::new();
             let mut t = 0.0;
             for k in 1..=10 {
@@ -3619,7 +3623,7 @@ mod tests {
         let s = n.autopilot().speed();
         tap(&mut n, &mut v, NavKey::FasterZoom, t);
         assert!(n.autopilot().speed() > s);
-        for _ in 0..12 {
+        for _ in 0..cruise::LADDER.len() + 2 {
             if n.level() == Level::Cruise {
                 break;
             }
@@ -3742,7 +3746,7 @@ mod tests {
             // The cruise goes on at the journey speed, not at the leg's paced rate.
             assert!(n.cruise().set_speed().abs() <= n.journey().speed() + 1e-9);
             if reverse {
-                for _ in 0..12 {
+                for _ in 0..cruise::LADDER.len() + 2 {
                     if n.cruise().set_speed() < 0.0 {
                         break;
                     }
