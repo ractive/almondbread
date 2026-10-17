@@ -175,14 +175,49 @@ pub fn path_profile(
 }
 
 /// The pace factor at flight progress `t` (0 … 1) of a leg with dullness `profile` (empty: 1):
-/// [`DULL_PACE`] over dull samples, 1 elsewhere; the navigator's speed spring smooths the steps.
+/// [`DULL_PACE`] over dull samples, 1 elsewhere, interpolated linearly between the samples'
+/// centres. Gaps of fewer than [`DULL_GAP`] samples between dull stretches fly at the dull pace
+/// too, and the last [`DULL_LANDING`] samples at 1: a one-sample gap made the leg brake and
+/// speed up again within a second, and a dull stretch up to the target (Pine Compass) made it
+/// brake from three times the speed (kb: decisions/controls "Journey", smooth legs).
 pub fn profile_pace(profile: &[bool], t: f64) -> f64 {
-    if profile.is_empty() || !t.is_finite() {
+    let n = profile.len();
+    if n == 0 || !t.is_finite() {
         return 1.0;
     }
-    let i = ((t.clamp(0.0, 1.0) * profile.len() as f64) as usize).min(profile.len() - 1);
-    if profile[i] { DULL_PACE } else { 1.0 }
+    let flag = |i: usize| -> bool {
+        if i + DULL_LANDING >= n {
+            return false;
+        }
+        if profile[i] {
+            return true;
+        }
+        // Inside a short gap between dull samples.
+        let before = (i.saturating_sub(DULL_GAP - 1)..i).rev().find(|&j| profile[j]);
+        let after = (i + 1..(i + DULL_GAP).min(n)).find(|&j| profile[j]);
+        matches!((before, after), (Some(b), Some(a)) if a - b <= DULL_GAP && a + DULL_LANDING < n)
+    };
+    let pace = |i: usize| if flag(i) { DULL_PACE } else { 1.0 };
+    let x = t.clamp(0.0, 1.0) * n as f64 - 0.5;
+    if x <= 0.0 {
+        return pace(0);
+    }
+    let i = (x.floor() as usize).min(n - 1);
+    if i + 1 >= n {
+        return pace(n - 1);
+    }
+    let f = x - i as f64;
+    pace(i) + (pace(i + 1) - pace(i)) * f
 }
+
+/// Non-dull gaps shorter than this many samples between dull ones fly at the dull pace.
+const DULL_GAP: usize = 3;
+/// The last samples of a leg fly at the journey speed (the landing brakes from it).
+const DULL_LANDING: usize = 3;
+/// The pace factors (long legs, dull stretches) raise a leg's speed at most to this (e-folds
+/// per second; a raised journey speed itself is kept): at the top speed a deep cross-over's
+/// dull stretch flew at 16 × 3.1 × 3 e-folds/s.
+pub const PACED_MAX: f64 = SPEED_RANGE.1;
 
 /// Probe resolution (square, across the shorter side).
 pub const PROBE: usize = 40;
@@ -1815,13 +1850,14 @@ impl Journey {
 
     /// The speed this leg flies at: the journey speed times the leg's pace.
     pub fn leg_speed(&self) -> f64 {
-        self.speed * self.pace
+        (self.speed * self.pace).min(self.speed.max(PACED_MAX))
     }
 
     /// The speed at flight progress `t` (0 … 1): [`Journey::leg_speed`], [`DULL_PACE`] times
-    /// faster over the leg's dull stretches (kb: decisions/controls "Journey").
+    /// faster over the leg's dull stretches (kb: decisions/controls "Journey"), the pace factors
+    /// at most up to [`PACED_MAX`].
     pub fn leg_speed_at(&self, t: f64) -> f64 {
-        self.leg_speed() * profile_pace(&self.leg_profile, t)
+        (self.speed * self.pace * profile_pace(&self.leg_profile, t)).min(self.speed.max(PACED_MAX))
     }
 
     /// Sets the leg's pace from its path length in e-folds (the navigator, as a leg starts).
@@ -2165,6 +2201,41 @@ mod tests {
         assert!((92.0 / p - (LONG_LEG + LONG_LEG_SHARE * 78.0)).abs() < 1e-9, "{p}");
     }
 
+    /// The dull pace does not pulse: a short gap between dull stretches keeps the pace (it
+    /// braked and sped up again within a second), changes ramp between samples, and the
+    /// landing flies at the journey speed.
+    #[test]
+    fn dull_pace_bridges_gaps_ramps_and_lands_at_the_journey_speed() {
+        let n = PATH_SAMPLES;
+        let mut flags = vec![false; n];
+        for (i, f) in flags.iter_mut().enumerate() {
+            // Dull 4..=13 and 15..=31 (a one-sample gap at 14), up to the target.
+            *f = (4..=13).contains(&i) || i >= 15;
+        }
+        let at = |i: f64| profile_pace(&flags, (i + 0.5) / n as f64);
+        for i in 5..=n - 1 - DULL_LANDING - 1 {
+            assert_eq!(at(i as f64), DULL_PACE, "sample {i}");
+        }
+        assert_eq!(at(14.0), DULL_PACE, "the gap is bridged");
+        assert_eq!(at(1.0), 1.0);
+        // Halfway between sample 3 (1) and 4 (dull): ramped.
+        assert!((at(3.5) - 0.5 * (1.0 + DULL_PACE)).abs() < 1e-9);
+        assert_eq!(profile_pace(&flags, 1.0), 1.0, "lands at the journey speed");
+        // Monotone between samples: no step larger than one sample's ramp.
+        let mut last = profile_pace(&flags, 0.0);
+        for k in 1..=1000 {
+            let p = profile_pace(&flags, k as f64 / 1000.0);
+            assert!((p - last).abs() <= (DULL_PACE - 1.0) * n as f64 / 1000.0 + 1e-9);
+            last = p;
+        }
+        // A gap of three samples or more is a stretch worth seeing: the pace drops there.
+        let mut wide = vec![false; n];
+        for (i, f) in wide.iter_mut().enumerate() {
+            *f = (4..=10).contains(&i) || (14..=22).contains(&i);
+        }
+        assert_eq!(profile_pace(&wide, 12.5 / n as f64), 1.0);
+    }
+
     #[test]
     fn self_similar_needle_dives_are_dull_and_fly_faster() {
         // Pine Compass on the needle (re -1.4304, the catalogue place at 1e12.3): zooming
@@ -2177,7 +2248,13 @@ mod tests {
         let flags: Vec<bool> = prof.iter().map(|x| x.2).collect();
         let dull = flags.iter().filter(|&&d| d).count();
         assert!(dull >= PATH_SAMPLES / 2, "{flags:?}");
-        assert_eq!(profile_pace(&flags, 0.99), DULL_PACE);
+        // The dull stretch flies fast, but the landing at the journey speed.
+        let first = flags.iter().position(|&d| d).expect("dull");
+        let mid = (first as f64 + 0.5 + 2.0) / PATH_SAMPLES as f64;
+        if mid < 0.85 {
+            assert_eq!(profile_pace(&flags, mid), DULL_PACE);
+        }
+        assert_eq!(profile_pace(&flags, 0.99), 1.0);
         // A seahorse-valley dive changes its look: not one long dull stretch.
         let c = Center::new(-0.745, 0.11);
         let prof = path_profile(&c, Scale::from_f64(0.3), &c, Scale::from_f64(3e-5), &never).expect("profile");

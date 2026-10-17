@@ -1299,3 +1299,18 @@ Read the log entries of both days and swept the wiki for what they removed or ch
 - Technique homes: new section "Gesture resolution and GPU clocks" in [[platform/metal-compute]] (the explanation; numbers stay in [[synthesis/benchmarks]]). The other techniques already had one home section each (interior-detection probe and closed-form test, auto-iterations "Compute further", unresolved-fog, bla "Pitfalls", places "Endless dives", controls driving levels, lane assist, survey steering, journey stops, cosmic scale); cross-links added.
 - [[overview]] rewritten for the current state (LA without AT, interior tests, fog, compute further, controls, switches removed); [[index]] one-liners updated.
 - Links: no broken links, no orphans, `hyalo lint` clean. Left alone: the business pages (market, Steam, gamification, distribution and their sources) are still in the tree but not in the index, although the 2026-10-17 entry says they moved out of the repository.
+
+## [2026-10-17] decision | Smooth journey legs: eased landings and turns, no dull-pace pulses
+
+User report: journeys jumpy (brake-and-accelerate in dives, cross-overs zooming out fast, then a
+dead stop, then fast in, full stops). Reproduced headless with `fly --log` on #4711 (zoom rate
+per refresh): every leg ended from full speed in one frame (the landing spring lagged its
+`√(2 a s)` curve), a dull stretch up to the target braked from 3×, a one-sample gap in a dull
+stretch pulsed, and the van Wijk apex swung −28 → +23 e-folds/s in 0.15 s at ×35/s; the renderer
+throttle was not involved; cba2d79 shows the same at raised speeds. Fix: landing on `left^(2/3)`
+(speed `(1 − t/T)²`), braking ahead of the apex onto a speed-independent turn, dull pace
+bridged and ramped and off for the landing, paced legs capped at 16 e-folds/s; worst zoom
+acceleration 41 → 17 e-folds/s² (default), 462 → 23 (×35/s), 1069 → 20 (×1000/s); legs take longer. The cruise taken
+over from a leg is set to the journey speed (it was the leg's paced rate, ×55/s), and J lets a
+released cruise glide out or carry on into the leg instead of halting it. Page:
+[[decisions/controls]] "Journey" (revision "smooth legs").

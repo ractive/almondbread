@@ -36,8 +36,9 @@ final class InteractionTest: NSObject {
         let name: String
         let viewport: View
         let input: (FractalNSView, Int, Double) -> Void   // view, tick, seconds since input start
+        /// Seconds of input (and measurement).
+        var seconds = 3.0
     }
-    private let inputSeconds = 3.0
     private let settleSeconds = 1.0
 
     private lazy var scenarios: [Scenario] = {
@@ -535,7 +536,7 @@ final class InteractionTest: NSObject {
                 InteractionTest.key(v, "x", down: true)
                 InteractionTest.key(v, "x", down: false)
             }
-            once("esc", t >= 2.9) {
+            once("esc", t >= 6.9) {
                 let s = explorer.stats().journey
                 let went = Int(s.leg) > legAtStop || s.phase == "planning"
                 InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
@@ -672,7 +673,9 @@ final class InteractionTest: NSObject {
                 Scenario(name: "autopilot lock", viewport: sea, input: autopilotLock),
                 Scenario(name: "journey", viewport: sea, input: journey),
                 Scenario(name: "cruise out", viewport: sea, input: cruiseOut),
-                Scenario(name: "journey stops", viewport: sea, input: journeyStops),
+                // 7 s: the first leg (E × 10) eases into and out of its turn and onto the stop
+                // (kb: decisions/controls "Journey", smooth legs: 2.4 s abrupt, now 3.3-5.1 s).
+                Scenario(name: "journey stops", viewport: sea, input: journeyStops, seconds: 7.0),
                 Scenario(name: "pi hunt", viewport: home, input: piHunt),
                 Scenario(name: "esc full screen", viewport: sea, input: escFullScreen),
                 Scenario(name: "looks home idle", viewport: home, input: switcher(gesture: false)),
@@ -847,7 +850,7 @@ final class InteractionTest: NSObject {
             }
             return
         }
-        if now - phaseStart < inputSeconds {
+        if now - phaseStart < scenarios[scenario].seconds {
             linkTimes.append(timestamp)
             linkDurations.append(duration)
             scenarios[scenario].input(view, tick, now - phaseStart)
