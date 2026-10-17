@@ -33,6 +33,10 @@ Near the set's edge a point can take tens of thousands of steps to decide. The w
 
 When the picture is turned, a compass shows where north is. Click it to turn the picture upright, or drag it to turn.
 
+## Target marker
+
+While the autopilot flies, or a journey flies to its next landmark, a small ring marks where it is heading. When it has found something with a name, a short label shows next to the ring for a moment, for example *spiral* or *minibrot · period 34*. When you suggest a direction with the mouse during the autopilot, a faint line from the middle points that way, so you can see whether the target agrees. Nothing shows while you drive yourself. Turn it on or off in View ▸ Autopilot Target Marker or in the control center's **Overlays**; it is on at first.
+
 ## Status overlay
 
 The status overlay at the top left shows the zoom, the centre and the speed, and how far a long render has come. Its developer details (in **Overlays**) add numbers for the curious.

@@ -33,6 +33,7 @@ pub mod gpu_types;
 pub mod help;
 pub mod host;
 pub mod la_gpu;
+pub mod marker;
 pub mod overlay;
 pub mod pi_meter;
 pub mod progress;

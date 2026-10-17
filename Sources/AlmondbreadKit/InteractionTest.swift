@@ -245,12 +245,12 @@ final class InteractionTest: NSObject {
         // pointer circles 220 pt off-centre: steering hands over to cruise (C) at the
         // autopilot's speed, which goes on zooming and steering; Esc at 2.4 s (eased stop).
         // Checks it zoomed, handed over and steered.
-        var ap = (start: ViewportInfo?.none, active: false, cruise: false)
+        var ap = (start: ViewportInfo?.none, active: false, cruise: false, early: false)
         let autopilot: (FractalNSView, Int, Double) -> Void = { v, i, t in
             guard let explorer = v.explorer else { return }
             if i == 0 {
                 sent.removeAll()
-                ap = (explorer.viewport(), false, false)
+                ap = (explorer.viewport(), false, false, false)
                 v.send(.pointer(x: 0, y: 0))
                 InteractionTest.key(v, "z", down: true)
                 InteractionTest.key(v, "z", down: false)
@@ -258,17 +258,24 @@ final class InteractionTest: NSObject {
             let a = 0.8 * t
             v.send(.pointer(x: 220 * cos(a), y: 220 * sin(a)))
             if explorer.stats().autopilot.active { ap.active = true }
-            if ap.active && explorer.stats().cruise.level == .cruise { ap.cruise = true }
+            // The circling pointer is a direction wish in A, never a hand-over (kb:
+            // decisions/controls "Pointer wish"); a drag at 1.6 s hands over to cruise.
+            if ap.active && explorer.stats().cruise.level == .cruise {
+                if t < 1.6 { ap.early = true } else { ap.cruise = true }
+            }
+            once("drag", t >= 1.6) { v.send(.pan(dx: 6, dy: 0)) }
             once("esc", t >= 2.4) {
                 InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
                 InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
                 let vp = explorer.viewport()
                 let zoomed = (ap.start?.zoomLog10).map { vp.zoomLog10 - $0 } ?? 0
                 let moved = ap.start.flatMap { s in Double(vp.re).flatMap { re in Double(s.re).map { (re - $0) / vp.scale } } } ?? 0
-                let ok = ap.active && ap.cruise && zoomed > 0.5 && abs(moved) > 1 && !explorer.stats().autopilot.active
+                let ok = ap.active && !ap.early && ap.cruise && zoomed > 0.5 && abs(moved) > 1
+                    && !explorer.stats().autopilot.active
                 if !ok { self.failures += 1 }
-                self.refineLines.append(String(format: "autopilot: on %@, steering handed over to cruise %@, zoomed ×%.1f in 2.4 s, centre moved %.0f pt by steering, off after Esc %@ %@",
-                                               ap.active ? "yes" : "NO", ap.cruise ? "yes" : "NO", pow(10, zoomed), moved,
+                self.refineLines.append(String(format: "autopilot: on %@, pointer kept A %@, drag handed over to cruise %@, zoomed ×%.1f in 2.4 s, centre moved %.0f pt by steering, off after Esc %@ %@",
+                                               ap.active ? "yes" : "NO", ap.early ? "NO" : "yes", ap.cruise ? "yes" : "NO",
+                                               pow(10, zoomed), moved,
                                                explorer.stats().autopilot.active ? "NO" : "yes", ok ? "OK" : "FAILED"))
             }
         }

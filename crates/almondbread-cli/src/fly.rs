@@ -370,6 +370,38 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
                 r.viewport.zoom_log10(),
                 ap.lock().switches,
             );
+            // Where each new aim (lock target or survey pick) lies when it is chosen.
+            let min_side = w_pts.min(h_pts);
+            // In units of the span the aim was searched in: a target taken over from the search
+            // ahead relative to the previous target at its end span, anything else relative to
+            // the current view.
+            let span = r.viewport.scale * min_side;
+            if ap.lock().switches != apm.seen_switches {
+                apm.seen_switches = ap.lock().switches;
+                if let Some(tg) = ap.lock().target() {
+                    let p = match &apm.prev_target {
+                        Some((c, s)) if span.ratio(*s).ln() <= 1.0 => {
+                            let (x, y) = tg.center.delta_in(c, *s);
+                            r.viewport.unrotate(x, y)
+                        }
+                        _ => {
+                            let (x, y) = r.viewport.offset_of(&tg.center);
+                            (x / min_side, y / min_side)
+                        }
+                    };
+                    apm.choice(p);
+                    apm.prev_target = Some((tg.center.clone(), tg.end_span));
+                }
+            }
+            if ap.survey_pick() != apm.seen_pick.as_ref() {
+                apm.seen_pick = ap.survey_pick().cloned();
+                if let Some(c) = ap.survey_pick() {
+                    let (x, y) = r.viewport.offset_of(c);
+                    apm.choice((x / min_side, y / min_side));
+                }
+            }
+            apm.retargets = ap.lock().retargets;
+            apm.wish_frames += usize::from(ap.wish().is_some());
         }
         log.push_str(&format!(
             "{k},{t:.4},{},{},{},{},{:.4},{:.2},{:.3},{:.4},{:.3},{:.3},{:?},{:.1},{:.1},{:.4},{:.2},{},{},\"{}\"\n",
@@ -469,6 +501,18 @@ struct ApMetrics {
     max_zoom: f64,
     final_zoom: f64,
     switches: u32,
+    /// Rescues begun (zoom reversals), and whether one runs.
+    rescues: u32,
+    rescuing: bool,
+    /// New aims (lock targets, survey picks) by where they lay on screen when chosen: right,
+    /// left halves, upper, lower halves (each aim counts in two) and straight ahead (within 5 % of the
+    /// span it was chosen in). Kb: decisions/controls "Pointer wish".
+    seen_switches: u32,
+    seen_pick: Option<almondbread_core::viewport::Center>,
+    picks: [u32; 5],
+    prev_target: Option<(almondbread_core::viewport::Center, almondbread_core::viewport::Scale)>,
+    retargets: u32,
+    wish_frames: usize,
 }
 
 impl ApMetrics {
@@ -486,24 +530,50 @@ impl ApMetrics {
         if rescue {
             self.rescue += dt;
         }
+        if rescue && !self.rescuing {
+            self.rescues += 1;
+        }
+        self.rescuing = rescue;
         self.max_zoom = self.max_zoom.max(zoom);
         self.final_zoom = zoom;
         self.switches = switches;
     }
 
+    /// A new aim at `p` (spans of the view it was chosen from, y up).
+    fn choice(&mut self, p: (f64, f64)) {
+        if !(p.0.is_finite() && p.1.is_finite()) {
+            return;
+        }
+        if p.0.hypot(p.1) < 0.05 {
+            self.picks[4] += 1;
+            return;
+        }
+        // Each aim counts in one of the left / right halves and one of the upper / lower ones.
+        self.picks[usize::from(p.0 <= 0.0)] += 1;
+        self.picks[2 + usize::from(p.1 <= 0.0)] += 1;
+    }
+
     fn summary(&self, lock: bool) -> String {
         let pct = |a: usize, b: usize| 100.0 * a as f64 / b.max(1) as f64;
         format!(
-            "autopilot-metrics: lock={} uniform={:.1}% uniform_after5s={:.1}% longest_uniform={:.1}s rescue={:.1}s targets={} max_zoom=1e{:.1} final_zoom=1e{:.1} surveyed_frames={}",
+            "autopilot-metrics: lock={} uniform={:.1}% uniform_after5s={:.1}% longest_uniform={:.1}s rescue={:.1}s rescues={} targets={} max_zoom=1e{:.1} final_zoom=1e{:.1} surveyed_frames={} halves(right/left/up/down)+ahead={}/{}/{}/{}/{} retargets={} wish_frames={}",
             u8::from(lock),
             pct(self.uniform, self.surveyed),
             pct(self.uniform_late, self.surveyed_late),
             self.longest,
             self.rescue,
+            self.rescues,
             self.switches,
             self.max_zoom,
             self.final_zoom,
             self.surveyed,
+            self.picks[0],
+            self.picks[1],
+            self.picks[2],
+            self.picks[3],
+            self.picks[4],
+            self.retargets,
+            self.wish_frames,
         )
     }
 }

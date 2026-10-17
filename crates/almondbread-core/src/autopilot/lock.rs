@@ -1,4 +1,4 @@
-//! Target lock: while the pointer rests, the autopilot aims at a boundary point that stays
+//! Target lock: while the autopilot runs, it aims at a boundary point that stays
 //! interesting at every depth (kb: decisions/controls "Autopilot", "Target lock").
 //!
 //! **Why.** Zooming continuously towards almost any point ends in smooth exterior or interior:
@@ -71,6 +71,21 @@ pub const TABU_LEN: usize = 4;
 pub const TABU_REACH: f64 = 2.0;
 /// Seconds a search may spend raising the view probe's limit ([`journey::probe_escalating`]).
 pub const ESCALATE_BUDGET: f64 = 0.5;
+/// Pointer wish (kb: decisions/controls "Pointer wish"): pre-score per unit of agreement (the
+/// cosine of the angle between a candidate's direction from the searched view's centre and
+/// the wish, faded to 0 within [`super::WISH_NEAR`] spans): a candidate in the wished
+/// direction gains this much, one opposite loses it (more than any kind or follow bonus, so
+/// the dive goes the wished way whenever something there probes well).
+pub const WISH_WEIGHT: f64 = 1.5;
+/// A re-target on a changed wish takes the new search's best target only if it agrees at
+/// least this much (else the current target stays).
+pub const WISH_ACCEPT: f64 = 0.25;
+/// A found target agreeing more than this with the wish lies in the wished half (cosine > 0
+/// and off the centre): the best of those is taken first.
+pub const WISH_SECTOR: f64 = 0.1;
+/// A target that already agrees this much with a new wish is kept (no re-target).
+pub const WISH_KEEP: f64 = 0.5;
+
 /// Seed of the searches (each search advances it: reproducible from the same views).
 const SEED: u64 = 0x5eed_10c4;
 
@@ -137,13 +152,15 @@ pub struct SearchResult {
 
 /// Finds lock targets in and around the view (`center`, `span` across its shorter side);
 /// `follow` is the current target's maths, whose continuation is added (the minibrot's next
-/// stage, preferred; the same Misiurewicz point deeper, the fallback). None only when
-/// cancelled. Deterministic in its inputs.
+/// stage, preferred; the same Misiurewicz point deeper, the fallback). `wish` is the pointer
+/// wish as a unit direction in the complex plane (re, im): candidates that way gain up to
+/// [`WISH_WEIGHT`]. None only when cancelled. Deterministic in its inputs.
 pub fn search(
     center: &Center,
     span: Scale,
     seed: u64,
     follow: Option<&Follow>,
+    wish: Option<(f64, f64)>,
     cancel: &AtomicBool,
 ) -> Option<SearchResult> {
     let t0 = std::time::Instant::now();
@@ -249,7 +266,8 @@ pub fn search(
             TargetKind::Detail => DETAIL_SCORE,
             _ => 0.0,
         };
-        c.prescore += kind - LOCK_DISTANCE_COST * d + rng.range(0.0, 0.1);
+        let wished = wish.map_or(0.0, |w| WISH_WEIGHT * agreement(c.center.delta_in(center, span), w));
+        c.prescore += kind - LOCK_DISTANCE_COST * d + wished + rng.range(0.0, 0.1);
     }
     candidates.sort_by(|a, b| b.prescore.total_cmp(&a.prescore));
     let mut targets = Vec::new();
@@ -295,13 +313,40 @@ pub fn search(
     })
 }
 
+/// Agreement of an offset `d` (in spans, complex plane) with the wish direction `w` (unit):
+/// the cosine of the angle, faded to 0 within [`super::WISH_NEAR`] spans (straight ahead).
+pub fn agreement(d: (f64, f64), w: (f64, f64)) -> f64 {
+    super::Wish { dir: w, epoch: 0 }.agreement(d, super::WISH_NEAR)
+}
+
+/// The wish's direction (view points) as a unit direction in the complex plane of `view`
+/// (the view may be rotated).
+pub fn wish_in_plane(view: &Viewport, dir: (f64, f64)) -> Option<(f64, f64)> {
+    let (x, y) = view.point_at_offset(dir.0, dir.1).delta_in(&view.center, view.scale);
+    let r = x.hypot(y);
+    (r.is_finite() && r > 0.0).then(|| (x / r, y / r))
+}
+
 /// Why a search runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Purpose {
-    /// From the current view: nothing is locked (start, the pointer let go, lost, rescue).
+    /// From the current view: nothing is locked (start, lost, rescue).
     Pickup,
     /// From the current target's end view: the next target.
     Ahead,
+    /// From the current view after the pointer wish changed: a target that way replaces the
+    /// current one (which is kept until then, and if none agrees).
+    Retarget,
+}
+
+/// Where a search looked and with which wish (its result is judged against them).
+#[derive(Clone, Debug)]
+struct Origin {
+    center: Center,
+    span: Scale,
+    /// The wish as a complex-plane direction, and its epoch (0: none).
+    wish: Option<(f64, f64)>,
+    epoch: u32,
 }
 
 #[derive(Debug, Default)]
@@ -315,6 +360,7 @@ struct Slot {
 struct Pending {
     slot: Arc<Slot>,
     purpose: Purpose,
+    origin: Origin,
 }
 
 /// The lock's state (owned by the [`super::Autopilot`]).
@@ -342,6 +388,14 @@ pub struct Lock {
     glide: Option<(Center, f64)>,
     /// Targets a rescue dropped (centre, end span): not taken again nearby.
     tabu: Vec<(Center, Scale)>,
+    /// The wish epochs (0: none) the target and the next one were chosen with, the last one a
+    /// re-target was tried for, and the current one.
+    target_epoch: u32,
+    next_epoch: u32,
+    retarget_epoch: u32,
+    epoch: u32,
+    /// Re-targets taken (measurements).
+    pub retargets: u32,
 }
 
 impl Default for Lock {
@@ -360,6 +414,11 @@ impl Default for Lock {
             aimed: None,
             glide: None,
             tabu: Vec::new(),
+            target_epoch: 0,
+            next_epoch: 0,
+            retarget_epoch: 0,
+            epoch: 0,
+            retargets: 0,
         }
     }
 }
@@ -430,6 +489,7 @@ impl Lock {
             self.cancel();
         }
         self.target = Some(t);
+        self.target_epoch = self.epoch;
         self.next = None;
         self.failed = None;
         self.ahead_failed = false;
@@ -457,14 +517,28 @@ impl Lock {
         }
     }
 
-    fn request(&mut self, center: &Center, span: Scale, follow: Option<Follow>, purpose: Purpose, now: f64) {
+    fn request(
+        &mut self,
+        center: &Center,
+        span: Scale,
+        follow: Option<Follow>,
+        purpose: Purpose,
+        wish: Option<(f64, f64)>,
+        now: f64,
+    ) {
         self.cancel();
         self.searches += 1;
         let seed = SEED ^ self.searches.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let origin = Origin {
+            center: center.clone(),
+            span,
+            wish,
+            epoch: if wish.is_some() { self.epoch } else { 0 },
+        };
         if self.synchronous {
             let never = AtomicBool::new(false);
-            let r = search(center, span, seed, follow.as_ref(), &never);
-            self.take_result(r, purpose, span, now);
+            let r = search(center, span, seed, follow.as_ref(), wish, &never);
+            self.take_result(r, purpose, &origin, now);
             return;
         }
         let slot = Arc::new(Slot::default());
@@ -473,36 +547,52 @@ impl Lock {
         let spawned = std::thread::Builder::new()
             .name("autopilot-lock".into())
             .spawn(move || {
-                let r = search(&c, span, seed, follow.as_ref(), &s.cancel);
+                let r = search(&c, span, seed, follow.as_ref(), wish, &s.cancel);
                 if let Ok(mut out) = s.result.lock() {
                     *out = Some(r);
                 }
             });
         if spawned.is_ok() {
-            self.pending = Some(Pending { slot, purpose });
+            self.pending = Some(Pending { slot, purpose, origin });
         }
     }
 
     /// A search from (the snapped) current view.
-    fn pickup(&mut self, view: &Viewport, span: Scale, now: f64) {
+    fn pickup(&mut self, view: &Viewport, span: Scale, purpose: Purpose, wish: Option<(f64, f64)>, now: f64) {
         let (c, s) = snapped(&view.center, span);
-        self.request(&c, s, None, Purpose::Pickup, now);
+        self.request(&c, s, None, purpose, wish, now);
     }
 
-    fn take_result(&mut self, r: Option<SearchResult>, purpose: Purpose, span: Scale, now: f64) {
+    fn take_result(&mut self, r: Option<SearchResult>, purpose: Purpose, origin: &Origin, now: f64) {
         let Some(r) = r else { return };
+        let span = origin.span;
         self.last_search = (r.seconds, r.candidates);
         // Not a target a rescue just gave up on (its view led into a void).
-        let best = r.targets.into_iter().find(|t| {
-            !self
-                .tabu
-                .iter()
-                .any(|(c, s)| t.center.distance_in(c, *s) < TABU_REACH && t.end_span.ratio(*s).ln().abs() < 3.0)
+        let mut ok: Vec<LockTarget> = r
+            .targets
+            .into_iter()
+            .filter(|t| {
+                !self
+                    .tabu
+                    .iter()
+                    .any(|(c, s)| t.center.distance_in(c, *s) < TABU_REACH && t.end_span.ratio(*s).ln().abs() < 3.0)
+            })
+            .collect();
+        // With a wish, the best target in the wished half wins over a better one elsewhere
+        // (the pre-score only decides which candidates are probed); none there: the best.
+        let sector = origin.wish.and_then(|w| {
+            ok.iter()
+                .position(|t| agreement(t.center.delta_in(&origin.center, origin.span), w) > WISH_SECTOR)
         });
+        let best = match sector {
+            Some(i) => Some(ok.swap_remove(i)),
+            None => ok.into_iter().next(),
+        };
         match purpose {
             Purpose::Pickup => match best {
                 Some(t) => {
                     self.target = Some(t);
+                    self.target_epoch = origin.epoch;
                     self.next = None;
                     self.failed = None;
                     self.ahead_failed = false;
@@ -511,26 +601,48 @@ impl Lock {
                 None => self.failed = Some((now, span, r.view_uniform)),
             },
             Purpose::Ahead => match best {
-                Some(t) => self.next = Some(t),
+                Some(t) => {
+                    self.next = Some(t);
+                    self.next_epoch = origin.epoch;
+                }
                 None => self.ahead_failed = true,
             },
+            Purpose::Retarget => {
+                // Only a target the wished way replaces the current one.
+                let agrees = |t: &LockTarget| {
+                    origin
+                        .wish
+                        .is_some_and(|w| agreement(t.center.delta_in(&origin.center, span), w) >= WISH_ACCEPT)
+                };
+                if let Some(t) = best.filter(agrees) {
+                    self.target = Some(t);
+                    self.target_epoch = origin.epoch;
+                    self.next = None;
+                    self.ahead_failed = false;
+                    self.switches += 1;
+                    self.retargets += 1;
+                }
+            }
         }
     }
 
-    fn poll(&mut self, span: Scale, now: f64) {
+    fn poll(&mut self, now: f64) {
         let Some(p) = &self.pending else { return };
         let done = p.slot.result.lock().ok().and_then(|mut r| r.take());
         if let Some(r) = done {
-            let purpose = p.purpose;
+            let (purpose, origin) = (p.purpose, p.origin.clone());
             self.pending = None;
-            self.take_result(r, purpose, span, now);
+            self.take_result(r, purpose, &origin, now);
         }
     }
 
-    /// One frame: `free` says the user does not steer (pointer in the dead zone, idle or off
-    /// the canvas, no pan). Returns the aim point (view points from the centre) while a target
-    /// is locked: the target, or on the way to it from where `heading` pointed when it
-    /// changed. `radius` is the steering radius, `min_side` the view's shorter side in points.
+    /// One frame: `free` says the user does not steer (no pan, drag or held key). Returns the
+    /// aim point (view points from the centre) while a target is locked: the target, or on the
+    /// way to it from where `heading` pointed when it changed. `radius` is the steering radius,
+    /// `min_side` the view's shorter side in points. `wish` is the settled pointer wish: the
+    /// searches prefer candidates that way, and a new wish (its epoch changed) re-targets once
+    /// unless the target already lies that way.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         view: &Viewport,
@@ -538,6 +650,7 @@ impl Lock {
         radius: f64,
         free: bool,
         heading: (f64, f64),
+        wish: Option<&super::Wish>,
         now: f64,
     ) -> Option<(f64, f64)> {
         if !self.enabled || !free {
@@ -545,11 +658,38 @@ impl Lock {
             return None;
         }
         let span = view_span(view, min_side);
-        self.poll(span, now);
+        self.poll(now);
         if let Some(t) = &self.target {
             let (x, y) = view.offset_of(&t.center);
             if !(x.is_finite() && y.is_finite()) || x.hypot(y) > LOST * min_side {
                 self.drop_target();
+            }
+        }
+        let epoch = wish.map_or(0, |w| w.epoch);
+        let wish_c = wish.and_then(|w| wish_in_plane(view, w.dir));
+        if epoch != self.epoch {
+            // The wish changed: a search still running under the old one is stale.
+            self.epoch = epoch;
+            if self.pending.as_ref().is_some_and(|p| p.origin.epoch != epoch) {
+                self.cancel();
+            }
+            if self.next_epoch != epoch {
+                self.next = None;
+                self.ahead_failed = false;
+            }
+        }
+        if let Some(w) = wish
+            && let Some(t) = &self.target
+            && self.target_epoch != w.epoch
+            && self.retarget_epoch != w.epoch
+        {
+            let p = view.offset_of(&t.center);
+            if w.agreement(p, super::WISH_NEAR * min_side) >= WISH_KEEP {
+                // Already that way: keep it (its search ahead runs with the new wish).
+                self.target_epoch = w.epoch;
+            } else if self.pending.is_none() {
+                self.retarget_epoch = w.epoch;
+                self.pickup(view, span, Purpose::Retarget, wish_c, now);
             }
         }
         let retry = self
@@ -558,7 +698,7 @@ impl Lock {
         match &self.target {
             None => {
                 if self.pending.is_none() && retry {
-                    self.pickup(view, span, now);
+                    self.pickup(view, span, Purpose::Pickup, wish_c, now);
                 }
             }
             Some(t) => {
@@ -567,15 +707,16 @@ impl Lock {
                     && let Some(n) = self.next.take()
                 {
                     self.target = Some(n);
+                    self.target_epoch = self.next_epoch;
                     self.switches += 1;
                     self.ahead_failed = false;
                 } else if self.next.is_none() && self.pending.is_none() {
                     if !self.ahead_failed {
                         let (c, s, f) = (t.center.clone(), t.end_span, t.follows());
-                        self.request(&c, s, f, Purpose::Ahead, now);
+                        self.request(&c, s, f, Purpose::Ahead, wish_c, now);
                     } else if left <= 0.0 && retry {
                         // Nothing ahead of this target: a fresh look from where the view is.
-                        self.pickup(view, span, now);
+                        self.pickup(view, span, Purpose::Pickup, wish_c, now);
                     }
                 }
             }
@@ -603,5 +744,80 @@ impl Lock {
         let r = x.hypot(y);
         let max = AIM_MAX * radius;
         Some(if r > max { (x * max / r, y * max / r) } else { (x, y) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Views with boundary in several directions.
+    fn views() -> Vec<(Center, Scale)> {
+        vec![
+            (
+                Center::new(-0.7436438870371587, 0.131825904205312),
+                Scale::from_f64(2e-5),
+            ),
+            (Center::new(-0.745, 0.11), Scale::from_f64(0.01)),
+            (Center::new(0.2865, 0.0115), Scale::from_f64(1e-3)),
+            (Center::new(-0.1011, 0.9563), Scale::from_f64(1e-3)),
+            (Center::new(-1.7590, 0.0187), Scale::from_f64(5e-4)),
+        ]
+    }
+
+    /// The target a fresh synchronous lock picks up from `view` (600 points on the shorter
+    /// side) with the wish `dir` (view points), and its offset on screen.
+    fn pick(view: &Viewport, dir: Option<(f64, f64)>) -> Option<(LockTarget, (f64, f64))> {
+        let mut lock = Lock {
+            synchronous: true,
+            ..Lock::default()
+        };
+        let wish = dir.map(|dir| crate::autopilot::Wish { dir, epoch: 1 });
+        lock.update(view, 600.0, 300.0, true, (0.0, 0.0), wish.as_ref(), 0.0);
+        let t = lock.target()?.clone();
+        let p = view.offset_of(&t.center);
+        Some((t, p))
+    }
+
+    /// Kb: decisions/controls "Pointer wish": with a wish the picked target lies in the wished
+    /// half (several real views with boundary on every side, one rotated); without one the
+    /// choice is the search's best, as before the wish existed.
+    #[test]
+    fn wish_picks_targets_in_the_wished_half_and_no_wish_is_unchanged() {
+        let never = AtomicBool::new(false);
+        let mut in_half = 0;
+        for (k, (c, span)) in views().into_iter().enumerate() {
+            let mut view = Viewport::new(0.0, 0.0, 1.0);
+            view.center = c;
+            view.scale = span / 600.0;
+            if k == 2 {
+                view.angle = 1.0;
+            }
+            let (sc, ss) = snapped(&view.center, view_span(&view, 600.0));
+            let seed = SEED ^ 1u64.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            for dir in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                let (t, (x, y)) = pick(&view, Some(dir)).expect("a target");
+                let along = x * dir.0 + y * dir.1;
+                // Some views have nothing aimable on one side (only the fallback is then
+                // allowed: the best target elsewhere).
+                let wc = wish_in_plane(&view, dir);
+                let r = search(&sc, ss, seed, None, wc, &never).expect("search");
+                let any = r.targets.iter().any(|t| {
+                    let (x, y) = view.offset_of(&t.center);
+                    x * dir.0 + y * dir.1 > 0.0
+                });
+                if any {
+                    in_half += 1;
+                    assert!(along > 0.0, "view {k}, wish {dir:?}: {} at ({x:.0}, {y:.0})", t.label);
+                }
+            }
+            // No wish: the first search's best (the seed of a lock's first search).
+            let best = search(&sc, ss, seed, None, None, &never).and_then(|r| r.targets.into_iter().next());
+            assert_eq!(pick(&view, None).map(|p| p.0), best, "view {k}");
+        }
+        assert!(
+            in_half >= 15,
+            "only {in_half} of 20 cases had a target in the wished half"
+        );
     }
 }

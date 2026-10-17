@@ -279,6 +279,23 @@ impl TargetKind {
         }
     }
 
+    /// The target marker's short label (kb: decisions/controls "Target marker"): "spiral",
+    /// "branch point", "minibrot · period 34", "Julia stage · period 68"; None for kinds that
+    /// are not a known feature (detail, resurfacing, cross-overs).
+    pub fn marker_label(self, period: Option<usize>) -> Option<String> {
+        let with = |name: &str| match period {
+            Some(p) => format!("{name} · period {p}"),
+            None => name.to_string(),
+        };
+        match self {
+            Self::Spiral => Some("spiral".into()),
+            Self::Dendrite => Some("branch point".into()),
+            Self::Minibrot | Self::Approach => Some(with("minibrot")),
+            Self::Julia => Some(with("Julia stage")),
+            Self::Detail | Self::Surface | Self::Crossing => None,
+        }
+    }
+
     /// Spirals and dendrites are both Misiurewicz points: one family for the variety rules.
     pub(crate) fn family(self) -> u8 {
         match self {

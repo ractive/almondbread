@@ -1344,3 +1344,25 @@ The user: "when in Autopilot mode, moving the mouse just a bit throws you into c
 The hand-over now needs all three: 60 points of pointer travel (was 12), the pointer more
 than 0.35 of the steering radius off-centre (was the 0.1 dead zone), and that held for 0.6 s
 (was 0.25). WASD, a drag and the stick still hand over at once. [[decisions/controls]] "Driving levels".
+
+## [2026-10-17] decision | Pointer wish in the autopilot; target marker
+
+The user asked whether the autopilot could take the coarse direction of the mouse into account.
+In A the pointer no longer hands over to cruise; W A S D, a drag, the stick and the pedal to zero
+still do. Journey legs keep the pointer hand-over. Instead, the pointer's direction past 0.2 of the
+steering radius becomes a wish, settled with 0.3 s / 45° hysteresis. The lock's searches prefer
+candidates that way (+1.5 × cosine) and take the best aimable target in the wished half first.
+Survey steering weights its cells the same way and leads towards the wish. A changed wish
+re-targets once. The aim is always a found target, never the pointer; the HUD adds "· your
+direction". Headless `fly` with the pointer held right or left (measured 2026-10-17, M1 Pro,
+release, heavy shared load): seahorse 1e3 → 1e18, every target after the wish settled lay the
+wished way, no featureless time. User's deep path at 1e237: 91 % of aims went the wished way but
+6 of 10 runs backed out of a void at 1e239. Survey steering now ignores the wish while the heading
+region is uniform: 1 rescue in 8, 2.8 % uniform (no wish: 0 in 7, 0.1 %), but only 61 % of aims go
+the wished way there.
+
+Target marker (the user's extension): a ring where A or a journey leg is heading. It glides on
+target changes and fades. A short label shows for 2.5 s for known kinds ("spiral", "minibrot ·
+period 34"), and a faint line points towards the wish. Toggle: View ▸ "Autopilot Target Marker",
+control center Overlays; on by default; persisted. [[decisions/controls]] "Pointer wish",
+"Target marker".

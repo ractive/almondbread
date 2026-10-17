@@ -295,17 +295,21 @@ pub const ROTATE_OMEGA: (f64, f64) = (20.0, 14.0);
 /// Time constant (s) of the animated turn back upright.
 pub const STRAIGHTEN_TAU: f64 = 0.12;
 const ROTATE_REST: f64 = 1e-4;
-/// Pointer travel (points) after the autopilot or a journey leg took the wheel, and how long
-/// (s) a deflection past the steering dead zone must last, before it counts as the user
-/// steering (it then hands over to cruise): the pointer resting off-centre when Z was pressed,
-/// or passing over the canvas on its way to a button, is not steering.
+/// Pointer travel (points) after a journey leg took the wheel, and how long (s) a deflection
+/// past the steering dead zone must last, before it counts as the user steering (it then hands
+/// over to cruise): the pointer passing over the canvas on its way to a button is not steering.
 /// Raised 2026-10-17 (user: "moving the mouse just a bit throws you into cruise"): 60 points
-/// of travel, a deflection past [`STEER_HANDOVER`] of the steering radius, held 0.6 s.
+/// of travel, a deflection past [`STEER_HANDOVER`] of the steering radius, held 0.6 s. In the
+/// autopilot the pointer no longer hands over: it is a direction wish ([`WISH_TRAVEL`]).
 pub const STEER_TRAVEL: f64 = 60.0;
 pub const STEER_ENGAGE: f64 = 0.6;
 /// Share of the steering radius the pointer must be off-centre to count as steering against
 /// the autopilot (well outside the steering dead zone: a nudge of the mouse is not steering).
 pub const STEER_HANDOVER: f64 = 0.35;
+/// Pointer travel (points) since the autopilot took the wheel before the pointer's direction
+/// counts as a wish (kb: decisions/controls "Pointer wish"): a pointer resting off-centre when
+/// Z was pressed is not a wish.
+pub const WISH_TRAVEL: f64 = 24.0;
 /// A released cruise slower than this (e-folds/s) no longer holds a journey's next leg back.
 pub const LEG_CARRY_REST: f64 = 0.15;
 /// A lane-assist nudge lights the cockpit's lane icon this long (s).
@@ -313,6 +317,16 @@ pub const ASSIST_FLASH: f64 = 0.6;
 /// Below these the velocities snap to rest (points/s, e-folds/s).
 const PAN_REST: f64 = 0.5;
 const ZOOM_REST: f64 = 1e-3;
+
+/// What the target marker shows (kb: decisions/controls "Target marker"): where the autopilot
+/// or a journey leg is heading (a complex point), a short name for a known kind of target, and
+/// the pointer wish's direction (unit, view points, y up).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AimMarker {
+    pub center: Option<crate::viewport::Center>,
+    pub label: Option<String>,
+    pub wish: Option<(f64, f64)>,
+}
 
 /// Two-finger scroll set to zoom: e-folds per scrolled point (100 points: about ×2.7).
 const SCROLL_ZOOM_PER_POINT: f64 = 0.01;
@@ -603,6 +617,34 @@ impl Navigator {
         &self.cruise
     }
 
+    /// What the target marker shows (kb: decisions/controls "Target marker"): while the
+    /// autopilot runs, its lock target or survey steering's boundary point and the pointer
+    /// wish; while a journey flies a leg, the leg's target. None in manual and cruise.
+    pub fn aim_marker(&self) -> Option<AimMarker> {
+        if self.autopilot.is_active() {
+            let ap = &self.autopilot;
+            let (center, label) = match (ap.is_survey_steering(), ap.lock().target(), ap.survey_pick()) {
+                (false, Some(t), _) => (Some(t.center.clone()), t.kind.marker_label(t.period)),
+                (true, _, Some(c)) => (Some(c.clone()), None),
+                _ => (None, None),
+            };
+            return Some(AimMarker {
+                center,
+                label,
+                wish: ap.wish().map(|w| w.dir),
+            });
+        }
+        if self.journey_flying() {
+            let t = self.journey.current()?;
+            return Some(AimMarker {
+                center: Some(t.center.clone()),
+                label: t.kind.marker_label(t.period),
+                wish: None,
+            });
+        }
+        None
+    }
+
     /// What the HUD cockpit shows.
     pub fn cockpit(&self, now: f64) -> Cockpit {
         let level = self.level();
@@ -664,7 +706,7 @@ impl Navigator {
         if a.danger() <= 0.5 && a.interior <= 0.5 {
             return None;
         }
-        let p = s.boundary_point((0.0, 0.0))?;
+        let p = s.boundary_point((0.0, 0.0), None)?;
         let d = p.0.hypot(p.1);
         if !(d.is_finite() && d >= 1.0) {
             return None;
@@ -1852,8 +1894,10 @@ impl Navigator {
             }
             self.pedal_hold = Some((dir, next));
         }
-        // Sustained pointer steering takes the wheel from the autopilot or a journey's flight.
-        if self.automatic_steerable() && self.pointer_deflected(now) {
+        // Sustained pointer steering takes the wheel from a journey's flight. In the autopilot the
+        // pointer is a direction wish instead (kb: decisions/controls "Pointer wish"); W A S D,
+        // a drag, the stick and the pedal to zero still hand over there.
+        if self.journey_flying() && self.pointer_deflected(now) {
             let since = *self.deflected_since.get_or_insert(now);
             if now - since >= STEER_ENGAGE {
                 self.take_wheel(None, now);
@@ -1952,7 +1996,12 @@ impl Navigator {
             || ty != 0.0
             || self.fling != (0.0, 0.0)
             || self.driven();
-        // The autopilot no longer steers by the pointer: steering hands over to cruise (above).
+        // The autopilot does not steer by the pointer; its direction is a wish for the targets.
+        let wish_pointer = match self.mode {
+            InputMode::Pointer if self.wheel_travel >= WISH_TRAVEL => self.pointer_on_canvas(),
+            _ => None,
+        };
+        self.autopilot.set_wish(wish_pointer, radius, now);
         let target = self.autopilot.aim(viewport, self.min_side(), radius, None, manual, now);
         let ap = self.autopilot.step(dt, target, now);
         // Cruise: steered by the pointer only (and lane assist's nudge while the user does not
@@ -3502,13 +3551,44 @@ mod tests {
         n.handle(InputEvent::Pointer(Some((255.0, 5.0))), &mut v, t);
         let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
         assert_eq!(n.level(), Level::Autopilot, "a nudge keeps the autopilot");
-        // Moving it (far, deflected past the hand-over zone, sustained): cruise.
+        // Moving it far and holding it there never hands over: it is a direction wish.
         n.handle(InputEvent::Pointer(Some((180.0, 10.0))), &mut v, t);
         n.handle(InputEvent::Pointer(Some((250.0, 20.0))), &mut v, t);
-        let t1 = run(&mut n, &mut v, t, t + 0.1, 60.0);
-        assert_eq!(n.level(), Level::Autopilot, "not before {STEER_ENGAGE} s");
-        let t = run(&mut n, &mut v, t1, t + STEER_ENGAGE + 0.15, 60.0);
+        let t = run(&mut n, &mut v, t, t + STEER_ENGAGE + 3.0, 60.0);
+        assert_eq!(n.level(), Level::Autopilot, "the pointer does not hand over in A");
+        let w = n.autopilot().wish().expect("a wish to the right");
+        assert!(w.dir.0 > 0.99, "{:?}", w.dir);
+        // The target marker shows in A (with the wish line), not in C.
+        assert!(n.aim_marker().is_some_and(|m| m.wish == Some(w.dir)));
+        // The stick hands over (as W A S D and a drag below).
+        n.handle(
+            InputEvent::Gamepad {
+                lx: 0.8,
+                ly: 0.0,
+                rx: 0.0,
+                ry: 0.0,
+                lt: 0.0,
+                rt: 0.0,
+                boost: false,
+            },
+            &mut v,
+            t,
+        );
         assert_eq!(n.level(), Level::Cruise);
+        assert!(n.aim_marker().is_none());
+        n.handle(
+            InputEvent::Gamepad {
+                lx: 0.0,
+                ly: 0.0,
+                rx: 0.0,
+                ry: 0.0,
+                lt: 0.0,
+                rt: 0.0,
+                boost: false,
+            },
+            &mut v,
+            t,
+        );
         assert!(!n.autopilot().is_active());
         assert_eq!(n.cruise().set_speed(), autopilot::SPEED_DEFAULT);
         assert!(

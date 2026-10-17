@@ -577,6 +577,8 @@ struct OverlaySectionRows: View {
         CosmicScaleRows(model: model)
         Toggle("Always show compass", isOn: $model.compassAlways)
             .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
+        Toggle("Autopilot target marker", isOn: $model.targetMarker)
+            .help("A small ring where the autopilot or a journey is heading, with the pointer's wished direction as a faint line")
         Toggle("Status (HUD)", isOn: $model.showHUD)
         Toggle("Developer details in the HUD", isOn: $model.hudDetails)
             .disabled(!model.showHUD)
@@ -913,7 +915,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
-        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The π meter (P) counts the centre's iterations on a background thread, up to 10⁹ (about 13 s). The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
+        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The π meter (P) counts the centre's iterations on a background thread, up to 10⁹ (about 13 s). The target marker rings where the autopilot or a journey is heading. The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
         case .quality: "While you move, each frame renders as much as fits in a refresh; at rest the view refines and gathers anti-aliasing samples near the boundary."
         default: nil
         }

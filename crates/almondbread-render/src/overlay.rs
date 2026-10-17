@@ -633,6 +633,8 @@ pub struct Overlay<B: GpuBackend> {
     pub compass: crate::compass::CompassOverlay,
     /// The HUD cockpit (kb: decisions/controls, "Driving levels").
     pub cockpit: crate::cockpit::CockpitOverlay,
+    /// The autopilot's target marker (kb: decisions/controls, "Target marker").
+    pub marker: crate::marker::TargetMarker,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
     /// Counts new probes (the dot cloud's key).
@@ -663,6 +665,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             cosmic: Default::default(),
             compass: Default::default(),
             cockpit: Default::default(),
+            marker: Default::default(),
             trail: None,
             probe_serial: 0,
             cloud: None,
@@ -821,7 +824,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.probe = None;
             self.probe_key = None;
             let line = renderer.progress.current().alpha > 0.0;
-            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now) || line || self.cockpit.enabled)
+            if !(self.cosmic.enabled()
+                || self.pi.enabled
+                || self.compass.shown(now)
+                || line
+                || self.cockpit.enabled
+                || self.marker.visible())
                 || empty
             {
                 renderer.overlay = None;
@@ -1460,6 +1468,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             reserve.bottom_left = reserve.bottom_left.max((364.0 * px) as f32);
         }
         key.push_str(&self.pi.draw(scene, help, w, h, px, reserve));
+        // The target marker under the panels (it sits on the picture).
+        self.marker.draw(scene, size, ppp, view, now, &mut key);
         self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
         // The cockpit at the bottom, right of the cosmic scale (bottom left) when it shows.
         let left = if self.cosmic.enabled() { 376.0 } else { 0.0 };

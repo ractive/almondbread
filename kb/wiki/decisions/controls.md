@@ -291,7 +291,8 @@ centre. Option-click flies there instead (the fly-to path: out, across, in, land
 *Revised 2026-10-17 ("Driving levels" below): the pointer no longer steers the autopilot; any user
 steering hands over to cruise, which keeps the speed, and the autopilot does not take the wheel
 back (the idle / dead-zone re-lock is gone). Q / E step its speed on the pedal ladder. The
-steering law below is now the cruise's.*
+steering law below is now the cruise's. Revised again the same day ("Pointer wish" below): the
+pointer no longer hands over either; its direction is a coarse wish for the next targets.*
 
 Requested by the user ("an auto-zoom, like an autopilot, so that you can just navigate with
 the mouse"). All policy in the core: `crates/almondbread-core/src/autopilot.rs`, owned by the
@@ -501,6 +502,111 @@ rescue: the coarse CPU survey is a much weaker guide than the GPU one. Unit test
 `survey_steering_brings_the_boundary_point_to_the_centre_at_any_frame_rate` (30/60/120 Hz
 agree within 3 points and 0.02 e-folds), `lock_target_and_pointer_win_over_survey_steering`.
 Foreground check: `open --env ALMONDBREAD_SURVEY_STEER=1 <Almondbread.app>`.
+
+### Pointer wish (as built, 2026-10-17)
+
+The user asked whether the autopilot could take the coarse direction of the mouse into account,
+after a nudge of the mouse had thrown them into cruise. Core: `Autopilot::set_wish`, `Wish`
+(`autopilot.rs`), the lock's search and result choice (`autopilot/lock.rs`), the navigator
+feeding the pointer (`input.rs`).
+
+- **What counts.** In pointer mode, with the pointer on the canvas and at least `WISH_TRAVEL` =
+  24 points of travel since A took the wheel (a pointer resting off-centre when Z was pressed is
+  no wish). Past 0.2 of the steering radius (kept down to 0.15: no flicker at the edge) its
+  direction is the raw wish. No idle timeout: a pointer left on the right keeps wishing right.
+- **Hysteresis.** The raw wish becomes the *settled* wish after 0.3 s; a settled wish changes
+  only when the pointer points more than 45° away (or appears / goes) for 0.3 s. Each new
+  settled wish has a new *epoch*. A wobbling hand or a brief swing to the other side changes
+  nothing (test `wish_settles_with_hysteresis`).
+- **Lock search.** Candidates get `+1.5 × agreement` on their pre-score (agreement = the cosine
+  between the candidate's direction from the searched view's centre and the wish, faded to 0
+  within 0.08 spans: straight ahead is neutral), so the 6 probed candidates are mostly in the
+  wished direction. Of the targets that probe aimable, the best one in the wished half
+  (agreement > 0.1) is taken; none there: the best anywhere (finding *something* beats the
+  direction). The weighting alone was not enough: a well-probing target elsewhere often won on
+  probe quality (2 of the 20 view × direction cases of the unit test views, weighting only).
+- **Re-target.** When the epoch changes and the current target does not already lie that way
+  (agreement ≥ 0.5 keeps it), one pickup search runs from the current view (off-thread as
+  always); its best target replaces the current one only if it agrees ≥ 0.25. A search still
+  running under the old wish is cancelled, a `next` target chosen under it dropped. Once per
+  epoch, so the aim does not jitter (test `a_changed_wish_retargets_once`, 30 / 60 / 120 Hz).
+- **Survey steering.** `Survey::boundary_point` weights each detailed cell by
+  `exp(2.5 (agreement − 1))`, centres its distance preference 0.25 of the shorter side ahead in
+  the wished direction, and takes the best detailed cell in the wished half first; uphill takes
+  the highest peak in the wished half. A new epoch re-picks once, from the centre. **While the
+  heading region is uniform** the wish is ignored (nearest detail anywhere): with it, the deep
+  test path at 1e239, where the first lock target runs out, picked sparse cells in the wished
+  half and backed out (rescue) in 6 of 10 runs, never without a wish.
+- **Never the pointer itself.** The heading always aims at a found target or boundary point
+  (`aim` gets no pointer in A); the view does not follow the pointer as in cruise.
+- **HUD.** The lock label gets " · your direction" while a wish is settled ("towards spiral
+  M(68,2) · your direction").
+- **Hand-over.** The pointer no longer hands over in A (W A S D, a drag, the stick and the pedal
+  to zero still do; test `autopilot_hands_over_to_cruise_and_never_takes_the_wheel_back`).
+  *Journey legs keep the pointer hand-over* (60 points, 0.35 radius, 0.6 s): a leg is a planned
+  flight to one target, there is no choice of targets for a wish to bias, and steering a leg
+  by hand is how the user leaves the plan.
+
+**Measured** (headless `almondbread fly --out null`, 1600 × 1000, 40 s, Z at 0.3 s, the pointer
+moved to (±350, 0) points at 0.5–1 s and held; machine under heavy load from other sessions,
+load 7–24; measured 2026-10-17, M1 Pro, release). "Aims" counts every new lock target and
+survey pick by where it lay in the view it was chosen from (a target from the search ahead:
+relative to the previous target at its end span), in the left or right half, or straight ahead
+(within 0.05 spans):
+
+| Path | Config | runs | uniform % (mean) | rescues | aims in wished / other half (+ ahead) | re-targets |
+| --- | --- | --- | --- | --- | --- | --- |
+| seahorse 1e3 → 1e18 | no wish | 5 | 0 | 0 | 3 right, 0 left (+18) | 0 |
+| seahorse | wish right | 5 | 0 | 0 | 15 / 0 | 0 |
+| seahorse | wish left | 5 | 0 | 0 | 21 / 3 | 1 per run |
+| user's deep path 1e237 → 1e252 | no wish | 7 | 0.1 | 0 | 29 right, 21 left (+8) | 0 |
+| deep | wish, survey steering always with the wish | 10 (aims: runs 3–5) | 7.3 | 6 | 167 / 17 (91 %) | 0–1 |
+| deep | wish, soft weight only while uniform | 8 | 8.3 | 5 | 259 / 44 (85 %) | 0–1 |
+| deep | **wish, ignored while uniform (as built)** | 8 | 2.8 | 1 | 78 / 49 (61 %) | 0–1 |
+
+Seahorse aims are counted over runs 3–5 only (the halves metric came then); the 3 "other half"
+aims with the left wish are the first pickup, made before the wish settled (1.3 s). There the
+wish is followed fully and costs nothing: every target lies the wished way, no featureless time.
+The deep path is the hard case (all candidates are probe "boundary detail" texels, many rejected;
+kb "Survey steering"): with the wish followed everywhere, 91 % of the aims went the wished way but
+6 of 10 runs backed out of a featureless region at 1e239, where the first target runs out and
+survey steering then took sparse cells in the wished half. Ignoring the wish while the heading
+region is uniform brings that to 1 rescue in 8 (the remaining one 1.1 s) but only 61 % of the
+aims go the wished way (no wish: 58 % right, 42 % left), because many aims on that path are survey
+picks made while uniform. Decision: finding *something* beats the direction; the wish is a
+preference, not a constraint. Zoom reached within 1 decade of the no-wish runs (1e251–1e252.8).
+
+## Target marker (as built, 2026-10-17)
+
+The user's extension of the pointer wish: show where the autopilot is heading. Core:
+`Navigator::aim_marker` (`AimMarker`: the lock target, or survey steering's pick, while A runs;
+the leg's target while a journey flies a leg; the settled wish direction; None in M and C),
+`TargetKind::marker_label`; drawn by `crates/almondbread-render/src/marker.rs` into the overlay
+scene (like the compass), updated by the host each refresh.
+
+- **Ring.** A light ring (radius 9 pt, 1.5 pt, a dot in the middle) over a dark halo ring:
+  reads on bright and dark palettes. It sits on the target's complex point, so it moves with the
+  zoom and pan by itself; when the target changes it glides from where it was drawn to the new
+  one (0.6 s, smoothstep, from the drawn point as a complex point, so the zoom during the glide
+  is right too); it fades in and out over 0.35 s. A target off the canvas is drawn at the edge
+  in its direction.
+- **Label.** For a known kind, a short label next to the ring for 2.5 s after the target
+  changes, then fading: "spiral", "branch point", "minibrot · period 34", "Julia stage · period
+  68"; none for boundary detail, survey picks, resurfacing and cross-overs.
+- **Wish line.** While a wish is settled, a faint line (white over a dark halo, 45 % alpha) from
+  16 points off the centre to 0.22 of the shorter side in the wished direction, so the user
+  sees whether the target agrees.
+- **Setting.** View ▸ "Autopilot Target Marker", control center Overlays "Autopilot target
+  marker", persisted with the overlay settings (`targetMarker`), **on by default** (it is the
+  only feedback that the wish does anything, and it is small); the overlay resets put it back
+  on. FFI `Explorer.set_target_marker(on)`.
+- **Cost.** Two rings, a dot, two segments and a label in the overlay scene; the scene is
+  rebuilt every frame while it moves (its key carries the position). Interaction test
+  "autopilot": draw CPU p50 0.23 ms, 114 fps at 120 Hz.
+- Tests: `marker_follows_the_target` (stays on the target through zoom and pan, glides without
+  a jump and arrives after 0.6 s, fades out, nothing while off); the navigator test checks
+  `aim_marker` in A (with the wish) and None in C. Screenshot: `--ui-demo=autopilot-wish`
+  (synthetic pointer held right; the real mouse is never moved).
 
 ## Fly to coordinates (as built, 2026-10-14)
 
@@ -846,7 +952,7 @@ autopilot" below), its menu item and the iOS long-press.
 | --- | --- | --- | --- |
 | M manual | the user only | rest | E / Q (C), Z (A), J (J) |
 | C cruise | a set speed on one signed axis; the user steers | E / Q from rest or at a journey stop; steering or pedal ≤ 0 in A or J | Esc or pedal to zero (brakes, then M); Z (A); J; R |
-| A autopilot | speed and steering (target lock) | Z | user steering or pedal ≤ 0 (C at the current speed); Z / Esc (eased stop) |
+| A autopilot | speed and steering (target lock; the pointer is only a direction wish) | Z | W A S D, drag, stick or pedal ≤ 0 (C at the current speed); Z / Esc (eased stop) |
 | J journey | planned legs (fly-to flights too) | J, a fly-to | as A for a journey leg; fly-to keeps its old take-over |
 
 **Pedals.** Q / E are one signed speed axis. Each press is one rung of `LADDER` (factors per
@@ -896,17 +1002,18 @@ the last second and rests bit-exactly on home. 30 / 60 / 120 Hz agree to 2e-3 of
 3 points of the steered centre after 26 e-folds out (the boost depends on the depth the zoom
 changes: first order in the substep length).
 
-**Hand-overs.** User steering (W A S D / arrows, a drag or touch pan, the gamepad's left stick,
-or the pointer deflected past the dead zone for 0.25 s after moving 12 points since A or the leg
-took the wheel: a pointer resting off-centre when Z was pressed, or crossing the canvas to a
-button, does not count) while the autopilot runs or a journey flies a leg engages the cruise
+**Hand-overs.** User steering (W A S D / arrows, a drag or touch pan, the gamepad's left stick;
+during a journey leg also the pointer deflected past 0.35 of the steering radius for 0.6 s after
+moving 60 points since the leg took the wheel: a pointer crossing the canvas to a button does
+not count; *in A the pointer no longer hands over since 2026-10-17, it is a direction wish*,
+"Pointer wish" above) while the autopilot runs or a journey flies a leg engages the cruise
 with the current zoom rate and heading (A: set = the autopilot's set speed; J: set = the
 journey speed in the flight's zoom direction, at most the flight's rate, the journey suspended,
 J resumes after the cruise glides out or carries on into the leg; revised 2026-10-17, "Journey",
 smooth legs). The autopilot **no longer takes the wheel
 back**: the idle / dead-zone re-lock is gone because the autopilot is off after the hand-over; Z
-re-engages (at the cruise's speed if it went forward). Inside A the pointer no longer steers
-(it hands over); the lock aims whenever A runs. Other manual input (Space, pinch, wheel zoom,
+re-engages (at the cruise's speed if it went forward). Inside A the pointer never steers the
+view; its direction only biases which targets the lock and survey steering choose. Other manual input (Space, pinch, wheel zoom,
 rotate) works on top as before. A journey stop counts as rest: E / Q there start a cruise and
 the journey stays at its stop (J / Z / X still choose; the cruise glides out, and the next leg
 starts when it carries the cruise's direction on or the cruise is at rest). Esc stops the cruise first. Tests: `autopilot_hands_over_to_cruise_and_never_takes_the_wheel_back`,
