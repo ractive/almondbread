@@ -299,6 +299,18 @@ iterations are genuinely non-linear.
 - `|w| n²` after a block: `n` is the iteration after the block.
 - Squared validity tests (`|dz|² < (R − K|c|)²`) underflow below ~1e−19; fine for M4's range,
   M3b's rescaled deltas must test in their own scale.
+- A preview must not start without the table of a new reference (2026-10-17). Previews used
+  to take the table only if already built; the build starts when the first job asks for it
+  and runs on a thread, so the first preview after every new reference ran without BLA. A
+  gesture frame encodes its whole preview in one K = maxIter chunk when the cost per texel
+  (measured with BLA) says it is cheap, so at 1e-247 (31 000-point orbit) that chunk iterated
+  every pixel through the whole orbit: 200–1090 ms of GPU, twice when a truncated reference
+  was replaced, every few seconds of an autopilot dive. The table takes 1.3–6.4 ms to build.
+  Fix: a job's first level waits for it like for the reference, the history is shown
+  reprojected meanwhile (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: old behaviour). Autopilot from
+  1e-240, 40 s, 1600 × 1000, interleaved: largest chunk 937–1086 ms → 10–14 ms, longest run
+  of unpresented refreshes 13–15 → 0–2, refreshes skipped with frames in flight 19–150 → 0–17
+  (measured 2026-10-17, M1 Pro, release, `fly --log`).
 
 ## For almondbread
 

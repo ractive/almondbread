@@ -1112,3 +1112,15 @@ flight passes all of astronomy in its first 27 decades). Phase 3 counted `max(2,
 universes, one short: at `n = a` the set is already a universe whose atoms are universes. Now
 `floor(n / a) + 1` ("… (27 times)" at 1e1000), and the "k× nested" ruler marks sit at
 `n = (k - 1) a`. [[decisions/controls]] "Cosmic size scale" updated.
+
+## [2026-10-17] decision | Previews wait for a new reference's BLA table
+
+Autopilot stalls of ~200 ms near 1e-247 (user report on bb69748): the first preview after
+each new reference started without BLA (the table builds on a thread after the job asks) and,
+as a gesture frame, ran in one K = maxIter chunk sized by the cost measured with BLA: 200–1090
+ms of GPU per new reference, a second time when a truncated reference was replaced. Present
+on b466f42 too; not caused by the interior probe, compute further or the gesture probe (during
+the dive every job is a gesture job: no full levels, probe chunks, further passes or AA). Fix:
+a job's first level waits for the table (1.3–6.4 ms) and the history is shown meanwhile
+(`ALMONDBREAD_PREVIEW_WAIT_BLA=0` restores the old behaviour). Largest chunk 937–1086 →
+10–14 ms, longest unpresented run 13–15 → 0–2 refreshes. Page: [[techniques/bla]] "Pitfalls".
