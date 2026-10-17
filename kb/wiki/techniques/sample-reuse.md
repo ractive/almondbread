@@ -8,6 +8,10 @@ tags: [frame-reuse, sample-reuse, temporal, interactive, xaos, measured]
 
 # Sample reuse while zooming and panning
 
+> **Code removed 2026-10-17.** The sample cache was opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`) and never
+> the default; `sample_cache.rs`, its kernels, tests and switches are deleted. This page keeps
+> the research and the measurements. "As built" below describes the deleted code.
+
 Keep the point samples a gesture computed, move them with the view, and compute new samples
 only where the image lacks them. A sample of the Mandelbrot set is a pure function of its
 position `c` (and the iteration limit), so a sample computed in an earlier frame is **exact**
@@ -216,7 +220,7 @@ than the build without the cache. Switching features off one at a time (env swit
 build) pinned it on the cache alone: M5 local SA and M6 LA were as smooth as or smoother than the
 day before. Headless `fly` replays at 3456×2160 had shown no difference (96–99 fps either way), and
 background window tests are capped near 30 Hz, so neither check could see it. The cache is now
-opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`). It must not return as the default until a foreground
+opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`, since removed). It must not return as the default until a foreground
 measurement and the user's own check show that zoom-out stays sharp and fast zooms feel smoother.
 
 ## Pitfalls
@@ -238,4 +242,4 @@ measurement and the user's own check show that zoom-out stays sharp and fast zoo
 - **Integer division in per-pixel code.** Wrapping texel indices with `%` cost about 0.5 ms
   of the compose pass at Retina size; a conditional subtraction does it.
 - **Apple GPUs overlap command buffers.** A compose next to a 20 ms chunk reports 20 ms GPU
-  time. Pass costs need `ALMONDBREAD_SERIAL_COMPOSE=1`.
+  time. Pass costs needed a serial-compose measurement mode (`ALMONDBREAD_SERIAL_COMPOSE`, removed 2026-10-17).

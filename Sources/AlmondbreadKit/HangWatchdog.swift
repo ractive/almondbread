@@ -14,18 +14,14 @@ import MetricKit
 /// main thread answers again the report gets a line with the hang's duration.
 ///
 /// Cost: one tiny main-queue block per 0.5 s and a lock per recorded event. Off during window
-/// tests unless `--hang-test` or `ALMONDBREAD_HANG_WATCHDOG=1`; `ALMONDBREAD_HANG_WATCHDOG=0`
-/// turns it off. `--hang-dir=path` puts the reports elsewhere. It never blocks: the thread
+/// tests unless `--hang-test`. `--hang-dir=path` puts the reports elsewhere. It never blocks: the thread
 /// sleeps, posts, and does its file work itself; every failure is ignored.
 public enum HangWatchdog {
     static let interval = 0.5
     static let threshold = 2.0
 
     @MainActor static var wanted: Bool {
-        let env = ProcessInfo.processInfo.environment["ALMONDBREAD_HANG_WATCHDOG"]
-        if env == "0" { return false }
-        if env == "1" || HangTest.enabled { return true }
-        return !TestLaunch.enabled
+        HangTest.enabled || !TestLaunch.enabled
     }
 
     /// Where reports go.

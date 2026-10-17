@@ -186,7 +186,11 @@ Levels admit 16×16 tiles in raster or priority order. `Renderer::frames_committ
 `frames_completed` and `GpuBackend::read_shared_texture` let headless capture read frames
 without draining the queue.
 
-## Motion sample cache (2026-10-15)
+## Motion sample cache (2026-10-15; code removed 2026-10-17)
+
+**Removed 2026-10-17.** The cache was opt-in and never the default (it made zoom-out blurry in the
+real window), so `sample_cache.rs`, its kernels and switches were deleted. This section describes
+what was built, as history; see [[techniques/sample-reuse]].
 
 Gesture frames no longer render a fresh jittered preview each refresh. They reuse the exact
 samples of earlier frames, kept on a lattice fixed in the plane, and compute only the tiles
@@ -209,8 +213,7 @@ hooks are narrow:
 - `seed_sample_cache` seeds an epoch from each settled full level. `make_key` resets the
   cache on a jump.
 
-Off: `ALMONDBREAD_SAMPLE_CACHE=0`. Trace: `ALMONDBREAD_CACHE_TRACE=1`. Cap and memory:
-`ALMONDBREAD_CACHE_RATIO`, `ALMONDBREAD_CACHE_TEXELS`. Two texture sets plus colour cost
+Switches were `ALMONDBREAD_SAMPLE_CACHE`, `_CACHE_TRACE`, `_CACHE_RATIO`, `_CACHE_TEXELS`. Two texture sets plus colour cost
 ~32 B per window texel: 4.2 M visible texels at most, ~1.4× that allocated (rotation slack),
 so up to ~190 MB at Retina size.
 

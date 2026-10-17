@@ -82,7 +82,7 @@ region count (any coverage at a scale stops the walk), unlike a mean-coverage di
 - **Not** in gesture frames (mode 0), preview colour passes, the sample cache and AA samples:
   they draw the plain deep fog (`fogDeep()` in `shade()`), at no cost. The history carries the
   full fog into gesture frames by reprojection.
-- Off switch for before/after checks: `ALMONDBREAD_FOG=0` (plain deep fog everywhere).
+- The off switch for before/after checks (`ALMONDBREAD_FOG=0`) was removed 2026-10-17; fog is always on.
 
 ## Cost
 
@@ -122,7 +122,7 @@ surrounding fractal (the 2 % tint) give the deep fog its only variation.
 
 ## Checks
 
-- `verify --history ... --further 1`: of the texels compute further resolved after AA (its
+- `verify --history ... --further-budget s`: of the texels compute further resolved after AA (its
   mask, read back as `SimulationResult::further_marked`), those whose shown colour differs from
   a fresh render of the same field by more than 12 levels (both draw the same sample with the
   same dither). It replaced the check "resolved pixels in the unresolved colour", which matched

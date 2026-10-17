@@ -125,18 +125,17 @@ on the panel's rate: a 60 Hz display halves the due frames but not the work per 
   the JSON `noise.noisy`.
 - JSON goes to `build/benchmark/flight-v<version>-<headless|live>-<commit>-<unix>.json`:
   commit (and whether the tree is dirty), device (model, chip, memory, cores, OS), flight
-  and settings, renderer switches (`renderer.sa`, `renderer.bla`), noise samples, every
+  and settings, noise samples, every
   lap, the medians and the scores. `--compare a.json b.json` prints deltas per segment and
-  flags noisy or invalid runs and differing SA modes.
-- A/B: `--sa 0|1|auto` and `--bla 0|1|auto` (and every other `apply_renderer` switch) go
-  to the headless renderers. For `--live-app`, `--sa` is passed on as `ALMONDBREAD_SA`.
+  flags noisy or invalid runs.
+- A/B: the `--sa 0|1|auto` / `--bla` switches and the JSON's `renderer` record were removed
+  2026-10-17 (no behaviour switches are left; `apply_renderer` keeps only tunables).
 
 ## Commands
 
 ```text
 make flight-bench                       # A + headless B: warm-up + 3 laps (~6 min busy)
 make flight-bench ARGS="--repeat 1 --warmup 0"
-make flight-bench ARGS="--sa 0"         # SA off for an A/B against the default
 make flight-bench-live                  # B in the background window (unlocked screen)
 target/release/almondbread benchmark --compare a.json b.json
 target/release/almondbread benchmark --noise 1    # is the machine quiet? (exit 1 if not)

@@ -255,8 +255,8 @@ to the plain one: fields bit-identical to M2–FL at all 11 benchmark locations.
 **Forecast and auto mode.** `BlaTable::forecast(|dc|max, maxIter)` walks a pixel at the
 view's largest `|dc|` from `m = 1` through the longest valid blocks, bounding `|dz|` by
 `|A||dz| + |B||c|`, until no block is valid. `auto` (the default) uses the table only if that
-covers ≥ 1024 iterations in blocks of ≥ 64 on average; `ALMONDBREAD_BLA=0|1|auto` and the CLI's
-`--bla 0|1|auto`, `--bla-eps e` override.
+covers ≥ 1024 iterations in blocks of ≥ 64 on average. (The overrides `ALMONDBREAD_BLA=0|1|auto`,
+`ALMONDBREAD_BLA_EPS`, `--bla` and `--bla-eps` were removed 2026-10-17; auto is the only mode.)
 
 ### Result: no gain at the depths the f64 reference reaches
 
@@ -307,7 +307,7 @@ iterations are genuinely non-linear.
   every pixel through the whole orbit: 200–1090 ms of GPU, twice when a truncated reference
   was replaced, every few seconds of an autopilot dive. The table takes 1.3–6.4 ms to build.
   Fix: a job's first level waits for it like for the reference, the history is shown
-  reprojected meanwhile (`ALMONDBREAD_PREVIEW_WAIT_BLA=0`: old behaviour). Autopilot from
+  reprojected meanwhile (the old behaviour, switch `ALMONDBREAD_PREVIEW_WAIT_BLA=0`, was removed 2026-10-17). Autopilot from
   1e-240, 40 s, 1600 × 1000, interleaved: largest chunk 937–1086 ms → 10–14 ms, longest run
   of unpresented refreshes 13–15 → 0–2, refreshes skipped with frames in flight 19–150 → 0–17
   (measured 2026-10-17, M1 Pro, release, `fly --log`).

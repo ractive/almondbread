@@ -1,5 +1,5 @@
 //! M6 study: loop steps of the CPU models (extended range) with no skipping, the deep BLA table
-//! (lookups at m = 1 mod 8, the GPU policy), and the LA table with and without AT, on a grid of
+//! (lookups at m = 1 mod 8, the GPU policy), and the LA table, on a grid of
 //! pixels of each benchmark location, against the reference the renderer would use
 //! (kb: techniques/linear-approximation-imagina, synthesis/benchmarks M6).
 //!
@@ -59,7 +59,7 @@ fn main() {
         args
     };
     println!(
-        "{:<18} {:>7} {:>6} {:>5} {:>9} | {:>8} {:>8} {:>8} {:>8} | {:>6} {:>6} {:>6} | {:>5} {:>5} {:>5} | {:>8} {:>8}",
+        "{:<18} {:>7} {:>6} {:>5} {:>9} | {:>8} {:>8} {:>8} | {:>6} {:>6} | {:>5} {:>5} | {:>8} {:>8}",
         "location",
         "points",
         "stages",
@@ -68,13 +68,10 @@ fn main() {
         "exact",
         "bla",
         "la",
-        "la+at",
         "bla x",
         "la x",
-        "at x",
         "clsB",
         "clsL",
-        "clsA",
         "dmuL",
         "tests/px"
     );
@@ -143,20 +140,13 @@ fn main() {
             let k: usize = k.parse().unwrap();
             let (x, y) = pixels[k];
             almondbread_core::la::TRACE.with(|t| t.set(true));
-            let o = iterate_model(
-                &pts,
-                Skip::La(&la, false),
-                (x * tm, y * tm, te),
-                max_iter,
-                BAILOUT * BAILOUT,
-            );
+            let o = iterate_model(&pts, Skip::La(&la), (x * tm, y * tm, te), max_iter, BAILOUT * BAILOUT);
             almondbread_core::la::TRACE.with(|t| t.set(false));
             println!("pixel {k}: {o:?}");
         }
         let exact = run(Skip::None);
         let ob = run(Skip::Bla(&bla, 8));
-        let ol = run(Skip::La(&la, false));
-        let oa = run(Skip::La(&la, true));
+        let ol = run(Skip::La(&la));
         let steps = |o: &[ModelOutcome]| o.iter().map(|x| x.steps).sum::<usize>() as f64 / o.len() as f64;
         let tests = |o: &[ModelOutcome]| o.iter().map(|x| x.tests).sum::<usize>() as f64 / o.len() as f64;
         let esc = exact.iter().filter(|o| o.escaped).count() as f64 / exact.len() as f64 * 100.0;
@@ -171,9 +161,9 @@ fn main() {
             d.sort_by(f64::total_cmp);
             d.get(d.len() / 2).copied().unwrap_or(0.0)
         };
-        let (se, sb, sl, sa) = (steps(&exact), steps(&ob), steps(&ol), steps(&oa));
+        let (se, sb, sl) = (steps(&exact), steps(&ob), steps(&ol));
         println!(
-            "{:<18} {:>7} {:>6} {:>5} {:>4.1}/{:<4.1} | {:>8.0} {:>8.0} {:>8.0} {:>8.0} | {:>6.1} {:>6.1} {:>6.1} | {:>5} {:>5} {:>5} | {:>8.1e} {:>4.1}/{:<4.1}  stages {:?}{}",
+            "{:<18} {:>7} {:>6} {:>5} {:>4.1}/{:<4.1} | {:>8.0} {:>8.0} {:>8.0} | {:>6.1} {:>6.1} | {:>5} {:>5} | {:>8.1e} {:>4.1}/{:<4.1}  stages {:?}",
             name,
             pts.len(),
             la.stage_steps.len(),
@@ -183,20 +173,14 @@ fn main() {
             se,
             sb,
             sl,
-            sa,
             se / sb,
             se / sl,
-            se / sa,
             class(&ob),
             class(&ol),
-            class(&oa),
             dmu(&ol),
             tests(&ol),
             tests(&ob),
             la.stage_steps,
-            la.at
-                .as_ref()
-                .map_or(String::new(), |a| format!(" AT period {}", a.period)),
         );
         println!("    escaped {esc:.1} %");
     }

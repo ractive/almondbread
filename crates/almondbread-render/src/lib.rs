@@ -35,7 +35,6 @@ pub mod la_gpu;
 pub mod overlay;
 pub mod pi_meter;
 pub mod progress;
-pub mod sample_cache;
 pub mod scheduler;
 
 #[cfg(test)]
@@ -48,8 +47,7 @@ pub use backend::{
     ComputeEncoder, GpuBackend, GpuError, MathMode, Storage, Submission, SubmissionStatus, TextureFormat,
 };
 pub use host::{Host, InputOutcome, InteractionReport};
-pub use sample_cache::{CacheConfig, CacheStats};
 pub use scheduler::{
-    CacheCheck, FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig,
-    ShownStats, SimulationResult,
+    FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
+    SimulationResult,
 };

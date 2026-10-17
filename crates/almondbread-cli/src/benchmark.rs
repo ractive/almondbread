@@ -23,7 +23,6 @@
 //!                       [--out build/benchmark] [--reference r.json] [--check-every 100]
 //!                       [--write-reference r.json [--final 1]] [--stills dir]
 //! almondbread benchmark --live-app .build/release/AlmondbreadMac [--repeat 3] [--warmup 1]
-//! (any mode: --sa 0|1|auto, --bla 0|1|auto for A/B runs; the JSON records them)
 //! almondbread benchmark --live run.json
 //! almondbread benchmark --compare a.json b.json
 //! almondbread benchmark --noise 1
@@ -271,28 +270,10 @@ fn geomean(v: &[f64]) -> f64 {
 
 // MARK: Mode A: throughput
 
-/// The renderer switches this run uses (A/B comparisons: SA on or off, BLA), as the JSON
-/// records them.
-fn renderer_config<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<Value> {
-    let mut r = Renderer::new(backend.clone())?;
-    o.apply_renderer(&mut r);
-    // A live run: the app takes the mode from the environment the CLI passes on.
-    let sa = match o.get("sa").and_then(almondbread_render::scheduler::SaMode::parse) {
-        Some(m) => m,
-        None => r.config.local_sa.mode,
-    };
-    Ok(json!({
-        "sa": format!("{sa:?}"),
-        "sa_env": std::env::var("ALMONDBREAD_SA").ok(),
-        "bla": format!("{:?}", r.config.bla),
-    }))
-}
-
 /// A renderer set up like the app's for the flight (script settings, one point per pixel).
 fn flight_renderer<B: GpuBackend + Clone>(backend: &B, script: &FlightScript, o: &Options) -> Result<Renderer<B>> {
     let mut r = Renderer::new(backend.clone())?;
-    // Renderer switches for A/B runs (`--sa 0|1|auto`, `--bla 0|1|auto`, ...); the default is
-    // the app's (and `ALMONDBREAD_SA`).
+    // The app's renderer settings, then the CLI's tunables.
     o.apply_renderer(&mut r);
     if let Some(s) = &script.settings {
         apply_json_settings(s, &mut r.settings);
@@ -940,7 +921,6 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
         "commit": commit(),
         "device": device(),
         "unix_time": unix_time(),
-        "renderer": renderer_config(backend, o)?,
         "repeat": repeat,
         "warmup": warmup,
         "throughput": null, "realtime_approx": null, "realtime_live": null,
@@ -955,11 +935,6 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
         repeat,
         warmup,
         reference_note(&reference)
-    );
-    println!(
-        "renderer: local SA {}, BLA {} (A/B: --sa 0|1|auto, --bla 0|1|auto)",
-        result["renderer"]["sa"].as_str().unwrap_or("?"),
-        result["renderer"]["bla"].as_str().unwrap_or("?")
     );
     let me = std::process::id();
     let mut probes = Vec::new();
@@ -986,10 +961,6 @@ pub fn benchmark_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
         probes.push(noise_probe());
         let sampler = Sampler::start(vec![me]);
         let mut cmd = Command::new(app);
-        // The app reads the SA switch from the environment (A/B: `--sa 0`).
-        if let Some(sa) = o.get("sa") {
-            cmd.env("ALMONDBREAD_SA", sa);
-        }
         let status = cmd
             .arg(format!("--flight-bench={flight_abs}"))
             .arg(format!("--flight-bench-out={raw_abs}"))
@@ -1111,10 +1082,6 @@ fn compare(a: &Value, b: &Value, an: &str, bn: &str) -> Result<i32> {
         (Some(x), Some(y)) if x.is_finite() && y.is_finite() && x != 0.0 => format!("{:+.1} %", 100.0 * (y - x) / x),
         _ => "-".into(),
     };
-    let sa = |v: &Value| v["renderer"]["sa"].as_str().unwrap_or("?").to_string();
-    if sa(a) != sa(b) {
-        println!("NOTE: different local SA modes: a {}, b {}", sa(a), sa(b));
-    }
     println!(
         "a: {an} ({} {}{})\nb: {bn} ({} {}{})",
         a["commit"]["hash"].as_str().unwrap_or("?"),
@@ -1136,13 +1103,6 @@ fn compare(a: &Value, b: &Value, an: &str, bn: &str) -> Result<i32> {
         if v["throughput"]["valid"].as_bool() == Some(false) {
             println!(
                 "{n} is INVALID (a settled frame was not the full-quality image): its throughput is not comparable"
-            );
-        }
-        if v["renderer"]["sa"].is_string() {
-            println!(
-                "{n}: local SA {}, BLA {}",
-                v["renderer"]["sa"].as_str().unwrap_or("?"),
-                v["renderer"]["bla"].as_str().unwrap_or("?")
             );
         }
     }

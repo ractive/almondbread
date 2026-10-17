@@ -291,8 +291,8 @@ public final class ExplorerModel {
     }
 
     /// Autopilot target lock: while the pointer rests the autopilot aims at boundary targets
-    /// and backs out of voids (persisted; on by default; off: a pure joystick;
-    /// `ALMONDBREAD_AUTOPILOT_LOCK=0|1` overrides it; kb: decisions/controls, autopilot).
+    /// and backs out of voids (persisted; on by default; off: a pure joystick; kb:
+    /// decisions/controls, autopilot).
     public var autopilotLock: Bool = UserDefaults.standard.object(forKey: ExplorerModel.lockKey) as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(autopilotLock, forKey: Self.lockKey)

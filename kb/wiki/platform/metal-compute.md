@@ -144,8 +144,8 @@ Since 2026-10-16 the renderer warms them (`Renderer::warm_pipelines`,
 deep, LA and the rest) to `cores / 3` threads (3 on a 10-core M1 Pro), and each frame takes the
 finished ones from a channel. Cold, the needle fly-to has no slow frame after the first two
 (late refreshes 29–37 → 5–8, all at start-up), and the π hunt's first frame takes 0.7–0.9 ms
-(3 of 3 runs each way, [[synthesis/benchmarks]] "Motion fixes"). `ALMONDBREAD_WARM_PIPELINES=0`
-turns it off for A/B runs.
+(3 of 3 runs each way, [[synthesis/benchmarks]] "Motion fixes"). The switch
+`ALMONDBREAD_WARM_PIPELINES=0` (off for A/B runs) was removed 2026-10-17; the warm-up is always on.
 
 ## Gaps
 

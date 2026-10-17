@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! almondbread autopilot --center re,im --scale s [--size 1280x800] [--speed 0.9] [--seconds 90]
-//!                       [--hz 60] [--lock 0|1] [--every 0.25] [--quiet 1]
+//!                       [--hz 60] [--every 0.25] [--quiet 1]
 //! ```
 
 use almondbread_core::autopilot::{Survey, SurveyCell};
@@ -93,9 +93,6 @@ pub fn autopilot_command(o: &Options) -> Result<i32> {
     let mut n = Navigator::default();
     n.handle(InputEvent::Resize { width: w, height: h }, &mut v, 0.0);
     n.autopilot_mut().lock_mut().synchronous = true;
-    if o.get("lock") == Some("0") {
-        n.autopilot_mut().set_lock(false);
-    }
     n.handle(InputEvent::Pointer(None), &mut v, 0.0);
     n.advance(&mut v, 0.0);
     n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);

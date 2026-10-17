@@ -11,13 +11,12 @@
 //! ```text
 //! almondbread fly --script s.json [--out review/x.mp4 | --out dir/] [--fps 60] [--hz 60]
 //!                 [--size 1920x1080] [--converged 1] [--stills 0,60,120] [--codec hevc|h264]
-//!                 [--bitrate 40M] [--log x.csv] [--lock 0|1] [--pi-flight neck|cusp]
+//!                 [--bitrate 40M] [--log x.csv] [--pi-flight neck|cusp]
 //! ```
 //!
 //! With the autopilot on it reports how often the heading region was uniform (the survey's
 //! "slower: featureless / interior" condition, danger > 0.5), the longest such stretch, the
 //! rescue time, lock targets taken and the deepest zoom (kb: decisions/controls "Autopilot").
-//! `--lock 0` turns the autopilot's target lock off (the pure joystick), `--lock 1` on.
 //!
 //! Script format and events: [`almondbread_core::flight`] (`jump` added for the flight
 //! benchmark, kb: synthesis/flight-benchmark).
@@ -177,11 +176,6 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         apply_json_settings(s, &mut r.settings);
     }
     o.apply_renderer(&mut r);
-    match o.get("lock") {
-        Some("0") => r.navigator.autopilot_mut().set_lock(false),
-        Some("1") => r.navigator.autopilot_mut().set_lock(true),
-        _ => {}
-    }
     // One view point per pixel: script positions and speeds are in video pixels.
     let (w_pts, h_pts) = (size.0 as f64, size.1 as f64);
     r.handle_input(
@@ -426,35 +420,14 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         final_after.map_or("not".into(), |s| format!("{:.0} ms", s * 1000.0)),
     );
     {
-        // Gesture work and the motion sample cache (kb: techniques/sample-reuse).
+        // Gesture work.
         let pf = fs.preview_frames.max(1) as f64;
-        let c = r.sample_cache_stats();
         println!(
             "  gesture frames: {:.3e} iterations/frame, iterate GPU {:.2} ms/frame; all chunks {:.3e} iterations",
             fs.preview_iterations / pf,
             fs.preview_chunk_gpu * 1000.0 / pf,
             fs.iterations,
         );
-        if c.frames + c.fallback_frames > 0 {
-            let f = c.frames.max(1) as f64;
-            println!(
-                "  sample cache: {} frames ({} fresh), reused {:.1} % of visible texels, computed {:.0} texels/frame, CPU plan {:.3} ms/frame (max {:.3}) + shade encode {:.3}, GPU shade {:.3} ms/frame, maintenance {:.3} ms/frame ({} passes), epochs {} (seeded {}), finer {} coarser {}",
-                c.frames,
-                c.fallback_frames,
-                100.0 * c.reused_texels as f64 / c.visible_texels.max(1) as f64,
-                c.texels_planned as f64 / f,
-                c.cpu_plan * 1000.0 / f,
-                c.cpu_plan_max * 1000.0,
-                c.cpu_shade * 1000.0 / f,
-                c.gpu_shade * 1000.0 / c.gpu_shades.max(1) as f64,
-                c.gpu_maintain * 1000.0 / f,
-                c.gpu_passes,
-                c.epochs,
-                c.seeds,
-                c.finer,
-                c.coarser,
-            );
-        }
     }
     if ap_frames > 0 {
         let share: Vec<String> = hints

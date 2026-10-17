@@ -96,8 +96,8 @@ No property tests or fuzzing (a project rule: CI stays fast).
   Review, but these are documented `mach/` calls).
 - Cost: one tiny main-queue block per 0.5 s and a lock per recorded event. It never blocks the
   main thread and ignores its own failures.
-- Off during window tests (`--selftest`, `--interaction-test`, ...) unless `--hang-test` or
-  `ALMONDBREAD_HANG_WATCHDOG=1`; `ALMONDBREAD_HANG_WATCHDOG=0` turns it off.
+- Off during window tests (`--selftest`, `--interaction-test`, ...) unless `--hang-test`.
+  (The env switch `ALMONDBREAD_HANG_WATCHDOG` was removed 2026-10-17; the watchdog is always on in the app.)
 - `--hang-test`: a background window blocks its main thread for 3 s, then prints the report and
   quits (exit 0 when the report and the recovery line were written).
 - MetricKit: `MXMetricManager` hang diagnostics (`MXHangDiagnostic`, iOS 14+, macOS 12+) are

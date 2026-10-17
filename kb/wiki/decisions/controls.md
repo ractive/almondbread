@@ -330,8 +330,8 @@ towards one passes its embedded Julia stages and ends with the minibrot and its 
 see "Journey" for the maths).
 
 **Target lock** (`crates/almondbread-core/src/autopilot/lock.rs`; control center "Autopilot
-target lock", on by default, persisted; off = the pure joystick; `ALMONDBREAD_AUTOPILOT_LOCK=0|1`
-overrides the setting in the app for A/B tests; `fly --lock 0|1`, script event `{"lock": false}`).
+target lock", on by default, persisted; off = the pure joystick; script event `{"lock": false}`;
+the env override `ALMONDBREAD_AUTOPILOT_LOCK` and the CLI `--lock` were removed 2026-10-17).
 While the user does not steer (pointer in the dead zone, off the canvas or idle for 3 s,
 keyboard mode, and no pan, drag, fling or held key for 1 s), the autopilot aims at a target:
 
@@ -493,10 +493,10 @@ autopilot backed out (rescue) or dived into the minibrot's interior. The view pr
 escalates (`journey::probe_escalating`: 4× while more than half the probe never escaped and
 the step lets more escape, to 240 000 or 0.5 s), and candidate probes start at the view's
 limit. Newton at periods 8007 and 16014 was never the problem (both nuclei were found once the
-view resolved). `autopilot --center sea-8007 --scale 2.5e-34 --lock 1 --seconds 60`, whose CPU
+view resolved). `autopilot --center sea-8007 --scale 2.5e-34 --seconds 60`, whose CPU
 survey escalates the same way now: uniform 5.0 % → 0 %, rescue 2.6 → 0 s, 23 → 12 target
 switches, 1e52.0 → 1e54.4 (the first search: 0 → 10 candidates); lock off: 94 % uniform.
-`ALMONDBREAD_PROBE_ESCALATE=0` restores the fixed limit.
+(The switch `ALMONDBREAD_PROBE_ESCALATE=0`, which restored the fixed limit, was removed 2026-10-17.)
 
 ## Journey (as built, 2026-10-15)
 

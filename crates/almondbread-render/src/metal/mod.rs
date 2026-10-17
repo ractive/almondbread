@@ -30,11 +30,7 @@ use crate::backend::{
 unsafe extern "C" {}
 
 /// The kernel source (moved here from the Swift package; kb: platform/render-architecture).
-/// The motion sample cache's kernels follow (kb: techniques/sample-reuse).
-pub const KERNEL_SOURCE: &str = concat!(
-    include_str!("../shaders/mandelbrot.metal"),
-    include_str!("../shaders/sample_cache.metal")
-);
+pub const KERNEL_SOURCE: &str = include_str!("../shaders/mandelbrot.metal");
 
 pub type MetalBuffer = Retained<ProtocolObject<dyn MTLBuffer>>;
 pub type MetalTexture = Retained<ProtocolObject<dyn MTLTexture>>;
@@ -530,16 +526,6 @@ mod tests {
         SeedParams,
     };
 
-    /// Tests whose outcome depends on GPU time per frame (budgeted levels, e.g. the sample
-    /// cache's) and tests that load the GPU for seconds hold this, so the test harness's
-    /// parallel threads do not starve the former: `sample_cache_exact` cached a third of its
-    /// samples while `learned_limit_survives_aa` ran alongside.
-    static GPU_TIMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn gpu_timing() -> std::sync::MutexGuard<'static, ()> {
-        GPU_TIMING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
     #[test]
     fn msl_layouts_match() {
@@ -550,7 +536,7 @@ mod tests {
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
              out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX);\n\
              out[12] = sizeof(PixelStateIC); out[13] = sizeof(SeedNode); out[14] = sizeof(SeedParams);\n\
-             out[15] = sizeof(CacheParams); out[16] = sizeof(SurveyParams); out[17] = sizeof(PixelStateProbe); }}\n"
+             out[15] = sizeof(SurveyParams); out[16] = sizeof(PixelStateProbe); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -560,7 +546,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 72];
+        let mut bytes = [0u8; 68];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -586,7 +572,6 @@ mod tests {
                 size_of::<crate::gpu_types::PixelStateIC>() as u32,
                 size_of::<SeedNode>() as u32,
                 size_of::<SeedParams>() as u32,
-                size_of::<crate::gpu_types::CacheParams>() as u32,
                 size_of::<crate::gpu_types::SurveyParams>() as u32,
                 size_of::<crate::gpu_types::PixelStateProbe>() as u32,
             ]
@@ -626,95 +611,12 @@ mod tests {
         (field, steps, out.seeds)
     }
 
-    fn sa(mode: crate::scheduler::SaMode) -> crate::scheduler::LocalSa {
-        crate::scheduler::LocalSa {
-            mode,
-            ..crate::scheduler::LocalSa::default()
-        }
-    }
-
-    /// M5 (kb: techniques/local-series-approximation): at the dense view local SA takes
-    /// several times fewer steps with the plain kernel's class statistics; at the deep needle
-    /// minibrot (interior test on, period-255 nucleus reference) it paints no exterior pixel
-    /// interior (restarting the interior derivative at the branch painted 96 %, R5).
-    #[test]
-    fn local_sa_dense_and_needle() {
-        use crate::scheduler::SaMode;
-        use almondbread_core::oracle::compare;
-        let (plain, plain_steps, none) = sa_render(sa(SaMode::Off), "dense-5e-14", 400, 250, true);
-        assert!(none.is_none());
-        let (on, on_steps, report) = sa_render(sa(SaMode::On), "dense-5e-14", 400, 250, true);
-        let report = report.expect("seeded");
-        assert_eq!(report.tiles_seeded, report.tiles);
-        assert!(on_steps * 3 < plain_steps, "{on_steps} vs {plain_steps}");
-        let (rep, _) = compare(&on, &plain);
-        assert!(rep.mismatch_pct() < 0.05, "{}", rep.summary());
-        // Auto seeds every tile here (the leaves saved thousands of iterations).
-        let (auto, _, report) = sa_render(sa(SaMode::Auto), "dense-5e-14", 400, 250, true);
-        let report = report.expect("seeded");
-        assert_eq!(report.tiles_seeded, report.tiles);
-        assert_eq!(auto.bitwise_differences(&on), 0);
-        let (plain, _, _) = sa_render(sa(SaMode::Off), "needle-1e305", 320, 200, true);
-        let (on, _, _) = sa_render(sa(SaMode::On), "needle-1e305", 320, 200, true);
-        let (rep, _) = compare(&on, &plain);
-        assert!(rep.false_interior_pct() < 0.01, "{}", rep.summary());
-    }
-
-    /// M5 with view rotation (kb: decisions/controls "View rotation"): seeds turn their node
-    /// offsets like the pixels, so a rotated dense view seeded matches the plain one (a wrong
-    /// turn would put every pixel on another orbit), in the plain and the deep kernel.
-    #[test]
-    fn local_sa_rotated() {
-        use crate::scheduler::{Renderer, SaMode, SchedulerConfig};
-        use almondbread_core::locations::location_named;
-        use almondbread_core::oracle::compare;
-        for name in ["dense-5e-14", "sea-1e20"] {
-            let render = |mode: SaMode| {
-                let config = SchedulerConfig {
-                    local_sa: sa(mode),
-                    ..SchedulerConfig::default()
-                };
-                let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
-                let loc = location_named(name).expect("location");
-                r.settings = almondbread_core::RenderSettings::plain();
-                r.settings.auto_iterations = false;
-                r.settings.manual_iterations = loc.max_iterations();
-                r.settings.supersampling = almondbread_core::Supersampling::Off;
-                r.viewport = loc.viewport_for_width(400).with_angle(0.7);
-                let out = r.render_offscreen(400, 250, true).expect("render");
-                let steps = out.steps_done + out.seeds.as_ref().map_or(0, |s| s.steps());
-                (
-                    almondbread_core::IterationField::from_texels(400, 250, out.iterations.as_deref().unwrap()),
-                    steps,
-                )
-            };
-            let (off, off_steps) = render(SaMode::Off);
-            let (on, on_steps) = render(SaMode::On);
-            // (Unrotated at this size: dense 7x, sea-1e20 1.45x fewer steps.)
-            assert!(on_steps * 4 < off_steps * 3, "{name}: {on_steps} vs {off_steps}");
-            let (rep, _) = compare(&on, &off);
-            assert!(rep.mismatch_pct() < 0.05, "{name}: {}", rep.summary());
-            assert!(rep.escape_differs_pct() < 25.0, "{name}: {}", rep.summary());
-        }
-    }
-
-    /// M5: where the seeds branch early (interior-heavy home view at 100k iterations) the
-    /// auto gate seeds no tile, and the field is the plain one bit for bit.
-    #[test]
-    fn local_sa_auto_gate_off() {
-        use crate::scheduler::SaMode;
-        let (plain, _, _) = sa_render(sa(SaMode::Off), "home-100k", 320, 200, true);
-        let (auto, _, report) = sa_render(sa(SaMode::Auto), "home-100k", 320, 200, true);
-        assert_eq!(report.expect("seeded").tiles_seeded, 0);
-        assert_eq!(auto.bitwise_differences(&plain), 0);
-    }
-
     /// M5: seed rounds are resumable: a tiny step budget (many rounds) gives the same field
     /// bit for bit as one unbounded round, in the plain and in the deep kernel (shown frame =
     /// fresh render whatever the rounds' timing).
     #[test]
     fn local_sa_rounds_resumable() {
-        use crate::scheduler::{LocalSa, SaMode};
+        use crate::scheduler::LocalSa;
         for (name, w, h) in [
             ("dense-5e-14", 320, 200),
             ("sea-1e20", 320, 200),
@@ -722,11 +624,11 @@ mod tests {
         ] {
             let small = LocalSa {
                 budget: 5,
-                ..sa(SaMode::On)
+                ..LocalSa::default()
             };
             let big = LocalSa {
                 budget: u32::MAX,
-                ..sa(SaMode::On)
+                ..LocalSa::default()
             };
             let (a, _, ra) = sa_render(small, name, w, h, true);
             let (b, _, rb) = sa_render(big, name, w, h, true);
@@ -734,157 +636,6 @@ mod tests {
             assert_eq!(rb.expect("seeded").rounds, 1, "{name}");
             assert_eq!(a.bitwise_differences(&b), 0, "{name}");
         }
-    }
-
-    /// M5 interior-only tile fill (kb: techniques/guessing-and-subdivision): at the elephant
-    /// valley (28 % interior, slow to prove near the cusp) filling tiles whose border is all
-    /// proven interior skips a third of the steps and gives the unfilled field bit for bit;
-    /// with an analysed interior colouring nothing is filled.
-    #[test]
-    fn interior_fill_exact() {
-        use crate::scheduler::{Renderer, SaMode, SchedulerConfig};
-        use almondbread_core::locations::location_named;
-        let render = |fill: SaMode, inside: almondbread_core::InteriorMode| {
-            let config = SchedulerConfig {
-                local_sa: sa(SaMode::Off),
-                interior_fill: fill,
-                ..SchedulerConfig::default()
-            };
-            let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
-            let loc = location_named("elephant").expect("location");
-            r.settings = almondbread_core::RenderSettings::plain();
-            r.settings.auto_iterations = false;
-            r.settings.manual_iterations = loc.max_iterations();
-            r.settings.supersampling = almondbread_core::Supersampling::Off;
-            r.settings.interior_mode = inside;
-            r.viewport = loc.viewport_for_width(480);
-            let out = r.render_offscreen(480, 300, true).expect("render");
-            let field = almondbread_core::IterationField::from_texels(480, 300, out.iterations.as_deref().unwrap());
-            (field, out.steps_done)
-        };
-        use almondbread_core::InteriorMode;
-        let (off, off_steps) = render(SaMode::Off, InteriorMode::Flat);
-        let (on, on_steps) = render(SaMode::On, InteriorMode::Flat);
-        assert!(on_steps * 10 < off_steps * 8, "{on_steps} vs {off_steps}");
-        assert_eq!(on.bitwise_differences(&off), 0);
-        let (_, a) = render(SaMode::Off, InteriorMode::Period);
-        let (_, b) = render(SaMode::On, InteriorMode::Period);
-        assert_eq!(a, b);
-    }
-
-    /// Offscreen fields at `scale` around the M4 slow view with the given BLA mode:
-    /// (field, used, steps, iterations).
-    fn bla_render(
-        scale: f64,
-        iterations: usize,
-        mode: crate::scheduler::BlaMode,
-        async_from: usize,
-    ) -> (almondbread_core::IterationField, bool, u64, u64) {
-        use crate::scheduler::{Renderer, SchedulerConfig};
-        // (Local SA off: the seeds would take the blocks the pixels are measured on.)
-        let config = SchedulerConfig {
-            bla: mode,
-            bla_async_from: async_from,
-            local_sa: sa(crate::scheduler::SaMode::Off),
-            ..SchedulerConfig::default()
-        };
-        let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
-        r.settings = almondbread_core::RenderSettings::plain();
-        r.settings.auto_iterations = false;
-        r.settings.manual_iterations = iterations;
-        r.settings.supersampling = almondbread_core::Supersampling::Off;
-        r.settings.shading = 0.5; // distance estimate through BLA blocks
-        r.viewport = almondbread_core::Viewport::new(-1.4080321340304542, 0.13680236432900417, scale);
-        let out = r.render_offscreen(320, 200, true).expect("render");
-        let field = almondbread_core::IterationField::from_texels(320, 200, out.iterations.as_deref().unwrap());
-        (field, out.bla_used, out.steps_done, out.iterations_done)
-    }
-
-    /// The motion sample cache (kb: techniques/sample-reuse) holds exact samples: after a
-    /// settled view (rest seed), a zoom in (finer level, resampled), a zoom out (coarser) and a
-    /// pan, every cached sample equals a fresh render of its lattice point with the same
-    /// reference (class always; escape count up to float32 rounding of the point), and the
-    /// shown refined frame equals a fresh render.
-    #[test]
-    fn sample_cache_exact() {
-        use crate::scheduler::Renderer;
-        let _gpu = gpu_timing();
-        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
-        r.viewport = almondbread_core::Viewport::new(-0.743643887037151, 0.13182590420533, 3.75e-6 * 4.0);
-        // (One reference throughout: a fixed limit, moves within its reach. Samples of other
-        // references differ from a fresh render as the refined frames do: float32.)
-        r.settings.auto_iterations = false;
-        r.settings.manual_iterations = 2000;
-        // The cache is opt-in (`ALMONDBREAD_SAMPLE_CACHE=1`).
-        r.sample_cache_config().enabled = true;
-        let (w, h) = (320, 200);
-        r.simulate(w, h, 1.0, 120.0, 0, 30.0, &mut |_, _, _| {})
-            .expect("settle");
-        type Step = Box<dyn Fn(&mut almondbread_core::Viewport, f64)>;
-        let steps: [(&str, Step); 3] = [
-            ("zoom in", Box::new(|v, dt| v.zoom_by((1.4 * dt).exp(), 30.0, 10.0))),
-            ("zoom out", Box::new(|v, dt| v.zoom_by((-1.4 * dt).exp(), 0.0, 0.0))),
-            ("pan", Box::new(|v, dt| v.pan_by_points(-150.0 * dt, 60.0 * dt))),
-        ];
-        for (name, step) in steps {
-            r.reset_sample_cache_stats();
-            r.cache_check_renderer = Some(Box::new(Renderer::new(MetalBackend::new().expect("metal")).expect("r")));
-            r.cache_checks.clear();
-            let serial = r.reference_serial();
-            r.simulate(w, h, 1.0, 120.0, 90, 30.0, &mut |_, dt, v| step(v, dt))
-                .expect("gesture");
-            let c = r.cache_checks[0].clone().expect("cache");
-            let s = r.sample_cache_stats().clone();
-            assert!(s.frames > 60 && s.fallback_frames == 0, "{name}: {s:?}");
-            assert!(c.samples > 20_000, "{name}: {c:?}");
-            assert_eq!(r.reference_serial(), serial, "{name}: the reference changed");
-            // (Escape counts: the lattice point's dc = i h + (anchor - reference) rounds in float32
-            // unlike the check render's (its own centre): ~1e-7 of |dc|, which flips a few
-            // escape counts in chaotic places, as two fresh renders centred differently do.)
-            assert!(c.class_differ == 0 && c.escape_pct() < 0.5, "{name}: {c:?}");
-            let m = r.displayed_frame_mismatch().expect("refined");
-            assert!(m.percent < 0.05, "{name}: {m:?}");
-        }
-    }
-
-    /// M4 regression (kb: synthesis/benchmarks M4): at the boundary-dense 4.6e-14 view BLA
-    /// would cost more than it skips, so `auto` leaves the kernel as it was (bit-identical to
-    /// BLA off); forced on, it changes no pixel's class and the smooth count far less than
-    /// float32 already does.
-    #[test]
-    fn bla_slow_view() {
-        use crate::scheduler::BlaMode;
-        use almondbread_core::oracle::compare;
-        let (off, _, _, _) = bla_render(4.615e-14 * 5.0, 5791, BlaMode::Off, 50_000);
-        let (auto, used, steps, iters) = bla_render(4.615e-14 * 5.0, 5791, BlaMode::Auto, 50_000);
-        assert!(!used);
-        assert_eq!(steps, iters);
-        assert_eq!(auto.bitwise_differences(&off), 0);
-        let (on, used, steps, iters) = bla_render(4.615e-14 * 5.0, 5791, BlaMode::On, 50_000);
-        assert!(used && steps < iters);
-        let (rep, _) = compare(&on, &off);
-        assert!(rep.mismatch_pct() < 0.05, "{}", rep.summary());
-        // (Float32 itself is off by a median 0.067 against the f64 oracle here, and 54 % of
-        // pixels by more than 0.05: boundary pixels are chaotic, any rounding moves them.)
-        assert!(rep.median_error < 0.01, "{}", rep.summary());
-    }
-
-    /// Deep (1e-20 per pixel around the same f64 reference; not the true set at that depth,
-    /// but the same orbit for both runs): `auto` takes the table, skips most steps, and the
-    /// field equals the skip-off one to float32 noise. The table builds on a thread here
-    /// (`bla_async_from` 0) and the offscreen render waits for it.
-    #[test]
-    fn bla_deep_view() {
-        use crate::scheduler::BlaMode;
-        use almondbread_core::oracle::compare;
-        let (off, used, _, _) = bla_render(1e-20, 12_000, BlaMode::Off, 0);
-        assert!(!used);
-        let (on, used, steps, iters) = bla_render(1e-20, 12_000, BlaMode::Auto, 0);
-        assert!(used);
-        assert!(steps * 4 < iters, "steps {steps} iterations {iters}");
-        let (rep, _) = compare(&on, &off);
-        assert_eq!(rep.false_interior + rep.false_exterior, 0, "{}", rep.summary());
-        assert!(rep.max_error < 1e-4, "{}", rep.summary());
     }
 
     /// Default auto iterations at a named location, offscreen: (limit used, escaped fraction).
@@ -985,7 +736,6 @@ mod tests {
         use crate::host::Host;
         use crate::scheduler::Renderer;
         use objc2_quartz_core::CAMetalLayer;
-        let _gpu = gpu_timing();
         let backend = MetalBackend::new().expect("metal");
         let mut surface = MetalLayerSurface::new(CAMetalLayer::new(), &backend);
         surface.set_drawable_size(640, 410);

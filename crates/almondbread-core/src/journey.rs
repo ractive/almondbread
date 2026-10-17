@@ -491,9 +491,7 @@ pub fn probe_escalating(center: &Center, span: Scale, budget: f64) -> (Iteration
     let mut it = probe_iterations(span);
     let mut f = probe_limit(center, span, it, PROBE);
     let mut interior = ProbeStats::of(&f).interior;
-    // (`ALMONDBREAD_PROBE_ESCALATE=0`: the old fixed limit, for before/after checks.)
-    let on = std::env::var("ALMONDBREAD_PROBE_ESCALATE").map_or(true, |v| v != "0");
-    while on && interior > ESCALATE_INTERIOR && it < PROBE_ESCALATE_CAP && t0.elapsed().as_secs_f64() < budget {
+    while interior > ESCALATE_INTERIOR && it < PROBE_ESCALATE_CAP && t0.elapsed().as_secs_f64() < budget {
         let next = (4 * it).min(PROBE_ESCALATE_CAP);
         let g = probe_limit(center, span, next, PROBE);
         let gi = ProbeStats::of(&g).interior;

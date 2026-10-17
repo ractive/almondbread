@@ -117,8 +117,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     if out.la_used {
         let (t, entries, bytes, stages) = r.la_info();
         println!(
-            "LA used{}: {entries} entries in {stages} stages ({} KB) built in {:.3} ms; {:.2}x fewer steps than iterations",
-            if out.at_used { " with AT" } else { "" },
+            "LA used: {entries} entries in {stages} stages ({} KB) built in {:.3} ms; {:.2}x fewer steps than iterations",
             bytes / 1024,
             t * 1000.0,
             out.iterations_done as f64 / out.steps_done.max(1) as f64
@@ -131,7 +130,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
             if out.bla_used { "used" } else { "not used" },
             bytes / 1024,
             t * 1000.0,
-            r.config.bla_epsilon.log2(),
+            almondbread_core::bla::BLA_EPSILON.log2(),
             f.covered,
             f.blocks,
             if f.pays() { "pays" } else { "does not pay" },
@@ -510,9 +509,9 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let mut r = new_renderer(backend, o)?;
     // Deterministic for the diff: let the extension run to its limit.
     r.config.extension_budget = o.f64("extension-budget").unwrap_or(120.0);
-    // Compute further runs for up to a minute per view: off unless asked for (`--further 1`),
+    // Compute further runs for up to a minute per view: off unless asked for (`--further-budget s`),
     // so the regression sessions stay fast (one session checks it).
-    if o.get("further").is_none() {
+    if o.get("further-budget").is_none() {
         r.config.further = false;
     }
     let mode = o.get("history").unwrap_or("zoom").to_string();
@@ -645,9 +644,6 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     }
     let frames = if jump { 0 } else { (seconds * 120.0) as usize };
     let mut sessions: Vec<SimulationResult> = Vec::new();
-    // The motion sample cache is checked after the gesture (kb: techniques/sample-reuse).
-    r.cache_check_renderer = Some(Box::new(new_renderer(backend, o)?));
-    r.reset_sample_cache_stats();
     let m = mode.clone();
     // Gesture frames (M5 reports): previews shown, their resolution, refreshes skipped.
     r.frame_stats = Some(almondbread_render::scheduler::FrameStats::default());
@@ -701,9 +697,6 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
             sessions.push(step);
         }
     }
-    // The cache once more, seeded from the refined frame.
-    let settled = r.sample_cache_check();
-    r.cache_checks.push(settled);
     verify_session(
         backend,
         o,
@@ -715,75 +708,6 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         max_false_interior,
         max_unresolved,
     )
-}
-
-/// Prints the sample cache's statistics and checks; failures for `failed`.
-///
-/// The escape-count gate is relative: where float32 escape counts depend on the reference
-/// (dense or deep views), the session's own refined frame differs from a fresh render or the
-/// CPU oracle by `noise` % of its pixels; a cache sample may differ as much (with the same
-/// reference the samples are bit-identical). A wrong position shows as several % in any view.
-fn report_cache<B: GpuBackend>(o: &Options, r: &Renderer<B>, noise: f64, failed: &mut Vec<String>) {
-    let s = r.sample_cache_stats();
-    if s.frames + s.fallback_frames > 0 {
-        let f = s.frames.max(1) as f64;
-        println!(
-            "sample cache: {} gesture frames ({} fresh previews), reused {:.1} % of visible texels, computed {:.0} texels/frame, {:.3e} iterations/frame, epochs {} (seeded {}), switches finer {} coarser {}, slides {}, CPU plan {:.3} ms/frame (max {:.3}), shade encode {:.3} ms/frame, GPU maintenance {:.3} ms over {} passes, shade {:.3} ms/frame",
-            s.frames,
-            s.fallback_frames,
-            100.0 * s.reused_texels as f64 / s.visible_texels.max(1) as f64,
-            s.texels_planned as f64 / f,
-            s.iterations / f,
-            s.epochs,
-            s.seeds,
-            s.finer,
-            s.coarser,
-            s.slides,
-            s.cpu_plan * 1000.0 / f,
-            s.cpu_plan_max * 1000.0,
-            s.cpu_shade * 1000.0 / f,
-            s.gpu_maintain * 1000.0,
-            s.gpu_passes,
-            s.gpu_shade * 1000.0 / s.gpu_shades.max(1) as f64,
-        );
-    }
-    let max_class = o.f64("max-cache-mismatch").unwrap_or(0.05);
-    let max_escape = o
-        .f64("max-cache-escape-diff")
-        .unwrap_or_else(|| (1.5 * noise + 1.0).max(2.0));
-    for (i, c) in r.cache_checks.iter().enumerate() {
-        let when = if i + 1 == r.cache_checks.len() {
-            "settled"
-        } else {
-            "after the gesture"
-        };
-        match c {
-            Some(c) => {
-                println!(
-                    "sample cache check ({when}): {} samples vs a fresh render of their points: class differs {} ({:.4} %), escape count differs {} of {} escaped ({:.3} %; gate {max_escape:.1} %)",
-                    c.samples,
-                    c.class_differ,
-                    c.class_pct(),
-                    c.escape_differ,
-                    c.escaped,
-                    c.escape_pct()
-                );
-                if c.class_pct() > max_class {
-                    failed.push(format!(
-                        "sample cache ({when}): {:.4} % class differ (> {max_class} %)",
-                        c.class_pct()
-                    ));
-                }
-                if c.escape_pct() > max_escape {
-                    failed.push(format!(
-                        "sample cache ({when}): {:.3} % escape counts differ (> {max_escape} %)",
-                        c.escape_pct()
-                    ));
-                }
-            }
-            None => println!("sample cache check ({when}): no cache"),
-        }
-    }
 }
 
 /// Compute further after AA: of the texels its passes recolour (unresolved when they started,
@@ -1017,7 +941,6 @@ fn verify_session<B: GpuBackend + Clone>(
             ));
         }
     }
-    report_cache(o, r, noise, &mut failed);
     if !failed.is_empty() {
         eprintln!("almondbread: history {mode} FAILED: {}", failed.join("; "));
         return Ok(1);
@@ -1189,8 +1112,6 @@ pub const REGRESS_SESSIONS: &[&[&str]] = &[
         "400x250",
         "--ss",
         "3",
-        "--further",
-        "1",
         "--further-budget",
         "4",
     ],

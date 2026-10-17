@@ -1163,3 +1163,29 @@ New place category "Endless dives": `endless-forking` (c = i), `endless-spiral` 
 `locate --endless-seed 2026` (1,000 random angle bits, ray tracing + Newton, 42 s; changes down
 to ~1e-295, then repeats ×4.605). M(24,2) and M(4,1) extended to 3,307 digits (agree with the
 stored digits). Page: [[synthesis/places]] "Endless dives".
+
+## [2026-10-17] decision | Behaviour switches removed: a decided choice is the only code
+
+Too many `ALMONDBREAD_*` flags; nobody knew what they did and the combinations were untestable.
+Rule: a behaviour flag goes once decided, the winning path becomes the only code, the losing path
+is deleted. Default behaviour is unchanged.
+
+- Flag and non-default path deleted (default kept): `ALMONDBREAD_FOG`, `_FURTHER`, `_PROBE`,
+  `_PREVIEW_WAIT_BLA`, `_PROBE_ESCALATE`, `_WARM_PIPELINES`, `_ITER_FLOOR`, `_FILL`, `_SA`, `_LA`,
+  `_BLA`, `_AUTOPILOT_LOCK`, `_HANG_WATCHDOG`. The `=auto` switches (SA, FILL, LA, BLA) keep
+  exactly the auto behaviour; the enums `SaMode`, `BlaMode`, `LaMode` are gone. CLI options
+  `--sa`, `--fill`, `--la`, `--bla`, `--bla-eps`, `--at`, `--further`, `--lock` removed
+  (`--sa-*` tunables and `--further-budget s` stay). Tests that only compared a switch's two
+  paths (SA/fill/BLA/LA on vs off) deleted.
+- Opt-in features never enabled, deleted entirely: the motion sample cache
+  (`ALMONDBREAD_SAMPLE_CACHE`, `_CACHE_RATIO`, `_CACHE_TEXELS`, `_CACHE_TRACE`;
+  `sample_cache.rs`, `sample_cache.metal`, the cache level in the scheduler, the compose
+  kernel's cache mode, the survey's toroidal read, `sample_cache_exact`, `verify --history`'s
+  cache check, `GPU_TIMING`, `scripts/flights/cache-f14.json`) and the LA "AT" path
+  (`ALMONDBREAD_AT`, `--at`, `AtInfo`, the kAT kernel code).
+- Tuning knobs made constants (values unchanged): `ALMONDBREAD_BLA_EPS`, `_LA_F`, `_LA_SMAX`,
+  `_CAPACITY`, `_NUCLEUS`; `ALMONDBREAD_SERIAL_COMPOSE` (measurement mode) deleted.
+- Left alone: traces, measurement and test-harness variables, `ALMONDBREAD_GESTURE_PROBE`.
+  CLAUDE.md now has one "Environment variables" table. Wiki pages that described a removed
+  switch as current carry a "removed 2026-10-17" note; history pages (this log, benchmarks) are
+  unchanged and still name the old switches.

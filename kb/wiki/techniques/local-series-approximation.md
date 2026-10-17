@@ -111,7 +111,7 @@ flat tiles are not enough: every tile size from 4 to 32 branched at ~10 % of the
 
 Metal, float32 deltas, the production perturbation/rebasing loop (`iterate` with function
 constant `kSeeded`), floatexp seeds in the deep kernel; offscreen renders only (`almondbread
-render|verify --sa 1 [--sa-eps e] [--sa-top t] [--sa-leaf l]`, `ALMONDBREAD_SA=1`). Answer and
+render|verify --sa 1 [--sa-eps e] [--sa-top t] [--sa-leaf l]`, `ALMONDBREAD_SA=1`, since removed). Answer and
 per-view numbers: [[questions/local-sa-float32]], [[synthesis/benchmarks]] R5.
 
 ```text
@@ -227,7 +227,7 @@ coherent middle at any depth. Interior-heavy views need interior-only Mariani–
 Code: `crates/almondbread-render/src/shaders/mandelbrot.metal` (`seedBegin`, `seedLevel`,
 `seedGate`; `iterate` with function constant `kSeeded`, `prepareChunk`'s seed gate) and the
 scheduler (`start_seeding`, `encode_seed_round`, `harvest_seed_round`, `advance_seeding`).
-On by default: `ALMONDBREAD_SA=0|1|auto` (auto), CLI `--sa 0|1|auto` with the tunables
+Always on (auto; the switch `ALMONDBREAD_SA` and `--sa` were removed 2026-10-17), CLI tunables
 `--sa-leaf`, `--sa-top`, `--sa-eps`, `--sa-gate rel,abs`, `--sa-budget`. Numbers:
 [[synthesis/benchmarks]] M5.
 
