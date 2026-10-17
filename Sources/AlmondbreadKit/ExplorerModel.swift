@@ -306,6 +306,14 @@ public final class ExplorerModel {
     /// comes back as it was on leaving (ContentView; kb: decisions/controls "Full screen").
     public var fullScreen = false
 
+    /// The popover of a Rust-drawn help badge the user pressed (kb: decisions/controls "Help");
+    /// set on the press, nil when the popover closes. Nothing else changes it.
+    var canvasHelp: CanvasHelp? {
+        didSet { if let canvasHelp { lastCanvasHelp = canvasHelp } }
+    }
+    /// The last badge pressed: the popover's anchor while it closes.
+    @ObservationIgnored var lastCanvasHelp: CanvasHelp?
+
     @ObservationIgnored public var hudFrame: CGRect? {
         didSet { if hudFrame != oldValue { host?.hudFrameChanged() } }
     }
@@ -920,6 +928,24 @@ public final class ExplorerModel {
         let taken = explorer.mapClick(x: x, y: y, fly: fly)
         if taken { host?.requestFrames() }
         return taken
+    }
+
+    /// A press on the canvas at (x, y) points from the centre, y up, in a canvas of `size`
+    /// points: true if it hit a help badge Rust drew (the press then goes nowhere else);
+    /// `show`: open its popover (a first click or a tap; not the second click of a double click).
+    func helpPress(x: Double, y: Double, size: CGSize, show: Bool = true) -> Bool {
+        guard let explorer, let hit = explorer.helpHit(x: x, y: y) else { return false }
+        if show, let topic = HelpTopic(rawValue: hit.topic) {
+            showCanvasHelp(topic, x: hit.x, y: hit.y, radius: hit.radius, size: size)
+        }
+        return true
+    }
+
+    /// Opens the popover of `topic` at a badge at (x, y) points from the centre, y up.
+    func showCanvasHelp(_ topic: HelpTopic, x: Double, y: Double, radius: Double, size: CGSize) {
+        let rect = CGRect(x: size.width / 2 + x - radius, y: size.height / 2 - y - radius,
+                          width: 2 * radius, height: 2 * radius)
+        canvasHelp = CanvasHelp(topic: topic, rect: rect, edge: y < 0 ? .top : .bottom)
     }
 
     /// A press on the canvas at (x, y) points from the centre, y up: true if the compass took it

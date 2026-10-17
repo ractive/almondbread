@@ -27,6 +27,7 @@ pub mod flight;
 pub mod floatfloat;
 pub mod font;
 pub mod gpu_types;
+pub mod help;
 pub mod host;
 pub mod la_gpu;
 pub mod overlay;

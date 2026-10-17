@@ -28,6 +28,7 @@ public struct AlmondbreadScene: Scene {
         .commands { FractalCommands() }
         #endif
         #if os(macOS)
+        HelpWindow()
         Settings {
             AppSettingsView()
                 .preferredColorScheme(.dark)
@@ -171,6 +172,9 @@ struct FractalCommands: Commands {
                                                                 set: { model?.hudDetails = $0 }))
                 .disabled(model == nil || model?.showHUD == false)
             Divider()
+        }
+        CommandGroup(replacing: .help) {
+            HelpMenuItem()
         }
     }
 }

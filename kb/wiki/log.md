@@ -1033,3 +1033,18 @@ pages ([[sources/mathr-julia-morphing-posts]], [[sources/mathr-embedded-julia-na
 [[sources/deep-zoom-videos]], [[sources/wikibooks-emndl]]); "Used by" backlinks on seven
 existing sources and one line in [[synthesis/places]]. Nothing saved to `raw/` (read on the
 web; the forum thread via the Wayback Machine).
+
+## [2026-10-17] decision | Help: (?) popovers, a help window, Markdown texts
+
+Help in three layers ([[decisions/controls]] "Help"): (?) popovers in the control center's
+section headers (Iterations & quality, Look & colour, Interior, Overlays, Controls) and on the
+Rust-drawn panels (cosmic scale, π meter, mini-map row); one help window (Help ▸ Almondbread
+Help, ⌘?; a sheet on iOS) with six pages; the texts as Markdown in
+`Sources/AlmondbreadKit/Resources/Help/`. The panels' "?" badges are drawn and hit-tested in
+Rust (`render::help`, `Explorer.help_hit`), checked before the compass and the maps; Swift
+anchors a SwiftUI popover at the badge's rect from the one change-only model property
+`canvasHelp`. Only the circle plus 2.5 pt takes presses. Screens: `--ui-demo=help-canvas`,
+`help-control`, `help-window`.
+Interaction test unchanged: every shown-frame check OK; the one failure, "autopilot" zooming
+×2.2–2.3 in 2.4 s (check wants ×3.2), fails identically on the base commit b466f42 (measured
+2026-10-17, M1-class Mac, release, loaded machine), so it is not from this change.

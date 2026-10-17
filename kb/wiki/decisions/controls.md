@@ -1062,3 +1062,57 @@ Findings for the scheduler (not changed here): at a 2 M manual limit the first A
 lists 70 % of the view at the nominal limit and costs ~70 s, as much as the full level, before
 the 1.5 GPU-second AA budget is checked; and shallow views in the period-2 bulb spend their
 extension passes on ~1 M interior pixels.
+
+## Help (as built, 2026-10-17)
+
+Agreed with the user (2026-10-17): help in three layers, written for curious
+non-mathematicians (what you see and what to do, no jargon).
+
+1. **(?) popovers** next to a feature: a title, 3–6 short lines and "More…", which opens the
+   matching help page.
+2. **One help window**, "Almondbread Help" (macOS: Help ▸ Almondbread Help, ⌘?, a SwiftUI
+   `Window` scene with a sidebar of pages; iOS: a sheet with a page menu, opened by "More…").
+   Pages: Getting started & controls; What am I seeing? (the rule, black = proven inside,
+   colours = escape speed, the dark grey "not decided yet" veil and what to do about it,
+   automatic vs manual iterations and the upper limit, the progress line); Autopilot,
+   journeys & places; Overlays (cosmic scale, π meter, mini-map, orbit, compass, status);
+   Deep zoom & precision (briefly); Tips.
+3. **The texts are Markdown files** bundled with AlmondbreadKit
+   (`Sources/AlmondbreadKit/Resources/Help/<n>-<page>.md`, the title is the `# ` heading;
+   `popovers.md` holds one `## <topic-id>` section per (?)), rendered by a small SwiftUI
+   renderer (`HelpMarkdownView` in `Help.swift`: headings, bullets, paragraphs; inline
+   emphasis through `AttributedString` markdown). The same files can become a website.
+
+**Where the (?) are.**
+
+- *Control center* section headers that need explaining: Iterations & quality, Look & colour,
+  Interior, Overlays, Controls. `HelpButton` is a static view with its own `@State` popover:
+  it reads nothing from the model, so the sidebar's change-only rule holds
+  ([[platform/swiftui-performance]]).
+- *Overlays drawn by Rust*: the cosmic scale panel, the π meter (panel and hint panel) and the
+  mini-map row (the whole-set panel's top-right corner; "orbit" when only the orbit overlay
+  shows that map). A 7 pt dark disc with a light rim and a "?" glyph, 5 pt inside the panel's
+  top-right corner (`crates/almondbread-render/src/help.rs`); the cosmic ruler and the π hint
+  panel keep 19 pt free for it.
+
+**Design: hit-testing in Rust, the popover in SwiftUI.** The panels lay their badge out while
+the overlay scene is built (`Overlay::help`, cleared when nothing is drawn), so the badge is
+exactly where it was drawn. The platform asks `Explorer.help_hit(x, y)` on every press before
+the compass and the maps (view points from the centre, y up, like the compass): a hit returns
+the topic id, centre and radius, and the press (its drag, release and double click) goes
+nowhere else. Swift sets the model's `canvasHelp` (topic and the badge's rect in canvas
+coordinates), the only observed property involved, and a `.popover(item:attachmentAnchor:)` on
+the canvas anchors at that rect (above badges in the lower half, below in the upper; iOS
+`.presentationCompactAdaptation(.popover)` keeps it a popover on iPhone). `Overlay::click`
+also ignores presses on a badge, so another UI cannot jump the map from it.
+Rejected: SwiftUI buttons positioned from panel rects that Rust reports. That needs a
+change-only feed of rects every time a panel moves or resizes (the cosmic panel's height
+follows its wrapped sentence, the π panel moves with the sidebar), and the button would trail
+the Metal frame by a frame; the synchronous hit test needs neither, and other platforms get
+the badge for free. Only the circle plus 2.5 pt takes presses (unit test `help::tests`), so
+the panels and the canvas keep every other click.
+
+**Checks.** `--ui-demo=help-canvas` (the cosmic scale's popover pressed on its badge),
+`help-control` (the Iterations & quality popover) and `help-window` (the help window, a
+window of its own behind all others) write `build/screens/help-*.png`, the window plus its
+popover windows composited (`UIDemo.captureWithPopovers`).

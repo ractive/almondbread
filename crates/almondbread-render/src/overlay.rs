@@ -534,6 +534,8 @@ pub struct Overlay<B: GpuBackend> {
     pub compass: crate::compass::CompassOverlay,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
+    /// The panels' help badges as laid out in the last scene (kb: decisions/controls "Help").
+    pub help: Vec<crate::help::HelpBadge>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -555,6 +557,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             cosmic: Default::default(),
             compass: Default::default(),
             trail: None,
+            help: Vec::new(),
         }
     }
 }
@@ -647,6 +650,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             let line = renderer.progress.current().alpha > 0.0;
             if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now) || line) || empty {
                 renderer.overlay = None;
+                self.help.clear();
                 return;
             }
         }
@@ -687,7 +691,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
         // ---- Scene.
         let mut scene = Scene::default();
-        let key = self.build_scene(&mut scene, renderer, &view, size, ppp, &s, now);
+        let mut help = Vec::new();
+        let key = self.build_scene(&mut scene, &mut help, renderer, &view, size, ppp, &s, now);
+        self.help = help;
         if self.scene_key.as_deref() != Some(key.as_str()) || renderer.overlay.is_none() {
             self.version += 1;
             self.scene_key = Some(key);
@@ -949,6 +955,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// (snapping it to a nearby minibrot when the map is much coarser than the view) and
     /// returns true; elsewhere false.
     pub fn click(&mut self, renderer: &Renderer<B>, x: f64, y: f64, ppp: f64, fly: bool) -> bool {
+        // The help badge in the panel's corner is not a place to jump to.
+        if crate::help::hit(&self.help, x, y, 1.0 / ppp).is_some() {
+            return false;
+        }
         let Some(stack) = &self.maps else { return false };
         let (pw, ph) = (stack.panel.0 as f64, stack.panel.1 as f64);
         for (i, p) in stack.panels.iter().enumerate() {
@@ -991,6 +1001,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     fn build_scene(
         &self,
         scene: &mut Scene,
+        help: &mut Vec<crate::help::HelpBadge>,
         renderer: &Renderer<B>,
         view: &Viewport,
         size: (usize, usize),
@@ -1167,6 +1178,16 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 );
             }
             scene.set_clip(None);
+            // Help badge in the whole-set panel's top-right corner (its emptiest part).
+            if let Some(o) = stack.panels.first() {
+                let topic = if s.map {
+                    crate::help::HelpTopic::MiniMap
+                } else {
+                    crate::help::HelpTopic::Orbit
+                };
+                let c = crate::help::top_right([o[0], o[1], o[0] + pw, o[1] + ph], px as f32);
+                crate::help::draw(scene, help, topic, c, px as f32, &mut key);
+            }
             // Info under (or above) the first panel: the orbit's fate and a click note.
             let size = (13.0 * px).max(11.0) as f32;
             let line = 1.35 * size;
@@ -1217,7 +1238,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
         if self.cosmic.enabled() {
             let left = (12.0 * px) as f32;
-            self.cosmic.draw(scene, size, ppp, [left, cosmic_bottom], now, &mut key);
+            self.cosmic
+                .draw(scene, help, size, ppp, [left, cosmic_bottom], now, &mut key);
         }
         // The π meter keeps clear of the maps in the right corners and of what is at the
         // bottom left (maps, the cosmic scale).
@@ -1240,7 +1262,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if self.cosmic.enabled() {
             reserve.bottom_left = reserve.bottom_left.max((364.0 * px) as f32);
         }
-        key.push_str(&self.pi.draw(scene, w, h, px, reserve));
+        key.push_str(&self.pi.draw(scene, help, w, h, px, reserve));
         self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
         // The render progress line along the top edge (kb: decisions/controls "Render progress").
         crate::progress::draw_line(

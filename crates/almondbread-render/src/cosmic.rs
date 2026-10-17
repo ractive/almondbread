@@ -77,9 +77,11 @@ impl CosmicOverlay {
 
     /// Draws the panel with its bottom-left corner at `corner` (output pixels); appends what
     /// it drew to `key`.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         scene: &mut Scene,
+        help: &mut Vec<crate::help::HelpBadge>,
         size: (usize, usize),
         ppp: f64,
         corner: [f32; 2],
@@ -125,7 +127,8 @@ impl CosmicOverlay {
         );
         // ---- Ruler.
         let yr = y0 + pad + ruler_h * 0.5;
-        let (rx0, rx1) = (x0 + pad, x1 - pad);
+        // The ruler stops short of the help badge in the top-right corner.
+        let (rx0, rx1) = (x0 + pad, x1 - pad - crate::help::reserve(px));
         let xc = x0 + 0.36 * pw;
         let ppd = POINTS_PER_DECADE * f64::from(px);
         let fc = scale.ruler(d);
@@ -285,6 +288,15 @@ impl CosmicOverlay {
             y += s.max(s2) * 1.45;
             key.push_str(t);
         }
+        // ---- Help badge (kb: decisions/controls "Help").
+        crate::help::draw(
+            scene,
+            help,
+            crate::help::HelpTopic::CosmicScale,
+            crate::help::top_right([x0, y0, x1, y1], px),
+            px,
+            key,
+        );
         // ---- "passing ...", above the panel while the highlight lasts.
         scene.set_clip(None);
         if let Some((i, t)) = flash
@@ -355,6 +367,7 @@ mod tests {
             key.clear();
             o.draw(
                 &mut scene,
+                &mut Vec::new(),
                 (2000, 1200),
                 0.5,
                 [24.0, 1176.0],
