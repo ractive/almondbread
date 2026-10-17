@@ -216,6 +216,7 @@ pub enum PlaceCategory {
     Minibrot,
     JuliaIsland,
     Deep,
+    EndlessDive,
 }
 
 impl From<almondbread_core::PlaceCategory> for PlaceCategory {
@@ -229,6 +230,7 @@ impl From<almondbread_core::PlaceCategory> for PlaceCategory {
             C::Minibrot => Self::Minibrot,
             C::JuliaIsland => Self::JuliaIsland,
             C::Deep => Self::Deep,
+            C::EndlessDive => Self::EndlessDive,
         }
     }
 }
@@ -244,6 +246,7 @@ impl From<PlaceCategory> for almondbread_core::PlaceCategory {
             PlaceCategory::Minibrot => C::Minibrot,
             PlaceCategory::JuliaIsland => C::JuliaIsland,
             PlaceCategory::Deep => C::Deep,
+            PlaceCategory::EndlessDive => C::EndlessDive,
         }
     }
 }

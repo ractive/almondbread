@@ -34,7 +34,7 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
   marks centres we computed (Newton nuclei, Misiurewicz points) or framings we chose
   near a cited point. Descriptions are our own words.
 - **Categories** (menu sections): landmark, valley, spiral, dendrite, minibrot,
-  julia-island, deep (1e-30 and below). Within a category, shallow to deep.
+  julia-island, deep (1e-30 and below), endless-dive (centred exactly on a Misiurewicz point). Within a category, shallow to deep.
 
 ## Generated coordinates
 
@@ -145,6 +145,67 @@ that is catalogue work, not app work.
 Thumbnails: `places --render-thumbs Sources/AlmondbreadKit/Resources/Places --inside bubbles
 --extend 16 --only <ids>` (oversample 3, blur 0.5 by default), 1.0-2.6 s each, 2 × 4 HEIC
 files, 192 KB; all four looked at, none flat.
+
+## Endless dives (2026-10-17)
+
+A category (`endless-dive`, "Endless dives") of places centred **exactly** on a Misiurewicz
+point, so a straight zoom with no steering keeps the boundary in the middle of the view down
+to the depth limit (2^-10000 per point) and never ends in a featureless area. The deep places
+above use embedded Julia sets because a Misiurewicz point "only repeats itself"; these four
+make the repetition the point.
+
+**Self-similarity.** At a Misiurewicz point c₀ of preperiod k and period p the critical
+orbit lands on a repelling p-cycle with multiplier `λ = ∏_{i=k}^{k+p-1} 2 z_i`. Near c₀ the
+set is asymptotically self-similar: the view at magnification m and at m·|λ| agree, the
+second turned by arg λ (Tan Lei, "Similarity between the Mandelbrot set and Julia sets",
+1990; the parameter-space similarity is J_{c₀} near z_k scaled by dz_k/dc) (unverified
+against the paper here; the factors below are computed). Above about 1/|dz_k/dc| the view
+still shows the preperiodic part (other structure); below it, only the repetition.
+
+| id | point | digits | λ | \|λ\| | arg λ | repeats |
+| --- | --- | --- | --- | --- | --- | --- |
+| `endless-forking` | c = i, M(2,2) | exact | 4 + 4i | 4√2 = 5.657 | 45° | full turn every ×2^20 ≈ 1e6 |
+| `endless-spiral` | M(24,2) | 3,307 | 1.0428 − 0.2770i | 1.0789 | −14.87° | full turn every ×6.3; 30.3 repeats (1.25 turns) per ×10 |
+| `endless-junction` | M(4,1) | 3,307 | −0.6552 + 1.1555i | 1.3283 | 119.55° | ×2.34 for three repeats (358.7°) |
+| `endless-wander` | M(1001,3) | 3,310 | 1.146 + 4.461i | 4.605 | 75.59° | changes down to ~1e-295, then repeats |
+
+λ from 3,400-digit Python `decimal` orbits of the stored centres; the M(24,2) and M(4,1)
+residuals |z_{k+p} − z_k| are 1e-3304 and 1e-3305. Extending the two centres to 11,000 bits
+(`locate --misiurewicz 24,2|4,1 --bits 11000`, 9 Newton steps, 0.05 s and 0.01 s) agreed with
+all stored digits (1,049 and 327; the old M(24,2) re differed in its last, rounded digit), so
+`two-arm-spiral`, `spiral-1e1000`, `three-way-junction`, `junction-*` and the rest now share
+3,307-digit centres. The older `dendrite-i` stays framed at −0.02 + 0.98i.
+
+**Never-repeating point: `locate --endless-seed n`.** The external angle is `--preperiod`
+(default 1,000) pseudo-random bits from the seed (SplitMix64), then a `--period` (default 3)
+bit tail; the last preperiodic bit differs from the last tail bit so the preperiod is exact.
+The ray is traced inward (`almondbread_math::rays::trace_ray_inward`, Heiland-Allen's method
+as in mathr's `m_d_exray_in`: per angle doubling n, 4 points at radii R^(2^(-j/4)), R = 65536,
+each solved by Newton on `z_n(c) = r e^{2πi 2^{n-1}θ}` from the previous point, precision
+2n + 128 bits) for preperiod + 4 periods doublings, then `find_misiurewicz(k = preperiod + 1,
+p)` refines at 11,000 bits. The landing point of a ray with preperiod k′ is a Misiurewicz
+point of preperiod k′ + 1 with z₀ = 0 (1/6 = .0(01) → c = i = M(2,2), a unit test).
+
+Seed 2026, preperiod 1,000, period 3, tail (110) (measured 2026-10-17, M1 Pro, release, shared
+machine): ray 39.6 s (1,012 doublings; 1.2 s to 250, 6.0 s to 500, 16.8 s to 750: cost grows
+as n³, n iterations per solve at 2n bits), Newton 2.6 s (12 steps), 42 s in all. Checks:
+|z_1004 − z_1001| = 1e-3019 (the 1e295 derivative eats ~295 of the 3,310 digits),
+|z_1003 − z_1000| = 10^0.4 (preperiod exact), ray end to point 1e-296. The scenery changes
+down to about 1/|dz_k/dc| = 1e-295 (≈ 0.295 decades per angle bit, close to log10 2: the
+preperiodic part lasts about preperiod × log10 2 decades), then repeats ×4.605 at 75.6° to the
+depth limit. Reaching the depth limit with change all the way would take a 10,000-bit
+preperiod: by the n³ scaling ~1,000 × 40 s ≈ 11 h, not done. Seed 40 bits: 0.04 s, changes to
+1e-11.
+
+**Checks.** Contact sheet (start framing, 1e10, 1e100, 1e250, 1e1000, 1e3000; 320×200 renders):
+the boundary stays at the centre at every depth for all four; the seahorse spiral and the
+junction look the same at every depth (turned), c = i and the wander point are tips (one ray),
+so the twigs fill one side. `endless-wander` at 1e10, 1e100, 1e200, 1e290, 1e300, 1e400 with
+a crosshair: the centre is a twig tip each time and the shapes change until ~1e300. `verify
+--place` at 160×100 at the framing, 1e1000 and 1e3000: class mismatch 0 % everywhere; escape-n
+differs ≤ 0.013 % (c = i), ≤ 5.4 % (junction), ≤ 0.7 % (wander), and 17 % / 28 % for the
+spiral at 1e1000 / 1e3000 (dense spiral float32 chaos, as `spiral-1e1000` above). Render time
+0.05–6 s per 320×200 frame (6 s: spiral at 1e3000). Thumbnails looked at, none flat.
 
 ## Using a place
 

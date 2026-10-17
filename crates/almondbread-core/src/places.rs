@@ -27,10 +27,13 @@ pub enum PlaceCategory {
     JuliaIsland,
     /// Showcases beyond f64 (1e-30 and deeper): only arbitrary precision gets here.
     Deep,
+    /// Centred exactly on a Misiurewicz point (a boundary point), so a straight zoom never
+    /// ends in a featureless area down to the depth limit (kb: synthesis/places "Endless dives").
+    EndlessDive,
 }
 
 impl PlaceCategory {
-    pub const ALL: [PlaceCategory; 7] = [
+    pub const ALL: [PlaceCategory; 8] = [
         PlaceCategory::Landmark,
         PlaceCategory::Valley,
         PlaceCategory::Spiral,
@@ -38,6 +41,7 @@ impl PlaceCategory {
         PlaceCategory::Minibrot,
         PlaceCategory::JuliaIsland,
         PlaceCategory::Deep,
+        PlaceCategory::EndlessDive,
     ];
 
     pub fn id(self) -> &'static str {
@@ -49,6 +53,7 @@ impl PlaceCategory {
             PlaceCategory::Minibrot => "minibrot",
             PlaceCategory::JuliaIsland => "julia-island",
             PlaceCategory::Deep => "deep",
+            PlaceCategory::EndlessDive => "endless-dive",
         }
     }
 
@@ -61,6 +66,7 @@ impl PlaceCategory {
             PlaceCategory::Minibrot => "Minibrots",
             PlaceCategory::JuliaIsland => "Julia islands",
             PlaceCategory::Deep => "Deep showcases",
+            PlaceCategory::EndlessDive => "Endless dives",
         }
     }
 }
@@ -232,6 +238,25 @@ mod tests {
             .map(|p| PlaceCategory::ALL.iter().position(|&c| c == p.category).unwrap())
             .collect();
         assert!(order.windows(2).all(|w| w[0] <= w[1]), "places not grouped by category");
+    }
+
+    #[test]
+    fn endless_dives_are_exact_to_the_depth_limit() {
+        // Centred on the point itself to more digits than the depth limit (5e-3011 per
+        // point) needs, or exact (c = i).
+        let dives: Vec<_> = PLACES
+            .iter()
+            .filter(|p| p.category == PlaceCategory::EndlessDive)
+            .collect();
+        assert!(dives.len() >= 4);
+        for p in dives {
+            let digits = p.re.len().min(p.im.len());
+            assert!(
+                digits >= 3100 || (p.re.len() <= 4 && p.im.len() <= 4),
+                "{}: {digits} digits",
+                p.id
+            );
+        }
     }
 
     #[test]
