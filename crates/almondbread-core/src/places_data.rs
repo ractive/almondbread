@@ -165,7 +165,7 @@ pub const PLACES: &[Place] = &[
     Place {
         id: "feigenbaum-point",
         name: "Feigenbaum Point",
-        description: "The end of the period-doubling cascade on the spike: bulbs of period 2, 4, 8, ... shrink by Feigenbaum's 4.669 towards this point, and chaos begins beyond it.",
+        description: "The end of the period-doubling cascade on the spike: bulbs of period 2, 4, 8, ... shrink by Feigenbaum's 4.669 towards this point. Beyond it the orbits along the spike stop settling into cycles and wander chaotically, except in tiny windows of order: the minibrots on the spike (period 3 at -1.75).",
         feature: "c = -1.4011551890920506..., the limit of the period-2ⁿ components.",
         re: "-1.4011551890920506",
         im: "0",
