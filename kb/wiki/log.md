@@ -1344,3 +1344,7 @@ The user: "when in Autopilot mode, moving the mouse just a bit throws you into c
 The hand-over now needs all three: 60 points of pointer travel (was 12), the pointer more
 than 0.35 of the steering radius off-centre (was the 0.1 dead zone), and that held for 0.6 s
 (was 0.25). WASD, a drag and the stick still hand over at once. [[decisions/controls]] "Driving levels".
+
+## [2026-10-17] decision | Pointer hides while the autopilot or a journey flies
+
+User request. In A or J, the pointer hides after 1.5 s without moving over the canvas (`NSCursor.setHiddenUntilMouseMoves`) and shows again as soon as the mouse moves. It is a direction wish in the autopilot, so it shows whenever it is in use. The HUD, the control center and window tests are unaffected. [[decisions/controls]].

@@ -379,7 +379,28 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     func step(_ link: CADisplayLink) {
         if externalClock { return }
         if !base.step(timestamp: link.timestamp) { link.isPaused = true }
+        hidePointerWhileFlying()
     }
+
+    /// When the pointer last moved over the canvas (`mouseMoved`).
+    private var pointerMovedAt = Date()
+
+    /// While the autopilot or a journey flies, the pointer hides after `pointerHideDelay` s
+    /// without moving and comes back as soon as the mouse moves (user's request; the
+    /// pointer is a direction wish in autopilot, so it shows whenever it is being used).
+    private func hidePointerWhileFlying() {
+        let level = model.drivingLevel
+        guard level == .autopilot || level == .journey, !TestLaunch.enabled,
+              window?.isKeyWindow == true,
+              Date().timeIntervalSince(pointerMovedAt) > Self.pointerHideDelay else { return }
+        // Only over the canvas (not the HUD, the control center or outside the window).
+        guard let w = window else { return }
+        let p = convert(w.mouseLocationOutsideOfEventStream, from: nil)
+        guard bounds.contains(p), !hudRect.contains(p) else { return }
+        NSCursor.setHiddenUntilMouseMoves(true)
+        pointerMovedAt = .distantFuture
+    }
+    private static let pointerHideDelay = 1.5
 
     /// The interaction test drives frames from its own CVDisplayLink (`ALMONDBREAD_TEST_LINK=cv`).
     var externalClock = false
@@ -614,6 +635,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        pointerMovedAt = Date()
         // The interaction test drives the pointer itself; the user's real mouse over the
         // background test window must not interfere.
         guard !InteractionTest.enabled, !UIDemo.enabled, !FlightBench.enabled else { return }
