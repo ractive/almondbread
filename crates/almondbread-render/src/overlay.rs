@@ -14,7 +14,9 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use almondbread_core::math::{DoubleExp, NewtonOptions, PeriodMethod, find_nucleus, find_period};
-use almondbread_core::orbit::{OrbitClass, OrbitPoints, OrbitProbe, ProbePoint, ProbeReference, orbit_points};
+use almondbread_core::orbit::{
+    MAP_LINE_POINTS, OrbitClass, OrbitPoints, OrbitProbe, PROBE_MIN_STEPS, ProbePoint, ProbeReference, orbit_points,
+};
 use almondbread_core::settings::{Corner, InteriorMode, OverlaySettings, RenderSettings, Supersampling};
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use bytemuck::{Pod, Zeroable};
@@ -151,6 +153,17 @@ impl Scene {
             geom: r,
             param: [opacity, 0.0, 0.0, 0.0],
             info: [KIND_GLOW, size.0 as u32, size.1 as u32, 0],
+            ..OverlayPrim::default()
+        });
+    }
+
+    /// The orbit's dot cloud ([`OverlayDraw::cloud`], `size` pixels: straight sRGB colour and
+    /// alpha) stretched over `r` and blended over the image under it at `opacity`.
+    pub fn cloud_image(&mut self, r: [f32; 4], size: (usize, usize), opacity: f32) {
+        self.push(OverlayPrim {
+            geom: r,
+            param: [opacity, 0.0, 0.0, 0.0],
+            info: [KIND_GLOW, size.0 as u32, size.1 as u32, 1],
             ..OverlayPrim::default()
         });
     }
@@ -391,6 +404,8 @@ pub struct OverlayDraw<B: GpuBackend> {
     pub maps: Vec<B::Texture>,
     /// The π meter's orbit trail picture, BGRA8 rows (glow primitives read it).
     pub trail: Option<B::Buffer>,
+    /// The orbit's dot cloud on the whole-set map, BGRA8 rows with alpha ([`orbit_cloud_picture`]).
+    pub cloud: Option<B::Buffer>,
     /// Changes whenever the scene does (the renderer re-presents when it differs from the
     /// shown one).
     pub version: u64,
@@ -421,6 +436,7 @@ impl<B: GpuBackend> OverlayDraw<B> {
             size,
             maps,
             trail,
+            cloud: None,
             version,
         })
     }
@@ -469,6 +485,89 @@ fn full_set_view(w: usize, h: usize) -> Viewport {
     let s = (3.2 / w as f64).max(2.6 / h as f64);
     Viewport::new(-0.7, 0.0, s)
 }
+
+/// The whole-set map's dot cloud as a picture of `size` pixels (BGRA8: straight sRGB colour,
+/// alpha), `centre` and `scale` (complex units per pixel) placing it like the map. One pixel
+/// per point: an orbit of 10^5 steps is a cloud, not a polyline (kb: decisions/controls "Orbit
+/// overlay"). Per pixel the visits and the newest visit: newer points are brighter and warmer
+/// (white), older ones faint and cool, more visits more opaque; every dot gets a dark rim (the
+/// empty neighbours of occupied pixels) so the cloud reads on bright and dark palettes. Cost:
+/// one pass over the points and two over the pixels (0.43 ms for 10^5 points on a Retina
+/// panel, measured 2026-10-17, M1 Pro, release). None when no point lands on the map.
+pub fn orbit_cloud_picture(points: &[[f32; 2]], centre: [f64; 2], scale: f64, size: (usize, usize)) -> Option<Vec<u8>> {
+    let (w, h) = size;
+    if points.is_empty() || w == 0 || h == 0 || scale.is_nan() || scale <= 0.0 {
+        return None;
+    }
+    let mut visits = vec![0u32; w * h];
+    let mut newest = vec![0u32; w * h];
+    let (hw, hh) = (w as f64 / 2.0, h as f64 / 2.0);
+    let inv = 1.0 / scale;
+    let mut any = false;
+    for (k, p) in points.iter().enumerate() {
+        let x = hw + (f64::from(p[0]) - centre[0]) * inv;
+        let y = hh - (f64::from(p[1]) - centre[1]) * inv;
+        if !(x >= 0.0 && y >= 0.0 && x < w as f64 && y < h as f64) {
+            continue;
+        }
+        let i = y as usize * w + x as usize;
+        visits[i] += 1;
+        newest[i] = k as u32;
+        any = true;
+    }
+    if !any {
+        return None;
+    }
+    // Colour and alpha by age in 64 steps (straight sRGB bytes), and opacity by visits in
+    // powers of two: tables, not a powf per pixel.
+    const AGES: usize = 64;
+    let enc = |v: f32| {
+        let v = v.clamp(0.0, 1.0);
+        let s = if v <= 0.003_130_8 {
+            12.92 * v
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        };
+        (s * 255.0 + 0.5) as u8
+    };
+    let ages: Vec<([u8; 3], f32)> = (0..AGES)
+        .map(|j| {
+            let t = j as f32 / (AGES - 1) as f32;
+            let c: [f32; 3] = std::array::from_fn(|i| ORBIT_COOL[i] + (1.0 - ORBIT_COOL[i]) * t);
+            ([enc(c[2]), enc(c[1]), enc(c[0])], 0.4 + 0.6 * t)
+        })
+        .collect();
+    let to_age = (AGES - 1) as f32 / (points.len() - 1).max(1) as f32;
+    // The rim: empty pixels next to a dot (the occupied mask dilated by one pixel, rows then
+    // columns).
+    let mut row = vec![0u8; w * h];
+    for y in 0..h {
+        let v = &visits[y * w..(y + 1) * w];
+        let r = &mut row[y * w..(y + 1) * w];
+        for x in 0..w {
+            r[x] = u8::from(v[x] > 0 || (x > 0 && v[x - 1] > 0) || (x + 1 < w && v[x + 1] > 0));
+        }
+    }
+    let mut out = vec![0u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            let n = visits[i];
+            if n > 0 {
+                let (c, age_alpha) = ages[(newest[i] as f32 * to_age) as usize];
+                let density = (0.5 + 0.17 * (31 - n.leading_zeros()) as f32).min(1.0);
+                let a = density * age_alpha;
+                out[i * 4..i * 4 + 4].copy_from_slice(&[c[0], c[1], c[2], (a * 255.0 + 0.5) as u8]);
+            } else if row[i] != 0 || (y > 0 && row[i - w] != 0) || (y + 1 < h && row[i + w] != 0) {
+                out[i * 4 + 3] = 140;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// The dot cloud's key: probe serial, growth step, panel size.
+type CloudKey = (u64, u64, (usize, usize));
 
 /// One map level: a small renderer of its own at the panel's pixel size.
 struct MapLevel<B: GpuBackend> {
@@ -536,6 +635,11 @@ pub struct Overlay<B: GpuBackend> {
     pub cockpit: crate::cockpit::CockpitOverlay,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
+    /// Counts new probes (the dot cloud's key).
+    probe_serial: u64,
+    /// The orbit's uploaded dot cloud (None: nothing on the map) under its key: probe, growth
+    /// step, panel size ([`Self::cloud_key`]).
+    cloud: Option<(CloudKey, Option<B::Buffer>)>,
     /// The panels' help badges as laid out in the last scene (kb: decisions/controls "Help").
     pub help: Vec<crate::help::HelpBadge>,
 }
@@ -560,6 +664,8 @@ impl<B: GpuBackend> Default for Overlay<B> {
             compass: Default::default(),
             cockpit: Default::default(),
             trail: None,
+            probe_serial: 0,
+            cloud: None,
             help: Vec::new(),
         }
     }
@@ -577,6 +683,70 @@ impl<B: GpuBackend + Clone> Overlay<B> {
 
     pub fn orbit_points(&self) -> &OrbitPoints {
         &self.points
+    }
+
+    /// The probed point's fate in plain words (the overlay's line, the FFI), None without a
+    /// probe.
+    pub fn orbit_text(&self) -> Option<String> {
+        self.probe.as_ref().map(OrbitProbe::text)
+    }
+
+    /// The probe's dot cloud (the whole-set map's points).
+    pub fn orbit_cloud(&self) -> Option<&almondbread_core::orbit::OrbitCloud> {
+        self.probe.as_ref().map(|p| &p.cloud)
+    }
+
+    /// The dot cloud's key: the probe, its growth in steps of ~19 % (a quarter of a doubling;
+    /// the picture is rebuilt only then, ~45 times on the way to 10^5 points) or done, and the
+    /// panel size.
+    fn cloud_key(&self, panel: (usize, usize)) -> Option<CloudKey> {
+        let p = self.probe.as_ref()?;
+        let seen = p.cloud.seen;
+        let step = if p.done() {
+            u64::MAX
+        } else if seen == 0 {
+            0
+        } else {
+            ((seen as f64).log2() * 4.0) as u64 + 1
+        };
+        Some((self.probe_serial, step, panel))
+    }
+
+    /// Rebuilds and uploads the dot cloud when its key changed (the orbit overlay with the
+    /// whole-set map showing).
+    fn update_cloud(&mut self, renderer: &Renderer<B>, s: &OverlaySettings) {
+        let level0 = self
+            .maps
+            .as_ref()
+            .and_then(|m| m.levels.first().map(|l| (l.viewport.clone(), m.panel)));
+        let key = match (&level0, s.orbit) {
+            (Some((_, panel)), true) => self.cloud_key(*panel),
+            _ => None,
+        };
+        let Some(key) = key else {
+            self.cloud = None;
+            return;
+        };
+        if self.cloud.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let (vp, panel) = level0.expect("level 0");
+        let cloud = &self.probe.as_ref().expect("probe").cloud;
+        let picture = orbit_cloud_picture(
+            &cloud.points,
+            [vp.center.re(), vp.center.im()],
+            vp.scale.to_f64(),
+            panel,
+        );
+        // A new shared buffer per picture: one a submitted frame still reads is never written.
+        let buffer = picture.and_then(|p| match renderer.backend().create_buffer_with_data(&p) {
+            Ok(b) => Some(b),
+            Err(e) => {
+                eprintln!("almondbread: orbit cloud upload: {e}");
+                None
+            }
+        });
+        self.cloud = Some((key, buffer));
     }
 
     /// Starts the π meter's guided flight to `point` (kb: decisions/controls "π meter"): the
@@ -683,6 +853,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
         }
+        self.update_cloud(renderer, &s);
         // ---- Compass: top right, left of map panels there.
         if self.compass.shown(now) {
             let left_of = self
@@ -712,7 +883,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 .unwrap_or_default();
             let trail = self.trail.as_ref().map(|(_, t)| t.clone());
             match OverlayDraw::upload(renderer.backend(), &scene, size, maps, trail, self.version) {
-                Ok(d) => {
+                Ok(mut d) => {
+                    d.cloud = self.cloud.as_ref().and_then(|(_, b)| b.clone());
                     renderer.overlay_font = self.font.clone();
                     renderer.overlay = Some(d);
                 }
@@ -787,8 +959,14 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 *p = [x, y];
             }
         }
-        let max_iter = renderer.stats.max_iterations.max(renderer.max_iterations()).max(1000);
+        // At least 10^5 steps: slow escapes near the necks are what the dot cloud is for.
+        let max_iter = renderer
+            .stats
+            .max_iterations
+            .max(renderer.max_iterations())
+            .max(PROBE_MIN_STEPS);
         self.probe = Some(OrbitProbe::new(point, max_iter));
+        self.probe_serial += 1;
         self.probe_key = Some(key);
     }
 
@@ -1077,6 +1255,14 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                     scene.image(r, i as u32, 1.0, radius);
                 }
                 scene.set_clip(Some(r));
+                // The orbit's dot cloud on the whole-set map, under the marker and the line.
+                if i == 0
+                    && s.orbit
+                    && let Some((k, Some(_))) = &self.cloud
+                {
+                    scene.cloud_image(r, stack.panel, 1.0);
+                    key.push_str(&format!("cloud {} {} ", k.0, k.1));
+                }
                 // Marker: the next level's area, or the view's on the deepest map.
                 let (mc, mscale) = match stack.levels.get(i + 1) {
                     Some(next) => (next.viewport.center.clone(), next.viewport.scale * stack.panel.0 as f64),
@@ -1148,20 +1334,31 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                             f64::from(o[1]) + f64::from(ph) / 2.0 - ddy,
                         ]
                     };
-                    let mp: Vec<[f64; 2]> = self.points.plane.iter().map(|&z| to_map(z)).collect();
+                    // The start as a line (the rest is the cloud).
+                    let mp: Vec<[f64; 2]> = self
+                        .points
+                        .plane
+                        .iter()
+                        .take(MAP_LINE_POINTS)
+                        .map(|&z| to_map(z))
+                        .collect();
                     let n = mp.len();
                     for k in 0..n.saturating_sub(1) {
-                        let a = 0.85 * (1.0 - 0.7 * k as f32 / n.max(2) as f32);
+                        let f = 1.0 - k as f32 / n.max(2) as f32;
+                        let a = 0.05 + 0.65 * f * f;
                         scene.segment(
                             mp[k],
                             mp[k + 1],
-                            (0.5 * px) as f32,
+                            (0.3 * px) as f32,
                             rgba(ORBIT_COOL[0], ORBIT_COOL[1], ORBIT_COOL[2], a),
                             rgba(ORBIT_COOL[0], ORBIT_COOL[1], ORBIT_COOL[2], a),
                         );
                     }
-                    for p in mp.iter().skip(1) {
-                        scene.disc(*p, (1.2 * px) as f32, rgba(1.0, 1.0, 1.0, 0.8));
+                    // (Fading fast: near a neck the first steps zigzag across the map, and a
+                    // web of 50 equal lines hid the cloud.)
+                    for (k, p) in mp.iter().enumerate().skip(1) {
+                        let f = 1.0 - k as f32 / n.max(2) as f32;
+                        scene.disc(*p, (0.9 * px) as f32, rgba(1.0, 1.0, 1.0, 0.2 + 0.6 * f));
                     }
                     scene.disc(
                         mp[0],
@@ -1203,8 +1400,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             if s.orbit
                 && let Some(p) = &self.probe
             {
-                lines.push(format!("c {}", p.class.text()));
-                lines.push(format!("|z{}| {}", self.points.plane.len(), sci(self.points.last_abs)));
+                lines.push(p.text());
             }
             if let Some((note, t)) = &self.note
                 && now - t < 4.0
@@ -1228,12 +1424,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             && let Some(p) = &self.probe
         {
             let size = (13.0 * px).max(11.0) as f32;
-            let t = format!(
-                "c {}   |z{}| {}",
-                p.class.text(),
-                self.points.plane.len(),
-                sci(self.points.last_abs)
-            );
+            let t = p.text();
             scene.label(
                 [(12.0 * px) as f32, (h - 24.0 * px) as f32],
                 size,
@@ -1293,18 +1484,6 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             &mut key,
         );
         key
-    }
-}
-
-/// "1.234e-5" style for the overlay text.
-fn sci(v: f64) -> String {
-    if v == 0.0 || !v.is_finite() {
-        return format!("{v}");
-    }
-    if (1e-3..1e4).contains(&v.abs()) {
-        format!("{v:.4}")
-    } else {
-        format!("{v:.3e}")
     }
 }
 
@@ -1436,10 +1615,10 @@ mod tests {
     #[test]
     fn font_covers_the_overlay_texts() {
         for t in [
-            "c escapes at n 37",
-            "period 3  |λ| 0.412  arg +0.250",
+            "escapes after 48 213 steps",
+            "settles into a period-34 cycle (period not found)",
+            "still undecided after 100 000 steps; following the orbit: 12 000 steps so far ...",
             "×1e6 whole set",
-            "|z50| 1.234e-5",
         ] {
             for ch in t.chars().filter(|c| !c.is_whitespace()) {
                 let g = crate::font::glyph(ch).unwrap();
@@ -1450,6 +1629,52 @@ mod tests {
             font_bytes().len(),
             (crate::font::ATLAS_W * crate::font::ATLAS_H) as usize
         );
+    }
+
+    #[test]
+    fn cloud_picture_places_dots_with_rims() {
+        // A 20 x 10 map, 0.1 per pixel, centred on 0: point (0.05, 0.05) is pixel (10, 4).
+        let pts = [[0.05f32, 0.05], [5.0, 5.0], [0.05, 0.05], [-0.95, -0.45]];
+        let img = orbit_cloud_picture(&pts, [0.0, 0.0], 0.1, (20, 10)).expect("picture");
+        assert_eq!(img.len(), 20 * 10 * 4);
+        let px = |x: usize, y: usize| &img[(y * 20 + x) * 4..(y * 20 + x) * 4 + 4];
+        let (a, b) = (px(10, 4), px(0, 9));
+        // Two visits, the newer at 2/3 of the orbit: opaque, between cool and white; the newest
+        // point is white.
+        assert!(a[3] > 100 && a[2] < 255, "{a:?}");
+        assert!(b[3] > 100 && b[0] == 255 && b[1] == 255 && b[2] == 255, "{b:?}");
+        // A dark rim around a dot, nothing far away; the point off the map is dropped.
+        assert_eq!(&px(11, 4)[..3], &[0, 0, 0]);
+        assert!(px(11, 4)[3] > 0 && px(9, 3)[3] > 0);
+        assert_eq!(px(15, 2)[3], 0);
+        assert!(orbit_cloud_picture(&[[9.0, 9.0]], [0.0, 0.0], 0.1, (20, 10)).is_none());
+        assert!(orbit_cloud_picture(&[], [0.0, 0.0], 0.1, (20, 10)).is_none());
+    }
+
+    /// A full cloud (10^5 points, a ring like the orbit at a golden-mean point of the main
+    /// cardioid's edge) on a Retina-sized whole-set panel (180 x 130 points at 2 px): one
+    /// rebuild, which happens at most ~45 times per probe, never every frame.
+    #[test]
+    fn cloud_picture_of_1e5_points_is_cheap() {
+        let pts: Vec<[f32; 2]> = (0..100_000)
+            .map(|k| {
+                let a = k as f32 * 2.399_963;
+                let r = 0.3 + 0.05 * (k as f32 * 0.001).sin();
+                [-0.1 + r * a.cos(), 0.5 + r * a.sin()]
+            })
+            .collect();
+        let size = (360, 259);
+        let view = full_set_view(size.0, size.1);
+        let centre = [view.center.re(), view.center.im()];
+        let scale = view.scale.to_f64();
+        let mut best = f64::INFINITY;
+        for _ in 0..5 {
+            let t = Instant::now();
+            std::hint::black_box(orbit_cloud_picture(&pts, centre, scale, size));
+            best = best.min(t.elapsed().as_secs_f64());
+        }
+        eprintln!("orbit cloud picture, 1e5 points, 360x259: {:.3} ms", best * 1000.0);
+        assert!(best < 0.005, "{best}");
     }
 
     #[test]

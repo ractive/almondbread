@@ -2,7 +2,8 @@
 //! techniques/coloring-methods, "Interior colouring as built"): its first iterates z_1 ... z_n
 //! as view offsets (drawn as dots joined by lines) and as plane values (the mini-map), and
 //! what becomes of it: escape at iteration n, an attracting cycle (period, multiplier) or
-//! unresolved at the limit.
+//! unresolved at the limit. While classifying, the probe records the orbit's plane values
+//! ([`OrbitCloud`], up to 10^5 points, decimated beyond) for the whole-set map's dot cloud.
 //!
 //! Any depth: shallow views iterate c directly; deep views perturb against the renderer's
 //! reference orbit (`z = Z_m + δ`, rebasing as the kernels do) in [`DoubleExpComplex`]
@@ -18,8 +19,18 @@ use almondbread_math::{DoubleExp, DoubleExpComplex};
 
 use crate::reference::Reference;
 
-/// Most iterates the overlay draws.
+/// Most iterates the overlay draws as a line (the main view; the map draws the first
+/// [`MAP_LINE_POINTS`] of them).
 pub const MAX_ORBIT_POINTS: usize = 1000;
+/// Iterates the whole-set map joins by a line (the start of the orbit stays readable; the rest
+/// is the dot cloud).
+pub const MAP_LINE_POINTS: usize = 50;
+/// Most points the whole-set map's dot cloud keeps ([`OrbitCloud`]): beyond it the cloud keeps
+/// every 2nd, 4th, ... iterate.
+pub const CLOUD_POINTS: usize = 100_000;
+/// The probe follows the orbit at least this far before it calls the point undecided (slow
+/// escapes near the necks take 10^4 to 10^5 steps; kb: decisions/controls "Orbit overlay").
+pub const PROBE_MIN_STEPS: usize = 100_000;
 /// Escape radius of the probe (squared: 2^16 as in the kernels).
 const BAILOUT2: f64 = 65536.0 * 65536.0;
 const INTERIOR_EPS: f64 = 1e-3;
@@ -105,20 +116,96 @@ pub enum OrbitClass {
     Unresolved { limit: usize },
 }
 
-impl OrbitClass {
-    /// Short text for the overlay ("escapes at 37", "period 3, |λ| 0.41", ...).
-    pub fn text(&self) -> String {
-        match self {
-            Self::Pending => "analysing ...".into(),
-            Self::Escaped { iteration } => format!("escapes at n {iteration}"),
-            Self::Interior { period, multiplier } => {
-                let r = multiplier[0].hypot(multiplier[1]);
-                let a = multiplier[1].atan2(multiplier[0]) / std::f64::consts::TAU;
-                format!("period {period}  |λ| {r:.3}  arg {a:+.3}")
-            }
-            Self::InteriorUnknown => "interior (no period found)".into(),
-            Self::Unresolved { limit } => format!("unresolved at n {limit}"),
+/// A count with its thousands apart: 48213 -> "48 213".
+pub fn grouped(n: usize) -> String {
+    let d = n.to_string();
+    let mut out = String::with_capacity(d.len() + d.len() / 3);
+    for (i, ch) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i).is_multiple_of(3) {
+            out.push(' ');
         }
+        out.push(ch);
+    }
+    out
+}
+
+impl OrbitClass {
+    /// What becomes of the point, in plain words ("escapes after 48 213 steps", "settles into
+    /// a period-34 cycle", "still undecided after 100 000 steps").
+    pub fn text(&self) -> String {
+        let steps = |n: usize| {
+            if n == 1 {
+                "1 step".to_string()
+            } else {
+                format!("{} steps", grouped(n))
+            }
+        };
+        match self {
+            Self::Pending => "following the orbit ...".into(),
+            Self::Escaped { iteration } => format!("escapes after {}", steps(*iteration)),
+            Self::Interior { period: 1, .. } => "settles on a fixed point".into(),
+            Self::Interior { period, .. } => format!("settles into a period-{period} cycle"),
+            Self::InteriorUnknown => "settles into a cycle (period not found)".into(),
+            Self::Unresolved { limit } => format!("still undecided after {}", steps(*limit)),
+        }
+    }
+}
+
+/// The orbit's values in the plane for the whole-set map's dot cloud: z_1, z_2, ... while they
+/// fit in `cap` points; then every 2nd (the kept points are halved and the stride doubles),
+/// every 4th, ... so the cloud covers the whole orbit so far within a fixed budget. Point k is
+/// iterate `1 + k * stride`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OrbitCloud {
+    pub points: Vec<[f32; 2]>,
+    pub stride: usize,
+    /// Iterates offered so far.
+    pub seen: usize,
+    cap: usize,
+}
+
+impl OrbitCloud {
+    /// `cap` is rounded up to an even number (at least 2).
+    pub fn new(cap: usize) -> Self {
+        Self {
+            points: Vec::new(),
+            stride: 1,
+            seen: 0,
+            cap: cap.max(2).next_multiple_of(2),
+        }
+    }
+
+    /// Offers the next iterate.
+    pub fn push(&mut self, z: [f64; 2]) {
+        let n = self.seen;
+        self.seen += 1;
+        if !n.is_multiple_of(self.stride) {
+            return;
+        }
+        if self.points.len() >= self.cap {
+            let mut i = 0usize;
+            self.points.retain(|_| {
+                i += 1;
+                i % 2 == 1
+            });
+            self.stride *= 2;
+            if !n.is_multiple_of(self.stride) {
+                return;
+            }
+        }
+        let f = |v: f64| {
+            if v.is_finite() {
+                v.clamp(-1e30, 1e30) as f32
+            } else {
+                1e30f32.copysign(v as f32)
+            }
+        };
+        self.points.push([f(z[0]), f(z[1])]);
+    }
+
+    /// The iterate index of point `k`.
+    pub fn iterate(&self, k: usize) -> usize {
+        1 + k * self.stride
     }
 }
 
@@ -214,6 +301,8 @@ pub struct OrbitProbe {
     k: usize,
     tries: usize,
     pub class: OrbitClass,
+    /// The orbit so far in the plane (the whole-set map's dots).
+    pub cloud: OrbitCloud,
 }
 
 impl OrbitProbe {
@@ -234,6 +323,7 @@ impl OrbitProbe {
             k: 0,
             tries: 0,
             class: OrbitClass::Pending,
+            cloud: OrbitCloud::new(CLOUD_POINTS),
         }
     }
 
@@ -244,6 +334,18 @@ impl OrbitProbe {
     /// Iterations done so far.
     pub fn iterations(&self) -> usize {
         self.n
+    }
+
+    /// The overlay's line: the class, or while analysing how far it got (to two digits, so
+    /// the text, and with it the overlay scene, changes only every ~10 %).
+    pub fn text(&self) -> String {
+        match self.class {
+            OrbitClass::Pending if self.n > 1 => {
+                let unit = 10usize.pow(self.n.ilog10().saturating_sub(1));
+                format!("following the orbit: {} steps so far", grouped(self.n / unit * unit))
+            }
+            _ => self.class.text(),
+        }
     }
 
     /// The full z of the current state (and rebases the delta when due).
@@ -305,6 +407,7 @@ impl OrbitProbe {
                             continue;
                         }
                     }
+                    self.cloud.push(to_f64(z));
                     self.advance(zm);
                 }
                 Phase::Cycle => {
@@ -332,6 +435,7 @@ impl OrbitProbe {
                         }
                     }
                     self.lam = z.times_two() * self.lam;
+                    self.cloud.push(to_f64(z));
                     self.advance(zm);
                     self.k += 1;
                     if self.k > self.q {
@@ -391,6 +495,89 @@ mod tests {
             OrbitClass::Interior { period, .. } => assert_eq!(period, 3),
             c => panic!("{c:?}"),
         }
+    }
+
+    #[test]
+    fn plain_texts() {
+        assert_eq!(grouped(7), "7");
+        assert_eq!(grouped(100_000), "100 000");
+        assert_eq!(grouped(48_213), "48 213");
+        assert_eq!(grouped(1_234_567), "1 234 567");
+        assert_eq!(
+            OrbitClass::Escaped { iteration: 48_213 }.text(),
+            "escapes after 48 213 steps"
+        );
+        assert_eq!(OrbitClass::Escaped { iteration: 1 }.text(), "escapes after 1 step");
+        let cycle = |period| OrbitClass::Interior {
+            period,
+            multiplier: [0.5, 0.0],
+        };
+        assert_eq!(cycle(34).text(), "settles into a period-34 cycle");
+        assert_eq!(cycle(1).text(), "settles on a fixed point");
+        assert_eq!(
+            OrbitClass::Unresolved { limit: 100_000 }.text(),
+            "still undecided after 100 000 steps"
+        );
+        // (c = 0.3 escapes after ~ 30 steps; c = -0.75 + 1e-3 i takes thousands.)
+        let mut p = OrbitProbe::new(
+            ProbePoint {
+                reference: None,
+                dc: dx(-0.75, 1e-4),
+            },
+            PROBE_MIN_STEPS,
+        );
+        p.step(12_000);
+        assert_eq!(p.iterations(), 12_001);
+        assert_eq!(p.text(), "following the orbit: 12 000 steps so far");
+    }
+
+    #[test]
+    fn cloud_decimates_by_doubling_the_stride() {
+        let mut c = OrbitCloud::new(8);
+        for n in 1..=8 {
+            c.push([n as f64, 0.0]);
+        }
+        assert_eq!((c.points.len(), c.stride), (8, 1));
+        // The 9th halves the cloud (iterates 1, 3, 5, 7) and is itself kept (9 = 1 + 4 * 2).
+        c.push([9.0, 0.0]);
+        assert_eq!(c.stride, 2);
+        let xs: Vec<f32> = c.points.iter().map(|p| p[0]).collect();
+        assert_eq!(xs, vec![1.0, 3.0, 5.0, 7.0, 9.0]);
+        for n in 10..=100 {
+            c.push([n as f64, 0.0]);
+        }
+        // Bounded, evenly spread, and point k is iterate 1 + k * stride.
+        assert!(c.points.len() <= 8 && c.points.len() > 4, "{}", c.points.len());
+        assert_eq!(c.seen, 100);
+        for (k, p) in c.points.iter().enumerate() {
+            assert_eq!(p[0] as usize, c.iterate(k));
+        }
+        assert!(c.iterate(c.points.len() - 1) + c.stride > 100);
+        // Escaping values stay finite.
+        let mut e = OrbitCloud::new(4);
+        e.push([f64::INFINITY, -1e300]);
+        assert_eq!(e.points[0], [1e30, -1e30]);
+    }
+
+    #[test]
+    fn probe_collects_a_slow_escape() {
+        // Just outside the cusp at 1/4: escapes after ~ pi / sqrt(eps) steps.
+        let mut p = OrbitProbe::new(
+            ProbePoint {
+                reference: None,
+                dc: dx(0.25 + 1e-6, 0.0),
+            },
+            PROBE_MIN_STEPS,
+        );
+        while !p.step(50_000) {}
+        let OrbitClass::Escaped { iteration } = p.class else {
+            panic!("{:?}", p.class)
+        };
+        assert!(iteration > 3000, "{iteration}");
+        // Every iterate before the escape is in the cloud (under the cap: stride 1).
+        assert_eq!(p.cloud.stride, 1);
+        assert_eq!(p.cloud.points.len(), iteration - 1);
+        assert_eq!(p.cloud.points[0], [(0.25 + 1e-6) as f32, 0.0]);
     }
 
     #[test]

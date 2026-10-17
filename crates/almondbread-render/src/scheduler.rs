@@ -5239,6 +5239,7 @@ impl<B: GpuBackend> Renderer<B> {
             enc.set_texture(2 + i, d.maps.get(i).unwrap_or(src));
         }
         enc.set_buffer(6, d.trail.as_ref().unwrap_or(&d.prims), 0);
+        enc.set_buffer(7, d.cloud.as_ref().unwrap_or(&d.prims), 0);
         enc.set_bytes(0, bytes_of(&params));
         enc.set_buffer(1, &d.prims, 0);
         enc.set_buffer(2, &d.tile_start, 0);

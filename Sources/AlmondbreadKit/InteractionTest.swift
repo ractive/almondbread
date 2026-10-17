@@ -218,6 +218,14 @@ final class InteractionTest: NSObject {
             let a = Double(i) * 0.06
             v.send(.pointer(x: 220 * cos(a), y: 150 * sin(a)))
         }
+        // The orbit's dot cloud on the whole-set map (orbit on, maps off): the pointer rests
+        // on a point at the main cardioid's edge (golden-mean angle: undecided after 10^5
+        // steps, so the cloud fills to its 10^5 points) and moves half a point every 0.75 s
+        // (a new probe; the cloud grows again, rebuilt at each ~19 % of growth).
+        let orbitCloud: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 { overlayOn(v, true, false) }
+            v.send(.pointer(x: 0.5 * Double(Int(t / 0.75)), y: 0))
+        }
         // The cosmic size scale alone during a zoom (its panel is rebuilt every frame).
         let cosmicZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
             if i == 0 {
@@ -637,7 +645,9 @@ final class InteractionTest: NSObject {
         let dense = View(re: "-1.4080321340304542", im: "0.13680236432900417", scale: 2 * 7.384e-11 / 1600)
         let neck2e5 = View(re: "-0.7500016386523336", im: "-0.0021073424656852589", scale: 2 * 2.1666e-5 / 1600)
         let spiral = View(re: "-0.13415002160674054265664", im: "-0.64991906714433853974391", scale: 2 * 4.19804e-19)
+        let siegel = View(re: "-0.39054087021839984", im: "0.5867879073469688", scale: 3.75e-3 / 1373)
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
+                Scenario(name: "orbit cloud", viewport: siegel, input: orbitCloud),
                 Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
                 Scenario(name: "cosmic zoom", viewport: sea, input: cosmicZoom),
                 Scenario(name: "home pan", viewport: home, input: pan),

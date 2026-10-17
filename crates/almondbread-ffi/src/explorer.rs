@@ -661,7 +661,8 @@ pub struct PiMeterInfo {
 /// The probed point's orbit, for the UI (the overlay draws the same in the view).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct OrbitInfo {
-    /// "escapes at n 37", "period 3  |λ| 0.412  arg +0.250", "analysing ...", "" when off.
+    /// "escapes after 48 213 steps", "settles into a period-3 cycle", "still undecided after
+    /// 100 000 steps", "following the orbit: 12 000 steps so far", "" when off.
     pub text: String,
     /// Iterates drawn and |z_n| of the last.
     pub iterates: u32,
@@ -1440,7 +1441,7 @@ impl Explorer {
             .map(|(n, _)| n.clone())
             .unwrap_or_default();
         OrbitInfo {
-            text: class.map(OrbitClass::text).unwrap_or_default(),
+            text: o.orbit_text().unwrap_or_default(),
             iterates: o.orbit_points().view.len() as u32,
             last_abs: o.orbit_points().last_abs,
             period: match class {

@@ -1270,3 +1270,13 @@ kernel's texel offset. The kernel marks a fresh texel interior iff the float32 s
 anywhere. The user's second view (−0.6443−0.3662i) is inside a period-64 component, not the
 cardioid, and is unchanged. Page: [[techniques/interior-detection]] "Closed-form component
 test".
+
+## [2026-10-17] decision | Orbit overlay: dot cloud on the whole-set map, plain result text
+
+In slow-escape regions the orbit overlay showed 1000 iterates while the action is at step
+10^4 to 10^5, and its text read "analysing ..." / `|z50| 0.5362` (user). The probe now runs at
+least 10^5 steps and keeps a decimated `OrbitCloud` (10^5 points, stride doubling); the
+whole-set map draws the first 50 steps as a line and the rest as one-pixel dots from a CPU
+picture blended by the overlay kernel (0.43 ms per rebuild of 10^5 points, rebuilt every ~19 %
+of growth). The text says "escapes after 48 213 steps", "settles into a period-34 cycle",
+"still undecided after 100 000 steps". [[decisions/controls]] "Orbit overlay".

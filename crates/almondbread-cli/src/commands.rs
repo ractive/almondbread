@@ -257,12 +257,13 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     let now = r.clock();
     // `--ppp 0.5`: overlay sizes as on a Retina display (view points per pixel).
     ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
-    if let Some(c) = ov.orbit_class() {
+    if let (Some(t), Some(c)) = (ov.orbit_text(), ov.orbit_cloud()) {
         println!(
-            "orbit: {} ({} iterates drawn, |z_n| {})",
-            c.text(),
+            "orbit: {t} ({} iterates drawn, |z_n| {}; map cloud {} points, every {})",
             ov.orbit_points().view.len(),
-            g(ov.orbit_points().last_abs, 4)
+            g(ov.orbit_points().last_abs, 4),
+            c.points.len(),
+            c.stride
         );
     }
     Ok(Some(ov))

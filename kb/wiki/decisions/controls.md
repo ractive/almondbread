@@ -221,8 +221,35 @@ against the renderer's reference (`z = Z_m + δ` with rebasing), so iterates tha
 near c (after a period, where the reference rebases to m = 1) land exactly. The fate of c is
 classified like the kernels classify pixels (derivative test, atom domain, period by
 closure among divisors of q with `|λ| < 1`, see [[techniques/coloring-methods]] "Interior
-colouring as built") in steps of ~1.5 ms per frame, and shown under the mini-map: "escapes at
-n 37", "period 3 |λ| 0.412 arg +0.250", "unresolved at n ...", with `|z_n|`.
+colouring as built") in steps of ~1.5 ms per frame, and shown under the mini-map in plain
+words (revision 2026-10-17, user: "analysing …" / `|z50| 0.5362` said nothing): "escapes after
+48 213 steps", "settles into a period-34 cycle" ("settles on a fixed point" for period 1),
+"still undecided after 100 000 steps", and while it runs "following the orbit: 12 000 steps so
+far" (two digits, so the text and the scene change only every ~10 %).
+
+*Dot cloud on the whole-set map* (2026-10-17). In slow-escape regions (the necks) the
+interesting part of an orbit comes at step 10^4 to 10^5, far past the 1000-point line. The
+probe now runs at least 10^5 steps (`PROBE_MIN_STEPS`; more when the renderer's limit is
+higher) and records each iterate's plane value into `OrbitCloud` (`core::orbit`): up to
+10^5 points, then every 2nd, 4th, ... (halve the kept points and double the stride, so the
+cloud always spans the whole orbit so far within a fixed budget; point k is iterate
+1 + k·stride). The map (level 0, also the orbit-only whole-set map) draws the first 50 steps as
+the old line, fading fast (near a neck the first steps zigzag across the map and an even web
+of lines hid the cloud), and the rest as one-pixel dots: a CPU picture at the panel's pixel
+size (`orbit_cloud_picture`: per pixel the visits and the newest visit; newer points whiter and
+more opaque, older ones faint and cool, more visits more opaque; every dot has a dark rim, the
+empty neighbours, so it reads on bright and dark palettes), uploaded as a BGRA buffer and
+alpha-blended by the overlay kernel's glow-image primitive (`info.w = 1`, buffer 7). No
+primitive per dot: 10^5 discs binned into the panel's tiles would make every pixel walk
+hundreds of primitives. The picture is rebuilt only when the cloud grew by a quarter of a
+doubling (~19 %; ~45 rebuilds on the way to 10^5) or the probe finished; a rebuild of 10^5
+points on a Retina panel (360×259 px) takes 0.43 ms (measured 2026-10-17, M1 Pro, release).
+Interaction test "orbit cloud" (pointer resting on a golden-mean point of the cardioid's edge,
+undecided after 10^5 steps, moved half a point every 0.75 s; view 1373×, 2560×1640): draw CPU
+p50 0.30 / p95 2.45 ms against 0.25 / 0.35 ms with the orbit off (the p95 is the 1.5 ms probe
+step plus rebuilds), 60 fps either way (the view's own render is GPU-bound there), no new
+hitches. The main view's orbit is unchanged (its iterates are thousands of view widths away in
+such regions).
 
 **Drawn in Rust/Metal, not SwiftUI** (`crates/almondbread-render/src/overlay.rs`, kernel
 `overlay`). The scene is vector primitives in drawable pixels (segments, discs, rings, rounded
