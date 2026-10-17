@@ -1324,3 +1324,16 @@ The user tried `ALMONDBREAD_SURVEY_STEER=1` in the foreground at the 1e247 path.
 When compute further stops at its time limit (`further_budget`, 60 GPU s), the HUD's progress line offers **Continue** (button, key G). `Renderer::continue_further` adds another budget to this view's passes (`Further::extra_budget`) and resumes where they stopped. Only a stop at the time limit is offered; at the upper limit more time does not help. The HUD is hit-testable now, for the button. At 100 % the line reads "nothing finished yet" (user: "Is there a reason why not saying 0% finished?").
 
 The cosmic scale's deep phases name no numbers any more (user: "concrete numbers don't make sense anymore"). The thing as big as our universe is named when within a factor 2. Otherwise it reads "something between the solar system and the Milky Way", or beyond the ends "bigger than the Milky Way" / "smaller than the Planck length". [[techniques/auto-iterations]], [[decisions/controls]].
+
+## [2026-10-17] decision | Component Newton: interior near the edge of any low-period component
+
+User report: views touching a hyperbolic component other than the cardioid and the period-2
+bulb kept a wide fog band inside its edge. There `|λ|` is 0.99–0.999, so the orbit settles
+too slowly for the `|w| n²` test and for the probe's scan. Newton on `f^p(z) − z` from `z = 0`
+converges in about 5 passes everywhere in such a component (f64, period-22 and period-64 views).
+The CPU now finds the periods at a 5 × 5 grid of sample points per view (atom-domain
+candidates, the smallest that Newton shows attracting; < 0.5 ms in f64). The probe tries them
+from `z = 0` before its scan, and the existing Kantorovich bound proves each pixel. A lean
+chunk dropped the probe state of probing pixels; that is fixed. Results: period-22 view
+unresolved 8.3 → 4.4 %; period-64 view 79 → 22 %, settled 20.6 → 3.0 s in the app scheduler.
+0 false interior in 13 views. Page: [[techniques/interior-detection]] "Component Newton".

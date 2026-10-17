@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use almondbread_core::autoiter::{self, InteriorStats, LevelOutcome};
 use almondbread_core::bla::{BLA_EPSILON, BlaForecast, BlaTable, BlaTableX};
 use almondbread_core::input::{InputEvent, Navigator};
+use almondbread_core::math::{DoubleExp, DoubleExpComplex};
 use almondbread_core::oracle::ITER_UNRESOLVED;
 use almondbread_core::reference::{DEEP_SCALE, Fit, Reference, ReferenceRequest, ReferenceWorker};
 use almondbread_core::settings::{MANUAL_ITERATIONS_MAX, RenderSettings, depth_iterations};
@@ -104,6 +105,16 @@ const PROBE_MAX_STEPS: usize = 2048;
 /// a Kantorovich bound on its multiplier (kb: techniques/interior-detection "Attracting-cycle
 /// probe"). At most `max_iter / INTERIOR_PROBE + 256` extra steps per pixel.
 const INTERIOR_PROBE: u32 = 8;
+/// Component Newton (kb: techniques/interior-detection "Component Newton"): sample grid per side,
+/// longest period searched, Newton passes per period try (`SEED_PASSES` in MSL), probe steps per
+/// pixel for all tries at most, and the CPU search's step budget (f64; DoubleExp 1/16).
+const SEED_GRID: usize = 5;
+const SEED_MAX_PERIOD: usize = 400;
+const SEED_PASSES: usize = 8;
+const SEED_MAX_STEPS: usize = 4096;
+const SEED_BUDGET: usize = 600_000;
+/// Deep references with texels above 2^this are searched in f64, deeper in DoubleExp.
+const SEED_F64_MIN_EXP: i32 = -900;
 const ITERATE_THREADS: usize = 256;
 /// Compose modes (the `compose` kernel's `mode`).
 const COMPOSE_GESTURE: u32 = 0;
@@ -1138,6 +1149,12 @@ pub struct Renderer<B: GpuBackend> {
     /// The last level grid's closed-form component test (kb: techniques/interior-detection
     /// "Closed-form component test"), keyed by the reference serial and the grid.
     component_cache: Option<([u32; 9], ComponentParams)>,
+    /// Component Newton (kb: techniques/interior-detection "Component Newton"): the periods of
+    /// the attracting cycles at sample points of the last probed level's view and the probe steps
+    /// their Newton tries need, keyed as `component_cache`; the reference prefix they were
+    /// searched against (by serial).
+    period_cache: Option<([u32; 9], Vec<u32>, u32)>,
+    period_refs: Option<(u64, Vec<DoubleExpComplex>)>,
     /// Interior cycle analysis state, parallel to `state_buffers` (allocated on first use).
     ic_buffers: Option<[B::Buffer; 2]>,
     /// Level textures carry the interior analysis texture (set per job).
@@ -1396,6 +1413,8 @@ impl<B: GpuBackend> Renderer<B> {
             probe_buffer: None,
             probe_low_success: false,
             component_cache: None,
+            period_cache: None,
+            period_refs: None,
             want_aux: false,
             seed_pipelines: Default::default(),
             warm: None,
@@ -3728,7 +3747,15 @@ impl<B: GpuBackend> Renderer<B> {
                 return false;
             }
         };
-        let comp = self.component_test(level_index);
+        let mut comp = self.component_test(level_index);
+        if probe_now {
+            let (periods, steps) = self.component_periods(level_index);
+            for (k, &p) in periods.iter().enumerate() {
+                comp.periods[k] = p;
+            }
+            comp.period_count = periods.len() as u32;
+            comp.seed_steps = steps;
+        }
         let Ok(mut enc) = self.backend.begin("iterate chunk") else {
             return false;
         };
@@ -3876,6 +3903,95 @@ impl<B: GpuBackend> Renderer<B> {
         c
     }
 
+    /// Component Newton (kb: techniques/interior-detection "Component Newton"): the periods of
+    /// the hyperbolic components the level's view touches, found at a grid of sample points
+    /// (`almondbread_core::cycles`), for the interior probe to try Newton from z = 0 with. Once
+    /// per view (cached across its levels: AA samples, extension passes), bounded by a step
+    /// budget (~1 ms in f64, more for deep references).
+    fn component_periods(&mut self, level_index: usize) -> (Vec<u32>, u32) {
+        use almondbread_core::cycles::{self, C64};
+        let Some(job) = &self.job else {
+            return (Vec::new(), 0);
+        };
+        let p = job.levels[level_index].params;
+        let serial = job.reference_serial;
+        let key = [
+            serial as u32,
+            (serial >> 32) as u32,
+            p.ref_offset[0].to_bits(),
+            p.ref_offset[1].to_bits(),
+            (p.texel_scale * p.half_size[0]).to_bits(),
+            p.scale_exp as u32,
+            p.rot[0].to_bits(),
+            p.rot[1].to_bits(),
+            (p.texel_scale * p.half_size[1]).to_bits(),
+        ];
+        if let Some((k, periods, steps)) = &self.period_cache
+            && *k == key
+        {
+            return (periods.clone(), *steps);
+        }
+        let Some(reference) = self.reference.as_ref().filter(|_| self.reference_serial == serial) else {
+            return (Vec::new(), 0);
+        };
+        let t0 = std::time::Instant::now();
+        // Sample c - reference point on a 5 x 5 grid over the view (kernel texel offsets).
+        let (rc, rs) = (p.rot[0] as f64, p.rot[1] as f64);
+        let offsets: Vec<(f64, f64)> = (0..SEED_GRID * SEED_GRID)
+            .map(|k| {
+                let fx = ((k % SEED_GRID) as f64 + 0.5) / SEED_GRID as f64 * 2.0 - 1.0;
+                let fy = ((k / SEED_GRID) as f64 + 0.5) / SEED_GRID as f64 * 2.0 - 1.0;
+                let (u, v) = (fx * p.half_size[0] as f64, fy * p.half_size[1] as f64);
+                let t = p.texel_scale as f64;
+                (
+                    p.ref_offset[0] as f64 + t * (u * rc - v * rs),
+                    p.ref_offset[1] as f64 + t * (u * rs + v * rc),
+                )
+            })
+            .collect();
+        let found = if reference.extended.is_empty() {
+            // f64 reference (views down to 1e-12 per point): c directly in f64.
+            let (cr, ci) = (job.ref_point.re(), job.ref_point.im());
+            let samples: Vec<C64> = offsets.iter().map(|&(x, y)| C64(cr + x, ci + y)).collect();
+            cycles::view_periods(&[], &samples, SEED_MAX_PERIOD, SEED_BUDGET)
+        } else {
+            // Big reference: perturbed against its first points (rebasing wraps), in f64 while
+            // the texel is far above f64's range floor (deltas, and the cycle points near 0, stay
+            // normal), else in DoubleExp (~25x slower: a smaller budget).
+            let need = (2 * SEED_MAX_PERIOD + 2).min(reference.extended.len());
+            if self
+                .period_refs
+                .as_ref()
+                .is_none_or(|(s, r)| *s != serial || r.len() != need)
+            {
+                self.period_refs = Some((serial, cycles::from_floatexp(&reference.extended[..need])));
+            }
+            let refs = &self.period_refs.as_ref().expect("refs").1;
+            if p.scale_exp > SEED_F64_MIN_EXP {
+                let refs: Vec<C64> = refs.iter().map(|z| C64(z.re.to_f64(), z.im.to_f64())).collect();
+                let s = 2f64.powi(p.scale_exp);
+                let samples: Vec<C64> = offsets.iter().map(|&(x, y)| C64(x * s, y * s)).collect();
+                cycles::view_periods(&refs, &samples, SEED_MAX_PERIOD, SEED_BUDGET)
+            } else {
+                let s = DoubleExp::ONE.times_power_of_two(p.scale_exp as i64);
+                let samples: Vec<DoubleExpComplex> = offsets
+                    .iter()
+                    .map(|&(x, y)| DoubleExpComplex::new(DoubleExp::from_f64(x) * s, DoubleExp::from_f64(y) * s))
+                    .collect();
+                cycles::view_periods(refs, &samples, SEED_MAX_PERIOD, SEED_BUDGET / 16)
+            }
+        };
+        let (periods, steps) = cycles::choose(&found, SEED_PASSES, SEED_MAX_STEPS);
+        if self.config.trace {
+            println!(
+                "component periods: {found:?} -> {periods:?} ({steps} probe steps), {:.2} ms",
+                t0.elapsed().as_secs_f64() * 1e3
+            );
+        }
+        self.period_cache = Some((key, periods.clone(), steps));
+        (periods, steps)
+    }
+
     fn read_stats(&self, slot: usize) -> ChunkStats {
         let mut bytes = [0u8; std::mem::size_of::<ChunkStats>()];
         self.backend
@@ -3988,6 +4104,12 @@ impl<B: GpuBackend> Renderer<B> {
                     && (proven as f64) < PROBE_MIN_SUCCESS * level.probe_finished as f64
                 {
                     level.params.probe = 0;
+                    if self.config.trace {
+                        println!(
+                            "probe off for the level: {proven} of {} probed pixels proven",
+                            level.probe_finished
+                        );
+                    }
                 }
             }
             level.max_escape = level.max_escape.max(stats.max_escape as usize);

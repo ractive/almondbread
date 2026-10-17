@@ -991,6 +991,39 @@ mod tests {
         assert_eq!(zero, 0, "escaped pixels with DE 0 in smooth exterior");
         assert!(smooth > 1000 && jumps * 1000 < smooth, "{jumps} of {smooth}");
     }
+
+    /// Component Newton (kb: techniques/interior-detection "Component Newton"): at the edge of
+    /// a period-22 component (|λ| up to ~0.995, the orbit needs thousands of periods to settle)
+    /// the interior probe proves the interior from z = 0 at the view's period, which the |w| n²
+    /// test and the probe's scan left unresolved at the limit (79 % proven of 86.8 % interior
+    /// before, `neck_truth` at 10^7), and never a pixel that escapes.
+    #[test]
+    fn component_newton_proves_slow_interior() {
+        use crate::scheduler::{BAILOUT, Renderer};
+        use almondbread_core::oracle::{ITER_INTERIOR, cpu_render};
+        use almondbread_core::viewport::{Center, Scale, Viewport};
+        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+        r.settings = almondbread_core::RenderSettings::plain();
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = 1151;
+        r.settings.supersampling = almondbread_core::Supersampling::Off;
+        let (w, h, scale) = (160, 100, 1.48e-5);
+        let (re, im) = (-0.787_329_172_181_723_8, 0.137_594_319_554_082_24);
+        r.viewport = Viewport::with_center(Center::new(re, im), Scale::from_f64(scale));
+        let out = r.render_offscreen(w, h, true).expect("render");
+        let iters = out.iterations.expect("iterations");
+        let cpu = cpu_render(re, im, scale, w, h, 20_000, BAILOUT, 0.0);
+        let interior = (0..w * h).filter(|&k| iters[k][0] == ITER_INTERIOR).count();
+        let false_interior = (0..w * h)
+            .filter(|&k| iters[k][0] == ITER_INTERIOR && cpu.n[k] >= 0.0)
+            .count();
+        println!(
+            "component Newton: {interior} of {} interior, {false_interior} escape",
+            w * h
+        );
+        assert_eq!(false_interior, 0);
+        assert!(interior * 100 >= 84 * w * h, "{interior}");
+    }
 }
 
 #[cfg(test)]

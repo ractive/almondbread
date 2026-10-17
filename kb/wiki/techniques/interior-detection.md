@@ -381,6 +381,105 @@ root-third 0 → 32.0 %, cusp-1e5 88.1 → 97.5 %. App scheduler (`progress`, ne
 3200×2000): settled 6.1 s with 2.6 % unresolved at the 200 k cap → 0.63 s with 792 texels;
 `verify --history jump` at 1600×1000: resolved 718 → 160 ms after input.
 
+## Component Newton (built 2026-10-17)
+
+**Problem.** Views touching a hyperbolic component other than the two with closed forms
+showed a wide fog band inside the component's edge that never resolved (user, foreground).
+There `|λ|` is 0.99–0.999, so the orbit needs thousands of periods to settle: the `|w| n²`
+test fails, and so does the attracting-cycle probe, whose scan looks for the cycle along the
+orbit within `maxIter/8 + 256` steps. Test views: A −0.78732917218172383+0.13759431955408224i
+at 1.48e-6/px (a period-22 component), B −0.6443094650576259−0.36623470659542282i at
+4.5e-9/px (period 64, nucleus ~30 view widths away, `|λ|` 0.995 at the centre).
+
+**Observation** (our own; measured 2026-10-17, M1 Pro, f64 on 160×100 grids of A and B).
+Newton on `F(z) = f_c^p(z) − z` from `z = 0` at the component's period converges for every
+interior pixel, 5 passes on average and 6 at most, and never to an attracting cycle for an
+exterior one. `0` is a point of the cycle at the nucleus, and the cycle point it continues to
+stays in Newton's basin across the component. Newton does not care how slowly the orbit
+converges (`|λ − 1|` stays large away from the root). From the 4th pass on the step at
+least halved for every attracting pixel. Mathr's interior DE does the same Newton step, but
+from the orbit (src: [[sources/mathr-interior-distance]] §Practical interior distance
+rendering); starting at 0 with a known period is our own.
+
+**Method.**
+
+1. **Periods per view, CPU** (`almondbread_core::cycles`; scheduler `component_periods`).
+   A 5 × 5 grid of sample points over the level. Per sample, the candidates are the indices of
+   new minima of `|z_n|` up to 400 (atom domains). Keep the smallest candidate for which Newton
+   from 0 converges to an attracting cycle. Periods already found are tried first. The result
+   is the periods, most samples first, at most 4, whose `8 p` steps fit 4096. Shallow views
+   iterate `c` directly in f64. Big references are perturbed (`z = Z_m + δ`, rebasing) in f64
+   above texel 2^-900 and in DoubleExp below. The search is bounded by a step budget
+   (600 000 steps in f64, 1/16 of that in DoubleExp, which is ~25× slower per step). It took
+   0.04–0.5 ms in the measured views, including perturbed ones. It runs once per view, when its
+   first probe chunk is
+   encoded, and is cached across that view's AA and extension levels. A period is only a hint;
+   the proof is per pixel.
+2. **Per pixel, GPU** (kernel "Component Newton", in the probe pipeline). A pixel entering
+   the probe first runs Newton from `z_B = 0` for each period: base delta 0 at reference index
+   0, since `Z_0 = 0`. The first pass has `λ = F′(0) = 0` and steps to `F(0)`. Every pass is
+   evaluated by the probe's `probeEval`, with the same Kantorovich bound, noise `η` and margin
+   `μ` as the attracting-cycle probe. **So the proof argument is unchanged:** a fixed point of
+   `f^p` exists within `r` of `z_B`, with `|F′(z*)| ≤ |λ| + L r ≤ 1 − μ`. Then `f` has an
+   attracting cycle and `c` is interior. An exterior `c` has none, whatever base point Newton
+   started from. Only the choice of base point is new. A period fails when a fixed point
+   located at the noise floor is surely repelling or stuck, when a step exceeds 2, when the
+   step does not halve from the 4th pass on, after 8 passes, or when an iterate escapes. Then
+   the next period runs from 0, and after the last one the old scan runs from the pixel's
+   orbit point with its own leads. The step limit grows by the periods' `8 p`. Previews and
+   gesture frames have no probe.
+3. **Depth.** It runs in both kernels: float32 in the plain one, floatexp in the deep one, and
+   perturbed against the view's reference from `Z_0 = 0`. A forced-deep build (deep kernel and
+   big references at 1e-6/px) proved A to 1.5 % unresolved with 0 false interior; B, elephant,
+   root-third, neck-2e5, cusp-1e5 and satellite-head also had 0 false interior. Deep minibrot
+   places do not use it: the probe is off there because the reference period is 830 to 8007,
+   so `4 P` exceeds the probe limit.
+
+**Bug fixed on the way.** A pixel that was mid-probe when a chunk of the lean pipeline ran
+lost its probe state. Probe chunks and lean chunks interleave while fresh pixels are still
+admitted. The lean kernel moved the pixel's slot but did not copy its `PixelStateProbe`, so the
+next probe chunk read another pixel's state. In B at a fixed limit of 6000, every pixel admitted
+after the live list first filled failed (42.0 → 73.3 % detected with the fix). The lean kernel
+now copies the probe state of probing pixels it moves. The old probe had the same bug. Its
+corrupted pixels mostly failed, and the verify runs before the change showed no false
+interior.
+
+**Results** (measured 2026-10-17, M1 Pro, release; `verify` 1600×1000 unless noted, GPU at the
+view's limit against the CPU oracle; GPU-int/CPU-ext 0.000 % and class mismatch unchanged in
+every view):
+
+| view | unresolved before | after | GPU detected before | after |
+|---|---:|---:|---:|---:|
+| A (period 22) | 8.33 % | 4.43 % | 81.7 % | 85.6 % |
+| B (period 64) | 79.14 | 22.28 | 16.5 | 73.3 |
+| satellite-head | 12.13 | 7.87 | 33.1 | 37.3 |
+| satellite (800×500) | 0.54 | 0.38 | 3.4 | 3.5 |
+| elephant | 1.11 | 0.98 | 28.0 | 28.2 |
+| home | 0.177 | 0.169 | | |
+| seahorse, neck at 4176×, neck at 4.48e-12 (800×500), cusp-1e5, neck-2e5, root-third, needle-minibrot-1e91 (800×500) | unchanged | | | |
+
+Against `neck_truth` at 10^7 (160×100), proven out of the true interior: A 79.0 → 85.3 % of
+86.8 %, B 50.2 → 73.3 % of 83.5 %. Most of what is left in A, and 12.8 points of B, escapes
+after the limit. The rest of B's interior lies in satellite bulbs of the period-64 component
+(period `64 q`, beyond 400). App scheduler (`progress`, 1600×1000, plain settings, settle time
+and texels left): B 20.6 s with 904 141 → 3.0 s with 84 776; A 0.44 s with 743 → 0.23 s with
+1 501; satellite-head 0.70 → 0.66 s (5 619 → 4 917). Home, seahorse, the neck at 4176×, cusp,
+satellite, elephant and needle-minibrot-1e91 were within ±0.01 s. With the app's settings
+(compute further to 200 k): B 22.2 s with 57 % not finished → 3.4 s with 5.3 %; A 0.69 s with
+2 012 → 0.75 s with 1 213. A leaves more slow exterior texels with plain settings because the
+learner no longer re-renders at 4× the limit (as after the closed-form test). Offscreen renders
+without extension passes pay for the Newton tries of failing parked pixels: satellite-head
+114 → 148 ms GPU (best of 5, GPU shared with other work). A 160×100 regression test
+(`component_newton_proves_slow_interior`) asserts ≥ 84 % proven in A and nothing proven that
+the CPU sees escape by 20 000.
+
+**Known limits.** Components whose period is above 400, or with `8 p` above 4096 steps, are
+left to the scan and the extension passes; that covers B's satellite bulbs and deep minibrots.
+Near-parabolic pixels (`|λ| ≳ 0.99–0.998`, depending on `L` and `η`) stay unprovable in
+float32, as before: the −3/4 neck, the 1/3 root and the cusp. A component that no sample point
+lands in gets no period. A view with one dominant component and many parked exterior pixels
+pays up to `8 Σp` probe steps per exterior pixel before the scan.
+
 ## For almondbread
 
 Use the derivative test as the default interior test: one extra complex
