@@ -1112,6 +1112,14 @@ impl Navigator {
     }
 
     /// Stops all motion at once (Reset, a new flight).
+    /// A jump to a given view (pasted coordinates, a link, a place): everything that moves
+    /// stops dead and a journey ends, so the new view is not carried off by the old motion (the
+    /// user's request). Settings (speeds, lane assist) stay.
+    pub fn jumped(&mut self) {
+        self.stop_motion();
+        self.journey.stop();
+    }
+
     fn stop_motion(&mut self) {
         self.autopilot.halt();
         self.cruise.halt();
@@ -3138,6 +3146,12 @@ mod tests {
         );
         assert_eq!(n.level(), Level::Manual);
         assert_eq!(n.cruise().set_speed(), 0.0);
+        // A jump (pasted coordinates, a link, a place) stops everything dead.
+        tap(&mut n, &mut v, NavKey::FasterZoom, t);
+        assert_eq!(n.level(), Level::Cruise);
+        n.jumped();
+        assert_eq!(n.level(), Level::Manual);
+        assert!(!n.is_moving());
         // At the whole set already, Q does not reverse.
         tap(&mut n, &mut v, NavKey::SlowerZoom, t);
         assert_eq!(n.level(), Level::Manual);

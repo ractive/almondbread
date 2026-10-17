@@ -1593,7 +1593,7 @@ impl Explorer {
             .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
         v.ensure_precision();
         let mut g = self.lock();
-        g.host.renderer.navigator.cancel_flight();
+        g.host.renderer.navigator.jumped();
         g.host.renderer.viewport = v;
         Ok(())
     }
@@ -1732,6 +1732,7 @@ impl Explorer {
             .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
         v.ensure_precision();
         let renderer = &mut g.host.renderer;
+        renderer.navigator.jumped();
         renderer.viewport = v;
         let s = &mut renderer.settings;
         if let Some(look) = almondbread_core::palette::Look::named(place.look) {
