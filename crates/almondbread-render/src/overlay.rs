@@ -1274,11 +1274,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let left = if self.cosmic.enabled() { 376.0 } else { 0.0 };
         self.cockpit.draw(
             scene,
+            help,
             size,
             ppp,
             renderer.navigator.insets(),
             left,
             &renderer.navigator.cockpit(now),
+            now,
             &mut key,
         );
         // The render progress line along the top edge (kb: decisions/controls "Render progress").

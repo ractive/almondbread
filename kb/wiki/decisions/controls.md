@@ -845,11 +845,17 @@ point (`Survey::boundary_point`, the void-steer work), at most 0.6 of the steeri
 cruise's heading spring smooths it. Detail ahead: no nudge. The HUD then says "The Nothing
 ahead – steering away". Not yet tried in a foreground window (default off).
 
-**Cockpit.** About 270 points wide at the bottom centre of the canvas (right of the cosmic scale,
-left of the iPhone button column), shown with the HUD: the four letters (current lit and
-underlined), a gauge with zero in the middle (actual rate as a bar, reverse left, log scale to
-the top rung; set speed as a notch), the set speed ("↓ ×2/s" out, "↑ ×1.5/s" in; the rate while
-nothing is set), the lane icon. Dark translucent plate, haloed text: legible on bright and dark
+**Cockpit.** About 296 points wide at the bottom centre of the canvas (right of the cosmic scale,
+left of the iPhone button column), shown with the HUD. Revised 2026-10-17 after the user's
+review ("M C A J … I don't think people understand what those mean", and a set-speed notch the bar
+overshot during the reverse boost): four icons (steering wheel = manual, speedometer = cruise,
+plane = autopilot, sparkles = journey; the last two as in the toolbar), the current one lit and
+named ("Cruise"); a gauge with zero in the middle showing only the rate flown (reverse left, log
+scale to the top rung); the rate as text ("↓ ×4.2/s") with the set speed under it in small type
+("set ×1.5", "· boost" while the depth boost adds), lit for 1.2 s after Q / E; the lane icon; a
+(?) badge (help topic `cockpit`: the levels and their keys). A manual zoom (wheel, trackpad,
+pinch, double tap, menu) while cruising stops the cruise dead and drops to manual (user request:
+zooming by hand must not fight a set speed). Dark translucent plate, haloed text: legible on bright and dark
 palettes. FFI `ExplorerStats.cruise` (`CruiseStatus`: level, set, rate, boost, landing, assist,
 nudging), `Explorer::set_cockpit(on, inset_right, inset_bottom)`, `set_assist(on)`;
 `FRAME_AUTOPILOT` is set in A and C (an iOS finger steers). HUD wording: the uniform-region hints

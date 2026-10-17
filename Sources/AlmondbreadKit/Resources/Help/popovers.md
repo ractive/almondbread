@@ -26,6 +26,12 @@ The ring is the point under the pointer. The dots are the numbers the rule makes
 
 Inside the set they settle into a loop; outside they wander off. The line under the map says which. **O** shows or hides it.
 
+## cockpit
+
+How the zoom is driven, like the levels of a car: **Manual** (the steering wheel: you do everything), **Cruise** (the speedometer: **E** / **Q** set a speed in or out, you steer), **Autopilot** (the plane, **Z**: it steers to interesting places), **Journey** (the sparkles, **J**: from landmark to landmark). The lit icon is the level now.
+
+The bar and the big number are the speed flown now; "set" is the speed you chose. Deep down, zooming out gets a boost. The lane icon is lane assist (**L**): in cruise it steers you away from featureless areas. Steering by hand or zooming with the wheel or trackpad takes over.
+
 ## iterations
 
 How many steps each point gets before Almondbread stops and calls it undecided for now.

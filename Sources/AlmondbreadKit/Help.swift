@@ -38,6 +38,7 @@ enum HelpTopic: String, CaseIterable, Identifiable {
     case piMeter = "pi-meter"
     case miniMap = "mini-map"
     case orbit
+    case cockpit
     case iterations
     case look
     case interior
@@ -52,6 +53,7 @@ enum HelpTopic: String, CaseIterable, Identifiable {
         case .piMeter: "π meter"
         case .miniMap: "Mini-map"
         case .orbit: "Orbit"
+        case .cockpit: "Driving levels"
         case .iterations: "Iterations"
         case .look: "Look & colour"
         case .interior: "Interior"
@@ -66,6 +68,7 @@ enum HelpTopic: String, CaseIterable, Identifiable {
         case .cosmicScale, .piMeter, .miniMap, .orbit, .overlays: .overlays
         case .iterations, .look, .interior: .seeing
         case .controls: .gettingStarted
+        case .cockpit: .travel
         }
     }
 }

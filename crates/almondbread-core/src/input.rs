@@ -654,6 +654,15 @@ impl Navigator {
         self.autopilot.is_active() || (self.assist && self.cruise.is_engaged())
     }
 
+    /// A manual zoom (wheel, trackpad, pinch, double tap, menu) while cruising takes the zoom
+    /// over: the cruise stops dead and the level drops to manual (the user's request: zooming by
+    /// hand should not fight a set speed).
+    fn manual_zoom_ends_cruise(&mut self) {
+        if self.cruise.is_engaged() {
+            self.cruise.halt();
+        }
+    }
+
     /// Depth below the home view fitted to the window, e-folds (negative: wider than home).
     fn depth(&self, viewport: &Viewport) -> f64 {
         let home = Viewport::fitting(self.view_size.0, self.view_size.1);
@@ -1350,6 +1359,7 @@ impl Navigator {
                 true
             }
             InputEvent::WheelZoom { delta, x, y } => {
+                self.manual_zoom_ends_cruise();
                 let (tx, ty) = self.gesture_target(x, y);
                 self.zoom_at(viewport, 1.15f64.powf(delta), tx, ty, now);
                 true
@@ -1363,11 +1373,13 @@ impl Navigator {
                 true
             }
             InputEvent::WheelNotch { delta, x, y } => {
+                self.manual_zoom_ends_cruise();
                 let (tx, ty) = self.gesture_target(x, y);
                 self.step_zoom(1.15f64.powf(delta), tx, ty, now);
                 true
             }
             InputEvent::Magnify { magnification, x, y } => {
+                self.manual_zoom_ends_cruise();
                 self.stop_flings();
                 let (tx, ty) = self.gesture_target(x, y);
                 self.zoom_at(viewport, 1.0 + magnification, tx, ty, now);
@@ -1375,6 +1387,7 @@ impl Navigator {
                 true
             }
             InputEvent::Pinch { ratio, x, y, dx, dy } => {
+                self.manual_zoom_ends_cruise();
                 self.enter_pointer_mode();
                 self.stop_flings();
                 self.note_interaction(now);
@@ -1389,6 +1402,7 @@ impl Navigator {
                 true
             }
             InputEvent::DoubleTap { x, y, out } => {
+                self.manual_zoom_ends_cruise();
                 // Its first click toggled the autopilot's pause: undone.
                 self.autopilot.double_click(now);
                 self.enter_pointer_mode();
@@ -1396,6 +1410,7 @@ impl Navigator {
                 true
             }
             InputEvent::ZoomBy { factor } => {
+                self.manual_zoom_ends_cruise();
                 let (tx, ty) = self.zoom_target();
                 self.step_zoom(factor, tx, ty, now);
                 true
@@ -3108,6 +3123,21 @@ mod tests {
         tap(&mut n, &mut v, NavKey::Reset, t);
         assert_eq!(n.level(), Level::Manual);
         assert!(!n.is_moving());
+        // A manual zoom (wheel, trackpad) while cruising takes over: back to manual at once
+        // (E: at home Q has nowhere to go).
+        tap(&mut n, &mut v, NavKey::FasterZoom, t);
+        assert_eq!(n.level(), Level::Cruise);
+        n.handle(
+            InputEvent::WheelZoom {
+                delta: -1.0,
+                x: 0.0,
+                y: 0.0,
+            },
+            &mut v,
+            t,
+        );
+        assert_eq!(n.level(), Level::Manual);
+        assert_eq!(n.cruise().set_speed(), 0.0);
         // At the whole set already, Q does not reverse.
         tap(&mut n, &mut v, NavKey::SlowerZoom, t);
         assert_eq!(n.level(), Level::Manual);

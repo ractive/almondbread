@@ -22,6 +22,8 @@ pub enum HelpTopic {
     MiniMap,
     /// The whole-set map shown by the orbit overlay alone (no mini-map).
     Orbit,
+    /// The driving-level cockpit at the bottom.
+    Cockpit,
 }
 
 impl HelpTopic {
@@ -31,6 +33,7 @@ impl HelpTopic {
             Self::PiMeter => "pi-meter",
             Self::MiniMap => "mini-map",
             Self::Orbit => "orbit",
+            Self::Cockpit => "cockpit",
         }
     }
 }
