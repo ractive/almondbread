@@ -484,7 +484,7 @@ extension HUDView {
     static func hintText(_ h: AutopilotHint) -> String? {
         switch h {
         case .none: nil
-        case .rendering: "slower: keeping the detail sharp"
+        case .rendering: "slower: the renderer is behind"
         case .reference: "waiting for the deep reference"
         // The one playful wink (Michael Ende's The NeverEnding Story): a uniform region ahead,
         // fully interior or featureless exterior.

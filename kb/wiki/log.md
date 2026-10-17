@@ -1314,3 +1314,16 @@ acceleration 41 → 17 e-folds/s² (default), 462 → 23 (×35/s), 1069 → 20 (
 over from a leg is set to the journey speed (it was the leg's paced rate, ×55/s), and J lets a
 released cruise glide out or carry on into the leg instead of halting it. Page:
 [[decisions/controls]] "Journey" (revision "smooth legs").
+
+## [2026-10-17] decision | Steady autopilot rate: the throttle slows only when frames miss the budget
+
+User report: the autopilot's rate readout varied between ×1.75/s and ×4.x/s. `fly --log` at the
+user's 1e240 point (and seahorse for comparison): the renderer throttle alone moved the rate
+(×1.32–×2.46 at the default speed, hint "Rendering" 30–81 %); safety and the lock's capture
+slow-down were minor. The throttle followed the gesture fit, which reads back the preview step
+the scheduler runs at (median 0.137 at 1/8, 0.238 at 1/4, 0.81 at 7/8), so the 1/8 ↔ 1/4 probe
+toggling and cheap/dear regions swung it 0.36 ↔ 0.95, while slowing does not make a fresh preview
+cheaper. Fix: throttle full at fit 1/10, floor at 1/16 (only a coarsest preview that misses the
+budget slows), fit log filtered 0.5 s down / 1 s up. Rate sd 0.15–0.33 → 0.06–0.09 e-folds/s at
+the user point, 0.22 → 0.002 at seahorse; ~5 more decades per 90 s. Page: [[decisions/controls]]
+"Steady autopilot rate".

@@ -330,9 +330,12 @@ after 0.56 s; 4 /s down: a stop glides on 2/ω = 0.5 s of rate, 0.45 e-folds at 
 
 - *throttle* (how the renderer keeps up; `RenderFeedback` from the scheduler every frame):
   the gesture-preview resolution the frame budget affords, `fit = √(budget / (cost per
-  texel · pixels))` unclamped; `fit ≥ 1/4` → 1, `fit ≤ 1/10` → 0.3, smoothstep between;
-  0.06 while the view waits for a deep reference (frames show only the reprojected history).
-  Down with τ = 0.25 s, back up with τ = 1 s. Steering pan is scaled by the throttle too.
+  texel · pixels))` unclamped, its log filtered (τ = 0.5 s down, 1 s up); `fit ≥ 1/10` → 1,
+  `fit ≤ 1/16` → 0.3, smoothstep between (revised 2026-10-17, "Steady autopilot rate" below:
+  it was 1/4 → 1, 1/10 → 0.3, unfiltered); 0.06 while the view waits for a deep reference
+  (frames show only the reprojected history). Down with τ = 0.25 s, back up with τ = 1 s.
+  Steering pan is scaled by the throttle too. The same throttle paces fly-to and journey
+  flights and forward cruise.
 - *safety* (the heading region of the current frame): a GPU `survey` pass over each finished
   level (at most every 0.1 s, only while the autopilot is on) counts per cell of a 16 × 10
   grid the sampled texels (≤ 16 × 16 per cell), interior or unresolved ones, and neighbour
@@ -340,8 +343,8 @@ after 0.56 s; 4 /s down: a stop glides on 2/ω = 0.5 s of rate, 0.45 e-folds at 
   edge rate × level width. Around the heading (Gaussian, σ = 0.15 of the smaller side):
   `detail ≤ 3` → safety 0.3, `≥ 12` → 1, smoothstep between; the hint says "interior" when
   most of that region is interior, else "featureless". At the depth limit the zoom stops.
-- *HUD*: "autopilot ×2.46/s · now ×1.3/s" plus the reason ("slower: keeping the detail
-  sharp", "waiting for the deep reference", "slower: heading into the interior",
+- *HUD*: "autopilot ×2.46/s · now ×1.3/s" plus the reason ("slower: the renderer is
+  behind", until 2026-10-17 "slower: keeping the detail sharp"; "waiting for the deep reference", "slower: heading into the interior",
   "slower: featureless ahead", "paused · click to resume").
 
 **Assist** (2026-10-14, removed 2026-10-15). The survey's detail-weighted centroid around
@@ -501,6 +504,61 @@ rescue: the coarse CPU survey is a much weaker guide than the GPU one. Unit test
 `survey_steering_brings_the_boundary_point_to_the_centre_at_any_frame_rate` (30/60/120 Hz
 agree within 3 points and 0.02 e-folds), `lock_target_and_pointer_win_over_survey_steering`.
 Foreground check: `open --env ALMONDBREAD_SURVEY_STEER=1 <Almondbread.app>`.
+
+### Steady autopilot rate (2026-10-17)
+
+User report: with the default speed the cockpit's rate readout "varies a lot between ×1.75/s and
+×4.x per second" (autopilot near re −1.76866783140550194…, im 0.00164555778036987…, from 1e240,
+survey steering on). The readout is the rate spring's value; ×4.x is above the default set speed
+(×2.46/s), so the user's set speed was higher (×5 rung: 0.35 · 1.61 e-folds = ×1.75), the
+factors are what matters.
+
+**Diagnosis** (`fly --out null --hz 120 --log`, 90 s, 1600 × 1000, `ALMONDBREAD_SURVEY_STEER=1`,
+`ALMONDBREAD_TRACE=1` feedback lines; `fly --log` gained the columns `ap_fit`, `ap_capture`,
+`ap_waiting_ref`, `ap_survey_steer`; measured 2026-10-17, M1-class MacBook Pro, release, GPU
+67–85 % busy with other work). In 3 base runs the throttle alone moved the rate: sd of ln throttle
+0.25–0.34, safety 0–0.24 (one run with a 2 s rescue), lock capture ≤ 0.11; hint "Rendering"
+30–81 % of the time; rate ×1.32–×2.46 at the default speed. The throttle followed `fit`, and
+`fit` reads back the step the scheduler runs at: median fit at the 1/8 preview 0.137, at 1/4
+0.238, 3/8 0.347, 1/2 0.45, 7/8 0.81. A gesture frame fills the budget at any step (and the GPU
+clocks follow the load, [[synthesis/benchmarks]] "Autopilot throttle and GPU clocks"), so
+`fit ≈ step × √(budget / GPU time)`: no measure of headroom. With the old mapping (1/4 → 1, 1/10
+→ 0.3) the 1/8 ↔ 1/4 probe toggling (every 0.5–4 s) swung the throttle 0.36 ↔ 0.95, and cheap
+regions (5 iterations per texel under BLA, previews at 7/8) ran at full speed between them.
+Slowing does not help the renderer: every autopilot frame is a fresh preview at the scheduler's
+step, whose cost does not depend on the zoom rate. Smoothing alone (input τ up to 8 s,
+simulated on the recorded fits) left the sd at 0.18 e-folds/s: the swings were seconds long.
+
+**Fix.** The throttle now slows only when even the coarsest preview misses the budget: full at
+fit 1/10 (1/8 step at 1.56× the budget = 0.78 of the refresh interval, since the gesture budget
+is half of it), floor 0.3 at 1/16 (4× the budget: every other refresh). The fit's log is
+filtered (τ 0.5 s down, 1 s up) so one slow chunk of another process does not dip the rate; a
+lasting overload still slows within about a second (test
+`throttle_is_steady_while_frames_fit_and_drops_on_a_real_overload`: 1/8 ↔ 1/4 toggling with
+30 ms spikes keeps ≥ 0.97 of the speed at 30/60/120 Hz; fit 1/16 halves the rate within 1.5 s;
+30 and 120 Hz within 0.04 e-folds/s mid-transient). Reference waits and the depth limit are
+unchanged; safety, capture and rescue untouched. No switch (the task asked for none): needs the
+user's foreground check.
+
+**Before / after** (interleaved, frozen binaries, 120 Hz, default speed 0.9 e-folds/s; rate
+statistics after 3 s):
+
+| run | rate mean ± sd (e-folds/s) | 0.5 s bins peak-to-peak | p5–p95 | throttle mean | uniform / rescue | late refreshes | zoom in 90 s |
+|---|---|---|---|---|---|---|---|
+| user point, base ×3 | 0.52 ± 0.18, 0.70 ± 0.33, 0.76 ± 0.15 | 0.62, 2.06, 0.53 | ×1.36–2.43, ×1.36–2.46, ×1.58–2.46 | 0.59, 0.87, 0.86 | 0 / 0, 4.6 % / 2.1 s, 0 / 0 | 36, 129, 53 | 19.6, 26.4, 28.8 decades |
+| user point, new ×2 | 0.87 ± 0.085, 0.88 ± 0.064 | 0.49, 0.38 | ×2.00–2.46, ×2.11–2.46 | 1.00, 1.00 | 1.0 % / 0, 0.8 % / 0 | 146, 292 | 32.8, 33.2 decades |
+| seahorse 1e2, 60 s, base | 0.65 ± 0.22 | 0.59 | ×1.38–2.46 | 0.73 | 0 / 0 | 8 | 16.1 decades |
+| seahorse 1e2, 60 s, new | 0.899 ± 0.002 | 0.015 | ×2.45–2.46 | 1.00 | 0 / 0 | 2 | 22.2 decades |
+
+What still moves the rate at the user point after the fix is real: the safety in short
+featureless stretches (≤ 0.6 s uniform, safety down to 0.53) and the lock's capture slow-down
+while it turns towards a far aim point after a target or survey-steering hand-off (down to 0.44
+for ~1 s). Presented frames per run were the same as the first base run (9437–9536 vs 9557 of
+10 440; the other two base runs 10 114 and 10 328); late refreshes rose in the new runs (146,
+292 vs 36–129): the dips come from seconds with cheap views at 7/8–1 preview steps (presented
+51–100 per second), where the throttle was 1 in the base runs too, and from the deeper views
+(1e271 vs 1e258–1e267); not separable from the shared GPU's load in 5 runs. Interaction test
+"autopilot" ×4.3 in 2.4 s (2 runs, OK), "autopilot lock" OK.
 
 ## Fly to coordinates (as built, 2026-10-14)
 
