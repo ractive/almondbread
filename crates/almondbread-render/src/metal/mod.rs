@@ -550,7 +550,8 @@ mod tests {
              out[6] = alignof(IterateParams); out[7] = sizeof(ComposeParams); out[8] = sizeof(BlaParams);\n\
              out[9] = sizeof(BlaEntry); out[10] = sizeof(BlaEntryX); out[11] = sizeof(RefX);\n\
              out[12] = sizeof(PixelStateIC); out[13] = sizeof(SeedNode); out[14] = sizeof(SeedParams);\n\
-             out[15] = sizeof(CacheParams); out[16] = sizeof(SurveyParams); out[17] = sizeof(PixelStateProbe); }}\n"
+             out[15] = sizeof(CacheParams); out[16] = sizeof(SurveyParams); out[17] = sizeof(PixelStateProbe);\n\
+             out[18] = sizeof(ComponentParams); }}\n"
         );
         let b = MetalBackend::with_source(&probe).expect("metal");
         let p = b.pipeline("layoutProbe", &[]).unwrap();
@@ -560,7 +561,7 @@ mod tests {
         enc.set_buffer(0, &out, 0);
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.commit().wait();
-        let mut bytes = [0u8; 72];
+        let mut bytes = [0u8; 76];
         b.read_buffer(&out, 0, &mut bytes);
         let v: Vec<u32> = bytes
             .as_chunks::<4>()
@@ -589,6 +590,7 @@ mod tests {
                 size_of::<crate::gpu_types::CacheParams>() as u32,
                 size_of::<crate::gpu_types::SurveyParams>() as u32,
                 size_of::<crate::gpu_types::PixelStateProbe>() as u32,
+                size_of::<crate::gpu_types::ComponentParams>() as u32,
             ]
         );
     }
@@ -736,14 +738,14 @@ mod tests {
         }
     }
 
-    /// M5 interior-only tile fill (kb: techniques/guessing-and-subdivision): at the elephant
-    /// valley (28 % interior, slow to prove near the cusp) filling tiles whose border is all
-    /// proven interior skips a third of the steps and gives the unfilled field bit for bit;
-    /// with an analysed interior colouring nothing is filled.
+    /// M5 interior-only tile fill (kb: techniques/guessing-and-subdivision): at the period-3
+    /// bulb (not the elephant valley any more: its cardioid interior is now proven by the
+    /// closed-form component test without iterating) filling tiles whose border is all proven
+    /// interior skips 30 % of the steps and gives the unfilled field bit for bit; with an
+    /// analysed interior colouring nothing is filled.
     #[test]
     fn interior_fill_exact() {
         use crate::scheduler::{Renderer, SaMode, SchedulerConfig};
-        use almondbread_core::locations::location_named;
         let render = |fill: SaMode, inside: almondbread_core::InteriorMode| {
             let config = SchedulerConfig {
                 local_sa: sa(SaMode::Off),
@@ -751,13 +753,12 @@ mod tests {
                 ..SchedulerConfig::default()
             };
             let mut r = Renderer::with_config(MetalBackend::new().expect("metal"), config).expect("renderer");
-            let loc = location_named("elephant").expect("location");
             r.settings = almondbread_core::RenderSettings::plain();
             r.settings.auto_iterations = false;
-            r.settings.manual_iterations = loc.max_iterations();
+            r.settings.manual_iterations = 5000;
             r.settings.supersampling = almondbread_core::Supersampling::Off;
             r.settings.interior_mode = inside;
-            r.viewport = loc.viewport_for_width(480);
+            r.viewport = almondbread_core::Viewport::new(-0.1225, 0.7449, 4e-4);
             let out = r.render_offscreen(480, 300, true).expect("render");
             let field = almondbread_core::IterationField::from_texels(480, 300, out.iterations.as_deref().unwrap());
             (field, out.steps_done)

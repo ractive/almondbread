@@ -64,6 +64,30 @@ pub struct IterateParams {
     pub probe_half: u32,
 }
 
+/// Closed-form interior test of the main cardioid and the period-2 bulb for one level
+/// (`ComponentParams` in MSL, iterate binding 7; kb: techniques/interior-detection
+/// "Closed-form component test"; built by `almondbread_core::components`).
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct ComponentParams {
+    /// c at texel offset (0, 0) and per texel along u and v, float32 (colouring only).
+    pub anchor: [f32; 2],
+    pub ex: [f32; 2],
+    pub ey: [f32; 2],
+    /// Normalised polynomials in (u / L, v / L) (monomial order of `components::MONOMIALS`).
+    pub cardioid: [f32; 15],
+    pub bulb: [f32; 15],
+    /// Absolute margins of the two tests.
+    pub slack: [f32; 2],
+    /// 1 / L and L (powers of two).
+    pub inv_l: f32,
+    pub l: f32,
+    /// log2 of the texel size (interior distance in texels).
+    pub log2_texel: f32,
+    /// Bit 0: cardioid, bit 1: period-2 bulb; 0: no test.
+    pub flags: u32,
+}
+
 /// Loop state of one live pixel; only allocated on the GPU (sizes the state buffers).
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -346,6 +370,10 @@ const _: () = {
     assert!(size_of::<AaListParams>() == 32);
     assert!(size_of::<UnresolvedListParams>() == 32);
     assert!(size_of::<IterateParams>() == 136);
+    assert!(size_of::<ComponentParams>() == 168);
+    assert!(offset_of!(ComponentParams, cardioid) == 24);
+    assert!(offset_of!(ComponentParams, slack) == 144);
+    assert!(offset_of!(ComponentParams, flags) == 164);
     assert!(offset_of!(IterateParams, probe) == 128);
     assert!(offset_of!(IterateParams, fill_border) == 112);
     assert!(offset_of!(IterateParams, scale_exp) == 96);

@@ -331,6 +331,103 @@ static inline float2 cmul(float2 a, float2 b) {
     return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
+// ---- Closed-form component test (kb: techniques/interior-detection "Closed-form component
+// test"; built by almondbread_core::components, which documents the proof). Main cardioid:
+// q (q + X) - y^2/4 < 0 with X = x - 1/4, q = X^2 + y^2; period-2 bulb: (x + 1)^2 + y^2 < 1/16.
+// The CPU expands both, exactly (BigFloat, any depth), as polynomials of degree <= 4 in this
+// level's texel offset (u, v) = (pix.x, -pix.y) scaled by 1/L into [-1, 1], normalised to a
+// largest coefficient ~1. A texel is inside iff S < -(GAMMA |S|_1 + slack): the float32 sum S
+// of the 15 terms is within ~25 ulps of |S|_1 (the sum of their magnitudes) of the exact value,
+// GAMMA = 2^-16 leaves a factor 10, slack covers the CPU's rounding and dropped terms. So a
+// texel is never called inside unless it is; texels within ~2^-16 L texels of the boundary
+// keep iterating as before. Exterior texels are untouched.
+struct ComponentParams {
+    float2 anchor;        // c at texel offset (0, 0), float32 (colouring only)
+    float2 ex, ey;        // c per texel along u and v, float32 (colouring only)
+    float  cardioid[15];  // monomials 1, u, v, u2, uv, v2, u3, u2v, uv2, v3, u4, u3v, u2v2, uv3, v4
+    float  bulb[15];
+    float  slack[2];
+    float  invL, L;       // u' = u / L (powers of two)
+    float  log2Texel;
+    uint   flags;         // bit 0: cardioid, bit 1: period-2 bulb
+};
+constant float COMP_GAMMA = 0x1p-16f;
+
+static inline void compMonomials(float u, float v, thread float* m) {
+    const float u2 = u * u, uv = u * v, v2 = v * v, u3 = u2 * u, v3 = v2 * v;
+    m[0] = 1.0f; m[1] = u; m[2] = v; m[3] = u2; m[4] = uv; m[5] = v2;
+    m[6] = u3; m[7] = u2 * v; m[8] = u * v2; m[9] = v3;
+    m[10] = u2 * u2; m[11] = u3 * v; m[12] = u2 * v2; m[13] = u * v3; m[14] = v2 * v2;
+}
+
+static inline float compSum(constant float* b, thread const float* m, thread float& mag) {
+    float s = 0.0f, a = 0.0f;
+    for (uint k = 0; k < 15u; k++) {
+        const float t = b[k] * m[k];
+        s += t;
+        a += abs(t);
+    }
+    mag = a;
+    return s;
+}
+
+static inline float2 csqrtf(float2 z) {
+    const float r = length(z);
+    const float re = sqrt(max(0.5f * (r + z.x), 0.0f));
+    const float im = sqrt(max(0.5f * (r - z.x), 0.0f));
+    return float2(re, z.y < 0.0f ? -im : im);
+}
+
+static inline float2 cdivf(float2 a, float2 b) {
+    return float2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / max(dot(b, b), 1e-30f);
+}
+
+// Interior colouring of a texel the test proved (period 1 or 2, known exactly): multiplier
+// lambda, the cycle's closest approach to 0 and the interior distance estimate in texels, from
+// the closed forms at c in float32 (as precise as the cycle analysis there). Near the boundary
+// (1 - |lambda|^2 < 2^-10) and wherever float32 c does not resolve the texel (texel below
+// 2^-16 |c|, about zoom 1e3), the distance is twice
+// the first-order distance to the polynomial's zero set, L |S| / |grad S| (the closed-form
+// estimate tends to twice the true distance at the boundary, for both components), which is
+// exact at any depth.
+static inline void compColor(constant ComponentParams& cp, uint period, float2 uv, thread float2& lam,
+                             thread float& minLog2, thread float& dist) {
+    const float2 c = cp.anchor + uv.x * cp.ex + uv.y * cp.ey;
+    float b;
+    if (period == 1u) {
+        const float2 r = csqrtf(float2(1.0f - 4.0f * c.x, -4.0f * c.y));
+        lam = float2(1.0f, 0.0f) - r;
+        minLog2 = log2(max(0.5f * length(lam), 1e-38f));
+        b = (1.0f - dot(lam, lam)) * length(r) * 0.5f;
+    } else {
+        const float2 r = csqrtf(float2(-3.0f - 4.0f * c.x, -4.0f * c.y));
+        const float2 z0 = 0.5f * (r - float2(1.0f, 0.0f)), z1 = -0.5f * (r + float2(1.0f, 0.0f));
+        lam = 4.0f * float2(c.x + 1.0f, c.y);
+        minLog2 = log2(max(min(length(z0), length(z1)), 1e-38f));
+        const float2 fzz = 12.0f * cmul(z0, z0) + 4.0f * c;
+        const float2 den = 4.0f * z0 + cdivf(cmul(fzz, -r), float2(1.0f, 0.0f) - lam);
+        b = (1.0f - dot(lam, lam)) / max(length(den), 1e-30f);
+    }
+    // (Closed form only where float32 c resolves the texel well: near the cusp |dlambda/dc| is
+    // large and a coarser gate drew the rounding of c as staircases.)
+    if (cp.log2Texel >= log2(max(length(cp.anchor), 1e-30f)) - 16.0f && 1.0f - dot(lam, lam) >= 0x1p-10f) {
+        dist = exp2(min(log2(max(b, 1e-38f)) - cp.log2Texel, 99.0f));
+    } else {
+        // (Monomials and S again: keeping them from the test would hold 16 registers across
+        // the main loop.)
+        constant float* q = period == 1u ? cp.cardioid : cp.bulb;
+        float m[15], mag;
+        compMonomials(uv.x * cp.invL, uv.y * cp.invL, m);
+        const float s = compSum(q, m, mag);
+        const float gu = q[1] + 2.0f * q[3] * m[1] + q[4] * m[2] + 3.0f * q[6] * m[3] + 2.0f * q[7] * m[4] + q[8] * m[5]
+            + 4.0f * q[10] * m[6] + 3.0f * q[11] * m[7] + 2.0f * q[12] * m[8] + q[13] * m[9];
+        const float gv = q[2] + q[4] * m[1] + 2.0f * q[5] * m[2] + q[7] * m[3] + 2.0f * q[8] * m[4] + 3.0f * q[9] * m[5]
+            + q[11] * m[6] + 2.0f * q[12] * m[7] + 3.0f * q[13] * m[8] + 4.0f * q[14] * m[9];
+        const float g = length(float2(gu, gv));
+        dist = g > 0.0f ? min(2.0f * cp.L * (-s) / g, 1e30f) : 0.0f;
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // M5: local series approximation (kb: techniques/local-series-approximation,
 // questions/local-sa-float32). A quadtree node is a seed at its centre c0: it iterates exactly
@@ -1138,6 +1235,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const uint* laNext               [[buffer(28), function_constant(kLA)]],
                     constant LaParams& la                   [[buffer(29), function_constant(kLA)]],
                     device PixelStateProbe* probeBuf        [[buffer(30)]],
+                    constant ComponentParams& comp          [[buffer(7)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
                     uint lane                               [[thread_index_in_simdgroup]],
@@ -1186,6 +1284,30 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         filled = true;
         interior = true;
         st.n = 0;
+    }
+    // Closed-form component test (see ComponentParams): a fresh texel provably inside the main
+    // cardioid or the period-2 bulb is interior without iterating (also in previews and
+    // gesture frames, where it costs ~50 flops per texel).
+    uint compPeriod = 0u;
+    if (comp.flags != 0u && fresh && active && !filled) {
+        const float cu = pix.x * comp.invL, cv = -pix.y * comp.invL;
+        if (max(abs(cu), abs(cv)) <= 1.0f) {
+            float m[15], mag;
+            compMonomials(cu, cv, m);
+            if ((comp.flags & 1u) != 0u) {
+                const float sc = compSum(comp.cardioid, m, mag);
+                if (sc < -(COMP_GAMMA * mag + comp.slack[0])) compPeriod = 1u;
+            }
+            if (compPeriod == 0u && (comp.flags & 2u) != 0u) {
+                const float sb = compSum(comp.bulb, m, mag);
+                if (sb < -(COMP_GAMMA * mag + comp.slack[1])) compPeriod = 2u;
+            }
+        }
+        if (compPeriod != 0u) {
+            filled = true;
+            interior = true;
+            st.n = 0;
+        }
     }
     float r2 = 0.0f;
     float2 z = 0.0f;
@@ -2260,7 +2382,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         ic.minLog2 = icMinLog2;
         ic.k = icQ;
     }
-    if (kInteriorColor && active && !inB && !escaped && (interior || (!kInterior && st.n >= p.maxIter))) {
+    if (kInteriorColor && active && !inB && !escaped && compPeriod == 0u
+        && (interior || (!kInterior && st.n >= p.maxIter))) {
         FE dzx = feNorm(st.dz, kDeep ? st.e : 0);
         st.dz = dzx.m; st.e = dzx.e;               // the delta as floatexp from here on
         st.w = float2(1.0f, 0.0f); st.wExp = 0;     // lambda
@@ -2356,7 +2479,15 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     // Reached the limit neither escaped nor proven interior: unresolved, never drawn as
     // interior (with the test on), and collected for an extension pass.
     bool crossed = active && !inB && !alive && !escaped && !interior;
-    if (kInteriorColor && active && !alive && inB) {
+    if (kInteriorColor && compPeriod != 0u) {
+        // Proven by the component test: its period, multiplier and distance in closed form.
+        float2 lam;
+        float minLog2, dist;
+        compColor(comp, compPeriod, float2(pix.x, -pix.y), lam, minLog2, dist);
+        iterOut.write(float4(ITER_INTERIOR, float(compPeriod), 0.0f, 0.0f), gid);
+        deOut.write(float4(length(lam), atan2(lam.y, lam.x) * 0.15915494f, 0.0f, 0.0f), gid);
+        auxOut.write(float4(dist, minLog2, 0.0f, 0.0f), gid);
+    } else if (kInteriorColor && active && !alive && inB) {
         // Interior with its cycle analysed: .y = period (0: none found), de = (|lambda|,
         // arg lambda in turns), aux = (interior distance in texels, log2 min |z| over the cycle).
         iterOut.write(float4(ITER_INTERIOR, float(bPeriod), 0.0f, 0.0f), gid);

@@ -18,7 +18,7 @@ cheap, which removes most of the need for hand-tuned iteration limits
 
 | Method | Cost | Works at depth? | Notes |
 | --- | --- | --- | --- |
-| Cardioid / period-2 bulb test | ~6 flops per pixel, once | no (view almost never inside) | exact, only for the two biggest components |
+| Cardioid / period-2 bulb test | ~6 flops per pixel, once | yes as built here (exact expansion per level) | exact, only for the two biggest components |
 | Periodicity check (saved iterate, Brent) | 1 compare per iteration + bookkeeping | poor in float32 | tolerance must match precision |
 | Derivative test `\|dz/dz₁\| < ε` | 1 complex mul per iteration | yes | the recommended method |
 | Interior DE (Newton on the cycle) | Newton solve per candidate period | yes with perturbation | exact radius, expensive |
@@ -28,7 +28,10 @@ cheap, which removes most of the need for hand-tuned iteration limits
 Main cardioid: with `q = (x − 1/4)² + y²`, the point is inside if
 `q·(q + (x − 1/4)) ≤ y²/4`. Period-2 bulb: `(x + 1)² + y² ≤ 1/16`. No exact
 test exists for higher bulbs (src: [[sources/wikipedia-plotting-algorithms]] §Cardioid / bulb checking).
-Only useful at low zoom; harmless to keep since it costs a few flops per pixel (inference).
+Evaluated naively in the pixel's own `c` it only works at low zoom. Expanded exactly around
+the view it works at any depth and matters most where the other tests fail: near the two
+components' parabolic boundaries (the −3/4 neck, the cusp). See "Closed-form component test"
+below.
 
 ### Periodicity checking
 
@@ -304,13 +307,87 @@ of the proven region shows steps along horizontal lines, and small minibrots nea
 come out speckled black and grey at 3×3 supersampling; extension passes (higher limit) clear
 most of it. A slow exterior pixel that escapes during the probe is still reported unresolved.
 
+## Closed-form component test (built 2026-10-17)
+
+**Problem.** Interior points near the boundary of the main cardioid or the period-2 bulb have
+`|λ|` close to 1 (parabolic near the −3/4 root and the 1/4 cusp), so neither `|w| n² < ε` nor
+the attracting-cycle probe proves them within any sane limit. At the −3/4 neck at zoom 4176
+the whole bulb half of the view stayed unresolved fog; compute further spent seconds and they
+ended black anyway. Both components have exact tests (see "Cardioid and bulb" above).
+
+**Method** (our own; `almondbread_core::components`, kernel "Closed-form component test").
+The kernel maps texel offset `(u, v) = (pix.x, −pix.y)` to `c = A + T R (u, v)` (`A` = the
+reference point plus the f32 `refOffset`, `T` the texel, `R` the rotation). Per level the CPU
+expands `f_card(c) = q(q + X) − y²/4` and `f_bulb(c) = (x + 1)² + y² − 1/16` as polynomials of
+degree ≤ 4 in `(u/L, v/L) ∈ [−1, 1]²` (`L` a power of two), 15 coefficients, in BigFloat. The
+precision is `2·log2(1/(L T)) + 140` bits, raised if the rounding bound says so: the constant term cancels down to the
+quadratic terms. Coefficients are normalised by the largest one's power of two and rounded to
+f32. The kernel calls a fresh texel inside iff `S < −(2^-16 |S|₁ + slack)`, where `S` is the
+float32 sum of the 15 terms and `|S|₁` the sum of their magnitudes. Float32 evaluation is off by at most
+~25 ulps of `|S|₁` in any summation order, with or without FMA, so `2^-16` leaves a factor 10.
+`slack` covers the CPU's rounding (bounded from the inputs' magnitudes), coefficients dropped
+below 2^-60 and flush-to-zero. Inside texels are written interior without iterating, in every
+level type (previews and gesture frames too, ~50 flops); exterior texels are never touched.
+An f64 bound skips the BigFloat work and the kernel test when the view cannot reach a
+component, and a view the constant term proves wholly outside gets no test.
+
+- **Why not float-float per pixel.** `c` in float-float carries 48 bits, so it fails at
+  zoom ~1e13. Taking `c − A` to float-float only moves the problem: the polynomial's value is
+  a cancellation of O(1) terms down to `(L T)²`. The exact expansion on the CPU keeps all of
+  it, so the kernel works in float32 at any depth.
+- **Precision and depth bound.** No depth limit: tested at texels 2^-8 … 2^-300, and the
+  expansion at 2^-1000 takes under 5 ms per level on the CPU (cached across a level's AA and
+  extension passes). The unprovable band is `2^-16 |S|₁ / |∇S|`, at most ~`2^-16 L` texels
+  (0.03 texel at 2048 texels). Tests at the cusp, the root and 8 boundary points, rotated, find
+  no false inside, including texels a few f32 ulps from the boundary. Every inside texel 1e-2
+  texel or more from the boundary is proven (`components::tests::never_false_inside`).
+- **Interior colourings** (`--inside`): the period is 1 or 2, exactly. The multiplier is
+  `λ = 1 − √(1 − 4c)` or `4(c + 1)`, the closest approach `|λ|/2` or `min |z₀|, |z₁|` of the
+  2-cycle `z² + z + c + 1 = 0`, from `c` in float32, as precise as the cycle analysis there.
+  The interior distance uses the closed form `b` (`(1 − |λ|²)|√(1−4c)|/2` for period 1, the
+  general formula with `F = f∘f` for period 2) only where float32 `c` resolves the texel (texel ≥
+  2^-16 |c|) and `1 − |λ|² ≥ 2^-10`. Elsewhere it is `2 L |S| / |∇S|`: the closed form tends to
+  twice the true distance at the boundary for both components (checked numerically: ratio
+  1.98–2.00 at `1 − |λ|` = 1e-2…1e-4). That is exact at any depth near a smooth boundary. At the
+  cusp, a singular point of `f_card`, it is the first-order value (off by up to ~3×), which
+  draws horizontal bands there. The old cycle analysis drew curved bands at the neck, from
+  orbits not yet settled; the exact `b` has straight ones.
+- **Interaction.** The auto-iteration learner no longer sees a large unresolved area at the
+  neck, so it does not re-render at 4× the limit. The 1-texel exterior neck between the
+  two components is left to the extension passes. The M5 tile fill now has little to fill
+  near the cardioid (its regression test moved to the period-3 bulb).
+
+**Results** (measured 2026-10-17, M1 Pro, release; `verify` against the CPU oracle; class
+mismatch and GPU-interior/CPU-exterior unchanged in every view, 0 GPU-int/CPU-ext):
+
+| view | unresolved before | after | GPU ms before | after |
+|---|---:|---:|---:|---:|
+| −3/4 neck at 4176× (−0.74991217511+3.9165e-4i, 1600×1000) | 45.16 % | 0.05 % | 25 | 2.5 |
+| cusp 0.25 at 1e-9 (800×500; render 1600×1000) | 100 % | 0.002 % | 210 | 4 |
+| p2 bulb edge (−0.8649+0.2104i, 1.25e-7) | 34.26 | 31.30 | 236 | 196 |
+| p2 bulb (−1, 7.5e-4) | 1.23 | 0.91 | | |
+| home | 0.41 | 0.33 | 6.3 | 4.2 |
+| seahorse 1.3e-4 | 3.50 | 2.16 | 17 | 8 |
+| cardioid edge (0.3272+0.0562i, 1e-4) | 1.13 | 0.93 | | |
+| neck at 4.48e-12 (−0.749999947+3.69e-4i) | 33.68 | 33.68 | 26 | 26 |
+| −0.6443−0.3662i at 8.3e5 | 78.96 | 78.96 | 195 | 199 |
+
+The last two views are not in either component. The neck at 4.48e-12 lies ~5e-8 outside both;
+its non-escaping pixels are slow orbits or other components. −0.6443−0.3662i is inside a
+period-64 component with `|λ|` 0.995 (`f_card = +3.5e-3`): only the probe or a longer limit
+can help there. Bench set (1600×1000, GPU ms): cusp-1e5 115.6 → 12.5, elephant 24.8 → 11.7,
+neck-2e5 17.1 → 13.2, root-third 38.5 → 33.1; GPU-detected interior neck-2e5 0 → 43.6 %,
+root-third 0 → 32.0 %, cusp-1e5 88.1 → 97.5 %. App scheduler (`progress`, neck at 4176×,
+3200×2000): settled 6.1 s with 2.6 % unresolved at the 200 k cap → 0.63 s with 792 texels;
+`verify --history jump` at 1600×1000: resolved 718 → 160 ms after input.
+
 ## For almondbread
 
 Use the derivative test as the default interior test: one extra complex
 multiply per perturbation step, `A·der` per BLA/LA skip, ε = 1e-3
 (`EPS2 = 1e-6`), clamp on growth. Enable it when the frame's statistics show
 many maxIter pixels or a nucleus reference is in use (GBy's advice). Keep the
-cardioid/bulb test for shallow views. Skip periodicity checking and interior
+cardioid/bulb test, expanded exactly per level so it works at any depth (as built above). Skip periodicity checking and interior
 DE in v1; interior DE is a later colouring feature. Store an interior flag per
 pixel for colouring and for [[techniques/guessing-and-subdivision]].
 Related: [[techniques/reference-selection]], [[techniques/bla]],

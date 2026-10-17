@@ -17,6 +17,7 @@ pub mod bla;
 pub mod cfmt;
 pub mod cinematic;
 pub mod compass;
+pub mod components;
 pub mod cosmic;
 pub mod cruise;
 pub mod flight;

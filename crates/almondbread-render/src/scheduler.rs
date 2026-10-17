@@ -27,13 +27,14 @@ use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::oracle::ITER_UNRESOLVED;
 use almondbread_core::reference::{DEEP_SCALE, Fit, Reference, ReferenceRequest, ReferenceWorker};
 use almondbread_core::settings::{MANUAL_ITERATIONS_MAX, RenderSettings, depth_iterations};
-use almondbread_core::viewport::{Scale, Viewport};
+use almondbread_core::viewport::{Center, Scale, Viewport};
 use bytemuck::bytes_of;
 
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, Storage, Submission, SubmissionStatus, TextureFormat};
 use crate::gpu_types::{
-    AaListParams, BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState,
-    PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams, UnresolvedListParams,
+    AaListParams, BlaParams, ChunkStats, ColorParams, ComponentParams, ComposeParams, IterateParams,
+    LEVEL_COUNTERS_SIZE, PixelState, PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams,
+    UnresolvedListParams,
 };
 use crate::la_gpu::{LaBuildJob, LaGpu, LaMode};
 use crate::sample_cache::{CacheMap, CacheStats, PlanInput, Regime, SampleCache};
@@ -687,6 +688,52 @@ pub fn tiles(w: usize, h: usize) -> (usize, usize) {
     (w.div_ceil(16), h.div_ceil(16))
 }
 
+/// The closed-form component test of a texel grid as the iterate kernel maps it: `c` = the
+/// reference point plus `refOffset 2^scaleExp` plus `texel 2^scaleExp rot (pix.x, -pix.y)` (kb:
+/// techniques/interior-detection "Closed-form component test"). All zero (flags 0) when the
+/// view cannot touch the main cardioid or the period-2 bulb.
+pub fn component_params(reference: &Center, p: &IterateParams, extent: f64) -> ComponentParams {
+    use almondbread_core::components::{ComponentTest, Grid};
+    let grid = Grid {
+        reference: reference.big(),
+        offset: p.ref_offset,
+        texel: p.texel_scale,
+        scale_exp: p.scale_exp,
+        rot: p.rot,
+        extent,
+    };
+    let Some(t) = ComponentTest::new(&grid) else {
+        return ComponentParams::default();
+    };
+    let se = p.scale_exp;
+    let pow = |e: i32| 2f64.powi(e.clamp(-1074, 1023));
+    let texel = p.texel_scale as f64 * pow(se);
+    let (rc, rs) = (p.rot[0] as f64, p.rot[1] as f64);
+    let mut c = ComponentParams {
+        anchor: [
+            (reference.re() + p.ref_offset[0] as f64 * pow(se)) as f32,
+            (reference.im() + p.ref_offset[1] as f64 * pow(se)) as f32,
+        ],
+        ex: [(texel * rc) as f32, (texel * rs) as f32],
+        ey: [(-texel * rs) as f32, (texel * rc) as f32],
+        inv_l: 2f32.powi(-t.l_log2),
+        l: 2f32.powi(t.l_log2),
+        log2_texel: ((p.texel_scale as f64).log2() + se as f64) as f32,
+        ..ComponentParams::default()
+    };
+    if let Some(q) = t.cardioid {
+        c.cardioid = q.coeffs;
+        c.slack[0] = q.slack;
+        c.flags |= 1;
+    }
+    if let Some(q) = t.bulb {
+        c.bulb = q.coeffs;
+        c.slack[1] = q.slack;
+        c.flags |= 2;
+    }
+    c
+}
+
 /// Halton low-discrepancy sequence, base `b`, index `i` >= 1, in (0, 1).
 pub fn halton(mut i: u32, b: u32) -> f32 {
     if b < 2 {
@@ -790,6 +837,8 @@ struct Job<B: GpuBackend> {
     reference_buffer: B::Buffer,
     /// Serial of the reference the job iterates against (its BLA table must match).
     reference_serial: u64,
+    /// That reference's point (the closed-form component test).
+    ref_point: Center,
     /// That reference stops before the job's limit without escaping (a prefix still being
     /// computed, kb: techniques/rebasing "Truncated references"): pixels that outrun it are
     /// wrong, so the view is rendered again when a whole orbit arrives (`poll_longer_reference`).
@@ -1231,6 +1280,9 @@ pub struct Renderer<B: GpuBackend> {
     /// A level of this job probed and found almost nothing to prove (`PROBE_MIN_SUCCESS`): its
     /// later levels (extension passes, AA samples) start without the probe.
     probe_low_success: bool,
+    /// The last level grid's closed-form component test (kb: techniques/interior-detection
+    /// "Closed-form component test"), keyed by the reference serial and the grid.
+    component_cache: Option<([u32; 9], ComponentParams)>,
     /// Interior cycle analysis state, parallel to `state_buffers` (allocated on first use).
     ic_buffers: Option<[B::Buffer; 2]>,
     /// Level textures carry the interior analysis texture (set per job).
@@ -1495,6 +1547,7 @@ impl<B: GpuBackend> Renderer<B> {
             ic_buffers: None,
             probe_buffer: None,
             probe_low_success: false,
+            component_cache: None,
             want_aux: false,
             seed_pipelines: Default::default(),
             warm: None,
@@ -3043,6 +3096,7 @@ impl<B: GpuBackend> Renderer<B> {
             key,
             reference_buffer,
             reference_serial,
+            ref_point: ref_point.clone(),
             short_reference,
             ref_texel: full_texel,
             ref_size: tex_w.max(tex_h),
@@ -4215,6 +4269,7 @@ impl<B: GpuBackend> Renderer<B> {
                 return false;
             }
         };
+        let comp = self.component_test(level_index);
         let Ok(mut enc) = self.backend.begin("iterate chunk") else {
             return false;
         };
@@ -4287,6 +4342,8 @@ impl<B: GpuBackend> Renderer<B> {
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
         enc.set_buffer(30, self.probe_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        // (Binding 7 is prepareChunk's argument buffer, set above; iterate's is the test.)
+        enc.set_bytes(7, bytes_of(&comp));
         if use_la && let Some(t) = level.cache.as_ref().map_or(job.la.as_ref(), |c| c.la.as_ref()) {
             t.bind(&mut enc, deep, use_at, &self.dummy_buffer);
         }
@@ -4321,6 +4378,45 @@ impl<B: GpuBackend> Renderer<B> {
         });
         self.stat_slot = (self.stat_slot + 1) % STAT_SLOTS;
         true
+    }
+
+    /// The closed-form cardioid / period-2 bulb test for a level's texel grid (kb:
+    /// techniques/interior-detection "Closed-form component test"), cached across levels of the
+    /// same grid (AA samples, extension passes).
+    fn component_test(&mut self, level_index: usize) -> ComponentParams {
+        let Some(job) = &self.job else {
+            return ComponentParams::default();
+        };
+        let p = &job.levels[level_index].params;
+        // Largest |pix.x|, |pix.y| of the level (jitter < 1).
+        let extent =
+            ((p.half_size[0].abs() + p.width as f32 + 1.0).max(p.half_size[1].abs() + p.height as f32 + 1.0)) as f64;
+        let serial = job.reference_serial;
+        let key = [
+            serial as u32,
+            (serial >> 32) as u32,
+            p.ref_offset[0].to_bits(),
+            p.ref_offset[1].to_bits(),
+            p.texel_scale.to_bits(),
+            p.scale_exp as u32,
+            p.rot[0].to_bits(),
+            p.rot[1].to_bits(),
+            (extent as f32).to_bits(),
+        ];
+        if let Some((k, c)) = &self.component_cache
+            && *k == key
+        {
+            return *c;
+        }
+        let c = component_params(&job.ref_point, p, extent);
+        if self.config.trace {
+            println!(
+                "component test: flags {} (level {level_index}, texel 2^{:.1})",
+                c.flags, c.log2_texel
+            );
+        }
+        self.component_cache = Some((key, c));
+        c
     }
 
     fn read_stats(&self, slot: usize) -> ChunkStats {
