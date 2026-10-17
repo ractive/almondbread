@@ -12,7 +12,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Drag**, or scroll with two fingers, to move the picture.
 - **Double-click** zooms in there; **⌥ double-click** zooms out.
 - **W A S D** or the **arrow keys** move the picture; zooming then goes to the middle.
-- **Q** and **E** make zooming slower or faster.
+- **E** and **Q** are pedals: **E** starts a steady zoom in (cruise), **Q** a zoom out, each press a step faster; press the other one to slow down. Hold Space while pressing them to change the Space zoom speed instead.
 
 ## On iPhone and iPad
 
@@ -25,9 +25,11 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 ## Keys
 
 - **F**: full screen on or off
-- **Z**: autopilot (flies on by itself); **Shift + Z** zooms out to the whole set
+- **E** / **Q**: cruise in / out (see *Driving levels*)
+- **Z**: autopilot (flies on by itself)
+- **L**: lane assist while cruising
 - **J**: journey (a planned trip from landmark to landmark); **Shift + J** in the other mode (continuous, or stop at each find)
-- **Esc**: stop the autopilot, a flight or a journey; then leave full screen
+- **Esc**: stop the cruise, the autopilot, a flight or a journey; then leave full screen
 - **C**: cosmic size scale
 - **O**: orbit overlay
 - **M**: mini-map

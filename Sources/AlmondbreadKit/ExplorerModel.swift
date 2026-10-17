@@ -273,8 +273,14 @@ public final class ExplorerModel {
     var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
     /// The status overlay (zoom, centre, speed) in the top-left corner.
     public var showHUD: Bool = UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
+        didSet {
+            UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey)
+            if showHUD != oldValue { pushCockpit() }
+        }
     }
+    /// Extra right margin of the HUD cockpit (points; drawn by Rust at the bottom of the canvas):
+    /// iPhone portrait keeps its buttons clear.
+    public var cockpitInsetRight = 0.0 { didSet { if cockpitInsetRight != oldValue { pushCockpit() } } }
     /// The HUD's developer details (iterations, GPU, reference, kernel, state): off by default.
     /// A demo window does not store it (it would change the user's preference).
     public var hudDetails: Bool = UserDefaults.standard.bool(forKey: Preferences.hudDetailsKey) {
@@ -300,6 +306,18 @@ public final class ExplorerModel {
         }
     }
     static let lockKey = "autopilotLock"
+
+    /// Lane assist (key L; persisted, off by default; active in cruise only; kb:
+    /// decisions/controls "Driving levels"): keeps a cruise out of featureless areas.
+    /// Window tests start from (and never store) the default.
+    public var laneAssist: Bool = !TestLaunch.enabled && UserDefaults.standard.bool(forKey: ExplorerModel.assistKey) {
+        didSet {
+            if !TestLaunch.enabled { UserDefaults.standard.set(laneAssist, forKey: Self.assistKey) }
+            explorer?.setAssist(on: laneAssist)
+            host?.requestFrames()
+        }
+    }
+    static let assistKey = "laneAssist"
 
     /// "Journey: continuous / stop at each find" (persisted; off: continuous; kb:
     /// decisions/controls "Journey with stops"): J and the Journey button start this mode, ⇧J
@@ -345,8 +363,8 @@ public final class ExplorerModel {
     public private(set) var journeySeed: UInt64 = 0
     /// The journey rests at a landmark and waits for a choice (J, Z, X; iOS: buttons).
     public private(set) var journeyAtStop = false
-    /// The zoom-out autopilot (⇧Z) flies.
-    public private(set) var zoomingOut = false
+    /// The driving level (kb: decisions/controls "Driving levels"), change-only.
+    public private(set) var drivingLevel = DrivingLevel.manual
     public private(set) var viewTurned = false
     /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
     public private(set) var orbit: OrbitInfo?
@@ -386,6 +404,7 @@ public final class ExplorerModel {
         explorer.setEdgePan(mode: edgePanning.ffi)
         explorer.setAutopilotLock(on: autopilotLock)
         explorer.setJourneyStops(on: journeyStops)
+        explorer.setAssist(on: laneAssist)
         if !TestLaunch.enabled { restoreUserPalettes() }
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
@@ -393,6 +412,7 @@ public final class ExplorerModel {
         pushPiMeter()
         pushCosmic()
         pushCompass()
+        pushCockpit()
         refreshStats()
         // The Places grid's thumbnails, decoded in the background once the renderer exists, so
         // the control center shows them at once (kb: platform/swiftui-performance).
@@ -528,6 +548,12 @@ public final class ExplorerModel {
                                                               metresPerPoint: metresPerPoint))
         host?.requestFrames()
         save()
+    }
+
+    private func pushCockpit() {
+        guard let explorer else { return }
+        explorer.setCockpit(on: showHUD, insetRight: cockpitInsetRight, insetBottom: 0)
+        host?.requestFrames()
     }
 
     private func pushCompass(_ origin: StaticString = #function) {
@@ -714,6 +740,7 @@ public final class ExplorerModel {
         if scope == .all || scope == .view {
             edgePanning = .whileZooming
             autopilotLock = true
+            laneAssist = false
         }
         if scope == .all || scope == .cinematic { journeyStops = false }
         if scope == .all || scope == .view || scope == .cinematic {
@@ -803,12 +830,19 @@ public final class ExplorerModel {
         send(.keyUp(key: .autopilot))
     }
 
-    /// The zoom-out autopilot on / off (⇧Z): a steady zoom out at the autopilot speed to the
-    /// whole set (kb: decisions/controls "Zoom-out autopilot").
-    public func toggleZoomOut() {
-        send(.keyDown(key: .autopilotOut))
-        send(.keyUp(key: .autopilotOut))
+    /// The pedals (E in, Q out; kb: decisions/controls "Driving levels"): one rung each.
+    public func pedalIn() {
+        send(.keyDown(key: .fasterZoom))
+        send(.keyUp(key: .fasterZoom))
     }
+
+    public func pedalOut() {
+        send(.keyDown(key: .slowerZoom))
+        send(.keyUp(key: .slowerZoom))
+    }
+
+    /// L: lane assist on / off.
+    public func toggleLaneAssist() { laneAssist.toggle() }
 
     /// At a journey stop: Z (deeper here) and X (somewhere else); J is `toggleJourney`.
     public func journeyDeeper() {
@@ -1037,7 +1071,8 @@ public final class ExplorerModel {
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
         guard let new = explorer?.stats(), new != stats else { return }
         if let old = stats, old.zoomSpeed != new.zoomSpeed || old.autopilot.speed != new.autopilot.speed
-            || old.flight.speed != new.flight.speed || old.journey.speed != new.journey.speed {
+            || old.flight.speed != new.flight.speed || old.journey.speed != new.journey.speed
+            || old.cruise.set != new.cruise.set {
             zoomSpeedChanged = Date()
         }
         stats = new
@@ -1048,7 +1083,7 @@ public final class ExplorerModel {
         if journeySuspended != new.journey.suspended { journeySuspended = new.journey.suspended }
         if journeySeed != new.journey.seed { journeySeed = new.journey.seed }
         if journeyAtStop != new.journey.atStop { journeyAtStop = new.journey.atStop }
-        if zoomingOut != new.flight.zoomOut { zoomingOut = new.flight.zoomOut }
+        if drivingLevel != new.cruise.level { drivingLevel = new.cruise.level }
         let turned = new.shown.angleDegrees != 0
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }

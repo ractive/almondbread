@@ -57,6 +57,8 @@ struct ContentView: View {
             model.piMeterInsetRight = compactWidth ? 56 : 0
             // iPad and wide iPhone: the compass sits below the top-right buttons (44 + 12 pt).
             model.compassInsetTop = compactWidth ? 0 : 56
+            // The cockpit (bottom centre) keeps left of the button column.
+            model.cockpitInsetRight = compactWidth ? 56 : 0
         }
         #endif
         #if os(iOS)
@@ -76,11 +78,13 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Autopilot")
-                // A long press: the zoom-out autopilot (⇧Z).
+                // A long press: the cruise pedals and lane assist (the keyboard's E, Q, Esc, L;
+                // kb: decisions/controls "Driving levels").
                 .contextMenu {
-                    Button(model.zoomingOut ? "Stop Zooming Out" : "Zoom Out to the Whole Set", systemImage: "minus.magnifyingglass") {
-                        model.toggleZoomOut()
-                    }
+                    Button("Cruise In / Faster", systemImage: "plus.magnifyingglass") { model.pedalIn() }
+                    Button("Cruise Out / Slower", systemImage: "minus.magnifyingglass") { model.pedalOut() }
+                    Button("Stop", systemImage: "stop.circle") { model.stopMotion() }
+                    Toggle("Lane Assist", systemImage: "road.lanes", isOn: $model.laneAssist)
                 }
                 // Journey: planned flights from landmark to landmark; a tap on the canvas pauses.
                 // At a stop it flies on, and two more buttons go deeper here or elsewhere.
@@ -174,7 +178,7 @@ struct ContentView: View {
                 } label: {
                     Label("Autopilot", systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
                 }
-                .help("Autopilot (Z): zoom on continuously, steer with the mouse; click pauses, Esc stops; ⇧Z zooms out to the whole set")
+                .help("Autopilot (Z): zoom on continuously towards interesting places; click pauses, Esc stops; steering hands over to cruise (E / Q)")
                 Button {
                     model.toggleJourney()
                 } label: {
@@ -311,7 +315,7 @@ struct HUDView: View {
                     .foregroundStyle(.primary)
             }
             if let hint = motionHint(s) {
-                Label(hint, systemImage: s.flight.zoomOut ? "minus.magnifyingglass"
+                Label(hint, systemImage: s.cruise.level == .cruise ? "gauge.with.dots.needle.33percent"
                       : s.flight.active ? "location.north.line" : "airplane")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
@@ -401,8 +405,8 @@ extension HUDView {
         if s.journey.active && !s.journey.suspended && !s.journey.atStop {
             return "journey speed \(Format.speed(exp(s.journey.speed)))"
         }
-        if s.flight.zoomOut {
-            return "zoom-out speed \(Format.speed(exp(s.flight.speed)))"
+        if s.cruise.level == .cruise {
+            return "cruise \(Format.cruise(s.cruise.set))"
         }
         if s.flight.active {
             return "fly speed \(Format.speed(exp(s.flight.speed)))"
@@ -443,10 +447,14 @@ extension HUDView {
             // The journey line says it all; only a back-off is worth a second line.
             return s.flight.active && !s.journey.suspended ? Self.hintText(s.flight.hint) : nil
         }
-        if s.flight.zoomOut {
-            let to = "Zooming out to the whole set  ·  \(String(format: "%.0f", s.flight.progress * 100)) %"
-            if s.flight.stopping { return to + "  ·  stopping" }
-            return [to, Self.hintText(s.flight.hint)].compactMap { $0 }.joined(separator: "  ·  ")
+        // Cruise (kb: decisions/controls "Driving levels"): its landing on the whole set, lane
+        // assist steering away from the featureless, or nothing (the cockpit shows the rest).
+        if s.cruise.level == .cruise {
+            if s.cruise.landing {
+                return s.flight.stopping ? "Cruise  ·  stopping" : "Cruise  ·  landing on the whole set"
+            }
+            if s.cruise.nudging { return "The Nothing ahead – steering away" }
+            return s.cruise.set == 0 && abs(s.cruise.rate) > 0.02 ? "Cruise  ·  stopping" : nil
         }
         if s.flight.active {
             let to = "Flying to \(Format.zoom(log10: s.flight.targetZoomLog10))  ·  \(String(format: "%.0f", s.flight.progress * 100)) %"
@@ -469,10 +477,12 @@ extension HUDView {
         case .none: nil
         case .rendering: "slower: keeping the detail sharp"
         case .reference: "waiting for the deep reference"
-        case .interior: "slower: heading into the interior"
-        case .featureless: "slower: featureless ahead"
+        // The one playful wink (Michael Ende's The NeverEnding Story): a uniform region ahead,
+        // fully interior or featureless exterior.
+        case .interior: "The Nothing ahead – slowing down"
+        case .featureless: "The Nothing ahead – slowing down"
         case .limit: "depth limit"
-        case .rescue: "backing out: nothing ahead"
+        case .rescue: "The Nothing ahead – turning back"
         }
     }
 }
@@ -492,6 +502,12 @@ enum Format {
     /// Zoom speed as magnification per second: "×4.95/s".
     static func speed(_ factor: Double) -> String {
         factor < 10 ? String(format: "×%.2f/s", factor) : String(format: "×%.0f/s", factor)
+    }
+
+    /// A signed cruise speed (e-folds per second): "↓ ×2.00/s" out, "↑ ×1.50/s" in, "stopped".
+    static func cruise(_ efolds: Double) -> String {
+        if abs(efolds) < 1e-9 { return "stopped" }
+        return (efolds < 0 ? "↓ " : "↑ ") + speed(exp(abs(efolds)))
     }
 
     static func ms(_ seconds: Double) -> String {

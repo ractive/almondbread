@@ -18,6 +18,7 @@ pub mod cfmt;
 pub mod cinematic;
 pub mod compass;
 pub mod cosmic;
+pub mod cruise;
 pub mod flight;
 pub mod flyto;
 pub mod image;

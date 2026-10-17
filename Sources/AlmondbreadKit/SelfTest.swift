@@ -93,8 +93,8 @@ public enum SelfTest {
 /// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
 /// (the default scene with View and Look, or Lighting, Overlays and Quality open),
 /// `progress` / `progress-late` (render progress mid-render at a 2M limit), `journey-stop`
-/// (journey #4711 in the "stop at each find" mode, captured at its first stop), `zoom-out`
-/// (the zoom-out autopilot from 1e-20, 8 s in);
+/// (journey #4711 in the "stop at each find" mode, captured at its first stop), `cruise-reverse`
+/// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -323,10 +323,16 @@ public enum UIDemo {
             // (After the first layout: the journey starts from the fitted home view.)
             model.journeyStops = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.startJourney(seed: 4711) }
-        case "zoom-out":
+        case "cruise-reverse":
+            // The HUD cockpit in reverse cruise (kb: decisions/controls "Driving levels"): Q twice
+            // (×2/s out) from 1e-20, captured 8 s in, lane assist on.
             try? explorer.setViewport(re: "-0.743643887037158704752191506114774", im: "0.131825904205311970493132056385139",
                                       scale: 1e-20)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.toggleZoomOut() }
+            model.laneAssist = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                model.pedalOut()
+                model.pedalOut()
+            }
         case "autopilot":
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1e-4)
             model.mapEnabled = true
@@ -352,7 +358,7 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                let moving = scene == "autopilot" || scene == "zoom-out" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
+                let moving = scene == "autopilot" || scene == "cruise-reverse" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
                 // journey-stop: captured once the journey rests at its first landmark.
                 let stopReady = scene != "journey-stop" || model.journeyAtStop
                 let movingAt: Double = scene.hasSuffix("-late") ? 17 : scene.hasPrefix("pi-") ? 9 : 8

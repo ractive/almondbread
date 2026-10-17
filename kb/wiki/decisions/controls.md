@@ -261,6 +261,11 @@ centre. Option-click flies there instead (the fly-to path: out, across, in, land
 
 ## Autopilot (as built, 2026-10-14)
 
+*Revised 2026-10-17 ("Driving levels" below): the pointer no longer steers the autopilot; any user
+steering hands over to cruise, which keeps the speed, and the autopilot does not take the wheel
+back (the idle / dead-zone re-lock is gone). Q / E step its speed on the pedal ladder. The
+steering law below is now the cruise's.*
+
 Requested by the user ("an auto-zoom, like an autopilot, so that you can just navigate with
 the mouse"). All policy in the core: `crates/almondbread-core/src/autopilot.rs`, owned by the
 `Navigator`; the renderer reports feedback and surveys; Swift decodes events and shows the
@@ -751,7 +756,109 @@ longest flight stretch whose look does not change below ~2 s at the default spee
   seeds 2 and 20261015 for 150 s before and after the change), 62 700 frames at 60 fps through ffmpeg `signalstats`: no frame with its 90th-percentile luma below
   20 and no flash (mean luma below 35 % of the ten frames around it).
 
-## Zoom-out autopilot (as built, 2026-10-17)
+## Driving levels (as built, 2026-10-17)
+
+The user's design, like a car's gears: four levels, shown in the HUD cockpit as `M · C · A · J`.
+Core: `crates/almondbread-core/src/cruise.rs` (`Level`, `LADDER`, `pedal`, `Cruise`), the
+hand-overs in `Navigator` (`level`, `take_wheel`, `pedal`, `cruise_landing`, `cockpit`); the
+cockpit is drawn by Rust (`crates/almondbread-render/src/cockpit.rs`). Replaces ⇧Z ("Zoom-out
+autopilot" below), its menu item and the iOS long-press.
+
+| Level | What drives | Enters | Leaves |
+| --- | --- | --- | --- |
+| M manual | the user only | rest | E / Q (C), Z (A), J (J) |
+| C cruise | a set speed on one signed axis; the user steers | E / Q from rest or at a journey stop; steering or pedal ≤ 0 in A or J | Esc or pedal to zero (brakes, then M); Z (A); J; R |
+| A autopilot | speed and steering (target lock) | Z | user steering or pedal ≤ 0 (C at the current speed); Z / Esc (eased stop) |
+| J journey | planned legs (fly-to flights too) | J, a fly-to | as A for a journey leg; fly-to keeps its old take-over |
+
+**Pedals.** Q / E are one signed speed axis. Each press is one rung of `LADDER` (factors per
+second 1.5, 2, 3, 5, 8, 13, 20, 35, 60, 100, 250, 1000; ln of them in e-folds/s), E towards
+"in", Q towards "out"; off-ladder values (the autopilot's 0.9) step to the neighbouring rung.
+Holding steps again after 0.4 s and every 0.25 s (stepped by the navigator per frame; the Mac
+key repeats are swallowed, else a repeat would count as a new press). Towards zero the speed
+stops *at* zero (detent): repeats never cross, a new press does. In A and J the pedals step that
+level's speed on the same ladder (E above the top rung multiplies by 1.25 up to the level's
+range); down to zero the cruise takes over at zero and brakes. During a fly-to Q / E set its
+speed as before. **Decision on the old Q / E meaning** (Space zoom speed): Q / E with Space held
+still set the Space speed; otherwise they are pedals. Scroll and wheel keep their behaviour (pan
+/ zoom in M and C; speed in A and J). The gamepad's shoulders are the pedals.
+
+**Cruise motion.** The signed rate follows its target on the autopilot's rate spring (ω 3 /s
+speeding up, 4 /s braking): a press eases in over about a second, Esc or pedal-to-zero brakes on
+the spring's smooth curve (glide 2/ω of the rate; test `cruise_esc_brakes_on_a_smooth_curve`).
+Steering is the autopilot's joystick law (dead zone 0.1 R, heading spring ω 6, zoom about the
+heading, pan `−k h`, `k = (0.5 + z⁺)` /s) driven only by the pointer (moved within 3 s, pointer
+mode) and W A S D panning; nothing pulls the view (test
+`cruise_steers_the_pointed_content_to_the_centre`). Forward, the renderer back-off (throttle)
+scales the rate and the depth limit stops it. Integration in ≤ 2 ms substeps; the zoom centre
+is the heading weighted by `e^{−z_j}(1 − e^{−dz_j})` per substep and the pan is converted to
+the frame's midpoint scale, so the composed frame equals the substeps exactly.
+
+**Zoom-out dynamics.** In reverse `rate = set · (1 + D/3)^{ramp(t)}`, D the e-folds below the
+fitted home view, `ramp` a smoothstep over 4 s since reversing began: the log of the speed
+accelerates evenly (no jump on one press), and with the boost in full `D + 3` decays
+exponentially, so home takes `(3/set) ln(1 + D/3)`: logarithmic in the depth. Throttle applies
+in reverse only down to 0.5 (zooming out mostly shows the shrinking history), the rate is capped
+at 2000 e-folds/s. Once the path home (`FlyPath` length × ρ) is no longer than 1.25 s of the
+current rate (the soft landing's brake curve then matches the rate), or a braking glide would
+reach home, or the depth is gone, a fly-to flight with `Flight::soft_landing` takes the last
+stretch at that rate and rests exactly on the home framing (centre −0.75 too); level stays C.
+Zooming out stops at the whole set; Q from home does nothing. Measured in the navigator tests at
+30 Hz, first rung (×1.5/s out) from the seahorse spiral, release build, 2026-10-17:
+
+| From | Home after | Landing from | Peak rate |
+| --- | --- | --- | --- |
+| 1e-10 | 17.2 s | 14.7 s | 2 e-folds/s |
+| 1e-50 | 29.4 s | 27.0 s | 13 e-folds/s |
+| 1e-300 | 42.2 s | 39.7 s | 80 e-folds/s |
+| 1e-3000 | 58.2 s | 55.7 s | 813 e-folds/s |
+
+Each zooms out monotonically, moves less than 1.5 e-folds in the first second, eases out over
+the last second and rests bit-exactly on home. 30 / 60 / 120 Hz agree to 2e-3 of the zoom and
+3 points of the steered centre after 26 e-folds out (the boost depends on the depth the zoom
+changes: first order in the substep length).
+
+**Hand-overs.** User steering (W A S D / arrows, a drag or touch pan, the gamepad's left stick,
+or the pointer deflected past the dead zone for 0.25 s after moving 12 points since A or the leg
+took the wheel: a pointer resting off-centre when Z was pressed, or crossing the canvas to a
+button, does not count) while the autopilot runs or a journey flies a leg engages the cruise
+with the current zoom rate and heading (A: set = the autopilot's set speed; J: set = the
+flight's zoom rate, the journey suspended, J resumes). The autopilot **no longer takes the wheel
+back**: the idle / dead-zone re-lock is gone because the autopilot is off after the hand-over; Z
+re-engages (at the cruise's speed if it went forward). Inside A the pointer no longer steers
+(it hands over); the lock aims whenever A runs. Other manual input (Space, pinch, wheel zoom,
+rotate) works on top as before. A journey stop counts as rest: E / Q there start a cruise and
+the journey stays at its stop (J / Z / X still choose; the cruise stops when the next leg
+starts). Esc stops the cruise first. Tests: `autopilot_hands_over_to_cruise_and_never_takes_the_wheel_back`,
+`steering_or_pedal_to_zero_drops_a_journey_to_cruise`,
+`autopilot_recovers_after_cruising_into_a_featureless_region` (cruise into the cardioid, Z: the
+rescue backs out).
+
+**Lane assist** (key L, free on the macOS and iOS key maps; control center "Lane assist" in
+View; menu; iOS long-press menu; persisted `laneAssist`, default off): active only in C, and only
+while the user does not steer. Phase 1 (this build): setting, cockpit lane icon (dim off, lit on,
+brighter in C, a glow for 0.6 s after a nudge) and the hook `Navigator::assist_nudge(view,
+radius, now) -> Option<heading>` (returns None). Phase 2 wires it to the survey-based steering
+away from featureless regions (`ALMONDBREAD_SURVEY_STEER` work in `autopilot`): nudge gently
+towards the nearest boundary only when the region ahead is becoming featureless. The HUD then
+says "The Nothing ahead – steering away".
+
+**Cockpit.** About 270 points wide at the bottom centre of the canvas (right of the cosmic scale,
+left of the iPhone button column), shown with the HUD: the four letters (current lit and
+underlined), a gauge with zero in the middle (actual rate as a bar, reverse left, log scale to
+the top rung; set speed as a notch), the set speed ("↓ ×2/s" out, "↑ ×1.5/s" in; the rate while
+nothing is set), the lane icon. Dark translucent plate, haloed text: legible on bright and dark
+palettes. FFI `ExplorerStats.cruise` (`CruiseStatus`: level, set, rate, boost, landing, assist,
+nudging), `Explorer::set_cockpit(on, inset_right, inset_bottom)`, `set_assist(on)`;
+`FRAME_AUTOPILOT` is set in A and C (an iOS finger steers). HUD wording: the uniform-region hints
+(interior / featureless / rescue) read "The Nothing ahead – slowing down / turning back".
+Screens: `scripts/ui-screenshots.sh` scenes `cruise-reverse` and `autopilot`. Interaction test
+"cruise out" replaces "zoom out"; the "autopilot" scenario now checks the hand-over.
+
+## Zoom-out autopilot (as built 2026-10-17; removed the same day, replaced by reverse cruise)
+
+Removed with the driving levels (above): ⇧Z, `Navigator::start_zoom_out`, `NavKey::AutopilotOut`,
+`FlightStatus.zoom_out`. Kept here for the soft landing, which the reverse cruise reuses.
 
 Requested by the user: the autopilot in reverse, a scenic flight back to the whole set that can be
 stopped anywhere, not a quick reset. Core: `Navigator::start_zoom_out` (`crates/almondbread-core/src/input.rs`),

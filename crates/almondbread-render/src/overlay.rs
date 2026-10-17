@@ -532,6 +532,8 @@ pub struct Overlay<B: GpuBackend> {
     pub cosmic: crate::cosmic::CosmicOverlay,
     /// The compass (kb: decisions/controls, "Compass").
     pub compass: crate::compass::CompassOverlay,
+    /// The HUD cockpit (kb: decisions/controls, "Driving levels").
+    pub cockpit: crate::cockpit::CockpitOverlay,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
     /// The panels' help badges as laid out in the last scene (kb: decisions/controls "Help").
@@ -556,6 +558,7 @@ impl<B: GpuBackend> Default for Overlay<B> {
             pi: crate::pi_meter::PiMeter::default(),
             cosmic: Default::default(),
             compass: Default::default(),
+            cockpit: Default::default(),
             trail: None,
             help: Vec::new(),
         }
@@ -598,7 +601,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// Anything to draw (the host skips all overlay work otherwise): the overlay settings,
     /// the cosmic scale or the π meter.
     pub fn active(&self) -> bool {
-        self.settings.any() || self.cosmic.enabled() || self.pi.enabled
+        self.settings.any() || self.cosmic.enabled() || self.pi.enabled || self.cockpit.enabled
     }
 
     /// Work left (probe analysing, maps rendering, a click resolving, a π count): keep
@@ -648,7 +651,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.probe = None;
             self.probe_key = None;
             let line = renderer.progress.current().alpha > 0.0;
-            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now) || line) || empty {
+            if !(self.cosmic.enabled() || self.pi.enabled || self.compass.shown(now) || line || self.cockpit.enabled)
+                || empty
+            {
                 renderer.overlay = None;
                 self.help.clear();
                 return;
@@ -1264,6 +1269,17 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
         key.push_str(&self.pi.draw(scene, help, w, h, px, reserve));
         self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
+        // The cockpit at the bottom, right of the cosmic scale (bottom left) when it shows.
+        let left = if self.cosmic.enabled() { 376.0 } else { 0.0 };
+        self.cockpit.draw(
+            scene,
+            size,
+            ppp,
+            renderer.navigator.insets(),
+            left,
+            &renderer.navigator.cockpit(now),
+            &mut key,
+        );
         // The render progress line along the top edge (kb: decisions/controls "Render progress").
         crate::progress::draw_line(
             scene,

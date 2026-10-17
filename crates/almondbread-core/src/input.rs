@@ -26,6 +26,7 @@
 
 use crate::autopilot::{self, Autopilot};
 use crate::cinematic::Cinematic;
+use crate::cruise::{self, Cruise, Level};
 use crate::flyto::{self, Flight, FlyPath};
 use crate::journey::{self, Choice, Journey};
 use crate::viewport::{Scale, Viewport, wrap_angle};
@@ -40,9 +41,12 @@ pub enum NavKey {
     Right,
     /// Space: continuous zoom toward the zoom target (with Shift: out).
     Zoom,
-    /// Q: zoom speed x0.8.
+    /// Q: the pedal out (kb: decisions/controls "Driving levels"): from rest the cruise
+    /// starts zooming out, while cruising one rung slower in / faster out; the autopilot's or
+    /// a journey's speed one rung down (to zero: cruise takes over). While Space is held: the
+    /// Space zoom speed x0.8; during a fly-to: its speed.
     SlowerZoom,
-    /// E: zoom speed x1.25.
+    /// E: the pedal in: as Q the other way (Space held: x1.25).
     FasterZoom,
     /// + / =: one step in (x1.5) at the zoom target.
     StepIn,
@@ -65,8 +69,7 @@ pub enum NavKey {
     /// ⇧J: as J, but a new journey starts in the other mode than the setting (continuous /
     /// stop at each find; kb: decisions/controls "Journey with stops").
     JourneyAlt,
-    /// ⇧Z: the zoom-out autopilot on / off (kb: decisions/controls "Zoom-out autopilot").
-    AutopilotOut,
+
     /// X: at a journey stop, somewhere else (the next leg crosses over); not handled otherwise.
     Elsewhere,
 }
@@ -288,6 +291,14 @@ pub const ROTATE_OMEGA: (f64, f64) = (20.0, 14.0);
 /// Time constant (s) of the animated turn back upright.
 pub const STRAIGHTEN_TAU: f64 = 0.12;
 const ROTATE_REST: f64 = 1e-4;
+/// Pointer travel (points) after the autopilot or a journey leg took the wheel, and how long
+/// (s) a deflection past the steering dead zone must last, before it counts as the user
+/// steering (it then hands over to cruise): the pointer resting off-centre when Z was pressed,
+/// or passing over the canvas on its way to a button, is not steering.
+pub const STEER_TRAVEL: f64 = 12.0;
+pub const STEER_ENGAGE: f64 = 0.25;
+/// A lane-assist nudge lights the cockpit's lane icon this long (s).
+pub const ASSIST_FLASH: f64 = 0.6;
 /// Below these the velocities snap to rest (points/s, e-folds/s).
 const PAN_REST: f64 = 0.5;
 const ZOOM_REST: f64 = 1e-3;
@@ -359,9 +370,18 @@ pub struct Navigator {
     journey: Journey,
     /// The setting "Journey: stop at each find" (J starts that mode, ⇧J the other).
     journey_stops: bool,
-    /// The flight is the zoom-out autopilot (⇧Z): it flies at the autopilot's speed to the
-    /// home view and lands softly (kb: decisions/controls "Zoom-out autopilot").
-    zoom_out: bool,
+    /// Cruise: the pedal-driven zoom of level C (kb: decisions/controls "Driving levels").
+    cruise: Cruise,
+    /// A held pedal (direction +1 E / −1 Q) and when it steps again.
+    pedal_hold: Option<(f64, f64)>,
+    /// Pointer travel (points) since the autopilot or a journey leg took the wheel, and since
+    /// when the pointer has deflected past the dead zone: sustained steering hands over to
+    /// cruise.
+    wheel_travel: f64,
+    deflected_since: Option<f64>,
+    /// Lane assist (setting, default off; active in cruise only) and when it last nudged.
+    assist: bool,
+    assist_nudged: f64,
     /// The compass's eased turn back to north (kb: decisions/controls "Compass").
     north: Option<crate::compass::NorthTurn>,
 }
@@ -455,7 +475,12 @@ impl Default for Navigator {
             cinematic: Cinematic::default(),
             journey: Journey::default(),
             journey_stops: false,
-            zoom_out: false,
+            cruise: Cruise::default(),
+            pedal_hold: None,
+            wheel_travel: 0.0,
+            deflected_since: None,
+            assist: false,
+            assist_nudged: f64::NEG_INFINITY,
             north: None,
         }
     }
@@ -514,7 +539,7 @@ impl Navigator {
 
     /// The autopilot, a journey or a flight runs: the renderer reports how it keeps up.
     pub fn wants_feedback(&self) -> bool {
-        self.autopilot.is_active() || self.flight.is_some() || self.journey.wants_frames()
+        self.autopilot.is_active() || self.flight.is_some() || self.journey.wants_frames() || self.cruise.is_engaged()
     }
 
     /// Automatic motion (autopilot, journey, flight) is under way: colours may cycle.
@@ -530,7 +555,196 @@ impl Navigator {
     }
 
     pub fn is_flying(&self) -> bool {
-        self.autopilot.is_moving() || self.flight.is_some()
+        self.autopilot.is_moving() || self.flight.is_some() || self.cruise.is_moving()
+    }
+
+    // MARK: Driving levels (kb: decisions/controls "Driving levels")
+
+    /// The driving level: C while the cruise is engaged (its soft landing included), A while
+    /// the autopilot is on, J while a journey runs (at a stop too) or a fly-to flight flies,
+    /// else M.
+    pub fn level(&self) -> Level {
+        if self.cruise.is_engaged() {
+            Level::Cruise
+        } else if self.autopilot.is_active() {
+            Level::Autopilot
+        } else if self.journey.is_running() || self.flight.is_some() {
+            Level::Journey
+        } else {
+            Level::Manual
+        }
+    }
+
+    pub fn cruise(&self) -> &Cruise {
+        &self.cruise
+    }
+
+    /// What the HUD cockpit shows.
+    pub fn cockpit(&self, now: f64) -> Cockpit {
+        let level = self.level();
+        let (set, rate) = match level {
+            Level::Manual => (0.0, self.zoom_rate.v),
+            Level::Cruise => match (self.cruise.landing(), &self.flight) {
+                (Some(_), Some(f)) => (self.cruise.set_speed(), -f.speed.v * flyto::RHO),
+                _ => (self.cruise.set_speed(), self.cruise.rate()),
+            },
+            Level::Autopilot => (self.autopilot.speed(), self.autopilot.rate()),
+            Level::Journey if self.journey.at_stop() => (0.0, 0.0),
+            Level::Journey => {
+                let s = self.flight_speed();
+                (s, if self.flight.is_some() { s } else { 0.0 })
+            }
+        };
+        Cockpit {
+            level,
+            set,
+            rate,
+            boost: if level == Level::Cruise {
+                self.cruise.boost()
+            } else {
+                1.0
+            },
+            landing: self.cruise.landing().is_some(),
+            assist: self.assist,
+            nudging: self.assist && now - self.assist_nudged < ASSIST_FLASH,
+        }
+    }
+
+    /// Lane assist (setting "Assist", key L; kb: decisions/controls "Driving levels").
+    pub fn assist(&self) -> bool {
+        self.assist
+    }
+
+    pub fn set_assist(&mut self, on: bool) {
+        self.assist = on;
+    }
+
+    /// Lane assist's nudge of the cruise's heading target (view points from the centre), asked
+    /// each cruise frame while the user does not steer. Phase 1: the hook, no nudge. Phase 2
+    /// wires the GPU survey's steering away from featureless regions (the void-steer work in
+    /// `autopilot`): a gentle nudge towards the nearest boundary only when the region ahead is
+    /// becoming featureless; the user's steering always wins (this is not asked then).
+    fn assist_nudge(&self, _viewport: &Viewport, _radius: f64, _now: f64) -> Option<(f64, f64)> {
+        None
+    }
+
+    /// Depth below the home view fitted to the window, e-folds (negative: wider than home).
+    fn depth(&self, viewport: &Viewport) -> f64 {
+        let home = Viewport::fitting(self.view_size.0, self.view_size.1);
+        home.scale.ln() - viewport.scale.ln()
+    }
+
+    /// The autopilot runs, or a journey flies a leg: sustained user steering takes the wheel.
+    fn automatic_steerable(&self) -> bool {
+        (self.autopilot.is_active() && !self.autopilot.is_paused()) || self.journey_flying()
+    }
+
+    fn journey_flying(&self) -> bool {
+        self.journey.is_running() && !self.journey.at_stop() && self.flight.is_some() && self.cruise.landing().is_none()
+    }
+
+    /// Steering events: W A S D / arrows, a drag or touch pan, the gamepad's left stick.
+    fn is_steering(event: &InputEvent) -> bool {
+        match *event {
+            InputEvent::KeyDown(k) => k.is_direction(),
+            InputEvent::Pan { .. } => true,
+            InputEvent::Gamepad { lx, ly, .. } => lx.hypot(ly) > STICK_DEAD_ZONE,
+            _ => false,
+        }
+    }
+
+    /// The autopilot or a journey's leg took the wheel now: pointer steering is measured anew.
+    fn reset_wheel(&mut self) {
+        self.wheel_travel = 0.0;
+        self.deflected_since = None;
+    }
+
+    /// The user takes the wheel from the autopilot or a journey's flight: the cruise engages
+    /// with the current zoom rate and `set` (default: the autopilot's set speed, or the
+    /// flight's current zoom rate); the journey is suspended (J resumes), the autopilot off
+    /// and it does not take the wheel back by itself. Returns whether it did.
+    fn take_wheel(&mut self, set: Option<f64>, now: f64) -> bool {
+        if self.autopilot.is_active() {
+            let rate = self.autopilot.rate();
+            let set = set.unwrap_or(if rate >= 0.0 { self.autopilot.speed() } else { rate });
+            let heading = self.autopilot.heading();
+            self.autopilot.halt();
+            self.cruise.engage(set, rate, heading, now);
+            true
+        } else if self.journey_flying() {
+            self.journey.suspend();
+            let z = self.take_flight_motion().unwrap_or(0.0);
+            self.cruise.engage(set.unwrap_or(z), z, (0.0, 0.0), now);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The pointer steers (pointer mode, over the canvas, moved lately and since the wheel was
+    /// taken, deflected past the dead zone).
+    fn pointer_deflected(&self, now: f64) -> bool {
+        if self.mode != InputMode::Pointer
+            || now - self.pointer_moved >= autopilot::STEER_IDLE
+            || self.wheel_travel < STEER_TRAVEL
+        {
+            return false;
+        }
+        let Some(p) = self.pointer_on_canvas() else {
+            return false;
+        };
+        self.autopilot.steer_target(Some(p), self.steer_radius()) != (0.0, 0.0)
+    }
+
+    fn steer_radius(&self) -> f64 {
+        let (x0, x1, y0, y1) = self.canvas();
+        0.5 * (x1 - x0).min(y1 - y0)
+    }
+
+    /// A pedal press (`cross`) or a held pedal's repeat: E (+1) / Q (−1) on the ladder of the
+    /// level driving: the cruise from rest or in C, the autopilot's speed in A, the journey's
+    /// in J; down to zero there, the cruise takes over (braking to rest).
+    fn pedal(&mut self, dir: f64, cross: bool, viewport: &Viewport, now: f64) {
+        self.note_interaction(now);
+        if self.cruise.landing().is_some() {
+            // Towards zero while landing: an eased stop where it is.
+            if dir > 0.0 {
+                self.cruise.stop(now);
+                self.stop_flight();
+            }
+            return;
+        }
+        let journey_drives = self.journey.wants_frames();
+        if self.cruise.is_engaged() || !(self.autopilot.is_active() || journey_drives) {
+            let out_ok = self.depth(viewport) > 0.01;
+            self.cruise.pedal(dir, cross, out_ok, now);
+            return;
+        }
+        // Beyond the ladder's top rung (journeys fly up to 16 e-folds/s) E goes on ×1.25.
+        let step = |v: f64| {
+            if dir > 0.0 && v >= cruise::max_speed() * 0.99 {
+                v * autopilot::SPEED_STEP
+            } else {
+                cruise::pedal(v, dir, cross)
+            }
+        };
+        if self.autopilot.is_active() {
+            let next = step(self.autopilot.speed());
+            if next <= 0.0 {
+                self.take_wheel(Some(0.0), now);
+            } else {
+                self.autopilot.set_speed(next, now);
+            }
+            return;
+        }
+        let next = step(self.journey.speed());
+        if next <= 0.0 {
+            if !self.take_wheel(Some(0.0), now) {
+                self.journey.suspend();
+            }
+        } else {
+            self.journey.set_speed(next, now);
+        }
     }
 
     pub fn cinematic(&self) -> Cinematic {
@@ -591,6 +805,7 @@ impl Navigator {
         if self.journey.is_suspended() {
             let span = viewport.scale * self.min_side();
             self.autopilot.halt();
+            self.cruise.halt();
             self.journey.resume(&viewport.center, span);
             self.note_interaction(now);
             self.last_tick.get_or_insert(now);
@@ -605,37 +820,13 @@ impl Navigator {
         let was = self.is_animating();
         let chose = self.journey.choose(choice, &viewport.center, span);
         if chose {
+            self.cruise.halt();
             self.note_interaction(now);
             if !was {
                 self.last_tick = Some(now);
             }
         }
         chose
-    }
-
-    /// ⇧Z: the zoom-out autopilot (kb: decisions/controls "Zoom-out autopilot"): a fly-to
-    /// flight from the view to the home view at the autopilot's speed (Q / E, scroll change it),
-    /// easing in and landing softly; Esc, Z or ⇧Z ease it to a stop where it is, navigation
-    /// takes over as from a flight. The autopilot and a journey stop.
-    pub fn start_zoom_out(&mut self, viewport: &Viewport, now: f64) {
-        let was = self.is_animating();
-        self.stop_motion();
-        self.journey.stop();
-        let home = Viewport::fitting(self.view_size.0, self.view_size.1);
-        self.begin_flight(&home, viewport);
-        if let Some(f) = &mut self.flight {
-            f.soft_landing = true;
-        }
-        self.zoom_out = true;
-        self.note_interaction(now);
-        if !was {
-            self.last_tick = Some(now);
-        }
-    }
-
-    /// The zoom-out autopilot flies.
-    pub fn is_zooming_out(&self) -> bool {
-        self.zoom_out && self.flight.is_some()
     }
 
     /// The view's shorter side in points (spans of places and journey targets).
@@ -669,16 +860,15 @@ impl Navigator {
     }
 
     fn begin_flight(&mut self, target: &Viewport, viewport: &Viewport) {
-        self.zoom_out = false;
         let path = FlyPath::new(viewport, target, self.view_size.0);
         self.flight = Some(Flight::turning(path, viewport.angle, self.cinematic.spin_per_efold()));
     }
 
-    /// The speed the flight runs at: the journey's during a journey, the autopilot's for the
-    /// zoom-out autopilot, else the fly-to speed.
+    /// The speed the flight runs at: the journey's during a journey, the cruise's at its soft
+    /// landing on the home view, else the fly-to speed.
     pub fn flight_speed(&self) -> f64 {
-        if self.is_zooming_out() {
-            self.autopilot.speed()
+        if let Some(s) = self.cruise.landing() {
+            s
         } else if self.journey.is_running() {
             self.journey
                 .leg_speed_at(self.flight.as_ref().map_or(0.0, |f| f.progress()))
@@ -689,8 +879,8 @@ impl Navigator {
 
     /// Q / E, wheel and scroll during a flight or journey.
     fn scale_flight_speed(&mut self, f: f64, now: f64) {
-        if self.is_zooming_out() {
-            self.autopilot.scale_speed(f, now);
+        if self.cruise.landing().is_some() {
+            self.cruise.scale_speed(f, now);
         } else if self.journey.is_running() {
             self.journey.scale_speed(f, now);
         } else {
@@ -742,7 +932,18 @@ impl Navigator {
     /// Manual input takes over: the flight ends and its velocity carries on in the pan and
     /// zoom springs, which glide out (no jolt).
     fn hand_over_flight(&mut self) {
-        let Some(f) = self.flight.take() else { return };
+        if let Some(z) = self.take_flight_motion() {
+            self.zoom_rate = Spring { v: z, a: 0.0 };
+        }
+    }
+
+    /// Ends the flight: its pan and turn carry on in the springs (they glide out); returns its
+    /// zoom rate (e-folds/s, + in) for whoever drives the zoom on.
+    fn take_flight_motion(&mut self) -> Option<f64> {
+        let f = self.flight.take()?;
+        if self.cruise.landing().is_some() {
+            self.cruise.end_landing();
+        }
         let h = 1e-3;
         let a = f.viewport();
         let mut fb = f.clone();
@@ -750,14 +951,11 @@ impl Navigator {
         let b = fb.viewport();
         let (dx, dy) = a.offset_of(&b.center);
         self.pan = [Spring { v: -dx / h, a: 0.0 }, Spring { v: -dy / h, a: 0.0 }];
-        self.zoom_rate = Spring {
-            v: (a.scale.ln() - b.scale.ln()) / h,
-            a: 0.0,
-        };
         self.rot_rate = Spring {
             v: wrap_angle(b.angle - a.angle) / h,
             a: 0.0,
         };
+        Some((a.scale.ln() - b.scale.ln()) / h)
     }
 
     /// Input that takes over from a flight.
@@ -824,6 +1022,8 @@ impl Navigator {
             || self.zoom_fling != 0.0
             || self.step_left != 0.0
             || self.autopilot.is_moving()
+            || self.cruise.is_moving()
+            || self.pedal_hold.is_some()
             || self.flight.is_some()
             || !self.rot_rate.at_rest()
             || self.rot_step_left != 0.0
@@ -873,11 +1073,13 @@ impl Navigator {
         self.rot_ccw = false;
         self.rot_cw = false;
         self.pad = GamepadState::default();
+        self.pedal_hold = None;
     }
 
     /// Stops all motion at once (Reset, a new flight).
     fn stop_motion(&mut self) {
         self.autopilot.halt();
+        self.cruise.halt();
         self.flight = None;
         self.pan = [Spring::default(); 2];
         self.zoom_rate = Spring::default();
@@ -990,11 +1192,6 @@ impl Navigator {
     }
 
     fn apply(&mut self, event: InputEvent, viewport: &mut Viewport, now: f64) -> bool {
-        // The zoom-out autopilot: Z or ⇧Z again ease it to a stop (not the autopilot).
-        if self.is_zooming_out() && matches!(event, InputEvent::KeyDown(NavKey::Autopilot | NavKey::AutopilotOut)) {
-            self.stop_flight();
-            return true;
-        }
         // At a journey stop J / ⇧J, Z and X choose the next leg (kb: decisions/controls
         // "Journey with stops"); everything else works as without a journey.
         if self.journey.at_stop() {
@@ -1007,6 +1204,11 @@ impl Navigator {
             if let Some(c) = choice {
                 return self.journey_choose(c, viewport, now);
             }
+        }
+        // User steering takes the wheel from the autopilot or a journey's flight: cruise goes on
+        // at the current speed (kb: decisions/controls "Driving levels").
+        if Self::is_steering(&event) && self.automatic_steerable() {
+            self.take_wheel(None, now);
         }
         // Manual input takes over from a journey (eased: the flight's motion glides out); J,
         // the button or a click resumes it. Not at a stop: looking around there is allowed.
@@ -1047,7 +1249,7 @@ impl Navigator {
                 // zoom-out autopilot to the new home view).
                 if let Some(f) = self.flight.take() {
                     let mut target = f.path.target().clone();
-                    if self.zoom_out {
+                    if self.cruise.landing().is_some() {
                         target = Viewport::fitting(width, height).with_angle(target.angle);
                     }
                     let mut next = Flight::new(FlyPath::new(viewport, &target, width));
@@ -1217,6 +1419,9 @@ impl Navigator {
         if p.is_some() && p != self.pointer {
             self.pointer_moved = now;
         }
+        if let (Some(a), Some(b)) = (self.pointer, p) {
+            self.wheel_travel += (b.0 - a.0).hypot(b.1 - a.1);
+        }
         match p {
             Some(pos) if self.mode == InputMode::Keyboard => match self.anchor {
                 Some(a) if ((pos.0 - a.0).powi(2) + (pos.1 - a.1).powi(2)).sqrt() > POINTER_MODE_THRESHOLD => {
@@ -1275,27 +1480,59 @@ impl Navigator {
                     self.start_journey_mode(seed, false, stops, viewport, now);
                 }
             }
-            NavKey::AutopilotOut if down => self.start_zoom_out(viewport, now),
+
             // X means something only at a journey stop (handled before).
             NavKey::Elsewhere => return false,
-            // While flying or the autopilot is on, Q / E set that speed.
-            NavKey::SlowerZoom if down && (self.flight.is_some() || self.journey.wants_frames()) => {
-                self.scale_flight_speed(1.0 / autopilot::SPEED_STEP, now);
+            // Q / E: the Space speed while Space is held, a fly-to's speed, else the pedals
+            // (kb: decisions/controls "Driving levels").
+            NavKey::SlowerZoom | NavKey::FasterZoom => {
+                let dir = if k == NavKey::FasterZoom { 1.0 } else { -1.0 };
+                if !down {
+                    if self.pedal_hold.is_some_and(|(d, _)| d == dir) {
+                        self.pedal_hold = None;
+                    }
+                } else if self.zoom {
+                    let f = if dir > 0.0 { 1.25 } else { 0.8 };
+                    self.set_zoom_speed(self.zoom_speed * f, now);
+                } else if self.flight.is_some() && !self.journey.is_running() && self.cruise.landing().is_none() {
+                    let f = if dir > 0.0 {
+                        autopilot::SPEED_STEP
+                    } else {
+                        1.0 / autopilot::SPEED_STEP
+                    };
+                    self.scale_flight_speed(f, now);
+                } else {
+                    self.pedal(dir, true, viewport, now);
+                    self.pedal_hold = Some((dir, now + cruise::HOLD_DELAY));
+                }
             }
-            NavKey::FasterZoom if down && (self.flight.is_some() || self.journey.wants_frames()) => {
-                self.scale_flight_speed(autopilot::SPEED_STEP, now);
-            }
-            NavKey::SlowerZoom if down && self.autopilot.is_active() => {
-                self.autopilot.scale_speed(1.0 / autopilot::SPEED_STEP, now);
-            }
-            NavKey::FasterZoom if down && self.autopilot.is_active() => {
-                self.autopilot.scale_speed(autopilot::SPEED_STEP, now);
-            }
-            NavKey::SlowerZoom if down => self.set_zoom_speed(self.zoom_speed * 0.8, now),
-            NavKey::FasterZoom if down => self.set_zoom_speed(self.zoom_speed * 1.25, now),
             NavKey::Autopilot if down => {
                 self.journey.stop();
-                self.autopilot.toggle()
+                if self.cruise.is_engaged() {
+                    // C → A: the cruise brakes out on its springs while the autopilot eases in,
+                    // at the cruise's speed when it went forward.
+                    let s = self.cruise.set_speed();
+                    if self.cruise.landing().is_some() {
+                        self.hand_over_flight();
+                    }
+                    self.cruise.release();
+                    if s > 0.0 {
+                        self.autopilot.set_speed(s, now);
+                    }
+                    if !self.autopilot.is_active() {
+                        self.autopilot.toggle();
+                    }
+                } else {
+                    self.autopilot.toggle();
+                }
+                self.reset_wheel();
+            }
+            NavKey::Stop if down && self.cruise.is_engaged() => {
+                // Esc in cruise: brake smoothly to rest (a landing: an eased stop where it is).
+                self.cruise.stop(now);
+                if self.cruise.landing().is_some() {
+                    self.stop_flight();
+                }
             }
             NavKey::Stop => {
                 return if down {
@@ -1341,8 +1578,8 @@ impl Navigator {
             EdgePan::WhileZooming => self.zoom,
             EdgePan::Always => true,
         };
-        // The autopilot steers with the pointer instead.
-        if !active || self.mode != InputMode::Pointer || self.autopilot.is_active() {
+        // The autopilot and the cruise steer with the pointer instead.
+        if !active || self.mode != InputMode::Pointer || self.autopilot.is_active() || self.cruise.is_engaged() {
             return (0.0, 0.0);
         }
         let Some((x, y)) = self.pointer_on_canvas() else {
@@ -1449,6 +1686,29 @@ impl Navigator {
         let gliding = self.is_gliding();
         // The zoom follows the crosshair while it glides: the target is where it is drawn.
         self.glide(dt);
+        // A held pedal keeps stepping (repeats stop at the detent; at most 16 per frame).
+        if let Some((dir, mut next)) = self.pedal_hold {
+            let mut k = 0;
+            while now >= next && k < 16 {
+                self.pedal(dir, false, viewport, now);
+                next += cruise::HOLD_REPEAT;
+                k += 1;
+            }
+            if now >= next {
+                next = now + cruise::HOLD_REPEAT;
+            }
+            self.pedal_hold = Some((dir, next));
+        }
+        // Sustained pointer steering takes the wheel from the autopilot or a journey's flight.
+        if self.automatic_steerable() && self.pointer_deflected(now) {
+            let since = *self.deflected_since.get_or_insert(now);
+            if now - since >= STEER_ENGAGE {
+                self.take_wheel(None, now);
+                self.deflected_since = None;
+            }
+        } else {
+            self.deflected_since = None;
+        }
         // The journey starts its next leg when one is due.
         if self.journey.is_running()
             && let Some(journey::Action::Fly(t)) = self.journey.tick(now, self.flight.is_some())
@@ -1456,6 +1716,8 @@ impl Navigator {
             let mut target = t.viewport(self.min_side());
             target.angle = viewport.angle;
             let speed = self.flight.as_ref().map(|f| f.speed);
+            self.cruise.halt();
+            self.reset_wheel();
             let from = viewport.clone();
             self.begin_flight(&target, &from);
             if let (Some(f), Some(s)) = (&mut self.flight, speed) {
@@ -1480,8 +1742,10 @@ impl Navigator {
             self.step_north(dt, viewport);
             if done {
                 self.flight = None;
-                self.zoom_out = false;
-                if stopped {
+                if self.cruise.landing().is_some() {
+                    // The cruise's soft landing rests on the home view (or stopped on the way).
+                    self.cruise.end_landing();
+                } else if stopped {
                     self.journey.stop();
                 }
             }
@@ -1521,10 +1785,30 @@ impl Navigator {
             || ty != 0.0
             || self.fling != (0.0, 0.0)
             || self.driven();
-        let target = self
-            .autopilot
-            .aim(viewport, self.min_side(), radius, steer_pointer, manual, now);
+        // The autopilot no longer steers by the pointer: steering hands over to cruise (above).
+        let target = self.autopilot.aim(viewport, self.min_side(), radius, None, manual, now);
         let ap = self.autopilot.step(dt, target, now);
+        // Cruise: steered by the pointer only (and lane assist's nudge while the user does not
+        // steer); the depth boost in reverse.
+        let cruise_pointer = if self.cruise.is_engaged() { steer_pointer } else { None };
+        let mut steer = self.autopilot.steer_target(cruise_pointer, radius);
+        if self.cruise.is_engaged()
+            && self.assist
+            && steer == (0.0, 0.0)
+            && !manual
+            && let Some(n) = self.assist_nudge(viewport, radius, now)
+        {
+            steer = n;
+            self.assist_nudged = now;
+        }
+        let depth = self.depth(viewport);
+        let cm = self.cruise.step(
+            dt,
+            steer,
+            depth,
+            self.autopilot.throttle(),
+            self.autopilot.feedback().at_limit,
+        );
         let v = &mut self.pan;
         if tx == 0.0 && ty == 0.0 && v[0].v.hypot(v[1].v) < PAN_REST && v[0].a.hypot(v[1].a) < PAN_REST * PAN_OMEGA.1 {
             *v = [Spring::default(); 2];
@@ -1564,12 +1848,12 @@ impl Navigator {
                 self.fling = (0.0, 0.0);
             }
         }
-        dx += ap.pan.0;
-        dy += ap.pan.1;
+        dx += ap.pan.0 + cm.pan.0;
+        dy += ap.pan.1 + cm.pan.1;
         if dx != 0.0 || dy != 0.0 {
             // Pan and zoom run together: pan at the step's midpoint scale, so a frame's
             // order of operations does not show as a frame-rate dependence.
-            let mid = (-0.5 * (ln_zoom + ap.ln_zoom)).exp();
+            let mid = (-0.5 * (ln_zoom + ap.ln_zoom + cm.ln_zoom)).exp();
             viewport.pan_by_points(dx * mid, dy * mid);
         }
         if ln_zoom != 0.0 {
@@ -1585,6 +1869,10 @@ impl Navigator {
                 viewport.rotate_by(spin * ap.ln_zoom, ap.at.0, ap.at.1);
             }
         }
+        if cm.ln_zoom != 0.0 {
+            viewport.zoom_by(cm.ln_zoom.exp(), cm.at.0, cm.at.1);
+        }
+        self.cruise_landing(viewport);
         if turn != 0.0 {
             let (x, y) = self.zoom_target();
             viewport.rotate_by(turn, x, y);
@@ -1618,6 +1906,44 @@ impl Navigator {
         // Last, so it absorbs this frame's spin and ends at exactly north.
         self.step_north(dt, viewport);
         true
+    }
+
+    /// Hands a reverse cruise near home to a soft-landing flight onto the home view fitted to
+    /// the window (kb: decisions/controls "Driving levels"): when the path home is no longer
+    /// than [`cruise::LAND_LEAD`] seconds of the current rate (its brake curve then matches the
+    /// rate), or, braking, when the glide would reach home; always once the depth is gone.
+    fn cruise_landing(&mut self, viewport: &Viewport) {
+        if !self.cruise.is_engaged() || self.cruise.landing().is_some() || self.cruise.rate() >= 0.0 {
+            return;
+        }
+        let r = -self.cruise.rate();
+        let depth = self.depth(viewport);
+        let lead = if self.cruise.set_speed() < 0.0 {
+            cruise::LAND_LEAD * r
+        } else {
+            2.0 / autopilot::RATE_OMEGA.1 * r
+        };
+        if depth > lead + 1.0 {
+            return;
+        }
+        let home = Viewport::fitting(self.view_size.0, self.view_size.1);
+        let path = FlyPath::new(viewport, &home, self.view_size.0);
+        if depth > 0.0 && path.length() * flyto::RHO > lead.max(0.02) {
+            return;
+        }
+        self.begin_flight(&home, viewport);
+        if let Some(f) = &mut self.flight {
+            f.soft_landing = true;
+            f.speed = Spring {
+                v: r / flyto::RHO,
+                a: 0.0,
+            };
+            if self.cruise.set_speed() == 0.0 {
+                // Braking: it rests on home only if the glide would have got there.
+                f.stopping = false;
+            }
+        }
+        self.cruise.begin_landing(r);
     }
 
     // MARK: Compass (kb: decisions/controls "Compass"; geometry in `crate::compass`)
@@ -1682,6 +2008,22 @@ impl Navigator {
     pub fn insets(&self) -> (f64, f64, f64, f64) {
         self.insets
     }
+}
+
+/// What the HUD cockpit shows (kb: decisions/controls "Driving levels").
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Cockpit {
+    pub level: Level,
+    /// The level's set speed (signed e-folds per second, + in) and the zoom rate now.
+    pub set: f64,
+    pub rate: f64,
+    /// The reverse cruise's depth boost (1: none).
+    pub boost: f64,
+    /// The cruise's soft landing on the home view flies.
+    pub landing: bool,
+    /// Lane assist is on, and nudged just now.
+    pub assist: bool,
+    pub nudging: bool,
 }
 
 /// A journey seed for J: 1 ... 999 999 from the clock (short enough to read out and share).
@@ -2355,126 +2697,6 @@ mod tests {
     }
 
     #[test]
-    fn autopilot_pointer_always_wins_over_the_lock() {
-        let (mut n, mut v) = locked();
-        n.handle(InputEvent::Pointer(Some((0.0, 0.0))), &mut v, 0.0);
-        n.advance(&mut v, 0.0);
-        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
-        let t = run(&mut n, &mut v, 0.0, 1.0, 60.0);
-        assert!(
-            n.autopilot().lock().target().is_some(),
-            "in the dead zone the lock aims"
-        );
-        // Deflected: the pointer's heading alone, the lock released.
-        n.handle(InputEvent::Pointer(Some((-250.0, 40.0))), &mut v, t);
-        let t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
-        let plain = n.autopilot().steer_target(Some((-250.0, 40.0)), 300.0);
-        assert_eq!(n.autopilot().heading_target(), plain);
-        assert!(n.autopilot().lock().target().is_none() && !n.autopilot().lock().is_searching());
-        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
-        assert!(n.autopilot().lock().target().is_none());
-        // A manual pan holds it off too, with the pointer back in the dead zone.
-        n.handle(InputEvent::Pointer(Some((5.0, 5.0))), &mut v, t);
-        n.handle(InputEvent::Pan { dx: 30.0, dy: 0.0 }, &mut v, t);
-        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
-        assert!(n.autopilot().lock().target().is_none());
-        // Let go: the lock picks up again from the current view (a target in view; where the
-        // pointer led into sparse exterior, after backing out a little).
-        let mut t = run(&mut n, &mut v, t, t + 1.0, 60.0);
-        for _ in 0..600 {
-            if n.autopilot().lock().target().is_some() {
-                break;
-            }
-            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
-        }
-        let lt = n.autopilot().lock().target().unwrap_or_else(|| {
-            panic!(
-                "not picked up again: view {:?} {} probe {:?}, free {}, void {}, searching {}, last {:?}",
-                v.center.to_strings_digits(8),
-                span_of(&v).to_text(3),
-                probe_view(&v),
-                n.autopilot().is_free(),
-                n.autopilot().lock().view_is_void(),
-                n.autopilot().lock().is_searching(),
-                n.autopilot().lock().last_search
-            )
-        });
-        assert!(lt.center.distance_in(&v.center, span_of(&v)) < 1.0);
-        // Idle pointer (deflected but still for STEER_IDLE s): the lock aims again.
-        n.handle(InputEvent::Pointer(Some((250.0, 0.0))), &mut v, t);
-        let t0 = t;
-        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
-        assert!(n.autopilot().lock().target().is_none() && !n.autopilot().is_free());
-        let mut t = run(&mut n, &mut v, t, t0 + autopilot::STEER_IDLE + 0.1, 60.0);
-        assert!(n.autopilot().is_free());
-        for _ in 0..600 {
-            if n.autopilot().lock().target().is_some() {
-                break;
-            }
-            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
-        }
-        assert!(n.autopilot().lock().target().is_some());
-        // Off: a pure joystick, straight ahead with the pointer at rest.
-        n.autopilot_mut().set_lock(false);
-        run(&mut n, &mut v, t, t + 0.1, 60.0);
-        assert_eq!(n.autopilot().heading_target(), (0.0, 0.0));
-    }
-
-    #[test]
-    fn autopilot_recovers_after_steering_into_a_void() {
-        // The user steers into the main cardioid's interior on purpose, then lets go.
-        let (mut n, mut v) = locked();
-        let inside = crate::viewport::Center::new(-0.3, 0.1);
-        n.handle(InputEvent::Pointer(Some(v.offset_of(&inside))), &mut v, 0.0);
-        n.advance(&mut v, 0.0);
-        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
-        let mut t = 0.0;
-        for _ in 0..(10 * 30) {
-            // A hand keeping the point under the pointer (clamped to the canvas).
-            let (x, y) = v.offset_of(&inside);
-            n.handle(
-                InputEvent::Pointer(Some((x.clamp(-490.0, 490.0), y.clamp(-290.0, 290.0)))),
-                &mut v,
-                t,
-            );
-            t = run(&mut n, &mut v, t, t + 1.0 / 30.0, 60.0);
-        }
-        let (detail, interior) = probe_view(&v);
-        assert!(
-            detail < 1.0 && interior > 0.99,
-            "steered into the void: {detail} {interior}"
-        );
-        assert!(!n.autopilot().is_rescuing(), "never against the pointer");
-        let deepest = v.scale.ln();
-        // Let go.
-        n.handle(InputEvent::Pointer(None), &mut v, t);
-        let mut rescued = false;
-        for _ in 0..(40 * 60) {
-            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
-            rescued |= n.autopilot().is_rescuing();
-            if rescued && n.autopilot().lock().target().is_some() {
-                break;
-            }
-        }
-        assert!(rescued, "it backed out");
-        assert!(n.autopilot().lock().target().is_some(), "found a target");
-        assert!(
-            v.scale.ln() > deepest + 2.0,
-            "zoomed out {:.1} e-folds",
-            v.scale.ln() - deepest
-        );
-        // ... and dives again, ending in detail.
-        let t = run(&mut n, &mut v, t, t + 10.0, 60.0);
-        assert!(
-            n.autopilot().rate() > 0.5 * autopilot::SPEED_DEFAULT,
-            "{} at {t}",
-            n.autopilot().rate()
-        );
-        let (detail, interior) = probe_view(&v);
-        assert!(detail >= 3.0 && interior < 0.6, "{detail} {interior}");
-    }
-
-    #[test]
     fn autopilot_lock_is_frame_rate_independent() {
         let path = |hz: f64| {
             let (mut n, mut v) = locked();
@@ -2560,152 +2782,6 @@ mod tests {
         n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
         run(&mut n, &mut v, 0.0, 1.0, 60.0);
         assert_eq!(n.autopilot().heading_target(), (0.0, 0.0));
-    }
-
-    #[test]
-    fn autopilot_steers_the_pointed_content_to_the_centre() {
-        let (mut n, mut v) = joystick();
-        n.handle(InputEvent::Pointer(Some((200.0, 0.0))), &mut v, 0.0);
-        let c = v.point_at_offset(200.0, 0.0);
-        let ahead = v.point_at_offset(0.0, 0.0);
-        n.advance(&mut v, 0.0);
-        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
-        let mut last = 200.0;
-        let mut t = 0.0;
-        for _ in 0..5 {
-            t = run(&mut n, &mut v, t, t + 0.5, 60.0);
-            let (x, y) = screen_of(&v, &c);
-            assert!(x < last && y.abs() < 1e-6, "{x} {y} at {t}");
-            last = x;
-        }
-        assert!(last < 120.0, "{last}");
-        // ... while what was straight ahead slides away from the pointer: the view turns.
-        assert!(screen_of(&v, &ahead).0 < -10.0);
-        // An idle pointer stops steering after STEER_IDLE seconds.
-        run(&mut n, &mut v, t, autopilot::STEER_IDLE + 0.1, 60.0);
-        assert_eq!(n.autopilot().heading_target(), (0.0, 0.0));
-        // Moving it again steers again.
-        n.handle(InputEvent::Pointer(Some((-200.0, 100.0))), &mut v, 3.2);
-        run(&mut n, &mut v, 3.2, 3.3, 60.0);
-        let (hx, hy) = n.autopilot().heading_target();
-        assert!(hx < 0.0 && hy > 0.0);
-    }
-
-    #[test]
-    fn autopilot_is_frame_rate_independent() {
-        let path = |hz: f64| {
-            let (mut n, mut v) = joystick();
-            let c0 = v.center.clone();
-            let s0 = v.scale;
-            n.handle(InputEvent::Pointer(Some((220.0, 90.0))), &mut v, 0.0);
-            n.advance(&mut v, 0.0);
-            n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.0);
-            let mut out = Vec::new();
-            let mut t = 0.0;
-            for k in 1..=12 {
-                match k {
-                    4 => {
-                        n.handle(InputEvent::Pointer(Some((-150.0, -60.0))), &mut v, t);
-                    }
-                    8 => {
-                        n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t);
-                    }
-                    _ => {}
-                }
-                t = run(&mut n, &mut v, t, k as f64 * 0.2, hz);
-                let (x, y) = v.center.delta_in(&c0, s0);
-                out.push((x, y, v.scale.ln()));
-            }
-            out
-        };
-        let (a, b, c) = (path(30.0), path(60.0), path(120.0));
-        for i in 0..a.len() {
-            for o in [b[i], c[i]] {
-                // Zoom alone is exact; steering pan coupled with the zoom is second order.
-                assert!((a[i].2 - o.2).abs() < 1e-9, "zoom {i}: {} vs {}", a[i].2, o.2);
-                let d = (a[i].0 - o.0).hypot(a[i].1 - o.1);
-                assert!(
-                    d < 1e-3 * a[i].0.hypot(a[i].1).max(1.0),
-                    "pan {i}: {:?} vs {:?}",
-                    a[i],
-                    o
-                );
-            }
-        }
-        assert!(a[11].0.hypot(a[11].1) > 50.0, "it steered: {:?}", a[11]);
-    }
-
-    #[test]
-    fn autopilot_speed_keys_scroll_and_click() {
-        let (mut n, mut v) = joystick();
-        // Off: Q / E set the Space speed, a scroll pans, a click is not ours.
-        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.0);
-        assert!((n.zoom_speed() - 2.0).abs() < 1e-12);
-        let c0 = v.center.clone();
-        n.handle(
-            InputEvent::Scroll {
-                dx: 10.0,
-                dy: 0.0,
-                momentum: false,
-            },
-            &mut v,
-            0.0,
-        );
-        assert_ne!(v.center, c0);
-        assert!(!n.handle(InputEvent::Click { x: 0.0, y: 0.0 }, &mut v, 0.0));
-        // On: they set the autopilot's speed instead; scrolling does not pan.
-        n.handle(InputEvent::KeyDown(NavKey::Autopilot), &mut v, 0.1);
-        let s0 = n.autopilot().speed();
-        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.1);
-        assert!((n.autopilot().speed() - s0 * autopilot::SPEED_STEP).abs() < 1e-12);
-        assert!((n.zoom_speed() - 2.0).abs() < 1e-12);
-        n.handle(InputEvent::KeyDown(NavKey::SlowerZoom), &mut v, 0.1);
-        assert!((n.autopilot().speed() - s0).abs() < 1e-12);
-        let c1 = v.center.clone();
-        n.handle(
-            InputEvent::Scroll {
-                dx: 0.0,
-                dy: 100.0,
-                momentum: false,
-            },
-            &mut v,
-            0.2,
-        );
-        assert_eq!(v.center, c1);
-        assert!((n.autopilot().speed() - s0 * (100.0 * autopilot::SCROLL_PER_POINT).exp()).abs() < 1e-12);
-        let s1 = n.autopilot().speed();
-        n.handle(
-            InputEvent::Scroll {
-                dx: 0.0,
-                dy: 100.0,
-                momentum: true,
-            },
-            &mut v,
-            0.2,
-        );
-        assert_eq!(n.autopilot().speed(), s1, "momentum scrolls are ignored");
-        n.handle(
-            InputEvent::WheelNotch {
-                delta: -2.0,
-                x: 0.0,
-                y: 0.0,
-            },
-            &mut v,
-            0.3,
-        );
-        assert!((n.autopilot().speed() - s1 / autopilot::NOTCH_FACTOR.powi(2)).abs() < 1e-12);
-        // A click pauses (eased to rest: the display link may stop), another resumes.
-        n.advance(&mut v, 0.3);
-        run(&mut n, &mut v, 0.3, 2.0, 60.0);
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 2.0));
-        assert!(n.autopilot().is_paused());
-        let t = run(&mut n, &mut v, 2.0, 5.0, 60.0);
-        assert!(!n.is_moving() && !n.advance(&mut v, t + 0.01));
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, t));
-        assert!(n.is_moving());
-        // Reset stops it dead.
-        n.handle(InputEvent::KeyDown(NavKey::Reset), &mut v, t);
-        assert!(!n.autopilot().is_active() && !n.is_moving());
     }
 
     #[test]
@@ -2901,116 +2977,428 @@ mod tests {
         assert!(!n.journey().is_active());
     }
 
-    fn zoom_out_setup(scale: &str) -> (Navigator, Viewport) {
+    // MARK: Driving levels (kb: decisions/controls "Driving levels")
+
+    /// A key pressed and released at `t`.
+    fn tap(n: &mut Navigator, v: &mut Viewport, k: NavKey, t: f64) -> bool {
+        let handled = n.handle(InputEvent::KeyDown(k), v, t);
+        n.handle(InputEvent::KeyUp(k), v, t);
+        handled
+    }
+
+    /// The setup's navigator at `scale` near the seahorse valley's spiral.
+    fn deep(scale: &str) -> (Navigator, Viewport) {
         let (mut n, _) = setup();
         let mut v = crate::flyto::view_from_text("-0.743643887037151", "0.13182590420533", scale).unwrap();
         n.advance(&mut v, 0.0);
         (n, v)
     }
 
-    /// ⇧Z: steady zoom out at the autopilot speed, a soft stop exactly at the home view, from
-    /// 1e-300 and 1e-3000 (kb: decisions/controls "Zoom-out autopilot").
     #[test]
-    fn zoom_out_autopilot_lands_softly_at_home_from_any_depth() {
-        for (scale, speed) in [
-            ("1e-300", autopilot::SPEED_RANGE.1),
-            ("1e-3000", autopilot::SPEED_RANGE.1),
-        ] {
-            let (mut n, mut v) = zoom_out_setup(scale);
-            n.autopilot_mut().set_speed(speed, 0.0);
-            assert!(n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0));
-            assert!(n.is_zooming_out() && !n.autopilot().is_active());
-            assert_eq!(n.flight_speed(), speed);
-            let home = Viewport::fitting(W, 600.0);
-            let hz = 10.0;
+    fn cruise_pedals_step_the_ladder_with_a_detent_and_hold() {
+        let (mut n, mut v) = deep("1e-30");
+        assert_eq!(n.level(), Level::Manual);
+        // From rest E starts cruising in; each press is one rung.
+        assert!(tap(&mut n, &mut v, NavKey::FasterZoom, 0.0));
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(0));
+        tap(&mut n, &mut v, NavKey::FasterZoom, 0.1);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(1));
+        // Q twice: back to zero (still C while it brakes), then at rest: M.
+        tap(&mut n, &mut v, NavKey::SlowerZoom, 0.2);
+        tap(&mut n, &mut v, NavKey::SlowerZoom, 0.3);
+        assert_eq!(n.cruise().set_speed(), 0.0);
+        assert_eq!(n.level(), Level::Cruise);
+        let t = run(&mut n, &mut v, 0.3, 3.5, 60.0);
+        assert_eq!(n.level(), Level::Manual, "{:?}", n.cruise());
+        assert!(!n.is_moving());
+        // Holding Q from rest: reverse, one rung more after 0.4 s and every 0.25 s.
+        n.handle(InputEvent::KeyDown(NavKey::SlowerZoom), &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert_eq!(n.cruise().set_speed(), -cruise::rung(3), "held 1 s: three repeats");
+        n.handle(InputEvent::KeyUp(NavKey::SlowerZoom), &mut v, t);
+        // Holding E brakes rung by rung and stops at the detent: never across zero.
+        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 3.0, 60.0);
+        assert_eq!(n.cruise().set_speed(), 0.0);
+        n.handle(InputEvent::KeyUp(NavKey::FasterZoom), &mut v, t);
+        // A new press crosses: forward.
+        tap(&mut n, &mut v, NavKey::FasterZoom, t);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(0));
+        // Space held: Q / E set the Space speed and leave the cruise alone.
+        n.handle(InputEvent::KeyDown(NavKey::Zoom), &mut v, t);
+        tap(&mut n, &mut v, NavKey::FasterZoom, t);
+        assert!((n.zoom_speed() - 2.0).abs() < 1e-12);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(0));
+        n.handle(InputEvent::KeyUp(NavKey::Zoom), &mut v, t);
+        // R stops everything dead.
+        tap(&mut n, &mut v, NavKey::Reset, t);
+        assert_eq!(n.level(), Level::Manual);
+        assert!(!n.is_moving());
+        // At the whole set already, Q does not reverse.
+        tap(&mut n, &mut v, NavKey::SlowerZoom, t);
+        assert_eq!(n.level(), Level::Manual);
+    }
+
+    /// Reverse from any depth at the first rung: the boost builds up over seconds, the zoom out
+    /// never turns back in, home within about a minute, a soft landing exactly on home.
+    #[test]
+    fn cruise_reverse_lands_softly_on_home_from_any_depth() {
+        let home = Viewport::fitting(W, 600.0);
+        for (scale, limit) in [("1e-10", 25.0), ("1e-50", 40.0), ("1e-300", 55.0), ("1e-3000", 72.0)] {
+            let (mut n, mut v) = deep(scale);
+            let l0 = v.scale.ln();
+            tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            let hz = 30.0;
             let mut t = 0.0;
-            let mut last = v.scale.ln();
+            let mut last = l0;
             let mut rates = Vec::new();
-            while n.is_zooming_out() {
+            let mut landed_at = None;
+            while n.level() != Level::Manual {
                 t += 1.0 / hz;
                 n.advance(&mut v, t);
                 let l = v.scale.ln();
                 assert!(l >= last - 1e-9, "{scale}: never zooms in ({last} -> {l} at {t})");
                 rates.push((t, (l - last) * hz));
                 last = l;
-                assert!(t < 2.0e4, "{scale}: never landed");
+                if landed_at.is_none() && n.cockpit(t).landing {
+                    landed_at = Some(t);
+                }
+                assert!(t < 200.0, "{scale}: never home");
             }
-            assert_eq!(v, home, "{scale}: lands exactly on the home view");
-            let efolds = home.scale.ln() - crate::flyto::view_from_text("0", "0", scale).unwrap().scale.ln();
-            // Cruise at the set speed: the whole flight takes the e-folds / speed plus the
-            // ease-in and the soft landing (a few seconds).
-            let expected = efolds / speed;
-            assert!(
-                t > expected && t < expected + 6.0,
-                "{scale}: {t} s for {efolds} e-folds at {speed}"
+            eprintln!(
+                "reverse cruise from {scale}: home in {t:.1} s (landing from {:.1} s), peak {:.0} e-folds/s",
+                landed_at.unwrap_or(f64::NAN),
+                rates.iter().map(|r| r.1).fold(0.0, f64::max)
             );
-            let cruise = rates[rates.len() / 2].1;
+            assert_eq!(v, home, "{scale}: rests exactly on the home view");
+            assert!(t < limit, "{scale}: {t} s");
+            // Gentle start: less than 1.5 e-folds in the first second.
             assert!(
-                (cruise - speed).abs() < 0.02 * speed,
-                "{scale}: cruise {cruise} e-folds/s"
+                rates.iter().filter(|r| r.0 <= 1.0).map(|r| r.1 / hz).sum::<f64>() < 1.5,
+                "{scale}"
             );
-            // The soft stop: the last second still moves, slower and slower.
+            // The soft landing: the last second slower and slower.
             let tail: Vec<f64> = rates.iter().filter(|r| r.0 > t - 1.0).map(|r| r.1).collect();
             assert!(
                 tail.windows(2).all(|w| w[1] <= w[0] + 1e-9),
                 "{scale}: eases out {tail:?}"
-            );
-            assert!(
-                tail[0] > 0.05 && tail[0] < 0.8 * speed,
-                "{scale}: soft landing {tail:?}"
             );
             assert!(!n.advance(&mut v, t + 0.1), "{scale}: at rest");
         }
     }
 
     #[test]
-    fn zoom_out_autopilot_is_frame_rate_independent_and_stops_on_request() {
-        let mut views = Vec::new();
-        for hz in [30.0, 60.0, 120.0] {
-            let (mut n, mut v) = zoom_out_setup("1e-20");
-            n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
-            run(&mut n, &mut v, 0.0, 6.0, hz);
-            views.push(v.scale.ln());
+    fn cruise_is_frame_rate_independent() {
+        let path = |hz: f64| {
+            let (mut n, mut v) = deep("1e-40");
+            let c0 = v.center.clone();
+            let s0 = v.scale;
+            n.handle(InputEvent::Pointer(Some((150.0, 80.0))), &mut v, 0.0);
+            tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            tap(&mut n, &mut v, NavKey::SlowerZoom, 0.0);
+            let mut out = Vec::new();
+            let mut t = 0.0;
+            for k in 1..=10 {
+                if k == 4 {
+                    n.handle(InputEvent::Pointer(Some((-120.0, -60.0))), &mut v, t);
+                }
+                if k == 8 {
+                    n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t);
+                }
+                t = run(&mut n, &mut v, t, k as f64 * 0.6, hz);
+                let (x, y) = v.center.delta_in(&c0, v.scale);
+                out.push((x, y, v.scale.ln() - s0.ln()));
+            }
+            out
+        };
+        let (a, b, c) = (path(30.0), path(60.0), path(120.0));
+        for i in 0..a.len() {
+            for o in [b[i], c[i]] {
+                assert!(
+                    (a[i].2 - o.2).abs() < 2e-3 * a[i].2.abs().max(1.0),
+                    "zoom {i}: {a:?} vs {o:?}"
+                );
+                // The steered centre within 3 points (of 600) after up to 26 e-folds out: the
+                // boost depends on the depth the zoom changes (first order in the 2 ms substeps).
+                let d = (a[i].0 - o.0).hypot(a[i].1 - o.1);
+                assert!(d < 3.0, "pan {i}: {:?} vs {:?}", a[i], o);
+            }
         }
-        for l in &views {
-            assert!((l - views[0]).abs() < 1e-3, "30/60/120 Hz agree: {views:?}");
+        assert!(a[9].2 > 5.0, "zoomed out: {:?}", a[9]);
+    }
+
+    #[test]
+    fn cruise_esc_brakes_on_a_smooth_curve() {
+        let (mut n, mut v) = deep("1e-30");
+        for _ in 0..4 {
+            tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
         }
-        let (n0, v0) = zoom_out_setup("1e-20");
-        let moved = views[0] - v0.scale.ln();
-        let d = n0.autopilot().speed();
-        assert!(
-            moved > d * 4.5 && moved < d * 6.0,
-            "eased in, then the autopilot speed: {moved}"
-        );
-        // Q / E change the autopilot's speed while zooming out.
-        let (mut n, mut v) = zoom_out_setup("1e-20");
-        n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
-        n.handle(InputEvent::KeyDown(NavKey::FasterZoom), &mut v, 0.0);
-        assert!((n.autopilot().speed() - autopilot::SPEED_DEFAULT * autopilot::SPEED_STEP).abs() < 1e-12);
-        assert!((n.flight_speed() - n.autopilot().speed()).abs() < 1e-12);
-        // Esc, Z and ⇧Z ease it to a stop where it is (Z does not start the autopilot).
-        for key in [NavKey::Stop, NavKey::Autopilot, NavKey::AutopilotOut] {
-            let (mut n, mut v) = zoom_out_setup("1e-20");
-            n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
-            let t = run(&mut n, &mut v, 0.0, 3.0, 60.0);
-            assert!(n.handle(InputEvent::KeyDown(key), &mut v, t), "{key:?}");
-            assert!(!n.autopilot().is_active(), "{key:?}");
-            let l0 = v.scale.ln();
-            let t = run(&mut n, &mut v, t, t + 3.0, 60.0);
-            assert!(n.flight().is_none() && !n.advance(&mut v, t + 0.01), "{key:?} stopped");
-            let glide = v.scale.ln() - l0;
-            assert!(glide > 0.05 && glide < 1.0, "{key:?}: glides out {glide}");
-            assert!(v.scale.to_f64() < 1e-10, "{key:?}: stopped on the way");
+        let speed = cruise::rung(3);
+        let t = run(&mut n, &mut v, 0.0, 4.0, 60.0);
+        assert!((n.cruise().rate() - speed).abs() < 1e-3 * speed);
+        assert!(n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t));
+        let l0 = v.scale.ln();
+        let mut last = n.cruise().rate();
+        let mut t = t;
+        let mut frames = 0;
+        while n.level() == Level::Cruise {
+            t += 1.0 / 60.0;
+            n.advance(&mut v, t);
+            let r = n.cruise().rate();
+            assert!(r <= last + 1e-12 && r >= 0.0, "monotonic braking: {r} after {last}");
+            last = r;
+            frames += 1;
+            assert!(frames < 300, "never at rest");
         }
-        // Navigation takes over as from a flight; R resets.
-        let (mut n, mut v) = zoom_out_setup("1e-20");
-        n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, 0.0);
+        let glide = l0 - v.scale.ln();
+        let expect = 2.0 / autopilot::RATE_OMEGA.1 * speed;
+        assert!((glide - expect).abs() < 0.02 * expect, "glide {glide} vs {expect}");
+        assert!(!n.is_moving());
+    }
+
+    #[test]
+    fn cruise_steers_the_pointed_content_to_the_centre() {
+        let (mut n, mut v) = setup();
+        n.handle(InputEvent::Pointer(Some((200.0, 0.0))), &mut v, 0.0);
+        let c = v.point_at_offset(200.0, 0.0);
+        let ahead = v.point_at_offset(0.0, 0.0);
+        n.advance(&mut v, 0.0);
+        for _ in 0..3 {
+            tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        }
+        let mut last = 200.0;
+        let mut t = 0.0;
+        for _ in 0..5 {
+            t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+            let (x, y) = screen_of(&v, &c);
+            assert!(x < last && y.abs() < 1e-6, "{x} {y} at {t}");
+            last = x;
+        }
+        assert!(last < 120.0, "{last}");
+        assert!(screen_of(&v, &ahead).0 < -10.0);
+        // An idle pointer stops steering after STEER_IDLE seconds: never pulled anywhere.
+        run(&mut n, &mut v, t, autopilot::STEER_IDLE + 1.5, 60.0);
+        assert!(dist(n.cruise().heading()) < 1.0, "{:?}", n.cruise().heading());
+        assert_eq!(n.level(), Level::Cruise);
+    }
+
+    /// Any user steering in A drops to cruise at the current speed; the autopilot does not take
+    /// the wheel back; Z re-engages; pulling the speed to zero drops to cruise too.
+    #[test]
+    fn autopilot_hands_over_to_cruise_and_never_takes_the_wheel_back() {
+        let (mut n, mut v) = joystick();
+        // The pointer resting off-centre when Z is pressed does not count.
+        n.handle(InputEvent::Pointer(Some((250.0, 0.0))), &mut v, 0.0);
+        n.advance(&mut v, 0.0);
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
         let t = run(&mut n, &mut v, 0.0, 2.0, 60.0);
-        n.handle(InputEvent::Pan { dx: 3.0, dy: 0.0 }, &mut v, t);
-        assert!(!n.is_zooming_out());
-        n.handle(InputEvent::KeyDown(NavKey::AutopilotOut), &mut v, t);
+        assert_eq!(n.level(), Level::Autopilot);
+        let rate = n.autopilot().rate();
+        // Moving it (deflected past the dead zone, sustained): cruise.
+        n.handle(InputEvent::Pointer(Some((230.0, 10.0))), &mut v, t);
+        n.handle(InputEvent::Pointer(Some((250.0, 20.0))), &mut v, t);
+        let t1 = run(&mut n, &mut v, t, t + 0.1, 60.0);
+        assert_eq!(n.level(), Level::Autopilot, "not before {STEER_ENGAGE} s");
+        let t = run(&mut n, &mut v, t1, t + 0.4, 60.0);
+        assert_eq!(n.level(), Level::Cruise);
+        assert!(!n.autopilot().is_active());
+        assert_eq!(n.cruise().set_speed(), autopilot::SPEED_DEFAULT);
+        assert!(
+            (n.cruise().rate() - rate).abs() < 0.05,
+            "kept its speed: {} vs {rate}",
+            n.cruise().rate()
+        );
+        // Idle for long: still cruise (no re-lock).
+        let t = run(&mut n, &mut v, t, t + 6.0, 60.0);
+        assert_eq!(n.level(), Level::Cruise);
+        assert!(!n.autopilot().is_active());
+        // Z again: A, at the cruise's speed.
+        tap(&mut n, &mut v, NavKey::Autopilot, t);
+        assert_eq!(n.level(), Level::Autopilot);
+        // W A S D: cruise at once.
+        n.handle(InputEvent::KeyDown(NavKey::Up), &mut v, t);
+        n.handle(InputEvent::KeyUp(NavKey::Up), &mut v, t);
+        assert_eq!(n.level(), Level::Cruise);
+        // A drag too.
+        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+        tap(&mut n, &mut v, NavKey::Autopilot, t);
+        n.handle(InputEvent::Pan { dx: 4.0, dy: 0.0 }, &mut v, t);
+        assert_eq!(n.level(), Level::Cruise);
+        // In A, Q / E step the autopilot's speed on the ladder; down to zero: cruise, braking.
+        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+        tap(&mut n, &mut v, NavKey::Autopilot, t);
+        assert_eq!(n.level(), Level::Autopilot);
+        let s = n.autopilot().speed();
+        tap(&mut n, &mut v, NavKey::FasterZoom, t);
+        assert!(n.autopilot().speed() > s);
+        for _ in 0..12 {
+            if n.level() == Level::Cruise {
+                break;
+            }
+            tap(&mut n, &mut v, NavKey::SlowerZoom, t);
+        }
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), 0.0, "the detent: not reversing");
+        run(&mut n, &mut v, t, t + 4.0, 60.0);
+        assert_eq!(n.level(), Level::Manual);
+    }
+
+    #[test]
+    fn steering_or_pedal_to_zero_drops_a_journey_to_cruise() {
+        let (mut n, mut v) = journey_nav(false);
+        n.start_journey(4711, false, &v.clone(), 0.0);
+        let mut t = 0.0;
+        let flying = |n: &mut Navigator, v: &mut Viewport, t: &mut f64| {
+            let t0 = *t;
+            while !(n.journey().is_running() && n.flight().is_some() && n.flight().unwrap().progress() > 0.3) {
+                *t += 1.0 / 60.0;
+                n.advance(v, *t);
+                assert!(*t < t0 + 60.0, "no leg");
+            }
+        };
+        flying(&mut n, &mut v, &mut t);
+        assert_eq!(n.level(), Level::Journey);
+        n.handle(InputEvent::KeyDown(NavKey::Left), &mut v, t);
+        n.handle(InputEvent::KeyUp(NavKey::Left), &mut v, t);
+        assert_eq!(n.level(), Level::Cruise);
+        assert!(n.journey().is_suspended() && n.flight().is_none());
+        // J resumes the journey.
+        tap(&mut n, &mut v, NavKey::Journey, t);
+        assert_eq!(n.level(), Level::Journey);
+        flying(&mut n, &mut v, &mut t);
+        // Q steps the journey's speed down; to zero: cruise, braking to rest.
+        let s = n.journey().speed();
+        tap(&mut n, &mut v, NavKey::SlowerZoom, t);
+        assert!(n.journey().speed() < s && n.level() == Level::Journey);
+        for _ in 0..8 {
+            if n.level() == Level::Cruise {
+                break;
+            }
+            tap(&mut n, &mut v, NavKey::SlowerZoom, t);
+        }
+        assert_eq!(n.level(), Level::Cruise);
+        assert!(n.journey().is_suspended());
+        assert_eq!(n.cruise().set_speed(), 0.0);
+    }
+
+    #[test]
+    fn autopilot_recovers_after_cruising_into_a_featureless_region() {
+        // The user cruises into the main cardioid's interior on purpose, then hands over to A.
+        let (mut n, mut v) = locked();
+        let inside = crate::viewport::Center::new(-0.3, 0.1);
+        n.handle(InputEvent::Pointer(Some(v.offset_of(&inside))), &mut v, 0.0);
+        n.advance(&mut v, 0.0);
+        for _ in 0..3 {
+            tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        }
+        let mut t = 0.0;
+        for _ in 0..(10 * 30) {
+            let (x, y) = v.offset_of(&inside);
+            n.handle(
+                InputEvent::Pointer(Some((x.clamp(-490.0, 490.0), y.clamp(-290.0, 290.0)))),
+                &mut v,
+                t,
+            );
+            t = run(&mut n, &mut v, t, t + 1.0 / 30.0, 60.0);
+        }
+        let (detail, interior) = probe_view(&v);
+        assert!(detail < 1.0 && interior > 0.99, "cruised into it: {detail} {interior}");
+        assert_eq!(n.level(), Level::Cruise);
+        let deepest = v.scale.ln();
+        n.handle(InputEvent::Pointer(None), &mut v, t);
+        tap(&mut n, &mut v, NavKey::Autopilot, t);
+        assert_eq!(n.level(), Level::Autopilot);
+        let mut rescued = false;
+        for _ in 0..(40 * 60) {
+            t = run(&mut n, &mut v, t, t + 1.0 / 60.0, 60.0);
+            rescued |= n.autopilot().is_rescuing();
+            if rescued && n.autopilot().lock().target().is_some() {
+                break;
+            }
+        }
+        assert!(rescued, "it backed out");
+        assert!(n.autopilot().lock().target().is_some(), "found a target");
+        assert!(v.scale.ln() > deepest + 2.0);
+        let t = run(&mut n, &mut v, t, t + 10.0, 60.0);
+        assert!(
+            n.autopilot().rate() > 0.5 * autopilot::SPEED_DEFAULT,
+            "{} at {t}",
+            n.autopilot().rate()
+        );
+        let (detail, interior) = probe_view(&v);
+        assert!(detail >= 3.0 && interior < 0.6, "{detail} {interior}");
+    }
+
+    #[test]
+    fn autopilot_speed_keys_scroll_and_click() {
+        let (mut n, mut v) = joystick();
+        // Off: a scroll pans, a click is not ours.
+        let c0 = v.center.clone();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 10.0,
+                dy: 0.0,
+                momentum: false,
+            },
+            &mut v,
+            0.0,
+        );
+        assert_ne!(v.center, c0);
+        assert!(!n.handle(InputEvent::Click { x: 0.0, y: 0.0 }, &mut v, 0.0));
+        // On: E / Q step its speed on the ladder; scrolling sets it and does not pan.
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.1);
+        let s0 = n.autopilot().speed();
+        tap(&mut n, &mut v, NavKey::FasterZoom, 0.1);
+        assert_eq!(n.autopilot().speed(), cruise::pedal(s0, 1.0, true));
+        assert!((n.zoom_speed() - 1.6).abs() < 1e-12);
+        tap(&mut n, &mut v, NavKey::SlowerZoom, 0.1);
+        let s0 = n.autopilot().speed();
+        let c1 = v.center.clone();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 0.0,
+                dy: 100.0,
+                momentum: false,
+            },
+            &mut v,
+            0.2,
+        );
+        assert_eq!(v.center, c1);
+        assert!((n.autopilot().speed() - s0 * (100.0 * autopilot::SCROLL_PER_POINT).exp()).abs() < 1e-12);
+        let s1 = n.autopilot().speed();
+        n.handle(
+            InputEvent::Scroll {
+                dx: 0.0,
+                dy: 100.0,
+                momentum: true,
+            },
+            &mut v,
+            0.2,
+        );
+        assert_eq!(n.autopilot().speed(), s1, "momentum scrolls are ignored");
+        n.handle(
+            InputEvent::WheelNotch {
+                delta: -2.0,
+                x: 0.0,
+                y: 0.0,
+            },
+            &mut v,
+            0.3,
+        );
+        assert!((n.autopilot().speed() - s1 / autopilot::NOTCH_FACTOR.powi(2)).abs() < 1e-12);
+        // A click pauses (eased to rest: the display link may stop), another resumes.
+        n.advance(&mut v, 0.3);
+        run(&mut n, &mut v, 0.3, 2.0, 60.0);
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 2.0));
+        assert!(n.autopilot().is_paused());
+        let t = run(&mut n, &mut v, 2.0, 5.0, 60.0);
+        assert!(!n.is_moving() && !n.advance(&mut v, t + 0.01));
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, t));
+        assert!(n.is_moving());
+        // Reset stops it dead.
         n.handle(InputEvent::KeyDown(NavKey::Reset), &mut v, t);
-        assert!(!n.is_zooming_out() && v == Viewport::fitting(W, 600.0));
+        assert!(!n.autopilot().is_active() && !n.is_moving());
     }
 
     fn journey_nav(stops: bool) -> (Navigator, Viewport) {

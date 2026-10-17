@@ -120,7 +120,7 @@ class FractalHostBase {
     /// The overlay state after the last `frame` call (interaction test: crosshair positions).
     struct Overlay { let keyboard: Bool; let x: Double; let y: Double }
     private(set) var lastFrame: Overlay?
-    /// The autopilot is on (as of the last frame): on iOS a finger then steers.
+    /// The autopilot or the cruise drives (as of the last frame): on iOS a finger then steers.
     private(set) var autopilotOn = false
 
     init(model: ExplorerModel, scale: CGFloat) {
@@ -503,9 +503,9 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         case "+", "=": return .stepIn
         case "-", "_": return .stepOut
         case "r": return .reset
-        // ⇧Z: the zoom-out autopilot; ⇧J: a journey in the other mode; X: somewhere else at
-        // a journey stop (kb: decisions/controls "Zoom-out autopilot", "Journey with stops").
-        case "z": return shift ? .autopilotOut : .autopilot
+        // Q / E: the pedals (kb: decisions/controls "Driving levels"); ⇧J: a journey in the
+        // other mode; X: somewhere else at a journey stop ("Journey with stops").
+        case "z": return .autopilot
         case "j": return shift ? .journeyAlt : .journey
         case "x": return .elsewhere
         case ",", "<": return .rotateCcw
@@ -525,7 +525,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         // Menu shortcuts and text fields keep their keys.
         if event.modifierFlags.contains(.command) { return false }
         if window?.firstResponder is NSText { return false }
-        // O / M / C / P: orbit overlay, mini-map, cosmic size scale, π meter (toggled on
+        // O / M / C / P / L: orbit overlay, mini-map, cosmic size scale, π meter, lane assist (toggled on
         // key-down; their key-ups are swallowed).
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
         case "o":
@@ -539,6 +539,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             return true
         case "p":
             if event.type == .keyDown && !event.isARepeat { model.togglePiMeter() }
+            return true
+        case "l":
+            // Lane assist (kb: decisions/controls "Driving levels").
+            if event.type == .keyDown && !event.isARepeat { model.toggleLaneAssist() }
             return true
         case "f":
             if event.type == .keyDown && !event.isARepeat { toggleFullScreen() }
@@ -556,8 +560,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             if !send(.keyDown(key: .stop)).handled { toggleFullScreen() }
             return true
         }
-        // Z toggles: a held key's repeats must not toggle again.
-        if [.autopilot, .autopilotOut, .journey, .journeyAlt, .elsewhere, .straighten].contains(key) && event.isARepeat {
+        // Z toggles: a held key's repeats must not toggle again. Q / E: Rust steps a held pedal
+        // itself (a repeat would count as a new press and cross the detent at zero).
+        if [.autopilot, .journey, .journeyAlt, .elsewhere, .straighten, .slowerZoom, .fasterZoom].contains(key)
+            && event.isARepeat {
             return true
         }
         if event.type == .keyUp { return send(.keyUp(key: key)).handled }
@@ -883,7 +889,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case "+", "=": return .stepIn
         case "-", "_": return .stepOut
         case "r": return .reset
-        case "z": return shift ? .autopilotOut : .autopilot
+        case "z": return .autopilot
         case "j": return shift ? .journeyAlt : .journey
         case "x": return .elsewhere
         case ",", "<": return .rotateCcw
@@ -902,6 +908,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 case "m": base.model.toggleMap(); continue
                 case "p": base.model.togglePiMeter(); continue
                 case "c": base.model.toggleCosmicScale(); continue
+                case "l": base.model.toggleLaneAssist(); continue
                 default: break
                 }
             }
