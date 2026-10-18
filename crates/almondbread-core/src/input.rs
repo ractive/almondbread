@@ -1470,11 +1470,12 @@ impl Navigator {
                     }
                     true
                 } else if self.scroll_zooms {
-                    // Fingers up zoom in, like the wheel; the momentum after lifting coasts on.
+                    // The same direction as ⌘ + scroll and the wheel (`WheelZoom`: the OS's ΔY = −dy,
+                    // natural scrolling already applied); the momentum after lifting coasts on.
                     if dy != 0.0 && dy.is_finite() {
                         self.manual_zoom_ends_cruise();
                         let (tx, ty) = self.zoom_target();
-                        self.zoom_at(viewport, (dy * SCROLL_ZOOM_PER_POINT).exp(), tx, ty, now);
+                        self.zoom_at(viewport, (-dy * SCROLL_ZOOM_PER_POINT).exp(), tx, ty, now);
                     }
                     true
                 } else {
@@ -2341,7 +2342,8 @@ mod tests {
         assert_eq!(n.assist_nudge(&v, r, 1.0 + 2.0 * ASSIST_SURVEY_AGE), None);
     }
 
-    /// Setting "Two-finger scroll: Zoom": up zooms in, down out, sideways nothing; default pans.
+    /// Setting "Two-finger scroll: Zoom": the OS's ΔY > 0 (dy < 0) zooms in like ⌘ + scroll, the
+    /// other way out, sideways nothing; default pans.
     #[test]
     fn two_finger_scroll_zooms_when_set() {
         let (mut n, mut v) = setup();
@@ -2373,7 +2375,7 @@ mod tests {
         n2.handle(
             InputEvent::Scroll {
                 dx: 0.0,
-                dy: 100.0,
+                dy: -100.0,
                 momentum: false,
             },
             &mut v2,
@@ -2384,7 +2386,7 @@ mod tests {
         n2.handle(
             InputEvent::Scroll {
                 dx: 0.0,
-                dy: -100.0,
+                dy: 100.0,
                 momentum: false,
             },
             &mut v2,
