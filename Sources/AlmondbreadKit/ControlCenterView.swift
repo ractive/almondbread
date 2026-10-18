@@ -380,6 +380,17 @@ struct ViewSectionRows: View {
         // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
         Toggle("Lane assist", isOn: $model.laneAssist)
             .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
+        #if os(iOS)
+        // Seek minibrot about the view (N; kb: decisions/controls "Seek minibrot"): the long-press
+        // menu's "Seek Minibrot Here" needs a still picture, this works while flying too (it was
+        // the round autopilot button's menu until 2026-10-18).
+        Button {
+            model.seekMinibrot()
+        } label: {
+            Label("Seek minibrot", systemImage: "scope")
+        }
+        .buttonStyle(.borderless)
+        #endif
         #if os(macOS)
         Picker("Two-finger scroll", selection: $model.scrollZooms) {
             Text("Pan").tag(false)
@@ -982,11 +993,18 @@ enum ControlSection: String, CaseIterable, Identifiable {
         return title.lowercased().contains(q) || keywords.contains { $0.contains(q) }
     }
 
+    /// iOS has the Seek minibrot button in View.
+    #if os(iOS)
+    static let touchViewKeywords = ["seek", "minibrot"]
+    #else
+    static let touchViewKeywords: [String] = []
+    #endif
+
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain"]
-        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"]
+        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
@@ -1306,11 +1324,12 @@ struct ControlsHelp: View {
         row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "Drag up / down: one gear per notch; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
-        row("airplane", "Autopilot button or Z", "Fly on; a finger (resting or moving) suggests a direction, a tap pauses")
+        row("circle.circle", "Round buttons", "Orbit, mini-map, size scale on / off; fly to; control center")
+        row("airplane", "Cockpit plane or Z", "Fly on; a finger (resting or moving) suggests a direction, a tap pauses")
         row("steeringwheel", "Finger in cruise or a journey", "Steers (a journey hands over to cruise)")
-        row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
-        row("forward", "At a journey stop", "Next · deeper here · somewhere else")
-        row("minus.magnifyingglass", "Long-press autopilot", "Cruise in / out, stop, lane assist")
+        row("sparkles", "Cockpit sparkles or J", "Landmark to landmark; a tap pauses")
+        row("forward", "At a journey stop", "Buttons under the status: next · deeper here · elsewhere")
+        row("scope", "Seek minibrot", "Long press (here) or the control center")
         row("rotate.left", "Two-finger rotate", "Turn the view")
         #endif
     }

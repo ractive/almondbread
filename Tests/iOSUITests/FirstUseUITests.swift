@@ -134,9 +134,8 @@ final class FirstUseUITests: XCTestCase {
         settle(4)
         shot("pinched-deep-settled")
 
-        // The plane: autopilot. A finger steers; a tap pauses; the plane again stops.
-        let plane = app.buttons["Autopilot"]
-        XCTAssertTrue(plane.isHittable, "plane button")
+        // The cockpit's plane: autopilot. A finger steers; a tap pauses; the plane again stops.
+        let plane = try XCTUnwrap(point("autopilot"), "no cockpit plane")
         plane.tap()
         settle(3)
         XCTAssertEqual(level(), "a", "the plane did not start the autopilot")
@@ -174,23 +173,23 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertEqual(level(), "m", "the throttle's double tap did not stop")
         shot("throttle-stopped")
 
-        // A journey: start, watch, stop with the same button.
-        app.buttons["Journey"].firstMatch.tap()
+        // A journey: start, watch, stop with the cockpit's sparkles.
+        try XCTUnwrap(point("journey"), "no cockpit journey icon").tap()
         settle(8)
-        XCTAssertEqual(fields()["journey"], "on", "the journey button did not start one")
+        XCTAssertEqual(fields()["journey"], "on", "the journey icon did not start one")
         shot("journey")
         settle(8)
         shot("journey-later")
-        let journey = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Journey'")).firstMatch
+        let journey = try XCTUnwrap(point("journey"))
         journey.tap()
         settle(3)
         if fields()["journey"] == "on" {
-            // At a stop the first button flies on: a child presses again to stop.
+            // At a stop the icon flies on (J): a child presses again to stop.
             shot("journey-still-on")
             journey.tap()
             settle(3)
         }
-        XCTAssertEqual(fields()["journey"], "off", "the journey button did not stop the journey")
+        XCTAssertEqual(fields()["journey"], "off", "the journey icon did not stop the journey")
         shot("journey-off")
 
         // Rotate the device both ways (and upside down on an iPad).
@@ -205,7 +204,11 @@ final class FirstUseUITests: XCTestCase {
             alive("rotating")
             shot("rotated-\(o.rawValue)")
             XCTAssertTrue(lever.isHittable, "throttle not hittable after rotating to \(o.rawValue)")
-            XCTAssertTrue(plane.isHittable, "plane not hittable after rotating to \(o.rawValue)")
+            XCTAssertNotNil(point("autopilot"), "no cockpit plane after rotating to \(o.rawValue)")
+            for name in ["Orbit", "Mini-map", "Size scale", "Fly to", "Control center"] {
+                let button = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+                XCTAssertTrue(button.isHittable, "\(name) not hittable after rotating to \(o.rawValue)")
+            }
         }
 
         // Background and back, while cruising.
@@ -422,12 +425,15 @@ final class FirstUseUITests: XCTestCase {
             canvas.twoFingerTap()
             canvas.rotate(.pi / 2, withVelocity: 3)
             canvas.pinch(withScale: 0.3, velocity: -6)
-            app.buttons["Autopilot"].tap()
-            app.buttons["Autopilot"].tap()
-            app.buttons["Journey"].firstMatch.tap()
+            point("autopilot")?.tap()
+            point("autopilot")?.tap()
+            point("journey")?.tap()
+            for name in ["Orbit", "Mini-map", "Size scale"] {
+                app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch.tap()
+            }
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4))
                 .press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.7)))
-            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Journey'")).firstMatch.tap()
+            point("journey")?.tap()
             settle(1)
             shot("mash-\(round)")
             alive("mashing")

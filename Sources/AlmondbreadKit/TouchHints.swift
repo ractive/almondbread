@@ -5,7 +5,7 @@ import UIKit.UIGestureRecognizerSubclass
 
 // First-run touch hints (kb: decisions/controls "Touch", "First run"): one layer over the picture
 // the first time the app starts on iPhone or iPad, a few words each: drag, pinch, hold, the
-// throttle and the autopilot button. It takes no touches: the first touch anywhere (or a key)
+// throttle and the cockpit's plane (the autopilot). It takes no touches: the first touch anywhere (or a key)
 // dismisses it and does what it would have done anyway. Help shows it again.
 
 /// Whether the hints show. Change-only (the layer reads only `shown`).
@@ -49,7 +49,8 @@ final class TouchObserver: UIGestureRecognizer {
     }
 }
 
-/// Where the controls the hints point at are (the throttle, the autopilot button).
+/// Where the SwiftUI controls the hints point at are (the throttle). The cockpit is drawn by
+/// Rust; its plane comes from `cockpitPlane`.
 struct TouchHintAnchors: PreferenceKey {
     static let defaultValue: [String: Anchor<CGRect>] = [:]
     static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
@@ -63,10 +64,11 @@ extension View {
         anchorPreference(key: TouchHintAnchors.self, value: .bounds) { [id: $0] }
     }
 
-    /// The hints layer over this view, pointing at the controls marked with `touchHintAnchor`.
-    func touchHints() -> some View {
+    /// The hints layer over this view, pointing at the controls marked with `touchHintAnchor`
+    /// and at the cockpit's plane icon (`cockpitPlane`: its rect in global coordinates, if drawn).
+    func touchHints(cockpitPlane: @escaping () -> CGRect?) -> some View {
         overlayPreferenceValue(TouchHintAnchors.self) { anchors in
-            TouchHintsOverlay(anchors: anchors)
+            TouchHintsOverlay(anchors: anchors, cockpitPlane: cockpitPlane)
         }
     }
 }
@@ -74,28 +76,40 @@ extension View {
 /// Reads only `TouchHints.shared.shown`.
 struct TouchHintsOverlay: View {
     let anchors: [String: Anchor<CGRect>]
+    let cockpitPlane: () -> CGRect?
     private var hints = TouchHints.shared
 
-    init(anchors: [String: Anchor<CGRect>]) { self.anchors = anchors }
+    init(anchors: [String: Anchor<CGRect>], cockpitPlane: @escaping () -> CGRect?) {
+        self.anchors = anchors
+        self.cockpitPlane = cockpitPlane
+    }
 
     var body: some View {
         if hints.shown {
-            TouchHintsLayer(anchors: anchors)
-                .transition(.opacity)
+            // The cockpit is laid out by Rust on its frames: read its plane again twice a
+            // second while the hints show (they show once, at the first start).
+            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                TouchHintsLayer(anchors: anchors, plane: cockpitPlane())
+            }
+            .transition(.opacity)
         }
     }
 }
 
-/// The hints: the gestures in the middle, a label beside the throttle and the autopilot button.
-/// Matches the app's overlays (material capsules, white type); no hit testing.
+/// The hints: the gestures in the middle, a label beside the throttle and one above the
+/// cockpit's plane icon. Matches the app's overlays (material capsules, white type); no hit
+/// testing.
 struct TouchHintsLayer: View {
     let anchors: [String: Anchor<CGRect>]
+    /// The cockpit's plane icon in global coordinates.
+    let plane: CGRect?
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let throttle = anchors["throttle"].map { proxy[$0] }
-            let plane = anchors["autopilot"].map { proxy[$0] }
+            let origin = proxy.frame(in: .global).origin
+            let plane = plane.map { $0.offsetBy(dx: -origin.x, dy: -origin.y) }
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.4)
                     .ignoresSafeArea()
@@ -109,39 +123,44 @@ struct TouchHintsLayer: View {
                         .padding(.top, 4)
                 }
                 .fixedSize()
-                .position(Self.middle(size: size, throttle: throttle))
+                .position(Self.middle(size: size, throttle: throttle, plane: plane))
                 if let throttle {
                     Self.beside(throttle, Self.chip("arrow.up.and.down", "Slide to fly in or out"))
                 }
                 if let plane {
-                    if plane.midY > size.height / 2 {
-                        Self.beside(plane, Self.chip("airplane", "Flies by itself"))
-                    } else {
-                        Self.below(plane, Self.chip("airplane", "Flies by itself"))
-                    }
+                    Self.above(plane, width: size.width, Self.chip("airplane", "Flies by itself"))
                 }
             }
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("touch-hints")
-        .accessibilityLabel("Hints: drag to move, pinch to zoom, hold for more, slide the throttle to fly in or out, the plane flies by itself")
+        .accessibilityLabel("Hints: drag to move, pinch to zoom, hold for more, slide the throttle to fly in or out, the cockpit's plane flies by itself")
     }
 
     /// Where the gestures group is centred: the middle, unless the throttle's label (left of the
     /// throttle, at its middle; about 320 points wide) would run into it. Then left of that label
     /// where the screen is wide enough (iPad landscape, a phone on its side), else higher, ending
-    /// above it (phone portrait, iPad portrait).
-    static func middle(size: CGSize, throttle: CGRect?) -> CGPoint {
+    /// above it (phone portrait, iPad portrait). Always above the plane's label (about 60 points
+    /// over the cockpit's plane; a phone on its side has little height).
+    static func middle(size: CGSize, throttle: CGRect?, plane: CGRect? = nil) -> CGPoint {
         let (halfW, halfH): (CGFloat, CGFloat) = (150, 110)
         let centre = CGPoint(x: size.width / 2, y: size.height / 2)
-        guard let throttle else { return centre }
-        let labelLeft = throttle.minX - 330
-        if centre.x + halfW <= labelLeft || abs(throttle.midY - centre.y) > halfH + 40 { return centre }
-        if labelLeft - halfW - 20 >= halfW + 12 {
-            return CGPoint(x: min(centre.x, labelLeft - halfW - 20), y: centre.y)
+        var p = centre
+        if let throttle {
+            let labelLeft = throttle.minX - 330
+            if centre.x + halfW <= labelLeft || abs(throttle.midY - centre.y) > halfH + 40 {
+                p = centre
+            } else if labelLeft - halfW - 20 >= halfW + 12 {
+                p = CGPoint(x: min(centre.x, labelLeft - halfW - 20), y: centre.y)
+            } else {
+                p = CGPoint(x: centre.x, y: max(throttle.midY - 40 - halfH, min(centre.y, halfH + 60)))
+            }
         }
-        return CGPoint(x: centre.x, y: max(throttle.midY - 40 - halfH, min(centre.y, halfH + 60)))
+        if let plane {
+            p.y = max(halfH + 12, min(p.y, plane.minY - 70 - halfH))
+        }
+        return p
     }
 
     static func chip(_ symbol: String, _ text: String) -> some View {
@@ -174,17 +193,18 @@ struct TouchHintsLayer: View {
         .offset(y: rect.minY)
     }
 
-    /// The label below a control, its trailing edge at the control's, pointing up at it.
-    static func below(_ rect: CGRect, _ label: some View) -> some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            Image(systemName: "arrowtriangle.up.fill")
+    /// The label above a control, centred on it (kept on the screen), pointing down at it.
+    static func above(_ rect: CGRect, width: CGFloat, _ label: some View) -> some View {
+        let half = max(0, min(rect.midX, width - rect.midX))
+        return VStack(spacing: 2) {
+            label
+            Image(systemName: "arrowtriangle.down.fill")
                 .font(.caption)
                 .foregroundStyle(.white)
-                .padding(.trailing, max(0, rect.width / 2 - 6))
-            label
         }
-        .frame(width: rect.maxX, alignment: .trailing)
-        .offset(y: rect.maxY + 4)
+        .fixedSize()
+        .frame(width: 2 * half, height: max(0, rect.minY - 2), alignment: .bottom)
+        .offset(x: rect.midX - half)
     }
 }
 #endif

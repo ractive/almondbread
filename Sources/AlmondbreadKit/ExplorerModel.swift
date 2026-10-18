@@ -347,7 +347,7 @@ public final class ExplorerModel {
     }
 
     /// "Journey: continuous / stop at each find" (persisted; off: continuous; kb:
-    /// decisions/controls "Journey with stops"): J and the Journey button start this mode, ⇧J
+    /// decisions/controls "Journey with stops"): J and the cockpit's journey icon start this mode, ⇧J
     /// the other.
     /// Window tests start from (and never store) the default.
     public var journeyStops: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.journeyStopsKey) {

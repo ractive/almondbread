@@ -1483,3 +1483,12 @@ place's picture only selected it (now goes there on iOS); pinches turned the vie
 dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
 control); click / key words on touch; compass over the throttle on a phone on its side.
 [[decisions/controls]] "Touch" notes the decisions.
+
+## [2026-10-18] decision | iOS round buttons: the Mac toolbar instead of autopilot / journey
+
+User on a real iPad: the round buttons duplicated the cockpit. Now Orbit, Mini-map, Size scale
+(toggles, filled when on), Fly to and Control center, as the macOS toolbar. Journey stop choices
+moved under the HUD as labelled buttons; the autopilot button's menu is covered by the cockpit,
+the throttle and a new iOS control-center "Seek minibrot"; the orbit toggle on touch shows the
+view centre's orbit (or the last Orbit Here point); touch hints point at the cockpit's plane.
+[[decisions/controls]] "Touch" ▸ "Round buttons".

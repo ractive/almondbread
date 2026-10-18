@@ -1,6 +1,6 @@
 # Overlays
 
-Overlays are drawn on top of the picture. Turn them on in the control center's **Overlays** section, in the toolbar, or with their keys. Each panel has a small **?** in its corner that explains it.
+Overlays are drawn on top of the picture. Turn them on in the control center's **Overlays** section, in the toolbar (the round buttons on iPhone and iPad), or with their keys. Each panel has a small **?** in its corner that explains it.
 
 ## Cosmic size scale (C)
 
@@ -26,6 +26,8 @@ The mini-map shows the whole set and up to three zoomed-in levels, so you always
 ## Orbit (O)
 
 The orbit overlay shows the numbers the rule makes for the point under the pointer: a ring at the point itself, then each step as a dot joined by a line. Inside the set the steps settle into a loop; outside they wander off. The line under the map says what happens to the point: it escapes after so many steps, settles into a cycle of some period, or is still undecided after 100 000 steps.
+
+On iPhone and iPad there is no pointer: the orbit button shows the orbit of the point in the middle of the picture, or of the last point you picked. Hold a finger on the picture and choose **Orbit Here** to pick another point; keep the finger down and drag to move it.
 
 Near the set's edge a point can take tens of thousands of steps to decide. The whole-set map shows them all: the first 50 steps as a line, the rest as a cloud of fine dots, older ones faint and the newest bright, which grows while the point is worked out.
 

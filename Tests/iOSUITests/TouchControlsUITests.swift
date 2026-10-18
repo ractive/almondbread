@@ -73,6 +73,102 @@ final class TouchControlsUITests: XCTestCase {
         from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 120, thenHoldForDuration: 0.1)
     }
 
+    /// The round buttons over the canvas (kb: decisions/controls "Touch"), in their order.
+    static let roundButtons = ["Orbit", "Mini-map", "Size scale", "Fly to", "Control center"]
+
+    private func round(_ name: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+    }
+
+    /// The screen as RGBA on a grid of 2 × 2 points, top row first.
+    private func pixels() -> (data: [UInt8], w: Int, h: Int) {
+        let image = XCUIScreen.main.screenshot().image
+        let w = Int(image.size.width / 2), h = Int(image.size.height / 2)
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        guard let cg = image.cgImage else { return (data, w, h) }
+        data.withUnsafeMutableBytes { buf in
+            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            ctx?.interpolationQuality = .low
+            ctx?.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        return (data, w, h)
+    }
+
+    /// The share of the screen (outside `excluding`, in points) whose colour changed visibly.
+    private func changed(_ a: (data: [UInt8], w: Int, h: Int), _ b: (data: [UInt8], w: Int, h: Int),
+                         excluding: [CGRect]) -> Double {
+        guard a.w == b.w, a.h == b.h, a.w > 0 else { return 1 }
+        var n = 0, total = 0
+        for y in 0..<a.h {
+            for x in 0..<a.w {
+                let p = CGPoint(x: x * 2 + 1, y: y * 2 + 1)
+                if excluding.contains(where: { $0.contains(p) }) { continue }
+                total += 1
+                let i = (y * a.w + x) * 4
+                let d = abs(Int(a.data[i]) - Int(b.data[i])) + abs(Int(a.data[i + 1]) - Int(b.data[i + 1]))
+                    + abs(Int(a.data[i + 2]) - Int(b.data[i + 2]))
+                if d > 60 { n += 1 }
+            }
+        }
+        return total == 0 ? 0 : Double(n) / Double(total)
+    }
+
+    /// The round buttons (the Mac toolbar's items): Orbit, Mini-map and Size scale each switch
+    /// their overlay on (the picture changes outside the buttons, the button reads "on") and off
+    /// again (the picture is back); Fly to opens its sheet. On iOS the orbit, without a pointer,
+    /// is the view centre's (kb: decisions/controls "Touch", "Round buttons").
+    func testOverlayToggles() throws {
+        try launchSettled()
+        settle(2)
+        let buttons = Self.roundButtons.map { round($0) }
+        for b in buttons {
+            XCTAssertTrue(b.exists && b.isHittable, "\(b) missing")
+            XCTAssertGreaterThanOrEqual(b.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(b.frame.height, 44)
+        }
+        // The buttons themselves change colour.
+        let mask = buttons.map { $0.frame.insetBy(dx: -6, dy: -6) }
+        for (name, field) in [("Orbit", "orbit"), ("Mini-map", "map"), ("Size scale", "scale")] {
+            let toggle = round(name)
+            XCTAssertEqual(toggle.value as? String, "off", "\(name) starts off")
+            let before = pixels()
+            toggle.tap()
+            settle(2.5)
+            XCTAssertEqual(toggle.value as? String, "on", "\(name) did not switch on")
+            if field == "orbit" { XCTAssertEqual(fields()["orbit"], "on", "the orbit overlay is off") }
+            let on = pixels()
+            shot("toggle-\(field)-on")
+            let shown = changed(before, on, excluding: mask)
+            toggle.tap()
+            settle(2.5)
+            XCTAssertEqual(toggle.value as? String, "off", "\(name) did not switch off")
+            let after = pixels()
+            let back = changed(before, after, excluding: mask)
+            print("toggle \(name): changed \(String(format: "%.4f", shown)) on, \(String(format: "%.4f", back)) after off")
+            XCTAssertGreaterThan(shown, 0.002, "\(name): the picture did not change")
+            XCTAssertLessThan(back, shown / 4, "\(name): the overlay stayed after switching off")
+        }
+        // All three together, for a look.
+        for name in ["Orbit", "Mini-map", "Size scale"] { round(name).tap() }
+        settle(3)
+        shot("toggle-all-on")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        settle(3)
+        shot("toggle-all-on-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        settle(2)
+        for name in ["Orbit", "Mini-map", "Size scale"] { round(name).tap() }
+        // Fly to: the sheet.
+        round("Fly to").tap()
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Fly to did not open its sheet")
+        shot("toggle-fly-to")
+        cancel.tap()
+        settle(1)
+    }
+
     private func launchSettled() throws {
         app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")
@@ -111,8 +207,8 @@ final class TouchControlsUITests: XCTestCase {
         settle(4)
         XCTAssertEqual(level(), "m", "double tap did not stop")
         XCTAssertEqual(gear(), 0)
-        // In the autopilot: its speed.
-        app.buttons["Autopilot"].tap()
+        // In the autopilot (the cockpit's plane): its speed.
+        try XCTUnwrap(point("autopilot")).tap()
         settle(1)
         XCTAssertEqual(level(), "a")
         let g = gear()
@@ -122,7 +218,7 @@ final class TouchControlsUITests: XCTestCase {
         // Its default speed is off the ladder: the first detent goes to the next rung.
         XCTAssertGreaterThan(gear(), g, "the autopilot's speed did not step")
         shot("throttle-autopilot")
-        app.buttons["Autopilot"].tap()
+        try XCTUnwrap(point("autopilot")).tap()
     }
 
     /// The cockpit's icons take taps (44-point cells) through Rust's hit test; its (?) opens the
@@ -231,16 +327,17 @@ final class TouchControlsUITests: XCTestCase {
         shot("controls-landscape")
         let lever = app.descendants(matching: .any)["throttle"]
         XCTAssertTrue(lever.isHittable)
-        for name in ["Autopilot", "Journey", "Control center"] {
-            let b = app.buttons[name]
+        for name in Self.roundButtons {
+            let b = round(name)
             XCTAssertTrue(b.isHittable, "\(name) not hittable in landscape")
             XCTAssertFalse(b.frame.intersects(lever.frame), "\(name) under the throttle")
         }
-        if let c = point("journey") {
+        for cell in ["manual", "cruise", "autopilot", "journey", "lane"] {
+            guard let c = point(cell) else { continue }
             let p = c.screenPoint
-            XCTAssertFalse(lever.frame.contains(p), "cockpit under the throttle")
-            for name in ["Autopilot", "Journey", "Control center"] {
-                XCTAssertFalse(app.buttons[name].frame.insetBy(dx: -4, dy: -4).contains(p), "cockpit under \(name)")
+            XCTAssertFalse(lever.frame.contains(p), "cockpit \(cell) under the throttle")
+            for name in Self.roundButtons {
+                XCTAssertFalse(round(name).frame.insetBy(dx: -4, dy: -4).contains(p), "cockpit \(cell) under \(name)")
             }
         }
         throttle(lever, detents: 1)
@@ -261,7 +358,7 @@ final class TouchControlsUITests: XCTestCase {
         try launchSettled()
         let rest = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4))
         let away = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.3))
-        app.buttons["Autopilot"].tap()
+        try XCTUnwrap(point("autopilot")).tap()
         settle(1)
         XCTAssertEqual(level(), "a")
         // At rest 1 s, then a drag: no menu, still A (a touch never hands over in A).
@@ -274,7 +371,7 @@ final class TouchControlsUITests: XCTestCase {
         settle(0.5)
         XCTAssertFalse(menuShown, "a held finger opened the menu in A")
         shot("hold-steers-autopilot")
-        app.buttons["Autopilot"].tap()
+        try XCTUnwrap(point("autopilot")).tap()
         settle(2)
         // C (the throttle up one detent): the same.
         let lever = app.descendants(matching: .any)["throttle"]
@@ -474,22 +571,32 @@ final class TouchControlsUITests: XCTestCase {
             control.tap()
             settle(1.5)
         }
-        app.buttons["Journey"].firstMatch.tap()
+        try XCTUnwrap(point("journey"), "no cockpit positions").tap()
         let deeper = app.buttons["Journey: deeper here"]
+        let stopButtons = ["Journey: next landmark", "Journey: deeper here", "Journey: somewhere else"]
+        /// The stop's choices: finger-sized, hittable, clear of the round buttons and each other.
+        func checkStop(_ when: String) {
+            for name in stopButtons {
+                let b = app.buttons[name]
+                XCTAssertTrue(b.isHittable, "\(name) not hittable at a stop (\(when))")
+                XCTAssertGreaterThanOrEqual(b.frame.width, 44)
+                XCTAssertGreaterThanOrEqual(b.frame.height, 44)
+                for other in Self.roundButtons {
+                    XCTAssertFalse(b.frame.intersects(round(other).frame), "\(name) over \(other) (\(when))")
+                }
+            }
+            for name in Self.roundButtons {
+                XCTAssertTrue(round(name).isHittable, "\(name) not hittable at a stop (\(when))")
+            }
+        }
         if deeper.waitForExistence(timeout: 90) {
             settle(1)
             shot("surface-journey-stop")
-            for name in ["Journey: next landmark", "Journey: deeper here", "Journey: somewhere else", "Control center"] {
-                let b = app.buttons[name]
-                XCTAssertTrue(b.isHittable, "\(name) not hittable at a stop")
-                XCTAssertGreaterThanOrEqual(b.frame.width, 44)
-            }
+            checkStop("portrait")
             XCUIDevice.shared.orientation = .landscapeLeft
             settle(2)
             shot("surface-journey-stop-landscape")
-            for name in ["Journey: next landmark", "Journey: deeper here", "Journey: somewhere else", "Control center"] {
-                XCTAssertTrue(app.buttons[name].isHittable, "\(name) not hittable at a stop (landscape)")
-            }
+            checkStop("landscape")
             XCUIDevice.shared.orientation = .portrait
             settle(1)
         } else {

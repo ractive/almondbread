@@ -301,7 +301,7 @@ HUD.
 
 | Input | Action |
 | --- | --- |
-| Z, menu "Autopilot On/Off", the cockpit's plane icon (iOS: overlay button; the macOS toolbar button was removed 2026-10-17) | on (eased start) / off (eased stop); Z key repeats are ignored |
+| Z, menu "Autopilot On/Off", the cockpit's plane icon (the macOS toolbar button was removed 2026-10-17, the iOS round button 2026-10-18) | on (eased start) / off (eased stop); Z key repeats are ignored |
 | Esc, menu "Stop Autopilot or Flight" | eased stop; not handled (the system keeps Esc) while nothing flies |
 | Pointer offset from the view centre | steers like a joystick (below) |
 | Click (iOS: tap) | pause / resume (eased); a double click undoes its first click's toggle and zooms as usual |
@@ -773,7 +773,7 @@ landmark, with targets chosen from the maths rather than by taste. Core:
 
 | Input | Action |
 | --- | --- |
-| J, menu "Journey On/Off", the cockpit's sparkles icon, control center "Journey" (iOS: overlay button; the macOS toolbar button was removed 2026-10-17) | start with a random seed (1 … 999 999) / resume after manual input / stop |
+| J, menu "Journey On/Off", the cockpit's sparkles icon, control center "Journey" (the macOS toolbar button was removed 2026-10-17, the iOS round button 2026-10-18) | start with a random seed (1 … 999 999) / resume after manual input / stop |
 | control center seed field, "Daily" | start a given seed; the daily journey's seed is the date (yyyymmdd), the same for everyone |
 | Q / E, wheel notch, trackpad scroll | journey speed ×0.8 / ×1.25 (0.1–16 e-folds/s at the zoom ends, default 1.4) |
 | any navigation (keys, drag, pinch, wheel zoom, rotate, gamepad, Z) | takes over: the leg's motion glides out in the springs (as for fly-to); the HUD says "paused · J or click to resume" |
@@ -1110,7 +1110,7 @@ starts when it carries the cruise's direction on or the cruise is at rest). Esc 
 rescue backs out).
 
 **Lane assist** (key L, free on the macOS and iOS key maps; control center "Lane assist" in
-View; menu; iOS long-press menu; persisted `laneAssist`, default off): active only in C, and only
+View; menu; the cockpit's lane icon; persisted `laneAssist`, default off): active only in C, and only
 while the user does not steer. Phase 1 (this build): setting, cockpit lane icon (dim off, lit on,
 brighter in C, a glow for 0.6 s after a nudge) and the hook `Navigator::assist_nudge(view,
 radius, now) -> Option<heading>`. Wired 2026-10-17: the renderer surveys frames while assist
@@ -1155,7 +1155,7 @@ the pure bounded search; `Seeker`, its thread and HUD state, owned by the `Navig
 
 | Input | Action |
 | --- | --- |
-| N (free on the macOS and iOS key maps), View ▸ "Seek Minibrot (N)", iOS: long press on the plane button | search off the main thread ("Seeking a minibrot…"), then a normal fly-to to the minibrot's framing; HUD "Minibrot, period 4640 · 1.0e69× · 42 %", for 6 s after landing without the percentage |
+| N (free on the macOS and iOS key maps), View ▸ "Seek Minibrot (N)", iOS: control center (View) "Seek minibrot" and the long-press menu's "Seek Minibrot Here" (the plane button's menu went 2026-10-18) | search off the main thread ("Seeking a minibrot…"), then a normal fly-to to the minibrot's framing; HUD "Minibrot, period 4640 · 1.0e69× · 42 %", for 6 s after landing without the percentage |
 | N again from a minibrot's framing | the next smaller one around it |
 | Esc, any other key, click, scroll, any navigation | cancels the search (Esc is then handled); during the flight Q / E / scroll set its speed and the rest takes over as from any fly-to |
 | nothing found | "No minibrot found nearby" for 3 s; nothing moves |
@@ -1229,7 +1229,7 @@ a fly-to flight ([[sources/van-wijk-nuij-smooth-zooming]], `flyto.rs`) with a so
 
 | Input | Action |
 | --- | --- |
-| ⇧Z, menu "Zoom Out to the Whole Set (⇧Z)" (iOS: long press on the plane button) | on: eased start towards the home view fitted to the window |
+| ⇧Z, menu "Zoom Out to the Whole Set (⇧Z)" | on: eased start towards the home view fitted to the window |
 | Q / E, wheel notch, trackpad scroll | the autopilot's speed (shared with Z: 0.1–4 e-folds/s, default 0.9) |
 | Esc, Z, ⇧Z | eased stop where it is (Z does not start the autopilot) |
 | any navigation (pan, drag, pinch, wheel zoom, keys) | takes over as from a fly-to (the motion glides out in the springs) |
@@ -1273,9 +1273,9 @@ The continuous journey (J by default) is unchanged. Core: `journey.rs` (`Phase::
 | --- | --- |
 | control center "Journey: Continuous / Stop at each find" (persisted, default continuous; ↺ of the section resets it) | the mode J and the Journey button start |
 | J / ⇧J (not at a stop) | journey in the set mode / in the other mode; resume and stop as before |
-| at a stop: J (iOS: the journey button, ▶) | next as planned |
-| at a stop: Z (iOS: ↘ button) | deeper here |
-| at a stop: X (iOS: ⑂ button) | somewhere else |
+| at a stop: J (iOS: "Next" under the HUD, or the cockpit's sparkles) | next as planned |
+| at a stop: Z (iOS: "Deeper here") | deeper here |
+| at a stop: X (iOS: "Elsewhere") | somewhere else |
 | at a stop: Esc | the journey ends, the view stays |
 | at a stop: pan, zoom, wheel, palette, overlays, help, full screen, click | as without a journey; the journey stays at its stop (not paused) |
 
@@ -1323,8 +1323,9 @@ otherwise). Interaction test scenario "journey stops" (J at E × 10 from 1e5: st
 period 68", X flew on to "over to Pine Compass"; frame vs fresh render 0.000 %; measured
 2026-10-17, release). `scripts/ui-screenshots.sh` scenes `journey-stop` and `zoom-out`.
 
-**iOS.** The journey button turns into ▶ at a stop and two buttons (deeper, elsewhere) appear next
-to it (the long-press zoom out went with ⇧Z, 2026-10-17). Not tried on a device or simulator run
+**iOS.** Since 2026-10-18 three labelled buttons (Next, Deeper here, Elsewhere) appear under the
+HUD at a stop (see "Touch", "Round buttons"); before, the journey button turned into ▶ and two
+buttons (deeper, elsewhere) appeared next to it (the long-press zoom out went with ⇧Z, 2026-10-17). Not tried on a device or simulator run
 (no simulator runtime installed; the target builds).
 
 ## View rotation (as built, 2026-10-15)
@@ -1942,7 +1943,7 @@ simulators only; feel, haptics and thumb reach need a real device.
   (`shouldReceive` keeps the double-tap and long-press recognisers off them).
 - *Layout.* Phone portrait: the throttle on top of the button column at the bottom trailing
   corner (thumb reach). Phone on its side: the buttons in a row at the bottom trailing corner
-  (the cockpit keeps left of up to five), the throttle at the trailing edge above them. iPad:
+  (the cockpit keeps left of the five), the throttle at the trailing edge above them. iPad:
   buttons top trailing as before, the throttle at mid height on the trailing edge (where the
   thumbs are when holding it); the π meter and the tour card keep left of it. Shown with the
   HUD, like the cockpit.
@@ -1957,20 +1958,20 @@ simulators only; feel, haptics and thumb reach need a real device.
 | Mac | iPhone / iPad touch | iPad keyboard / pointer |
 | --- | --- | --- |
 | W A S D, arrows, Space, + / − | drag, pinch, double tap, two-finger tap | same keys |
-| E / Q gears, hold for more | throttle lever; long press on the autopilot button | E / Q |
-| Z, J, Esc | buttons; cockpit icons; throttle double tap | Z, J, Esc |
-| N seek minibrot | long-press menu (here) and the autopilot button's menu | N |
-| L lane assist | cockpit lane icon, control center, autopilot button's menu | L |
+| E / Q gears, hold for more | throttle lever | E / Q |
+| Z, J, Esc | cockpit icons; throttle double tap | Z, J, Esc |
+| N seek minibrot | long-press menu (here); control center "Seek minibrot" | N |
+| L lane assist | cockpit lane icon, control center | L |
 | G continue | HUD button | G |
-| C, O, M, P overlays | control center; "Orbit Here" | C, O, M, P |
+| C, O, M, P overlays; toolbar Orbit, Mini-map, Size Scale, Fly To | round buttons (C, O, M, Fly to); control center; "Orbit Here" | C, O, M, P |
 | R / ⌘0 reset | control center Reset | R, ⌘0 |
 | ⇧⌘C / ⇧⌘V coordinates | long-press Copy / Go to Copied; control center | ⇧⌘C / ⇧⌘V (menu bar) |
 | ⌘G / ⇧⌘G fly to | control center Fly to… / Copied; long-press Fly Here | ⌘G / ⇧⌘G |
 | Tour ← / → / Esc | card buttons | ← / → / Esc |
-| Journey stop J / Z / X | buttons ▶ / ↘ / ⑂ | J / Z / X |
+| Journey stop J / Z / X | Next / Deeper here / Elsewhere under the HUD | J / Z / X |
 | Cockpit click and tooltips | taps; the (?) explains (no hover, no tooltips) | pointer clicks |
 | (?) badges | tap (18-point fingertip) | — |
-| Orbit probe under the pointer | long-press drag; the centre otherwise | iPad pointer hover |
+| Orbit probe under the pointer | the last "Orbit Here" point (long-press drag moves it); the view centre otherwise | iPad pointer hover |
 | Autopilot wish from the pointer, target marker | finger drag, kept after lift; marker as on the Mac | pointer hover |
 | Mini-map click / ⌥-click | tap jumps; long press flies (round 2) | — |
 | Place zoom pill | shown (no hover needed) | — |
@@ -2023,8 +2024,9 @@ Swift only times the press and asks. Reasons:
 
 **First-run touch hints** (`TouchHints.swift`). One layer, the first time the app starts on
 iPhone or iPad: "Drag to move", "Pinch to zoom", "Hold for more" in the middle, "Slide to fly in
-or out" pointing at the throttle, "Flies by itself" at the plane button (anchor preferences, so
-the labels follow the layout: phone portrait column, phone on its side, iPad), "Touch anywhere
+or out" pointing at the throttle, "Flies by itself" at the plane (anchor preferences, so
+the labels follow the layout: phone portrait column, phone on its side, iPad; since 2026-10-18
+above the cockpit's plane icon, whose rect Rust reports through `cockpitControls`), "Touch anywhere
 to start", a dimmed picture behind. Material capsules like the HUD. It takes no touches: a
 window-level recogniser that fails at once sees the first touch anywhere (or a key) and fades
 the layer out, and that touch still does what it does (a double tap zooms). Seen once
@@ -2101,3 +2103,56 @@ hit test 18 points off an icon's centre, the cockpit's (?) popover, the long-pre
 a probe drag opens no menu, copy then Go to Copied offered, Fly Here ×8, seek), the tour card,
 landscape layout (nothing overlaps). The app reports the cockpit's cells in its accessibility
 value only with `ALMONDBREAD_UITEST=1`.
+
+### Round buttons: the Mac toolbar on touch (2026-10-18)
+
+User, after trying it on a real iPad: "The toolbar only had the autopilot and journey button. But
+those are already handled in the cockpit. I'd like to have the orbit, ruler, minimap button as on
+macOS." The round 44-point buttons over the canvas (`ContentView.swift`, `RoundToggle`,
+`RoundButton`) are now the macOS toolbar's items, same SF Symbols, in its order: **Orbit**
+(`orbitEnabled`), **Mini-map** (`mapEnabled`), **Size scale** (`cosmicScale`, "ruler"), **Fly to**
+(the fly-to sheet), **Control center**. A toggle that is on is a circle filled with the accent
+colour and a white symbol (off: the HUD's material); accessibility: the name as label, value
+"on" / "off", the toggle trait. The Mac is unchanged.
+
+**Where the removed actions went.**
+
+| Was (iOS round buttons) | Now |
+| --- | --- |
+| Autopilot button (Z) | cockpit plane icon (tap) |
+| Journey button (J) | cockpit sparkles icon; control center Journey |
+| Journey stop ▶ / ↘ / ⑂ | "Next", "Deeper here", "Elsewhere" under the HUD, only at a stop (`JourneyStopButtons`); the sparkles icon is also J = next there |
+| Autopilot menu: Cruise In / Out | throttle lever; cockpit cruise icon (E) |
+| Autopilot menu: Stop | cockpit steering wheel (Esc); throttle double tap; control center Stop |
+| Autopilot menu: Lane Assist | cockpit lane icon; control center View |
+| Autopilot menu: Seek Minibrot | control center View "Seek minibrot" (new, iOS only; works while flying); long-press "Seek Minibrot Here" with nothing flying |
+
+**Decisions.**
+
+- *No menu on the cockpit's plane.* The cockpit is drawn by Rust; a long press there is
+  `touch_hold → Nothing` in `input.rs`, and a menu would need a new hold result and its handling in
+  `FractalView.swift`. Everything in the old menu except seek already had a cockpit or throttle
+  equivalent, so the one gap (seek about the view while flying) went into the control center.
+- *Journey stop choices under the HUD, labelled.* Kept in the button stack they would make eight
+  items plus the throttle in the phone's portrait column (about 680 points: no room on a 667-point
+  phone). Under the HUD they sit next to the line that names the landmark, and words ("Deeper
+  here") beat ↘ and ⑂ for a first-time user. A row where it fits, else a column (phone portrait).
+  The iOS HUD line at a stop drops "— next · deeper · elsewhere" (the buttons say it).
+- *Orbit without a pointer.* `Navigator::probe_point` is the touch probe if one was placed (Orbit
+  Here, a long-press drag), else the zoom target, which on touch (no pointer, pointer mode) is
+  the view centre; an iPad pointer hovering moves it as on the Mac. So the toggle alone shows the
+  orbit of the view centre, or of the last point picked; no code change was needed, only the help
+  texts (overlays page, orbit popover) say it.
+- *Fit.* Five buttons: phone portrait a column of 5 × 44 + 4 × 10 = 260 points under the throttle
+  (its height `canvasHeight − 528`, was − 420 for three buttons; clamped 120 … 220); phone on its
+  side a 260-point row (the cockpit inset already reserved five); iPad a top-trailing row, clear of
+  a 380-point HUD on an iPad mini in portrait (744 points).
+- *Touch hints.* "Flies by itself" now points down at the cockpit's plane icon (its rect from
+  `Explorer::cockpit_controls`, read twice a second while the hints show); the middle group stays
+  above that label.
+
+**Tests.** `TouchControlsUITests.testOverlayToggles`: each toggle reads "on", the screen outside
+the buttons changes (2 × 2-point grid, colour step > 60) and is back after "off"; Fly to opens its
+sheet; screenshots `toggle-*`. The other iOS UI tests tap the cockpit's icons instead of the
+removed buttons, and `testSurfaces` checks the stop buttons are ≥ 44 points, hittable and clear
+of the round buttons in both orientations.
