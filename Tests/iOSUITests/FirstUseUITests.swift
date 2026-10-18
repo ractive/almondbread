@@ -373,7 +373,8 @@ final class FirstUseUITests: XCTestCase {
     }
 
     /// The places grid on touch: a tap selects without moving the view and puts Go and Fly on
-    /// the picture (one tile at a time); Go jumps; Fly flies (the view moves over several frames).
+    /// the picture (one tile at a time); Go jumps; Fly flies (the view moves over several frames);
+    /// either one deselects, so the buttons leave the picture.
     func testPlaceTileGoAndFly() throws {
         app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 30))
@@ -407,6 +408,8 @@ final class FirstUseUITests: XCTestCase {
         shot("place-go")
         let v1 = fields()
         XCTAssertTrue(v1["re"] != v0["re"] || v1["scale"] != v0["scale"], "Go did not go there")
+        XCTAssertFalse(go.exists, "Go still on the picture after Go")
+        XCTAssertFalse(fly.exists, "Fly still on the picture after Go")
 
         // Another tile moves the selection (still one Go) and does not move the view.
         second.tap()
@@ -419,6 +422,9 @@ final class FirstUseUITests: XCTestCase {
 
         // Fly flies: the view changes over several samples, not in one jump.
         fly.tap()
+        settle(0.5)
+        XCTAssertFalse(go.exists, "Go still on the picture after Fly")
+        XCTAssertFalse(fly.exists, "Fly still on the picture after Fly")
         var seen: Set<String> = []
         for k in 0..<8 {
             settle(0.5)
