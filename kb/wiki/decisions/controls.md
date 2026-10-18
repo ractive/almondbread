@@ -2088,6 +2088,26 @@ Checked in the app (2026-10-19, `--ui-demo=tour-julia`): fates period-2, period-
 steps; the places as described. One capture showed the previous step's fate line (taken before
 the overlay refreshed); the logged fate was right.
 
+### The Misiurewicz tour
+
+`tours/misiurewicz.md` ("Misiurewicz points", place `antenna-junction`), 8 steps, user request
+2026-10-19: c = −2 (0, −2, 2, 2, …; orbit overlay "still undecided after 100 000 steps"), c = i
+(0, i, −1+i, −i, −1+i, …; same fate line), the M(4,1) fork of the 1/3 limb (z_4 = z_5 = −0.32759 +
+0.57776i), the spike's crossing M(3,1) = −1.5436890… (z_3 = z_4 = −0.8393), the fork at 1e300
+(`junction-1e300`), the M(24,2) spiral at 1e4 and 1e50.
+
+Self-similarity numbers (ours, f64, 2026-10-19): the zoom factor and turn around a Misiurewicz
+point are |μ| and arg μ of the cycle it lands on, μ = ∏ 2z over the cycle: M(4,1) 2z* = −0.655 +
+1.156i, |μ| = 1.33, 120°; c = i, 2(−1+i)·2(−i) = 4(1+i), 5.66 and 45°; c = −2, 2·2 = 4, no turn.
+(Standard result, Tan Lei 1990, unverified here: no source page.)
+
+The orbit probe is only used where f64 keeps the orbit on its cycle long enough for the overlay to
+say "undecided" (−2, i); at M(4,1) f64 rounding makes it "escape after 137 steps" (see the valleys
+tour), so that step turns the orbit off.
+
+Checked in the app (2026-10-19, `--ui-demo=tour-misiurewicz`): fates as above; the 1e300 fork is
+the same three-way fork.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,

@@ -1634,3 +1634,10 @@ New tour `tours/julia.md` (8 steps): fix c and vary the start; connected inside,
 the set looks like a point's Julia set near it; embedded Julia sets. No Julia renderer in the app:
 the tour uses the orbit overlay and places; a Julia view would improve it. [[decisions/controls]]
 "The Julia tour".
+
+## [2026-10-19] decision | Tour: Misiurewicz points
+
+New tour `tours/misiurewicz.md` (8 steps): pre-periodic orbits at −2, i, the M(4,1) fork and the
+spike's M(3,1) crossing; self-similarity with the cycle multipliers (1.33 / 120° at M(4,1), 5.66 /
+45° at i, 4 at −2); the fork at 1e300; spirals at 1e4 and 1e50. [[decisions/controls]] "The
+Misiurewicz tour".
