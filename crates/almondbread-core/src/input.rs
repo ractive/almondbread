@@ -251,6 +251,15 @@ pub enum InputEvent {
     },
     /// The finger left the throttle lever (the gear stays).
     ThrottleEnd,
+    /// The touch throttle is a position lever (kb: decisions/controls "Touch"): its knob was
+    /// put on signed gear `gear` (1–26 in, −1…−26 out, 0 the middle: stop). The level driving
+    /// takes that rung as its set speed (the cruise from rest or in C, the autopilot's or the
+    /// journey's speed in A and J, a fly-to's speed); 0 or reverse in A or J hands over to a
+    /// cruise at that speed, as the pedals do towards zero. No detent at zero: the lever's
+    /// position is the speed.
+    SetGear {
+        gear: i32,
+    },
     /// The orbit probe (touch has no hover): the orbit overlay's point c at (x, y) view points,
     /// fixed on screen like a resting mouse pointer; `None` gives it back to the zoom target.
     Probe(Option<(f64, f64)>),
@@ -304,6 +313,7 @@ impl InputEvent {
             | Self::TouchRotateEnd
             | Self::TouchesLifted
             | Self::Throttle { .. }
+            | Self::SetGear { .. }
             | Self::ThrottleEnd => true,
             Self::Probe(p) => p.is_none_or(|(x, y)| f(&[x, y])),
             Self::TouchSteer { x, y } | Self::SeekAt { x, y } | Self::FlyHere { x, y } => f(&[x, y]),
@@ -854,6 +864,11 @@ impl Navigator {
             },
             Level::Autopilot => (self.autopilot.speed(), self.autopilot.rate()),
             Level::Journey if self.journey.at_stop() => (0.0, 0.0),
+            // A fly-to (no journey): its own speed.
+            Level::Journey if !self.journey.is_running() => (
+                self.fly_speed,
+                self.flight.as_ref().map_or(0.0, |f| f.speed.v * flyto::RHO),
+            ),
             // The journey's set speed and the leg's speed flown (paced along the leg, eased,
             // throttled by the renderer back-off).
             Level::Journey => (
@@ -1101,6 +1116,50 @@ impl Navigator {
         }
     }
 
+    /// The touch throttle's knob put on signed gear `gear` (kb: decisions/controls "Touch"):
+    /// that rung becomes the set speed of the level driving. See [`InputEvent::SetGear`].
+    fn set_gear(&mut self, gear: i32, viewport: &Viewport, now: f64) {
+        self.note_interaction(now);
+        self.throttle_rest = None;
+        let v = cruise::gear_speed(gear);
+        if self.cruise.landing().is_some() {
+            // Landing on the home view: the middle or forward is an eased stop where it is.
+            if v >= 0.0 {
+                self.cruise.stop(now);
+                self.stop_flight();
+            }
+            return;
+        }
+        if self.flight.is_some() && !self.journey.is_running() {
+            // A fly-to: its speed (unsigned; the path decides the direction); the middle stops it.
+            if v == 0.0 {
+                self.stop_flight();
+            } else {
+                self.set_fly_speed(v.abs(), now);
+            }
+            return;
+        }
+        let journey_drives = self.journey.wants_frames();
+        if self.cruise.is_engaged() || !(self.autopilot.is_active() || journey_drives) {
+            let out_ok = self.depth(viewport) > 0.01;
+            if v == 0.0 {
+                self.cruise.stop(now);
+            } else {
+                self.cruise.set_to(v, out_ok, now);
+            }
+            return;
+        }
+        if v > 0.0 {
+            if self.autopilot.is_active() {
+                self.autopilot.set_speed(v, now);
+            } else {
+                self.journey.set_speed(v, now);
+            }
+        } else if !self.take_wheel(Some(v), now) {
+            self.journey.suspend();
+        }
+    }
+
     pub fn cinematic(&self) -> Cinematic {
         self.cinematic
     }
@@ -1281,7 +1340,8 @@ impl Navigator {
             InputEvent::Click { .. }
             | InputEvent::Scroll { .. }
             | InputEvent::WheelNotch { .. }
-            | InputEvent::Throttle { .. } => searching,
+            | InputEvent::Throttle { .. }
+            | InputEvent::SetGear { .. } => searching,
             InputEvent::SeekAt { .. } => false,
             ref e => Self::cancels_flight(e),
         }
@@ -1882,6 +1942,10 @@ impl Navigator {
             }
             InputEvent::ThrottleEnd => {
                 self.throttle_rest = None;
+                true
+            }
+            InputEvent::SetGear { gear } => {
+                self.set_gear(gear, viewport, now);
                 true
             }
             InputEvent::Probe(p) => {
@@ -4665,6 +4729,76 @@ mod tests {
         }
         assert_eq!(n.level(), Level::Cruise);
         assert_eq!(n.cruise().set_speed(), 0.0, "no reverse within the drag");
+    }
+
+    /// The position lever (kb: decisions/controls "Touch"): `SetGear` puts the level driving
+    /// on that rung, with no detent at zero; the cockpit reports the gear back, so the knob
+    /// follows changes made elsewhere (keys, the autopilot, a fly-to).
+    #[test]
+    fn set_gear_puts_the_level_on_that_rung() {
+        let gear = |n: &Navigator| cruise::signed_gear(n.cockpit(0.0).set);
+        let set = |g: i32| InputEvent::SetGear { gear: g };
+        // From rest: cruise in that gear; straight across zero into reverse; 0 brakes to M.
+        let (mut n, mut v) = deep("1e-30");
+        assert!(n.handle(set(5), &mut v, 0.0));
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(4));
+        assert_eq!(gear(&n), 5);
+        n.handle(set(-3), &mut v, 0.1);
+        assert_eq!(n.cruise().set_speed(), -cruise::rung(2), "no detent at zero");
+        assert_eq!(gear(&n), -3);
+        // The keys move the gear the knob shows.
+        tap(&mut n, &mut v, NavKey::SlowerZoom, 0.2);
+        assert_eq!(gear(&n), -4);
+        n.handle(set(0), &mut v, 0.3);
+        assert_eq!(n.cruise().set_speed(), 0.0);
+        assert_eq!(gear(&n), 0);
+        let t = run(&mut n, &mut v, 0.3, 4.0, 60.0);
+        assert_eq!(n.level(), Level::Manual, "braked to rest");
+        // Out of range: the top gear.
+        n.handle(set(99), &mut v, t);
+        assert_eq!(gear(&n), 26);
+        // At home there is nothing to zoom out to.
+        let (mut n, _) = setup();
+        let mut v = Viewport::fitting(W, 600.0);
+        n.advance(&mut v, 0.0);
+        n.handle(set(-2), &mut v, 0.0);
+        assert_eq!(n.level(), Level::Manual);
+        assert_eq!(gear(&n), 0);
+        // In A: the autopilot's speed (its range clamps the top gears); the knob shows the
+        // autopilot's own speed changes; zero or reverse hands over to the cruise.
+        let (mut n, mut v) = joystick();
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
+        assert_eq!(gear(&n), 7, "the default ×2.46/s");
+        // E from the off-ladder default goes to its rung (×2.5, still gear 7), then on.
+        tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        assert_eq!(gear(&n), 8);
+        n.handle(set(3), &mut v, 0.0);
+        assert_eq!(n.level(), Level::Autopilot);
+        assert_eq!(n.autopilot().speed(), cruise::rung(2));
+        assert_eq!(gear(&n), 3);
+        n.handle(set(26), &mut v, 0.0);
+        assert_eq!(n.autopilot().speed(), autopilot::SPEED_RANGE.1);
+        assert_eq!(gear(&n), 20, "the autopilot's top speed ×55/s");
+        n.handle(set(-2), &mut v, 0.0);
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), -cruise::rung(1));
+        // A fly-to: its speed; the middle stops it.
+        let target = crate::flyto::view_from_text("-0.743643887037151", "0.13182590420533", "1e-20").unwrap();
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        n.fly_to(&target, &v.clone(), 0.0);
+        assert_eq!(
+            gear(&n),
+            cruise::signed_gear(crate::flyto::SPEED_DEFAULT),
+            "the fly-to's speed"
+        );
+        n.handle(set(10), &mut v, 0.0);
+        assert_eq!(n.fly_speed(), cruise::rung(9));
+        assert_eq!(gear(&n), 10);
+        n.handle(set(0), &mut v, 0.1);
+        assert!(n.flight().is_some_and(|f| f.stopping));
     }
 
     /// A steering finger: in A its direction is the wish while the finger is down; after the

@@ -20,7 +20,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Double tap** zooms in; a **two-finger tap** zooms out.
 - **Twist** two fingers to turn the picture.
 - **Hold** a finger still for more: seek a minibrot, the orbit, fly here, copy the place.
-- The **throttle** at the edge: slide up to fly in, down to fly out.
+- The **throttle** at the edge is a gear lever: slide its knob up to fly in, down to fly out, to the middle (**M**) to stop. It stays where you leave it; the arrows at its ends change one gear.
 - The **cockpit** at the bottom: tap the plane for the autopilot, the sparkles for a journey, the wheel to stop.
 - The round buttons turn the orbit, the mini-map and the size scale on and off, fly to coordinates and open the control center.
 - While cruising or on a journey, **drag** to steer: the picture moves with your finger and the zoom goes on (a journey hands over to cruise).

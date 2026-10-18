@@ -1925,8 +1925,8 @@ simulators only; feel, haptics and thumb reach need a real device.
 | Input (touch) | Action | Core |
 | --- | --- | --- |
 | Tap a cockpit icon / the lane icon | manual (Esc), cruise in (E), autopilot (Z), journey (J), lane assist (L), as a click on the Mac | `cockpit_hit` |
-| Throttle lever at the trailing edge: drag up / down | one gear per 14 points of finger travel, E up, Q down (the pedals' ladder and paths); in A and J their speed; during a fly-to its speed | `Throttle { up }` |
-| Throttle: the drag reaches zero | stops there (a firmer tick); lift and drag again for the other direction | `ThrottleEnd` |
+| Throttle lever at the trailing edge: drag the knob (a *position lever* since 2026-10-18, "Position lever" below; was a jog lever, one gear per 14 points) | the knob's tick is the gear: up in, down out, the middle M stops; it stays where it is left; in A and J their speed; during a fly-to its speed | `SetGear { gear }` |
+| Throttle: tap a tick / a chevron at either end | that tick's gear / one gear up or down | `SetGear { gear }` |
 | Throttle: double tap | manual (Esc: the cruise brakes to rest, A and J stop) | `KeyDown(Stop)` |
 | One-finger drag in C | steers like the Mac pointer, while the finger is down (no 3 s idle timeout). **Superseded (device round): a drag pans, the cruise zooms on** | `TouchSteer`, `TouchSteerEnd` |
 | One-finger drag in A | the direction wish (target marker and wish line); it **stays after the finger lifts**, a lift inside the dead zone clears it, Z off clears it; never hands over. **Device round: let go once settled, the line goes** | same |
@@ -1938,7 +1938,9 @@ simulators only; feel, haptics and thumb reach need a real device.
 
 **Reasons.**
 
-- *Throttle as a jog lever, not a slider.* 26 forward and 26 reverse gears on a 200-point track
+- *Throttle as a jog lever, not a slider* (superseded 2026-10-18 by the position lever, below:
+  a user on a real iPad read it as "gear up / gear down" and did not see that the drag length
+  chose the gear). 26 forward and 26 reverse gears on a 200-point track
   would be 4 points per gear: no detent can be felt and a selection tick every 4 points is a
   buzz. So the knob follows the finger and springs back when it lifts, and every 14 points of
   travel is one detent (one E or Q). The gear set shows as a bar from the zero notch
@@ -2132,7 +2134,7 @@ the second tap. XCTest `FirstUseUITests.testPlaceTileGoAndFly` (select moves not
 Go jumps, another tile moves the selection, Fly changes the view over several samples) and
 `testControlCenterPlaceAndTour` (select, then a second tap on the picture's corner goes there).
 
-**Tests.** Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
+**Tests** (the throttle part superseded by "Position lever" below). Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
 `touch_steering_wishes_in_a_and_steers_in_c`, `a_touch_probe_moves_the_orbit_point_only`,
 `fly_here_and_seek_here` (core `input`), `touch_cells_are_44_points_in_one_or_two_rows`
 (render `cockpit`). XCTest `TouchControlsUITests` (`make ios-uitest`, iPhone and iPad
@@ -2274,3 +2276,82 @@ the buttons changes (2 × 2-point grid, colour step > 60) and is back after "off
 sheet; screenshots `toggle-*`. The other iOS UI tests tap the cockpit's icons instead of the
 removed buttons, and `testSurfaces` checks the stop buttons are ≥ 44 points, hittable and clear
 of the round buttons in both orientations.
+
+### Position lever (2026-10-18)
+
+User feedback from a real iPad: "It took me a while to understand the gearing. It shifts
+according to how much you drag on the gearing bar. I was not checking that and thought it's
+just 'gear up' and 'gear down'." The jog lever (the knob springs back, every 14 points of drag
+is one gear) hid the gear in the drag length. The user approved a **position lever**: where the
+knob stands *is* the gear.
+
+| Touch | Action | Core |
+| --- | --- | --- |
+| Drag the knob (or anywhere on the lever) | the knob snaps from tick to tick under the finger, a selection haptic per gear (rigid at M); each new tick sets that gear at once; the knob stays where it is left. No detent at M: one drag goes from forward into reverse | `SetGear { gear }` |
+| Tap a tick | that gear (after the double-tap wait, about 0.3 s) | `SetGear` |
+| Tap a chevron at either end | one gear up / down; two quick taps on a chevron two gears (not the stop) | `SetGear` (the shown gear ± 1) |
+| Double tap (not on a chevron) | manual (Esc), as before | `KeyDown(Stop)` |
+| VoiceOver swipe up / down | one gear | `SetGear` |
+
+**`SetGear { gear }`** (core `InputEvent`, FFI `InputEvent::SetGear`; `Navigator::set_gear`):
+gear ±1…±26 is ± the ladder's rung (`cruise::gear_speed`), 0 stops. Whoever drives takes it as
+its set speed: the cruise from rest or in C (`Cruise::set_to`; 0 brakes to rest, then M; reverse
+refused at home, like Q); in A the autopilot's speed, in J the journey's; 0 or reverse in A or J
+hands over to a cruise at that speed (as the pedals do at zero); a fly-to takes |rung| as its
+speed and 0 stops it; the cruise's soft landing stops for 0 or forward. Clamped to ±26. The
+relative `Throttle { up }` / `ThrottleEnd` events stay (keys and the Mac do not use them; the
+lever no longer does either). The chevrons send the shown gear ± 1, not a pedal step: the
+autopilot's default ×2.46/s sits just under rung 7 (×2.5), so E from it lands on gear 7 again
+and the knob would not move.
+
+**What the knob shows.** Always the navigator's gear: `CruiseStatus.gear` =
+`cruise::signed_gear` of the cockpit's set speed (the rung nearest it, signed; 0 at rest), so it
+moves when E / Q, the cockpit, the autopilot button's menu, Stop or a journey change the speed.
+In C the cruise's gear. In A and J the gear nearest their set speed (A's default ×2.46/s shows
++7; J's ×4/s default +9); speeds beyond the ladder show +26. Their ranges clamp: the autopilot
+stops at 4 e-folds/s (×55/s), so a drag to +26 in A springs back to +20 (the lever sets what
+Rust made of it and shows that). A journey stop and the cruise braking show M. During a plain
+fly-to the cockpit now reports the fly-to's own speed (before: the journey's, meaningless
+there), so the knob shows it. Labels: "M", "+3" (black on a white knob) and "−2" (white on an
+orange knob, matching the reverse bar), 17-point bold rounded on a 44 × 26 knob; the bar from
+the middle notch to the knob stays. Spoken: "gear 3 in", "gear 2 out", "stopped", prefixed
+"autopilot," / "journey,".
+
+**Ticks.** 26 gears a side need 520 points at the 10-point minimum spacing; no lever has that.
+So the ticks stand for fewer gears: `cruise::lever_ticks(n)` (FFI `throttle_ticks`) gives n gears
+from 1 to 26, tick k at `26^((k−1)/(n−1))` rounded and at least one above the last, so the low
+gears (those used most: cruise 1–10, the autopilot's 7) are all there or nearly, and the top
+gear is one drag away. The chevrons and the keys reach every gear between; such a gear sits
+between its two ticks (log-interpolated). n = ⌊(height/2 − 26 chevron cell − 13 half knob) /
+10⌋:
+
+| Lever | Height | Ticks a side | Gears |
+| --- | --- | --- | --- |
+| iPhone portrait (17e) | 220 | 7 (10.1 pt) | 1 2 3 5 9 15 26 |
+| iPhone on its side | 190 | 5 (11.2 pt) | 1 2 5 12 26 |
+| iPad (was 240, now up to 360) | 360 | 14 (10.1 pt) | 1–10 12 16 20 26 |
+| narrow split view minimum | 120 | 2 | 1 26 |
+
+The iPad lever grew from 240 to at most 360 points (`ContentView`; a phone on its side keeps
+240): at mid height on the trailing edge there is room, and all the cruise gears up to 10 get
+their own tick. A finger is wider than 10 points, but the knob snaps and every gear clicks, so
+the finger is guided by feel and by the big label, not by aiming.
+
+**Words.** First-run hint at the lever: "Up: in · Down: out · M: stop" (was "Slide to fly in or
+out"). Help (getting started, cockpit popover) and the control center's touch list describe the
+lever as a gear lever that stays where it is left.
+
+**Tests.** Rust `set_gear_puts_the_level_on_that_rung` (core `input`: from rest, across zero
+without a detent, keys move the shown gear, 0 brakes to M, clamps, no reverse at home, A: its
+speed, clamped to gear 20, reverse hands over; fly-to: its speed, 0 stops),
+`lever_gears_and_ticks` (core `cruise`). XCTest `TouchControlsUITests.testThrottle`: a drag to
+the third tick and release (gear = that tick's, the knob stays 2 s later, zooms in); chevron up
+one gear; two chevrons down; one drag through M into reverse; a tap on the first tick; double
+tap to M; in A the knob shows its gear, a chevron steps it and stays A; the autopilot button's
+"Cruise In / Faster" moves the knob. The lever reports its ticks, pitch and chevron cell in its
+accessibility value with `ALMONDBREAD_UITEST=1` (`ThrottleLeverUI` in the UI tests aims with
+them). Passed on the iPhone 17e simulator (portrait and landscape layout).
+
+**Needs the device.** Whether 10-point ticks are easy enough for a child's finger (the knob
+snaps, but a finger lifting off can roll one tick); whether the 0.3 s wait for a tap on a tick
+feels slow.

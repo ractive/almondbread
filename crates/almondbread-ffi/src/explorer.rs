@@ -281,6 +281,11 @@ pub enum InputEvent {
     },
     /// The finger left the throttle lever.
     ThrottleEnd,
+    /// The throttle's knob was put on signed gear `gear` (1–26 in, negative out, 0 stop):
+    /// the position lever (kb: decisions/controls "Touch").
+    SetGear {
+        gear: i32,
+    },
     /// The orbit probe placed by touch at (x, y) (a long press, its drag).
     Probe {
         x: f64,
@@ -345,6 +350,7 @@ impl InputEvent {
             Self::TouchSteerEnd => E::TouchSteerEnd,
             Self::Throttle { up } => E::Throttle { up },
             Self::ThrottleEnd => E::ThrottleEnd,
+            Self::SetGear { gear } => E::SetGear { gear },
             Self::Probe { x, y } if ok(&[x, y]) => E::Probe(Some((x, y))),
             Self::ProbeCleared => E::Probe(None),
             Self::SeekAt { x, y } if ok(&[x, y]) => E::SeekAt { x, y },
@@ -434,9 +440,16 @@ pub struct CruiseStatus {
     pub gear: i32,
 }
 
+/// The gears the touch throttle's ticks stand for on each side of the middle when `per_side`
+/// ticks fit (gear 1 to 26, geometrically spaced; all 26 when they fit; kb: decisions/controls
+/// "Touch"). The chevrons step through every gear.
+#[uniffi::export]
+pub fn throttle_ticks(per_side: u32) -> Vec<i32> {
+    almondbread_core::cruise::lever_ticks(per_side as usize)
+}
+
 impl From<&input::Cockpit> for CruiseStatus {
     fn from(c: &input::Cockpit) -> Self {
-        let gear = almondbread_core::cruise::gear(c.set).map_or(0, |g| g as i32);
         Self {
             level: c.level.into(),
             set: c.set,
@@ -445,7 +458,7 @@ impl From<&input::Cockpit> for CruiseStatus {
             landing: c.landing,
             assist: c.assist,
             nudging: c.nudging,
-            gear: if c.set < 0.0 { -gear } else { gear },
+            gear: almondbread_core::cruise::signed_gear(c.set),
         }
     }
 }

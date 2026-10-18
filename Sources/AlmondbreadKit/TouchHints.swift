@@ -125,7 +125,7 @@ struct TouchHintsLayer: View {
                 .fixedSize()
                 .position(Self.middle(size: size, throttle: throttle, plane: plane))
                 if let throttle {
-                    Self.beside(throttle, Self.chip("arrow.up.and.down", "Slide to fly in or out"))
+                    Self.beside(throttle, Self.chip("arrow.up.and.down", "Up: in · Down: out · M: stop"))
                 }
                 if let plane {
                     Self.above(plane, width: size.width, Self.chip("airplane", "Flies by itself"))
@@ -135,7 +135,7 @@ struct TouchHintsLayer: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("touch-hints")
-        .accessibilityLabel("Hints: drag to move, pinch to zoom, hold for more, slide the throttle to fly in or out, the cockpit's plane flies by itself")
+        .accessibilityLabel("Hints: drag to move, pinch to zoom, hold for more, slide the throttle up to fly in, down to fly out, to the middle to stop, the cockpit's plane flies by itself")
     }
 
     /// Where the gestures group is centred: the middle, unless the throttle's label (left of the

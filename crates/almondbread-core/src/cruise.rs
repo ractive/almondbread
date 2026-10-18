@@ -104,6 +104,44 @@ pub fn gear(set: f64) -> Option<usize> {
         .map(|i| i + 1)
 }
 
+/// The signed gear of a set speed (+ in, − out, 0 at rest): what the cockpit and the touch
+/// throttle show. Speeds beyond the ladder show its last gear.
+pub fn signed_gear(set: f64) -> i32 {
+    gear(set).map_or(0, |g| if set < 0.0 { -(g as i32) } else { g as i32 })
+}
+
+/// The set speed of a signed gear (the touch throttle's position; kb: decisions/controls
+/// "Touch"): ± the rung, 0 for the middle (stop); clamped to the ladder.
+pub fn gear_speed(gear: i32) -> f64 {
+    if gear == 0 {
+        return 0.0;
+    }
+    let i = (gear.unsigned_abs() as usize).clamp(1, LADDER.len()) - 1;
+    f64::from(gear.signum()) * rung(i)
+}
+
+/// The gears the touch throttle's ticks stand for on each side of the middle when only
+/// `per_side` ticks fit (kb: decisions/controls "Touch"): from gear 1 to the top gear,
+/// geometrically spaced in between (gear `26^((k−1)/(n−1))`, rounded, at least one more than
+/// the tick below), so the low gears, the ones used most, are all there and the top one is
+/// reachable in one drag. All 26 when they fit. The chevrons step through every gear.
+pub fn lever_ticks(per_side: usize) -> Vec<i32> {
+    let n = per_side.clamp(1, LADDER.len());
+    let top = LADDER.len() as f64;
+    if n == 1 {
+        return vec![LADDER.len() as i32];
+    }
+    let mut out: Vec<i32> = Vec::with_capacity(n);
+    for k in 0..n {
+        let g = top.powf(k as f64 / (n - 1) as f64).round() as i32;
+        // Leave room for the ticks still to come (they need distinct gears up to the top).
+        let room = LADDER.len() as i32 - (n - 1 - k) as i32;
+        let g = g.max(out.last().map_or(1, |l| l + 1)).min(room);
+        out.push(g);
+    }
+    out
+}
+
 /// The share of the depth boost's exponent for a set speed: [`BOOST_SHARE_LOW`] in the first
 /// gear, 1 in the top one (linear in the gear; beyond the ladder 1).
 pub fn boost_share(set: f64) -> f64 {
@@ -267,6 +305,25 @@ impl Cruise {
             self.engaged = true;
         }
         self.set = next;
+        self.set
+    }
+
+    /// Sets the speed directly (the touch throttle's position, `SetGear`): engages unless 0
+    /// (then it brakes to rest, as Esc); `out_ok` false refuses reverse (the whole set is in
+    /// view already). Returns the set speed.
+    pub fn set_to(&mut self, v: f64, out_ok: bool, now: f64) -> f64 {
+        if !v.is_finite() || (v < 0.0 && self.set >= 0.0 && !out_ok) {
+            return self.set;
+        }
+        let m = max_speed();
+        let v = v.clamp(-m, m);
+        if v != self.set {
+            self.speed_changed = now;
+        }
+        if v != 0.0 {
+            self.engaged = true;
+        }
+        self.set = v;
         self.set
     }
 
@@ -447,6 +504,32 @@ impl Cruise {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The touch throttle (kb: decisions/controls "Touch"): a gear's speed is its rung and
+    /// shows as that gear again; the ticks start at gear 1, end at the top gear, rise strictly
+    /// and are every gear when all fit.
+    #[test]
+    fn lever_gears_and_ticks() {
+        for g in -26..=26 {
+            assert_eq!(signed_gear(gear_speed(g)), g, "gear {g}");
+        }
+        assert_eq!(gear_speed(0), 0.0);
+        assert_eq!(gear_speed(40), rung(25), "clamped to the ladder");
+        assert_eq!(gear_speed(-3), -rung(2));
+        assert_eq!(signed_gear(crate::autopilot::SPEED_DEFAULT), 7, "the autopilot's ×2.46");
+        assert_eq!(signed_gear(16.0), 26, "beyond the ladder: its top");
+        for n in 1..=40 {
+            let t = lever_ticks(n);
+            assert_eq!(t.len(), n.clamp(1, 26), "{n}");
+            assert_eq!(*t.last().unwrap(), 26, "{n}: {t:?}");
+            if n > 1 {
+                assert_eq!(t[0], 1, "{n}: {t:?}");
+            }
+            assert!(t.windows(2).all(|w| w[0] < w[1]), "{n}: {t:?}");
+        }
+        assert_eq!(lever_ticks(26), (1..=26).collect::<Vec<_>>());
+        assert_eq!(lever_ticks(8), vec![1, 2, 3, 4, 6, 10, 16, 26]);
+    }
 
     #[test]
     fn ladder_steps_with_a_detent_at_zero() {

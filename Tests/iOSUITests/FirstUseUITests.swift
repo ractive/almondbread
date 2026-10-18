@@ -81,10 +81,9 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas after \(what)")
     }
 
-    private func throttle(_ lever: XCUIElement, detents: Double) {
-        let from = lever.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = from.withOffset(CGVector(dx: 0, dy: -detents * 14 - 7 * (detents > 0 ? 1 : -1)))
-        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 120, thenHoldForDuration: 0.1)
+    /// Drags the throttle's knob from the middle to signed tick `tick` (a position lever).
+    private func throttle(_ lever: XCUIElement, tick: Int) {
+        ThrottleLeverUI(element: lever).drag(toTick: tick)
     }
 
     private func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
@@ -164,12 +163,13 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertEqual(fields()["autopilot"], "off")
         shot("autopilot-off")
 
-        // The throttle: forward three, then reverse, then a double tap stops.
+        // The throttle: up to the third tick, then down into reverse, then a double tap stops.
         let lever = app.descendants(matching: .any)["throttle"]
         XCTAssertTrue(lever.waitForExistence(timeout: 5) && lever.isHittable, "throttle")
-        throttle(lever, detents: 3)
+        throttle(lever, tick: 3)
         settle(3)
         XCTAssertEqual(level(), "c")
+        XCTAssertGreaterThan(ThrottleLeverUI(element: lever).gear, 0, "the knob is not up")
         shot("throttle-forward")
         // Cruising, a drag steers by moving the picture (device round: it did not seem to).
         let c0 = fields()
@@ -183,11 +183,10 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertGreaterThan(moved, 0.2 * canvas.frame.width * 0.4, "a drag in the cruise did not move the picture")
         XCTAssertEqual(level(), "c", "a drag left the cruise")
         shot("cruise-dragged")
-        throttle(lever, detents: -6)
-        settle(0.3)
-        throttle(lever, detents: -3)
+        throttle(lever, tick: -3)
         settle(3)
         XCTAssertLessThan(Int(fields()["gear"] ?? "") ?? 0, 0, "no reverse gear")
+        XCTAssertLessThan(ThrottleLeverUI(element: lever).gear, 0, "the knob is not down")
         shot("throttle-reverse")
         lever.doubleTap()
         settle(4)
@@ -233,7 +232,7 @@ final class FirstUseUITests: XCTestCase {
         }
 
         // Background and back, while cruising.
-        throttle(lever, detents: 2)
+        throttle(lever, tick: 2)
         settle(1)
         XCUIDevice.shared.press(.home)
         settle(3)
