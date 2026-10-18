@@ -41,7 +41,7 @@ Press **J** (or click the sparkles in the cockpit) for a journey: an endless fli
 
 ## Seek a minibrot
 
-Press **N** (or View ▸ Seek Minibrot; on iPhone and iPad, hold a finger on the picture and choose *Seek Minibrot Here*, or *Seek minibrot* in the control center) to find the simplest tiny copy of the whole set in or near the view, the one with the lowest period, and fly there until it fills the picture. The status overlay names it, for example *Minibrot, period 4640 · 1.0e69×*. Press **N** again and it looks around that one for the next, smaller copy, and so on down.
+Press **N** (or View ▸ Seek Minibrot; on iPhone and iPad, hold a finger on the picture and choose *Seek Minibrot Here*, or *Seek minibrot* in the control center) to find the simplest tiny copy of the whole set in or near the view, the one with the lowest period, and fly there until it fills the picture. The status overlay names it, for example *Minibrot, period 4640 · 1.0e69×*. Press **N** again and it looks around that one for the next, smaller copy, and so on down. What the period means: the tour *What a minibrot's period means* (**View ▸ Tours**).
 
 - Finding one usually takes a moment; meanwhile the overlay says *Seeking a minibrot…*. **Esc** or any other key or move cancels the search.
 - The flight is an ordinary flight: **E** and **Q** change its speed, **Esc** stops it, and steering yourself takes over.

@@ -38,7 +38,10 @@ use crate::viewport::{Center, Scale, Viewport, wrap_angle};
 
 /// The bundled tours: (id, Markdown). The id is the file name; a unit test checks that every
 /// file in `tours/` is listed here and parses.
-const BUNDLED: &[(&str, &str)] = &[("feigenbaum", include_str!("../tours/feigenbaum.md"))];
+const BUNDLED: &[(&str, &str)] = &[
+    ("feigenbaum", include_str!("../tours/feigenbaum.md")),
+    ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
+];
 
 /// Highest iteration limit a step may set (the FFI's bound).
 pub const MAX_STEP_ITERATIONS: usize = 1 << 31;

@@ -1551,3 +1551,13 @@ worked. The test now draws an exact 8.6° twist through XCTest's event record
 `a_single_twist_event_crossing_the_dead_band_turns_by_the_excess`. Noted: UIKit's 5–6° start
 hysteresis adds to the 15° band on real fingers. [[decisions/controls]] "Touch" ▸ "Device round",
 [[platform/ios-simulator]] "QA".
+
+## [2026-10-18] decision | Tour: what a minibrot's period means
+
+New guided tour `tours/minibrot-periods.md` (9 steps, place `airplane`): loop length = period on
+the cardioid, the period-2 disc and the 1/3 bulb (counting the antenna's branches), the Airplane,
+then the real chain of Seek minibrot from the Airplane (periods 3, 7, 16, 48, 80, 128, 384, 640,
+896, 2688) ending at a period-2688 minibrot at 10^15.7 with `iterations: 300000`. Coordinates from
+`seek::seek` and f64 checks; headless renders and a background `--ui-demo` run confirm every
+fate line. Our size bound `p ≳ 0.83 d` (inference) and the needle places sitting on it:
+[[decisions/controls]] "The minibrot-periods tour". Help: one sentence under Seek a minibrot.
