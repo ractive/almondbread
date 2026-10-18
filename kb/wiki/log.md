@@ -1571,3 +1571,23 @@ the lock lets go during the 1 s manual hold and picks up from the moved view). S
 raw single finger (`FingerDown` / `FingerMove` / `FingerUp`) from the passive finger tracker,
 Rust classifies (`FINGER_SLOP`, `FINGER_REST`); `TouchSteer`, the steering long press and
 `FRAME_FINGER_STEERS` are gone. Manual and the Mac unchanged.
+
+## [2026-10-18] decision | Tour: what a minibrot's period means
+
+New guided tour `tours/minibrot-periods.md` (9 steps, place `airplane`): loop length = period on
+the cardioid, the period-2 disc and the 1/3 bulb (counting the antenna's branches), the Airplane,
+then the real chain of Seek minibrot from the Airplane (periods 3, 7, 16, 48, 80, 128, 384, 640,
+896, 2688) ending at a period-2688 minibrot at 10^15.7 with `iterations: 300000`. Coordinates from
+`seek::seek` and f64 checks; headless renders and a background `--ui-demo` run confirm every
+fate line. Our size bound `p ≳ 0.83 d` (inference) and the needle places sitting on it:
+[[decisions/controls]] "The minibrot-periods tour". Help: one sentence under Seek a minibrot.
+
+## [2026-10-18] decision | The π meter becomes a tour
+
+User: π only through a tour. New tour `tours/pi.md` (6 steps: the neck, count and multiply, the
+neck hunt, why π, the cusp hunt, your turn) and step key `pi-hunt: neck|cusp` (starts the meter's
+guided flight in its own step). Removed the P key, View ▸ π Meter / Hunt π at the Neck / at the
+Cusp, the control center's π switch, reading and hunt buttons, FFI `pi_flight` and the meter's
+persistence; help (getting started, overlays, popovers) and the neck place point to the tour. The
+π panel keeps left of the tour card. [[decisions/controls]] "π meter", "Guided tours" key table,
+"The π tour".

@@ -184,7 +184,6 @@ struct SavedSettings: Codable {
     var mapLevels: Int?
     var mapSize: Double?
     var mapPlacement: MapPlacement?
-    var piMeterEnabled: Bool?
     var cosmicScale: Bool?
     var compassAlways: Bool?
     var targetMarker: Bool?
@@ -259,7 +258,8 @@ public final class ExplorerModel {
     public var mapSize = 180.0 { didSet { pushOverlay() } }
     public var mapPlacement = MapPlacement.bottomLeft { didSet { pushOverlay() } }
     /// The π meter (kb: techniques/pi-in-the-mandelbrot-set): at the neck -3/4 + iε or the
-    /// cusp 1/4 + ε, the escape count times ε (√ε) closing in on π, drawn by Rust.
+    /// cusp 1/4 + ε, the escape count times ε (√ε) closing in on π, drawn by Rust. Only the
+    /// tour "π in the Mandelbrot set" switches it on (mirrored here); not saved.
     public var piMeterEnabled = false { didSet { pushPiMeter() } }
     /// Extra right margin of the π panel (points): iPhone portrait keeps its buttons clear.
     /// The HUD's zoom at a place in this window minus the place's catalogue zoom (log10;
@@ -267,6 +267,9 @@ public final class ExplorerModel {
     /// when Places draws, and a live window resize does not redraw 79 tiles per frame.
     @ObservationIgnored var placeZoomOffset = 0.0
     public var piMeterInsetRight = 0.0 { didSet { if piMeterInsetRight != oldValue { pushPiMeter() } } }
+    /// More right margin while a tour's card sits at the bottom right (the π tour shows the
+    /// panel next to it).
+    public var piMeterTourInset = 0.0 { didSet { if piMeterTourInset != oldValue { pushPiMeter() } } }
     /// Cosmic size scale (kb: decisions/controls, "Cosmic size scale"): off by default.
     public var cosmicScale = false { didSet { pushCosmic() } }
     /// The compass (kb: decisions/controls, "Compass"): shown while the view is turned, or
@@ -575,7 +578,7 @@ public final class ExplorerModel {
     private func pushPiMeter(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
         HangWatchdog.note("settings", "pushPiMeter from \(origin)")
-        explorer.setPiMeter(on: piMeterEnabled, insetRight: piMeterInsetRight, insetBottom: 0)
+        explorer.setPiMeter(on: piMeterEnabled, insetRight: piMeterInsetRight + piMeterTourInset, insetBottom: 0)
         if !piMeterEnabled { piMeter = nil }
         host?.requestFrames()
         save()
@@ -634,7 +637,7 @@ public final class ExplorerModel {
             lookID: lookID, supersampling: supersampling, interactivePreview: interactivePreview,
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
-            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, piMeterEnabled: piMeterEnabled,
+            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker)
     }
 
@@ -698,7 +701,6 @@ public final class ExplorerModel {
         mapLevels = s.mapLevels ?? mapLevels
         mapSize = s.mapSize ?? mapSize
         mapPlacement = s.mapPlacement ?? mapPlacement
-        piMeterEnabled = s.piMeterEnabled ?? piMeterEnabled
         cosmicScale = s.cosmicScale ?? cosmicScale
         compassAlways = s.compassAlways ?? compassAlways
         targetMarker = s.targetMarker ?? targetMarker
@@ -1126,19 +1128,6 @@ public final class ExplorerModel {
     public func toggleOrbit() { orbitEnabled.toggle() }
     public func toggleMap() { mapEnabled.toggle() }
     public func toggleCosmicScale() { cosmicScale.toggle() }
-    public func togglePiMeter() { piMeterEnabled.toggle() }
-
-    /// The guided π flight ("neck" or "cusp"): to the place, meter on, then down the line of
-    /// approach (Rust flies it; Esc stops).
-    public func piFlight(_ point: String) {
-        guard let explorer, let s = try? explorer.piFlight(point: point) else { return }
-        let id = point == "cusp" ? "pi-at-the-cusp" : "pi-at-the-neck"
-        lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
-        pull(s)
-        showPlaceInterior()
-        if !piMeterEnabled { piMeterEnabled = true }
-        host?.requestFrames()
-    }
 
     /// A click on the canvas at (x, y) points from the centre, y up: true if a mini-map panel
     /// took it (a jump follows).

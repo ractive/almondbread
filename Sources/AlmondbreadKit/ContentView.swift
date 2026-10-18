@@ -97,6 +97,11 @@ struct ContentView: View {
                 .padding(.top, compactWidth ? 12 : 0)
                 .padding(.bottom, compactWidth ? 0 : Self.tourBottom(compact: false, cockpit: model.showHUD))
         }
+        // The π panel (bottom right, the π tour) keeps left of the card: the card's 340 points
+        // and a 12-point gap beyond the panel's own margin, wherever the card's trailing edge is.
+        .onChange(of: model.tour == nil || compactWidth, initial: true) {
+            model.piMeterTourInset = model.tour == nil || compactWidth ? 0 : 352
+        }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
         .onChange(of: [compactWidth, landscapePhone], initial: true) {
@@ -185,8 +190,8 @@ struct ContentView: View {
                     Label("Mini-map", systemImage: "map")
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
-                // The π meter is in the View menu (⌥⌘P) and on P, not in the toolbar: a niche
-                // feature you use once (user, 2026-10-17).
+                // The π meter is not in the toolbar: the tour "π in the Mandelbrot set" drives it
+                // (user, 2026-10-18).
                 Toggle(isOn: $model.cosmicScale) {
                     Label("Size Scale", systemImage: "ruler")
                 }

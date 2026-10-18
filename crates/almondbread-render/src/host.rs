@@ -438,7 +438,16 @@ impl<B: GpuBackend + Clone> Host<B> {
     }
 
     fn apply_tour_plan(&mut self, plan: StepPlan, now: f64) {
+        // A π hunt runs only during its own step.
+        if self.overlay.pi.flying() {
+            self.overlay.pi.stop_flight();
+        }
         self.apply_tour_snapshot(&plan.snapshot);
+        if let Some(point) = plan.pi_hunt {
+            let (w, h) = self.view_points;
+            self.overlay
+                .start_pi_flight(&mut self.renderer, point, w.min(h).max(1.0), now);
+        }
         if let Some((v, jump)) = plan.view {
             let (w, h) = self.view_points;
             let target = v.viewport(w.min(h).max(1.0));
@@ -485,6 +494,9 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// False without a tour.
     pub fn end_tour(&mut self, now: f64) -> bool {
         let Some(t) = self.tour.take() else { return false };
+        if self.overlay.pi.flying() {
+            self.overlay.pi.stop_flight();
+        }
         let (saved, view) = t.finish();
         self.apply_tour_snapshot(&saved);
         self.overlay.tour = Default::default();

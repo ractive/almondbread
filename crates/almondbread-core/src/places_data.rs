@@ -60,7 +60,7 @@ pub const PLACES: &[Place] = &[
     Place {
         id: "pi-at-the-neck",
         name: "π at the Neck",
-        description: "Where the period-2 disc touches the cardioid. Count the iterations of c = -3/4 + iε before it escapes and multiply by ε: the product tends to π. Turn on the π meter (P) and zoom down the line.",
+        description: "Where the period-2 disc touches the cardioid. Count the iterations of c = -3/4 + iε before it escapes and multiply by ε: the product tends to π. The tour \"π in the Mandelbrot set\" counts it for you.",
         feature: "Boll (1991): N·ε → π as ε → 0 along c = -3/4 + iε; here ε = 0.02, N = 158.",
         re: "-0.75",
         im: "0.02",

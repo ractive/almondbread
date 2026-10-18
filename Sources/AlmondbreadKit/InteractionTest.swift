@@ -578,25 +578,26 @@ final class InteractionTest: NSObject {
                 self.refineLines.append("journey stops: stopped at \"\(stopSeen)\" (leg \(legAtStop)), after X leg \(s.leg) \(s.phase) \"\(s.label)\" \(ok ? "OK" : "FAILED")")
             }
         }
-        // π hunt (kb: decisions/controls "π meter"): the guided flight from the home view with
-        // the meter and its orbit trail on (the counting thread publishes the trail picture,
-        // the frame uploads it); Esc at 2.8 s. Checks the meter counted at the neck and Esc
-        // ended the flight; the frame pacing and draw CPU are measured like every scenario.
+        // π hunt (kb: decisions/controls "π meter"): the π tour's hunt step (the guided flight
+        // with the meter and its orbit trail; the counting thread publishes the trail picture,
+        // the frame uploads it) from the home view; End tour at 2.8 s. Checks the meter counted
+        // at the neck and the tour's end switched it off; the frame pacing and draw CPU are
+        // measured like every scenario.
         let piHunt: (FractalNSView, Int, Double) -> Void = { v, i, t in
             guard let explorer = v.explorer else { return }
             if i == 0 {
                 sent.removeAll()
-                v.model.piFlight("neck")
+                v.model.startTour("pi")
+                v.model.tourGo(2)
             }
-            once("esc", t >= 2.8) {
+            once("end", t >= 2.8) {
                 let m = explorer.piMeter()
-                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
-                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
-                let ok = m.enabled && m.point == "neck" && m.count > 0
+                v.model.endTour()
+                let off = !explorer.piMeter().enabled
+                let ok = m.enabled && m.point == "neck" && m.count > 0 && off
                 if !ok { self.failures += 1 }
-                self.refineLines.append("pi hunt: \(m.point) ε \(String(format: "%.2g", m.eps)) N \(m.count) \(m.digits) digits \(ok ? "OK" : "FAILED")")
+                self.refineLines.append("pi hunt: \(m.point) ε \(String(format: "%.2g", m.eps)) N \(m.count) \(m.digits) digits, off after the tour \(off) \(ok ? "OK" : "FAILED")")
             }
-            once("off", t >= 2.95) { v.model.piMeterEnabled = false }
         }
         // Full screen (kb: decisions/controls "Full screen") through a probe instead of the
         // window's own full screen (window tests never enter it): in "full screen", Z, then
