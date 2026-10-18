@@ -1443,6 +1443,7 @@ fingertip-sized (?) badges, haptics, finger-sized tour and Continue buttons, the
 commands in the iPad menu bar. New navigator events `TouchSteer`, `Throttle`, `Probe`,
 `SeekAt`, `FlyHere`; XCTest `TouchControlsUITests` on both simulators. Simulator only; feel
 needs a device.
+
 ## [2026-10-18] decision | iPhone/iPad device readiness: device build, memory budget, thermal, background
 
 Prepared without a device. `make ios-device` / `ios-device-selftest` / `ios-device-check` /
