@@ -52,7 +52,16 @@ offscreen PNG in `build/core-check.png`) and FFI call costs. Orbit benchmark:
 `cargo run --release -p almondbread-math --example math_check -- bench [bits...]`;
 `cargo bench -p almondbread-math` for criterion. `xcode-select` points at Xcode; the
 Makefile's `DEVELOPER_DIR` default is the same Xcode (harmless, override if needed).
-No iOS simulator runtime is installed yet.
+Simulators (kb: platform/ios-simulator, "Low-load rules"): `make ios-selftest`, `make ios-uitest`
+[`TESTS="TouchControlsUITests/testThrottle,FirstUseUITests"`] [`DEVICE=iphone|ipad|both`].
+One simulator job at a time on the whole machine, enforced by a lock
+(`~/Library/Caches/almondbread/sim.lock`; a second job waits and names the holder); one shared
+pair `AB iPhone 17e` / `AB iPad mini` for every worktree, booted headless one at a time and shut
+down afterwards. Never `simctl create` your own simulators, never `simctl shutdown all`. Agents
+run targeted tests (`TESTS=`, one `DEVICE=`); the full suite on both devices is the driver's, once.
+Test builds run under `nice` with 6 jobs. `make ios-sim-run [DEVICE=iphone]`: the app in the
+shared iPad simulator for the user to try (opens Simulator.app, holds the lock, Ctrl-C stops);
+not for agents.
 Devices (kb: platform/ios-device): `make ios-device` (signed Release, automatic signing for
 team 9KNMHVRSTW, install + launch via devicectl; Xcode must be signed in once),
 `make ios-device-selftest` (PNG to `build/ios-device-selftest.png`), `make ios-device-check`
@@ -145,6 +154,8 @@ the background: test flags switch to the `.accessory` activation policy,
 never activate the app or make its window key, keep it behind other
 windows, and quit when done (`open -g -j` for the .app). Kill leftover
 test instances. Only the driver session launches the app for the user.
+Simulator jobs are serialized by the simulator lock: never work around it (no own
+simulators, no `xcodebuild test` outside the scripts); keep simulator runs targeted.
 
 ## Knowledge base
 

@@ -1,21 +1,30 @@
 #!/bin/zsh
-# iOS self-test on simulators (make ios-selftest): installs the simulator build, launches it
-# headless (no Simulator.app window) with the self-test, waits for "renderer OK", copies the
-# offscreen PNG to build/ios-selftest-<device>.png and takes a screenshot of the device to
-# build/ios-screens/<device>-selftest.png. Usage: ios-selftest.sh "Name A,Name B" path/to/Almondbread.app
+# iOS self-test on the shared simulators (make ios-selftest [DEVICE=iphone|ipad|both]): takes the
+# machine-wide simulator lock, then per device: boots it headless (no Simulator.app window),
+# installs the simulator build, launches it with the self-test, waits for "renderer OK", copies
+# the offscreen PNG to build/ios-selftest-<device>.png, takes a screenshot of a normal launch to
+# build/ios-screens/<device>-launch.png and shuts the simulator down again (one booted at a time).
+# kb: platform/ios-simulator. Usage: ios-selftest.sh iphone,ipad path/to/Almondbread.app
 set -euo pipefail
+root=${0:A:h:h}
+SIM_ROOT=$root
+source $root/scripts/sim-common.zsh
 devices=$1
 app=$2
 bundle=ch.ractive.almondbread
-root=${0:A:h:h}
 mkdir -p $root/build/ios-screens
+sim_lock ios-selftest
+sim_report_others
 fail=0
-for name in ${(s:,:)devices}; do
+booted=""
+trap '[[ -n $booted ]] && sim_shutdown $booted' EXIT
+for kind in $(sim_kinds $devices); do
+  name=${SIM_NAME[$kind]:-}
+  if [[ -z $name ]]; then echo "ios-selftest: unknown device '$kind' (iphone|ipad|both)"; fail=1; continue; fi
   slug=${${name:l}// /-}
-  udid=$(xcrun simctl list devices available -j | /usr/bin/python3 -c "import json,sys; n=sys.argv[1]; print(next((d['udid'] for r in json.load(sys.stdin)['devices'].values() for d in r if d['name']==n), ''))" "$name")
-  if [[ -z $udid ]]; then echo "ios-selftest: no simulator named '$name'"; fail=1; continue; fi
-  xcrun simctl boot $udid 2>/dev/null || true
-  xcrun simctl bootstatus $udid -b >/dev/null
+  udid=$(sim_udid $kind)
+  booted=$udid
+  sim_boot $udid
   xcrun simctl install $udid $app
   log=$root/build/ios-selftest-$slug.log
   # --console-pty: the app's stdout; it quits by itself (exit status 1/2 on failure).
@@ -37,5 +46,7 @@ for name in ${(s:,:)devices}; do
   sleep 6
   xcrun simctl io $udid screenshot $root/build/ios-screens/$slug-launch.png >/dev/null 2>&1
   xcrun simctl terminate $udid $bundle 2>/dev/null || true
+  sim_shutdown $udid
+  booted=""
 done
 exit $fail

@@ -1591,3 +1591,14 @@ Cusp, the control center's π switch, reading and hunt buttons, FFI `pi_flight` 
 persistence; help (getting started, overlays, popovers) and the neck place point to the tour. The
 π panel keeps left of the tour card. [[decisions/controls]] "π meter", "Guided tours" key table,
 "The π tour".
+
+## [2026-10-19] decision | Simulator jobs: one at a time, one shared pair, low priority
+
+After the 2026-10-18 overload (12 simulators from parallel agents, load ~800, swapping):
+[[platform/ios-simulator]] "Low-load rules". A machine-wide lock (`~/Library/Caches/almondbread/
+sim.lock`, fcntl via `zsystem flock`, `scripts/sim-common.zsh`) serializes every simulator job;
+one shared pair `AB iPhone 17e` / `AB iPad mini`, booted one at a time and shut down by UDID;
+`make ios-uitest TESTS=… DEVICE=ipad` for targeted runs (`build-for-testing` outside the lock,
+`test-without-building` inside); test builds under `nice -n 10` with 6 jobs (`taskpolicy -b` was
+8× slower: E-cores only); `make ios-sim-run` for the user (opens Simulator.app, holds the lock,
+Ctrl-C stops). `IOS_DEVICES` is gone. Deleted the stale `ABT`, `DR`, `DT`, `GL`, `PG` simulators.

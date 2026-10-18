@@ -15,9 +15,10 @@ Port background: [[platform/ios-ipad-considerations]].
 ## Setup
 
 - Runtime: `xcodebuild -downloadPlatform iOS` (8.5 GB, iOS 26.5 23F77, ~10 min).
-- Simulators: `xcrun simctl create "AB iPhone 17e" com.apple.CoreSimulator.SimDeviceType.iPhone-17e
-  com.apple.CoreSimulator.SimRuntime.iOS-26-5` and `"AB iPad mini"` (iPad mini A17 Pro).
-  `simctl boot` runs them headless: no Simulator.app window, nothing on the user's screen.
+- Simulators: the shared pair `AB iPhone 17e` (iPhone 17e) and `AB iPad mini` (iPad mini A17
+  Pro), created on demand by `scripts/sim-common.zsh` (`simctl create`, newest iOS runtime) and
+  used by every worktree; see "Low-load rules". `simctl boot` runs them headless: no
+  Simulator.app window, nothing on the user's screen.
 - `make ios-selftest` (`scripts/ios-selftest.sh`): installs the `make ios-sim` build, launches
   with `SIMCTL_CHILD_ALMONDBREAD_SELFTEST=1` and `--selftest-png=selftest.png` (a relative
   path goes to the app's Documents, fetched through `simctl get_app_container … data`),
@@ -32,6 +33,68 @@ Port background: [[platform/ios-ipad-considerations]].
   the test asserts each gesture moved, zoomed or turned it. Screenshots go to the result
   bundle and, via `TEST_RUNNER_ALMONDBREAD_UITEST_SHOTS`, to `build/ios-screens/`.
   `xcodebuild test` does not open Simulator.app either.
+
+## Low-load rules (2026-10-19)
+
+Why: on 2026-10-18 several agents in parallel worktrees each booted their own simulator pair
+(`ABT`, `DR`, `DT`, `GL`, `PG`, `TB`, …) and ran `xcodebuild test` at the same time: 12
+simulators, load average ~800 on 10 cores, 32 GB RAM swapping, the Mac unusable. Each pair also
+kept 1.5–3.6 GB of simulator data. The rules now, enforced by the scripts:
+
+- **One simulator job at a time on the machine.** `scripts/sim-common.zsh` `sim_lock` takes an
+  fcntl lock (`zsystem flock`) on `~/Library/Caches/almondbread/sim.lock` before any simulator
+  is booted; a second job prints `waiting for the simulator lock held by <job> in <worktree>, pid
+  N, since hh:mm:ss` (from `sim.lock.holder`), polls every 5 s, repeats the message every 5 min
+  and gives up after 90 min (`SIM_LOCK_WAIT` seconds). The lock dies with its process, so a
+  crashed or killed job never leaves a stale lock. Builds run before the lock, the simulator
+  part inside it.
+- **One shared pair** for every worktree: `AB iPhone 17e`, `AB iPad mini` (fixed names, created
+  on demand, reused). Each job boots one device at a time headless, waits for `bootstatus`, and
+  shuts it down by UDID when done (also on failure, an EXIT trap) — never `simctl shutdown all`,
+  never a private `simctl create`. UI tests run with `-parallel-testing-enabled NO` (no
+  "Clone 1 of …" simulators). Other booted simulators are reported, left alone.
+- **Targeted runs for agents**: `make ios-uitest TESTS="TouchControlsUITests/testThrottle"
+  DEVICE=ipad` (`TESTS`: comma-separated `Class` or `Class/testMethod`, mapped to
+  `-only-testing:Almondbread iOS UITests/…`; `DEVICE=iphone|ipad|both`, default both). The full
+  suite on both devices is run once by the driver. `make ios-selftest [DEVICE=…]` likewise.
+  `ios-uitest` is `build-for-testing` (unlocked, `ARCHS=arm64`: the generic simulator
+  destination otherwise also links x86_64 and fails on the arm64-only Rust library) then
+  `test-without-building` against the booted shared device (`-destination id=UDID`).
+- **Test builds at low priority**: `ios-selftest` / `ios-uitest` run their `make rust`, the
+  simulator build and `build-for-testing` under `nice -n 10`, xcodebuild `-jobs 6`,
+  `CARGO_BUILD_JOBS=6` (Make target-specific variables, inherited by prerequisites). `make app`,
+  `build`, `run` and `ios-sim-run` keep full speed. Measured 2026-10-19 (M1 Pro 8P+2E, clean
+  release build of `almondbread-ffi` for `aarch64-apple-ios-sim`, other agents' builds running):
+  normal 84 s, `nice -n 10` 76 s, `CARGO_BUILD_JOBS=6` 78 s, `taskpolicy -b` **673 s** (8×:
+  background QoS confines the build to the 2 E-cores and throttles I/O) — so `nice`, not
+  `taskpolicy -b`. Six jobs cost a single build nothing measurable (the tail of the crate graph
+  is serial) and cap the peak when several agents build at once. Note `nice` does not lower the
+  load average: it only lets interactive work go first.
+- **`make ios-sim-run [DEVICE=iphone]`** (`scripts/ios-sim-run.sh`): the Debug simulator build in
+  the shared iPad (or iPhone) for the user to try by hand. The user's command, so it opens
+  Simulator.app (`open -a Simulator --args -CurrentDeviceUDID`). It holds the simulator lock
+  while it runs: otherwise a test job would install over the app and shut the simulator down
+  under the user; agents' jobs wait and name it as the holder. Foreground with the app's
+  output; Ctrl-C (or quitting the app) terminates the app, shuts the simulator down, quits
+  Simulator.app if it started it, releases the lock. `SIM_RUN_NO_WINDOW=1` runs it headless
+  (checks), `SIM_RUN_ARGS` passes launch arguments. Not for agents.
+- Measured 2026-10-19: `make ios-selftest` both devices in sequence ~45 s each after the build;
+  two concurrent `make ios-selftest` (iPad, then iPhone 20 s later): the second printed the
+  waiting line and got the lock after 15 s, the iPad was shut down before the iPhone booted.
+  Targeted `ios-uitest TESTS=TouchControlsUITests/testThrottle DEVICE=ipad`: 67 s wall
+  including an incremental `build-for-testing`, 42 s of testing, one simulator booted. The
+  machine's load average during these runs (150–300) came from other projects' cargo builds;
+  the lock does nothing about those.
+
+Disk: each worktree builds its own `.build/xcode-ios` (simulator app, ~0.4 GB),
+`.build/xcode-ios-test` (UI-test DerivedData, ~0.35 GB, more after full builds), `.build/xcode`
+and a `target/` (Rust, ~11 GB in the main checkout). A shared DerivedData across worktrees is
+deliberately not used (builds of different branches would overwrite each other's products).
+Delete `target/`, `.build/` and `build/` of finished worktrees. Old per-agent simulators:
+`xcrun simctl list devices`, then `xcrun simctl delete <UDID>` for shut-down ones with an agent
+prefix (`ABT`, `DR`, `DT`, `GL`, `PG`, `QA`, `AB2`, `TB` …); keep `AB iPhone 17e`, `AB iPad mini`
+and Xcode's default devices. Deleted 2026-10-19: the `ABT`, `DR`, `DT`, `GL` and `PG` pairs/singles
+(10 simulators, ~21 GB); the `TB` pair was kept for an agent still running.
 
 ## What broke, and the fixes
 
@@ -88,9 +151,9 @@ and stop them, on both devices.
   cells and help badges in view points), so a test can aim at what Rust drew.
 - `UIEditMenuInteraction` on a 390-point iPhone shows two items and a page arrow: XCTest did not
   find the third item. The long-press menu is a SwiftUI popover instead.
-- Several agents share the machine: separate simulators (`ABT iPhone 17e`, `ABT iPad mini`, made
-  with `simctl create` like the others) keep one agent's test runs and persisted settings away
-  from another's; `IOS_DEVICES="ABT iPhone 17e,ABT iPad mini" make ios-uitest`.
+- ~~Several agents share the machine: separate simulators per agent (`ABT …`,
+  `IOS_DEVICES=…`)~~ — superseded 2026-10-19: one shared pair and a machine-wide lock, see
+  "Low-load rules" below. (Settings no longer persist from tests, so sharing is safe.)
 - Persisted settings again: "Orbit Here" in one test leaves the orbit and the mini-map on for
   the next launch (the screenshots then show the touch cockpit lifted above the map row).
 
