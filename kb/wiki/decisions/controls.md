@@ -2024,6 +2024,23 @@ is M(q+1, 1) in `locate`'s numbering (z_{q+1} = z_{q+2}) for q = 3, 4, 5 (our ob
 Checked in the app (2026-10-19, `--ui-demo=tour-bulbs`): fates period-4, 5, 3, 5, 8 at the fixed
 probes; the rings sit on the forks and on the 2/5 and 3/8 bulbs.
 
+### The valleys tour
+
+`tours/valleys.md` ("Seahorse and Elephant valleys", place `seahorse-valley`), 10 steps, user
+request 2026-10-18, built from catalogue places ([[synthesis/places]]): seahorse valley, a
+seahorse, its tail (a Misiurewicz point at the centre), the two-arm spiral M(24,2) marked at 1e-4
+and again at `spiral-1e50` (self-similar: zoom by the cycle's multiplier and turn by its angle),
+elephant valley and the herd, the three-way junction M(4,1) and the same at `junction-1e100`.
+
+No orbit probes at Misiurewicz points: a probe at M(4,1) (`render --place three-way-junction
+--orbit 0,0`) says "escapes after 137 steps" in f64, because the orbit lands on a repelling fixed
+point (|2z| = 1.33) and rounding grows from there; the tour says so in words instead. `move: jump`
+on the steps after a deep place (a fly-to up from 1e50 or 1e100 takes long).
+
+Checked in the app (2026-10-19, `--ui-demo=tour-valleys`): the ring on the M(24,2) spiral's centre;
+the 1e50 view the same two-armed spiral; the 1e100 fork with three branches (covered in stars, so
+the text says that, not "spirals").
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,

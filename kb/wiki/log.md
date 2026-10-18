@@ -1606,3 +1606,10 @@ New tour `tours/bulbs.md` (8 steps): periods round the cardioid with a probe pat
 nuclei, counting the antenna's branches (1/4 and 1/5 bulbs, forks located as M(5,1) and M(6,1)),
 the p/q rule and Farey addition (2/5, 3/8). Nuclei and forks in [[decisions/controls]] "The bulbs
 tour".
+
+## [2026-10-19] decision | Tour: Seahorse and Elephant valleys
+
+New tour `tours/valleys.md` (10 steps): seahorses and their tails, Misiurewicz points at the spiral
+centres, M(24,2) at 1e4 and 1e50 (self-similarity), elephant valley, the M(4,1) fork at 0.005 and
+1e100. Orbit probes at Misiurewicz points are misleading in f64 (M(4,1) "escapes after 137 steps").
+[[decisions/controls]] "The valleys tour".
