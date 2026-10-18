@@ -1620,3 +1620,10 @@ New tour `tours/doubling.md` (9 steps): from the M(4,1) fork to a period-39 mini
 the arms double 3 → 6 → 12 → 24 on the way (12 at half of the log-depth, 24 at three quarters:
 added to [[questions/julia-morph-depth-fractions]]), why squaring doubles, embedded Julia sets and
 Julia morphing. [[decisions/controls]] "The doubling tour".
+
+## [2026-10-19] decision | Tour: what the colours mean
+
+New tour `tours/colours.md` (12 steps): escape counts and bands, smooth colouring, palettes and
+looks, fog, proven black, and the five interior colourings. Found: an interior-only step change
+did not recolour the shown frame in the app until a new job (worked around with `move: jump`;
+possible renderer bug). [[decisions/controls]] "The colours tour".

@@ -2056,6 +2056,23 @@ Depth fractions of the doublings: [[questions/julia-morph-depth-fractions]].
 Checked in the app (2026-10-19, `--ui-demo=tour-doubling`): 6, 12 and 24 arms at steps 3–5, the
 minibrot at step 6.
 
+### The colours tour
+
+`tours/colours.md` ("What the colours mean", place `whole-set`), 12 steps, user request
+2026-10-18: escape counts with the orbit overlay (c = 0.6 escapes after 8 steps; a path from 0.6
+towards the cusp at 0.2501, 283 steps at its end), smooth colouring
+([[techniques/smooth-coloring]]), a palette (`grey`) and a look (`ember`) on seahorse valley, fog in
+the neck gap (the same view as the limits tour), proven black, then the five interior colourings
+on the cardioid and its bulbs ([[techniques/coloring-methods]], [[techniques/interior-detection]]).
+
+**Pitfall: a step that only changes `interior:` may not show in the app until the view moves.**
+In the first capture the angle and distance steps still showed the period colouring after 20 s
+(the scheduler's history kept the old colouring; the recolour on an interior switch did not
+reach the shown frame without a new job). Each interior step now repeats its view with
+`move: jump`, which starts a new job; then bubbles, period, angle and distance all showed
+(`--ui-demo=tour-colours`, 2026-10-19). Not chased further in the renderer: a candidate bug
+for the colour-change path (`plan_frame` / `same_colors`), worth a look.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,
