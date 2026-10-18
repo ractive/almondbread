@@ -15,8 +15,9 @@
 //! is identical at 30, 60 and 120 Hz. Direct manipulation stays 1:1 (drag, trackpad scroll,
 //! pinch); a drag or a touch pan or pinch released while moving flings on with exponential
 //! decay (the macOS trackpad's own momentum events arrive as ordinary pans). Discrete zoom
-//! steps (wheel notch, double click, + / −, menu) are animated with a short exponential
-//! ease-out at the zoom target. kb: decisions/controls (motion feel).
+//! steps (wheel notch, + / −, menu) are animated with a short exponential ease-out at the
+//! zoom target; a double click / tap is a gentler ×2 glide (minimum-jerk, [`TAP_ZOOM_SECONDS`])
+//! that further clicks extend. kb: decisions/controls (motion feel).
 //!
 //! **Zoom target.** Every zoom (held Space, pinch, scroll and wheel zoom, double-click, the
 //! `+` / `−` keys) zooms towards one point, and the complex coordinate under it stays fixed
@@ -363,9 +364,16 @@ const ZOOM_FLING_STOP: f64 = 0.02;
 /// a release this long after the last movement does not fling at all.
 const FLING_WINDOW: f64 = 0.1;
 const FLING_STALE: f64 = 0.06;
-/// Time constant (s) of animated zoom steps (wheel notch, double click, + / −, menu): 63 %
-/// of the step after 60 ms, 99 % after 0.28 s.
+/// Time constant (s) of animated zoom steps (wheel notch, + / −, menu): 63 % of the step
+/// after 60 ms, 99 % after 0.28 s.
 pub const STEP_TAU: f64 = 0.06;
+/// Duration (s) of a double click / tap zoom step: a ×2 on a minimum-jerk curve in log scale
+/// (eases in and out, no jump on the first frame). Its tails are slow (below 10 % of the peak
+/// rate for the first and last 13 %), so the visible motion lasts ~0.25 s, like the system's
+/// own double-tap zooms; the peak rate is 1.875 · ln 2 / 0.35 = 3.7 e-folds/s. A further
+/// click while one runs adds ×2 to the target and the curve goes on from the current rate
+/// (kb: decisions/controls "Animated zoom steps").
+pub const TAP_ZOOM_SECONDS: f64 = 0.35;
 /// Gamepad: radial stick dead zone, trigger dead zone, and the boost button's speed factor.
 pub const STICK_DEAD_ZONE: f64 = 0.15;
 pub const TRIGGER_DEAD_ZONE: f64 = 0.06;
@@ -400,6 +408,54 @@ pub const ASSIST_FLASH: f64 = 0.6;
 /// Below these the velocities snap to rest (points/s, e-folds/s).
 const PAN_REST: f64 = 0.5;
 const ZOOM_REST: f64 = 1e-3;
+
+/// A double click / tap zoom glide (e-folds of zoom-in, positive): a quintic in the time
+/// since `start` from the given offset, rate and acceleration to rest at `end` after
+/// [`TAP_ZOOM_SECONDS`] (minimum jerk from rest; C² across chained clicks).
+#[derive(Clone, Copy, Debug)]
+struct TapZoom {
+    start: f64,
+    c: [f64; 6],
+    end: f64,
+    /// Offset the frames applied so far.
+    applied: f64,
+    at: (f64, f64),
+}
+
+impl TapZoom {
+    fn new(start: f64, p0: f64, v0: f64, a0: f64, end: f64, at: (f64, f64)) -> Self {
+        let t = TAP_ZOOM_SECONDS;
+        let d = end - p0;
+        let c = [
+            p0,
+            v0,
+            a0 / 2.0,
+            (20.0 * d - 12.0 * v0 * t - 3.0 * a0 * t * t) / (2.0 * t.powi(3)),
+            (-30.0 * d + 16.0 * v0 * t + 3.0 * a0 * t * t) / (2.0 * t.powi(4)),
+            (12.0 * d - 6.0 * v0 * t - a0 * t * t) / (2.0 * t.powi(5)),
+        ];
+        Self {
+            start,
+            c,
+            end,
+            applied: 0.0,
+            at,
+        }
+    }
+
+    /// Offset, rate and acceleration `e` seconds after the start (held at the end afterwards).
+    fn eval(&self, e: f64) -> (f64, f64, f64) {
+        if e >= TAP_ZOOM_SECONDS {
+            return (self.end, 0.0, 0.0);
+        }
+        let e = e.max(0.0);
+        let c = &self.c;
+        let p = c[0] + e * (c[1] + e * (c[2] + e * (c[3] + e * (c[4] + e * c[5]))));
+        let v = c[1] + e * (2.0 * c[2] + e * (3.0 * c[3] + e * (4.0 * c[4] + e * 5.0 * c[5])));
+        let a = 2.0 * c[2] + e * (6.0 * c[3] + e * (12.0 * c[4] + e * 20.0 * c[5]));
+        (p, v, a)
+    }
+}
 
 /// What the target marker shows (kb: decisions/controls "Target marker"): where the autopilot
 /// or a journey leg is heading (a complex point), a short name for a known kind of target, and
@@ -462,6 +518,8 @@ pub struct Navigator {
     /// Animated zoom steps still to apply (e-folds) and where.
     step_left: f64,
     step_at: Option<(f64, f64)>,
+    /// The double click / tap zoom glide in flight.
+    tap_zoom: Option<TapZoom>,
     pad: GamepadState,
     /// Continuous zoom steered by the pointer (kb: decisions/controls, autopilot).
     autopilot: Autopilot,
@@ -591,6 +649,7 @@ impl Default for Navigator {
             gesture: Vec::new(),
             step_left: 0.0,
             step_at: None,
+            tap_zoom: None,
             pad: GamepadState::default(),
             autopilot: Autopilot::default(),
             pointer_moved: f64::NEG_INFINITY,
@@ -1344,6 +1403,7 @@ impl Navigator {
             || self.fling != (0.0, 0.0)
             || self.zoom_fling != 0.0
             || self.step_left != 0.0
+            || self.tap_zoom.is_some()
             || self.autopilot.is_moving()
             || self.cruise.is_moving()
             || self.pedal_hold.is_some()
@@ -1417,6 +1477,7 @@ impl Navigator {
         self.stop_flings();
         self.step_left = 0.0;
         self.step_at = None;
+        self.tap_zoom = None;
         self.rot_rate = Spring::default();
         self.rot_step_left = 0.0;
     }
@@ -1467,6 +1528,26 @@ impl Navigator {
         self.note_interaction(now);
         self.step_left += factor.ln();
         self.step_at = Some((x, y));
+    }
+
+    /// Adds a double click / tap zoom of `factor` at (x, y): a glide of [`TAP_ZOOM_SECONDS`]
+    /// to the target. One already in flight is extended: its target moves by `factor` and the
+    /// new curve starts from the current offset, rate and acceleration (no restart, no
+    /// stutter); the zoom point is the latest click's.
+    fn tap_zoom(&mut self, factor: f64, x: f64, y: f64, now: f64) {
+        if !(factor.is_finite() && factor > 0.0) {
+            return;
+        }
+        self.note_interaction(now);
+        // State of the running glide at `now`, relative to what frames already applied.
+        let (p, v, a, end) = match self.tap_zoom {
+            Some(z) => {
+                let (p, v, a) = z.eval(now - z.start);
+                (p - z.applied, v, a, z.end - z.applied)
+            }
+            None => (0.0, 0.0, 0.0, 0.0),
+        };
+        self.tap_zoom = Some(TapZoom::new(now, p, v, a, end + factor.ln(), (x, y)));
     }
 
     /// The canvas (view minus insets): x0, x1, y0, y1 in view points from the centre.
@@ -1785,7 +1866,7 @@ impl Navigator {
                 // Its first click toggled the autopilot's pause: undone.
                 self.autopilot.double_click(now);
                 self.enter_pointer_mode();
-                self.step_zoom(if out { 0.5 } else { 2.0 }, x, y, now);
+                self.tap_zoom(if out { 0.5 } else { 2.0 }, x, y, now);
                 true
             }
             InputEvent::ZoomBy { factor } => {
@@ -2357,6 +2438,20 @@ impl Navigator {
             viewport.zoom_by(part.exp(), x, y);
             if self.step_left == 0.0 {
                 self.step_at = None;
+            }
+        }
+        // The double click / tap glide: by the clock (exact duration whatever the frame rate).
+        if let Some(z) = self.tap_zoom.as_mut() {
+            let e = if now.is_finite() { now - z.start } else { 0.0 };
+            let (p, _, _) = z.eval(e);
+            let part = p - z.applied;
+            z.applied = p;
+            let (x, y) = z.at;
+            if e >= TAP_ZOOM_SECONDS {
+                self.tap_zoom = None;
+            }
+            if part != 0.0 {
+                viewport.zoom_by(part.exp(), x, y);
             }
         }
         // Last, so it absorbs this frame's spin and ends at exactly north.
@@ -2971,11 +3066,12 @@ mod tests {
     fn zoom_steps_are_animated_and_exact() {
         let (mut n, mut v) = setup();
         n.advance(&mut v, 0.0);
+        // A wheel notch worth ×2.
         n.handle(
-            InputEvent::DoubleTap {
+            InputEvent::WheelNotch {
+                delta: 2f64.ln() / 1.15f64.ln(),
                 x: 50.0,
                 y: -20.0,
-                out: false,
             },
             &mut v,
             0.0,
@@ -3001,6 +3097,136 @@ mod tests {
             "{}",
             v.scale.to_f64()
         );
+    }
+
+    /// Scale and the screen drift (points) of the complex point that was under (x, y).
+    fn tap_drift(v: &Viewport, c: &crate::viewport::Center, x: f64, y: f64) -> f64 {
+        let (dr, di) = v.point_at_offset(x, y).delta_from(c);
+        dr.hypot(di) / v.scale.to_f64()
+    }
+
+    fn double_tap(n: &mut Navigator, v: &mut Viewport, x: f64, y: f64, out: bool, t: f64) {
+        assert!(n.handle(InputEvent::DoubleTap { x, y, out }, v, t));
+    }
+
+    #[test]
+    fn double_tap_zoom_eases_in_and_out() {
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        let c = v.point_at_offset(50.0, -20.0);
+        double_tap(&mut n, &mut v, 50.0, -20.0, false, 0.0);
+        // No jump: one 120 Hz frame moves a tiny share of the ×2 (minimum jerk: 10 s³ ≈ 0.02 %).
+        n.advance(&mut v, 1.0 / 120.0);
+        let frac = (1e-3 / v.scale.to_f64()).ln() / 2f64.ln();
+        assert!(frac > 0.0 && frac < 1e-3, "{frac}");
+        // Half way at half the time (the curve is symmetric), the zoom point holds throughout.
+        let mut t = 1.0 / 120.0;
+        let mut last = v.scale.to_f64();
+        let mut half = None;
+        while n.is_moving() {
+            t += 1.0 / 120.0;
+            n.advance(&mut v, t);
+            let s = v.scale.to_f64();
+            assert!(s <= last, "monotonic");
+            last = s;
+            if half.is_none() && s <= 1e-3 / 2f64.sqrt() {
+                half = Some(t);
+            }
+            assert!(tap_drift(&v, &c, 50.0, -20.0) < 1e-6);
+            assert!(t < 1.0);
+        }
+        let half = half.unwrap();
+        assert!((half - TAP_ZOOM_SECONDS / 2.0).abs() < 0.01, "{half}");
+        assert!((t - TAP_ZOOM_SECONDS).abs() < 0.01, "{t}");
+        assert!((v.scale.to_f64() - 5e-4).abs() < 1e-15, "{}", v.scale.to_f64());
+        // Option / right double click: ×0.5 back.
+        double_tap(&mut n, &mut v, 50.0, -20.0, true, t);
+        run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert!((v.scale.to_f64() - 1e-3).abs() < 1e-15);
+    }
+
+    #[test]
+    fn chained_double_taps_accumulate_smoothly() {
+        // Clicks every `gap` seconds (clicks 2, 3 and 4 of a click stream zoom): ×8 in all,
+        // the scale never turns back, and the zoom rate never jumps between frames.
+        for gap in [0.08, 0.15, 0.2, 0.3, 0.5] {
+            for hz in [60.0, 120.0] {
+                let (mut n, mut v) = setup();
+                n.advance(&mut v, 0.0);
+                let mut t = 0.0;
+                let mut clicks = vec![0.0, gap, 2.0 * gap];
+                let mut last = v.scale.to_f64();
+                let mut last_rate: Option<f64> = None;
+                let mut max_rate: f64 = 0.0;
+                let mut max_rate_jump: f64 = 0.0;
+                for _ in 0..(3.0 * hz) as usize {
+                    if clicks.first().is_some_and(|&c| t >= c) {
+                        clicks.remove(0);
+                        double_tap(&mut n, &mut v, 30.0, 40.0, false, t);
+                    }
+                    t += 1.0 / hz;
+                    n.advance(&mut v, t);
+                    let s = v.scale.to_f64();
+                    assert!(s <= last * (1.0 + 1e-12), "gap {gap}: turned back at {t}");
+                    let rate = (last / s).ln() * hz;
+                    if let Some(r) = last_rate {
+                        max_rate_jump = max_rate_jump.max((rate - r).abs());
+                    }
+                    max_rate = max_rate.max(rate);
+                    last_rate = Some(rate);
+                    last = s;
+                }
+                assert!(!n.is_moving());
+                assert!(
+                    (1e-3 / v.scale.to_f64() - 8.0).abs() < 1e-9,
+                    "gap {gap}: ×{}",
+                    1e-3 / v.scale.to_f64()
+                );
+                // Smooth: no frame-to-frame jump in the rate, only bounded acceleration (a
+                // single ×2 glide peaks at 5.8 · ln 2 / T² = 33 e-folds/s², 9 /s of its peak rate; measured 6.6-9.2 /s for these streams at both rates).
+                let accel = max_rate_jump * hz / max_rate;
+                assert!(
+                    accel < 12.0,
+                    "gap {gap} {hz} Hz: rate jump {max_rate_jump} of {max_rate}"
+                );
+            }
+        }
+        // A click after the glide ended starts a new one from rest.
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        double_tap(&mut n, &mut v, 0.0, 0.0, false, 0.0);
+        let t = run(&mut n, &mut v, 0.0, 1.0, 60.0);
+        double_tap(&mut n, &mut v, 0.0, 0.0, false, t);
+        n.advance(&mut v, t + 1.0 / 60.0);
+        assert!((5e-4 / v.scale.to_f64()).ln() < 2e-3 * 2f64.ln());
+        run(&mut n, &mut v, t + 1.0 / 60.0, t + 1.0, 60.0);
+        assert!((v.scale.to_f64() - 2.5e-4).abs() < 1e-15);
+    }
+
+    #[test]
+    fn click_streams_keep_autopilot_pause() {
+        // Autopilot on: a click pauses; the double click (its second click) undoes that; the
+        // third and fourth clicks of the stream zoom on and never toggle the pause.
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
+        assert!(n.autopilot().is_active() && !n.autopilot().is_paused());
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 1.0));
+        assert!(n.autopilot().is_paused());
+        for (k, t) in [1.2, 1.4, 1.6].into_iter().enumerate() {
+            double_tap(&mut n, &mut v, 5.0, 5.0, false, t);
+            assert!(!n.autopilot().is_paused(), "click {}", k + 2);
+        }
+        // Paused before a stream: its first click resumes, the second undoes that, the rest
+        // leave it paused.
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 3.0));
+        assert!(n.autopilot().is_paused());
+        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 5.0));
+        assert!(!n.autopilot().is_paused());
+        for t in [5.2, 5.4, 5.6, 5.8] {
+            double_tap(&mut n, &mut v, 5.0, 5.0, false, t);
+            assert!(n.autopilot().is_paused());
+        }
     }
 
     #[test]

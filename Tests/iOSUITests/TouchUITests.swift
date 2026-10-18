@@ -128,4 +128,25 @@ final class TouchUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         settle(1)
     }
+
+    /// A stream of taps keeps zooming (kb: decisions/controls "Animated zoom steps"): every tap
+    /// from the second on zooms ×2, so a triple tap zooms ×4 and a quadruple tap ×8; a single
+    /// tap later does not zoom.
+    func testTapStreamsZoom() throws {
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")
+        settle(3)
+        let spot = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55))
+        for (taps, factor) in [(2, 2.0), (3, 4.0), (4, 8.0)] {
+            let s0 = try XCTUnwrap(state()).scale
+            canvas.tap(withNumberOfTaps: taps, numberOfTouches: 1)
+            settle()
+            let s1 = try XCTUnwrap(state()).scale
+            XCTAssertEqual(s0 / s1, factor, accuracy: factor * 0.02, "\(taps) taps: ×\(s0 / s1), expected ×\(factor)")
+        }
+        let s0 = try XCTUnwrap(state()).scale
+        spot.tap()
+        settle()
+        XCTAssertEqual(try XCTUnwrap(state()).scale, s0, accuracy: s0 * 1e-6, "a lone tap zoomed")
+        shot("tap-stream")
+    }
 }

@@ -1483,3 +1483,13 @@ place's picture only selected it (now goes there on iOS); pinches turned the vie
 dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
 control); click / key words on touch; compass over the throttle on a phone on its side.
 [[decisions/controls]] "Touch" notes the decisions.
+
+## [2026-10-18] decision | Double click / tap zoom: a gentle glide, and click streams keep zooming
+
+User: double-click zoom felt abrupt and a stream of clicks or taps stopped after the second.
+[[decisions/controls]] "Animated zoom steps": the double click / tap is now its own ×2
+minimum-jerk glide of 0.35 s (`TAP_ZOOM_SECONDS`, `Navigator::tap_zoom`, `TapZoom`), extended
+by each further click from the current rate (C², exact ×2ⁿ). Mac zooms on every click count
+≥ 2; iOS chains taps within 0.4 s and 60 pt through a third tap recogniser. Wheel notches,
++ / − and menu zooms keep the τ = 60 ms ease-out. New interaction-test scenario `click
+stream` (four real clicks: ×8 about the clicked point).
