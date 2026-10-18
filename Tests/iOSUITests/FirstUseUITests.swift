@@ -259,7 +259,8 @@ final class FirstUseUITests: XCTestCase {
     }
 
     /// A small twist (as in a pinch) does not turn the view; a deliberate one does (Rust's 15°
-    /// dead band).
+    /// dead band). The small one is a synthesised path (`TwoFingerTwist`): XCTest's
+    /// `rotate(0.15)` is an 18° finger jump that UIKit reads as 12° or 25°.
     func testSmallTwistDoesNotTurn() throws {
         app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 30))
@@ -268,7 +269,9 @@ final class FirstUseUITests: XCTestCase {
             let v = (canvas.value as? String ?? "").split(separator: " ")
             return v.count > 3 ? Double(v[3].replacingOccurrences(of: "°", with: "")) ?? .nan : .nan
         }
-        canvas.rotate(0.15, withVelocity: 0.5)
+        let f = canvas.frame
+        XCTAssertTrue(TwoFingerTwist.perform(center: CGPoint(x: f.midX, y: f.midY), radius: min(f.width, f.height) / 6,
+                                             radians: 0.15, duration: 0.6), "XCTest's event record is missing")
         settle(1.5)
         XCTAssertEqual(angle(), 0, accuracy: 0.01, "a 9° twist turned the view")
         canvas.rotate(.pi / 3, withVelocity: 1.5)

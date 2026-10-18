@@ -141,7 +141,11 @@ then shows only empty blue (pinch out, the throttle's reverse, or Reset bring it
 says so); at a journey stop the journey button flies on rather than stopping (stop: cockpit M or
 the throttle's double tap); HUD lines and help popovers keep words a child will not know
 ("branch point M(2,1)", "embedded Julia (period 54)"); XCUITest pinches zoom much less than their
-scale (×1.5 for "×3"), so pinch feel needs the device.
+scale (×1.5 for "×3"), so pinch feel needs the device. XCUITest's `rotate(_:withVelocity:)` starts
+with an 18.4° finger jump (fingers down 18.4° off the start line, moved onto it 10 ms later) and
+drops its last 12° keyframe, and UIKit reads the jump as 12.3° or 24.6° run to run: no use for
+angles near a threshold; `Tests/iOSUITests/TwoFingerTwist.swift` draws an exact twist through
+XCTest's event record instead ([[decisions/controls]] "Touch", the flaky small-twist test).
 
 ## Open
 

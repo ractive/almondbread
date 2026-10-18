@@ -5151,6 +5151,51 @@ mod tests {
         assert!(((v.angle - a).abs() - 2.0 * deg).abs() < 1e-9);
     }
 
+    /// The iPad simulator's flaky "small twist" UI test (kb: decisions/controls "Touch", QA pass
+    /// "twist dead band"): XCTest's `rotate(0.15)` is an 18.4° finger jump, and UIKit hands it
+    /// over as ONE `.ended` rotation of 0.21472 rad (12.3°) or 0.42879 rad (24.6°) from the same
+    /// synthesised events. The dead band is not bypassed in either case: a single event that
+    /// crosses it turns by the excess only (24.6° − 15° = the 9.57° the test saw), one below it
+    /// turns nothing, and a fresh navigator starts every twist at the band.
+    #[test]
+    fn a_single_twist_event_crossing_the_dead_band_turns_by_the_excess() {
+        for (radians, turned) in [
+            (0.21472, 0.0),
+            (0.42879, 0.42879 - TWIST_DEAD_BAND),
+            (-0.42879, 0.42879 - TWIST_DEAD_BAND),
+        ] {
+            let (mut n, mut v) = setup();
+            // As FractalView sends it: the `.ended` rotation (clockwise-positive, negated), then the end.
+            assert!(n.handle(
+                InputEvent::TouchRotate {
+                    radians: -radians,
+                    x: 0.0,
+                    y: 0.0
+                },
+                &mut v,
+                0.0
+            ));
+            n.handle(InputEvent::TouchRotateEnd, &mut v, 0.0);
+            assert!(
+                (v.angle.abs() - turned).abs() < 1e-12,
+                "{radians}: angle {}",
+                v.angle.to_degrees()
+            );
+            // The end re-arms the band: the same twist again turns by the same excess only.
+            let a = v.angle.abs();
+            n.handle(
+                InputEvent::TouchRotate {
+                    radians: -radians,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                &mut v,
+                0.0,
+            );
+            assert!((v.angle.abs() - a - turned).abs() < 1e-12);
+        }
+    }
+
     /// A search started from rest (the long-press "Seek Minibrot Here") asks for frames, so the
     /// platform polls it: nothing else moves while it searches (QA 2026-10-18: it stayed
     /// "searching" until the next touch).
