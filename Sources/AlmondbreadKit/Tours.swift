@@ -73,6 +73,10 @@ struct TourCard: View {
             if !t.goal.isEmpty {
                 TourGoalLine(model: model)
             }
+            // The last step offers the next tour (kb: decisions/controls "Finding the tours").
+            if last, let next = ExplorerModel.nextTour(after: t.tourId) {
+                NextTourButton(model: model, next: next)
+            }
             HStack(spacing: 8) {
                 Button("End tour") { model.endTour() }
                     .help("End the tour: your view and settings come back (Esc)")
@@ -119,34 +123,118 @@ struct TourGoalLine: View {
     }
 }
 
-/// The control center's Tours section: the walkthrough first, then each tour with its summary
-/// and a Start button.
+/// "Next tour: <title> ›" on a tour's last step: starts that tour right away (the view and
+/// settings saved when the first tour started stay the ones the end restores).
+struct NextTourButton: View {
+    let model: ExplorerModel
+    let next: TourInfo
+
+    var body: some View {
+        Button {
+            model.startTour(next.id)
+        } label: {
+            HStack(spacing: 8) {
+                PlaceThumbnail(id: next.thumbnail)
+                    .aspectRatio(1.6, contentMode: .fill)
+                    .frame(width: 48, height: 30)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Next tour").font(.caption2).foregroundStyle(.secondary)
+                    Text(next.title).font(.callout.weight(.semibold)).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            .padding(6)
+            .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Start the next tour, “\(next.title)”")
+        .accessibilityLabel("Next tour: \(next.title)")
+        .accessibilityIdentifier("tour-next-tour")
+    }
+}
+
+/// A small link where a question comes up ("What's a period?" under "Minibrot, period 34"): it
+/// starts the listed tour whose `topics:` has `topic` (kb: decisions/controls "Finding the
+/// tours"). Nothing when no tour covers it (not bundled yet) or that tour is running.
+struct TourTopicLink: View {
+    let model: ExplorerModel
+    let topic: String
+    let label: String
+
+    var body: some View {
+        if let t = ExplorerModel.tour(forTopic: topic), model.tour?.tourId != t.id {
+            Button {
+                model.startTour(t.id)
+            } label: {
+                Label(label, systemImage: "signpost.right")
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+                    #if os(iOS)
+                    .frame(minHeight: 30)
+                    .contentShape(Rectangle())
+                    #endif
+            }
+            .buttonStyle(.borderless)
+            .help("Take the tour “\(t.title)” (\(t.lengthText))")
+            .accessibilityIdentifier("tour-topic-" + topic)
+        }
+    }
+}
+
+extension TourInfo {
+    /// "9 steps · ~3 min".
+    var lengthText: String { "\(steps) steps · ~\(minutes) min" }
+}
+
+/// The control center's Tours section: the walkthrough first, then a card per tour: a place's
+/// thumbnail, title, summary, length, a checkmark once done, and Start.
 struct ToursSectionRows: View {
     let model: ExplorerModel
 
     var body: some View {
         let _ = UIPerf.body("section.tours")
         let running = model.tour?.tourId
+        let done = model.toursDone
         if let w = ExplorerModel.walkthrough {
-            row(w, title: "Walkthrough: how to use the app", summary: "The controls in about a minute.",
-                running: running)
+            row(w, title: "Walkthrough: how to use the app", summary: "The controls, step by step.",
+                running: running, done: done.contains(w.id))
         }
         ForEach(ExplorerModel.tours, id: \.id) { t in
-            row(t, title: t.title, summary: t.summary, running: running)
+            row(t, title: t.title, summary: t.summary, running: running, done: done.contains(t.id))
         }
     }
 
-    private func row(_ t: TourInfo, title: String, summary: String, running: String?) -> some View {
+    private func row(_ t: TourInfo, title: String, summary: String, running: String?, done: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
+            PlaceThumbnail(id: t.thumbnail)
+                .aspectRatio(1.6, contentMode: .fill)
+                .frame(width: 64, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    if done {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .green)
+                            .padding(2)
+                    }
+                }
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                if !t.hidden {
-                    Text("\(t.steps) steps").font(.caption2).foregroundStyle(.tertiary)
-                }
+                Text(done ? t.lengthText + " · done" : t.lengthText)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityIdentifier("tour-length-" + t.id)
             }
             Spacer(minLength: 4)
             if running == t.id {
@@ -164,10 +252,10 @@ struct ToursSectionRows: View {
     }
 }
 
-/// The tour of a place (its `place` key), if one has one.
+/// The tour of a place (one of its `place:` ids), if one has one.
 extension ExplorerModel {
     static func tour(forPlace id: String) -> TourInfo? {
-        tours.first { $0.place == id }
+        tours.first { $0.places.contains(id) }
     }
 }
 
@@ -182,7 +270,12 @@ struct TourMenu: View {
                 Divider()
             }
             ForEach(ExplorerModel.tours, id: \.id) { t in
-                Button(t.title) { model?.startTour(t.id) }
+                // A checkmark once done (kb: decisions/controls "Finding the tours").
+                if model?.toursDone.contains(t.id) == true {
+                    Button { model?.startTour(t.id) } label: { Label(t.title, systemImage: "checkmark") }
+                } else {
+                    Button(t.title) { model?.startTour(t.id) }
+                }
             }
             Divider()
             Button("End Tour (Esc)") { model?.endTour() }

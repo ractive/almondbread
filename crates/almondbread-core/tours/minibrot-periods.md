@@ -3,6 +3,7 @@ id: minibrot-periods
 title: What a minibrot's period means
 summary: Why the tiny copies are called "period 3", "period 128" or "period 2688", and why the deep ones have such long loops.
 place: airplane
+topics: period
 ---
 
 ## Points that loop

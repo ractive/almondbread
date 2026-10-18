@@ -38,10 +38,11 @@ use crate::settings::{InteriorMode, OverlaySettings, RenderSettings};
 use crate::viewport::{Center, Scale, Viewport, wrap_angle};
 
 /// The bundled tours: (id, Markdown). The id is the file name; a unit test checks that every
-/// file in `tours/` is listed here and parses.
+/// file in `tours/` is listed here and parses. **List order** is the order of the tour lists
+/// and the default "Next tour" series (a tour's `next:` overrides it; see [`next_tour`]).
 const BUNDLED: &[(&str, &str)] = &[
-    ("feigenbaum", include_str!("../tours/feigenbaum.md")),
     ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
+    ("feigenbaum", include_str!("../tours/feigenbaum.md")),
     ("pi", include_str!("../tours/pi.md")),
     // The first-launch walkthrough (hidden: not in the tour lists).
     ("welcome", include_str!("../tours/welcome.md")),
@@ -59,8 +60,15 @@ pub struct Tour {
     pub title: String,
     /// One line for the tour list.
     pub summary: String,
-    /// The place (`places::place_named`) whose detail offers this tour, if any.
-    pub place: Option<String>,
+    /// The places (`places::place_named`) whose detail offers this tour (`place: a, b`).
+    pub places: Vec<String>,
+    /// The place whose thumbnail stands for the tour in the lists (`thumbnail:`; see
+    /// [`Tour::thumbnail_place`]).
+    pub thumbnail: Option<String>,
+    /// The questions in the UI this tour answers (`topics:`, from [`TOPICS`]).
+    pub topics: Vec<String>,
+    /// The tour its last step offers next (`next:`; see [`next_tour`]).
+    pub next: Option<String>,
     /// Not in the tour lists (header `hidden: yes`): started by id, like the walkthrough.
     pub hidden: bool,
     pub steps: Vec<Step>,
@@ -262,7 +270,36 @@ pub const STEP_KEYS: &[&str] = &[
 ];
 
 /// Every key of the header (front matter).
-pub const HEADER_KEYS: &[&str] = &["id", "title", "summary", "place", "hidden"];
+pub const HEADER_KEYS: &[&str] = &[
+    "id",
+    "title",
+    "summary",
+    "place",
+    "thumbnail",
+    "topics",
+    "next",
+    "hidden",
+];
+
+/// The topics a tour can cover (`topics:`): each is a spot in the UI where the question comes
+/// up, and a small link there starts the tour that covers it (kb: decisions/controls "Guided
+/// tours", "Finding the tours"). A new topic is one line here plus the link in the UI.
+pub const TOPICS: &[&str] = &[
+    // "Minibrot, period 34" in the HUD (seek, journey, the autopilot's target).
+    "period",
+    // The fog: the HUD's "12 % not finished" line (points not decided yet).
+    "fog",
+    // The control center's "Iterations & quality" section.
+    "iterations",
+];
+
+/// A tour id: kebab-case (a-z, 0-9, -).
+fn is_tour_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
 
 /// The bundled tours, parsed (a broken one is left out; the unit test keeps them all valid).
 pub fn bundled() -> Vec<Tour> {
@@ -280,6 +317,40 @@ pub fn named(id: &str) -> Option<Tour> {
 /// The ids and sources of the bundled tours (tests, the CLI).
 pub fn bundled_sources() -> &'static [(&'static str, &'static str)] {
     BUNDLED
+}
+
+/// The tour the last step of tour `id` offers next ("Next tour", kb: decisions/controls
+/// "Finding the tours"): its `next:` if that names a bundled, listed tour; else the next listed
+/// tour in list order, wrapping round to the first; a hidden tour (the walkthrough) offers the
+/// first listed one. A `next:` naming a tour not bundled (yet) is skipped like that, so a series
+/// can name its tours before they exist. None for an unknown id or without another listed tour.
+pub fn next_tour(id: &str) -> Option<String> {
+    next_in(&bundled(), id)
+}
+
+fn next_in(tours: &[Tour], id: &str) -> Option<String> {
+    let me = tours.iter().find(|t| t.id == id)?;
+    let listed: Vec<&Tour> = tours.iter().filter(|t| !t.hidden && t.id != id).collect();
+    if let Some(n) = &me.next
+        && let Some(t) = listed.iter().find(|t| &t.id == n)
+    {
+        return Some(t.id.clone());
+    }
+    // The listed tours after this one, then from the start.
+    let pos = tours.iter().position(|t| t.id == id)?;
+    let after = tours[pos + 1..].iter().chain(&tours[..pos]);
+    if me.hidden {
+        return listed.first().map(|t| t.id.clone());
+    }
+    after.filter(|t| !t.hidden).map(|t| t.id.clone()).next()
+}
+
+/// The listed tour that covers `topic` (its `topics:`; the first in list order), if any.
+pub fn tour_for_topic(topic: &str) -> Option<String> {
+    bundled()
+        .into_iter()
+        .find(|t| !t.hidden && t.topics.iter().any(|x| x == topic))
+        .map(|t| t.id)
 }
 
 fn on_off(line: usize, key: &str, v: &str) -> Result<bool, TourError> {
@@ -337,7 +408,8 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
         return err(i + 1, "a tour starts with a `---` header (id, title, summary)");
     }
     i += 1;
-    let (mut id, mut title, mut summary, mut place, mut hidden) = (None, None, None, None, None);
+    // Each header value with its line (errors name it).
+    let mut header: Vec<(&str, usize, String)> = Vec::new();
     loop {
         let Some(raw) = lines.get(i) else {
             return err(i, "the header is not closed with `---`");
@@ -355,50 +427,80 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
             return err(line, format!("`{l}` is not `key: value`"));
         };
         let (k, v) = (k.trim(), v.trim().to_string());
-        let slot = match k {
-            "id" => &mut id,
-            "title" => &mut title,
-            "summary" => &mut summary,
-            "place" => &mut place,
-            "hidden" => &mut hidden,
-            _ => {
-                return err(
-                    line,
-                    format!("unknown header key `{k}` (known: {})", HEADER_KEYS.join(", ")),
-                );
-            }
+        let Some(k) = HEADER_KEYS.iter().copied().find(|h| *h == k) else {
+            return err(
+                line,
+                format!("unknown header key `{k}` (known: {})", HEADER_KEYS.join(", ")),
+            );
         };
-        if slot.is_some() {
+        if header.iter().any(|(h, _, _)| *h == k) {
             return err(line, format!("`{k}` is given twice"));
         }
         if v.is_empty() {
             return err(line, format!("`{k}` is empty"));
         }
-        *slot = Some(v);
+        header.push((k, line, v));
     }
-    let Some(id) = id else {
+    let get = |k: &str| header.iter().find(|(h, _, _)| *h == k).map(|(_, n, v)| (*n, v.clone()));
+    let Some((id_line, id)) = get("id") else {
         return err(1, "the header needs an `id`");
     };
-    if !id
-        .bytes()
-        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-    {
-        return err(1, format!("the id `{id}` must be kebab-case (a-z, 0-9, -)"));
+    if !is_tour_id(&id) {
+        return err(id_line, format!("the id `{id}` must be kebab-case (a-z, 0-9, -)"));
     }
-    let Some(title) = title else {
+    let Some((_, title)) = get("title") else {
         return err(1, "the header needs a `title`");
     };
-    let Some(summary) = summary else {
+    let Some((_, summary)) = get("summary") else {
         return err(1, "the header needs a `summary`");
     };
-    if let Some(p) = &place
-        && crate::places::place_named(p).is_none()
-    {
-        return err(1, format!("unknown place `{p}`"));
+    // Places: a comma list, each a place of the catalogue.
+    let place_id = |n: usize, p: &str| -> Result<String, TourError> {
+        match crate::places::place_named(p) {
+            Some(_) if !p.is_empty() => Ok(p.to_string()),
+            _ => err(n, format!("unknown place `{p}`")),
+        }
+    };
+    let mut places: Vec<String> = Vec::new();
+    if let Some((n, v)) = get("place") {
+        for p in v.split(',').map(str::trim) {
+            let p = place_id(n, p)?;
+            if places.contains(&p) {
+                return err(n, format!("place `{p}` is given twice"));
+            }
+            places.push(p);
+        }
     }
-    let hidden = match hidden.as_deref() {
+    let thumbnail = match get("thumbnail") {
+        Some((n, v)) => Some(place_id(n, v.trim())?),
+        None => None,
+    };
+    let hidden = match get("hidden") {
         None => false,
-        Some(v) => on_off(1, "hidden", v)?,
+        Some((n, v)) => on_off(n, "hidden", &v)?,
+    };
+    // Topics: a comma list from TOPICS (a UI spot asks for the tour of its topic).
+    let mut topics: Vec<String> = Vec::new();
+    if let Some((n, v)) = get("topics") {
+        for t in v.split(',').map(str::trim) {
+            if !TOPICS.contains(&t) {
+                return err(n, format!("unknown topic `{t}` (known: {})", TOPICS.join(", ")));
+            }
+            if topics.iter().any(|x| x == t) {
+                return err(n, format!("topic `{t}` is given twice"));
+            }
+            topics.push(t.to_string());
+        }
+    }
+    // Next: a tour id. Not checked against the bundled tours here (a unit test does that); at
+    // run time a missing or hidden one is skipped (`next_tour`).
+    let next = match get("next") {
+        None => None,
+        Some((n, v)) if !is_tour_id(&v) => {
+            return err(n, format!("`next` is a tour id (kebab-case), not `{v}`"));
+        }
+        Some((n, v)) if v == id => return err(n, "`next` names the tour itself"),
+        Some((_, v)) => Some(v),
     };
     // Steps.
     let mut steps = Vec::new();
@@ -432,7 +534,10 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
         id,
         title,
         summary,
-        place,
+        places,
+        thumbnail,
+        topics,
+        next,
         hidden,
         steps,
     };
@@ -1154,6 +1259,39 @@ impl Step {
 }
 
 impl Tour {
+    /// The place whose thumbnail stands for the tour in the lists: `thumbnail:`, else the first
+    /// of `place:`, else the whole set.
+    pub fn thumbnail_place(&self) -> String {
+        self.thumbnail
+            .clone()
+            .or_else(|| self.places.first().cloned())
+            .unwrap_or_else(|| "whole-set".to_string())
+    }
+
+    /// About how long the tour takes, in seconds (the lists say "9 steps · ~3 min"): reading
+    /// at 4 words a second (240 a minute), 6 s per step to look (and for a
+    /// flight to land), a moving probe's pass (up to 30 s) and 15 s for a π hunt. Call it on
+    /// the tour as it plays on a platform ([`Tour::for_platform`]).
+    pub fn seconds(&self) -> f64 {
+        self.steps
+            .iter()
+            .map(|s| {
+                let words = s.text.split_whitespace().filter(|w| *w != ":::").count() as f64;
+                let probe = match &s.probe {
+                    Some(Probe::Path(p)) => p.seconds.min(30.0),
+                    _ => 0.0,
+                };
+                let hunt = if s.pi_hunt.is_some() { 15.0 } else { 0.0 };
+                words / 4.0 + 6.0 + probe + hunt
+            })
+            .sum()
+    }
+
+    /// [`Tour::seconds`] in whole minutes, at least 1.
+    pub fn minutes(&self) -> u32 {
+        ((self.seconds() / 60.0).round() as u32).max(1)
+    }
+
     /// The tour as it plays on `p`: the steps for `p` with their texts for `p`. Settings of a
     /// step left out do not carry over there.
     pub fn for_platform(&self, p: Platform) -> Tour {
@@ -1356,6 +1494,114 @@ mod tests {
         assert!(parse("## A\n\nx").is_err());
         assert!(parse("---\nid: t\ntitle: T\nsummary: S\n---\n").is_err());
         assert!(parse("---\nid: T x\ntitle: T\nsummary: S\n---\n## A\n\nx").is_err());
+    }
+
+    fn with_header(extra: &str) -> Result<Tour, TourError> {
+        parse(&format!(
+            "---\nid: t\ntitle: T\nsummary: S\n{extra}\n---\n\n## One\n\nText.\n"
+        ))
+    }
+
+    #[test]
+    fn discovery_header_keys_parse() {
+        let t =
+            with_header("place: seahorse-valley, elephant-valley\ntopics: fog, iterations\nnext: pi").expect("parses");
+        assert_eq!(t.places, ["seahorse-valley", "elephant-valley"]);
+        assert_eq!(t.topics, ["fog", "iterations"]);
+        assert_eq!(t.next.as_deref(), Some("pi"));
+        assert_eq!(t.thumbnail_place(), "seahorse-valley", "the first place by default");
+        let t = with_header("place: airplane\nthumbnail: elephants").expect("parses");
+        assert_eq!(t.thumbnail_place(), "elephants");
+        let t = with_header("").expect("parses");
+        assert!(t.places.is_empty() && t.topics.is_empty() && t.next.is_none());
+        assert_eq!(t.thumbnail_place(), "whole-set");
+        // A `next` that is not bundled parses: a series may name its tours before they exist.
+        assert!(with_header("next: not-written-yet").is_ok());
+    }
+
+    #[test]
+    fn rejects_discovery_header_mistakes_with_their_line() {
+        let cases: &[(&str, &str)] = &[
+            ("place: airplane, nope", "unknown place `nope`"),
+            ("place: airplane, airplane", "given twice"),
+            ("place: airplane,", "unknown place ``"),
+            ("thumbnail: nope", "unknown place `nope`"),
+            ("topics: period, weather", "unknown topic `weather`"),
+            ("topics: fog, fog", "given twice"),
+            ("next: Pi Tour", "tour id"),
+            ("next: t", "the tour itself"),
+        ];
+        for (extra, msg) in cases {
+            let e = with_header(extra).expect_err(extra);
+            assert_eq!(e.line, 5, "{extra}: {e}");
+            assert!(e.message.contains(msg), "{extra}: {e}");
+        }
+    }
+
+    fn tiny(id: &str, extra: &str) -> Tour {
+        parse(&format!(
+            "---\nid: {id}\ntitle: {id}\nsummary: S\n{extra}\n---\n\n## One\n\nText.\n"
+        ))
+        .expect("tiny tour")
+    }
+
+    #[test]
+    fn next_tour_follows_next_then_list_order_and_skips_missing_and_hidden() {
+        let tours = vec![
+            tiny("a", ""),
+            tiny("w", "hidden: yes"),
+            tiny("b", "next: not-there"),
+            tiny("c", "next: a"),
+            tiny("d", "next: w"),
+        ];
+        // List order, skipping the hidden one.
+        assert_eq!(next_in(&tours, "a").as_deref(), Some("b"));
+        // `next` naming a missing tour: list order.
+        assert_eq!(next_in(&tours, "b").as_deref(), Some("c"));
+        // `next` wins.
+        assert_eq!(next_in(&tours, "c").as_deref(), Some("a"));
+        // `next` naming a hidden tour: skipped; the end of the list wraps round.
+        assert_eq!(next_in(&tours, "d").as_deref(), Some("a"));
+        // The hidden walkthrough offers the first listed tour.
+        assert_eq!(next_in(&tours, "w").as_deref(), Some("a"));
+        assert_eq!(next_in(&tours, "zzz"), None);
+        assert_eq!(next_in(&[tiny("a", "")], "a"), None, "no other tour");
+    }
+
+    #[test]
+    fn bundled_discovery_keys_are_consistent() {
+        let tours = bundled();
+        assert_eq!(tours.len(), BUNDLED.len(), "every bundled tour parses");
+        for t in &tours {
+            // A `next` names a bundled, listed tour (a typo fails here, not silently at run time).
+            if let Some(n) = &t.next {
+                assert!(
+                    tours.iter().any(|x| &x.id == n && !x.hidden),
+                    "{}: next `{n}` is not a bundled, listed tour",
+                    t.id
+                );
+            }
+            // Every tour has a next one (list order wraps round) and a thumbnail place.
+            assert!(next_tour(&t.id).is_some(), "{}: no next tour", t.id);
+            assert!(crate::places::place_named(&t.thumbnail_place()).is_some());
+            // The length estimate is sane on every platform.
+            for p in Platform::ALL {
+                let m = t.for_platform(p).minutes();
+                assert!((1..=20).contains(&m), "{} on {p:?}: ~{m} min", t.id);
+            }
+        }
+        // One tour per topic, so a link always starts the same tour.
+        for topic in TOPICS {
+            let n = tours
+                .iter()
+                .filter(|t| !t.hidden && t.topics.iter().any(|x| x == topic))
+                .count();
+            assert!(n <= 1, "topic `{topic}` is covered by {n} tours");
+        }
+        assert_eq!(tour_for_topic("period").as_deref(), Some("minibrot-periods"));
+        // The walkthrough ends by offering the first maths tour.
+        let first = tours.iter().find(|t| !t.hidden).map(|t| t.id.clone());
+        assert_eq!(next_tour("welcome"), first);
     }
 
     #[test]

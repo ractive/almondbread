@@ -416,6 +416,9 @@ public final class ExplorerModel {
     public private(set) var progressText = ""
     /// Compute further stopped at its time limit: the HUD offers "Continue" (G).
     public private(set) var canContinue = false
+    /// The progress line is the settled "12 % not finished" one: points left as fog (the HUD
+    /// links the tour of topic `fog` there).
+    public private(set) var progressUnfinished = false
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
@@ -1062,13 +1065,37 @@ public final class ExplorerModel {
 
     // MARK: Guided tours (kb: decisions/controls "Guided tours"; Rust plays them)
 
-    /// Every bundled tour, the hidden walkthrough included.
-    public static let allTours: [TourInfo] = AlmondbreadCore.tours()
+    /// Every bundled tour, the hidden walkthrough included, as it plays here (steps, length).
+    public static let allTours: [TourInfo] = AlmondbreadCore.toursOn(platform: TourPlatform.current)
     /// The tours the lists show (not the hidden ones, like the walkthrough).
     public static let tours: [TourInfo] = allTours.filter { !$0.hidden }
     /// The first-launch walkthrough (`tours/welcome.md`; Help and the Tours section offer it).
     public static let walkthroughID = "welcome"
     public static var walkthrough: TourInfo? { allTours.first { $0.id == walkthroughID } }
+
+    /// A bundled tour by id (nil: not bundled, e.g. a series' tour not written yet).
+    static func tourInfo(_ id: String) -> TourInfo? { allTours.first { $0.id == id } }
+    /// The listed tour that covers `topic` (its `topics:` header; kb: decisions/controls
+    /// "Finding the tours"): a contextual link starts it. Nil: none bundled yet, no link.
+    static func tour(forTopic topic: String) -> TourInfo? { tours.first { $0.topics.contains(topic) } }
+    /// What the last step of tour `id` offers next ("Next tour"; Rust resolves `next:` and the
+    /// list order, missing and hidden ones skipped).
+    static func nextTour(after id: String) -> TourInfo? {
+        guard let next = tourInfo(id)?.next, !next.isEmpty else { return nil }
+        return tours.first { $0.id == next }
+    }
+
+    static let toursDoneKey = "tours.done"
+    /// The tours that reached their last step once (a checkmark in the lists). In user defaults,
+    /// except in tests and demos (`TestLaunch.ephemeral`), which start empty.
+    public private(set) var toursDone: Set<String> = TestLaunch.ephemeral ? []
+        : Set(UserDefaults.standard.stringArray(forKey: ExplorerModel.toursDoneKey) ?? [])
+
+    func markTourDone(_ id: String) {
+        guard !toursDone.contains(id) else { return }
+        toursDone.insert(id)
+        if !TestLaunch.ephemeral { UserDefaults.standard.set(toursDone.sorted(), forKey: Self.toursDoneKey) }
+    }
 
     /// The running step's goal (`goal:`) is done: the card says so. Polled with the stats.
     public private(set) var tourGoalMet = false
@@ -1140,6 +1167,8 @@ public final class ExplorerModel {
             if tourGoalMet { tourGoalMet = false }
         }
         if tour != next { tour = next }
+        // Reaching the last step counts as done (Finish or End tour there are the same).
+        if let t = next, t.count > 0, t.index + 1 >= t.count { markTourDone(t.tourId) }
         host?.requestFrames()
     }
 
@@ -1256,6 +1285,8 @@ public final class ExplorerModel {
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }
         if canContinue != new.progress.canContinue { canContinue = new.progress.canContinue }
+        let unfinished = !new.progress.visible && !new.progress.text.isEmpty
+        if progressUnfinished != unfinished { progressUnfinished = unfinished }
     }
 
     /// "Continue" (HUD button, G): another time budget for compute further on this view.

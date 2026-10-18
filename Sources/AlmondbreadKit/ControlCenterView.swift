@@ -698,6 +698,10 @@ struct QualitySectionRows: View {
             ForEach(Supersampling.allCases) { Text($0.label).tag($0) }
         }
         Toggle("Interactive preview", isOn: $model.interactivePreview)
+        // The tour on iterations and the fog (topic `iterations`), once one is bundled.
+        if ExplorerModel.tour(forTopic: "iterations") != nil {
+            TourTopicLink(model: model, topic: "iterations", label: "Take the tour: what the limit does")
+        }
     }
 }
 
@@ -1101,7 +1105,8 @@ struct PlacesSection: View {
             PlaceTouchTile(place: p, zoomLog10: p.zoomLog10 + zoomOffset, isSelected: selected == p.id,
                            select: { selected = p.id },
                            go: { selected = nil; model.goToPlace(p.id) },
-                           fly: { selected = nil; model.flyToPlace(p.id) })
+                           fly: { selected = nil; model.flyToPlace(p.id) },
+                           tour: ExplorerModel.tour(forPlace: p.id).map { t in { selected = nil; model.startTour(t.id) } })
             #else
             Button {
                 selected = p.id
@@ -1109,6 +1114,9 @@ struct PlacesSection: View {
                 PlaceThumbnail(id: p.id)
                     .aspectRatio(1.6, contentMode: .fit)
                     .overlay(alignment: .bottomTrailing) { PlaceZoomPill(zoomLog10: p.zoomLog10 + zoomOffset) }
+                    .overlay(alignment: .topLeading) {
+                        if ExplorerModel.tour(forPlace: p.id) != nil { PlaceTourBadge() }
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     // Only the selected tile has a border (every shape is one more layer to
                     // build when the section opens).
@@ -1184,6 +1192,8 @@ struct PlaceTouchTile: View {
     let select: () -> Void
     let go: () -> Void
     let fly: () -> Void
+    /// Starts the place's guided tour (a tour names it in `place:`); nil without one.
+    var tour: (() -> Void)?
 
     /// The name strip along the bottom edge of the selected tile.
     private static let nameHeight: CGFloat = 16
@@ -1196,6 +1206,10 @@ struct PlaceTouchTile: View {
                 .aspectRatio(1.6, contentMode: .fit)
                 .overlay(alignment: .bottomTrailing) {
                     if !isSelected { PlaceZoomPill(zoomLog10: zoomLog10) }
+                }
+                // A place with a tour says so (kb: decisions/controls "Finding the tours").
+                .overlay(alignment: .topLeading) {
+                    if tour != nil && !isSelected { PlaceTourBadge() }
                 }
                 .overlay(alignment: .bottom) {
                     if isSelected {
@@ -1224,17 +1238,26 @@ struct PlaceTouchTile: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityAction(named: "Go") { go() }
         .accessibilityAction(named: "Fly") { fly() }
+        .accessibilityAction(named: "Tour") { tour?() }
         .contextMenu {
             Section(place.name) {
                 Button(action: go) { Label("Go", systemImage: "arrow.right.circle") }
                 Button(action: fly) { Label("Fly", systemImage: "airplane") }
+                if let tour { Button(action: tour) { Label("Tour", systemImage: "signpost.right") } }
             }
         }
         .overlay {
             if isSelected {
                 VStack(spacing: 0) {
                     // Icon and label side by side where they fit, else the label under the icon.
+                    // With a tour, Tour is the third button: labelled where it fits, else icons
+                    // only (narrower), else only Go and Fly (the long press still has Tour).
                     ViewThatFits {
+                        if tour != nil {
+                            actions(stacked: false, withTour: true)
+                            actions(stacked: true, withTour: true)
+                            actions(iconsOnly: true, withTour: true)
+                        }
                         actions(stacked: false)
                         actions(stacked: true)
                     }
@@ -1245,19 +1268,24 @@ struct PlaceTouchTile: View {
         }
     }
 
-    private func actions(stacked: Bool) -> some View {
-        HStack(spacing: 4) {
-            action("Go", "arrow.right.circle", id: "placeTileGo", stacked: stacked, go)
-            action("Fly", "airplane", id: "placeTileFly", stacked: stacked, fly)
+    private func actions(stacked: Bool = false, iconsOnly: Bool = false, withTour: Bool = false) -> some View {
+        HStack(spacing: iconsOnly ? 2 : 4) {
+            action("Go", "arrow.right.circle", id: "placeTileGo", stacked: stacked, iconsOnly: iconsOnly, go)
+            action("Fly", "airplane", id: "placeTileFly", stacked: stacked, iconsOnly: iconsOnly, fly)
+            if withTour, let tour {
+                action("Tour", "signpost.right", id: "placeTileTour", stacked: stacked, iconsOnly: iconsOnly, tour)
+            }
         }
-        .padding(.horizontal, 3)
+        .padding(.horizontal, iconsOnly ? 2 : 3)
     }
 
-    private func action(_ title: String, _ icon: String, id: String, stacked: Bool,
+    private func action(_ title: String, _ icon: String, id: String, stacked: Bool, iconsOnly: Bool = false,
                         _ perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
             Group {
-                if stacked {
+                if iconsOnly {
+                    Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+                } else if stacked {
                     VStack(spacing: 1) {
                         Image(systemName: icon).font(.system(size: 13, weight: .semibold))
                         Text(title).font(.system(size: 10, weight: .semibold))
@@ -1274,7 +1302,7 @@ struct PlaceTouchTile: View {
             }
             .lineLimit(1)
             .fixedSize()
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(minWidth: iconsOnly ? 32 : 44, minHeight: 44)
             .foregroundStyle(.primary)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1286,6 +1314,19 @@ struct PlaceTouchTile: View {
     }
 }
 #endif
+
+/// A small signpost in the corner of a place's tile when a guided tour starts there.
+struct PlaceTourBadge: View {
+    var body: some View {
+        Image(systemName: "signpost.right.fill")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 18, height: 18)
+            .background(.black.opacity(0.6), in: Circle())
+            .padding(3)
+            .accessibilityHidden(true)
+    }
+}
 
 /// The place's zoom in a small dark pill at the bottom right of its thumbnail (the name is
 /// the tooltip). Plain text: nothing changes per frame.

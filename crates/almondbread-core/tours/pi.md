@@ -2,7 +2,8 @@
 id: pi
 title: π in the Mandelbrot set
 summary: Count the steps of points near two pinch points, multiply by their distance, and π appears.
-place: pi-at-the-neck
+place: pi-at-the-neck, pi-at-the-cusp
+thumbnail: seahorse-valley
 ---
 
 ## The neck

@@ -18,26 +18,58 @@ pub struct TourInfo {
     pub title: String,
     /// One line.
     pub summary: String,
-    /// The place whose detail offers the tour ("" if none).
-    pub place: String,
+    /// The places whose detail offers the tour (`place: a, b`; empty if none).
+    pub places: Vec<String>,
+    /// The place whose thumbnail stands for the tour in the lists (`thumbnail:`, else the
+    /// first place, else the whole set).
+    pub thumbnail: String,
+    /// The UI questions it answers (`topics:`, core `tour::TOPICS`): a small link where the
+    /// question comes up starts it (kb: decisions/controls "Finding the tours").
+    pub topics: Vec<String>,
+    /// The tour its last step offers ("Next tour"; core `tour::next_tour`: `next:` or list
+    /// order, missing and hidden ones skipped; "" none).
+    pub next: String,
+    /// Steps on the platform the list was made for.
     pub steps: u32,
+    /// About how long it takes there, whole minutes (core `Tour::minutes`).
+    pub minutes: u32,
     /// Not listed with the other tours (header `hidden: yes`, like the walkthrough): the UI
     /// offers it in its own place.
     pub hidden: bool,
 }
 
-/// The bundled tours, in list order, hidden ones included (`hidden` says which).
+/// The bundled tours, in list order, hidden ones included (`hidden` says which), as they play
+/// on the build's default platform.
 #[uniffi::export]
 pub fn tours() -> Vec<TourInfo> {
-    almondbread_core::tour::bundled()
+    tours_for(default_platform())
+}
+
+/// The bundled tours as they play on `platform` ("mac", "phone", "pad"; anything else the
+/// build's default): step counts and lengths differ per platform.
+#[uniffi::export]
+pub fn tours_on(platform: String) -> Vec<TourInfo> {
+    tours_for(Platform::named(&platform).unwrap_or_else(default_platform))
+}
+
+fn tours_for(p: Platform) -> Vec<TourInfo> {
+    use almondbread_core::tour;
+    tour::bundled()
         .into_iter()
-        .map(|t| TourInfo {
-            steps: t.steps.len() as u32,
-            id: t.id,
-            title: t.title,
-            summary: t.summary,
-            place: t.place.unwrap_or_default(),
-            hidden: t.hidden,
+        .map(|t| {
+            let shown = t.for_platform(p);
+            TourInfo {
+                steps: shown.steps.len() as u32,
+                minutes: shown.minutes(),
+                next: tour::next_tour(&t.id).unwrap_or_default(),
+                thumbnail: t.thumbnail_place(),
+                id: t.id,
+                title: t.title,
+                summary: t.summary,
+                places: t.places,
+                topics: t.topics,
+                hidden: t.hidden,
+            }
         })
         .collect()
 }
@@ -210,11 +242,20 @@ mod tests {
         let t = super::tours();
         assert!(
             t.iter()
-                .any(|t| t.id == "feigenbaum" && t.steps >= 6 && t.place == "feigenbaum-point" && !t.hidden)
+                .any(|t| t.id == "feigenbaum" && t.steps >= 6 && t.places == ["feigenbaum-point"] && !t.hidden)
         );
         assert!(
             t.iter().any(|t| t.id == "welcome" && t.hidden),
             "the walkthrough is hidden"
         );
+        let mac = super::tours_on("mac".into());
+        let phone = super::tours_on("phone".into());
+        let w = |l: &[super::TourInfo]| l.iter().find(|t| t.id == "welcome").cloned().expect("welcome");
+        assert!(w(&mac).steps > 0 && w(&phone).steps > 0);
+        assert!(w(&mac).minutes >= 1);
+        // The walkthrough's end offers the first listed tour.
+        let first = mac.iter().find(|t| !t.hidden).expect("a listed tour");
+        assert_eq!(w(&mac).next, first.id);
+        assert!(t.iter().any(|t| t.topics.iter().any(|x| x == "period")));
     }
 }
