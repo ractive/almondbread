@@ -1551,3 +1551,11 @@ worked. The test now draws an exact 8.6° twist through XCTest's event record
 `a_single_twist_event_crossing_the_dead_band_turns_by_the_excess`. Noted: UIKit's 5–6° start
 hysteresis adds to the 15° band on real fingers. [[decisions/controls]] "Touch" ▸ "Device round",
 [[platform/ios-simulator]] "QA".
+
+## [2026-10-18] decision | Closing the control center on touch
+
+Device feedback: no visible way to close the control center on iPhone / iPad. A pinned ✕ at the
+trailing end of the pane's search bar and the Control center round button lit (accent fill,
+selected trait) while the pane is open; the Mac unchanged. Test
+`TouchControlsUITests.testControlCenterClose`. [[decisions/controls]] "Touch" ▸ "Closing the
+control center on touch".

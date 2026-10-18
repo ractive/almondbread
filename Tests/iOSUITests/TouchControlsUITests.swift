@@ -173,6 +173,52 @@ final class TouchControlsUITests: XCTestCase {
         settle(3)
     }
 
+    /// The control center's ✕ and the round button's open state: open, the round button reads
+    /// selected ("shown"); the ✕ at the top of the pane is hittable, clear of the search field,
+    /// and stays put when the content scrolls (and, on a phone, at the large detent); a tap on it
+    /// closes the pane and the round button is plain again.
+    func testControlCenterClose() throws {
+        try launchSettled()
+        let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        XCTAssertEqual(control.value as? String, "hidden")
+        XCTAssertFalse(control.isSelected, "the round button reads selected with the pane closed")
+        control.tap()
+        settle(2)
+        XCTAssertEqual(control.value as? String, "shown")
+        XCTAssertTrue(control.isSelected, "the round button does not read selected with the pane open")
+        let close = app.buttons["control-center-close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "no ✕ in the control center")
+        XCTAssertEqual(close.label, "Close control center")
+        XCTAssertTrue(close.isHittable, "✕ not hittable")
+        // A 44-point target; the phone's medium-detent sheet is drawn scaled (42 on screen).
+        XCTAssertGreaterThanOrEqual(close.frame.width, 40)
+        XCTAssertGreaterThanOrEqual(close.frame.height, 40)
+        let search = app.textFields["Search settings"]
+        XCTAssertTrue(search.exists, "no search field")
+        XCTAssertFalse(close.frame.intersects(search.frame), "✕ over the search field")
+        XCTAssertLessThanOrEqual(close.frame.maxX, app.windows.firstMatch.frame.maxX, "✕ off screen")
+        shot("cc-close-open")
+        // Scroll the content (a phone: the first swipe raises the sheet to its large detent).
+        app.swipeUp()
+        settle(1)
+        app.swipeUp()
+        settle(1.5)
+        shot("cc-close-scrolled")
+        XCTAssertTrue(close.isHittable, "✕ scrolled away")
+        if isPhone {
+            XCTAssertGreaterThanOrEqual(close.frame.minY, app.windows.firstMatch.frame.minY, "✕ above the screen")
+        }
+        close.tap()
+        settle(2)
+        shot("cc-close-closed")
+        XCTAssertEqual(control.value as? String, "hidden", "the ✕ did not close the control center")
+        XCTAssertFalse(control.isSelected, "the round button still reads selected after the ✕")
+        XCTAssertFalse(app.buttons["control-center-close"].exists, "✕ still there after closing")
+        XCTAssertFalse(app.textFields["Search settings"].exists, "the pane is still there after the ✕")
+    }
+
     /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
     /// cruise in that gear, zooming in); the chevrons step one gear; one drag crosses the middle
     /// into reverse; a tap on a tick goes there; a double tap goes to manual (M). In the autopilot

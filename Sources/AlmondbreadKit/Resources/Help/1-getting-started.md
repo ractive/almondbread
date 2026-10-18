@@ -22,7 +22,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Hold** a finger still for more: seek a minibrot, the orbit, fly here, copy the place.
 - The **throttle** at the edge is a gear lever: slide its knob up to fly in, down to fly out, to the middle (**M**) to stop. It stays where you leave it; the arrows at its ends change one gear.
 - The **cockpit** at the bottom: tap the plane for the autopilot, the sparkles for a journey, the wheel to stop.
-- The round buttons turn the orbit, the mini-map and the size scale on and off, fly to coordinates and open the control center.
+- The round buttons turn the orbit, the mini-map and the size scale on and off, fly to coordinates and open the control center (its button stays lit while it is open; tap it again or the **✕** at the top of the control center to close it).
 - While cruising or on a journey, **drag** to steer: the picture moves with your finger and the zoom goes on (a journey hands over to cruise).
 - In the autopilot a finger suggests a direction instead (resting or moving).
 - The hints from the first start: Help ▸ *Show Touch Hints* at the bottom.
@@ -50,4 +50,4 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 
 ## The control center
 
-The control center (**⌘I**, or the slider button) holds every setting: places to visit, colours, what the inside looks like, overlays and quality. Type in its search field to find a setting quickly. The small **?** buttons explain a section, and the **↺** buttons reset it.
+The control center (**⌘I**, or the slider button) holds every setting: places to visit, colours, what the inside looks like, overlays and quality. Type in its search field to find a setting quickly. The small **?** buttons explain a section, and the **↺** buttons reset it. On iPhone and iPad, the **✕** next to the search field closes it.
