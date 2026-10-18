@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
+.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -33,20 +33,40 @@ dmg: project rust
 ## iOS simulator build. Uses -sdk rather than -destination so it works without an installed
 ## simulator runtime (generic/platform=iOS Simulator needs one).
 ios-sim: project rust
-	xcodebuild -project Almondbread.xcodeproj -target "Almondbread iOS" -sdk iphonesimulator -arch arm64 \
-		-configuration Debug SYMROOT=$(abspath .build/xcode-ios) -quiet build
+	$(SIM_BG) xcodebuild -project Almondbread.xcodeproj -target "Almondbread iOS" -sdk iphonesimulator -arch arm64 \
+		-configuration Debug SYMROOT=$(abspath .build/xcode-ios) $(SIM_XCJOBS) -quiet build
 	@echo "$(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)"
 
-## iOS checks on the simulators (kb: platform/ios-simulator): self-test (first view through the
-## real view and Rust, shown vs fresh render, offscreen PNG pulled to build/ios-selftest-*.png)
-## and the touch UI test (real UIKit gestures and the toolbar buttons, screenshots in
-## build/ios-screens). IOS_DEVICES: simulator names (xcrun simctl create).
-IOS_DEVICES ?= AB iPhone 17e,AB iPad mini
+## iOS checks on the simulators (kb: platform/ios-simulator, "Low-load rules"): self-test (first
+## view through the real view and Rust, shown vs fresh render, offscreen PNG pulled to
+## build/ios-selftest-*.png) and the touch UI tests (real UIKit gestures and the toolbar buttons,
+## screenshots in build/ios-screens).
+## - One simulator job at a time on the whole machine: the scripts take the lock
+##   ~/Library/Caches/almondbread/sim.lock (scripts/sim-common.zsh) and a second job waits,
+##   naming the holder. Builds run before the lock.
+## - One shared simulator pair for every worktree ("AB iPhone 17e", "AB iPad mini"), created on
+##   demand, booted headless one at a time and shut down by UDID afterwards.
+## - DEVICE=iphone|ipad|both (default both). Agents: a targeted run,
+##   make ios-uitest TESTS="TouchControlsUITests/testThrottle" DEVICE=ipad
+##   (TESTS: comma-separated Class or Class/testMethod); the full suite is the driver's.
+## - Test builds (and their make rust) run at low priority (nice) with fewer jobs; make app,
+##   build, run and ios-sim-run keep full speed.
+DEVICE ?= both
+TESTS ?=
+ios-selftest ios-uitest: SIM_BG := nice -n 10
+ios-selftest ios-uitest: SIM_XCJOBS := -jobs 6
+ios-selftest ios-uitest: export CARGO_BUILD_JOBS := 6
 ios-selftest: ios-sim
-	scripts/ios-selftest.sh "$(IOS_DEVICES)" $(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)
+	scripts/ios-selftest.sh "$(DEVICE)" $(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)
 
 ios-uitest: project rust
-	scripts/ios-uitest.sh "$(IOS_DEVICES)"
+	SIM_BG="$(SIM_BG)" SIM_JOBS=6 scripts/ios-uitest.sh "$(DEVICE)" "$(TESTS)"
+
+## The app in the shared iPad simulator (DEVICE=iphone: the iPhone) for you to try by hand: opens
+## Simulator.app, streams the app's output, Ctrl-C stops app and simulator. Holds the simulator
+## lock while it runs (waits if a test job has it). Not for agents.
+ios-sim-run: ios-sim
+	scripts/ios-sim-run.sh "$(if $(filter iphone,$(DEVICE)),iphone,ipad)" $(abspath .build/xcode-ios/Debug-iphonesimulator/Almondbread.app)
 
 ## A connected iPhone/iPad (kb: platform/ios-device; scripts/ios-device.sh): signed Release build
 ## with automatic signing for IOS_TEAM (Xcode must be signed in to an account once), installed and
@@ -123,7 +143,7 @@ regress: rust-regress
 ## Swift bindings (Sources/AlmondbreadCore/Generated) and build/rust/AlmondbreadCoreFFI.xcframework.
 ## Incremental; build, app and ios-sim depend on it. kb: platform/rust-swift-ffi
 rust:
-	scripts/build-rust-xcframework.sh
+	$(SIM_BG) scripts/build-rust-xcframework.sh
 
 ## Rust gates: tests (oracle + property), clippy, rustfmt
 rust-check:
