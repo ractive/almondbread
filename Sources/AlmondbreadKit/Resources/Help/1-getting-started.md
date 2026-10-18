@@ -40,7 +40,6 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **C**: cosmic size scale
 - **O**: orbit overlay
 - **M**: mini-map
-- **P**: π meter
 - **,** and **.**: turn the picture left or right; **/** turns it back upright
 - **+** and **−**: one zoom step
 - **R** or **⌘0**: back to the whole set

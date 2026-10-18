@@ -1525,11 +1525,16 @@ like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
   leaves the point or zooms out past it by more than a decade. **Depth limit 10⁹ iterations**
   (ε ≥ 3.1e-9 neck, ε ≥ 1e-17 cusp; about 13 s); deeper, the panel says so. The image's
   iteration limit is not raised (measurements on the technique page).
-- **Controls:** P toggles (macOS and iPad keyboards; the toolbar toggle was removed 2026-10-17: the meter is niche); View menu "π Meter" (⌥⌘P), "Hunt π at the Neck", "Hunt π at the Cusp"
-  (renamed from "Fly into the …": the view no longer flies into the point); control center
-  Overlays: switch, reading (product, N, digits, progress) and the two hunt buttons (the iOS
-  way in). Persisted with the other settings, off after Reset all and
-  the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset).
+- **Controls (2026-10-18, user):** only the tour "π in the Mandelbrot set" (`tours/pi.md`)
+  switches the meter on and runs the hunts, through the step keys `pi-meter` and `pi-hunt`
+  ("Guided tours"); the tour's end switches it off. Removed: the P key (macOS and iPad keyboards),
+  View ▸ "π Meter" (⌥⌘P), "Hunt π at the Neck" / "at the Cusp", the control center's Overlays
+  switch with its reading and hunt buttons, the FFI `Explorer.pi_flight`, and its persistence
+  (old saved settings with the key decode fine; the key is ignored). Earlier (2026-10-15 to
+  -18): P toggled, the View menu had the switch and both hunts, the control center the switch,
+  reading and hunt buttons (the iOS way in), persisted, off after Reset all and
+  the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset); during
+  a tour on a wide canvas 352 points more, left of the tour card (`piMeterTourInset`).
 - **π hunt (guided flight, reworked 2026-10-15):** takes the place's look; the navigator's
   fly-to eases the view to seahorse valley (neck) or elephant valley (cusp) with the pinch
   point in view; the probe then slides from ε = 0.1 to 1e-8 (neck) or 1e-16 (cusp) at the
@@ -1843,6 +1848,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `probe-motion` | `bounce` (default), `once`, `loop` | back and forth (eased at the turns), once and rest, or start over |
 | `marker` | `re, im` or `off` | a gold double ring at a point |
 | `marker-label` | text | its label (with `marker`) |
+| `pi-hunt` | `neck` or `cusp` | the π meter's guided hunt (the view eases to the valley, the probe slides down the line to ε = 1e-8 / 1e-16 while the meter counts); switches the meter on; its own step only (not carried over, also started again going back to it); no view keys with it |
 
 **Carry-over.** A setting stays until a later step changes it (`Tour::effective`): step n shows
 the saved user settings with steps 1..n applied in order, so going back shows exactly what the step
@@ -1942,6 +1948,29 @@ Checked in the app (2026-10-18, M1 Pro, release, background window, `--ui-demo=t
 --ui-demo-tour-wait=7:25,8:10,9:15`): fates "settles on a fixed point", period-2, 3, 3, 7, 128 at
 steps 1–6; the gold ring of step 3 sits on the antenna's fork; step 7 shows the period-2688 heart and
 its period-5376 disc while refining; the end restored the view and look.
+
+### The π tour
+
+`tours/pi.md` ("π in the Mandelbrot set", place `pi-at-the-neck`), 6 steps, user request
+2026-10-18 (the meter's only way in from now on, see "π meter"): the neck marked at −0.75; the
+place view with the meter counting the centre (c = −0.75 + 0.02i, N = 158, N·ε = 3.16); `pi-hunt:
+neck` (to ε = 1e-8, N = 314 159 266); "Why π?" (the panel's turn circle: one turn from start to
+escape at 2ε per step, so N·2ε ≈ 2π, [[techniques/pi-in-the-mandelbrot-set]] "Why π"); `pi-hunt:
+cusp` (to ε = 1e-16, N = 314 159 263, one digit per two decades); back to the neck place with the
+meter on. Counts in the text are the measured ones on the technique page (315, 31 417, 3 141 593 at
+the neck).
+
+New step key `pi-hunt` (core `Step::pi_hunt`, `StepPlan::pi_hunt`; host `apply_tour_plan` stops
+any running hunt and starts `Overlay::start_pi_flight`; `end_tour` stops it). Tests: `tour::tests`
+`a_pi_hunt_switches_the_meter_on_and_belongs_to_its_own_step` and three new error cases. The
+interaction-test scenario "pi hunt" and the `--ui-demo=pi-flight…/pi-cusp…` scenes now start the
+tour at its hunt step.
+
+Checked in the app (2026-10-18, M1 Pro, release, background window, `--ui-demo=tour-pi
+--ui-demo-tour-wait=3:30,4:5,5:35`): step 2 N = 158, N·ε = 3.1600 (2 digits); step 3 N = 314 159
+266, 8 digits in 7.4 s; step 5 N = 314 159 263, N·√ε = 3.14159263, 8 digits; panels left of the
+card (at the cusp they cover the probe's ruler, which sits left of the elephant valley: accepted).
+`make interaction-test` "pi hunt": counted at the neck, meter off after the tour, 106 fps.
 
 ## Touch (as built, 2026-10-18)
 

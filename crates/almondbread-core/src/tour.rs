@@ -33,6 +33,7 @@
 
 use crate::orbit::MAX_ORBIT_POINTS;
 use crate::palette::{Look, Palette};
+use crate::pi_moment::PiPoint;
 use crate::settings::{InteriorMode, OverlaySettings, RenderSettings};
 use crate::viewport::{Center, Scale, Viewport, wrap_angle};
 
@@ -41,6 +42,7 @@ use crate::viewport::{Center, Scale, Viewport, wrap_angle};
 const BUNDLED: &[(&str, &str)] = &[
     ("feigenbaum", include_str!("../tours/feigenbaum.md")),
     ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
+    ("pi", include_str!("../tours/pi.md")),
 ];
 
 /// Highest iteration limit a step may set (the FFI's bound).
@@ -81,6 +83,9 @@ pub struct Step {
     pub map_levels: Option<usize>,
     pub cosmic: Option<bool>,
     pub pi_meter: Option<bool>,
+    /// The π meter's guided hunt at the neck or the cusp (as View ▸ Hunt π did): the view
+    /// eases to the valley and the meter's probe slides down the line. Its own step only.
+    pub pi_hunt: Option<PiPoint>,
     pub compass: Option<bool>,
     pub probe: Option<Probe>,
     /// `Some(None)`: the marker goes away.
@@ -228,6 +233,7 @@ pub const STEP_KEYS: &[&str] = &[
     "map-levels",
     "cosmic",
     "pi-meter",
+    "pi-hunt",
     "compass",
     "probe",
     "probe-path",
@@ -554,6 +560,22 @@ fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String
     step.map = flag("map")?;
     step.cosmic = flag("cosmic")?;
     step.pi_meter = flag("pi-meter")?;
+    if let Some((n, v)) = get("pi-hunt") {
+        let Some(p) = PiPoint::named(v) else {
+            return err(n, format!("`pi-hunt` is neck or cusp, not `{v}`"));
+        };
+        if step.view.is_some() {
+            return err(
+                n,
+                "`pi-hunt` flies its own view: no `center`, `span`, `zoom` or `place` with it",
+            );
+        }
+        if step.pi_meter == Some(false) {
+            return err(n, "`pi-hunt` needs the π meter: no `pi-meter: off` with it");
+        }
+        step.pi_hunt = Some(p);
+        step.pi_meter = Some(true);
+    }
     step.compass = flag("compass")?;
     step.orbit_length = get("orbit-length")
         .map(|(n, v)| count(n, "orbit-length", v, MAX_ORBIT_POINTS))
@@ -754,6 +776,8 @@ pub struct StepPlan {
     pub snapshot: Snapshot,
     /// The view to go to and whether to jump (else fly); None: the view stays.
     pub view: Option<(StepView, bool)>,
+    /// Start the π meter's guided hunt there (it moves the view itself).
+    pub pi_hunt: Option<PiPoint>,
 }
 
 /// A tour being played.
@@ -822,7 +846,9 @@ impl TourPlayer {
         self.entered = now;
         self.current = self.tour.effective(index);
         let own = self.tour.steps[index].view.is_some();
-        let view = if own || back {
+        // A π hunt flies its own view, also when coming back to its step.
+        let hunt = self.tour.steps[index].pi_hunt.is_some();
+        let view = if !hunt && (own || back) {
             self.current
                 .view
                 .clone()
@@ -833,6 +859,7 @@ impl TourPlayer {
         StepPlan {
             snapshot: self.current.apply(&self.saved),
             view,
+            pi_hunt: self.tour.steps[index].pi_hunt,
         }
     }
 
@@ -958,6 +985,37 @@ mod tests {
     }
 
     #[test]
+    fn a_pi_hunt_switches_the_meter_on_and_belongs_to_its_own_step() {
+        let t = parse(
+            "---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\ncenter: -0.5, 0\nspan: 3\n\nA.\n\n\
+             ## B\npi-hunt: neck\n\nB.\n\n## C\n\nC.\n",
+        )
+        .expect("parses");
+        assert_eq!(t.steps[1].pi_hunt, Some(PiPoint::Neck));
+        assert_eq!(t.steps[1].pi_meter, Some(true));
+        let saved = Snapshot {
+            settings: RenderSettings::default(),
+            overlay: OverlaySettings::default(),
+            cosmic: false,
+            pi_meter: false,
+            compass: false,
+        };
+        let (mut p, first) = TourPlayer::start(t, saved, Viewport::fitting(800.0, 500.0), 0.0);
+        assert_eq!(first.pi_hunt, None);
+        assert!(!first.snapshot.pi_meter);
+        let b = p.go(1, 1.0);
+        assert_eq!(
+            (b.pi_hunt, b.view.is_none(), b.snapshot.pi_meter),
+            (Some(PiPoint::Neck), true, true)
+        );
+        // The next step keeps the meter on but starts no hunt; going back starts it again.
+        let c = p.go(2, 2.0);
+        assert_eq!((c.pi_hunt, c.snapshot.pi_meter), (None, true));
+        let back = p.go(1, 3.0);
+        assert_eq!((back.pi_hunt, back.view.is_none()), (Some(PiPoint::Neck), true));
+    }
+
+    #[test]
     fn rejects_mistakes_with_their_line() {
         let head = "---\nid: t\ntitle: T\nsummary: S\n---\n\n## One\n";
         let cases: &[(&str, usize, &str)] = &[
@@ -980,6 +1038,13 @@ mod tests {
             ),
             ("marker-label: x\n\nText.", 8, "needs a `marker`"),
             ("move: jump\n\nText.", 8, "needs a view"),
+            ("pi-hunt: tail\n\nText.", 8, "neck or cusp"),
+            (
+                "center: -0.75, 0.1\nspan: 1\npi-hunt: neck\n\nText.",
+                10,
+                "flies its own view",
+            ),
+            ("pi-meter: off\npi-hunt: cusp\n\nText.", 9, "needs the π meter"),
             ("orbit: on\norbit: off\n\nText.", 9, "twice"),
             ("orbit: on\n", 7, "needs text"),
             ("Some text right under the heading.\n\nText.", 8, "not `key: value`"),

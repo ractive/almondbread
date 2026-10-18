@@ -585,8 +585,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
                 return true
             }
         }
-        // O / M / C / P / L: orbit overlay, mini-map, cosmic size scale, π meter, lane assist (toggled on
-        // key-down; their key-ups are swallowed).
+        // O / M / C / L: orbit overlay, mini-map, cosmic size scale, lane assist (toggled on key-down;
+        // their key-ups are swallowed).
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
         case "o":
             if event.type == .keyDown && !event.isARepeat { model.toggleOrbit() }
@@ -596,9 +596,6 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             return true
         case "c":
             if event.type == .keyDown && !event.isARepeat { model.toggleCosmicScale() }
-            return true
-        case "p":
-            if event.type == .keyDown && !event.isARepeat { model.togglePiMeter() }
             return true
         case "l":
             // Lane assist (kb: decisions/controls "Driving levels").
@@ -1089,7 +1086,6 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 switch key.charactersIgnoringModifiers.lowercased() {
                 case "o": base.model.toggleOrbit(); continue
                 case "m": base.model.toggleMap(); continue
-                case "p": base.model.togglePiMeter(); continue
                 case "c": base.model.toggleCosmicScale(); continue
                 case "l": base.model.toggleLaneAssist(); continue
                 case "g":

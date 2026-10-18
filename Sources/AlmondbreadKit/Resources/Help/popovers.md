@@ -12,7 +12,7 @@ Go deeper and the whole Mandelbrot set would be as big as an imaginary universe 
 
 The number π hides in the Mandelbrot set. Near −0.75 (the pinch between the two big bulbs) and 0.25 (the cusp at the right) points escape very slowly.
 
-The escape count times the distance from that point gives π, and more digits agree the closer you go. Gold digits already match.
+The escape count times the distance from that point gives π, and more digits agree the closer you go. Gold digits already match. The meter belongs to the tour *π in the Mandelbrot set* and goes off when it ends.
 
 ## mini-map
 
@@ -54,7 +54,7 @@ Switching between them is instant.
 
 ## overlays
 
-Extras drawn on the picture: the orbit of the point under the pointer (**O**), mini-maps (**M**), the cosmic size scale (**C**) and the π meter (**P**).
+Extras drawn on the picture: the orbit of the point under the pointer (**O**), mini-maps (**M**), and the cosmic size scale (**C**). (The π meter belongs to the tour *π in the Mandelbrot set*.)
 
 Each panel has its own **?** in the corner.
 

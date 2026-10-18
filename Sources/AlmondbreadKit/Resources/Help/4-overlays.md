@@ -13,11 +13,11 @@ The cosmic scale turns the zoom into sizes you know. Imagine your window stays i
 
 The ruler shows what you are passing; a gold flash marks each one.
 
-## π meter (P)
+## π meter
 
 The number π hides in the Mandelbrot set. Near two special points, the pinch between the two biggest bulbs (−0.75) and the cusp at the right (0.25), points take a very long time to escape. Multiply the number of steps by the distance from the special point and you get π, with more correct digits the closer you go. (At the cusp, use the square root of the distance.)
 
-The meter counts for you and shows in gold which digits already agree. **View ▸ Hunt π at the Neck** (or **at the Cusp**) flies there and slides closer step by step.
+The π meter counts for you and shows in gold which digits already agree. It belongs to the tour **π in the Mandelbrot set** (**View ▸ Tours**), which slides a probe closer step by step; the meter switches off when the tour ends.
 
 ## Mini-map (M)
 

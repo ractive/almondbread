@@ -1619,27 +1619,6 @@ impl Explorer {
         }
     }
 
-    /// The guided π flight to `point` ("neck" or "cusp"): takes the place's look, eases the
-    /// view to the valley the pinch point opens into (seahorse valley, elephant valley),
-    /// switches the meter on and slides its probe down the line to ε = 1e-8 (neck) or 1e-16
-    /// (cusp) on a log ruler, at the zoom speed (Q / E change it), counting as it goes and
-    /// drawing the orbit trail; a short hold at the end. Esc stops it. Returns the place's
-    /// settings. Resume the display link after this.
-    pub fn pi_flight(&self, point: String) -> Result<ExplorerSettings, CoreError> {
-        use almondbread_core::pi_moment::PiPoint;
-        let p = PiPoint::named(&point).ok_or_else(|| invalid(format!("unknown π point {point}")))?;
-        let before = self.lock().host.renderer.viewport.clone();
-        // The place's look and iteration settings, not its view (the flight eases there).
-        let settings = self.go_to_place(p.place_id().into())?;
-        let mut g = self.lock();
-        g.host.renderer.viewport = before;
-        let (w, h) = g.host.view_points();
-        let host = &mut g.host;
-        host.overlay
-            .start_pi_flight(&mut host.renderer, p, w.min(h).max(1.0), media_time());
-        Ok(settings)
-    }
-
     /// Writes the shown image with its overlays as a PNG (drawable pixels; screenshots of
     /// background windows for documentation). False before the first frame or on error.
     pub fn capture_png(&self, path: String) -> bool {

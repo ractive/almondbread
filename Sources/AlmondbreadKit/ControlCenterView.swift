@@ -626,11 +626,6 @@ struct OverlaySectionRows: View {
                 ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
             }
         }
-        Toggle("π meter", isOn: $model.piMeterEnabled)
-            .help("At the neck −3/4 + iε or the cusp 1/4 + ε: the escape count N times ε (√ε) closes in on π (P)")
-        if model.piMeterEnabled {
-            PiMeterRows(model: model)
-        }
         CosmicScaleRows(model: model)
         Toggle("Always show compass", isOn: $model.compassAlways)
             .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
@@ -640,25 +635,6 @@ struct OverlaySectionRows: View {
         Toggle("Developer details in the HUD", isOn: $model.hudDetails)
             .disabled(!model.showHUD)
             .help("Iterations, GPU time, render size, reference orbit, kernel and render state")
-    }
-}
-
-/// The π meter's hunts (the reading itself is the π panel on the canvas).
-struct PiMeterRows: View {
-    let model: ExplorerModel
-
-    var body: some View {
-        Text("Centre the view on the neck −3/4 + iε or the cusp 1/4 + ε (the panel on the canvas shows the count), or hunt π with a probe:")
-            .font(.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        HStack {
-            Button("Hunt π at the neck") { model.piFlight("neck") }
-            Button("Hunt π at the cusp") { model.piFlight("cusp") }
-        }
-        #if os(iOS)
-        .buttonStyle(.borderless)
-        #endif
-        .help("Flies to seahorse valley (neck) or elephant valley (cusp) and slides a probe down the line to ε = 1e-8 or 1e-16 while the meter counts and draws its orbit; Q / E change the speed, Esc stops")
     }
 }
 
@@ -1003,13 +979,13 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
-        case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain"]
+        case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp"]
         case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
-        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "pi", "π", "neck", "cusp", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed"]
+        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed"]
         case .quality: ["iterations", "auto", "maximum", "cap", "upper limit", "anti-aliasing", "aa", "samples", "preview", "quality"]
         case .controls: ["keys", "keyboard", "shortcuts", "mouse", "trackpad", "help", "gamepad"]
         }
@@ -1026,7 +1002,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
-        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The π meter (P) counts the centre's iterations on a background thread, up to 10⁹ (about 13 s). The target marker rings where the autopilot or a journey is heading. The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
+        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The target marker rings where the autopilot or a journey is heading. The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
         case .quality: "While you move, each frame renders as much as fits in a refresh; at rest the view refines and gathers anti-aliasing samples near the boundary."
         default: nil
         }
@@ -1408,7 +1384,6 @@ struct ControlsHelp: View {
         row("road.lanes", "L", "Lane assist in cruise: keeps you out of featureless areas")
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
-        row("pi", "P", "π meter at the neck or the cusp")
         row("airplane", "Z", "Autopilot; steering hands over to cruise, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
@@ -1430,7 +1405,7 @@ struct ControlsHelp: View {
         row("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
         row("space", "Keyboard: Space / ⇧Space", "Zoom")
         row("gauge.with.dots.needle.33percent", "Keyboard: E / Q, L, N, G", "Cruise in / out, lane assist, seek minibrot, continue")
-        row("map", "Keyboard: O / M / P", "Orbit overlay / mini-map / π meter")
+        row("map", "Keyboard: O / M", "Orbit overlay / mini-map")
         row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "The knob is the gear: up in, down out, middle stops; tap a notch or a chevron; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
