@@ -1492,4 +1492,6 @@ minimum-jerk glide of 0.35 s (`TAP_ZOOM_SECONDS`, `Navigator::tap_zoom`, `TapZoo
 by each further click from the current rate (C², exact ×2ⁿ). Mac zooms on every click count
 ≥ 2; iOS chains taps within 0.4 s and 60 pt through a third tap recogniser. Wheel notches,
 + / − and menu zooms keep the τ = 60 ms ease-out. New interaction-test scenario `click
-stream` (four real clicks: ×8 about the clicked point).
+stream` (15 real clicks 0.18 s apart: ×16384 about the clicked point; measured 2026-10-18,
+background window at 120 Hz: 99 fps, interval p50 / p95 / max 8.3 / 16.7 / 41.7 ms, the same
+as `space zoom`).

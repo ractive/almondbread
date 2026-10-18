@@ -152,9 +152,10 @@ final class InteractionTest: NSObject {
                                 note: "centre after arrival")
             }
         }
-        // A click stream (kb: decisions/controls "Animated zoom steps"): four real mouse-down /
-        // up pairs 0.18 s apart with click counts 1-4 through FractalNSView's handlers. Clicks 2,
-        // 3 and 4 each add ×2 to the running glide: ×8 in all, about the clicked point.
+        // A click stream (kb: decisions/controls "Animated zoom steps"): 15 real mouse-down / up
+        // pairs 0.18 s apart (click counts 1-15) through FractalNSView's handlers, then rest.
+        // Clicks 2-15 each add ×2 to the running glide: ×2^14 in all, about the clicked point,
+        // and the glide runs on without a break until 2.87 s (pacing is measured on it).
         let clickAt = (x: 150.0, y: 80.0)
         let clickStream: (FractalNSView, Int, Double) -> Void = { v, i, t in
             if i == 0 {
@@ -162,14 +163,14 @@ final class InteractionTest: NSObject {
                 c0 = InteractionTest.point(v, clickAt.x, clickAt.y)
                 zoomStart = CACurrentMediaTime()
             }
-            for k in 1...4 {
+            for k in 1...15 {
                 once("click\(k)", t >= Double(k - 1) * 0.18) { InteractionTest.click(v, clickAt.x, clickAt.y, count: k) }
             }
-            once("check", t >= 2.5) {
+            once("check", t >= 2.95) {
                 let ratio = self.startScale("click stream") / (v.explorer?.viewport().scale ?? .nan)
-                let ok = abs(ratio / 8 - 1) < 1e-3
+                let ok = abs(ratio / 16384 - 1) < 1e-3
                 if !ok { self.failures += 1 }
-                self.refineLines.append(String(format: "click stream: 4 clicks zoomed ×%.4f (expected ×8) %@", ratio, ok ? "OK" : "FAILED"))
+                self.refineLines.append(String(format: "click stream: 15 clicks zoomed ×%.1f (expected ×16384) %@", ratio, ok ? "OK" : "FAILED"))
                 self.checkDrift("click stream", v, c0, clickAt.x, clickAt.y, seconds: CACurrentMediaTime() - zoomStart,
                                 note: "clicked point")
             }
