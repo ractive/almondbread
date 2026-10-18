@@ -182,6 +182,53 @@ layers), not in bodies. The toggle animation makes no difference (measured with 
 Per-row laziness only helps for rows below the fold. What is left to try: fewer views per
 tile (one `Canvas` per grid row), or keeping a closed Places section's views alive.
 
+## Hang: main-thread livelock with a picker menu open (2026-10-16)
+
+**Superseded** by the fix in "Hang: opening and scrolling the sidebar" below (2026-10-17): the
+sidebar is a plain `VStack` now, so the lazy-stack cycle described here cannot run. The
+`--ui-demo=perf-menu` scene stayed on branch `worktree-agent-a3339d320584abaa6` (commit
+`e45be94`), never merged; it is not in the app.
+
+Reported 2026-10-16 (Release build after the lazy sidebar, a slow 1e3000 view rendering, a
+palette just chosen): the app hung with a picker's menu open. Two `sample`s 30 s apart show the
+same thing. The main thread is 100 % inside AppKit's menu tracking loop
+(`NSPopUpButtonCell trackMouse` → `NSMenuTrackingSession startRunningMenuEventLoop`, run-loop
+mode `NSEventTrackingRunLoopMode`), in SwiftUI's run-loop observer
+(`NSHostingView.beginTransaction` → `GraphHost.flushTransactions`). Every pass:
+
+- `Update.dispatchActions` → `LazyLayoutViewCache.signalPrefetch` →
+  `NSHostingView.requestUpdate(after:)` → `setNeedsUpdate` (no delay: straight to the next
+  run-loop pass);
+- the next pass runs `LazyLayoutCacheItem.AllItemsPhaseMutation` → `updateItemPhases`, then
+  `LazySubviewPlacements.placeSubviews` / `LazyStack.place` over the sidebar's `ForEach` nodes,
+  with items inserted and removed (`initialPlacement` / `finalPlacement`), anchor translation
+  (`makeAnchorTranslationIfNeeded`) and the root re-measured (`RootGeometry`);
+- which signals prefetch again.
+
+No view body of ours runs (no app frames on the main thread), the Rust threads are idle and the
+display link does not fire: a pure SwiftUI lazy-stack prefetch / placement cycle that never
+settles, and inside the menu loop nothing breaks it.
+
+**Not reproduced** (measured 2026-10-16, M1-class Mac, Release Xcode build, background window).
+`--ui-demo=perf-menu` (`UIPerf.swift`) runs the run loop in `NSEventTrackingRunLoopMode` from a
+timer callout (`track`), which is what the menu loop does, with a watchdog that quits on a stuck
+main thread. With palettes, looks and palette or place categories changed inside the tracking
+loop and right before it, autopilot rendering, all sections open, sidebar widths 290–440 and
+scroll positions every 9–40 pt over the whole sidebar, and a deep view with the HUD's developer
+details: tracking mode stayed at the default-mode cost (0–1 % idle, 5–14 % rendering). About
+40 real menus (`performClick` on the `NSPopUpButton`) did not reproduce it either; real menus
+show over other apps, so window tests must never open one. Pitfall in the sweeps: a long
+autopilot run grows the renderer's own main-thread cost (`FractalHostBase.step` → Rust
+`frame`) to 90–97 % busy in the default mode too; compare every tracking phase with a
+default-mode control phase.
+
+Not a fix: a plain `VStack` instead of the `LazyVStack` removes the prefetch machinery, but
+costs (same scene, one run each, lazy → VStack): section toggles 13–37 ms → 30–207 ms (Places 93 → 152), the
+search rebuild 61 → 416 ms while rendering, typing while rendering 17 → 45 % busy. The missing
+piece is the state that keeps the prefetch from settling (the user's sections, width, scroll
+position, imported palettes, restored settings, a real 1e3000 reference). Next time it hangs:
+`sample` it, and note the open sections, the scroll position and which menu was open.
+
 ## Hang: opening and scrolling the sidebar (2026-10-17)
 
 The user opened the control center and scrolled down (Places, Overlays and Quality open,

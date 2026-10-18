@@ -1123,7 +1123,7 @@ restarted at the branch) needle-1e305 had 96.3 % GPU-int/CPU-ext.
 neck-2e5, seahorse, minibrots-5e-12, sea-1e20, needle-1e305, elephant, root-third): no tile
 seams, no wrong-coloured patches, no missing minibrots. Pixels differing by more than 3 % in
 colour: 0.2–0.6 % (dense, filament, seahorse, elephant, minibrots), < 0.003 % (neck,
-root-third, needle), 1.5 % (sea-1e20); the differences are isolated boundary pixels.
+root-third, needle), 0.44 % (sea-1e20, after the DE fix below; 3.1 % before); the differences are isolated boundary pixels.
 
 **Deep-kernel DE bugs found on the way (both in the plain deep kernel, fixed in the R5
 branch):** the DE was clamped to 65 000 *before* scaling by `2^-dExp`, drawing thick

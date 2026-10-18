@@ -47,7 +47,7 @@ median |Δμ| 1.4e−6 → 1.8e−5 (elephant), 1.5e−5 → 4.9e−5 (filament)
 5.8 % (elephant), 6.2 → 8.0 % (seahorse): boundary pixels whose escape count flips. Images
 (default look, 100 % and 300 % crops at nine views): no tile seams, no wrong-coloured patches,
 no missing minibrots; plain-vs-SA differences are single boundary pixels (0.2–0.6 % of pixels
-differ by more than 3 % in colour; 1.5 % at sea-1e20).
+differ by more than 3 % in colour; 0.44 % at sea-1e20 after the deep DE fix, 3.1 % before it, where the plain kernel's own DE bugs differed).
 
 ## Where it breaks
 
