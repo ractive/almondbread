@@ -32,7 +32,7 @@ struct ControlCenterView: View {
     /// is laid out at.
     static let minimumWidth: CGFloat = 290
     @Environment(\.undoManager) private var undoManager
-    @AppStorage("controlCenter.collapsed", store: UIDemo.enabled ? UIDemo.defaults : .standard)
+    @AppStorage("controlCenter.collapsed", store: TestLaunch.ephemeral ? UIDemo.defaults : .standard)
     private var collapsedStorage = ""
 
     var body: some View {
@@ -305,7 +305,7 @@ struct ViewSectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.view")
-        HStack {
+        FitRow {
             Button {
                 Clipboard.copy(model.coordinatesText)
             } label: {
@@ -333,7 +333,7 @@ struct ViewSectionRows: View {
             ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
         }
         // Autopilot and fly-to (kb: decisions/controls, autopilot).
-        HStack {
+        FitRow {
             Button {
                 model.toggleAutopilot()
             } label: {
@@ -438,7 +438,7 @@ struct JourneyControls: View {
         let _ = UIPerf.body("leaf.journey")
         let active = model.journeyActive
         let suspended = model.journeySuspended
-        HStack {
+        FitRow {
             Button {
                 if active && suspended {
                     model.resumeJourney()
@@ -822,6 +822,21 @@ extension EnvironmentValues {
 }
 
 // MARK: Row helpers
+
+/// A row of labelled buttons: titles and icons where they fit, else the icons alone. The iPad's
+/// sidebar next to a portrait canvas wrapped "Co py", "Re-set", "Au-topi-lot" (seen 2026-10-18).
+/// The titles stay the accessibility labels.
+struct FitRow<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            // Fixed: titles that would truncate do not count as fitting.
+            HStack { content() }.lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            HStack { content() }.labelStyle(.iconOnly)
+        }
+    }
+}
 
 enum ControlRows {
     /// A menu picker as a labelled row: the label leading, the menu trailing at its own size
@@ -1265,7 +1280,7 @@ struct ControlsHelp: View {
         row("arrow.up.left.and.arrow.down.right", "Pinch", "Zoom at the fingers, and pan")
         row("hand.tap", "Double tap", "Zoom in")
         row("hand.tap", "Two-finger tap", "Zoom out")
-        row("map", "Tap a mini-map", "Jump there")
+        row("map", "Tap / hold a mini-map", "Jump there / fly there")
         row("scope", "Trackpad or mouse pointer", "Zoom at the pointer")
         row("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
         row("space", "Keyboard: Space / ⇧Space", "Zoom")
@@ -1273,8 +1288,9 @@ struct ControlsHelp: View {
         row("map", "Keyboard: O / M / P", "Orbit overlay / mini-map / π meter")
         row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "Drag up / down: one gear per notch; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
-        row("hand.point.up.left", "Long press", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
-        row("airplane", "Autopilot button or Z", "Fly on; a finger suggests a direction, a tap pauses")
+        row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
+        row("airplane", "Autopilot button or Z", "Fly on; a finger (resting or moving) suggests a direction, a tap pauses")
+        row("steeringwheel", "Finger in cruise or a journey", "Steers (a journey hands over to cruise)")
         row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
         row("forward", "At a journey stop", "Next · deeper here · somewhere else")
         row("minus.magnifyingglass", "Long-press autopilot", "Cruise in / out, stop, lane assist")

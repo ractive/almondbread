@@ -280,9 +280,9 @@ public final class ExplorerModel {
     /// Physical size of a view point (the platform view measures its screen; 0: unknown).
     var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
     /// The status overlay (zoom, centre, speed) in the top-left corner.
-    public var showHUD: Bool = UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
+    public var showHUD: Bool = TestLaunch.ephemeral || UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey)
+            if !TestLaunch.ephemeral { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
             if showHUD != oldValue { pushCockpit() }
         }
     }
@@ -291,15 +291,15 @@ public final class ExplorerModel {
     public var cockpitInsetRight = 0.0 { didSet { if cockpitInsetRight != oldValue { pushCockpit() } } }
     /// The HUD's developer details (iterations, GPU, reference, kernel, state): off by default.
     /// A demo window does not store it (it would change the user's preference).
-    public var hudDetails: Bool = UserDefaults.standard.bool(forKey: Preferences.hudDetailsKey) {
-        didSet { if !UIDemo.enabled { UserDefaults.standard.set(hudDetails, forKey: Preferences.hudDetailsKey) } }
+    public var hudDetails: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: Preferences.hudDetailsKey) {
+        didSet { if !TestLaunch.ephemeral { UserDefaults.standard.set(hudDetails, forKey: Preferences.hudDetailsKey) } }
     }
 
     // Navigation (an app-wide preference; the navigator in Rust applies it)
     public var edgePanning: EdgePanning = EdgePanning(rawValue: UserDefaults.standard.string(forKey: Preferences.edgePanKey) ?? "")
         ?? .whileZooming {
         didSet {
-            UserDefaults.standard.set(edgePanning.rawValue, forKey: Preferences.edgePanKey)
+            if !TestLaunch.ephemeral { UserDefaults.standard.set(edgePanning.rawValue, forKey: Preferences.edgePanKey) }
             explorer?.setEdgePan(mode: edgePanning.ffi)
         }
     }
@@ -309,7 +309,7 @@ public final class ExplorerModel {
     /// decisions/controls, autopilot).
     public var autopilotLock: Bool = UserDefaults.standard.object(forKey: ExplorerModel.lockKey) as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(autopilotLock, forKey: Self.lockKey)
+            if !TestLaunch.ephemeral { UserDefaults.standard.set(autopilotLock, forKey: Self.lockKey) }
             explorer?.setAutopilotLock(on: autopilotLock)
         }
     }
@@ -318,9 +318,9 @@ public final class ExplorerModel {
     /// Lane assist (key L; persisted, off by default; active in cruise only; kb:
     /// decisions/controls "Driving levels"): keeps a cruise out of featureless areas.
     /// Window tests start from (and never store) the default.
-    public var laneAssist: Bool = !TestLaunch.enabled && UserDefaults.standard.bool(forKey: ExplorerModel.assistKey) {
+    public var laneAssist: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.assistKey) {
         didSet {
-            if !TestLaunch.enabled { UserDefaults.standard.set(laneAssist, forKey: Self.assistKey) }
+            if !TestLaunch.ephemeral { UserDefaults.standard.set(laneAssist, forKey: Self.assistKey) }
             explorer?.setAssist(on: laneAssist)
             host?.requestFrames()
         }
@@ -329,9 +329,9 @@ public final class ExplorerModel {
 
     /// Two-finger scroll on a trackpad: false pans (default), true zooms (up and down; click
     /// and drag pans). Persisted; window tests start from (and never store) the default.
-    public var scrollZooms: Bool = !TestLaunch.enabled && UserDefaults.standard.bool(forKey: ExplorerModel.scrollZoomsKey) {
+    public var scrollZooms: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.scrollZoomsKey) {
         didSet {
-            if !TestLaunch.enabled { UserDefaults.standard.set(scrollZooms, forKey: Self.scrollZoomsKey) }
+            if !TestLaunch.ephemeral { UserDefaults.standard.set(scrollZooms, forKey: Self.scrollZoomsKey) }
             explorer?.setScrollZooms(on: scrollZooms)
         }
     }
@@ -350,9 +350,9 @@ public final class ExplorerModel {
     /// decisions/controls "Journey with stops"): J and the Journey button start this mode, ⇧J
     /// the other.
     /// Window tests start from (and never store) the default.
-    public var journeyStops: Bool = !TestLaunch.enabled && UserDefaults.standard.bool(forKey: ExplorerModel.journeyStopsKey) {
+    public var journeyStops: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.journeyStopsKey) {
         didSet {
-            if !TestLaunch.enabled { UserDefaults.standard.set(journeyStops, forKey: Self.journeyStopsKey) }
+            if !TestLaunch.ephemeral { UserDefaults.standard.set(journeyStops, forKey: Self.journeyStopsKey) }
             explorer?.setJourneyStops(on: journeyStops)
         }
     }
@@ -445,9 +445,9 @@ public final class ExplorerModel {
         explorer.setJourneyStops(on: journeyStops)
         explorer.setAssist(on: laneAssist)
         explorer.setScrollZooms(on: scrollZooms)
-        if !TestLaunch.enabled { restoreUserPalettes() }
+        if !TestLaunch.ephemeral { restoreUserPalettes() }
         pull(explorer.settings())
-        if Preferences.restoreSettings && !TestLaunch.enabled { restore() }
+        if Preferences.restoreSettings && !TestLaunch.ephemeral { restore() }
         pushOverlay()
         pushPiMeter()
         pushCosmic()
@@ -609,7 +609,7 @@ public final class ExplorerModel {
 
     /// Writes the settings to user defaults (coalesced: at most every half second).
     private func save() {
-        guard !pulling, explorer != nil, !TestLaunch.enabled else { return }
+        guard !pulling, explorer != nil, !TestLaunch.ephemeral else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))

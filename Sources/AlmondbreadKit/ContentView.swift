@@ -70,20 +70,23 @@ struct ContentView: View {
         }
         .background(Color.black)
         .overlay(alignment: .topLeading) {
-            if model.showHUD {
+            // On a narrow canvas a tour's card takes the HUD's place.
+            if model.showHUD && !(compactWidth && model.tour != nil) {
                 HUDView(model: model, compact: compactWidth)
                     .padding(12)
             }
         }
         .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
         // A guided tour's card (kb: decisions/controls "Guided tours"): bottom trailing, clear of the
-        // HUD (top left), the maps (bottom left) and the cockpit (bottom centre); on iPhone portrait
-        // left of the button column.
-        .overlay(alignment: compactWidth ? .bottomLeading : .bottomTrailing) {
+        // HUD (top left), the maps (bottom left) and the cockpit (bottom centre). On a narrow canvas
+        // (iPhone portrait) at the top in place of the HUD, its text folding and scrolling: at the
+        // bottom it covered the maps, the cockpit and part of the picture (kb: "Touch").
+        .overlay(alignment: compactWidth ? .top : .bottomTrailing) {
             TourCard(model: model, compact: compactWidth)
                 .padding(.leading, 12)
-                .padding(.trailing, Self.tourTrailing(compact: compactWidth))
-                .padding(.bottom, Self.tourBottom(compact: compactWidth, cockpit: model.showHUD))
+                .padding(.trailing, compactWidth ? 12 : Self.tourTrailing(compact: false))
+                .padding(.top, compactWidth ? 12 : 0)
+                .padding(.bottom, compactWidth ? 0 : Self.tourBottom(compact: false, cockpit: model.showHUD))
         }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
@@ -101,6 +104,7 @@ struct ContentView: View {
         .overlay(alignment: .trailing) {
             if model.showHUD && !buttonColumn {
                 ThrottleLever(model: model, height: min(240, max(120, canvasHeight - (landscapePhone ? 170 : 260))))
+                    .touchHintAnchor("throttle")
                     .padding(.trailing, 12)
                     .padding(.bottom, landscapePhone ? 56 : 0)
             }
@@ -114,6 +118,7 @@ struct ContentView: View {
             stack {
                 if buttonColumn && model.showHUD {
                     ThrottleLever(model: model, height: min(220, max(120, canvasHeight - 420)))
+                        .touchHintAnchor("throttle")
                         .padding(.bottom, 6)
                 }
                 // Autopilot: on, a finger steers, a tap pauses.
@@ -127,6 +132,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Autopilot")
+                .touchHintAnchor("autopilot")
                 // A long press: the cruise pedals, lane assist and seek minibrot (the keyboard's E, Q,
                 // Esc, L, N; kb: decisions/controls "Driving levels", "Seek minibrot").
                 .contextMenu {
@@ -185,6 +191,8 @@ struct ContentView: View {
             }
             .padding(12)
         }
+        // First-run touch hints over everything above, pointing at the throttle and the plane.
+        .touchHints()
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         #endif

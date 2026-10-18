@@ -44,7 +44,7 @@ pub mod viewport;
 #[cfg(test)]
 mod extreme_tests;
 
-pub use input::{EdgePan, InputEvent, InputMode, NavKey, Navigator};
+pub use input::{EdgePan, InputEvent, InputMode, NavKey, Navigator, TouchHold, TouchSpot};
 pub use locations::{BENCHMARK_LOCATIONS, BenchmarkLocation};
 pub use oracle::{IterationField, VerifyReport};
 pub use palette::Palette;

@@ -375,8 +375,9 @@ pub const FRAME_ANIMATING: u8 = 1;
 /// Keyboard mode: hide the cursor, draw the overlay crosshair at
 /// (`crosshair_x()`, `crosshair_y()`).
 pub const FRAME_KEYBOARD: u8 = 2;
-/// The autopilot or the cruise drives (iOS: a finger steers instead of panning).
-pub const FRAME_AUTOPILOT: u8 = 4;
+/// A finger steers instead of panning (iOS): the autopilot, the cruise or a journey's flight
+/// drives (`Navigator::finger_steers`; kb: decisions/controls "Touch").
+pub const FRAME_FINGER_STEERS: u8 = 4;
 
 /// The driving level (kb: decisions/controls "Driving levels").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -1368,11 +1369,10 @@ impl Explorer {
             true
         });
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
-        let autopilot =
-            host.renderer.navigator.autopilot().is_active() || host.renderer.navigator.cruise().is_engaged();
+        let steers = host.renderer.navigator.finger_steers();
         (u8::from(animating) * FRAME_ANIMATING)
             | (u8::from(keyboard) * FRAME_KEYBOARD)
-            | (u8::from(autopilot) * FRAME_AUTOPILOT)
+            | (u8::from(steers) * FRAME_FINGER_STEERS)
     }
 
     /// The keyboard crosshair's position as of the last `frame`, view points from the centre

@@ -21,7 +21,7 @@ The meter counts for you and shows in gold which digits already agree. **View �
 
 ## Mini-map (M)
 
-The mini-map shows the whole set and up to three zoomed-in levels, so you always know where you are. A gold rectangle, or a crosshair once it gets too small, marks where the next level or your view sits. **Click a map** to jump there at your current zoom; **⌥-click** flies there.
+The mini-map shows the whole set and up to three zoomed-in levels, so you always know where you are. A gold rectangle, or a crosshair once it gets too small, marks where the next level or your view sits. **Click a map** to jump there at your current zoom; **⌥-click** flies there. On iPhone and iPad: **tap** a map to jump, **hold** it to fly there.
 
 ## Orbit (O)
 

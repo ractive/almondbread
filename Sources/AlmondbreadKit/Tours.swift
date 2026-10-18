@@ -10,7 +10,12 @@ import SwiftUI
 /// Reads only the change-only `model.tour`.
 struct TourCard: View {
     let model: ExplorerModel
+    /// A phone in portrait (narrow canvas): the card sits at the top, its text folds and scrolls.
     var compact = false
+    @State private var collapsed = false
+    /// The step text's height (the phone's card shows up to `textCap` of it, then scrolls).
+    @State private var textHeight: CGFloat = 0
+    static let textCap: CGFloat = 150
 
     var body: some View {
         if let t = model.tour {
@@ -20,8 +25,8 @@ struct TourCard: View {
 
     private func card(_ t: TourStepInfo) -> some View {
         let last = Int(t.index) + 1 >= Int(t.count)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
+        return VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+            HStack(alignment: .center) {
                 Label(t.tourTitle, systemImage: "signpost.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -30,14 +35,41 @@ struct TourCard: View {
                 Text("\(t.index + 1) of \(t.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                if compact {
+                    // The phone's card folds to its title and buttons, the picture free.
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { collapsed.toggle() }
+                    } label: {
+                        Image(systemName: collapsed ? "chevron.down" : "chevron.up")
+                            .font(.footnote.weight(.semibold))
+                            .frame(width: 44, height: 30)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(collapsed ? "Show the tour text" : "Hide the tour text")
+                    .accessibilityIdentifier("tour-fold")
+                }
             }
             Text(t.title)
-                .font(.headline)
+                .font(compact ? .subheadline.weight(.semibold) : .headline)
                 .fixedSize(horizontal: false, vertical: true)
-            // Steps are a few short paragraphs (kb: "Guided tours": keep them short).
-            HelpMarkdownView(markdown: t.text, compact: true)
-                .font(compact ? .footnote : .callout)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Steps are a few short paragraphs (kb: "Guided tours": keep them short). On a phone
+            // the text scrolls within a third of the screen at most.
+            if !(compact && collapsed) {
+                if compact {
+                    ScrollView {
+                        HelpMarkdownView(markdown: t.text, compact: true, textFont: .footnote)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
+                    }
+                    .frame(height: min(max(textHeight, 20), Self.textCap))
+                    .scrollBounceBehavior(.basedOnSize)
+                    .accessibilityIdentifier("tour-text")
+                } else {
+                    HelpMarkdownView(markdown: t.text, compact: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             HStack(spacing: 8) {
                 Button("End tour") { model.endTour() }
                     .help("End the tour: your view and settings come back (Esc)")
@@ -59,7 +91,7 @@ struct TourCard: View {
         }
         .padding(12)
         .frame(width: compact ? nil : 340)
-        .frame(maxWidth: compact ? 360 : nil)
+        .frame(maxWidth: compact ? 480 : nil)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.12)))
         .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
@@ -108,8 +140,7 @@ extension ExplorerModel {
     }
 }
 
-#if os(macOS)
-/// View ▸ Tours: every tour, and End Tour while one runs.
+/// View ▸ Tours (the Mac's and the iPad's menu bar): every tour, and End Tour while one runs.
 struct TourMenu: View {
     let model: ExplorerModel?
 
@@ -126,6 +157,7 @@ struct TourMenu: View {
     }
 }
 
+#if os(macOS)
 extension UIDemo {
     /// `--ui-demo-tour-wait=3:14,7:12`: seconds before step n's capture (default 9; a moving
     /// probe is captured where its path is at that time).

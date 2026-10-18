@@ -19,7 +19,11 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Drag** to move, **pinch** to zoom.
 - **Double tap** zooms in; a **two-finger tap** zooms out.
 - **Twist** two fingers to turn the picture.
+- **Hold** a finger still for more: seek a minibrot, the orbit, fly here, copy the place.
+- The **throttle** at the edge: slide up to fly in, down to fly out.
 - The round buttons start the autopilot or a journey and open the control center.
+- While the autopilot, the cruise or a journey flies, a finger steers instead (resting or moving).
+- The hints from the first start: Help ▸ *Show Touch Hints* at the bottom.
 - With a keyboard attached, the Mac keys work too.
 
 ## Keys

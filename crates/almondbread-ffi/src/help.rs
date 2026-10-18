@@ -37,6 +37,15 @@ pub struct CockpitControlInfo {
     pub half_height: f64,
 }
 
+/// What a finger held still does (`Explorer::touch_hold`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TouchHold {
+    Nothing,
+    FlyToMap,
+    Steer,
+    Menu,
+}
+
 #[uniffi::export]
 impl Explorer {
     /// The help badge under a press at (x, y), if any (as drawn in the last frame).
@@ -54,6 +63,21 @@ impl Explorer {
             return None;
         }
         self.with_host(|h| h.cockpit_hit(x, y)).map(str::to_string)
+    }
+
+    /// What a finger held still at (x, y) view points from the centre, y up, does (kb:
+    /// decisions/controls "Touch"): nothing (a control), fly to the mini-map's point, steer
+    /// (A, C, a journey's flight) or the long-press menu.
+    pub fn touch_hold(&self, x: f64, y: f64) -> TouchHold {
+        if !(x.is_finite() && y.is_finite()) {
+            return TouchHold::Nothing;
+        }
+        match self.with_host(|h| h.touch_hold(x, y)) {
+            almondbread_core::TouchHold::Nothing => TouchHold::Nothing,
+            almondbread_core::TouchHold::FlyToMap => TouchHold::FlyToMap,
+            almondbread_core::TouchHold::Steer => TouchHold::Steer,
+            almondbread_core::TouchHold::Menu => TouchHold::Menu,
+        }
     }
 
     /// Every cockpit control drawn in the last frame (UI tests aim at them).

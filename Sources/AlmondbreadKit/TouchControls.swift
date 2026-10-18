@@ -21,6 +21,8 @@ enum Haptics {
     static func gear() { selection.selectionChanged() }
     static func zeroDetent() { rigid.impactOccurred(intensity: 0.7) }
     static func landed() { soft.impactOccurred(intensity: 0.6) }
+    /// A long press that acted at once (the mini-map flies there).
+    static func press() { soft.impactOccurred(intensity: 0.8) }
     static func found() { notification.notificationOccurred(.success) }
 
     /// What changed between two stats readings (~10 Hz): a minibrot found, a landing.

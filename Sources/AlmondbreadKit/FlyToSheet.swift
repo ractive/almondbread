@@ -14,8 +14,7 @@ struct FlyToSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Fly to Coordinates").font(.headline)
-            Text("Paste copied coordinates (⇧⌘C) or type the centre and the scale (complex units per point). "
-                 + "Q / E or scrolling change the speed; Esc stops; any navigation takes over.")
+            Text(Self.explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -26,21 +25,53 @@ struct FlyToSheet: View {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
             HStack {
+                #if os(iOS)
+                PasteButton(payloadType: String.self) { strings in
+                    if let text = strings.first, let c = Self.parse(text) { (re, im, scale) = c }
+                }
+                .labelStyle(.iconOnly)
+                #endif
                 Spacer()
                 Button("Cancel") { isPresented = false }
                     .keyboardShortcut(.cancelAction)
                 Button("Fly") { fly() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(re.isEmpty || im.isEmpty || scale.isEmpty)
+                    #if os(iOS)
+                    .buttonStyle(.borderedProminent)
+                    #endif
             }
+            #if os(iOS)
+            // Finger-sized (kb: decisions/controls "Touch").
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            #endif
         }
         .padding(20)
+        #if os(macOS)
         .frame(minWidth: 420)
+        #else
+        // A phone is 375-440 points wide: a 420-point minimum clipped the fields and the buttons.
+        .frame(maxWidth: 520, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium, .large])
+        #endif
         .onAppear {
-            // Start from the clipboard if it holds coordinates.
+            // Start from the clipboard if it holds coordinates. Not on iOS: reading another
+            // app's clipboard asks "Allow Paste?" every time the sheet opens (seen 2026-10-18);
+            // the Paste button there reads it on request without asking.
+            #if os(macOS)
             if let text = Clipboard.text(), let c = Self.parse(text) { (re, im, scale) = c }
+            #endif
         }
     }
+
+    #if os(macOS)
+    static let explanation = "Paste copied coordinates (⇧⌘C) or type the centre and the scale (complex units per point). "
+        + "Q / E or scrolling change the speed; Esc stops; any navigation takes over."
+    #else
+    static let explanation = "Paste copied coordinates or type the centre and the scale (complex units per point). "
+        + "The throttle changes the speed; a double tap on it stops; any touch on the picture takes over."
+    #endif
 
     private func field(_ label: String, _ value: Binding<String>) -> some View {
         LabeledContent(label) {

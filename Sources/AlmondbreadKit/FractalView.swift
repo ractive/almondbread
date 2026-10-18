@@ -92,7 +92,7 @@ final class CrosshairLayer: CALayer {
 /// exports no constants; core-check verifies them).
 let frameAnimating: UInt8 = 1
 let frameKeyboard: UInt8 = 2
-let frameAutopilot: UInt8 = 4
+let frameFingerSteers: UInt8 = 4
 
 /// Display links retain their target; this one holds the view weakly so views can go away.
 @MainActor
@@ -120,8 +120,8 @@ class FractalHostBase {
     /// The overlay state after the last `frame` call (interaction test: crosshair positions).
     struct Overlay { let keyboard: Bool; let x: Double; let y: Double }
     private(set) var lastFrame: Overlay?
-    /// The autopilot or the cruise drives (as of the last frame): on iOS a finger then steers.
-    private(set) var autopilotOn = false
+    /// A finger steers rather than pans (A, C, a journey's flight; as of the last frame; iOS).
+    private(set) var fingerSteers = false
 
     init(model: ExplorerModel, scale: CGFloat) {
         self.model = model
@@ -182,7 +182,7 @@ class FractalHostBase {
         frameTimes?.append(t1 - t0)
         let animating = bits & frameAnimating != 0
         let keyboard = bits & frameKeyboard != 0
-        autopilotOn = bits & frameAutopilot != 0
+        fingerSteers = bits & frameFingerSteers != 0
         // Two scalar calls, only while the crosshair shows.
         let o = Overlay(keyboard: keyboard, x: keyboard ? explorer.crosshairX() : 0, y: keyboard ? explorer.crosshairY() : 0)
         lastFrame = o
@@ -827,6 +827,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var longPressStart: CGPoint = .zero
     private var longPressMoved: CGFloat = 0
     private var longPressEnded = Date.distantPast
+    /// What the current long press does (Rust's `touch_hold` when it began).
+    private var hold = TouchHold.nothing
     /// Memory, thermal and background signals for the renderer (DeviceSignals.swift).
     private var signals: DeviceSignals?
 
@@ -859,7 +861,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
         // A long press: the menu at that point; its drag moves the orbit probe (touch has no hover).
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.45
+        longPress.minimumPressDuration = Self.menuHold
         longPress.delegate = self
         doubleTap.delegate = self
         tap.delegate = self
@@ -906,7 +908,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     /// UI tests only (launch environment `ALMONDBREAD_UITEST=1`): where Rust drew the cockpit's
     /// controls and the help badges, " cockpit id:x,y ..." in view points from the top-left, so a
     /// test taps them through the real hit tests (VoiceOver never hears this).
-    private static let uiTest = ProcessInfo.processInfo.environment["ALMONDBREAD_UITEST"] == "1"
+    private static var uiTest: Bool { TestLaunch.uiTest }
     private func uiTestTargets(_ explorer: Explorer) -> String {
         guard Self.uiTest else { return "" }
         let (w, h) = (Double(bounds.width), Double(bounds.height))
@@ -928,6 +930,10 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             return
         }
         becomeFirstResponder()
+        // The first-run hints go on the first touch anywhere in the window (TouchHints.swift).
+        if let window, !(window.gestureRecognizers ?? []).contains(where: { $0 is TouchObserver }) {
+            window.addGestureRecognizer(TouchObserver { TouchHints.shared.dismiss() })
+        }
         let l = CADisplayLink(target: DisplayLinkProxy(self), selector: #selector(DisplayLinkProxy.step(_:)))
         link = l
         applyFrameRate()
@@ -1041,6 +1047,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        TouchHints.shared.dismiss()
         var unhandled = Set<UIPress>()
         for press in presses {
             if let key = press.key, key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) {
@@ -1159,7 +1166,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         }
         // Autopilot and cruise: the finger steers (kb: decisions/controls "Touch"): in C like the
         // Mac pointer while it is down, in A its direction is the wish, kept after it lifts.
-        if g.state == .began { steering = base.autopilotOn }
+        if g.state == .began { steering = base.fingerSteers }
         if steering {
             switch g.state {
             case .began, .changed:
@@ -1213,36 +1220,54 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         return explorer.helpHit(x: o.x, y: o.y) != nil || explorer.cockpitHit(x: o.x, y: o.y) != nil
     }
 
+    /// A finger held still: Rust says what it means where it rests and in this level (kb:
+    /// decisions/controls "Touch", `touch_hold`). In A, C and a journey's flight it steers from
+    /// where it rests and on as it moves (a resting finger before a drag used to open the menu
+    /// instead); on a mini-map it flies there (the Mac's ⌥-click); otherwise its release in place
+    /// opens the menu, and with the orbit overlay on its drag moves the probe.
     @objc private func handleLongPress(_ g: UILongPressGestureRecognizer) {
         let p = g.location(in: self)
+        let o = offset(p)
         switch g.state {
         case .began:
             longPressing = true
             longPressStart = p
             longPressMoved = 0
-            // With the orbit overlay on, c jumps under the finger and follows it.
-            if base.model.orbitEnabled {
-                let o = offset(p)
-                send(.probe(x: o.x, y: o.y))
+            hold = base.explorer?.touchHold(x: o.x, y: o.y) ?? .nothing
+            switch hold {
+            case .steer:
+                send(.touchSteer(x: o.x, y: o.y))
+            case .flyToMap:
+                if base.model.mapClick(x: o.x, y: o.y, fly: true) { Haptics.press() }
+            case .menu:
+                // With the orbit overlay on, c jumps under the finger and follows it.
+                if base.model.orbitEnabled { send(.probe(x: o.x, y: o.y)) }
+            case .nothing:
+                break
             }
         case .changed:
             longPressMoved = max(longPressMoved, hypot(p.x - longPressStart.x, p.y - longPressStart.y))
-            if base.model.orbitEnabled {
-                let o = offset(p)
+            if hold == .steer {
+                send(.touchSteer(x: o.x, y: o.y))
+            } else if hold == .menu && base.model.orbitEnabled {
                 send(.probe(x: o.x, y: o.y))
             }
         case .ended:
             longPressing = false
             longPressEnded = Date()
+            if hold == .steer { send(.touchSteerEnd) }
             // A press that stayed put opens the menu there; a drag only moved the probe.
-            if longPressMoved < 12 {
+            if hold == .menu && longPressMoved < 12 {
                 let p = longPressStart, o = offset(p)
                 base.model.canvasMenu = CanvasMenu(x: o.x, y: o.y, rect: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4),
                                                    edge: p.y > bounds.midY ? .top : .bottom)
             }
+            hold = .nothing
         default:
             longPressing = false
             longPressEnded = Date()
+            if hold == .steer { send(.touchSteerEnd) }
+            hold = .nothing
         }
     }
 
@@ -1279,13 +1304,20 @@ extension FractalUIView: UIGestureRecognizerDelegate {
     }
 
     /// On a control Rust draws (help badge, cockpit) a double tap is not waited for (the tap
-    /// fires at once) and a long press opens no menu.
+    /// fires at once) and a long press opens no menu. Where a finger steers (A, C, a journey's
+    /// flight) a finger resting 0.2 s already steers; the menu's long press is 0.45 s.
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if let press = g as? UILongPressGestureRecognizer {
+            press.minimumPressDuration = base.fingerSteers ? Self.steerHold : Self.menuHold
+        }
         if g is UILongPressGestureRecognizer || (g as? UITapGestureRecognizer)?.numberOfTapsRequired == 2 {
             return !onControl(touch.location(in: self))
         }
         return true
     }
+
+    static let menuHold: TimeInterval = 0.45
+    static let steerHold: TimeInterval = 0.2
 }
 
 struct FractalCanvas: UIViewRepresentable {

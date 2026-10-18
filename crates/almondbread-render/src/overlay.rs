@@ -1157,6 +1157,19 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// A click at `(x, y)` output pixels: on a map panel, starts resolving the point there
     /// (snapping it to a nearby minibrot when the map is much coarser than the view) and
     /// returns true; elsewhere false.
+    /// A mini-map panel (not its help badge) is under (x, y) pixels: a click there jumps.
+    pub fn map_hit(&self, x: f64, y: f64, ppp: f64) -> bool {
+        if crate::help::hit(&self.help, x, y, 1.0 / ppp).is_some() {
+            return false;
+        }
+        let Some(stack) = &self.maps else { return false };
+        let (pw, ph) = (stack.panel.0 as f64, stack.panel.1 as f64);
+        stack.panels.iter().any(|p| {
+            let (px, py) = (x - f64::from(p[0]), y - f64::from(p[1]));
+            (0.0..pw).contains(&px) && (0.0..ph).contains(&py)
+        })
+    }
+
     pub fn click(&mut self, renderer: &Renderer<B>, x: f64, y: f64, ppp: f64, fly: bool) -> bool {
         // The help badge in the panel's corner is not a place to jump to.
         if crate::help::hit(&self.help, x, y, 1.0 / ppp).is_some() {
