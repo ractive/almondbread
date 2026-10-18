@@ -33,7 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ env.TAG }}
+          # The cask template from the default branch, so it can be fixed without a release.
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - name: Check the release and download its .dmg
         env:

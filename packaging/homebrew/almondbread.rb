@@ -1,5 +1,5 @@
 # Template for the cask in ractive/homebrew-tap (Casks/almondbread.rb).
-# .github/workflows/cask.yml fills in @VERSION@ and @SHA256@ for a signed and notarised
+# .github/workflows/cask.yml fills in the version and the .dmg checksum for a signed and notarised
 # release and pushes the result; edit this file, not the tap's.
 cask "almondbread" do
   version "@VERSION@"
@@ -17,7 +17,7 @@ cask "almondbread" do
 
   # Apple silicon only (the Rust core and Metal kernels are built for arm64).
   depends_on arch: :arm64
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Almondbread.app"
 
