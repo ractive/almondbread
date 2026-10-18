@@ -709,6 +709,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         send(.rotate(radians: Double(event.rotation) * .pi / 180, x: o.x, y: o.y))
     }
 
+    override func smartMagnify(with event: NSEvent) {
+        // A two-finger double tap (Smart zoom) zooms in like a double click / double tap.
+        let o = offset(event.locationInWindow)
+        send(.doubleTap(x: o.x, y: o.y, out: false))
+    }
+
     override func magnify(with event: NSEvent) {
         let o = offset(event.locationInWindow)
         send(.magnify(magnification: Double(event.magnification), x: o.x, y: o.y))

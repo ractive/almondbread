@@ -25,7 +25,7 @@ while navigating.
 | R, Cmd+0 | reset view |
 | Two-finger scroll, drag | pan (Mac) |
 | Pinch, Cmd/Option-scroll, wheel | zoom at the zoom target (Mac) |
-| Double-click / Option+double-click | zoom in / out ×2 at the click (Mac; switches to pointer mode) |
+| Double-click / Option+double-click, two-finger double tap (Smart zoom) | zoom in / out ×2 at the click (Mac; switches to pointer mode; Smart zoom always zooms in) |
 | Pointer in the edge band while Space is held | pan towards that edge (setting: off / while zooming / always) |
 | Drag, pinch, double tap, two-finger tap | pan, zoom, zoom in, zoom out (iPhone/iPad) |
 | iPad hardware keyboard | the same keys as the Mac |
