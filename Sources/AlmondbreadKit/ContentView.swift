@@ -103,7 +103,9 @@ struct ContentView: View {
         // on top of the button column on a phone in portrait (below), else at mid height.
         .overlay(alignment: .trailing) {
             if model.showHUD && !buttonColumn {
-                ThrottleLever(model: model, height: min(240, max(120, canvasHeight - (landscapePhone ? 170 : 260))))
+                // A phone on its side: short enough to clear the compass at the top trailing
+                // corner (they overlapped by a few points; QA 2026-10-18).
+                ThrottleLever(model: model, height: min(240, max(120, canvasHeight - (landscapePhone ? 200 : 260))))
                     .touchHintAnchor("throttle")
                     .padding(.trailing, 12)
                     .padding(.bottom, landscapePhone ? 56 : 0)
@@ -509,7 +511,7 @@ extension HUDView {
         let j = s.journey
         guard j.active else { return nil }
         let name = j.daily ? "Daily journey #\(j.seed)" : "Journey #\(j.seed)"
-        if j.suspended { return "\(name) paused  ·  J or click to resume" }
+        if j.suspended { return "\(name) paused  ·  \(Format.resumeJourney)" }
         // At a stop (kb: decisions/controls "Journey with stops"): the landmark and the choices.
         if j.atStop {
             let here = [j.title, Format.zoom(log10: s.shown.zoomLog10)].filter { !$0.isEmpty }.joined(separator: "  ·  ")
@@ -549,7 +551,7 @@ extension HUDView {
             return [to, Self.hintText(s.flight.hint)].compactMap { $0 }.joined(separator: "  ·  ")
         }
         guard s.autopilot.active else { return nil }
-        if s.autopilot.paused { return "Autopilot paused  ·  click to resume" }
+        if s.autopilot.paused { return "Autopilot paused  ·  \(Format.resumeAutopilot)" }
         let lock = s.autopilot.lockLabel.isEmpty ? nil : s.autopilot.lockLabel
         return ["Autopilot", lock, Self.hintText(s.autopilot.hint)].compactMap { $0 }.joined(separator: "  ·  ")
     }
@@ -592,6 +594,16 @@ extension HUDView {
 }
 
 enum Format {
+    /// How a paused autopilot or journey resumes: a click (or J) on the Mac, a tap on touch
+    /// (a child read "click" on the iPad and had no mouse; QA 2026-10-18).
+    #if os(iOS)
+    static let resumeJourney = "tap the picture to go on"
+    static let resumeAutopilot = "tap the picture to go on"
+    #else
+    static let resumeJourney = "J or click to resume"
+    static let resumeAutopilot = "click to resume"
+    #endif
+
     /// "850×", "12.5k×" style up to 1e4, then "1.2e9×" (any depth: from log10 of the zoom).
     static func zoom(log10 l: Double) -> String {
         if Preferences.zoomUnits == .powerOfTen { return String(format: "10^%.1f", l) }

@@ -88,6 +88,6 @@ center: -1.25, 0
 span: 1.2
 probe: pointer
 
-The orbit follows the pointer again. Move it along the spike and through the bulbs, and watch the cycles split and smear.
+The orbit follows the pointer again (on a touch screen: hold a finger on the picture and drag). Move it along the spike and through the bulbs, and watch the cycles split and smear.
 
-**→** and **←** step through the tour; **Esc** ends it and brings back your view and settings.
+**Back** and **Next** (or **←** and **→**) step through the tour; **End tour** (or **Esc**) ends it and brings back your view and settings.
