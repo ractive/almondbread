@@ -11,6 +11,8 @@ final class TouchUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
         app = XCUIApplication()
+        // Ephemeral settings and the cockpit's positions in the view's value.
+        app.launchEnvironment["ALMONDBREAD_UITEST"] = "1"
         app.launch()
     }
 
@@ -27,6 +29,19 @@ final class TouchUITests: XCTestCase {
         return State(re: Double(f[0]) ?? .nan, im: Double(f[1]) ?? .nan, scale: Double(f[2]) ?? .nan,
                      angle: Double(f[3].replacingOccurrences(of: "°", with: "")) ?? .nan,
                      autopilot: f[5] == "on", journey: f[7] == "on")
+    }
+
+    /// A cockpit control (Rust draws it; " cockpit id:x,y" in the value, view points).
+    private func cockpit(_ id: String) -> XCUICoordinate? {
+        guard let v = canvas.value as? String, let r = v.range(of: " cockpit ") else { return nil }
+        for t in v[r.upperBound...].split(separator: " ") {
+            let kv = t.split(separator: ":", maxSplits: 1)
+            guard kv.count == 2, kv[0] == id else { continue }
+            let xy = kv[1].split(separator: ",").compactMap { Double($0) }
+            guard xy.count == 2 else { return nil }
+            return canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: xy[0], dy: xy[1]))
+        }
+        return nil
     }
 
     private func shot(_ name: String) {
@@ -85,29 +100,27 @@ final class TouchUITests: XCTestCase {
         let s5 = try XCTUnwrap(state())
         XCTAssertGreaterThan(s5.scale, s4.scale * 1.2, "two-finger tap did not zoom out")
 
-        // Autopilot button: on, zooming; again: off.
-        let autopilot = app.buttons["Autopilot"]
-        XCTAssertTrue(autopilot.isHittable, "autopilot button not hittable")
+        // The cockpit's plane (the autopilot): on, zooming; again: off.
+        let autopilot = try XCTUnwrap(cockpit("autopilot"), "no cockpit plane")
         autopilot.tap()
         settle(2)
         let a1 = try XCTUnwrap(state())
-        XCTAssertTrue(a1.autopilot, "autopilot button did not start the autopilot")
+        XCTAssertTrue(a1.autopilot, "the plane did not start the autopilot")
         XCTAssertLessThan(a1.scale, s5.scale, "autopilot did not zoom")
         shot("autopilot")
         autopilot.tap()
         settle(2)
-        XCTAssertFalse(try XCTUnwrap(state()).autopilot, "autopilot button did not stop the autopilot")
+        XCTAssertFalse(try XCTUnwrap(state()).autopilot, "the plane did not stop the autopilot")
 
-        // Journey button: on (planning, then flying); again: off.
-        let journey = app.buttons["Journey"]
-        XCTAssertTrue(journey.isHittable, "journey button not hittable")
+        // The cockpit's sparkles (journey): on (planning, then flying); again: off.
+        let journey = try XCTUnwrap(cockpit("journey"), "no cockpit journey icon")
         journey.tap()
         settle(3)
-        XCTAssertTrue(try XCTUnwrap(state()).journey, "journey button did not start a journey")
+        XCTAssertTrue(try XCTUnwrap(state()).journey, "the sparkles did not start a journey")
         shot("journey")
         journey.tap()
         settle(2)
-        XCTAssertFalse(try XCTUnwrap(state()).journey, "journey button did not stop the journey")
+        XCTAssertFalse(try XCTUnwrap(state()).journey, "the sparkles did not stop the journey")
 
         // Control center: opens (sheet on iPhone, sidebar on iPad) and the app stays
         // responsive (the HEIC thumbnails once deadlocked the main thread here: a hung app

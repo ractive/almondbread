@@ -1507,3 +1507,12 @@ other way. A drag in C and in a journey's flight now pans, as a drag does on the
 steers only in A (the wish). (3) The wish line in A never went away: the lifted finger's wish
 was kept until A ended. It is now let go once the autopilot's wish settled, so the line fades.
 Simulators `DR iPhone 17e`, `DR iPad Pro 11`.
+
+## [2026-10-18] decision | iOS round buttons: the Mac toolbar instead of autopilot / journey
+
+User on a real iPad: the round buttons duplicated the cockpit. Now Orbit, Mini-map, Size scale
+(toggles, filled when on), Fly to and Control center, as the macOS toolbar. Journey stop choices
+moved under the HUD as labelled buttons; the autopilot button's menu is covered by the cockpit,
+the throttle and a new iOS control-center "Seek minibrot"; the orbit toggle on touch shows the
+view centre's orbit (or the last Orbit Here point); touch hints point at the cockpit's plane.
+[[decisions/controls]] "Touch" ▸ "Round buttons".

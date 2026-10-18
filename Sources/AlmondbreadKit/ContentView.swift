@@ -70,11 +70,20 @@ struct ContentView: View {
         }
         .background(Color.black)
         .overlay(alignment: .topLeading) {
-            // On a narrow canvas a tour's card takes the HUD's place.
-            if model.showHUD && !(compactWidth && model.tour != nil) {
-                HUDView(model: model, compact: compactWidth)
-                    .padding(12)
+            VStack(alignment: .leading, spacing: 8) {
+                // On a narrow canvas a tour's card takes the HUD's place.
+                if model.showHUD && !(compactWidth && model.tour != nil) {
+                    HUDView(model: model, compact: compactWidth)
+                }
+                #if os(iOS)
+                // At a journey stop: its three choices, under the HUD line that names the
+                // landmark (the Mac's J / Z / X; kb: decisions/controls "Touch").
+                if model.journeyAtStop {
+                    JourneyStopButtons(model: model)
+                }
+                #endif
             }
+            .padding(12)
         }
         .onChange(of: model.showHUD) { if !model.showHUD { model.hudFrame = nil } }
         // A guided tour's card (kb: decisions/controls "Guided tours"): bottom trailing, clear of the
@@ -96,7 +105,7 @@ struct ContentView: View {
             // iPad and wide iPhone: the compass sits below the top-right buttons (44 + 12 pt).
             model.compassInsetTop = compactWidth ? 0 : 56
             // The cockpit (bottom centre) keeps left of the button column, or of the button row
-            // of a phone on its side (up to five buttons at a journey stop).
+            // of a phone on its side (five buttons).
             model.cockpitInsetRight = landscapePhone ? 5 * 44 + 4 * 10 + 12 : compactWidth ? 56 : 0
         }
         // The throttle (kb: decisions/controls "Touch") at the trailing edge, in thumb reach:
@@ -119,82 +128,26 @@ struct ContentView: View {
             let stack = buttonColumn ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
             stack {
                 if buttonColumn && model.showHUD {
-                    ThrottleLever(model: model, height: min(220, max(120, canvasHeight - 420)))
+                    // Five buttons below it (two more than before 2026-10-18: 108 points).
+                    ThrottleLever(model: model, height: min(220, max(120, canvasHeight - 528)))
                         .touchHintAnchor("throttle")
                         .padding(.bottom, 6)
                 }
-                // Autopilot: on, a finger steers, a tap pauses.
-                Button {
-                    model.toggleAutopilot()
-                } label: {
-                    Image(systemName: model.autopilotActive ? "airplane.circle.fill" : "airplane")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Autopilot")
-                .touchHintAnchor("autopilot")
-                // A long press: the cruise pedals, lane assist and seek minibrot (the keyboard's E, Q,
-                // Esc, L, N; kb: decisions/controls "Driving levels", "Seek minibrot").
-                .contextMenu {
-                    Button("Cruise In / Faster", systemImage: "plus.magnifyingglass") { model.pedalIn() }
-                    Button("Cruise Out / Slower", systemImage: "minus.magnifyingglass") { model.pedalOut() }
-                    Button("Stop", systemImage: "stop.circle") { model.stopMotion() }
-                    Toggle("Lane Assist", systemImage: "road.lanes", isOn: $model.laneAssist)
-                    Button("Seek Minibrot", systemImage: "scope") { model.seekMinibrot() }
-                }
-                // Journey: planned flights from landmark to landmark; a tap on the canvas pauses.
-                // At a stop it flies on, and two more buttons go deeper here or elsewhere.
-                Button {
-                    model.toggleJourney()
-                } label: {
-                    Image(systemName: model.journeyAtStop ? "forward.fill"
-                          : model.journeyActive ? "sparkles.rectangle.stack.fill" : "sparkles")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(model.journeyAtStop ? "Journey: next landmark" : "Journey")
-                if model.journeyAtStop {
-                    Button {
-                        model.journeyDeeper()
-                    } label: {
-                        Image(systemName: "arrow.down.right.circle")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Journey: deeper here")
-                    Button {
-                        model.journeyElsewhere()
-                    } label: {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Journey: somewhere else")
-                }
-                Button {
-                    showInspector.toggle()
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Control center")
-                .accessibilityValue(showInspector ? "shown" : "hidden")
+                // The Mac toolbar's items (kb: decisions/controls "Touch", "Round buttons"): the
+                // overlays and Fly To. The autopilot and journeys are the cockpit's icons.
+                RoundToggle("Orbit", symbol: "point.topleft.down.to.point.bottomright.curvepath",
+                            isOn: $model.orbitEnabled)
+                RoundToggle("Mini-map", symbol: "map", isOn: $model.mapEnabled)
+                RoundToggle("Size scale", symbol: "ruler", isOn: $model.cosmicScale)
+                RoundButton("Fly to", symbol: "location.north.line") { showFlyTo = true }
+                RoundButton("Control center", symbol: "slider.horizontal.3") { showInspector.toggle() }
+                    .accessibilityValue(showInspector ? "shown" : "hidden")
             }
             .padding(12)
         }
-        // First-run touch hints over everything above, pointing at the throttle and the plane.
-        .touchHints()
+        // First-run touch hints over everything above, pointing at the throttle and the
+        // cockpit's plane.
+        .touchHints(cockpitPlane: cockpitPlane)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         #endif
@@ -267,6 +220,17 @@ struct ContentView: View {
 }
 
 extension ContentView {
+    #if os(iOS)
+    /// The cockpit's plane icon (Rust draws it; view points from the canvas centre, y up) in
+    /// global coordinates: the canvas fills the window from its top-left corner.
+    func cockpitPlane() -> CGRect? {
+        guard model.showHUD,
+              let c = model.explorer?.cockpitControls().first(where: { $0.id == "autopilot" }) else { return nil }
+        return CGRect(x: canvasWidth / 2 + c.x - c.halfWidth, y: canvasHeight / 2 - c.y - c.halfHeight,
+                      width: 2 * c.halfWidth, height: 2 * c.halfHeight)
+    }
+    #endif
+
     /// The tour card's trailing margin: clear of the button column (compact) or the throttle.
     static func tourTrailing(compact: Bool) -> CGFloat {
         #if os(iOS)
@@ -519,7 +483,8 @@ extension HUDView {
             #if os(macOS)
             return here + "  —  J next  ·  Z deeper here  ·  X somewhere else"
             #else
-            return here + "  —  next  ·  deeper  ·  elsewhere"
+            // The choices are buttons right under the HUD (JourneyStopButtons).
+            return here
             #endif
         }
         var parts = [name, "leg \(j.leg)"]
@@ -631,3 +596,101 @@ enum Format {
         return ms < 10 ? String(format: "%.2f ms", ms) : String(format: "%.0f ms", ms)
     }
 }
+
+#if os(iOS)
+/// A round 44-point button over the canvas (iPhone and iPad), in the material of the HUD.
+struct RoundButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    init(_ title: String, symbol: String, action: @escaping () -> Void) {
+        self.title = title
+        self.symbol = symbol
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+}
+
+/// A round 44-point toggle (the Mac toolbar's Orbit, Mini-map and Size Scale): on, the circle
+/// is filled with the accent colour and the symbol is white; off, the plain material.
+struct RoundToggle: View {
+    let title: String
+    let symbol: String
+    @Binding var isOn: Bool
+
+    init(_ title: String, symbol: String, isOn: Binding<Bool>) {
+        self.title = title
+        self.symbol = symbol
+        _isOn = isOn
+    }
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(isOn ? Color.white : Color.primary)
+                .frame(width: 44, height: 44)
+                .background {
+                    if isOn {
+                        Circle().fill(Color.accentColor)
+                    } else {
+                        Circle().fill(.ultraThinMaterial)
+                    }
+                }
+                .overlay(Circle().strokeBorder(.white.opacity(isOn ? 0.5 : 0), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn ? "on" : "off")
+        .accessibilityAddTraits(isOn ? [.isToggle, .isSelected] : .isToggle)
+    }
+}
+
+/// A journey stop's choices (kb: decisions/controls "Journey with stops"): next as planned (J),
+/// deeper here (Z), somewhere else (X). Labelled capsules under the HUD; a column when a row
+/// does not fit (phone portrait).
+struct JourneyStopButtons: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { buttons }
+            VStack(alignment: .leading, spacing: 8) { buttons }
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        choice("Next", "forward.fill", "Journey: next landmark") { model.toggleJourney() }
+        choice("Deeper here", "arrow.down.right.circle", "Journey: deeper here") { model.journeyDeeper() }
+        choice("Elsewhere", "arrow.triangle.branch", "Journey: somewhere else") { model.journeyElsewhere() }
+    }
+
+    private func choice(_ title: String, _ symbol: String, _ label: String,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+#endif
