@@ -105,7 +105,9 @@ struct ContentView: View {
             if model.showHUD && !buttonColumn {
                 // A phone on its side: short enough to clear the compass at the top trailing
                 // corner (they overlapped by a few points; QA 2026-10-18).
-                ThrottleLever(model: model, height: min(240, max(120, canvasHeight - (landscapePhone ? 200 : 260))))
+                // iPad: taller (360), so more of the position lever's gears get a tick.
+                ThrottleLever(model: model, height: min(landscapePhone ? 240 : 360,
+                                                        max(120, canvasHeight - (landscapePhone ? 200 : 260))))
                     .touchHintAnchor("throttle")
                     .padding(.trailing, 12)
                     .padding(.bottom, landscapePhone ? 56 : 0)

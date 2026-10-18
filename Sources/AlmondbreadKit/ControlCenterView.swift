@@ -1303,7 +1303,7 @@ struct ControlsHelp: View {
         row("space", "Keyboard: Space / ⇧Space", "Zoom")
         row("gauge.with.dots.needle.33percent", "Keyboard: E / Q, L, N, G", "Cruise in / out, lane assist, seek minibrot, continue")
         row("map", "Keyboard: O / M / P", "Orbit overlay / mini-map / π meter")
-        row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "Drag up / down: one gear per notch; double tap stops")
+        row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "The knob is the gear: up in, down out, middle stops; tap a notch or a chevron; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
         row("airplane", "Autopilot button or Z", "Fly on; a finger (resting or moving) suggests a direction, a tap pauses")

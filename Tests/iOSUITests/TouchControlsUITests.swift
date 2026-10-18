@@ -66,11 +66,9 @@ final class TouchControlsUITests: XCTestCase {
         Thread.sleep(forTimeInterval: seconds)
     }
 
-    /// Drags the throttle's knob by `detents` (up positive) in one drag.
-    private func throttle(_ lever: XCUIElement, detents: Double) {
-        let from = lever.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = from.withOffset(CGVector(dx: 0, dy: -detents * 14 - 7 * (detents > 0 ? 1 : -1)))
-        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 120, thenHoldForDuration: 0.1)
+    /// Drags the throttle's knob from the middle to signed tick `tick` (a position lever).
+    private func throttle(_ lever: XCUIElement, tick: Int) {
+        ThrottleLeverUI(element: lever).drag(toTick: tick)
     }
 
     private func launchSettled() throws {
@@ -79,48 +77,85 @@ final class TouchControlsUITests: XCTestCase {
         settle(3)
     }
 
-    /// The throttle: up three detents is cruise gear 3 and zooms in; down past zero in the same
-    /// drag stops at zero; a new drag goes into reverse; a double tap goes to manual. In the
-    /// autopilot it steps the autopilot's speed.
+    /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
+    /// cruise in that gear, zooming in); the chevrons step one gear; one drag crosses the middle
+    /// into reverse; a tap on a tick goes there; a double tap goes to manual (M). In the autopilot
+    /// it sets the autopilot's speed, and the knob follows speed changes made elsewhere.
     func testThrottle() throws {
         try launchSettled()
-        let lever = app.descendants(matching: .any)["throttle"]
-        XCTAssertTrue(lever.waitForExistence(timeout: 5), "no throttle")
-        XCTAssertTrue(lever.isHittable, "throttle not hittable")
-        XCTAssertGreaterThanOrEqual(lever.frame.width, 44)
+        let element = app.descendants(matching: .any)["throttle"]
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "no throttle")
+        XCTAssertTrue(element.isHittable, "throttle not hittable")
+        XCTAssertGreaterThanOrEqual(element.frame.width, 44)
+        let lever = ThrottleLeverUI(element: element)
+        let ticks = lever.ticks
+        XCTAssertGreaterThanOrEqual(ticks.count, 4, "ticks \(ticks)")
+        XCTAssertEqual(ticks.first, 1)
+        XCTAssertEqual(ticks.last, 26)
+        XCTAssertGreaterThanOrEqual(lever.pitch, 10)
+        XCTAssertEqual(lever.gear, 0)
         shot("throttle-start")
+        print("QA throttle \(element.frame.size): \(element.value as? String ?? "-")")
         let s0 = scale()
-        throttle(lever, detents: 3)
+        // Drag to the third tick and let go: the knob stays there, the gear is that tick's.
+        lever.drag(toTick: 3)
         settle(0.5)
         XCTAssertEqual(level(), "c", "the throttle did not start the cruise")
-        XCTAssertEqual(gear(), 3, "three detents, gear 3")
+        XCTAssertEqual(gear(), lever.gear(tick: 3), "the third tick's gear")
+        XCTAssertEqual(lever.gear, gear(), "the knob shows the gear")
         settle(2)
+        XCTAssertEqual(lever.gear, lever.gear(tick: 3), "the knob did not stay")
         XCTAssertLessThan(scale(), s0 / 1.2, "cruise did not zoom in")
-        shot("throttle-gear3")
-        // Down past zero in one drag: stops at zero.
-        throttle(lever, detents: -6)
+        shot("throttle-tick3")
+        // The chevrons: one gear each.
+        let g3 = gear()
+        lever.tapChevron(up: true)
         settle(0.5)
-        XCTAssertEqual(gear(), 0, "the drag crossed zero")
-        // A new drag: reverse.
-        throttle(lever, detents: -2)
+        XCTAssertEqual(gear(), g3 + 1, "the up chevron is one gear")
+        XCTAssertEqual(lever.gear, g3 + 1)
+        shot("throttle-chevron-up")
+        lever.tapChevron(up: false)
+        settle(0.6)
+        lever.tapChevron(up: false)
         settle(0.5)
-        XCTAssertEqual(gear(), -2, "a new drag goes into reverse")
+        XCTAssertEqual(gear(), g3 - 1, "two down chevrons")
+        // One drag through the middle: reverse (no detent).
+        lever.drag(toTick: -2)
+        settle(0.5)
+        XCTAssertEqual(gear(), lever.gear(tick: -2), "the drag did not cross into reverse")
+        XCTAssertEqual(lever.gear, gear())
         shot("throttle-reverse")
+        // A tap on the first tick up.
+        settle(0.5)
+        lever.tap(tick: 1)
+        settle(1)
+        XCTAssertEqual(gear(), 1, "a tap on the first tick")
         // Double tap: manual (the cruise brakes to rest).
-        lever.doubleTap()
+        element.doubleTap()
         settle(4)
         XCTAssertEqual(level(), "m", "double tap did not stop")
         XCTAssertEqual(gear(), 0)
-        // In the autopilot: its speed.
+        XCTAssertEqual(lever.gear, 0)
+        shot("throttle-stopped")
+        // In the autopilot: the knob shows its speed's gear and sets it.
         app.buttons["Autopilot"].tap()
         settle(1)
         XCTAssertEqual(level(), "a")
         let g = gear()
-        throttle(lever, detents: 2)
+        XCTAssertGreaterThan(g, 0, "the autopilot's gear")
+        XCTAssertEqual(lever.gear, g, "the knob did not follow the autopilot")
+        lever.tapChevron(up: true)
         settle(0.5)
         XCTAssertEqual(level(), "a", "the throttle left the autopilot")
-        // Its default speed is off the ladder: the first detent goes to the next rung.
-        XCTAssertGreaterThan(gear(), g, "the autopilot's speed did not step")
+        XCTAssertEqual(gear(), g + 1, "the autopilot's speed did not step")
+        // A speed change elsewhere (the autopilot button's menu, E) moves the knob.
+        app.buttons["Autopilot"].press(forDuration: 1.0)
+        let faster = app.buttons["Cruise In / Faster"]
+        XCTAssertTrue(faster.waitForExistence(timeout: 5), "no autopilot menu")
+        faster.tap()
+        settle(1)
+        XCTAssertEqual(gear(), g + 2, "E did not step the autopilot")
+        XCTAssertEqual(lever.gear, g + 2, "the knob did not follow")
         shot("throttle-autopilot")
         app.buttons["Autopilot"].tap()
     }
@@ -230,6 +265,7 @@ final class TouchControlsUITests: XCTestCase {
         settle(3)
         shot("controls-landscape")
         let lever = app.descendants(matching: .any)["throttle"]
+        print("QA throttle landscape \(lever.frame.size): \(lever.value as? String ?? "-")")
         XCTAssertTrue(lever.isHittable)
         for name in ["Autopilot", "Journey", "Control center"] {
             let b = app.buttons[name]
@@ -243,7 +279,7 @@ final class TouchControlsUITests: XCTestCase {
                 XCTAssertFalse(app.buttons[name].frame.insetBy(dx: -4, dy: -4).contains(p), "cockpit under \(name)")
             }
         }
-        throttle(lever, detents: 1)
+        throttle(lever, tick: 1)
         settle(0.5)
         XCTAssertEqual(level(), "c")
         XCUIDevice.shared.orientation = .portrait
@@ -276,9 +312,9 @@ final class TouchControlsUITests: XCTestCase {
         shot("hold-steers-autopilot")
         app.buttons["Autopilot"].tap()
         settle(2)
-        // C (the throttle up one detent): the same.
+        // C (the throttle on its first tick): the same.
         let lever = app.descendants(matching: .any)["throttle"]
-        throttle(lever, detents: 1)
+        throttle(lever, tick: 1)
         settle(0.5)
         XCTAssertEqual(level(), "c")
         let v0 = canvas.value as? String

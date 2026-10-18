@@ -1483,3 +1483,14 @@ place's picture only selected it (now goes there on iOS); pinches turned the vie
 dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
 control); click / key words on touch; compass over the throttle on a phone on its side.
 [[decisions/controls]] "Touch" notes the decisions.
+
+## [2026-10-18] decision | Touch throttle becomes a position lever
+
+[[decisions/controls]] "Touch" ▸ "Position lever": user feedback from a real iPad (the jog
+lever read as "gear up / gear down"; the drag length chose the gear unnoticed). The knob's tick
+is now the gear (M in the middle stops, up in, down out), it stays where it is left, a tap on a
+tick goes there, chevrons step one gear, double tap stops. New core event `SetGear { gear }`
+(absolute; the relative `Throttle` stays). The knob always shows the navigator's gear (the
+nearest rung to A's and J's speed; a fly-to's own speed now reaches the cockpit). Ticks stand
+for geometrically spaced gears 1…26 when not all fit at 10 points (`cruise::lever_ticks`): 7 a
+side on an iPhone in portrait, 5 on its side, 14 on the iPad (lever up to 360 points there).

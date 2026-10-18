@@ -20,7 +20,7 @@ Start anywhere. Point at something interesting and zoom in. If you get lost, pre
 - **Double tap** zooms in; a **two-finger tap** zooms out.
 - **Twist** two fingers to turn the picture.
 - **Hold** a finger still for more: seek a minibrot, the orbit, fly here, copy the place.
-- The **throttle** at the edge: slide up to fly in, down to fly out.
+- The **throttle** at the edge is a gear lever: slide its knob up to fly in, down to fly out, to the middle (**M**) to stop. It stays where you leave it; the arrows at its ends change one gear.
 - The round buttons start the autopilot or a journey and open the control center.
 - While the autopilot, the cruise or a journey flies, a finger steers instead (resting or moving).
 - The hints from the first start: Help ▸ *Show Touch Hints* at the bottom.
