@@ -8,7 +8,7 @@ Like a car, Almondbread has four ways to drive, shown at the bottom of the pictu
 
 **E** and **Q** are pedals. From rest, **E** starts a steady zoom in and **Q** a zoom out; each press is one step faster, and holding the key keeps speeding up. The other pedal slows down step by step and stops at zero: to go the other way, let go and press again. **Esc** brakes gently to a stop.
 
-You always steer yourself: point with the mouse (or a finger on iPhone and iPad) where you want to go, or use **W A S D**. Nothing pulls you anywhere.
+You always steer yourself: point with the mouse where you want to go, or use **W A S D**; on iPhone and iPad drag the picture. Nothing pulls you anywhere.
 
 There are 26 gears, from ×1.1 to ×1000 per second; the cockpit shows the one you are in, for example *gear 5* zooming in or *reverse 3* zooming out.
 

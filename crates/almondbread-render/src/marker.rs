@@ -115,6 +115,11 @@ impl TargetMarker {
         }
     }
 
+    /// The wish line is drawn (fading included).
+    pub fn wish_shown(&self) -> bool {
+        self.wish_alpha > 0.0
+    }
+
     /// Anything to draw.
     pub fn visible(&self) -> bool {
         self.alpha > 0.0 || self.wish_alpha > 0.0

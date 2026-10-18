@@ -807,6 +807,7 @@ struct FractalCanvas: NSViewRepresentable {
 
 #else
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     let base: FractalHostBase
@@ -818,11 +819,13 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var gamepad: GamepadInput?
     /// The current one-finger pan started on the compass: it turns the view.
     private var compassPanning = false
-    /// Touch (kb: decisions/controls "Touch"): the one-finger pan steers (A, C) rather than
-    /// pans; a long press is on (its drag moves the orbit probe, its release opens the menu),
+    /// Touch (kb: decisions/controls "Touch"): the one-finger pan steers (A: the wish) rather
+    /// than pans; a long press is on (its drag moves the orbit probe, its release opens the menu),
     /// where it began and how far it moved; when the last long press ended (its tap is not a
     /// tap); the long-press menu.
     private var steering = false
+    /// The pinch is down to one finger (the other lifted): its events are not a pinch any more.
+    private var pinchHalfLifted = false
     private var longPressing = false
     private var longPressStart: CGPoint = .zero
     private var longPressMoved: CGFloat = 0
@@ -865,7 +868,10 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         longPress.delegate = self
         doubleTap.delegate = self
         tap.delegate = self
-        [pinch, rotation, pan, doubleTap, twoFingerTap, tap, hover, longPress].forEach(addGestureRecognizer)
+        // Every finger off the view: a finger left down after a pinch may pan again (Rust).
+        let fingers = FingerTracker { [weak self] in self?.send(.touchesLifted) }
+        fingers.delegate = self
+        [pinch, rotation, pan, doubleTap, twoFingerTap, tap, hover, longPress, fingers].forEach(addGestureRecognizer)
         let pointer = UIPointerInteraction(delegate: self)
         addInteraction(pointer)
         pointerInteraction = pointer
@@ -883,8 +889,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     /// The view as text: "re im scale angle° autopilot on|off journey on|off level m|c|a|j gear
-    /// n orbit on|off seek phase" (UI tests read it to check that a gesture moved, zoomed or
-    /// turned the view, and what the throttle and the long-press menu did).
+    /// n orbit on|off seek phase assist on|off wish on|off" (wish: the wish line is drawn). UI
+    /// tests read it to check that a gesture moved, zoomed or turned the view, and what the
+    /// throttle and the long-press menu did.
     override var accessibilityValue: String? {
         get {
             guard let explorer = base.explorer else { return nil }
@@ -899,7 +906,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             return "\(v.re) \(v.im) \(v.scaleText) \(String(format: "%.2f", v.angleDegrees))° "
                 + "autopilot \(s.autopilot.active ? "on" : "off") journey \(s.journey.active ? "on" : "off") "
                 + "level \(level) gear \(s.cruise.gear) orbit \(base.model.orbitEnabled ? "on" : "off") "
-                + "seek \(s.seek.phase.isEmpty ? "idle" : s.seek.phase.replacingOccurrences(of: " ", with: "-")) assist \(s.cruise.assist ? "on" : "off")"
+                + "seek \(s.seek.phase.isEmpty ? "idle" : s.seek.phase.replacingOccurrences(of: " ", with: "-")) assist \(s.cruise.assist ? "on" : "off") "
+                + "wish \(explorer.wishLineShown() ? "on" : "off")"
                 + uiTestTargets(explorer)
         }
         set {}
@@ -1104,7 +1112,25 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         case .began:
             lastPinchScale = g.scale
             lastPinchCenter = center
+            pinchHalfLifted = false
         case .changed:
+            // One finger lifted: UIKit keeps the pinch going with the other, its location jumps
+            // to that finger and follows it, which panned the view after every pinch on the iPad
+            // (kb: decisions/controls "Touch", device round). The pinch ends there (a fling only
+            // if it was still moving); a second finger coming back starts it afresh.
+            if g.numberOfTouches < 2 {
+                if !pinchHalfLifted {
+                    pinchHalfLifted = true
+                    send(.gestureEnd)
+                }
+                return
+            }
+            if pinchHalfLifted {
+                pinchHalfLifted = false
+                lastPinchScale = g.scale
+                lastPinchCenter = center
+                return
+            }
             let o = offset(center)
             // Two-finger drag pans while pinching.
             send(.pinch(ratio: Double(g.scale / lastPinchScale), x: o.x, y: o.y,
@@ -1112,13 +1138,18 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             lastPinchScale = g.scale
             lastPinchCenter = center
         case .ended:
-            send(.gestureEnd)
-        default: break
+            if !pinchHalfLifted { send(.gestureEnd) }
+            pinchHalfLifted = false
+        default:
+            pinchHalfLifted = false
         }
     }
 
     @objc private func handleRotation(_ g: UIRotationGestureRecognizer) {
-        if g.state == .changed || g.state == .ended {
+        // Two fingers only (with one lifted UIKit goes on with the other's position).
+        if (g.state == .changed || g.state == .ended) && g.numberOfTouches < 2 {
+            g.rotation = 0
+        } else if g.state == .changed || g.state == .ended {
             let o = offset(g.location(in: self))
             // UIKit's rotation is clockwise-positive on screen; Rust takes counter-clockwise.
             // Rust turns the view only past a dead band (a pinch twists a little).
@@ -1169,8 +1200,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             g.setTranslation(.zero, in: self)
             return
         }
-        // Autopilot and cruise: the finger steers (kb: decisions/controls "Touch"): in C like the
-        // Mac pointer while it is down, in A its direction is the wish, kept after it lifts.
+        // Autopilot: the finger steers (kb: decisions/controls "Touch"): its direction is the
+        // wish. Elsewhere (the cruise and a journey's flight too) a drag pans; Rust ignores the
+        // pan of a finger left down after a pinch.
         if g.state == .began { steering = base.fingerSteers }
         if steering {
             switch g.state {
@@ -1226,10 +1258,11 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     /// A finger held still: Rust says what it means where it rests and in this level (kb:
-    /// decisions/controls "Touch", `touch_hold`). In A, C and a journey's flight it steers from
-    /// where it rests and on as it moves (a resting finger before a drag used to open the menu
-    /// instead); on a mini-map it flies there (the Mac's ⌥-click); otherwise its release in place
-    /// opens the menu, and with the orbit overlay on its drag moves the probe.
+    /// decisions/controls "Touch", `touch_hold`, asked when the press would begin). In A it
+    /// steers from where it rests and on as it moves (the wish); on a mini-map it flies there
+    /// (the Mac's ⌥-click); with nothing flying its release in place opens the menu, and with the
+    /// orbit overlay on its drag moves the probe. Where it means nothing (C, a journey's flight,
+    /// the finger left after a pinch) the press does not begin, so the drag pans.
     @objc private func handleLongPress(_ g: UILongPressGestureRecognizer) {
         let p = g.location(in: self)
         let o = offset(p)
@@ -1238,7 +1271,6 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             longPressing = true
             longPressStart = p
             longPressMoved = 0
-            hold = base.explorer?.touchHold(x: o.x, y: o.y) ?? .nothing
             switch hold {
             case .steer:
                 send(.touchSteer(x: o.x, y: o.y))
@@ -1308,9 +1340,20 @@ extension FractalUIView: UIGestureRecognizerDelegate {
         true
     }
 
+    /// A long press begins only where it means something (Rust's `touch_hold`); otherwise the
+    /// finger's drag stays a pan (C, a journey's flight) and nothing waits for its release.
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if g is UILongPressGestureRecognizer {
+            let o = offset(g.location(in: self))
+            hold = base.explorer?.touchHold(x: o.x, y: o.y) ?? .nothing
+            return hold != .nothing
+        }
+        return super.gestureRecognizerShouldBegin(g)
+    }
+
     /// On a control Rust draws (help badge, cockpit) a double tap is not waited for (the tap
-    /// fires at once) and a long press opens no menu. Where a finger steers (A, C, a journey's
-    /// flight) a finger resting 0.2 s already steers; the menu's long press is 0.45 s.
+    /// fires at once) and a long press opens no menu. Where a finger steers (A) a finger resting
+    /// 0.2 s already steers (a drag steers at once); the menu's long press is 0.45 s.
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if let press = g as? UILongPressGestureRecognizer {
             press.minimumPressDuration = base.fingerSteers ? Self.steerHold : Self.menuHold
@@ -1329,5 +1372,45 @@ struct FractalCanvas: UIViewRepresentable {
     let model: ExplorerModel
     func makeUIView(context: Context) -> FractalUIView { FractalUIView(model: model) }
     func updateUIView(_ view: FractalUIView, context: Context) {}
+}
+
+/// Counts the fingers on the view without taking part in any gesture (never recognises, never
+/// cancels or delays touches) and calls `onLifted` once every finger is off: Rust lets a finger
+/// left down after a pinch pan again only then (`InputEvent::TouchesLifted`). Called on the next
+/// run-loop turn, after the gestures' own last events of that touch sequence.
+final class FingerTracker: UIGestureRecognizer {
+    private var down = Set<ObjectIdentifier>()
+    private let onLifted: () -> Void
+
+    init(_ onLifted: @escaping () -> Void) {
+        self.onLifted = onLifted
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        for t in touches { down.insert(ObjectIdentifier(t)) }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
+
+    private func lift(_ touches: Set<UITouch>) {
+        for t in touches { down.remove(ObjectIdentifier(t)) }
+        if down.isEmpty { state = .failed }
+    }
+
+    /// The touch sequence is over (also when UIKit failed this recogniser early).
+    override func reset() {
+        super.reset()
+        down.removeAll()
+        let lifted = onLifted
+        DispatchQueue.main.async { lifted() }
+    }
+
+    override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
 }
 #endif

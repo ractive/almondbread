@@ -1307,7 +1307,7 @@ struct ControlsHelp: View {
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
         row("airplane", "Autopilot button or Z", "Fly on; a finger (resting or moving) suggests a direction, a tap pauses")
-        row("steeringwheel", "Finger in cruise or a journey", "Steers (a journey hands over to cruise)")
+        row("steeringwheel", "Drag in cruise or a journey", "Steers: moves the picture, the zoom goes on (a journey hands over to cruise)")
         row("sparkles", "Journey button or J", "Landmark to landmark; a tap pauses")
         row("forward", "At a journey stop", "Next · deeper here · somewhere else")
         row("minus.magnifyingglass", "Long-press autopilot", "Cruise in / out, stop, lane assist")

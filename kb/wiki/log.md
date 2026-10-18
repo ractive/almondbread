@@ -1483,3 +1483,16 @@ place's picture only selected it (now goes there on iOS); pinches turned the vie
 dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
 control); click / key words on touch; compass over the throttle on a phone on its side.
 [[decisions/controls]] "Touch" notes the decisions.
+
+## [2026-10-18] decision | Touch device round: pinch release, cruise drag, wish line
+
+First try on a real iPad Pro 11" (M5); [[decisions/controls]] "Touch", "Device round". (1) A
+pinch whose fingers lift one at a time panned with the remaining finger: UIKit keeps the pinch
+alive with one finger and its location jumps to it. Swift now sends pinch and twist events only
+with two fingers down; Rust ignores `Pan` / `TouchSteer` after a pinch until `TouchesLifted`
+(every finger off). (2) Cruise steering by touch was the Mac's hover joystick about the centre
+(dead zone, quadratic response): a drag of a few centimetres moved the view ~17 points/s, the
+other way. A drag in C and in a journey's flight now pans, as a drag does on the Mac; the finger
+steers only in A (the wish). (3) The wish line in A never went away: the lifted finger's wish
+was kept until A ended. It is now let go once the autopilot's wish settled, so the line fades.
+Simulators `DR iPhone 17e`, `DR iPad Pro 11`.
