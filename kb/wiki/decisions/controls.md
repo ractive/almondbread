@@ -2073,6 +2073,21 @@ reach the shown frame without a new job). Each interior step now repeats its vie
 (`--ui-demo=tour-colours`, 2026-10-19). Not chased further in the renderer: a candidate bug
 for the colour-change path (`plan_frame` / `same_colors`), worth a look.
 
+### The Julia tour
+
+`tours/julia.md` ("Every point has a Julia set", place `cantor-island`), 8 steps, user request
+2026-10-19. The app draws no Julia sets, so the tour uses what exists: the orbit overlay at c = −1
+(basilica, period 2), the 1/3 nucleus (rabbit, period 3), c = 0.5 + 0.5i (escapes after 9 steps: dust),
+then catalogue places whose shapes echo Julia sets: `cantor-island` (a dust-like embedded Julia
+set), `two-arm-spiral` (M(24,2); Tan Lei 1990: the set near a Misiurewicz point looks like that c's
+Julia set, unverified, no source page yet), `three-way-junction`, `embedded-julia`. A Julia view
+(render the filled Julia set of the probe's c next to the picture) would make this tour much
+better; not built (user: no Julia renderer for now).
+
+Checked in the app (2026-10-19, `--ui-demo=tour-julia`): fates period-2, period-3, escapes after 9
+steps; the places as described. One capture showed the previous step's fate line (taken before
+the overlay refreshed); the logged fate was right.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,

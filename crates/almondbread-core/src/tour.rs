@@ -48,6 +48,7 @@ const BUNDLED: &[(&str, &str)] = &[
     ("valleys", include_str!("../tours/valleys.md")),
     ("doubling", include_str!("../tours/doubling.md")),
     ("colours", include_str!("../tours/colours.md")),
+    ("julia", include_str!("../tours/julia.md")),
 ];
 
 /// Highest iteration limit a step may set (the FFI's bound).

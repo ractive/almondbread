@@ -1627,3 +1627,10 @@ New tour `tours/colours.md` (12 steps): escape counts and bands, smooth colourin
 looks, fog, proven black, and the five interior colourings. Found: an interior-only step change
 did not recolour the shown frame in the app until a new job (worked around with `move: jump`;
 possible renderer bug). [[decisions/controls]] "The colours tour".
+
+## [2026-10-19] decision | Tour: every point has a Julia set
+
+New tour `tours/julia.md` (8 steps): fix c and vary the start; connected inside, dust outside;
+the set looks like a point's Julia set near it; embedded Julia sets. No Julia renderer in the app:
+the tour uses the orbit overlay and places; a Julia view would improve it. [[decisions/controls]]
+"The Julia tour".
