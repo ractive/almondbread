@@ -1069,11 +1069,12 @@ struct PlacesSection: View {
             let p = shown[i]
             #if os(iOS)
             // Touch: the first tap selects and puts the name, Go and Fly on the picture itself
-            // (the rows below the 79-tile grid are off screen); a second tap goes there.
+            // (the rows below the 79-tile grid are off screen); a second tap goes there. Going or
+            // flying deselects it, so the buttons leave the picture.
             PlaceTouchTile(place: p, zoomLog10: p.zoomLog10 + zoomOffset, isSelected: selected == p.id,
                            select: { selected = p.id },
-                           go: { model.goToPlace(p.id) },
-                           fly: { model.flyToPlace(p.id) })
+                           go: { selected = nil; model.goToPlace(p.id) },
+                           fly: { selected = nil; model.flyToPlace(p.id) })
             #else
             Button {
                 selected = p.id
