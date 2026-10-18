@@ -248,6 +248,29 @@ pub enum InputEvent {
     },
 }
 
+/// Where a finger rests (the platform's hit tests; kb: decisions/controls "Touch").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchSpot {
+    /// A control Rust draws (cockpit, help badge, compass).
+    Control,
+    /// A mini-map panel.
+    Map,
+    /// The picture.
+    Canvas,
+}
+
+/// What a finger held still does ([`Navigator::touch_hold`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchHold {
+    Nothing,
+    /// Fly to the mini-map's point (the Mac's ⌥-click).
+    FlyToMap,
+    /// The finger steers (`TouchSteer` from where it rests, then as it moves).
+    Steer,
+    /// The long-press menu at the finger.
+    Menu,
+}
+
 impl InputEvent {
     /// Every number in the event is finite (NaN or inf from a platform bug would reach the
     /// BigFloat centre and panic, or a size of usize::MAX; kb: techniques/hang-prevention).
@@ -666,6 +689,27 @@ impl Navigator {
             Level::Journey
         } else {
             Level::Manual
+        }
+    }
+
+    /// A finger on the canvas steers (kb: decisions/controls "Touch"): in the autopilot (its
+    /// direction is the wish), the cruise, and a journey's flight (it takes the wheel, as a
+    /// pointer held off-centre does on the Mac). Then a drag or a finger at rest steers, and a
+    /// long press is not the menu. Elsewhere a drag pans.
+    pub fn finger_steers(&self) -> bool {
+        self.autopilot.is_active() || self.cruise.is_engaged() || self.journey_flying()
+    }
+
+    /// What a finger held still on the canvas does (kb: decisions/controls "Touch"): on a
+    /// control nothing more (its tap acts), on a mini-map it flies there (the Mac's ⌥-click),
+    /// in A, C and a journey's flight it steers, else (the view at rest, or a fly-to the user
+    /// started) the long-press menu.
+    pub fn touch_hold(&self, spot: TouchSpot) -> TouchHold {
+        match spot {
+            TouchSpot::Control => TouchHold::Nothing,
+            TouchSpot::Map => TouchHold::FlyToMap,
+            TouchSpot::Canvas if self.finger_steers() => TouchHold::Steer,
+            TouchSpot::Canvas => TouchHold::Menu,
         }
     }
 
@@ -1641,6 +1685,13 @@ impl Navigator {
                 true
             }
             InputEvent::TouchSteer { x, y } => {
+                // A journey's flight: a finger off the dead zone takes the wheel at once (a
+                // touch is deliberate; the Mac's pointer needs travel and 0.6 s), then steers
+                // the cruise. Inside the dead zone the leg flies on.
+                if self.journey_flying() && self.autopilot.steer_target(Some((x, y)), self.steer_radius()) != (0.0, 0.0)
+                {
+                    self.take_wheel(None, now);
+                }
                 self.touch = Some((x, y));
                 self.touch_wish = None;
                 true
@@ -4342,6 +4393,72 @@ mod tests {
             n.cruise().heading()
         );
         assert_eq!(n.level(), Level::Cruise);
+    }
+
+    /// A finger held still (kb: decisions/controls "Touch"): in M the long-press menu; in A, C
+    /// and a journey's flight it steers (a resting finger before a drag opened the menu there);
+    /// on a mini-map it flies there, on a control nothing.
+    #[test]
+    fn a_held_finger_steers_in_a_c_and_j_and_opens_the_menu_in_m() {
+        let (mut n, mut v) = joystick();
+        n.advance(&mut v, 0.0);
+        assert!(!n.finger_steers());
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Menu);
+        assert_eq!(n.touch_hold(TouchSpot::Map), TouchHold::FlyToMap);
+        assert_eq!(n.touch_hold(TouchSpot::Control), TouchHold::Nothing);
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
+        run(&mut n, &mut v, 0.0, 0.5, 60.0);
+        assert!(n.finger_steers(), "A");
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Steer);
+        assert_eq!(n.touch_hold(TouchSpot::Map), TouchHold::FlyToMap);
+        assert_eq!(n.touch_hold(TouchSpot::Control), TouchHold::Nothing);
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.5);
+        assert!(!n.finger_steers(), "A off");
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Steer, "C");
+        // A fly-to the user started (Fly Here): not steering, the menu.
+        let (mut n, mut v) = setup();
+        n.handle(InputEvent::FlyHere { x: 100.0, y: 0.0 }, &mut v, 0.0);
+        assert!(n.flight().is_some());
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Menu, "fly-to");
+    }
+
+    /// A journey's flight: a finger inside the dead zone lets the leg fly on; off-centre it takes
+    /// the wheel at once (the cruise steers on) and suspends the journey.
+    #[test]
+    fn a_finger_takes_the_wheel_from_a_journey_flight() {
+        let mut n = Navigator::default();
+        let mut v = Viewport::fitting(1000.0, 600.0);
+        n.handle(
+            InputEvent::Resize {
+                width: 1000.0,
+                height: 600.0,
+            },
+            &mut v,
+            0.0,
+        );
+        n.journey_mut().synchronous = true;
+        n.start_journey(4711, false, &v.clone(), 0.0);
+        let mut t = 0.0;
+        while t < 30.0 && !n.journey_flying() {
+            t += 1.0 / 60.0;
+            n.advance(&mut v, t);
+        }
+        assert!(n.journey_flying(), "a leg flies");
+        assert!(n.finger_steers());
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Steer);
+        n.handle(InputEvent::TouchSteer { x: 3.0, y: 0.0 }, &mut v, t);
+        assert!(n.journey_flying(), "inside the dead zone the leg flies on");
+        n.handle(InputEvent::TouchSteer { x: 220.0, y: 40.0 }, &mut v, t);
+        assert_eq!(n.level(), Level::Cruise, "the finger took the wheel");
+        assert!(n.journey().is_suspended());
+        let t = run(&mut n, &mut v, t, t + 2.0, 60.0);
+        assert!(n.cruise().heading().0 > 10.0, "steers: {:?}", n.cruise().heading());
+        assert!(n.finger_steers());
+        n.handle(InputEvent::TouchSteerEnd, &mut v, t);
     }
 
     /// The orbit probe a touch placed replaces the zoom target for the orbit only.

@@ -250,4 +250,251 @@ final class TouchControlsUITests: XCTestCase {
         settle(1)
         shot("controls-portrait")
     }
+
+    // MARK: Round 2 (kb: decisions/controls "Touch", 2026-10-18 evening)
+
+    private var menuShown: Bool { app.descendants(matching: .any)["Fly Here"].firstMatch.exists }
+
+    /// A finger resting before it drags steers in A and C (it opened the long-press menu); in M
+    /// the long press is still the menu.
+    func testHoldSteersInAutopilotAndCruise() throws {
+        try launchSettled()
+        let rest = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4))
+        let away = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.3))
+        app.buttons["Autopilot"].tap()
+        settle(1)
+        XCTAssertEqual(level(), "a")
+        // At rest 1 s, then a drag: no menu, still A (a touch never hands over in A).
+        rest.press(forDuration: 1.0, thenDragTo: away, withVelocity: 120, thenHoldForDuration: 0.5)
+        settle(0.5)
+        XCTAssertFalse(menuShown, "a resting finger opened the menu in A")
+        XCTAssertEqual(level(), "a")
+        // Only at rest: no menu either.
+        rest.press(forDuration: 1.0)
+        settle(0.5)
+        XCTAssertFalse(menuShown, "a held finger opened the menu in A")
+        shot("hold-steers-autopilot")
+        app.buttons["Autopilot"].tap()
+        settle(2)
+        // C (the throttle up one detent): the same.
+        let lever = app.descendants(matching: .any)["throttle"]
+        throttle(lever, detents: 1)
+        settle(0.5)
+        XCTAssertEqual(level(), "c")
+        let v0 = canvas.value as? String
+        rest.press(forDuration: 1.0, thenDragTo: away, withVelocity: 120, thenHoldForDuration: 1.0)
+        settle(0.3)
+        XCTAssertFalse(menuShown, "a resting finger opened the menu in C")
+        XCTAssertEqual(level(), "c")
+        XCTAssertNotEqual(canvas.value as? String, v0)
+        lever.doubleTap()
+        settle(4)
+        XCTAssertEqual(level(), "m")
+        // M: the long press is the menu.
+        rest.press(forDuration: 0.8)
+        XCTAssertTrue(app.descendants(matching: .any)["Fly Here"].firstMatch.waitForExistence(timeout: 5),
+                      "no menu in M")
+    }
+
+    /// First-run hints: shown (forced here; the UI tests count them as seen), gone at the first
+    /// touch, back from the help sheet.
+    func testTouchHints() throws {
+        app.launchArguments = ["--touch-hints"]
+        try launchSettled()
+        let hints = app.descendants(matching: .any)["touch-hints"].firstMatch
+        XCTAssertTrue(hints.waitForExistence(timeout: 5), "no touch hints")
+        shot("touch-hints")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        settle(2)
+        shot("touch-hints-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        settle(2)
+        let s0 = scale()
+        canvas.doubleTap()
+        settle(1)
+        XCTAssertFalse(hints.exists, "the hints stayed after a touch")
+        XCTAssertLessThan(scale(), s0, "the dismissing touch did not act (double tap zooms in)")
+        // Help ▸ Show Touch Hints: the cockpit's (?) popover, More…, the button.
+        try XCTUnwrap(point("help-cockpit")).tap()
+        let more = app.buttons["More…"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "no More… in the popover")
+        more.tap()
+        let again = app.buttons["Show Touch Hints"]
+        XCTAssertTrue(again.waitForExistence(timeout: 5), "no Show Touch Hints in help")
+        shot("help-sheet")
+        again.tap()
+        settle(1.5)
+        XCTAssertTrue(hints.waitForExistence(timeout: 5), "help did not show the hints again")
+    }
+
+    /// The tour card on a phone in portrait: at the top, folding to its title and buttons; the
+    /// maps and the cockpit stay free.
+    func testTourCardCompact() throws {
+        app.launchArguments = ["--ui-demo=tour-feigenbaum"]
+        try launchSettled()
+        let next = app.buttons["Next ›"]
+        XCTAssertTrue(next.waitForExistence(timeout: 10), "no tour card")
+        settle(3)
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            shot("tour-card")
+            return
+        }
+        XCTAssertLessThan(next.frame.maxY, canvas.frame.height * 0.45, "the card is not at the top")
+        if let p = point("manual") {
+            XCTAssertGreaterThan(p.screenPoint.y, next.frame.maxY + 20, "the card covers the cockpit")
+        }
+        shot("tour-card-compact")
+        let fold = app.buttons["tour-fold"]
+        XCTAssertTrue(fold.isHittable)
+        fold.tap()
+        settle(1)
+        XCTAssertFalse(app.descendants(matching: .any)["tour-text"].exists, "the text did not fold")
+        XCTAssertLessThan(next.frame.maxY, canvas.frame.height * 0.25)
+        shot("tour-card-folded")
+        next.tap()
+        settle(2)
+        XCTAssertTrue(app.staticTexts["2 of 9"].waitForExistence(timeout: 5), "Next did not step while folded")
+        fold.tap()
+        settle(1)
+        XCTAssertTrue(app.descendants(matching: .any)["tour-text"].exists, "the text did not unfold")
+    }
+
+    /// A long press on the mini-map flies there (the Mac's ⌥-click); no menu.
+    func testMiniMapLongPressFlies() throws {
+        try launchSettled()
+        app.typeKey("m", modifierFlags: [])
+        settle(2)
+        // The map row: bottom left, its first panel the whole set (aim at its upper part, left
+        // of centre: the antenna side, away from the view's spot).
+        let h = canvas.frame.height
+        let phonePortrait = UIDevice.current.userInterfaceIdiom == .phone && canvas.frame.width < canvas.frame.height
+        let mapPoint = canvas.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 50, dy: h - (phonePortrait ? 120 : 110)))
+        shot("map-on")
+        let before = fields()
+        mapPoint.press(forDuration: 0.8)
+        settle(0.5)
+        XCTAssertFalse(menuShown, "a long press on the map opened the menu")
+        settle(6)
+        let after = fields()
+        XCTAssertTrue(before["re"] != after["re"] || before["im"] != after["im"], "the map's long press did not move the view")
+        shot("map-long-press-flew")
+    }
+
+    /// Tests do not persist settings: "Orbit Here" in a UI test leaves the next normal launch
+    /// with the orbit off.
+    func testTestsDoNotPersistSettings() throws {
+        try launchSettled()
+        let at = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.42))
+        at.press(forDuration: 0.8)
+        let item = app.descendants(matching: .any)["Orbit Here"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.tap()
+        settle(1.5)
+        XCTAssertEqual(fields()["orbit"], "on")
+        app.terminate()
+        // A normal launch (no test environment): the user's settings, orbit off.
+        let normal = XCUIApplication()
+        normal.launch()
+        let c = normal.otherElements["fractal"]
+        XCTAssertTrue(c.waitForExistence(timeout: 30))
+        settle(3)
+        let v = (c.value as? String ?? "").split(separator: " ").map(String.init)
+        let i = v.firstIndex(of: "orbit")
+        XCTAssertNotNil(i)
+        if let i { XCTAssertEqual(v[i + 1], "off", "the test's Orbit Here persisted") }
+        normal.terminate()
+    }
+
+    /// Every iOS surface for a look (portrait and landscape): the control center (sheet detents
+    /// on a phone), the places, fly-to, a help popover, a journey stop's buttons.
+    func testSurfaces() throws {
+        try launchSettled()
+        let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        let control = app.buttons["Control center"]
+        control.tap()
+        settle(3)
+        shot("surface-control-center")
+        if isPhone {
+            app.swipeUp()
+            settle(1.5)
+            shot("surface-control-center-large")
+        }
+        let search = app.textFields["Search settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "no search field")
+        func find(_ text: String) {
+            search.tap()
+            if let old = search.value as? String, !old.isEmpty, old != "Search settings" {
+                search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count))
+            }
+            search.typeText(text + "\n")
+            settle(1.5)
+        }
+        // Fly to…: the sheet fits a phone (it had a 420-point minimum width).
+        find("lock")  // the View section only ("fly" also finds every place first)
+        let fly = app.buttons["Fly to…"]
+        if fly.waitForExistence(timeout: 5) {
+            fly.tap()
+            settle(1.5)
+            shot("surface-fly-to")
+            let cancel = app.buttons["Cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5), "fly-to sheet")
+            XCTAssertTrue(cancel.isHittable, "fly-to Cancel clipped")
+            XCTAssertTrue(app.buttons["Fly"].isHittable, "fly-to Fly clipped")
+            XCTAssertLessThanOrEqual(app.buttons["Fly"].frame.maxX, app.windows.firstMatch.frame.maxX, "Fly off screen")
+            cancel.tap()
+            settle(1)
+        } else {
+            XCTFail("no Fly to… in the control center")
+        }
+        // Journey: stop at each find.
+        find("journey")
+        shot("surface-journey-section")
+        let picker = app.buttons.containing(NSPredicate(format: "label CONTAINS 'Continuous' OR value CONTAINS 'Continuous'")).firstMatch
+        if picker.waitForExistence(timeout: 3) {
+            picker.tap()
+            settle(0.8)
+            let item = app.descendants(matching: .any)["Stop at each find"].firstMatch
+            if item.waitForExistence(timeout: 3) { item.tap() }
+        }
+        settle(0.5)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        settle(2)
+        shot("surface-control-center-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        settle(2)
+        if isPhone {
+            app.swipeDown(velocity: .fast)
+            settle(1)
+            if control.value as? String == "shown" {
+                app.swipeDown(velocity: .fast)
+                settle(1.5)
+            }
+        } else {
+            control.tap()
+            settle(1.5)
+        }
+        app.buttons["Journey"].firstMatch.tap()
+        let deeper = app.buttons["Journey: deeper here"]
+        if deeper.waitForExistence(timeout: 90) {
+            settle(1)
+            shot("surface-journey-stop")
+            for name in ["Journey: next landmark", "Journey: deeper here", "Journey: somewhere else", "Control center"] {
+                let b = app.buttons[name]
+                XCTAssertTrue(b.isHittable, "\(name) not hittable at a stop")
+                XCTAssertGreaterThanOrEqual(b.frame.width, 44)
+            }
+            XCUIDevice.shared.orientation = .landscapeLeft
+            settle(2)
+            shot("surface-journey-stop-landscape")
+            for name in ["Journey: next landmark", "Journey: deeper here", "Journey: somewhere else", "Control center"] {
+                XCTAssertTrue(app.buttons[name].isHittable, "\(name) not hittable at a stop (landscape)")
+            }
+            XCUIDevice.shared.orientation = .portrait
+            settle(1)
+        } else {
+            shot("surface-journey-no-stop")
+            XCTFail("no journey stop within 90 s")
+        }
+    }
 }

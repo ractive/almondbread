@@ -173,9 +173,7 @@ struct FractalCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(model == nil)
             // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas.
-            #if os(macOS)
             TourMenu(model: model)
-            #endif
             Button("Hunt π at the Neck") { model?.piFlight("neck") }
                 .disabled(model == nil)
             Button("Hunt π at the Cusp") { model?.piFlight("cusp") }
@@ -197,11 +195,16 @@ struct FractalCommands: Commands {
                 .disabled(model == nil || model?.showHUD == false)
             Divider()
         }
-        #if os(macOS)
         CommandGroup(replacing: .help) {
+            #if os(macOS)
             HelpMenuItem()
+            #else
+            // The iPad's menu bar (kb: decisions/controls "Touch"): the help sheet, the touch hints.
+            Button("Almondbread Help") { HelpOpener()(.gettingStarted) }
+                .keyboardShortcut("?", modifiers: .command)
+            Button("Show Touch Hints") { TouchHints.shared.show() }
+            #endif
         }
-        #endif
     }
 }
 
@@ -221,6 +224,15 @@ public enum TestLaunch {
         #endif
     }
     private static var activity: NSObjectProtocol?
+
+    /// The iOS UI tests (XCTest's launch environment `ALMONDBREAD_UITEST=1`).
+    static let uiTest = ProcessInfo.processInfo.environment["ALMONDBREAD_UITEST"] == "1"
+
+    /// Settings are neither restored nor stored: every window test, every `--ui-demo` scene and
+    /// the iOS UI tests start from the defaults and leave the user's settings as they were
+    /// (an "Orbit Here" in a test used to switch the orbit and the mini-map on for the next
+    /// normal launch). The first-run touch hints count as not seen there.
+    static var ephemeral: Bool { enabled || UIDemo.enabled || uiTest }
 
     /// `ALMONDBREAD_TEST_FOREGROUND=1`: the interaction test's window comes to the front, key,
     /// on the ProMotion panel. Only for a person running the test themselves (`make

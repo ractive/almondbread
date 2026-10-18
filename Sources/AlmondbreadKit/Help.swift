@@ -151,6 +151,8 @@ struct HelpMarkdownView: View {
     let markdown: String
     /// Popovers: smaller type, no title heading.
     var compact = false
+    /// The body type, if not the default for `compact` (the phone's tour card: smaller).
+    var textFont: Font? = nil
 
     enum Block: Hashable {
         case heading(Int, String)
@@ -211,7 +213,7 @@ struct HelpMarkdownView: View {
                 }
             }
         }
-        .font(compact ? .callout : .body)
+        .font(textFont ?? (compact ? .callout : .body))
         .lineSpacing(compact ? 1 : 2.5)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -222,6 +224,7 @@ struct HelpMarkdownView: View {
 /// A (?) popover: the topic's title, its few lines, and "More…" to the help page.
 struct HelpPopoverContent: View {
     let topic: HelpTopic
+    @State private var textHeight: CGFloat = 0
     @Environment(\.dismiss) private var dismiss
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
@@ -230,7 +233,18 @@ struct HelpPopoverContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(topic.title).font(.headline)
+            #if os(iOS)
+            // A phone has no room for the longer texts (the cockpit's ran off the bottom of the
+            // screen, with More…): up to 360 points, then the text scrolls.
+            ScrollView {
+                HelpMarkdownView(markdown: HelpContent.popover(topic), compact: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
+            }
+            .frame(height: min(max(textHeight, 20), 360))
+            .scrollBounceBehavior(.basedOnSize)
+            #else
             HelpMarkdownView(markdown: HelpContent.popover(topic), compact: true)
+            #endif
             HStack {
                 Spacer()
                 Button("More…") { more() }
@@ -307,10 +321,22 @@ struct CanvasHelpPopover: ViewModifier {
         // The last badge stays the anchor while the popover closes (the item is nil by then).
         let anchor = model.canvasHelp ?? model.lastCanvasHelp
         content.popover(item: $model.canvasHelp, attachmentAnchor: .rect(.rect(anchor?.rect ?? .zero)),
-                        arrowEdge: anchor?.edge ?? .top) { help in
+                        arrowEdge: Self.arrowEdge(anchor?.edge)) { help in
             HelpPopoverContent(topic: help.topic)
                 .presentationCompactAdaptation(.popover)
         }
+    }
+
+    /// macOS: the badge's edge the arrow sits on (`edge`: .top for a badge in the lower half, so
+    /// the popover opens above it). iOS reads the edge as the popover's own: .top put the
+    /// popover under the cockpit's badge at the bottom of a phone, off the screen (seen
+    /// 2026-10-18); nil lets UIKit choose the side with room.
+    static func arrowEdge(_ edge: Edge?) -> Edge? {
+        #if os(macOS)
+        edge ?? .top
+        #else
+        nil
+        #endif
     }
 }
 
@@ -377,6 +403,16 @@ struct HelpView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
+                    }
+                    // The first-run touch hints again (kb: decisions/controls "Touch").
+                    ToolbarItem(placement: .bottomBar) {
+                        Button {
+                            dismiss()
+                            TouchHints.shared.show()
+                        } label: {
+                            // Text: the bottom bar showed the label's icon alone.
+                            Text("Show Touch Hints")
+                        }
                     }
                 }
         }

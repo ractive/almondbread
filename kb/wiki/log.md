@@ -1460,3 +1460,16 @@ compute further, cap 60/30 Hz, critical stops refinement after the first full fr
 in the background submit no GPU work. Licence: no LGPL in the iOS binary (own BigFloat).
 Pages: [[platform/ios-device]], [[platform/ios-ipad-considerations]],
 [[sources/apple-device-tooling]].
+
+## [2026-10-18] decision | Touch round 2: a first run by a child
+
+[[decisions/controls]] "Touch", round 2 (branch `ios-touch-2`, simulators only): where a finger
+steers (A, C, a journey's flight; `Navigator::finger_steers`, `touch_hold`) it never opens the
+long-press menu — a resting finger steers after 0.2 s, a journey's flight hands over to cruise
+on a touch off the dead zone; the menu stays where nothing flies (its point would be stale
+under a moving picture). Long press on a mini-map flies there. First-run touch hints (dismissed
+by any touch, back from Help). Tour card on a phone at the top, folding and scrolling. iPad menu
+bar: Tours, Help, Show Touch Hints. Fixes from the surface review: help popovers off-screen at
+the bottom of a phone (iOS `arrowEdge` semantics), fly-to sheet clipped (420-point minimum) and
+asking "Allow paste?" on open. Window tests, `--ui-demo` and the iOS UI tests no longer read or
+write settings (`TestLaunch.ephemeral`). See also [[platform/ios-simulator]].

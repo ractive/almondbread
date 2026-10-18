@@ -16,7 +16,7 @@ The escape count times the distance from that point gives π, and more digits ag
 
 ## mini-map
 
-The whole set, plus zoomed-in levels on the way to your view. The gold rectangle or crosshair shows where the next level sits.
+The whole set, plus zoomed-in levels on the way to your view. The gold rectangle or crosshair shows where the next level sits. Click (tap) a map to jump there; ⌥-click (hold) flies there.
 
 Click a map to jump there at your current zoom; ⌥-click flies there. **M** shows or hides the maps.
 
@@ -32,7 +32,7 @@ How the zoom is driven, like the levels of a car: **Manual** (the steering wheel
 
 The bar and the big number are the speed flown now. In cruise the small line is the gear you chose, 1 to 26: "gear 5" zooming in, "reverse 3" zooming out, with "boost" while depth speeds the zoom-out up (more in the higher gears). In the autopilot and on a journey, "target" shows your set speed while the speed flown differs from it, for example while speeding up, braking or waiting for the picture. The lane icon is lane assist (**L**): in cruise it steers you away from featureless areas. Steering by hand (**W A S D**, drag, stick) or zooming with the wheel or trackpad takes over. In the autopilot the mouse only suggests a direction: it picks its next places on that side, shown by the target marker's ring.
 
-On iPhone and iPad: tap an icon to switch. The throttle at the edge of the screen sets the gear: drag up for faster in, down for slower and then out, one gear per notch; a double tap on it stops. In cruise a finger steers; in the autopilot it suggests a direction, which stays after you lift it.
+On iPhone and iPad: tap an icon to switch. The throttle at the edge of the screen sets the gear: drag up for faster in, down for slower and then out, one gear per notch; a double tap on it stops. In cruise and on a journey a finger steers (resting or moving; on a journey it takes the wheel); in the autopilot it suggests a direction, which stays after you lift it. The long-press menu is there when nothing flies.
 
 ## iterations
 

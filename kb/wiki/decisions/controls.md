@@ -1911,7 +1911,7 @@ simulators only; feel, haptics and thumb reach need a real device.
 | Throttle: double tap | manual (Esc: the cruise brakes to rest, A and J stop) | `KeyDown(Stop)` |
 | One-finger drag in C | steers like the Mac pointer, while the finger is down (no 3 s idle timeout) | `TouchSteer`, `TouchSteerEnd` |
 | One-finger drag in A | the direction wish (target marker and wish line); it **stays after the finger lifts**, a lift inside the dead zone clears it, Z off clears it; never hands over | same |
-| Long press (0.45 s), released in place | a popover menu at the finger: Seek Minibrot Here, Orbit Here, Fly Here, Copy Coordinates, Go to Copied (when the clipboard has text) | `SeekAt`, `Probe`, `FlyHere`, `coordinates_text_at` |
+| Long press (0.45 s), released in place, nothing flying (round 2: in A, C and J a held finger steers) | a popover menu at the finger: Seek Minibrot Here, Orbit Here, Fly Here, Copy Coordinates, Go to Copied (when the clipboard has text) | `SeekAt`, `Probe`, `FlyHere`, `coordinates_text_at` |
 | Long press, then drag (orbit on) | the orbit probe follows the finger and stays (touch has no hover) | `Probe(Some)` |
 | Tap a (?) badge | its help popover; a fingertip within 18 points counts (`help::hit_touch`) | `help_hit` |
 | Tour card ‹ Back / Next › / End tour | as ← / → / Esc; regular-size buttons on iOS | — |
@@ -1950,7 +1950,7 @@ simulators only; feel, haptics and thumb reach need a real device.
   double-tap stop, a light tap when a flight lands (journey stop, fly-to, minibrot), a success
   when a minibrot search found one. Nothing during continuous motion.
 - *iPad menu bar.* The Mac's menu commands (`FractalCommands`) are on iPadOS too: ⇧⌘C / ⇧⌘V,
-  ⌘G / ⇧⌘G, ⌘= / ⌘−, ⌘0, ⌘I and the View items (not the Tours submenu and the Help item).
+  ⌘G / ⇧⌘G, ⌘= / ⌘−, ⌘0, ⌘I and the View items (round 2 added the Tours submenu and the Help items).
 
 **Parity with the Mac (2026-10-18).**
 
@@ -1972,15 +1972,117 @@ simulators only; feel, haptics and thumb reach need a real device.
 | (?) badges | tap (18-point fingertip) | — |
 | Orbit probe under the pointer | long-press drag; the centre otherwise | iPad pointer hover |
 | Autopilot wish from the pointer, target marker | finger drag, kept after lift; marker as on the Mac | pointer hover |
-| Mini-map click / ⌥-click | tap jumps; no fly (use Fly Here) | — |
+| Mini-map click / ⌥-click | tap jumps; long press flies (round 2) | — |
 | Place zoom pill | shown (no hover needed) | — |
 | Two-finger scroll setting (pan / zoom) | not applicable (pinch zooms) | trackpad scroll pans |
 | Rotation `,` `.` `/`, trackpad rotate | two-finger rotate; compass tap / drag | `,` `.` `/` |
 | F full screen | always full screen | — |
 | Gamepad | same | — |
 
-**Gaps** (not done): no fly for a mini-map tap (⌥-click); no hover tooltips (the (?) badges and
-the help say it); Tours and Help are not in the iPad menu bar (control center and "More…").
+**Gaps** (not done): no hover tooltips (the (?) badges and the help say it). The mini-map's fly
+and the iPad menu bar's Tours and Help came in round 2 (below).
+
+### Round 2: a first run by a child (2026-10-18 evening)
+
+Goal: the app handed to a child who has never seen it, on an iPad. Branch `ios-touch-2`;
+simulators only (`AB2 iPhone 17e`, `AB2 iPad mini`).
+
+| Input (touch) | Action | Core |
+| --- | --- | --- |
+| A finger at rest (0.2 s) or moving, in A, C or a journey's flight | steers (A: the wish; C: like the pointer; J: takes the wheel once off the dead zone, then the cruise steers) | `finger_steers`, `touch_hold` → `Steer`, `TouchSteer` |
+| Long press (0.45 s) with nothing flying, or during a fly-to | the long-press menu (as before) | `touch_hold` → `Menu` |
+| Long press on a mini-map | flies there (the Mac's ⌥-click), a light haptic | `touch_hold` → `FlyToMap`, `map_click(fly)` |
+| Long press on a cockpit icon or (?) | nothing (their taps act) | `touch_hold` → `Nothing` |
+| First start | the touch hints (below); any touch or key dismisses them | — |
+
+**Long press vs steering (decision).** In A and C a finger that rested before dragging became
+a 0.45 s long press: the drag then only moved the orbit probe and the release opened the menu,
+so the plane did not steer — the first thing a child does with an autopilot. Rule now: *where
+a finger steers, a finger never opens the menu.* Rust decides (`Navigator::finger_steers`: A
+on, cruise engaged, or a journey leg flying; `touch_hold(spot)` adds where the finger rests),
+Swift only times the press and asks. Reasons:
+
+- *The menu's actions name a point under a still picture.* While the view flies, the point
+  under the finger moves by the time the menu is read (at ×5/s it is 5× deeper a second later);
+  "Fly Here" or "Seek Minibrot Here" would act on a stale point. With nothing flying there is
+  nothing to confuse. A fly-to the user started (Fly Here, Fly to…) counts as not steering: a
+  drag there takes over and pans, the press is still a menu.
+- *No second gesture for the menu while flying.* A two-finger long press or a double-tap-hold
+  was considered: undiscoverable, and two fingers are pinch/rotate. The menu is one tap away
+  (the throttle's double tap or the cockpit's M stops, then hold), and the autopilot button's
+  menu keeps seek, lane assist and the pedals.
+- *Resting steers after 0.2 s, not 0.45 s* (the recogniser's minimum duration is set per touch
+  from the last frame's `FRAME_FINGER_STEERS` bit): a finger put down in A sets the wish almost
+  at once; a tap (pause / resume) is shorter, and its tap after a hold is swallowed as before.
+- *J:* a journey's flight now steers like C (a drag used to pan and suspend it, the next drag
+  steered — two meanings in a row). A touch is deliberate, so it takes the wheel as soon as it
+  leaves the dead zone (the Mac's pointer needs 60 points and 0.6 s); inside the dead zone the
+  leg flies on. At a stop, and between legs, a drag pans (looking around), as before.
+- The frame bit `FRAME_AUTOPILOT` (A or C) became `FRAME_FINGER_STEERS` (A, C or a journey's
+  flight).
+
+**First-run touch hints** (`TouchHints.swift`). One layer, the first time the app starts on
+iPhone or iPad: "Drag to move", "Pinch to zoom", "Hold for more" in the middle, "Slide to fly in
+or out" pointing at the throttle, "Flies by itself" at the plane button (anchor preferences, so
+the labels follow the layout: phone portrait column, phone on its side, iPad), "Touch anywhere
+to start", a dimmed picture behind. Material capsules like the HUD. It takes no touches: a
+window-level recogniser that fails at once sees the first touch anywhere (or a key) and fades
+the layer out, and that touch still does what it does (a double tap zooms). Seen once
+(`touchHints.seen` in user defaults); Help sheet ▸ "Show Touch Hints" and the iPad's Help menu
+bring it back; `--touch-hints` forces it (tests, screenshots). No text walls: three to five
+words per label. Checked on iPhone portrait and landscape and iPad screenshots: the middle
+group moves up (phone portrait) or left (wide screens) out of the throttle label's way.
+
+**Tour card on a phone** (narrow canvas). At the bottom it covered the map row, the cockpit
+above it and part of the picture. Now it sits at the top in the HUD's place (the HUD hides
+during a tour there), its text in `.footnote` scrolls within 150 points, and a chevron folds it
+to its title and buttons (‹ Back / Next › keep working folded). The view's centre (where tours
+put the orbit), the maps and the cockpit stay free. iPad and Mac unchanged.
+
+**Help popovers on iOS.** The cockpit's (?) popover opened *below* its badge at the bottom of a
+phone, off the screen with its More… button: SwiftUI on iOS reads `arrowEdge` as the
+popover's own edge (the Mac: the anchor's). iOS now passes nil (UIKit picks the side with
+room) and the text scrolls beyond 360 points.
+
+**Fly to… on a phone.** The sheet had a 420-point minimum width (a phone is 375–440): fields
+and buttons clipped. Now it fits, with `.medium` / `.large` detents, large buttons and a
+system Paste button. It no longer reads the clipboard when it opens: on iOS that asked "Allow
+paste?" every time (seen in the screenshot). The keyboard words are gone from its iOS text.
+
+**Tests do not persist settings.** `TestLaunch.ephemeral` (window tests, `--ui-demo`, the iOS UI
+tests' `ALMONDBREAD_UITEST=1`): no restore, no save, and the HUD, lane assist, scroll, journey
+mode, edge panning, target lock and sidebar state are neither read nor written. On iOS
+`--ui-demo` and the UI tests were not window tests, so "Orbit Here" turned the orbit and the
+mini-map on for the next normal launch.
+
+**iPad menu bar.** View ▸ Tours (every tour, End Tour) and Help ▸ Almondbread Help (⌘?) and
+Show Touch Hints.
+
+**Surfaces checked** (screenshots, iPhone 17e and iPad mini, portrait and landscape): control
+center sheet at both detents and in landscape, places grid, fly-to sheet, help sheet, cockpit
+help popover, long-press menu, journey stop buttons (four 44-point buttons plus the throttle in
+the column; the row on a phone on its side), tour card. Fixed what is above, and the control
+center's button rows (Copy / Go to copied / Reset, Autopilot / Fly to… / Copied, Journey /
+Daily): in the iPad's sidebar next to a portrait canvas their titles wrapped letter by letter
+("Co py", "Au-topi-lot"); `FitRow` shows the icons alone when the titles do not fit (the titles
+stay the accessibility labels). The rest fitted. One iPad run's control-center tap did not
+open the sidebar (the open item in [[platform/ios-simulator]]); the rerun passed.
+The HUD's Continue button was not reached in a test (it needs a view at its time limit); it is
+a regular-size bordered button.
+
+**Tests.** Rust `a_held_finger_steers_in_a_c_and_j_and_opens_the_menu_in_m`,
+`a_finger_takes_the_wheel_from_a_journey_flight`. XCTest `TouchControlsUITests`:
+`testHoldSteersInAutopilotAndCruise` (rest 1 s then drag, and rest only: no menu, A stays A,
+C moves; M still gets the menu), `testTouchHints` (shown, gone after a double tap that still
+zooms, back from Help), `testTourCardCompact` (top, clear of the cockpit, folds, steps folded),
+`testMiniMapLongPressFlies`, `testTestsDoNotPersistSettings` (Orbit Here in a test, a normal
+launch has the orbit off), `testSurfaces` (screenshots; fly-to buttons hittable; journey stop
+buttons ≥ 44 points and hittable in both orientations).
+
+**Needs the device.** Whether 0.2 s is the right rest-to-steer time for small fingers; whether
+the hints get read before the first touch dismisses them (a child may tap at once — Help brings
+them back); haptics on the map fly; how the folded tour card feels; Allow-paste prompts remain
+on "Go to Copied" (user-initiated, once per tap).
 
 **Tests.** Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
 `touch_steering_wishes_in_a_and_steers_in_c`, `a_touch_probe_moves_the_orbit_point_only`,

@@ -94,10 +94,25 @@ and stop them, on both devices.
 - Persisted settings again: "Orbit Here" in one test leaves the orbit and the mini-map on for
   the next launch (the screenshots then show the touch cockpit lifted above the map row).
 
+## Touch round 2 (2026-10-18 evening)
+
+- Fresh simulators (`AB2 iPhone 17e`, `AB2 iPad mini`) took about 7 minutes to boot the first
+  time ("Waiting on Data Migration", locationd migrator); `simctl launch` hangs until then.
+  Wait with `simctl bootstatus <name> -b` before installing.
+- XCUITest screenshots in landscape come out rotated (the portrait buffer); read them sideways.
+- `XCUIApplication.typeKey("m", …)` reaches the app's `pressesBegan` on the simulator (used for
+  M, the mini-map).
+- The control center's search field is the quickest way to a row in a test (`"lock"` shows the
+  View section alone; `"fly"` also lists every place first).
+- On iOS, reading `UIPasteboard.general.string` asks "Allow paste?" (seen when the fly-to sheet
+  opened); `hasStrings` and SwiftUI's `PasteButton` do not.
+- Settings no longer persist from the UI tests or `--ui-demo` (`TestLaunch.ephemeral`;
+  [[decisions/controls]] "Touch", round 2): the open item below is fixed.
+
 ## Open
 
-- The `--ui-demo` scenes write their settings (orbit, map, interior colouring) into the
-  persisted preferences, so a later normal launch on the same simulator starts with them.
+- ~~The `--ui-demo` scenes write their settings into the persisted preferences~~ (fixed
+  2026-10-18, round 2).
 - One iPad run found the control center's state already "shown" at the start of the
   control-center step (not reproduced in the next run).
 - No device run yet: speed, thermal behaviour and ProMotion pacing on an iPhone/iPad are
