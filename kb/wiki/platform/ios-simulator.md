@@ -125,7 +125,7 @@ view stays finite, the cockpit stops everything), `testSmallTwistDoesNotTurn`. S
 | Found | Severity | Fix |
 | --- | --- | --- |
 | Long-press "Seek Minibrot Here" stayed "searching" with nothing on screen until the next touch: `SeekAt` (and `Probe`) asked for no frame, so the search was never polled (the round-1 test accepted "searching") | high | `Navigator::wants_frames` (motion or a search); the host's redraw uses it and counts `Probe` as orbit input |
-| Tapping a place's picture in the control center did nothing visible: it only selected, and the name and Go sit below the 79-tile grid, off screen | high | iOS: a tap goes there (and selects) |
+| Tapping a place's picture in the control center did nothing visible: it only selected, and the name and Go sit below the 79-tile grid, off screen | high | iOS: a tap goes there (and selects); replaced the same day: a tap selects and puts Go and Fly on the picture, a second tap goes ([[decisions/controls]] "Touch", places grid) |
 | Pinching turned the view (XCUITest: 32° per synthesised pinch on both devices; real fingers twist a little too), the compass and "turned 78°" appeared | medium | touch twist dead band of 15° in Rust (`TouchRotate`, `TouchRotateEnd`); the Mac's trackpad `Rotate` stays 1:1 |
 | "Go to Copied" read the clipboard itself: "Allow Paste?" on every tap for text from another app | medium | a system `PasteButton` beside the row (and in the control center's Copy / Paste / Reset row); the row's title keeps the old path |
 | Keyboard and mouse words on touch: "click to resume" (paused autopilot or journey), the Tours footer's → ← Esc, the tour's last step ("the pointer", → ← Esc) | low | iOS wording; the tour text names both |

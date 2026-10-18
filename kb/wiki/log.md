@@ -1483,3 +1483,14 @@ place's picture only selected it (now goes there on iOS); pinches turned the vie
 dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
 control); click / key words on touch; compass over the throttle on a phone on its side.
 [[decisions/controls]] "Touch" notes the decisions.
+
+## [2026-10-18] decision | Places grid on touch: select, then Go or Fly on the picture
+
+The QA pass made a tap on a place's picture go there on iOS, which left Fly unreachable (its
+button is below the 79-picture grid, off screen; found on a real iPad). User's design, iOS only:
+the first tap selects (border, name along the bottom edge, Go and Fly over the image, ≥ 44
+points, material background); a second tap on the picture goes there; VoiceOver has Go and Fly
+as actions. The smallest tiles (~100 × 63 points: iPhone sheet, iPad sidebar at its minimum)
+take the label under the icon; wider tiles side by side (`ViewThatFits`). New XCTest
+`testPlaceTileGoAndFly`; `testControlCenterPlaceAndTour` now selects, then taps again.
+[[decisions/controls]] "Touch" (places grid).

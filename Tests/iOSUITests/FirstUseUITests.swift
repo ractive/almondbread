@@ -254,8 +254,9 @@ final class FirstUseUITests: XCTestCase {
         shot("twisted")
     }
 
-    /// The control center: open it, pick a place the way a child would (tap a picture), start the
-    /// Feigenbaum tour and step through it to the end, close it again.
+    /// The control center: open it, pick a place the way a child would (tap a picture: it
+    /// selects and shows Go / Fly on it; tap it again: it goes there), start the Feigenbaum tour
+    /// and step through it to the end, close it again.
     func testControlCenterPlaceAndTour() throws {
         app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 30))
@@ -264,16 +265,24 @@ final class FirstUseUITests: XCTestCase {
         control.tap()
         settle(3)
         shot("cc-open")
-        // A place: tap its picture.
+        // A place: tap its picture (selects), then tap it again (goes there).
         let v0 = fields()
         let tile = app.buttons["Head and Shoulders"].firstMatch  // the second tile: on screen in the phone's half sheet too
         if tile.waitForExistence(timeout: 10) {
             tile.tap()
+            settle(2)
+            shot("cc-place-selected")
+            XCTAssertTrue(app.buttons["placeTileGo"].waitForExistence(timeout: 5), "no Go on the selected picture")
+            XCTAssertTrue(app.buttons["placeTileFly"].exists, "no Fly on the selected picture")
+            XCTAssertEqual(fields()["re"], v0["re"], "the first tap on a picture moved the view")
+            XCTAssertEqual(fields()["scale"], v0["scale"], "the first tap on a picture moved the view")
+            // The second tap, on the picture away from the buttons (its top left corner).
+            tile.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
             settle(3)
-            shot("cc-place-tapped")
+            shot("cc-place-tapped-again")
             let moved = fields()["re"] != v0["re"] || fields()["scale"] != v0["scale"]
-            print("QA place tap moved the view: \(moved)")
-            XCTAssertTrue(moved, "tapping a place's picture did not go there")
+            print("QA second place tap moved the view: \(moved)")
+            XCTAssertTrue(moved, "tapping the selected place's picture did not go there")
         } else {
             XCTFail("no Head and Shoulders tile")
             shot("cc-no-tile")
@@ -335,6 +344,67 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Next ›"].exists, "the tour did not end")
         shot("tour-finished")
         alive("the tour")
+    }
+
+    /// The places grid on touch: a tap selects without moving the view and puts Go and Fly on
+    /// the picture (one tile at a time); Go jumps; Fly flies (the view moves over several frames).
+    func testPlaceTileGoAndFly() throws {
+        app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30))
+        settle(3)
+        app.buttons["Control center"].tap()
+        settle(3)
+        let first = app.buttons["Head and Shoulders"].firstMatch
+        let second = app.buttons["π at the Neck"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10), "no Head and Shoulders tile")
+        XCTAssertTrue(second.exists, "no π at the Neck tile")
+        XCTAssertFalse(app.buttons["placeTileGo"].exists, "Go on a picture before any tap")
+
+        // Select: nothing moves; Go and Fly appear, once.
+        let v0 = fields()
+        first.tap()
+        settle(1.5)
+        shot("place-selected")
+        XCTAssertEqual(fields()["re"], v0["re"], "selecting moved the view")
+        XCTAssertEqual(fields()["scale"], v0["scale"], "selecting moved the view")
+        let go = app.buttons["placeTileGo"]
+        let fly = app.buttons["placeTileFly"]
+        XCTAssertTrue(go.waitForExistence(timeout: 5), "no Go on the selected picture")
+        XCTAssertEqual(app.buttons.matching(identifier: "placeTileGo").count, 1)
+        XCTAssertEqual(go.label, "Go to Head and Shoulders")
+        XCTAssertTrue(go.isHittable, "Go not hittable")
+        XCTAssertTrue(fly.isHittable, "Fly not hittable")
+
+        // Go jumps.
+        go.tap()
+        settle(3)
+        shot("place-go")
+        let v1 = fields()
+        XCTAssertTrue(v1["re"] != v0["re"] || v1["scale"] != v0["scale"], "Go did not go there")
+
+        // Another tile moves the selection (still one Go) and does not move the view.
+        second.tap()
+        settle(1.5)
+        shot("place-second-selected")
+        XCTAssertEqual(fields()["re"], v1["re"], "selecting another place moved the view")
+        XCTAssertEqual(fields()["scale"], v1["scale"], "selecting another place moved the view")
+        XCTAssertEqual(app.buttons.matching(identifier: "placeTileGo").count, 1, "more than one selected tile")
+        XCTAssertEqual(go.label, "Go to π at the Neck")
+
+        // Fly flies: the view changes over several samples, not in one jump.
+        fly.tap()
+        var seen: Set<String> = []
+        for k in 0..<8 {
+            settle(0.5)
+            let f = fields()
+            seen.insert("\(f["re"] ?? "") \(f["scale"] ?? "")")
+            if k == 2 { shot("place-flying") }
+        }
+        print("QA fly distinct views: \(seen.count)")
+        XCTAssertGreaterThanOrEqual(seen.count, 3, "Fly did not move the view over time")
+        settle(8)
+        shot("place-flown")
+        alive("Go and Fly")
     }
 
     /// Every long-press menu item, including Go to Copied through the system paste control.

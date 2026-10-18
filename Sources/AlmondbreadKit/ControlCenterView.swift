@@ -1049,13 +1049,16 @@ struct PlacesSection: View {
         let zoomOffset = model.placeZoomOffset
         TileRows(ids: shown.map(\.id), minWidth: 88, spacing: 6, aspect: 1.6) { i in
             let p = shown[i]
+            #if os(iOS)
+            // Touch: the first tap selects and puts the name, Go and Fly on the picture itself
+            // (the rows below the 79-tile grid are off screen); a second tap goes there.
+            PlaceTouchTile(place: p, zoomLog10: p.zoomLog10 + zoomOffset, isSelected: selected == p.id,
+                           select: { selected = p.id },
+                           go: { model.goToPlace(p.id) },
+                           fly: { model.flyToPlace(p.id) })
+            #else
             Button {
                 selected = p.id
-                #if os(iOS)
-                // Touch: a tap goes there. Selecting alone showed nothing where the finger was
-                // (the name and Go are below the 79-tile grid, off screen; QA 2026-10-18).
-                model.goToPlace(p.id)
-                #endif
             } label: {
                 PlaceThumbnail(id: p.id)
                     .aspectRatio(1.6, contentMode: .fit)
@@ -1074,15 +1077,6 @@ struct PlacesSection: View {
             .help(p.name)
             .accessibilityLabel(p.name)
             .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
-            #if os(iOS)
-            // No hover on touch: a tap goes there and shows the name and description below the
-            // grid; a long press names the place and offers Go / Fly.
-            .contextMenu {
-                Section(p.name) {
-                    Button { model.goToPlace(p.id) } label: { Label("Go", systemImage: "arrow.right.circle") }
-                    Button { model.flyToPlace(p.id) } label: { Label("Fly", systemImage: "airplane") }
-                }
-            }
             #endif
         }
         if let id = selected, let p = ExplorerModel.places.first(where: { $0.id == id }) {
@@ -1130,6 +1124,122 @@ struct PlacesSection: View {
         #endif
     }
 }
+
+#if os(iOS)
+/// A place's tile on touch (kb: decisions/controls "Touch", places grid). No hover, and the
+/// name and Go / Fly under the grid are off screen, so everything is on the picture: the first
+/// tap selects it (a border, the name along the bottom edge, Go and Fly over the image); a tap on
+/// the selected picture outside the buttons goes there; another tile moves the selection. A
+/// long press offers Go / Fly too; VoiceOver has them as the tile's actions.
+struct PlaceTouchTile: View {
+    let place: PlaceInfo
+    let zoomLog10: Double
+    let isSelected: Bool
+    let select: () -> Void
+    let go: () -> Void
+    let fly: () -> Void
+
+    /// The name strip along the bottom edge of the selected tile.
+    private static let nameHeight: CGFloat = 16
+
+    var body: some View {
+        Button {
+            if isSelected { go() } else { select() }
+        } label: {
+            PlaceThumbnail(id: place.id)
+                .aspectRatio(1.6, contentMode: .fit)
+                .overlay(alignment: .bottomTrailing) {
+                    if !isSelected { PlaceZoomPill(zoomLog10: zoomLog10) }
+                }
+                .overlay(alignment: .bottom) {
+                    if isSelected {
+                        Text(place.name)
+                            .font(.caption2.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, minHeight: Self.nameHeight)
+                            .background(.black.opacity(0.65))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                // Only the selected tile has a border (every shape is one more layer to
+                // build when the section opens).
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(place.name)
+        .accessibilityHint(isSelected ? "Tap again to go there" : "Selects the place")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAction(named: "Go") { go() }
+        .accessibilityAction(named: "Fly") { fly() }
+        .contextMenu {
+            Section(place.name) {
+                Button(action: go) { Label("Go", systemImage: "arrow.right.circle") }
+                Button(action: fly) { Label("Fly", systemImage: "airplane") }
+            }
+        }
+        .overlay {
+            if isSelected {
+                VStack(spacing: 0) {
+                    // Icon and label side by side where they fit, else the label under the icon.
+                    ViewThatFits {
+                        actions(stacked: false)
+                        actions(stacked: true)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Color.clear.frame(height: Self.nameHeight)
+                }
+            }
+        }
+    }
+
+    private func actions(stacked: Bool) -> some View {
+        HStack(spacing: 4) {
+            action("Go", "arrow.right.circle", id: "placeTileGo", stacked: stacked, go)
+            action("Fly", "airplane", id: "placeTileFly", stacked: stacked, fly)
+        }
+        .padding(.horizontal, 3)
+    }
+
+    private func action(_ title: String, _ icon: String, id: String, stacked: Bool,
+                        _ perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Group {
+                if stacked {
+                    VStack(spacing: 1) {
+                        Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                        Text(title).font(.system(size: 10, weight: .semibold))
+                    }
+                    .padding(.horizontal, 5)
+                } else {
+                    HStack(spacing: 4) {
+                        Image(systemName: icon)
+                        Text(title)
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 10)
+                }
+            }
+            .lineLimit(1)
+            .fixedSize()
+            .frame(minWidth: 44, minHeight: 44)
+            .foregroundStyle(.primary)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        // Not the Form row's default style: that fires every button in the row on a tap.
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) to \(place.name)")
+        .accessibilityIdentifier(id)
+    }
+}
+#endif
 
 /// The place's zoom in a small dark pill at the bottom right of its thumbnail (the name is
 /// the tooltip). Plain text: nothing changes per frame.
