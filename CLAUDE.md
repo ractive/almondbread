@@ -52,7 +52,8 @@ offscreen PNG in `build/core-check.png`) and FFI call costs. Orbit benchmark:
 `cargo run --release -p almondbread-math --example math_check -- bench [bits...]`;
 `cargo bench -p almondbread-math` for criterion. `xcode-select` points at Xcode; the
 Makefile's `DEVELOPER_DIR` default is the same Xcode (harmless, override if needed).
-No iOS simulator runtime is installed yet.
+The iOS 26.5 simulator runtime is installed (kb: platform/ios-simulator): `make ios-sim`,
+`make ios-selftest`, `make ios-uitest`.
 Devices (kb: platform/ios-device): `make ios-device` (signed Release, automatic signing for
 team 9KNMHVRSTW, install + launch via devicectl; Xcode must be signed in once),
 `make ios-device-selftest` (PNG to `build/ios-device-selftest.png`), `make ios-device-check`
@@ -123,6 +124,7 @@ is left measures, traces or drives tests.
 | `ALMONDBREAD_SCENARIOS="a,b"` | Interaction test: run only these scenarios. |
 | `ALMONDBREAD_SELFTEST=1` | Same as `--selftest` (launch check; iOS simulator). |
 | `ALMONDBREAD_TEST_FOREGROUND=1`, `_SCREEN=main`, `_LINK=cv` | Interaction test window: front/key, main display, own CVDisplayLink. |
+| `ALMONDBREAD_UITEST=1` | iOS UI tests: settings not persisted; cockpit cells and lever ticks in accessibility values. |
 | `ALMONDBREAD_UITEST_SHOTS=dir` | iOS UI test: save screenshots there. |
 
 ## Working mode

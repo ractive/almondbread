@@ -146,6 +146,71 @@ Thumbnails: `places --render-thumbs Sources/AlmondbreadKit/Resources/Places --in
 --extend 16 --only <ids>` (oversample 3, blur 0.5 by default), 1.0-2.6 s each, 2 × 4 HEIC
 files, 192 KB; all four looked at, none flat.
 
+## Needle minibrot at 1e3000: the needle of the needle (2026-10-16)
+
+**Not in the catalogue** (status 2026-10-19). The place entry `needle-minibrot-1e3000` (its
+3000-digit centre), its two thumbnails and `verify --history --no-verify 1` stayed on branch
+`worktree-agent-a0bf2467567503583` (commit `d82efcf`), never merged: ~90 s to a settled frame is
+far over the 10 s budget. `verify --history --timeout s` reached main separately. What follows
+is the research as written on that branch; "the place" means that unmerged entry.
+
+The user asked whether zooming further into `needle-minibrot-1e1000` finds the same minibrot
+again near 1e3000. It does: `needle-minibrot-1e3000`, period 1,385,274 = 834 × 1661, size
+1.7e-3000, at -2 + 1.0e-500 − 6.2e-1002 (on the real axis).
+
+- **The copy.** The period-834 nucleus c₀ is 1.015e-500 from -2, size s = +3.09e-1002 (from
+  `1/(β λ²)` with `λ = Π 2 z_i`, computed in Python `decimal`). In the copy's own
+  coordinates `c = c₀ + s·u`; its antenna tip is at u ≈ -2.
+- **The tip is M(835, 834), not M(1668, 834).** In the copy the critical orbit goes 0 → -β → β
+  (local), but `f` is even, so `f(-β) = f(β)`: one step after the local -β, at iterate p + 1,
+  the orbit is already on the β-cycle. Newton with preperiod 2p did not converge (35 s);
+  `locate --misiurewicz 835,834 --bits 11200` from c₀ − 2s converged in 11 steps (1.1 s). On the
+  period-3 airplane the same rule gives M(4,3) = -1.79033 from its estimate (Newton only, not
+  rendered). The tip sits at u = -1.99999995: the
+  copy is distorted by 5e-8.
+- **The minibrot.** `locate --center tip + 1e-999·s --radius 1.5e-2001 --max-period 4000000`
+  (centre computed in Python, so `--toward` was not needed): ball period 1,385,274, Newton 8
+  steps, 206 s at 10,112 bits, local distance u + 2 = 1.41e-999. Needle minibrots near -2 at
+  distance d have period ≈ log₄(1/d) + c; locally 1e-999 gives 1661, times 834.
+- **It looks the same, but the rings are gone.** Rendered with the same span relative to
+  its size as the 1e1000 view (2.1e-2999; `build/deep/keep/needle3000-640.png` next to
+  `needle1000-640.png` in the worktree), the minibrot, its bulbs and satellites are the same
+  picture at the same size. The ring field around it is not: dwell there is ~1661× larger and
+  changes ~1661× faster per pixel, so the bands are far below a pixel and average to one flat
+  colour (also with `--log 1`). The thumbnail at that framing failed the flat check (luma
+  28..30), so the place is framed 2.1× tighter (span 1e-2999): the minibrot fills about a
+  quarter of the view; the rest is flat.
+- **Iterations.** The automatic limit stops at the 200,000 cap, 1/7 of one period: everything
+  is unescaped. 20 M (14 periods) shows a black blob, 60 M a black minibrot silhouette, 200 M
+  (144 periods; the 1e1000 view has 240) the coloured interior. The branch's entry was the first with
+  `iterations: Some(200_000_000)`: Go and Fly switch to manual iterations and raise the cap
+  (the cap picker in the control center has no 200 M entry).
+
+**Cost** (measured 2026-10-16, M1 Pro, release, load 5-50):
+
+| step | time |
+| --- | --- |
+| reference (ball period over the view, Newton, the 1,385,275-point nucleus orbit at 10,112 bits) | 67-78 s |
+| GPU, 640×400 at 2.1e-2999 / 1e-2999 | 10.7 s / 29 s (4-5e12 iterations, LA 416× fewer steps) |
+| `verify --history jump`, 1600×1000, span 1e-2999 | first frame 70 s, resolved 90 s |
+| `verify --history jump`, 1600×1000, span 2.1e-2999 | first frame 82 s, resolved 97 s (load 53) |
+| thumbnails (oversample 3 × ss 3, two sizes) | 18 min at 2.1e-2999 (rejected, flat); at 1e-2999 the 1× took ~8 min, the @2x (5760×3600 samples) hit the GPU watchdog (`ImpactingInteractivity`) repeatedly and was killed after 26 min |
+| @2x thumbnail instead: `render --size 1280x800`, no supersampling, `sips` to 640×400, HEIC 70 | 161 s |
+
+This is ~100× the other deep places and far over the 10 s budget; the branch put it in the
+catalogue because the user asked for it, with a description saying it is slow. The time is the period:
+any minibrot at 1e-3000 inside the 834 copy has period ~834 × 1661. A first frame would need
+the reference worker to deliver something before Newton finishes (e.g. a centre-orbit prefix
+while Newton runs), not built.
+
+**Checks.** `verify --place` at the place's 200 M did not finish: the CPU oracle computes its
+reference to the limit on one thread (killed after 32 min). At 80×50 and `--iterations 20000000`
+(GPU and oracle alike): class mismatch 0 %, escape-n differs 98 % with median |Δμ| 157;
+`precision` with the same settings puts that between a 0.001 px grid shift of the oracle
+(97.7 %, median 48) and a 0.01 px one (median 470): dense-band chaos, not error. CLI additions
+for this: `verify --history ... --no-verify 1` (timings only; branch only) and `--timeout s`
+(default 30 s; on main).
+
 ## Endless dives (2026-10-17)
 
 How such points are found: [[synthesis/finding-deep-places]]; the autopilot and journey that fly into them: [[decisions/controls]].

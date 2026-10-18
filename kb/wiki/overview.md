@@ -61,8 +61,9 @@ orbits on the CPU) with a Swift + SwiftUI/AppKit UI on Apple platforms
   resumable chunked kernels with compaction and indirect dispatch
   ([[platform/gpu-watchdog-and-chunking]], [[platform/metal-compute]],
   [[platform/apple-gpu-architecture]]).
-- iPad/iPhone port later: same kernels, tighter memory and thermal limits
-  ([[platform/ios-ipad-considerations]]).
+- iPad/iPhone port (built since 2026-10-18; touch controls in [[decisions/controls]] "Touch",
+  [[platform/ios-device]], [[platform/ios-simulator]]): same kernels, tighter memory and
+  thermal limits ([[platform/ios-ipad-considerations]]).
 
 ## Formulas and renderers
 
@@ -82,9 +83,12 @@ series approximation, Imagina LA, float-float as a verification tool); measureme
 [[synthesis/benchmarks]]. [[decisions/controls]] holds the interaction design: WASD/arrows pan,
 Space zoom, pointer and touch gestures, and since 2026-10-17 the driving levels (manual, cruise,
 autopilot, journey; Q / E are pedals, reverse cruise zooms home, a cockpit with clickable icons
-shows the level), the autopilot's target lock and rescue (survey steering opt-in, lane assist in
+shows the level), the autopilot's target lock and rescue (survey steering by default, lane assist in
 cruise), journeys with stops, the compass, full screen, a render-progress line, help popovers,
-and the cosmic size scale (your window stays, the set grows, then imaginary universes nest).
+the cosmic size scale (your window stays, the set grows, then imaginary universes nest),
+guided tours (the π meter only through its tour since 2026-10-18) with a first-launch
+walkthrough, and on iPhone / iPad a throttle lever, round buttons for the Mac toolbar's items
+and "rest to steer, swipe to move" while something flies.
 Places, including endless dives on Misiurewicz points, are in [[synthesis/places]].
 Smoothness while moving is measured, not assumed: gesture-resolution probes follow the GPU
 clocks ([[platform/metal-compute]], [[synthesis/benchmarks]]), hang prevention guards every
@@ -103,4 +107,4 @@ reference → interaction → Imagina LA/AT → float-float → more formulas) i
 [[synthesis/deep-zoom-rendering-techniques]]. Open questions and
 contradictions between sources are in `questions/` (see [[index]]).
 
-State (2026-10-17): the research run is ingested and the app is built through M7 plus the 2026-10-16/17 features; open items are in [[roadmap]] and `questions/`.
+State (2026-10-19): the research run is ingested and the app is built through M7 plus the 2026-10-16 to 19 features (touch, tours, walkthrough); open items are in [[roadmap]] and `questions/`.

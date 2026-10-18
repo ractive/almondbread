@@ -66,7 +66,9 @@ Port background: [[platform/ios-ipad-considerations]].
 
 Gestures needed no fix: drag pans (scale unchanged), pinch ×3 zooms > 1.5×, rotation turns
 > 20°, double tap zooms in, two-finger tap zooms out, the autopilot and journey buttons start
-and stop them, on both devices.
+and stop them, on both devices. (Those round buttons became the Mac toolbar's items on
+2026-10-18; the cockpit's icons start and stop the autopilot and journeys now:
+[[decisions/controls]] "Round buttons: the Mac toolbar on touch".)
 
 ## Results (2026-10-15)
 
@@ -138,7 +140,7 @@ manual icon always ends A, C and J); no crash, hang or black frame.
 
 Not fixed, worth knowing: a drag at the start easily moves the set off screen, and pinching in
 then shows only empty blue (pinch out, the throttle's reverse, or Reset bring it back — no hint
-says so); at a journey stop the journey button flies on rather than stopping (stop: cockpit M or
+says so); at a journey stop the journey button (since 2026-10-18 the cockpit's sparkles icon) flies on rather than stopping (stop: cockpit M or
 the throttle's double tap); HUD lines and help popovers keep words a child will not know
 ("branch point M(2,1)", "embedded Julia (period 54)"); XCUITest pinches zoom much less than their
 scale (×1.5 for "×3"), so pinch feel needs the device. XCUITest's `rotate(_:withVelocity:)` starts

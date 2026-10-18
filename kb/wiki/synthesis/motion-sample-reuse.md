@@ -37,8 +37,10 @@ needs a ~3× faster move pass and one cell per point on Retina displays.
 ## Method
 
 Prototype `prototypes/motion-reuse/`; raw notes and all tables are in
-`kb/raw/research/motion-sample-reuse/experiments.md` and `runs/`. It is a deterministic flight
-simulator:
+`kb/raw/research/motion-sample-reuse/experiments.md` and `runs/`. (It does not build against
+main, checked 2026-10-19: the renderer hooks it needs, `Renderer::offscreen_jitter` and
+`OffscreenResult::de`, stayed on branch `worktree-agent-abad90e6e8bdb3fc5`, and `Viewport`
+has gained `angle` since.) It is a deterministic flight simulator:
 
 - The app's `Navigator` is stepped at 60 Hz through the scripted flights.
 - For every gesture frame the real GPU kernel renders the fields each strategy needs: fixed

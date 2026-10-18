@@ -8,8 +8,10 @@ tags: [ios, ipad, memory, thermal, port]
 
 # iOS and iPadOS port considerations
 
-almondbread starts on macOS, with an iPhone/iPad port planned. Little here is
-sourced: most items are inferences or background knowledge and are marked so.
+almondbread started on macOS, with an iPhone/iPad port planned (written before the port; the
+port runs since 2026-10-18: [[platform/ios-device]], [[platform/ios-simulator]],
+[[decisions/controls]] "Touch"). Little here is sourced: most items are inferences or
+background knowledge and are marked so.
 
 ## What stays the same
 

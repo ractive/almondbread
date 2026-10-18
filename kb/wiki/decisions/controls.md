@@ -1616,7 +1616,7 @@ policy is Swift's (it is window chrome, not navigation), the Esc decision uses t
 
 | Input | Action |
 | --- | --- |
-| F (canvas key, like O / M / P) | full screen on / off; key repeats are ignored |
+| F (canvas key, like O / M; P was one until 2026-10-18) | full screen on / off; key repeats are ignored |
 | ⌃⌘F, View ▸ Enter Full Screen, the green button | the same, AppKit's standard path |
 | Esc in full screen | stops the autopilot, a flight, a journey or a π hunt if one runs (eased); only an Esc that stopped nothing leaves full screen |
 
@@ -2110,8 +2110,11 @@ simulators only; feel, haptics and thumb reach need a real device.
 - *Layout.* Phone portrait: the throttle on top of the button column at the bottom trailing
   corner (thumb reach). Phone on its side: the buttons in a row at the bottom trailing corner
   (the cockpit keeps left of the five), the throttle at the trailing edge above them. iPad:
-  buttons top trailing as before, the throttle at mid height on the trailing edge (where the
-  thumbs are when holding it); the π meter and the tour card keep left of it. Shown with the
+  buttons top trailing, the throttle at mid height on the trailing edge (where the
+  thumbs are when holding it); the π meter and the tour card keep left of it. A canvas
+  narrower than 560 points (iPad portrait with the control center open, narrow split views)
+  takes the phone's portrait layout: the button column at the bottom trailing corner with the
+  throttle on top (`compactWidth`, `buttonColumn` in `ContentView.swift`). Shown with the
   HUD, like the cockpit.
 - *Haptics* (`Haptics`): a selection tick per gear, a rigid tick at the zero detent and for the
   double-tap stop, a light tap when a flight lands (journey stop, fly-to, minibrot), a success
@@ -2129,7 +2132,7 @@ simulators only; feel, haptics and thumb reach need a real device.
 | N seek minibrot | long-press menu (here); control center "Seek minibrot" | N |
 | L lane assist | cockpit lane icon, control center | L |
 | G continue | HUD button | G |
-| C, O, M, P overlays; toolbar Orbit, Mini-map, Size Scale, Fly To | round buttons (C, O, M, Fly to); control center; "Orbit Here" | C, O, M, P |
+| C, O, M overlays (P and the π meter only through the π tour since 2026-10-18); toolbar Orbit, Mini-map, Size Scale, Fly To | round buttons (C, O, M, Fly to); control center; "Orbit Here" | C, O, M |
 | R / ⌘0 reset | control center Reset | R, ⌘0 |
 | ⌘I, toolbar Control Center | round button (lit while open); ✕ in the pane; phone: swipe the sheet down | ⌘I |
 | ⇧⌘C / ⇧⌘V coordinates | long-press Copy / Go to Copied; control center | ⇧⌘C / ⇧⌘V (menu bar) |
@@ -2266,7 +2269,8 @@ there" left Fly unreachable (Fly sits below the 79-picture grid, off screen). No
 (`PlaceTouchTile` in `ControlCenterView.swift`; the Mac is unchanged): the first tap on a picture
 selects it — a 3-point accent border, the name in a dark strip along the bottom edge (the zoom
 pill hides), and **Go** (`goToPlace`) and **Fly** (`flyToPlace`) over the image on a material
-background, each at least 44 × 44 points. Go or Fly acts; a second tap on the selected picture
+background, each at least 44 × 44 points. Go or Fly acts and clears the selection, so the buttons leave the picture (2026-10-18,
+`379b18c`); a second tap on the selected picture
 outside the buttons (the name strip included) goes there; another picture moves the selection
 (one selected tile). The rows under the grid (name, description, Go / Fly / Tour, Random) stay.
 VoiceOver: the tile is labelled with the name and has the actions Go and Fly; the buttons are
@@ -2528,8 +2532,13 @@ colour and a white symbol (off: the HUD's material); accessibility: the name as 
   texts (overlays page, orbit popover) say it.
 - *Fit.* Five buttons: phone portrait a column of 5 × 44 + 4 × 10 = 260 points under the throttle
   (its height `canvasHeight − 528`, was − 420 for three buttons; clamped 120 … 220); phone on its
-  side a 260-point row (the cockpit inset already reserved five); iPad a top-trailing row, clear of
-  a 380-point HUD on an iPad mini in portrait (744 points).
+  side a 260-point row (the cockpit inset already reserved five); iPad, canvas at least 560
+  points wide, a top-trailing row, clear of a 380-point HUD on an iPad mini in portrait (744
+  points). A canvas under 560 points (the iPad in portrait with the control center open,
+  narrow split views) gets the phone's bottom-trailing column with the throttle on top.
+  Read from the code 2026-10-19: the overlay's corner follows `compactWidth` (horizontal size
+  class compact or canvas < 560), so a phone on its side whose width class is regular (the
+  large models) gets its row top trailing, not bottom trailing (not checked on a simulator).
 - *Touch hints.* "Flies by itself" now points down at the cockpit's plane icon (its rect from
   `Explorer::cockpit_controls`, read twice a second while the hints show); the middle group stays
   above that label.
