@@ -152,6 +152,29 @@ final class InteractionTest: NSObject {
                                 note: "centre after arrival")
             }
         }
+        // A click stream (kb: decisions/controls "Animated zoom steps"): 15 real mouse-down / up
+        // pairs 0.18 s apart (click counts 1-15) through FractalNSView's handlers, then rest.
+        // Clicks 2-15 each add ×2 to the running glide: ×2^14 in all, about the clicked point,
+        // and the glide runs on without a break until 2.87 s (pacing is measured on it).
+        let clickAt = (x: 150.0, y: 80.0)
+        let clickStream: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                sent.removeAll()
+                c0 = InteractionTest.point(v, clickAt.x, clickAt.y)
+                zoomStart = CACurrentMediaTime()
+            }
+            for k in 1...15 {
+                once("click\(k)", t >= Double(k - 1) * 0.18) { InteractionTest.click(v, clickAt.x, clickAt.y, count: k) }
+            }
+            once("check", t >= 2.95) {
+                let ratio = self.startScale("click stream") / (v.explorer?.viewport().scale ?? .nan)
+                let ok = abs(ratio / 16384 - 1) < 1e-3
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "click stream: 15 clicks zoomed ×%.1f (expected ×16384) %@", ratio, ok ? "OK" : "FAILED"))
+                self.checkDrift("click stream", v, c0, clickAt.x, clickAt.y, seconds: CACurrentMediaTime() - zoomStart,
+                                note: "clicked point")
+            }
+        }
         // Pointer mode, pointer 8 pt inside the right edge: no pan without a zoom (setting
         // "while zooming"), then Space: the view pans right at the ramped key speed; the
         // pointer leaves the window at 2 s: the pan stops, the zoom goes on.
@@ -670,6 +693,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "pointer space", viewport: sea, input: pointerSpace),
                 Scenario(name: "keyboard glide", viewport: sea, input: keyboardGlide),
                 Scenario(name: "edge pan", viewport: sea, input: edgePan),
+                Scenario(name: "click stream", viewport: sea, input: clickStream),
                 Scenario(name: "deep zoom 1e-12 to 1e-40", viewport: seaDeep, input: deepZoom),
                 Scenario(name: "1e-100 pan", viewport: dendrite100, input: pan),
                 Scenario(name: "1e-300 zoom", viewport: dendrite300, input: zoom),
@@ -936,6 +960,20 @@ final class InteractionTest: NSObject {
                                        characters: chars, charactersIgnoringModifiers: chars,
                                        isARepeat: isARepeat, keyCode: keyCode) else { return }
         _ = view.handleKey(e)
+    }
+
+    /// A left click (mouse down and up, click count `count`) at (x, y) view points from the
+    /// centre, through the view's own handlers.
+    static func click(_ view: FractalNSView, _ x: Double, _ y: Double, count: Int) {
+        let p = view.convert(NSPoint(x: view.bounds.midX + x, y: view.bounds.midY + y), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [],
+                                             timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: view.window?.windowNumber ?? 0, context: nil,
+                                             eventNumber: 0, clickCount: count, pressure: type == .leftMouseDown ? 1 : 0)
+            else { return }
+            if type == .leftMouseDown { view.mouseDown(with: e) } else { view.mouseUp(with: e) }
+        }
     }
 
     private func report(_ name: String, _ r: InteractionReport) {

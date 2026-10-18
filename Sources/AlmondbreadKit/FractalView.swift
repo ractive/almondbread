@@ -791,14 +791,17 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             if mapClicked { return }
         }
         if mapClicked { return }
-        if event.clickCount == 2 {
+        // Every click of a click stream from the second on zooms ×2 (clickCount 2, 3, 4, ...):
+        // Rust adds each to the running glide. Only the first click toggles the autopilot's
+        // pause (mouseUp), and the second undoes that.
+        if event.clickCount >= 2 {
             let o = offset(event.locationInWindow)
             send(.doubleTap(x: o.x, y: o.y, out: event.modifierFlags.contains(.option)))
         }
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
+        if event.clickCount >= 2 {
             let o = offset(event.locationInWindow)
             send(.doubleTap(x: o.x, y: o.y, out: true))
         }
@@ -838,6 +841,12 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var longPressEnded = Date.distantPast
     /// What the current long press does (Rust's `touch_hold` when it began).
     private var hold = TouchHold.nothing
+    /// Tap streams (kb: decisions/controls "Animated zoom steps"): after a double tap, each
+    /// further tap soon after and near the last zoom tap zooms again. `chainTap` alone gets
+    /// such a touch (the double-tap and single-tap recognisers do not see it); `lastZoomTap` is
+    /// when (system uptime) and where the last zoom tap was recognised.
+    private let chainTap = UITapGestureRecognizer()
+    private var lastZoomTap: (time: TimeInterval, at: CGPoint)?
     /// Memory, thermal and background signals for the renderer (DeviceSignals.swift).
     private var signals: DeviceSignals?
 
@@ -877,7 +886,10 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         // Every finger off the view: a finger left down after a pinch may pan again (Rust).
         let fingers = FingerTracker { [weak self] in self?.send(.touchesLifted) }
         fingers.delegate = self
+        chainTap.addTarget(self, action: #selector(handleChainTap(_:)))
+        chainTap.delegate = self
         [pinch, rotation, pan, doubleTap, twoFingerTap, tap, hover, longPress, fingers].forEach(addGestureRecognizer)
+        addGestureRecognizer(chainTap)
         let pointer = UIPointerInteraction(delegate: self)
         addInteraction(pointer)
         pointerInteraction = pointer
@@ -1237,7 +1249,28 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         if base.model.explorer?.cockpitHit(x: o.x, y: o.y) != nil { return }
         if base.model.compassTap(x: o.x, y: o.y) { return }
         send(.doubleTap(x: o.x, y: o.y, out: false))
+        lastZoomTap = (ProcessInfo.processInfo.systemUptime, g.location(in: self))
     }
+
+    /// A further tap of a tap stream: zooms in again (Rust adds it to the running glide).
+    @objc private func handleChainTap(_ g: UITapGestureRecognizer) {
+        let p = g.location(in: self)
+        let o = offset(p)
+        send(.doubleTap(x: o.x, y: o.y, out: false))
+        lastZoomTap = (ProcessInfo.processInfo.systemUptime, p)
+    }
+
+    /// Whether a touch going down now at `p` goes on a tap stream: within `chainInterval` of
+    /// the last zoom tap and `chainRadius` of it (the system's own double-tap limits are
+    /// similar), not on a control.
+    private func continuesTapStream(_ p: CGPoint, at time: TimeInterval) -> Bool {
+        guard let last = lastZoomTap, time - last.time <= Self.chainInterval,
+              hypot(p.x - last.at.x, p.y - last.at.y) <= Self.chainRadius else { return false }
+        return !onControl(p)
+    }
+
+    static let chainInterval: TimeInterval = 0.4
+    static let chainRadius: CGFloat = 60
 
     @objc private func handleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
@@ -1363,6 +1396,13 @@ extension FractalUIView: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if let press = g as? UILongPressGestureRecognizer {
             press.minimumPressDuration = base.fingerSteers ? Self.steerHold : Self.menuHold
+        }
+        // A tap stream goes to the chain recogniser only; the double and single tap wait for
+        // the next fresh touch.
+        if let t = g as? UITapGestureRecognizer, t.numberOfTouchesRequired == 1 {
+            let chained = continuesTapStream(touch.location(in: self), at: touch.timestamp)
+            if t === chainTap { return chained }
+            if chained { return false }
         }
         if g is UILongPressGestureRecognizer || (g as? UITapGestureRecognizer)?.numberOfTapsRequired == 2 {
             return !onControl(touch.location(in: self))

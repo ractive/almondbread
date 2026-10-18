@@ -25,9 +25,9 @@ while navigating.
 | R, Cmd+0 | reset view |
 | Two-finger scroll, drag | pan (Mac) |
 | Pinch, Cmd/Option-scroll, wheel | zoom at the zoom target (Mac) |
-| Double-click / Option+double-click, two-finger double tap (Smart zoom) | zoom in / out ×2 at the click (Mac; switches to pointer mode; Smart zoom always zooms in) |
+| Double-click / Option+double-click / right double-click, two-finger double tap (Smart zoom) | zoom in / out ×2 at the click, a 0.35 s glide; every further click of the stream (click count 3, 4, …) adds ×2 (Mac; switches to pointer mode; Smart zoom always zooms in) |
 | Pointer in the edge band while Space is held | pan towards that edge (setting: off / while zooming / always) |
-| Drag, pinch, double tap, two-finger tap | pan, zoom, zoom in, zoom out (iPhone/iPad) |
+| Drag, pinch, double tap (and each further tap of the stream), two-finger tap | pan, zoom, zoom in ×2 per tap, zoom out (iPhone/iPad) |
 | iPad hardware keyboard | the same keys as the Mac |
 
 ## Reasons and rules
@@ -168,8 +168,26 @@ events. Measured in [[synthesis/benchmarks]] FL and judged on the review videos.
   those arrive as ordinary pans, so no second fling is invented (no `GestureEnd` for
   scrolling). A new touch, drag or direction key stops a fling.
 - **Animated zoom steps.** Wheel notches (new event `WheelNotch`; precise scroll-zoom stays
-  1:1), double click/tap, + / − and menu zooms are exponential ease-outs (τ = 60 ms) at the
-  zoom target, summed when they overlap; the fixed point holds (tests: drift < 1e-6 px).
+  1:1), + / − and menu zooms are exponential ease-outs (τ = 60 ms) at the zoom target, summed
+  when they overlap; the fixed point holds (tests: drift < 1e-6 px). They stay snappy: a notch
+  is a small step (×1.15) the hand repeats, and a key or menu zoom answers a command.
+  **Double click / tap** (revised 2026-10-18; user: "feels unnatural, very quick and
+  immediate; multiple double clicks in a row don't work") is its own glide: ×2 in log scale
+  on a minimum-jerk curve (quintic, rest to rest) over `TAP_ZOOM_SECONDS` = 0.35 s about the
+  click. No first-frame jump (after one 120 Hz frame 0.02 % of the step; the τ = 60 ms ease-out
+  had 13 %); the tails are slow (under 10 % of the peak rate for the first and last 13 %), so
+  the visible motion is ~0.25 s, like the system's double-tap zooms; peak rate 1.875 · ln 2 /
+  0.35 = 3.7 e-folds/s. **Chaining:** a further click while one runs adds ×2 (×0.5 out) to the
+  target and starts a new quintic from the current offset, rate and acceleration (C²: no
+  restart, no stutter), towards the latest click's point; three zooms land at exactly ×8, and
+  the scale never turns back (tests at 60 and 120 Hz, clicks 0.08-0.5 s apart:
+  `chained_double_taps_accumulate_smoothly`). Mac: every click from the second of a click
+  stream zooms (`clickCount >= 2`, left with Option and right zoom out); only the first click
+  toggles the autopilot's pause and the second undoes it (`Autopilot::double_click` forgets
+  the click), so later ones never toggle. iOS: after a double tap, a touch within 0.4 s and
+  60 pt of the last zoom tap goes to a third, single-tap recogniser only (`chainTap`; the
+  double- and single-tap recognisers do not receive it), which zooms on its lift: a triple
+  tap zooms ×4, a quadruple ×8 (`TouchUITests.testTapStreamsZoom`).
 - **Gamepad.** GameController framework on macOS and iOS (`Gamepad.swift`) sends raw state
   (`Gamepad { lx, ly, rx, ry, lt, rt, boost }`) on every change; Rust applies a radial stick
   dead zone of 0.15, trigger dead zone 0.06 and the response curve `0.25 m + 0.75 m³` of the
@@ -304,7 +322,7 @@ HUD.
 | Z, menu "Autopilot On/Off", the cockpit's plane icon (the macOS toolbar button was removed 2026-10-17, the iOS round button 2026-10-18) | on (eased start) / off (eased stop); Z key repeats are ignored |
 | Esc, menu "Stop Autopilot or Flight" | eased stop; not handled (the system keeps Esc) while nothing flies |
 | Pointer offset from the view centre | steers like a joystick (below) |
-| Click (iOS: tap) | pause / resume (eased); a double click undoes its first click's toggle and zooms as usual |
+| Click (iOS: tap) | pause / resume (eased); a double click undoes its first click's toggle and zooms as usual; further clicks of the stream zoom on and never toggle |
 | Q / E, mouse wheel notch, trackpad scroll | speed ×0.8 / ×1.25, ×1.1 per notch, `e^(0.004·dy)` per scrolled point; 0.1–4 e-folds/s, default 0.9 (×2.5/s); momentum scrolls are ignored |
 | Space, W A S D, drag, pinch | work as before on top of the autopilot (W A S D: keyboard mode, which flies straight) |
 | R | stops it dead (reset) |

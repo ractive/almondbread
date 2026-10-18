@@ -1516,3 +1516,15 @@ moved under the HUD as labelled buttons; the autopilot button's menu is covered 
 the throttle and a new iOS control-center "Seek minibrot"; the orbit toggle on touch shows the
 view centre's orbit (or the last Orbit Here point); touch hints point at the cockpit's plane.
 [[decisions/controls]] "Touch" ▸ "Round buttons".
+
+## [2026-10-18] decision | Double click / tap zoom: a gentle glide, and click streams keep zooming
+
+User: double-click zoom felt abrupt and a stream of clicks or taps stopped after the second.
+[[decisions/controls]] "Animated zoom steps": the double click / tap is now its own ×2
+minimum-jerk glide of 0.35 s (`TAP_ZOOM_SECONDS`, `Navigator::tap_zoom`, `TapZoom`), extended
+by each further click from the current rate (C², exact ×2ⁿ). Mac zooms on every click count
+≥ 2; iOS chains taps within 0.4 s and 60 pt through a third tap recogniser. Wheel notches,
++ / − and menu zooms keep the τ = 60 ms ease-out. New interaction-test scenario `click
+stream` (15 real clicks 0.18 s apart: ×16384 about the clicked point; measured 2026-10-18,
+background window at 120 Hz: 99 fps, interval p50 / p95 / max 8.3 / 16.7 / 41.7 ms, the same
+as `space zoom`).
