@@ -385,17 +385,23 @@ final class TouchControlsUITests: XCTestCase {
 
     private var menuShown: Bool { app.descendants(matching: .any)["Fly Here"].firstMatch.exists }
 
-    /// A finger in A is the wish (resting or moving; no menu) and its line goes after the lift;
-    /// in C a drag pans at once, also after a rest (device round 2026-10-18); in M the long
-    /// press is still the menu.
-    func testFingerInAutopilotAndCruise() throws {
+    /// Rest or swipe (kb: decisions/controls "Touch", "Rest or swipe"): while something flies,
+    /// a finger that rests goes there and a finger that swipes moves the picture. A: a held
+    /// finger is the wish (no menu, A stays, its line goes after the lift); a quick swipe moves
+    /// the picture and leaves no wish line, A stays. C: a held finger steers, also when it then
+    /// slides (the picture is not dragged: it turns towards the finger); a quick swipe pans with
+    /// the finger, the gear stays. M: the long press is still the menu.
+    func testRestSteersSwipePans() throws {
         try launchSettled()
+        let num = { (f: [String: String], k: String) in Double(f[k] ?? "") ?? .nan }
         let rest = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4))
         let away = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.3))
+        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4))
         try XCTUnwrap(point("autopilot")).tap()
         settle(1)
         XCTAssertEqual(level(), "a")
-        // At rest 1 s, then a drag: no menu, still A (a touch never hands over in A).
+        // A: at rest 1 s, then a slide: no menu, still A (a touch never hands over in A).
         rest.press(forDuration: 1.0, thenDragTo: away, withVelocity: 120, thenHoldForDuration: 0.5)
         let justLifted = fields()["wish"]
         shot("finger-autopilot-lifted")
@@ -407,43 +413,57 @@ final class TouchControlsUITests: XCTestCase {
         settle(2)
         XCTAssertEqual(fields()["wish"], "off", "the wish line stayed after the finger lifted")
         shot("finger-autopilot-line-gone")
-        // Only at rest: no menu either.
-        rest.press(forDuration: 1.0)
-        settle(0.5)
-        XCTAssertFalse(menuShown, "a held finger opened the menu in A")
-        settle(2)
-        XCTAssertEqual(fields()["wish"], "off", "the wish line stayed after a held finger")
-        shot("hold-steers-autopilot")
+        // A: a quick swipe moves the picture with the finger (right and up: the centre moves
+        // left and down), draws no wish line and stays in A.
+        let a0 = fields()
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 300, thenHoldForDuration: 0.2)
+        let a1 = fields()
+        shot("finger-autopilot-swiped")
+        let are = (num(a0, "re") - num(a1, "re")) / num(a1, "scale")
+        let aim = (num(a0, "im") - num(a1, "im")) / num(a1, "scale")
+        print("UITEST autopilot swipe moved the centre by \(are), \(aim) points (left, down)")
+        XCTAssertGreaterThan(are, 0.2 * canvas.frame.width * 0.4, "a swipe in A did not move the picture")
+        XCTAssertGreaterThan(aim, 0.2 * canvas.frame.height * 0.2, "a swipe in A did not move the picture")
+        XCTAssertEqual(a1["wish"], "off", "a swipe in A drew a wish line")
+        XCTAssertEqual(level(), "a", "a swipe left the autopilot")
+        settle(1)
+        XCTAssertEqual(fields()["wish"], "off", "a swipe in A drew a wish line")
+        XCTAssertEqual(level(), "a", "a swipe left the autopilot")
         try XCTUnwrap(point("autopilot")).tap()
         settle(2)
-        // C (the throttle on its first tick): a drag pans at once, the content following the
-        // finger (right and up: the centre moves left and down); the cruise goes on in its gear.
+        // C (the throttle on its first tick).
         let lever = app.descendants(matching: .any)["throttle"]
         throttle(lever, tick: 1)
         settle(0.5)
         XCTAssertEqual(level(), "c")
-        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
-        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4))
+        // C: a quick swipe pans at once, the content following the finger; the gear stays.
         let f0 = fields()
         from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 300, thenHoldForDuration: 0.3)
         let f1 = fields()
         shot("finger-cruise-dragged")
-        let s1 = Double(f1["scale"] ?? "") ?? .nan
-        let dre = ((Double(f0["re"] ?? "") ?? .nan) - (Double(f1["re"] ?? "") ?? .nan)) / s1
-        let dim = ((Double(f0["im"] ?? "") ?? .nan) - (Double(f1["im"] ?? "") ?? .nan)) / s1
-        print("UITEST cruise drag moved the centre by \(dre), \(dim) points (left, down)")
-        XCTAssertGreaterThan(dre, 0.2 * canvas.frame.width * 0.4, "a drag in C did not pan with the finger")
-        XCTAssertGreaterThan(dim, 0.2 * canvas.frame.height * 0.2, "a drag in C did not pan with the finger")
-        XCTAssertEqual(level(), "c", "a drag left the cruise")
-        XCTAssertEqual(gear(), 1, "a drag changed the gear")
-        // At rest 1 s, then a drag: pans too, no menu.
-        let r0 = fields()["re"]
-        rest.press(forDuration: 1.0, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4)),
-                   withVelocity: 200, thenHoldForDuration: 0.3)
+        let dre = (num(f0, "re") - num(f1, "re")) / num(f1, "scale")
+        let dim = (num(f0, "im") - num(f1, "im")) / num(f1, "scale")
+        print("UITEST cruise swipe moved the centre by \(dre), \(dim) points (left, down)")
+        XCTAssertGreaterThan(dre, 0.2 * canvas.frame.width * 0.4, "a swipe in C did not pan with the finger")
+        XCTAssertGreaterThan(dim, 0.2 * canvas.frame.height * 0.2, "a swipe in C did not pan with the finger")
+        XCTAssertEqual(level(), "c", "a swipe left the cruise")
+        XCTAssertEqual(gear(), 1, "a swipe changed the gear")
+        // C: held 1 s right of the centre, then slid further right and held: it steers towards
+        // the finger, so the centre moves right (a pan would have moved it left by the slide,
+        // 15 % of the width).
+        let steerAt = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+        let steerOn = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        let r0 = fields()
+        steerAt.press(forDuration: 1.0, thenDragTo: steerOn, withVelocity: 200, thenHoldForDuration: 1.0)
+        let r1 = fields()
+        shot("finger-cruise-steered")
+        let steered = (num(r1, "re") - num(r0, "re")) / num(r1, "scale")
+        print("UITEST cruise hold moved the centre by \(steered) points (right)")
+        XCTAssertGreaterThan(steered, 0, "a held finger in C did not steer towards it (or it panned)")
         settle(0.3)
         XCTAssertFalse(menuShown, "a resting finger opened the menu in C")
         XCTAssertEqual(level(), "c")
-        XCTAssertNotEqual(fields()["re"], r0, "a rest-then-drag did not pan in C")
+        XCTAssertEqual(gear(), 1, "steering changed the gear")
         lever.doubleTap()
         settle(4)
         XCTAssertEqual(level(), "m")

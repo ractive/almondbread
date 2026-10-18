@@ -140,7 +140,8 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertNotEqual(fields()["re"], p0, "a drag after pinching did not move")
         shot("pinched-then-dragged")
 
-        // The cockpit's plane: autopilot. A finger steers; a tap pauses; the plane again stops.
+        // The cockpit's plane: autopilot. A finger held still steers (the wish), a swipe moves
+        // the picture (kb: decisions/controls "Touch", "Rest or swipe"); the plane again stops.
         let plane = try XCTUnwrap(point("autopilot"), "no cockpit plane")
         plane.tap()
         settle(3)
@@ -148,7 +149,7 @@ final class FirstUseUITests: XCTestCase {
         shot("autopilot")
         let steerFrom = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let steerTo = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3))
-        steerFrom.press(forDuration: 0.1, thenDragTo: steerTo, withVelocity: 200, thenHoldForDuration: 2)
+        steerFrom.press(forDuration: 0.8, thenDragTo: steerTo, withVelocity: 200, thenHoldForDuration: 2)
         settle(0.5)
         XCTAssertEqual(level(), "a", "steering left the autopilot")
         XCTAssertFalse(app.descendants(matching: .any)["Fly Here"].firstMatch.exists, "steering opened the menu")
@@ -157,6 +158,18 @@ final class FirstUseUITests: XCTestCase {
         shot("autopilot-after-steer")
         // The wish line went with the finger (device round: it stayed until the autopilot ended).
         XCTAssertEqual(fields()["wish"], "off", "the wish line stayed after the finger lifted")
+        // A quick swipe moves the picture, stays in A and draws no wish line.
+        let numA = { (f: [String: String], k: String) in Double(f[k] ?? "") ?? .nan }
+        let w0 = fields()
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)),
+                   withVelocity: 300, thenHoldForDuration: 0.2)
+        let w1 = fields()
+        let swiped = hypot(numA(w0, "re") - numA(w1, "re"), numA(w0, "im") - numA(w1, "im")) / numA(w1, "scale")
+        XCTAssertGreaterThan(swiped, 0.2 * canvas.frame.width * 0.4, "a swipe in the autopilot did not move the picture")
+        XCTAssertEqual(w1["wish"], "off", "a swipe in the autopilot drew a wish line")
+        XCTAssertEqual(level(), "a", "a swipe left the autopilot")
+        shot("autopilot-swiped")
         plane.tap()
         settle(3)
         XCTAssertNotEqual(level(), "a", "the plane did not stop the autopilot")

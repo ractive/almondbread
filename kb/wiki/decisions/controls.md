@@ -326,7 +326,7 @@ HUD.
 | Q / E, mouse wheel notch, trackpad scroll | speed ×0.8 / ×1.25, ×1.1 per notch, `e^(0.004·dy)` per scrolled point; 0.1–4 e-folds/s, default 0.9 (×2.5/s); momentum scrolls are ignored |
 | Space, W A S D, drag, pinch | work as before on top of the autopilot (W A S D: keyboard mode, which flies straight) |
 | R | stops it dead (reset) |
-| iOS finger | while on, a one-finger drag steers instead of panning; lifting it flies straight |
+| iOS finger | a resting finger is the wish, a swipe pans the picture without handing over (since 2026-10-18, "Touch" ▸ "Rest or swipe"; first: a one-finger drag steered instead of panning) |
 
 **Steering.** The pointer's offset `p` (view points from the centre; steering radius R = half
 the canvas's smaller side) gives a heading target `h* = p̂ · R · f(|p|/R)` with a dead zone of
@@ -1108,7 +1108,7 @@ the curve's deceleration `a` as its own rate of change, undershot to a standstil
 path short of the end, sat there for 1.5 s and then snapped (0.0045 e-folds). Once on the curve
 the flight now stays on it (`Flight::soft_curve`), so it lands in the frame the curve ends.
 
-**Hand-overs.** User steering (W A S D / arrows, a drag or touch pan, the gamepad's left stick;
+**Hand-overs.** User steering (W A S D / arrows, a drag or touch pan (in A a touch swipe pans without handing over since 2026-10-18, "Touch" ▸ "Rest or swipe"), the gamepad's left stick;
 during a journey leg also the pointer deflected past 0.35 of the steering radius for 0.6 s after
 moving 60 points since the leg took the wheel: a pointer crossing the canvas to a button does
 not count; *in A the pointer no longer hands over since 2026-10-17, it is a direction wish*,
@@ -1992,7 +1992,7 @@ simulators only; feel, haptics and thumb reach need a real device.
 | Cockpit click and tooltips | taps; the (?) explains (no hover, no tooltips) | pointer clicks |
 | (?) badges | tap (18-point fingertip) | — |
 | Orbit probe under the pointer | the last "Orbit Here" point (long-press drag moves it); the view centre otherwise | iPad pointer hover |
-| Autopilot wish from the pointer, target marker | finger drag, kept after lift; marker as on the Mac | pointer hover |
+| Autopilot wish from the pointer, target marker | a resting finger (a swipe pans, "Rest or swipe"), let go after the lift; marker as on the Mac | pointer hover |
 | Mini-map click / ⌥-click | tap jumps; long press flies (round 2) | — |
 | Place zoom pill | shown (no hover needed) | — |
 | Two-finger scroll setting (pan / zoom) | not applicable (pinch zooms) | trackpad scroll pans |
@@ -2010,7 +2010,7 @@ simulators only (`AB2 iPhone 17e`, `AB2 iPad mini`).
 
 | Input (touch) | Action | Core |
 | --- | --- | --- |
-| A finger at rest (0.2 s) or moving, in A, C or a journey's flight | steers (A: the wish; C: like the pointer; J: takes the wheel once off the dead zone, then the cruise steers). **Device round: A only; in C and J a drag pans** | `finger_steers`, `touch_hold` → `Steer`, `TouchSteer` |
+| A finger at rest (0.2 s) or moving, in A, C or a journey's flight | steers (A: the wish; C: like the pointer; J: takes the wheel once off the dead zone, then the cruise steers). **Device round: A only; in C and J a drag pans. Rest or swipe: a resting finger steers in A, C and J again, a swipe pans** | `finger_steers`, `touch_hold` → `Steer`, `TouchSteer` (replaced by `FingerDown` / `FingerMove` / `FingerUp`) |
 | Long press (0.45 s) with nothing flying, or during a fly-to | the long-press menu (as before) | `touch_hold` → `Menu` |
 | Long press on a mini-map | flies there (the Mac's ⌥-click), a light haptic | `touch_hold` → `FlyToMap`, `map_click(fly)` |
 | Long press on a cockpit icon or (?) | nothing (their taps act) | `touch_hold` → `Nothing` |
@@ -2157,6 +2157,9 @@ The first try on a real iPad Pro 11" (M5) found three things the simulators did 
 | Finger held still in C or a journey's flight | nothing (the drag after it pans; no menu while flying) | `touch_hold` → `Nothing` |
 | Finger in A (resting 0.2 s or moving) | the wish, as before, but let go once it settled after the lift: the wish line fades | `TouchSteer`, `TouchSteerEnd` |
 
+*Superseded the same day by "Rest or swipe" below: in C, J and A a resting finger steers and a
+swipe pans.*
+
 **1. "After the zoom there's also some panning."** `UIPinchGestureRecognizer` does not end when
 one finger lifts: it goes on with the remaining finger, its `location` jumps from the midpoint to
 that finger and then follows it. `handlePinch` sent that as the pinch centre's movement (`dx, dy`
@@ -2245,6 +2248,97 @@ twist test 10 of 10 on `AB iPad mini` and once on `AB iPhone 17e`.
 **Needs the device.** Pinch with one finger lifted early (both orders) — no jump, no pan, no
 fling; whether a drag in C feels like steering (the cruise keeps zooming at the screen centre,
 so a pan sets where it dives); whether the wish line in A is visible long enough to read.
+
+### Rest or swipe (2026-10-18)
+
+Device feedback on the iPad after the device round: in C (and a journey's flight) the drag now
+panned, but the old way of steering, a finger resting on the screen and the flight turning
+towards it while it stays down, was gone; the user wants both. In A the finger set the wish as
+the direction *from the centre to the finger*, so a swipe to the left on the right half drew a
+line pointing right: "random". Decided with the user: **one rule for C, a journey's flight and
+A: a finger that rests goes there, a finger that swipes moves the picture.** Manual (nothing
+flying, at a journey stop, a fly-to the user started) is unchanged: a drag pans, a long press
+opens the menu. The Mac's pointer is unchanged.
+
+| Input (touch), while A, C or a journey's flight flies | Action | Core |
+| --- | --- | --- |
+| Finger within 10 points of where it went down for 0.25 s | *rests*: steers until it lifts, also when it then slides (a joystick). C: like the Mac's pointer (heading spring, no idle timeout). A: the wish (line from the centre to the finger), let go once settled after the lift. Journey: takes the wheel as soon as it is off the steering dead zone (0.1 radius), then the cruise steers; inside the dead zone the leg flies on | `FINGER_SLOP`, `FINGER_REST`, `Navigator::finger_steer` |
+| Finger that leaves the 10 points sooner | *swipes*: pans 1:1, the picture catching up from the touch-down point (the first 10 points included); the release flings. C: the gear stays. Journey: takes the wheel and pans, as before. A: pans **without handing over**, no wish, no line | `Navigator::finger_pan` |
+| A tap (lifted before 0.25 s within the slop) | nothing from the finger (the tap pauses / resumes as before) | — |
+| A finger lifted after 0.25 s with no frame in between, or whose first move after 0.25 s leaves the slop | it had rested (the rest is checked before the move) | `finger_rest_check` |
+| Second finger (pinch, twist, two-finger tap) | the first finger is done: no rest, no swipe, no wish left; the finger left down after a pinch does nothing until every finger is off (as in the device round) | `FingerUp { cancelled: true }`, `pinched`, `TouchesLifted` |
+| Finger down on a mini-map / a cockpit icon or (?) badge | a swipe pans (A: without handing over); a rest does nothing (the map's long press flies, the taps act) | `TouchSpot::Map` / `Control` |
+| Finger down on the compass | never Rust's: its drag turns the view as before | `TouchSpot::Compass` |
+
+**Events.** Swift sends the single finger raw: `FingerDown { x, y }`, `FingerMove { x, y }` (every
+move), `FingerUp { cancelled }`, from the passive `FingerTracker` recogniser (which already
+counted fingers for `TouchesLifted`; it never recognises, cancels or delays touches); a second
+finger sends `FingerUp { cancelled: true }`. The host fills in where the finger went down
+(`Host::touch_spot`: help badge or cockpit, compass, mini-map, picture; the core event carries a
+`TouchSpot`). Rust classifies from the event times (`media_time` at arrival) and the frames
+(`advance` checks a pending finger; a pending finger counts as animating, so a frame comes even
+when nothing else moves). While Rust owns a finger (from `FingerDown` in A, C or a journey's
+flight until `TouchesLifted`) it swallows the pan recogniser's `Pan` and `GestureEnd` for it (not
+a pinch's `GestureEnd`, which still measures the pinch's fling). Elsewhere `FingerDown` is
+ignored (returns false) and the recogniser pans as before. `TouchSteer` / `TouchSteerEnd`, the
+long press's `Steer` hold (`TouchHold::Steer`, the 0.2 s `steerHold`) and the frame bit
+`FRAME_FINGER_STEERS` are gone; `touch_hold` says `Nothing` on the picture in A, C and J (Rust's
+finger), so no long press begins there.
+
+**Why raw, in Rust.** `UIPanGestureRecognizer` starts only after about 10 points and its
+translation starts there, so it cannot tell a finger that stayed put from one that has not
+reached its threshold yet, and its first 10 points are hidden. The passive recogniser sees every
+touch from the first point; the decision (distances, times, what each level does) is policy, so
+it is Rust's and unit-tested.
+
+**Thresholds.** 10 points is about UIKit's own pan start distance (what feels like a drag to the
+system is one here too; a resting fingertip's tremor stays well inside it). 0.25 s: a deliberate
+swipe crosses 10 points in under 0.1 s, and a finger put down to steer acts almost at once
+(round 2 used 0.2 s for the long press that steered). A slow drift of 7 points over 0.23 s still
+rests (test). *Needs the device:* whether 10 points / 0.25 s suits small fingers.
+
+**A and a swipe: no fight.** A touch swipe in A pans the view directly (not through the Mac's
+`Pan` hand-over; a Mac drag still hands over to cruise). It sets `manual_at`, so for
+`autopilot::MANUAL_HOLD` (1 s) after the last move, and while the fling runs, the autopilot is
+not `free`: the target lock releases its target (`Lock::update` with `free = false` drops target,
+next and pending search) and the heading eases to straight ahead. Then the lock picks up a target
+anew from the moved view (pickup search, off-thread as always). Nothing pulls the picture back
+to the old target: it no longer exists. No code in the autopilot changed. Test
+`a_swipe_in_a_pans_and_the_autopilot_re_aims` (seahorse view, synchronous lock: 240 points of
+swipe, level stays A, no wish, the lock empty right after the lift, a new target 3 s later, no
+rescue).
+
+**Journey.** It has steering (the cruise after a hand-over), so the rule holds there too: a
+resting finger takes the wheel once off the dead zone (as round 2 had it), a swipe takes the
+wheel and pans (as the device round).
+
+**Tests.** Rust (core `input`): `a_resting_finger_steers_and_a_swipe_pans_in_c` (rest steers
+past the idle timeout, rest-then-slide keeps steering and does not drag, swipe catches up 1:1
+from the touch-down point, the recogniser's `Pan` ignored, fling, gear kept),
+`a_resting_finger_wishes_in_a` (wish and line, let go after the lift, a tap and a rest near the
+centre leave none, a rest found only at the lift counts, Z off / on), `a_swipe_in_a_pans_and_the_autopilot_re_aims`,
+`a_slow_drift_within_the_slop_rests` (7 points in 0.23 s rests; 12 points in 0.15 s swipes; still
+then 50 points at 0.3 s had rested), `a_held_finger_steers_in_flight_and_opens_the_menu_in_m`
+(`touch_hold` per level and spot; in M `FingerDown` is not Rust's and the recogniser's drag pans
+and flings; compass never, mini-map rest steers nothing; a fly-to is not steering),
+`a_resting_finger_takes_the_wheel_from_a_journey_flight_and_steers`,
+`a_second_finger_ends_the_resting_or_swiping_finger` (cancelled pending and steering fingers, a
+pinch before the cancel, moves and pans ignored until `TouchesLifted`), and the device round's
+`a_finger_left_after_a_pinch_does_not_pan` on the new events. XCTest:
+`TouchControlsUITests.testRestSteersSwipePans` (A: hold then slide, no menu, A stays, line gone
+after the lift; a quick swipe moves the picture, no wish line, A stays. C: a quick swipe pans
+with the finger, gear kept; a 1 s hold right of the centre then a slide further right moves the
+centre right (a pan would move it left); M: the menu) replaces `testFingerInAutopilotAndCruise`;
+`FirstUseUITests.testFirstSession` holds before steering the autopilot and adds a swipe there.
+Run 2026-10-18 on `DR iPad Pro 11` (iPad Pro 11-inch M5 simulator, `-only-testing` the two): both
+pass. Screenshots looked at: the wish line right after a rested finger lifted in A, none after a
+swipe; the A swipe moved the centre by about 960 / 700 points (in the end scale, the autopilot
+zooming on), the C swipe 375 / 272, and a 1 s hold right of the centre then a slide further
+right moved the cruise's centre 335 points *right* (steering; a pan moves it left).
+
+**Needs the device.** Whether 10 points / 0.25 s separate a rest from a swipe for real (small)
+fingers; whether a rest-then-slide feels like a joystick; how the A swipe and the lock's re-aim
+after 1 s feel.
 
 ### Round buttons: the Mac toolbar on touch (2026-10-18)
 

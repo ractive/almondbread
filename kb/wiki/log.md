@@ -1551,3 +1551,15 @@ worked. The test now draws an exact 8.6° twist through XCTest's event record
 `a_single_twist_event_crossing_the_dead_band_turns_by_the_excess`. Noted: UIKit's 5–6° start
 hysteresis adds to the 15° band on real fingers. [[decisions/controls]] "Touch" ▸ "Device round",
 [[platform/ios-simulator]] "QA".
+
+## [2026-10-18] decision | Touch: rest to steer, swipe to move the picture
+
+[[decisions/controls]] "Touch" ▸ "Rest or swipe": iPad feedback (C lost the resting finger that
+steered; A's wish line from the centre to the finger did not follow a swipe). One rule while A,
+C or a journey's flight flies: a finger within 10 points for its first 0.25 s rests and steers
+until it lifts (C: like the pointer; A: the wish; journey: takes the wheel off the dead zone),
+one that leaves sooner swipes and pans 1:1 from its touch-down point (in A without handing over:
+the lock lets go during the 1 s manual hold and picks up from the moved view). Swift sends the
+raw single finger (`FingerDown` / `FingerMove` / `FingerUp`) from the passive finger tracker,
+Rust classifies (`FINGER_SLOP`, `FINGER_REST`); `TouchSteer`, the steering long press and
+`FRAME_FINGER_STEERS` are gone. Manual and the Mac unchanged.
