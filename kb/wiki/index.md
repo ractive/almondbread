@@ -23,6 +23,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[sources/apple-metal-feature-set-tables]] — Apple Metal Feature Set Tables (May 2026): GPU families per MetalFX feature (temporal scaler Apple7+, denoiser Apple9+) (digested)
 - [[sources/apple-metalfx-docs]] — Apple docs and SDK headers for MetalFX: spatial/temporal scalers, jitter and motion conventions, texture usage, reactive mask, dynamic resolution (digested)
 - [[sources/apple-metalfx-taa-sample]] — Apple sample code: temporal antialiasing and upscaling with MetalFX (digested)
+- [[sources/apple-device-tooling]] — Xcode 26.6 devicectl (install, launch --console, copy from the app container), xcodebuild automatic provisioning flags, os_proc_available_memory (digested)
 - [[sources/apple-simulator-tooling]] — Xcode 26.6 simctl, xcodebuild test and XCTest touch synthesis: what the iOS simulator checks use (digested)
 - [[sources/apple-swiftui-observation]] — Observation and SwiftUI update docs, plus our macOS 26 call stacks: the grouped Form is a non-lazy SwiftUI layout
 - [[sources/bevy-0-20-release-notes]] — Bevy 0.20 release notes (2026-10-08): WESL shader migration, Feathers widgets, no editor; seven breaking releases since 0.14 (skimmed)
@@ -196,6 +197,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[platform/gpu-watchdog-and-chunking]] — ~5 s per-command-buffer watchdog, resumable per-pixel state, compaction, chunk scheduler
 - [[platform/ios-ipad-considerations]] — port notes: memory, thermal, unknown iOS watchdog, background limits (mostly inference)
 - [[platform/metalfx]] — MetalFX temporal/spatial upscaling from Rust (objc2-metal-fx): conventions verified, 3× limit, GPU cost and memory, quality on fractal flights (R4: no gain over our compose)
+- [[platform/ios-device]] — first run on an iPad (`make ios-device`: signing, Developer Mode, troubleshooting), measured renderer memory per texel / per reference point and the memory budget, thermal and background policy, licence check
 - [[platform/ios-simulator]] — iOS 26.5 simulator runs: self-test and XCTest touch UI test (pan, pinch, rotate, taps, buttons), the presented-handler crash and HEIC thumbnail deadlock fixed, compact HUD/button layout
 - [[platform/metal-compute]] — runtime compilation and mathMode, function-constant pipelines, shared buffers, indirect dispatch, timestamps; pipeline warm-up of all variants at start, gesture resolution probes and GPU clocks (2026-10-17)
 - [[platform/mpfr-gmp-on-apple-silicon]] — GMP on M1, fixed-size mul, MT3 threading, softfloat vs floatexp timings, no Metal bignum; our AlmondbreadMath vs GMP mpf measured; Rust port kernel findings

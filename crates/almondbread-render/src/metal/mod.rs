@@ -224,6 +224,10 @@ impl GpuBackend for MetalBackend {
         self.device.name().to_string()
     }
 
+    fn allocated_bytes(&self) -> Option<u64> {
+        Some(self.device.currentAllocatedSize() as u64)
+    }
+
     fn create_buffer(&self, len: usize, storage: Storage) -> Result<MetalBuffer, GpuError> {
         let mode = match storage {
             Storage::Private => MTLResourceOptions::StorageModePrivate,

@@ -82,6 +82,14 @@ public enum PlaceThumbnails {
         return cache[id]
     }
 
+    /// Forgets the decoded bitmaps (a memory warning, kb: platform/ios-device "Memory"); shown
+    /// thumbnails stay, others decode again on demand.
+    static func purge() {
+        lock.lock()
+        cache.removeAll()
+        lock.unlock()
+    }
+
     private static func store(_ id: String, _ image: CGImage) {
         lock.lock()
         cache[id] = image

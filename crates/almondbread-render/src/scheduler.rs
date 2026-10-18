@@ -38,6 +38,9 @@ use crate::gpu_types::{
     UnresolvedListParams,
 };
 use crate::la_gpu::{LaBuildJob, LaGpu};
+use crate::memory::{MemoryBudget, Thermal};
+
+mod device;
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
 /// Dense-region colours cached per palette: (palette key, deep, filament).
@@ -248,7 +251,14 @@ impl SeedReport {
 
 impl Default for SchedulerConfig {
     fn default() -> Self {
-        let ios = cfg!(target_os = "ios");
+        Self::for_platform(cfg!(target_os = "ios"))
+    }
+}
+
+impl SchedulerConfig {
+    /// The defaults of iOS (`ios`: half the live and list capacity: less fixed memory, kb:
+    /// platform/ios-device "Memory") or of the Mac; the CLI emulates iOS with `--ios 1`.
+    pub fn for_platform(ios: bool) -> Self {
         Self {
             live_capacity: if ios { 1 << 19 } else { 1 << 20 },
             max_list_capacity: if ios { 1 << 21 } else { 1 << 22 },
@@ -1290,6 +1300,12 @@ pub struct Renderer<B: GpuBackend> {
     /// (cleared when a job starts).
     retry_pending: bool,
     epoch: Instant,
+    /// Device constraints (kb: platform/ios-device; `device.rs`): the memory budget, the
+    /// thermal state with the settings it scaled, and suspension in the background.
+    memory_budget: MemoryBudget,
+    thermal: Thermal,
+    thermal_base: Option<device::ThermalBase>,
+    suspended: bool,
 }
 
 /// Pipelines compiling on the warm-up threads: their keys and where they arrive.
@@ -1488,6 +1504,10 @@ impl<B: GpuBackend> Renderer<B> {
             pinned_iterations: None,
             retry_pending: false,
             epoch: Instant::now(),
+            memory_budget: MemoryBudget::NONE,
+            thermal: Thermal::Nominal,
+            thermal_base: None,
+            suspended: false,
         })
     }
 
@@ -1525,7 +1545,9 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The iteration limit the next frame uses.
     pub fn max_iterations(&self) -> usize {
-        self.settings.max_iterations(&self.viewport)
+        self.settings
+            .max_iterations(&self.viewport)
+            .min(self.memory_iteration_cap())
     }
 
     /// Forwards a decoded input event to the navigator (which moves the viewport).
@@ -2211,6 +2233,11 @@ impl<B: GpuBackend> Renderer<B> {
         if width == 0 || height == 0 || points_per_pixel <= 0.0 {
             return outcome;
         }
+        // In the background: no GPU work at all (the view resumes where it was).
+        if self.suspended {
+            outcome.animating = false;
+            return outcome;
+        }
         let interacting = self.navigator.is_interacting(now);
         // The display's refresh interval, from consecutive frames (gesture frame budget).
         let since = now - self.last_frame_time;
@@ -2334,6 +2361,13 @@ impl<B: GpuBackend> Renderer<B> {
             return outcome;
         }
         if self.job.is_none() {
+            self.update_progress(now);
+            return outcome;
+        }
+        if self.refinement_paused() {
+            // Critical thermal state: the view's first full frame is shown; nothing more until
+            // the device cools down (the platform then asks for frames again).
+            self.publish_stats();
             self.update_progress(now);
             return outcome;
         }
@@ -2594,6 +2628,8 @@ impl<B: GpuBackend> Renderer<B> {
         let texel = self.viewport.scale * points_per_pixel / ss as f64;
         let viewport = self.viewport.clone();
         max_iter = max_iter.max(self.period_floor(&viewport, texel, width.max(height) * ss, max_iter));
+        // The reference (twice the limit) and its tables must fit the device's memory.
+        max_iter = max_iter.min(self.memory_iteration_cap());
         ComputeKey {
             viewport: self.viewport.clone(),
             max_iter,
@@ -2643,7 +2679,7 @@ impl<B: GpuBackend> Renderer<B> {
             None if r.points.len() - 1 > heuristic => 4 * heuristic,
             None => 0,
         };
-        floor.min(4 * heuristic).min(self.settings.max_iterations_cap)
+        floor.min(4 * heuristic).min(self.iteration_cap())
     }
 
     fn start_job(&mut self, mut key: ComputeKey, mode: JobMode, now: f64) {
@@ -2869,7 +2905,7 @@ impl<B: GpuBackend> Renderer<B> {
         } else {
             self.config.extension_factor
         };
-        let cap = self.settings.max_iterations_cap;
+        let cap = self.iteration_cap();
         if mode != JobMode::Interactive
             && factor > 1
             && let Some(last) = levels.last_mut()
@@ -3319,7 +3355,8 @@ impl<B: GpuBackend> Renderer<B> {
         if !self.config.adaptive_budget {
             return self.config.interactive_frame_budget;
         }
-        (0.5 * self.refresh_interval).clamp(0.004, 0.012)
+        // Hot device: less GPU per refresh (coarser gesture previews).
+        (0.5 * self.refresh_interval).clamp(0.004, 0.012) * self.thermal.budget_scale()
     }
 
     /// Admission order for a refinement level (FL, kb: techniques/frame-reuse-and-progressive):
@@ -4496,7 +4533,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// Decides the next pass: its limit (x4, else x2 the last, within the cap, the reference's
     /// reach and the budget) or why there is none; starts its first segment scan.
     fn further_next_pass(&mut self) {
-        let cap = self.settings.max_iterations_cap;
+        let cap = self.iteration_cap();
         let extra = self
             .job
             .as_ref()
@@ -4801,11 +4838,7 @@ impl<B: GpuBackend> Renderer<B> {
         // pixel running to each limit (bounded by the budget left).
         let mut remaining_gpu = 0.0;
         if f.running() {
-            let ceiling = job
-                .key
-                .max_iter
-                .max(self.settings.max_iterations_cap)
-                .min(MANUAL_ITERATIONS_MAX);
+            let ceiling = job.key.max_iter.max(self.iteration_cap()).min(MANUAL_ITERATIONS_MAX);
             let rate = Self::further_rate(job, self.rate).max(1.0);
             let mut n = f.limit.max(f.reached);
             let pass_left = f.unresolved.saturating_sub(f.resolved + f.left + finished);
@@ -4860,12 +4893,8 @@ impl<B: GpuBackend> Renderer<B> {
             && !level.use_interior
             && level.crossed as f64 >= autoiter::RETRY_FRACTION * outcome.texels as f64;
         let old = self.settings.learned_iterations;
-        let autoiter::Learned { limit: learned, retry } = autoiter::learn_iterations(
-            old,
-            &outcome,
-            self.settings.max_iterations_cap,
-            depth_iterations(&self.viewport),
-        );
+        let autoiter::Learned { limit: learned, retry } =
+            autoiter::learn_iterations(old, &outcome, self.iteration_cap(), depth_iterations(&self.viewport));
         if self.config.trace {
             println!(
                 "learn: soft {} reached {} total {} crossed {} escapedPast {:?} maxEscape {} unresolved {} -> {}{}",
@@ -5779,7 +5808,7 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         let t_texel = t.scale * texel.ratio(viewport.scale);
-        let max_iter = self.settings.max_iterations(&t);
+        let max_iter = self.settings.max_iterations(&t).min(self.memory_iteration_cap());
         let serves = |r: &Reference| r.fit(&t, t_texel, size, max_iter) == Fit::Good;
         if self.reference.as_ref().is_some_and(serves) || self.spare_reference.as_ref().is_some_and(serves) {
             return;
@@ -5839,9 +5868,7 @@ impl<B: GpuBackend> Renderer<B> {
             // its cut (`exact_reach`). Near the -3/4 neck the centre escapes long after the
             // limit, and the passes are what resolve the view.
             let factor = self.config.extension_factor.max(self.config.offscreen_extension).max(1);
-            let reach = max_iter
-                .saturating_mul(factor)
-                .min(max_iter.max(self.settings.max_iterations_cap));
+            let reach = max_iter.saturating_mul(factor).min(max_iter.max(self.iteration_cap()));
             let short = self.reference.as_ref().is_some_and(|r| r.exact_reach() < reach);
             if fit != Fit::Good || short {
                 let r = Reference::compute_f64(viewport, reach, BAILOUT);
@@ -5864,7 +5891,7 @@ impl<B: GpuBackend> Renderer<B> {
             // minibrot in view then sets the limit (`period_floor`) instead of an unresolved
             // first pass.
             let search = if self.settings.auto_iterations {
-                (4 * depth_iterations(viewport)).min(self.settings.max_iterations_cap)
+                (4 * depth_iterations(viewport)).min(self.iteration_cap())
             } else {
                 0
             };
@@ -6499,7 +6526,7 @@ impl<B: GpuBackend + Clone> Renderer<B> {
         };
         fresh.settings.auto_iterations = false;
         fresh.settings.manual_iterations = max_iter;
-        fresh.settings.max_iterations_cap = self.settings.max_iterations_cap.max(max_iter);
+        fresh.settings.max_iterations_cap = self.iteration_cap().max(max_iter);
         fresh.settings.interior_detection = interior;
         // The shown level is one sample per pixel (anti-aliasing accumulates separately).
         fresh.settings.supersampling = almondbread_core::settings::Supersampling::Off;

@@ -163,7 +163,9 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         fs::create_dir_all(&stills_dir)?;
     }
 
-    let mut r = Renderer::new(backend.clone())?;
+    // `--ios 1`: the iOS scheduler defaults (smaller live and list capacity).
+    let config = almondbread_render::SchedulerConfig::for_platform(o.get("ios") == Some("1"));
+    let mut r = Renderer::with_config(backend.clone(), config)?;
     // The app's defaults (the default look, progressive AA), then CLI flags, then the script.
     if o.has("look") || o.has("ss") || o.has("palette") || o.has("iterations") {
         let app_ss = r.settings.supersampling;
@@ -176,6 +178,13 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         apply_json_settings(s, &mut r.settings);
     }
     o.apply_renderer(&mut r);
+    // `--memory-limit MB`: the renderer under a device's memory ceiling (kb: platform/ios-device
+    // "Memory"); the iteration limit is capped so the reference and its tables fit.
+    if let Some(mb) = o.f64("memory-limit") {
+        r.set_memory_budget(almondbread_render::memory::MemoryBudget {
+            ceiling: Some((mb * 1048576.0) as u64),
+        });
+    }
     // One view point per pixel: script positions and speeds are in video pixels.
     let (w_pts, h_pts) = (size.0 as f64, size.1 as f64);
     r.handle_input(
@@ -275,6 +284,11 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let mut last_input_t = 0.0f64;
     let mut final_after: Option<f64> = None;
     let mut presented_frames = 0usize;
+    // Peak memory by kind (`memory_report`), and the iteration limit at the peak.
+    let ring_bytes = (RING * size.0 * size.1 * 4) as u64;
+    let mut mem_peak = almondbread_render::memory::MemoryReport::default();
+    let mut mem_total = 0u64;
+    let mut mem_limit_at_peak = 0usize;
 
     let flush = |r: &Renderer<B>,
                  queue: &mut std::collections::VecDeque<(usize, u64, usize)>,
@@ -338,6 +352,18 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         }
         let outcome = r.render_frame(now, size.0, size.1, 1.0, &mut |_| Some((target.clone(), None)));
         let frame_cpu = r.clock() - cpu0;
+        {
+            let mut m = r.memory_report();
+            m.gpu = m.gpu.map(|g| g.saturating_sub(ring_bytes));
+            mem_peak.gpu = mem_peak.gpu.max(m.gpu);
+            mem_peak.reference = mem_peak.reference.max(m.reference);
+            mem_peak.tables = mem_peak.tables.max(m.tables);
+            mem_peak.caches = mem_peak.caches.max(m.caches);
+            if m.total() > mem_total {
+                mem_total = m.total();
+                mem_limit_at_peak = r.max_iterations();
+            }
+        }
         if r.navigator.last_interaction != before || r.navigator.is_moving() {
             last_input_t = t;
             final_after = None;
@@ -471,6 +497,21 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             fs.preview_iterations / pf,
             fs.preview_chunk_gpu * 1000.0 / pf,
             fs.iterations,
+        );
+    }
+    {
+        let mb = |b: u64| b as f64 / 1048576.0;
+        println!(
+            "  memory peak: renderer {:.0} MB (GPU {:.0} MB without the {RING} frame targets, reference {:.1} MB, tables {:.1} MB, caches {:.1} MB on the CPU), limit {} iterations at the peak{}",
+            mb(mem_total),
+            mb(mem_peak.gpu.unwrap_or(0)),
+            mb(mem_peak.reference),
+            mb(mem_peak.tables),
+            mb(mem_peak.caches),
+            mem_limit_at_peak,
+            r.memory_budget()
+                .ceiling
+                .map_or(String::new(), |c| format!(", budget ceiling {:.0} MB", mb(c))),
         );
     }
     if ap_frames > 0 {

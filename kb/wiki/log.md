@@ -1430,3 +1430,20 @@ the spring; now it stays on the curve), and Q could not bring the autopilot or a
 gear in cruise ("gear 5", "reverse 3 · boost") and the set speed in A and J ("target ×20") only
 while the rate flown differs from it by more than 5 %; in J it now compares the journey speed
 with the leg's flown speed. Cockpit 306 points wide (fits a phone).
+
+## [2026-10-18] decision | iPhone/iPad device readiness: device build, memory budget, thermal, background
+
+Prepared without a device. `make ios-device` / `ios-device-selftest` / `ios-device-check` /
+`ios-device-doctor` (`scripts/ios-device.sh`): automatic signing for team 9KNMHVRSTW through
+command-line overrides (the simulator build stays unsigned), devicectl install, launch and
+self-test with its PNG copied back from the app container; clear messages for no device, not
+paired, Developer Mode off, no Xcode account. Measured renderer memory (`fly --ios 1`, M1 Pro):
+~108 MB fixed + ~67 B per texel on the GPU (449–470 MB at 2752×2064 at home and at 1e-3007),
+references and tables < 4 MB at the default limits, ~130 B per reference point for big manual
+limits (+408 MB for 10 M vs 1 M). New Rust policy (`memory.rs`, `scheduler/device.rs`): a
+budget from `os_proc_available_memory()` caps output texels (the drawable shrinks) and the
+iteration limit; memory warnings drop caches; thermal serious/critical lower GPU budgets, drop
+compute further, cap 60/30 Hz, critical stops refinement after the first full frame; scenes
+in the background submit no GPU work. Licence: no LGPL in the iOS binary (own BigFloat).
+Pages: [[platform/ios-device]], [[platform/ios-ipad-considerations]],
+[[sources/apple-device-tooling]].
