@@ -2041,6 +2041,21 @@ Checked in the app (2026-10-19, `--ui-demo=tour-valleys`): the ring on the M(24,
 the 1e50 view the same two-armed spiral; the 1e100 fork with three branches (covered in stars, so
 the text says that, not "spirals").
 
+### The doubling tour
+
+`tours/doubling.md` ("Patterns that double", place `three-way-junction`), 9 steps, user request
+2026-10-18: from the M(4,1) fork (3 arms) towards the period-39 minibrot next to it (nucleus
+−0.101095952005097279 + 0.956281332988737429i, `locate --center <M(4,1)> --radius 1e-6`, size
+10^−10.41), views centred on the nucleus at spans 2e−5 (the fork at the top, a ring on the
+nucleus), 1.5e−6 (6 arms), 1.4e−8 (12), 8e−10 (24 and a lace ring), 1.2e−10 (the minibrot); then why
+(near a minibrot one round of its loop acts like a fresh z² + c, and squaring doubles angles; our
+simplification of the embedded-Julia mechanism, [[sources/mathr-julia-morphing-posts]]), the
+`embedded-julia` place and Julia morphing in deep-zoom videos ([[sources/deep-zoom-videos]]).
+Depth fractions of the doublings: [[questions/julia-morph-depth-fractions]].
+
+Checked in the app (2026-10-19, `--ui-demo=tour-doubling`): 6, 12 and 24 arms at steps 3–5, the
+minibrot at step 6.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,

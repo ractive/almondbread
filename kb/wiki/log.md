@@ -1613,3 +1613,10 @@ New tour `tours/valleys.md` (10 steps): seahorses and their tails, Misiurewicz p
 centres, M(24,2) at 1e4 and 1e50 (self-similarity), elephant valley, the M(4,1) fork at 0.005 and
 1e100. Orbit probes at Misiurewicz points are misleading in f64 (M(4,1) "escapes after 137 steps").
 [[decisions/controls]] "The valleys tour".
+
+## [2026-10-19] decision | Tour: patterns that double
+
+New tour `tours/doubling.md` (9 steps): from the M(4,1) fork to a period-39 minibrot 5.2e-6 away,
+the arms double 3 → 6 → 12 → 24 on the way (12 at half of the log-depth, 24 at three quarters:
+added to [[questions/julia-morph-depth-fractions]]), why squaring doubles, embedded Julia sets and
+Julia morphing. [[decisions/controls]] "The doubling tour".
