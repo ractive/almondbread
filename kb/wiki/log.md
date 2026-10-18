@@ -1591,3 +1591,11 @@ Cusp, the control center's π switch, reading and hunt buttons, FFI `pi_flight` 
 persistence; help (getting started, overlays, popovers) and the neck place point to the tour. The
 π panel keeps left of the tour card. [[decisions/controls]] "π meter", "Guided tours" key table,
 "The π tour".
+
+## [2026-10-19] decision | Tour: why some points are hard
+
+New tour `tours/limits.md` (9 steps): slow points at the neck with the orbit overlay, proven
+interior, fog that stays (the neck gap at 1.5e-8), computing further, f64's 16 digits,
+perturbation and skipping, ending at the 1e302 needle minibrot. Two pitfalls found on the way:
+low `iterations:` values show no fog in the app (the scheduler extends and computes further), and
+the tour test cannot take views below about 1e-305. [[decisions/controls]] "The limits tour".

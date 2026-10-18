@@ -1972,6 +1972,36 @@ Checked in the app (2026-10-18, M1 Pro, release, background window, `--ui-demo=t
 card (at the cusp they cover the probe's ruler, which sits left of the elephant valley: accepted).
 `make interaction-test` "pi hunt": counted at the neck, meter off after the tour, 106 fps.
 
+### The limits tour
+
+`tours/limits.md` ("Why some points are hard", place `seahorse-minibrot-1e31`), 9 steps, user
+request 2026-10-18: a slow point 0.001 above the neck (orbit overlay: escapes after 3 147 steps;
+`N ≈ π/ε`, [[techniques/pi-in-the-mandelbrot-set]]), one 1e-5 above it (*still undecided after 100 000
+steps*; it escapes after about 314 000), −0.74 just inside the cardioid (proven after about 1 900
+steps), fog in the neck gap at −0.74999996120361811 + 0.00036918279150454967i, span 1.5e-8
+([[synthesis/neck-escape-statistics]]: its discs escape after 2e7–7e7), computing further, then
+f64's 16 digits at the 1e31 seahorse minibrot, perturbation ([[techniques/perturbation]],
+[[techniques/rebasing]]) and skipping ([[techniques/linear-approximation-imagina]]) at the 1e302 needle
+minibrot (one sample per pixel: 1.09e9 iterations in 1.97e7 steps, 55×; headless `render`,
+2026-10-19, M1 Pro).
+
+**Pitfall: a low `iterations:` shows no fog in the app.** A first version set `iterations: 100`
+(then 6) on seahorse valley to show fog; the captures had none. The scheduler extends unresolved
+pixels past the limit (×16, `extension_factor`) and then "computes further" up to the cap
+(`progress --iterations 6` at seahorse valley: 16 % open at 96 steps after 0.07 s, 805 pixels at
+98 304 after 0.5 s). Fog only stays where points need more than the upper limit, so the tour shows
+the neck gap instead (54 % open, "computing further · to 200 k steps", in the capture). Same for
+the colours tour.
+
+**Pitfall: tour views deeper than about 1e-305.** `every_bundled_tour_parses_and_every_file_is_listed`
+checks `viewport.scale.to_f64() > 0`, which underflows below f64's range; a step at `swirl-1e3000`
+failed it. The tour ends at `needle-minibrot-1e302` instead (no change to tour.rs, which another
+agent was editing).
+
+Checked in the app (2026-10-19, M1 Pro, release, background window, `--ui-demo=tour-limits`): fates
+3 147 steps, still undecided after 100 000, settles on a fixed point; the fog view; the 1e31 and
+1e302 minibrots; long flights between deep places replaced by `move: jump`.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,
