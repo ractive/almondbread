@@ -906,10 +906,11 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     }
 
     fn update_probe(&mut self, renderer: &Renderer<B>, view: &Viewport, ppp: f64, length: usize) {
-        // A tour may set the point (kb: decisions/controls "Guided tours"); else the pointer.
+        // A tour may set the point (kb: decisions/controls "Guided tours"); else a touch probe or
+        // the pointer (kb: decisions/controls "Touch").
         let (tx, ty) = match &self.tour.probe {
             Some(c) => view.offset_of(c),
-            None => renderer.navigator.zoom_target(),
+            None => renderer.navigator.probe_point(),
         };
         // Key: the view, the target to 1/64 point, the length and the reference.
         let serial = renderer.reference_serial();
@@ -1462,6 +1463,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // The π meter keeps clear of the maps in the right corners and of what is at the
         // bottom left (maps, the cosmic scale).
         let mut reserve = crate::pi_meter::Reserve::default();
+        // The bottom-left map row, in points (across, high), for the touch cockpit.
+        let mut maps_bottom_left: Option<(f64, f64)> = None;
         if let Some(stack) = &self.maps
             && !stack.panels.is_empty()
         {
@@ -1473,7 +1476,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             match s.map_corner {
                 Corner::BottomRight => reserve.bottom_right = block,
                 Corner::TopRight => reserve.top_right = block,
-                Corner::BottomLeft => reserve.bottom_left = extent,
+                Corner::BottomLeft => {
+                    reserve.bottom_left = extent;
+                    maps_bottom_left = Some((f64::from(extent) / px, f64::from(block) / px));
+                }
                 Corner::TopLeft => {}
             }
         }
@@ -1485,7 +1491,20 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         self.marker.draw(scene, size, ppp, view, now, &mut key);
         self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
         // The cockpit at the bottom, right of the cosmic scale (bottom left) when it shows.
-        let left = if self.cosmic.enabled() { 376.0 } else { 0.0 };
+        let mut left = if self.cosmic.enabled() { 376.0 } else { 0.0 };
+        // Touch (kb: decisions/controls "Touch"): right of a bottom-left map row when it fits
+        // there, else above it (a phone in portrait), so no map covers a 44-point cell.
+        self.cockpit.lift.set(0.0);
+        if self.cockpit.touch
+            && let Some((across, high)) = maps_bottom_left
+        {
+            let insets = renderer.navigator.insets();
+            if self.cockpit.fits(size, ppp, insets, f64::max(left, across)) {
+                left = f64::max(left, across);
+            } else {
+                self.cockpit.lift.set(high);
+            }
+        }
         self.cockpit.draw(
             scene,
             help,

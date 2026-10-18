@@ -213,6 +213,39 @@ pub enum InputEvent {
         x: f64,
         y: f64,
     },
+    /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot or the cruise
+    /// at (x, y). In C it steers like the Mac pointer, for as long as the finger is down (no
+    /// idle timeout); in A its direction is the wish. Not pointer input: the zoom target and
+    /// the orbit probe stay where they are.
+    TouchSteer {
+        x: f64,
+        y: f64,
+    },
+    /// The steering finger lifted: C flies straight on; in A the wish stays where the finger
+    /// left it (a touch has no resting pointer) until the next steering touch, or until A ends.
+    /// A finger lifted inside the wish's dead zone clears it.
+    TouchSteerEnd,
+    /// The touch throttle lever crossed one detent up (`up`: E, towards "in") or down (Q): the
+    /// pedals' path, one rung per detent. Within one drag the speed stops at zero (the keys'
+    /// detent: a held key never crosses zero); lifting and dragging again crosses.
+    Throttle {
+        up: bool,
+    },
+    /// The finger left the throttle lever (the gear stays).
+    ThrottleEnd,
+    /// The orbit probe (touch has no hover): the orbit overlay's point c at (x, y) view points,
+    /// fixed on screen like a resting mouse pointer; `None` gives it back to the zoom target.
+    Probe(Option<(f64, f64)>),
+    /// Seek minibrot (N) about (x, y) instead of the view centre (long-press menu).
+    SeekAt {
+        x: f64,
+        y: f64,
+    },
+    /// Fly here (long-press menu): the fly-to path to (x, y) centred, [`FLY_HERE_ZOOM`]× deeper.
+    FlyHere {
+        x: f64,
+        y: f64,
+    },
 }
 
 impl InputEvent {
@@ -221,7 +254,16 @@ impl InputEvent {
     pub fn is_finite(&self) -> bool {
         let f = |v: &[f64]| v.iter().all(|x| x.is_finite());
         match *self {
-            Self::KeyDown(_) | Self::KeyUp(_) | Self::Shift(_) | Self::FocusLost | Self::GestureEnd => true,
+            Self::KeyDown(_)
+            | Self::KeyUp(_)
+            | Self::Shift(_)
+            | Self::FocusLost
+            | Self::GestureEnd
+            | Self::TouchSteerEnd
+            | Self::Throttle { .. }
+            | Self::ThrottleEnd => true,
+            Self::Probe(p) => p.is_none_or(|(x, y)| f(&[x, y])),
+            Self::TouchSteer { x, y } | Self::SeekAt { x, y } | Self::FlyHere { x, y } => f(&[x, y]),
             Self::Resize { width, height } => f(&[width, height]),
             Self::Insets {
                 top,
@@ -310,6 +352,8 @@ pub const STEER_HANDOVER: f64 = 0.35;
 /// counts as a wish (kb: decisions/controls "Pointer wish"): a pointer resting off-centre when
 /// Z was pressed is not a wish.
 pub const WISH_TRAVEL: f64 = 24.0;
+/// "Fly here" (touch long-press menu) zooms in by this factor while centring the point.
+pub const FLY_HERE_ZOOM: f64 = 8.0;
 /// A released cruise slower than this (e-folds/s) no longer holds a journey's next leg back.
 pub const LEG_CARRY_REST: f64 = 0.15;
 /// A lane-assist nudge lights the cockpit's lane icon this long (s).
@@ -421,6 +465,13 @@ pub struct Navigator {
     assist_nudged: f64,
     /// The compass's eased turn back to north (kb: decisions/controls "Compass").
     north: Option<crate::compass::NorthTurn>,
+    /// Touch (kb: decisions/controls "Touch"): the steering finger while it is down, the wish
+    /// it left in A after it lifted, the direction of a throttle drag that braked to zero (it
+    /// stops there until the finger lifts), and the orbit probe placed by touch.
+    touch: Option<(f64, f64)>,
+    touch_wish: Option<(f64, f64)>,
+    throttle_rest: Option<f64>,
+    probe: Option<(f64, f64)>,
 }
 
 /// A velocity following a target on a critically damped spring.
@@ -521,6 +572,10 @@ impl Default for Navigator {
             scroll_zooms: false,
             assist_nudged: f64::NEG_INFINITY,
             north: None,
+            touch: None,
+            touch_wish: None,
+            throttle_rest: None,
+            probe: None,
         }
     }
 }
@@ -762,6 +817,7 @@ impl Navigator {
     fn reset_wheel(&mut self) {
         self.wheel_travel = 0.0;
         self.deflected_since = None;
+        self.touch_wish = None;
     }
 
     /// The user takes the wheel from the autopilot or a journey's flight: the cruise engages
@@ -874,6 +930,32 @@ impl Navigator {
             }
         } else {
             self.journey.set_speed(next, now);
+        }
+    }
+
+    /// One detent of the touch throttle (kb: decisions/controls "Touch"): what an E / Q press
+    /// does (a fly-to's speed during a fly-to, else the pedal), except that a drag which brought
+    /// the level's speed to zero stops there: the lever crosses into the other direction only
+    /// in a new drag, like a new key press.
+    fn throttle(&mut self, dir: f64, viewport: &Viewport, now: f64) {
+        self.note_interaction(now);
+        if self.flight.is_some() && !self.journey.is_running() && self.cruise.landing().is_none() {
+            let f = if dir > 0.0 {
+                autopilot::SPEED_STEP
+            } else {
+                1.0 / autopilot::SPEED_STEP
+            };
+            self.scale_flight_speed(f, now);
+            return;
+        }
+        let before = self.cockpit(now).set;
+        let cross = self.throttle_rest != Some(dir);
+        self.pedal(dir, cross, viewport, now);
+        let after = self.cockpit(now).set;
+        if after == 0.0 && before != 0.0 {
+            self.throttle_rest = Some(dir);
+        } else if after != 0.0 {
+            self.throttle_rest = None;
         }
     }
 
@@ -1054,7 +1136,11 @@ impl Navigator {
             InputEvent::KeyDown(NavKey::SeekMinibrot) => false,
             InputEvent::KeyDown(NavKey::SlowerZoom | NavKey::FasterZoom) => searching,
             InputEvent::KeyDown(_) => true,
-            InputEvent::Click { .. } | InputEvent::Scroll { .. } | InputEvent::WheelNotch { .. } => searching,
+            InputEvent::Click { .. }
+            | InputEvent::Scroll { .. }
+            | InputEvent::WheelNotch { .. }
+            | InputEvent::Throttle { .. } => searching,
+            InputEvent::SeekAt { .. } => false,
             ref e => Self::cancels_flight(e),
         }
     }
@@ -1554,6 +1640,45 @@ impl Navigator {
                 self.release_gesture(now);
                 true
             }
+            InputEvent::TouchSteer { x, y } => {
+                self.touch = Some((x, y));
+                self.touch_wish = None;
+                true
+            }
+            InputEvent::TouchSteerEnd => {
+                // A touch has no resting pointer: in A the wish stays where the finger left it.
+                if self.autopilot.is_active() {
+                    self.touch_wish = self.touch;
+                }
+                self.touch = None;
+                true
+            }
+            InputEvent::Throttle { up } => {
+                self.throttle(if up { 1.0 } else { -1.0 }, viewport, now);
+                true
+            }
+            InputEvent::ThrottleEnd => {
+                self.throttle_rest = None;
+                true
+            }
+            InputEvent::Probe(p) => {
+                self.probe = p;
+                true
+            }
+            InputEvent::SeekAt { x, y } => {
+                let at =
+                    Viewport::with_center(viewport.point_at_offset(x, y), viewport.scale).with_angle(viewport.angle);
+                self.seek.start(&at, self.min_side(), now);
+                self.poll_seek(viewport, now);
+                true
+            }
+            InputEvent::FlyHere { x, y } => {
+                let mut target = Viewport::with_center(viewport.point_at_offset(x, y), viewport.scale / FLY_HERE_ZOOM)
+                    .with_angle(viewport.angle);
+                target.ensure_precision();
+                self.fly_to(&target, viewport, now);
+                true
+            }
             InputEvent::DoubleTap { x, y, out } => {
                 self.manual_zoom_ends_cruise();
                 // Its first click toggled the autopilot's pause: undone.
@@ -1765,6 +1890,12 @@ impl Navigator {
             InputMode::Keyboard => self.crosshair,
             InputMode::Pointer => self.pointer_on_canvas().unwrap_or((0.0, 0.0)),
         }
+    }
+
+    /// The orbit overlay's point c (view points from the centre, y up): the probe a touch
+    /// placed (kb: decisions/controls "Touch"), else the zoom target.
+    pub fn probe_point(&self) -> (f64, f64) {
+        self.probe.unwrap_or_else(|| self.zoom_target())
     }
 
     /// Edge-pan direction and strength (each component in −1...1, length at most 1; +x: pan
@@ -1988,7 +2119,9 @@ impl Navigator {
         };
         let mut ln_zoom = self.zoom_rate.follow(tz, zomega, dt);
         // Autopilot: steered by the pointer while it is on the canvas, moving, in pointer mode.
+        // A steering finger (touch) steers while it is down, without the idle timeout.
         let steer_pointer = match self.mode {
+            _ if self.touch.is_some() => self.touch,
             InputMode::Pointer if now - self.pointer_moved < autopilot::STEER_IDLE => self.pointer_on_canvas(),
             _ => None,
         };
@@ -2001,7 +2134,9 @@ impl Navigator {
             || self.fling != (0.0, 0.0)
             || self.driven();
         // The autopilot does not steer by the pointer; its direction is a wish for the targets.
+        // A touch is deliberate: its wish needs no travel, and stays after the finger lifted.
         let wish_pointer = match self.mode {
+            _ if self.touch.is_some() || self.touch_wish.is_some() => self.touch.or(self.touch_wish),
             InputMode::Pointer if self.wheel_travel >= WISH_TRAVEL => self.pointer_on_canvas(),
             _ => None,
         };
@@ -4106,5 +4241,156 @@ mod tests {
 
     fn region_of(t: &journey::Target) -> journey::RegionId {
         journey::region_of(t.center.re(), t.center.im()).0
+    }
+
+    // MARK: Touch (kb: decisions/controls "Touch")
+
+    /// The throttle lever steps the pedal ladder like E / Q (the same speeds as the keys), and
+    /// within one drag stops at zero; a new drag crosses into reverse.
+    #[test]
+    fn throttle_steps_the_gears_with_a_detent_at_zero_per_drag() {
+        let (mut n, mut v) = deep("1e-30");
+        let (mut keys, mut kv) = deep("1e-30");
+        let up = InputEvent::Throttle { up: true };
+        let down = InputEvent::Throttle { up: false };
+        for _ in 0..3 {
+            assert!(n.handle(up, &mut v, 0.0));
+            tap(&mut keys, &mut kv, NavKey::FasterZoom, 0.0);
+        }
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(2));
+        assert_eq!(n.cruise().set_speed(), keys.cruise().set_speed(), "the keys' rungs");
+        // Down through the gears in the same drag: it stops at zero, however far it goes.
+        for _ in 0..6 {
+            n.handle(down, &mut v, 0.0);
+        }
+        assert_eq!(n.cruise().set_speed(), 0.0, "stopped at the detent");
+        n.handle(InputEvent::ThrottleEnd, &mut v, 0.0);
+        // A new drag crosses into reverse.
+        n.handle(down, &mut v, 0.1);
+        assert_eq!(n.cruise().set_speed(), -cruise::rung(0));
+        n.handle(down, &mut v, 0.1);
+        assert_eq!(n.cruise().set_speed(), -cruise::rung(1));
+        // Back up in the same drag: it stops at zero again, the other way.
+        for _ in 0..4 {
+            n.handle(up, &mut v, 0.1);
+        }
+        assert_eq!(n.cruise().set_speed(), 0.0);
+        n.handle(InputEvent::ThrottleEnd, &mut v, 0.1);
+        n.handle(up, &mut v, 0.2);
+        assert_eq!(n.cruise().set_speed(), cruise::rung(0));
+        // In A it sets the autopilot's speed on the same ladder; down to zero hands over to a
+        // braking cruise, as Q does.
+        let (mut n, mut v) = joystick();
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
+        let s0 = n.autopilot().speed();
+        n.handle(up, &mut v, 0.0);
+        assert_eq!(n.level(), Level::Autopilot);
+        assert_eq!(n.autopilot().speed(), cruise::pedal(s0, 1.0, true));
+        for _ in 0..40 {
+            n.handle(down, &mut v, 0.0);
+        }
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), 0.0, "no reverse within the drag");
+    }
+
+    /// A steering finger: in A its direction is the wish, and it stays after the finger lifts
+    /// (a lift inside the dead zone clears it; it never hands over); in C it steers while the
+    /// finger is down, also past the pointer's idle timeout, and stops when it lifts.
+    #[test]
+    fn touch_steering_wishes_in_a_and_steers_in_c() {
+        let (mut n, mut v) = joystick();
+        n.advance(&mut v, 0.0);
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
+        let t = run(&mut n, &mut v, 0.0, 1.0, 60.0);
+        n.handle(InputEvent::TouchSteer { x: 250.0, y: 30.0 }, &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
+        let w = n.autopilot().wish().expect("a wish to the right");
+        assert!(w.dir.0 > 0.99, "{:?}", w.dir);
+        n.handle(InputEvent::TouchSteerEnd, &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 3.0, 60.0);
+        assert_eq!(n.level(), Level::Autopilot, "a touch never hands over in A");
+        assert_eq!(n.autopilot().wish().map(|w| w.epoch), Some(w.epoch), "the wish stays");
+        assert!(n.aim_marker().is_some_and(|m| m.wish == Some(w.dir)));
+        // Lifted near the centre: no wish.
+        n.handle(InputEvent::TouchSteer { x: 10.0, y: 0.0 }, &mut v, t);
+        n.handle(InputEvent::TouchSteerEnd, &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert!(n.autopilot().wish().is_none());
+        // Z off and on: a kept wish does not come back.
+        n.handle(InputEvent::TouchSteer { x: -250.0, y: 0.0 }, &mut v, t);
+        n.handle(InputEvent::TouchSteerEnd, &mut v, t);
+        tap(&mut n, &mut v, NavKey::Autopilot, t);
+        tap(&mut n, &mut v, NavKey::Autopilot, t);
+        run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert!(n.autopilot().wish().is_none());
+        // C: the finger steers while it is down (4 s, past the pointer's 3 s idle timeout).
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        for _ in 0..3 {
+            tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        }
+        n.handle(InputEvent::TouchSteer { x: 200.0, y: 0.0 }, &mut v, 0.0);
+        let t = run(&mut n, &mut v, 0.0, 4.0, 60.0);
+        assert!(n.cruise().heading().0 > 50.0, "steering: {:?}", n.cruise().heading());
+        assert_eq!(n.zoom_target(), (0.0, 0.0), "a steering finger is not the pointer");
+        n.handle(InputEvent::TouchSteerEnd, &mut v, t);
+        run(&mut n, &mut v, t, t + 2.0, 60.0);
+        assert!(
+            n.cruise().heading().0.abs() < 1.0,
+            "straight on: {:?}",
+            n.cruise().heading()
+        );
+        assert_eq!(n.level(), Level::Cruise);
+    }
+
+    /// The orbit probe a touch placed replaces the zoom target for the orbit only.
+    #[test]
+    fn a_touch_probe_moves_the_orbit_point_only() {
+        let (mut n, mut v) = setup();
+        assert_eq!(n.probe_point(), (0.0, 0.0));
+        n.handle(InputEvent::Probe(Some((120.0, -40.0))), &mut v, 0.0);
+        assert_eq!(n.probe_point(), (120.0, -40.0));
+        assert_eq!(n.zoom_target(), (0.0, 0.0));
+        n.handle(InputEvent::Probe(None), &mut v, 0.0);
+        assert_eq!(n.probe_point(), (0.0, 0.0));
+        assert!(!InputEvent::Probe(Some((f64::NAN, 0.0))).is_finite());
+    }
+
+    /// Long-press "Fly here": the fly-to path to the point, centred and FLY_HERE_ZOOM× deeper,
+    /// landing exactly. "Seek minibrot here": the search about the point, not the centre.
+    #[test]
+    fn fly_here_and_seek_here() {
+        let (mut n, mut v) = setup();
+        let target = v.point_at_offset(150.0, -60.0);
+        let scale = v.scale / FLY_HERE_ZOOM;
+        assert!(n.handle(InputEvent::FlyHere { x: 150.0, y: -60.0 }, &mut v, 0.0));
+        assert_eq!(n.level(), Level::Journey, "a fly-to");
+        let mut t = 0.0;
+        while n.flight().is_some() && t < 30.0 {
+            t += 1.0 / 60.0;
+            n.advance(&mut v, t);
+        }
+        assert!(n.flight().is_none(), "landed");
+        assert_eq!(v.scale, scale);
+        assert!(v.center.distance_in(&target, v.scale) < 1e-6);
+        // Seek about a point far outside the set finds nothing; at the centre (seahorse valley,
+        // span 1e-6: the period-117 minibrot) it does.
+        let mut v = Viewport::new(-0.743643887037151, 0.13182590420533, 1e-6 / 600.0);
+        let mut n = Navigator::default();
+        n.handle(
+            InputEvent::Resize {
+                width: 1000.0,
+                height: 600.0,
+            },
+            &mut v,
+            0.0,
+        );
+        n.seek_mut().synchronous = true;
+        assert!(n.handle(InputEvent::SeekAt { x: 2.5e9, y: 0.0 }, &mut v, 0.0));
+        assert_eq!(n.seek_status(0.0).0, SeekPhase::NotFound);
+        assert!(n.flight().is_none());
+        assert!(n.handle(InputEvent::SeekAt { x: 0.0, y: 0.0 }, &mut v, 5.0));
+        assert_eq!(n.seek_status(5.0).0, SeekPhase::Flying);
     }
 }

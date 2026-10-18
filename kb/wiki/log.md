@@ -1430,3 +1430,16 @@ the spring; now it stays on the curve), and Q could not bring the autopilot or a
 gear in cruise ("gear 5", "reverse 3 · boost") and the set speed in A and J ("target ×20") only
 while the rate flown differs from it by more than 5 %; in J it now compares the journey speed
 with the leg's flown speed. Cockpit 306 points wide (fits a phone).
+
+## [2026-10-18] decision | Touch controls for iPhone and iPad
+
+[[decisions/controls]] "Touch": parity audit of the Mac's keyboard and pointer features against
+touch, iPad keyboard and pointer, and the touch design built on branch `ios-touch`: a throttle
+jog lever (one gear per 14 points, the pedals' paths, zero stop per drag, double tap stops), a
+touch cockpit (44-point cells, one or two rows, above a bottom-left map row on a phone),
+steering-finger events (the autopilot's wish stays after the lift), a long-press popover menu
+(seek minibrot here, orbit here with a draggable probe, fly here, copy / go to copied),
+fingertip-sized (?) badges, haptics, finger-sized tour and Continue buttons, the Mac's menu
+commands in the iPad menu bar. New navigator events `TouchSteer`, `Throttle`, `Probe`,
+`SeekAt`, `FlyHere`; XCTest `TouchControlsUITests` on both simulators. Simulator only; feel
+needs a device.

@@ -370,6 +370,14 @@ public final class ExplorerModel {
     }
     /// The last badge pressed: the popover's anchor while it closes.
     @ObservationIgnored var lastCanvasHelp: CanvasHelp?
+    #if os(iOS)
+    /// The long-press menu at a point of the canvas (kb: decisions/controls "Touch"), and the
+    /// last one (its anchor while it closes).
+    var canvasMenu: CanvasMenu? {
+        didSet { if let canvasMenu { lastCanvasMenu = canvasMenu } }
+    }
+    @ObservationIgnored var lastCanvasMenu: CanvasMenu?
+    #endif
 
     @ObservationIgnored public var hudFrame: CGRect? {
         didSet { if hudFrame != oldValue { host?.hudFrameChanged() } }
@@ -392,6 +400,8 @@ public final class ExplorerModel {
     public private(set) var journeyAtStop = false
     /// The driving level (kb: decisions/controls "Driving levels"), change-only.
     public private(set) var drivingLevel = DrivingLevel.manual
+    /// The set speed's gear (1–26, negative in reverse, 0: none), change-only: the iOS throttle.
+    public private(set) var cruiseGear = 0
     public private(set) var viewTurned = false
     /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
     public private(set) var orbit: OrbitInfo?
@@ -1209,6 +1219,9 @@ public final class ExplorerModel {
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
         guard let new = explorer?.stats(), new != stats else { return }
+        #if os(iOS)
+        Haptics.stats(old: stats, new: new)
+        #endif
         if let old = stats, old.zoomSpeed != new.zoomSpeed || old.autopilot.speed != new.autopilot.speed
             || old.flight.speed != new.flight.speed || old.journey.speed != new.journey.speed
             || old.cruise.set != new.cruise.set {
@@ -1223,6 +1236,7 @@ public final class ExplorerModel {
         if journeySeed != new.journey.seed { journeySeed = new.journey.seed }
         if journeyAtStop != new.journey.atStop { journeyAtStop = new.journey.atStop }
         if drivingLevel != new.cruise.level { drivingLevel = new.cruise.level }
+        if cruiseGear != Int(new.cruise.gear) { cruiseGear = Int(new.cruise.gear) }
         let turned = new.shown.angleDegrees != 0
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }
