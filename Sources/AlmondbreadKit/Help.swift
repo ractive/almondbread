@@ -404,8 +404,16 @@ struct HelpView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
                     }
-                    // The first-run touch hints again (kb: decisions/controls "Touch").
-                    ToolbarItem(placement: .bottomBar) {
+                    // The walkthrough and the first-run touch hints again (kb: decisions/controls
+                    // "Touch", "Walkthrough").
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button {
+                            dismiss()
+                            WalkthroughOffer.shared.requestStart()
+                        } label: {
+                            Text("Show the Walkthrough")
+                        }
+                        Spacer()
                         Button {
                             dismiss()
                             TouchHints.shared.show()

@@ -1559,3 +1559,10 @@ trailing end of the pane's search bar and the Control center round button lit (a
 selected trait) while the pane is open; the Mac unchanged. Test
 `TouchControlsUITests.testControlCenterClose`. [[decisions/controls]] "Touch" ▸ "Closing the
 control center on touch".
+
+## [2026-10-19] decision | First-launch walkthrough as a hidden tour
+
+The walkthrough is `tours/welcome.md`, a hidden tour; the tour engine gained `platform`, `highlight`,
+`control-center` and `goal` step keys, `::: mac` / `::: touch` text blocks and the `hidden` header.
+Offered once at the first launch (never in tests unless forced). See [[decisions/controls]]
+"Walkthrough".

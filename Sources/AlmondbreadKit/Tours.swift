@@ -70,6 +70,9 @@ struct TourCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            if !t.goal.isEmpty {
+                TourGoalLine(model: model)
+            }
             HStack(spacing: 8) {
                 Button("End tour") { model.endTour() }
                     .help("End the tour: your view and settings come back (Esc)")
@@ -100,36 +103,64 @@ struct TourCard: View {
     }
 }
 
-/// The control center's Tours section: each tour with its summary and a Start button.
+/// A step's goal (`goal:`): "Try it" until the user did it, then "Well done!".
+struct TourGoalLine: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let done = model.tourGoalMet
+        Label(done ? "Well done!" : "Your turn: try it", systemImage: done ? "checkmark.circle.fill" : "hand.point.up.left")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(done ? Color.green : Color.secondary)
+            .contentTransition(.symbolEffect(.replace))
+            .animation(.easeOut(duration: 0.25), value: done)
+            .accessibilityIdentifier("tour-goal")
+            .accessibilityValue(done ? "done" : "waiting")
+    }
+}
+
+/// The control center's Tours section: the walkthrough first, then each tour with its summary
+/// and a Start button.
 struct ToursSectionRows: View {
     let model: ExplorerModel
 
     var body: some View {
         let _ = UIPerf.body("section.tours")
         let running = model.tour?.tourId
+        if let w = ExplorerModel.walkthrough {
+            row(w, title: "Walkthrough: how to use the app", summary: "The controls in about a minute.",
+                running: running)
+        }
         ForEach(ExplorerModel.tours, id: \.id) { t in
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t.title).font(.callout.weight(.semibold))
-                    Text(t.summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            row(t, title: t.title, summary: t.summary, running: running)
+        }
+    }
+
+    private func row(_ t: TourInfo, title: String, summary: String, running: String?) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !t.hidden {
                     Text("\(t.steps) steps").font(.caption2).foregroundStyle(.tertiary)
                 }
-                Spacer(minLength: 4)
-                if running == t.id {
-                    Button("End") { model.endTour() }
-                        .help("End the tour (Esc)")
-                } else {
-                    Button("Start") { model.startTour(t.id) }
-                        .help("Start the tour: → and ← step through it, Esc ends it")
-                }
             }
-            #if os(iOS)
-            .buttonStyle(.borderless)
-            #endif
+            Spacer(minLength: 4)
+            if running == t.id {
+                Button("End") { model.endTour() }
+                    .help("End the tour (Esc)")
+            } else {
+                Button("Start") { model.startTour(t.id) }
+                    .help("Start the tour: → and ← step through it, Esc ends it")
+                    .accessibilityIdentifier("tour-start-" + t.id)
+            }
         }
+        #if os(iOS)
+        .buttonStyle(.borderless)
+        #endif
     }
 }
 
@@ -146,6 +177,10 @@ struct TourMenu: View {
 
     var body: some View {
         Menu("Tours") {
+            if ExplorerModel.walkthrough != nil {
+                Button("Walkthrough") { model?.startTour(ExplorerModel.walkthroughID) }
+                Divider()
+            }
             ForEach(ExplorerModel.tours, id: \.id) { t in
                 Button(t.title) { model?.startTour(t.id) }
             }

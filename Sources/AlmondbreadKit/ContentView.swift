@@ -8,6 +8,10 @@ struct ContentView: View {
     @State private var showInspector = UIDemo.enabled && !UIDemo.hidesSidebar && !UIPerf.openScene
     @State private var showFlyTo = false
     @State private var fullScreenSidebar = FullScreenSidebar()
+    /// Whether the control center showed before a tour step opened or closed it (it comes back
+    /// so at the tour's end).
+    @State private var inspectorBeforeTour: Bool?
+    private var walkthroughOffer = WalkthroughOffer.shared
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -74,6 +78,7 @@ struct ContentView: View {
                 // On a narrow canvas a tour's card takes the HUD's place.
                 if model.showHUD && !(compactWidth && model.tour != nil) {
                     HUDView(model: model, compact: compactWidth)
+                        .tourTarget("hud", model: model, cornerRadius: 10)
                 }
                 #if os(iOS)
                 // At a journey stop: its three choices, under the HUD line that names the
@@ -90,13 +95,24 @@ struct ContentView: View {
         // HUD (top left), the maps (bottom left) and the cockpit (bottom centre). On a narrow canvas
         // (iPhone portrait) at the top in place of the HUD, its text folding and scrolling: at the
         // bottom it covered the maps, the cockpit and part of the picture (kb: "Touch").
-        .overlay(alignment: compactWidth ? .top : .bottomTrailing) {
-            TourCard(model: model, compact: compactWidth)
-                .padding(.leading, 12)
-                .padding(.trailing, compactWidth ? 12 : Self.tourTrailing(compact: false))
-                .padding(.top, compactWidth ? 12 : 0)
-                .padding(.bottom, compactWidth ? 0 : Self.tourBottom(compact: false, cockpit: model.showHUD))
+        // A step that rings something moves the card out of its way (kb: "Guided tours").
+        .overlay {
+            TourCardLayer(model: model, compact: compactWidth,
+                          trailing: compactWidth ? 12 : Self.tourTrailing(compact: false),
+                          bottom: Self.tourBottom(compact: compactWidth, cockpit: model.showHUD))
         }
+        // The ring around the cockpit (Rust draws it) when a tour step points at it.
+        .overlay {
+            TourCockpitLayer(model: model)
+        }
+        // The first-launch walkthrough offer (kb: decisions/controls "Walkthrough").
+        .overlay {
+            if model.failure == nil {
+                WalkthroughOfferCard(model: model)
+            }
+        }
+        .onChange(of: model.tour) { old, new in tourControlCenter(old: old, new: new) }
+        .onChange(of: walkthroughOffer.startRequests) { model.startTour(ExplorerModel.walkthroughID) }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
         .onChange(of: [compactWidth, landscapePhone], initial: true) {
@@ -118,6 +134,7 @@ struct ContentView: View {
                 ThrottleLever(model: model, height: min(landscapePhone ? 240 : 360,
                                                         max(120, canvasHeight - (landscapePhone ? 200 : 260))))
                     .touchHintAnchor("throttle")
+                    .tourTarget("throttle", model: model, cornerRadius: 22)
                     .padding(.trailing, 12)
                     .padding(.bottom, landscapePhone ? 56 : 0)
             }
@@ -133,19 +150,29 @@ struct ContentView: View {
                     // Five buttons below it (two more than before 2026-10-18: 108 points).
                     ThrottleLever(model: model, height: min(220, max(120, canvasHeight - 528)))
                         .touchHintAnchor("throttle")
+                        .tourTarget("throttle", model: model, cornerRadius: 22)
                         .padding(.bottom, 6)
                 }
                 // The Mac toolbar's items (kb: decisions/controls "Touch", "Round buttons"): the
                 // overlays and Fly To. The autopilot and journeys are the cockpit's icons.
-                RoundToggle("Orbit", symbol: "point.topleft.down.to.point.bottomright.curvepath",
-                            isOn: $model.orbitEnabled)
-                RoundToggle("Mini-map", symbol: "map", isOn: $model.mapEnabled)
-                RoundToggle("Size scale", symbol: "ruler", isOn: $model.cosmicScale)
-                RoundButton("Fly to", symbol: "location.north.line") { showFlyTo = true }
-                RoundButton("Control center", symbol: "slider.horizontal.3", isSelected: showInspector) {
-                    showInspector.toggle()
+                // (The tour rings: `highlight: toolbar` all five, or one by its name.)
+                stack {
+                    RoundToggle("Orbit", symbol: "point.topleft.down.to.point.bottomright.curvepath",
+                                isOn: $model.orbitEnabled)
+                        .tourTarget("orbit", model: model, cornerRadius: 22)
+                    RoundToggle("Mini-map", symbol: "map", isOn: $model.mapEnabled)
+                        .tourTarget("mini-map", model: model, cornerRadius: 22)
+                    RoundToggle("Size scale", symbol: "ruler", isOn: $model.cosmicScale)
+                        .tourTarget("size-scale", model: model, cornerRadius: 22)
+                    RoundButton("Fly to", symbol: "location.north.line") { showFlyTo = true }
+                        .tourTarget("fly-to", model: model, cornerRadius: 22)
+                    RoundButton("Control center", symbol: "slider.horizontal.3", isSelected: showInspector) {
+                        showInspector.toggle()
+                    }
+                    .accessibilityValue(showInspector ? "shown" : "hidden")
+                    .tourTarget("control-center", model: model, cornerRadius: 22)
                 }
-                .accessibilityValue(showInspector ? "shown" : "hidden")
+                .tourTarget("toolbar", model: model, cornerRadius: 26)
             }
             .padding(12)
         }
@@ -163,6 +190,9 @@ struct ContentView: View {
                 #if os(iOS)
                 .presentationDetents(sizeClass == .compact ? [.medium, .large] : [.large])
                 .presentationBackground(.regularMaterial)
+                // During a tour the phone's half-height sheet leaves the tour card (at the top)
+                // usable (kb: decisions/controls "Walkthrough").
+                .presentationBackgroundInteraction(model.tour != nil ? .enabled(upThrough: .medium) : .automatic)
                 #endif
         }
         .sheet(isPresented: $showFlyTo) {
@@ -179,16 +209,22 @@ struct ContentView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Toggle(isOn: $model.orbitEnabled) {
                     Label("Orbit", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        .tourTarget("orbit", model: model, cornerRadius: 6)
+                        .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Orbit of the point under the pointer (O)")
                 Toggle(isOn: $model.mapEnabled) {
                     Label("Mini-map", systemImage: "map")
+                        .tourTarget("mini-map", model: model, cornerRadius: 6)
+                        .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
                 // The π meter is in the View menu (⌥⌘P) and on P, not in the toolbar: a niche
                 // feature you use once (user, 2026-10-17).
                 Toggle(isOn: $model.cosmicScale) {
                     Label("Size Scale", systemImage: "ruler")
+                        .tourTarget("size-scale", model: model, cornerRadius: 6)
+                        .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Cosmic size scale: how big the whole set would be if your window stayed its real size (C)")
                 // Autopilot and journey: the cockpit's icons (clickable) and Z / J, not here.
@@ -196,6 +232,8 @@ struct ContentView: View {
                     showFlyTo = true
                 } label: {
                     Label("Fly To", systemImage: "location.north.line")
+                        .tourTarget("fly-to", model: model, cornerRadius: 6)
+                        .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Fly to coordinates (⌘G); ⇧⌘G flies to copied ones")
             }
@@ -204,6 +242,8 @@ struct ContentView: View {
                     showInspector.toggle()
                 } label: {
                     Label("Control Center", systemImage: "slider.horizontal.3")
+                        .tourTarget("control-center", model: model, cornerRadius: 6)
+                        .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Show or hide the control center (⌘I)")
             }
@@ -224,6 +264,20 @@ struct ContentView: View {
 }
 
 extension ContentView {
+    /// A tour step's `control-center: open | closed`; at the tour's end the control center is
+    /// back as it was before the first step that changed it.
+    func tourControlCenter(old: TourStepInfo?, new: TourStepInfo?) {
+        guard let new else {
+            if old != nil, let before = inspectorBeforeTour { showInspector = before }
+            inspectorBeforeTour = nil
+            return
+        }
+        if old?.tourId != new.tourId { inspectorBeforeTour = nil }
+        guard old?.index != new.index || old?.tourId != new.tourId, !new.controlCenter.isEmpty else { return }
+        if inspectorBeforeTour == nil { inspectorBeforeTour = showInspector }
+        showInspector = new.controlCenter == "open"
+    }
+
     /// The control center's ✕ (iPhone and iPad); the Mac closes it from the toolbar and ⌘I.
     var closeControlCenter: (() -> Void)? {
         #if os(iOS)

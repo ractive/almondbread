@@ -1,0 +1,133 @@
+---
+id: welcome
+title: Walkthrough
+summary: How to fly around: moving and zooming, the cockpit, the round buttons, the control center and the tours.
+hidden: yes
+---
+
+## Welcome!
+center: -0.6, 0
+span: 2.8
+
+This is the **Mandelbrot set**. It comes from one tiny sum, done again and again. Its edge never ends: zoom in anywhere and you find spirals, sea horses and tiny copies of the whole shape.
+
+This walkthrough takes about a minute.
+
+::: touch
+Tap **Next ›** to go on.
+:::
+::: mac
+Click **Next ›** (or press **→**) to go on.
+:::
+
+## Move and zoom
+goal: zoom-in
+
+::: touch
+**Pinch** with two fingers to zoom, **swipe** with one finger to move the picture. A **double tap** zooms in, a **two-finger tap** zooms out.
+:::
+::: mac
+**Point** at a spot and **hold Space** to zoom in there (**Shift + Space** zooms out). Pinching on the trackpad or the mouse wheel zooms too, and **dragging** moves the picture.
+:::
+
+Try it now: zoom in on the edge!
+
+## The cockpit
+highlight: cockpit
+
+At the bottom is the **cockpit**. It shows who is flying:
+
+- **M**: you, by hand
+- **C**: cruise, a steady flight in or out
+- **A**: the autopilot
+- **J**: a journey
+
+::: touch
+Tap an icon to switch.
+:::
+::: mac
+Click an icon, or press **Esc**, **E**, **Z** or **J**.
+:::
+
+## Cruise
+platform: touch
+highlight: throttle
+
+This lever is your **throttle**. Slide the knob **up** to fly in, **down** to fly out, and to the middle (**M**) to stop. It stays where you leave it.
+
+While you cruise, **rest a finger** on the picture to steer towards it, or **swipe** to move the picture.
+
+## Cruise
+platform: mac
+highlight: cockpit-cruise
+
+Press **E** to cruise in, a little faster each time. **Q** slows down, then flies out. **Esc** stops.
+
+While you cruise, the picture drifts towards the **pointer**: point where you want to go.
+
+## Autopilot and journeys
+highlight: cockpit-autopilot
+
+The **plane** is the autopilot: it flies by itself and looks for interesting places.
+
+::: touch
+Tap the plane to start it. **Rest a finger** on the picture to suggest where it should go. The **sparkles** next to it start a **journey**, a trip from one landmark to the next. The steering wheel stops everything.
+:::
+::: mac
+Press **Z** to start it and point the mouse to suggest where it should go. **J** starts a **journey**, a trip from one landmark to the next. **Esc** stops everything.
+:::
+
+## The round buttons
+platform: touch
+highlight: toolbar
+
+These buttons switch extras on and off:
+
+- the **orbit**: where one point jumps to, step by step
+- the **mini-map**: where you are
+- the **size scale**: how big the picture really is
+- **fly to** a place by its numbers
+- the **control center**, with everything else
+
+## The toolbar
+platform: mac
+highlight: toolbar
+
+The buttons at the top switch extras on and off: the **orbit** (where one point jumps to, step by step), the **mini-map** (where you are) and the **size scale** (how big the picture really is). **Fly To** takes you to a place by its numbers.
+
+The last one opens the **control center** (**⌘I**).
+
+## The control center
+control-center: open
+highlight: section-places
+
+The control center has everything else. **Places** are famous spots to visit.
+
+::: touch
+Tap a picture, then **Go** or **Fly**.
+:::
+::: mac
+Pick one, then **Go** or **Fly**.
+:::
+
+Further down: colours, overlays and settings. The search field at the top finds any setting.
+
+## Tours
+control-center: open
+highlight: section-tours
+
+**Tours** show you the maths, step by step: they fly the view and explain what you see.
+
+You can find this walkthrough here again, and in **Help**.
+
+## Off you go!
+control-center: closed
+
+That's it. Explore, get lost, find something no one has seen before.
+
+::: touch
+Lost? Open the control center and tap **Reset** under *View & navigation* to see the whole set again.
+:::
+::: mac
+Lost? Press **R** to see the whole set again. **⌘?** opens the help.
+:::

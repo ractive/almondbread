@@ -59,6 +59,7 @@ A tour walks you through one piece of the maths, step by step. Start one from **
 - **Next ›** or **→** goes on, **‹ Back** or **←** goes back, **End tour** or **Esc** ends it.
 - Look around in between as you like; **Next** carries on from the tour's own next view.
 - When the tour ends, your view and settings come back as they were.
+- The **walkthrough** is a tour of the app itself: the cockpit, the throttle, the buttons and the control center, each ringed in gold while the card explains it. It sits at the top of the Tours list and in the Help menu.
 
 ## Fly to coordinates
 

@@ -1060,7 +1060,21 @@ public final class ExplorerModel {
 
     // MARK: Guided tours (kb: decisions/controls "Guided tours"; Rust plays them)
 
-    public static let tours: [TourInfo] = AlmondbreadCore.tours()
+    /// Every bundled tour, the hidden walkthrough included.
+    public static let allTours: [TourInfo] = AlmondbreadCore.tours()
+    /// The tours the lists show (not the hidden ones, like the walkthrough).
+    public static let tours: [TourInfo] = allTours.filter { !$0.hidden }
+    /// The first-launch walkthrough (`tours/welcome.md`; Help and the Tours section offer it).
+    public static let walkthroughID = "welcome"
+    public static var walkthrough: TourInfo? { allTours.first { $0.id == walkthroughID } }
+
+    /// The running step's goal (`goal:`) is done: the card says so. Polled with the stats.
+    public private(set) var tourGoalMet = false
+    /// Where the UI element the running step rings is (global coordinates; the tour card keeps
+    /// clear of it). Set by the ringed element itself (`tourTarget`).
+    var tourHighlightFrame: CGRect?
+    /// Where the cockpit is while a tour runs (global; the card keeps clear of it too).
+    var tourCockpitFrame: CGRect?
 
     /// The running tour's step (nil: no tour); set only by the tour calls below.
     public private(set) var tour: TourStepInfo?
@@ -1071,7 +1085,7 @@ public final class ExplorerModel {
     public func startTour(_ id: String) {
         guard let explorer else { return }
         let before = tourSaved ?? snapshot()
-        guard let info = try? explorer.startTour(id: id) else { return }
+        guard let info = try? explorer.startTourOn(id: id, platform: TourPlatform.current) else { return }
         tourSaved = before
         takeTour(info)
     }
@@ -1119,6 +1133,10 @@ public final class ExplorerModel {
         pulling = false
         if !piMeterEnabled { piMeter = nil }
         let next = info.active ? info : nil
+        if tour?.index != next?.index || tour?.tourId != next?.tourId {
+            tourHighlightFrame = nil
+            if tourGoalMet { tourGoalMet = false }
+        }
         if tour != next { tour = next }
         host?.requestFrames()
     }
@@ -1223,6 +1241,7 @@ public final class ExplorerModel {
     /// Reads the renderer's stats (called by the view at ~10 Hz while animating, and once
     /// when it stops). Assigns only on change, so idle views do not re-render.
     func refreshStats() {
+        if let t = tour, !t.goal.isEmpty, !tourGoalMet, explorer?.tourGoalMet() == true { tourGoalMet = true }
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
         guard let new = explorer?.stats(), new != stats else { return }

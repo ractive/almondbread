@@ -6,6 +6,8 @@
 
 use almondbread_render::metal::media_time;
 
+use almondbread_core::tour::Platform;
+
 use crate::explorer::{Explorer, ExplorerSettings};
 use crate::{CoreError, invalid};
 
@@ -19,9 +21,12 @@ pub struct TourInfo {
     /// The place whose detail offers the tour ("" if none).
     pub place: String,
     pub steps: u32,
+    /// Not listed with the other tours (header `hidden: yes`, like the walkthrough): the UI
+    /// offers it in its own place.
+    pub hidden: bool,
 }
 
-/// The bundled tours, in list order.
+/// The bundled tours, in list order, hidden ones included (`hidden` says which).
 #[uniffi::export]
 pub fn tours() -> Vec<TourInfo> {
     almondbread_core::tour::bundled()
@@ -32,8 +37,18 @@ pub fn tours() -> Vec<TourInfo> {
             title: t.title,
             summary: t.summary,
             place: t.place.unwrap_or_default(),
+            hidden: t.hidden,
         })
         .collect()
+}
+
+/// The platform a tour plays on by default: the Mac, or a touch screen (a tablet's steps).
+fn default_platform() -> Platform {
+    if cfg!(target_os = "ios") {
+        Platform::Pad
+    } else {
+        Platform::Mac
+    }
 }
 
 /// The running tour's step and the settings it shows (or, after the end, the restored ones).
@@ -59,6 +74,13 @@ pub struct TourStepInfo {
     pub cosmic: bool,
     pub pi_meter: bool,
     pub compass: bool,
+    /// The UI element the step rings (`highlight:`; "" none).
+    pub highlight: String,
+    /// "open" or "closed": what the step does with the control center on entering ("" nothing).
+    pub control_center: String,
+    /// What the step asks the user to try (`goal:` zoom-in, zoom-out, move, turn; "" none);
+    /// `Explorer::tour_goal_met` says when it is done.
+    pub goal: String,
 }
 
 fn info(
@@ -66,6 +88,22 @@ fn info(
     ended: Option<(String, String)>,
 ) -> TourStepInfo {
     let snap = h.tour_snapshot();
+    let (highlight, control_center, goal) = match &h.tour {
+        Some(t) => {
+            let s = t.step();
+            (
+                s.highlight.clone().unwrap_or_default(),
+                match s.control_center {
+                    Some(true) => "open",
+                    Some(false) => "closed",
+                    None => "",
+                }
+                .to_string(),
+                s.goal.map(|g| g.name().to_string()).unwrap_or_default(),
+            )
+        }
+        None => (String::new(), String::new(), String::new()),
+    };
     let (active, tour_id, tour_title, index, count, title, text, look) = match (&h.tour, ended) {
         (Some(t), _) => (
             true,
@@ -106,6 +144,9 @@ fn info(
         cosmic: snap.cosmic,
         pi_meter: snap.pi_meter,
         compass: snap.compass,
+        highlight,
+        control_center,
+        goal,
     }
 }
 
@@ -114,7 +155,21 @@ impl Explorer {
     /// Starts the bundled tour `id` at its first step (other motion stops, like a jump; the
     /// settings and view are saved for the end).
     pub fn start_tour(&self, id: String) -> Result<TourStepInfo, CoreError> {
-        let tour = almondbread_core::tour::named(&id).ok_or_else(|| invalid(format!("unknown tour {id}")))?;
+        self.start_tour_on(id, String::new())
+    }
+
+    /// Starts the bundled tour `id` as it plays on `platform` ("mac", "phone" or "pad"; "" the
+    /// build's default): the steps and platform blocks for it (kb: decisions/controls "Guided
+    /// tours").
+    pub fn start_tour_on(&self, id: String, platform: String) -> Result<TourStepInfo, CoreError> {
+        let p = if platform.is_empty() {
+            default_platform()
+        } else {
+            Platform::named(&platform).ok_or_else(|| invalid(format!("unknown platform {platform}")))?
+        };
+        let tour = almondbread_core::tour::named(&id)
+            .ok_or_else(|| invalid(format!("unknown tour {id}")))?
+            .for_platform(p);
         self.with_host(|h| {
             h.start_tour(tour, media_time());
             Ok(info(h, None))
@@ -125,6 +180,11 @@ impl Explorer {
     /// None without a running tour.
     pub fn tour_go(&self, index: u32) -> Option<TourStepInfo> {
         self.with_host(|h| h.tour_go(index as usize, media_time()).then(|| info(h, None)))
+    }
+
+    /// The running step's goal (`goal:`) is done (false without one; poll it with the stats).
+    pub fn tour_goal_met(&self) -> bool {
+        self.with_host(|h| h.tour_goal_met())
     }
 
     /// The running tour's step, None without one.
@@ -150,7 +210,11 @@ mod tests {
         let t = super::tours();
         assert!(
             t.iter()
-                .any(|t| t.id == "feigenbaum" && t.steps >= 6 && t.place == "feigenbaum-point")
+                .any(|t| t.id == "feigenbaum" && t.steps >= 6 && t.place == "feigenbaum-point" && !t.hidden)
+        );
+        assert!(
+            t.iter().any(|t| t.id == "welcome" && t.hidden),
+            "the walkthrough is hidden"
         );
     }
 }
