@@ -264,13 +264,16 @@ pub enum InputEvent {
     },
     /// The twist's fingers lifted.
     TouchRotateEnd,
+    /// Every finger is off the view: a finger left down after a pinch or twist pans and steers
+    /// again only after this.
+    TouchesLifted,
     /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot (its wish)
-    /// or the cruise (its joystick) at (x, y), while it is down.
+    /// at (x, y), while it is down.
     TouchSteer {
         x: f64,
         y: f64,
     },
-    /// The steering finger lifted (in the autopilot the wish stays).
+    /// The steering finger lifted (in the autopilot the wish is let go once it settled).
     TouchSteerEnd,
     /// The throttle lever crossed one detent (`up`: like E, else like Q).
     Throttle {
@@ -337,6 +340,7 @@ impl InputEvent {
             Self::Rotate { radians, x, y } if ok(&[radians, x, y]) => E::Rotate { radians, x, y },
             Self::TouchRotate { radians, x, y } if ok(&[radians, x, y]) => E::TouchRotate { radians, x, y },
             Self::TouchRotateEnd => E::TouchRotateEnd,
+            Self::TouchesLifted => E::TouchesLifted,
             Self::TouchSteer { x, y } if ok(&[x, y]) => E::TouchSteer { x, y },
             Self::TouchSteerEnd => E::TouchSteerEnd,
             Self::Throttle { up } => E::Throttle { up },
@@ -386,8 +390,8 @@ pub const FRAME_ANIMATING: u8 = 1;
 /// Keyboard mode: hide the cursor, draw the overlay crosshair at
 /// (`crosshair_x()`, `crosshair_y()`).
 pub const FRAME_KEYBOARD: u8 = 2;
-/// A finger steers instead of panning (iOS): the autopilot, the cruise or a journey's flight
-/// drives (`Navigator::finger_steers`; kb: decisions/controls "Touch").
+/// A finger steers instead of panning (iOS): the autopilot drives, a finger is its wish
+/// (`Navigator::finger_steers`; kb: decisions/controls "Touch"; in C and J a drag pans).
 pub const FRAME_FINGER_STEERS: u8 = 4;
 
 /// The driving level (kb: decisions/controls "Driving levels").

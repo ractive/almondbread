@@ -133,6 +133,13 @@ final class FirstUseUITests: XCTestCase {
         shot("pinched-deep")
         settle(4)
         shot("pinched-deep-settled")
+        // After the pinches a drag still pans (every finger was lifted; no stuck pinch).
+        let p0 = fields()["re"]
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        settle(1)
+        XCTAssertNotEqual(fields()["re"], p0, "a drag after pinching did not move")
+        shot("pinched-then-dragged")
 
         // The plane: autopilot. A finger steers; a tap pauses; the plane again stops.
         let plane = app.buttons["Autopilot"]
@@ -150,6 +157,8 @@ final class FirstUseUITests: XCTestCase {
         shot("autopilot-steered")
         settle(3)
         shot("autopilot-after-steer")
+        // The wish line went with the finger (device round: it stayed until the autopilot ended).
+        XCTAssertEqual(fields()["wish"], "off", "the wish line stayed after the finger lifted")
         plane.tap()
         settle(3)
         XCTAssertNotEqual(level(), "a", "the plane did not stop the autopilot")
@@ -163,6 +172,18 @@ final class FirstUseUITests: XCTestCase {
         settle(3)
         XCTAssertEqual(level(), "c")
         shot("throttle-forward")
+        // Cruising, a drag steers by moving the picture (device round: it did not seem to).
+        let c0 = fields()
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)),
+                   withVelocity: 300, thenHoldForDuration: 0.2)
+        let c1 = fields()
+        // The pinches above may have turned the view (XCUITest pinches twist): the distance.
+        let num = { (f: [String: String], k: String) in Double(f[k] ?? "") ?? .nan }
+        let moved = hypot(num(c0, "re") - num(c1, "re"), num(c0, "im") - num(c1, "im")) / num(c1, "scale")
+        XCTAssertGreaterThan(moved, 0.2 * canvas.frame.width * 0.4, "a drag in the cruise did not move the picture")
+        XCTAssertEqual(level(), "c", "a drag left the cruise")
+        shot("cruise-dragged")
         throttle(lever, detents: -6)
         settle(0.3)
         throttle(lever, detents: -3)

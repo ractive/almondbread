@@ -255,9 +255,10 @@ final class TouchControlsUITests: XCTestCase {
 
     private var menuShown: Bool { app.descendants(matching: .any)["Fly Here"].firstMatch.exists }
 
-    /// A finger resting before it drags steers in A and C (it opened the long-press menu); in M
-    /// the long press is still the menu.
-    func testHoldSteersInAutopilotAndCruise() throws {
+    /// A finger in A is the wish (resting or moving; no menu) and its line goes after the lift;
+    /// in C a drag pans at once, also after a rest (device round 2026-10-18); in M the long
+    /// press is still the menu.
+    func testFingerInAutopilotAndCruise() throws {
         try launchSettled()
         let rest = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4))
         let away = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.3))
@@ -266,27 +267,52 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(level(), "a")
         // At rest 1 s, then a drag: no menu, still A (a touch never hands over in A).
         rest.press(forDuration: 1.0, thenDragTo: away, withVelocity: 120, thenHoldForDuration: 0.5)
+        let justLifted = fields()["wish"]
+        shot("finger-autopilot-lifted")
         settle(0.5)
         XCTAssertFalse(menuShown, "a resting finger opened the menu in A")
         XCTAssertEqual(level(), "a")
+        // The wish line goes after the finger lifted (device round: it stayed until A ended).
+        print("UITEST wish right after the lift: \(justLifted ?? "-")")
+        settle(2)
+        XCTAssertEqual(fields()["wish"], "off", "the wish line stayed after the finger lifted")
+        shot("finger-autopilot-line-gone")
         // Only at rest: no menu either.
         rest.press(forDuration: 1.0)
         settle(0.5)
         XCTAssertFalse(menuShown, "a held finger opened the menu in A")
-        shot("hold-steers-autopilot")
+        settle(2)
+        XCTAssertEqual(fields()["wish"], "off", "the wish line stayed after a held finger")
         app.buttons["Autopilot"].tap()
         settle(2)
-        // C (the throttle up one detent): the same.
+        // C (the throttle up one detent): a drag pans at once, the content following the finger
+        // (right and up: the centre moves left and down); the cruise goes on in its gear.
         let lever = app.descendants(matching: .any)["throttle"]
         throttle(lever, detents: 1)
         settle(0.5)
         XCTAssertEqual(level(), "c")
-        let v0 = canvas.value as? String
-        rest.press(forDuration: 1.0, thenDragTo: away, withVelocity: 120, thenHoldForDuration: 1.0)
+        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4))
+        let f0 = fields()
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 300, thenHoldForDuration: 0.3)
+        let f1 = fields()
+        shot("finger-cruise-dragged")
+        let s1 = Double(f1["scale"] ?? "") ?? .nan
+        let dre = ((Double(f0["re"] ?? "") ?? .nan) - (Double(f1["re"] ?? "") ?? .nan)) / s1
+        let dim = ((Double(f0["im"] ?? "") ?? .nan) - (Double(f1["im"] ?? "") ?? .nan)) / s1
+        print("UITEST cruise drag moved the centre by \(dre), \(dim) points (left, down)")
+        XCTAssertGreaterThan(dre, 0.2 * canvas.frame.width * 0.4, "a drag in C did not pan with the finger")
+        XCTAssertGreaterThan(dim, 0.2 * canvas.frame.height * 0.2, "a drag in C did not pan with the finger")
+        XCTAssertEqual(level(), "c", "a drag left the cruise")
+        XCTAssertEqual(gear(), 1, "a drag changed the gear")
+        // At rest 1 s, then a drag: pans too, no menu.
+        let r0 = fields()["re"]
+        rest.press(forDuration: 1.0, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4)),
+                   withVelocity: 200, thenHoldForDuration: 0.3)
         settle(0.3)
         XCTAssertFalse(menuShown, "a resting finger opened the menu in C")
         XCTAssertEqual(level(), "c")
-        XCTAssertNotEqual(canvas.value as? String, v0)
+        XCTAssertNotEqual(fields()["re"], r0, "a rest-then-drag did not pan in C")
         lever.doubleTap()
         settle(4)
         XCTAssertEqual(level(), "m")
@@ -294,6 +320,47 @@ final class TouchControlsUITests: XCTestCase {
         rest.press(forDuration: 0.8)
         XCTAssertTrue(app.descendants(matching: .any)["Fly Here"].firstMatch.waitForExistence(timeout: 5),
                       "no menu in M")
+    }
+
+    /// After a pinch every finger is up again (`TouchesLifted`): a drag pans, in M and in C. (The
+    /// device bug, a finger left down after the other lifted panning the view, needs fingers
+    /// lifting one at a time, which XCUITest cannot synthesise; Rust's
+    /// `a_finger_left_after_a_pinch_does_not_pan` covers the events.) The pinch itself zooms
+    /// about its centre and does not carry the view off.
+    func testPinchThenDragPans() throws {
+        try launchSettled()
+        let f0 = fields()
+        canvas.pinch(withScale: 3, velocity: 3)
+        settle(1.5)
+        let f1 = fields()
+        let s1 = Double(f1["scale"] ?? "") ?? .nan
+        XCTAssertLessThan(s1, Double(f0["scale"] ?? "") ?? .nan, "the pinch did not zoom")
+        let drift = abs(((Double(f0["re"] ?? "") ?? .nan) - (Double(f1["re"] ?? "") ?? .nan)) / s1)
+        print("UITEST pinch moved the centre by \(drift) points")
+        XCTAssertLessThan(drift, 40, "the pinch carried the view off")
+        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: to)
+        settle(1)
+        let f2 = fields()
+        let dre = ((Double(f1["re"] ?? "") ?? .nan) - (Double(f2["re"] ?? "") ?? .nan)) / s1
+        XCTAssertGreaterThan(dre, 0.4 * canvas.frame.width * 0.5, "a drag after a pinch did not pan")
+        shot("pinch-then-drag")
+        // In C: the same.
+        let lever = app.descendants(matching: .any)["throttle"]
+        throttle(lever, detents: 1)
+        settle(0.5)
+        canvas.pinch(withScale: 2, velocity: 3)
+        settle(0.5)
+        // A manual zoom ends the cruise (kb: decisions/controls "Driving levels"): back into C.
+        if level() != "c" { throttle(lever, detents: 1); settle(0.5) }
+        XCTAssertEqual(level(), "c")
+        let g0 = fields()
+        from.press(forDuration: 0.05, thenDragTo: to)
+        let g1 = fields()
+        XCTAssertNotEqual(g0["re"], g1["re"], "a drag after a pinch did not pan in C")
+        lever.doubleTap()
+        settle(3)
     }
 
     /// First-run hints: shown (forced here; the UI tests count them as seen), gone at the first

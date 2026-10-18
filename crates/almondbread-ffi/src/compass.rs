@@ -30,6 +30,12 @@ impl Explorer {
         self.with_host(|h| h.overlay.marker.enabled = on);
     }
 
+    /// The target marker's wish line is on the screen (as of the last frame; UI tests check
+    /// that a lifted finger leaves none behind).
+    pub fn wish_line_shown(&self) -> bool {
+        self.with_host(|h| h.overlay.marker.wish_shown())
+    }
+
     /// A press (mouse down, touch down) at (x, y): true if the visible compass took it. Then
     /// send its moves to `compass_drag` and its end to `compass_release`, and do not treat it
     /// (or its double click) as a canvas click.

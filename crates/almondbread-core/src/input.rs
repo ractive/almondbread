@@ -224,17 +224,23 @@ pub enum InputEvent {
     },
     /// The twist ended (fingers lifted): the next one starts at the dead band again.
     TouchRotateEnd,
-    /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot or the cruise
-    /// at (x, y). In C it steers like the Mac pointer, for as long as the finger is down (no
-    /// idle timeout); in A its direction is the wish. Not pointer input: the zoom target and
-    /// the orbit probe stay where they are.
+    /// Every finger is off the screen (iOS; kb: decisions/controls "Touch", device round). A
+    /// finger left down after a pinch or twist neither pans nor steers until then: lifting one
+    /// finger of a pinch first used to pan the view with the other.
+    TouchesLifted,
+    /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot at (x, y):
+    /// its direction is the wish. (In C, which a touch drag now pans, it would steer like the
+    /// Mac pointer while the finger is down.) Not pointer input: the zoom target and the orbit
+    /// probe stay where they are.
     TouchSteer {
         x: f64,
         y: f64,
     },
-    /// The steering finger lifted: C flies straight on; in A the wish stays where the finger
-    /// left it (a touch has no resting pointer) until the next steering touch, or until A ends.
-    /// A finger lifted inside the wish's dead zone clears it.
+    /// The steering finger lifted: C flies straight on; in A the wish is held only until it has
+    /// settled ([`autopilot::WISH_SETTLE`]; the lock re-targets towards it once), then it is let
+    /// go like a pointer that left, so the wish line fades (a wish kept until A ended left a
+    /// line on the screen that never went away; device round). A finger lifted inside the
+    /// wish's dead zone clears it.
     TouchSteerEnd,
     /// The touch throttle lever crossed one detent up (`up`: E, towards "in") or down (Q): the
     /// pedals' path, one rung per detent. Within one drag the speed stops at zero (the keys'
@@ -295,6 +301,7 @@ impl InputEvent {
             | Self::GestureEnd
             | Self::TouchSteerEnd
             | Self::TouchRotateEnd
+            | Self::TouchesLifted
             | Self::Throttle { .. }
             | Self::ThrottleEnd => true,
             Self::Probe(p) => p.is_none_or(|(x, y)| f(&[x, y])),
@@ -508,7 +515,11 @@ pub struct Navigator {
     /// it left in A after it lifted, the direction of a throttle drag that braked to zero (it
     /// stops there until the finger lifts), and the orbit probe placed by touch.
     touch: Option<(f64, f64)>,
-    touch_wish: Option<(f64, f64)>,
+    /// The steering finger's last point after it lifted in A, and when it lifted.
+    touch_wish: Option<((f64, f64), f64)>,
+    /// A pinch or twist happened since the last `TouchesLifted`: the finger left on the
+    /// screen neither pans nor steers.
+    pinched: bool,
     throttle_rest: Option<f64>,
     /// The current touch twist: turned so far while below the dead band, or None once it
     /// turns the view (until `TouchRotateEnd`).
@@ -616,6 +627,7 @@ impl Default for Navigator {
             north: None,
             touch: None,
             touch_wish: None,
+            pinched: false,
             throttle_rest: None,
             twist: Some(0.0),
             probe: None,
@@ -712,23 +724,30 @@ impl Navigator {
         }
     }
 
-    /// A finger on the canvas steers (kb: decisions/controls "Touch"): in the autopilot (its
-    /// direction is the wish), the cruise, and a journey's flight (it takes the wheel, as a
-    /// pointer held off-centre does on the Mac). Then a drag or a finger at rest steers, and a
-    /// long press is not the menu. Elsewhere a drag pans.
+    /// A finger on the canvas steers rather than pans (kb: decisions/controls "Touch", device
+    /// round): in the autopilot only, where its direction is the wish (a drag or a finger at
+    /// rest; the autopilot keeps flying). In the cruise and a journey's flight a drag pans the
+    /// picture while the zoom goes on (a journey hands over to the cruise, as a drag does on the
+    /// Mac): the finger used to steer there like the Mac's resting pointer, a joystick about
+    /// the centre with a dead zone and a quadratic response, so a drag of a few centimetres
+    /// moved the view a few points per second, and the other way than the finger (on the iPad
+    /// "panning doesn't work, you can't steer").
     pub fn finger_steers(&self) -> bool {
-        self.autopilot.is_active() || self.cruise.is_engaged() || self.journey_flying()
+        self.autopilot.is_active()
     }
 
     /// What a finger held still on the canvas does (kb: decisions/controls "Touch"): on a
     /// control nothing more (its tap acts), on a mini-map it flies there (the Mac's ⌥-click),
-    /// in A, C and a journey's flight it steers, else (the view at rest, or a fly-to the user
-    /// started) the long-press menu.
+    /// in A it steers (the wish), in C and a journey's flight nothing (its drag pans; no menu
+    /// while the point under it moves), else (the view at rest, or a fly-to the user started)
+    /// the long-press menu. Nothing either for the finger left down after a pinch.
     pub fn touch_hold(&self, spot: TouchSpot) -> TouchHold {
         match spot {
             TouchSpot::Control => TouchHold::Nothing,
             TouchSpot::Map => TouchHold::FlyToMap,
+            TouchSpot::Canvas if self.pinched => TouchHold::Nothing,
             TouchSpot::Canvas if self.finger_steers() => TouchHold::Steer,
+            TouchSpot::Canvas if self.cruise.is_engaged() || self.journey_flying() => TouchHold::Nothing,
             TouchSpot::Canvas => TouchHold::Menu,
         }
     }
@@ -1397,6 +1416,19 @@ impl Navigator {
         self.rot_cw = false;
         self.pad = GamepadState::default();
         self.pedal_hold = None;
+        self.pinched = false;
+    }
+
+    /// The wish a lifted finger left in A has done its work: the autopilot's settled wish points
+    /// its way (the lock re-targeted towards it once), or it was held twice the settle time
+    /// (a wish that never settled: a lift inside the dead zone, A paused).
+    fn touch_wish_settled(&self, p: (f64, f64), lifted: f64, now: f64) -> bool {
+        let r = p.0.hypot(p.1);
+        let agrees = self
+            .autopilot
+            .wish()
+            .is_some_and(|w| r > 0.0 && (p.0 * w.dir.0 + p.1 * w.dir.1) / r >= autopilot::WISH_TURN.cos());
+        agrees || now - lifted >= 2.0 * autopilot::WISH_SETTLE
     }
 
     /// Stops all motion at once (Reset, a new flight).
@@ -1504,6 +1536,21 @@ impl Navigator {
     pub fn handle(&mut self, event: InputEvent, viewport: &mut Viewport, now: f64) -> bool {
         if !event.is_finite() || !now.is_finite() {
             return false;
+        }
+        // Touch (kb: decisions/controls "Touch", device round): once a pinch or twist began, the
+        // finger left down when the other lifts neither pans nor steers until every finger is
+        // off the screen (its pan would also measure a fling).
+        match event {
+            InputEvent::Pinch { .. } | InputEvent::TouchRotate { .. } => {
+                self.pinched = true;
+                self.touch = None;
+            }
+            InputEvent::Pan { .. } | InputEvent::TouchSteer { .. } if self.pinched => return false,
+            InputEvent::TouchesLifted => {
+                self.pinched = false;
+                return true;
+            }
+            _ => {}
         }
         let event = match event {
             InputEvent::Resize { width, height } => InputEvent::Resize {
@@ -1681,8 +1728,8 @@ impl Navigator {
                 }
                 true
             }
-            // Mapped to `Rotate` (or nothing) by `handle`'s dead band.
-            InputEvent::TouchRotate { .. } | InputEvent::TouchRotateEnd => false,
+            // Mapped to `Rotate` (or nothing) by `handle`'s dead band; `TouchesLifted` taken there.
+            InputEvent::TouchRotate { .. } | InputEvent::TouchRotateEnd | InputEvent::TouchesLifted => false,
             InputEvent::Pan { dx, dy } => {
                 // The hand has the view: flings stop; motion is 1:1.
                 self.stop_flings();
@@ -1735,21 +1782,15 @@ impl Navigator {
                 true
             }
             InputEvent::TouchSteer { x, y } => {
-                // A journey's flight: a finger off the dead zone takes the wheel at once (a
-                // touch is deliberate; the Mac's pointer needs travel and 0.6 s), then steers
-                // the cruise. Inside the dead zone the leg flies on.
-                if self.journey_flying() && self.autopilot.steer_target(Some((x, y)), self.steer_radius()) != (0.0, 0.0)
-                {
-                    self.take_wheel(None, now);
-                }
                 self.touch = Some((x, y));
                 self.touch_wish = None;
                 true
             }
             InputEvent::TouchSteerEnd => {
-                // A touch has no resting pointer: in A the wish stays where the finger left it.
+                // A touch has no resting pointer: in A the wish is held until it settled, then
+                // let go (`tick`), so the wish line fades.
                 if self.autopilot.is_active() {
-                    self.touch_wish = self.touch;
+                    self.touch_wish = self.touch.map(|p| (p, now));
                 }
                 self.touch = None;
                 true
@@ -2236,8 +2277,13 @@ impl Navigator {
             || self.driven();
         // The autopilot does not steer by the pointer; its direction is a wish for the targets.
         // A touch is deliberate: its wish needs no travel, and stays after the finger lifted.
+        if let Some((p, lifted)) = self.touch_wish
+            && self.touch_wish_settled(p, lifted, now)
+        {
+            self.touch_wish = None;
+        }
         let wish_pointer = match self.mode {
-            _ if self.touch.is_some() || self.touch_wish.is_some() => self.touch.or(self.touch_wish),
+            _ if self.touch.is_some() || self.touch_wish.is_some() => self.touch.or(self.touch_wish.map(|w| w.0)),
             InputMode::Pointer if self.wheel_travel >= WISH_TRAVEL => self.pointer_on_canvas(),
             _ => None,
         };
@@ -4395,9 +4441,11 @@ mod tests {
         assert_eq!(n.cruise().set_speed(), 0.0, "no reverse within the drag");
     }
 
-    /// A steering finger: in A its direction is the wish, and it stays after the finger lifts
-    /// (a lift inside the dead zone clears it; it never hands over); in C it steers while the
-    /// finger is down, also past the pointer's idle timeout, and stops when it lifts.
+    /// A steering finger: in A its direction is the wish while the finger is down; after the
+    /// lift the wish is let go once it settled, so the wish line goes (device round: it stayed
+    /// on the screen until A ended); a quick flick still settles its wish first (the lock
+    /// re-targets once). It never hands over. In C it steers while the finger is down, also
+    /// past the pointer's idle timeout, and stops when it lifts.
     #[test]
     fn touch_steering_wishes_in_a_and_steers_in_c() {
         let (mut n, mut v) = joystick();
@@ -4408,11 +4456,29 @@ mod tests {
         let t = run(&mut n, &mut v, t, t + 0.5, 60.0);
         let w = n.autopilot().wish().expect("a wish to the right");
         assert!(w.dir.0 > 0.99, "{:?}", w.dir);
+        assert!(n.aim_marker().is_some_and(|m| m.wish == Some(w.dir)), "the wish line");
         n.handle(InputEvent::TouchSteerEnd, &mut v, t);
-        let t = run(&mut n, &mut v, t, t + 3.0, 60.0);
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
         assert_eq!(n.level(), Level::Autopilot, "a touch never hands over in A");
-        assert_eq!(n.autopilot().wish().map(|w| w.epoch), Some(w.epoch), "the wish stays");
-        assert!(n.aim_marker().is_some_and(|m| m.wish == Some(w.dir)));
+        assert!(n.autopilot().wish().is_none(), "let go after the lift");
+        assert!(n.aim_marker().is_some_and(|m| m.wish.is_none()), "no wish line left");
+        // A flick (lifted after 0.1 s, before the wish settled): it settles, then goes.
+        n.handle(InputEvent::TouchSteer { x: 0.0, y: 250.0 }, &mut v, t);
+        let t = run(&mut n, &mut v, t, t + 0.1, 60.0);
+        n.handle(InputEvent::TouchSteerEnd, &mut v, t);
+        let mut settled = None;
+        let mut tt = t;
+        for _ in 0..90 {
+            tt += 1.0 / 60.0;
+            n.advance(&mut v, tt);
+            if let Some(w) = n.autopilot().wish() {
+                settled.get_or_insert(w);
+            }
+        }
+        let f = settled.expect("the flick's wish settled");
+        assert!(f.dir.1 > 0.99 && f.epoch > w.epoch, "{f:?}");
+        assert!(n.autopilot().wish().is_none(), "and was let go");
+        let t = tt;
         // Lifted near the centre: no wish.
         n.handle(InputEvent::TouchSteer { x: 10.0, y: 0.0 }, &mut v, t);
         n.handle(InputEvent::TouchSteerEnd, &mut v, t);
@@ -4445,11 +4511,11 @@ mod tests {
         assert_eq!(n.level(), Level::Cruise);
     }
 
-    /// A finger held still (kb: decisions/controls "Touch"): in M the long-press menu; in A, C
-    /// and a journey's flight it steers (a resting finger before a drag opened the menu there);
-    /// on a mini-map it flies there, on a control nothing.
+    /// A finger held still (kb: decisions/controls "Touch"): in M the long-press menu; in A it
+    /// steers (the wish); in C nothing (its drag pans; no menu while flying); on a mini-map it
+    /// flies there, on a control nothing.
     #[test]
-    fn a_held_finger_steers_in_a_c_and_j_and_opens_the_menu_in_m() {
+    fn a_held_finger_steers_in_a_and_opens_the_menu_in_m() {
         let (mut n, mut v) = joystick();
         n.advance(&mut v, 0.0);
         assert!(!n.finger_steers());
@@ -4468,7 +4534,13 @@ mod tests {
         n.advance(&mut v, 0.0);
         tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
         assert_eq!(n.level(), Level::Cruise);
-        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Steer, "C");
+        assert!(!n.finger_steers(), "a drag pans in C");
+        assert_eq!(
+            n.touch_hold(TouchSpot::Canvas),
+            TouchHold::Nothing,
+            "C: no menu, no steering"
+        );
+        assert_eq!(n.touch_hold(TouchSpot::Map), TouchHold::FlyToMap, "C");
         // A fly-to the user started (Fly Here): not steering, the menu.
         let (mut n, mut v) = setup();
         n.handle(InputEvent::FlyHere { x: 100.0, y: 0.0 }, &mut v, 0.0);
@@ -4476,10 +4548,11 @@ mod tests {
         assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Menu, "fly-to");
     }
 
-    /// A journey's flight: a finger inside the dead zone lets the leg fly on; off-centre it takes
-    /// the wheel at once (the cruise steers on) and suspends the journey.
+    /// A journey's flight: a touch drag pans, as a drag on the Mac does: it takes the wheel at
+    /// once (the cruise goes on at the journey's speed) and suspends the journey; the next drag
+    /// pans the cruise the same way (one meaning). A held finger does nothing there.
     #[test]
-    fn a_finger_takes_the_wheel_from_a_journey_flight() {
+    fn a_drag_takes_the_wheel_from_a_journey_flight_and_pans() {
         let mut n = Navigator::default();
         let mut v = Viewport::fitting(1000.0, 600.0);
         n.handle(
@@ -4498,17 +4571,127 @@ mod tests {
             n.advance(&mut v, t);
         }
         assert!(n.journey_flying(), "a leg flies");
-        assert!(n.finger_steers());
-        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Steer);
-        n.handle(InputEvent::TouchSteer { x: 3.0, y: 0.0 }, &mut v, t);
-        assert!(n.journey_flying(), "inside the dead zone the leg flies on");
-        n.handle(InputEvent::TouchSteer { x: 220.0, y: 40.0 }, &mut v, t);
-        assert_eq!(n.level(), Level::Cruise, "the finger took the wheel");
+        assert!(!n.finger_steers());
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Nothing);
+        let before = v.clone();
+        n.handle(InputEvent::Pan { dx: 40.0, dy: 0.0 }, &mut v, t);
+        assert_eq!(n.level(), Level::Cruise, "the drag took the wheel");
         assert!(n.journey().is_suspended());
-        let t = run(&mut n, &mut v, t, t + 2.0, 60.0);
-        assert!(n.cruise().heading().0 > 10.0, "steers: {:?}", n.cruise().heading());
-        assert!(n.finger_steers());
+        let moved = (v.center.re() - before.center.re()) / v.scale.to_f64();
+        assert!((moved + 40.0).abs() < 1.0, "1:1 under the finger: {moved}");
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert_eq!(n.level(), Level::Cruise);
+        assert!(!n.finger_steers());
+        let before = v.clone();
+        n.handle(InputEvent::Pan { dx: 0.0, dy: -30.0 }, &mut v, t);
+        let moved = (v.center.im() - before.center.im()) / v.scale.to_f64();
+        assert!((moved - 30.0).abs() < 1.0, "pans the cruise: {moved}");
+        assert_eq!(n.level(), Level::Cruise);
+    }
+
+    /// The cruise and a touch drag (device round: "panning doesn't work, you can't steer"): the
+    /// drag moves the picture 1:1 while the cruise zooms on at its gear; the release flings.
+    #[test]
+    fn a_drag_pans_the_cruise_and_it_zooms_on() {
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        for _ in 0..3 {
+            tap(&mut n, &mut v, NavKey::FasterZoom, 0.0);
+        }
+        let t = run(&mut n, &mut v, 0.0, 1.0, 60.0);
+        let set = n.cruise().set_speed();
+        assert!(!n.finger_steers());
+        let (re0, s0) = (v.center.re(), v.scale.to_f64());
+        let mut t = t;
+        for _ in 0..30 {
+            t += 1.0 / 60.0;
+            n.handle(InputEvent::Pan { dx: 4.0, dy: 0.0 }, &mut v, t);
+            n.advance(&mut v, t);
+        }
+        // 120 points to the right in 0.5 s: the content moved with the finger.
+        assert!(v.center.re() < re0 - 60.0 * v.scale.to_f64(), "panned");
+        assert!(v.scale.to_f64() < s0 * 0.95, "zoomed on while panning");
+        assert_eq!(n.level(), Level::Cruise);
+        assert_eq!(n.cruise().set_speed(), set, "the gear stays");
+        n.handle(InputEvent::GestureEnd, &mut v, t + 0.005);
+        assert!(n.velocity().0 > 100.0, "flings: {:?}", n.velocity());
+    }
+
+    /// A pinch whose fingers lift one after the other (device round: "after the zoom there's
+    /// also some panning"): the finger left down neither pans nor steers nor flings, whichever
+    /// lifted first (the platform sends the same events), until every finger is off; then a
+    /// fresh touch pans. A pinch's release after holding still does not fling.
+    #[test]
+    fn a_finger_left_after_a_pinch_does_not_pan() {
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        let mut t = 0.0;
+        let pinch = |n: &mut Navigator, v: &mut Viewport, t: f64| {
+            n.handle(
+                InputEvent::Pinch {
+                    ratio: 1.05,
+                    x: 30.0,
+                    y: 10.0,
+                    dx: 2.0,
+                    dy: 1.0,
+                },
+                v,
+                t,
+            );
+        };
+        for _ in 0..20 {
+            t += 1.0 / 120.0;
+            pinch(&mut n, &mut v, t);
+        }
+        // Held still, then one finger lifts (the platform ends the pinch there).
+        t += 0.2;
+        n.handle(InputEvent::GestureEnd, &mut v, t);
+        assert_eq!(n.velocity(), (0.0, 0.0, 0.0), "no fling from a stale pinch");
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Nothing, "no menu for it");
+        let at = v.clone();
+        // The other finger moves on and lifts while moving.
+        for _ in 0..20 {
+            t += 1.0 / 120.0;
+            assert!(!n.handle(InputEvent::Pan { dx: 6.0, dy: -3.0 }, &mut v, t));
+        }
+        n.handle(InputEvent::GestureEnd, &mut v, t + 0.005);
+        n.handle(InputEvent::TouchesLifted, &mut v, t + 0.005);
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert_eq!(v, at, "the remaining finger did not pan or fling");
+        assert_eq!(n.velocity(), (0.0, 0.0, 0.0));
+        // A fresh touch pans.
+        assert!(n.handle(InputEvent::Pan { dx: 6.0, dy: 0.0 }, &mut v, t + 0.1));
+        assert_ne!(v, at);
+        assert_eq!(n.touch_hold(TouchSpot::Canvas), TouchHold::Menu);
+
+        // In A: a finger left after a pinch sets no wish; a twist counts as a pinch too.
+        let (mut n, mut v) = joystick();
+        n.advance(&mut v, 0.0);
+        tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
+        let t = run(&mut n, &mut v, 0.0, 0.5, 60.0);
+        n.handle(
+            InputEvent::TouchRotate {
+                radians: 0.01,
+                x: 0.0,
+                y: 0.0,
+            },
+            &mut v,
+            t,
+        );
+        n.handle(InputEvent::TouchRotateEnd, &mut v, t);
+        assert!(!n.handle(InputEvent::TouchSteer { x: 250.0, y: 0.0 }, &mut v, t));
+        let t = run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert!(n.autopilot().wish().is_none(), "no wish from the remaining finger");
         n.handle(InputEvent::TouchSteerEnd, &mut v, t);
+        n.handle(InputEvent::TouchesLifted, &mut v, t);
+        n.handle(InputEvent::TouchSteer { x: 250.0, y: 0.0 }, &mut v, t);
+        run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert!(n.autopilot().wish().is_some(), "a fresh finger wishes");
+        // Lost focus (the app left the screen with fingers down) clears it too.
+        let (mut n, mut v) = setup();
+        pinch(&mut n, &mut v, 0.0);
+        n.handle(InputEvent::FocusLost, &mut v, 0.1);
+        assert!(n.handle(InputEvent::Pan { dx: 6.0, dy: 0.0 }, &mut v, 0.2));
     }
 
     /// The orbit probe a touch placed replaces the zoom target for the orbit only.
