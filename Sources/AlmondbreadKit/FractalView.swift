@@ -818,6 +818,15 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var gamepad: GamepadInput?
     /// The current one-finger pan started on the compass: it turns the view.
     private var compassPanning = false
+    /// Touch (kb: decisions/controls "Touch"): the one-finger pan steers (A, C) rather than
+    /// pans; a long press is on (its drag moves the orbit probe, its release opens the menu),
+    /// where it began and how far it moved; when the last long press ended (its tap is not a
+    /// tap); the long-press menu.
+    private var steering = false
+    private var longPressing = false
+    private var longPressStart: CGPoint = .zero
+    private var longPressMoved: CGFloat = 0
+    private var longPressEnded = Date.distantPast
 
     // The base creates the layer before the view exists; UIKit asks the class for its layer,
     // so the view's own layer is a plain one hosting the Metal layer as a sublayer.
@@ -845,13 +854,21 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         rotation.delegate = self
         // iPad trackpad / mouse: pointer mode (zoom target = pointer, crosshair pointer).
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
-        [pinch, rotation, pan, doubleTap, twoFingerTap, tap, hover].forEach(addGestureRecognizer)
+        // A long press: the menu at that point; its drag moves the orbit probe (touch has no hover).
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.45
+        longPress.delegate = self
+        doubleTap.delegate = self
+        tap.delegate = self
+        [pinch, rotation, pan, doubleTap, twoFingerTap, tap, hover, longPress].forEach(addGestureRecognizer)
         let pointer = UIPointerInteraction(delegate: self)
         addInteraction(pointer)
         pointerInteraction = pointer
         base.onModeChange = { [weak self] _ in self?.pointerInteraction?.invalidate() }
         if Preferences.gamepadEnabled && !TestLaunch.enabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
         if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
+        // Touch-sized cockpit cells and help badges (kb: decisions/controls "Touch").
+        base.explorer?.setCockpitTouch(on: true)
         // VoiceOver (and the UI tests): one element, touches pass through to the gestures,
         // its value is the view (`accessibilityValue`).
         isAccessibilityElement = true
@@ -860,17 +877,40 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         accessibilityTraits = .allowsDirectInteraction
     }
 
-    /// The view as text: "re im scale angle° autopilot on|off journey on|off" (UI tests read
-    /// it to check that a gesture moved, zoomed or turned the view).
+    /// The view as text: "re im scale angle° autopilot on|off journey on|off level m|c|a|j gear
+    /// n orbit on|off seek phase" (UI tests read it to check that a gesture moved, zoomed or
+    /// turned the view, and what the throttle and the long-press menu did).
     override var accessibilityValue: String? {
         get {
             guard let explorer = base.explorer else { return nil }
             let v = explorer.viewport()
             let s = explorer.stats()
+            let level = switch s.cruise.level {
+            case .manual: "m"
+            case .cruise: "c"
+            case .autopilot: "a"
+            case .journey: "j"
+            }
             return "\(v.re) \(v.im) \(v.scaleText) \(String(format: "%.2f", v.angleDegrees))° "
-                + "autopilot \(s.autopilot.active ? "on" : "off") journey \(s.journey.active ? "on" : "off")"
+                + "autopilot \(s.autopilot.active ? "on" : "off") journey \(s.journey.active ? "on" : "off") "
+                + "level \(level) gear \(s.cruise.gear) orbit \(base.model.orbitEnabled ? "on" : "off") "
+                + "seek \(s.seek.phase.isEmpty ? "idle" : s.seek.phase.replacingOccurrences(of: " ", with: "-")) assist \(s.cruise.assist ? "on" : "off")"
+                + uiTestTargets(explorer)
         }
         set {}
+    }
+
+    /// UI tests only (launch environment `ALMONDBREAD_UITEST=1`): where Rust drew the cockpit's
+    /// controls and the help badges, " cockpit id:x,y ..." in view points from the top-left, so a
+    /// test taps them through the real hit tests (VoiceOver never hears this).
+    private static let uiTest = ProcessInfo.processInfo.environment["ALMONDBREAD_UITEST"] == "1"
+    private func uiTestTargets(_ explorer: Explorer) -> String {
+        guard Self.uiTest else { return "" }
+        let (w, h) = (Double(bounds.width), Double(bounds.height))
+        let at = { (x: Double, y: Double) in "\(Int((w / 2 + x).rounded())),\(Int((h / 2 - y).rounded()))" }
+        let cells = explorer.cockpitControls().map { "\($0.id):" + at($0.x, $0.y) }
+        let badges = explorer.helpBadges().map { "help-\($0.topic):" + at($0.x, $0.y) }
+        return " cockpit " + (cells + badges).joined(separator: " ")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -999,6 +1039,10 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 case "p": base.model.togglePiMeter(); continue
                 case "c": base.model.toggleCosmicScale(); continue
                 case "l": base.model.toggleLaneAssist(); continue
+                case "g":
+                    // Compute further at its time limit (the HUD's "Continue").
+                    if base.model.canContinue { base.model.continueComputing() }
+                    continue
                 default: break
                 }
             }
@@ -1070,6 +1114,11 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     @objc private func handlePan(_ g: UIPanGestureRecognizer) {
+        // A long press's drag moves the orbit probe, not the view.
+        if longPressing {
+            g.setTranslation(.zero, in: self)
+            return
+        }
         // A drag that starts on the compass turns the view (the needle follows the finger).
         if g.state == .began {
             let p = g.location(in: self), t = g.translation(in: self)
@@ -1088,15 +1137,17 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
             g.setTranslation(.zero, in: self)
             return
         }
-        // Autopilot: the finger steers like the Mac pointer (its offset from the centre);
-        // lifting it flies straight on.
-        if base.autopilotOn {
+        // Autopilot and cruise: the finger steers (kb: decisions/controls "Touch"): in C like the
+        // Mac pointer while it is down, in A its direction is the wish, kept after it lifts.
+        if g.state == .began { steering = base.autopilotOn }
+        if steering {
             switch g.state {
             case .began, .changed:
                 let o = offset(g.location(in: self))
-                send(.pointer(x: o.x, y: o.y))
+                send(.touchSteer(x: o.x, y: o.y))
             default:
-                send(.pointerExited)
+                steering = false
+                send(.touchSteerEnd)
             }
             g.setTranslation(.zero, in: self)
             return
@@ -1111,8 +1162,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     @objc private func handleDoubleTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
         // On a help badge a double tap does nothing more; on the compass it turns to north,
-        // like a tap; no zoom.
+        // like a tap; no zoom. On the cockpit nothing (its taps are single).
         if base.model.helpPress(x: o.x, y: o.y, size: bounds.size, show: false) { return }
+        if base.model.explorer?.cockpitHit(x: o.x, y: o.y) != nil { return }
         if base.model.compassTap(x: o.x, y: o.y) { return }
         send(.doubleTap(x: o.x, y: o.y, out: false))
     }
@@ -1121,10 +1173,57 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         let o = offset(g.location(in: self))
         // A tap on the compass turns to north; on a mini-map it jumps there; elsewhere it
         // pauses / resumes the autopilot. A help badge opens its popover first.
+        if Date().timeIntervalSince(longPressEnded) < 0.3 { return }
         if base.model.helpPress(x: o.x, y: o.y, size: bounds.size) { return }
+        // A cockpit icon switches the driving level, the lane icon toggles lane assist.
+        if let control = base.model.explorer?.cockpitHit(x: o.x, y: o.y) {
+            base.model.cockpitClick(control)
+            return
+        }
         if base.model.compassTap(x: o.x, y: o.y) { return }
         if base.model.mapClick(x: o.x, y: o.y, fly: false) { return }
         send(.click(x: o.x, y: o.y))
+    }
+
+    /// A press on a control Rust draws (help badge, cockpit, compass): no double-tap zoom, no
+    /// long-press menu there.
+    fileprivate func onControl(_ p: CGPoint) -> Bool {
+        let o = offset(p)
+        guard let explorer = base.explorer else { return false }
+        return explorer.helpHit(x: o.x, y: o.y) != nil || explorer.cockpitHit(x: o.x, y: o.y) != nil
+    }
+
+    @objc private func handleLongPress(_ g: UILongPressGestureRecognizer) {
+        let p = g.location(in: self)
+        switch g.state {
+        case .began:
+            longPressing = true
+            longPressStart = p
+            longPressMoved = 0
+            // With the orbit overlay on, c jumps under the finger and follows it.
+            if base.model.orbitEnabled {
+                let o = offset(p)
+                send(.probe(x: o.x, y: o.y))
+            }
+        case .changed:
+            longPressMoved = max(longPressMoved, hypot(p.x - longPressStart.x, p.y - longPressStart.y))
+            if base.model.orbitEnabled {
+                let o = offset(p)
+                send(.probe(x: o.x, y: o.y))
+            }
+        case .ended:
+            longPressing = false
+            longPressEnded = Date()
+            // A press that stayed put opens the menu there; a drag only moved the probe.
+            if longPressMoved < 12 {
+                let p = longPressStart, o = offset(p)
+                base.model.canvasMenu = CanvasMenu(x: o.x, y: o.y, rect: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4),
+                                                   edge: p.y > bounds.midY ? .top : .bottom)
+            }
+        default:
+            longPressing = false
+            longPressEnded = Date()
+        }
     }
 
     @objc private func handleTwoFingerTap(_ g: UITapGestureRecognizer) {
@@ -1157,6 +1256,15 @@ extension FractalUIView: UIPointerInteractionDelegate {
 extension FractalUIView: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
+    }
+
+    /// On a control Rust draws (help badge, cockpit) a double tap is not waited for (the tap
+    /// fires at once) and a long press opens no menu.
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if g is UILongPressGestureRecognizer || (g as? UITapGestureRecognizer)?.numberOfTapsRequired == 2 {
+            return !onControl(touch.location(in: self))
+        }
+        return true
     }
 }
 

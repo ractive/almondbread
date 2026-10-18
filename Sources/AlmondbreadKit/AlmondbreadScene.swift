@@ -25,8 +25,10 @@ public struct AlmondbreadScene: Scene {
         }
         #if os(macOS)
         .defaultSize(width: 1280, height: 820)
-        .commands { FractalCommands() }
         #endif
+        // The iPad's menu bar and ⌘-key shortcuts (iPadOS) get the same commands as the Mac
+        // (kb: decisions/controls "Touch").
+        .commands { FractalCommands() }
         #if os(macOS)
         HelpWindow()
         Settings {
@@ -87,7 +89,6 @@ enum Clipboard {
     }
 }
 
-#if os(macOS)
 struct FractalCommands: Commands {
     @FocusedValue(\.explorerModel) private var model
     @FocusedValue(\.inspectorVisible) private var inspectorVisible
@@ -172,7 +173,9 @@ struct FractalCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(model == nil)
             // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas.
+            #if os(macOS)
             TourMenu(model: model)
+            #endif
             Button("Hunt π at the Neck") { model?.piFlight("neck") }
                 .disabled(model == nil)
             Button("Hunt π at the Cusp") { model?.piFlight("cusp") }
@@ -194,12 +197,13 @@ struct FractalCommands: Commands {
                 .disabled(model == nil || model?.showHUD == false)
             Divider()
         }
+        #if os(macOS)
         CommandGroup(replacing: .help) {
             HelpMenuItem()
         }
+        #endif
     }
 }
-#endif
 
 /// Window tests (`--selftest`, `--interaction-test`) run in the background: they must never
 /// take focus from the user. No Dock icon or menu bar (accessory policy), no activation, the

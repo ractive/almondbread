@@ -9,9 +9,11 @@ struct ContentView: View {
     @State private var showFlyTo = false
     @State private var fullScreenSidebar = FullScreenSidebar()
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-    /// Width of the canvas in points (narrower than the window while the iPad sidebar shows).
+    /// Size of the canvas in points (narrower than the window while the iPad sidebar shows).
     @State private var canvasWidth: CGFloat = 1000
+    @State private var canvasHeight: CGFloat = 800
 
     /// iPhone portrait, narrow iPad split views, and an iPad portrait canvas next to the
     /// control center: the HUD drops its statistics and the buttons move to the bottom.
@@ -22,6 +24,20 @@ struct ContentView: View {
         false
         #endif
     }
+
+    /// A phone on its side (kb: decisions/controls "Touch"): the buttons go in a row at the
+    /// bottom trailing corner and the throttle stands at the trailing edge above them.
+    private var landscapePhone: Bool {
+        #if os(iOS)
+        verticalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    /// The buttons stack in a column at the bottom trailing corner (phone portrait, narrow
+    /// split views), with the throttle on top of them.
+    private var buttonColumn: Bool { compactWidth && !landscapePhone }
 
     var body: some View {
         explorer
@@ -44,8 +60,14 @@ struct ContentView: View {
         // toolbar), and an anchor in the safe-area frame sat a toolbar lower, below the window
         // for the cockpit's badge at the bottom edge (no popover at all).
         .modifier(CanvasHelpPopover(model: model))
+        #if os(iOS)
+        .modifier(CanvasMenuPopover(model: model))
+        #endif
         .ignoresSafeArea()
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: {
+            canvasWidth = $0.width
+            canvasHeight = $0.height
+        }
         .background(Color.black)
         .overlay(alignment: .topLeading) {
             if model.showHUD {
@@ -60,25 +82,40 @@ struct ContentView: View {
         .overlay(alignment: compactWidth ? .bottomLeading : .bottomTrailing) {
             TourCard(model: model, compact: compactWidth)
                 .padding(.leading, 12)
-                .padding(.trailing, compactWidth ? 68 : 12)
-                .padding(.bottom, 12)
+                .padding(.trailing, Self.tourTrailing(compact: compactWidth))
+                .padding(.bottom, Self.tourBottom(compact: compactWidth, cockpit: model.showHUD))
         }
         #if os(iOS)
         // iPhone portrait: the π panel sits left of the button column.
-        .onChange(of: compactWidth, initial: true) {
-            model.piMeterInsetRight = compactWidth ? 56 : 0
+        .onChange(of: [compactWidth, landscapePhone], initial: true) {
+            // Left of the button column, or of the throttle at the trailing edge.
+            model.piMeterInsetRight = compactWidth ? 56 : ThrottleLever.width + 12
             // iPad and wide iPhone: the compass sits below the top-right buttons (44 + 12 pt).
             model.compassInsetTop = compactWidth ? 0 : 56
-            // The cockpit (bottom centre) keeps left of the button column.
-            model.cockpitInsetRight = compactWidth ? 56 : 0
+            // The cockpit (bottom centre) keeps left of the button column, or of the button row
+            // of a phone on its side (up to five buttons at a journey stop).
+            model.cockpitInsetRight = landscapePhone ? 5 * 44 + 4 * 10 + 12 : compactWidth ? 56 : 0
+        }
+        // The throttle (kb: decisions/controls "Touch") at the trailing edge, in thumb reach:
+        // on top of the button column on a phone in portrait (below), else at mid height.
+        .overlay(alignment: .trailing) {
+            if model.showHUD && !buttonColumn {
+                ThrottleLever(model: model, height: min(240, max(120, canvasHeight - (landscapePhone ? 170 : 260))))
+                    .padding(.trailing, 12)
+                    .padding(.bottom, landscapePhone ? 56 : 0)
+            }
         }
         #endif
         #if os(iOS)
         // iPhone portrait: the buttons sit at the bottom, in thumb reach and clear of the HUD;
         // wider screens: top trailing, next to the HUD.
         .overlay(alignment: compactWidth ? .bottomTrailing : .topTrailing) {
-            let stack = compactWidth ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+            let stack = buttonColumn ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
             stack {
+                if buttonColumn && model.showHUD {
+                    ThrottleLever(model: model, height: min(220, max(120, canvasHeight - 420)))
+                        .padding(.bottom, 6)
+                }
                 // Autopilot: on, a finger steers, a tap pauses.
                 Button {
                     model.toggleAutopilot()
@@ -216,6 +253,27 @@ struct ContentView: View {
         .focusedSceneValue(\.explorerModel, model)
         .focusedSceneValue(\.inspectorVisible, $showInspector)
         .focusedSceneValue(\.flyToVisible, $showFlyTo)
+    }
+}
+
+extension ContentView {
+    /// The tour card's trailing margin: clear of the button column (compact) or the throttle.
+    static func tourTrailing(compact: Bool) -> CGFloat {
+        #if os(iOS)
+        compact ? 68 : ThrottleLever.width + 24
+        #else
+        12
+        #endif
+    }
+
+    /// The tour card's bottom margin: on iOS above the touch cockpit (44 points, two rows of 66
+    /// on a narrow canvas), whose icons it would cover.
+    static func tourBottom(compact: Bool, cockpit: Bool) -> CGFloat {
+        #if os(iOS)
+        cockpit ? (compact ? 66 : 44) + 24 : 12
+        #else
+        12
+        #endif
     }
 }
 
@@ -379,7 +437,13 @@ struct HUDProgressLine: View {
                 if model.canContinue {
                     Button("Continue") { model.continueComputing() }
                         .font(.caption)
+                        #if os(iOS)
+                        // A finger-sized target (kb: decisions/controls "Touch").
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        #else
                         .controlSize(.small)
+                        #endif
                         .help("Compute another minute on this view (G)")
                 }
             }

@@ -20,6 +20,12 @@ use almondbread_core::input::Cockpit;
 use crate::help::{HelpBadge, HelpTopic};
 use crate::overlay::{Scene, rgba};
 
+/// A level icon's hit cell as drawn: level, centre x, y, half width, half height (pixels).
+type IconCell = (Level, f64, f64, f64, f64);
+
+/// A control's hit cell: id, centre x, y, half width, half height (pixels).
+pub type ControlCell = (&'static str, f64, f64, f64, f64);
+
 /// Cockpit layout and visibility of one view.
 #[derive(Clone, Debug, Default)]
 pub struct CockpitOverlay {
@@ -28,17 +34,25 @@ pub struct CockpitOverlay {
     /// Extra right and bottom margins (view points): iPhone buttons at the bottom right.
     pub inset_right: f64,
     pub inset_bottom: f64,
+    /// Touch screens (kb: decisions/controls "Touch"): every control gets a 44-point cell (the
+    /// icons drawn larger), in one row where the canvas has room, else the icons and the lane
+    /// icon on a row of their own above the name, gauge and rate.
+    pub touch: bool,
+    /// Extra bottom margin of this frame (view points): above a bottom-left map row (touch).
+    pub lift: Cell<f64>,
     /// The set speed last drawn and when it changed (the gear / target line lights up after
     /// Q / E).
     last_set: Cell<f64>,
     set_at: Cell<f64>,
     /// The "target" line showed in the last frame (its hysteresis).
     target_shown: Cell<bool>,
-    /// The level icons as last drawn: (level, centre x, centre y, half size), pixels. A click
-    /// on one switches to that level (they replace the toolbar's autopilot and journey).
-    icons: std::cell::RefCell<Vec<(Level, f64, f64, f64)>>,
-    /// The lane-assist icon as last drawn (centre x, y, half size; pixels): a click toggles it.
-    lane: Cell<Option<(f64, f64, f64)>>,
+    /// The level icons as last drawn: (level, centre x, centre y, half width, half height),
+    /// pixels. A click on one switches to that level (they replace the toolbar's autopilot and
+    /// journey).
+    icons: std::cell::RefCell<Vec<IconCell>>,
+    /// The lane-assist icon as last drawn (centre x, y, half width, half height; pixels): a
+    /// click toggles it.
+    lane: Cell<Option<(f64, f64, f64, f64)>>,
 }
 
 /// Font sizes (points): the level's name and the rate; the gear / target line.
@@ -61,6 +75,117 @@ const MARGIN: f64 = 12.0;
 const ZOOM_MAX: f64 = 1.3;
 /// How long the gear / target line stays lit after it changed (s).
 const SET_FLASH: f64 = 1.2;
+/// Touch: the cell of each control (points; Apple's minimum touch target), the icons' drawing
+/// scale, and the height of the second row in the two-row layout.
+const TOUCH_CELL: f64 = 44.0;
+const TOUCH_ICON: f64 = 1.35;
+const TOUCH_ROW2: f64 = 22.0;
+/// Touch: the badge's distance from the lane cell, so its fingertip radius
+/// (`help::TOUCH_RADIUS`) stays out of the lane icon's cell.
+const TOUCH_BADGE_GAP: f64 = 12.0;
+
+/// Where the cockpit's parts sit, in design points from the plate's top-left corner (scaled by
+/// the zoom when drawn).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Geometry {
+    w: f64,
+    h: f64,
+    /// Icon cell width, the icons' drawing scale, the first cell's left edge and the row's centre.
+    pitch: f64,
+    icon_scale: f64,
+    icons_x0: f64,
+    icons_y: f64,
+    /// Half the height of an icon's (and the lane icon's) hit cell.
+    hit_half_h: f64,
+    /// The name's left edge, the gauge's left end and the rate's left edge, on row `row_y`.
+    name_x: f64,
+    gauge_x0: f64,
+    value_x: f64,
+    row_y: f64,
+    /// Lane icon centre and its cell's half width; the (?) badge's centre.
+    lane: (f64, f64),
+    lane_half: f64,
+    badge: (f64, f64),
+}
+
+impl Geometry {
+    /// The desktop layout (one row, 28 points high): what the Mac draws.
+    fn desktop() -> Self {
+        let y = HEIGHT / 2.0;
+        let name_x = PAD + 4.0 * ICON_PITCH + GAP;
+        let gauge_x0 = name_x + NAME_SLOT + GAP;
+        let value_x = gauge_x0 + GAUGE + GAP;
+        let lane_x = value_x + VALUE_SLOT + GAP + LANE / 2.0;
+        let badge_x = lane_x + LANE / 2.0 + GAP + BADGE / 2.0;
+        Self {
+            w: width(),
+            h: HEIGHT,
+            pitch: ICON_PITCH,
+            icon_scale: 1.0,
+            icons_x0: PAD,
+            icons_y: y,
+            hit_half_h: ICON_PITCH / 2.0,
+            name_x,
+            gauge_x0,
+            value_x,
+            row_y: y,
+            lane: (lane_x, y),
+            lane_half: LANE / 2.0 + GAP / 2.0,
+            badge: (badge_x, y),
+        }
+    }
+
+    /// The touch layout in one row (`two_rows` false, 44 points high) or two (the icon row
+    /// on top).
+    fn touch(two_rows: bool) -> Self {
+        let c = TOUCH_CELL;
+        let y = c / 2.0;
+        if two_rows {
+            let lane_x = PAD + 4.0 * c + c / 2.0;
+            let badge_x = lane_x + c / 2.0 + TOUCH_BADGE_GAP + BADGE / 2.0;
+            let name_x = PAD + 4.0;
+            let gauge_x0 = name_x + NAME_SLOT + GAP;
+            Self {
+                w: badge_x + BADGE / 2.0 + PAD,
+                h: c + TOUCH_ROW2,
+                pitch: c,
+                icon_scale: TOUCH_ICON,
+                icons_x0: PAD,
+                icons_y: y,
+                hit_half_h: c / 2.0,
+                name_x,
+                gauge_x0,
+                value_x: gauge_x0 + GAUGE + GAP,
+                row_y: c + TOUCH_ROW2 / 2.0 - 3.0,
+                lane: (lane_x, y),
+                lane_half: c / 2.0,
+                badge: (badge_x, y),
+            }
+        } else {
+            let name_x = PAD + 4.0 * c + GAP;
+            let gauge_x0 = name_x + NAME_SLOT + GAP;
+            let value_x = gauge_x0 + GAUGE + GAP;
+            let lane_x = value_x + VALUE_SLOT + GAP + c / 2.0;
+            let badge_x = lane_x + c / 2.0 + TOUCH_BADGE_GAP + BADGE / 2.0;
+            Self {
+                w: badge_x + BADGE / 2.0 + PAD,
+                h: c,
+                pitch: c,
+                icon_scale: TOUCH_ICON,
+                icons_x0: PAD,
+                icons_y: y,
+                hit_half_h: c / 2.0,
+                name_x,
+                gauge_x0,
+                value_x,
+                row_y: y,
+                lane: (lane_x, y),
+                lane_half: c / 2.0,
+                badge: (badge_x, y),
+            }
+        }
+    }
+}
 
 /// The panel's width in points.
 pub fn width() -> f64 {
@@ -187,7 +312,7 @@ impl CockpitOverlay {
             .icons
             .borrow()
             .iter()
-            .find(|(_, cx, cy, h)| (x - cx).abs() <= *h && (y - cy).abs() <= *h)
+            .find(|(_, cx, cy, hw, hh)| (x - cx).abs() <= *hw && (y - cy).abs() <= *hh)
             .map(|(l, ..)| *l);
         if let Some(l) = level {
             return Some(match l {
@@ -199,8 +324,52 @@ impl CockpitOverlay {
         }
         self.lane
             .get()
-            .filter(|(cx, cy, h)| (x - cx).abs() <= *h && (y - cy).abs() <= *h)
+            .filter(|(cx, cy, hw, hh)| (x - cx).abs() <= *hw && (y - cy).abs() <= *hh)
             .map(|_| "lane")
+    }
+
+    /// Every control as last drawn: id ("manual", …, "lane"), centre and half sizes of its hit
+    /// cell, pixels (UI tests aim at them).
+    pub fn controls(&self) -> Vec<ControlCell> {
+        let mut v: Vec<_> = self
+            .icons
+            .borrow()
+            .iter()
+            .map(|&(l, x, y, hw, hh)| {
+                let id = match l {
+                    Level::Manual => "manual",
+                    Level::Cruise => "cruise",
+                    Level::Autopilot => "autopilot",
+                    Level::Journey => "journey",
+                };
+                (id, x, y, hw, hh)
+            })
+            .collect();
+        if let Some((x, y, hw, hh)) = self.lane.get() {
+            v.push(("lane", x, y, hw, hh));
+        }
+        v
+    }
+
+    /// The geometry for a canvas with `room` points free across (touch: one row if it fits).
+    fn geometry(&self, room: f64) -> Geometry {
+        if !self.touch {
+            return Geometry::desktop();
+        }
+        let one = Geometry::touch(false);
+        if room >= one.w { one } else { Geometry::touch(true) }
+    }
+
+    /// The cockpit fits between `left` (view points) and the right edge.
+    pub fn fits(&self, size: (usize, usize), ppp: f64, insets: (f64, f64, f64, f64), left: f64) -> bool {
+        let room = self.room(size, ppp, insets, left);
+        room >= self.geometry(room).w
+    }
+
+    /// Points free across the canvas for the cockpit.
+    fn room(&self, size: (usize, usize), ppp: f64, insets: (f64, f64, f64, f64), left: f64) -> f64 {
+        let w = size.0 as f64 * ppp;
+        w - insets.3 - self.inset_right - MARGIN - (insets.1.max(left) + MARGIN)
     }
 
     /// The panel in pixels (x0, y0, x1, y1) for a `size` pixel target with `ppp` points per
@@ -210,7 +379,8 @@ impl CockpitOverlay {
         let px = 1.0 / ppp;
         let (w, h) = (size.0 as f64 * ppp, size.1 as f64 * ppp);
         let k = self.zoom(size, ppp, insets, left);
-        let pw = width() * k;
+        let g = self.geometry(self.room(size, ppp, insets, left));
+        let pw = g.w * k;
         let lo = insets.1.max(left) + MARGIN;
         let hi = w - insets.3 - self.inset_right - MARGIN;
         let mut x0 = (w - pw) / 2.0;
@@ -220,16 +390,17 @@ impl CockpitOverlay {
         if x0 + pw > hi {
             x0 = (hi - pw).max(insets.1 + MARGIN.min(4.0));
         }
-        let y1 = h - insets.2 - self.inset_bottom - MARGIN;
-        [x0 * px, (y1 - HEIGHT * k) * px, (x0 + pw) * px, y1 * px]
+        let y1 = h - insets.2 - self.inset_bottom - self.lift.get() - MARGIN;
+        [x0 * px, (y1 - g.h * k) * px, (x0 + pw) * px, y1 * px]
     }
 
     /// The drawing scale: up to [`ZOOM_MAX`] while the panel still fits between `left` and
-    /// the right edge, never below 1.
+    /// the right edge, never below 1 (touch: always 1, its cells are touch-sized already).
     pub fn zoom(&self, size: (usize, usize), ppp: f64, insets: (f64, f64, f64, f64), left: f64) -> f64 {
-        let w = size.0 as f64 * ppp;
-        let room = w - insets.3 - self.inset_right - MARGIN - (insets.1.max(left) + MARGIN);
-        (room / width()).clamp(1.0, ZOOM_MAX)
+        if self.touch {
+            return 1.0;
+        }
+        (self.room(size, ppp, insets, left) / width()).clamp(1.0, ZOOM_MAX)
     }
 
     /// Draws the cockpit and its (?) badge (into `help`); appends what it drew to `key`.
@@ -255,6 +426,9 @@ impl CockpitOverlay {
         // Points of the cockpit's own design, scaled (`zoom`), in pixels.
         let px = self.zoom(size, ppp, insets, left) / ppp;
         let r = self.layout(size, ppp, insets, left);
+        let g = self.geometry(self.room(size, ppp, insets, left));
+        // A design point of the panel in pixels.
+        let at = |x: f64, y: f64| (r[0] + x * px, r[1] + y * px);
         let p = |v: f64| (v * px) as f32;
         scene.set_clip(None);
         // Plate.
@@ -265,23 +439,20 @@ impl CockpitOverlay {
             rgba(1.0, 1.0, 1.0, 0.10),
             p(0.75),
         );
-        let yc = (r[1] + r[3]) / 2.0;
         let lit = rgba(1.0, 1.0, 1.0, 0.96);
         let dim = rgba(1.0, 1.0, 1.0, 0.34);
         let cap = |size: f64| f64::from(crate::font::cap_height()) * size * px;
-        // Level icons, the current one lit; its name after them.
-        let mut x = r[0] + PAD * px;
+        // Level icons, the current one lit; its name after them (touch, two rows: under them).
         let mut icons = self.icons.borrow_mut();
         icons.clear();
-        for l in Level::ALL {
+        for (i, l) in Level::ALL.into_iter().enumerate() {
             let on = l == c.level;
-            let cx = x + ICON_PITCH * px / 2.0;
-            icon(scene, l, [cx, yc], px, if on { lit } else { dim });
-            icons.push((l, cx, yc, ICON_PITCH * px / 2.0));
-            x += ICON_PITCH * px;
+            let (cx, cy) = at(g.icons_x0 + (i as f64 + 0.5) * g.pitch, g.icons_y);
+            icon(scene, l, [cx, cy], px * g.icon_scale, if on { lit } else { dim });
+            icons.push((l, cx, cy, g.pitch * px / 2.0, g.hit_half_h * px));
         }
         drop(icons);
-        x += GAP * px;
+        let (x, yc) = at(g.name_x, g.row_y);
         scene.label(
             [x as f32, (yc - cap(NAME) / 2.0) as f32],
             p(NAME),
@@ -289,7 +460,7 @@ impl CockpitOverlay {
             lit,
         );
         // Gauge: a track with the zero tick in the middle, the rate flown as a bar from zero.
-        let g0 = x + (NAME_SLOT + GAP) * px;
+        let g0 = at(g.gauge_x0, 0.0).0;
         let g1 = g0 + GAUGE * px;
         let gm = (g0 + g1) / 2.0;
         let faint = rgba(1.0, 1.0, 1.0, 0.22);
@@ -307,7 +478,7 @@ impl CockpitOverlay {
             scene.segment([gm, yc], [end, yc], p(1.4), bar, bar);
         }
         // The rate flown, and the set speed under it (lit for a moment after it changed).
-        let tx = g1 + GAP * px;
+        let tx = at(g.value_x, 0.0).0;
         let text = value_text(c);
         let set = set_text(c, self.target_shown.get());
         self.target_shown.set(set.starts_with("target"));
@@ -331,26 +502,28 @@ impl CockpitOverlay {
         }
         // Lane assist: two lane lines converging upwards; lit when on (in cruise brighter),
         // glowing for a moment when it nudges.
-        let lx = tx + (VALUE_SLOT + GAP + LANE / 2.0) * px;
+        let (lx, ly) = at(g.lane.0, g.lane.1);
         let alpha = match (c.assist, c.level == Level::Cruise) {
             (false, _) => 0.26,
             (true, false) => 0.6,
             (true, true) => 0.92,
         };
+        let u = px * g.icon_scale;
         if c.nudging {
-            scene.disc([lx, yc], p(9.0), rgba(1.0, 1.0, 1.0, 0.18));
+            scene.disc([lx, ly], (9.0 * u) as f32, rgba(1.0, 1.0, 1.0, 0.18));
         }
-        self.lane.set(Some((lx, yc, (LANE / 2.0 + GAP / 2.0) * px)));
+        self.lane.set(Some((lx, ly, g.lane_half * px, g.hit_half_h * px)));
         let col = rgba(1.0, 1.0, 1.0, if c.nudging { 1.0 } else { alpha });
-        let (hh, wb, wt) = (6.0 * px, 5.5 * px, 2.5 * px);
-        scene.segment([lx - wb, yc + hh], [lx - wt, yc - hh], p(0.7), col, col);
-        scene.segment([lx + wb, yc + hh], [lx + wt, yc - hh], p(0.7), col, col);
+        let (hh, wb, wt) = (6.0 * u, 5.5 * u, 2.5 * u);
+        let lw = (0.7 * u) as f32;
+        scene.segment([lx - wb, ly + hh], [lx - wt, ly - hh], lw, col, col);
+        scene.segment([lx + wb, ly + hh], [lx + wt, ly - hh], lw, col, col);
         for (a, b) in [(4.0, 1.5), (-1.0, -3.5)] {
-            scene.segment([lx, yc + a * px], [lx, yc + b * px], p(0.5), col, col);
+            scene.segment([lx, ly + a * u], [lx, ly + b * u], (0.5 * u) as f32, col, col);
         }
         // The (?) badge: the levels and their keys.
-        let bx = lx + (LANE / 2.0 + GAP + BADGE / 2.0) * px;
-        crate::help::draw(scene, help, HelpTopic::Cockpit, [bx as f32, yc as f32], px as f32, key);
+        let (bx, by) = at(g.badge.0, g.badge.1);
+        crate::help::draw(scene, help, HelpTopic::Cockpit, [bx as f32, by as f32], px as f32, key);
         // Quantised so the scene is rebuilt only when what shows changes.
         key.push_str(&format!(
             "cockpit {:.0} {:.0} {} {:.3} {} {} {} {} {} {} ",
@@ -390,6 +563,83 @@ mod tests {
         };
         let r = c.layout((2000, 1200), 0.5, (0.0, 0.0, 0.0, 0.0), 0.0);
         assert!(((r[0] + r[2]) / 2.0 - 1000.0).abs() < 1e-6);
+    }
+
+    /// Touch (kb: decisions/controls "Touch"): every control has a 44-point cell; a phone in
+    /// portrait gets two rows left of the button column, a wide canvas one row of 44 points.
+    #[test]
+    fn touch_cells_are_44_points_in_one_or_two_rows() {
+        let state = Cockpit::default();
+        let mut key = String::new();
+        let mut help = Vec::new();
+        for (size, ppp, inset_right, rows) in [
+            ((1170, 2532), 1.0 / 3.0, 56.0, 2), // iPhone portrait, 390 points
+            ((2532, 1170), 1.0 / 3.0, 0.0, 1),  // iPhone landscape
+            ((1488, 2266), 0.5, 0.0, 1),        // iPad mini portrait
+        ] {
+            let c = CockpitOverlay {
+                enabled: true,
+                inset_right,
+                touch: true,
+                ..Default::default()
+            };
+            let mut s = Scene::default();
+            help.clear();
+            c.draw(
+                &mut s,
+                &mut help,
+                size,
+                ppp,
+                (0.0, 0.0, 0.0, 0.0),
+                0.0,
+                &state,
+                0.0,
+                &mut key,
+            );
+            let r = c.layout(size, ppp, (0.0, 0.0, 0.0, 0.0), 0.0);
+            let pt = 1.0 / ppp;
+            let w = size.0 as f64 * ppp;
+            assert!(r[0] >= 0.0 && r[2] <= (w - inset_right) * pt, "{size:?}: {r:?}");
+            let h = (r[3] - r[1]) * ppp;
+            assert_eq!(
+                h,
+                if rows == 2 { TOUCH_CELL + TOUCH_ROW2 } else { TOUCH_CELL },
+                "{size:?}"
+            );
+            let icons = c.icons.borrow().clone();
+            assert_eq!(icons.len(), 4);
+            for (l, cx, cy, hw, hh) in icons {
+                assert!(hw * ppp >= 22.0 - 1e-9 && hh * ppp >= 22.0 - 1e-9, "{l:?} {hw} {hh}");
+                // Anywhere in the 44-point cell, not only on the drawn icon.
+                for (dx, dy) in [(0.0, 0.0), (20.0, 20.0), (-20.0, -20.0)] {
+                    let want = match l {
+                        Level::Manual => "manual",
+                        Level::Cruise => "cruise",
+                        Level::Autopilot => "autopilot",
+                        Level::Journey => "journey",
+                    };
+                    assert_eq!(c.hit(cx + dx * pt, cy + dy * pt), Some(want), "{size:?} {l:?}");
+                }
+            }
+            let (lx, ly, lw, lh) = c.lane.get().expect("lane");
+            assert!(lw * ppp >= 22.0 - 1e-9 && lh * ppp >= 22.0 - 1e-9);
+            assert_eq!(c.hit(lx + 20.0 * pt, ly), Some("lane"));
+            // The (?) badge takes a fingertip around it, but not inside the lane icon's cell.
+            let b = help[0].centre;
+            let (bx, by) = (f64::from(b[0]), f64::from(b[1]));
+            assert!(crate::help::hit_touch(&help, bx - 17.0 * pt, by, pt).is_some());
+            assert!(crate::help::hit_touch(&help, lx + 21.0 * pt, ly, pt).is_none());
+        }
+        // The desktop layout is unchanged: 28 points high, 306 wide (at zoom 1).
+        let c = CockpitOverlay {
+            enabled: true,
+            ..Default::default()
+        };
+        let r = c.layout((320, 800), 1.0, (0.0, 0.0, 0.0, 0.0), 0.0);
+        assert!(
+            (r[3] - r[1] - HEIGHT).abs() < 1e-9 && (r[2] - r[0] - width()).abs() < 1e-9,
+            "{r:?}"
+        );
     }
 
     #[test]

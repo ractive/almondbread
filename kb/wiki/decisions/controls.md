@@ -1894,3 +1894,101 @@ Checked in the app (2026-10-17, M1 Pro, release, background window, `--ui-demo=t
 a fixed point", "period-2", "period-8" (step 3, c ≈ −1.378 at 14 s), "period-4", "period-8", "still
 undecided after 100 000 steps" (the Feigenbaum point), "following the orbit" (step 7, c ≈ −1.451,
 chaotic), "period-3", as the texts say; the end flew back to the start view with the user's look.
+
+## Touch (as built, 2026-10-18)
+
+The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,
+sharing the code. Everything a gesture *means* is the Rust `Navigator`'s (new `InputEvent`s,
+unit-tested); Swift only decodes gestures (`FractalUIView`) and draws the SwiftUI controls
+(`Sources/AlmondbreadKit/TouchControls.swift`). Checked on the iPhone 17e and iPad mini
+simulators only; feel, haptics and thumb reach need a real device.
+
+| Input (touch) | Action | Core |
+| --- | --- | --- |
+| Tap a cockpit icon / the lane icon | manual (Esc), cruise in (E), autopilot (Z), journey (J), lane assist (L), as a click on the Mac | `cockpit_hit` |
+| Throttle lever at the trailing edge: drag up / down | one gear per 14 points of finger travel, E up, Q down (the pedals' ladder and paths); in A and J their speed; during a fly-to its speed | `Throttle { up }` |
+| Throttle: the drag reaches zero | stops there (a firmer tick); lift and drag again for the other direction | `ThrottleEnd` |
+| Throttle: double tap | manual (Esc: the cruise brakes to rest, A and J stop) | `KeyDown(Stop)` |
+| One-finger drag in C | steers like the Mac pointer, while the finger is down (no 3 s idle timeout) | `TouchSteer`, `TouchSteerEnd` |
+| One-finger drag in A | the direction wish (target marker and wish line); it **stays after the finger lifts**, a lift inside the dead zone clears it, Z off clears it; never hands over | same |
+| Long press (0.45 s), released in place | a popover menu at the finger: Seek Minibrot Here, Orbit Here, Fly Here, Copy Coordinates, Go to Copied (when the clipboard has text) | `SeekAt`, `Probe`, `FlyHere`, `coordinates_text_at` |
+| Long press, then drag (orbit on) | the orbit probe follows the finger and stays (touch has no hover) | `Probe(Some)` |
+| Tap a (?) badge | its help popover; a fingertip within 18 points counts (`help::hit_touch`) | `help_hit` |
+| Tour card ‹ Back / Next › / End tour | as ← / → / Esc; regular-size buttons on iOS | — |
+| HUD "Continue" | regular-size bordered button on iOS; G on an iPad keyboard | — |
+
+**Reasons.**
+
+- *Throttle as a jog lever, not a slider.* 26 forward and 26 reverse gears on a 200-point track
+  would be 4 points per gear: no detent can be felt and a selection tick every 4 points is a
+  buzz. So the knob follows the finger and springs back when it lifts, and every 14 points of
+  travel is one detent (one E or Q). The gear set shows as a bar from the zero notch
+  (square-root scale, so the low gears get room) and on the knob ("3", "R2", "M"). The finger
+  can travel past the track (the whole screen height), so a long drag reaches high gears in
+  one go. The zero stop within a drag is the keys' detent (a held Q never crosses zero).
+- *A steering finger is not a pointer.* Sent as `Pointer`, a finger became the zoom target and
+  the orbit probe, timed out after 3 s in C, and in A the wish vanished 0.3 s after the lift, so
+  it only held while a finger covered the picture. `TouchSteer` keeps it out of the pointer
+  state; in A the wish is kept like a mouse left on that side.
+- *A popover, not the system edit menu,* for the long press: `UIEditMenuInteraction` is a
+  horizontal strip that showed two items and a page arrow on the iPhone (seen in the
+  screenshot); the SwiftUI popover lists all five with 44-point rows, like the help popovers.
+- *Cockpit for touch* (`CockpitOverlay::touch`, FFI `set_cockpit_touch`): every control a
+  44 × 44 point cell, icons drawn 1.35× larger; one row (438 points) where it fits (iPad, phone
+  on its side), else two rows (253 × 66 points: the icons and lane icon on top, name, gauge and
+  rate below). The desktop layout is unchanged. On a phone in portrait a bottom-left map row
+  leaves no room beside it, so the touch cockpit sits above the maps (`lift`). A double tap on
+  the cockpit or a badge does not zoom, and taps there do not wait for a double tap
+  (`shouldReceive` keeps the double-tap and long-press recognisers off them).
+- *Layout.* Phone portrait: the throttle on top of the button column at the bottom trailing
+  corner (thumb reach). Phone on its side: the buttons in a row at the bottom trailing corner
+  (the cockpit keeps left of up to five), the throttle at the trailing edge above them. iPad:
+  buttons top trailing as before, the throttle at mid height on the trailing edge (where the
+  thumbs are when holding it); the π meter and the tour card keep left of it. Shown with the
+  HUD, like the cockpit.
+- *Haptics* (`Haptics`): a selection tick per gear, a rigid tick at the zero detent and for the
+  double-tap stop, a light tap when a flight lands (journey stop, fly-to, minibrot), a success
+  when a minibrot search found one. Nothing during continuous motion.
+- *iPad menu bar.* The Mac's menu commands (`FractalCommands`) are on iPadOS too: ⇧⌘C / ⇧⌘V,
+  ⌘G / ⇧⌘G, ⌘= / ⌘−, ⌘0, ⌘I and the View items (not the Tours submenu and the Help item).
+
+**Parity with the Mac (2026-10-18).**
+
+| Mac | iPhone / iPad touch | iPad keyboard / pointer |
+| --- | --- | --- |
+| W A S D, arrows, Space, + / − | drag, pinch, double tap, two-finger tap | same keys |
+| E / Q gears, hold for more | throttle lever; long press on the autopilot button | E / Q |
+| Z, J, Esc | buttons; cockpit icons; throttle double tap | Z, J, Esc |
+| N seek minibrot | long-press menu (here) and the autopilot button's menu | N |
+| L lane assist | cockpit lane icon, control center, autopilot button's menu | L |
+| G continue | HUD button | G |
+| C, O, M, P overlays | control center; "Orbit Here" | C, O, M, P |
+| R / ⌘0 reset | control center Reset | R, ⌘0 |
+| ⇧⌘C / ⇧⌘V coordinates | long-press Copy / Go to Copied; control center | ⇧⌘C / ⇧⌘V (menu bar) |
+| ⌘G / ⇧⌘G fly to | control center Fly to… / Copied; long-press Fly Here | ⌘G / ⇧⌘G |
+| Tour ← / → / Esc | card buttons | ← / → / Esc |
+| Journey stop J / Z / X | buttons ▶ / ↘ / ⑂ | J / Z / X |
+| Cockpit click and tooltips | taps; the (?) explains (no hover, no tooltips) | pointer clicks |
+| (?) badges | tap (18-point fingertip) | — |
+| Orbit probe under the pointer | long-press drag; the centre otherwise | iPad pointer hover |
+| Autopilot wish from the pointer, target marker | finger drag, kept after lift; marker as on the Mac | pointer hover |
+| Mini-map click / ⌥-click | tap jumps; no fly (use Fly Here) | — |
+| Place zoom pill | shown (no hover needed) | — |
+| Two-finger scroll setting (pan / zoom) | not applicable (pinch zooms) | trackpad scroll pans |
+| Rotation `,` `.` `/`, trackpad rotate | two-finger rotate; compass tap / drag | `,` `.` `/` |
+| F full screen | always full screen | — |
+| Gamepad | same | — |
+
+**Gaps** (not done): no fly for a mini-map tap (⌥-click); no hover tooltips (the (?) badges and
+the help say it); Tours and Help are not in the iPad menu bar (control center and "More…").
+
+**Tests.** Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
+`touch_steering_wishes_in_a_and_steers_in_c`, `a_touch_probe_moves_the_orbit_point_only`,
+`fly_here_and_seek_here` (core `input`), `touch_cells_are_44_points_in_one_or_two_rows`
+(render `cockpit`). XCTest `TouchControlsUITests` (`make ios-uitest`, iPhone and iPad
+simulators): throttle (gear 3 after three detents and zooming in; down past zero stops at 0; a
+new drag reverses; double tap to manual; in A it steps the speed), cockpit taps through Rust's
+hit test 18 points off an icon's centre, the cockpit's (?) popover, the long-press menu (orbit,
+a probe drag opens no menu, copy then Go to Copied offered, Fly Here ×8, seek), the tour card,
+landscape layout (nothing overlaps). The app reports the cockpit's cells in its accessibility
+value only with `ALMONDBREAD_UITEST=1`.

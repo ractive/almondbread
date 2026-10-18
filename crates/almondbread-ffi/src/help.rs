@@ -25,6 +25,18 @@ fn info((topic, (x, y), radius): (almondbread_render::help::HelpTopic, (f64, f64
     }
 }
 
+/// A cockpit control as drawn in the last frame: its id ("manual", "cruise", "autopilot",
+/// "journey", "lane"), centre and the half sizes of its hit cell, view points from the view
+/// centre, y up.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CockpitControlInfo {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub half_width: f64,
+    pub half_height: f64,
+}
+
 #[uniffi::export]
 impl Explorer {
     /// The help badge under a press at (x, y), if any (as drawn in the last frame).
@@ -42,6 +54,20 @@ impl Explorer {
             return None;
         }
         self.with_host(|h| h.cockpit_hit(x, y)).map(str::to_string)
+    }
+
+    /// Every cockpit control drawn in the last frame (UI tests aim at them).
+    pub fn cockpit_controls(&self) -> Vec<CockpitControlInfo> {
+        self.with_host(|h| h.cockpit_controls())
+            .into_iter()
+            .map(|(id, (x, y), (hw, hh))| CockpitControlInfo {
+                id: id.to_string(),
+                x,
+                y,
+                half_width: hw,
+                half_height: hh,
+            })
+            .collect()
     }
 
     /// Every help badge drawn in the last frame (window tests aim at them).

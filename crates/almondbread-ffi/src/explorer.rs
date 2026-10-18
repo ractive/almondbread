@@ -255,6 +255,37 @@ pub enum InputEvent {
         x: f64,
         y: f64,
     },
+    /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot (its wish)
+    /// or the cruise (its joystick) at (x, y), while it is down.
+    TouchSteer {
+        x: f64,
+        y: f64,
+    },
+    /// The steering finger lifted (in the autopilot the wish stays).
+    TouchSteerEnd,
+    /// The throttle lever crossed one detent (`up`: like E, else like Q).
+    Throttle {
+        up: bool,
+    },
+    /// The finger left the throttle lever.
+    ThrottleEnd,
+    /// The orbit probe placed by touch at (x, y) (a long press, its drag).
+    Probe {
+        x: f64,
+        y: f64,
+    },
+    /// The orbit probe follows the zoom target again.
+    ProbeCleared,
+    /// Seek minibrot about (x, y) (long-press menu).
+    SeekAt {
+        x: f64,
+        y: f64,
+    },
+    /// Fly to (x, y), centred and deeper (long-press menu).
+    FlyHere {
+        x: f64,
+        y: f64,
+    },
 }
 
 impl InputEvent {
@@ -295,6 +326,14 @@ impl InputEvent {
             Self::WheelNotch { delta, x, y } if ok(&[delta, x, y]) => E::WheelNotch { delta, x, y },
             Self::GestureEnd => E::GestureEnd,
             Self::Rotate { radians, x, y } if ok(&[radians, x, y]) => E::Rotate { radians, x, y },
+            Self::TouchSteer { x, y } if ok(&[x, y]) => E::TouchSteer { x, y },
+            Self::TouchSteerEnd => E::TouchSteerEnd,
+            Self::Throttle { up } => E::Throttle { up },
+            Self::ThrottleEnd => E::ThrottleEnd,
+            Self::Probe { x, y } if ok(&[x, y]) => E::Probe(Some((x, y))),
+            Self::ProbeCleared => E::Probe(None),
+            Self::SeekAt { x, y } if ok(&[x, y]) => E::SeekAt { x, y },
+            Self::FlyHere { x, y } if ok(&[x, y]) => E::FlyHere { x, y },
             // Non-finite axes read as centred (handled in the navigator).
             Self::Gamepad {
                 lx,
@@ -374,6 +413,25 @@ pub struct CruiseStatus {
     /// Lane assist on (setting), and nudging just now.
     pub assist: bool,
     pub nudging: bool,
+    /// The set speed as a gear of the pedal ladder (1–26; negative: reverse; 0: nothing set),
+    /// what the touch throttle shows.
+    pub gear: i32,
+}
+
+impl From<&input::Cockpit> for CruiseStatus {
+    fn from(c: &input::Cockpit) -> Self {
+        let gear = almondbread_core::cruise::gear(c.set).map_or(0, |g| g as i32);
+        Self {
+            level: c.level.into(),
+            set: c.set,
+            rate: c.rate,
+            boost: c.boost,
+            landing: c.landing,
+            assist: c.assist,
+            nudging: c.nudging,
+            gear: if c.set < 0.0 { -gear } else { gear },
+        }
+    }
 }
 
 /// Why the autopilot flies slower than its set speed (kb: decisions/controls, autopilot).
@@ -1291,6 +1349,18 @@ impl Explorer {
         };
     }
 
+    /// Touch screens (kb: decisions/controls "Touch"): the cockpit's controls get 44-point
+    /// cells, in two rows where one does not fit, and help badges take a fingertip around them.
+    pub fn set_cockpit_touch(&self, on: bool) {
+        self.lock().host.overlay.cockpit.touch = on;
+    }
+
+    /// The cockpit's state now (cheap: for the touch throttle right after a detent; the
+    /// stats carry the same at ~10 Hz).
+    pub fn cruise_status(&self) -> CruiseStatus {
+        CruiseStatus::from(&self.lock().host.renderer.navigator.cockpit(media_time()))
+    }
+
     /// Forwards a decoded event. `handled`: swallow it; `redraw`: resume the display link.
     pub fn input(&self, event: InputEvent) -> InputResult {
         let mut g = self.lock();
@@ -1382,7 +1452,16 @@ impl Explorer {
 
     /// Switches the orbit overlay and mini-map (a frame follows: resume the display link).
     pub fn set_overlay(&self, settings: OverlaySettings) {
-        self.lock().host.overlay.settings = settings.to_core();
+        let mut g = self.lock();
+        g.host.overlay.settings = settings.to_core();
+        // A probe placed by touch goes with the orbit overlay (kb: decisions/controls "Touch").
+        if !settings.orbit {
+            let mut v = g.host.renderer.viewport.clone();
+            g.host
+                .renderer
+                .navigator
+                .handle(input::InputEvent::Probe(None), &mut v, media_time());
+        }
     }
 
     /// A click or tap at (x, y) view points from the centre (y up): on a mini-map panel it
@@ -1533,18 +1612,7 @@ impl Explorer {
                     landing: n.cruise().landing().is_some(),
                 }
             },
-            cruise: {
-                let c = r.navigator.cockpit(media_time());
-                CruiseStatus {
-                    level: c.level.into(),
-                    set: c.set,
-                    rate: c.rate,
-                    boost: c.boost,
-                    landing: c.landing,
-                    assist: c.assist,
-                    nudging: c.nudging,
-                }
-            },
+            cruise: CruiseStatus::from(&r.navigator.cockpit(media_time())),
             autopilot: {
                 let a = r.navigator.autopilot();
                 AutopilotStatus {
@@ -1843,6 +1911,19 @@ impl Explorer {
     /// Centre and scale for the clipboard.
     pub fn coordinates_text(&self) -> String {
         self.lock().host.coordinates_text()
+    }
+
+    /// The same text for the view centred at (x, y) view points from the centre, y up, at the
+    /// current scale (long-press "Copy Coordinates"; pasting it goes there).
+    pub fn coordinates_text_at(&self, x: f64, y: f64) -> String {
+        let g = self.lock();
+        if !(x.is_finite() && y.is_finite()) {
+            return g.host.coordinates_text();
+        }
+        let v = &g.host.renderer.viewport;
+        let mut at = Viewport::with_center(v.point_at_offset(x, y), v.scale).with_angle(v.angle);
+        at.ensure_precision();
+        almondbread_render::host::coordinates_text_of(&at)
     }
 
     /// Renders the current view and settings offscreen at `width` x `height` pixels (the

@@ -243,6 +243,9 @@ public enum UIDemo {
         if scene.hasPrefix("tour-") {
             #if os(macOS)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { runTour(model, explorer: explorer, id: String(scene.dropFirst(5))) }
+            #else
+            // iOS: the tour starts; the UI test steps through its card (kb: decisions/controls "Touch").
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.startTour(String(scene.dropFirst(5))) }
             #endif
             return
         }

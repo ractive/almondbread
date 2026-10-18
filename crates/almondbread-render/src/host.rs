@@ -196,7 +196,13 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         let px = self.width as f64 / 2.0 + x / ppp;
         let py = self.height as f64 / 2.0 - y / ppp;
-        crate::help::hit(&self.overlay.help, px, py, 1.0 / ppp).map(|b| self.help_badge_points(&b))
+        // Touch screens take a fingertip around the badge (kb: decisions/controls "Touch").
+        let hit = if self.overlay.cockpit.touch {
+            crate::help::hit_touch(&self.overlay.help, px, py, 1.0 / ppp)
+        } else {
+            crate::help::hit(&self.overlay.help, px, py, 1.0 / ppp)
+        };
+        hit.map(|b| self.help_badge_points(&b))
     }
 
     /// The cockpit control under a press at (x, y) view points from the centre, y up.
@@ -208,6 +214,27 @@ impl<B: GpuBackend + Clone> Host<B> {
         let px = self.width as f64 / 2.0 + x / ppp;
         let py = self.height as f64 / 2.0 - y / ppp;
         self.overlay.cockpit.hit(px, py)
+    }
+
+    /// Every cockpit control of the last scene: id, centre and half sizes of its hit cell, in
+    /// view points from the centre, y up (UI tests).
+    pub fn cockpit_controls(&self) -> Vec<CockpitControl> {
+        let ppp = self.points_per_pixel;
+        self.overlay
+            .cockpit
+            .controls()
+            .into_iter()
+            .map(|(id, x, y, hw, hh)| {
+                (
+                    id,
+                    (
+                        (x - self.width as f64 / 2.0) * ppp,
+                        (self.height as f64 / 2.0 - y) * ppp,
+                    ),
+                    (hw * ppp, hh * ppp),
+                )
+            })
+            .collect()
     }
 
     /// Every help badge of the last scene, in view points from the centre, y up (window tests).
@@ -546,23 +573,30 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Centre and scale for the clipboard, at the precision the view needs (M3b: arbitrary;
     /// pasting it back gives the same view to a fraction of a point).
     pub fn coordinates_text(&self) -> String {
-        let v = &self.renderer.viewport;
-        let (re, im) = v.center.to_strings_digits(coordinate_digits(v));
-        let mut text = format!(
-            "re {re}\nim {im}\nscale {} (zoom {})",
-            v.scale.to_text(6),
-            zoom_text(v.zoom_log10())
-        );
-        // A rotated view (kb: decisions/controls "View rotation"): degrees, counter-clockwise
-        // turn of the camera. Unrotated views omit the line (older builds read the text too).
-        if v.angle != 0.0 {
-            text.push_str(&format!(
-                "\nangle {}",
-                almondbread_core::cfmt::g(v.angle.to_degrees(), 10)
-            ));
-        }
-        text
+        coordinates_text_of(&self.renderer.viewport)
     }
+}
+
+/// A cockpit control in view points from the centre, y up: id, centre, half sizes.
+pub type CockpitControl = (&'static str, (f64, f64), (f64, f64));
+
+/// The clipboard text of a view: centre (full precision), scale, zoom and, when turned, angle.
+pub fn coordinates_text_of(v: &Viewport) -> String {
+    let (re, im) = v.center.to_strings_digits(coordinate_digits(v));
+    let mut text = format!(
+        "re {re}\nim {im}\nscale {} (zoom {})",
+        v.scale.to_text(6),
+        zoom_text(v.zoom_log10())
+    );
+    // A rotated view (kb: decisions/controls "View rotation"): degrees, counter-clockwise
+    // turn of the camera. Unrotated views omit the line (older builds read the text too).
+    if v.angle != 0.0 {
+        text.push_str(&format!(
+            "\nangle {}",
+            almondbread_core::cfmt::g(v.angle.to_degrees(), 10)
+        ));
+    }
+    text
 }
 
 /// Significant digits that place the centre of `v` to about 1/1000 of a point.

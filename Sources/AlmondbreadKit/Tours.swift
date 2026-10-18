@@ -49,7 +49,13 @@ struct TourCard: View {
                     .buttonStyle(.borderedProminent)
                     .help(last ? "End the tour (→)" : "The next step (→)")
             }
+            #if os(iOS)
+            // Finger-sized buttons (kb: decisions/controls "Touch"); ← → on an iPad keyboard too.
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            #else
             .controlSize(.small)
+            #endif
         }
         .padding(12)
         .frame(width: compact ? nil : 340)

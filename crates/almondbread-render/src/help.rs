@@ -105,6 +105,18 @@ pub fn hit(badges: &[HelpBadge], x: f64, y: f64, px: f64) -> Option<HelpBadge> {
     badges.iter().copied().find(|b| b.hit(x, y, px))
 }
 
+/// A fingertip's radius for a badge (points; kb: decisions/controls "Touch"): a touch hits a
+/// badge this close to its centre (a 36-point target; the drawn badge stays 14 points).
+pub const TOUCH_RADIUS: f64 = 18.0;
+
+/// The badge under a touch at (x, y) output pixels: within [`TOUCH_RADIUS`] of its centre.
+pub fn hit_touch(badges: &[HelpBadge], x: f64, y: f64, px: f64) -> Option<HelpBadge> {
+    badges.iter().copied().find(|b| {
+        let r = (f64::from(b.radius) + HIT_SLOP * px).max(TOUCH_RADIUS * px);
+        (x - f64::from(b.centre[0])).hypot(y - f64::from(b.centre[1])) <= r
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

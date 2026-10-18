@@ -77,6 +77,23 @@ and stop them, on both devices.
   (`iphone-*`, `ipad-*`: start, after gestures, autopilot, journey, control center,
   landscape; looked at).
 
+## Touch controls tests (2026-10-18)
+
+- `Tests/iOSUITests/TouchControlsUITests.swift` ([[decisions/controls]] "Touch"): XCTest drags the
+  throttle (`press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)`, 14 points per
+  detent), taps the Rust-drawn cockpit through the real hit test, long-presses for the menu and
+  steps the tour card (`--ui-demo=tour-feigenbaum` now starts the tour on iOS too). The fractal
+  view's accessibility value grew `level m|c|a|j gear n orbit on|off seek phase assist on|off`
+  and, with the launch environment `ALMONDBREAD_UITEST=1` only, ` cockpit id:x,y …` (the cockpit
+  cells and help badges in view points), so a test can aim at what Rust drew.
+- `UIEditMenuInteraction` on a 390-point iPhone shows two items and a page arrow: XCTest did not
+  find the third item. The long-press menu is a SwiftUI popover instead.
+- Several agents share the machine: separate simulators (`ABT iPhone 17e`, `ABT iPad mini`, made
+  with `simctl create` like the others) keep one agent's test runs and persisted settings away
+  from another's; `IOS_DEVICES="ABT iPhone 17e,ABT iPad mini" make ios-uitest`.
+- Persisted settings again: "Orbit Here" in one test leaves the orbit and the mini-map on for
+  the next launch (the screenshots then show the touch cockpit lifted above the map row).
+
 ## Open
 
 - The `--ui-demo` scenes write their settings (orbit, map, interior colouring) into the
