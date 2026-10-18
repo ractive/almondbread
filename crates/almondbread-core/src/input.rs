@@ -213,6 +213,17 @@ pub enum InputEvent {
         x: f64,
         y: f64,
     },
+    /// A two-finger twist on a touch screen (the iOS rotation recogniser), `radians` since the
+    /// last event: like `Rotate`, but only once the gesture has turned [`TWIST_DEAD_BAND`]
+    /// (then on from there, no jump). A pinch always twists a little; a child's pinches turned
+    /// the view and brought up the compass (QA 2026-10-18).
+    TouchRotate {
+        radians: f64,
+        x: f64,
+        y: f64,
+    },
+    /// The twist ended (fingers lifted): the next one starts at the dead band again.
+    TouchRotateEnd,
     /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot or the cruise
     /// at (x, y). In C it steers like the Mac pointer, for as long as the finger is down (no
     /// idle timeout); in A its direction is the wish. Not pointer input: the zoom target and
@@ -283,6 +294,7 @@ impl InputEvent {
             | Self::FocusLost
             | Self::GestureEnd
             | Self::TouchSteerEnd
+            | Self::TouchRotateEnd
             | Self::Throttle { .. }
             | Self::ThrottleEnd => true,
             Self::Probe(p) => p.is_none_or(|(x, y)| f(&[x, y])),
@@ -304,10 +316,14 @@ impl InputEvent {
             Self::Gamepad {
                 lx, ly, rx, ry, lt, rt, ..
             } => f(&[lx, ly, rx, ry, lt, rt]),
-            Self::Rotate { radians, x, y } => f(&[radians, x, y]),
+            Self::Rotate { radians, x, y } | Self::TouchRotate { radians, x, y } => f(&[radians, x, y]),
         }
     }
 }
+
+/// How far a touch twist must turn before the view turns (radians, 15°): below it a pinch's
+/// incidental twist does nothing. Mac trackpad rotation (`Rotate`) stays 1:1.
+pub const TWIST_DEAD_BAND: f64 = 15.0 * std::f64::consts::PI / 180.0;
 
 /// Pan speed of the direction keys, in view widths per second.
 pub const PAN_SPEED: f64 = 0.4;
@@ -494,6 +510,9 @@ pub struct Navigator {
     touch: Option<(f64, f64)>,
     touch_wish: Option<(f64, f64)>,
     throttle_rest: Option<f64>,
+    /// The current touch twist: turned so far while below the dead band, or None once it
+    /// turns the view (until `TouchRotateEnd`).
+    twist: Option<f64>,
     probe: Option<(f64, f64)>,
 }
 
@@ -598,6 +617,7 @@ impl Default for Navigator {
             touch: None,
             touch_wish: None,
             throttle_rest: None,
+            twist: Some(0.0),
             probe: None,
         }
     }
@@ -1293,6 +1313,13 @@ impl Navigator {
         (self.mode == InputMode::Keyboard).then_some(self.crosshair)
     }
 
+    /// The platform should keep asking for frames: motion, a glide, or a minibrot search to be
+    /// polled. An event that leaves only a search running (the long-press "Seek Minibrot Here")
+    /// asked for none, so the search was never polled until the next touch (QA 2026-10-18).
+    pub fn wants_frames(&self) -> bool {
+        self.is_animating() || self.seek.is_searching()
+    }
+
     /// The crosshair is still gliding to the centre.
     pub fn is_gliding(&self) -> bool {
         self.mode == InputMode::Keyboard && (self.crosshair != (0.0, 0.0) || self.crosshair_velocity != (0.0, 0.0))
@@ -1483,6 +1510,27 @@ impl Navigator {
                 width: width.max(0.0),
                 height: height.max(0.0),
             },
+            // A touch twist turns the view only past the dead band, then on from there.
+            InputEvent::TouchRotate { radians, x, y } => match self.twist {
+                None => InputEvent::Rotate { radians, x, y },
+                Some(sum) => {
+                    let sum = sum + radians;
+                    if sum.abs() < TWIST_DEAD_BAND {
+                        self.twist = Some(sum);
+                        return true;
+                    }
+                    self.twist = None;
+                    InputEvent::Rotate {
+                        radians: sum - TWIST_DEAD_BAND.copysign(sum),
+                        x,
+                        y,
+                    }
+                }
+            },
+            InputEvent::TouchRotateEnd => {
+                self.twist = Some(0.0);
+                return true;
+            }
             e => e,
         };
         let was_animating = self.is_animating();
@@ -1633,6 +1681,8 @@ impl Navigator {
                 }
                 true
             }
+            // Mapped to `Rotate` (or nothing) by `handle`'s dead band.
+            InputEvent::TouchRotate { .. } | InputEvent::TouchRotateEnd => false,
             InputEvent::Pan { dx, dy } => {
                 // The hand has the view: flings stop; motion is 1:1.
                 self.stop_flings();
@@ -4509,5 +4559,65 @@ mod tests {
         assert!(n.flight().is_none());
         assert!(n.handle(InputEvent::SeekAt { x: 0.0, y: 0.0 }, &mut v, 5.0));
         assert_eq!(n.seek_status(5.0).0, SeekPhase::Flying);
+    }
+
+    /// A touch twist turns the view only past the 15° dead band, then on from there without a
+    /// jump; each gesture starts at the dead band again. The Mac's `Rotate` stays 1:1.
+    #[test]
+    fn a_touch_twist_turns_only_past_the_dead_band() {
+        let (mut n, mut v) = setup();
+        let deg = std::f64::consts::PI / 180.0;
+        let twist = |n: &mut Navigator, v: &mut Viewport, d: f64| {
+            n.handle(
+                InputEvent::TouchRotate {
+                    radians: d * deg,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                v,
+                0.0,
+            )
+        };
+        // A pinch's incidental twist, back and forth: nothing.
+        for d in [4.0, 5.0, -3.0, 6.0, -8.0, 9.0] {
+            assert!(twist(&mut n, &mut v, d));
+            assert_eq!(v.angle, 0.0, "turned below the dead band");
+        }
+        // 13° so far; 5° more crosses 15° and turns by the 3° past it (the image turns
+        // clockwise for counter-clockwise fingers, as `Rotate`).
+        twist(&mut n, &mut v, 5.0);
+        assert!((v.angle.abs() - 3.0 * deg).abs() < 1e-9, "angle {}", v.angle / deg);
+        // From there 1:1.
+        twist(&mut n, &mut v, 10.0);
+        assert!((v.angle.abs() - 13.0 * deg).abs() < 1e-9);
+        // A new gesture starts at the dead band again.
+        n.handle(InputEvent::TouchRotateEnd, &mut v, 0.0);
+        let a = v.angle;
+        twist(&mut n, &mut v, -14.0);
+        assert_eq!(v.angle, a);
+        // The trackpad's rotation is not damped.
+        n.handle(
+            InputEvent::Rotate {
+                radians: 2.0 * deg,
+                x: 0.0,
+                y: 0.0,
+            },
+            &mut v,
+            0.0,
+        );
+        assert!(((v.angle - a).abs() - 2.0 * deg).abs() < 1e-9);
+    }
+
+    /// A search started from rest (the long-press "Seek Minibrot Here") asks for frames, so the
+    /// platform polls it: nothing else moves while it searches (QA 2026-10-18: it stayed
+    /// "searching" until the next touch).
+    #[test]
+    fn a_search_from_rest_wants_frames() {
+        let (mut n, mut v) = setup();
+        assert!(!n.wants_frames());
+        assert!(n.handle(InputEvent::SeekAt { x: 40.0, y: 10.0 }, &mut v, 0.0));
+        assert_eq!(n.seek_status(0.0).0, SeekPhase::Searching);
+        assert!(!n.is_animating(), "a search is not motion");
+        assert!(n.wants_frames(), "but it needs frames to be polled");
     }
 }

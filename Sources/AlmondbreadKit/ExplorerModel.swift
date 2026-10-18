@@ -1200,7 +1200,14 @@ public final class ExplorerModel {
     /// Returns false if the clipboard holds no view.
     @discardableResult
     public func pasteCoordinates() -> Bool {
-        guard let text = Clipboard.text(), let explorer, explorer.pasteCoordinates(text: text) else { return false }
+        pasteCoordinates(text: Clipboard.text())
+    }
+
+    /// Jumps to coordinates in `text` (the system paste control hands the clipboard's text over
+    /// without the "Allow Paste?" prompt on iOS).
+    @discardableResult
+    public func pasteCoordinates(text: String?) -> Bool {
+        guard let text, let explorer, explorer.pasteCoordinates(text: text) else { return false }
         host?.requestFrames()
         return true
     }

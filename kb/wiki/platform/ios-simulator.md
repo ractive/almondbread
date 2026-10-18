@@ -109,6 +109,40 @@ and stop them, on both devices.
 - Settings no longer persist from the UI tests or `--ui-demo` (`TestLaunch.ephemeral`;
   [[decisions/controls]] "Touch", round 2): the open item below is fixed.
 
+## QA: a first-time user (2026-10-18, before a child's first try)
+
+`Tests/iOSUITests/FirstUseUITests.swift` plays what a newcomer does, a screenshot per step
+(`build/ios-screens/<idiom>-first-<test>-NN-*.png`, all looked at): `testFirstSession` (hints,
+dismiss, drag, five pinches, the plane and a steering finger, the plane again, throttle forward
+and reverse and its double tap, a journey on and off with its button, every orientation, home
+and back while cruising, the cockpit's manual icon ends it), `testControlCenterPlaceAndTour`
+(tap a place's picture; the Feigenbaum tour from the Tours section, Next to Finish),
+`testLongPressMenuItems` (every item; Go to Copied through the Paste control; the seek must leave
+"searching"), `testMashing` (taps, double taps, pinches, twists, buttons twice, three rounds; the
+view stays finite, the cockpit stops everything), `testSmallTwistDoesNotTurn`. Simulators
+`QA iPad Air 11` (iPad Air 11-inch M4) and `QA iPhone 17e`.
+
+| Found | Severity | Fix |
+| --- | --- | --- |
+| Long-press "Seek Minibrot Here" stayed "searching" with nothing on screen until the next touch: `SeekAt` (and `Probe`) asked for no frame, so the search was never polled (the round-1 test accepted "searching") | high | `Navigator::wants_frames` (motion or a search); the host's redraw uses it and counts `Probe` as orbit input |
+| Tapping a place's picture in the control center did nothing visible: it only selected, and the name and Go sit below the 79-tile grid, off screen | high | iOS: a tap goes there (and selects) |
+| Pinching turned the view (XCUITest: 32° per synthesised pinch on both devices; real fingers twist a little too), the compass and "turned 78°" appeared | medium | touch twist dead band of 15° in Rust (`TouchRotate`, `TouchRotateEnd`); the Mac's trackpad `Rotate` stays 1:1 |
+| "Go to Copied" read the clipboard itself: "Allow Paste?" on every tap for text from another app | medium | a system `PasteButton` beside the row (and in the control center's Copy / Paste / Reset row); the row's title keeps the old path |
+| Keyboard and mouse words on touch: "click to resume" (paused autopilot or journey), the Tours footer's → ← Esc, the tour's last step ("the pointer", → ← Esc) | low | iOS wording; the tour text names both |
+| iPhone on its side: the compass overlapped the throttle's top by a few points | low | the throttle 30 points shorter there |
+
+Seen and fine: hints on both devices; rotations (a frame or two of the old size during the
+animation, then correct); home and back resumes the cruise with a correct picture; the tour card
+on both; journeys; the long-press menu at both edges; mashing left no stuck state (the cockpit's
+manual icon always ends A, C and J); no crash, hang or black frame.
+
+Not fixed, worth knowing: a drag at the start easily moves the set off screen, and pinching in
+then shows only empty blue (pinch out, the throttle's reverse, or Reset bring it back — no hint
+says so); at a journey stop the journey button flies on rather than stopping (stop: cockpit M or
+the throttle's double tap); HUD lines and help popovers keep words a child will not know
+("branch point M(2,1)", "embedded Julia (period 54)"); XCUITest pinches zoom much less than their
+scale (×1.5 for "×3"), so pinch feel needs the device.
+
 ## Open
 
 - ~~The `--ui-demo` scenes write their settings into the persisted preferences~~ (fixed

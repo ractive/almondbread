@@ -2082,7 +2082,14 @@ buttons ≥ 44 points and hittable in both orientations).
 **Needs the device.** Whether 0.2 s is the right rest-to-steer time for small fingers; whether
 the hints get read before the first touch dismisses them (a child may tap at once — Help brings
 them back); haptics on the map fly; how the folded tour card feels; Allow-paste prompts remain
-on "Go to Copied" (user-initiated, once per tap).
+on "Go to Copied" (user-initiated, once per tap; since the QA pass the system Paste control
+beside it avoids them).
+
+**QA pass (2026-10-18, [[platform/ios-simulator]] "QA").** A two-finger twist turns the view
+only past 15° (`TouchRotate`: a pinch always twists a little, and a child's pinches turned the
+view); a search started from rest asks for frames (`Navigator::wants_frames`); a tap on a
+place's picture goes there on iOS; the long-press menu and the control center have the system
+Paste control; touch wording for "click to resume" and the tour's keys.
 
 **Tests.** Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
 `touch_steering_wishes_in_a_and_steers_in_c`, `a_touch_probe_moves_the_orbit_point_only`,

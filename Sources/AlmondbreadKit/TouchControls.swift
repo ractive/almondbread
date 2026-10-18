@@ -116,10 +116,29 @@ struct CanvasMenuContent: View {
             item("Copy Coordinates", "doc.on.doc") { model.copyCoordinates(x: menu.x, y: menu.y) }
             if UIPasteboard.general.hasStrings {
                 Divider()
-                item("Go to Copied", "arrow.right.doc.on.clipboard") { model.pasteCoordinates() }
+                goToCopied
             }
         }
         .frame(width: 250)
+    }
+
+    /// "Go to Copied" with the system paste control beside it: reading the clipboard ourselves
+    /// asks "Allow Paste?" on every tap (text copied in another app or on the Mac); the paste
+    /// control hands it over without asking. The row's title still works (with the prompt).
+    private var goToCopied: some View {
+        HStack(spacing: 0) {
+            item("Go to Copied", "arrow.right.doc.on.clipboard") { model.pasteCoordinates() }
+            PasteButton(payloadType: String.self) { strings in
+                Task { @MainActor in
+                    model.canvasMenu = nil
+                    model.pasteCoordinates(text: strings.first)
+                }
+            }
+            .labelStyle(.titleOnly)
+            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .padding(.trailing, 12)
+        }
     }
 
     private func item(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {

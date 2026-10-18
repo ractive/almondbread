@@ -312,12 +312,20 @@ struct ViewSectionRows: View {
                 Label("Copy", systemImage: "doc.on.doc")
             }
             .help("Copy the centre and scale at full precision (⇧⌘C)")
+            #if os(iOS)
+            // The system paste control: no "Allow Paste?" prompt on every tap (QA 2026-10-18).
+            PasteButton(payloadType: String.self) { strings in
+                Task { @MainActor in model.pasteCoordinates(text: strings.first) }
+            }
+            .buttonBorderShape(.capsule)
+            #else
             Button {
                 model.pasteCoordinates()
             } label: {
                 Label("Go to copied", systemImage: "arrow.right.doc.on.clipboard")
             }
             .help("Jump to coordinates on the clipboard (⇧⌘V)")
+            #endif
             Spacer()
             Button {
                 model.reset()
@@ -991,7 +999,11 @@ enum ControlSection: String, CaseIterable, Identifiable {
 
     var footer: String? {
         switch self {
+        #if os(iOS)
+        case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. Next and Back on its card step through it, End tour ends it and brings back your view and settings. Look around in between as you like."
+        #else
         case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. → and ← step through it, Esc ends it and brings back your view and settings. Look around in between as you like."
+        #endif
         case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Steering or Q down to zero hands over to cruise, other input pauses it; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
@@ -1039,6 +1051,11 @@ struct PlacesSection: View {
             let p = shown[i]
             Button {
                 selected = p.id
+                #if os(iOS)
+                // Touch: a tap goes there. Selecting alone showed nothing where the finger was
+                // (the name and Go are below the 79-tile grid, off screen; QA 2026-10-18).
+                model.goToPlace(p.id)
+                #endif
             } label: {
                 PlaceThumbnail(id: p.id)
                     .aspectRatio(1.6, contentMode: .fit)
@@ -1058,7 +1075,7 @@ struct PlacesSection: View {
             .accessibilityLabel(p.name)
             .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
             #if os(iOS)
-            // No hover on touch: a tap selects and shows the name and description below the
+            // No hover on touch: a tap goes there and shows the name and description below the
             // grid; a long press names the place and offers Go / Fly.
             .contextMenu {
                 Section(p.name) {

@@ -255,6 +255,15 @@ pub enum InputEvent {
         x: f64,
         y: f64,
     },
+    /// A touch twist (iOS rotation recogniser), `radians` since the last event: turns the view
+    /// like `Rotate` once the gesture passed a 15° dead band (a pinch's twist does not turn it).
+    TouchRotate {
+        radians: f64,
+        x: f64,
+        y: f64,
+    },
+    /// The twist's fingers lifted.
+    TouchRotateEnd,
     /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot (its wish)
     /// or the cruise (its joystick) at (x, y), while it is down.
     TouchSteer {
@@ -326,6 +335,8 @@ impl InputEvent {
             Self::WheelNotch { delta, x, y } if ok(&[delta, x, y]) => E::WheelNotch { delta, x, y },
             Self::GestureEnd => E::GestureEnd,
             Self::Rotate { radians, x, y } if ok(&[radians, x, y]) => E::Rotate { radians, x, y },
+            Self::TouchRotate { radians, x, y } if ok(&[radians, x, y]) => E::TouchRotate { radians, x, y },
+            Self::TouchRotateEnd => E::TouchRotateEnd,
             Self::TouchSteer { x, y } if ok(&[x, y]) => E::TouchSteer { x, y },
             Self::TouchSteerEnd => E::TouchSteerEnd,
             Self::Throttle { up } => E::Throttle { up },

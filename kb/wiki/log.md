@@ -1473,3 +1473,13 @@ bar: Tours, Help, Show Touch Hints. Fixes from the surface review: help popovers
 the bottom of a phone (iOS `arrowEdge` semantics), fly-to sheet clipped (420-point minimum) and
 asking "Allow paste?" on open. Window tests, `--ui-demo` and the iOS UI tests no longer read or
 write settings (`TestLaunch.ephemeral`). See also [[platform/ios-simulator]].
+
+## [2026-10-18] decision | iOS QA pass: a first-time user before a child's first try
+
+Branch `ios-qa`, simulators `QA iPad Air 11` and `QA iPhone 17e`. `FirstUseUITests` scripts
+first sessions with screenshots at every step ([[platform/ios-simulator]] "QA"). Fixed: the
+long-press seek was never polled (no frame requested: `Navigator::wants_frames`); a tap on a
+place's picture only selected it (now goes there on iOS); pinches turned the view (touch twist
+dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
+control); click / key words on touch; compass over the throttle on a phone on its side.
+[[decisions/controls]] "Touch" notes the decisions.

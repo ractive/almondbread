@@ -1118,11 +1118,16 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     @objc private func handleRotation(_ g: UIRotationGestureRecognizer) {
-        guard g.state == .changed || g.state == .ended else { return }
-        let o = offset(g.location(in: self))
-        // UIKit's rotation is clockwise-positive on screen; Rust takes counter-clockwise.
-        send(.rotate(radians: -Double(g.rotation), x: o.x, y: o.y))
-        g.rotation = 0
+        if g.state == .changed || g.state == .ended {
+            let o = offset(g.location(in: self))
+            // UIKit's rotation is clockwise-positive on screen; Rust takes counter-clockwise.
+            // Rust turns the view only past a dead band (a pinch twists a little).
+            send(.touchRotate(radians: -Double(g.rotation), x: o.x, y: o.y))
+            g.rotation = 0
+        }
+        if g.state == .ended || g.state == .cancelled || g.state == .failed {
+            send(.touchRotateEnd)
+        }
     }
 
     @objc private func handleHover(_ g: UIHoverGestureRecognizer) {
