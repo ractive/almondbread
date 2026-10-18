@@ -44,6 +44,15 @@ sourced: most items are inferences or background knowledge and are marked so.
 - Per-pixel state buffers scale with screen pixels times samples; at 2732x2048
   (iPad Pro) with 32 B per pixel that is about 180 MB for one sample (inference).
   Accumulate AA samples into colour instead of keeping per-sample state.
+- **Measured (2026-10-18, M1 Pro, release, iOS scheduler defaults, [[platform/ios-device]]
+  "Memory"):** the renderer holds ~108 MB fixed plus ~67 B per output texel on the GPU (+12 B
+  of drawables): 449–470 MB at 2752×2064 (iPad Pro 13"), whether at home or at 1e-3007. AA
+  already accumulates into colour (FL), so supersampling adds nothing per pixel. References
+  and BLA/LA tables stay under 4 MB at the default 200 k auto limit (nucleus references are a
+  period long); a manual 10 M limit costs ~130 B per reference point (+408 MB process
+  footprint over 1 M). The app sizes the drawable and caps the iteration limit from
+  `os_proc_available_memory()` (the API exists; 0 means over the limit on a device and is
+  what the simulator always returns).
 
 ## Thermal and power
 
@@ -51,6 +60,9 @@ sourced: most items are inferences or background knowledge and are marked so.
   background knowledge). Deep renders should lower the budget per command buffer,
   pause on thermal state `.serious`/`.critical` (`ProcessInfo.thermalState`,
   unverified API) and prefer progressive results over throughput (inference).
+- As built (2026-10-18): serious halves the per-refresh GPU budgets, cuts AA, drops "compute
+  further" and caps 60 Hz; critical stops refinement after the first full frame and caps
+  30 Hz ([[platform/ios-device]] "Thermal"). Real thermal curves: device only.
 - The Imagina-style LA + AT path matters more on mobile: fewer steps per pixel is
   less energy, not just less time (inference).
 
@@ -61,7 +73,10 @@ sourced: most items are inferences or background knowledge and are marked so.
   ([[questions/metal-watchdog-limit]]). Assume it is stricter.
 - iOS does not allow GPU work from a backgrounded app; command buffers submitted
   after backgrounding fail (unverified, background knowledge). Save the per-pixel
-  state buffer on `sceneDidEnterBackground` and resume (inference).
+  state buffer on `sceneDidEnterBackground` and resume (inference). As built: on the
+  scene's background notification the renderer waits for its work in flight and submits
+  nothing until foreground; GPU state stays allocated, the view resumes
+  ([[platform/ios-device]] "Background").
 
 ## CPU side
 
@@ -69,8 +84,10 @@ sourced: most items are inferences or background knowledge and are marked so.
   more, so the nucleus reference and reference reuse across zooms are more
   important ([[platform/mpfr-gmp-on-apple-silicon]]) (inference).
 - Licensing: GMP/MPFR are LGPL; static linking into an App Store app has LGPL
-  relinking obligations (unverified, background knowledge). Revisit in a decision
-  page before the port.
+  relinking obligations (unverified, background knowledge). **Moot as built
+  (checked 2026-10-18):** almondbread's BigFloat is its own Rust code with no
+  dependencies; nothing LGPL is linked into the iOS app (MIT / Apache-2.0 / Zlib crates and
+  UniFFI under MPL-2.0; `cargo deny check licenses` passes; [[platform/ios-device]]).
 
 ## Gaps
 

@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
+.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -47,6 +47,27 @@ ios-selftest: ios-sim
 
 ios-uitest: project rust
 	scripts/ios-uitest.sh "$(IOS_DEVICES)"
+
+## A connected iPhone/iPad (kb: platform/ios-device; scripts/ios-device.sh): signed Release build
+## with automatic signing for IOS_TEAM (Xcode must be signed in to an account once), installed and
+## launched with devicectl. ios-device-selftest launches the self-test instead and copies its PNG
+## to build/ios-device-selftest.png; ios-device-check compiles for the device unsigned (no device
+## needed); ios-device-doctor shows the device, Developer Mode and the account. The simulator
+## build (ios-sim) stays unsigned. IOS_DEVICE=name|UDID picks one of several devices.
+IOS_TEAM ?= 9KNMHVRSTW
+IOS_CONFIG ?= Release
+export IOS_TEAM IOS_CONFIG
+ios-device:
+	scripts/ios-device.sh run
+
+ios-device-selftest:
+	scripts/ios-device.sh selftest
+
+ios-device-check:
+	scripts/ios-device.sh check
+
+ios-device-doctor:
+	scripts/ios-device.sh doctor
 
 ## Headless check render through the Rust renderer: make render ARGS="--center -0.7436,0.1318 --scale 1e-8"
 render: rust-cli

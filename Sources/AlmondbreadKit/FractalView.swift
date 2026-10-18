@@ -827,6 +827,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     private var longPressStart: CGPoint = .zero
     private var longPressMoved: CGFloat = 0
     private var longPressEnded = Date.distantPast
+    /// Memory, thermal and background signals for the renderer (DeviceSignals.swift).
+    private var signals: DeviceSignals?
 
     // The base creates the layer before the view exists; UIKit asks the class for its layer,
     // so the view's own layer is a plain one hosting the Metal layer as a sublayer.
@@ -836,6 +838,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         layer.addSublayer(base.metalLayer)
         isMultipleTouchEnabled = true
         base.attach(host: self)
+        signals = DeviceSignals(host: self)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
@@ -919,17 +922,34 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         super.didMoveToWindow()
         link?.invalidate()
         link = nil
-        guard let window else {
+        signals?.attach(scene: window?.windowScene)
+        guard window != nil else {
             send(.focusLost)
             return
         }
         becomeFirstResponder()
         let l = CADisplayLink(target: DisplayLinkProxy(self), selector: #selector(DisplayLinkProxy.step(_:)))
-        let fps = Float(window.screen.maximumFramesPerSecond)
-        l.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, fps), maximum: fps, preferred: fps)
-        l.add(to: .main, forMode: .common)
         link = l
+        applyFrameRate()
+        l.add(to: .main, forMode: .common)
         setNeedsLayout()
+    }
+
+    /// The display link's rate: the screen's maximum (120 Hz on ProMotion) under the thermal
+    /// ceiling Rust returns.
+    func applyFrameRate() {
+        guard let link, let screen = window?.screen else { return }
+        link.preferredFrameRateRange = signals?.frameRateRange(screenMax: screen.maximumFramesPerSecond)
+            ?? CAFrameRateRange(minimum: 60, maximum: Float(screen.maximumFramesPerSecond),
+                                preferred: Float(screen.maximumFramesPerSecond))
+    }
+
+    /// The scene went to the background (no GPU work: the link stops, Rust waits for the work
+    /// in flight) or came back.
+    func setRendering(active: Bool) {
+        base.explorer?.setActive(active: active)
+        link?.isPaused = !active
+        if active { setNeedsLayout() }
     }
 
     override func layoutSubviews() {

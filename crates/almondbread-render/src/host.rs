@@ -83,6 +83,11 @@ pub struct Host<B: GpuBackend> {
     height: usize,
     points_per_pixel: f64,
     view_points: (f64, f64),
+    /// The backing scale the platform asked for (the drawable may be smaller: `max_texels`).
+    requested_scale: f64,
+    /// Output texels the memory budget allows (kb: platform/ios-device "Memory"): a larger view
+    /// renders at a lower scale and the layer stretches it.
+    max_texels: Option<usize>,
     fitted: bool,
     measure: Option<Measurement>,
     /// The guided tour being played (kb: decisions/controls "Guided tours").
@@ -97,6 +102,8 @@ impl<B: GpuBackend + Clone> Host<B> {
             height: 0,
             points_per_pixel: 0.0,
             view_points: (0.0, 0.0),
+            requested_scale: 1.0,
+            max_texels: None,
             fitted: false,
             measure: None,
             overlay: Overlay::default(),
@@ -118,6 +125,15 @@ impl<B: GpuBackend + Clone> Host<B> {
         // usize::MAX texels and tile loops (kb: techniques/hang-prevention).
         let cap = 16384.0 / s;
         let (w, h) = (width.max(0.0).min(cap), height.max(0.0).min(cap));
+        self.requested_scale = s;
+        // Within the memory budget: the same view at fewer pixels.
+        let s = match self
+            .max_texels
+            .and_then(|m| crate::memory::fit_texels((w * s).round() as usize, (h * s).round() as usize, m))
+        {
+            Some((_, f)) => s * f,
+            None => s,
+        };
         self.width = (w * s).round() as usize;
         self.height = (h * s).round() as usize;
         self.points_per_pixel = 1.0 / s;
@@ -131,6 +147,22 @@ impl<B: GpuBackend + Clone> Host<B> {
             }
         }
         (self.width, self.height)
+    }
+
+    /// Caps the output texels (the memory budget; None: no cap). Returns the new drawable size
+    /// when the view had to change size.
+    pub fn set_max_texels(&mut self, max_texels: Option<usize>, now: f64) -> Option<(usize, usize)> {
+        if max_texels == self.max_texels {
+            return None;
+        }
+        self.max_texels = max_texels;
+        let before = (self.width, self.height);
+        if before.0 == 0 || before.1 == 0 {
+            return None;
+        }
+        let (w, h) = self.view_points;
+        let after = self.resize(w, h, self.requested_scale, now);
+        (after != before).then_some(after)
     }
 
     /// Drawable size in pixels.

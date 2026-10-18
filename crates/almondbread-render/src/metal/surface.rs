@@ -56,6 +56,8 @@ struct Mailbox {
     /// Signalled when the slot changes (filled or emptied) or on stop.
     changed: Condvar,
     stop: AtomicBool,
+    /// The app is in the background: acquire nothing (kb: platform/ios-device "Background").
+    paused: AtomicBool,
 }
 
 /// A `CAMetalLayer` configured for the renderer.
@@ -121,7 +123,9 @@ impl MetalLayerSurface {
                 loop {
                     {
                         let mut slot = mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
-                        while slot.is_some() && !mailbox.stop.load(Ordering::Acquire) {
+                        while (slot.is_some() || mailbox.paused.load(Ordering::Acquire))
+                            && !mailbox.stop.load(Ordering::Acquire)
+                        {
                             slot = mailbox.changed.wait(slot).unwrap_or_else(|e| e.into_inner());
                         }
                     }
@@ -149,6 +153,17 @@ impl MetalLayerSurface {
         if let Err(e) = spawned {
             eprintln!("almondbread: drawable thread: {e}");
         }
+    }
+
+    /// Pauses (the app goes to the background: the parked drawable goes back to the pool and
+    /// the acquire thread waits) or resumes acquiring drawables.
+    pub fn set_paused(&self, paused: bool) {
+        self.mailbox.paused.store(paused, Ordering::Release);
+        let mut slot = self.mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
+        if paused {
+            *slot = None;
+        }
+        self.mailbox.changed.notify_all();
     }
 
     /// Starts (Some) or stops (None) logging presentation times of the drawables acquired

@@ -1109,6 +1109,26 @@ pub struct FrameMismatch {
     pub height: u32,
 }
 
+/// What the renderer holds and the memory budget in force (kb: platform/ios-device
+/// "Memory"). Bytes; 0 where unknown or uncapped.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MemoryInfo {
+    /// Everything the renderer holds (GPU heap of the device + CPU reference and tables).
+    pub renderer_bytes: u64,
+    pub gpu_bytes: u64,
+    pub reference_bytes: u64,
+    pub tables_bytes: u64,
+    /// What the renderer may grow to (held + available at the last reading); 0: no limit known.
+    pub ceiling_bytes: u64,
+    /// The iteration limit the budget allows; 0: no cap.
+    pub max_iterations: u64,
+    /// Output texels the budget allows; 0: no cap.
+    pub max_texels: u64,
+    /// The drawable size now (smaller than the view's pixels when the budget caps it).
+    pub width: u32,
+    pub height: u32,
+}
+
 struct Inner {
     host: Host<MetalBackend>,
     surface: MetalLayerSurface,
@@ -1223,6 +1243,70 @@ impl Explorer {
         }
     }
 
+    /// The memory still available to the app (`os_proc_available_memory()`; 0: no limit known,
+    /// as on the simulator and macOS). The platform calls this at launch, every few seconds and
+    /// with `warning` on a memory warning (caches are dropped first and the budget only goes
+    /// down). Rust sizes the drawable and the iteration limit to the budget; returns whether
+    /// the drawable size changed (the view should ask for frames).
+    pub fn set_memory_available(&self, available: u64, warning: bool) -> bool {
+        let mut g = self.lock();
+        let Inner { host, surface, .. } = &mut *g;
+        let budget = host.renderer.set_memory_available(available, warning);
+        match host.set_max_texels(budget.max_texels(), media_time()) {
+            Some((w, h)) if w > 0 && h > 0 => {
+                surface.set_drawable_size(w, h);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// What the renderer holds and the budget in force.
+    pub fn memory_info(&self) -> MemoryInfo {
+        let g = self.lock();
+        let r = &g.host.renderer;
+        let m = r.memory_report();
+        let b = r.memory_budget();
+        let (w, h) = g.host.pixel_size();
+        MemoryInfo {
+            renderer_bytes: m.total(),
+            gpu_bytes: m.gpu.unwrap_or(0),
+            reference_bytes: m.reference,
+            tables_bytes: m.tables,
+            ceiling_bytes: b.ceiling.unwrap_or(0),
+            max_iterations: b.max_iterations().unwrap_or(0) as u64,
+            max_texels: b.max_texels().unwrap_or(0) as u64,
+            width: w as u32,
+            height: h as u32,
+        }
+    }
+
+    /// The device's thermal state (`ProcessInfo.thermalState.rawValue`: 0 nominal, 1 fair,
+    /// 2 serious, 3 critical). Rust lowers the GPU budgets (serious) or stops refinement after
+    /// the first full frame (critical). Returns the display link's frame-rate ceiling (0: the
+    /// display's maximum). The view should ask for frames afterwards (a cooler state resumes
+    /// paused refinement).
+    pub fn set_thermal_state(&self, state: u8) -> u32 {
+        let t = almondbread_render::memory::Thermal::from_raw(state);
+        self.lock().host.renderer.set_thermal(t);
+        t.max_fps()
+    }
+
+    /// The scene goes to the background (`false`: wait for the GPU work in flight, submit
+    /// nothing more, stop acquiring drawables) or comes back (`true`). iOS does not allow GPU
+    /// work from the background.
+    pub fn set_active(&self, active: bool) {
+        let mut g = self.lock();
+        let Inner { host, surface, .. } = &mut *g;
+        if active {
+            surface.set_paused(false);
+            host.renderer.resume();
+        } else {
+            host.renderer.suspend();
+            surface.set_paused(true);
+        }
+    }
+
     /// One display refresh at `timestamp` (the display link's, `CACurrentMediaTime` clock;
     /// Rust uses the current time if that is later): integrates held keys, edge panning and
     /// the crosshair glide, schedules GPU work, presents. Returns whether the display link
@@ -1233,6 +1317,10 @@ impl Explorer {
     /// per frame in the window instead of 2–3 µs).
     pub fn frame(&self, timestamp: f64) -> u8 {
         let mut g = self.lock();
+        // In the background (`set_active(false)`): no GPU work, the display link may pause.
+        if g.host.renderer.is_suspended() {
+            return 0;
+        }
         let Inner {
             host,
             surface,

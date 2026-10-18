@@ -72,6 +72,8 @@ public enum SelfTest {
                 lines.append("selftest: offscreen PNG FAILED: \(error)")
             }
         }
+        // What the device's memory budget sees (kb: platform/ios-device "Memory").
+        lines.append("selftest: " + ProcessMemory.describe(explorer))
         if !ok { lines[0] = lines[0].replacingOccurrences(of: "renderer OK", with: "renderer FAILED") }
         finish(ok: ok, lines.joined(separator: "\n"))
     }

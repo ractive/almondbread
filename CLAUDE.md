@@ -53,6 +53,10 @@ offscreen PNG in `build/core-check.png`) and FFI call costs. Orbit benchmark:
 `cargo bench -p almondbread-math` for criterion. `xcode-select` points at Xcode; the
 Makefile's `DEVELOPER_DIR` default is the same Xcode (harmless, override if needed).
 No iOS simulator runtime is installed yet.
+Devices (kb: platform/ios-device): `make ios-device` (signed Release, automatic signing for
+team 9KNMHVRSTW, install + launch via devicectl; Xcode must be signed in once),
+`make ios-device-selftest` (PNG to `build/ios-device-selftest.png`), `make ios-device-check`
+(unsigned device compile, no device needed), `make ios-device-doctor`.
 
 Checks (prefer headless; window tests run in the background, never take focus,
 and quit by themselves):

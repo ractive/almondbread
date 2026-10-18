@@ -109,6 +109,13 @@ pub trait GpuBackend {
 
     fn device_name(&self) -> String;
 
+    /// Bytes of GPU memory this process holds on the device (buffers, textures, drawables),
+    /// if the backend can tell (Metal: `currentAllocatedSize`). Feeds the memory report and
+    /// budget (kb: platform/ios-device "Memory").
+    fn allocated_bytes(&self) -> Option<u64> {
+        None
+    }
+
     fn create_buffer(&self, len: usize, storage: Storage) -> Result<Self::Buffer, GpuError>;
     /// A shared buffer initialised with `data`.
     fn create_buffer_with_data(&self, data: &[u8]) -> Result<Self::Buffer, GpuError>;
