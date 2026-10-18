@@ -177,6 +177,16 @@ impl<B: GpuBackend + Clone> Host<B> {
 
     /// Forwards a decoded event to the navigator.
     pub fn input(&mut self, event: InputEvent, now: f64) -> InputOutcome {
+        // A finger going down: where it is decides what it may do (kb: decisions/controls
+        // "Touch", "Rest or swipe"); the platform does not hit-test the overlays Rust draws.
+        let event = match event {
+            InputEvent::FingerDown { x, y, .. } => InputEvent::FingerDown {
+                x,
+                y,
+                spot: self.touch_spot(x, y, now),
+            },
+            e => e,
+        };
         let before = self.renderer.viewport.clone();
         let interaction = self.renderer.navigator.last_interaction;
         let mode = self.renderer.navigator.mode();
@@ -240,13 +250,21 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// What a finger held still at (x, y) view points from the centre, y up, does (kb:
     /// decisions/controls "Touch"): the overlays say where it rests (a control, a mini-map,
     /// the picture), the navigator what that means in the current level.
-    pub fn touch_hold(&self, x: f64, y: f64) -> almondbread_core::TouchHold {
+    pub fn touch_hold(&self, x: f64, y: f64, now: f64) -> almondbread_core::TouchHold {
+        self.renderer.navigator.touch_hold(self.touch_spot(x, y, now))
+    }
+
+    /// Where a finger at (x, y) view points from the centre, y up, rests: a control (help
+    /// badge, cockpit), the compass, a mini-map or the picture (as drawn in the last frame).
+    pub fn touch_spot(&self, x: f64, y: f64, now: f64) -> almondbread_core::TouchSpot {
         use almondbread_core::TouchSpot;
         let ppp = self.points_per_pixel;
-        let spot = if ppp <= 0.0 {
+        if ppp <= 0.0 {
             TouchSpot::Canvas
         } else if self.help_hit(x, y).is_some() || self.cockpit_hit(x, y).is_some() {
             TouchSpot::Control
+        } else if self.overlay.compass.hits(x, y, now) {
+            TouchSpot::Compass
         } else if self.overlay.map_hit(
             self.width as f64 / 2.0 + x / ppp,
             self.height as f64 / 2.0 - y / ppp,
@@ -255,8 +273,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             TouchSpot::Map
         } else {
             TouchSpot::Canvas
-        };
-        self.renderer.navigator.touch_hold(spot)
+        }
     }
 
     /// The cockpit control under a press at (x, y) view points from the centre, y up.

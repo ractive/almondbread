@@ -1559,3 +1559,15 @@ trailing end of the pane's search bar and the Control center round button lit (a
 selected trait) while the pane is open; the Mac unchanged. Test
 `TouchControlsUITests.testControlCenterClose`. [[decisions/controls]] "Touch" ▸ "Closing the
 control center on touch".
+
+## [2026-10-18] decision | Touch: rest to steer, swipe to move the picture
+
+[[decisions/controls]] "Touch" ▸ "Rest or swipe": iPad feedback (C lost the resting finger that
+steered; A's wish line from the centre to the finger did not follow a swipe). One rule while A,
+C or a journey's flight flies: a finger within 10 points for its first 0.25 s rests and steers
+until it lifts (C: like the pointer; A: the wish; journey: takes the wheel off the dead zone),
+one that leaves sooner swipes and pans 1:1 from its touch-down point (in A without handing over:
+the lock lets go during the 1 s manual hold and picks up from the moved view). Swift sends the
+raw single finger (`FingerDown` / `FingerMove` / `FingerUp`) from the passive finger tracker,
+Rust classifies (`FINGER_SLOP`, `FINGER_REST`); `TouchSteer`, the steering long press and
+`FRAME_FINGER_STEERS` are gone. Manual and the Mac unchanged.

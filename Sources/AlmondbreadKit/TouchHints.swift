@@ -135,7 +135,7 @@ struct TouchHintsLayer: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("touch-hints")
-        .accessibilityLabel("Hints: drag to move, pinch to zoom, hold for more, slide the throttle up to fly in, down to fly out, to the middle to stop, the cockpit's plane flies by itself")
+        .accessibilityLabel("Hints: drag to move, pinch to zoom, hold for more, slide the throttle up to fly in, down to fly out, to the middle to stop, the cockpit's plane flies by itself; while flying, rest a finger to steer, swipe to move the picture")
     }
 
     /// Where the gestures group is centred: the middle, unless the throttle's label (left of the

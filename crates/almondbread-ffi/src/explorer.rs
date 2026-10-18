@@ -267,14 +267,25 @@ pub enum InputEvent {
     /// Every finger is off the view: a finger left down after a pinch or twist pans and steers
     /// again only after this.
     TouchesLifted,
-    /// Touch (kb: decisions/controls "Touch"): a finger steering in the autopilot (its wish)
-    /// at (x, y), while it is down.
-    TouchSteer {
+    /// Touch (kb: decisions/controls "Touch", "Rest or swipe"): the first finger on the view
+    /// went down at (x, y). Send every finger's down, move and up raw (from the first point,
+    /// not after a pan recogniser's start distance): while A, C or a journey's flight flies,
+    /// Rust decides whether it rests (steers) or swipes (pans) and ignores the pan
+    /// recogniser's `Pan` and `GestureEnd` for it; elsewhere the recogniser pans as before.
+    FingerDown {
         x: f64,
         y: f64,
     },
-    /// The steering finger lifted (in the autopilot the wish is let go once it settled).
-    TouchSteerEnd,
+    /// The single finger moved to (x, y).
+    FingerMove {
+        x: f64,
+        y: f64,
+    },
+    /// The single finger lifted; `cancelled`: a second finger came down or the system
+    /// cancelled the touch.
+    FingerUp {
+        cancelled: bool,
+    },
     /// The throttle lever crossed one detent (`up`: like E, else like Q).
     Throttle {
         up: bool,
@@ -346,8 +357,14 @@ impl InputEvent {
             Self::TouchRotate { radians, x, y } if ok(&[radians, x, y]) => E::TouchRotate { radians, x, y },
             Self::TouchRotateEnd => E::TouchRotateEnd,
             Self::TouchesLifted => E::TouchesLifted,
-            Self::TouchSteer { x, y } if ok(&[x, y]) => E::TouchSteer { x, y },
-            Self::TouchSteerEnd => E::TouchSteerEnd,
+            // The host fills in where the finger is (its overlays' hit tests).
+            Self::FingerDown { x, y } if ok(&[x, y]) => E::FingerDown {
+                x,
+                y,
+                spot: almondbread_core::TouchSpot::Canvas,
+            },
+            Self::FingerMove { x, y } if ok(&[x, y]) => E::FingerMove { x, y },
+            Self::FingerUp { cancelled } => E::FingerUp { cancelled },
             Self::Throttle { up } => E::Throttle { up },
             Self::ThrottleEnd => E::ThrottleEnd,
             Self::SetGear { gear } => E::SetGear { gear },
@@ -396,9 +413,6 @@ pub const FRAME_ANIMATING: u8 = 1;
 /// Keyboard mode: hide the cursor, draw the overlay crosshair at
 /// (`crosshair_x()`, `crosshair_y()`).
 pub const FRAME_KEYBOARD: u8 = 2;
-/// A finger steers instead of panning (iOS): the autopilot drives, a finger is its wish
-/// (`Navigator::finger_steers`; kb: decisions/controls "Touch"; in C and J a drag pans).
-pub const FRAME_FINGER_STEERS: u8 = 4;
 
 /// The driving level (kb: decisions/controls "Driving levels").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -1397,10 +1411,7 @@ impl Explorer {
             true
         });
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
-        let steers = host.renderer.navigator.finger_steers();
-        (u8::from(animating) * FRAME_ANIMATING)
-            | (u8::from(keyboard) * FRAME_KEYBOARD)
-            | (u8::from(steers) * FRAME_FINGER_STEERS)
+        (u8::from(animating) * FRAME_ANIMATING) | (u8::from(keyboard) * FRAME_KEYBOARD)
     }
 
     /// The keyboard crosshair's position as of the last `frame`, view points from the centre

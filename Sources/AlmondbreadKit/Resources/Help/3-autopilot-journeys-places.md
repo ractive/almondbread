@@ -8,7 +8,7 @@ Like a car, Almondbread has four ways to drive, shown at the bottom of the pictu
 
 **E** and **Q** are pedals. From rest, **E** starts a steady zoom in and **Q** a zoom out; each press is one step faster, and holding the key keeps speeding up. The other pedal slows down step by step and stops at zero: to go the other way, let go and press again. **Esc** brakes gently to a stop.
 
-You always steer yourself: point with the mouse where you want to go, or use **W A S D**; on iPhone and iPad drag the picture. Nothing pulls you anywhere.
+You always steer yourself: point with the mouse where you want to go, or use **W A S D**; on iPhone and iPad rest a finger where you want to go, or swipe to move the picture. Nothing pulls you anywhere.
 
 There are 26 gears, from ×1.1 to ×1000 per second; the cockpit shows the one you are in, for example *gear 5* zooming in or *reverse 3* zooming out.
 
@@ -23,7 +23,8 @@ Press **Z** (or click the plane in the cockpit at the bottom) and the view keeps
 - **E** and **Q**, the mouse wheel or a two-finger scroll change the speed.
 - **Click** (or tap) pauses and resumes.
 - **Point with the mouse** to suggest a direction: move the pointer away from the middle, for example to the right, and the autopilot looks for its next spiral, minibrot or detail on that side. It still picks the places itself and does not simply follow the pointer; the status overlay then says *your direction*. Back in the middle, it chooses freely again.
-- Steer yourself (**W A S D**, drag, a game controller's stick) and you take the wheel: the view cruises on at the same speed. The autopilot does not take over again by itself; press **Z** for that. **Q** down to zero also hands over to cruise, which then stops.
+- On iPhone and iPad **rest a finger** to suggest a direction (like the mouse) and **swipe** to move the picture: the autopilot stays on and picks its next place from where you moved it.
+- Steer yourself (**W A S D**, drag with the mouse, a game controller's stick) and you take the wheel: the view cruises on at the same speed. The autopilot does not take over again by itself; press **Z** for that. **Q** down to zero also hands over to cruise, which then stops.
 - The **target marker**, a small ring, shows where the autopilot is heading and names what it found there for a moment (for example *spiral* or *minibrot · period 34*); a faint line from the middle shows the direction you suggested. Turn it off in View ▸ Autopilot Target Marker or the control center's **Overlays**.
 - **Esc** stops.
 
