@@ -1636,3 +1636,53 @@ one shared pair `AB iPhone 17e` / `AB iPad mini`, booted one at a time and shut 
 `test-without-building` inside); test builds under `nice -n 10` with 6 jobs (`taskpolicy -b` was
 8× slower: E-cores only); `make ios-sim-run` for the user (opens Simulator.app, holds the lock,
 Ctrl-C stops). `IOS_DEVICES` is gone. Deleted the stale `ABT`, `DR`, `DT`, `GL`, `PG` simulators.
+
+## [2026-10-19] decision | Tour: why some points are hard
+
+New tour `tours/limits.md` (9 steps): slow points at the neck with the orbit overlay, proven
+interior, fog that stays (the neck gap at 1.5e-8), computing further, f64's 16 digits,
+perturbation and skipping, ending at the 1e302 needle minibrot. Two pitfalls found on the way:
+low `iterations:` values show no fog in the app (the scheduler extends and computes further), and
+the tour test cannot take views below about 1e-305. [[decisions/controls]] "The limits tour".
+
+## [2026-10-19] decision | Tour: bulbs and spokes
+
+New tour `tours/bulbs.md` (8 steps): periods round the cardioid with a probe path through the
+nuclei, counting the antenna's branches (1/4 and 1/5 bulbs, forks located as M(5,1) and M(6,1)),
+the p/q rule and Farey addition (2/5, 3/8). Nuclei and forks in [[decisions/controls]] "The bulbs
+tour".
+
+## [2026-10-19] decision | Tour: Seahorse and Elephant valleys
+
+New tour `tours/valleys.md` (10 steps): seahorses and their tails, Misiurewicz points at the spiral
+centres, M(24,2) at 1e4 and 1e50 (self-similarity), elephant valley, the M(4,1) fork at 0.005 and
+1e100. Orbit probes at Misiurewicz points are misleading in f64 (M(4,1) "escapes after 137 steps").
+[[decisions/controls]] "The valleys tour".
+
+## [2026-10-19] decision | Tour: patterns that double
+
+New tour `tours/doubling.md` (9 steps): from the M(4,1) fork to a period-39 minibrot 5.2e-6 away,
+the arms double 3 → 6 → 12 → 24 on the way (12 at half of the log-depth, 24 at three quarters:
+added to [[questions/julia-morph-depth-fractions]]), why squaring doubles, embedded Julia sets and
+Julia morphing. [[decisions/controls]] "The doubling tour".
+
+## [2026-10-19] decision | Tour: what the colours mean
+
+New tour `tours/colours.md` (12 steps): escape counts and bands, smooth colouring, palettes and
+looks, fog, proven black, and the five interior colourings. Found: an interior-only step change
+did not recolour the shown frame in the app until a new job (worked around with `move: jump`;
+possible renderer bug). [[decisions/controls]] "The colours tour".
+
+## [2026-10-19] decision | Tour: every point has a Julia set
+
+New tour `tours/julia.md` (8 steps): fix c and vary the start; connected inside, dust outside;
+the set looks like a point's Julia set near it; embedded Julia sets. No Julia renderer in the app:
+the tour uses the orbit overlay and places; a Julia view would improve it. [[decisions/controls]]
+"The Julia tour".
+
+## [2026-10-19] decision | Tour: Misiurewicz points
+
+New tour `tours/misiurewicz.md` (8 steps): pre-periodic orbits at −2, i, the M(4,1) fork and the
+spike's M(3,1) crossing; self-similarity with the cycle multipliers (1.33 / 120° at M(4,1), 5.66 /
+45° at i, 4 at −2); the fork at 1e300; spirals at 1e4 and 1e50. [[decisions/controls]] "The
+Misiurewicz tour".

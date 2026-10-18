@@ -46,6 +46,13 @@ const BUNDLED: &[(&str, &str)] = &[
     ("pi", include_str!("../tours/pi.md")),
     // The first-launch walkthrough (hidden: not in the tour lists).
     ("welcome", include_str!("../tours/welcome.md")),
+    ("limits", include_str!("../tours/limits.md")),
+    ("bulbs", include_str!("../tours/bulbs.md")),
+    ("valleys", include_str!("../tours/valleys.md")),
+    ("doubling", include_str!("../tours/doubling.md")),
+    ("colours", include_str!("../tours/colours.md")),
+    ("julia", include_str!("../tours/julia.md")),
+    ("misiurewicz", include_str!("../tours/misiurewicz.md")),
 ];
 
 /// Highest iteration limit a step may set (the FFI's bound).
