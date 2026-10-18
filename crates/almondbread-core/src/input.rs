@@ -328,8 +328,9 @@ pub struct AimMarker {
     pub wish: Option<(f64, f64)>,
 }
 
-/// Two-finger scroll set to zoom: e-folds per scrolled point (100 points: about ×2.7).
-const SCROLL_ZOOM_PER_POINT: f64 = 0.01;
+/// Two-finger scroll set to zoom: e-folds per scrolled point, the rate of ⌘ + scroll
+/// (`WheelZoom`: 1.15^(ΔY / 40), so ln 1.15 / 40; 100 points: about ×1.4).
+const SCROLL_ZOOM_PER_POINT: f64 = 0.003_494_049;
 /// Lane assist (kb: decisions/controls "Driving levels"): a survey older than this (s) is not
 /// acted on, and the nudge's heading reaches at most this share of the steering radius.
 const ASSIST_SURVEY_AGE: f64 = 0.5;
@@ -2382,7 +2383,7 @@ mod tests {
             0.0,
         );
         let s1 = v2.scale.to_f64();
-        assert!((s0 / s1 - 1f64.exp()).abs() < 1e-9, "{}", s0 / s1);
+        assert!((s0 / s1 - 1.15f64.powf(2.5)).abs() < 1e-6, "{}", s0 / s1);
         n2.handle(
             InputEvent::Scroll {
                 dx: 0.0,
