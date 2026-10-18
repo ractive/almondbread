@@ -1823,7 +1823,8 @@ The orbit now swings between **two points** ...
 ```
 
 Header keys: `id` (kebab-case, the file name), `title`, `summary` (one line for the list), `place`
-(optional: that place's detail gets a "Tour" button).
+(optional: that place's detail gets a "Tour" button), `hidden` (`yes`: not in the tour lists, View ▸
+Tours or the control center's list; started by id, like the walkthrough below).
 
 Step keys (all optional; unknown keys, repeated keys and bad values are errors with their line):
 
@@ -1848,7 +1849,29 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `probe-motion` | `bounce` (default), `once`, `loop` | back and forth (eased at the turns), once and rest, or start over |
 | `marker` | `re, im` or `off` | a gold double ring at a point |
 | `marker-label` | text | its label (with `marker`) |
+| `platform` | `mac`, `touch`, `phone`, `pad` (comma list) | the step is shown only there (`touch` = phone and pad); elsewhere it is left out and its settings do not carry over |
+| `highlight` | a UI element (below) | a pulsing gold ring around it; the card moves out of its way. Not carried over |
+| `control-center` | `open` or `closed` | opens or closes the control center on entering the step; at the tour's end it is back as before. Not carried over |
+| `goal` | `zoom-in`, `zoom-out`, `move`, `turn` | something to try: the card says "Your turn: try it", then "Well done!" once done (2× zoom, 100 view points, 10°), counted from the view on entering the step (or where a flight lands). Next always works. Not with a view in the same step |
 | `pi-hunt` | `neck` or `cusp` | the π meter's guided hunt (the view eases to the valley, the probe slides down the line to ε = 1e-8 / 1e-16 while the meter counts); switches the meter on; its own step only (not carried over, also started again going back to it); no view keys with it |
+
+**Platform blocks in the text.** Inside a step's text, `::: mac` (or `::: touch`, `::: phone`,
+`::: pad`, a comma list) opens a block shown only there, `:::` closes it (no nesting). One file thus
+serves the Mac and the touch screens: the shared sentences once, the gestures or keys per platform.
+The parser checks the blocks (unclosed, nested, stray `:::`, unknown platform) and that every step
+shown on a platform has text there and every platform gets a step. The UI names its platform when
+it starts a tour (`Explorer.start_tour_on(id, "mac" | "phone" | "pad")`; `Tour::for_platform`).
+
+**Highlight targets** (`tour::HIGHLIGHT_TARGETS`; a typo is a parse error): `hud`, `cockpit` (the
+whole panel) and `cockpit-manual`, `-cruise`, `-autopilot`, `-journey`, `-lane` (one icon; Rust
+draws the cockpit, Swift rings the cells `Explorer.cockpit_controls` reports), `throttle` (touch),
+`toolbar` (the round buttons on touch, every toolbar item on the Mac), `orbit`, `mini-map`,
+`size-scale`, `fly-to`, `control-center` (one button), `section-places`, `section-tours`,
+`section-view`, `section-journey`, `section-look`, `section-lighting`, `section-interior`,
+`section-overlays`, `section-quality`, `section-controls` (a control center section's header; the
+control center scrolls to it; needs `control-center: open` in the same step). Swift marks an
+element with `.tourTarget(id, model:)` (`Walkthrough.swift`); a new target is one modifier there
+plus one line in the list.
 
 **Carry-over.** A setting stays until a later step changes it (`Tour::effective`): step n shows
 the saved user settings with steps 1..n applied in order, so going back shows exactly what the step
@@ -1971,6 +1994,71 @@ Checked in the app (2026-10-18, M1 Pro, release, background window, `--ui-demo=t
 266, 8 digits in 7.4 s; step 5 N = 314 159 263, N·√ε = 3.14159263, 8 digits; panels left of the
 card (at the cusp they cover the probe's ruler, which sits left of the elephant valley: accepted).
 `make interaction-test` "pi hunt": counted at the neck, meter off after the tour, 106 fps.
+
+### Walkthrough (as built, 2026-10-19)
+
+Requested by the user: a first-launch walkthrough of how to use the app (the steering modes, the
+round buttons, the control center, the tours), easy to change, on the Mac and on the iPad his son
+uses. Decision: **the walkthrough is a tour** (`tours/welcome.md`, `hidden: yes`), so its words,
+order and pictures are data; the engine gained the four general keys above (`platform`,
+`highlight`, `control-center`, `goal`), the platform blocks and the `hidden` header, each usable by
+any tour.
+
+| Step (touch / Mac) | Rings | What it says |
+| --- | --- | --- |
+| Welcome! | — | the set; Next goes on (flies to the whole set) |
+| Move and zoom | — (`goal: zoom-in`) | pinch, swipe, double tap / point and hold Space, pinch, wheel, drag; "try it" |
+| The cockpit | `cockpit` | M, C, A, J: who is flying; tap / click or Esc E Z J |
+| Cruise | `throttle` / `cockpit-cruise` | the lever up, down, M; rest a finger to steer towards it, swipe to move the picture / E, Q, Esc, the pointer steers |
+| Autopilot and journeys | `cockpit-autopilot` | the plane, a suggested direction, the sparkles, the wheel / Z, J, Esc |
+| The round buttons / The toolbar | `toolbar` | orbit, mini-map, size scale, fly to, control center |
+| The control center | `section-places` (opens it) | places: Go or Fly; search |
+| Tours | `section-tours` | the maths tours; the walkthrough is here and in Help |
+| Off you go! | — (closes it) | lost: Reset / R |
+
+Nine steps on each platform, short sentences a child can follow. The touch steering words are the
+approved design ("rest a finger to steer towards it, swipe to move the picture"); when the steering
+changes, only the file changes.
+
+**First launch.** A small card in the middle: "Welcome to Almondbread", **Take a 1-minute
+walkthrough** / **Just explore** (`WalkthroughOffer`, `walkthrough.offered` in user defaults, set by
+either answer). On iPhone and iPad the first-run touch hints wait for the answer: "Just explore"
+shows them, the walkthrough marks them seen (it says the same). Never in window tests, `--ui-demo`
+or the iOS UI tests (`TestLaunch.ephemeral`) unless `--walkthrough-offer` (or `--ui-demo=walkthrough-offer`)
+forces it; `--no-walkthrough-offer` suppresses it, forced or not. Again from: Help ▸ *Show the
+Walkthrough* (Mac and iPad menu bar), the iOS help sheet's bottom bar, the first row of the control
+center's Tours section, View ▸ Tours ▸ Walkthrough.
+
+**Placement.** The ring is drawn by the ringed element itself (an overlay; inside the control
+center too, in the iPad's sidebar and the phone's sheet), which reports its frame; the cockpit's
+ring comes from its cells. The card (`TourCardLayer`) takes its usual place (bottom trailing; top on
+a narrow canvas) unless that covers the ring or the cockpit, then the next free one: above the
+cockpit, bottom leading, top. During a tour the phone's half-height control center sheet leaves the
+card usable (background interaction up to the medium detent).
+
+**Rejected.** A separate onboarding engine (pages of screenshots): a second format to keep in step
+with the UI. Auto-advancing goal steps: the view flying off while a child still pinches is
+confusing; "Well done!" and a Next that always works keep it in the child's hands. Highlighting by
+accessibility identifier: setting identifiers on existing buttons would change what the UI tests
+find by label; the tour names are their own list.
+
+**Tests.** Rust (core `tour`): `ui_keys_parse_per_step_and_do_not_carry_over`,
+`a_tour_plays_its_own_steps_and_texts_on_each_platform`, `rejects_ui_mistakes_with_their_line`,
+`goals_count_from_where_the_step_began` (deep views too), `the_walkthrough_is_hidden_short_and_plays_everywhere`
+(6–10 steps per platform, no Mac words on touch and the other way round, no throttle on the Mac,
+the control center opened and closed again); FFI `tours_are_listed` (the walkthrough hidden).
+XCTest `WalkthroughUITests.testWalkthrough` (forced offer, start, the zoom goal noticed after a
+pinch, rings at the cockpit, the throttle and the round buttons clear of the card, the control
+center opened with Places ringed, Tours, closed again at the end, Finish) and
+`testOfferNotShownUnlessForced` (none in a UI test, none when suppressed, Just explore starts
+nothing). Passed 2026-10-19 on `DR iPad Pro 11` and `DR iPhone 17e`, with the existing tour, touch
+hints, round button and control center tests. Mac: `--ui-demo=tour-welcome` and
+`--ui-demo=walkthrough-offer` screenshots (background window) looked at: rings on the cockpit, the
+plane icon and every toolbar item; the card moved above the cockpit when the control center
+narrowed the canvas.
+
+**Needs the device.** Whether a child reads the card before tapping Next; whether the gold ring is
+visible enough on bright places.
 
 ## Touch (as built, 2026-10-18)
 

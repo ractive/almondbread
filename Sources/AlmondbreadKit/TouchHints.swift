@@ -16,8 +16,13 @@ final class TouchHints {
     /// `--touch-hints`: show them whatever was seen (UI tests, screenshots).
     static let forced = CommandLine.arguments.contains("--touch-hints")
 
-    /// Not in window tests or the UI tests (settings are ephemeral there) unless forced.
-    var shown = forced || (!TestLaunch.ephemeral && !UserDefaults.standard.bool(forKey: seenKey))
+    /// Not seen yet (window tests and the UI tests count them as seen: settings are ephemeral).
+    var unseen: Bool { !TestLaunch.ephemeral && !UserDefaults.standard.bool(forKey: Self.seenKey) }
+
+    /// Unless forced, they wait while the walkthrough is offered (kb: decisions/controls
+    /// "Walkthrough"): "Just explore" shows them, the walkthrough says the same.
+    var shown = forced || (!TestLaunch.ephemeral && !UserDefaults.standard.bool(forKey: seenKey)
+                           && !WalkthroughOffer.shared.shown)
 
     func show() {
         withAnimation(.easeOut(duration: 0.25)) { shown = true }

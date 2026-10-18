@@ -366,6 +366,12 @@ impl<B: GpuBackend + Clone> Host<B> {
         self.overlay.compass.update(self.renderer.viewport.angle, turning, now);
         let aim = self.renderer.navigator.aim_marker();
         self.overlay.marker.update(aim.as_ref(), &self.renderer.viewport, now);
+        // A step's goal counts from where a flight the tour started (or any fly-to) lands.
+        if let Some(t) = &mut self.tour
+            && self.renderer.navigator.flight().is_some()
+        {
+            t.set_goal_from(self.renderer.viewport.clone());
+        }
         // A tour sets the orbit probe's point (fixed or moving) and its marker.
         match &self.tour {
             Some(t) => {
@@ -480,6 +486,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         let (player, plan) = TourPlayer::start(tour, self.tour_snapshot(), self.renderer.viewport.clone(), now);
         self.tour = Some(player);
         self.apply_tour_plan(plan, now);
+        self.tour_goal_from_here();
     }
 
     /// Goes to step `index` of the running tour (clamped). False without a tour.
@@ -487,7 +494,23 @@ impl<B: GpuBackend + Clone> Host<B> {
         let Some(t) = &mut self.tour else { return false };
         let plan = t.go(index, now);
         self.apply_tour_plan(plan, now);
+        self.tour_goal_from_here();
         true
+    }
+
+    /// The step's goal counts from the view as it is now.
+    fn tour_goal_from_here(&mut self) {
+        let v = self.renderer.viewport.clone();
+        if let Some(t) = &mut self.tour {
+            t.set_goal_from(v);
+        }
+    }
+
+    /// The running step's goal (`goal:`) is done: false without a tour, a goal, or while a
+    /// flight is under way (the goal counts from where it lands).
+    pub fn tour_goal_met(&self) -> bool {
+        self.renderer.navigator.flight().is_none()
+            && self.tour.as_ref().is_some_and(|t| t.goal_met(&self.renderer.viewport))
     }
 
     /// Ends the tour: the saved settings come back and the view flies back to where it was.

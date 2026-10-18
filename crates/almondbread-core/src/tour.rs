@@ -43,6 +43,8 @@ const BUNDLED: &[(&str, &str)] = &[
     ("feigenbaum", include_str!("../tours/feigenbaum.md")),
     ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
     ("pi", include_str!("../tours/pi.md")),
+    // The first-launch walkthrough (hidden: not in the tour lists).
+    ("welcome", include_str!("../tours/welcome.md")),
 ];
 
 /// Highest iteration limit a step may set (the FFI's bound).
@@ -59,6 +61,8 @@ pub struct Tour {
     pub summary: String,
     /// The place (`places::place_named`) whose detail offers this tour, if any.
     pub place: Option<String>,
+    /// Not in the tour lists (header `hidden: yes`): started by id, like the walkthrough.
+    pub hidden: bool,
     pub steps: Vec<Step>,
 }
 
@@ -90,6 +94,16 @@ pub struct Step {
     pub probe: Option<Probe>,
     /// `Some(None)`: the marker goes away.
     pub marker: Option<Option<Marker>>,
+    // UI steps (the walkthrough; kb: decisions/controls "Guided tours"). None of these carry
+    // over: each belongs to its own step.
+    /// The platforms the step is shown on (`platform:`); empty: all.
+    pub platforms: Vec<Platform>,
+    /// A UI element to ring (`highlight:`, one of [`HIGHLIGHT_TARGETS`]).
+    pub highlight: Option<String>,
+    /// Open (true) or close the control center on entering the step (`control-center:`).
+    pub control_center: Option<bool>,
+    /// Something to try (`goal:`): the card says when it was done; Next always works.
+    pub goal: Option<Goal>,
 }
 
 /// A view: centre (decimal strings of any precision), the extent across the window's shorter
@@ -241,10 +255,14 @@ pub const STEP_KEYS: &[&str] = &[
     "probe-motion",
     "marker",
     "marker-label",
+    "platform",
+    "highlight",
+    "control-center",
+    "goal",
 ];
 
 /// Every key of the header (front matter).
-pub const HEADER_KEYS: &[&str] = &["id", "title", "summary", "place"];
+pub const HEADER_KEYS: &[&str] = &["id", "title", "summary", "place", "hidden"];
 
 /// The bundled tours, parsed (a broken one is left out; the unit test keeps them all valid).
 pub fn bundled() -> Vec<Tour> {
@@ -319,7 +337,7 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
         return err(i + 1, "a tour starts with a `---` header (id, title, summary)");
     }
     i += 1;
-    let (mut id, mut title, mut summary, mut place) = (None, None, None, None);
+    let (mut id, mut title, mut summary, mut place, mut hidden) = (None, None, None, None, None);
     loop {
         let Some(raw) = lines.get(i) else {
             return err(i, "the header is not closed with `---`");
@@ -342,6 +360,7 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
             "title" => &mut title,
             "summary" => &mut summary,
             "place" => &mut place,
+            "hidden" => &mut hidden,
             _ => {
                 return err(
                     line,
@@ -377,6 +396,10 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
     {
         return err(1, format!("unknown place `{p}`"));
     }
+    let hidden = match hidden.as_deref() {
+        None => false,
+        Some(v) => on_off(1, "hidden", v)?,
+    };
     // Steps.
     let mut steps = Vec::new();
     while i < lines.len() {
@@ -394,6 +417,7 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
                 i += 1;
             }
             let body = lines[start..i].join("\n").trim().to_string();
+            check_text_blocks(&lines[start..i], start + 1)?;
             steps.push(parse_step(h.trim(), line, &settings, body)?);
         } else if l.trim().is_empty() {
             i += 1;
@@ -404,13 +428,16 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
     if steps.is_empty() {
         return err(lines.len(), "a tour needs at least one step (`## Title`)");
     }
-    Ok(Tour {
+    let tour = Tour {
         id,
         title,
         summary,
         place,
+        hidden,
         steps,
-    })
+    };
+    check_platforms(&tour)?;
+    Ok(tour)
 }
 
 fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String) -> Result<Step, TourError> {
@@ -649,6 +676,7 @@ fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String
             }
         }
     }
+    parse_ui_keys(&mut step, &get)?;
     Ok(step)
 }
 
@@ -791,6 +819,8 @@ pub struct TourPlayer {
     saved_view: Viewport,
     /// The current step, resolved (settings carried over).
     current: Step,
+    /// The view a goal is measured from (the host sets it on entering a step).
+    goal_from: Option<Viewport>,
 }
 
 impl TourPlayer {
@@ -805,6 +835,7 @@ impl TourPlayer {
             saved,
             saved_view: view,
             current,
+            goal_from: None,
         };
         let plan = p.go(0, now);
         (p, plan)
@@ -844,6 +875,7 @@ impl TourPlayer {
         let back = index < self.index;
         self.index = index;
         self.entered = now;
+        self.goal_from = None;
         self.current = self.tour.effective(index);
         let own = self.tour.steps[index].view.is_some();
         // A π hunt flies its own view, also when coming back to its step.
@@ -893,6 +925,270 @@ impl TourPlayer {
     pub fn saved(&self) -> &Snapshot {
         &self.saved
     }
+
+    /// Measure the step's goal from `view` (on entering the step, and while a flight the tour
+    /// started is under way, so the flight does not count).
+    pub fn set_goal_from(&mut self, view: Viewport) {
+        self.goal_from = Some(view);
+    }
+
+    /// The step's goal is done at `view` (false without a goal).
+    pub fn goal_met(&self, view: &Viewport) -> bool {
+        match (self.step().goal, &self.goal_from) {
+            (Some(g), Some(from)) => g.met(from, view),
+            _ => false,
+        }
+    }
+}
+
+// MARK: UI steps: platforms, highlights, the control center, goals (the walkthrough)
+
+/// Where a tour plays: the Mac (pointer and keys) or a touch screen, a phone or a tablet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Platform {
+    Mac,
+    Phone,
+    Pad,
+}
+
+impl Platform {
+    pub const ALL: [Platform; 3] = [Platform::Mac, Platform::Phone, Platform::Pad];
+
+    /// "mac", "phone" or "pad" (the UI's name for itself).
+    pub fn named(name: &str) -> Option<Platform> {
+        match name {
+            "mac" => Some(Platform::Mac),
+            "phone" => Some(Platform::Phone),
+            "pad" => Some(Platform::Pad),
+            _ => None,
+        }
+    }
+}
+
+/// A list of platforms as a tour writes them: `mac`, `touch` (phone and pad), `phone`, `pad`,
+/// separated by commas.
+fn platforms(line: usize, key: &str, v: &str) -> Result<Vec<Platform>, TourError> {
+    let mut out = Vec::new();
+    for w in v.split(',').map(str::trim) {
+        let add: &[Platform] = match w {
+            "mac" => &[Platform::Mac],
+            "touch" => &[Platform::Phone, Platform::Pad],
+            "phone" => &[Platform::Phone],
+            "pad" => &[Platform::Pad],
+            _ => return err(line, format!("`{key}`: `{w}` is not mac, touch, phone or pad")),
+        };
+        for p in add {
+            if !out.contains(p) {
+                out.push(*p);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The UI elements a step can ring (`highlight:`); the UI knows each by this name. `section-*`
+/// are the control center's section headers (the control center scrolls to it).
+pub const HIGHLIGHT_TARGETS: &[&str] = &[
+    "hud",
+    "cockpit",
+    "cockpit-manual",
+    "cockpit-cruise",
+    "cockpit-autopilot",
+    "cockpit-journey",
+    "cockpit-lane",
+    "throttle",
+    "toolbar",
+    "orbit",
+    "mini-map",
+    "size-scale",
+    "fly-to",
+    "control-center",
+    "section-places",
+    "section-tours",
+    "section-view",
+    "section-journey",
+    "section-look",
+    "section-lighting",
+    "section-interior",
+    "section-overlays",
+    "section-quality",
+    "section-controls",
+];
+
+/// Something a step asks the user to try. Measured from the view when the step was entered (or
+/// when a flight the tour started landed), so Back and Next make it new each time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Goal {
+    /// Zoomed in at least 2× (scale halved).
+    ZoomIn,
+    /// Zoomed out at least 2×.
+    ZoomOut,
+    /// The centre moved at least [`GOAL_MOVE_POINTS`] view points.
+    Move,
+    /// Turned at least [`GOAL_TURN_DEGREES`].
+    Turn,
+}
+
+/// How far the centre must move for `goal: move`, view points.
+pub const GOAL_MOVE_POINTS: f64 = 100.0;
+/// How far the view must turn for `goal: turn`, degrees.
+pub const GOAL_TURN_DEGREES: f64 = 10.0;
+
+impl Goal {
+    pub fn name(self) -> &'static str {
+        match self {
+            Goal::ZoomIn => "zoom-in",
+            Goal::ZoomOut => "zoom-out",
+            Goal::Move => "move",
+            Goal::Turn => "turn",
+        }
+    }
+
+    /// Done, going from view `from` to `now`?
+    pub fn met(self, from: &Viewport, now: &Viewport) -> bool {
+        match self {
+            Goal::ZoomIn => from.scale.ratio(now.scale) >= 2.0,
+            Goal::ZoomOut => now.scale.ratio(from.scale) >= 2.0,
+            Goal::Move => now.center.distance_in(&from.center, now.scale) >= GOAL_MOVE_POINTS,
+            Goal::Turn => wrap_angle(now.angle - from.angle).abs().to_degrees() >= GOAL_TURN_DEGREES,
+        }
+    }
+}
+
+fn parse_ui_keys<'a>(step: &mut Step, get: &dyn Fn(&str) -> Option<(usize, &'a str)>) -> Result<(), TourError> {
+    if let Some((n, v)) = get("platform") {
+        step.platforms = platforms(n, "platform", v)?;
+    }
+    if let Some((n, v)) = get("control-center") {
+        step.control_center = Some(match v {
+            "open" => true,
+            "closed" => false,
+            _ => return err(n, format!("`control-center` is `open` or `closed`, not `{v}`")),
+        });
+    }
+    if let Some((n, v)) = get("highlight") {
+        if !HIGHLIGHT_TARGETS.contains(&v) {
+            return err(
+                n,
+                format!("unknown highlight `{v}` (known: {})", HIGHLIGHT_TARGETS.join(", ")),
+            );
+        }
+        if v.starts_with("section-") && step.control_center != Some(true) {
+            return err(
+                n,
+                format!("`highlight: {v}` needs `control-center: open` in the same step"),
+            );
+        }
+        step.highlight = Some(v.to_string());
+    }
+    if let Some((n, v)) = get("goal") {
+        step.goal = Some(match v {
+            "zoom-in" => Goal::ZoomIn,
+            "zoom-out" => Goal::ZoomOut,
+            "move" => Goal::Move,
+            "turn" => Goal::Turn,
+            _ => return err(n, format!("`goal` is zoom-in, zoom-out, move or turn, not `{v}`")),
+        });
+        if step.view.is_some() {
+            return err(n, "a `goal` step leaves the view to the user: no view in the same step");
+        }
+    }
+    Ok(())
+}
+
+/// Checks a step's platform blocks: `::: mac` (or `touch`, `phone`, `pad`, a comma list) opens
+/// one, `:::` closes it, no nesting. `first` is the file line of `text[0]`.
+fn check_text_blocks(text: &[&str], first: usize) -> Result<(), TourError> {
+    let mut open: Option<usize> = None;
+    for (k, l) in text.iter().enumerate() {
+        let line = first + k;
+        let Some(rest) = l.trim().strip_prefix(":::") else {
+            continue;
+        };
+        let rest = rest.trim();
+        match (rest.is_empty(), open) {
+            (true, Some(_)) => open = None,
+            (true, None) => return err(line, "`:::` closes a platform block, but none is open"),
+            (false, Some(o)) => {
+                return err(
+                    line,
+                    format!("a platform block inside the one opened on line {o} (close it with `:::`)"),
+                );
+            }
+            (false, None) => {
+                platforms(line, ":::", rest)?;
+                open = Some(line);
+            }
+        }
+    }
+    match open {
+        Some(o) => err(o, "the platform block is not closed with `:::`"),
+        None => Ok(()),
+    }
+}
+
+/// A step's text on platform `p`: its platform blocks for `p` kept (without their `:::` lines),
+/// the others dropped; runs of blank lines folded to one.
+pub fn text_for(text: &str, p: Platform) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let mut keep = true;
+    for l in text.lines() {
+        if let Some(rest) = l.trim().strip_prefix(":::") {
+            let rest = rest.trim();
+            keep = rest.is_empty() || platforms(0, ":::", rest).map(|ps| ps.contains(&p)).unwrap_or(true);
+            continue;
+        }
+        if !keep || (l.trim().is_empty() && out.last().is_none_or(|x| x.trim().is_empty())) {
+            continue;
+        }
+        out.push(l);
+    }
+    out.join("\n").trim().to_string()
+}
+
+impl Step {
+    /// Shown on platform `p`.
+    pub fn on(&self, p: Platform) -> bool {
+        self.platforms.is_empty() || self.platforms.contains(&p)
+    }
+}
+
+impl Tour {
+    /// The tour as it plays on `p`: the steps for `p` with their texts for `p`. Settings of a
+    /// step left out do not carry over there.
+    pub fn for_platform(&self, p: Platform) -> Tour {
+        let mut t = self.clone();
+        t.steps = self
+            .steps
+            .iter()
+            .filter(|s| s.on(p))
+            .map(|s| Step {
+                text: text_for(&s.text, p),
+                ..s.clone()
+            })
+            .collect();
+        t
+    }
+}
+
+/// Every platform gets at least one step, and every step shown there has text there.
+fn check_platforms(tour: &Tour) -> Result<(), TourError> {
+    for p in Platform::ALL {
+        let mut any = false;
+        for s in tour.steps.iter().filter(|s| s.on(p)) {
+            any = true;
+            if text_for(&s.text, p).is_empty() {
+                return err(
+                    s.line,
+                    format!("the step has no text on {p:?} (its platform blocks leave none)"),
+                );
+            }
+        }
+        if !any {
+            return err(1, format!("no step is shown on {p:?}"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1174,5 +1470,155 @@ mod tests {
         let (restored, back) = player.finish();
         assert_eq!(restored, saved);
         assert_eq!(back, view);
+    }
+
+    // UI steps (platforms, highlights, the control center, goals; the walkthrough).
+
+    const UI: &str = "---\nid: u\ntitle: U\nsummary: S\nhidden: yes\n---\n\n## One\ncenter: -0.5, 0\nspan: 3\nhighlight: cockpit\n\nBoth.\n\n::: mac\nKeys.\n:::\n::: touch\nFingers.\n:::\n\n## Two\nplatform: touch\nhighlight: throttle\ngoal: zoom-in\n\nThe lever.\n\n## Two\nplatform: mac\ngoal: move\n\nThe pointer.\n\n## Three\ncontrol-center: open\nhighlight: section-places\n\nPlaces.\n\n::: phone\nSmall.\n:::\n::: pad\nBig.\n:::\n";
+
+    #[test]
+    fn ui_keys_parse_per_step_and_do_not_carry_over() {
+        let t = parse(UI).expect("parses");
+        assert!(t.hidden);
+        assert!(!parse(SMALL).expect("small").hidden);
+        assert_eq!(t.steps.len(), 4);
+        assert_eq!(t.steps[0].highlight.as_deref(), Some("cockpit"));
+        assert_eq!(t.steps[1].platforms, vec![Platform::Phone, Platform::Pad]);
+        assert_eq!(t.steps[1].goal, Some(Goal::ZoomIn));
+        assert_eq!(t.steps[2].platforms, vec![Platform::Mac]);
+        assert_eq!(t.steps[3].control_center, Some(true));
+        // Nothing of it carries over: step two shows no highlight of step one, step three no
+        // goal; the view does.
+        let e = t.effective(1);
+        assert_eq!(e.highlight.as_deref(), Some("throttle"));
+        let e = t.effective(3);
+        assert_eq!((e.goal, e.platforms.len()), (None, 0));
+        assert_eq!(e.view, t.steps[0].view);
+        let e = t.for_platform(Platform::Mac).effective(1);
+        assert_eq!(e.highlight, None, "a highlight belongs to its step");
+    }
+
+    #[test]
+    fn a_tour_plays_its_own_steps_and_texts_on_each_platform() {
+        let t = parse(UI).expect("parses");
+        let mac = t.for_platform(Platform::Mac);
+        let phone = t.for_platform(Platform::Phone);
+        let pad = t.for_platform(Platform::Pad);
+        assert_eq!((mac.steps.len(), phone.steps.len(), pad.steps.len()), (3, 3, 3));
+        assert_eq!(mac.steps[0].text, "Both.\n\nKeys.");
+        assert_eq!(phone.steps[0].text, "Both.\n\nFingers.");
+        assert_eq!(mac.steps[1].text, "The pointer.");
+        assert_eq!(pad.steps[1].text, "The lever.");
+        assert_eq!(phone.steps[2].text, "Places.\n\nSmall.");
+        assert_eq!(pad.steps[2].text, "Places.\n\nBig.");
+        // Blank lines around dropped blocks fold to one; a comma list opens a block for several.
+        assert_eq!(text_for("A\n\n::: pad\nX\n:::\n\nB", Platform::Mac), "A\n\nB");
+        assert_eq!(text_for("::: mac, phone\nX\n:::", Platform::Phone), "X");
+        assert_eq!(text_for("::: mac, phone\nX\n:::", Platform::Pad), "");
+        assert_eq!(Platform::named("pad"), Some(Platform::Pad));
+        assert_eq!(Platform::named("touch"), None, "the UI names itself exactly");
+        // A player on one platform counts and goes through only its steps.
+        let (mut p, _) = TourPlayer::start(mac, snapshot(), Viewport::home(), 0.0);
+        assert_eq!(p.len(), 3);
+        p.go(9, 1.0);
+        assert_eq!(p.step().title, "Three");
+    }
+
+    #[test]
+    fn rejects_ui_mistakes_with_their_line() {
+        let head = "---\nid: t\ntitle: T\nsummary: S\n---\n\n## One\n";
+        let cases: &[(&str, usize, &str)] = &[
+            ("highlight: nowhere\n\nText.", 8, "unknown highlight"),
+            ("highlight: section-places\n\nText.", 8, "needs `control-center: open`"),
+            ("control-center: ajar\n\nText.", 8, "`open` or `closed`"),
+            ("platform: watch\n\nText.", 8, "not mac, touch, phone or pad"),
+            ("goal: fly\n\nText.", 8, "zoom-in, zoom-out, move or turn"),
+            (
+                "center: 0, 0\nspan: 3\ngoal: zoom-in\n\nText.",
+                10,
+                "leaves the view to the user",
+            ),
+            ("\nText.\n\n::: mac\nKeys.", 11, "not closed"),
+            (
+                "\nText.\n\n::: mac\n::: pad\n:::",
+                12,
+                "inside the one opened on line 11",
+            ),
+            ("\nText.\n:::", 10, "none is open"),
+            ("\n::: tv\nX\n:::", 9, "not mac, touch, phone or pad"),
+            ("\n::: mac\nKeys only.\n:::", 7, "no text on Phone"),
+            ("platform: mac\n\nText.", 1, "no step is shown on Phone"),
+        ];
+        for (body, line, msg) in cases {
+            let e = parse(&format!("{head}{body}")).expect_err(body);
+            assert_eq!(e.line, *line, "{body}: {e}");
+            assert!(e.message.contains(msg), "{body}: {e}");
+        }
+        let e = parse("---\nid: t\ntitle: T\nsummary: S\nhidden: maybe\n---\n## A\n\nx").expect_err("hidden");
+        assert!(e.message.contains("`on` or `off`"), "{e}");
+    }
+
+    #[test]
+    fn goals_count_from_where_the_step_began() {
+        let home = Viewport::new(-0.5, 0.0, 0.01);
+        let mut zoomed = home.clone();
+        zoomed.scale = Scale::from_f64(0.004);
+        assert!(Goal::ZoomIn.met(&home, &zoomed) && !Goal::ZoomOut.met(&home, &zoomed));
+        assert!(Goal::ZoomOut.met(&zoomed, &home));
+        let mut little = home.clone();
+        little.scale = Scale::from_f64(0.006);
+        assert!(!Goal::ZoomIn.met(&home, &little), "1.7× is not yet 2×");
+        // 100 view points at 0.01 per point: 1.0 in c.
+        let moved = Viewport::new(0.6, 0.0, 0.01);
+        let nudged = Viewport::new(-0.2, 0.0, 0.01);
+        assert!(Goal::Move.met(&home, &moved) && !Goal::Move.met(&home, &nudged));
+        assert!(Goal::Turn.met(&home, &home.clone().with_angle(-0.2)));
+        assert!(!Goal::Turn.met(&home, &home.clone().with_angle(0.1)));
+        // Deep views: the move is measured in view points at any depth.
+        let deep = Viewport::with_center(Center::parse("-1.75", "0").expect("c"), Scale::from_log2(-300.0));
+        let mut deep_moved = deep.clone();
+        deep_moved.center = deep.center.offset_scaled(150.0, 0.0, deep.scale);
+        assert!(Goal::Move.met(&deep, &deep_moved));
+        // The player: a goal from the view the host set, none without a goal or a start view.
+        let t = parse(UI).expect("tour").for_platform(Platform::Pad);
+        let (mut p, _) = TourPlayer::start(t, snapshot(), home.clone(), 0.0);
+        assert!(!p.goal_met(&zoomed), "step one has no goal");
+        p.go(1, 1.0);
+        assert!(!p.goal_met(&zoomed), "no start view yet");
+        p.set_goal_from(home.clone());
+        assert!(p.goal_met(&zoomed) && !p.goal_met(&little));
+        p.go(1, 2.0);
+        assert!(!p.goal_met(&zoomed), "entering again starts it over");
+    }
+
+    #[test]
+    fn the_walkthrough_is_hidden_short_and_plays_everywhere() {
+        let t = named("welcome").expect("walkthrough");
+        assert!(t.hidden);
+        assert!(!named("feigenbaum").expect("feigenbaum").hidden);
+        for p in Platform::ALL {
+            let w = t.for_platform(p);
+            assert!((6..=10).contains(&w.steps.len()), "{p:?}: {} steps", w.steps.len());
+            for s in &w.steps {
+                assert!(!s.text.contains(":::"), "{p:?} {}: a block marker left", s.title);
+                let touch_words = s.text.contains("Tap ") || s.text.contains("swipe");
+                let mac_words = s.text.contains("Press ") || s.text.contains("Click ");
+                match p {
+                    Platform::Mac => assert!(!touch_words, "{p:?} {}: touch words", s.title),
+                    _ => assert!(!mac_words, "{p:?} {}: Mac words", s.title),
+                }
+                if let Some(h) = &s.highlight {
+                    assert!(HIGHLIGHT_TARGETS.contains(&h.as_str()));
+                    if p == Platform::Mac {
+                        assert_ne!(h, "throttle", "the Mac has no throttle");
+                    }
+                }
+            }
+            assert!(w.steps.iter().any(|s| s.highlight.as_deref() == Some("cockpit")));
+            assert!(w.steps.iter().any(|s| s.goal.is_some()), "one step to try");
+            // The control center opens for its steps and closes again at the end.
+            assert!(w.steps.iter().any(|s| s.control_center == Some(true)));
+            assert_eq!(w.steps.last().and_then(|s| s.control_center), Some(false));
+        }
     }
 }

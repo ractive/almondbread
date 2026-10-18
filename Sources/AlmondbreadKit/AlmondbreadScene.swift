@@ -191,11 +191,16 @@ struct FractalCommands: Commands {
         CommandGroup(replacing: .help) {
             #if os(macOS)
             HelpMenuItem()
+            // The first-launch walkthrough again (kb: decisions/controls "Walkthrough").
+            Button("Show the Walkthrough") { model?.startTour(ExplorerModel.walkthroughID) }
+                .disabled(model == nil)
             #else
             // The iPad's menu bar (kb: decisions/controls "Touch"): the help sheet, the touch hints.
             Button("Almondbread Help") { HelpOpener()(.gettingStarted) }
                 .keyboardShortcut("?", modifiers: .command)
             Button("Show Touch Hints") { TouchHints.shared.show() }
+            Button("Show the Walkthrough") { model?.startTour(ExplorerModel.walkthroughID) }
+                .disabled(model == nil)
             #endif
         }
     }

@@ -1591,3 +1591,10 @@ Cusp, the control center's π switch, reading and hunt buttons, FFI `pi_flight` 
 persistence; help (getting started, overlays, popovers) and the neck place point to the tour. The
 π panel keeps left of the tour card. [[decisions/controls]] "π meter", "Guided tours" key table,
 "The π tour".
+
+## [2026-10-19] decision | First-launch walkthrough as a hidden tour
+
+The walkthrough is `tours/welcome.md`, a hidden tour; the tour engine gained `platform`, `highlight`,
+`control-center` and `goal` step keys, `::: mac` / `::: touch` text blocks and the `hidden` header.
+Offered once at the first launch (never in tests unless forced). See [[decisions/controls]]
+"Walkthrough".

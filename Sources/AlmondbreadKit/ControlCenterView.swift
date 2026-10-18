@@ -77,6 +77,7 @@ struct ControlCenterView: View {
 
     #if os(macOS)
     private func sections(shown: [ControlSection], collapsed: Set<String>) -> some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Not lazy: see the type's comment (kb: platform/swiftui-performance).
@@ -85,6 +86,8 @@ struct ControlCenterView: View {
                     ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
                         withAnimation(.snappy(duration: 0.2)) { toggle(section) }
                     }
+                    .tourTarget(section.tourID, model: model, cornerRadius: 6)
+                    .id(section.tourID)
                     .padding(.horizontal, 6)
                     .padding(.bottom, open ? 6 : 8)
                     if open {
@@ -108,6 +111,8 @@ struct ControlCenterView: View {
             }
             .padding(.horizontal, 14)
             .padding(.top, 10)
+            .background(TourSectionScroller(model: model, proxy: proxy))
+        }
         }
         .labeledContentStyle(ControlRowLabeledStyle())
         .toggleStyle(ControlRowToggleStyle())
@@ -115,28 +120,33 @@ struct ControlCenterView: View {
     }
     #else
     private func sections(shown: [ControlSection], collapsed: Set<String>) -> some View {
-        Form {
-            ForEach(shown) { section in
-                let open = !collapsed.contains(section.rawValue)
-                Section {
-                    if open {
-                        ControlSectionRows(section: section, model: model)
+        ScrollViewReader { proxy in
+            Form {
+                ForEach(shown) { section in
+                    let open = !collapsed.contains(section.rawValue)
+                    Section {
+                        if open {
+                            ControlSectionRows(section: section, model: model)
+                        }
+                    } header: {
+                        ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
+                            withAnimation(.snappy(duration: 0.2)) { toggle(section) }
+                        }
+                        .tourTarget(section.tourID, model: model, cornerRadius: 8)
+                    } footer: {
+                        if open, let f = section.footer {
+                            Text(f)
+                        }
                     }
-                } header: {
-                    ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
-                        withAnimation(.snappy(duration: 0.2)) { toggle(section) }
-                    }
-                } footer: {
-                    if open, let f = section.footer {
-                        Text(f)
-                    }
+                    .id(section.tourID)
+                }
+                if shown.isEmpty {
+                    Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
                 }
             }
-            if shown.isEmpty {
-                Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
-            }
+            .formStyle(.grouped)
+            .background(TourSectionScroller(model: model, proxy: proxy))
         }
-        .formStyle(.grouped)
     }
     #endif
 
@@ -921,10 +931,31 @@ enum ControlRows {
     }
 }
 
+/// Scrolls the control center to the section a tour step rings (`highlight: section-…`). A leaf
+/// reading only the change-only `model.tour`, so the control center's body reads no model value.
+struct TourSectionScroller: View {
+    let model: ExplorerModel
+    let proxy: ScrollViewProxy
+
+    var body: some View {
+        let target = model.tour?.highlight ?? ""
+        Color.clear
+            .task(id: target) {
+                guard target.hasPrefix("section-") else { return }
+                // After the control center opened (the same step opens it).
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(target, anchor: UnitPoint(x: 0.5, y: 0.08)) }
+            }
+    }
+}
+
 /// The control center's sections, in order, with what the search matches.
 enum ControlSection: String, CaseIterable, Identifiable {
     case places, tours, view, journey, look, lighting, interior, overlays, quality, controls
     var id: String { rawValue }
+    /// The name a tour step rings it by (`highlight: section-places`; core `HIGHLIGHT_TARGETS`).
+    var tourID: String { "section-" + rawValue }
 
     var title: String {
         switch self {

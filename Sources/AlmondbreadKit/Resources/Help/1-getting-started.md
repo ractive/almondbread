@@ -4,6 +4,8 @@ Almondbread is a window into the Mandelbrot set, a shape made by one tiny rule r
 
 Start anywhere. Point at something interesting and zoom in. If you get lost, press **R** to go back to the whole set.
 
+New here? The **walkthrough** shows the controls in about a minute: Help ▸ *Show the Walkthrough*, or *Walkthrough* at the top of the control center's **Tours**. It is offered once, at the first start.
+
 ## On a Mac
 
 - **Move the mouse** to choose where to zoom. The pointer becomes a small crosshair over the picture.
