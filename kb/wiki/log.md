@@ -1599,3 +1599,10 @@ interior, fog that stays (the neck gap at 1.5e-8), computing further, f64's 16 d
 perturbation and skipping, ending at the 1e302 needle minibrot. Two pitfalls found on the way:
 low `iterations:` values show no fog in the app (the scheduler extends and computes further), and
 the tour test cannot take views below about 1e-305. [[decisions/controls]] "The limits tour".
+
+## [2026-10-19] decision | Tour: bulbs and spokes
+
+New tour `tours/bulbs.md` (8 steps): periods round the cardioid with a probe path through the
+nuclei, counting the antenna's branches (1/4 and 1/5 bulbs, forks located as M(5,1) and M(6,1)),
+the p/q rule and Farey addition (2/5, 3/8). Nuclei and forks in [[decisions/controls]] "The bulbs
+tour".

@@ -2002,6 +2002,28 @@ Checked in the app (2026-10-19, M1 Pro, release, background window, `--ui-demo=t
 3 147 steps, still undecided after 100 000, settles on a fixed point; the fog view; the 1e31 and
 1e302 minibrots; long flights between deep places replaced by `move: jump`.
 
+### The bulbs tour
+
+`tours/bulbs.md` ("Bulbs and spokes", place `third-bulb`), 8 steps, user request 2026-10-18:
+period colouring and the orbit overlay; a probe path through the nuclei round the top of the
+cardioid (1/2, 3/7, 2/5, 3/8, 1/3, 2/7, 1/4, 1/5, 1/6: periods 2, 7, 5, 8, 3, 7, 4, 5, 6; 48 s per
+pass); the antenna's first fork has as many branches as the period (rings on M(5,1) of the 1/4 bulb
+and M(6,1) of the 1/5 bulb); the p/q rule; Farey: the biggest bulb between p/q and r/s is
+(p + r)/(q + s), period q + s (2/5 between 1/2 and 1/3, 3/8 between 2/5 and 1/3).
+
+Coordinates (`almondbread locate`, 2026-10-19): nuclei 1/2 −1; 3/7 −0.62243629504129359 +
+0.42487843647562918i; 2/5 −0.504340175446244 + 0.56276576145298196i; 3/8 −0.35910239011244916 +
+0.61735345339882686i; 1/3 −0.12256116687665362 + 0.74486176661974424i; 2/7 0.12119278610590649 +
+0.61061169221075421i; 1/4 0.28227139076691388 + 0.5300606175785253i; 1/5 0.37951358801592375 +
+0.33493230559749759i; 1/6 0.38900684056977124 + 0.21585065087081911i (each the period q, from guesses
+on the cardioid at angle 2πp/q pushed out by `sin(πp/q)/q²`). Forks: `locate --misiurewicz 5,1` near
+0.365 + 0.591i gives 0.36636298342276434 + 0.59153377326144523i (1/4), `6,1` near 0.4364 + 0.3417i gives
+0.43792424135946278 + 0.34189208433811611i (1/5); the 1/3 bulb's is M(4,1). The fork of the p/q bulb
+is M(q+1, 1) in `locate`'s numbering (z_{q+1} = z_{q+2}) for q = 3, 4, 5 (our observation).
+
+Checked in the app (2026-10-19, `--ui-demo=tour-bulbs`): fates period-4, 5, 3, 5, 8 at the fixed
+probes; the rings sit on the forks and on the 2/5 and 3/8 bulbs.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,
