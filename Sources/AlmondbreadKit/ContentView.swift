@@ -142,8 +142,10 @@ struct ContentView: View {
                 RoundToggle("Mini-map", symbol: "map", isOn: $model.mapEnabled)
                 RoundToggle("Size scale", symbol: "ruler", isOn: $model.cosmicScale)
                 RoundButton("Fly to", symbol: "location.north.line") { showFlyTo = true }
-                RoundButton("Control center", symbol: "slider.horizontal.3") { showInspector.toggle() }
-                    .accessibilityValue(showInspector ? "shown" : "hidden")
+                RoundButton("Control center", symbol: "slider.horizontal.3", isSelected: showInspector) {
+                    showInspector.toggle()
+                }
+                .accessibilityValue(showInspector ? "shown" : "hidden")
             }
             .padding(12)
         }
@@ -156,7 +158,7 @@ struct ContentView: View {
         // A trailing sidebar on the Mac and iPad (the canvas narrows: nothing covers the image),
         // a sheet on iPhone.
         .inspector(isPresented: $showInspector) {
-            ControlCenterView(model: model)
+            ControlCenterView(model: model, close: closeControlCenter)
                 .inspectorColumnWidth(min: ControlCenterView.minimumWidth, ideal: 330, max: 440)
                 #if os(iOS)
                 .presentationDetents(sizeClass == .compact ? [.medium, .large] : [.large])
@@ -222,6 +224,15 @@ struct ContentView: View {
 }
 
 extension ContentView {
+    /// The control center's ✕ (iPhone and iPad); the Mac closes it from the toolbar and ⌘I.
+    var closeControlCenter: (() -> Void)? {
+        #if os(iOS)
+        { showInspector = false }
+        #else
+        nil
+        #endif
+    }
+
     #if os(iOS)
     /// The cockpit's plane icon (Rust draws it; view points from the canvas centre, y up) in
     /// global coordinates: the canvas fills the window from its top-left corner.
@@ -601,14 +612,17 @@ enum Format {
 
 #if os(iOS)
 /// A round 44-point button over the canvas (iPhone and iPad), in the material of the HUD.
+/// Selected (the control center's while it is open) it looks like a `RoundToggle` that is on.
 struct RoundButton: View {
     let title: String
     let symbol: String
+    let isSelected: Bool
     let action: () -> Void
 
-    init(_ title: String, symbol: String, action: @escaping () -> Void) {
+    init(_ title: String, symbol: String, isSelected: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
+        self.isSelected = isSelected
         self.action = action
     }
 
@@ -616,11 +630,20 @@ struct RoundButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.title3)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
                 .frame(width: 44, height: 44)
-                .background(.ultraThinMaterial, in: Circle())
+                .background {
+                    if isSelected {
+                        Circle().fill(Color.accentColor)
+                    } else {
+                        Circle().fill(.ultraThinMaterial)
+                    }
+                }
+                .overlay(Circle().strokeBorder(.white.opacity(isSelected ? 0.5 : 0), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

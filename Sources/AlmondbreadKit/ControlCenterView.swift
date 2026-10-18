@@ -20,6 +20,8 @@ import UniformTypeIdentifiers
 /// on a debounced copy.
 struct ControlCenterView: View {
     let model: ExplorerModel
+    /// Closes the pane (iPhone and iPad: the ✕ next to the search field); nil on the Mac.
+    var close: (() -> Void)? = nil
     /// The applied query (the field's text, debounced).
     @State private var query = UIDemo.search ?? ""
     @State private var confirmReset = false
@@ -43,7 +45,7 @@ struct ControlCenterView: View {
         sections(shown: shown, collapsed: searching ? [] : collapsed)
         .controlSize(.small)
         .safeAreaInset(edge: .top, spacing: 0) {
-            ControlSearchField(model: model, query: $query)
+            ControlSearchField(model: model, query: $query, close: close)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             resetAllBar
@@ -175,29 +177,47 @@ struct ControlCenterView: View {
 struct ControlSearchField: View {
     let model: ExplorerModel
     @Binding var query: String
+    /// The ✕ at the trailing end (touch: the sheet's swipe down and the toolbar button are not
+    /// obvious); pinned with the field, so it never scrolls away.
+    var close: (() -> Void)? = nil
     @State private var text = UIDemo.search ?? ""
     @FocusState private var focused: Bool
 
     var body: some View {
         let _ = UIPerf.body("ControlSearchField")
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search settings", text: $text)
-                .textFieldStyle(.plain)
-                .focused($focused)
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search settings", text: $text)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                if !text.isEmpty {
+                    Button {
+                        text = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            if let close {
+                Button(action: close) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
+                .accessibilityLabel("Close control center")
+                .accessibilityIdentifier("control-center-close")
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)

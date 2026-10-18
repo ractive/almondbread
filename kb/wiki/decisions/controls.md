@@ -1985,6 +1985,7 @@ simulators only; feel, haptics and thumb reach need a real device.
 | G continue | HUD button | G |
 | C, O, M, P overlays; toolbar Orbit, Mini-map, Size Scale, Fly To | round buttons (C, O, M, Fly to); control center; "Orbit Here" | C, O, M, P |
 | R / ⌘0 reset | control center Reset | R, ⌘0 |
+| ⌘I, toolbar Control Center | round button (lit while open); ✕ in the pane; phone: swipe the sheet down | ⌘I |
 | ⇧⌘C / ⇧⌘V coordinates | long-press Copy / Go to Copied; control center | ⇧⌘C / ⇧⌘V (menu bar) |
 | ⌘G / ⇧⌘G fly to | control center Fly to… / Copied; long-press Fly Here | ⌘G / ⇧⌘G |
 | Tour ← / → / Esc | card buttons | ← / → / Esc |
@@ -2298,6 +2299,18 @@ the buttons changes (2 × 2-point grid, colour step > 60) and is back after "off
 sheet; screenshots `toggle-*`. The other iOS UI tests tap the cockpit's icons instead of the
 removed buttons, and `testSurfaces` checks the stop buttons are ≥ 44 points, hittable and clear
 of the round buttons in both orientations.
+
+### Closing the control center on touch (2026-10-18)
+
+Device feedback: with the control center open, it was not clear how to close it (the phone's
+sheet closes by a swipe down, the iPad's side pane only by the same round button). Approved
+design, both: a **✕** (`xmark.circle.fill`, 44-point target, label "Close control center", id
+`control-center-close`) at the trailing end of the search bar, which is the pane's top
+`safeAreaInset`, so it is pinned and never scrolls away; and the **Control center** round button
+drawn like a `RoundToggle` that is on (accent fill, white symbol) while the pane is open, with the
+selected trait (value still "shown" / "hidden"). On a phone in portrait the medium-detent sheet
+covers the bottom-trailing button column, so there the ✕ is what shows. The Mac is unchanged (no
+✕: the toolbar button and ⌘I). Test: `TouchControlsUITests.testControlCenterClose`.
 
 ### Position lever (2026-10-18)
 
