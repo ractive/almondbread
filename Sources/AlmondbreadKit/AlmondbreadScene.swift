@@ -168,16 +168,9 @@ struct FractalCommands: Commands {
                                              set: { model?.mapEnabled = $0 }))
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
-            Toggle("π Meter", isOn: Binding(get: { model?.piMeterEnabled ?? false },
-                                            set: { model?.piMeterEnabled = $0 }))
-                .keyboardShortcut("p", modifiers: [.command, .option])
-                .disabled(model == nil)
-            // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas.
+            // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas. The
+            // π meter has no switch of its own: the tour "π in the Mandelbrot set" drives it.
             TourMenu(model: model)
-            Button("Hunt π at the Neck") { model?.piFlight("neck") }
-                .disabled(model == nil)
-            Button("Hunt π at the Cusp") { model?.piFlight("cusp") }
-                .disabled(model == nil)
             Toggle("Cosmic Size Scale", isOn: Binding(get: { model?.cosmicScale ?? false },
                                                       set: { model?.cosmicScale = $0 }))
                 .disabled(model == nil)

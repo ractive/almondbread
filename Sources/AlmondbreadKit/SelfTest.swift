@@ -292,10 +292,14 @@ public enum UIDemo {
             model.piMeterEnabled = true
             try? explorer.setViewportText(re: "0.2500001", im: "0", scale: "3e-10")
         case "pi-flight", "pi-flight-late", "pi-cusp", "pi-cusp-late":
-            // The π hunt (guided flight) at the neck or the cusp, captured on the way: 8 s in
-            // (the probe sliding) or 16 s ("-late": the deepest counts, the trail crawling).
-            let point = scene.hasPrefix("pi-cusp") ? "cusp" : "neck"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.piFlight(point) }
+            // The π hunt (the π tour's guided flight) at the neck or the cusp, captured on the
+            // way: 8 s in (the probe sliding) or 16 s ("-late": the deepest counts, the trail
+            // crawling). Steps 3 and 5 of tours/pi.md.
+            let step = scene.hasPrefix("pi-cusp") ? 4 : 2
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                model.startTour("pi")
+                model.tourGo(step)
+            }
         case "help-canvas", "help-cockpit":
             // The cosmic scale's help popover (kb: decisions/controls "Help"): the scale above
             // the mini-map, then a press on its "?" badge (below, once the view settled).

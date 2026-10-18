@@ -67,11 +67,19 @@ impl CompassOverlay {
         (x, y)
     }
 
+    /// A press at (x, y) view points from the view centre, y up, would land on the (visible)
+    /// rose.
+    pub fn hits(&self, x: f64, y: f64, now: f64) -> bool {
+        self.centre.is_some_and(|c| {
+            self.visibility.clickable(now) && compass::hit(c, compass::RADIUS, x, y, compass::HIT_SLOP)
+        })
+    }
+
     /// A press at (x, y) view points from the view centre, y up: on the (visible) rose it
     /// starts following the pointer and returns true; elsewhere false.
     pub fn press(&mut self, x: f64, y: f64, now: f64) -> bool {
         let Some(c) = self.centre else { return false };
-        if !self.visibility.clickable(now) || !compass::hit(c, compass::RADIUS, x, y, compass::HIT_SLOP) {
+        if !self.hits(x, y, now) {
             return false;
         }
         let p = (x - c.0, y - c.1);

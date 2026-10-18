@@ -25,8 +25,7 @@ New here? The **walkthrough** shows the controls in about a minute: Help ▸ *Sh
 - The **throttle** at the edge is a gear lever: slide its knob up to fly in, down to fly out, to the middle (**M**) to stop. It stays where you leave it; the arrows at its ends change one gear.
 - The **cockpit** at the bottom: tap the plane for the autopilot, the sparkles for a journey, the wheel to stop.
 - The round buttons turn the orbit, the mini-map and the size scale on and off, fly to coordinates and open the control center (its button stays lit while it is open; tap it again or the **✕** at the top of the control center to close it).
-- While cruising or on a journey, **drag** to steer: the picture moves with your finger and the zoom goes on (a journey hands over to cruise).
-- In the autopilot a finger suggests a direction instead (resting or moving).
+- While something flies (cruise, autopilot, a journey): **rest a finger** to steer, **swipe** to move the picture. A finger held still for a moment steers towards it while it stays down, even if it then slides (in the autopilot it suggests a direction; on a journey it takes the wheel). A quick swipe moves the picture with your finger and the zoom goes on.
 - The hints from the first start: Help ▸ *Show Touch Hints* at the bottom.
 - With a keyboard attached, the Mac keys work too.
 
@@ -42,7 +41,6 @@ New here? The **walkthrough** shows the controls in about a minute: Help ▸ *Sh
 - **C**: cosmic size scale
 - **O**: orbit overlay
 - **M**: mini-map
-- **P**: π meter
 - **,** and **.**: turn the picture left or right; **/** turns it back upright
 - **+** and **−**: one zoom step
 - **R** or **⌘0**: back to the whole set

@@ -12,7 +12,7 @@ Go deeper and the whole Mandelbrot set would be as big as an imaginary universe 
 
 The number π hides in the Mandelbrot set. Near −0.75 (the pinch between the two big bulbs) and 0.25 (the cusp at the right) points escape very slowly.
 
-The escape count times the distance from that point gives π, and more digits agree the closer you go. Gold digits already match.
+The escape count times the distance from that point gives π, and more digits agree the closer you go. Gold digits already match. The meter belongs to the tour *π in the Mandelbrot set* and goes off when it ends.
 
 ## mini-map
 
@@ -32,7 +32,7 @@ How the zoom is driven, like the levels of a car: **Manual** (the steering wheel
 
 The bar and the big number are the speed flown now. In cruise the small line is the gear you chose, 1 to 26: "gear 5" zooming in, "reverse 3" zooming out, with "boost" while depth speeds the zoom-out up (more in the higher gears). In the autopilot and on a journey, "target" shows your set speed while the speed flown differs from it, for example while speeding up, braking or waiting for the picture. The lane icon is lane assist (**L**): in cruise it steers you away from featureless areas. Steering by hand (**W A S D**, drag, stick) or zooming with the wheel or trackpad takes over. In the autopilot the mouse only suggests a direction: it picks its next places on that side, shown by the target marker's ring.
 
-On iPhone and iPad: tap an icon to switch. The throttle at the edge of the screen is a gear lever: where its knob stands is the gear. Slide it up to fly in (higher is faster), down to fly out, to the middle (M) to stop; it stays where you leave it. Tap a notch to jump to that gear, the arrows at the ends for one gear more or less; a double tap stops. The knob shows the gear ("+3" in, "−2" out) and moves by itself when the keys, the cockpit, the autopilot or a journey change the speed. In cruise and on a journey a drag moves the picture while the zoom goes on (on a journey it takes the wheel); in the autopilot a finger suggests a direction while it is down. The long-press menu is there when nothing flies.
+On iPhone and iPad: tap an icon to switch. The throttle at the edge of the screen is a gear lever: where its knob stands is the gear. Slide it up to fly in (higher is faster), down to fly out, to the middle (M) to stop; it stays where you leave it. Tap a notch to jump to that gear, the arrows at the ends for one gear more or less; a double tap stops. The knob shows the gear ("+3" in, "−2" out) and moves by itself when the keys, the cockpit, the autopilot or a journey change the speed. While something flies, rest a finger to steer and swipe to move the picture: in cruise a resting finger steers towards it, on a journey it takes the wheel, in the autopilot it suggests a direction; a swipe moves the picture while the zoom goes on. The long-press menu is there when nothing flies.
 
 ## iterations
 
@@ -54,7 +54,7 @@ Switching between them is instant.
 
 ## overlays
 
-Extras drawn on the picture: the orbit of the point under the pointer (**O**), mini-maps (**M**), the cosmic size scale (**C**) and the π meter (**P**).
+Extras drawn on the picture: the orbit of the point under the pointer (**O**), mini-maps (**M**), and the cosmic size scale (**C**). (The π meter belongs to the tour *π in the Mandelbrot set*.)
 
 Each panel has its own **?** in the corner.
 

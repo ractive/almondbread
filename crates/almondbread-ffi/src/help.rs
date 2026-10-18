@@ -4,6 +4,8 @@
 //! text at the badge and the press goes nowhere else. Coordinates: view points from the view
 //! centre, y up.
 
+use almondbread_render::metal::media_time;
+
 use crate::explorer::Explorer;
 
 /// A help badge: its topic id ("cosmic-scale", "pi-meter", "mini-map", "orbit"), centre and
@@ -42,7 +44,6 @@ pub struct CockpitControlInfo {
 pub enum TouchHold {
     Nothing,
     FlyToMap,
-    Steer,
     Menu,
 }
 
@@ -66,16 +67,16 @@ impl Explorer {
     }
 
     /// What a finger held still at (x, y) view points from the centre, y up, does (kb:
-    /// decisions/controls "Touch"): nothing (a control), fly to the mini-map's point, steer
-    /// (A, C, a journey's flight) or the long-press menu.
+    /// decisions/controls "Touch"): nothing (a control; in A, C and a journey's flight Rust
+    /// classifies the finger itself, `InputEvent::FingerDown`), fly to the mini-map's point or
+    /// the long-press menu.
     pub fn touch_hold(&self, x: f64, y: f64) -> TouchHold {
         if !(x.is_finite() && y.is_finite()) {
             return TouchHold::Nothing;
         }
-        match self.with_host(|h| h.touch_hold(x, y)) {
+        match self.with_host(|h| h.touch_hold(x, y, media_time())) {
             almondbread_core::TouchHold::Nothing => TouchHold::Nothing,
             almondbread_core::TouchHold::FlyToMap => TouchHold::FlyToMap,
-            almondbread_core::TouchHold::Steer => TouchHold::Steer,
             almondbread_core::TouchHold::Menu => TouchHold::Menu,
         }
     }
