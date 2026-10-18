@@ -2217,8 +2217,30 @@ lift the fingers of a pinch one at a time, so bug 1 itself is covered by the Rus
 the device. Run 2026-10-18 on `DR iPad Pro 11` (iPad Pro 11-inch M5) and `DR iPhone 17e`: all
 pass (screenshots looked at: the wish line right after the lift and gone 2 s later; the cruise
 panned under the finger at gear 1 and 3). `testSmallTwistDoesNotTurn` failed once on the iPad
-(a 9° synthesised twist turned 9.6°) and passed on four reruns; the first-session cruise drag
-measures the distance, as XCUITest pinches had turned that view 85°.
+(a 9° synthesised twist turned 9.6°) and passed on four reruns (cause and fix: next paragraph);
+the first-session cruise drag measures the distance, as XCUITest pinches had turned that view 85°.
+
+**The flaky small-twist test (2026-10-18): the input, not the dead band.** Reproduced 6 of 10
+runs on `AB iPad mini` (`-only-testing`, quiet machine), with the rotation recogniser traced.
+XCTest's `rotate(0.15, withVelocity: 0.5)` is not an 8.6° twist: its recorded event paths
+(the xcresult's "Synthesized Event" attachment) put the fingers down on a line 18.4° (atan 1/3)
+off, jump them onto the start line 10 ms later, then turn in 12° keyframes and drop the last
+one, so for 8.6° nothing follows the jump (`rotate(π/3)` likewise delivers 18.4° + 48°, not
+60°). UIKit hands the jump over in one `.began` → `.ended` pair as 0.21472 rad (12.3°, the runs
+that passed) or 0.42879 rad (24.6°, the runs that failed) from identical synthesised events —
+18.4° ∓ 6.1°, UIKit's start hysteresis subtracted or, timing-dependent, added. The dead band
+did exactly its job: 24.6° − 15° = the 9.57° seen (`handle`'s `TouchRotate` arm in
+`crates/almondbread-core/src/input.rs`; nothing else turns the view on iOS, `twist` was armed).
+Ruled out by the trace: a stale `twist` (fresh process, `TouchRotateEnd` sent on `.ended`), a
+pointer or pinch path (`Rotate` is sent only by the Mac trackpad), animation overshoot (the
+angle is final after the one event). Fix: the test synthesises a real small twist
+(`Tests/iOSUITests/TwoFingerTwist.swift`: XCTest's own `XCPointerEventPath` /
+`XCSynthesizedEventRecord`, 30 steps over 0.6 s about the view centre); UIKit then reports
+about 3.8° after its hysteresis and the view stays put. Rust test
+`a_single_twist_event_crossing_the_dead_band_turns_by_the_excess` pins both observed values.
+Worth knowing for real fingers: UIKit's own start hysteresis (5–6°, rotation the recogniser
+never reports) comes on top of the 15°, so a twist turns the view after about 20°. Checked: the
+twist test 10 of 10 on `AB iPad mini` and once on `AB iPhone 17e`.
 
 **Needs the device.** Pinch with one finger lifted early (both orders) — no jump, no pan, no
 fling; whether a drag in C feels like steering (the cruise keeps zooming at the screen centre,

@@ -1539,3 +1539,15 @@ tick goes there, chevrons step one gear, double tap stops. New core event `SetGe
 nearest rung to A's and J's speed; a fly-to's own speed now reaches the cockpit). Ticks stand
 for geometrically spaced gears 1…26 when not all fit at 10 points (`cruise::lever_ticks`): 7 a
 side on an iPhone in portrait, 5 on its side, 14 on the iPad (lever up to 360 points there).
+
+## [2026-10-18] decision | Flaky small-twist UI test: XCTest's rotate, not the dead band
+
+`testSmallTwistDoesNotTurn` failed 6 of 10 on `AB iPad mini` with the old input. Traced: XCTest's
+`rotate(0.15)` is an 18.4° finger jump with no rotation after it (fingers down off the start
+line; its last 12° keyframe is dropped), which UIKit reports in one event as 12.3° or 24.6°
+from identical synthesised events; 24.6° − 15° is the 9.57° the test saw, so the Rust dead band
+worked. The test now draws an exact 8.6° twist through XCTest's event record
+(`TwoFingerTwist.swift`): 10 of 10 on the iPad, 1 of 1 on `AB iPhone 17e`. Rust test
+`a_single_twist_event_crossing_the_dead_band_turns_by_the_excess`. Noted: UIKit's 5–6° start
+hysteresis adds to the 15° band on real fingers. [[decisions/controls]] "Touch" ▸ "Device round",
+[[platform/ios-simulator]] "QA".
