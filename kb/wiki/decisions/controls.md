@@ -197,8 +197,8 @@ renderer statistics (iterations, GPU, render size, reference, kernel, state; the
 (Overlays, View menu, Settings). On the Mac the sections are a lazy stack styled like a
 grouped form; Places thumbnails show only their zoom, in a small dark pill at the bottom right,
 with the name as the tooltip (user, 2026-10-16: the caption strip cut names to "The Wh…"); iOS
-has no hover, so a tap selects and names the place under the grid and a long press opens a
-menu titled with the name (Go, Fly) ([[platform/swiftui-performance]]). A search field at the top
+has no hover, so a tap selects the picture and puts the name, Go and Fly on it, a second tap
+goes there, and a long press opens a menu titled with the name (Go, Fly; "Touch", places grid) ([[platform/swiftui-performance]]). A search field at the top
 filters sections by title and keywords ("dense", "orbit", "aa", ...); headers collapse
 (remembered). A trailing sidebar on the Mac and iPad, so nothing covers the image; a sheet on
 iPhone (medium/large detents, translucent material). Toggled by the toolbar button and ⌘I
@@ -2088,8 +2088,29 @@ beside it avoids them).
 **QA pass (2026-10-18, [[platform/ios-simulator]] "QA").** A two-finger twist turns the view
 only past 15° (`TouchRotate`: a pinch always twists a little, and a child's pinches turned the
 view); a search started from rest asks for frames (`Navigator::wants_frames`); a tap on a
-place's picture goes there on iOS; the long-press menu and the control center have the system
-Paste control; touch wording for "click to resume" and the tour's keys.
+place's picture goes there on iOS (replaced the same day, next paragraph); the long-press menu
+and the control center have the system Paste control; touch wording for "click to resume" and
+the tour's keys.
+
+**Places grid on touch (user, 2026-10-18, after the QA pass on a real iPad).** "A tap goes
+there" left Fly unreachable (Fly sits below the 79-picture grid, off screen). Now, on iOS only
+(`PlaceTouchTile` in `ControlCenterView.swift`; the Mac is unchanged): the first tap on a picture
+selects it — a 3-point accent border, the name in a dark strip along the bottom edge (the zoom
+pill hides), and **Go** (`goToPlace`) and **Fly** (`flyToPlace`) over the image on a material
+background, each at least 44 × 44 points. Go or Fly acts; a second tap on the selected picture
+outside the buttons (the name strip included) goes there; another picture moves the selection
+(one selected tile). The rows under the grid (name, description, Go / Fly / Tour, Random) stay.
+VoiceOver: the tile is labelled with the name and has the actions Go and Fly; the buttons are
+"Go to …" / "Fly to …" (identifiers `placeTileGo`, `placeTileFly`). **Sizing:** the smallest
+tiles are about 100 × 63 points (iPhone 17e portrait in the sheet, 3 columns, the same width at
+the medium and large detents; iPad mini portrait sidebar at about its 290-point minimum, 2
+columns). Icon and label side by side need about 105 points for both buttons, so a
+`ViewThatFits` uses that only on wider tiles and otherwise puts the label under the icon (two
+44 × 44 buttons side by side fit; no icon-only fallback needed). Seen in simulator screenshots on
+both; the buttons then cover most of the picture, the free margin and the name strip still take
+the second tap. XCTest `FirstUseUITests.testPlaceTileGoAndFly` (select moves nothing, one Go,
+Go jumps, another tile moves the selection, Fly changes the view over several samples) and
+`testControlCenterPlaceAndTour` (select, then a second tap on the picture's corner goes there).
 
 **Tests.** Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
 `touch_steering_wishes_in_a_and_steers_in_c`, `a_touch_probe_moves_the_orbit_point_only`,
