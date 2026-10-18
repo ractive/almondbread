@@ -2060,6 +2060,142 @@ narrowed the canvas.
 **Needs the device.** Whether a child reads the card before tapping Next; whether the gold ring is
 visible enough on bright places.
 
+### The limits tour
+
+`tours/limits.md` ("Why some points are hard", place `seahorse-minibrot-1e31`), 9 steps, user
+request 2026-10-18: a slow point 0.001 above the neck (orbit overlay: escapes after 3 147 steps;
+`N ≈ π/ε`, [[techniques/pi-in-the-mandelbrot-set]]), one 1e-5 above it (*still undecided after 100 000
+steps*; it escapes after about 314 000), −0.74 just inside the cardioid (proven after about 1 900
+steps), fog in the neck gap at −0.74999996120361811 + 0.00036918279150454967i, span 1.5e-8
+([[synthesis/neck-escape-statistics]]: its discs escape after 2e7–7e7), computing further, then
+f64's 16 digits at the 1e31 seahorse minibrot, perturbation ([[techniques/perturbation]],
+[[techniques/rebasing]]) and skipping ([[techniques/linear-approximation-imagina]]) at the 1e302 needle
+minibrot (one sample per pixel: 1.09e9 iterations in 1.97e7 steps, 55×; headless `render`,
+2026-10-19, M1 Pro).
+
+**Pitfall: a low `iterations:` shows no fog in the app.** A first version set `iterations: 100`
+(then 6) on seahorse valley to show fog; the captures had none. The scheduler extends unresolved
+pixels past the limit (×16, `extension_factor`) and then "computes further" up to the cap
+(`progress --iterations 6` at seahorse valley: 16 % open at 96 steps after 0.07 s, 805 pixels at
+98 304 after 0.5 s). Fog only stays where points need more than the upper limit, so the tour shows
+the neck gap instead (54 % open, "computing further · to 200 k steps", in the capture). Same for
+the colours tour.
+
+**Pitfall: tour views deeper than about 1e-305.** `every_bundled_tour_parses_and_every_file_is_listed`
+checks `viewport.scale.to_f64() > 0`, which underflows below f64's range; a step at `swirl-1e3000`
+failed it. The tour ends at `needle-minibrot-1e302` instead (no change to tour.rs, which another
+agent was editing).
+
+Checked in the app (2026-10-19, M1 Pro, release, background window, `--ui-demo=tour-limits`): fates
+3 147 steps, still undecided after 100 000, settles on a fixed point; the fog view; the 1e31 and
+1e302 minibrots; long flights between deep places replaced by `move: jump`.
+
+### The bulbs tour
+
+`tours/bulbs.md` ("Bulbs and spokes", place `third-bulb`), 8 steps, user request 2026-10-18:
+period colouring and the orbit overlay; a probe path through the nuclei round the top of the
+cardioid (1/2, 3/7, 2/5, 3/8, 1/3, 2/7, 1/4, 1/5, 1/6: periods 2, 7, 5, 8, 3, 7, 4, 5, 6; 48 s per
+pass); the antenna's first fork has as many branches as the period (rings on M(5,1) of the 1/4 bulb
+and M(6,1) of the 1/5 bulb); the p/q rule; Farey: the biggest bulb between p/q and r/s is
+(p + r)/(q + s), period q + s (2/5 between 1/2 and 1/3, 3/8 between 2/5 and 1/3).
+
+Coordinates (`almondbread locate`, 2026-10-19): nuclei 1/2 −1; 3/7 −0.62243629504129359 +
+0.42487843647562918i; 2/5 −0.504340175446244 + 0.56276576145298196i; 3/8 −0.35910239011244916 +
+0.61735345339882686i; 1/3 −0.12256116687665362 + 0.74486176661974424i; 2/7 0.12119278610590649 +
+0.61061169221075421i; 1/4 0.28227139076691388 + 0.5300606175785253i; 1/5 0.37951358801592375 +
+0.33493230559749759i; 1/6 0.38900684056977124 + 0.21585065087081911i (each the period q, from guesses
+on the cardioid at angle 2πp/q pushed out by `sin(πp/q)/q²`). Forks: `locate --misiurewicz 5,1` near
+0.365 + 0.591i gives 0.36636298342276434 + 0.59153377326144523i (1/4), `6,1` near 0.4364 + 0.3417i gives
+0.43792424135946278 + 0.34189208433811611i (1/5); the 1/3 bulb's is M(4,1). The fork of the p/q bulb
+is M(q+1, 1) in `locate`'s numbering (z_{q+1} = z_{q+2}) for q = 3, 4, 5 (our observation).
+
+Checked in the app (2026-10-19, `--ui-demo=tour-bulbs`): fates period-4, 5, 3, 5, 8 at the fixed
+probes; the rings sit on the forks and on the 2/5 and 3/8 bulbs.
+
+### The valleys tour
+
+`tours/valleys.md` ("Seahorse and Elephant valleys", place `seahorse-valley`), 10 steps, user
+request 2026-10-18, built from catalogue places ([[synthesis/places]]): seahorse valley, a
+seahorse, its tail (a Misiurewicz point at the centre), the two-arm spiral M(24,2) marked at 1e-4
+and again at `spiral-1e50` (self-similar: zoom by the cycle's multiplier and turn by its angle),
+elephant valley and the herd, the three-way junction M(4,1) and the same at `junction-1e100`.
+
+No orbit probes at Misiurewicz points: a probe at M(4,1) (`render --place three-way-junction
+--orbit 0,0`) says "escapes after 137 steps" in f64, because the orbit lands on a repelling fixed
+point (|2z| = 1.33) and rounding grows from there; the tour says so in words instead. `move: jump`
+on the steps after a deep place (a fly-to up from 1e50 or 1e100 takes long).
+
+Checked in the app (2026-10-19, `--ui-demo=tour-valleys`): the ring on the M(24,2) spiral's centre;
+the 1e50 view the same two-armed spiral; the 1e100 fork with three branches (covered in stars, so
+the text says that, not "spirals").
+
+### The doubling tour
+
+`tours/doubling.md` ("Patterns that double", place `three-way-junction`), 9 steps, user request
+2026-10-18: from the M(4,1) fork (3 arms) towards the period-39 minibrot next to it (nucleus
+−0.101095952005097279 + 0.956281332988737429i, `locate --center <M(4,1)> --radius 1e-6`, size
+10^−10.41), views centred on the nucleus at spans 2e−5 (the fork at the top, a ring on the
+nucleus), 1.5e−6 (6 arms), 1.4e−8 (12), 8e−10 (24 and a lace ring), 1.2e−10 (the minibrot); then why
+(near a minibrot one round of its loop acts like a fresh z² + c, and squaring doubles angles; our
+simplification of the embedded-Julia mechanism, [[sources/mathr-julia-morphing-posts]]), the
+`embedded-julia` place and Julia morphing in deep-zoom videos ([[sources/deep-zoom-videos]]).
+Depth fractions of the doublings: [[questions/julia-morph-depth-fractions]].
+
+Checked in the app (2026-10-19, `--ui-demo=tour-doubling`): 6, 12 and 24 arms at steps 3–5, the
+minibrot at step 6.
+
+### The colours tour
+
+`tours/colours.md` ("What the colours mean", place `whole-set`), 12 steps, user request
+2026-10-18: escape counts with the orbit overlay (c = 0.6 escapes after 8 steps; a path from 0.6
+towards the cusp at 0.2501, 283 steps at its end), smooth colouring
+([[techniques/smooth-coloring]]), a palette (`grey`) and a look (`ember`) on seahorse valley, fog in
+the neck gap (the same view as the limits tour), proven black, then the five interior colourings
+on the cardioid and its bulbs ([[techniques/coloring-methods]], [[techniques/interior-detection]]).
+
+**Pitfall: a step that only changes `interior:` may not show in the app until the view moves.**
+In the first capture the angle and distance steps still showed the period colouring after 20 s
+(the scheduler's history kept the old colouring; the recolour on an interior switch did not
+reach the shown frame without a new job). Each interior step now repeats its view with
+`move: jump`, which starts a new job; then bubbles, period, angle and distance all showed
+(`--ui-demo=tour-colours`, 2026-10-19). Not chased further in the renderer: a candidate bug
+for the colour-change path (`plan_frame` / `same_colors`), worth a look.
+
+### The Julia tour
+
+`tours/julia.md` ("Every point has a Julia set", place `cantor-island`), 8 steps, user request
+2026-10-19. The app draws no Julia sets, so the tour uses what exists: the orbit overlay at c = −1
+(basilica, period 2), the 1/3 nucleus (rabbit, period 3), c = 0.5 + 0.5i (escapes after 9 steps: dust),
+then catalogue places whose shapes echo Julia sets: `cantor-island` (a dust-like embedded Julia
+set), `two-arm-spiral` (M(24,2); Tan Lei 1990: the set near a Misiurewicz point looks like that c's
+Julia set, unverified, no source page yet), `three-way-junction`, `embedded-julia`. A Julia view
+(render the filled Julia set of the probe's c next to the picture) would make this tour much
+better; not built (user: no Julia renderer for now).
+
+Checked in the app (2026-10-19, `--ui-demo=tour-julia`): fates period-2, period-3, escapes after 9
+steps; the places as described. One capture showed the previous step's fate line (taken before
+the overlay refreshed); the logged fate was right.
+
+### The Misiurewicz tour
+
+`tours/misiurewicz.md` ("Misiurewicz points", place `antenna-junction`), 8 steps, user request
+2026-10-19: c = −2 (0, −2, 2, 2, …; orbit overlay "still undecided after 100 000 steps"), c = i
+(0, i, −1+i, −i, −1+i, …; same fate line), the M(4,1) fork of the 1/3 limb (z_4 = z_5 = −0.32759 +
+0.57776i), the spike's crossing M(3,1) = −1.5436890… (z_3 = z_4 = −0.8393), the fork at 1e300
+(`junction-1e300`), the M(24,2) spiral at 1e4 and 1e50.
+
+Self-similarity numbers (ours, f64, 2026-10-19): the zoom factor and turn around a Misiurewicz
+point are |μ| and arg μ of the cycle it lands on, μ = ∏ 2z over the cycle: M(4,1) 2z* = −0.655 +
+1.156i, |μ| = 1.33, 120°; c = i, 2(−1+i)·2(−i) = 4(1+i), 5.66 and 45°; c = −2, 2·2 = 4, no turn.
+(Standard result, Tan Lei 1990, unverified here: no source page.)
+
+The orbit probe is only used where f64 keeps the orbit on its cycle long enough for the overlay to
+say "undecided" (−2, i); at M(4,1) f64 rounding makes it "escape after 137 steps" (see the valleys
+tour), so that step turns the orbit off.
+
+Checked in the app (2026-10-19, `--ui-demo=tour-misiurewicz`): fates as above; the 1e300 fork is
+the same three-way fork.
+
 ## Touch (as built, 2026-10-18)
 
 The Mac is the reference; the iPhone and iPad app should reach the same features with a finger,

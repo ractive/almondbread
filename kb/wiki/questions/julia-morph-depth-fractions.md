@@ -33,6 +33,13 @@ distance `r` from a minibrot of size about `r²`, the view shows 4k arms at 1/2 
 So the start counts as already doubled once, or the fractions are measured from a different
 `n`.
 
+Second data point (2026-10-19, by eye, headless `render` and the doubling tour's captures):
+from M(4,1) (3 arms) to the period-39 minibrot at −0.101095952005097279 + 0.956281332988737429i
+(`locate --radius 1e-6` around M(4,1); distance r = 5.2e−6, size 10^−10.41 ≈ r²), views centred
+on the nucleus: 6 arms at span 1.5e−6, 12 at 1.4e−8, 24 around a lace ring at 8e−10, the minibrot
+at 1.2e−10. With n = log10(1/r) = 5.28 and m = 10.41: 12 arms at f ≈ 0.50 and 24 at f ≈ 0.74, so
+the same "4k at 1/2, 8k at 3/4" as the places data ([[decisions/controls]] "The doubling tour").
+
 ## How to resolve
 
 Render a contact sheet at `f = 0.25 … 0.9375` for three starts (a tip, M(4,1), a nucleus)
