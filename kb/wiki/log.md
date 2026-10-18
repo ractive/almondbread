@@ -1598,3 +1598,30 @@ The walkthrough is `tours/welcome.md`, a hidden tour; the tour engine gained `pl
 `control-center` and `goal` step keys, `::: mac` / `::: touch` text blocks and the `hidden` header.
 Offered once at the first launch (never in tests unless forced). See [[decisions/controls]]
 "Walkthrough".
+
+## [2026-10-19] lint | Four unmerged branches triaged; their knowledge brought to main
+
+`worktree-agent-a0bf2467567503583` (needle minibrot at 1e3000), `-a3339d320584abaa6` (perf-menu
+scene), `-abad90e6e8bdb3fc5` (R4 MetalFX / sample reuse) and `-ade067c897fa45012` (R5 prototype
+and a deep-kernel DE fix), left as they are. The DE fix is on main as `f5afcf8` (same patch),
+the R5 prototype as `e4ce6e1`, R4's pages, raw notes and prototypes as `635e849`. Re-checked on
+main: the `deep_distance_estimate` test passes (0 isolated DE 0, 0 of 40 687 smooth-neighbour
+jumps at sea-1e20) and DE-shaded renders of sea-1e20, sea-8007 and dendrite-1e300 show no
+outline bands or dotted arcs. Brought over as text only: the needle-of-the-needle research
+([[synthesis/places]], marked not in the catalogue), the 2026-10-16 menu-hang record
+([[platform/swiftui-performance]], marked superseded by the `VStack` fix; the 2026-10-17
+section already pointed at it), R5's corrected image-diff numbers ([[questions/local-sa-float32]],
+[[synthesis/benchmarks]]), and a note that `prototypes/motion-reuse` does not build against main
+([[synthesis/motion-sample-reuse]]).
+
+## [2026-10-19] lint | Stale statements after the touch, tour and walkthrough changes
+
+[[decisions/controls]] "Touch": the iPad's round buttons are a top-trailing row only on a canvas
+at least 560 points wide; narrower (portrait with the control center open, split views) they
+are the phone's bottom-trailing column with the throttle on top; a regular-width phone on its
+side gets its row top trailing (read from `ContentView.swift`, not checked). The P key is gone
+from the parity table and the full-screen key list; place tiles: Go / Fly clear the selection.
+[[overview]]: the iOS port exists, survey steering is the default, tours and touch controls
+listed. [[platform/ios-simulator]] and [[platform/ios-ipad-considerations]]: superseded
+pointers. Help: click / tap streams, Smart zoom, place tiles on touch. CLAUDE.md: the iOS 26.5
+simulator runtime is installed; `ALMONDBREAD_UITEST` in the env table.

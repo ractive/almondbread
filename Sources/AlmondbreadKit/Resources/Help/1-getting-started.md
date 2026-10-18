@@ -12,14 +12,14 @@ New here? The **walkthrough** shows the controls in about a minute: Help ▸ *Sh
 - **Hold Space** to zoom in, **Shift + Space** to zoom out.
 - **Pinch** on the trackpad, scroll with **⌘** held, or turn the mouse wheel to zoom.
 - **Drag**, or scroll with two fingers, to move the picture. (Control center ▸ View ▸ "Two-finger scroll: Zoom" makes two fingers up and down zoom instead; then drag to move.)
-- **Double-click** zooms in there; **⌥ double-click** zooms out.
+- **Double-click** zooms in there; **⌥ double-click** zooms out. Keep clicking to go further: every click adds one more step. A two-finger double tap on the trackpad (Smart zoom) zooms in too.
 - **W A S D** or the **arrow keys** move the picture; zooming then goes to the middle.
 - **E** and **Q** are pedals: **E** starts a steady zoom in (cruise), **Q** a zoom out, each press a step faster; press the other one to slow down. Hold Space while pressing them to change the Space zoom speed instead.
 
 ## On iPhone and iPad
 
 - **Drag** to move, **pinch** to zoom.
-- **Double tap** zooms in; a **two-finger tap** zooms out.
+- **Double tap** zooms in (keep tapping to go further); a **two-finger tap** zooms out.
 - **Twist** two fingers to turn the picture.
 - **Hold** a finger still for more: seek a minibrot, the orbit, fly here, copy the place.
 - The **throttle** at the edge is a gear lever: slide its knob up to fly in, down to fly out, to the middle (**M**) to stop. It stays where you leave it; the arrows at its ends change one gear.

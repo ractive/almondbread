@@ -50,7 +50,7 @@ Press **N** (or View ▸ Seek Minibrot; on iPhone and iPad, hold a finger on the
 
 ## Places
 
-The control center starts with **Places**: famous views, from the seahorse valley to views deeper than a googol. **Go** jumps there, **Fly** flies there, **Random** picks one for you.
+The control center starts with **Places**: famous views, from the seahorse valley to views deeper than a googol. **Go** jumps there, **Fly** flies there, **Random** picks one for you. On iPhone and iPad, tap a picture to select it, then tap **Go** or **Fly** on it (or the picture again to go there).
 
 ## Tours
 
