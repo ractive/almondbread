@@ -259,9 +259,19 @@ public enum TestLaunch {
     /// moved in, which would put it in front of the user's windows: order back again then.
     static func placeInBackground(_ window: NSWindow) {
         guard enabled, !foreground else { return }
-        window.orderBack(nil)
+        // `--ui-demo-size=WxH`: the whole window at that size (SwiftUI may still apply its
+        // default size after this, so again with the later orderings).
+        let size = UIDemo.enabled ? UIDemo.windowSize : nil
+        func apply(_ w: NSWindow) {
+            if let size, w.frame.size != size {
+                w.setFrame(NSRect(x: w.frame.minX, y: w.frame.maxY - size.height, width: size.width, height: size.height),
+                           display: true)
+            }
+            w.orderBack(nil)
+        }
+        apply(window)
         for delay in [0.0, 0.3, 1.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak window] in window?.orderBack(nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak window] in if let window { apply(window) } }
         }
     }
 

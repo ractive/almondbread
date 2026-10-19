@@ -9,6 +9,7 @@
 //! size), stepped only while the main view is not in a gesture, with short chunks, so they
 //! never take the gesture frame budget; each level is kept until the view leaves its area.
 
+use std::cell::Cell;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -637,6 +638,9 @@ pub struct Overlay<B: GpuBackend> {
     pub marker: crate::marker::TargetMarker,
     /// A guided tour's probe point and marker (kb: decisions/controls "Guided tours").
     pub tour: crate::tour::TourOverlay,
+    /// The tour card's rect (view points from the top left: x, y, width, height) while a
+    /// platform tour card shows; the π meter keeps clear of it.
+    pub tour_card: Option<[f64; 4]>,
     /// The π meter's uploaded trail picture and its serial.
     trail: Option<(u64, B::Buffer)>,
     /// Counts new probes (the dot cloud's key).
@@ -646,6 +650,13 @@ pub struct Overlay<B: GpuBackend> {
     cloud: Option<(CloudKey, Option<B::Buffer>)>,
     /// The panels' help badges as laid out in the last scene (kb: decisions/controls "Help").
     pub help: Vec<crate::help::HelpBadge>,
+    /// The panels as laid out in the last scene (pixels: x0, y0, x1, y1): `cosmic`, `cockpit`,
+    /// `pi`, `pi-trail`, `maps` (bottom left). UI tests check they keep clear of each other and
+    /// of the platform's controls.
+    pub panels: Vec<(&'static str, [f32; 4])>,
+    drawn_cosmic: Cell<Option<[f32; 4]>>,
+    drawn_cockpit: Cell<Option<[f32; 4]>>,
+    drawn_maps: Cell<Option<[f32; 4]>>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -667,12 +678,17 @@ impl<B: GpuBackend> Default for Overlay<B> {
             cosmic: Default::default(),
             compass: Default::default(),
             cockpit: Default::default(),
+            tour_card: None,
             marker: Default::default(),
             tour: Default::default(),
             trail: None,
             probe_serial: 0,
             cloud: None,
             help: Vec::new(),
+            panels: Vec::new(),
+            drawn_cosmic: Cell::new(None),
+            drawn_cockpit: Cell::new(None),
+            drawn_maps: Cell::new(None),
         }
     }
 }
@@ -882,6 +898,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let mut help = Vec::new();
         let key = self.build_scene(&mut scene, &mut help, renderer, &view, size, ppp, &s, now);
         self.help = help;
+        self.panels = self.collect_panels();
         if self.scene_key.as_deref() != Some(key.as_str()) || renderer.overlay.is_none() {
             self.version += 1;
             self.scene_key = Some(key);
@@ -1213,6 +1230,21 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
     }
 
+    /// The panels of the scene just built ([`Self::panels`]).
+    fn collect_panels(&self) -> Vec<(&'static str, [f32; 4])> {
+        let [pi, trail] = self.pi.drawn();
+        [
+            ("cosmic", self.drawn_cosmic.get()),
+            ("cockpit", self.drawn_cockpit.get()),
+            ("maps", self.drawn_maps.get()),
+            ("pi", pi),
+            ("pi-trail", trail),
+        ]
+        .into_iter()
+        .filter_map(|(id, r)| r.map(|r| (id, r)))
+        .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn build_scene(
         &self,
@@ -1468,16 +1500,87 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             );
             key.push_str(&t);
         }
-        if self.cosmic.enabled() {
-            let left = (12.0 * px) as f32;
-            self.cosmic
-                .draw(scene, help, size, ppp, [left, cosmic_bottom], now, &mut key);
+        // The cockpit at the bottom, right of the cosmic scale (bottom left) where it fits;
+        // where it does not (a phone, a narrow window), the scale stacks above the cockpit
+        // (kb: decisions/controls "Cosmic size scale"). Right of a bottom-left map row when it
+        // fits there, else above it (a phone in portrait: no map covers a 44-point cell; kb:
+        // decisions/controls "Touch").
+        let insets = renderer.navigator.insets();
+        self.drawn_maps.set(None);
+        // The bottom-left map row, in points (across, high), for the cockpit.
+        let maps_bottom_left = self
+            .maps
+            .as_ref()
+            .filter(|m| !m.panels.is_empty() && s.map_corner == Corner::BottomLeft)
+            .map(|stack| {
+                let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
+                let n = stack.panels.len() as f32;
+                let extent = (12.0 * px) as f32 + n * pw + (n - 1.0) * (8.0 * px) as f32;
+                let block = ph + (12.0 * px) as f32 + (44.0 * px) as f32;
+                (f64::from(extent) / px, f64::from(block) / px)
+            });
+        let cosmic_w = self.cosmic.enabled().then(|| self.cosmic.width_pt(w / px));
+        let mut left = cosmic_w.map_or(0.0, |cw| 12.0 + cw + 24.0);
+        self.cockpit.lift.set(0.0);
+        // (The Mac too: a narrow window, the control center over the canvas.)
+        let maps_across = maps_bottom_left;
+        let mut stack_cosmic = false;
+        if self.cockpit.enabled {
+            let beside = f64::max(left, maps_across.map_or(0.0, |m| m.0));
+            if self.cockpit.fits(size, ppp, insets, beside) {
+                left = beside;
+            } else {
+                stack_cosmic = cosmic_w.is_some();
+                left = 0.0;
+                if let Some((across, high)) = maps_across {
+                    if self.cockpit.fits(size, ppp, insets, across) {
+                        left = across;
+                    } else {
+                        self.cockpit.lift.set(high);
+                    }
+                }
+            }
         }
-        // The π meter keeps clear of the maps in the right corners and of what is at the
-        // bottom left (maps, the cosmic scale).
+        let cockpit_rect = self.cockpit.enabled.then(|| {
+            let r = self.cockpit.layout(size, ppp, insets, left);
+            [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32]
+        });
+        if stack_cosmic && let Some(c) = cockpit_rect {
+            cosmic_bottom = cosmic_bottom.min(c[1] - (10.0 * px) as f32);
+        }
+        let mut cosmic_rect = None;
+        if self.cosmic.enabled() {
+            let mut corner = [(12.0 * px) as f32, cosmic_bottom];
+            // A short canvas (a phone on its side): stacked over the maps and the cockpit the
+            // scale would climb into the upper half, under the HUD; it goes to the top right
+            // instead, left of the trailing controls (the HUD sits top left).
+            if stack_cosmic && w > h {
+                let measured = self.cosmic.draw(
+                    &mut Scene::default(),
+                    &mut Vec::new(),
+                    size,
+                    ppp,
+                    corner,
+                    now,
+                    &mut String::new(),
+                );
+                if let Some(r) = measured
+                    && f64::from(r[1]) < 0.45 * h
+                {
+                    let ph = r[3] - r[1];
+                    let right = w - (12.0 + self.cosmic.inset_right + insets.3.max(0.0)) * px;
+                    corner = [
+                        right as f32 - (r[2] - r[0]),
+                        ((12.0 + insets.0.max(0.0)) * px) as f32 + ph,
+                    ];
+                }
+            }
+            cosmic_rect = self.cosmic.draw(scene, help, size, ppp, corner, now, &mut key);
+        }
+        // The π meter keeps clear of the maps in the right corners, of what is at the bottom
+        // left (maps, the cosmic scale), of the cockpit and of a tour card (kb:
+        // decisions/controls "π meter on narrow canvases").
         let mut reserve = crate::pi_meter::Reserve::default();
-        // The bottom-left map row, in points (across, high), for the touch cockpit.
-        let mut maps_bottom_left: Option<(f64, f64)> = None;
         if let Some(stack) = &self.maps
             && !stack.panels.is_empty()
         {
@@ -1491,39 +1594,47 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 Corner::TopRight => reserve.top_right = block,
                 Corner::BottomLeft => {
                     reserve.bottom_left = extent;
-                    maps_bottom_left = Some((f64::from(extent) / px, f64::from(block) / px));
+                    reserve.keep_clear([0.0, h as f32 - block, extent, h as f32]);
+                    // (The panels themselves; the block above also reserves their info lines.)
+                    let top = stack.panels.iter().map(|o| o[1]).fold(f32::INFINITY, f32::min);
+                    self.drawn_maps.set(Some([(12.0 * px) as f32, top, extent, top + ph]));
                 }
                 Corner::TopLeft => {}
             }
         }
-        if self.cosmic.enabled() {
-            reserve.bottom_left = reserve.bottom_left.max((364.0 * px) as f32);
+        if let Some(r) = cosmic_rect {
+            reserve.bottom_left = reserve.bottom_left.max(r[2] + (12.0 * px) as f32);
+            reserve.keep_clear([r[0], r[1] - (22.0 * px) as f32, r[2], r[3]]);
+        }
+        if let Some(c) = cockpit_rect {
+            reserve.keep_clear(c);
+        }
+        self.drawn_cosmic.set(cosmic_rect);
+        self.drawn_cockpit.set(cockpit_rect);
+        if let Some([x, y, cw, ch]) = self.tour_card {
+            reserve.keep_clear([
+                (x * px) as f32,
+                (y * px) as f32,
+                ((x + cw) * px) as f32,
+                ((y + ch) * px) as f32,
+            ]);
+        }
+        // (Below the platform's top controls and the safe area: the Mac's toolbar.)
+        reserve.top = (self.pi.inset_top.max(insets.0).max(0.0) * px) as f32;
+        reserve.edge = [(insets.3.max(0.0) * px) as f32, (insets.2.max(0.0) * px) as f32];
+        if self.pi.enabled {
+            key.push_str(&format!("reserve {reserve:?} "));
         }
         key.push_str(&self.pi.draw(scene, help, w, h, px, reserve));
         // The target marker under the panels (it sits on the picture).
         self.marker.draw(scene, size, ppp, view, now, &mut key);
         self.compass.draw(scene, size, ppp, view.angle, now, &mut key);
-        // The cockpit at the bottom, right of the cosmic scale (bottom left) when it shows.
-        let mut left = if self.cosmic.enabled() { 376.0 } else { 0.0 };
-        // Touch (kb: decisions/controls "Touch"): right of a bottom-left map row when it fits
-        // there, else above it (a phone in portrait), so no map covers a 44-point cell.
-        self.cockpit.lift.set(0.0);
-        if self.cockpit.touch
-            && let Some((across, high)) = maps_bottom_left
-        {
-            let insets = renderer.navigator.insets();
-            if self.cockpit.fits(size, ppp, insets, f64::max(left, across)) {
-                left = f64::max(left, across);
-            } else {
-                self.cockpit.lift.set(high);
-            }
-        }
         self.cockpit.draw(
             scene,
             help,
             size,
             ppp,
-            renderer.navigator.insets(),
+            insets,
             left,
             &renderer.navigator.cockpit(now),
             now,

@@ -67,6 +67,11 @@ public enum HangWatchdog {
     /// The path of the last report written (the hang test prints it).
     static var lastReport: URL? { state.lastReport }
 
+    /// The longest a heartbeat waited for the main thread so far (seconds; 0 while off). The
+    /// iOS UI tests read it (the fractal view's value, "mainlag") to tell a stalled main thread
+    /// from a busy GPU.
+    static var longestDelay: Double { state.longestDelay }
+
     // MARK: The thread
 
     private static func run(main: mach_port_t) {
@@ -214,6 +219,7 @@ private final class WatchdogState: @unchecked Sendable {
     private var frameSince: Double?
     private var lastFrameEnd: Double?
     private var report: URL?
+    private var longest = 0.0
     private static let capacity = 32
 
     func claimStart() -> Bool {
@@ -246,6 +252,7 @@ private final class WatchdogState: @unchecked Sendable {
     func pong(now: Double) {
         lock.lock(); defer { lock.unlock() }
         pending = false
+        longest = max(longest, now - sentAt)
         if reported {
             reported = false
             recovered = now - sentAt
@@ -294,6 +301,11 @@ private final class WatchdogState: @unchecked Sendable {
     var lastReport: URL? {
         lock.lock(); defer { lock.unlock() }
         return report
+    }
+
+    var longestDelay: Double {
+        lock.lock(); defer { lock.unlock() }
+        return longest
     }
 
     func setLastReport(_ url: URL) {

@@ -43,6 +43,8 @@ platforms only.
 UniFFI Swift bindings and `build/rust/AlmondbreadCoreFFI.xcframework` (incremental; `run`,
 `build`, `app`, `ios-sim` and `core-check` depend on it). `make run` (swift run),
 `make build`, `make app` (macOS .app via Xcode), `make ios-sim`.
+`make swift-test`: Swift unit tests of pure UI logic (`Tests/AlmondbreadKitTests`: the touch
+layout for screens no simulator has).
 `make rust-check` = `cargo test --workspace --release`, clippy with `-D warnings`,
 `cargo fmt --check`. Headless tools are the Rust CLI: `make render ARGS="--center re,im
 --scale s"`, `make bench` / `make rust-bench [ARGS=...]`, `make regress` / `make
@@ -112,7 +114,8 @@ and quit by themselves):
   mini-map), `scripts/render-interior-stills.sh`, `scripts/render-dense-looks.sh`.
 - `scripts/ui-screenshots.sh`: control center and overlays from background `--ui-demo`
   windows; the app captures its own window (no screen-recording permission, no focus) into
-  `build/screens/window-*.png`.
+  `build/screens/window-*.png` (`SIZE=1440x900` / `--ui-demo-size=WxH`: the window in points,
+  2880x1800 pixels for the App Store; `scripts/appstore-shots.sh` captions them).
 
 ## Environment variables
 

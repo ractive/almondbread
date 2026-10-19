@@ -104,6 +104,35 @@ No property tests or fuzzing (a project rule: CI stays fast).
   saved next to the reports as `hang-metrickit-<time>.json` when the system delivers them (App
   Store builds; daily or next launch; src: [[sources/apple-metrickit-hang-diagnostics]]).
 
+## GPU queue (as built, 2026-10-19)
+
+A hang the watchdog found in the iPad simulator during the minibrot-periods tour's "Period 2688"
+step (300 000 iterations, 6.3e-16 span): the main thread stood in `-[MTLCommandQueue
+commandBuffer]` (`MetalBackend::begin` from `encode_compose`, inside `Explorer.frame`) for up to
+24.8 s, eight reports in two minutes. Metal hands out a bounded number of command buffers per
+queue (64 by default) and `commandBuffer()` blocks until one completes. The simulator's GPU took
+seconds per iterate chunk; the scheduler's own frame gate counts only two frames in flight but
+drops its count after 0.25 s without a completion (so a lost drawable cannot stall it), after
+which every refresh committed another compose buffer behind the long chunks until the queue was
+exhausted.
+
+Guard: `GpuBackend::submissions_in_flight` (Metal: buffers committed through `begin` whose
+status is not completed or error; shared by the clones on one queue) and `Host::frame` skips the
+whole refresh while 24 or more are queued (`GPU_QUEUE_LIMIT`; normal frames keep under ten), no
+navigator step, no overlay, no submission; `Host::gpu_queue_skips` counts them. Unit test
+`counts_submissions_in_flight`.
+
+Evidence (UI test `TourPerformanceUITests.testPeriodStepStaysResponsive`, AB iPad mini simulator,
+iOS 26.5, M1 Pro host): longest main-thread stall during the step 24.76 s before, 0.15 s after;
+the slowest accessibility query 25.3 s before, 0.05 s after. The watchdog's longest heartbeat
+delay is in the iOS UI-test value as `mainlag:` (`HangWatchdog.longestDelay`).
+
+What stays: a GPU saturated by long compute buffers also starves the simulator's compositor, so
+XCTest's screenshot request times out and Core Animation's commit can wait on the render server
+(one 2.6 s report, outside `Explorer.frame`, in the run after the fix). That is the simulator's
+GPU sharing; whether a real device's compositor is ever starved by the iterate chunks is not
+measured (unverified).
+
 ## Example report
 
 From `--hang-test` (measured 2026-10-16, M1 Pro, `swift build -c release`; abridged): the

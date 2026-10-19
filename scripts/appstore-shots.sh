@@ -8,6 +8,8 @@
 # manifest.tsv: one shot per line, tab-separated: platform  source.png  name  caption
 #   platform: mac (2880x1800) | iphone (1320x2868, 6.9") | ipad (2064x2752, 13")
 #   lines starting with # are skipped. Writes out-dir/<platform>/<name>.png and <name>-raw.png.
+# Mac sources map 1:1 when captured at 1440x900 points: `SIZE=1440x900 scripts/ui-screenshots.sh`
+# (or `--ui-demo-size=1440x900`) gives window-<scene>.png at 2880x1800 on a Retina screen.
 set -e
 cd "$(dirname "$0")/.."
 MANIFEST=$1

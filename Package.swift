@@ -48,6 +48,13 @@ let package = Package(
             name: "almondbread-core-check",
             dependencies: ["AlmondbreadCore"]
         ),
+        // `swift test` (make swift-test): pure UI logic, such as the touch layout for screens no
+        // simulator has (kb: decisions/controls "Round buttons").
+        .testTarget(
+            name: "AlmondbreadKitTests",
+            dependencies: ["AlmondbreadKit"],
+            path: "Tests/AlmondbreadKitTests"
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

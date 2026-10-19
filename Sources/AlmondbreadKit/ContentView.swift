@@ -19,11 +19,21 @@ struct ContentView: View {
     @State private var canvasWidth: CGFloat = 1000
     @State private var canvasHeight: CGFloat = 800
 
+    /// Where the touch controls go (kb: decisions/controls "Touch", "Round buttons" ▸ Fit).
+    private var touchLayout: TouchLayout {
+        #if os(iOS)
+        TouchLayout(canvas: CGSize(width: canvasWidth, height: canvasHeight),
+                    horizontalCompact: sizeClass == .compact, verticalCompact: verticalSizeClass == .compact)
+        #else
+        TouchLayout(canvas: CGSize(width: canvasWidth, height: canvasHeight), horizontalCompact: false, verticalCompact: false)
+        #endif
+    }
+
     /// iPhone portrait, narrow iPad split views, and an iPad portrait canvas next to the
     /// control center: the HUD drops its statistics and the buttons move to the bottom.
     private var compactWidth: Bool {
         #if os(iOS)
-        sizeClass == .compact || canvasWidth < 560
+        touchLayout.compactWidth
         #else
         false
         #endif
@@ -33,7 +43,7 @@ struct ContentView: View {
     /// bottom trailing corner and the throttle stands at the trailing edge above them.
     private var landscapePhone: Bool {
         #if os(iOS)
-        verticalSizeClass == .compact
+        touchLayout.landscapePhone
         #else
         false
         #endif
@@ -72,12 +82,22 @@ struct ContentView: View {
             canvasWidth = $0.width
             canvasHeight = $0.height
         }
+        // The canvas's origin in global coordinates, measured outside the safe area as the
+        // canvas lies (under the Mac's toolbar): the tour card's frame is converted with it.
+        .overlay {
+            Color.clear
+                .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { model.canvasOrigin = $0 }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
         .background(Color.black)
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 8) {
                 // On a narrow canvas a tour's card takes the HUD's place.
                 if model.showHUD && !(compactWidth && model.tour != nil) {
                     HUDView(model: model, compact: compactWidth)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("hud")
                         .tourTarget("hud", model: model, cornerRadius: 10)
                 }
                 #if os(iOS)
@@ -113,21 +133,33 @@ struct ContentView: View {
         }
         .onChange(of: model.tour) { old, new in tourControlCenter(old: old, new: new) }
         .onChange(of: walkthroughOffer.startRequests) { model.startTour(ExplorerModel.walkthroughID) }
-        // The π panel (bottom right, the π tour) keeps left of the card: the card's 340 points
-        // and a 12-point gap beyond the panel's own margin, wherever the card's trailing edge is.
-        .onChange(of: model.tour == nil || compactWidth, initial: true) {
-            model.piMeterTourInset = model.tour == nil || compactWidth ? 0 : 352
+        #if os(macOS)
+        // The canvas runs on under the control center: the π panel, the cosmic scale's right
+        // edge and the cockpit keep left of it while it shows (it reports a width while hidden
+        // too: the π panel sat 330 points left of its corner during the tours).
+        .onChange(of: showInspector ? model.controlCenterWidth : 0, initial: true) { _, width in
+            model.piMeterInsetRight = width
+            model.cosmicInsetRight = width
+            model.cockpitInsetRight = width
         }
+        #endif
+        // (The π panel keeps clear of the tour card by itself: the card layer reports its
+        // frame, `model.tourCardFrame`; kb: decisions/controls "π meter on narrow canvases".)
         #if os(iOS)
-        // iPhone portrait: the π panel sits left of the button column.
-        .onChange(of: [compactWidth, landscapePhone], initial: true) {
-            // Left of the button column, or of the throttle at the trailing edge.
-            model.piMeterInsetRight = compactWidth ? 56 : ThrottleLever.width + 12
-            // iPad and wide iPhone: the compass sits below the top-right buttons (44 + 12 pt).
-            model.compassInsetTop = compactWidth ? 0 : 56
+        // The Rust panels keep clear of the touch controls (kb: decisions/controls "Touch").
+        .onChange(of: touchLayout, initial: true) {
+            let l = touchLayout
+            // Left of the button column, or of the throttle at the trailing edge; above the
+            // button row of a phone on its side; below the iPad's top-right buttons.
+            model.piMeterInsetRight = l.trailingInset
+            model.piMeterInsetBottom = l.bottomInset
+            model.piMeterInsetTop = l.topInset
+            model.cosmicInsetRight = l.trailingInset
+            // iPad: the compass sits below the top-right buttons (44 + 12 pt).
+            model.compassInsetTop = l.topInset
             // The cockpit (bottom centre) keeps left of the button column, or of the button row
             // of a phone on its side (five buttons).
-            model.cockpitInsetRight = landscapePhone ? 5 * 44 + 4 * 10 + 12 : compactWidth ? 56 : 0
+            model.cockpitInsetRight = l.cockpitInsetRight
         }
         // The throttle (kb: decisions/controls "Touch") at the trailing edge, in thumb reach:
         // on top of the button column on a phone in portrait (below), else at mid height.
@@ -148,7 +180,8 @@ struct ContentView: View {
         #if os(iOS)
         // iPhone portrait: the buttons sit at the bottom, in thumb reach and clear of the HUD;
         // wider screens: top trailing, next to the HUD.
-        .overlay(alignment: compactWidth ? .bottomTrailing : .topTrailing) {
+        // A phone on its side: a row at the bottom trailing corner, whatever its width class.
+        .overlay(alignment: touchLayout.buttonCorner == .bottomTrailing ? .bottomTrailing : .topTrailing) {
             let stack = buttonColumn ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
             stack {
                 if buttonColumn && model.showHUD {

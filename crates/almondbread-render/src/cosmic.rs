@@ -25,6 +25,9 @@ pub struct CosmicOverlay {
     primed: bool,
     /// The crossed mark and when.
     flash: Option<(usize, f64)>,
+    /// Extra right margin (view points) the panel keeps clear of: a column of platform controls
+    /// at the trailing edge (iPhone round buttons and throttle; kb: decisions/controls "Touch").
+    pub inset_right: f64,
 }
 
 impl CosmicOverlay {
@@ -75,8 +78,19 @@ impl CosmicOverlay {
         self.primed = true;
     }
 
+    /// The panel's width in view points on a canvas `width_pt` points wide (left at 12 points):
+    /// 340, narrower where the canvas and `inset_right` leave less, never under 120.
+    pub fn width_pt(&self, width_pt: f64) -> f64 {
+        let inset = if self.inset_right.is_finite() {
+            self.inset_right.max(0.0)
+        } else {
+            0.0
+        };
+        (width_pt - 24.0 - inset).clamp(120.0, 340.0)
+    }
+
     /// Draws the panel with its bottom-left corner at `corner` (output pixels); appends what
-    /// it drew to `key`.
+    /// it drew to `key`. Returns the panel's rect (pixels), None when nothing was drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
@@ -87,12 +101,11 @@ impl CosmicOverlay {
         corner: [f32; 2],
         now: f64,
         key: &mut String,
-    ) {
+    ) -> Option<[f32; 4]> {
         let [left, bottom] = corner;
-        let Some((_, scale)) = &self.scale else { return };
+        let Some((_, scale)) = &self.scale else { return None };
         let px = (1.0 / ppp) as f32;
-        let w = size.0 as f32;
-        let pw = (340.0 * px).min(w - 2.0 * left).max(120.0 * px);
+        let pw = self.width_pt(size.0 as f64 * ppp) as f32 * px;
         let pad = 9.0 * px;
         let d = self.d;
         let reading = scale.reading(d);
@@ -328,6 +341,7 @@ impl CosmicOverlay {
             key.push_str(&format!("flash {i} {:.2} ", t));
         }
         key.push_str(&format!("cosmic {d:.4} {x0} {y1} {pw} "));
+        Some([x0, y0, x1, y1])
     }
 }
 

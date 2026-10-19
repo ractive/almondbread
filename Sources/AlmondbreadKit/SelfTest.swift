@@ -118,12 +118,13 @@ public enum UIDemo {
         try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
         // The window server's image of our own window (no permission needed for one's own
         // windows; it has the composited Metal layer and the sidebar's materials). Fallback below.
+        var windowPng: Data?
         if let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber),
                                             [.boundsIgnoreFraming, .bestResolution]),
            cg.width > 16 {
             let rep = NSBitmapImageRep(cgImage: cg)
-            try? rep.representation(using: .png, properties: [:])?
-                .write(to: URL(fileURLWithPath: "\(outDir)/window-\(scene).png"))
+            windowPng = rep.representation(using: .png, properties: [:])
+            try? windowPng?.write(to: URL(fileURLWithPath: "\(outDir)/window-\(scene).png"))
         }
         let canvasPath = "\(outDir)/canvas-\(scene).png"
         guard explorer.capturePng(path: canvasPath),
@@ -149,7 +150,12 @@ public enum UIDemo {
         rep.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
                  respectFlipped: true, hints: nil)
         NSGraphicsContext.restoreGraphicsState()
-        try? out.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/control-center-\(scene).png"))
+        // The composite is only the fallback: AppKit's `cacheDisplay` draws the canvas's black
+        // SwiftUI background over the Metal picture and the sidebar's materials as flat colour
+        // (a "mostly black" capture), so with the window server's image at hand that is the
+        // control-center picture too.
+        let composite = windowPng ?? out.representation(using: .png, properties: [:])
+        try? composite?.write(to: URL(fileURLWithPath: "\(outDir)/control-center-\(scene).png"))
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(outDir)/chrome-\(scene).png"))
     }
 
@@ -200,6 +206,16 @@ public enum UIDemo {
         return a.hasPrefix(prefix + "=") ? String(a.dropFirst(prefix.count + 1)) : "orbit"
     }
     public static var enabled: Bool { scene != nil }
+
+    /// `--ui-demo-size=WxH`: the demo window's size in points, title bar included, so a capture
+    /// maps 1:1 to an App Store size (1440x900 → 2880x1800 on a Retina screen). Nil: the default.
+    static var windowSize: CGSize? {
+        let prefix = "--ui-demo-size="
+        guard let a = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }) else { return nil }
+        let parts = a.dropFirst(prefix.count).split(separator: "x").compactMap { Double($0) }
+        guard parts.count == 2, parts.allSatisfy({ $0.isFinite && $0 >= 200 && $0 <= 10_000 }) else { return nil }
+        return CGSize(width: parts[0], height: parts[1])
+    }
     /// `tour-<id>` scenes show the canvas and the tour card without the control center.
     static var hidesSidebar: Bool { scene?.hasPrefix("tour-") == true }
 
@@ -238,7 +254,11 @@ public enum UIDemo {
     static func configure(_ model: ExplorerModel, explorer: Explorer) {
         guard let scene else { return }
         model.applyLook("aurora")
-        model.supersampling = .x9
+        // `--ui-demo-aa=off|x4|x9|x16`: the anti-aliasing of the scene (x9 by default, for
+        // captures; `off` measures what a user with the default setting waits for).
+        let aaPrefix = "--ui-demo-aa="
+        let aa = CommandLine.arguments.first { $0.hasPrefix(aaPrefix) }.map { String($0.dropFirst(aaPrefix.count)) }
+        model.supersampling = Supersampling.allCases.first { "\($0)" == aa } ?? .x9
         // `developer`: the default scene with the HUD's developer details (not stored).
         if scene == "developer" { model.hudDetails = true }
         // `tour-<id>`: every step of a guided tour captured in turn (kb: decisions/controls "Guided

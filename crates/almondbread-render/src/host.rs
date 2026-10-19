@@ -74,7 +74,13 @@ struct Measurement {
 }
 
 /// The renderer plus the view it draws into.
+/// Committed command buffers the GPU may have queued before a refresh is skipped: normal
+/// frames keep under ten (2 frames, 3 chunks, map levels, a survey); Metal blocks at 64.
+pub const GPU_QUEUE_LIMIT: usize = 24;
+
 pub struct Host<B: GpuBackend> {
+    /// Refreshes skipped because the GPU queue was full ([`GPU_QUEUE_LIMIT`]).
+    pub gpu_queue_skips: u64,
     /// Orbit overlay and mini-map (kb: decisions/controls, "Orbit overlay and mini-map").
     pub overlay: Overlay<B>,
     overlay_tick: u32,
@@ -106,6 +112,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             max_texels: None,
             fitted: false,
             measure: None,
+            gpu_queue_skips: 0,
             overlay: Overlay::default(),
             overlay_tick: 0,
             tour: None,
@@ -311,6 +318,18 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Every help badge of the last scene, in view points from the centre, y up (window tests).
     pub fn help_badges(&self) -> Vec<(crate::help::HelpTopic, (f64, f64), f64)> {
         self.overlay.help.iter().map(|b| self.help_badge_points(b)).collect()
+    }
+
+    /// The Rust panels of the last scene (id, x, y, width, height) in view points from the top
+    /// left (UI tests).
+    pub fn overlay_panels(&self) -> Vec<(&'static str, [f64; 4])> {
+        let ppp = self.points_per_pixel;
+        let f = |v: f32| f64::from(v) * ppp;
+        self.overlay
+            .panels
+            .iter()
+            .map(|(id, r)| (*id, [f(r[0]), f(r[1]), f(r[2] - r[0]), f(r[3] - r[1])]))
+            .collect()
     }
 
     fn help_badge_points(&self, b: &crate::help::HelpBadge) -> (crate::help::HelpTopic, (f64, f64), f64) {
@@ -554,6 +573,16 @@ impl<B: GpuBackend + Clone> Host<B> {
         acquire: &mut dyn FnMut(bool) -> Option<(FrameTarget<B>, u64)>,
     ) -> FrameOutcome {
         let start = clock();
+        // A GPU far behind (an iPad simulator iterating 300 000 steps a pixel queued over 64
+        // command buffers and `commandBuffer()` blocked the main thread for up to 25 s): skip
+        // this refresh entirely until it catches up (kb: techniques/hang-prevention "GPU queue").
+        if self.renderer.backend().submissions_in_flight() >= GPU_QUEUE_LIMIT {
+            self.gpu_queue_skips += 1;
+            return FrameOutcome {
+                animating: true,
+                presented: false,
+            };
+        }
         if let Some(m) = &mut self.measure
             && self.renderer.navigator.is_moving()
         {

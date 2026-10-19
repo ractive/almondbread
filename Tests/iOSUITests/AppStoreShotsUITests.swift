@@ -59,8 +59,9 @@ final class AppStoreShotsUITests: XCTestCase {
         app.terminate()
     }
 
-    // (Not "Period 2688": its 300 000-step render keeps the simulator's GPU so busy that the
-    // screenshot request times out.)
+    // (Not "Period 2688": its 300 000-step render keeps the simulator's GPU so busy that its
+    // compositor, and so the screenshot request, gets no GPU time; the app's main thread stays
+    // responsive since the queue guard, TourPerformanceUITests.)
     func test1PeriodTour() { tour("minibrot-periods", to: "Deeper, longer", wait: 40, name: "1-period-128") }
     func test2PiTour() { tour("pi", to: "Closer and closer", wait: 20, name: "2-pi") }
     func test3BulbsTour() { tour("bulbs", to: "Five", wait: 10, name: "3-bulbs") }

@@ -9,6 +9,7 @@ pub use surface::{MetalLayerSurface, PresentationLog};
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::{Arc, Mutex};
 
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::ProtocolObject;
@@ -44,7 +45,19 @@ pub struct MetalBackend {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     library: Retained<ProtocolObject<dyn MTLLibrary>>,
+    /// Command buffers committed through [`GpuBackend::begin`] and not yet finished, shared by
+    /// the clones on this queue ([`GpuBackend::submissions_in_flight`]).
+    committed: Arc<Mutex<Vec<CommandBuffer>>>,
 }
+
+/// A committed command buffer, kept only to read its status.
+struct CommandBuffer(Retained<ProtocolObject<dyn MTLCommandBuffer>>);
+
+// SAFETY: after `commit` the buffer is only retained, released and asked for its `status`,
+// which Metal allows from any thread (its completion handlers run on Metal's own threads);
+// nothing encodes into it any more.
+unsafe impl Send for CommandBuffer {}
+unsafe impl Sync for CommandBuffer {}
 
 impl MetalBackend {
     /// The system default GPU with the kernels compiled from [`KERNEL_SOURCE`].
@@ -84,7 +97,12 @@ impl MetalBackend {
             let library = device
                 .newLibraryWithSource_options_error(&NSString::from_str(source), Some(&options))
                 .map_err(|e| GpuError(format!("kernel compile failed: {}", e.localizedDescription())))?;
-            Ok(Self { device, queue, library })
+            Ok(Self {
+                device,
+                queue,
+                library,
+                committed: Arc::new(Mutex::new(Vec::new())),
+            })
         })
     }
 
@@ -142,6 +160,7 @@ pub struct MetalEncoder {
     cb: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     enc: Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>,
     present: Option<MetalDrawable>,
+    committed: Arc<Mutex<Vec<CommandBuffer>>>,
 }
 
 fn size3(v: [usize; 3]) -> MTLSize {
@@ -208,6 +227,9 @@ impl ComputeEncoder<MetalBackend> for MetalEncoder {
             self.cb.presentDrawable(d);
         }
         self.cb.commit();
+        if let Ok(mut v) = self.committed.lock() {
+            v.push(CommandBuffer(self.cb.clone()));
+        }
         MetalSubmission(self.cb)
     }
 }
@@ -512,7 +534,25 @@ impl GpuBackend for MetalBackend {
         let enc = cb
             .computeCommandEncoder()
             .ok_or_else(|| GpuError("compute encoder".into()))?;
-        Ok(MetalEncoder { cb, enc, present: None })
+        Ok(MetalEncoder {
+            cb,
+            enc,
+            present: None,
+            committed: Arc::clone(&self.committed),
+        })
+    }
+
+    fn submissions_in_flight(&self) -> usize {
+        let Ok(mut v) = self.committed.lock() else {
+            return 0;
+        };
+        v.retain(|cb| {
+            !matches!(
+                cb.0.status(),
+                MTLCommandBufferStatus::Completed | MTLCommandBufferStatus::Error
+            )
+        });
+        v.len()
     }
 }
 
@@ -529,6 +569,20 @@ mod tests {
         BlaParams, ChunkStats, ColorParams, ComposeParams, IterateParams, LEVEL_COUNTERS_SIZE, PixelState, SeedNode,
         SeedParams,
     };
+
+    /// Committed buffers count until the GPU finishes them (the host's queue guard).
+    #[test]
+    fn counts_submissions_in_flight() {
+        let b = MetalBackend::new().expect("metal");
+        assert_eq!(b.submissions_in_flight(), 0);
+        let subs: Vec<_> = (0..5).map(|_| b.begin("count").expect("begin").commit()).collect();
+        // A clone on the same queue sees the same count.
+        assert!(b.clone().submissions_in_flight() <= 5);
+        for s in subs {
+            s.wait();
+        }
+        assert_eq!(b.submissions_in_flight(), 0);
+    }
 
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.
     #[test]

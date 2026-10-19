@@ -59,10 +59,11 @@ struct ControlCenterView: View {
         // out at (clipped) and follows once the width has settled: one layout, not one per
         // frame (kb: platform/swiftui-performance).
         .modifier(LayoutWidth(width: layoutWidth))
-        // On the Mac the canvas runs on under the sidebar: the π panel (bottom right) moves
-        // left of it while it shows.
+        // On the Mac the canvas runs on under the sidebar: the π panel (bottom right), the
+        // cosmic scale's right edge and the cockpit (centred in what stays visible) keep left
+        // of it while it shows.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-            model.piMeterInsetRight = Double($0)
+            model.controlCenterWidth = Double($0)
             liveWidth = $0
         }
         .task(id: liveWidth) {
@@ -71,7 +72,7 @@ struct ControlCenterView: View {
             try? await Task.sleep(for: .milliseconds(150))
             if !Task.isCancelled { layoutWidth = w }
         }
-        .onDisappear { model.piMeterInsetRight = 0 }
+        .onDisappear { model.controlCenterWidth = 0 }
         #endif
     }
 

@@ -169,7 +169,7 @@ struct ThrottleLever: View {
     let model: ExplorerModel
     var height: CGFloat = 200
 
-    static let width: CGFloat = 48
+    static let width: CGFloat = TouchLayout.throttleWidth
     /// The chevrons' cells at both ends (points).
     static let cap: CGFloat = 26
     /// The knob (points).

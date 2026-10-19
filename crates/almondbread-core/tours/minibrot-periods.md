@@ -75,7 +75,7 @@ probe: pointer
 
 Four presses on (periods 384, 640, 896), at a zoom of 5·10¹⁵: a **period-2688 minibrot**. Every c in its heart settles into a loop of 2688 steps; from its nucleus the number comes back to exactly 0 after step 2688, not one step sooner. The disc beside it has period 5376, twice as long.
 
-That is all "period-2600 minibrot" means: the length of the loop. Points here go round it many times before they are proven inside, so this step raises the iteration limit to 300 000 and the picture takes a few seconds.
+That is all "period-2600 minibrot" means: the length of the loop. Points here go round it many times before they are proven inside, so this step raises the iteration limit to 300 000, and the picture takes half a minute or more to fill in.
 
 ## Why deeper means longer
 
