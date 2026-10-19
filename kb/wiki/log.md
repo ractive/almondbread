@@ -1697,3 +1697,16 @@ on the not-finished line, a link in Iterations & quality, "Next tour" on every l
 walkthrough offers the first tour), tour cards with place thumbnails, "9 steps · ~3 min" and a done
 check, signpost badges on tour places. The series order is `BUNDLED`'s. In
 [[decisions/controls]] "Finding the tours".
+
+## [2026-10-19] decision | Recolour without a new job; tour views at any depth
+
+Interior-only tour steps (and the control center's interior picker) could leave the old colours
+on screen: a recolour keeps the compute key, and once the view had settled nothing kept the
+display link running, neither when the recolour refresh got no drawable nor for the AA rerun
+after it. Fix: a planned frame without a target keeps `animating`, and `COMPOSE_EXACT` clears
+`final_presented`; Metal regression tests in `scheduler/recolour_tests.rs`; the colours tour's
+interior `move: jump` workarounds removed; new `--ui-demo=interior-cycle` scene. Tour `span` /
+`zoom` already parsed any depth; the bundled-tour test checked f64 and now checks log2. The limits
+tour gained a 1e3000 step (`swirl-1e3000`, resolved 417 ms after the jump at 1600×1000).
+[[decisions/controls]] "The colours tour", "The limits tour";
+[[techniques/frame-reuse-and-progressive]].

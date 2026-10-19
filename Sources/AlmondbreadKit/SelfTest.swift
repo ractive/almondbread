@@ -252,6 +252,16 @@ public enum UIDemo {
             #endif
             return
         }
+        // `interior-cycle`: the control center's interior picker on a settled view (a recolour,
+        // no new job): each colouring captured once the view settled again.
+        if scene == "interior-cycle" {
+            #if os(macOS)
+            try? explorer.setViewport(re: "-0.45", im: "0.25", scale: 0.0012)
+            model.interiorColoring = .bubbles
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { runInteriorCycle(model, explorer: explorer) }
+            #endif
+            return
+        }
         switch scene {
         case "interior":
             try? explorer.setViewport(re: "-0.1225", im: "0.7445", scale: 0.0004)
@@ -479,3 +489,42 @@ public enum UIDemo {
         }
     }
 }
+
+#if os(macOS)
+extension UIDemo {
+    /// `--ui-demo=interior-cycle`: switches the interior colouring as the control center's picker
+    /// does (bubbles, period, angle, distance, flat; the view stays) and captures each once the
+    /// view settled (`window-interior-cycle-<mode>.png`); prints how long each took to settle.
+    @MainActor
+    static func runInteriorCycle(_ model: ExplorerModel, explorer: Explorer) {
+        let modes: [InteriorColoring] = [.bubbles, .period, .angle, .distance, .flat]
+        var index = 0
+        var entered = Date()
+        Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                model.refreshStats()
+                guard let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil
+                    && !String(describing: type(of: $0)).contains("Popover") }) else { return }
+                let t = Date().timeIntervalSince(entered)
+                // At least 2 s: the stats are polled, the first ones after a switch are old.
+                guard t > 2, model.stats?.settled == true || t > 20 else { return }
+                let mode = modes[index]
+                capture(window: w, explorer: explorer, scene: "interior-cycle-\(mode.rawValue)")
+                let settled = model.stats?.settled == true
+                print("interior-cycle: \(mode.rawValue) settled \(settled) after \(String(format: "%.1f", t)) s")
+                fflush(stdout)
+                index += 1
+                if index == modes.count {
+                    timer.invalidate()
+                    print("ui-demo: interior-cycle done")
+                    fflush(stdout)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { exit(0) }
+                    return
+                }
+                model.interiorColoring = modes[index]
+                entered = Date()
+            }
+        }
+    }
+}
+#endif

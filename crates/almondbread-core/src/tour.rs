@@ -35,7 +35,7 @@ use crate::orbit::MAX_ORBIT_POINTS;
 use crate::palette::{Look, Palette};
 use crate::pi_moment::PiPoint;
 use crate::settings::{InteriorMode, OverlaySettings, RenderSettings};
-use crate::viewport::{Center, Scale, Viewport, wrap_angle};
+use crate::viewport::{Center, MIN_SCALE_LOG2, Scale, Viewport, wrap_angle};
 
 /// The bundled tours: (id, Markdown). The id is the file name; a unit test checks that every
 /// file in `tours/` is listed here and parses. **List order** is the order of the tour lists
@@ -401,9 +401,22 @@ fn point(line: usize, key: &str, v: &str) -> Result<Center, TourError> {
 
 fn parse_scale(line: usize, key: &str, v: &str) -> Result<Scale, TourError> {
     match Scale::parse(v) {
-        Some(s) if s.log10().is_finite() && s.log10() <= 2.0 => Ok(s),
+        Some(s) if s.log10().is_finite() && s.log10() <= 2.0 => within_depth_limit(line, key, v, s),
         _ => err(line, format!("`{key}` needs a positive number up to 100, not `{v}`")),
     }
+}
+
+/// A view's span is any [`Scale`] (decimal exponents far past f64, like a place's: `1e-3000`),
+/// but not deeper than the app zooms: a span smaller than [`MIN_SCALE_LOG2`] per point would
+/// be clamped in any window.
+fn within_depth_limit(line: usize, key: &str, v: &str, span: Scale) -> Result<Scale, TourError> {
+    if span.log2() < MIN_SCALE_LOG2 as f64 {
+        return err(
+            line,
+            format!("`{key}: {v}` is deeper than Almondbread zooms (about 1e3007 times, span 1e-3007)"),
+        );
+    }
+    Ok(span)
 }
 
 /// Parses and checks a tour file. Every error names its line.
@@ -602,7 +615,9 @@ fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String
     // beyond f64 ("1e400") works.
     let zoom = get("zoom")
         .map(|(n, v)| match Scale::parse(v) {
-            Some(z) if z.log10().is_finite() && z.log10() >= -2.0 => Ok(Scale::from_log2((3.0f64).log2() - z.log2())),
+            Some(z) if z.log10().is_finite() && z.log10() >= -2.0 => {
+                within_depth_limit(n, "zoom", v, Scale::from_log2((3.0f64).log2() - z.log2()))
+            }
             _ => err(n, format!("`zoom` needs a magnification of at least 0.01, not `{v}`")),
         })
         .transpose()?;
@@ -1382,8 +1397,13 @@ mod tests {
                     "{id} step {i}: overlay in range"
                 );
                 if let Some(v) = &e.view {
+                    // Any depth (log2, not f64: a 1e3000 view underflows f64), never clamped.
                     let vp = v.viewport(800.0);
-                    assert!(vp.scale.to_f64() > 0.0 && vp.center.re().is_finite());
+                    assert!(vp.center.re().is_finite(), "{id} step {i}");
+                    assert!(
+                        (vp.scale.log2() - (v.span / 800.0).log2()).abs() < 1e-9,
+                        "{id} step {i}: the view is clamped"
+                    );
                 }
                 if let Some(Probe::Path(p)) = &e.probe {
                     for k in 0..=40 {
@@ -1459,6 +1479,32 @@ mod tests {
     }
 
     #[test]
+    fn views_past_f64_depths() {
+        // A tour view takes any depth a place has (decimal exponents in a `Scale`): 1e3000
+        // underflows f64 (about 1e-308).
+        let text = "---\nid: t\ntitle: T\nsummary: S\n---\n\n## Zoom\ncenter: -0.75, 0.1\nzoom: 1e3000\n\nA.\n\n\
+                    ## Span\ncenter: -0.75, 0.1\nspan: 3e-3000\n\nB.\n\n## Place\nplace: swirl-1e3000\n\nC.\n";
+        let t = parse(text).expect("parses");
+        for (i, step) in t.steps.iter().enumerate() {
+            let v = step.view.as_ref().expect("view");
+            let vp = v.viewport(1000.0);
+            assert!(vp.scale.to_f64() == 0.0, "step {i}: past f64");
+            assert!(
+                (vp.zoom_log10() - 3000.0).abs() < 1.0,
+                "step {i}: zoom 10^{}",
+                vp.zoom_log10()
+            );
+            assert!(
+                vp.scale > vp.min_scale(),
+                "step {i}: within the depth limit, not clamped"
+            );
+        }
+        // zoom 1e3000 = span 3e-3000.
+        let (a, b) = (t.steps[0].view.as_ref().unwrap(), t.steps[1].view.as_ref().unwrap());
+        assert!((a.span.log2() - b.span.log2()).abs() < 1e-9);
+    }
+
+    #[test]
     fn rejects_mistakes_with_their_line() {
         let head = "---\nid: t\ntitle: T\nsummary: S\n---\n\n## One\n";
         let cases: &[(&str, usize, &str)] = &[
@@ -1466,6 +1512,16 @@ mod tests {
             ("center: -0.5, 0\n\nText.", 8, "needs a `span`"),
             ("center: x, 0\nspan: 1\n\nText.", 8, "not a point"),
             ("center: -0.5, 0\nspan: 1\nzoom: 3\n\nText.", 10, "not both"),
+            (
+                "center: -0.5, 0\nzoom: 1e5000\n\nText.",
+                9,
+                "deeper than Almondbread zooms",
+            ),
+            (
+                "center: -0.5, 0\nspan: 1e-3020\n\nText.",
+                9,
+                "deeper than Almondbread zooms",
+            ),
             ("look: nope\n\nText.", 8, "unknown look"),
             ("palette: nope\n\nText.", 8, "unknown palette"),
             ("place: nope\n\nText.", 8, "unknown place"),
