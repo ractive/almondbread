@@ -237,6 +237,14 @@ impl Options {
         if let Some(v) = self.get("calm") {
             s.dense_calm = v != "0";
         }
+        // The formula (F2): `mandelbrot` (default); `multibrotP` is the generic path z^P + c,
+        // test-only until F3 (p = 2 must equal Mandelbrot).
+        if let Some(v) = self.get("formula") {
+            match almondbread_core::formula::Formula::parse(v) {
+                Some(f) => s.formula = f,
+                None => eprintln!("almondbread: --formula {v}: expected mandelbrot or multibrot2..8"),
+            }
+        }
         // Interior colouring (kb: techniques/coloring-methods): flat|bubbles|period|angle|distance.
         if let Some(v) = self.get("inside") {
             match almondbread_core::InteriorMode::parse(v) {

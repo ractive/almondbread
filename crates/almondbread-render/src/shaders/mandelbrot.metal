@@ -41,6 +41,15 @@ constant bool kProbe    [[function_constant(6)]];   // interior probe of pixels 
                                                     // limit (needs kInterior; see "Attracting-cycle probe")
 constant bool kLA       [[function_constant(8)]];   // M6: period-aligned linear approximation
                                                     // (kb: techniques/linear-approximation-imagina)
+// F2: the formula (kb: plans/f2-pluggable-formulas; see "Formula hooks"). Unset (every
+// Mandelbrot pipeline): formula 0, power 2, conformal; so formula 0 compiles to the pre-F2
+// kernels. 16.. leaves room for more feature flags below.
+constant uint kFormulaFC   [[function_constant(16)]];   // 0 Mandelbrot, 1 z^p + c (generic)
+constant uint kPowerFC     [[function_constant(17)]];   // p of formula 1
+constant bool kConformalFC [[function_constant(18)]];   // false: 2x2 derivatives (F5, unused yet)
+constant uint kFormula = is_function_constant_defined(kFormulaFC) ? kFormulaFC : 0u;
+constant uint kPower = is_function_constant_defined(kPowerFC) ? kPowerFC : 2u;
+constant bool kConformal = is_function_constant_defined(kConformalFC) ? kConformalFC : true;
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -598,6 +607,146 @@ static inline float lgSum(float a, float b) {
     return hi + log2(1.0f + exp2(max(min(a, b) - hi, -60.0f)));
 }
 
+// ---- Formula hooks (F2, kb: plans/f2-pluggable-formulas, synthesis/other-fractal-types §6).
+// Every step site of the iterate and seed kernels calls these instead of writing z^2 + c
+// inline. Each branches on kFormula, a function constant folded when the pipeline is compiled:
+// formula 0 (Mandelbrot, also when the constant is not set at all, as for every pre-F2
+// pipeline) is exactly the expression the site had before, so its pipelines are the pre-F2
+// code (bit-identical fields, same timings). Formula 1 is the generic polynomial z^p + c with
+// p = kPower (kb: formulas/multibrot): the perturbation step z' = z S + c with
+// S = sum_{i<p} W^i Z^(p-1-i), W = Z + z (Horner), f'(z) = p z^(p-1), f''(z) = p (p-1) z^(p-2).
+// kPower is a function constant too, so the small loops unroll.
+// Naming: f* float2, f*X floatexp; *XT the variants that keep FE_ZERO (feTwice) where the site
+// used it.
+
+// z^k, k >= 1.
+static inline float2 fPow(float2 z, uint k) {
+    float2 w = z;
+    for (uint i = 1; i < k; i++) w = cmul(w, z);
+    return w;
+}
+
+static inline FE fPowX(FE z, uint k) {
+    FE w = z;
+    for (uint i = 1; i < k; i++) w = feMul(w, z);
+    return w;
+}
+
+// f'(z).
+static inline float2 fPrime(float2 z) {
+    if (kFormula == 0u) return 2.0f * z;
+    return float(kPower) * fPow(z, kPower - 1u);
+}
+
+// f''(z).
+static inline float2 fPrime2(float2 z) {
+    if (kFormula == 0u) return float2(2.0f, 0.0f);
+    const float k = float(kPower * (kPower - 1u));
+    return kPower == 2u ? float2(k, 0.0f) : k * fPow(z, kPower - 2u);
+}
+
+// f'(z) d: the derivative updates (dz/dc, dz/dz1).
+static inline float2 fMulPrime(float2 z, float2 d) {
+    if (kFormula == 0u) return 2.0f * cmul(z, d);
+    return cmul(fPrime(z), d);
+}
+
+// The perturbation step: z' = S w + dd for the delta z = s w (s = 1: w = sw = z), W = Z + sw.
+static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
+    if (kFormula == 0u) return cmul(2.0f * Z + sw, w) + dd;
+    const float2 W = Z + sw;
+    float2 S = float2(1.0f, 0.0f), Zk = float2(1.0f, 0.0f);
+    for (uint i = 1; i < kPower; i++) {
+        Zk = cmul(Zk, Z);
+        S = cmul(S, W) + Zk;
+    }
+    return cmul(S, w) + dd;
+}
+
+// f'(z) as floatexp (FE{z.m, z.e + 1} for Mandelbrot).
+static inline FE fPrimeX(FE z) {
+    if (kFormula == 0u) return FE{z.m, z.e + 1};
+    return feMul(feNorm(float2(float(kPower), 0.0f), 0), fPowX(z, kPower - 1u));
+}
+
+// f'(z) keeping zero (feTwice for Mandelbrot).
+static inline FE fPrimeXT(FE z) {
+    if (kFormula == 0u) return feTwice(z);
+    return fPrimeX(z);
+}
+
+static inline FE fPrime2X(FE z) {
+    const float k = float(kPower * (kPower - 1u));
+    return kPower == 2u ? feNorm(float2(k, 0.0f), 0) : feMul(feNorm(float2(k, 0.0f), 0), fPowX(z, kPower - 2u));
+}
+
+// The floatexp perturbation step z' = S z + C, S from W = Z + z ((2Z + z) for Mandelbrot,
+// with 2Z as FE{Z.m, Z.e + 1}).
+static inline FE fStepX(FE Zx, FE zx, FE C) {
+    if (kFormula == 0u) return feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
+    const FE W = feAdd(Zx, zx);
+    FE S = FE{float2(0.5f, 0.0f), 1}, Zk = S;
+    for (uint i = 1; i < kPower; i++) {
+        Zk = feMul(Zk, Zx);
+        S = feAdd(feMul(S, W), Zk);
+    }
+    return feAdd(feMul(S, zx), C);
+}
+
+// As fStepX, 2Z by feTwice (the probe and the cycle analysis).
+static inline FE fStepXT(FE Zx, FE zx, FE C) {
+    if (kFormula == 0u) return feAdd(feMul(feAdd(feTwice(Zx), zx), zx), C);
+    return fStepX(Zx, zx, C);
+}
+
+// Seeds (local SA, kb: techniques/local-series-approximation): b' = f''(z) a^2 / ts + f'(z) b
+// (float32 units: a = dz/dc ts, b = d2z/dc2 ts).
+static inline float2 fSeedB(float2 z, float2 A, float2 B, float invTs) {
+    if (kFormula == 0u) return 2.0f * (cmul(A, A * invTs) + cmul(z, B));
+    return cmul(fPrime2(z), cmul(A, A * invTs)) + cmul(fPrime(z), B);
+}
+
+// Floatexp seeds: b' = f''(z) a^2 + f'(z) b.
+static inline FE fSeedBX(FE z, FE A, FE B) {
+    if (kFormula == 0u) {
+        const FE t = feAdd(feMul(A, A), feMul(z, B));
+        return FE{t.m, t.e + 1};
+    }
+    return feAdd(feMul(fPrime2X(z), feMul(A, A)), feMul(fPrimeX(z), B));
+}
+
+// The seeds' interior derivative's c-derivative: wd' = f''(z) a w + f'(z) wd.
+static inline FE fSeedWDX(FE z, FE A, FE W, FE WD) {
+    if (kFormula == 0u) {
+        const FE t2 = feAdd(feMul(A, W), feMul(z, WD));
+        return FE{t2.m, t2.e + 1};
+    }
+    return feAdd(feMul(fPrime2X(z), feMul(A, W)), feMul(fPrimeX(z), WD));
+}
+
+// Probe: F'' of f^P, F'' <- f'(z) F'' + f''(z) lambda^2 (float32: f'' times the alignment sc).
+static inline float2 fProbeF2(float2 z, float2 z2, float2 f, float2 l, float sc) {
+    if (kFormula == 0u) return cmul(z2, f) + (2.0f * sc) * cmul(l, l);
+    return cmul(z2, f) + sc * cmul(fPrime2(z), cmul(l, l));
+}
+
+static inline FE fProbeF2X(FE zf, FE z2, FE fzz, FE lam) {
+    if (kFormula == 0u) return feAdd(feMul(z2, fzz), feTwice(feMul(lam, lam)));
+    return feAdd(feMul(z2, fzz), feMul(fPrime2X(zf), feMul(lam, lam)));
+}
+
+// Interior cycle analysis: d2z/dc dz' = f'(z) cz + f''(z) dc lambda, d2z/dz2' = f''(z) lambda^2
+// + f'(z) zz (z2 = f'(z)).
+static inline FE fIcCZ(FE zf, FE z2, FE cz, FE dcx, FE lam) {
+    if (kFormula == 0u) return feAdd(feMul(z2, cz), feMul(feTwice(dcx), lam));
+    return feAdd(feMul(z2, cz), feMul(feMul(fPrime2X(zf), dcx), lam));
+}
+
+static inline FE fIcZZ(FE zf, FE z2, FE zz, FE lam) {
+    if (kFormula == 0u) return feAdd(feMul(feTwice(lam), lam), feMul(z2, zz));
+    return feAdd(feMul(feMul(fPrime2X(zf), lam), lam), feMul(z2, zz));
+}
+
 // After the delta's exponent e changed: s = 2^e and dd = c 2^-e for the scaled step. A delta
 // far below |c| (2^-60) is re-expressed relative to c's exponent `ce`, so dd stays in range.
 static inline void deepRescale(thread float2& w, thread int& e, thread float& s, thread float2& dd,
@@ -920,11 +1069,10 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
             }
             const FE Zx = refAt(refx, m);
             const FE z = feAdd(Zx, dz);
-            const FE z2 = FE{z.m, z.e + 1};
+            const FE z2 = fPrimeX(z);
             const FE A2 = feAdd(feMul(z2, A), TS);
-            const FE t = feAdd(feMul(A, A), feMul(z, B));
-            const FE B2 = FE{t.m, t.e + 1};
-            const FE dz2 = feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, dz), dz), C);
+            const FE B2 = fSeedBX(z, A, B);
+            const FE dz2 = fStepX(Zx, dz, C);
             const FE zn = feAdd(refAt(refx, m + 1), dz2);
             steps++;
             if (zn.e > 0) {
@@ -939,8 +1087,7 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
                 if (l < icMin) { icMin = l; icQ = n; }
             }
             if (kInterior && n != 0) {   // (w_1 = 1, see the plain path)
-                const FE t2 = feAdd(feMul(A, W), feMul(z, WD));
-                WD = FE{t2.m, t2.e + 1};
+                WD = fSeedWDX(z, A, W, WD);
                 W = feMul(z2, W);
             }
             dz = dz2; A = A2; B = B2;
@@ -1033,9 +1180,9 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
             }
             const float2 Z = ref[m];
             const float2 z = Z + dz;
-            const float2 A2 = 2.0f * cmul(z, A) + float2(ts, 0.0f);
-            const float2 B2 = 2.0f * (cmul(A, A * invTs) + cmul(z, B));
-            const float2 dz2 = cmul(2.0f * Z + dz, dz) + dcf;
+            const float2 A2 = fMulPrime(z, A) + float2(ts, 0.0f);
+            const float2 B2 = fSeedB(z, A, B, invTs);
+            const float2 dz2 = fStep(Z, dz, dz, dcf);
             const float2 zn = ref[m + 1] + dz2;
             steps++;
             const float r2 = dot(zn, zn);
@@ -1053,9 +1200,8 @@ kernel void seedLevel(constant IterateParams& p    [[buffer(0)]],
             // (w_1 = 1: the step from z_0 = 0 would zero it, as in the pixel loop's first step.)
             if (kInterior && n != 0) {
                 const FE zf = feNorm(z, 0);
-                const FE t2 = feAdd(feMul(feNorm(A, 0), W), feMul(zf, WD));
-                WD = FE{t2.m, t2.e + 1};
-                W = feMul(FE{zf.m, zf.e + 1}, W);
+                WD = fSeedWDX(zf, feNorm(A, 0), W, WD);
+                W = feMul(fPrimeX(zf), W);
             }
             dz = dz2; A = A2; B = B2;
             m++; n++;
@@ -1129,6 +1275,7 @@ kernel void seedGate(device const SeedNode* nodes [[buffer(18)]],
 
 // Perturbation: z = Z + dz, with Z the reference orbit.
 //   dz_{n+1} = 2 Z_n dz_n + dz_n^2 + dc = (2 Z_n + dz_n) dz_n + dc
+// (Mandelbrot; every step and derivative goes through the formula hooks, kb: plans/f2-pluggable-formulas.)
 // Rebasing: when |Z_m + dz| < |dz|, or the reference runs out, continue from the start of
 // the reference with dz := Z_m + dz. One reference then suffices (no glitch detection).
 //
@@ -1498,8 +1645,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (n >= p.maxIter || budget == 0) { done = true; break; }
                     if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
                     if (kLA && m == laLook && n != lookedAt) break;
-                    if (kDE) dm = 2.0f * cmul(z, dm) + tsd;
-                    if (kInterior) zw = 2.0f * cmul(z, zw);
+                    if (kDE) dm = fMulPrime(z, dm) + tsd;
+                    if (kInterior) zw = fMulPrime(z, zw);
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
                     // would overflow the DE mantissa within 8 steps; R5.)
                     if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f
@@ -1526,7 +1673,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             }
                         }
                     }
-                    w = cmul(2.0f * Z + w, w) + dd;
+                    w = fStep(Z, w, w, dd);
                     m++;
                     n++;
                     budget--;
@@ -1573,16 +1720,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
                         if (kDE) {
-                            FE dx = feAdd(feMul(FE{zf.m, zf.e + 1}, feNorm(dm, dExp)), TS);
+                            FE dx = feAdd(feMul(fPrimeX(zf), feNorm(dm, dExp)), TS);
                             dm = dx.m; dExp = dx.e;
                             tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
                         }
                         if (kInterior) {
-                            FE wx = feMul(FE{zf.m, zf.e + 1}, feNorm(zw, wExp));
+                            FE wx = feMul(fPrimeX(zf), feNorm(zw, wExp));
                             zw = wx.m; wExp = wx.e;
                         }
-                        // z <- (2Z + z) z + c in floatexp.
-                        zx = feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
+                        // z <- (2Z + z) z + c in floatexp (the formula's step).
+                        zx = fStepX(Zx, zx, C);
                         m++;
                         n++;
                         budget--;
@@ -1611,8 +1758,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     const float2 sw = s * w;
                     const float2 zf = Z + sw;
                     IC_TRACK(dot(zf, zf), n)
-                    if (kDE) dm = 2.0f * cmul(zf, dm) + tsd;
-                    if (kInterior) zw = 2.0f * cmul(zf, zw);
+                    if (kDE) dm = fMulPrime(zf, dm) + tsd;
+                    if (kInterior) zw = fMulPrime(zf, zw);
                     if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f) {
                         if (kDE) {
                             float a = max(abs(dm.x), abs(dm.y));
@@ -1636,7 +1783,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             }
                         }
                     }
-                    w = cmul(2.0f * Z + sw, w) + dd;
+                    w = fStep(Z, sw, w, dd);
                     m++;
                     n++;
                     budget--;
@@ -1846,9 +1993,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
-                if (kDE) d = 2.0f * cmul(z, d) + tsDelta;
+                if (kDE) d = fMulPrime(z, d) + tsDelta;
                 if (kInterior) {
-                    w = 2.0f * cmul(z, w);
+                    w = fMulPrime(z, w);
                 }
                 // Test and rescale only every 8th iteration: half the extra cost of the
                 // derivative test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4
@@ -1868,7 +2015,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         break;
                     }
                 }
-                dz = cmul(2.0f * ref[m] + dz, dz) + dc;
+                dz = fStep(ref[m], dz, dz, dc);
                 m++;
                 n++;
                 z = ref[m] + dz;
@@ -2108,10 +2255,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     info = (info & (15u << 26)) | (used - scan0);
                 }
                 // F'' first (old lambda), then lambda, then the step.
-                const FE z2 = feTwice(zf);
-                fzz = feAdd(feMul(z2, fzz), feTwice(feMul(lam, lam)));
+                const FE z2 = fPrimeXT(zf);
+                fzz = fProbeF2X(zf, z2, fzz, lam);
                 lam = feMul(z2, lam);
-                dzx = feAdd(feMul(feAdd(feTwice(Zx), dzx), dzx), C);
+                dzx = fStepXT(Zx, dzx, C);
                 m++;
                 k++;
                 used++;
@@ -2248,17 +2395,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     info = (info & (15u << 26)) | (used - scan0);
                 }
                 // F'' first (old lambda; f aligned to l's exponent), then lambda, then the step.
-                const float2 z2 = 2.0f * z;
+                const float2 z2 = fPrime(z);
                 if (f.x == 0.0f && f.y == 0.0f) fe = 2 * le;
                 int sh = 2 * le - fe;
                 if (sh > 100) { f = 0.0f; fe = 2 * le; sh = 0; }
-                f = cmul(z2, f) + (2.0f * pow2f(max(sh, -127))) * cmul(l, l);
+                f = fProbeF2(z, z2, f, l, pow2f(max(sh, -127)));
                 l = cmul(z2, l);
                 const float al = max(abs(l.x), abs(l.y));
                 if (al > 0x1p30f || (al < 0x1p-30f && al > 0.0f)) { const int t = expOf(al); l = scale2(l, -t); le += t; }
                 const float af = max(abs(f.x), abs(f.y));
                 if (af > 0x1p30f || (af < 0x1p-30f && af > 0.0f)) { const int t = expOf(af); f = scale2(f, -t); fe += t; }
-                dz = cmul(2.0f * Z + dz, dz) + dc;
+                dz = fStep(Z, dz, dz, dc);
                 m++;
                 k++;
                 used++;
@@ -2359,13 +2506,13 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             }
             float zl = length(zf.m);
             minLog2 = min(minLog2, zl > 0.0f ? log2(zl) + float(zf.e) : -1e30f);
-            const FE z2 = feTwice(zf);
+            const FE z2 = fPrimeXT(zf);
             // Old values on the right (derivatives first, then z).
-            cz = feAdd(feMul(z2, cz), feMul(feTwice(dcx), lam));
-            zz = feAdd(feMul(feTwice(lam), lam), feMul(z2, zz));
+            cz = fIcCZ(zf, z2, cz, dcx, lam);
+            zz = fIcZZ(zf, z2, zz, lam);
             dcx = feAdd(feMul(z2, dcx), TS);
             lam = feMul(z2, lam);
-            dzx = feAdd(feMul(feAdd(feTwice(Zx), dzx), dzx), C);
+            dzx = fStepXT(Zx, dzx, C);
             m++;
             n++;
             k++;
