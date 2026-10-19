@@ -1690,20 +1690,35 @@ impl Navigator {
         self.last_interaction = now;
     }
 
+    /// Every held input lets go as if released, because its release may never arrive
+    /// (`InputEvent::FocusLost`: the app or window lost focus, the view left its window, the app
+    /// went to the background; kb: decisions/controls "Held input"): keys, Shift, the pedals
+    /// (the cruise keeps its gear, as after a key-up), the gamepad, a mouse drag or finger (no
+    /// fling: the motion it made glides out on its springs only), the touch throttle and twist.
+    /// Motion already under way eases out, so the view settles and the display link pauses.
     pub fn release_all(&mut self) {
+        self.release_holds();
+        self.shift = false;
+        self.pinched = false;
+        self.finger = None;
+        self.touch = None;
+        self.gesture.clear();
+        self.throttle_rest = None;
+        self.twist = Some(0.0);
+    }
+
+    /// The holds that drive motion on their own each frame (held keys, a held pedal, a
+    /// deflected gamepad) let go.
+    fn release_holds(&mut self) {
         self.up = false;
         self.down = false;
         self.left = false;
         self.right = false;
         self.zoom = false;
-        self.shift = false;
         self.rot_ccw = false;
         self.rot_cw = false;
         self.pad = GamepadState::default();
         self.pedal_hold = None;
-        self.pinched = false;
-        self.finger = None;
-        self.touch = None;
     }
 
     /// The wish a lifted finger left in A has done its work: the autopilot's settled wish points
@@ -1718,15 +1733,18 @@ impl Navigator {
         agrees || now - lifted >= 2.0 * autopilot::WISH_SETTLE
     }
 
-    /// Stops all motion at once (Reset, a new flight).
     /// A jump to a given view (pasted coordinates, a link, a place): everything that moves
     /// stops dead and a journey ends, so the new view is not carried off by the old motion (the
-    /// user's request). Settings (speeds, lane assist) stay.
+    /// user's request). Held keys, a held pedal and the gamepad let go too (a held E would
+    /// otherwise start a new cruise at once; kb: decisions/controls "Held input"): a key still
+    /// down moves again on its next press. Settings (speeds, lane assist) stay.
     pub fn jumped(&mut self) {
         self.stop_motion();
         self.journey.stop();
+        self.release_holds();
     }
 
+    /// Stops all motion at once (Reset, a new flight).
     fn stop_motion(&mut self) {
         self.autopilot.halt();
         self.cruise.halt();
@@ -5803,5 +5821,155 @@ mod tests {
         assert_eq!(n.seek_status(0.0).0, SeekPhase::Searching);
         assert!(!n.is_animating(), "a search is not motion");
         assert!(n.wants_frames(), "but it needs frames to be polled");
+    }
+
+    // Held input whose release never arrives (kb: decisions/controls "Held input"): a key-up
+    // the inactive app never gets, a mouse-up after the window lost key, a touch cancelled
+    // with the app going to the background. `FocusLost` lets go of everything as a release
+    // would, and the view settles.
+
+    /// Each held key (W A S D, Space, the turn keys): after `FocusLost` the view goes exactly
+    /// where a key-up at that moment takes it, without a fling, and settles.
+    #[test]
+    fn focus_lost_releases_each_held_key_and_settles() {
+        let keys = [
+            NavKey::Up,
+            NavKey::Down,
+            NavKey::Left,
+            NavKey::Right,
+            NavKey::Zoom,
+            NavKey::RotateCcw,
+            NavKey::RotateCw,
+        ];
+        for k in keys {
+            let (mut n, mut v) = setup();
+            let (mut twin, mut tv) = setup();
+            for (m, vv) in [(&mut n, &mut v), (&mut twin, &mut tv)] {
+                m.handle(InputEvent::KeyDown(k), vv, 0.0);
+                run(m, vv, 0.0, 0.5, 60.0);
+            }
+            assert!(n.is_moving(), "{k:?} moves while held");
+            n.handle(InputEvent::FocusLost, &mut v, 0.5);
+            twin.handle(InputEvent::KeyUp(k), &mut tv, 0.5);
+            assert_eq!(n.fling, (0.0, 0.0), "{k:?}: no fling");
+            assert_eq!(n.held_count(), 0);
+            run(&mut n, &mut v, 0.5, 4.0, 60.0);
+            run(&mut twin, &mut tv, 0.5, 4.0, 60.0);
+            assert_eq!(v, tv, "{k:?}: FocusLost acts as the key-up");
+            assert!(!n.is_moving() && !n.is_animating(), "{k:?}: settled");
+        }
+    }
+
+    /// A held pedal (E from rest starts a cruise and climbs a rung every 0.15 s): after
+    /// `FocusLost` it climbs no further and the cruise keeps the gear it had, as after a key-up;
+    /// Esc then stops it and the view settles. The same for Q held in a cruise.
+    #[test]
+    fn focus_lost_releases_a_held_pedal() {
+        for (k, set0) in [(NavKey::FasterZoom, None), (NavKey::SlowerZoom, Some(10))] {
+            let (mut n, mut v) = setup();
+            let (mut twin, mut tv) = setup();
+            for (m, vv) in [(&mut n, &mut v), (&mut twin, &mut tv)] {
+                if let Some(g) = set0 {
+                    m.handle(InputEvent::SetGear { gear: g }, vv, 0.0);
+                }
+                m.handle(InputEvent::KeyDown(k), vv, 0.0);
+                run(m, vv, 0.0, 1.0, 60.0);
+            }
+            n.handle(InputEvent::FocusLost, &mut v, 1.0);
+            twin.handle(InputEvent::KeyUp(k), &mut tv, 1.0);
+            assert!(n.pedal_hold.is_none(), "{k:?}");
+            let set = n.cruise().set_speed();
+            assert_eq!(n.level(), Level::Cruise, "{k:?}");
+            run(&mut n, &mut v, 1.0, 3.0, 60.0);
+            run(&mut twin, &mut tv, 1.0, 3.0, 60.0);
+            assert_eq!(n.cruise().set_speed(), set, "{k:?}: the gear stays");
+            assert_eq!(v, tv, "{k:?}: FocusLost acts as the key-up");
+            n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, 3.0);
+            n.handle(InputEvent::KeyUp(NavKey::Stop), &mut v, 3.0);
+            run(&mut n, &mut v, 3.0, 8.0, 60.0);
+            assert!(!n.is_moving() && !n.is_animating(), "{k:?}: settled after Esc");
+        }
+    }
+
+    /// A mouse drag whose mouse-up never came: no fling at `FocusLost`, none either from a
+    /// late `GestureEnd`, and the view stays where the drag left it.
+    #[test]
+    fn focus_lost_ends_a_drag_without_a_fling() {
+        let (mut n, mut v) = setup();
+        let mut t = 0.0;
+        for _ in 0..12 {
+            t += 1.0 / 60.0;
+            n.handle(InputEvent::Pan { dx: 20.0, dy: 0.0 }, &mut v, t);
+            n.advance(&mut v, t);
+        }
+        n.handle(InputEvent::FocusLost, &mut v, t);
+        n.handle(InputEvent::GestureEnd, &mut v, t + 0.001);
+        assert_eq!(n.fling, (0.0, 0.0));
+        let before = v.clone();
+        run(&mut n, &mut v, t, t + 1.0, 60.0);
+        assert_eq!(v, before);
+        assert!(!n.is_moving());
+    }
+
+    /// A deflected gamepad stick and trigger: `FocusLost` centres them (the motion eases out).
+    #[test]
+    fn focus_lost_centres_the_gamepad() {
+        let (mut n, mut v) = setup();
+        let pad = InputEvent::Gamepad {
+            lx: 0.9,
+            ly: 0.0,
+            rx: 0.0,
+            ry: 0.0,
+            lt: 0.0,
+            rt: 0.8,
+            boost: false,
+        };
+        n.handle(pad, &mut v, 0.0);
+        run(&mut n, &mut v, 0.0, 0.5, 60.0);
+        assert!(n.is_moving());
+        n.handle(InputEvent::FocusLost, &mut v, 0.5);
+        run(&mut n, &mut v, 0.5, 4.0, 60.0);
+        assert!(!n.is_moving() && !n.is_animating());
+    }
+
+    /// A steering finger in the cruise and a touch throttle drag that braked to zero, cancelled
+    /// by the app leaving the screen: the finger steers no more, the throttle's rest is gone,
+    /// the cruise keeps its gear; Esc and the view settles.
+    #[test]
+    fn focus_lost_lets_go_of_a_finger() {
+        let (mut n, mut v) = setup();
+        n.handle(InputEvent::SetGear { gear: 5 }, &mut v, 0.0);
+        let t = rest_finger(&mut n, &mut v, 200.0, 0.0, 0.0);
+        assert!(n.touch.is_some() && n.finger.is_some(), "the finger steers");
+        let set = n.cruise().set_speed();
+        n.handle(InputEvent::FocusLost, &mut v, t);
+        assert!(n.touch.is_none() && n.finger.is_none() && n.throttle_rest.is_none());
+        assert_eq!(n.cruise().set_speed(), set);
+        // The touch's later cancellation changes nothing.
+        n.handle(InputEvent::FingerUp { cancelled: true }, &mut v, t + 0.01);
+        n.handle(InputEvent::TouchesLifted, &mut v, t + 0.01);
+        n.handle(InputEvent::KeyDown(NavKey::Stop), &mut v, t + 0.1);
+        run(&mut n, &mut v, t + 0.1, t + 6.0, 60.0);
+        assert!(!n.is_moving() && !n.is_animating(), "settled");
+    }
+
+    /// A jump (pasted coordinates, a link, a place) with E or W still held: nothing moves on,
+    /// no cruise starts from the held pedal (it stepped again after 0.4 s before), and the
+    /// key-ups arriving later change nothing.
+    #[test]
+    fn a_jump_lets_go_of_held_keys_and_pedals() {
+        for k in [NavKey::FasterZoom, NavKey::Up, NavKey::Zoom] {
+            let (mut n, mut v) = setup();
+            n.handle(InputEvent::KeyDown(k), &mut v, 0.0);
+            run(&mut n, &mut v, 0.0, 0.2, 60.0);
+            n.jumped();
+            let jumped_to = v.clone();
+            assert!(!n.is_moving(), "{k:?}");
+            run(&mut n, &mut v, 0.2, 2.0, 60.0);
+            assert_eq!(n.level(), Level::Manual, "{k:?}");
+            assert!(!n.is_moving() && v == jumped_to, "{k:?}: still");
+            n.handle(InputEvent::KeyUp(k), &mut v, 2.0);
+            assert!(!n.is_moving(), "{k:?}");
+        }
     }
 }

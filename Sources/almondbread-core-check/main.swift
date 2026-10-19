@@ -110,6 +110,35 @@ func settle(_ limit: Int) {
         Thread.sleep(forTimeInterval: 0.001)
     }
 }
+// A held key whose key-up never arrives (kb: decisions/controls "Held input"): a held E climbs
+// the cruise's gears; focus lost (⌘-Tab: the inactive app gets no key-up) lets go, so the gear
+// stops climbing and the cruise keeps it as after a key-up; Esc then stops it and the view settles.
+// First, while the frame clock is real time (settle's timestamps run ahead of it, and the pedal's
+// hold repeat then climbs up to 16 rungs a frame).
+func refreshes(for seconds: Double) {
+    let until = CACurrentMediaTime() + seconds
+    while CACurrentMediaTime() < until {
+        t = max(t + 1.0 / 120, CACurrentMediaTime())
+        _ = explorer.frame(timestamp: t)
+        Thread.sleep(forTimeInterval: 1.0 / 120)
+    }
+}
+_ = explorer.input(event: .keyDown(key: .fasterZoom))
+refreshes(for: 0.8)
+let climbed = explorer.cruiseStatus().gear
+check(climbed >= 2, "a held E climbs the gears: \(explorer.cruiseStatus())")
+check(explorer.input(event: .focusLost).handled, "focus lost handled")
+let gearAtLoss = explorer.cruiseStatus().gear
+refreshes(for: 0.6)
+check(explorer.cruiseStatus().gear == gearAtLoss && explorer.stats().cruise.level == .cruise,
+      "focus lost lets go of the held E (gear \(gearAtLoss) kept): \(explorer.cruiseStatus())")
+check(explorer.input(event: .keyDown(key: .stop)).handled, "Esc stops the cruise after focus lost")
+_ = explorer.input(event: .keyUp(key: .stop))
+let heldFrames = frames
+settle(6000)
+check(explorer.stats().settled && explorer.finishFrames() == 0 && explorer.stats().cruise.level == .manual,
+      "E held, focus lost, Esc: not settled after \(frames - heldFrames) frames")
+print("held input: E climbed to gear \(climbed), focus lost kept gear \(gearAtLoss), settled after \(frames - heldFrames) frames")
 settle(6000)
 check(explorer.stats().settled && explorer.finishFrames() == 0, "explorer did not settle in \(frames) frames")
 // Pointer / keyboard modes through the bindings: a direction key switches to keyboard mode,
