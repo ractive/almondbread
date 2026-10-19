@@ -657,6 +657,8 @@ struct OverlaySectionRows: View {
                 ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
             }
         }
+        Toggle("Julia set of that point", isOn: $model.juliaEnabled)
+            .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside (U)")
         CosmicScaleRows(model: model)
         Toggle("Always show compass", isOn: $model.compassAlways)
             .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
@@ -1041,7 +1043,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
-        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed"]
+        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "julia", "fatou", "connected", "dust", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed"]
         case .quality: ["iterations", "auto", "maximum", "cap", "upper limit", "anti-aliasing", "aa", "samples", "preview", "quality"]
         case .controls: ["keys", "keyboard", "shortcuts", "mouse", "trackpad", "help", "gamepad"]
         }
@@ -1058,7 +1060,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
         case .lighting: "Lighting, outline and glow use the distance estimate (a little GPU work per iteration)."
         case .interior: "Interior colourings analyse each interior pixel's attracting cycle on the GPU (period, multiplier, distance) at any depth; switching between them recolours instantly, switching from flat renders the view again."
-        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The size scale compares the view with real things. O, M and C toggle them. The target marker rings where the autopilot or a journey is heading. The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
+        case .overlays: "The orbit follows the pointer (the crosshair in keyboard mode): c as a ring, then z₁…zₙ. Click a mini-map to jump there at the current zoom. The Julia panel shows the Julia set of the orbit's point. The size scale compares the view with real things. O, M, U and C toggle them. The target marker rings where the autopilot or a journey is heading. The HUD shows the zoom, the centre and the speed, and the cockpit at the bottom the driving level (M manual, C cruise, A autopilot, J journey), the speed gauge and lane assist; its developer details add the renderer's statistics."
         case .quality: "While you move, each frame renders as much as fits in a refresh; at rest the view refines and gathers anti-aliasing samples near the boundary."
         default: nil
         }
@@ -1478,6 +1480,7 @@ struct ControlsHelp: View {
         row("road.lanes", "L", "Lane assist in cruise: keeps you out of featureless areas")
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
+        row("seal", "U", "Julia set of the orbit's point")
         row("airplane", "Z", "Autopilot; steering hands over to cruise, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
@@ -1499,11 +1502,11 @@ struct ControlsHelp: View {
         row("keyboard", "Keyboard: W A S D / arrows", "Pan; zoom at the centre")
         row("space", "Keyboard: Space / ⇧Space", "Zoom")
         row("gauge.with.dots.needle.33percent", "Keyboard: E / Q, L, N, G", "Cruise in / out, lane assist, seek minibrot, continue")
-        row("map", "Keyboard: O / M", "Orbit overlay / mini-map")
+        row("map", "Keyboard: O / M / U", "Orbit overlay / mini-map / Julia set")
         row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "The knob is the gear: up in, down out, middle stops; tap a notch or a chevron; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
-        row("circle.circle", "Round buttons", "Orbit, mini-map, size scale on / off; fly to; control center")
+        row("circle.circle", "Round buttons", "Orbit, mini-map, Julia set (iPad), size scale on / off; fly to; control center")
         row("airplane", "Cockpit plane or Z", "Flies by itself; a resting finger suggests a direction, a tap pauses")
         row("hand.point.up.left", "Rest a finger while flying", "Steer towards it while it stays down (a journey hands over to cruise)")
         row("hand.draw", "Swipe while flying", "Move the picture; the zoom goes on")

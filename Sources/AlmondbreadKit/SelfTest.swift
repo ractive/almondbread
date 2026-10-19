@@ -358,6 +358,24 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 2
             model.cosmicScale = true
+        case "julia", "julia-deep":
+            // The Julia panel (kb: plans/f1-julia-view) at the end of the map row, the orbit on
+            // the Douady rabbit's c (the top bulb's centre), the maps at their default three
+            // levels; `-deep`: at 1e-9 in seahorse valley, the maps' deeper levels and the panel
+            // of the pointer's c (inside a period-39 component there).
+            if scene == "julia" {
+                try? explorer.setViewport(re: "-0.5", im: "0.1", scale: 0.0035)
+                _ = explorer.input(event: .pointer(x: (-0.122561166876654 + 0.5) / 0.0035,
+                                                   y: (0.744861766619744 - 0.1) / 0.0035))
+            } else {
+                try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
+                _ = explorer.input(event: .pointer(x: 150, y: -80))
+            }
+            model.orbitEnabled = true
+            model.orbitLength = 60
+            model.mapEnabled = true
+            model.mapLevels = 3
+            model.juliaEnabled = true
         case "cosmic-deep":
             try? explorer.setViewportText(
                 re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",

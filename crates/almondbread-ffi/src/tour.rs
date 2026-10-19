@@ -103,6 +103,8 @@ pub struct TourStepInfo {
     pub orbit_length: u32,
     pub map: bool,
     pub map_levels: u32,
+    /// The Julia companion panel.
+    pub julia: bool,
     pub cosmic: bool,
     pub pi_meter: bool,
     pub compass: bool,
@@ -173,6 +175,7 @@ fn info(
         orbit_length: snap.overlay.orbit_length as u32,
         map: snap.overlay.map,
         map_levels: snap.overlay.map_levels as u32,
+        julia: snap.overlay.julia,
         cosmic: snap.cosmic,
         pi_meter: snap.pi_meter,
         compass: snap.compass,

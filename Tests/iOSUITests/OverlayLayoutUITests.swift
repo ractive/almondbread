@@ -38,7 +38,12 @@ final class OverlayLayoutUITests: XCTestCase {
         return out
     }
 
-    static let roundButtons = ["Orbit", "Mini-map", "Size scale", "Fly to", "Control center"]
+    /// The round buttons; the iPad's top row also has the Julia panel's.
+    static var roundButtons: [String] {
+        UIDevice.current.userInterfaceIdiom == .pad
+            ? ["Orbit", "Mini-map", "Julia set", "Size scale", "Fly to", "Control center"]
+            : ["Orbit", "Mini-map", "Size scale", "Fly to", "Control center"]
+    }
 
     /// A round button by its label (`app.buttons[name]` matches identifiers only: before
     /// 2026-10-19 this file found none and checked nothing against them).
@@ -118,9 +123,38 @@ final class OverlayLayoutUITests: XCTestCase {
         if let cockpit = p["cockpit"] {
             var others = c
             if let maps = p["maps"] { others["maps"] = maps }
+            if let julia = p["julia"] { others["julia"] = julia }
             assertClear("cockpit", cockpit, of: others, context)
         }
         if let maps = p["maps"] { assertClear("maps", maps, of: c, context) }
+        if let julia = p["julia"] {
+            var others = c
+            if let maps = p["maps"] { others["maps"] = maps }
+            assertClear("julia", julia, of: others, context)
+        }
+    }
+
+    /// The Julia panel (kb: plans/f1-julia-view) at the end of the map row with the orbit and
+    /// three map levels: the panel, the maps and the cockpit clear of each other, the HUD, the
+    /// round buttons and the throttle, in portrait and on its side (on a phone the panel takes
+    /// the place of the deeper levels; on its side it is the only panel of the row).
+    func testJuliaPanelKeepsClearOfTheControls() {
+        app.launchArguments = ["--ui-demo=julia"]
+        app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")
+        let close = app.buttons["control-center-close"]
+        if close.waitForExistence(timeout: 5) { close.tap() }
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            settle(5)
+            let name = orientation == .portrait ? "portrait" : "landscape"
+            shot("layout-julia-\(name)")
+            let p = panels()
+            XCTAssertNotNil(p["julia"], "\(name): no Julia panel in \(p)")
+            XCTAssertNotNil(p["cockpit"], "\(name): no cockpit in \(p)")
+            assertPanelsClear(p, name)
+        }
+        app.terminate()
     }
 
     /// The mini-map at its default three levels, no other panel: the map row (fewer or

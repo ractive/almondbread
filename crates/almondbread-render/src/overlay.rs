@@ -8,6 +8,8 @@
 //! The maps are rendered by small renderers of their own (one per level, at the panel's pixel
 //! size), stepped only while the main view is not in a gesture, with short chunks, so they
 //! never take the gesture frame budget; each level is kept until the view leaves its area.
+//! The Julia panel (kb: plans/f1-julia-view, [`crate::julia`]) is one more panel at the end of
+//! the map row, the Julia set of the orbit's point, drawn by its own kernel.
 
 use std::cell::Cell;
 use std::sync::Arc;
@@ -569,6 +571,69 @@ pub(crate) fn fit_maps(
     fit(1, map_size.min(avail).max(min_w.min(80.0)))
 }
 
+/// The map row's wishes: map levels (the setting's with the mini-map on, the whole-set map for
+/// the orbit alone; at most three with the Julia panel, whose picture takes the overlay kernel's
+/// fourth map texture) and panels in all (plus the Julia panel; at least one).
+pub(crate) fn row_wants(s: &OverlaySettings) -> (usize, usize) {
+    let maps = if s.map { s.map_levels } else { usize::from(s.orbit) };
+    let maps = if s.julia { maps.min(3) } else { maps };
+    (maps, (maps + usize::from(s.julia)).max(1))
+}
+
+/// Map levels in a row of `fit` panels: the Julia panel keeps its place, the deepest levels
+/// go first.
+pub(crate) fn row_map_levels(fit: usize, map_slots: usize, julia: bool) -> usize {
+    fit.saturating_sub(usize::from(julia)).min(map_slots)
+}
+
+/// Top-left pixels of the first `n` panels of the map row (`panel` pixels each) from the
+/// chosen corner: clear of the toolbar and a sidebar over the canvas (safe-area `insets`,
+/// points) and of the platform's controls (`fit`). The maps come first, the Julia panel after
+/// them.
+pub(crate) fn row_origins(
+    n: usize,
+    corner: Corner,
+    panel: (usize, usize),
+    size: (usize, usize),
+    insets: (f64, f64, f64, f64),
+    fit: &MapFit,
+    px_per_pt: f64,
+) -> Vec<[f32; 2]> {
+    let margin = (MAP_MARGIN * px_per_pt) as f32;
+    let gap = (MAP_GAP * px_per_pt) as f32;
+    let (pw, ph) = (panel.0 as f32, panel.1 as f32);
+    let (w, h) = (size.0 as f32, size.1 as f32);
+    let (top, left, bottom, right) = insets;
+    let px = |v: f64| (v * px_per_pt) as f32;
+    let (x0, x1) = (px(left.max(0.0)) + margin, w - px(right.max(0.0) + fit.right) - margin);
+    let (y0, y1) = (px(top.max(0.0) + fit.top) + margin, h - px(bottom.max(0.0)) - margin);
+    (0..n)
+        .map(|i| {
+            let off = i as f32 * (pw + gap);
+            match corner {
+                Corner::BottomLeft => [x0 + off, y1 - ph],
+                Corner::BottomRight => [x1 - pw - off, y1 - ph],
+                Corner::TopLeft => [x0 + off, y0],
+                Corner::TopRight => [x1 - pw - off, y0],
+            }
+        })
+        .collect()
+}
+
+/// `re ± im·i` with four decimals (the Julia panel's value of k), a true minus sign.
+pub fn complex_text(k: (f64, f64)) -> String {
+    let num = |v: f64| {
+        let t = format!("{:.4}", v.abs());
+        if v < 0.0 && t.chars().any(|c| c.is_ascii_digit() && c != '0') {
+            format!("\u{2212}{t}")
+        } else {
+            t
+        }
+    };
+    let sign = if k.1 < 0.0 { "\u{2212}" } else { "+" };
+    format!("{} {sign} {}i", num(k.0), num(k.1.abs()))
+}
+
 fn full_set_view(w: usize, h: usize) -> Viewport {
     let s = (3.2 / w as f64).max(2.6 / h as f64);
     Viewport::new(-0.7, 0.0, s)
@@ -738,12 +803,17 @@ pub struct Overlay<B: GpuBackend> {
     /// The panels' help badges as laid out in the last scene (kb: decisions/controls "Help").
     pub help: Vec<crate::help::HelpBadge>,
     /// The panels as laid out in the last scene (pixels: x0, y0, x1, y1): `cosmic`, `cockpit`,
-    /// `pi`, `pi-trail`, `maps` (bottom left). UI tests check they keep clear of each other and
-    /// of the platform's controls.
+    /// `pi`, `pi-trail`, `maps` (the map panels), `julia`. UI tests check they keep clear of each
+    /// other and of the platform's controls.
     pub panels: Vec<(&'static str, [f32; 4])>,
     drawn_cosmic: Cell<Option<[f32; 4]>>,
     drawn_cockpit: Cell<Option<[f32; 4]>>,
     drawn_maps: Cell<Option<[f32; 4]>>,
+    drawn_julia: Cell<Option<[f32; 4]>>,
+    /// The Julia companion panel (kb: plans/f1-julia-view): its picture, and where it sits in
+    /// the map row (top-left pixel, panel pixels) while it is on.
+    pub julia: crate::julia::JuliaPanel<B>,
+    julia_at: Option<([f32; 2], (usize, usize))>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -776,6 +846,9 @@ impl<B: GpuBackend> Default for Overlay<B> {
             drawn_cosmic: Cell::new(None),
             drawn_cockpit: Cell::new(None),
             drawn_maps: Cell::new(None),
+            drawn_julia: Cell::new(None),
+            julia: Default::default(),
+            julia_at: None,
         }
     }
 }
@@ -887,6 +960,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// frames coming.
     pub fn busy(&self) -> bool {
         self.pi.busy()
+            || (self.julia_at.is_some() && self.julia.busy())
             || self.probe.as_ref().is_some_and(|p| !p.done())
             || self.snap.is_some()
             || self
@@ -925,6 +999,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             None => self.trail = None,
         }
         let empty = size.0 == 0 || size.1 == 0 || ppp <= 0.0;
+        if !s.julia || empty {
+            self.julia.clear();
+            self.julia_at = None;
+        }
         if !s.any() || empty {
             self.maps = None;
             self.probe = None;
@@ -956,10 +1034,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.probe = None;
             self.probe_key = None;
         }
-        // ---- Maps (the orbit overlay shows the whole-set map too).
-        let want_levels = if s.map { s.map_levels } else { 1 };
+        // ---- Maps (the orbit overlay shows the whole-set map too) and the Julia panel at the
+        // end of their row. The overlay kernel binds four map textures: with the Julia panel on,
+        // at most three map levels.
+        let (map_slots, want_levels) = row_wants(&s);
         // Fewer or narrower panels where the platform's controls or the cockpit leave no room
-        // (kb: decisions/controls "Mini-map on small screens").
+        // (kb: decisions/controls "Mini-map on small screens"). The Julia panel keeps its place
+        // and the deepest map levels go first (one panel's room: the Julia panel alone).
         let fit = fit_maps(
             want_levels,
             s.map_size,
@@ -975,13 +1056,40 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             ((fit.width * px_per_pt).round() as usize).clamp(32, 4096),
             ((fit.width * MAP_ASPECT * px_per_pt).round() as usize).clamp(24, 4096),
         );
-        if s.any()
-            && let Err(e) = self.update_maps(renderer, &view, &fit, panel, size, &s, px_per_pt)
+        let map_fit = MapFit {
+            levels: row_map_levels(fit.levels, map_slots, s.julia),
+            ..fit
+        };
+        if map_fit.levels == 0 {
+            self.maps = None;
+        } else if s.any()
+            && let Err(e) = self.update_maps(renderer, &view, &map_fit, panel, size, &s, px_per_pt)
         {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
         }
         self.update_cloud(renderer, &s);
+        if s.julia && !empty {
+            let n = self.maps.as_ref().map_or(0, |m| m.levels.len());
+            let origin = row_origins(
+                n + 1,
+                s.map_corner,
+                panel,
+                size,
+                renderer.navigator.insets(),
+                &fit,
+                px_per_pt,
+            )[n];
+            self.julia_at = Some((origin, panel));
+            let k = self.probe_c(renderer, &view);
+            let settings = renderer.settings.clone();
+            if let Err(e) = self
+                .julia
+                .update(renderer.backend(), (k.re(), k.im()), panel, &settings, now)
+            {
+                eprintln!("almondbread: julia panel: {e}");
+            }
+        }
         // ---- Compass: top right, left of map panels there.
         if self.compass.shown(now) {
             let left_of = self
@@ -1005,11 +1113,17 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             if self.font.is_none() {
                 self.font = renderer.backend().create_buffer_with_data(&font_bytes()).ok();
             }
-            let maps: Vec<B::Texture> = self
+            let mut maps: Vec<B::Texture> = self
                 .maps
                 .as_ref()
                 .map(|m| m.levels.iter().map(|l| l.target.clone()).collect())
                 .unwrap_or_default();
+            // The Julia panel's picture in the slot after the maps.
+            if self.julia_at.is_some()
+                && let Some(t) = self.julia.texture()
+            {
+                maps.push(t.clone());
+            }
             let trail = self.trail.as_ref().map(|(_, t)| t.clone());
             match OverlayDraw::upload(renderer.backend(), &scene, size, maps, trail, self.version) {
                 Ok(mut d) => {
@@ -1018,6 +1132,18 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                     renderer.overlay = Some(d);
                 }
                 Err(e) => eprintln!("almondbread: overlay upload: {e}"),
+            }
+        }
+    }
+
+    /// The point the orbit (and the Julia panel) shows: a tour's probe, else a touch probe or
+    /// the pointer (the zoom target: the crosshair in keyboard mode or while the autopilot flies).
+    fn probe_c(&self, renderer: &Renderer<B>, view: &Viewport) -> Center {
+        match &self.tour.probe {
+            Some(c) => c.clone(),
+            None => {
+                let (x, y) = renderer.navigator.probe_point();
+                view.point_at_offset(x, y)
             }
         }
     }
@@ -1222,28 +1348,16 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         stack.spare.truncate(4);
         stack.levels = kept;
         // Layout: a row from the chosen corner, the whole set first.
-        let margin = (MAP_MARGIN * px_per_pt) as f32;
-        let gap = (MAP_GAP * px_per_pt) as f32;
-        let (pw, ph) = (panel.0 as f32, panel.1 as f32);
-        let (w, h) = (size.0 as f32, size.1 as f32);
-        // Clear of the toolbar and a sidebar over the canvas (safe-area insets, points), and of
-        // the platform's controls (`fit`).
-        let (top, left, bottom, right) = renderer.navigator.insets();
-        let px = |v: f64| (v * px_per_pt) as f32;
-        let (x0, x1) = (px(left.max(0.0)) + margin, w - px(right.max(0.0) + fit.right) - margin);
-        let (y0, y1) = (px(top.max(0.0) + fit.top) + margin, h - px(bottom.max(0.0)) - margin);
         let n = stack.levels.len();
-        stack.panels = (0..n)
-            .map(|i| {
-                let off = i as f32 * (pw + gap);
-                match s.map_corner {
-                    Corner::BottomLeft => [x0 + off, y1 - ph],
-                    Corner::BottomRight => [x1 - pw - off, y1 - ph],
-                    Corner::TopLeft => [x0 + off, y0],
-                    Corner::TopRight => [x1 - pw - off, y0],
-                }
-            })
-            .collect();
+        stack.panels = row_origins(
+            n,
+            s.map_corner,
+            panel,
+            size,
+            renderer.navigator.insets(),
+            fit,
+            px_per_pt,
+        );
         Ok(())
     }
 
@@ -1280,6 +1394,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if crate::help::hit(&self.help, x, y, 1.0 / ppp).is_some() {
             return false;
         }
+        if self.julia_hit(x, y) {
+            return true;
+        }
         let Some(stack) = &self.maps else { return false };
         let (pw, ph) = (stack.panel.0 as f64, stack.panel.1 as f64);
         stack.panels.iter().any(|p| {
@@ -1292,6 +1409,11 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // The help badge in the panel's corner is not a place to jump to.
         if crate::help::hit(&self.help, x, y, 1.0 / ppp).is_some() {
             return false;
+        }
+        // The Julia panel takes its clicks and does nothing with them yet (a click must not
+        // zoom the view under it; "open as the main view" would be F4's entry point).
+        if self.julia_hit(x, y) {
+            return true;
         }
         let Some(stack) = &self.maps else { return false };
         let (pw, ph) = (stack.panel.0 as f64, stack.panel.1 as f64);
@@ -1320,6 +1442,14 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         false
     }
 
+    /// The Julia panel is under (x, y) pixels.
+    fn julia_hit(&self, x: f64, y: f64) -> bool {
+        self.julia_at.is_some_and(|(o, (pw, ph))| {
+            let (px, py) = (x - f64::from(o[0]), y - f64::from(o[1]));
+            (0.0..pw as f64).contains(&px) && (0.0..ph as f64).contains(&py)
+        })
+    }
+
     /// Collects a resolved click (the host applies `pending_jump`).
     pub fn poll_click(&mut self, now: f64) {
         if self.snap.as_ref().is_some_and(|s| s.handle.is_finished())
@@ -1331,6 +1461,59 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
     }
 
+    /// The Julia panel at `o` (top-left pixel, `size` pixels; `px` pixels per point): a frame
+    /// like the maps', the picture, its title, the value of k and a help badge.
+    fn draw_julia(
+        &self,
+        scene: &mut Scene,
+        help: &mut Vec<crate::help::HelpBadge>,
+        o: [f32; 2],
+        size: (f32, f32),
+        px: f32,
+        key: &mut String,
+    ) {
+        let r = [o[0], o[1], o[0] + size.0, o[1] + size.1];
+        let radius = 8.0 * px;
+        let pad = 3.0 * px;
+        scene.set_clip(None);
+        scene.rect(
+            [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad],
+            radius + pad,
+            rgba(0.02, 0.02, 0.03, 1.0),
+            rgba(1.0, 1.0, 1.0, 0.22),
+            px,
+        );
+        // The picture is the slot after the map levels.
+        let slot = self.maps.as_ref().map_or(0, |m| m.levels.len()) as u32;
+        if self.julia.shown && self.julia.texture().is_some() {
+            scene.image(r, slot, 1.0, radius);
+        }
+        scene.set_clip(Some(r));
+        let text = (11.0 * px).max(9.0);
+        scene.label(
+            [o[0] + 0.7 * text, o[1] + 0.7 * text],
+            text,
+            "Julia set",
+            rgba(1.0, 1.0, 1.0, 0.85),
+        );
+        if let Some(k) = self.julia.k {
+            let small = (10.0 * px).max(8.5);
+            let value = format!("c = {}", complex_text(k));
+            let cap = crate::font::cap_height() * small;
+            scene.label(
+                [o[0] + 0.7 * text, r[3] - 0.7 * text - cap],
+                small,
+                &value,
+                rgba(1.0, 1.0, 1.0, 0.8),
+            );
+            key.push_str(&value);
+        }
+        scene.set_clip(None);
+        let c = crate::help::top_right(r, px);
+        crate::help::draw(scene, help, crate::help::HelpTopic::Julia, c, px, key);
+        key.push_str(&format!("julia {} {} {:?} ", self.julia.serial, slot, o));
+    }
+
     /// The panels of the scene just built ([`Self::panels`]).
     fn collect_panels(&self) -> Vec<(&'static str, [f32; 4])> {
         let [pi, trail] = self.pi.drawn();
@@ -1338,6 +1521,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             ("cosmic", self.drawn_cosmic.get()),
             ("cockpit", self.drawn_cockpit.get()),
             ("maps", self.drawn_maps.get()),
+            ("julia", self.drawn_julia.get()),
             ("pi", pi),
             ("pi-trail", trail),
         ]
@@ -1559,10 +1743,20 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 let c = crate::help::top_right([o[0], o[1], o[0] + pw, o[1] + ph], px as f32);
                 crate::help::draw(scene, help, topic, c, px as f32, &mut key);
             }
-            // Info under (or above) the first panel: the orbit's fate and a click note.
+        }
+        // ---- The Julia panel at the end of the row.
+        if let Some((o, (jw, jh))) = self.julia_at {
+            self.draw_julia(scene, help, o, (jw as f32, jh as f32), px as f32, &mut key);
+        }
+        // ---- Info under (or above) the row's first panel: the orbit's fate and a click note.
+        let first = self
+            .maps
+            .as_ref()
+            .and_then(|m| m.panels.first().map(|o| (*o, m.panel.1 as f32)))
+            .or(self.julia_at.map(|(o, (_, jh))| (o, jh as f32)));
+        if let Some((o0, ph)) = first {
             let size = (13.0 * px).max(11.0) as f32;
             let line = 1.35 * size;
-            let o0 = stack.panels[0];
             let below = matches!(s.map_corner, Corner::TopLeft | Corner::TopRight);
             let mut lines: Vec<String> = Vec::new();
             if s.orbit
@@ -1607,24 +1801,36 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // fits there, else above it (a phone in portrait: no map covers a 44-point cell; kb:
         // decisions/controls "Touch").
         let insets = renderer.navigator.insets();
-        // The map row as drawn (pixels: x0, y0, x1, y1), whatever its corner.
-        let map_row = self.maps.as_ref().filter(|m| !m.panels.is_empty()).map(|stack| {
+        // The map panels and the Julia panel as drawn (pixels: x0, y0, x1, y1), whatever their
+        // corner; the row is both.
+        let union = |r: Option<[f32; 4]>, q: [f32; 4]| {
+            Some(r.map_or(q, |r| [r[0].min(q[0]), r[1].min(q[1]), r[2].max(q[2]), r[3].max(q[3])]))
+        };
+        let maps_drawn = self.maps.as_ref().filter(|m| !m.panels.is_empty()).and_then(|stack| {
             let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
-            stack.panels.iter().fold(
-                [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY],
-                |r, o| [r[0].min(o[0]), r[1].min(o[1]), r[2].max(o[0] + pw), r[3].max(o[1] + ph)],
-            )
+            stack
+                .panels
+                .iter()
+                .fold(None, |r, o| union(r, [o[0], o[1], o[0] + pw, o[1] + ph]))
         });
-        self.drawn_maps.set(map_row);
+        let julia_drawn = self
+            .julia_at
+            .map(|(o, (jw, jh))| [o[0], o[1], o[0] + jw as f32, o[1] + jh as f32]);
+        let map_row = match (maps_drawn, julia_drawn) {
+            (r, Some(j)) => union(r, j),
+            (r, None) => r,
+        };
+        self.drawn_maps.set(maps_drawn);
+        self.drawn_julia.set(julia_drawn);
+        // The row's panel height (pixels): maps and the Julia panel share it.
+        let row_panel_h = first.map(|(_, ph)| ph);
         // The bottom-left map row, in points (its right edge from the canvas's left edge, its
         // height with the margin and the info lines above it), for the cockpit.
-        let maps_bottom_left = self
-            .maps
-            .as_ref()
+        let maps_bottom_left = row_panel_h
             .zip(map_row)
             .filter(|_| s.map_corner == Corner::BottomLeft)
-            .map(|(stack, r)| {
-                let block = stack.panel.1 as f64 / px + MAP_MARGIN + MAP_INFO;
+            .map(|(ph, r)| {
+                let block = f64::from(ph) / px + MAP_MARGIN + MAP_INFO;
                 (f64::from(r[2]) / px, block)
             });
         let cosmic_w = self.cosmic.enabled().then(|| self.cosmic.width_pt(w / px));
@@ -1689,10 +1895,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // left (maps, the cosmic scale), of the cockpit and of a tour card (kb:
         // decisions/controls "π meter on narrow canvases").
         let mut reserve = crate::pi_meter::Reserve::default();
-        if let Some(stack) = &self.maps
+        if let Some(ph) = row_panel_h
             && let Some(row) = map_row
         {
-            let ph = stack.panel.1 as f32;
             // (Plus the info lines next to the first panel.)
             let block = ph + (MAP_MARGIN * px) as f32 + (MAP_INFO * px) as f32;
             match s.map_corner {
@@ -2088,5 +2293,132 @@ mod tests {
             &off,
         );
         assert_eq!((f.right, f.top), (60.0, 56.0));
+    }
+
+    /// The Julia panel takes the last place of the map row (kb: plans/f1-julia-view): the
+    /// orbit's whole-set map, three map levels and the panel, on the shared simulators' screens
+    /// and a Mac window. Where the row has no room for all, map levels go first; a phone on its
+    /// side keeps the Julia panel alone (one panel beside the two-row cockpit).
+    #[test]
+    fn julia_panel_takes_the_last_place_of_the_row() {
+        let touch = |inset_right: f64| {
+            let mut c = crate::cockpit::CockpitOverlay::default();
+            c.enabled = true;
+            c.touch = true;
+            c.inset_right = inset_right;
+            c
+        };
+        let mut s = OverlaySettings {
+            orbit: true,
+            map: true,
+            julia: true,
+            ..OverlaySettings::default()
+        };
+        assert_eq!(row_wants(&s), (3, 4));
+        s.map_levels = 4;
+        assert_eq!(row_wants(&s), (3, 4), "four textures: three maps with the Julia panel");
+        s.map = false;
+        assert_eq!(row_wants(&s), (1, 2));
+        s.orbit = false;
+        assert_eq!(row_wants(&s), (0, 1));
+        // (size points, ppp, insets, trailing, top, cockpit inset, expected maps)
+        let cases = [
+            (
+                "iPhone portrait",
+                (390.0, 844.0),
+                1.0 / 3.0,
+                (47.0, 0.0, 34.0, 0.0),
+                56.0,
+                0.0,
+                56.0,
+                1,
+            ),
+            (
+                "iPhone landscape",
+                (844.0, 390.0),
+                1.0 / 3.0,
+                (0.0, 47.0, 21.0, 47.0),
+                60.0,
+                0.0,
+                272.0,
+                0,
+            ),
+            (
+                "iPad mini portrait",
+                (744.0, 1133.0),
+                0.5,
+                (24.0, 0.0, 20.0, 0.0),
+                60.0,
+                56.0,
+                0.0,
+                3,
+            ),
+            (
+                "iPad mini landscape",
+                (1133.0, 744.0),
+                0.5,
+                (24.0, 0.0, 20.0, 0.0),
+                60.0,
+                56.0,
+                0.0,
+                3,
+            ),
+            (
+                "Mac 1280x820",
+                (1280.0, 820.0),
+                0.5,
+                (52.0, 0.0, 0.0, 0.0),
+                0.0,
+                0.0,
+                0.0,
+                3,
+            ),
+        ];
+        let s = OverlaySettings {
+            orbit: true,
+            map: true,
+            julia: true,
+            ..OverlaySettings::default()
+        };
+        let (maps, want) = row_wants(&s);
+        for (name, pt, ppp, insets, trailing, top, cockpit_inset, expect) in cases {
+            let size = ((pt.0 / ppp) as usize, (pt.1 / ppp) as usize);
+            let cockpit = if name.starts_with("Mac") {
+                let mut c = crate::cockpit::CockpitOverlay::default();
+                c.enabled = true;
+                c
+            } else {
+                touch(cockpit_inset)
+            };
+            let f = fit_maps(
+                want,
+                180.0,
+                Corner::BottomLeft,
+                size,
+                ppp,
+                insets,
+                trailing,
+                top,
+                &cockpit,
+            );
+            let levels = row_map_levels(f.levels, maps, true);
+            assert_eq!(levels, expect, "{name}: {f:?}");
+            // The Julia panel is the row's last place and ends left of the trailing controls.
+            let px = 1.0 / ppp;
+            let panel = (
+                (f.width * px).round() as usize,
+                (f.width * MAP_ASPECT * px).round() as usize,
+            );
+            let o = row_origins(levels + 1, Corner::BottomLeft, panel, size, insets, &f, px);
+            let right = f64::from(o[levels][0]) * ppp + f.width;
+            assert!(
+                right <= pt.0 - insets.3 - trailing.max(cockpit_inset) - 12.0 + 0.5,
+                "{name}: the Julia panel ends at {right}"
+            );
+            eprintln!(
+                "{name}: {levels} map levels and the Julia panel, {:.0} points wide",
+                f.width
+            );
+        }
     }
 }

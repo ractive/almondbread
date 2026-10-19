@@ -38,6 +38,7 @@ enum HelpTopic: String, CaseIterable, Identifiable {
     case piMeter = "pi-meter"
     case miniMap = "mini-map"
     case orbit
+    case julia
     case cockpit
     case iterations
     case look
@@ -53,6 +54,7 @@ enum HelpTopic: String, CaseIterable, Identifiable {
         case .piMeter: "π meter"
         case .miniMap: "Mini-map"
         case .orbit: "Orbit"
+        case .julia: "Julia set"
         case .cockpit: "Driving levels"
         case .iterations: "Iterations"
         case .look: "Look & colour"
@@ -65,7 +67,7 @@ enum HelpTopic: String, CaseIterable, Identifiable {
     /// The help window page "More…" opens.
     var page: HelpPage {
         switch self {
-        case .cosmicScale, .piMeter, .miniMap, .orbit, .overlays: .overlays
+        case .cosmicScale, .piMeter, .miniMap, .orbit, .julia, .overlays: .overlays
         case .iterations, .look, .interior: .seeing
         case .controls: .gettingStarted
         case .cockpit: .travel

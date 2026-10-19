@@ -32,6 +32,7 @@ pub mod font;
 pub mod gpu_types;
 pub mod help;
 pub mod host;
+pub mod julia;
 pub mod la_gpu;
 pub mod marker;
 pub mod memory;
