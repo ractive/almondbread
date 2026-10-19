@@ -195,7 +195,7 @@ struct TourTopicLink: View {
             Button {
                 model.startTour(t.id)
             } label: {
-                Label(label ?? "Tour: \(t.title)", systemImage: "signpost.right")
+                Label(label ?? "Tour: “\(t.title)”", systemImage: "signpost.right")
                     .font(.caption)
                     .foregroundStyle(.tint)
                     #if os(iOS)

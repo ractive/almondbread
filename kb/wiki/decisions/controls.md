@@ -2152,7 +2152,7 @@ the tour files so a new tour lights up by adding its file and one `BUNDLED` line
 | --- | --- | --- |
 | HUD, under a line with "period " ("Minibrot, period 7 · 3238×": seek, a journey's stop or leg, the autopilot's target label) | "What's a period?" link | the listed tour with `topics: period` (minibrot-periods) |
 | HUD progress line when settled with points not finished ("12 % not finished at 1.2 M steps") | "What's the fog?" | `topics: fog` (limits) |
-| Control center ▸ Iterations & quality, last row | "Tour: <title>" | `topics: iterations` (limits) |
+| Control center ▸ Iterations & quality, last row | "Tour: “<title>”" | `topics: iterations` (limits) |
 | Places grid (Mac and touch) | signpost badge on tiles of places a tour names; Mac detail row "Tour"; touch: the selected tile shows Go / Fly / Tour (labelled, stacked or icons only, whichever fits; else Go / Fly), and Tour in its long-press menu and VoiceOver actions | `place:` (comma list) |
 | A tour's last step | "Next tour: <title> ›" (thumbnail, title) above End tour / Back / Finish | `next:`, else the list order |
 | Control center ▸ Tours | a card per tour: thumbnail, title, two-line summary, "9 steps · ~3 min", a green check and "done" once finished; the walkthrough first | `thumbnail:` / `place:`, step count per platform, `Tour::minutes` |
