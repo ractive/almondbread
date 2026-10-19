@@ -11,7 +11,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use almondbread_math::{DoubleExp, DoubleExpComplex, ReferenceOrbitComputer};
+use almondbread_math::{DoubleExp, DoubleExpComplex, Formula, ReferenceOrbitComputer};
 use rayon::prelude::*;
 
 use crate::cfmt::g;
@@ -122,6 +122,32 @@ pub fn cpu_render(
     bailout: f64,
     angle: f64,
 ) -> IterationField {
+    cpu_render_for(
+        Formula::Mandelbrot,
+        center_re,
+        center_im,
+        scale,
+        width,
+        height,
+        max_iter,
+        bailout,
+        angle,
+    )
+}
+
+/// [`cpu_render`] for any formula (F2: `z <- f(z) + c`; Mandelbrot runs its own loop).
+#[allow(clippy::too_many_arguments)]
+pub fn cpu_render_for(
+    formula: Formula,
+    center_re: f64,
+    center_im: f64,
+    scale: f64,
+    width: usize,
+    height: usize,
+    max_iter: usize,
+    bailout: f64,
+    angle: f64,
+) -> IterationField {
     let (rs, rc) = if angle == 0.0 { (0.0, 1.0) } else { angle.sin_cos() };
     let mut n = vec![0f32; width * height];
     let mut s = vec![0f32; width * height];
@@ -146,14 +172,25 @@ pub fn cpu_render(
                 };
                 let (mut zr, mut zi, mut r2) = (0.0f64, 0.0f64, 0.0f64);
                 let mut i = 0usize;
-                while i < max_iter {
-                    let t = zr * zr - zi * zi + cr;
-                    zi = 2.0 * zr * zi + ci;
-                    zr = t;
-                    i += 1;
-                    r2 = zr * zr + zi * zi;
-                    if r2 > b2 {
-                        break;
+                if formula.is_mandelbrot() {
+                    while i < max_iter {
+                        let t = zr * zr - zi * zi + cr;
+                        zi = 2.0 * zr * zi + ci;
+                        zr = t;
+                        i += 1;
+                        r2 = zr * zr + zi * zi;
+                        if r2 > b2 {
+                            break;
+                        }
+                    }
+                } else {
+                    while i < max_iter {
+                        (zr, zi) = formula.step((zr, zi), (cr, ci));
+                        i += 1;
+                        r2 = zr * zr + zi * zi;
+                        if r2 > b2 {
+                            break;
+                        }
                     }
                 }
                 if r2 > b2 {
@@ -225,6 +262,8 @@ const ORACLE_GUARD_BITS: usize = 64;
 /// The deep oracle's reference: the view centre's orbit at high precision, as f64 pairs (the
 /// hot path) and in extended range (where |Z| is tiny).
 pub struct OracleReference {
+    /// The iteration (F2).
+    pub formula: Formula,
     pub points: Vec<[f64; 2]>,
     pub extended: Vec<DoubleExpComplex>,
     pub precision_bits: usize,
@@ -233,13 +272,26 @@ pub struct OracleReference {
 
 impl OracleReference {
     pub fn compute(center: &Center, texel: Scale, size: usize, max_iter: usize, bailout: f64) -> Self {
+        Self::compute_for(Formula::Mandelbrot, center, texel, size, max_iter, bailout)
+    }
+
+    /// [`OracleReference::compute`] for any formula (F2).
+    pub fn compute_for(
+        formula: Formula,
+        center: &Center,
+        texel: Scale,
+        size: usize,
+        max_iter: usize,
+        bailout: f64,
+    ) -> Self {
         let t0 = std::time::Instant::now();
         let bits = crate::reference::needed_bits(center, texel, size, ORACLE_GUARD_BITS) + 64;
-        let comp = ReferenceOrbitComputer::new(center.big(), bits);
+        let comp = ReferenceOrbitComputer::new(center.big(), bits).with_formula(formula);
         let (extended, _) =
             almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
         let points = extended.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect();
         Self {
+            formula,
             points,
             extended,
             precision_bits: bits,
@@ -263,13 +315,38 @@ pub fn cpu_render_deep(
     bailout: f64,
     angle: f64,
 ) -> (IterationField, OracleReference) {
-    let reference = OracleReference::compute(center, texel, width.max(height), max_iter, bailout);
+    cpu_render_deep_for(
+        Formula::Mandelbrot,
+        center,
+        texel,
+        width,
+        height,
+        max_iter,
+        bailout,
+        angle,
+    )
+}
+
+/// [`cpu_render_deep`] for any formula (F2): the generic perturbation step `z' = z S + c`
+/// ([`Formula::delta_factor`]).
+#[allow(clippy::too_many_arguments)]
+pub fn cpu_render_deep_for(
+    formula: Formula,
+    center: &Center,
+    texel: Scale,
+    width: usize,
+    height: usize,
+    max_iter: usize,
+    bailout: f64,
+    angle: f64,
+) -> (IterationField, OracleReference) {
+    let reference = OracleReference::compute_for(formula, center, texel, width.max(height), max_iter, bailout);
     let field = cpu_render_deep_with(&reference, texel, width, height, max_iter, bailout, (0.0, 0.0), angle);
     (field, reference)
 }
 
-/// [`cpu_render_deep`] against a given reference whose point lies `offset` texels from the
-/// view centre (offset = centre - reference point, in texels, plane axes); `angle` turns the
+/// [`cpu_render_deep`] against a given reference (of its formula) whose point lies `offset`
+/// texels from the view centre (offset = centre - reference point, in texels, plane axes); `angle` turns the
 /// pixel grid as [`cpu_render`]'s.
 #[allow(clippy::too_many_arguments)]
 pub fn cpu_render_deep_with(
@@ -317,6 +394,8 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
     let pts = &r.points;
     let ext = &r.extended;
     let last = pts.len() - 1;
+    let formula = r.formula;
+    let generic = !formula.is_mandelbrot();
     let c64 = (cm.0 * pow2(ce), cm.1 * pow2(ce));
     let cx = dx(cm.0, cm.1, ce);
     let c_exp = dx_exponent(cx);
@@ -378,8 +457,11 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     if n >= max_iter {
                         return (ITER_INTERIOR, 0.0);
                     }
-                    let t0 = 2.0 * zr[0] + z.0;
-                    let t1 = 2.0 * zr[1] + z.1;
+                    let (t0, t1) = if generic {
+                        formula.delta_factor((zr[0], zr[1]), (zr[0] + z.0, zr[1] + z.1))
+                    } else {
+                        (2.0 * zr[0] + z.0, 2.0 * zr[1] + z.1)
+                    };
                     z = (t0 * z.0 - t1 * z.1 + c64.0, t0 * z.1 + t1 * z.0 + c64.1);
                     m += 1;
                     n += 1;
@@ -413,7 +495,11 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     if n >= max_iter {
                         return (ITER_INTERIOR, 0.0);
                     }
-                    zx = (zrx.times_two() + zx) * zx + cx;
+                    zx = if generic {
+                        zx * formula.delta_factor_x(zrx, zrx + zx) + cx
+                    } else {
+                        (zrx.times_two() + zx) * zx + cx
+                    };
                     m += 1;
                     n += 1;
                     let k = dx_exponent(zx);
@@ -432,8 +518,11 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     return (ITER_INTERIOR, 0.0);
                 }
                 let sw = (sc * w.0, sc * w.1);
-                let t0 = 2.0 * zm[0] + sw.0;
-                let t1 = 2.0 * zm[1] + sw.1;
+                let (t0, t1) = if generic {
+                    formula.delta_factor((zm[0], zm[1]), (zm[0] + sw.0, zm[1] + sw.1))
+                } else {
+                    (2.0 * zm[0] + sw.0, 2.0 * zm[1] + sw.1)
+                };
                 w = (t0 * w.0 - t1 * w.1 + dd.0, t0 * w.1 + t1 * w.0 + dd.1);
                 m += 1;
                 n += 1;
@@ -696,5 +785,69 @@ mod tests {
             assert!(same * 100 >= w * h * 98, "{sc}: only {same} of {} agree", w * h);
             assert!(worst < 1e-4, "{sc}: |dmu| {worst}");
         }
+    }
+
+    /// F2: the generic path at p = 2 is the Mandelbrot oracle (shallow and deep: escape counts
+    /// agree but for chaotic pixels, |dmu| at rounding level elsewhere); p = 3 deep matches its
+    /// own direct iteration.
+    #[test]
+    fn generic_oracle_is_mandelbrot() {
+        let g = Formula::Multibrot(2);
+        let a = cpu_render(-0.75, 0.1, 3.0 / 160.0, 160, 100, 2000, 65536.0, 0.3);
+        let b = cpu_render_for(g, -0.75, 0.1, 3.0 / 160.0, 160, 100, 2000, 65536.0, 0.3);
+        let (r, _) = compare(&b, &a);
+        assert_eq!(r.false_interior + r.false_exterior, 0);
+        assert!(r.escape_differs_pct() < 0.5 && r.median_error < 1e-9, "{}", r.summary());
+        for (re, im, sc, it) in [
+            ("0", "1", "1e-50", 2000usize),
+            (
+                "-0.743643887037158704752191506",
+                "0.131825904205311970493132",
+                "1e-25",
+                6000,
+            ),
+        ] {
+            let center = Center::parse(re, im).unwrap();
+            let texel = Scale::parse(sc).unwrap();
+            let (a, _) = cpu_render_deep(&center, texel, 48, 32, it, 65536.0, 0.0);
+            let (b, rb) = cpu_render_deep_for(g, &center, texel, 48, 32, it, 65536.0, 0.0);
+            assert_eq!(rb.formula, g);
+            let (r, _) = compare(&b, &a);
+            assert_eq!(r.false_interior + r.false_exterior, 0, "{sc}");
+            assert!(
+                r.escape_differs_pct() < 2.0 && r.median_error < 1e-6,
+                "{sc}: {}",
+                r.summary()
+            );
+        }
+        // z^3 + c at 1e-30 per texel against the direct shallow oracle's arithmetic in BigFloat.
+        use almondbread_math::{BigComplex, ReferenceOrbitComputer, with_no_control};
+        let cubic = Formula::Multibrot(3);
+        let center = Center::parse("-0.4152", "0.6040").unwrap();
+        let texel = Scale::parse("1e-30").unwrap();
+        let (w, h) = (12usize, 8usize);
+        let (field, _) = cpu_render_deep_for(cubic, &center, texel, w, h, 3000, 65536.0, 0.0);
+        let bits = crate::reference::needed_bits(&center, texel, w, 64) + 64;
+        let (tm, te) = texel.parts();
+        let mut same = 0;
+        for y in 0..h {
+            for x in 0..w {
+                let dx = (x as f64 + 0.5 - w as f64 / 2.0) * tm;
+                let dy = -(y as f64 + 0.5 - h as f64 / 2.0) * tm;
+                let c = BigComplex::new(
+                    center.big().re.with_precision(bits) + BigFloat::from_f64(dx, 64).times_power_of_two(te),
+                    center.big().im.with_precision(bits) + BigFloat::from_f64(dy, 64).times_power_of_two(te),
+                );
+                let comp = ReferenceOrbitComputer::new(&c, bits).with_formula(cubic);
+                let r = with_no_control(4096, |ctl| comp.compute(3000, 65536.0, None, None, ctl));
+                let n = if r.escaped {
+                    r.iterations() as f32
+                } else {
+                    ITER_INTERIOR
+                };
+                same += usize::from(n == field.n[y * w + x]);
+            }
+        }
+        assert!(same * 100 >= w * h * 95, "cubic: {same} of {}", w * h);
     }
 }

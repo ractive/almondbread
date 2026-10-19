@@ -22,7 +22,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use almondbread_math::{
-    BigFloat, FloatExpComplex, PeriodMethod, ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
+    BigFloat, FloatExpComplex, Formula, PeriodMethod, ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
 };
 
 use crate::viewport::{Center, Scale, Viewport};
@@ -59,6 +59,8 @@ pub const PARTIAL_MIN_POINTS: usize = 4096;
 /// A reference orbit and where it came from.
 #[derive(Clone, Debug)]
 pub struct Reference {
+    /// The iteration it is an orbit of (F2): a reference serves views of its formula only.
+    pub formula: Formula,
     /// The reference point C (the orbit is exactly this point's).
     pub point: Center,
     /// The view scale (per point) it was made for.
@@ -107,6 +109,11 @@ impl Reference {
     /// arithmetic as the Swift `ReferenceOrbit` (no FMA contraction), so the points are
     /// bit-identical to M1–M4.
     pub fn compute_f64(viewport: &Viewport, max_iter: usize, bailout: f64) -> Self {
+        Self::compute_f64_with(viewport, Formula::Mandelbrot, max_iter, bailout)
+    }
+
+    /// [`Reference::compute_f64`] for any formula (F2; Mandelbrot runs the loop it always ran).
+    pub fn compute_f64_with(viewport: &Viewport, formula: Formula, max_iter: usize, bailout: f64) -> Self {
         let start = Instant::now();
         let (cr, ci) = (viewport.center.re(), viewport.center.im());
         let mut pts = Vec::with_capacity(max_iter + 1);
@@ -114,20 +121,32 @@ impl Reference {
         let b2 = bailout * bailout;
         pts.push([0.0f32, 0.0]);
         let mut escaped = false;
-        for _ in 0..max_iter {
-            let nx = x * x - y * y + cr;
-            y = 2.0 * x * y + ci;
-            x = nx;
-            pts.push([x as f32, y as f32]);
-            if x * x + y * y > b2 {
-                escaped = true;
-                break;
+        if formula.is_mandelbrot() {
+            for _ in 0..max_iter {
+                let nx = x * x - y * y + cr;
+                y = 2.0 * x * y + ci;
+                x = nx;
+                pts.push([x as f32, y as f32]);
+                if x * x + y * y > b2 {
+                    escaped = true;
+                    break;
+                }
+            }
+        } else {
+            for _ in 0..max_iter {
+                (x, y) = formula.step((x, y), (cr, ci));
+                pts.push([x as f32, y as f32]);
+                if x * x + y * y > b2 {
+                    escaped = true;
+                    break;
+                }
             }
         }
         if pts.len() < 2 {
             pts.push([cr as f32, ci as f32]);
         }
         Self {
+            formula,
             // The orbit is of the f64-rounded centre: offsets are taken from that point.
             point: Center::new(cr, ci),
             scale: viewport.scale,
@@ -173,7 +192,8 @@ impl Reference {
         let mut is_cancelled = || cancel.load(Ordering::Relaxed);
         let (point, period, detected) = if request.nucleus {
             let radius = request.scale.big_times(request.radius_points, 64);
-            let choice = almondbread_math::select_reference(
+            let choice = almondbread_math::select_reference_for(
+                request.formula,
                 center.big(),
                 &radius,
                 request.period_limit.max(1),
@@ -191,7 +211,9 @@ impl Reference {
         let select_time = t0.elapsed().as_secs_f64();
         let t1 = Instant::now();
         let iters = period.unwrap_or(request.max_iter).max(1);
-        let comp = ReferenceOrbitComputer::new(point.big(), bits).with_threads(Threads::Automatic);
+        let comp = ReferenceOrbitComputer::new(point.big(), bits)
+            .with_threads(Threads::Automatic)
+            .with_formula(request.formula);
         let mut points = vec![[0.0f32; 2]; iters + 1];
         let mut extended = vec![FloatExpComplex::ZERO; iters + 1];
         let mut never_progress = |n: usize| progress.store(n, Ordering::Relaxed);
@@ -231,6 +253,7 @@ impl Reference {
             let done = next.escaped || stage == iters;
             if !done {
                 partial(Self {
+                    formula: request.formula,
                     point: point.clone(),
                     scale: request.scale,
                     precision_bits: bits,
@@ -267,6 +290,7 @@ impl Reference {
             extended[p] = FloatExpComplex::ZERO;
         }
         Some(Self {
+            formula: request.formula,
             point,
             scale: request.scale,
             precision_bits: bits,
@@ -360,6 +384,8 @@ impl Reference {
 /// What a big reference is computed for.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReferenceRequest {
+    /// The iteration (F2; [`ReferenceRequest::for_view`]: Mandelbrot).
+    pub formula: Formula,
     pub center: Center,
     /// View scale per point.
     pub scale: Scale,
@@ -386,6 +412,7 @@ impl ReferenceRequest {
     ) -> Self {
         let bits = needed_bits(&viewport.center, texel, size, GOOD_GUARD_BITS) + EXTRA_BITS;
         Self {
+            formula: Formula::Mandelbrot,
             center: viewport.center.clone(),
             scale: viewport.scale,
             radius_points,

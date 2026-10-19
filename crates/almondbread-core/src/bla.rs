@@ -26,6 +26,11 @@
 //! panning and zooming) and is never rebuilt for a new view. Radii shrink and `K` grows with
 //! the level, so validity is monotone: a lookup tests levels upwards and keeps the last valid.
 //!
+//! **Other formulas (F2).** For `z^p + c` a single step has `A = f'(Z) = p Z^{p-1}`, `B = 1`,
+//! and the dropped term is `C(p,2) Z^{p-2} z^2`, so the step is linear to `eps` while
+//! `|z| <= eps 2 |Z| / (p - 1)` (`eps |2Z|` at p = 2; kb: formulas/multibrot "BLA form").
+//! [`BlaTable::build_for`] and [`BlaTableX::build_for`] take the formula; merging is the same.
+//!
 //! Derivatives compose through a block: `dz/dc -> A dz/dc + B` (distance estimate) and
 //! `dz/dz_1 -> A dz/dz_1` (interior test), each to the same relative error `eps` per step.
 //!
@@ -38,7 +43,7 @@
 
 use std::time::Instant;
 
-use almondbread_math::FloatExpComplex;
+use almondbread_math::{FloatExpComplex, Formula};
 
 /// float32 hardware precision: dropped terms stay at the rounding level of the step.
 pub const BLA_EPSILON: f64 = 1.0 / 16_777_216.0;
@@ -83,6 +88,18 @@ impl Merged {
             a,
             b: (1.0, 0.0),
             r: eps * abs(a),
+            k: 0.0,
+        }
+    }
+
+    /// A single step of another formula (F2): `A = f'(Z)`, `R = eps 2 |Z| / (p - 1)`.
+    fn single_for(z: [f32; 2], eps: f64, formula: Formula) -> Self {
+        let zd = (f64::from(z[0]), f64::from(z[1]));
+        let p = f64::from(formula.power());
+        Merged {
+            a: formula.prime(zd),
+            b: (1.0, 0.0),
+            r: eps * 2.0 * abs(zd) / (p - 1.0),
             k: 0.0,
         }
     }
@@ -136,6 +153,11 @@ impl BlaTable {
     /// Builds the table from the reference points the GPU iterates against (float32 pairs,
     /// so the coefficients describe exactly the orbit the kernel sees), in f64.
     pub fn build(points: &[[f32; 2]], epsilon: f64) -> Self {
+        Self::build_for(points, epsilon, Formula::Mandelbrot)
+    }
+
+    /// [`BlaTable::build`] for the orbit of any formula (F2: its single steps).
+    pub fn build_for(points: &[[f32; 2]], epsilon: f64, formula: Formula) -> Self {
         let start = Instant::now();
         let mut t = BlaTable {
             ref_len: points.len(),
@@ -150,10 +172,12 @@ impl BlaTable {
             t.build_time = start.elapsed().as_secs_f64();
             return t;
         }
-        let mut level: Vec<Merged> = points[1..1 + singles]
-            .iter()
-            .map(|&z| Merged::single(z, epsilon))
-            .collect();
+        let steps = points[1..1 + singles].iter();
+        let mut level: Vec<Merged> = if formula.is_mandelbrot() {
+            steps.map(|&z| Merged::single(z, epsilon)).collect()
+        } else {
+            steps.map(|&z| Merged::single_for(z, epsilon, formula)).collect()
+        };
         let mut lev = 0u32;
         let mut entries: Vec<BlaEntry> = Vec::with_capacity(singles);
         loop {
@@ -444,6 +468,27 @@ impl MergedX {
         }
     }
 
+    /// A single step of another formula (F2), as [`Merged::single_for`].
+    pub(crate) fn single_for(z: &FloatExpComplex, eps: f64, formula: Formula) -> Self {
+        let big_z = Xc::new(
+            f64::from(z.mantissa[0]),
+            f64::from(z.mantissa[1]),
+            i64::from(z.exponent),
+        );
+        let p = formula.power();
+        let mut w = big_z;
+        for _ in 2..p {
+            w = w.mul(big_z);
+        }
+        let pf = f64::from(p);
+        MergedX {
+            a: Xc::new(pf * w.re, pf * w.im, w.e),
+            b: Xc::ONE,
+            r: Xr::from_f64(eps * 2.0 / (pf - 1.0)).mul(big_z.abs()),
+            k: Xr::ZERO,
+        }
+    }
+
     pub(crate) fn then(&self, y: &MergedX) -> MergedX {
         let ax = self.a.abs();
         if self.r.is_zero() || y.r.is_zero() || ax.is_zero() {
@@ -505,6 +550,11 @@ pub struct BlaTableX {
 
 impl BlaTableX {
     pub fn build(points: &[FloatExpComplex], epsilon: f64) -> Self {
+        Self::build_for(points, epsilon, Formula::Mandelbrot)
+    }
+
+    /// [`BlaTableX::build`] for the orbit of any formula (F2).
+    pub fn build_for(points: &[FloatExpComplex], epsilon: f64, formula: Formula) -> Self {
         let start = Instant::now();
         let mut t = BlaTableX {
             ref_len: points.len(),
@@ -518,10 +568,12 @@ impl BlaTableX {
             t.build_time = start.elapsed().as_secs_f64();
             return t;
         }
-        let mut level: Vec<MergedX> = points[1..1 + singles]
-            .iter()
-            .map(|z| MergedX::single(z, epsilon))
-            .collect();
+        let steps = points[1..1 + singles].iter();
+        let mut level: Vec<MergedX> = if formula.is_mandelbrot() {
+            steps.map(|z| MergedX::single(z, epsilon)).collect()
+        } else {
+            steps.map(|z| MergedX::single_for(z, epsilon, formula)).collect()
+        };
         let mut lev = 0u32;
         let mut entries: Vec<BlaEntryX> = Vec::with_capacity(singles);
         loop {
@@ -777,6 +829,63 @@ mod tests {
     const BAILOUT2: f64 = 65536.0 * 65536.0;
     /// The slow boundary view of the M4 brief (kb: synthesis/benchmarks M4).
     const SLOW: (f64, f64) = (-1.4080321340304542, 0.13680236432900417);
+
+    /// F2: the generic tables at p = 2 hold Mandelbrot's coefficients and radii (to f64
+    /// rounding: `p Z^(p-1)` and `eps 2 |Z| / (p-1)` against `2Z` and `eps |2Z|`).
+    #[test]
+    fn generic_tables_are_mandelbrot() {
+        let pts = reference(SLOW.0, SLOW.1, 5000);
+        let g = Formula::Multibrot(2);
+        let (a, b) = (
+            BlaTable::build(&pts, BLA_EPSILON),
+            BlaTable::build_for(&pts, BLA_EPSILON, g),
+        );
+        assert_eq!(
+            (a.min_level, a.max_level, a.offsets),
+            (b.min_level, b.max_level, b.offsets)
+        );
+        for (x, y) in a.entries.iter().zip(&b.entries) {
+            for k in 0..6 {
+                assert!((x[k] - y[k]).abs() <= 1e-6 * x[k].abs().max(1e-30), "{x:?} {y:?}");
+            }
+        }
+        let ext: Vec<FloatExpComplex> = pts
+            .iter()
+            .map(|p| {
+                let a = p[0].abs().max(p[1].abs());
+                if a == 0.0 {
+                    return FloatExpComplex::ZERO;
+                }
+                let e = a.log2().floor() as i32 + 1;
+                let s = 2f32.powi(-e);
+                FloatExpComplex {
+                    mantissa: [p[0] * s, p[1] * s],
+                    exponent: e,
+                }
+            })
+            .collect();
+        let (a, b) = (
+            BlaTableX::build(&ext, BLA_EPSILON),
+            BlaTableX::build_for(&ext, BLA_EPSILON, g),
+        );
+        assert_eq!(a.entries.len(), b.entries.len());
+        for (x, y) in a.entries.iter().zip(&b.entries) {
+            assert!(
+                x.ae == y.ae && x.re == y.re && (x.a[0] - y.a[0]).abs() <= 1e-6 && (x.r - y.r).abs() <= 1e-6,
+                "{x:?} {y:?}"
+            );
+        }
+        // z^3 + c: a two-step block is A = 3 Z_2^2 3 Z_1^2, B = 3 Z_2^2 + 1.
+        let cubic = BlaTable::build_for(&pts, BLA_EPSILON, Formula::Multibrot(3));
+        let e = cubic.lookup(1, 1).expect("level-1 entry");
+        let p = |z: [f32; 2]| Formula::Multibrot(3).prime((f64::from(z[0]), f64::from(z[1])));
+        let want = cmul(p(pts[2]), p(pts[1]));
+        assert!(
+            (f64::from(e[0]) - want.0).abs() <= 1e-5 * abs(want)
+                && (f64::from(e[1]) - want.1).abs() <= 1e-5 * abs(want)
+        );
+        assert!((f64::from(e[2]) - (p(pts[2]).0 + 1.0)).abs() <= 1e-5 * abs(p(pts[2])).max(1.0));
+    }
 
     fn reference(re: f64, im: f64, max_iter: usize) -> Vec<[f32; 2]> {
         Reference::compute_f64(&Viewport::new(re, im, 1e-10), max_iter, 65536.0).points

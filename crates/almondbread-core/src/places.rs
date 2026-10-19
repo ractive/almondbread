@@ -8,6 +8,7 @@
 //! computed here (`almondbread locate`: Newton nuclei and Misiurewicz points at full
 //! precision) from a cited starting point, or is our own find.
 
+use crate::formula::Formula;
 use crate::viewport::{Center, Scale, Viewport};
 
 /// What kind of place it is (menu sections, in this order).
@@ -74,6 +75,9 @@ impl PlaceCategory {
 /// One place.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Place {
+    /// The fractal the place is in (F2: the whole catalogue is Mandelbrot; a formula without
+    /// the `content` capability offers no places).
+    pub formula: Formula,
     /// Stable id (kebab-case): thumbnail file names, links, `--place`.
     pub id: &'static str,
     pub name: &'static str,

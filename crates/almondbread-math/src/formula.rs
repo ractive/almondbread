@@ -145,6 +145,11 @@ impl Formula {
         w
     }
 
+    /// `f(z) + c` in extended range.
+    pub fn step_x(self, z: DoubleExpComplex, c: DoubleExpComplex) -> DoubleExpComplex {
+        Self::cpow_x(z, self.power()) + c
+    }
+
     /// [`Formula::prime`] in extended range.
     pub fn prime_x(self, z: DoubleExpComplex) -> DoubleExpComplex {
         let p = self.power();

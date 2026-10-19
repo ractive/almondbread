@@ -31,6 +31,7 @@
 //! the step and when it was entered (the probe path is a closed form of the time since then, so
 //! it moves the same at any refresh rate).
 
+use crate::formula::Formula;
 use crate::orbit::MAX_ORBIT_POINTS;
 use crate::palette::{Look, Palette};
 use crate::pi_moment::PiPoint;
@@ -65,6 +66,8 @@ pub const MAX_PROBE_SECONDS: f64 = 600.0;
 /// A tour: its metadata and steps.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tour {
+    /// The fractal the tour runs in (header `formula:`, default Mandelbrot; F2: every tour).
+    pub formula: Formula,
     pub id: String,
     pub title: String,
     /// One line for the tour list.
@@ -288,6 +291,7 @@ pub const HEADER_KEYS: &[&str] = &[
     "topics",
     "next",
     "hidden",
+    "formula",
 ];
 
 /// The topics a tour can cover (`topics:`): each is a spot in the UI where the question comes
@@ -501,6 +505,14 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
         None => false,
         Some((n, v)) => on_off(n, "hidden", &v)?,
     };
+    // The formula: one a user can pick (F2: Mandelbrot only).
+    let formula = match get("formula") {
+        None => Formula::Mandelbrot,
+        Some((n, v)) => match Formula::parse(&v) {
+            Some(f) if crate::formula::selectable().contains(&f) => f,
+            _ => return err(n, format!("unknown formula `{v}`")),
+        },
+    };
     // Topics: a comma list from TOPICS (a UI spot asks for the tour of its topic).
     let mut topics: Vec<String> = Vec::new();
     if let Some((n, v)) = get("topics") {
@@ -553,6 +565,7 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
         return err(lines.len(), "a tour needs at least one step (`## Title`)");
     }
     let tour = Tour {
+        formula,
         id,
         title,
         summary,
@@ -1608,6 +1621,16 @@ mod tests {
             "---\nid: {id}\ntitle: {id}\nsummary: S\n{extra}\n---\n\n## One\n\nText.\n"
         ))
         .expect("tiny tour")
+    }
+
+    /// F2: tours are tagged with a formula (Mandelbrot unless the header names a selectable one).
+    #[test]
+    fn tours_carry_a_formula() {
+        assert_eq!(tiny("a", "").formula, Formula::Mandelbrot);
+        assert_eq!(tiny("b", "formula: mandelbrot").formula, Formula::Mandelbrot);
+        let e = parse("---\nid: c\ntitle: c\nsummary: S\nformula: multibrot3\n---\n\n## One\n\nText.\n");
+        assert!(e.is_err());
+        assert!(crate::places::places().iter().all(|p| p.formula == Formula::Mandelbrot));
     }
 
     #[test]

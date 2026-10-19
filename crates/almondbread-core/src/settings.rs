@@ -85,6 +85,10 @@ pub const MANUAL_ITERATIONS_MAX: usize = 1_000_000_000;
 /// Everything that affects the image except the viewport.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderSettings {
+    /// The fractal (F2; kb: plans/f2-pluggable-formulas). Mandelbrot by default; the
+    /// capabilities of the others gate features ([`crate::formula::FormulaCapabilities`]).
+    pub formula: crate::formula::Formula,
+
     // Iterations
     pub auto_iterations: bool,
     pub manual_iterations: usize,
@@ -163,6 +167,7 @@ impl RenderSettings {
     /// default to, so benchmark timings stay comparable across milestones.
     pub fn plain() -> Self {
         Self {
+            formula: crate::formula::Formula::Mandelbrot,
             auto_iterations: true,
             manual_iterations: 1000,
             max_iterations_cap: 200_000,
