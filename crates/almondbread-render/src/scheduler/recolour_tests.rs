@@ -114,6 +114,23 @@ fn recolour_without_a_drawable_keeps_animating() {
     assert!(diff(&shown, &fresh(InteriorMode::Angle)) < 0.005);
 }
 
+/// The other side of the fix: a settled view with nothing to recompose must stay idle on
+/// refreshes without a drawable (a background window, the windowless layer of `make
+/// core-check`), else the display link never pauses (battery). `missed_frame` counts only a
+/// frame the plan wanted.
+#[test]
+fn settled_view_without_a_drawable_stays_idle() {
+    let (mut r, t) = renderer(InteriorMode::Period);
+    settle(&mut r, &t, 20.0);
+    for _ in 0..30 {
+        let now = r.clock();
+        let o = r.render_frame(now, W, H, 1.0, &mut |_| None);
+        assert!(!o.animating, "a settled view asked for frames without a drawable");
+        assert!(r.is_settled());
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+}
+
 /// The colours tour's interior steps as the app plays them (through the Host), without
 /// repeating the view with `move: jump`.
 #[test]

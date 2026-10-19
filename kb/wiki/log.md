@@ -1804,3 +1804,26 @@ elephant with period colouring differs run to run on main too), GPU ms geomean 1
 cases, regress and history sessions OK, interaction test not slower. Pages:
 [[synthesis/benchmarks]] "F2", [[platform/render-architecture]] "F2", the plan's "As built"
 (what F3 needs).
+
+## [2026-10-19] lint | core-check green again: stale Q / E and frame-bit checks
+
+`make core-check` failed five checks on main since 2026-10-17; nobody ran it in the full check.
+All five were stale checks, not regressions. (1) Q / E: the check pressed E without Space and
+expected the old Space-speed step; since the pedals (f1b69d2, [[decisions/controls]] "Driving
+levels") E from rest starts a cruise. Its key-down was never released, so the pedal's hold
+repeat climbed to gear 26 (×1000/s) and (2) the view never settled in 6000 frames, (3) the
+keyboard-mode check saw the link still running (bits 3), and (5) after the place jump the held
+pedal (`pedal_hold`, at the detent) kept `is_moving` and the interaction clock alive, so the deep
+place did not settle either. (4) The autopilot check read frame bit 4, `FRAME_AUTOPILOT`, later
+`FRAME_FINGER_STEERS` (still true in A), removed in "Rest or swipe" (ba90261); the check now
+reads `stats().autopilot` and the animating bit. With the checks updated the explorer settles
+after 280 frames and spiral-1e1000 after 328 on the windowless layer. The recolour fix's
+`missed_frame` (5e3c0b5) was checked explicitly: it counts only a frame the plan wanted, so a
+settled view without a drawable reports idle (new test
+`recolour_tests::settled_view_without_a_drawable_stays_idle`; the windowless layer gets
+drawables, and the keyboard-mode check sees the link pause). That check was also flaky (3 of
+about 100 runs, only while the machine was busy): it wanted the link to pause on the very next
+refresh after `settled`, but the render progress line, shown when the refinement took over
+0.5 s, completes and fades for about 0.75 s after the view settled (measured once: one extra
+refresh; once still animating after 120 sleepless refreshes, when the frame clock follows real
+time). It now allows 2 s of real-time refreshes and prints the progress state if it fails.
