@@ -299,6 +299,43 @@ check and presentation timestamps, and the event decoding.
 - **Gesture previews** may drop to 1/8 resolution (was 1/4): dense deep views need 10^4+
   iterations per texel.
 
+## F2: pluggable formulas (2026-10-19)
+
+The formula is a parameter of the engine ([[plans/f2-pluggable-formulas]]); Mandelbrot stays
+formula 0 and its code is the pre-F2 code.
+
+- **Maths** (`almondbread-math/src/formula.rs`): `Formula { Mandelbrot, Multibrot(p) }`, an enum
+  matched outside the hot loops. `Multibrot(p)` is the generic `z^p + c` path (test-only until F3).
+  Hooks: `step`, `prime` (`f'`), `second` (`f''`), `delta_factor` (`S` of `z' = z S + c`, `W = Z + z`,
+  Horner) in f64 and extended range. `ReferenceOrbitComputer::with_formula` runs one generic loop
+  (`p - 1` complex products on the limb registers) for non-Mandelbrot formulas, never the
+  three-thread split. Selection has `find_period_for`, `atom_domain_period_for`,
+  `find_nucleus_for`, `select_reference_for` (the old names are Mandelbrot): ball bound
+  `R' = (|z| + R)^p - |z|^p + r`; Newton stays in the extended-range derivative (no exact finish)
+  and no minibrot size estimate for other formulas.
+- **Core**: `RenderSettings::formula`; `formula::FormulaCapabilities` (platform-free; the FFI
+  mirrors it): perturbation, rebasing, BLA form, LA, SA seeds, derivative interior test, probe,
+  closed-form components, DE, seek, atom domain, π meter, external rays, orbit overlay, content
+  (places, tours, journeys), Julia panel. Per-formula hooks in `reference.rs`
+  (`compute_f64_with`, `ReferenceRequest::formula`, `Reference::formula`), `oracle.rs`
+  (`cpu_render_for`, `cpu_render_deep_for`, `OracleReference::formula`), `orbit.rs`
+  (`ProbePoint::formula`), `bla.rs` (`build_for`: `A = f'(Z)`, `R = eps 2|Z|/(p-1)`), `cycles.rs`
+  (`view_periods_for`). Places, tours (header `formula:`) and journey anchors carry a formula.
+- **Kernels**: function constants `kFormula` (16), `kPower` (17), `kConformal` (18, unused until
+  F5) read through `is_function_constant_defined`, so a pipeline that never sets them is formula
+  0. Every step site of `iterate` and `seedLevel` calls an inline hook (`fStep`, `fMulPrime`,
+  `fPrime`, `fPrimeX`, `fStepX`, `fSeedB`, `fSeedBX`, `fSeedWDX`, `fProbeF2`, `fProbeF2X`, `fIcCZ`,
+  `fIcZZ`) whose `kFormula == 0` branch is the expression the site had before. The closed-form
+  component colouring stays Mandelbrot (gated on the CPU). Mandelbrot pipelines are created
+  exactly as before (no integer constants), so their keys, warm-up and shader cache are unchanged;
+  other formulas compile lazily (`formula_pipelines`, `GpuBackend::pipeline_with`).
+- **Scheduler**: `ComputeKey::formula`; a formula change is a jump (references, spare, worker,
+  BLA/LA tables dropped; `set_reference` refuses another formula's orbit). LA (`prefer_la`), the
+  closed-form test and SA seeds are gated by capabilities.
+- **FFI / Swift**: `ExplorerSettings::formula` (selectable formulas only), `capabilities()`,
+  `formulas()`; places and tours switch to their formula; journeys, seek, the π meter and the
+  Julia panel are off for a formula without them; Swift hides those controls (`model.has(\.x)`).
+
 ## Pitfalls
 
 - `nextDrawable` blocking is invisible in GPU timings; measure draw CPU per phase.

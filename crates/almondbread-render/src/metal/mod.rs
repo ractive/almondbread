@@ -414,9 +414,18 @@ impl GpuBackend for MetalBackend {
     }
 
     fn pipeline(&self, function: &str, constants: &[bool]) -> Result<MetalPipeline, GpuError> {
+        self.pipeline_with(function, constants, &[])
+    }
+
+    fn pipeline_with(
+        &self,
+        function: &str,
+        constants: &[bool],
+        uints: &[(usize, u32)],
+    ) -> Result<MetalPipeline, GpuError> {
         autoreleasepool(|_| {
             let name = NSString::from_str(function);
-            let f = if constants.is_empty() {
+            let f = if constants.is_empty() && uints.is_empty() {
                 self.library
                     .newFunctionWithName(&name)
                     .ok_or_else(|| GpuError(format!("kernel {function} missing")))?
@@ -427,6 +436,13 @@ impl GpuBackend for MetalBackend {
                     // SAFETY: a valid bool for MTLDataType::Bool; Metal copies the value.
                     unsafe {
                         values.setConstantValue_type_atIndex(NonNull::from(&mut b).cast(), MTLDataType::Bool, i);
+                    }
+                }
+                for &(i, v) in uints {
+                    let mut u = v;
+                    // SAFETY: a valid u32 for MTLDataType::UInt; Metal copies the value.
+                    unsafe {
+                        values.setConstantValue_type_atIndex(NonNull::from(&mut u).cast(), MTLDataType::UInt, i);
                     }
                 }
                 self.library

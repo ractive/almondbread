@@ -7,6 +7,7 @@
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::BigComplex;
 use crate::floatexp::{DoubleExp, DoubleExpComplex};
+use crate::formula::Formula;
 use crate::orbit::{Control, ReferenceOrbitComputer, Threads, load};
 use crate::raw::{self, Raw};
 
@@ -49,6 +50,50 @@ fn temps(n: usize) -> [Reg; 4] {
     [reg(n), reg(n), reg(n), reg(n)]
 }
 
+/// (x, y) <- (x + iy)^p + (cx + i cy) by p - 1 complex multiplications (F2: the generic step of
+/// every formula but Mandelbrot, which keeps [`complex_square_add`]).
+#[allow(clippy::too_many_arguments)]
+fn complex_power_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg; 6], power: u32, s: &mut [u64]) {
+    let [wx, wy, p1, p2, p3, p4] = t;
+    raw::copy(wx, x.view());
+    raw::copy(wy, y.view());
+    for _ in 1..power {
+        raw::mul(p1, wx.view(), x.view(), s);
+        raw::mul(p2, wy.view(), y.view(), s);
+        raw::mul(p3, wx.view(), y.view(), s);
+        raw::mul(p4, wy.view(), x.view(), s);
+        raw::add(wx, p1.view(), p2.view(), true, s);
+        raw::add(wy, p3.view(), p4.view(), false, s);
+    }
+    raw::add(x, wx.view(), cx.view(), false, s);
+    raw::add(y, wy.view(), cy.view(), false, s);
+}
+
+/// One step `z <- f(z) + c` of a formula on registers, with its temporaries.
+struct Stepper {
+    formula: Formula,
+    t: [Reg; 4],
+    g: Option<[Reg; 6]>,
+}
+
+impl Stepper {
+    fn new(formula: Formula, n: usize) -> Self {
+        Stepper {
+            formula,
+            t: temps(n),
+            g: (!formula.is_mandelbrot()).then(|| core::array::from_fn(|_| reg(n))),
+        }
+    }
+
+    #[inline(always)]
+    fn step(&mut self, x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, s: &mut [u64]) {
+        match &mut self.g {
+            Some(g) => complex_power_add(x, y, cx, cy, g, self.formula.power(), s),
+            None => complex_square_add(x, y, cx, cy, &mut self.t, s),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------
 // Period detection
 
@@ -81,6 +126,34 @@ pub fn find_period(
     find_period_from(center, radius, 1, max_period, method, check_interval, is_cancelled)
 }
 
+/// [`find_period`] for any formula (F2): the ball bound of `z^p` is
+/// `R' = (|z| + R)^p - |z|^p + r`, the first-order one `R = |dz/dc| r` with `dz' = f'(z) dz + 1`.
+#[allow(clippy::too_many_arguments)]
+pub fn find_period_for(
+    formula: Formula,
+    center: &BigComplex,
+    radius: &BigFloat,
+    max_period: usize,
+    method: PeriodMethod,
+    check_interval: usize,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<usize> {
+    let ci = check_interval.max(1);
+    match method {
+        PeriodMethod::Ball | PeriodMethod::BallFirstOrder => ball_period(
+            formula,
+            center,
+            radius.double_exp().abs(),
+            1,
+            max_period,
+            method == PeriodMethod::BallFirstOrder,
+            ci,
+            is_cancelled,
+        ),
+        PeriodMethod::Box => box_period(formula, center, radius, max_period, ci, is_cancelled),
+    }
+}
+
 /// [`find_period`] ignoring periods below `min_period` (ball methods only; the box method
 /// ignores it): the next atom touching the disc after a known one, e.g. to step from a
 /// minibrot into the structures around it (deep location search).
@@ -96,6 +169,7 @@ pub fn find_period_from(
     let ci = check_interval.max(1);
     match method {
         PeriodMethod::Ball | PeriodMethod::BallFirstOrder => ball_period(
+            Formula::Mandelbrot,
             center,
             radius.double_exp().abs(),
             min_period,
@@ -104,12 +178,13 @@ pub fn find_period_from(
             ci,
             is_cancelled,
         ),
-        PeriodMethod::Box => box_period(center, radius, max_period, ci, is_cancelled),
+        PeriodMethod::Box => box_period(Formula::Mandelbrot, center, radius, max_period, ci, is_cancelled),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn ball_period(
+    formula: Formula,
     center: &BigComplex,
     r: DoubleExp,
     min_period: usize,
@@ -120,23 +195,31 @@ fn ball_period(
 ) -> Option<usize> {
     let n = BigFloat::limb_count_for_bits(center.precision_bits());
     let (mut x, mut y, mut cx, mut cy) = (reg(n), reg(n), reg(n), reg(n));
-    let mut t = temps(n);
+    let mut t = Stepper::new(formula, n);
     load(&mut cx, &center.re);
     load(&mut cy, &center.im);
     let two = DoubleExp::from_f64(2.0);
     let escape = DoubleExp::from_f64(1e10);
+    let power = formula.power();
+    let pow = |a: DoubleExp| (1..power).fold(a, |w, _| w * a);
     with_scratch(n, |s| {
         let mut radius_acc = DoubleExp::ZERO; // R_n
         let mut dz = DoubleExpComplex::ZERO; // dz_n/dc
         let mut z_abs = DoubleExp::ZERO; // |z_{n-1}|
         for p in 1..=max_period.max(1) {
-            if first_order {
-                // dz_p = 2 z_{p-1} dz_{p-1} + 1
-                dz = (complex_value(&x, &y) * dz).times_two() + DoubleExpComplex::ONE;
+            if formula.is_mandelbrot() {
+                if first_order {
+                    // dz_p = 2 z_{p-1} dz_{p-1} + 1
+                    dz = (complex_value(&x, &y) * dz).times_two() + DoubleExpComplex::ONE;
+                } else {
+                    radius_acc = two * z_abs * radius_acc + radius_acc * radius_acc + r;
+                }
+            } else if first_order {
+                dz = formula.prime_x(complex_value(&x, &y)) * dz + DoubleExpComplex::ONE;
             } else {
-                radius_acc = two * z_abs * radius_acc + radius_acc * radius_acc + r;
+                radius_acc = pow(z_abs + radius_acc) - pow(z_abs) + r;
             }
-            complex_square_add(&mut x, &mut y, &cx, &cy, &mut t, s);
+            t.step(&mut x, &mut y, &cx, &cy, s);
             z_abs = complex_magnitude(&x, &y);
             let bound = if first_order { dz.magnitude() * r } else { radius_acc };
             if z_abs < bound && p >= min_period {
@@ -157,6 +240,7 @@ fn ball_period(
 }
 
 fn box_period(
+    formula: Formula,
     center: &BigComplex,
     half_size: &BigFloat,
     max_period: usize,
@@ -180,13 +264,13 @@ fn box_period(
         load(&mut cx[k], &corners[k].re);
         load(&mut cy[k], &corners[k].im);
     }
-    let mut t = temps(n);
+    let mut t = Stepper::new(formula, n);
     let (mut p1, mut p2) = (reg(n), reg(n));
     with_scratch(n, |s| {
         for p in 1..=max_period.max(1) {
             let mut escaped = false;
             for k in 0..4 {
-                complex_square_add(&mut zx[k], &mut zy[k], &cx[k], &cy[k], &mut t, s);
+                t.step(&mut zx[k], &mut zy[k], &cx[k], &cy[k], s);
                 if zx[k].exp > 20 || zy[k].exp > 20 {
                     escaped = true;
                 }
@@ -225,9 +309,14 @@ fn box_period(
 /// Atom-domain period: the n >= 1 at which |z_n| reaches its last new minimum before
 /// escape or `max_iterations` (Peitgen & Richter; kb: techniques/reference-selection).
 pub fn atom_domain_period(c: &BigComplex, max_iterations: usize) -> usize {
+    atom_domain_period_for(Formula::Mandelbrot, c, max_iterations)
+}
+
+/// [`atom_domain_period`] for any formula (F2).
+pub fn atom_domain_period_for(formula: Formula, c: &BigComplex, max_iterations: usize) -> usize {
     let n = BigFloat::limb_count_for_bits(c.precision_bits());
     let (mut x, mut y, mut cx, mut cy) = (reg(n), reg(n), reg(n), reg(n));
-    let mut t = temps(n);
+    let mut t = Stepper::new(formula, n);
     load(&mut cx, &c.re);
     load(&mut cy, &c.im);
     let mut best = DoubleExp::from_f64(1e300);
@@ -235,7 +324,7 @@ pub fn atom_domain_period(c: &BigComplex, max_iterations: usize) -> usize {
     let two = DoubleExp::from_f64(2.0);
     with_scratch(n, |s| {
         for i in 1..=max_iterations.max(1) {
-            complex_square_add(&mut x, &mut y, &cx, &cy, &mut t, s);
+            t.step(&mut x, &mut y, &cx, &cy, s);
             let a = complex_magnitude(&x, &y);
             if a < best {
                 best = a;
@@ -288,6 +377,19 @@ impl Default for NewtonOptions {
 /// shrinking near it. `None` if it does not converge in `max_steps`, if dz vanishes, if c
 /// moves farther than `max_distance`, or if cancelled (polled once per step).
 pub fn find_nucleus(
+    start: &BigComplex,
+    period: usize,
+    options: &NewtonOptions,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<NucleusResult> {
+    find_nucleus_for(Formula::Mandelbrot, start, period, options, is_cancelled)
+}
+
+/// [`find_nucleus`] for any formula (F2): `dz <- f'(z) dz + 1`. Other formulas stay with the
+/// extended-range derivative (linear convergence near the precision floor; the exact finish
+/// is Mandelbrot's `2 z dz + 1` on registers).
+pub fn find_nucleus_for(
+    formula: Formula,
     start: &BigComplex,
     period: usize,
     options: &NewtonOptions,
@@ -362,7 +464,9 @@ pub fn find_nucleus(
         } else {
             // The orbit through the reference-orbit code (fixed-size kernels, three threads
             // at high precision), the derivative over its extended-range copy.
-            let comp = ReferenceOrbitComputer::new(&c, bits).with_threads(Threads::Automatic);
+            let comp = ReferenceOrbitComputer::new(&c, bits)
+                .with_threads(Threads::Automatic)
+                .with_formula(formula);
             let mut ignore = |_: usize| {};
             let mut ctl = Control {
                 check_interval: 4096,
@@ -374,8 +478,14 @@ pub fn find_nucleus(
                 return None;
             }
             let mut dz = DoubleExpComplex::ZERO;
-            for z in &orbit[..period] {
-                dz = (*z * dz).times_two() + DoubleExpComplex::ONE;
+            if formula.is_mandelbrot() {
+                for z in &orbit[..period] {
+                    dz = (*z * dz).times_two() + DoubleExpComplex::ONE;
+                }
+            } else {
+                for z in &orbit[..period] {
+                    dz = formula.prime_x(*z) * dz + DoubleExpComplex::ONE;
+                }
             }
             let finite = |v: DoubleExpComplex| v.re.mantissa.is_finite() && v.im.mantissa.is_finite();
             if dz.re.is_zero() && dz.im.is_zero() || !finite(dz) {
@@ -410,7 +520,7 @@ pub fn find_nucleus(
                 last_step_log2: step_log2,
             });
         }
-        if !exact && step_log2.is_finite() && previous_step_log2.is_finite() {
+        if !exact && formula.is_mandelbrot() && step_log2.is_finite() && previous_step_log2.is_finite() {
             let gain = previous_step_log2 - step_log2;
             if gain <= 1.25 * previous_gain && step_log2 - floor > 2.0 * gain {
                 exact = true;
@@ -424,7 +534,8 @@ pub fn find_nucleus(
 
 /// Size estimate of the minibrot with nucleus c and period p (relative to the main
 /// cardioid's size 1): |1 / (b l^2)| with l = prod 2 z_i, b = 1 + sum 1/l_i over
-/// i = 1 .. p-1 (mathr's estimate; kb: techniques/reference-selection).
+/// i = 1 .. p-1 (mathr's estimate; kb: techniques/reference-selection). Mandelbrot only (F2:
+/// [`select_reference_for`] reports no size for other formulas).
 pub fn minibrot_size(nucleus: &BigComplex, period: usize) -> DoubleExp {
     minibrot_size_complex(nucleus, period).magnitude()
 }
@@ -585,6 +696,27 @@ pub fn select_reference(
     method: PeriodMethod,
     is_cancelled: &mut dyn FnMut() -> bool,
 ) -> ReferenceChoice {
+    select_reference_for(
+        Formula::Mandelbrot,
+        center,
+        radius,
+        max_iterations,
+        precision_bits,
+        method,
+        is_cancelled,
+    )
+}
+
+/// [`select_reference`] for any formula (F2; a minibrot size estimate for Mandelbrot only).
+pub fn select_reference_for(
+    formula: Formula,
+    center: &BigComplex,
+    radius: &BigFloat,
+    max_iterations: usize,
+    precision_bits: Option<usize>,
+    method: PeriodMethod,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> ReferenceChoice {
     let bits = BigFloat::limb_count_for_bits(precision_bits.unwrap_or(center.precision_bits())) * 64;
     let c0 = center.with_precision(bits);
     let mut fallback = ReferenceChoice {
@@ -595,7 +727,7 @@ pub fn select_reference(
         newton_steps: 0,
         detected_period: None,
     };
-    let Some(p) = find_period(&c0, radius, max_iterations, method, 4096, is_cancelled) else {
+    let Some(p) = find_period_for(formula, &c0, radius, max_iterations, method, 4096, is_cancelled) else {
         return fallback;
     };
     fallback.detected_period = Some(p);
@@ -604,19 +736,19 @@ pub fn select_reference(
         max_steps: 64,
         max_distance: Some(radius.times_power_of_two(2)),
     };
-    let Some(nr) = find_nucleus(&c0, p, &options, is_cancelled) else {
+    let Some(nr) = find_nucleus_for(formula, &c0, p, &options, is_cancelled) else {
         return fallback;
     };
     let dist = (&nr.nucleus - &c0).magnitude_double_exp();
     if radius.double_exp().abs() < dist {
         return fallback;
     }
-    let size = minibrot_size(&nr.nucleus, p);
+    let size = formula.is_mandelbrot().then(|| minibrot_size(&nr.nucleus, p));
     ReferenceChoice {
         point: nr.nucleus,
         period: Some(p),
         is_nucleus: true,
-        minibrot_size: Some(size),
+        minibrot_size: size,
         newton_steps: nr.steps,
         detected_period: Some(p),
     }
@@ -641,5 +773,63 @@ mod misiurewicz_tests {
         let r = find_misiurewicz(&BigComplex::from_f64(0.01, 0.99, 64), 2, 2, &opts).unwrap();
         assert!(r.point.re.log2_magnitude() < -200.0);
         assert!((r.point.im.to_f64() - 1.0).abs() < 1e-30);
+    }
+}
+
+#[cfg(test)]
+mod formula_tests {
+    use super::*;
+
+    /// F2: the generic step at p = 2 finds what the Mandelbrot code finds; p = 3 finds its own
+    /// nuclei (z^3 + c: period 2 at c = +-i).
+    #[test]
+    fn generic_selection_matches_mandelbrot() {
+        let g = Formula::Multibrot(2);
+        let mut never = || false;
+        let c = BigComplex::parse(
+            "-0.743643887037158704752191506114774",
+            "0.131825904205311970493132056385139",
+            192,
+        )
+        .unwrap();
+        for (k, method) in [PeriodMethod::Ball, PeriodMethod::BallFirstOrder, PeriodMethod::Box]
+            .into_iter()
+            .enumerate()
+        {
+            let r = BigFloat::from_f64(
+                if method == PeriodMethod::Box {
+                    1e-4
+                } else {
+                    1e-9 * (1.0 + k as f64)
+                },
+                192,
+            );
+            let a = find_period(&c, &r, 10_000, method, 4096, &mut never);
+            let b = find_period_for(g, &c, &r, 10_000, method, 4096, &mut never);
+            assert!(a.is_some() && a == b, "{method:?}: {a:?} {b:?}");
+        }
+        assert_eq!(atom_domain_period(&c, 5000), atom_domain_period_for(g, &c, 5000));
+        let opts = NewtonOptions {
+            precision_bits: Some(256),
+            ..NewtonOptions::default()
+        };
+        let start = BigComplex::from_f64(-1.75, 0.0, 64);
+        let a = find_nucleus(&start, 3, &opts, &mut never).unwrap();
+        let b = find_nucleus_for(g, &start, 3, &opts, &mut never).unwrap();
+        let d = &a.nucleus - &b.nucleus;
+        assert!(d.re.log2_magnitude() < -200.0 && d.im.log2_magnitude() < -200.0);
+        let cubic = Formula::Multibrot(3);
+        let r = find_nucleus_for(cubic, &BigComplex::from_f64(0.05, 0.95, 64), 2, &opts, &mut never).unwrap();
+        assert!(r.nucleus.re.log2_magnitude() < -200.0 && (r.nucleus.im.to_f64() - 1.0).abs() < 1e-30);
+        let choice = select_reference_for(
+            cubic,
+            &BigComplex::from_f64(0.01, 1.01, 64),
+            &BigFloat::from_f64(0.05, 64),
+            100,
+            Some(128),
+            PeriodMethod::Ball,
+            &mut never,
+        );
+        assert!(choice.is_nucleus && choice.period == Some(2) && choice.minibrot_size.is_none());
     }
 }

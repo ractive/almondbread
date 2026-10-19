@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use almondbread_core::autoiter::{self, InteriorStats, LevelOutcome};
 use almondbread_core::bla::{BLA_EPSILON, BlaForecast, BlaTable, BlaTableX};
+use almondbread_core::formula::{Formula, FormulaCapabilities};
 use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::math::{DoubleExp, DoubleExpComplex};
 use almondbread_core::oracle::ITER_UNRESOLVED;
@@ -41,6 +42,8 @@ use crate::la_gpu::{LaBuildJob, LaGpu};
 use crate::memory::{MemoryBudget, Thermal};
 
 mod device;
+#[cfg(all(test, target_vendor = "apple"))]
+mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod recolour_tests;
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
@@ -329,6 +332,8 @@ impl<B: GpuBackend> TextureSet<B> {
 
 #[derive(Clone, Debug, PartialEq)]
 struct ComputeKey {
+    /// The fractal (F2): its kernels, references and tables.
+    formula: Formula,
     viewport: Viewport,
     max_iter: usize,
     points_per_pixel: f64,
@@ -1176,6 +1181,13 @@ pub struct Renderer<B: GpuBackend> {
     /// (grown to the largest level, then kept) with their capacities; the round status; the
     /// seeding epoch (node stamps); the round on the GPU; the last seeding's layout and stats.
     seed_pipelines: [Option<B::Pipeline>; 16],
+    /// F2: iterate and seed pipelines of the formulas other than Mandelbrot (compiled lazily,
+    /// on first need; Mandelbrot's arrays above stay as they were), keyed by formula, kernel and
+    /// variant key.
+    formula_pipelines: std::collections::HashMap<(Formula, &'static str, usize), B::Pipeline>,
+    /// The formula of the last key (a change is a jump: references, tables and what was
+    /// learned belong to the old one).
+    last_key_formula: Formula,
     /// Pipeline warm-up (kb: platform/metal-compute "Pipeline warm-up"): the iterate and seed
     /// variants a view may need next compile on a thread (cold, a variant costs 60-250 ms of
     /// CPU, which the frame that first needed it used to spend: fly-to and π hunt hitches).
@@ -1435,6 +1447,8 @@ impl<B: GpuBackend> Renderer<B> {
             period_refs: None,
             want_aux: false,
             seed_pipelines: Default::default(),
+            formula_pipelines: std::collections::HashMap::new(),
+            last_key_formula: Formula::Mandelbrot,
             warm: None,
             warmed: false,
             seed_begin_pipeline,
@@ -1575,25 +1589,51 @@ impl<B: GpuBackend> Renderer<B> {
         probe: bool,
     ) -> Result<B::Pipeline, GpuError> {
         let k = iterate_key(de, interior, bla, deep, interior_color, seeded, la, probe);
+        // (Constant 6 is kProbe, 7 is unused by `iterate`; 8 is M6's kLA.)
+        let constants = [
+            de,
+            interior,
+            bla,
+            deep,
+            interior_color,
+            seeded,
+            probe && interior,
+            false,
+            la,
+        ];
+        let formula = self.job_formula();
+        if !formula.is_mandelbrot() {
+            return self.formula_pipeline(formula, "iterate", k, &constants);
+        }
         if let Some(p) = &self.iterate_pipelines[k] {
             return Ok(p.clone());
         }
-        // (Constant 6 is kProbe, 7 is unused by `iterate`; 8 is M6's kLA.)
-        let p = self.backend.pipeline(
-            "iterate",
-            &[
-                de,
-                interior,
-                bla,
-                deep,
-                interior_color,
-                seeded,
-                probe && interior,
-                false,
-                la,
-            ],
-        )?;
+        let p = self.backend.pipeline("iterate", &constants)?;
         self.iterate_pipelines[k] = Some(p.clone());
+        Ok(p)
+    }
+
+    /// The current job's formula (Mandelbrot without a job).
+    fn job_formula(&self) -> Formula {
+        self.job.as_ref().map_or(self.settings.formula, |j| j.key.formula)
+    }
+
+    /// F2: a pipeline of another formula: the same function and boolean constants plus
+    /// `kFormula` (16) and `kPower` (17). Compiled on first need (kb: plans/f2-pluggable-formulas
+    /// "Pipelines are compiled lazily per formula"); Mandelbrot's never set them.
+    fn formula_pipeline(
+        &mut self,
+        formula: Formula,
+        function: &'static str,
+        key: usize,
+        constants: &[bool],
+    ) -> Result<B::Pipeline, GpuError> {
+        if let Some(p) = self.formula_pipelines.get(&(formula, function, key)) {
+            return Ok(p.clone());
+        }
+        let uints = [(16usize, formula.kernel_code()), (17, formula.power())];
+        let p = self.backend.pipeline_with(function, constants, &uints)?;
+        self.formula_pipelines.insert((formula, function, key), p.clone());
         Ok(p)
     }
 
@@ -1774,6 +1814,15 @@ impl<B: GpuBackend> Renderer<B> {
         interior_color: bool,
     ) -> Result<B::Pipeline, GpuError> {
         let k = seed_key(interior, deep, bla, interior_color);
+        let formula = self.job_formula();
+        if !formula.is_mandelbrot() {
+            return self.formula_pipeline(
+                formula,
+                "seedLevel",
+                k,
+                &[false, interior, bla, deep, interior_color, false],
+            );
+        }
         if let Some(p) = &self.seed_pipelines[k] {
             return Ok(p.clone());
         }
@@ -1832,6 +1881,9 @@ impl<B: GpuBackend> Renderer<B> {
         interior_color: bool,
         unbounded: bool,
     ) -> Result<(), GpuError> {
+        if !FormulaCapabilities::of(self.job_formula()).sa_seeds {
+            return Ok(());
+        }
         let sa = self.config.local_sa;
         let (params, deep, bla) = {
             let job = self.job.as_ref().expect("job");
@@ -2600,11 +2652,25 @@ impl<B: GpuBackend> Renderer<B> {
         // switch (off: nothing interior at the dendrite) drew the spiral's unresolved disc
         // interior, and the learner could not retry without the test: an all-black settled
         // frame (M5 fix).
+        // A formula change (F2) is a jump too, and the old formula's references go.
+        let formula_changed = self.settings.formula != self.last_key_formula;
+        if formula_changed {
+            self.last_key_formula = self.settings.formula;
+            self.reference = None;
+            self.reference_buffer = None;
+            self.refx_buffer = None;
+            self.spare_reference = None;
+            self.reference_worker.cancel();
+            self.bla = None;
+            self.bla_build = None;
+            self.la = None;
+            self.la_build = None;
+        }
         if let Some(prev) = &self.last_key_view {
             let view = self.viewport.scale * (width.max(height) as f64 * points_per_pixel);
             let ratio = prev.scale.ratio(self.viewport.scale);
             let far = prev.center.distance_in(&self.viewport.center, view);
-            if !(ratio < 8.0 && ratio > 1.0 / 8.0 && far < 2.0) {
+            if formula_changed || !(ratio < 8.0 && ratio > 1.0 / 8.0 && far < 2.0) {
                 if self.config.trace {
                     println!("jump: learned iteration state reset");
                 }
@@ -2644,6 +2710,7 @@ impl<B: GpuBackend> Renderer<B> {
         // The reference (twice the limit) and its tables must fit the device's memory.
         max_iter = max_iter.min(self.memory_iteration_cap());
         ComputeKey {
+            formula: self.settings.formula,
             viewport: self.viewport.clone(),
             max_iter,
             points_per_pixel,
@@ -3151,12 +3218,13 @@ impl<B: GpuBackend> Renderer<B> {
         let Some(r) = &self.reference else { return };
         let serial = self.reference_serial;
         let eps = BLA_EPSILON;
+        let formula = r.formula;
         let build: Box<dyn FnOnce() -> BlaCpu + Send> = if r.deep_kernel {
             let points = r.extended.clone();
-            Box::new(move || BlaCpu::Deep(Arc::new(BlaTableX::build(&points, eps))))
+            Box::new(move || BlaCpu::Deep(Arc::new(BlaTableX::build_for(&points, eps, formula))))
         } else {
             let points = r.points.clone();
-            Box::new(move || BlaCpu::Plain(Arc::new(BlaTable::build(&points, eps))))
+            Box::new(move || BlaCpu::Plain(Arc::new(BlaTable::build_for(&points, eps, formula))))
         };
         if r.points.len() >= self.config.bla_async_from {
             let handle = std::thread::Builder::new().name("almondbread-bla".into()).spawn(build);
@@ -3233,6 +3301,7 @@ impl<B: GpuBackend> Renderer<B> {
     fn prefer_la(&self) -> bool {
         let Some(job) = &self.job else { return false };
         job.deep
+            && FormulaCapabilities::of(job.key.formula).la
             && self
                 .reference
                 .as_ref()
@@ -3921,6 +3990,9 @@ impl<B: GpuBackend> Renderer<B> {
         let Some(job) = &self.job else {
             return ComponentParams::default();
         };
+        if !FormulaCapabilities::of(job.key.formula).closed_form_components {
+            return ComponentParams::default();
+        }
         let p = &job.levels[level_index].params;
         // Largest |pix.x|, |pix.y| of the level (jitter < 1).
         let extent =
@@ -3964,6 +4036,7 @@ impl<B: GpuBackend> Renderer<B> {
             return (Vec::new(), 0);
         };
         let p = job.levels[level_index].params;
+        let formula = job.key.formula;
         let serial = job.reference_serial;
         let key = [
             serial as u32,
@@ -4003,7 +4076,7 @@ impl<B: GpuBackend> Renderer<B> {
             // f64 reference (views down to 1e-12 per point): c directly in f64.
             let (cr, ci) = (job.ref_point.re(), job.ref_point.im());
             let samples: Vec<C64> = offsets.iter().map(|&(x, y)| C64(cr + x, ci + y)).collect();
-            cycles::view_periods(&[], &samples, SEED_MAX_PERIOD, SEED_BUDGET)
+            cycles::view_periods_for(formula, &[], &samples, SEED_MAX_PERIOD, SEED_BUDGET)
         } else {
             // Big reference: perturbed against its first points (rebasing wraps), in f64 while
             // the texel is far above f64's range floor (deltas, and the cycle points near 0, stay
@@ -4021,14 +4094,14 @@ impl<B: GpuBackend> Renderer<B> {
                 let refs: Vec<C64> = refs.iter().map(|z| C64(z.re.to_f64(), z.im.to_f64())).collect();
                 let s = 2f64.powi(p.scale_exp);
                 let samples: Vec<C64> = offsets.iter().map(|&(x, y)| C64(x * s, y * s)).collect();
-                cycles::view_periods(&refs, &samples, SEED_MAX_PERIOD, SEED_BUDGET)
+                cycles::view_periods_for(formula, &refs, &samples, SEED_MAX_PERIOD, SEED_BUDGET)
             } else {
                 let s = DoubleExp::ONE.times_power_of_two(p.scale_exp as i64);
                 let samples: Vec<DoubleExpComplex> = offsets
                     .iter()
                     .map(|&(x, y)| DoubleExpComplex::new(DoubleExp::from_f64(x) * s, DoubleExp::from_f64(y) * s))
                     .collect();
-                cycles::view_periods(refs, &samples, SEED_MAX_PERIOD, SEED_BUDGET / 16)
+                cycles::view_periods_for(formula, refs, &samples, SEED_MAX_PERIOD, SEED_BUDGET / 16)
             }
         };
         let (periods, steps) = cycles::choose(&found, SEED_PASSES, SEED_MAX_STEPS);
@@ -4586,6 +4659,7 @@ impl<B: GpuBackend> Renderer<B> {
                     .is_some_and(|r| !r.big && !r.escaped && r.period.is_none() && r.points.len() - 1 < want);
             if extendable && want > f.reached {
                 let r = self.reference.as_ref().expect("reference");
+                let formula = r.formula;
                 let viewport = Viewport {
                     center: r.point.clone(),
                     scale: r.scale,
@@ -4595,7 +4669,7 @@ impl<B: GpuBackend> Renderer<B> {
                 let spawned = std::thread::Builder::new()
                     .name("almondbread-further-ref".into())
                     .spawn(move || {
-                        let _ = tx.send(Reference::compute_f64(&viewport, want, BAILOUT));
+                        let _ = tx.send(Reference::compute_f64_with(&viewport, formula, want, BAILOUT));
                     })
                     .is_ok();
                 if spawned {
@@ -5696,11 +5770,12 @@ impl<B: GpuBackend> Renderer<B> {
     pub fn prime_reference(&mut self, viewport: &Viewport, max_iter: usize, texel: Scale, size: usize) {
         self.reference = None;
         if viewport.scale.to_f64() >= DEEP_SCALE {
-            let r = Reference::compute_f64(viewport, max_iter, BAILOUT);
+            let r = Reference::compute_f64_with(viewport, self.settings.formula, max_iter, BAILOUT);
             self.set_reference(r);
             return;
         }
         let mut req = ReferenceRequest::for_view(viewport, texel, size, 0.0, max_iter, BAILOUT);
+        req.formula = self.settings.formula;
         req.nucleus = false;
         self.reference_worker.start(req);
         if let Some(r) = self.reference_worker.poll(true) {
@@ -5711,6 +5786,10 @@ impl<B: GpuBackend> Renderer<B> {
     /// Makes `r` the current reference: GPU buffers, BLA reach (the old table goes; in-flight
     /// chunks keep their buffers).
     fn set_reference(&mut self, r: Reference) {
+        // (One of another formula, computed before a switch, serves no view: F2.)
+        if r.formula != self.settings.formula {
+            return;
+        }
         let buf = match self.backend.create_buffer_with_data(bytemuck::cast_slice(&r.points)) {
             Ok(b) => b,
             Err(e) => {
@@ -5831,6 +5910,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let radius = 0.5 * size as f64 * t_texel.ratio(t.scale);
         let mut q = ReferenceRequest::for_view(&t, t_texel, size, radius, max_iter * 2, BAILOUT);
+        q.formula = self.settings.formula;
         q.period_limit = max_iter;
         if self.config.trace {
             println!(
@@ -5845,7 +5925,8 @@ impl<B: GpuBackend> Renderer<B> {
     /// (`max_iter`: the orbit must reach the view's limit; a nucleus orbit always does.)
     fn pending_serves(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> bool {
         self.reference_worker.pending().is_some_and(|q| {
-            q.precision_bits >= almondbread_core::reference::needed_bits(&viewport.center, texel, size, 40)
+            q.formula == self.settings.formula
+                && q.precision_bits >= almondbread_core::reference::needed_bits(&viewport.center, texel, size, 40)
                 && viewport.center.distance_in(&q.center, texel) <= size as f64
                 && q.max_iter >= max_iter
         })
@@ -5884,7 +5965,7 @@ impl<B: GpuBackend> Renderer<B> {
             let reach = max_iter.saturating_mul(factor).min(max_iter.max(self.iteration_cap()));
             let short = self.reference.as_ref().is_some_and(|r| r.exact_reach() < reach);
             if fit != Fit::Good || short {
-                let r = Reference::compute_f64(viewport, reach, BAILOUT);
+                let r = Reference::compute_f64_with(viewport, key.formula, reach, BAILOUT);
                 self.set_reference(r);
             }
             return self.reference_buffer.is_some();
@@ -5898,8 +5979,8 @@ impl<B: GpuBackend> Renderer<B> {
         }
         if !self.pending_serves(viewport, texel, size, max_iter) {
             let radius = 0.5 * (key.width as f64).hypot(key.height as f64) * key.points_per_pixel;
-            let req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
-            let mut req = req;
+            let mut req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
+            req.formula = key.formula;
             // Nuclei up to the learner's reach (4x the depth heuristic): a longer-period
             // minibrot in view then sets the limit (`period_floor`) instead of an unresolved
             // first pass.
@@ -5923,6 +6004,7 @@ impl<B: GpuBackend> Renderer<B> {
                 // fans in the settled frame at sea-8007 (35.8 % of escape counts differed from a
                 // fresh render; `verify --history flyto` now gates on that).
                 let mut q = ReferenceRequest::for_view(t, t_texel, size, radius, max_iter * 2, BAILOUT);
+                q.formula = key.formula;
                 q.period_limit = max_iter;
                 req = q;
             }

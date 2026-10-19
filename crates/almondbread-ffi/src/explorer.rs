@@ -587,9 +587,75 @@ pub struct AutopilotStatus {
     pub lock_label: String,
 }
 
+/// What a formula supports (F2, kb: plans/f2-pluggable-formulas): the UI hides what is false
+/// (`almondbread_core::formula::FormulaCapabilities`, mirrored; the enums as names).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FormulaCapabilities {
+    /// The formula's name (`ExplorerSettings::formula`).
+    pub formula: String,
+    pub perturbation: bool,
+    /// "one", "per-phase" or "critical-orbit".
+    pub rebasing: String,
+    /// "scalar" or "matrix".
+    pub bla: String,
+    pub la: bool,
+    pub sa_seeds: bool,
+    pub interior_derivative: bool,
+    pub interior_probe: bool,
+    pub closed_form_components: bool,
+    pub de: bool,
+    pub seek: bool,
+    pub atom_domain: bool,
+    pub pi_meter: bool,
+    pub external_rays: bool,
+    pub orbit_overlay: bool,
+    /// Places, tours and journeys.
+    pub content: bool,
+    /// The Julia companion panel (F1; `z^2 + k`).
+    pub julia_panel: bool,
+}
+
+impl FormulaCapabilities {
+    pub(crate) fn of(formula: almondbread_core::Formula) -> Self {
+        use almondbread_core::formula::{BlaForm, FormulaCapabilities as C, Rebasing};
+        let c = C::of(formula);
+        Self {
+            formula: formula.name(),
+            perturbation: c.perturbation,
+            rebasing: match c.rebasing {
+                Rebasing::One => "one",
+                Rebasing::PerPhase => "per-phase",
+                Rebasing::CriticalOrbit => "critical-orbit",
+            }
+            .into(),
+            bla: match c.bla {
+                BlaForm::Scalar => "scalar",
+                BlaForm::Matrix => "matrix",
+            }
+            .into(),
+            la: c.la,
+            sa_seeds: c.sa_seeds,
+            interior_derivative: c.interior_derivative,
+            interior_probe: c.interior_probe,
+            closed_form_components: c.closed_form_components,
+            de: c.de,
+            seek: c.seek,
+            atom_domain: c.atom_domain,
+            pi_meter: c.pi_meter,
+            external_rays: c.external_rays,
+            orbit_overlay: c.orbit_overlay,
+            content: c.content,
+            julia_panel: c.julia_panel,
+        }
+    }
+}
+
 /// Everything that affects the image except the viewport (the inspector's model).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ExplorerSettings {
+    /// The fractal (F2): "mandelbrot" (the only one a user can pick until F3; see
+    /// `Explorer::formulas`).
+    pub formula: String,
     pub auto_iterations: bool,
     pub manual_iterations: u64,
     pub max_iterations_cap: u64,
@@ -801,6 +867,7 @@ impl From<&RenderSettings> for ExplorerSettings {
             auto_iterations: s.auto_iterations,
             manual_iterations: s.manual_iterations as u64,
             max_iterations_cap: s.max_iterations_cap as u64,
+            formula: s.formula.name(),
             interior_detection: s.interior_detection,
             palette_id: s.palette_id.clone(),
             color_density: s.color_density,
@@ -889,6 +956,10 @@ impl ExplorerSettings {
         }
         let ss = Supersampling::from_factor(self.supersampling as usize)
             .ok_or_else(|| invalid("supersampling must be 1 to 4"))?;
+        let formula = almondbread_core::Formula::parse(&self.formula)
+            .filter(|f| almondbread_core::formula::selectable().contains(f))
+            .ok_or_else(|| invalid(format!("unknown formula {}", self.formula)))?;
+        s.formula = formula;
         s.auto_iterations = self.auto_iterations;
         s.manual_iterations = self.manual_iterations as usize;
         s.max_iterations_cap = self.max_iterations_cap as usize;
@@ -1495,7 +1566,16 @@ impl Explorer {
     /// Forwards a decoded event. `handled`: swallow it; `redraw`: resume the display link.
     pub fn input(&self, event: InputEvent) -> InputResult {
         let mut g = self.lock();
-        let Some(e) = event.to_core() else {
+        // Keys of features the formula lacks do nothing (F2: seek, journeys).
+        let caps = almondbread_core::FormulaCapabilities::of(g.host.renderer.settings.formula);
+        let blocked = matches!(
+            event,
+            InputEvent::KeyDown { key: NavKey::SeekMinibrot } | InputEvent::SeekAt { .. } if !caps.seek
+        ) || matches!(
+            event,
+            InputEvent::KeyDown { key: NavKey::Journey | NavKey::JourneyAlt } if !caps.content
+        );
+        let Some(e) = event.to_core().filter(|_| !blocked) else {
             return InputResult {
                 handled: false,
                 redraw: false,
@@ -1541,8 +1621,25 @@ impl Explorer {
         let mut g = self.lock();
         let mut s = g.host.renderer.settings.clone();
         settings.apply(&mut s)?;
+        // (What the formula lacks is off, F2: the π meter.)
+        if !almondbread_core::FormulaCapabilities::of(s.formula).pi_meter {
+            g.host.overlay.pi.enabled = false;
+        }
         g.host.renderer.settings = s;
         Ok(())
+    }
+
+    /// What the current formula supports (F2): the UI hides the rest.
+    pub fn capabilities(&self) -> FormulaCapabilities {
+        FormulaCapabilities::of(self.lock().host.renderer.settings.formula)
+    }
+
+    /// The formulas a user can pick, by name (F2: "mandelbrot").
+    pub fn formulas(&self) -> Vec<String> {
+        almondbread_core::formula::selectable()
+            .into_iter()
+            .map(|f| f.name())
+            .collect()
     }
 
     /// Applies a library palette with its recommended mapping (density, offset, log) and deep
@@ -1585,6 +1682,10 @@ impl Explorer {
     pub fn set_overlay(&self, settings: OverlaySettings) {
         let mut g = self.lock();
         g.host.overlay.settings = settings.to_core();
+        // (The Julia panel is z^2 + k: off for a formula without it, F2.)
+        if !almondbread_core::FormulaCapabilities::of(g.host.renderer.settings.formula).julia_panel {
+            g.host.overlay.settings.julia = false;
+        }
         // A probe placed by touch goes with the orbit overlay (kb: decisions/controls "Touch").
         if !settings.orbit {
             let mut v = g.host.renderer.viewport.clone();
@@ -1612,6 +1713,7 @@ impl Explorer {
     /// A frame follows: resume the display link.
     pub fn set_pi_meter(&self, on: bool, inset_right: f64, inset_bottom: f64, inset_top: f64) {
         let mut g = self.lock();
+        let on = on && almondbread_core::FormulaCapabilities::of(g.host.renderer.settings.formula).pi_meter;
         let m = &mut g.host.overlay.pi;
         m.enabled = on;
         // (NaN clamps to NaN: 0 instead.)
@@ -1914,6 +2016,10 @@ impl Explorer {
     pub fn start_journey(&self, seed: u64) {
         let mut g = self.lock();
         let r = &mut g.host.renderer;
+        // (Journeys are Mandelbrot content, F2: none in a formula without it.)
+        if !almondbread_core::FormulaCapabilities::of(r.settings.formula).content {
+            return;
+        }
         let v = r.viewport.clone();
         r.navigator.start_journey(seed.max(1), false, &v, media_time());
     }
@@ -1923,6 +2029,9 @@ impl Explorer {
         let seed = almondbread_core::journey::daily_seed(year, month, day);
         let mut g = self.lock();
         let r = &mut g.host.renderer;
+        if !almondbread_core::FormulaCapabilities::of(r.settings.formula).content {
+            return;
+        }
         let v = r.viewport.clone();
         r.navigator.start_journey(seed, true, &v, media_time());
     }
@@ -1998,6 +2107,8 @@ impl Explorer {
         renderer.navigator.jumped();
         renderer.viewport = v;
         let s = &mut renderer.settings;
+        // A place is in its own fractal (F2).
+        s.formula = place.formula;
         if let Some(look) = almondbread_core::palette::Look::named(place.look) {
             look.apply(s);
         }
@@ -2028,6 +2139,7 @@ impl Explorer {
         let start = renderer.viewport.clone();
         renderer.navigator.fly_to(&v, &start, media_time());
         let s = &mut renderer.settings;
+        s.formula = place.formula;
         if let Some(look) = almondbread_core::palette::Look::named(place.look) {
             look.apply(s);
         }

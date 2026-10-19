@@ -27,6 +27,7 @@ use std::f64::consts::{PI, TAU};
 use almondbread_math::{NewtonOptions, find_misiurewicz, find_nucleus};
 
 use super::Rng;
+use crate::formula::Formula;
 use crate::viewport::{Center, Scale};
 
 /// A region id (see [`region_of`]).
@@ -133,6 +134,8 @@ pub fn family(id: RegionId) -> Family {
 /// A view a cross-over can land on.
 #[derive(Clone, Debug)]
 pub struct Anchor {
+    /// The fractal (F2: journeys are Mandelbrot content).
+    pub formula: Formula,
     pub center: Center,
     /// Across the view's shorter side.
     pub span: Scale,
@@ -152,6 +155,7 @@ fn place_anchors() -> Vec<Anchor> {
         .map(|p| {
             let c = p.center();
             Anchor {
+                formula: p.formula,
                 region: region_of(c.re(), c.im()).0,
                 center: c,
                 span: p.span_scale(),
@@ -224,6 +228,7 @@ fn bulb_anchors(p: u32, q: u32, head: bool, flip: bool, out: &mut Vec<Anchor>) {
     };
     let mut push = |center: Center, span: f64, label: String, per: Option<usize>, pre: Option<usize>| {
         out.push(Anchor {
+            formula: Formula::Mandelbrot,
             region: region_of(center.re(), center.im()).0,
             center,
             span: Scale::from_f64(span),

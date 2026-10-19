@@ -1882,3 +1882,63 @@ run). Expensive views stay at 1/8 (sea-1e20, spiral, looks deep: unchanged). `ma
 Open: the cost model is still "time per texel at the current clock". A model of the
 clock-independent work (iterations, as `rate` does for the chunk sizes) or frame-time
 feedback (skipped draws) would remove the probe; not needed for the check.
+
+## F2: pluggable formulas, Mandelbrot A/B, 2026-10-19
+
+The acceptance proof of [[plans/f2-pluggable-formulas]]: formula 0 (Mandelbrot) must be the
+pre-F2 code (measured 2026-10-19, M1 Pro, release; main = 1350f29 with F1, F2 = the branch
+merged with it; both CLI binaries built from their commits).
+
+**Fields.** `bench --out` (both sizes, plain settings: plain, BLA, LA, deep, seeded and probe
+pipelines) and `bench --sizes 1600x1000 --shading 1 --inside period` (the DE and
+interior-colour pipelines): every `.iter` field and PNG byte-identical (`cmp`), 84 of 84 plain
+and 40 of 42 shaded; the two others are `elephant-1600` with period colouring, where 1 of 1.6 M
+texels (an interior period) differs **run to run on main as well** (main vs main: the same
+texel; F2 vs main in another run: identical), a pre-existing nondeterminism of the interior
+cycle analysis, not F2. The `bench` verify tables (GPU vs CPU oracle) are byte-identical too
+(the oracle's Mandelbrot loops are unchanged).
+
+**GPU ms**, best of 3 interleaved rounds (`bench --no-verify 1 --repeat 3`, main and F2
+alternating), geomean F2/main **1.004** over 42 cases (accept 0.98–1.02); the one outlier is
+`home` at 1600 px (2.5 vs 2.9 ms, a sub-3 ms view).
+
+| location | 3456×2234 main / F2 ms | ratio | 1600×1000 main / F2 ms | ratio |
+|---|---:|---:|---:|---:|
+| home | 12.4 / 12.4 | 1.000 | 2.5 / 2.9 | 1.160 |
+| home-100k | 33.4 / 33.4 | 1.000 | 21.7 / 21.8 | 1.005 |
+| seahorse-1e5 | 20.5 / 20.6 | 1.005 | 4.9 / 4.9 | 1.000 |
+| elephant | 46.0 / 46.6 | 1.013 | 10.8 / 10.8 | 1.000 |
+| minibrot-p4 | 64.7 / 64.4 | 0.995 | 22.9 / 23.2 | 1.013 |
+| deep-5e-14 | 36.7 / 36.7 | 1.000 | 10.7 / 10.8 | 1.009 |
+| feigenbaum | 13033.6 / 13011.2 | 0.998 | 2570.1 / 2551.1 | 0.993 |
+| neck-2e5 | 53.0 / 53.1 | 1.002 | 13.0 / 13.0 | 1.000 |
+| neck-7e6 | 92.0 / 92.2 | 1.002 | 44.7 / 44.4 | 0.993 |
+| cusp-1e5 | 58.9 / 59.5 | 1.010 | 13.2 / 13.3 | 1.008 |
+| dense-5e-14 | 93.0 / 92.9 | 0.999 | 24.5 / 24.5 | 1.000 |
+| root-third | 108.9 / 109.2 | 1.003 | 32.9 / 33.0 | 1.003 |
+| sea-1e20 | 82.0 / 81.7 | 0.996 | 22.7 / 22.8 | 1.004 |
+| sea-8007 | 1833.2 / 1826.4 | 0.996 | 380.9 / 381.9 | 1.003 |
+| needle-1e94 | 41.9 / 41.9 | 1.000 | 9.9 / 9.9 | 1.000 |
+| needle-1e305 | 69.3 / 69.2 | 0.999 | 16.2 / 16.2 | 1.000 |
+| needle-1e1004 | 66.3 / 66.3 | 1.000 | 15.4 / 15.3 | 0.994 |
+| dendrite-1e50 | 8.8 / 8.7 | 0.989 | 2.2 / 2.2 | 1.000 |
+| dendrite-1e300 | 8.7 / 8.7 | 1.000 | 2.1 / 2.1 | 1.000 |
+| dendrite-1e1000 | 8.7 / 8.7 | 1.000 | 2.1 / 2.1 | 1.000 |
+| spiral-32412-1e19 | 2573.9 / 2575.9 | 1.001 | 756.7 / 757.1 | 1.001 |
+
+**Other checks.** `make regress` and `verify --history zoom|out|pan|jump|flyto|rotate`: every
+session OK, 0 % against fresh renders. Cold shader cache (`ALMONDBREAD_KERNEL_SALT`, one
+1600×1000 render): ~1.0 s for both builds; Mandelbrot pipelines are created with the same
+constants as before, so the warm-up set and its count are unchanged. `make interaction-test`
+(background window, occlusion visible, 120 Hz panel): F2 mean 105.8 fps over 45 scenarios,
+main 100.1 in a run with more "no drawable" skips (one run each: compositor noise, not a
+regression); FFI + call 2–14 µs per frame in both. `make core-check` has 5 failures on main as
+well (Q/E zoom speed, settling within 6000 frames, autopilot bit): pre-existing, not F2.
+
+**The generic path (Multibrot(2), `--formula multibrot2`).** On the GPU it equals the Mandelbrot
+fields at home, home-100k, minibrot-p4 and feigenbaum bit for bit, and elsewhere differs by the
+same float32 chaos as GPU vs oracle (class mismatch ≤ 0.004 %; escape-n differs 0–52 %, as
+Mandelbrot vs the oracle at dense, sea and spiral views). It is slower where Mandelbrot-only
+capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 40–64 vs 10–16
+ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
+Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.

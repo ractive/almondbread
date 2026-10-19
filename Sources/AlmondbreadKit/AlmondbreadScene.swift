@@ -134,11 +134,11 @@ struct FractalCommands: Commands {
                                                     set: { model?.laneAssist = $0 }))
                 .disabled(model == nil)
             Button("Journey On/Off (J)") { model?.toggleJourney() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.content) == false)
             Button("Daily Journey") { model?.startDailyJourney() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.content) == false)
             Button("Seek Minibrot (N)") { model?.seekMinibrot() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.seek) == false)
             Button("Copy Journey Seed") { model?.copyJourney() }
                 .disabled(model?.journeyShareText == nil)
             Button("Straighten View (/)") { model?.straighten() }
@@ -172,7 +172,7 @@ struct FractalCommands: Commands {
             Toggle("Julia Set", isOn: Binding(get: { model?.juliaEnabled ?? false },
                                               set: { model?.juliaEnabled = $0 }))
                 .keyboardShortcut("u", modifiers: [.command, .option])
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.juliaPanel) == false)
             // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas. The
             // π meter has no switch of its own: the tour "π in the Mandelbrot set" drives it.
             TourMenu(model: model)

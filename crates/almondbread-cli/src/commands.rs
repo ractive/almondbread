@@ -6,10 +6,13 @@ use std::fs;
 use std::time::Instant;
 
 use almondbread_core::cfmt::g;
+use almondbread_core::formula::Formula;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::input::PAN_SPEED;
 use almondbread_core::locations::{Location, all_locations};
-use almondbread_core::oracle::{ITER_INTERIOR, IterationField, VerifyReport, compare, cpu_render, cpu_render_deep};
+use almondbread_core::oracle::{
+    ITER_INTERIOR, IterationField, VerifyReport, compare, cpu_render_deep_for, cpu_render_for,
+};
 use almondbread_core::pi_moment::PiPoint;
 use almondbread_core::reference::DEEP_SCALE;
 use almondbread_core::settings::Supersampling;
@@ -362,8 +365,9 @@ fn print_seeds(s: &almondbread_render::scheduler::SeedReport, pixel_iterations: 
 // MARK: verify
 
 /// The CPU oracle for a view: direct f64 iteration where f64 resolves the pixels, else the
-/// deep oracle (high-precision reference, f64 rescaled perturbation; M3b).
+/// deep oracle (high-precision reference, f64 rescaled perturbation; M3b), of `formula` (F2).
 pub fn oracle(
+    formula: Formula,
     center: &Center,
     texel: Scale,
     width: usize,
@@ -372,7 +376,8 @@ pub fn oracle(
     angle: f64,
 ) -> IterationField {
     if texel.to_f64() >= DEEP_SCALE {
-        cpu_render(
+        cpu_render_for(
+            formula,
             center.re(),
             center.im(),
             texel.to_f64(),
@@ -383,7 +388,7 @@ pub fn oracle(
             angle,
         )
     } else {
-        cpu_render_deep(center, texel, width, height, max_iter, BAILOUT, angle).0
+        cpu_render_deep_for(formula, center, texel, width, height, max_iter, BAILOUT, angle).0
     }
 }
 
@@ -411,7 +416,7 @@ pub fn verify<B: GpuBackend>(
     let v = r.viewport.clone();
     let t0 = Instant::now();
     let cpu_iter = cpu_iterations.unwrap_or(r.stats.max_iterations);
-    let cpu = oracle(&v.center, v.scale, width, height, cpu_iter, v.angle);
+    let cpu = oracle(r.settings.formula, &v.center, v.scale, width, height, cpu_iter, v.angle);
     let cpu_time = t0.elapsed().as_secs_f64();
     let (report, heatmap) = compare(&gpu, &cpu);
     Ok(VerifyResult {
@@ -478,7 +483,15 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         // as `verify` keeps no copy of it.
         let view = r.viewport.clone();
         let it = o.usize("cpu-iterations").unwrap_or(r.stats.max_iterations);
-        let cpu = oracle(&view.center, view.scale, width, height, it, view.angle);
+        let cpu = oracle(
+            r.settings.formula,
+            &view.center,
+            view.scale,
+            width,
+            height,
+            it,
+            view.angle,
+        );
         crate::precision::ff_report(backend, &view, width, height, it, &v.gpu, &cpu);
     }
     if let Some(path) = o.get("heatmap") {
@@ -796,6 +809,7 @@ fn verify_session<B: GpuBackend + Clone>(
         let field = IterationField::from_texels(sim.level_width, sim.level_height, &sim.iterations);
         let cpu_iter = o.usize("cpu-iterations").unwrap_or(sim.hard_iter);
         let cpu = oracle(
+            r.settings.formula,
             &v.center,
             sim.texel_scale,
             sim.level_width,

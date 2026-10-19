@@ -509,7 +509,10 @@ impl<B: GpuBackend + Clone> Host<B> {
             self.overlay.pi.stop_flight();
         }
         let view = saved_view.unwrap_or_else(|| self.renderer.viewport.clone());
+        // The tour's fractal (F2; the user's comes back with the saved settings at the end).
+        let formula = tour.formula;
         let (player, plan) = TourPlayer::start(tour, self.tour_snapshot(), view, now);
+        self.renderer.settings.formula = formula;
         self.tour = Some(player);
         self.apply_tour_plan(plan, now);
         self.tour_goal_from_here();

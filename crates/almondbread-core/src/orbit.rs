@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use almondbread_math::{DoubleExp, DoubleExpComplex};
+use almondbread_math::{DoubleExp, DoubleExpComplex, Formula};
 
 use crate::reference::Reference;
 
@@ -95,6 +95,8 @@ impl ProbeReference {
 /// Where c is, for the probe: relative to a reference orbit (deep views), or absolute.
 #[derive(Clone, Debug)]
 pub struct ProbePoint {
+    /// The iteration (F2; the reference, if any, is an orbit of it).
+    pub formula: Formula,
     /// The reference (None: iterate c directly).
     pub reference: Option<Arc<ProbeReference>>,
     /// c minus the reference point (absolute c without a reference).
@@ -365,10 +367,21 @@ impl OrbitProbe {
         }
     }
 
+    /// `f'(z)`: the multiplier of the derivatives.
+    fn prime(&self, z: DoubleExpComplex) -> DoubleExpComplex {
+        match self.point.formula {
+            Formula::Mandelbrot => z.times_two(),
+            f => f.prime_x(z),
+        }
+    }
+
     fn advance(&mut self, zm: DoubleExpComplex) {
-        self.delta = match self.point.reference {
-            Some(_) => (zm.times_two() + self.delta) * self.delta + self.point.dc,
-            None => self.delta * self.delta + self.point.dc,
+        let f = self.point.formula;
+        self.delta = match (self.point.reference.is_some(), f) {
+            (true, Formula::Mandelbrot) => (zm.times_two() + self.delta) * self.delta + self.point.dc,
+            (false, Formula::Mandelbrot) => self.delta * self.delta + self.point.dc,
+            (true, _) => self.delta * f.delta_factor_x(zm, zm + self.delta) + self.point.dc,
+            (false, _) => f.step_x(self.delta, self.point.dc),
         };
         self.m += 1;
         self.n += 1;
@@ -397,7 +410,7 @@ impl OrbitProbe {
                         self.phase = Phase::Done;
                         return true;
                     }
-                    self.w = z.times_two() * self.w;
+                    self.w = self.prime(z) * self.w;
                     if self.n.is_multiple_of(8) {
                         let a = self.w.re.abs().to_f64().max(self.w.im.abs().to_f64());
                         let nn = self.n as f64;
@@ -434,7 +447,7 @@ impl OrbitProbe {
                             return true;
                         }
                     }
-                    self.lam = z.times_two() * self.lam;
+                    self.lam = self.prime(z) * self.lam;
                     self.cloud.push(to_f64(z));
                     self.advance(zm);
                     self.k += 1;
@@ -462,6 +475,7 @@ mod tests {
     fn probe(re: f64, im: f64) -> OrbitClass {
         let mut p = OrbitProbe::new(
             ProbePoint {
+                formula: Formula::Mandelbrot,
                 reference: None,
                 dc: dx(re, im),
             },
@@ -521,6 +535,7 @@ mod tests {
         // (c = 0.3 escapes after ~ 30 steps; c = -0.75 + 1e-3 i takes thousands.)
         let mut p = OrbitProbe::new(
             ProbePoint {
+                formula: Formula::Mandelbrot,
                 reference: None,
                 dc: dx(-0.75, 1e-4),
             },
@@ -564,6 +579,7 @@ mod tests {
         // Just outside the cusp at 1/4: escapes after ~ pi / sqrt(eps) steps.
         let mut p = OrbitProbe::new(
             ProbePoint {
+                formula: Formula::Mandelbrot,
                 reference: None,
                 dc: dx(0.25 + 1e-6, 0.0),
             },
@@ -583,6 +599,7 @@ mod tests {
     #[test]
     fn points_direct() {
         let p = ProbePoint {
+            formula: Formula::Mandelbrot,
             reference: None,
             dc: dx(-1.0, 0.0),
         };

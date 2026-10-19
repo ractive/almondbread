@@ -3,6 +3,7 @@
 // `almondbread places --render-thumbs Resources/Places` after any change here.
 
 const BASE: Place = Place {
+    formula: Formula::Mandelbrot,
     id: "",
     name: "",
     category: PlaceCategory::Landmark,

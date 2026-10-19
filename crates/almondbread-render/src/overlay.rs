@@ -1194,6 +1194,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 let sc = |v: f64| DoubleExp::from_f64(v) * scale;
                 (
                     ProbePoint {
+                        formula: renderer.settings.formula,
                         reference: Some(r),
                         dc: almondbread_core::math::DoubleExpComplex::new(sc(dx), sc(dy)),
                     },
@@ -1203,6 +1204,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             }
             None => (
                 ProbePoint {
+                    formula: renderer.settings.formula,
                     reference: None,
                     dc: almondbread_core::math::DoubleExpComplex::new(
                         DoubleExp::from_f64(c.re()),

@@ -156,6 +156,22 @@ pub trait GpuBackend {
 
     /// The kernel `function` specialised with boolean function constants 0, 1, ...
     fn pipeline(&self, function: &str, constants: &[bool]) -> Result<Self::Pipeline, GpuError>;
+    /// [`GpuBackend::pipeline`] plus unsigned-integer function constants `(index, value)` (F2:
+    /// `kFormula`, `kPower`). With none it must be exactly [`GpuBackend::pipeline`].
+    fn pipeline_with(
+        &self,
+        function: &str,
+        constants: &[bool],
+        uints: &[(usize, u32)],
+    ) -> Result<Self::Pipeline, GpuError> {
+        if uints.is_empty() {
+            self.pipeline(function, constants)
+        } else {
+            Err(GpuError(format!(
+                "{function}: integer function constants are not supported"
+            )))
+        }
+    }
     /// Compiles `requests` (kernel name, function constants) one after the other on a thread of
     /// its own and sends `(index into requests, pipeline)` as each is ready: the renderer's
     /// warm-up, so a frame that first needs a variant does not compile it (kb:

@@ -18,7 +18,7 @@
 
 use std::ops::{Add, Div, Mul};
 
-use crate::math::{DoubleExp, DoubleExpComplex, FloatExpComplex};
+use crate::math::{DoubleExp, DoubleExpComplex, FloatExpComplex, Formula};
 
 /// Periods handed to the kernel at most (`ComponentParams::periods`).
 pub const MAX_PERIODS: usize = 4;
@@ -33,6 +33,8 @@ pub trait Cx: Copy + Add<Output = Self> + Mul<Output = Self> + Div<Output = Self
     const ONE: Self;
     fn minus(self, o: Self) -> Self;
     fn twice(self) -> Self;
+    /// `k z` (F2: the generic derivative `p z^(p-1)`).
+    fn scaled(self, k: f64) -> Self;
     /// log2 |z| (-inf for 0).
     fn log2_abs(self) -> f64;
 }
@@ -69,6 +71,9 @@ impl Cx for C64 {
     fn twice(self) -> Self {
         C64(2.0 * self.0, 2.0 * self.1)
     }
+    fn scaled(self, k: f64) -> Self {
+        C64(k * self.0, k * self.1)
+    }
     fn log2_abs(self) -> f64 {
         0.5 * (self.0 * self.0 + self.1 * self.1).log2()
     }
@@ -83,6 +88,10 @@ impl Cx for DoubleExpComplex {
     fn twice(self) -> Self {
         self.times_two()
     }
+    fn scaled(self, k: f64) -> Self {
+        let k = DoubleExp::from_f64(k);
+        DoubleExpComplex::new(k * self.re, k * self.im)
+    }
     fn log2_abs(self) -> f64 {
         let m = self.magnitude_squared();
         if m.is_zero() {
@@ -96,6 +105,7 @@ impl Cx for DoubleExpComplex {
 /// The orbit of one `c`: `refs` empty iterates `z <- z^2 + c` with `dc = c`; otherwise
 /// `δ <- (2 Z_m + δ) δ + dc` against the reference `Z_0 = 0, Z_1, ...` with rebasing.
 struct Orbit<'a, T> {
+    formula: Formula,
     refs: &'a [T],
     dc: T,
     m: usize,
@@ -104,8 +114,9 @@ struct Orbit<'a, T> {
 
 impl<'a, T: Cx> Orbit<'a, T> {
     /// At `z` (an absolute value: the reference's `Z_0` is 0).
-    fn at(refs: &'a [T], dc: T, z: T) -> Self {
+    fn at(formula: Formula, refs: &'a [T], dc: T, z: T) -> Self {
         Orbit {
+            formula,
             refs,
             dc,
             m: 0,
@@ -127,12 +138,45 @@ impl<'a, T: Cx> Orbit<'a, T> {
     }
 
     fn step(&mut self) {
+        if !self.formula.is_mandelbrot() {
+            return self.step_generic();
+        }
         if self.refs.is_empty() {
             self.delta = self.delta * self.delta + self.dc;
         } else {
             self.delta = (self.refs[self.m].twice() + self.delta) * self.delta + self.dc;
             self.m += 1;
         }
+    }
+
+    /// `z^p + c` (F2): directly, or `delta S + dc` with `S = sum W^i Z^(p-1-i)`, `W = Z + delta`.
+    fn step_generic(&mut self) {
+        let p = self.formula.power();
+        if self.refs.is_empty() {
+            self.delta = power(self.delta, p) + self.dc;
+            return;
+        }
+        let big = self.refs[self.m];
+        let w = big + self.delta;
+        let (mut s, mut zk) = (T::ONE, T::ONE);
+        for _ in 1..p {
+            zk = zk * big;
+            s = s * w + zk;
+        }
+        self.delta = self.delta * s + self.dc;
+        self.m += 1;
+    }
+}
+
+fn power<T: Cx>(z: T, p: u32) -> T {
+    (1..p).fold(z, |w, _| w * z)
+}
+
+/// `f'(z)` (`2z` for Mandelbrot).
+fn prime<T: Cx>(formula: Formula, z: T) -> T {
+    match formula {
+        Formula::Mandelbrot => z.twice(),
+        f => power(z, f.power() - 1).scaled(f64::from(f.power())),
     }
 }
 
@@ -143,21 +187,21 @@ fn beyond_two(l: f64) -> bool {
 
 /// Newton on `f^p(z) - z` from `z = 0`: `|λ|` of the cycle it converges to (None: no
 /// convergence, or an iterate escaped). Spends at most `NEWTON_PASSES * p` steps of `budget`.
-fn cycle_multiplier<T: Cx>(refs: &[T], dc: T, p: usize, budget: &mut usize) -> Option<f64> {
+fn cycle_multiplier<T: Cx>(formula: Formula, refs: &[T], dc: T, p: usize, budget: &mut usize) -> Option<f64> {
     let mut base = T::ZERO;
     for _ in 0..NEWTON_PASSES {
         if *budget < p {
             return None;
         }
         *budget -= p;
-        let mut o = Orbit::at(refs, dc, base);
+        let mut o = Orbit::at(formula, refs, dc, base);
         let mut lam = T::ONE;
         for _ in 0..p {
             let z = o.z();
             if beyond_two(z.log2_abs()) {
                 return None;
             }
-            lam = z.twice() * lam;
+            lam = prime(formula, z) * lam;
             o.step();
         }
         let fz = o.z();
@@ -186,8 +230,20 @@ pub fn sample_period<T: Cx>(
     max_period: usize,
     budget: &mut usize,
 ) -> Option<usize> {
+    sample_period_for(Formula::Mandelbrot, refs, dc, known, max_period, budget)
+}
+
+/// [`sample_period`] for any formula (F2; `refs` is an orbit of it).
+pub fn sample_period_for<T: Cx>(
+    formula: Formula,
+    refs: &[T],
+    dc: T,
+    known: &[usize],
+    max_period: usize,
+    budget: &mut usize,
+) -> Option<usize> {
     for &p in known {
-        if cycle_multiplier(refs, dc, p, budget).is_some_and(|l| l < 1.0) {
+        if cycle_multiplier(formula, refs, dc, p, budget).is_some_and(|l| l < 1.0) {
             return Some(p);
         }
     }
@@ -196,7 +252,7 @@ pub fn sample_period<T: Cx>(
         return None;
     }
     *budget -= n_max;
-    let mut o = Orbit::at(refs, dc, T::ZERO);
+    let mut o = Orbit::at(formula, refs, dc, T::ZERO);
     let mut best = f64::INFINITY;
     let mut candidates = Vec::new();
     o.step();
@@ -215,19 +271,30 @@ pub fn sample_period<T: Cx>(
     }
     candidates
         .into_iter()
-        .find(|&p| cycle_multiplier(refs, dc, p, budget).is_some_and(|l| l < 1.0))
+        .find(|&p| cycle_multiplier(formula, refs, dc, p, budget).is_some_and(|l| l < 1.0))
 }
 
 /// Periods of attracting cycles at the sample points, with how many samples have each, most
 /// first (ties: shorter first). Stops when `budget` steps are spent.
-pub fn view_periods<T: Cx>(refs: &[T], samples: &[T], max_period: usize, mut budget: usize) -> Vec<(usize, usize)> {
+pub fn view_periods<T: Cx>(refs: &[T], samples: &[T], max_period: usize, budget: usize) -> Vec<(usize, usize)> {
+    view_periods_for(Formula::Mandelbrot, refs, samples, max_period, budget)
+}
+
+/// [`view_periods`] for any formula (F2).
+pub fn view_periods_for<T: Cx>(
+    formula: Formula,
+    refs: &[T],
+    samples: &[T],
+    max_period: usize,
+    mut budget: usize,
+) -> Vec<(usize, usize)> {
     let mut found: Vec<(usize, usize)> = Vec::new();
     for &dc in samples {
         if budget == 0 {
             break;
         }
         let known: Vec<usize> = found.iter().map(|f| f.0).collect();
-        if let Some(p) = sample_period(refs, dc, &known, max_period, &mut budget) {
+        if let Some(p) = sample_period_for(formula, refs, dc, &known, max_period, &mut budget) {
             match found.iter_mut().find(|f| f.0 == p) {
                 Some(f) => f.1 += 1,
                 None => found.push((p, 1)),
@@ -335,5 +402,29 @@ mod tests {
         // The budget bounds the work.
         let mut b = 100;
         assert_eq!(sample_period::<C64>(&[], samples[0], &[], 512, &mut b), None);
+    }
+
+    /// F2: the generic step at p = 2 finds Mandelbrot's periods, directly and perturbed; z^3 + c
+    /// has its period-2 component around c = i.
+    #[test]
+    fn generic_formula_periods() {
+        let g = Formula::Multibrot(2);
+        for (re, im) in [(-0.1, 0.1), (-1.0, 0.2), (-0.1226, 0.7449), (1.0, 1.0)] {
+            let mut budget = 1 << 22;
+            assert_eq!(
+                sample_period_for::<C64>(g, &[], C64(re, im), &[], 512, &mut budget),
+                direct(re, im)
+            );
+        }
+        let samples: Vec<C64> = (0..9)
+            .map(|k| C64(-0.7873 + 1e-4 * (k % 3) as f64, 0.1376 + 1e-4 * (k / 3) as f64))
+            .collect();
+        assert_eq!(
+            view_periods_for(g, &[], &samples, 512, 1 << 22),
+            view_periods(&[], &samples, 512, 1 << 22)
+        );
+        let mut budget = 1 << 20;
+        let cubic = sample_period_for::<C64>(Formula::Multibrot(3), &[], C64(0.02, 1.01), &[], 64, &mut budget);
+        assert_eq!(cubic, Some(2));
     }
 }

@@ -19,6 +19,7 @@
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::{BigComplex, make_float_exp_complex};
 use crate::floatexp::{DoubleExpComplex, FloatExpComplex};
+use crate::formula::Formula;
 use crate::parallel::{self, HelperStart, PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS, Shared, StepRegs, StopGuard};
 use crate::raw::{self, Raw, Storage};
 
@@ -123,6 +124,9 @@ pub struct ReferenceOrbitComputer {
     precision_bits: usize,
     pub variant: Variant,
     pub threads: Threads,
+    /// The iteration (F2): Mandelbrot runs the specialised loops below, any other formula one
+    /// generic loop (matched once per computation, outside the limb-specialised loops).
+    pub formula: Formula,
 }
 
 impl ReferenceOrbitComputer {
@@ -134,7 +138,13 @@ impl ReferenceOrbitComputer {
             precision_bits: bits,
             variant: Variant::Automatic,
             threads: Threads::Single,
+            formula: Formula::Mandelbrot,
         }
+    }
+
+    pub fn with_formula(mut self, formula: Formula) -> Self {
+        self.formula = formula;
+        self
     }
 
     pub fn with_variant(mut self, variant: Variant) -> Self {
@@ -149,7 +159,8 @@ impl ReferenceOrbitComputer {
 
     /// Whether a computation of `max_iterations` runs on three threads.
     pub fn uses_helpers(&self, max_iterations: usize) -> bool {
-        if self.resolved_variant() != Variant::Squarings {
+        // (The three-thread split is Mandelbrot's X^2, Y^2, (X+Y)^2.)
+        if self.resolved_variant() != Variant::Squarings || !self.formula.is_mandelbrot() {
             return false;
         }
         match self.threads {
@@ -249,6 +260,7 @@ impl ReferenceOrbitComputer {
             helpers: self.uses_helpers(max_iterations - first),
             max_iterations,
             bailout2: bailout * bailout,
+            formula: self.formula,
         };
         let n = self.limb_count();
         let out = Outputs {
@@ -288,6 +300,7 @@ impl ReferenceOrbitComputer {
             helpers: self.uses_helpers(max_iterations),
             max_iterations,
             bailout2: bailout * bailout,
+            formula: self.formula,
         };
         let out = Outputs {
             points: None,
@@ -331,6 +344,7 @@ struct Job<'a> {
     helpers: bool,
     max_iterations: usize,
     bailout2: f64,
+    formula: Formula,
 }
 
 /// Loads a BigFloat into a register (rounded to the register's limb count if wider).
@@ -396,7 +410,21 @@ impl Job<'_> {
         with_scratch(n, |s| {
             while done < self.max_iterations {
                 let end = self.max_iterations.min(done + interval);
-                let (reached, esc) = if let Some(sh) = shared {
+                let (reached, esc) = if let Formula::Multibrot(p) = self.formula {
+                    orbit_loop_power(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                        p,
+                    )
+                } else if let Some(sh) = shared {
                     orbit_loop_squarings_shared(
                         &mut x,
                         &mut y,
@@ -550,6 +578,46 @@ fn orbit_loop_multiplications<S: Storage>(
     (i, false)
 }
 
+/// The generic polynomial step `Z <- Z^p + C` (F2: any formula but Mandelbrot): `p - 1` complex
+/// multiplications, four products each.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn orbit_loop_power<S: Storage>(
+    x: &mut Raw<S>,
+    y: &mut Raw<S>,
+    cx: &Raw<S>,
+    cy: &Raw<S>,
+    t: &mut [Raw<S>; 6],
+    s: &mut [u64],
+    start: usize,
+    end: usize,
+    bailout2: f64,
+    out: &mut Outputs<'_>,
+    power: u32,
+) -> (usize, bool) {
+    let [wx, wy, p1, p2, p3, p4] = t;
+    let mut i = start;
+    while i < end {
+        raw::copy(wx, x.view());
+        raw::copy(wy, y.view());
+        for _ in 1..power {
+            raw::mul(p1, wx.view(), x.view(), s);
+            raw::mul(p2, wy.view(), y.view(), s);
+            raw::mul(p3, wx.view(), y.view(), s);
+            raw::mul(p4, wy.view(), x.view(), s);
+            raw::add(wx, p1.view(), p2.view(), true, s);
+            raw::add(wy, p3.view(), p4.view(), false, s);
+        }
+        raw::add(x, wx.view(), cx.view(), false, s);
+        raw::add(y, wy.view(), cy.view(), false, s);
+        i += 1;
+        if emit_point(x, y, i, bailout2, out) {
+            return (i, true);
+        }
+    }
+    (i, false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,6 +703,43 @@ mod tests {
             pts.truncate(r.count);
             ext.truncate(r.count);
             same(&whole, &(pts, ext, r));
+        }
+    }
+
+    /// F2: the generic power loop at p = 2 is the Mandelbrot orbit (to the working precision:
+    /// it rounds x^2 - y^2 where the specialised loops round (x+y)(x-y)), and p = 3 is z^3 + c.
+    #[test]
+    fn generic_power_two_is_mandelbrot() {
+        for bits in [128usize, 1024, 1088] {
+            let c = point(bits);
+            let m = ReferenceOrbitComputer::new(&c, bits).compute_vec(2000, 1e10);
+            let g = ReferenceOrbitComputer::new(&c, bits)
+                .with_formula(Formula::Multibrot(2))
+                .with_threads(Threads::Three);
+            assert!(!g.uses_helpers(1 << 20));
+            let g = g.compute_vec(2000, 1e10);
+            assert_eq!(m.2.count, g.2.count);
+            for (a, b) in m.0.iter().zip(&g.0) {
+                assert!(
+                    (a[0] - b[0]).abs() <= 1e-6 * (1.0 + a[0].abs())
+                        && (a[1] - b[1]).abs() <= 1e-6 * (1.0 + a[1].abs())
+                );
+            }
+            let d = &m.2.final_z - &g.2.final_z;
+            let tol = -(bits as f64) + 40.0;
+            assert!(
+                d.re.log2_magnitude() < tol && d.im.log2_magnitude() < tol,
+                "{bits} bits"
+            );
+        }
+        let c = BigComplex::parse("-0.1", "0.8", 128).unwrap();
+        let (pts, _, _) = ReferenceOrbitComputer::new(&c, 128)
+            .with_formula(Formula::Multibrot(3))
+            .compute_vec(20, 1e10);
+        let mut z = (0.0f64, 0.0f64);
+        for p in &pts[1..] {
+            z = Formula::Multibrot(3).step(z, (-0.1, 0.8));
+            assert!((p[0] as f64 - z.0).abs() < 1e-6 && (p[1] as f64 - z.1).abs() < 1e-6);
         }
     }
 }

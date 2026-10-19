@@ -188,6 +188,8 @@ struct SavedSettings: Codable {
     var cosmicScale: Bool?
     var compassAlways: Bool?
     var targetMarker: Bool?
+    /// The fractal (F2): "mandelbrot".
+    var formula: String?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -198,6 +200,22 @@ struct SavedSettings: Codable {
 @MainActor
 @Observable
 public final class ExplorerModel {
+    /// The fractal (F2, kb: plans/f2-pluggable-formulas): "mandelbrot" until F3 adds more.
+    public var formula = "mandelbrot" {
+        didSet {
+            push()
+            if !pulling, let c = explorer?.capabilities(), c != capabilities { capabilities = c }
+        }
+    }
+    /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
+    /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
+    public private(set) var capabilities: FormulaCapabilities?
+
+    /// Whether the current formula has a feature (true before the renderer exists).
+    public func has(_ feature: KeyPath<FormulaCapabilities, Bool>) -> Bool {
+        capabilities?[keyPath: feature] ?? true
+    }
+
     // Iterations
     public var autoIterations = true { didSet { push() } }
     public var manualIterations = 1000 { didSet { push() } }
@@ -500,6 +518,8 @@ public final class ExplorerModel {
     private func pull(_ s: ExplorerSettings) {
         pulling = true
         defer { pulling = false }
+        formula = s.formula
+        if let c = explorer?.capabilities(), c != capabilities { capabilities = c }
         autoIterations = s.autoIterations
         manualIterations = Int(s.manualIterations)
         maxIterationsCap = Int(s.maxIterationsCap)
@@ -539,6 +559,7 @@ public final class ExplorerModel {
 
     private var settings: ExplorerSettings {
         ExplorerSettings(
+            formula: formula,
             autoIterations: autoIterations, manualIterations: UInt64(max(1, manualIterations)),
             maxIterationsCap: UInt64(max(1, maxIterationsCap)), interiorDetection: interiorDetection,
             paletteId: paletteID, colorDensity: colorDensity, colorOffset: colorOffset,
@@ -667,7 +688,8 @@ public final class ExplorerModel {
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
-            cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker)
+            cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker,
+            formula: formula)
     }
 
     private func writeSaved() {
@@ -724,6 +746,7 @@ public final class ExplorerModel {
         interiorDensity = s.interiorDensity ?? interiorDensity
         interiorStripes = s.interiorStripes ?? interiorStripes
         denseCalm = s.denseCalm ?? denseCalm
+        formula = s.formula ?? formula
         orbitEnabled = s.orbitEnabled ?? orbitEnabled
         orbitLength = s.orbitLength ?? orbitLength
         mapEnabled = s.mapEnabled ?? mapEnabled

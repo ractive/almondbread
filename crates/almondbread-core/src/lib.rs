@@ -23,6 +23,7 @@ pub mod cruise;
 pub mod cycles;
 pub mod flight;
 pub mod flyto;
+pub mod formula;
 pub mod image;
 pub mod input;
 pub mod journey;
@@ -45,6 +46,7 @@ pub mod viewport;
 #[cfg(test)]
 mod extreme_tests;
 
+pub use formula::{Formula, FormulaCapabilities};
 pub use input::{EdgePan, InputEvent, InputMode, NavKey, Navigator, TouchHold, TouchSpot};
 pub use locations::{BENCHMARK_LOCATIONS, BenchmarkLocation};
 pub use oracle::{IterationField, VerifyReport};
