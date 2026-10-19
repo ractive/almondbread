@@ -1736,3 +1736,20 @@ of the throttle, the round buttons, the cockpit and the maps (narrowed beside th
 portrait, the trailing side on its side when the maps are under it; the text scrolls in what is
 left). The UI tests' round-button lookup had matched identifiers only and checked nothing; it
 matches labels now. [[decisions/controls]] "Mini-map on small screens", "Tour card on a phone".
+
+## [2026-10-19] research | Other fractal types: feasibility and roadmap
+
+User question: which other fractal types could almondbread support on top of what exists (Julia,
+3D Mandelbulb/Mandelbox)? Read the formula pages, landscape decision and the code (about 12 modules
+are formula-specific; the perturbed step is inline at ~10 kernel sites; nine function constants
+already specialise the kernel), plus web research. Result: [[synthesis/other-fractal-types]],
+with a family × capability matrix, the order Julia companion → pluggable-formula refactor
+(`kFormula`/`kConformal` function constants, `Formula` enum in math, capability struct over FFI) →
+Multibrot → deep Julia (critical-orbit rebasing: the Mandelbrot orbit of k; untested) →
+Mandelbar → Burning Ship family → hybrids, Nova spike; Buddhabrot and Lyapunov as shallow modes.
+3D verdict: a separate XL mode with a ~1e4–1e5 float32 ceiling and no published perturbation
+scheme; the 2.5D landscape is the cheaper route. New sources: quilez-mandelbulb,
+skytopia-mandelbulb, wikipedia-mandelbulb, wikipedia-mandelbox, hvidtfeldt-de-3d-fractals,
+mandelbulber2-readme, alltools-mandelbulb-explorer, superliminal-buddhabrot,
+wikipedia-fractal-flame, wikipedia-newton-fractal, wikipedia-lyapunov-fractal, frax-about,
+hpdz-animations. Pointer added to [[formulas/others-feasibility]].

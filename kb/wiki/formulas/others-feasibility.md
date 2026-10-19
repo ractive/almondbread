@@ -12,6 +12,10 @@ Which formulas beyond [[formulas/mandelbrot]], [[formulas/multibrot]],
 [[formulas/mandelbar]], [[formulas/burning-ship]], [[formulas/hybrids]] and
 [[formulas/julia]] can use perturbation, rebasing and BLA.
 
+For the full survey (all families incl. Buddhabrot, Lyapunov, flames and 3D, a feasibility
+matrix, the recommended order and the pluggable-formula architecture) see
+[[synthesis/other-fractal-types]].
+
 | Formula | Perturbation | Rebasing | BLA | Verdict |
 |---|---|---|---|---|
 | Non-integer or complex power `z^a + c` | does not reduce | n/a | n/a | no |
