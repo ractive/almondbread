@@ -15,6 +15,7 @@
 use std::cell::Cell;
 
 use almondbread_core::cruise::{self, Level};
+use almondbread_core::icon::{Glyph, Stroke};
 use almondbread_core::input::Cockpit;
 
 use crate::help::{HelpBadge, HelpTopic};
@@ -259,47 +260,22 @@ pub fn level_name(l: Level) -> &'static str {
     }
 }
 
-/// Draws the icon of level `l` centred at `c` (pixels; `u` pixels per point) in `col`.
-fn icon(scene: &mut Scene, l: Level, c: [f64; 2], u: f64, col: [f32; 4]) {
-    let q = |x: f64, y: f64| [c[0] + x * u, c[1] + y * u];
-    let w = (0.55 * u) as f32;
-    let line = |scene: &mut Scene, pts: &[(f64, f64)]| {
-        for s in pts.windows(2) {
-            scene.segment(q(s[0].0, s[0].1), q(s[1].0, s[1].1), w, col, col);
-        }
-    };
-    match l {
-        // A steering wheel: rim, hub and three spokes.
-        Level::Manual => {
-            scene.ring(c, (4.6 * u) as f32, (1.0 * u) as f32, col);
-            scene.disc(c, (1.3 * u) as f32, col);
-            line(scene, &[(-4.3, -0.3), (0.0, 0.0), (4.3, -0.3)]);
-            line(scene, &[(0.0, 0.0), (0.0, 4.3)]);
-        }
-        // A speedometer: an open arc and a needle.
-        Level::Cruise => {
-            let arc: Vec<(f64, f64)> = (0..=12)
-                .map(|k| {
-                    let a = (200.0 - 220.0 * f64::from(k) / 12.0).to_radians();
-                    (4.8 * a.cos(), 1.2 - 4.8 * a.sin())
-                })
-                .collect();
-            line(scene, &arc);
-            line(scene, &[(0.0, 1.2), (2.6, -1.8)]);
-            scene.disc(q(0.0, 1.2), (0.9 * u) as f32, col);
-        }
-        // A plane, nose up: fuselage, swept wings, tail.
-        Level::Autopilot => {
-            line(scene, &[(0.0, -5.0), (0.0, 4.6)]);
-            line(scene, &[(-5.0, 1.4), (0.0, -1.2), (5.0, 1.4)]);
-            line(scene, &[(-2.0, 4.8), (0.0, 3.6), (2.0, 4.8)]);
-        }
-        // Sparkles: a four-pointed star and a small one.
-        Level::Journey => {
-            line(scene, &[(-1.5, -5.0), (-1.5, 4.0)]);
-            line(scene, &[(-5.6, -0.5), (2.6, -0.5)]);
-            line(scene, &[(3.6, -5.0), (3.6, -2.0)]);
-            line(scene, &[(2.1, -3.5), (5.1, -3.5)]);
+/// Draws glyph `g` (core `icon::Glyph`, the shapes the UIs also show inline in tour texts)
+/// centred at `c` (pixels; `u` pixels per point) in `col`.
+fn glyph(scene: &mut Scene, g: Glyph, c: [f64; 2], u: f64, col: [f32; 4]) {
+    let q = |p: [f64; 2]| [c[0] + p[0] * u, c[1] + p[1] * u];
+    for s in g.strokes() {
+        match s {
+            Stroke::Line { points, half_width } => {
+                let w = (half_width * u) as f32;
+                for p in points.windows(2) {
+                    scene.segment(q(p[0]), q(p[1]), w, col, col);
+                }
+            }
+            Stroke::Ring { center, radius, width } => {
+                scene.ring(q(center), (radius * u) as f32, (width * u) as f32, col);
+            }
+            Stroke::Disc { center, radius } => scene.disc(q(center), (radius * u) as f32, col),
         }
     }
 }
@@ -461,7 +437,13 @@ impl CockpitOverlay {
         for (i, l) in Level::ALL.into_iter().enumerate() {
             let on = l == c.level;
             let (cx, cy) = at(g.icons_x0 + (i as f64 + 0.5) * g.pitch, g.icons_y);
-            icon(scene, l, [cx, cy], px * g.icon_scale, if on { lit } else { dim });
+            glyph(
+                scene,
+                Glyph::of(l),
+                [cx, cy],
+                px * g.icon_scale,
+                if on { lit } else { dim },
+            );
             icons.push((l, cx, cy, g.pitch * px / 2.0, g.hit_half_h * px));
         }
         drop(icons);
@@ -527,13 +509,7 @@ impl CockpitOverlay {
         }
         self.lane.set(Some((lx, ly, g.lane_half * px, g.hit_half_h * px)));
         let col = rgba(1.0, 1.0, 1.0, if c.nudging { 1.0 } else { alpha });
-        let (hh, wb, wt) = (6.0 * u, 5.5 * u, 2.5 * u);
-        let lw = (0.7 * u) as f32;
-        scene.segment([lx - wb, ly + hh], [lx - wt, ly - hh], lw, col, col);
-        scene.segment([lx + wb, ly + hh], [lx + wt, ly - hh], lw, col, col);
-        for (a, b) in [(4.0, 1.5), (-1.0, -3.5)] {
-            scene.segment([lx, ly + a * u], [lx, ly + b * u], (0.5 * u) as f32, col, col);
-        }
+        glyph(scene, Glyph::Lane, [lx, ly], u, col);
         // The (?) badge: the levels and their keys.
         let (bx, by) = at(g.badge.0, g.badge.1);
         crate::help::draw(scene, help, HelpTopic::Cockpit, [bx as f32, by as f32], px as f32, key);

@@ -1931,6 +1931,35 @@ The parser checks the blocks (unclosed, nested, stray `:::`, unknown platform) a
 shown on a platform has text there and every platform gets a step. The UI names its platform when
 it starts a tour (`Explorer.start_tour_on(id, "mac" | "phone" | "pad")`; `Tour::for_platform`).
 
+**Inline icons in the text** (2026-10-20). `{icon:<id>}` anywhere in a step's text shows that
+control's icon in the line, in the text's colour, where the words would otherwise name it by a
+letter or a word the reader cannot match to the screen (user, 2026-10-20: "people won't know what
+M C A J are"). Braces are not Markdown and do not clash with `:::`; an icon may sit inside
+`**bold**`. The parser checks every icon (`{icon:` closed with `}` on its line, a known id; else an
+error with its line, `tour::check_text_icons`, core `icon::icons_in`). The ids are the controls'
+`highlight:` names:
+
+| Id | Icon | Spoken |
+| --- | --- | --- |
+| `cockpit-manual`, `cockpit-cruise`, `cockpit-autopilot`, `cockpit-journey` | the cockpit's steering wheel, speedometer, plane, sparkles | steering wheel, speedometer, plane, sparkles |
+| `cockpit-lane` | the cockpit's lane-assist icon | lane lines |
+| `throttle` | a small lever (the touch throttle is a SwiftUI lever, not an icon; unused so far) | lever |
+| `orbit`, `mini-map`, `julia`, `size-scale`, `fly-to`, `control-center` | the round buttons' and Mac toolbar's SF Symbols | curved path, map, seal, ruler, arrow, sliders |
+
+*One source.* The cockpit is drawn by Rust, so its icons are not SF Symbols. Core `icon::Glyph`
+holds each glyph as strokes (polylines with round caps, rings, discs; design points around the
+centre, all within `Glyph::HALF_EXTENT` = 7); the cockpit draws them (`cockpit::glyph`, unchanged
+pixels) and FFI `inline_icons()` hands the same strokes to Swift, which draws them once per size
+into a white template image (`InlineIcons.swift`, Core Graphics, cached) and puts it into the
+`Text` (`Text(Image)`, `baselineOffset` so it sits on the capitals' middle; the box is 1.3 × the
+font's point size, so the icons keep the cockpit's relative sizes). The SF Symbol names live in
+the same Rust table (`icon::INLINE_ICONS`) and the toolbar and round buttons take theirs from it
+(`InlineIcons.symbol(id)`), so a changed button symbol changes the text too. The Markdown is
+parsed once with a placeholder per icon (`HelpMarkdownView`), so emphasis may span an icon; a
+paragraph with icons gets an accessibility label with each icon's spoken name (what it looks like,
+since the text names the control). The help pages may use the same syntax (not parse-checked by
+Rust; a Swift unit test, `InlineIconsTests`, checks their ids).
+
 **Highlight targets** (`tour::HIGHLIGHT_TARGETS`; a typo is a parse error): `hud`, `cockpit` (the
 whole panel) and `cockpit-manual`, `-cruise`, `-autopilot`, `-journey`, `-lane` (one icon; Rust
 draws the cockpit, Swift rings the cells `Explorer.cockpit_controls` reports), `throttle` (touch),
@@ -2090,10 +2119,10 @@ any tour.
 | --- | --- | --- |
 | Welcome! | — | the set; Next goes on (flies to the whole set) |
 | Move and zoom | — (`goal: zoom-in`) | pinch, swipe, double tap / point and hold Space, pinch, wheel, drag; "try it" |
-| The cockpit | `cockpit` | M, C, A, J: who is flying; tap / click or Esc E Z J |
+| The cockpit | `cockpit` | the four icons inline (wheel, speedometer, plane, sparkles) with their names: who is flying; tap / click or Esc E Z J |
 | Cruise | `throttle` / `cockpit-cruise` | the lever up, down, M; rest a finger to steer towards it, swipe to move the picture / E, Q, Esc, the pointer steers |
 | Autopilot and journeys | `cockpit-autopilot` | the plane, a suggested direction, the sparkles, the wheel / Z, J, Esc |
-| The round buttons / The toolbar | `toolbar` | orbit, mini-map, size scale, fly to, control center |
+| The round buttons / The toolbar | `toolbar` | orbit, mini-map, (Mac: Julia set,) size scale, fly to, control center, each with its icon inline |
 | The control center | `section-places` (opens it) | places: Go or Fly; search |
 | Tours | `section-tours` | the maths tours; the walkthrough is here and in Help |
 | Off you go! | — (closes it) | lost: Reset / R |

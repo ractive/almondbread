@@ -153,8 +153,22 @@ struct HelpMarkdownView: View {
     let markdown: String
     /// Popovers: smaller type, no title heading.
     var compact = false
-    /// The body type, if not the default for `compact` (the phone's tour card: smaller).
-    var textFont: Font? = nil
+    /// The body text style, if not the default for `compact` (the phone's tour card: smaller).
+    var textStyle: Font.TextStyle? = nil
+    @Environment(\.displayScale) private var displayScale
+
+    private var style: Font.TextStyle { textStyle ?? (compact ? .callout : .body) }
+
+    /// A paragraph or bullet: its inline Markdown with its icons (`{icon:id}`, `InlineIcons`),
+    /// read out with the icons' labels.
+    @ViewBuilder private func line(_ text: String) -> some View {
+        let (t, spoken) = InlineIcons.text(text, style: style, scale: displayScale)
+        if let spoken {
+            t.accessibilityLabel(spoken)
+        } else {
+            t
+        }
+    }
 
     enum Block: Hashable {
         case heading(Int, String)
@@ -207,15 +221,15 @@ struct HelpMarkdownView: View {
                 case .bullet(let text):
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text("•").foregroundStyle(.secondary)
-                        Text(Self.inline(text)).fixedSize(horizontal: false, vertical: true)
+                        line(text).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.leading, 4)
                 case .paragraph(let text):
-                    Text(Self.inline(text)).fixedSize(horizontal: false, vertical: true)
+                    line(text).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .font(textFont ?? (compact ? .callout : .body))
+        .font(.system(style))
         .lineSpacing(compact ? 1 : 2.5)
         .frame(maxWidth: .infinity, alignment: .leading)
     }

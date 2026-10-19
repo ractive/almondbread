@@ -24,6 +24,7 @@ pub mod cycles;
 pub mod flight;
 pub mod flyto;
 pub mod formula;
+pub mod icon;
 pub mod image;
 pub mod input;
 pub mod journey;

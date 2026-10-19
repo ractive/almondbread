@@ -2,7 +2,7 @@
 
 ## Driving levels
 
-Like a car, Almondbread has four ways to drive, shown at the bottom of the picture as **M · C · A · J**: **M**anual, **C**ruise, **A**utopilot and **J**ourney. Next to them a thin gauge shows the speed: zooming out to the left, zooming in to the right, with the value, for example *↓ ×2/s* (out, twice as wide every second) or *↑ ×1.5/s* (in).
+Like a car, Almondbread has four ways to drive, shown as icons in the cockpit at the bottom of the picture: {icon:cockpit-manual} **Manual** (the steering wheel), {icon:cockpit-cruise} **Cruise** (the speedometer), {icon:cockpit-autopilot} **Autopilot** (the plane) and {icon:cockpit-journey} **Journey** (the sparkles). Next to them a thin gauge shows the speed: zooming out to the left, zooming in to the right, with the value, for example *↓ ×2/s* (out, twice as wide every second) or *↑ ×1.5/s* (in).
 
 ## Cruise
 

@@ -37,10 +37,10 @@ highlight: cockpit
 
 At the bottom is the **cockpit**. It shows who is flying:
 
-- **M**: you, by hand
-- **C**: cruise, a steady flight in or out
-- **A**: the autopilot
-- **J**: a journey
+- {icon:cockpit-manual} **Manual**: you, by hand
+- {icon:cockpit-cruise} **Cruise**: a steady flight in or out
+- {icon:cockpit-autopilot} **Autopilot**: it flies by itself
+- {icon:cockpit-journey} **Journey**: from landmark to landmark
 
 ::: touch
 Tap an icon to switch.
@@ -61,20 +61,20 @@ While you cruise, **rest a finger** on the picture to steer towards it, or **swi
 platform: mac
 highlight: cockpit-cruise
 
-Press **E** to cruise in, a little faster each time. **Q** slows down, then flies out. **Esc** stops.
+The speedometer {icon:cockpit-cruise} is **cruise**. Press **E** to cruise in, a little faster each time. **Q** slows down, then flies out. **Esc** stops.
 
 While you cruise, the picture drifts towards the **pointer**: point where you want to go.
 
 ## Autopilot and journeys
 highlight: cockpit-autopilot
 
-The **plane** is the autopilot: it flies by itself and looks for interesting places.
+The **plane** {icon:cockpit-autopilot} is the autopilot: it flies by itself and looks for interesting places.
 
 ::: touch
-Tap the plane to start it. **Rest a finger** on the picture to suggest where it should go. The **sparkles** next to it start a **journey**, a trip from one landmark to the next. The steering wheel stops everything.
+Tap the plane to start it. **Rest a finger** on the picture to suggest where it should go. The **sparkles** {icon:cockpit-journey} next to it start a **journey**, a trip from one landmark to the next. The steering wheel {icon:cockpit-manual} stops everything.
 :::
 ::: mac
-Press **Z** to start it and point the mouse to suggest where it should go. **J** starts a **journey**, a trip from one landmark to the next. **Esc** stops everything.
+Click it or press **Z** to start it, and point the mouse to suggest where it should go. The **sparkles** {icon:cockpit-journey} (or **J**) start a **journey**, a trip from one landmark to the next. **Esc** (or the steering wheel {icon:cockpit-manual}) stops everything.
 :::
 
 ## The round buttons
@@ -83,19 +83,19 @@ highlight: toolbar
 
 These buttons switch extras on and off:
 
-- the **orbit**: where one point jumps to, step by step
-- the **mini-map**: where you are
-- the **size scale**: how big the picture really is
-- **fly to** a place by its numbers
-- the **control center**, with everything else
+- {icon:orbit} the **orbit**: where one point jumps to, step by step
+- {icon:mini-map} the **mini-map**: where you are
+- {icon:size-scale} the **size scale**: how big the picture really is
+- {icon:fly-to} **fly to** a place by its numbers
+- {icon:control-center} the **control center**, with everything else
 
 ## The toolbar
 platform: mac
 highlight: toolbar
 
-The buttons at the top switch extras on and off: the **orbit** (where one point jumps to, step by step), the **mini-map** (where you are) and the **size scale** (how big the picture really is). **Fly To** takes you to a place by its numbers.
+The buttons at the top switch extras on and off: the **orbit** {icon:orbit} (where one point jumps to, step by step), the **mini-map** {icon:mini-map} (where you are), the **Julia set** {icon:julia} of that point and the **size scale** {icon:size-scale} (how big the picture really is). **Fly To** {icon:fly-to} takes you to a place by its numbers.
 
-The last one opens the **control center** (**⌘I**).
+The last one {icon:control-center} opens the **control center** (**⌘I**).
 
 ## The control center
 control-center: open

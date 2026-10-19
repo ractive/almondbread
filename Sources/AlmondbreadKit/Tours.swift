@@ -81,7 +81,7 @@ struct TourCard: View {
             if !(compact && collapsed) {
                 if compact {
                     ScrollView {
-                        HelpMarkdownView(markdown: t.text, compact: true, textFont: .footnote)
+                        HelpMarkdownView(markdown: t.text, compact: true, textStyle: .footnote)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
                     }
