@@ -1710,3 +1710,17 @@ interior `move: jump` workarounds removed; new `--ui-demo=interior-cycle` scene.
 tour gained a 1e3000 step (`swirl-1e3000`, resolved 417 ms after the jump at 1600×1000).
 [[decisions/controls]] "The colours tour", "The limits tour";
 [[techniques/frame-reuse-and-progressive]].
+
+## [2026-10-19] decision | Overlay layout on narrow canvases; GPU queue hang
+
+From the App Store screenshot pass. The cosmic scale stacks above the cockpit where the cockpit
+does not fit beside it (top right on a phone on its side) and keeps clear of the iPhone's button
+column; the π panel and its trail inset keep clear of the tour card, the cockpit, the panels and
+the probe by rects instead of a fixed 352-point inset (shrinking to 0.75, lifting, the trail
+hidden on iPhones); a phone on its side always gets the bottom button row (`TouchLayout`, `make
+swift-test`); the Mac control center's hidden width no longer shifts the π panel. A real
+main-thread stall (up to 24.8 s in `commandBuffer()` with the queue full of long iterate chunks,
+iPad simulator, "Period 2688") is guarded by `GPU_QUEUE_LIMIT`. The Period 2688 step costs about
+23 s of M1 Pro GPU at iPad mini size; its text now says so. `--ui-demo-size=WxH`, `--ui-demo-aa=`,
+UI tests `OverlayLayoutUITests`, `TourPerformanceUITests`. [[decisions/controls]] "π meter on
+narrow canvases", "Cosmic size scale", "Round buttons"; [[techniques/hang-prevention]] "GPU queue".

@@ -18,6 +18,16 @@ pub struct HelpBadgeInfo {
     pub radius: f64,
 }
 
+/// A panel drawn by Rust, in view points from the top left.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct OverlayPanel {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 fn info((topic, (x, y), radius): (almondbread_render::help::HelpTopic, (f64, f64), f64)) -> HelpBadgeInfo {
     HelpBadgeInfo {
         topic: topic.id().to_string(),
@@ -98,5 +108,21 @@ impl Explorer {
     /// Every help badge drawn in the last frame (window tests aim at them).
     pub fn help_badges(&self) -> Vec<HelpBadgeInfo> {
         self.with_host(|h| h.help_badges()).into_iter().map(info).collect()
+    }
+
+    /// The Rust panels of the last frame (`cosmic`, `cockpit`, `maps`, `pi`, `pi-trail`) in
+    /// view points from the top left: UI tests check they keep clear of each other and of the
+    /// platform's controls (kb: decisions/controls "Touch").
+    pub fn overlay_panels(&self) -> Vec<OverlayPanel> {
+        self.with_host(|h| h.overlay_panels())
+            .into_iter()
+            .map(|(id, [x, y, width, height])| OverlayPanel {
+                id: id.to_string(),
+                x,
+                y,
+                width,
+                height,
+            })
+            .collect()
     }
 }

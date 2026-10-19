@@ -148,7 +148,10 @@ struct TourCardLayer: View {
             GeometryReader { proxy in
                 let size = proxy.size
                 let g = proxy.frame(in: .global)
-                let w = compact ? min(max(0, size.width - 24), 480) : 340
+                // A phone on its side: narrower and at the leading side, so a π panel (316 points
+                // and its margins) fits beside it (kb: decisions/controls "π meter on narrow canvases").
+                let wide = compact && size.width > size.height
+                let w = !compact ? 340 : wide ? max(280, min(480, size.width - 24 - 340)) : min(max(0, size.width - 24), 480)
                 // Clear of the ringed element and of the cockpit (a narrow Mac window, the
                 // control center open).
                 let ringed = model.tourHighlightFrame.map { $0.offsetBy(dx: -g.minX, dy: -g.minY).insetBy(dx: -10, dy: -10) }
@@ -158,12 +161,18 @@ struct TourCardLayer: View {
                                        trailing: trailing, bottom: bottom, above: cockpit?.minY)
                 let spot = spots.first { s in !avoid.contains { $0.intersects(s) } } ?? spots[0]
                 TourCard(model: model, compact: compact)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("tour-card")
                     .frame(width: w)
                     .fixedSize(horizontal: false, vertical: true)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
+                    // The card's own frame in the space the canvas reports its frame in: the π
+                    // panel keeps clear of it.
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.tourCardFrame = $0 }
                     .position(x: spot.midX, y: spot.midY)
                     .animation(.snappy(duration: 0.3), value: spot)
             }
+            .onDisappear { model.tourCardFrame = nil }
         }
     }
 
@@ -172,7 +181,10 @@ struct TourCardLayer: View {
     static func spots(size: CGSize, card: CGSize, compact: Bool, trailing: CGFloat, bottom: CGFloat,
                       above: CGFloat? = nil) -> [CGRect] {
         let (w, h) = (card.width, card.height)
-        let top = CGRect(x: (size.width - w) / 2, y: 12, width: w, height: h)
+        // A wide narrow-class canvas (a phone on its side): the card at the leading side, so a
+        // π panel (316 points and its margin) fits beside it at the trailing side.
+        let leading = compact && size.width > size.height
+        let top = CGRect(x: leading ? 12 : (size.width - w) / 2, y: 12, width: w, height: h)
         let bottomCentre = CGRect(x: (size.width - w) / 2, y: size.height - bottom - h, width: w, height: h)
         if compact { return [top, bottomCentre] }
         let bottomTrailing = CGRect(x: size.width - trailing - w, y: size.height - bottom - h, width: w, height: h)

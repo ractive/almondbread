@@ -912,7 +912,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     }
 
     /// The view as text: "re im scale angle° autopilot on|off journey on|off level m|c|a|j gear
-    /// n orbit on|off seek phase assist on|off wish on|off" (wish: the wish line is drawn). UI
+    /// n orbit on|off seek phase assist on|off wish on|off settled yes|no" (wish: the wish line
+    /// is drawn; settled: the render finished). UI
     /// tests read it to check that a gesture moved, zoomed or turned the view, and what the
     /// throttle and the long-press menu did.
     override var accessibilityValue: String? {
@@ -930,7 +931,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 + "autopilot \(s.autopilot.active ? "on" : "off") journey \(s.journey.active ? "on" : "off") "
                 + "level \(level) gear \(s.cruise.gear) orbit \(base.model.orbitEnabled ? "on" : "off") "
                 + "seek \(s.seek.phase.isEmpty ? "idle" : s.seek.phase.replacingOccurrences(of: " ", with: "-")) assist \(s.cruise.assist ? "on" : "off") "
-                + "wish \(explorer.wishLineShown() ? "on" : "off")"
+                + "wish \(explorer.wishLineShown() ? "on" : "off") settled \(s.settled ? "yes" : "no")"
                 + uiTestTargets(explorer)
         }
         set {}
@@ -946,7 +947,15 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         let at = { (x: Double, y: Double) in "\(Int((w / 2 + x).rounded())),\(Int((h / 2 - y).rounded()))" }
         let cells = explorer.cockpitControls().map { "\($0.id):" + at($0.x, $0.y) }
         let badges = explorer.helpBadges().map { "help-\($0.topic):" + at($0.x, $0.y) }
-        return " cockpit " + (cells + badges).joined(separator: " ")
+        // The Rust panels as rects (x0,y0,x1,y1, top-left points): the layout tests check
+        // they keep clear of each other and of the buttons (kb: decisions/controls "Touch").
+        let r = { (v: Double) in String(Int(v.rounded())) }
+        let panels = explorer.overlayPanels().map {
+            "panel-\($0.id):" + [r($0.x), r($0.y), r($0.x + $0.width), r($0.y + $0.height)].joined(separator: ",")
+        }
+        // The longest main-thread stall the hang watchdog saw (kb: techniques/hang-prevention).
+        let lag = "mainlag:" + String(format: "%.2f", HangWatchdog.longestDelay)
+        return " cockpit " + (cells + badges + panels + [lag]).joined(separator: " ")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

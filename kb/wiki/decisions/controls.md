@@ -1474,6 +1474,23 @@ default.
 - **Readability**: the backing is 86 % opaque black, and the labels and lines have a 2.4 to
   2.6 px dark outline. Labels go above or below the ruler, whichever row is free, at least
   9 pt from the next label and never far from their dot; a label that does not fit is hidden.
+- **Placement (2026-10-19)**: bottom left, 340 points wide or narrower where the canvas and the
+  platform's trailing controls leave less (`CosmicOverlay::width_pt`; FFI `set_cosmic_inset`:
+  the iPhone's button column and throttle, the Mac's control center over the canvas). The
+  cockpit sits right of it where it fits (right of a bottom-left map row too); where it does not
+  (a phone in either orientation, an iPad canvas next to the control center, a narrow Mac
+  window) the cockpit takes its own place and the scale **stacks above the cockpit** (above the
+  maps, cockpit, scale from the bottom). Before, the cockpit was pushed over the scale on an
+  iPhone in portrait and the scale ran under the button column. The Mac's control center now
+  also narrows the cockpit's room (it centres in the visible canvas). Checked by
+  `OverlayLayoutUITests.testCosmicScaleKeepsClearOfTheControls` (panels against the cockpit,
+  maps, round buttons and throttle in both orientations) and Mac `--ui-demo=cosmic` at
+  1440x900 and 640x800 (stacked above the cockpit and the lifted maps).
+  The Mac `--ui-demo=cosmic` capture that looked "mostly black" was `control-center-cosmic.png`,
+  the fallback composite: AppKit's `cacheDisplay` paints the canvas's black SwiftUI background
+  over the Metal picture (and the sidebar's materials as flat pink). The scene was fine
+  (`window-cosmic.png`, the window server's image, was correct); the composite is now written
+  only when the window server's image is missing.
 - **Highlight**: crossing a mark flashes it gold with a growing ring and "passing X" above the
   panel for 1.6 s (no flash on jumps of 3 decades or more).
 - **Cost** (measured 2026-10-15, M-series MacBook Pro, release, interaction test "cosmic
@@ -1533,8 +1550,10 @@ like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
   (old saved settings with the key decode fine; the key is ignored). Earlier (2026-10-15 to
   -18): P toggled, the View menu had the switch and both hunts, the control center the switch,
   reading and hunt buttons (the iOS way in), persisted, off after Reset all and
-  the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset); during
-  a tour on a wide canvas 352 points more, left of the tour card (`piMeterTourInset`).
+  the Overlays ↺. iPhone portrait moves the panel left of the button column (FFI inset); where
+  it goes beside a tour card: "π meter on narrow canvases" below (until 2026-10-19 a fixed
+  352-point inset, `piMeterTourInset`, which pushed the panel and its trail inset off the left
+  edge of an iPad mini in portrait).
 - **π hunt (guided flight, reworked 2026-10-15):** takes the place's look; the navigator's
   fly-to eases the view to seahorse valley (neck) or elephant valley (cusp) with the pinch
   point in view; the probe then slides from ε = 0.1 to 1e-8 (neck) or 1e-16 (cusp) at the
@@ -1551,6 +1570,44 @@ like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
   the hunt as the app shows it (`pi-cusp.json`, `--pi-flight cusp`); ui-demo scenes
   `pi-flight`, `pi-flight-late`, `pi-cusp`, `pi-cusp-late`; interaction-test scenario
   "pi hunt".
+
+### π meter on narrow canvases (as built, 2026-10-19)
+
+The panel (316 points) and the orbit-trail inset (434 points) keep clear of rects instead of a
+fixed inset (`PiMeter::place`, `resolve`, `inset_rect` in `pi_meter.rs`): the tour card (Swift
+reports its settled frame, FFI `set_tour_card`), the cockpit, the cosmic scale, a bottom-left map
+row and, during a hunt, the probe's pinch point with the first 160 points of its ruler (a wish:
+without a place clear of it the panel may cover it, and the ruler is then not drawn through the
+panel's text). Margins from the platform: right and bottom (the iPhone's button column, the
+bottom button row of a phone on its side), top (the iPad's top-right buttons; FFI
+`set_pi_meter(.., inset_top)`), plus the safe area (the Mac's toolbar, a phone's notch and home
+indicator).
+
+- Starts: the bottom-right corner, and left of each rect there. From a start, a rect reaching in
+  from the left shrinks the panel (drawing scale down to 0.75), any other lifts it above that
+  rect, until it is clear or out of room.
+- Choice: full size first, then room for the trail inset, then nearest the corner.
+- The trail inset goes above the panel (right-aligned, moved right to stay on the canvas) or left
+  of it, never over a rect; hidden where neither fits (every iPhone: it is wider than the screen).
+- Phone on its side: the tour card goes top leading (not centred) when the canvas has room for
+  the card and 340 more points, so the panel fits beside it (shrunk to about 0.87 on a 17e).
+
+Resulting places (unit test `panel_fits_narrow_canvases_beside_the_tour_card`, points): iPad mini
+portrait in the tour, panel above the card and trail above the panel (before: trail at x = −114);
+iPad landscape, panel above the card, trail left of it; iPhone portrait, panel above the cockpit
+(0.98), no trail; iPhone landscape, panel right of the card above the cockpit (0.87); Mac 1280 ×
+820 in the tour, panel above the card (before: left of the card, over the cockpit); Mac without
+a card unchanged. Mac 1280 × 820 as captured (`--ui-demo=tour-pi --ui-demo-size=1280x820`):
+step 3 left of the card above the cockpit with the trail to its left, clear of the probe's ruler;
+step 5 likewise. Two Mac bugs found on the way: the control center reports its width while
+hidden, so the π panel sat 330 points left of its corner in every tour (the content view now
+applies the width only while it shows: `controlCenterWidth`); and the canvas origin measured in
+the safe area was 52 points (the toolbar) off the card's frame (now measured outside it). The
+same rule fixed an overlap nobody had reported: on an iPad in portrait the
+π panel sat over the cockpit (bottom centre, 306 points) even without a tour.
+`OverlayLayoutUITests.testPiMeterFitsBesideTheTourCard` checks the panel and the inset against
+the card, the cockpit, the buttons and the canvas edges in both orientations (the panel rects come
+from FFI `overlay_panels`, in the fractal view's UI-test value as `panel-<id>:x0,y0,x1,y1`).
 
 ## Compass (as built, 2026-10-16)
 
@@ -1977,6 +2034,19 @@ Checked in the app (2026-10-18, M1 Pro, release, background window, `--ui-demo=t
 steps 1–6; the gold ring of step 3 sits on the antenna's fork; step 7 shows the period-2688 heart and
 its period-5376 disc while refining; the end restored the view and look.
 
+**Cost on touch (2026-10-19).** Headless at the iPad mini's 1488 × 2266 pixels, no AA (`render
+--scale 4.23e-19 --iterations N`, M1 Pro): 300 k 23.1 s of GPU (1.3e11 iterations, BLA does not pay
+here), 100 k 10.1 s, 50 k 6.1 s, 30 k 4.0 s; at 50 k the heart is a fogged blob without its disc
+and buds, so a lower limit would show a wrong picture: the limit stays. Scaling by pixels (≈ 1.7 ×
+the iPad mini) and an M5 GPU of about the M1 Pro's throughput (unverified), an iPad Pro 13" needs
+roughly 30–40 s to settle the step; it refines progressively meanwhile. The step's text said "the
+picture takes a few seconds"; it now says "half a minute or more to fill in" (true on the M1 Pro
+at window size too: 11 s at 1600 × 1000, about 29 s at 1280 × 820 Retina by pixel count). The iPad simulator
+did not settle it within 300 s (its GPU is the Mac's, translated, at low priority); that run found
+the main-thread stall in `commandBuffer()` ([[techniques/hang-prevention]] "GPU queue"). Not
+changed: a shallower minibrot for touch via `platform:` (the text names 2688 and the N chain;
+finding another chain's coordinates was out of scope).
+
 ### The π tour
 
 `tours/pi.md` ("π in the Mandelbrot set", place `pi-at-the-neck`), 6 steps, user request
@@ -2343,8 +2413,11 @@ simulators only; feel, haptics and thumb reach need a real device.
   thumbs are when holding it); the π meter and the tour card keep left of it. A canvas
   narrower than 560 points (iPad portrait with the control center open, narrow split views)
   takes the phone's portrait layout: the button column at the bottom trailing corner with the
-  throttle on top (`compactWidth`, `buttonColumn` in `ContentView.swift`). Shown with the
-  HUD, like the cockpit.
+  throttle on top. Shown with the HUD, like the cockpit. Since 2026-10-19 the choice and the
+  margins the Rust panels keep from these controls are one value, `TouchLayout`
+  (`Sources/AlmondbreadKit/TouchLayout.swift`, unit-tested by `make swift-test` for screens no
+  simulator has): "a phone on its side" is the vertical size class compact (every iPhone in
+  landscape), "narrow" is the horizontal class compact or a canvas under 560 points.
 - *Haptics* (`Haptics`): a selection tick per gear, a rigid tick at the zero detent and for the
   double-tap stop, a light tap when a flight lands (journey stop, fly-to, minibrot), a success
   when a minibrot search found one. Nothing during continuous motion.
@@ -2765,9 +2838,13 @@ colour and a white symbol (off: the HUD's material); accessibility: the name as 
   points wide, a top-trailing row, clear of a 380-point HUD on an iPad mini in portrait (744
   points). A canvas under 560 points (the iPad in portrait with the control center open,
   narrow split views) gets the phone's bottom-trailing column with the throttle on top.
-  Read from the code 2026-10-19: the overlay's corner follows `compactWidth` (horizontal size
-  class compact or canvas < 560), so a phone on its side whose width class is regular (the
-  large models) gets its row top trailing, not bottom trailing (not checked on a simulator).
+  Fixed 2026-10-19: the corner used to follow `compactWidth` (horizontal size class compact or
+  canvas < 560) alone, so a phone on its side whose width class is regular (Plus / Pro Max,
+  932–956 points) got its row top trailing while the throttle's bottom padding, the cockpit's
+  272-point right inset and the compass inset assumed the bottom row. Now a phone on its side
+  always gets the bottom-trailing row (`TouchLayout.buttonCorner`); the compass and the π panel
+  only keep below the top when the row is there. Reasoned from the code and checked by
+  `TouchLayoutTests` (17e 844, 932 and 956 points in landscape); no Pro Max simulator is installed.
 - *Touch hints.* "Flies by itself" now points down at the cockpit's plane icon (its rect from
   `Explorer::cockpit_controls`, read twice a second while the hints show); the middle group stays
   above that label.

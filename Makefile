@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live
+.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live swift-test
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -172,6 +172,10 @@ rust-regress: rust-cli
 core-check: rust
 	@mkdir -p build
 	swift run -c release almondbread-core-check $(abspath build/core-check.png)
+
+## Swift unit tests (pure UI logic: the touch layout; Tests/AlmondbreadKitTests)
+swift-test: rust
+	swift test
 
 clean:
 	rm -rf .build Almondbread.xcodeproj dist

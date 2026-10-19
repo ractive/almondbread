@@ -1603,13 +1603,35 @@ impl Explorer {
     }
 
     /// Switches the π meter (its panel, the line of approach and its counting thread);
-    /// `inset_right` / `inset_bottom`: extra margins in points keeping platform buttons clear.
+    /// `inset_right` / `inset_bottom` / `inset_top`: extra margins in points keeping platform
+    /// buttons clear (`inset_top` only limits how high the panel moves on a narrow canvas).
     /// A frame follows: resume the display link.
-    pub fn set_pi_meter(&self, on: bool, inset_right: f64, inset_bottom: f64) {
+    pub fn set_pi_meter(&self, on: bool, inset_right: f64, inset_bottom: f64, inset_top: f64) {
         let mut g = self.lock();
         let m = &mut g.host.overlay.pi;
         m.enabled = on;
-        m.inset = [inset_right.clamp(0.0, 2000.0), inset_bottom.clamp(0.0, 2000.0)];
+        // (NaN clamps to NaN: 0 instead.)
+        let c = |v: f64| if v.is_finite() { v.clamp(0.0, 2000.0) } else { 0.0 };
+        m.inset = [c(inset_right), c(inset_bottom)];
+        m.inset_top = c(inset_top);
+    }
+
+    /// The platform's tour card (view points from the top left; `width` 0: no card): the π
+    /// meter keeps clear of it, moving left of it, above it or shrinking (kb: decisions/controls
+    /// "π meter on narrow canvases"). A frame follows: resume the display link.
+    pub fn set_tour_card(&self, x: f64, y: f64, width: f64, height: f64) {
+        let ok = [x, y, width, height].iter().all(|v| v.is_finite() && v.abs() < 1e5);
+        self.lock().host.overlay.tour_card = (ok && width > 0.0 && height > 0.0).then_some([x, y, width, height]);
+    }
+
+    /// The width of a column of platform controls at the trailing edge (view points: the
+    /// iPhone's round buttons and throttle) that the cosmic scale keeps clear of.
+    pub fn set_cosmic_inset(&self, right: f64) {
+        self.lock().host.overlay.cosmic.inset_right = if right.is_finite() {
+            right.clamp(0.0, 2000.0)
+        } else {
+            0.0
+        };
     }
 
     pub fn pi_meter(&self) -> PiMeterInfo {

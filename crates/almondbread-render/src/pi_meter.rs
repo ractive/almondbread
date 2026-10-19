@@ -90,12 +90,84 @@ pub struct PiMeterState {
 }
 
 /// Space other overlays take, in output pixels, which the meter keeps clear of: the height
-/// used at the bottom right and the top right, the width used at the bottom left.
+/// used at the bottom right and the top right, the width used at the bottom left, the height
+/// of platform controls along the top (iPad round buttons), and rects it must not cover (the
+/// cosmic scale, the cockpit, a bottom-left map row, a guided tour's card).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Reserve {
     pub bottom_right: f32,
     pub top_right: f32,
     pub bottom_left: f32,
+    pub top: f32,
+    /// The safe area's right and bottom insets (pixels: the notch and the home indicator of a
+    /// phone), added to the panel's margins.
+    pub edge: [f32; 2],
+    pub keep_out: [Option<[f32; 4]>; 6],
+}
+
+impl Reserve {
+    /// Adds a rect (pixels: x0, y0, x1, y1) to keep clear of (the first six count).
+    pub fn keep_clear(&mut self, r: [f32; 4]) {
+        if r.iter().all(|v| v.is_finite())
+            && r[2] > r[0]
+            && r[3] > r[1]
+            && let Some(slot) = self.keep_out.iter_mut().find(|s| s.is_none())
+        {
+            *slot = Some(r);
+        }
+    }
+
+    fn rects(&self) -> impl Iterator<Item = [f32; 4]> + '_ {
+        self.keep_out.iter().flatten().copied()
+    }
+}
+
+/// The smallest drawing scale of the meter's panel on a narrow canvas (an iPhone, an iPad in
+/// portrait with a tour card).
+const MIN_SCALE: f32 = 0.75;
+
+/// Where the panel goes: its right and bottom edges (pixels) and its drawing scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Place {
+    right: f32,
+    bottom: f32,
+    k: f32,
+}
+
+fn intersects(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// From a start (right and bottom edge), a place for a panel `size` (pixels at scale 1) clear
+/// of `keep`: a rect reaching in from the left shrinks the panel (down to [`MIN_SCALE`]), any
+/// other lifts it above that rect; None when it runs out of room (`left` / `top` limits).
+fn resolve(right: f32, bottom: f32, size: [f32; 2], left: f32, top: f32, keep: &[[f32; 4]], gap: f32) -> Option<Place> {
+    let [bw, bh] = size;
+    if bw.is_nan() || bh.is_nan() || bw <= 0.0 || bh <= 0.0 || right - left < bw * MIN_SCALE {
+        return None;
+    }
+    let mut k = ((right - left) / bw).min(1.0);
+    let mut bottom = bottom;
+    // Each round clears one rect; a few rects, so a few rounds (bounded: kb: techniques/hang-prevention).
+    for _ in 0..12 {
+        if bottom - bh * k < top {
+            k = (bottom - top) / bh;
+            if k.is_nan() || k < MIN_SCALE {
+                return None;
+            }
+        }
+        let r = [right - bw * k, bottom - bh * k, right, bottom];
+        let Some(o) = keep.iter().find(|o| intersects(r, **o)) else {
+            return Some(Place { right, bottom, k });
+        };
+        let shrunk = (right - o[2] - gap) / bw;
+        if o[0] < r[0] && shrunk >= MIN_SCALE {
+            k = k.min(shrunk);
+        } else {
+            bottom = o[1] - gap;
+        }
+    }
+    None
 }
 
 /// The trail inset's plots in view points: the orbit plot (w, h), the turn circle, the gap.
@@ -112,6 +184,11 @@ pub struct PiMeter {
     /// Right and bottom margins of the panel beyond the standard 12 points, in view points
     /// (iPhone portrait keeps its buttons clear).
     pub inset: [f64; 2],
+    /// Height of platform controls along the top (view points; the iPad's round buttons):
+    /// the panel and the trail inset stay below it when they move up.
+    pub inset_top: f64,
+    /// The panel and the trail inset as last drawn (pixels), for the UI tests.
+    drawn: std::cell::Cell<[Option<[f32; 4]>; 2]>,
     target: Option<PiTarget>,
     /// The probe (counted instead of the view centre): set by the guided flight, kept while
     /// its pinch point stays in view (it wins over a view centred on the line).
@@ -519,6 +596,11 @@ impl PiMeter {
         self.record(m);
     }
 
+    /// The panel and the trail inset as last drawn (pixels; None: not drawn).
+    pub fn drawn(&self) -> [Option<[f32; 4]>; 2] {
+        self.drawn.get()
+    }
+
     /// The newest trail picture (the overlay uploads it when its serial changes).
     pub fn trail_picture(&self) -> Option<&TrailImage> {
         self.trail.as_ref().filter(|_| self.enabled)
@@ -560,12 +642,15 @@ impl PiMeter {
         px: f64,
         reserve: Reserve,
     ) -> String {
+        self.drawn.set([None, None]);
         if !self.enabled {
             return String::new();
         }
         let p = px as f32;
-        let right = (w - (12.0 + self.inset[0]) * px) as f32;
-        let bottom = (h - (12.0 + self.inset[1]) * px) as f32 - reserve.bottom_right;
+        let start = [
+            (w - (12.0 + self.inset[0]) * px) as f32 - reserve.edge[0],
+            (h - (12.0 + self.inset[1]) * px) as f32 - reserve.bottom_right - reserve.edge[1],
+        ];
         let pad = 12.0 * p;
         let fill = rgba(0.02, 0.02, 0.03, 0.8);
         let border = rgba(1.0, 1.0, 1.0, 0.22);
@@ -581,7 +666,11 @@ impl PiMeter {
             let wmax = lines.iter().map(|l| crate::font::layout(l, size).1).fold(0.0, f32::max);
             let bw = wmax + 2.0 * pad + crate::help::reserve(p);
             let bh = 2.0 * pad + size * (1.0 + 1.5);
-            let r = [right - bw, bottom - bh, right, bottom];
+            let pl = self
+                .place(w as f32, p, start, [bw, bh], reserve, false)
+                .unwrap_or_else(|| Self::corner(p, start, [bw, bh]));
+            let r = [pl.right - bw, pl.bottom - bh, pl.right, pl.bottom];
+            self.drawn.set([Some(r), None]);
             scene.rect(r, 8.0 * p, fill, border, p);
             for (k, l) in lines.iter().enumerate() {
                 scene.text([r[0] + pad, r[1] + pad + k as f32 * 1.5 * size], size, l, white(0.85));
@@ -595,14 +684,43 @@ impl PiMeter {
         let last = self.last.filter(|m| m.point == point);
         let state = self.state();
         let mut canvas_key = String::new();
+        // The panel stays off the probe's pinch point and the start of its ruler (the picture's
+        // subject during a hunt), where it has the choice.
+        let mut room = reserve;
+        if self.probe.is_some()
+            && let Some([bx, by]) = self.base_offset
+        {
+            let a = [w / 2.0 + bx * px, h / 2.0 - by * px];
+            let b = [
+                a[0] + self.line_dir[0] * 160.0 * px,
+                a[1] - self.line_dir[1] * 160.0 * px,
+            ];
+            let m = 24.0 * px;
+            room.keep_clear([
+                (a[0].min(b[0]) - m) as f32,
+                (a[1].min(b[1]) - m) as f32,
+                (a[0].max(b[0]) + m) as f32,
+                (a[1].max(b[1]) + m) as f32,
+            ]);
+        }
+        // (The pinch point is a wish: without room beside it, the panel may cover it, never the
+        // card, the cockpit or the other panels.)
+        let size = [316.0 * p, panel_height(p)];
+        let pl = self
+            .place(w as f32, p, start, size, room, true)
+            .or_else(|| self.place(w as f32, p, start, size, reserve, true))
+            .unwrap_or_else(|| Self::corner(p, start, size));
+        let (right, bottom, k) = (pl.right, pl.bottom, pl.k);
         // ---- On the canvas: the probe on its log ruler, or (view centred on the line) the
         // line of approach from the parabolic point to the centre, where the count is made
         // (the image itself is mostly unresolved this close).
         if self.probe.is_some() {
             // The ruler stops short of the panels.
-            let panel = [right - 316.0 * p, bottom - panel_height(p), right, bottom];
+            let panel = [right - 316.0 * p * k, bottom - panel_height(p) * k, right, bottom];
             let mut keep_clear = vec![panel];
-            keep_clear.extend(self.inset_rect(panel, p, reserve));
+            keep_clear.extend(self.inset_rect(panel, p, w as f32, reserve));
+            // (And the tour card: the ruler's caption ran under it.)
+            keep_clear.extend(reserve.rects());
             canvas_key = self.draw_probe(scene, w, h, px, t, &keep_clear);
         } else if let Some([bx, by]) = self.base_offset {
             let (cx, cy) = (w / 2.0, h / 2.0);
@@ -642,7 +760,11 @@ impl PiMeter {
             };
             scene.label([centre[0] + 11.0 * p, centre[1] - 16.0 * p], 11.0 * p, sym_c, gold);
         }
-        // ---- Panel.
+        // ---- Panel, drawn at scale k (a narrow canvas).
+        let trail_panel = [right - 316.0 * p * k, bottom - panel_height(p) * k, right, bottom];
+        let p = p * k;
+        let pad = pad * k;
+        let tick = f64::from(p);
         let bw = 316.0 * p;
         let plot_h = 104.0 * p;
         let s_title = 11.0 * p;
@@ -776,7 +898,7 @@ impl PiMeter {
         for d in (d_lo.max(d_hi.saturating_sub(64))..=d_hi).rev() {
             if (d as f64) <= xa && (d.unsigned_abs() as i64 - 1) % step == 0 {
                 let q = to(d as f64, yb);
-                scene.segment(q, [q[0], q[1] + 3.0 * px], hw, axis, axis);
+                scene.segment(q, [q[0], q[1] + 3.0 * tick], hw, axis, axis);
                 let lab = format!("1e{d}");
                 let lw = crate::font::layout(&lab, s_tick).1;
                 scene.text(
@@ -789,7 +911,7 @@ impl PiMeter {
         }
         for (e, lab) in [(0.0, "1"), (-5.0, "1e-5"), (-10.0, "1e-10")] {
             let q = to(xa, e);
-            scene.segment([q[0] - 3.0 * px, q[1]], q, hw, axis, axis);
+            scene.segment([q[0] - 3.0 * tick, q[1]], q, hw, axis, axis);
             let lw = crate::font::layout(lab, s_tick).1;
             scene.text(
                 [q[0] as f32 - 5.0 * p - lw, q[1] as f32 - 0.36 * s_tick],
@@ -851,7 +973,7 @@ impl PiMeter {
         }
         // Where the view is now (a tick on the ε axis).
         let now = to(t.eps.log10().max(xb), yb);
-        scene.segment([now[0], now[1] - 5.0 * px], now, 0.8 * p, gold, gold);
+        scene.segment([now[0], now[1] - 5.0 * tick], now, 0.8 * p, gold, gold);
         key.push_str(&format!(
             "h{} now {:.1} base {:?} ",
             hist.len(),
@@ -860,7 +982,12 @@ impl PiMeter {
         ));
         key.push_str(&canvas_key);
         // ---- The orbit trail inset (above the panel, or left of it when the view is low).
-        key.push_str(&self.draw_trail(scene, r, px, point, reserve));
+        key.push_str(&format!("k {k:.3} "));
+        self.drawn.set([
+            Some(trail_panel),
+            self.inset_rect(trail_panel, px as f32, w as f32, reserve),
+        ]);
+        key.push_str(&self.draw_trail(scene, trail_panel, px, w as f32, point, reserve));
         key
     }
 
@@ -880,6 +1007,15 @@ impl PiMeter {
         let room = ray_to_edge(base, d, [m, m, w - m, h - m]);
         if spp.is_nan() || spp <= 0.0 || room < 80.0 * px {
             return "probe off ".into();
+        }
+        // Under a panel (an iPhone in portrait leaves the meter no other place): no ruler
+        // through its text; the panel shows the count.
+        let (bx0, by0) = (base[0] as f32, base[1] as f32);
+        if keep_clear
+            .iter()
+            .any(|r| bx0 > r[0] && bx0 < r[2] && by0 > r[1] && by0 < r[3])
+        {
+            return "probe covered ".into();
         }
         // Purely logarithmic: ε = 0.1 (where the flight starts) at the far end, one more
         // decade past the flight's end at the pinch point.
@@ -999,22 +1135,84 @@ impl PiMeter {
     /// of it when the view is too low, or not at all.
     /// Where the trail inset goes next to the meter's panel `panel` (pixels): above it, or left
     /// of it when the view is too low, or nowhere.
-    fn inset_rect(&self, panel: [f32; 4], p: f32, reserve: Reserve) -> Option<[f32; 4]> {
+    /// Above: right-aligned with the panel, moved right to stay on a canvas `w` pixels wide.
+    /// Never over a rect of `reserve` (a tour card, the cockpit): hidden when there is no room
+    /// (an iPhone: the inset is wider than the screen).
+    fn inset_rect(&self, panel: [f32; 4], p: f32, w: f32, reserve: Reserve) -> Option<[f32; 4]> {
         let l = self.trail_layout?;
         let lh = l.size().1 as f32;
         let iw = INSET_W as f32 * p;
         let ih = 2.0 * 12.0 * p + 1.9 * 11.0 * p + lh + 6.0 * p + 2.0 * 1.45 * 9.5 * p;
         let gap = 8.0 * p;
-        if panel[1] - gap - ih >= 12.0 * p + reserve.top_right {
-            Some([panel[2] - iw, panel[1] - gap - ih, panel[2], panel[1] - gap])
-        } else if panel[0] - gap - iw >= reserve.bottom_left + 12.0 * p {
-            Some([panel[0] - gap - iw, panel[3] - ih, panel[0] - gap, panel[3]])
+        let margin = 12.0 * p;
+        let top = margin + reserve.top_right.max(reserve.top);
+        let free = |r: [f32; 4], left: f32| {
+            r[0] >= left && r[2] <= w - margin && r[1] >= top && !reserve.rects().any(|o| intersects(r, o))
+        };
+        let x0 = (panel[2] - iw).max(margin);
+        let above = [x0, panel[1] - gap - ih, x0 + iw, panel[1] - gap];
+        let beside = [panel[0] - gap - iw, panel[3] - ih, panel[0] - gap, panel[3]];
+        if free(above, margin) {
+            Some(above)
+        } else if free(beside, reserve.bottom_left + margin) {
+            Some(beside)
         } else {
             None
         }
     }
 
-    fn draw_trail(&self, scene: &mut Scene, panel: [f32; 4], px: f64, point: PiPoint, reserve: Reserve) -> String {
+    /// The panel's place: the bottom-right corner (`start`: right and bottom edge, pixels) or
+    /// left of a rect there, shrunk or lifted clear of the rects in `reserve` (kb:
+    /// decisions/controls "π meter on narrow canvases"). Prefers the full size, then room for
+    /// the trail inset (`trail`), then the place nearest the corner.
+    fn place(&self, w: f32, p: f32, start: [f32; 2], size: [f32; 2], reserve: Reserve, trail: bool) -> Option<Place> {
+        let keep: Vec<[f32; 4]> = reserve.rects().collect();
+        let gap = 8.0 * p;
+        let left = 12.0 * p;
+        let top = 12.0 * p + reserve.top.max(reserve.top_right);
+        let mut starts = vec![start[0]];
+        starts.extend(keep.iter().map(|o| o[0] - gap).filter(|r| *r < start[0] && *r > left));
+        let mut best: Option<(Place, (i32, bool, f32))> = None;
+        for right in starts {
+            let Some(pl) = resolve(right, start[1], size, left, top, &keep, gap) else {
+                continue;
+            };
+            let panel = [
+                pl.right - size[0] * pl.k,
+                pl.bottom - size[1] * pl.k,
+                pl.right,
+                pl.bottom,
+            ];
+            let with_trail = trail && self.inset_rect(panel, p, w, reserve).is_some();
+            let near = -((start[0] - pl.right) + (start[1] - pl.bottom));
+            let score = ((pl.k * 20.0).round() as i32, with_trail, near);
+            if best.as_ref().is_none_or(|(_, s)| score > *s) {
+                best = Some((pl, score));
+            }
+        }
+        best.map(|b| b.0)
+    }
+
+    /// No room anywhere: the corner, as small as allowed.
+    fn corner(p: f32, start: [f32; 2], size: [f32; 2]) -> Place {
+        let k = (start[0] - 12.0 * p) / size[0];
+        let k = if k.is_finite() { k.clamp(MIN_SCALE, 1.0) } else { 1.0 };
+        Place {
+            right: start[0],
+            bottom: start[1],
+            k,
+        }
+    }
+
+    fn draw_trail(
+        &self,
+        scene: &mut Scene,
+        panel: [f32; 4],
+        px: f64,
+        w: f32,
+        point: PiPoint,
+        reserve: Reserve,
+    ) -> String {
         let Some(l) = self.trail_layout else {
             return String::new();
         };
@@ -1024,7 +1222,7 @@ impl PiMeter {
         let s_cap = 9.5 * p;
         let (lw, lh) = (l.size().0 as f32, l.size().1 as f32);
         let iw = INSET_W as f32 * p;
-        let Some(r) = self.inset_rect(panel, p, reserve) else {
+        let Some(r) = self.inset_rect(panel, p, w, reserve) else {
             return "trail hidden ".into();
         };
         let white = |a: f32| rgba(1.0, 1.0, 1.0, a);
@@ -1298,6 +1496,138 @@ mod tests {
         assert_eq!(ray_to_edge([10.0, 50.0], [0.0, -1.0], [0.0, 0.0, 100.0, 100.0]), 50.0);
         assert_eq!(ray_to_edge([10.0, 50.0], [1.0, 0.0], [0.0, 0.0, 100.0, 100.0]), 90.0);
         assert_eq!(ray_to_edge([-1.0, 50.0], [1.0, 0.0], [0.0, 0.0, 100.0, 100.0]), 0.0);
+    }
+
+    /// The panel and its trail inset on narrow canvases (kb: decisions/controls "π meter on
+    /// narrow canvases"): on the canvas, clear of the tour card and the cockpit, shrunk at most
+    /// to MIN_SCALE; the inset hidden where it has no room.
+    #[test]
+    fn panel_fits_narrow_canvases_beside_the_tour_card() {
+        // (name, canvas points, pixels per point, insets right / bottom / top, card, cockpit),
+        // rects in points (x0, y0, x1, y1), as the iOS layout puts them.
+        type Case = (
+            &'static str,
+            [f32; 2],
+            f32,
+            [f32; 3],
+            Option<[f32; 4]>,
+            Option<[f32; 4]>,
+            bool,
+        );
+        let cases: [Case; 7] = [
+            (
+                "ipad mini portrait, tour",
+                [744.0, 1133.0],
+                2.0,
+                [60.0, 0.0, 56.0],
+                Some([332.0, 845.0, 672.0, 1065.0]),
+                Some([219.0, 1077.0, 525.0, 1121.0]),
+                true,
+            ),
+            (
+                "ipad mini portrait",
+                [744.0, 1133.0],
+                2.0,
+                [60.0, 0.0, 56.0],
+                None,
+                Some([219.0, 1077.0, 525.0, 1121.0]),
+                true,
+            ),
+            (
+                "ipad mini landscape, tour",
+                [1133.0, 744.0],
+                2.0,
+                [60.0, 0.0, 56.0],
+                Some([721.0, 456.0, 1061.0, 676.0]),
+                Some([413.0, 688.0, 719.0, 732.0]),
+                true,
+            ),
+            (
+                "iphone portrait, tour",
+                [390.0, 844.0],
+                3.0,
+                [56.0, 0.0, 0.0],
+                Some([12.0, 12.0, 378.0, 260.0]),
+                Some([40.0, 700.0, 290.0, 810.0]),
+                false,
+            ),
+            (
+                "iphone landscape, tour",
+                [844.0, 390.0],
+                3.0,
+                [56.0, 56.0, 0.0],
+                Some([12.0, 12.0, 492.0, 212.0]),
+                Some([254.0, 313.0, 560.0, 357.0]),
+                false,
+            ),
+            (
+                "mac, tour",
+                [1280.0, 820.0],
+                2.0,
+                [0.0, 0.0, 0.0],
+                Some([928.0, 588.0, 1268.0, 808.0]),
+                Some([441.0, 772.0, 839.0, 808.0]),
+                true,
+            ),
+            (
+                "mac",
+                [1280.0, 820.0],
+                2.0,
+                [0.0, 0.0, 0.0],
+                None,
+                Some([441.0, 772.0, 839.0, 808.0]),
+                true,
+            ),
+        ];
+        for (name, [wp, hp], px, [ir, ib, it], card, cockpit, trail) in cases {
+            let mut m = PiMeter::default();
+            m.set_layout((wp * px) as usize, (hp * px) as usize, f64::from(px));
+            let mut reserve = Reserve {
+                top: it * px,
+                ..Reserve::default()
+            };
+            let to_px = |r: [f32; 4]| r.map(|v| v * px);
+            for r in card.iter().chain(cockpit.iter()) {
+                reserve.keep_clear(to_px(*r));
+            }
+            let (w, h) = (wp * px, hp * px);
+            let start = [w - (12.0 + ir) * px, h - (12.0 + ib) * px];
+            let size = [316.0 * px, panel_height(px)];
+            let pl = m.place(w, px, start, size, reserve, true).expect("a place");
+            let panel = [
+                pl.right - size[0] * pl.k,
+                pl.bottom - size[1] * pl.k,
+                pl.right,
+                pl.bottom,
+            ];
+            assert!(pl.k >= MIN_SCALE && pl.k <= 1.0, "{name}: {pl:?}");
+            assert!(
+                panel[0] >= 12.0 * px - 0.5 && panel[1] >= 12.0 * px && panel[2] <= w && panel[3] <= h,
+                "{name}: {panel:?}"
+            );
+            for r in reserve.rects() {
+                assert!(!intersects(panel, r), "{name}: panel {panel:?} over {r:?}");
+            }
+            let inset = m.inset_rect(panel, px, w, reserve);
+            assert_eq!(inset.is_some(), trail, "{name}: {inset:?}");
+            if let Some(i) = inset {
+                assert!(i[0] >= 0.0 && i[2] <= w && i[1] >= 0.0, "{name}: {i:?}");
+                for r in reserve.rects() {
+                    assert!(!intersects(i, r), "{name}: inset {i:?} over {r:?}");
+                }
+            }
+            // The Mac without a tour keeps its corner, full size.
+            if name == "mac" {
+                assert_eq!(
+                    pl,
+                    Place {
+                        right: start[0],
+                        bottom: start[1],
+                        k: 1.0
+                    }
+                );
+            }
+        }
     }
 
     #[test]

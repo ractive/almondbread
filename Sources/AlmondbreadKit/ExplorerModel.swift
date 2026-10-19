@@ -267,9 +267,20 @@ public final class ExplorerModel {
     /// when Places draws, and a live window resize does not redraw 79 tiles per frame.
     @ObservationIgnored var placeZoomOffset = 0.0
     public var piMeterInsetRight = 0.0 { didSet { if piMeterInsetRight != oldValue { pushPiMeter() } } }
-    /// More right margin while a tour's card sits at the bottom right (the π tour shows the
-    /// panel next to it).
-    public var piMeterTourInset = 0.0 { didSet { if piMeterTourInset != oldValue { pushPiMeter() } } }
+    /// Bottom and top margins of the π panel (points): a phone's bottom button row, the iPad's
+    /// top-right buttons (the panel moves up on a narrow canvas but never above them).
+    public var piMeterInsetBottom = 0.0 { didSet { if piMeterInsetBottom != oldValue { pushPiMeter() } } }
+    public var piMeterInsetTop = 0.0 { didSet { if piMeterInsetTop != oldValue { pushPiMeter() } } }
+    /// The tour card's frame (global coordinates) while it shows: the π panel keeps clear of it
+    /// (kb: decisions/controls "π meter on narrow canvases").
+    @ObservationIgnored var tourCardFrame: CGRect? { didSet { if tourCardFrame != oldValue { pushTourCard() } } }
+    /// The canvas's origin in global coordinates (the tour card's frame is converted with it).
+    @ObservationIgnored var canvasOrigin: CGPoint = .zero { didSet { if canvasOrigin != oldValue { pushTourCard() } } }
+    /// The Mac control center's width (points; it reports a width while hidden too, so the
+    /// content view applies it only while it shows).
+    public var controlCenterWidth = 0.0
+    /// Right margin of the cosmic scale (points): the iPhone's button column, the throttle.
+    public var cosmicInsetRight = 0.0 { didSet { if cosmicInsetRight != oldValue { pushCosmic() } } }
     /// Cosmic size scale (kb: decisions/controls, "Cosmic size scale"): off by default.
     public var cosmicScale = false { didSet { pushCosmic() } }
     /// The compass (kb: decisions/controls, "Compass"): shown while the view is turned, or
@@ -581,7 +592,8 @@ public final class ExplorerModel {
     private func pushPiMeter(_ origin: StaticString = #function) {
         guard !pulling, let explorer else { return }
         HangWatchdog.note("settings", "pushPiMeter from \(origin)")
-        explorer.setPiMeter(on: piMeterEnabled, insetRight: piMeterInsetRight + piMeterTourInset, insetBottom: 0)
+        explorer.setPiMeter(on: piMeterEnabled, insetRight: piMeterInsetRight, insetBottom: piMeterInsetBottom,
+                            insetTop: piMeterInsetTop)
         if !piMeterEnabled { piMeter = nil }
         host?.requestFrames()
         save()
@@ -592,8 +604,19 @@ public final class ExplorerModel {
         HangWatchdog.note("settings", "pushCosmic from \(origin)")
         explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: cosmicScale,
                                                               metresPerPoint: metresPerPoint))
+        explorer.setCosmicInset(right: cosmicInsetRight)
         host?.requestFrames()
         save()
+    }
+
+    private func pushTourCard() {
+        guard let explorer else { return }
+        if let f = tourCardFrame {
+            explorer.setTourCard(x: f.minX - canvasOrigin.x, y: f.minY - canvasOrigin.y, width: f.width, height: f.height)
+        } else {
+            explorer.setTourCard(x: 0, y: 0, width: 0, height: 0)
+        }
+        host?.requestFrames()
     }
 
     private func pushCockpit() {
