@@ -376,6 +376,19 @@ impl CockpitOverlay {
     /// pixel and canvas `insets` (top, left, bottom, right; view points), centred at the bottom
     /// between `left` (view points from the left edge, e.g. the cosmic scale) and the right edge.
     pub fn layout(&self, size: (usize, usize), ppp: f64, insets: (f64, f64, f64, f64), left: f64) -> [f64; 4] {
+        self.layout_lifted(size, ppp, insets, left, self.lift.get())
+    }
+
+    /// [`Self::layout`] with `lift` points of extra bottom margin instead of this frame's
+    /// [`Self::lift`] (the map row asks where a lifted cockpit would go).
+    pub fn layout_lifted(
+        &self,
+        size: (usize, usize),
+        ppp: f64,
+        insets: (f64, f64, f64, f64),
+        left: f64,
+        lift: f64,
+    ) -> [f64; 4] {
         let px = 1.0 / ppp;
         let (w, h) = (size.0 as f64 * ppp, size.1 as f64 * ppp);
         let k = self.zoom(size, ppp, insets, left);
@@ -390,7 +403,7 @@ impl CockpitOverlay {
         if x0 + pw > hi {
             x0 = (hi - pw).max(insets.1 + MARGIN.min(4.0));
         }
-        let y1 = h - insets.2 - self.inset_bottom - self.lift.get() - MARGIN;
+        let y1 = h - insets.2 - self.inset_bottom - lift - MARGIN;
         [x0 * px, (y1 - g.h * k) * px, (x0 + pw) * px, y1 * px]
     }
 

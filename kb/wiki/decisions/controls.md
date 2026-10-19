@@ -2855,6 +2855,67 @@ sheet; screenshots `toggle-*`. The other iOS UI tests tap the cockpit's icons in
 removed buttons, and `testSurfaces` checks the stop buttons are ≥ 44 points, hittable and clear
 of the round buttons in both orientations.
 
+### Mini-map on small screens (as built, 2026-10-19)
+
+Two clashes on the iPhone 17e (390 × 844 points): in portrait the second of two 180-point maps
+(12 + 180 + 8 + 180 = 380 points) ran under the button column (from x = 334); on its side two
+maps left the cockpit no room beside them, so it was lifted above them, into the HUD's corner
+(cockpit 127–171 points from the top, HUD down to about 166). One rule for every platform
+(`fit_maps` in `overlay.rs`, each frame before the maps are laid out):
+
+- The row keeps clear of the platform's trailing controls: the throttle or the button column
+  (`set_cosmic_inset`, which the cosmic scale already used), and in a bottom corner also the
+  bottom button row or column (the cockpit's `inset_right`); a top-right row keeps below the
+  iPad's top-trailing buttons. The Mac's control center over the canvas counts the same way.
+- Panels narrow down to 2/3 of the map size (never under 80 points) before a level is dropped;
+  the setting's level count is a maximum.
+- A bottom-left row leaves the cockpit a place: beside the row, or lifted above it while the
+  lifted cockpit stays in the **lower half** of the canvas (the upper half is the HUD's and the
+  tour card's; a geometric rule, so the HUD's changing height never makes the maps flicker
+  between counts). Otherwise one level fewer, and so on.
+
+Results (unit test `map_row_fits_beside_the_controls_and_the_cockpit`, simulator screenshots
+`layout-maps-*`, `layout-cosmic-*`): iPhone portrait, two panels of 151 points left of the
+column (three wanted: also two), cockpit lifted above them; iPhone on its side, one 180-point
+map with the two-row cockpit beside it, clear of the HUD; iPad mini in both orientations
+unchanged (three full panels). Also fixed: the cockpit's "beside the maps" room, the π meter's
+reserve and the reported `maps` rect measured the row from x = 0 rather than from the safe
+area's left edge (47 points on a phone on its side). Not handled: a bottom-right row and the
+cockpit (the cockpit only knows a left neighbour), a top-left row under the HUD.
+
+### Tour card on a phone (as built, 2026-10-19)
+
+On an iPhone in portrait the compact card (top, full width, text up to 150 points) reached 330
+points down while the throttle on top of the button column starts at about 304: its Next button
+sat under the throttle's top. The card now keeps clear of what is below it: the throttle and
+the round buttons (their frames, `reportFrame` in `ContentView`), the cockpit and the maps (the
+Rust panels, `overlay_panels`, polled twice a second by the cockpit layer; the cockpit's frame
+used to be built from its cells and came out 17 points low on a phone on its side, and lagged a
+turn by a frame). `TourCardLayer.topFit` tries, in order: its usual place (centred; leading on a
+phone on its side so a π panel fits beside it), narrowed to the leading side of the column (at
+least 280 points), and the trailing side left of the throttle; the first leaving the card 260
+points (`TourCard.fullHeight`: two-line title, goal, next tour, three text lines), else the
+tallest. The card's step text then scrolls in what is left (`TourCard.maxHeight`; at least one
+line). A card moved off the top for a ring is limited the same way and never above the canvas
+(the last Feigenbaum step on its side was placed at y = −24).
+
+Resulting places (17e, `layout-tour-*`, `layout-pi-tour-*`): portrait 302 points wide at the
+leading side, clear of the column, text unchanged; on its side at the leading side, or, when
+the maps sit under it (the Feigenbaum tour's orbit shows the whole-set map), at the trailing
+side left of the throttle above the cockpit and the button row. iPad unchanged (bottom trailing).
+Unit tests `TourCardLayoutTests`.
+
+**Tests.** `OverlayLayoutUITests`: `testMapsKeepClearOfTheControls` (default three levels: maps
+and cockpit against each other, the HUD, the round buttons and the throttle, both orientations);
+`testCosmicScaleKeepsClearOfTheControls` now also checks the cockpit against the HUD (the
+exclusion for the lifted cockpit is gone); `testTourCardKeepsClearOfTheControls` (every step of
+the Feigenbaum tour in portrait and the last on its side: card against throttle, buttons,
+cockpit and maps, Next hittable and not under a control, portrait text ≥ 40 points);
+`testPiMeterFitsBesideTheTourCard` checks the card against the controls too. The file's control
+lookup used `app.buttons[name]`, which matches identifiers only: it had found no round button,
+so every check against them passed vacuously; it now matches labels and fails when a button is
+missing. All pass on the iPhone 17e and the iPad mini simulators (2026-10-19).
+
 ### Closing the control center on touch (2026-10-18)
 
 Device feedback: with the control center open, it was not clear how to close it (the phone's

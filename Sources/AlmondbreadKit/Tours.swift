@@ -12,10 +12,33 @@ struct TourCard: View {
     let model: ExplorerModel
     /// A phone in portrait (narrow canvas): the card sits at the top, its text folds and scrolls.
     var compact = false
+    /// The card's height limit (narrow canvas, at the top: down to the throttle or the cockpit):
+    /// the step text scrolls in less than `textCap` to keep within it, never under `minText`.
+    var maxHeight: CGFloat?
     @State private var collapsed = false
     /// The step text's height (the phone's card shows up to `textCap` of it, then scrolls).
     @State private var textHeight: CGFloat = 0
+    /// The whole card's height as laid out.
+    @State private var cardHeight: CGFloat = 0
     static let textCap: CGFloat = 150
+    /// One line: only a phone on its side at a last step (goal, next tour, two-line title) gets
+    /// this little; it scrolls, and the fold button hides it.
+    static let minText: CGFloat = 20
+    /// Room for the tallest card with a readable text (title on two lines, goal, next tour,
+    /// three lines of text) below which the layer prefers a narrower card.
+    static let fullHeight: CGFloat = 260
+
+    /// The text's frame: all of it up to `textCap`, less where `maxHeight` asks.
+    private var textFrame: CGFloat {
+        let shown = min(max(textHeight, 20), Self.textCap)
+        guard let maxHeight, cardHeight > 0 else { return shown }
+        // The rest of the card does not depend on the text frame's height.
+        let rest = cardHeight - currentTextFrame
+        return min(shown, max(Self.minText, maxHeight - rest))
+    }
+
+    /// The text frame of the last layout (what `cardHeight` includes).
+    @State private var currentTextFrame: CGFloat = 0
 
     var body: some View {
         if let t = model.tour {
@@ -62,7 +85,8 @@ struct TourCard: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
                     }
-                    .frame(height: min(max(textHeight, 20), Self.textCap))
+                    .frame(height: textFrame)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { currentTextFrame = $0 }
                     .scrollBounceBehavior(.basedOnSize)
                     .accessibilityIdentifier("tour-text")
                 } else {
@@ -102,6 +126,7 @@ struct TourCard: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.12)))
         .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tour step \(t.index + 1) of \(t.count): \(t.title)")
     }
