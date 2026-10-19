@@ -1902,7 +1902,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `palette` | palette id (built-in or library) | the palette with its mapping, after the look |
 | `interior` | `flat`, `bubbles`, `period`, `angle`, `distance` | interior colouring |
 | `iterations` | `auto` or a whole number | the iteration limit (a deliberately low one too) |
-| `orbit`, `map`, `cosmic`, `pi-meter`, `compass` | `on` / `off` | orbit overlay, mini-map, cosmic size scale, π meter, always-on compass |
+| `orbit`, `map`, `julia`, `cosmic`, `pi-meter`, `compass` | `on` / `off` | orbit overlay, mini-map, Julia panel of the probe's point ([[plans/f1-julia-view]]), cosmic size scale, π meter, always-on compass |
 | `orbit-length` | 1 to 1000 | iterates drawn |
 | `map-levels` | 1 to 4 | mini-map levels |
 | `probe` | `re, im` or `pointer` | the orbit overlay's point c: fixed, or back to the pointer |
@@ -1928,7 +1928,7 @@ it starts a tour (`Explorer.start_tour_on(id, "mac" | "phone" | "pad")`; `Tour::
 whole panel) and `cockpit-manual`, `-cruise`, `-autopilot`, `-journey`, `-lane` (one icon; Rust
 draws the cockpit, Swift rings the cells `Explorer.cockpit_controls` reports), `throttle` (touch),
 `toolbar` (the round buttons on touch, every toolbar item on the Mac), `orbit`, `mini-map`,
-`size-scale`, `fly-to`, `control-center` (one button), `section-places`, `section-tours`,
+`julia` (the Mac toolbar and the iPad's round button; no phone button), `size-scale`, `fly-to`, `control-center` (one button), `section-places`, `section-tours`,
 `section-view`, `section-journey`, `section-look`, `section-lighting`, `section-interior`,
 `section-overlays`, `section-quality`, `section-controls` (a control center section's header; the
 control center scrolls to it; needs `control-center: open` in the same step). Swift marks an
@@ -2331,9 +2331,14 @@ settled view, each mode captured when settled) shows all five, each settled 2 s 
 (basilica, period 2), the 1/3 nucleus (rabbit, period 3), c = 0.5 + 0.5i (escapes after 9 steps: dust),
 then catalogue places whose shapes echo Julia sets: `cantor-island` (a dust-like embedded Julia
 set), `two-arm-spiral` (M(24,2); Tan Lei 1990: the set near a Misiurewicz point looks like that c's
-Julia set, unverified, no source page yet), `three-way-junction`, `embedded-julia`. A Julia view
-(render the filled Julia set of the probe's c next to the picture) would make this tour much
-better; not built (user: no Julia renderer for now).
+Julia set, unverified, no source page yet), `three-way-junction`, `embedded-julia`.
+
+Since F1 (2026-10-19, [[plans/f1-julia-view]], awaiting review) the tour shows the **Julia panel**
+(`julia: on` from step 1): basilica, rabbit and dust in the panel; at `cantor-island` the panel of
+the pointer's c is dust strung along the real axis; at `two-arm-spiral` two-armed spirals; at
+`three-way-junction` a tree with three-way forks (checked with `render --place … --julia 1`). Off at
+"Julia sets inside" (the whole Julia set of that c shows nothing of the embedded shape), on again
+for "Your turn". The texts say "the panel shows" where it does.
 
 Checked in the app (2026-10-19, `--ui-demo=tour-julia`): fates period-2, period-3, escapes after 9
 steps; the places as described. One capture showed the previous step's fate line (taken before
@@ -2854,6 +2859,29 @@ the buttons changes (2 × 2-point grid, colour step > 60) and is back after "off
 sheet; screenshots `toggle-*`. The other iOS UI tests tap the cockpit's icons instead of the
 removed buttons, and `testSurfaces` checks the stop buttons are ≥ 44 points, hittable and clear
 of the round buttons in both orientations.
+
+### Julia panel (as built 2026-10-19, awaiting review)
+
+[[plans/f1-julia-view]] ("As built"): the filled Julia set of the orbit's point (pointer, touch
+probe, tour probe) as the last panel of the map row, drawn by its own kernel library
+(`shaders/julia.metal`), nothing compiled or drawn while off.
+
+| Input | Action |
+| --- | --- |
+| **U** (Mac; iPad hardware keyboard) | Julia panel on / off |
+| View ▸ Julia Set (⌥⌘U) | the same |
+| Mac toolbar "Julia Set" (`seal`); iPad round button "Julia set" (top row, after Mini-map) | the same; no phone button (the column and the side row hold five) |
+| control center Overlays "Julia set of that point" | the same |
+| tour step `julia: on` / `off` | the same during a tour |
+| click / tap on the panel | taken, nothing happens (open question: open as the main view, F4) |
+
+Layout: one more slot in `fit_maps`; map levels go first (`row_map_levels`): iPhone portrait the
+whole-set map and the panel, iPhone on its side the panel alone, iPad mini and Mac three levels and
+the panel (159 points wide on the iPad mini in portrait). With the panel on, at most three map levels
+(four map textures in the overlay kernel). The orbit's fate line sits over the row's first panel,
+whichever it is. `overlay_panels` reports `julia`; `OverlayLayoutUITests.testJuliaPanelKeepsClearOfTheControls`
+checks it against the HUD, round buttons, throttle, cockpit and maps in both orientations (passes on
+the iPhone 17e and the iPad mini, screenshots `layout-julia-*`).
 
 ### Mini-map on small screens (as built, 2026-10-19)
 

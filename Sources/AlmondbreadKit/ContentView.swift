@@ -205,6 +205,12 @@ struct ContentView: View {
                         .tourTarget("orbit", model: model, cornerRadius: 22)
                     RoundToggle("Mini-map", symbol: "map", isOn: $model.mapEnabled)
                         .tourTarget("mini-map", model: model, cornerRadius: 22)
+                    // The Julia panel: only in the iPad's top row (the phone's column and row
+                    // have no room for a sixth button; kb: decisions/controls "Julia panel").
+                    if touchLayout.buttonCorner == .topTrailing {
+                        RoundToggle("Julia set", symbol: "seal", isOn: $model.juliaEnabled)
+                            .tourTarget("julia", model: model, cornerRadius: 22)
+                    }
                     RoundToggle("Size scale", symbol: "ruler", isOn: $model.cosmicScale)
                         .tourTarget("size-scale", model: model, cornerRadius: 22)
                     RoundButton("Fly to", symbol: "location.north.line") { showFlyTo = true }
@@ -263,6 +269,12 @@ struct ContentView: View {
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
+                Toggle(isOn: $model.juliaEnabled) {
+                    Label("Julia Set", systemImage: "seal")
+                        .tourTarget("julia", model: model, cornerRadius: 6)
+                        .tourTarget("toolbar", model: model, cornerRadius: 6)
+                }
+                .help("The Julia set of the point under the pointer, next to the mini-map (U)")
                 // The π meter is not in the toolbar: the tour "π in the Mandelbrot set" drives it
                 // (user, 2026-10-18).
                 Toggle(isOn: $model.cosmicScale) {

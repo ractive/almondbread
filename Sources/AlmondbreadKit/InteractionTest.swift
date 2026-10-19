@@ -233,9 +233,31 @@ final class InteractionTest: NSObject {
         // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): the orbit of 200
         // iterates following a pointer circling the seahorse view (the view itself idle: every
         // frame is an overlay-only frame), and a zoom with orbit and three map levels on.
-        let overlayOn = { (v: FractalNSView, orbit: Bool, map: Bool) in
+        let overlays = { (v: FractalNSView, orbit: Bool, map: Bool, julia: Bool) in
             v.explorer?.setOverlay(settings: OverlaySettings(orbit: orbit, orbitLength: 200, map: map, mapLevels: 3,
-                                                             mapSize: 180, mapCorner: .bottomLeft))
+                                                             mapSize: 180, mapCorner: .bottomLeft, julia: julia))
+        }
+        let overlayOn = { (v: FractalNSView, orbit: Bool, map: Bool) in overlays(v, orbit, map, false) }
+        // The Julia panel (kb: plans/f1-julia-view): the pointer sweeps across the whole set at
+        // the home view (k moves many panel pixels every frame: a one-sample picture each
+        // refresh, the worst case), with the orbit and the mini-map on; "sweep" is the same with
+        // the panel off. "julia pan": the home view pans under a resting pointer (k changes
+        // every frame while the main view renders; "overlays pan" without the panel).
+        let sweep = { (julia: Bool) -> (FractalNSView, Int, Double) -> Void in
+            { v, i, _ in
+                if i == 0 { overlays(v, true, true, julia) }
+                let a = Double(i) * 0.03
+                v.send(.pointer(x: -60 + 190 * cos(a), y: 160 * sin(a)))
+            }
+        }
+        let overlayPan = { (julia: Bool) -> (FractalNSView, Int, Double) -> Void in
+            { v, i, t in
+                if i == 0 {
+                    overlays(v, true, true, julia)
+                    v.send(.pointer(x: 90, y: 120))
+                }
+                pan(v, i, t)
+            }
         }
         let orbitPointer: (FractalNSView, Int, Double) -> Void = { v, i, _ in
             if i == 0 { overlayOn(v, true, false) }
@@ -680,6 +702,10 @@ final class InteractionTest: NSObject {
         let spiral = View(re: "-0.13415002160674054265664", im: "-0.64991906714433853974391", scale: 2 * 4.19804e-19)
         let siegel = View(re: "-0.39054087021839984", im: "0.5867879073469688", scale: 3.75e-3 / 1373)
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
+                Scenario(name: "sweep", viewport: home, input: sweep(false)),
+                Scenario(name: "julia sweep", viewport: home, input: sweep(true)),
+                Scenario(name: "overlays pan", viewport: home, input: overlayPan(false)),
+                Scenario(name: "julia pan", viewport: home, input: overlayPan(true)),
                 Scenario(name: "orbit cloud", viewport: siegel, input: orbitCloud),
                 Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
                 Scenario(name: "cosmic zoom", viewport: sea, input: cosmicZoom),
@@ -824,7 +850,7 @@ final class InteractionTest: NSObject {
         explorer.setEdgePan(mode: .whileZooming)
         // Overlays off unless a scenario turns them on (measures that off costs nothing).
         explorer.setOverlay(settings: OverlaySettings(orbit: false, orbitLength: 50, map: false, mapLevels: 3,
-                                                      mapSize: 180, mapCorner: .bottomLeft))
+                                                      mapSize: 180, mapCorner: .bottomLeft, julia: false))
         explorer.setCosmicScale(settings: CosmicScaleSettings(enabled: false, metresPerPoint: 0))
         view.requestFrames()
         settling = true

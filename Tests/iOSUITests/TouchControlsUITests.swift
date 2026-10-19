@@ -71,8 +71,20 @@ final class TouchControlsUITests: XCTestCase {
         ThrottleLeverUI(element: lever).drag(toTick: tick)
     }
 
-    /// The round buttons over the canvas (kb: decisions/controls "Touch"), in their order.
-    static let roundButtons = ["Orbit", "Mini-map", "Size scale", "Fly to", "Control center"]
+    /// The round buttons over the canvas (kb: decisions/controls "Touch"), in their order; the
+    /// iPad's top row also has the Julia panel's (kb: plans/f1-julia-view).
+    static var roundButtons: [String] {
+        UIDevice.current.userInterfaceIdiom == .pad
+            ? ["Orbit", "Mini-map", "Julia set", "Size scale", "Fly to", "Control center"]
+            : ["Orbit", "Mini-map", "Size scale", "Fly to", "Control center"]
+    }
+
+    /// The toggles among them, with the name of their screenshots.
+    static var roundToggles: [(String, String)] {
+        UIDevice.current.userInterfaceIdiom == .pad
+            ? [("Orbit", "orbit"), ("Mini-map", "map"), ("Julia set", "julia"), ("Size scale", "scale")]
+            : [("Orbit", "orbit"), ("Mini-map", "map"), ("Size scale", "scale")]
+    }
 
     private func round(_ name: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
@@ -128,7 +140,7 @@ final class TouchControlsUITests: XCTestCase {
         }
         // The buttons themselves change colour.
         let mask = buttons.map { $0.frame.insetBy(dx: -6, dy: -6) }
-        for (name, field) in [("Orbit", "orbit"), ("Mini-map", "map"), ("Size scale", "scale")] {
+        for (name, field) in Self.roundToggles {
             let toggle = round(name)
             XCTAssertEqual(toggle.value as? String, "off", "\(name) starts off")
             let before = pixels()
@@ -148,8 +160,8 @@ final class TouchControlsUITests: XCTestCase {
             XCTAssertGreaterThan(shown, 0.002, "\(name): the picture did not change")
             XCTAssertLessThan(back, shown / 4, "\(name): the overlay stayed after switching off")
         }
-        // All three together, for a look.
-        for name in ["Orbit", "Mini-map", "Size scale"] { round(name).tap() }
+        // All of them together, for a look.
+        for (name, _) in Self.roundToggles { round(name).tap() }
         settle(3)
         shot("toggle-all-on")
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -157,7 +169,7 @@ final class TouchControlsUITests: XCTestCase {
         shot("toggle-all-on-landscape")
         XCUIDevice.shared.orientation = .portrait
         settle(2)
-        for name in ["Orbit", "Mini-map", "Size scale"] { round(name).tap() }
+        for (name, _) in Self.roundToggles { round(name).tap() }
         // Fly to: the sheet.
         round("Fly to").tap()
         let cancel = app.buttons["Cancel"]

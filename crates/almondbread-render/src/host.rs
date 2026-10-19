@@ -211,8 +211,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         // A mode change needs a frame too: the platform updates cursor and crosshair from
         // the frame's overlay state; edge panning may start on a pointer move.
         let nav = &self.renderer.navigator;
-        // The orbit overlay follows the pointer (or a touch's probe): every move needs a frame.
-        let orbit = self.overlay.settings.orbit && matches!(event, InputEvent::Pointer(_) | InputEvent::Probe(_));
+        // The orbit overlay and the Julia panel follow the pointer (or a touch's probe): every
+        // move needs a frame.
+        let orbit = (self.overlay.settings.orbit || self.overlay.settings.julia)
+            && matches!(event, InputEvent::Pointer(_) | InputEvent::Probe(_));
         let redraw = handled
             && (moved
                 || orbit

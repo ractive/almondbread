@@ -1,6 +1,6 @@
 # Overlays
 
-Overlays are drawn on top of the picture. Turn them on in the control center's **Overlays** section, in the toolbar (the round buttons on iPhone and iPad), or with their keys. Each panel has a small **?** in its corner that explains it.
+Overlays are drawn on top of the picture. Turn them on in the control center's **Overlays** section, in the toolbar (the round buttons on iPhone and iPad; the Julia set has its button on iPad only), or with their keys. Each panel has a small **?** in its corner that explains it.
 
 ## Cosmic size scale (C)
 
@@ -30,6 +30,18 @@ The orbit overlay shows the numbers the rule makes for the point under the point
 On iPhone and iPad there is no pointer: the orbit button shows the orbit of the point in the middle of the picture, or of the last point you picked. Hold a finger on the picture and choose **Orbit Here** to pick another point; keep the finger down and drag to move it.
 
 Near the set's edge a point can take tens of thousands of steps to decide. The whole-set map shows them all: the first 50 steps as a line, the rest as a cloud of fine dots, older ones faint and the newest bright, which grows while the point is worked out.
+
+## Julia set (U)
+
+Every point c of the Mandelbrot set has a picture of its own. The Mandelbrot set always starts the rule at 0 and changes c from pixel to pixel; turn it around, keep one c and start from every number z instead. The starts whose numbers stay small form the **Julia set** of c (named after Gaston Julia), filled in with the inside's colour; the others take the palette's colours by how fast they escape.
+
+The Julia panel sits next to the mini-map and shows the Julia set of the orbit's point: the point under the pointer, or on iPhone and iPad the middle of the picture or the point you chose with **Orbit Here**. Move the pointer and watch it change:
+
+- Inside the Mandelbrot set the Julia set is **one connected piece**: the basilica at −1, the Douady rabbit in the top bulb.
+- Outside it falls apart into **dust**: specks with no two joined.
+- On the edge it is a thin tree of branches, like the set's own filaments.
+
+That is what the black of the Mandelbrot set means: it is exactly the points whose Julia sets are in one piece. The panel always shows the whole Julia set; you cannot zoom into it (yet). On a small screen it may take the place of the deeper map levels.
 
 ## Compass
 

@@ -110,7 +110,7 @@ impl Explorer {
         self.with_host(|h| h.help_badges()).into_iter().map(info).collect()
     }
 
-    /// The Rust panels of the last frame (`cosmic`, `cockpit`, `maps`, `pi`, `pi-trail`) in
+    /// The Rust panels of the last frame (`cosmic`, `cockpit`, `maps`, `julia`, `pi`, `pi-trail`) in
     /// view points from the top left: UI tests check they keep clear of each other and of the
     /// platform's controls (kb: decisions/controls "Touch").
     pub fn overlay_panels(&self) -> Vec<OverlayPanel> {

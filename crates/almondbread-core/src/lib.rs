@@ -26,6 +26,7 @@ pub mod flyto;
 pub mod image;
 pub mod input;
 pub mod journey;
+pub mod julia;
 pub mod la;
 pub mod locations;
 pub mod oracle;

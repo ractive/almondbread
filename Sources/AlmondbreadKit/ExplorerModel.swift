@@ -184,6 +184,7 @@ struct SavedSettings: Codable {
     var mapLevels: Int?
     var mapSize: Double?
     var mapPlacement: MapPlacement?
+    var juliaEnabled: Bool?
     var cosmicScale: Bool?
     var compassAlways: Bool?
     var targetMarker: Bool?
@@ -257,6 +258,8 @@ public final class ExplorerModel {
     public var mapLevels = 3 { didSet { pushOverlay() } }
     public var mapSize = 180.0 { didSet { pushOverlay() } }
     public var mapPlacement = MapPlacement.bottomLeft { didSet { pushOverlay() } }
+    /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
+    public var juliaEnabled = false { didSet { pushOverlay() } }
     /// The π meter (kb: techniques/pi-in-the-mandelbrot-set): at the neck -3/4 + iε or the
     /// cusp 1/4 + ε, the escape count times ε (√ε) closing in on π, drawn by Rust. Only the
     /// tour "π in the Mandelbrot set" switches it on (mirrored here); not saved.
@@ -556,7 +559,7 @@ public final class ExplorerModel {
     private var overlaySettings: OverlaySettings {
         OverlaySettings(orbit: orbitEnabled, orbitLength: UInt32(min(max(orbitLength, 1), 1000)),
                         map: mapEnabled, mapLevels: UInt32(min(max(mapLevels, 1), 4)),
-                        mapSize: mapSize, mapCorner: mapPlacement.ffi)
+                        mapSize: mapSize, mapCorner: mapPlacement.ffi, julia: juliaEnabled)
     }
 
     /// Applies a look (palette and colouring) in Rust and takes over the result.
@@ -663,7 +666,7 @@ public final class ExplorerModel {
             lookID: lookID, supersampling: supersampling, interactivePreview: interactivePreview,
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
-            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement,
+            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker)
     }
 
@@ -727,6 +730,7 @@ public final class ExplorerModel {
         mapLevels = s.mapLevels ?? mapLevels
         mapSize = s.mapSize ?? mapSize
         mapPlacement = s.mapPlacement ?? mapPlacement
+        juliaEnabled = s.juliaEnabled ?? juliaEnabled
         cosmicScale = s.cosmicScale ?? cosmicScale
         compassAlways = s.compassAlways ?? compassAlways
         targetMarker = s.targetMarker ?? targetMarker
@@ -802,6 +806,7 @@ public final class ExplorerModel {
             mapLevels = 3
             mapSize = 180
             mapPlacement = .bottomLeft
+            juliaEnabled = false
             piMeterEnabled = false
             cosmicScale = false
             compassAlways = false
@@ -869,6 +874,7 @@ public final class ExplorerModel {
         mapLevels = 3
         mapSize = 180
         mapPlacement = .bottomLeft
+        juliaEnabled = false
         piMeterEnabled = false
         cosmicScale = false
         compassAlways = false
@@ -1180,6 +1186,7 @@ public final class ExplorerModel {
         orbitLength = Int(info.orbitLength)
         mapEnabled = info.map
         mapLevels = Int(info.mapLevels)
+        juliaEnabled = info.julia
         cosmicScale = info.cosmic
         piMeterEnabled = info.piMeter
         compassAlways = info.compass
@@ -1199,12 +1206,13 @@ public final class ExplorerModel {
 
     public func toggleOrbit() { orbitEnabled.toggle() }
     public func toggleMap() { mapEnabled.toggle() }
+    public func toggleJulia() { juliaEnabled.toggle() }
     public func toggleCosmicScale() { cosmicScale.toggle() }
 
     /// A click on the canvas at (x, y) points from the centre, y up: true if a mini-map panel
     /// took it (a jump follows).
     func mapClick(x: Double, y: Double, fly: Bool) -> Bool {
-        guard let explorer, mapEnabled || orbitEnabled else { return false }
+        guard let explorer, mapEnabled || orbitEnabled || juliaEnabled else { return false }
         let taken = explorer.mapClick(x: x, y: y, fly: fly)
         if taken { host?.requestFrames() }
         return taken

@@ -1772,3 +1772,18 @@ thresholds, tours and walkthrough on the iPad. M8 replaced by F1–F8 and BB in 
 [[plans/f8-convergent-spike]], [[plans/buddhabrot]], [[plans/3d-worlds]] (proposed, last, not
 recommended now; also in [[ideas]]). The Julia view stays on the roadmap only: [[ideas]] holds
 the user's ideas, proposals go to plans.
+
+## [2026-10-19] decision | F1 Julia panel built, awaiting review
+
+[[plans/f1-julia-view]] built on its branch (status in-progress until the user's review gate; roadmap
+row F1 "built, awaiting review"). A Julia companion panel at the end of the map row: the Julia set
+of the orbit's point in its own float32 kernel library (`julia.metal`, compiled on first use; the
+Mandelbrot kernels and scheduler untouched), the main palette and colouring, the attracting cycle
+of k found on the CPU (critical orbit, f64) used to stop interior samples early (≈ 16× on
+interior-heavy k) and, with a non-flat interior mode, to shade the interior. One sample per pixel
+while k moves, 2×2 in bands once it rests. Controls: U, View ▸ Julia Set (⌥⌘U), Mac toolbar, iPad
+round button, control center, tour key `julia:`; tours/julia.md shows it. Measured (M1 Pro): 0.06–0.1
+ms GPU per one-sample picture at 360 × 259 px for typical k, ~1.1 ms near-parabolic; interaction
+test "julia sweep" / "julia pan" within noise of the panel off (109–117 fps vs 111–116). Float32
+field vs f64 reference: class identical at five k, 62 of 93 240 pixels just outside the set
+(seahorse). Pages: [[decisions/controls]] ("Julia panel", "The Julia tour", tour keys).

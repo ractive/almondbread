@@ -1,5 +1,5 @@
 //! Help badges (kb: decisions/controls, "Help"): a small "?" circle in the corner of an overlay
-//! panel drawn by Rust (the cosmic size scale, the π meter, the mini-map row). The panels lay
+//! panel drawn by Rust (the cosmic size scale, the π meter, the mini-map row, the Julia panel). The panels lay
 //! their badge out while the scene is built; a press is hit-tested here, like the compass, and
 //! the platform shows its own popover with the topic's text at the badge. Only the circle (plus a
 //! small slop) takes presses, so the canvas and the map panels keep every other click.
@@ -24,6 +24,8 @@ pub enum HelpTopic {
     Orbit,
     /// The driving-level cockpit at the bottom.
     Cockpit,
+    /// The Julia companion panel (kb: plans/f1-julia-view).
+    Julia,
 }
 
 impl HelpTopic {
@@ -34,6 +36,7 @@ impl HelpTopic {
             Self::MiniMap => "mini-map",
             Self::Orbit => "orbit",
             Self::Cockpit => "cockpit",
+            Self::Julia => "julia",
         }
     }
 }
