@@ -2,7 +2,7 @@
 title: "F2: Pluggable-formula refactor"
 type: plan
 milestone: F2
-status: planned
+status: in-progress
 priority: 2
 effort: M
 appeal: low
@@ -23,8 +23,9 @@ updated: 2026-10-19
 
 # F2: Pluggable-formula refactor
 
-Status: planned, after [[plans/f1-julia-view]]. Enables [[plans/f3-multibrot]] and every
-milestone after it. Design from [[synthesis/other-fractal-types]] §6.
+Status: built on branch `worktree-agent-a6270c6cca3092d81` (2026-10-19, merged with main after
+F1), awaiting the driver's review of the A/B table ("As built" below). Enables
+[[plans/f3-multibrot]] and every milestone after it. Design from [[synthesis/other-fractal-types]] §6.
 
 ## Goal
 
@@ -119,7 +120,47 @@ Mac and the iPad).
 
 - One MSL file or one per formula family with shared includes?
 - Does the capability struct live in core (platform-free) with the FFI only mirroring it? (Likely
-  yes, so the CLI can hide features too.)
+  yes, so the CLI can hide features too.) Answered: yes (`core::formula::FormulaCapabilities`).
+- One MSL file: answered for now, one file with the hooks in a section; revisit with F7's
+  runtime generation.
+
+## As built (2026-10-19, awaiting review)
+
+Architecture in [[platform/render-architecture]] "F2: pluggable formulas"; the A/B proof in
+[[synthesis/benchmarks]] "F2: pluggable formulas, Mandelbrot A/B".
+
+- **Choices where the plan left one.** The test-only second formula is `Multibrot(p)` with the
+  power generic (`p ≤ 8`), not a p = 2 special case, so F3 mostly opens it rather than writes it;
+  the kernels get `kPower` (constant 17) beside `kFormula` (16) and `kConformal` (18) so the
+  generic loops unroll. Formula constants are read through `is_function_constant_defined`, and
+  Mandelbrot pipelines never set them, which keeps their compile requests, warm-up list and
+  shader cache keys exactly as before (no disassembly check needed: the fields and timings are the
+  proof). Public APIs keep their names as Mandelbrot and gain `*_for(formula, ...)` variants
+  (selection, oracle, BLA, cycles, f64 reference), so Mandelbrot-only callers (journeys, seek,
+  target lock, precision tools) are untouched. Only `selectable()` formulas (Mandelbrot) pass the
+  FFI; the CLI's `--formula multibrotP` reaches the test path.
+- **Capabilities** (core, mirrored over UniFFI): the plan's list plus `julia_panel` (F1's panel
+  is `z² + k`). Multibrot lacks LA, closed-form components, seek, π meter, external rays, content
+  and the Julia panel; the renderer gates LA, the component test and SA seeds, the FFI keeps the
+  π meter, journeys, seek keys and the Julia panel off, Swift hides places, tours, journey
+  controls, seek and the orbit toggle by `model.has(\.x)`. Places and tours set their formula when
+  applied.
+- **Proof.** Bench fields and PNGs byte-identical to main (84/84 plain; 40/42 shaded + period, the
+  two others a 1-texel run-to-run nondeterminism present on main); GPU ms geomean 1.004 over 42
+  cases; regress and history sessions OK; interaction test not slower; selftest OK in both apps;
+  rust-check, build, app, ios-sim, ios-device-check, swift-test green; core-check's 5 failures are
+  main's too. Multibrot(2) on the GPU matches Mandelbrot (bit-identical at four locations, chaos
+  elsewhere), z³ + c matches its oracle.
+- **For F3.** Make `Multibrot(3..8)` selectable (`formula::selectable`) with a UI picker
+  (`Explorer::formulas`); Multibrot oracle fixtures in `almondbread-math/tests/fixtures`; seek
+  (Newton framing: `find_nucleus_for` works, `minibrot_size` and `seek.rs` are Mandelbrot);
+  a size estimate and an exact Newton finish for powers > 2; the DE renormalisation interval
+  (the kernel renormalises every 8 steps, which `|f'| = p|z|^(p-1)` may outgrow near escape) and
+  the BLA radius validated at high p; places/tours/journeys per power or hidden; the orbit
+  overlay's probe key does not include the formula (a formula switch at a shallow view keeps the
+  old overlay until the pointer moves); `floatfloat.metal` (M7 precision tool) and the π meter
+  stay Mandelbrot. Its generic path is 1.3–7× slower than Mandelbrot where LA or the closed-form
+  test do the work.
 
 ## Effort breakdown
 

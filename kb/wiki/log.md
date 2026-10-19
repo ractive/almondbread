@@ -1787,3 +1787,20 @@ ms GPU per one-sample picture at 360 × 259 px for typical k, ~1.1 ms near-parab
 test "julia sweep" / "julia pan" within noise of the panel off (109–117 fps vs 111–116). Float32
 field vs f64 reference: class identical at five k, 62 of 93 240 pixels just outside the set
 (seahorse). Pages: [[decisions/controls]] ("Julia panel", "The Julia tour", tour keys).
+
+## [2026-10-19] decision | F2 pluggable formulas built, awaiting review
+
+[[plans/f2-pluggable-formulas]] built on its branch (status in-progress until the driver's review
+of the A/B table; roadmap row F2 "built, awaiting review"). `Formula { Mandelbrot,
+Multibrot(p) }` in almondbread-math, matched outside the hot loops; per-formula hooks in the
+reference orbit, selection (`*_for`), f64 reference, CPU oracle, orbit overlay, both BLA tables
+and the Component Newton periods; `FormulaCapabilities` in core (plus `julia_panel` for F1's
+`z² + k` panel), mirrored over UniFFI; Swift hides what a formula lacks. Kernels: every step
+site calls an inline hook branching on `kFormula` (function constant 16, `kPower` 17,
+`kConformal` 18), unset for Mandelbrot so its pipelines are the pre-F2 code; other formulas
+compile lazily. Multibrot(p) is the generic path, test-only until F3. Proof (measured
+2026-10-19, M1 Pro): bench fields and PNGs byte-identical to main (one interior texel of
+elephant with period colouring differs run to run on main too), GPU ms geomean 1.004 over 42
+cases, regress and history sessions OK, interaction test not slower. Pages:
+[[synthesis/benchmarks]] "F2", [[platform/render-architecture]] "F2", the plan's "As built"
+(what F3 needs).
