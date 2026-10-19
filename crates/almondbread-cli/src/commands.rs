@@ -66,6 +66,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`,
     // `--scale-overlay 1` (cosmic size scale) with
     // `--screen-cm w` (the view's physical width; default 30 cm).
+    // `--julia 1` (the Julia panel of the orbit's point, kb: plans/f1-julia-view),
     // `--pi-overlay 1` (the π meter; kb: techniques/pi-in-the-mandelbrot-set), `--pi-probe
     // neck,1e-6` (the π hunt's probe there, with its orbit trail, in the hunt's valley view).
     // `--compass 1` (the compass, shown even at north; kb: decisions/controls "Compass") with
@@ -157,7 +158,9 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     let pi = o.get("pi-overlay").is_some_and(|v| v != "0") || o.has("pi-probe");
     let cosmic = o.get("scale-overlay").is_some_and(|v| v != "0");
     let compass = o.get("compass").is_some_and(|v| v != "0");
-    if orbit.is_none() && !map && !pi && !cosmic && !compass {
+    // `--julia 1`: the Julia panel of the orbit's point (`--orbit x,y`; else the view centre).
+    let julia = o.get("julia").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map && !pi && !cosmic && !compass && !julia {
         return Ok(None);
     }
     let mut ov = almondbread_render::overlay::Overlay::<B>::default();
@@ -180,6 +183,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     }
     ov.settings.orbit = orbit.is_some();
     ov.settings.map = map;
+    ov.settings.julia = julia;
     ov.pi.enabled = pi;
     // `--pi-probe neck,1e-6`: the probe of the guided flight at that ε (its trail and log
     // ruler), in the flight's valley view unless `--center` or `--place` frames another.
@@ -231,6 +235,10 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     while r.clock() < deadline {
         ov.step_probe(0.05);
         ov.step_maps(&r.settings, r.clock());
+        if julia {
+            // (The Julia picture's bands are drawn one per prepare.)
+            ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), r.clock());
+        }
         if !ov.busy() {
             break;
         }
@@ -260,6 +268,13 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     let now = r.clock();
     // `--ppp 0.5`: overlay sizes as on a Retina display (view points per pixel).
     ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), now);
+    if julia && let Some(k) = ov.julia.k {
+        println!(
+            "julia: c = {} ({:.3} ms GPU)",
+            almondbread_render::overlay::complex_text(k),
+            ov.julia.picture_ms
+        );
+    }
     if let (Some(t), Some(c)) = (ov.orbit_text(), ov.orbit_cloud()) {
         println!(
             "orbit: {t} ({} iterates drawn, |z_n| {}; map cloud {} points, every {})",

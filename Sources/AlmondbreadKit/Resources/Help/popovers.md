@@ -26,6 +26,12 @@ The ring is the point under the pointer (on iPhone and iPad: the middle of the p
 
 On the whole-set map the first steps are joined by a line, and the next 100 000 are fine dots, the newest brightest. Inside the set they settle into a loop; outside they wander off, sometimes only after tens of thousands of steps. The line under the map says which: "escapes after 48 213 steps", "settles into a period-3 cycle" or "still undecided". **O** shows or hides it.
 
+## julia
+
+Every point c has a picture of its own: keep c fixed and start the rule from every number z instead of from 0. The starts whose numbers stay small form the **Julia set** of c, filled in with the inside's colour; the others take the palette's colours.
+
+The panel shows the Julia set of the orbit's point: the point under the pointer (on iPhone and iPad: the middle of the picture, or where you chose *Orbit Here*), and it changes as that point moves. Where c is inside the Mandelbrot set its Julia set is one connected piece; outside it falls apart into dust. **U** shows or hides it.
+
 ## cockpit
 
 How the zoom is driven, like the levels of a car: **Manual** (the steering wheel: you do everything), **Cruise** (the speedometer: **E** / **Q** set a speed in or out, you steer), **Autopilot** (the plane, **Z**: it steers to interesting places), **Journey** (the sparkles, **J**: from landmark to landmark). The lit icon is the level now; click an icon to switch.
@@ -54,7 +60,7 @@ Switching between them is instant.
 
 ## overlays
 
-Extras drawn on the picture: the orbit of the point under the pointer (**O**), mini-maps (**M**), and the cosmic size scale (**C**). (The π meter belongs to the tour *π in the Mandelbrot set*.)
+Extras drawn on the picture: the orbit of the point under the pointer (**O**), mini-maps (**M**), the Julia set of that point (**U**), and the cosmic size scale (**C**). (The π meter belongs to the tour *π in the Mandelbrot set*.)
 
 Each panel has its own **?** in the corner.
 

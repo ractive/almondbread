@@ -611,6 +611,8 @@ pub struct FormulaCapabilities {
     pub orbit_overlay: bool,
     /// Places, tours and journeys.
     pub content: bool,
+    /// The Julia companion panel (F1; `z^2 + k`).
+    pub julia_panel: bool,
 }
 
 impl FormulaCapabilities {
@@ -643,6 +645,7 @@ impl FormulaCapabilities {
             external_rays: c.external_rays,
             orbit_overlay: c.orbit_overlay,
             content: c.content,
+            julia_panel: c.julia_panel,
         }
     }
 }
@@ -774,6 +777,8 @@ pub struct OverlaySettings {
     /// Width of a map panel in points (80 ... 400).
     pub map_size: f64,
     pub map_corner: MapCorner,
+    /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
+    pub julia: bool,
 }
 
 impl From<&almondbread_core::settings::OverlaySettings> for OverlaySettings {
@@ -791,6 +796,7 @@ impl From<&almondbread_core::settings::OverlaySettings> for OverlaySettings {
                 Corner::TopLeft => MapCorner::TopLeft,
                 Corner::TopRight => MapCorner::TopRight,
             },
+            julia: s.julia,
         }
     }
 }
@@ -810,6 +816,7 @@ impl OverlaySettings {
                 MapCorner::TopLeft => Corner::TopLeft,
                 MapCorner::TopRight => Corner::TopRight,
             },
+            julia: self.julia,
         }
         .sanitized()
     }
@@ -1675,6 +1682,10 @@ impl Explorer {
     pub fn set_overlay(&self, settings: OverlaySettings) {
         let mut g = self.lock();
         g.host.overlay.settings = settings.to_core();
+        // (The Julia panel is z^2 + k: off for a formula without it, F2.)
+        if !almondbread_core::FormulaCapabilities::of(g.host.renderer.settings.formula).julia_panel {
+            g.host.overlay.settings.julia = false;
+        }
         // A probe placed by touch goes with the orbit overlay (kb: decisions/controls "Touch").
         if !settings.orbit {
             let mut v = g.host.renderer.viewport.clone();

@@ -261,6 +261,8 @@ pub struct OverlaySettings {
     /// Width of one map panel, view points.
     pub map_size: f64,
     pub map_corner: Corner,
+    /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
+    pub julia: bool,
 }
 
 impl Default for OverlaySettings {
@@ -272,6 +274,7 @@ impl Default for OverlaySettings {
             map_levels: 3,
             map_size: 180.0,
             map_corner: Corner::BottomLeft,
+            julia: false,
         }
     }
 }
@@ -279,7 +282,7 @@ impl Default for OverlaySettings {
 impl OverlaySettings {
     /// Anything to draw.
     pub fn any(&self) -> bool {
-        self.orbit || self.map
+        self.orbit || self.map || self.julia
     }
 
     /// Clamped to the supported ranges.

@@ -8,7 +8,8 @@
 //! one rebased reference, the scalar BLA, local SA seeds, the derivative interior test and the
 //! attracting-cycle probe, DE and the orbit overlay carry over; Imagina LA (power 2), the
 //! closed-form cardioid and bulb test, the π meter, external rays and the Mandelbrot content
-//! (places, tours, journeys) do not; seek (Newton framing of minibrots) waits for F3.
+//! (places, tours, journeys) and the Julia panel (`z^2 + k`) do not; seek (Newton framing of
+//! minibrots) waits for F3.
 
 pub use almondbread_math::{Formula, MULTIBROT_MAX_POWER};
 
@@ -62,6 +63,9 @@ pub struct FormulaCapabilities {
     pub orbit_overlay: bool,
     /// Places, tours and journeys (all Mandelbrot content).
     pub content: bool,
+    /// The Julia companion panel (F1, kb: plans/f1-julia-view): the Julia set of `z^2 + k` for
+    /// the orbit's point k, a Mandelbrot parameter; other formulas need their own (`z^p + k`).
+    pub julia_panel: bool,
 }
 
 impl FormulaCapabilities {
@@ -81,6 +85,7 @@ impl FormulaCapabilities {
         external_rays: true,
         orbit_overlay: true,
         content: true,
+        julia_panel: true,
     };
 
     /// The generic polynomial path `z^p + c`.
@@ -91,6 +96,7 @@ impl FormulaCapabilities {
         pi_meter: false,
         external_rays: false,
         content: false,
+        julia_panel: false,
         ..Self::MANDELBROT
     };
 
@@ -117,7 +123,7 @@ mod tests {
         assert!(c.la && c.seek && c.pi_meter && c.content && c.closed_form_components);
         let g = FormulaCapabilities::of(Formula::Multibrot(2));
         assert!(g.perturbation && g.sa_seeds && g.interior_probe && g.de && g.orbit_overlay);
-        assert!(!g.la && !g.pi_meter && !g.content && !g.closed_form_components);
+        assert!(!g.la && !g.pi_meter && !g.content && !g.closed_form_components && !g.julia_panel && c.julia_panel);
         assert_eq!(selectable(), vec![Formula::Mandelbrot]);
     }
 }

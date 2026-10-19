@@ -168,6 +168,11 @@ struct FractalCommands: Commands {
                                              set: { model?.mapEnabled = $0 }))
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
+            // The Julia set of the orbit's point (kb: plans/f1-julia-view); U on the canvas.
+            Toggle("Julia Set", isOn: Binding(get: { model?.juliaEnabled ?? false },
+                                              set: { model?.juliaEnabled = $0 }))
+                .keyboardShortcut("u", modifiers: [.command, .option])
+                .disabled(model == nil || model?.has(\.juliaPanel) == false)
             // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas. The
             // π meter has no switch of its own: the tour "π in the Mandelbrot set" drives it.
             TourMenu(model: model)

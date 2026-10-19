@@ -105,6 +105,8 @@ pub struct Step {
     pub orbit_length: Option<usize>,
     pub map: Option<bool>,
     pub map_levels: Option<usize>,
+    /// The Julia companion panel of the probe's point (kb: plans/f1-julia-view).
+    pub julia: Option<bool>,
     pub cosmic: Option<bool>,
     pub pi_meter: Option<bool>,
     /// The π meter's guided hunt at the neck or the cusp (as View ▸ Hunt π did): the view
@@ -265,6 +267,7 @@ pub const STEP_KEYS: &[&str] = &[
     "orbit-length",
     "map",
     "map-levels",
+    "julia",
     "cosmic",
     "pi-meter",
     "pi-hunt",
@@ -727,6 +730,7 @@ fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String
     let flag = |k: &str| get(k).map(|(n, v)| on_off(n, k, v)).transpose();
     step.orbit = flag("orbit")?;
     step.map = flag("map")?;
+    step.julia = flag("julia")?;
     step.cosmic = flag("cosmic")?;
     step.pi_meter = flag("pi-meter")?;
     if let Some((n, v)) = get("pi-hunt") {
@@ -885,6 +889,9 @@ impl Step {
         if let Some(v) = self.map_levels {
             o.map_levels = v;
         }
+        if let Some(v) = self.julia {
+            o.julia = v;
+        }
         if let Some(v) = self.cosmic {
             out.cosmic = v;
         }
@@ -918,6 +925,7 @@ impl Tour {
                 orbit_length,
                 map,
                 map_levels,
+                julia,
                 cosmic,
                 pi_meter,
                 compass,
@@ -1141,6 +1149,7 @@ pub const HIGHLIGHT_TARGETS: &[&str] = &[
     "throttle",
     "toolbar",
     "orbit",
+    "julia",
     "mini-map",
     "size-scale",
     "fly-to",
@@ -1458,6 +1467,27 @@ mod tests {
         assert_eq!(e.probe, Some(Probe::Pointer));
         assert_eq!(e.marker, Some(None));
         assert_eq!(e.iterations, Some(Iterations::Auto));
+    }
+
+    /// `julia: on|off` switches the Julia panel and carries over like the other overlays; the
+    /// Julia tour shows it from its first step, hides it where it adds nothing and brings it
+    /// back for "Your turn" (kb: plans/f1-julia-view).
+    #[test]
+    fn julia_key_switches_the_panel() {
+        let t = parse(
+            "---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\njulia: on\n\nA.\n\n## B\n\nB.\n\n## C\njulia: off\n\nC.\n",
+        )
+        .expect("parses");
+        let shown: Vec<bool> = (0..3)
+            .map(|i| t.effective(i).apply(&snapshot()).overlay.julia)
+            .collect();
+        assert_eq!(shown, [true, true, false]);
+        assert!(parse("---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\njulia: maybe\n\nA.\n").is_err());
+        let tour = named("julia").expect("the Julia tour");
+        let shown: Vec<bool> = (0..tour.steps.len())
+            .map(|i| tour.effective(i).apply(&snapshot()).overlay.julia)
+            .collect();
+        assert_eq!(shown, [true, true, true, true, true, true, false, true]);
     }
 
     #[test]

@@ -581,14 +581,17 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
                 return true
             }
         }
-        // O / M / C / L: orbit overlay, mini-map, cosmic size scale, lane assist (toggled on key-down;
-        // their key-ups are swallowed).
+        // O / M / U / C / L: orbit overlay, mini-map, Julia panel, cosmic size scale, lane assist
+        // (toggled on key-down; their key-ups are swallowed).
         switch (event.charactersIgnoringModifiers ?? "").lowercased() {
         case "o":
             if event.type == .keyDown && !event.isARepeat { model.toggleOrbit() }
             return true
         case "m":
             if event.type == .keyDown && !event.isARepeat { model.toggleMap() }
+            return true
+        case "u":
+            if event.type == .keyDown && !event.isARepeat { model.toggleJulia() }
             return true
         case "c":
             if event.type == .keyDown && !event.isARepeat { model.toggleCosmicScale() }
@@ -1103,6 +1106,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 switch key.charactersIgnoringModifiers.lowercased() {
                 case "o": base.model.toggleOrbit(); continue
                 case "m": base.model.toggleMap(); continue
+                case "u": base.model.toggleJulia(); continue
                 case "c": base.model.toggleCosmicScale(); continue
                 case "l": base.model.toggleLaneAssist(); continue
                 case "g":
