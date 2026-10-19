@@ -41,7 +41,8 @@ struct ControlCenterView: View {
         let _ = UIPerf.body("ControlCenterView")
         let collapsed = Set(collapsedStorage.split(separator: ",").map(String.init))
         let searching = !query.isEmpty
-        let shown = ControlSection.allCases.filter { $0.matches(query) }
+        // (Sections a formula has nothing for are hidden, F2: places and tours are Mandelbrot.)
+        let shown = ControlSection.allCases.filter { $0.matches(query) && $0.offered(by: model) }
         sections(shown: shown, collapsed: searching ? [] : collapsed)
         .controlSize(.small)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -415,12 +416,14 @@ struct ViewSectionRows: View {
         // Seek minibrot about the view (N; kb: decisions/controls "Seek minibrot"): the long-press
         // menu's "Seek Minibrot Here" needs a still picture, this works while flying too (it was
         // the round autopilot button's menu until 2026-10-18).
-        Button {
-            model.seekMinibrot()
-        } label: {
-            Label("Seek minibrot", systemImage: "scope")
+        if model.has(\.seek) {
+            Button {
+                model.seekMinibrot()
+            } label: {
+                Label("Seek minibrot", systemImage: "scope")
+            }
+            .buttonStyle(.borderless)
         }
-        .buttonStyle(.borderless)
         #endif
         #if os(macOS)
         Picker("Two-finger scroll", selection: $model.scrollZooms) {
@@ -446,14 +449,17 @@ struct JourneySectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.journey")
-        JourneyControls(model: model, journeySeed: journeySeed)
-        Picker("Journey", selection: $model.journeyStops) {
-            Text("Continuous").tag(false)
-            Text("Stop at each find").tag(true)
+        // (Journeys are Mandelbrot content: hidden for a formula without it, F2.)
+        if model.has(\.content) {
+            JourneyControls(model: model, journeySeed: journeySeed)
+            Picker("Journey", selection: $model.journeyStops) {
+                Text("Continuous").tag(false)
+                Text("Stop at each find").tag(true)
+            }
+            .help("Continuous: rest a moment at each landmark and fly on. Stop at each find: stay until you choose: J next, Z deeper here, X somewhere else. J starts this mode, ⇧J the other.")
+            TextField("Seed (empty: random)", text: $journeySeed)
+                .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
         }
-        .help("Continuous: rest a moment at each landmark and fly on. Stop at each find: stay until you choose: J next, Z deeper here, X somewhere else. J starts this mode, ⇧J the other.")
-        TextField("Seed (empty: random)", text: $journeySeed)
-            .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
         Toggle("Cinematic effects", isOn: $model.cinematic)
             .help("Spin with the zoom, palette drift with depth and slow cycling while flying (autopilot, journeys, fly-to)")
         Group {
@@ -638,8 +644,10 @@ struct OverlaySectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.overlays")
-        Toggle("Orbit of the point under the pointer", isOn: $model.orbitEnabled)
-        if model.orbitEnabled {
+        if model.has(\.orbitOverlay) {
+            Toggle("Orbit of the point under the pointer", isOn: $model.orbitEnabled)
+        }
+        if model.orbitEnabled && model.has(\.orbitOverlay) {
             ControlRows.slider("Iterates", value: ControlRows.log(ControlRows.int($model.orbitLength), range: 1...1000), in: 0...1,
                                text: "\(model.orbitLength)")
         }
@@ -958,6 +966,15 @@ struct TourSectionScroller: View {
 /// The control center's sections, in order, with what the search matches.
 enum ControlSection: String, CaseIterable, Identifiable {
     case places, tours, view, journey, look, lighting, interior, overlays, quality, controls
+
+    /// Whether the current formula has anything for this section (F2: places and tours are
+    /// Mandelbrot content).
+    @MainActor func offered(by model: ExplorerModel) -> Bool {
+        switch self {
+        case .places, .tours: model.has(\.content)
+        default: true
+        }
+    }
     var id: String { rawValue }
     /// The name a tour step rings it by (`highlight: section-places`; core `HIGHLIGHT_TARGETS`).
     var tourID: String { "section-" + rawValue }

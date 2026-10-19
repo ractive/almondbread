@@ -134,11 +134,11 @@ struct FractalCommands: Commands {
                                                     set: { model?.laneAssist = $0 }))
                 .disabled(model == nil)
             Button("Journey On/Off (J)") { model?.toggleJourney() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.content) == false)
             Button("Daily Journey") { model?.startDailyJourney() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.content) == false)
             Button("Seek Minibrot (N)") { model?.seekMinibrot() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.has(\.seek) == false)
             Button("Copy Journey Seed") { model?.copyJourney() }
                 .disabled(model?.journeyShareText == nil)
             Button("Straighten View (/)") { model?.straighten() }

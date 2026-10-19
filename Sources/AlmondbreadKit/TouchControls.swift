@@ -104,8 +104,10 @@ struct CanvasMenuContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            item("Seek Minibrot Here", "scope") { model.seekMinibrot(x: menu.x, y: menu.y) }
-            Divider()
+            if model.has(\.seek) {
+                item("Seek Minibrot Here", "scope") { model.seekMinibrot(x: menu.x, y: menu.y) }
+                Divider()
+            }
             item("Orbit Here", "point.topleft.down.to.point.bottomright.curvepath") { model.orbitHere(x: menu.x, y: menu.y) }
             Divider()
             item("Fly Here", "location.north.line") { model.flyHere(x: menu.x, y: menu.y) }
