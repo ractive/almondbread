@@ -2,7 +2,7 @@
 id: valleys
 title: Seahorse and Elephant valleys
 summary: The two famous valleys, the spirals in them, the points the spirals turn around, and why they look the same at every zoom.
-place: seahorse-valley
+place: seahorse-valley, elephant-valley
 ---
 
 ## Seahorse valley

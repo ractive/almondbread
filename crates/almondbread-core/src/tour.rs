@@ -41,18 +41,20 @@ use crate::viewport::{Center, Scale, Viewport, wrap_angle};
 /// file in `tours/` is listed here and parses. **List order** is the order of the tour lists
 /// and the default "Next tour" series (a tour's `next:` overrides it; see [`next_tour`]).
 const BUNDLED: &[(&str, &str)] = &[
-    ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
-    ("feigenbaum", include_str!("../tours/feigenbaum.md")),
-    ("pi", include_str!("../tours/pi.md")),
-    // The first-launch walkthrough (hidden: not in the tour lists).
-    ("welcome", include_str!("../tours/welcome.md")),
-    ("limits", include_str!("../tours/limits.md")),
+    // The series, gentlest first: what the picture shows, its parts, what can be counted on
+    // them, then the deeper maths.
+    ("colours", include_str!("../tours/colours.md")),
     ("bulbs", include_str!("../tours/bulbs.md")),
+    ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
+    ("limits", include_str!("../tours/limits.md")),
     ("valleys", include_str!("../tours/valleys.md")),
     ("doubling", include_str!("../tours/doubling.md")),
-    ("colours", include_str!("../tours/colours.md")),
-    ("julia", include_str!("../tours/julia.md")),
+    ("feigenbaum", include_str!("../tours/feigenbaum.md")),
     ("misiurewicz", include_str!("../tours/misiurewicz.md")),
+    ("julia", include_str!("../tours/julia.md")),
+    ("pi", include_str!("../tours/pi.md")),
+    // The first-launch walkthrough (hidden: not in the tour lists; its end offers the first).
+    ("welcome", include_str!("../tours/welcome.md")),
 ];
 
 /// Highest iteration limit a step may set (the FFI's bound).
@@ -1606,6 +1608,13 @@ mod tests {
             assert!(n <= 1, "topic `{topic}` is covered by {n} tours");
         }
         assert_eq!(tour_for_topic("period").as_deref(), Some("minibrot-periods"));
+        // Every topic a UI spot asks for has its tour.
+        for topic in TOPICS {
+            assert!(tour_for_topic(topic).is_some(), "no tour covers `{topic}`");
+        }
+        assert_eq!(tour_for_topic("fog").as_deref(), Some("limits"));
+        let valleys = named("valleys").expect("valleys");
+        assert_eq!(valleys.places, ["seahorse-valley", "elephant-valley"]);
         // The walkthrough ends by offering the first maths tour.
         let first = tours.iter().find(|t| !t.hidden).map(|t| t.id.clone());
         assert_eq!(next_tour("welcome"), first);

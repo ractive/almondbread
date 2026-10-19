@@ -1686,3 +1686,14 @@ New tour `tours/misiurewicz.md` (8 steps): pre-periodic orbits at −2, i, the M
 spike's M(3,1) crossing; self-similarity with the cycle multipliers (1.33 / 120° at M(4,1), 5.66 /
 45° at i, 4 at −2); the fork at 1e300; spirals at 1e4 and 1e50. [[decisions/controls]] "The
 Misiurewicz tour".
+
+## [2026-10-19] decision | Finding the tours
+
+User request: make the guided tours easy to discover. New tour header keys `place` (comma list),
+`thumbnail`, `topics` (closed list `tour::TOPICS`: period, fog, iterations) and `next`; core
+`next_tour` (next: or list order, missing and hidden skipped, wraps), `tour_for_topic`,
+`Tour::minutes`. UI: "What's a period?" in the HUD next to "Minibrot, period N", "What's the fog?"
+on the not-finished line, a link in Iterations & quality, "Next tour" on every last step (the
+walkthrough offers the first tour), tour cards with place thumbnails, "9 steps · ~3 min" and a done
+check, signpost badges on tour places. The series order is `BUNDLED`'s. In
+[[decisions/controls]] "Finding the tours".

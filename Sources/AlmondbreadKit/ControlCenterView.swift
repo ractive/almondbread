@@ -700,7 +700,7 @@ struct QualitySectionRows: View {
         Toggle("Interactive preview", isOn: $model.interactivePreview)
         // The tour on iterations and the fog (topic `iterations`), once one is bundled.
         if ExplorerModel.tour(forTopic: "iterations") != nil {
-            TourTopicLink(model: model, topic: "iterations", label: "Take the tour: what the limit does")
+            TourTopicLink(model: model, topic: "iterations", label: nil)
         }
     }
 }
@@ -1034,7 +1034,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
-        case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp"]
+        case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp", "fog", "limit", "bulb", "valley", "julia", "misiurewicz", "colour", "color"]
         case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]

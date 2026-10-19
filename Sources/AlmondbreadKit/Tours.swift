@@ -162,14 +162,15 @@ struct NextTourButton: View {
 struct TourTopicLink: View {
     let model: ExplorerModel
     let topic: String
-    let label: String
+    /// nil: "Tour: <the tour's title>".
+    let label: String?
 
     var body: some View {
         if let t = ExplorerModel.tour(forTopic: topic), model.tour?.tourId != t.id {
             Button {
                 model.startTour(t.id)
             } label: {
-                Label(label, systemImage: "signpost.right")
+                Label(label ?? "Tour: \(t.title)", systemImage: "signpost.right")
                     .font(.caption)
                     .foregroundStyle(.tint)
                     #if os(iOS)
