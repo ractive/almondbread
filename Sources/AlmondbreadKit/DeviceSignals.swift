@@ -108,9 +108,19 @@ final class DeviceSignals {
         sceneObservers = []
         guard let newScene else { return }
         let nc = NotificationCenter.default
+        // The scene stops being frontmost (app switcher, Control Center, a call, background):
+        // touch ends and key-ups may never arrive, so every held input lets go (kb:
+        // decisions/controls "Held input").
+        sceneObservers.append(nc.addObserver(forName: UIScene.willDeactivateNotification, object: newScene,
+                                             queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { _ = self?.host?.send(.focusLost) }
+        })
         sceneObservers.append(nc.addObserver(forName: UIScene.didEnterBackgroundNotification, object: newScene,
                                              queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.setActive(false) }
+            MainActor.assumeIsolated {
+                _ = self?.host?.send(.focusLost)
+                self?.setActive(false)
+            }
         })
         sceneObservers.append(nc.addObserver(forName: UIScene.willEnterForegroundNotification, object: newScene,
                                              queue: .main) { [weak self] _ in

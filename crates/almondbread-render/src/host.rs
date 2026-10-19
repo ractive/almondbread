@@ -198,6 +198,11 @@ impl<B: GpuBackend + Clone> Host<B> {
         let interaction = self.renderer.navigator.last_interaction;
         let mode = self.renderer.navigator.mode();
         let handled = self.renderer.handle_input(event, now);
+        // Focus lost (kb: decisions/controls "Held input"): a compass press lets go without its
+        // click (no turn to north), as the navigator lets go of keys, pedals and fingers.
+        if event == InputEvent::FocusLost {
+            self.overlay.compass.release();
+        }
         // Esc ends the π meter's guided flight too (other input ends it by moving the view).
         if matches!(event, InputEvent::KeyDown(almondbread_core::input::NavKey::Stop)) && self.overlay.pi.flying() {
             self.overlay.pi.stop_flight();

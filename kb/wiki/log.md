@@ -1827,3 +1827,15 @@ refresh after `settled`, but the render progress line, shown when the refinement
 0.5 s, completes and fades for about 0.75 s after the view settled (measured once: one extra
 refresh; once still animating after 120 sleepless refreshes, when the frame clock follows real
 time). It now allows 2 s of real-time refreshes and prints the progress state if it fails.
+
+## [2026-10-19] decision | Held input lets go when its release never arrives
+
+A key-down without a key-up held the Navigator: E held, then ⌘-Tab, could keep `pedal_hold`,
+`is_moving` and the display link alive. `FocusLost` existed (window resign key, iPad focus) but
+missed the drag's fling samples, the touch throttle's rest and the twist; macOS dropped a
+navigation key's key-up while ⌘ was down or a text field had the focus; app deactivation and the
+iOS scene's deactivation / background did not send it; `jumped()` left a held pedal stepping, so a
+jump with E held started a new cruise. Now `release_all` covers every held kind, `jumped()`
+releases held keys, pedal and gamepad, `Host` drops a compass press, and the platforms send
+`FocusLost` on every focus loss. See [[decisions/controls]] "Held input" (unit tests per held
+kind, core-check "E held, focus lost, Esc").

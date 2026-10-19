@@ -38,7 +38,7 @@ while navigating.
 - On the Mac, keys come from a window-local event monitor, so they work while an inspector
   control has focus; text fields keep their keys. Handled keys are swallowed (no system
   beep). Losing key-window status, or focus on iPad, releases every key, because the
-  key-up may never arrive.
+  key-up may never arrive (see "Held input" below for every held kind and every trigger).
 - Continuous zoom stops at the precision limit without drifting the centre; the HUD then
   shows a prominent warning. Measured in [[synthesis/benchmarks]] (interaction section).
 
@@ -3041,3 +3041,42 @@ them). Passed on the iPhone 17e simulator (portrait and landscape layout).
 **Needs the device.** Whether 10-point ticks are easy enough for a child's finger (the knob
 snaps, but a finger lifting off can roll one tick); whether the 0.3 s wait for a tap on a tick
 feels slow.
+
+## Held input (as built, 2026-10-19)
+
+A press whose release never arrives must not hold the Navigator forever: a held key kept
+`is_moving` true, the interaction clock alive and the display link running (battery). Examples:
+E held, then ⌘-Tab (the inactive app gets no key-up); E released while ⌘ is down; a key released
+after a click put the focus in a text field; a mouse button down when the window loses key; a
+touch cancelled by the app switcher; the app backgrounded mid-gesture; an iPad hardware keyboard
+losing focus; a gamepad disconnected with the stick deflected.
+
+**One event, all policy in Rust.** `InputEvent::FocusLost` (`Navigator::release_all`) lets go of
+every held input as its release would: W A S D and arrows, Space, the turn keys, Shift, the held
+pedal (`pedal_hold`; the cruise keeps the gear it reached, exactly as after a key-up), the
+gamepad's axes, the steering finger and Rust's rest-or-swipe finger, the pinch latch, the touch
+throttle's rest and twist dead band, and the drag's fling samples. It starts no fling: motion
+already under way glides out on its springs, then the view settles and the link pauses. `Host`
+also drops a compass press without its click (no turn to north). Unit tests
+`focus_lost_releases_each_held_key_and_settles` (the view lands bit-identical to a key-up at the
+same moment), `focus_lost_releases_a_held_pedal`, `focus_lost_ends_a_drag_without_a_fling` (a late
+mouse-up does not fling either), `focus_lost_centres_the_gamepad`, `focus_lost_lets_go_of_a_finger`;
+core-check "E held, focus lost, Esc: settled" through the bindings.
+
+**A jump lets go of holds too.** `Navigator::jumped` (pasted coordinates, a link, a place, a
+tour's jump) already stopped every motion dead; a held E's hold repeat then started a new cruise
+0.4 s later and a held W moved on, so the new view was carried off after all. It now also
+releases held keys, the held pedal and the gamepad (not Shift, not touches): a key still down moves
+again on its next press. Test `a_jump_lets_go_of_held_keys_and_pedals`. Reset and a new flight
+stop motion but leave held keys held (pressing R while holding W is deliberate).
+
+**Where the platforms send it.** macOS (`FractalNSView.releaseAll`): the window resigning key,
+`NSApplication.didResignActiveNotification`, the view leaving its window; it also forgets the
+mouse press in progress (drag, compass, mini-map, help badge), so a late mouse-up neither flings
+nor clicks. A navigation key's key-up reaches Rust even while ⌘ is down or a text field has the
+focus (not swallowed there; a key-up of a key not held does nothing). iOS / iPadOS: the scene's
+`willDeactivate` and `didEnterBackground`, the view leaving its window, `resignFirstResponder`
+and `pressesCancelled` (hardware keyboard). Cancelled touches already end cleanly on their own
+paths: the finger tracker sends `FingerUp { cancelled: true }` and `TouchesLifted`, a cancelled
+pan or pinch sends no `GestureEnd` (no fling), the rotation sends `TouchRotateEnd`, a cancelled
+long press or compass pan resets. Gamepad: `GCControllerDidDisconnect` sends centred axes.

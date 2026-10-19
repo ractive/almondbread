@@ -211,7 +211,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     var model: ExplorerModel { base.model }
     private var link: CADisplayLink?
     private var keyMonitor: Any?
-    private var resignObserver: NSObjectProtocol?
+    private var resignObservers: [NSObjectProtocol] = []
     private var fullScreenObservers: [NSObjectProtocol] = []
     private var layoutRectObservation: NSKeyValueObservation?
     private var tracking: NSTrackingArea?
@@ -275,7 +275,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         link?.invalidate()
         link = nil
         guard let window else {
-            send(.focusLost)
+            releaseAll()
             return
         }
         window.makeFirstResponder(self)
@@ -424,19 +424,37 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     /// keys are swallowed, which also avoids the system beep.
     private func installKeyHandling() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObservers.forEach(NotificationCenter.default.removeObserver)
+        resignObservers = []
         keyMonitor = nil
         guard let window else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self, event.window === self.window else { return event }
             return self.handleKey(event) ? nil : event
         }
-        // Key-up never arrives once the window loses focus: stop all motion then.
-        resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification,
-                                                                object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { _ = self?.send(.focusLost) }
-        }
+        // Key-ups and mouse-ups never arrive once the window loses key or the app is
+        // deactivated (⌘-Tab): let go of every held input then (kb: decisions/controls "Held
+        // input").
+        let nc = NotificationCenter.default
+        resignObservers = [
+            nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.releaseAll() }
+            },
+            nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.releaseAll() }
+            },
+        ]
         observeFullScreen(window)
+    }
+
+    /// Every held key, button and press lets go (Rust's `FocusLost`); the mouse press in
+    /// progress is forgotten here too, so a late mouse-up neither flings nor clicks.
+    func releaseAll() {
+        dragging = false
+        mapClicked = false
+        compassPressed = false
+        helpPressed = false
+        send(.focusLost)
     }
 
     // MARK: Full screen (kb: decisions/controls "Full screen")
@@ -564,9 +582,13 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             send(.shift(down: shift))
             return false
         }
-        // Menu shortcuts and text fields keep their keys.
-        if event.modifierFlags.contains(.command) { return false }
-        if window?.firstResponder is NSText { return false }
+        // Menu shortcuts and text fields keep their keys. A navigation key's release still
+        // reaches Rust (not swallowed): E or W released while ⌘ is down, or after a click moved
+        // the focus to a text field, was a key held forever (kb: decisions/controls "Held input").
+        if event.modifierFlags.contains(.command) || window?.firstResponder is NSText {
+            if event.type == .keyUp, let key = Self.navKey(event) { send(.keyUp(key: key)) }
+            return false
+        }
         // A guided tour (kb: decisions/controls "Guided tours"): → next, ← back, Esc ends it.
         // Only the key-downs: a release still reaches Rust (harmless if nothing was held).
         if model.tour != nil, event.type == .keyDown, !event.modifierFlags.contains(.option) {
