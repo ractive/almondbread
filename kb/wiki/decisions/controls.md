@@ -2025,7 +2025,7 @@ Nine steps on each platform, short sentences a child can follow. The touch steer
 approved design ("rest a finger to steer towards it, swipe to move the picture"); when the steering
 changes, only the file changes.
 
-**First launch.** A small card in the middle: "Welcome to Almondbread", **Take a 1-minute
+**First launch.** A small card in the middle: "Welcome to Almondbread", **Take a 2-minute
 walkthrough** / **Just explore** (`WalkthroughOffer`, `walkthrough.offered` in user defaults, set by
 either answer). On iPhone and iPad the first-run touch hints wait for the answer: "Just explore"
 shows them, the walkthrough marks them seen (it says the same). Never in window tests, `--ui-demo`
@@ -2101,7 +2101,7 @@ on from where it is instead of jumping back first.
 **Length.** `Tour::seconds` on the tour as it plays on the platform: 4 words a second of step text,
 6 s per step to look (and for a flight to land), a moving probe's pass up to 30 s, 15 s per π hunt;
 shown as whole minutes, at least 1. Gives 2–4 min for the eleven tours, ~2 min for the walkthrough
-(the first-launch offer still says "1-minute walkthrough").
+(the first-launch offer says "2-minute walkthrough", 2026-10-19).
 
 **Done.** Reaching a tour's last step marks it done (`tours.done` in user defaults; not in tests and
 demos, `TestLaunch.ephemeral`).

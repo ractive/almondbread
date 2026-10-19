@@ -188,7 +188,7 @@ struct TourCardLayer: View {
 
 // MARK: First-launch offer
 
-/// The walkthrough offered once, at the first launch: "Take a 1-minute walkthrough" or "Just
+/// The walkthrough offered once, at the first launch: "Take a 2-minute walkthrough" or "Just
 /// explore" (`walkthrough.offered` in user defaults). Never in window tests, `--ui-demo` or the
 /// UI tests unless `--walkthrough-offer` forces it; `--no-walkthrough-offer` suppresses it.
 @MainActor @Observable
@@ -238,7 +238,7 @@ struct WalkthroughOfferCard: View {
                     Button {
                         start()
                     } label: {
-                        Label("Take a 1-minute walkthrough", systemImage: "signpost.right")
+                        Label("Take a 2-minute walkthrough", systemImage: "signpost.right")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
