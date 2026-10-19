@@ -1839,3 +1839,14 @@ jump with E held started a new cruise. Now `release_all` covers every held kind,
 releases held keys, pedal and gamepad, `Host` drops a compass press, and the platforms send
 `FocusLost` on every focus loss. See [[decisions/controls]] "Held input" (unit tests per held
 kind, core-check "E held, focus lost, Esc").
+
+## [2026-10-20] decision | Inline icons in tour texts
+
+The walkthrough's cockpit step listed the driving levels as **M**, **C**, **A**, **J**; the cockpit
+shows icons (a steering wheel, a speedometer, a plane, sparkles) and the letters appear nowhere on
+screen. Tour texts now take `{icon:<id>}` (ids = the controls' `highlight:` names; unknown ids and
+unclosed braces are parse errors with their line). The cockpit glyphs moved to core `icon::Glyph`
+as strokes, which the Rust cockpit draws and Swift rasterises into template images for the text
+(FFI `inline_icons()`); the round buttons' SF Symbol names live in the same table. The
+walkthrough's cockpit, cruise, autopilot and toolbar steps and help page 3 use them. See
+[[decisions/controls]] "Guided tours" ▸ Inline icons.

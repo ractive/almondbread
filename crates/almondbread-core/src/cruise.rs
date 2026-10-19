@@ -43,7 +43,7 @@ pub enum Level {
 }
 
 impl Level {
-    /// The letter in the cockpit.
+    /// A one-letter short name (cache keys; the cockpit shows icons, core `icon::Glyph`).
     pub fn letter(self) -> char {
         match self {
             Self::Manual => 'M',

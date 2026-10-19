@@ -200,22 +200,22 @@ struct ContentView: View {
                 // overlays and Fly To. The autopilot and journeys are the cockpit's icons.
                 // (The tour rings: `highlight: toolbar` all five, or one by its name.)
                 stack {
-                    RoundToggle("Orbit", symbol: "point.topleft.down.to.point.bottomright.curvepath",
+                    RoundToggle("Orbit", symbol: InlineIcons.symbol("orbit"),
                                 isOn: $model.orbitEnabled)
                         .tourTarget("orbit", model: model, cornerRadius: 22)
-                    RoundToggle("Mini-map", symbol: "map", isOn: $model.mapEnabled)
+                    RoundToggle("Mini-map", symbol: InlineIcons.symbol("mini-map"), isOn: $model.mapEnabled)
                         .tourTarget("mini-map", model: model, cornerRadius: 22)
                     // The Julia panel: only in the iPad's top row (the phone's column and row
                     // have no room for a sixth button; kb: decisions/controls "Julia panel").
                     if touchLayout.buttonCorner == .topTrailing {
-                        RoundToggle("Julia set", symbol: "seal", isOn: $model.juliaEnabled)
+                        RoundToggle("Julia set", symbol: InlineIcons.symbol("julia"), isOn: $model.juliaEnabled)
                             .tourTarget("julia", model: model, cornerRadius: 22)
                     }
-                    RoundToggle("Size scale", symbol: "ruler", isOn: $model.cosmicScale)
+                    RoundToggle("Size scale", symbol: InlineIcons.symbol("size-scale"), isOn: $model.cosmicScale)
                         .tourTarget("size-scale", model: model, cornerRadius: 22)
-                    RoundButton("Fly to", symbol: "location.north.line") { showFlyTo = true }
+                    RoundButton("Fly to", symbol: InlineIcons.symbol("fly-to")) { showFlyTo = true }
                         .tourTarget("fly-to", model: model, cornerRadius: 22)
-                    RoundButton("Control center", symbol: "slider.horizontal.3", isSelected: showInspector) {
+                    RoundButton("Control center", symbol: InlineIcons.symbol("control-center"), isSelected: showInspector) {
                         showInspector.toggle()
                     }
                     .accessibilityValue(showInspector ? "shown" : "hidden")
@@ -258,19 +258,19 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Toggle(isOn: $model.orbitEnabled) {
-                    Label("Orbit", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    Label("Orbit", systemImage: InlineIcons.symbol("orbit"))
                         .tourTarget("orbit", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Orbit of the point under the pointer (O)")
                 Toggle(isOn: $model.mapEnabled) {
-                    Label("Mini-map", systemImage: "map")
+                    Label("Mini-map", systemImage: InlineIcons.symbol("mini-map"))
                         .tourTarget("mini-map", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
                 Toggle(isOn: $model.juliaEnabled) {
-                    Label("Julia Set", systemImage: "seal")
+                    Label("Julia Set", systemImage: InlineIcons.symbol("julia"))
                         .tourTarget("julia", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
@@ -278,7 +278,7 @@ struct ContentView: View {
                 // The π meter is not in the toolbar: the tour "π in the Mandelbrot set" drives it
                 // (user, 2026-10-18).
                 Toggle(isOn: $model.cosmicScale) {
-                    Label("Size Scale", systemImage: "ruler")
+                    Label("Size Scale", systemImage: InlineIcons.symbol("size-scale"))
                         .tourTarget("size-scale", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
@@ -287,7 +287,7 @@ struct ContentView: View {
                 Button {
                     showFlyTo = true
                 } label: {
-                    Label("Fly To", systemImage: "location.north.line")
+                    Label("Fly To", systemImage: InlineIcons.symbol("fly-to"))
                         .tourTarget("fly-to", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
@@ -297,7 +297,7 @@ struct ContentView: View {
                 Button {
                     showInspector.toggle()
                 } label: {
-                    Label("Control Center", systemImage: "slider.horizontal.3")
+                    Label("Control Center", systemImage: InlineIcons.symbol("control-center"))
                         .tourTarget("control-center", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
