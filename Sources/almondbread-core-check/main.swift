@@ -82,8 +82,22 @@ do {
     check(false, "supersampling 7 accepted")
 } catch {}
 try explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 3.75e-8)
+// Q / E (kb: decisions/controls "Driving levels"): from rest E is the cruise pedal (one rung
+// forward); with Space held it sets the Space zoom speed (1.6 × 1.25). Esc stops the cruise.
+let pedal = explorer.input(event: .keyDown(key: .fasterZoom))
+_ = explorer.input(event: .keyUp(key: .fasterZoom))
+check(pedal.handled && pedal.redraw && explorer.stats().cruise.level == .cruise && explorer.stats().cruise.set > 0,
+      "E from rest starts the cruise: \(pedal), \(explorer.stats().cruise)")
+check(explorer.input(event: .keyDown(key: .stop)).handled, "Esc stops the cruise")
+_ = explorer.input(event: .keyUp(key: .stop))
+try explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 3.75e-8)
+check(explorer.stats().cruise.level == .manual, "a jump drops to manual: \(explorer.stats().cruise)")
+_ = explorer.input(event: .keyDown(key: .zoom))
 let r = explorer.input(event: .keyDown(key: .fasterZoom))
-check(r.handled && r.redraw && abs(explorer.stats().zoomSpeed - 2.0) < 1e-12, "Q/E through input: \(r)")
+_ = explorer.input(event: .keyUp(key: .fasterZoom))
+_ = explorer.input(event: .keyUp(key: .zoom))
+check(r.handled && r.redraw && abs(explorer.stats().zoomSpeed - 2.0) < 1e-12 && explorer.stats().cruise.level == .manual,
+      "Space + E sets the zoom speed: \(r), \(explorer.stats().zoomSpeed)")
 check(!explorer.input(event: .pan(dx: .nan, dy: 0)).handled, "NaN pan rejected")
 var t = CACurrentMediaTime()
 var frames = 0
@@ -109,22 +123,34 @@ check(kd.mode == .keyboard && fr & 2 != 0 && explorer.crosshairX() > 0 && explor
 for _ in 0..<240 { t += 1.0 / 120; fr = explorer.frame(timestamp: t) }
 check(explorer.crosshairX() == 0 && explorer.crosshairY() == 0, "crosshair glided to the centre")
 // The tapped key's pan glided the view on (FL motion): it refines and settles, then the
-// link may pause although keyboard mode stays.
+// link may pause although keyboard mode stays: within 2 s of refreshes (real time: the frame
+// clock is the later of the timestamp and now), not at once. A render progress line shown
+// while the view refined (it took over 0.5 s, e.g. with the GPU shared) completes and fades
+// out after the view settled, about 0.75 s (kb: decisions/controls "Render progress").
 settle(frames + 6000)
-fr = explorer.frame(timestamp: t)
-check(fr & 1 == 0 && fr & 2 != 0, "settled in keyboard mode, link may pause: bits \(fr)")
+var pauseAfter = 0
+repeat {
+    t += 1.0 / 120
+    fr = explorer.frame(timestamp: t)
+    pauseAfter += 1
+    if fr & 1 != 0 { Thread.sleep(forTimeInterval: 1.0 / 120) }
+} while fr & 1 != 0 && pauseAfter < 240
+check(fr & 1 == 0 && fr & 2 != 0,
+      "settled in keyboard mode, link may pause: bits \(fr) after \(pauseAfter) refreshes, \(explorer.stats().progress)")
 let back = explorer.input(event: .pointer(x: 100, y: 0))
 check(back.mode == .pointer && back.redraw && explorer.frame(timestamp: t) & 2 == 0, "pointer travel: pointer mode")
 explorer.setEdgePan(mode: .always)
 check(explorer.edgePan() == .always, "edge pan setting")
 explorer.setEdgePan(mode: .whileZooming)
-// Autopilot and fly-to through the bindings (kb: decisions/controls): frame bit 4 says the
-// autopilot is on; Esc stops it and is not ours when nothing flies; jumps cancel a flight.
+// Autopilot and fly-to through the bindings (kb: decisions/controls): the stats say the
+// autopilot is on and the display link keeps running (the frame bits are only animating and
+// keyboard since the rest-or-swipe change); Esc stops it and is not ours when nothing flies;
+// jumps cancel a flight.
 let ap = explorer.input(event: .keyDown(key: .autopilot))
 _ = explorer.input(event: .keyUp(key: .autopilot))
 t += 1.0 / 120
 fr = explorer.frame(timestamp: t)
-check(ap.redraw && fr & 4 != 0 && explorer.stats().autopilot.active, "autopilot on: bits \(fr)")
+check(ap.redraw && fr & 1 != 0 && explorer.stats().autopilot.active, "autopilot on: bits \(fr)")
 check(explorer.input(event: .keyDown(key: .stop)).handled && !explorer.stats().autopilot.active, "Esc stops the autopilot")
 check(!explorer.input(event: .keyDown(key: .stop)).handled, "Esc is not ours when nothing flies")
 check(explorer.flyToCoordinates(text: "re -0.75\nim 0.1\nscale 1e-6 (zoom 1×)") && explorer.stats().flight.active,

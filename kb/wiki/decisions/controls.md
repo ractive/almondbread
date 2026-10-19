@@ -1159,7 +1159,14 @@ pinch, double tap, menu) while cruising stops the cruise dead and drops to manua
 zooming by hand must not fight a set speed). Dark translucent plate, haloed text: legible on bright and dark
 palettes. FFI `ExplorerStats.cruise` (`CruiseStatus`: level, set, rate, boost, landing, assist,
 nudging), `Explorer::set_cockpit(on, inset_right, inset_bottom)`, `set_assist(on)`;
-`FRAME_AUTOPILOT` is set in A and C (an iOS finger steers). HUD wording: the uniform-region hints
+`FRAME_AUTOPILOT` was set in A and C (an iOS finger steers); it became `FRAME_FINGER_STEERS` in
+touch round 2 and is gone since "Rest or swipe" (2026-10-18): `Explorer::frame` returns only
+`FRAME_ANIMATING` and `FRAME_KEYBOARD`, the autopilot's state is `ExplorerStats.autopilot`. Since
+the pedals, a plain E from rest starts a cruise (gear 1 a press, a held E climbs a rung every
+0.15 s to gear 26) and the view never settles while it cruises; `make core-check` therefore
+checks E from rest (cruise, Esc stops it) and Space + E (zoom speed 1.6 × 1.25 = 2) separately
+(it encoded the old Q / E meaning with the key never released, so it cruised at gear 26 for the
+rest of the run and four later checks failed with it, unnoticed from 2026-10-17 to 10-19). HUD wording: the uniform-region hints
 (interior / featureless / rescue) read "The Nothing ahead – slowing down / turning back".
 Screens: `scripts/ui-screenshots.sh` scenes `cruise-reverse` and `autopilot`. Interaction test
 "cruise out" replaces "zoom out"; the "autopilot" scenario now checks the hand-over.
