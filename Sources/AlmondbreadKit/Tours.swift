@@ -335,7 +335,7 @@ extension UIDemo {
                 guard t > tourWait(step: n), !flying, settled || t > 25 else { return }
                 capture(window: w, explorer: explorer, scene: "tour-\(id)-\(n)")
                 let v = explorer.viewport()
-                print("tour-demo: step \(n) of \(step.count) \"\(step.title)\" orbit: \(model.orbit?.text ?? "") view \(v.re) \(v.scale)")
+                print("tour-demo: step \(n) of \(step.count) \"\(step.title)\" \(settled ? "settled" : "not settled") after \(String(format: "%.1f", t)) s, orbit: \(model.orbit?.text ?? "") view \(v.re) \(v.scale)")
                 fflush(stdout)
                 if n < Int(step.count) {
                     model.tourNext()

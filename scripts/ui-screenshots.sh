@@ -3,6 +3,8 @@
 # the window opens behind every other window and never takes focus; the app draws its own
 # window into a PNG (AppKit for the SwiftUI content, Rust for the Metal canvas with overlays),
 # so no screen-recording permission is needed. Usage: scripts/ui-screenshots.sh [app] [out-dir]
+# SCENES="cosmic deep": the scenes; SIZE=1440x900: the window in points, title bar included
+# (`--ui-demo-size`; window-<scene>.png is then 2880x1800 on a Retina screen, an App Store size).
 set -e
 cd "$(dirname "$0")/.."
 APP="${1:-.build/xcode/Build/Products/Release/Almondbread.app/Contents/MacOS/Almondbread}"
@@ -11,7 +13,7 @@ mkdir -p "$OUT"
 for scene in ${SCENES:-orbit interior deep places palettes autopilot}; do
     LOG="$OUT/ui-demo-$scene.log"
     rm -f "$LOG"
-    "$APP" "--ui-demo=$scene" "--ui-demo-out=$OUT" > "$LOG" 2>&1 &
+    "$APP" "--ui-demo=$scene" "--ui-demo-out=$OUT" ${SIZE:+"--ui-demo-size=$SIZE"} > "$LOG" 2>&1 &
     PID=$!
     n=0
     until grep -q "ui-demo:" "$LOG" 2>/dev/null; do
