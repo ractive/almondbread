@@ -1686,3 +1686,16 @@ New tour `tours/misiurewicz.md` (8 steps): pre-periodic orbits at −2, i, the M
 spike's M(3,1) crossing; self-similarity with the cycle multipliers (1.33 / 120° at M(4,1), 5.66 /
 45° at i, 4 at −2); the fork at 1e300; spirals at 1e4 and 1e50. [[decisions/controls]] "The
 Misiurewicz tour".
+
+## [2026-10-19] decision | Recolour without a new job; tour views at any depth
+
+Interior-only tour steps (and the control center's interior picker) could leave the old colours
+on screen: a recolour keeps the compute key, and once the view had settled nothing kept the
+display link running, neither when the recolour refresh got no drawable nor for the AA rerun
+after it. Fix: a planned frame without a target keeps `animating`, and `COMPOSE_EXACT` clears
+`final_presented`; Metal regression tests in `scheduler/recolour_tests.rs`; the colours tour's
+interior `move: jump` workarounds removed; new `--ui-demo=interior-cycle` scene. Tour `span` /
+`zoom` already parsed any depth; the bundled-tour test checked f64 and now checks log2. The limits
+tour gained a 1e3000 step (`swirl-1e3000`, resolved 417 ms after the jump at 1600×1000).
+[[decisions/controls]] "The colours tour", "The limits tour";
+[[techniques/frame-reuse-and-progressive]].

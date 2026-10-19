@@ -69,7 +69,15 @@ move: jump
 
 A minibrot **10³⁰²** deep, on the needle towards −2. Its points need thousands of steps each.
 
-Where the numbers behave simply, one step looks like the next, so Almondbread **skips** many of them at once with a short formula (a *linear approximation*). In this view it does about 50 steps in one go on average, and the picture still draws in moments. Almondbread goes on like this down to about 10³⁰⁰⁰.
+Where the numbers behave simply, one step looks like the next, so Almondbread **skips** many of them at once with a short formula (a *linear approximation*). In this view it does about 50 steps in one go on average, and the picture still draws in moments.
+
+## Three thousand digits
+place: swirl-1e3000
+move: jump
+
+This swirl is **10³⁰⁰⁰** deep: its centre needs more than 3 000 digits. The same tricks still work: one precise point, small differences, and skipping ahead, here about 60 steps in one go, and the picture still draws in moments.
+
+Almondbread stops a little deeper, at about **10³⁰⁰⁷**. The place called *Rock Bottom* is right there.
 
 ## Your turn
 place: seahorse-valley

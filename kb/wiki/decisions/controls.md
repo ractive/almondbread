@@ -1831,7 +1831,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | Key | Value | Effect |
 | --- | --- | --- |
 | `center` | `re, im` (decimals, any precision) | the view's centre; needs `span` or `zoom` |
-| `span` | number | extent across the window's shorter side, like a place's span |
+| `span` | number (`1e-3000`, any depth) | extent across the window's shorter side, like a place's span; at most 100, not deeper than the app zooms |
 | `zoom` | number (`1e5`, any depth) | magnification of the whole set: span = 3 / zoom |
 | `angle` | degrees | the view's turn (with a view) |
 | `place` | place id | the place's view and look (no `center`, `span`, `zoom` with it) |
@@ -2062,7 +2062,7 @@ visible enough on bright places.
 
 ### The limits tour
 
-`tours/limits.md` ("Why some points are hard", place `seahorse-minibrot-1e31`), 9 steps, user
+`tours/limits.md` ("Why some points are hard", place `seahorse-minibrot-1e31`), 10 steps, user
 request 2026-10-18: a slow point 0.001 above the neck (orbit overlay: escapes after 3 147 steps;
 `N ≈ π/ε`, [[techniques/pi-in-the-mandelbrot-set]]), one 1e-5 above it (*still undecided after 100 000
 steps*; it escapes after about 314 000), −0.74 just inside the cardioid (proven after about 1 900
@@ -2071,7 +2071,7 @@ steps), fog in the neck gap at −0.74999996120361811 + 0.00036918279150454967i,
 f64's 16 digits at the 1e31 seahorse minibrot, perturbation ([[techniques/perturbation]],
 [[techniques/rebasing]]) and skipping ([[techniques/linear-approximation-imagina]]) at the 1e302 needle
 minibrot (one sample per pixel: 1.09e9 iterations in 1.97e7 steps, 55×; headless `render`,
-2026-10-19, M1 Pro).
+2026-10-19, M1 Pro), and the same tricks at the 1e3000 swirl (`swirl-1e3000`, 61×).
 
 **Pitfall: a low `iterations:` shows no fog in the app.** A first version set `iterations: 100`
 (then 6) on seahorse valley to show fog; the captures had none. The scheduler extends unresolved
@@ -2081,14 +2081,22 @@ pixels past the limit (×16, `extension_factor`) and then "computes further" up 
 the neck gap instead (54 % open, "computing further · to 200 k steps", in the capture). Same for
 the colours tour.
 
-**Pitfall: tour views deeper than about 1e-305.** `every_bundled_tour_parses_and_every_file_is_listed`
-checks `viewport.scale.to_f64() > 0`, which underflows below f64's range; a step at `swirl-1e3000`
-failed it. The tour ends at `needle-minibrot-1e302` instead (no change to tour.rs, which another
-agent was editing).
+**Pitfall (fixed 2026-10-19): tour views deeper than about 1e-305.** The parser always took any
+depth (`span` and `zoom` are a `Scale`, parsed from decimal text like a place's span: `zoom:
+1e3000`, `span: 3e-3000`, `place: swirl-1e3000`), but the bundled-tour test checked
+`viewport.scale.to_f64() > 0`, which underflows past f64, so a step at `swirl-1e3000` failed it
+and the tour first ended at 1e302. The test now checks log2 (and that the view is not clamped);
+`views_past_f64_depths` covers `zoom: 1e3000`, `span: 3e-3000` and the place; a span or zoom deeper
+than the app goes (2^-10000 per point, about 1e3007 in a window) is a parse error instead of a
+silently clamped view. The tour got a step **Three thousand digits** at `swirl-1e3000` (`move:
+jump`) after the 1e302 needle: `verify --history jump --place swirl-1e3000 --size 1600x1000`
+complete 283 ms / resolved 417 ms after the jump, 1 sample, LA 61× fewer steps than iterations,
+class mismatch 0 vs the CPU oracle (2026-10-19, M1 Pro, release).
 
 Checked in the app (2026-10-19, M1 Pro, release, background window, `--ui-demo=tour-limits`): fates
 3 147 steps, still undecided after 100 000, settles on a fixed point; the fog view; the 1e31 and
-1e302 minibrots; long flights between deep places replaced by `move: jump`.
+1e302 minibrots and the 1e3000 swirl (HUD 4.1e3000×); long flights between deep places replaced by
+`move: jump`.
 
 ### The bulbs tour
 
@@ -2153,13 +2161,36 @@ towards the cusp at 0.2501, 283 steps at its end), smooth colouring
 the neck gap (the same view as the limits tour), proven black, then the five interior colourings
 on the cardioid and its bulbs ([[techniques/coloring-methods]], [[techniques/interior-detection]]).
 
-**Pitfall: a step that only changes `interior:` may not show in the app until the view moves.**
-In the first capture the angle and distance steps still showed the period colouring after 20 s
-(the scheduler's history kept the old colouring; the recolour on an interior switch did not
-reach the shown frame without a new job). Each interior step now repeats its view with
-`move: jump`, which starts a new job; then bubbles, period, angle and distance all showed
-(`--ui-demo=tour-colours`, 2026-10-19). Not chased further in the renderer: a candidate bug
-for the colour-change path (`plan_frame` / `same_colors`), worth a look.
+**Pitfall (fixed 2026-10-19): a step that only changes `interior:` did not always show in the
+app until the view moved.** In the first capture the angle and distance steps still showed the
+period colouring after 20 s; the tour worked around it with `move: jump` (a new job) on each
+interior step. Root cause, in the scheduler's idle reporting, not in `same_colors`: a switch
+between non-flat interior colourings (and any palette or colour change) keeps the compute key,
+so no new job starts; `plan_frame` sees the colours differ from the history and plans one
+`COMPOSE_EXACT` recolour. Two ways it was lost, both because nothing else kept the display link
+running once the view had settled (`final_presented`):
+
+- The recolour refresh got no drawable (none parked: `next_drawable` without waiting returns
+  None; the interaction test counts such "no drawable" skips in most scenarios). The frame
+  reported idle (`animating` false), Swift paused the display link, and the old colours stayed
+  until something else woke it. Reproduced headlessly (`recolour_without_a_drawable_keeps_animating`:
+  `animating` was false); the app capture did not fail again in two runs, background window,
+  with and without GPU load, so this is the timing-dependent part.
+- A recolour drops the anti-aliasing samples (`drop_aa`; they hold the old colours) but left
+  `final_presented` set, so the frame after it reported idle with AA not run again: the shown
+  image stayed the aliased one-sample recolour, 4 % of the pixels (the edges) differing from a
+  fresh render at 320×200 until later refreshes happened to run the 8 AA samples.
+
+Fix (`scheduler.rs`): a planned frame that got no target keeps `animating` true (`missed_frame`),
+and `COMPOSE_EXACT` clears `final_presented`, so AA runs again and the view settles once more.
+Regression tests in `crates/almondbread-render/src/scheduler/recolour_tests.rs` (Metal):
+interior switches bubbles → period → angle → distance → flat each match a fresh render after
+the renderer reports idle; the no-drawable case; and the colours tour's interior steps through
+`Host` without jumps. The `move: jump` lines on the period, angle and distance steps are gone
+(the one after the fog step stays: it comes back from 1.5e-8). Checked in the app (2026-10-19,
+M1 Pro, release, background windows): `--ui-demo=tour-colours` shows bubbles, period, angle and
+distance; `--ui-demo=interior-cycle` (new scene: the control center's interior binding on a
+settled view, each mode captured when settled) shows all five, each settled 2 s after the switch.
 
 ### The Julia tour
 
