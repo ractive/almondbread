@@ -61,6 +61,9 @@ A tour walks you through one piece of the maths, step by step. Start one from **
 - Look around in between as you like; **Next** carries on from the tour's own next view.
 - When the tour ends, your view and settings come back as they were.
 - The **walkthrough** is a tour of the app itself: the cockpit, the throttle, the buttons and the control center, each ringed in gold while the card explains it. It sits at the top of the Tours list and in the Help menu.
+- The Tours list shows each tour with a picture, how many steps it has and about how long it takes. A tick marks the ones you have finished.
+- The last step offers the **Next tour**: one tap or click starts it. The tours form a series, from what the colours mean to π.
+- Where a question comes up, a small link answers it with a tour: *What's a period?* under "Minibrot, period 34" in the status overlay, *What's the fog?* when some points are not finished, and a link in **Iterations & quality**. Places with a tour show a small signpost on their picture.
 
 ## Fly to coordinates
 

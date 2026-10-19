@@ -473,17 +473,22 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Starts `tour` at its first step. Like a jump it stops other motion (autopilot, cruise,
     /// flight, journey, the π hunt); the current settings and view are saved for the end.
     pub fn start_tour(&mut self, tour: Tour, now: f64) {
+        // A tour started during another ("Next tour" on the last step): the first one's saved
+        // settings and view are the user's, and the end goes back to them; the view stays where
+        // it is, so the next tour flies on from here (kb: decisions/controls "Finding the tours").
+        let mut saved_view = None;
         if let Some(old) = self.tour.take() {
-            // A tour started during another: the first one's saved state is the user's.
             let (s, v) = old.finish();
             self.apply_tour_snapshot(&s);
-            self.renderer.viewport = v;
+            self.overlay.tour = Default::default();
+            saved_view = Some(v);
         }
         self.renderer.navigator.jumped();
         if self.overlay.pi.flying() {
             self.overlay.pi.stop_flight();
         }
-        let (player, plan) = TourPlayer::start(tour, self.tour_snapshot(), self.renderer.viewport.clone(), now);
+        let view = saved_view.unwrap_or_else(|| self.renderer.viewport.clone());
+        let (player, plan) = TourPlayer::start(tour, self.tour_snapshot(), view, now);
         self.tour = Some(player);
         self.apply_tour_plan(plan, now);
         self.tour_goal_from_here();

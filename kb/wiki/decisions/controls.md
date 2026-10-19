@@ -1791,7 +1791,7 @@ tour on the Feigenbaum point. Core: `crates/almondbread-core/src/tour.rs` (forma
 
 | Input | Action |
 | --- | --- |
-| View ▸ Tours ▸ (a tour); control center "Tours" ▸ Start; a place's "Tour" button (places a tour names) | starts it at step 1 |
+| View ▸ Tours ▸ (a tour); control center "Tours" ▸ Start; a place's "Tour" button (places a tour names); a topic link ("What's a period?"); "Next tour" on a tour's last step | starts it at step 1 |
 | → or "Next ›" (last step: "Finish") | next step |
 | ← or "‹ Back" | previous step |
 | Esc or "End tour" | ends the tour |
@@ -1823,8 +1823,13 @@ The orbit now swings between **two points** ...
 ```
 
 Header keys: `id` (kebab-case, the file name), `title`, `summary` (one line for the list), `place`
-(optional: that place's detail gets a "Tour" button), `hidden` (`yes`: not in the tour lists, View ▸
-Tours or the control center's list; started by id, like the walkthrough below).
+(optional, a comma list `place: seahorse-valley, elephant-valley`: those places' details get a
+"Tour" button and their tiles a signpost badge), `thumbnail` (a place id: its thumbnail stands for
+the tour in the lists; default the first `place`, else `whole-set`), `topics` (a comma list from
+`tour::TOPICS`: the contextual links that start this tour, see "Finding the tours"), `next` (a tour
+id: what the last step offers as "Next tour"; default the list order), `hidden` (`yes`: not in the
+tour lists, View ▸ Tours or the control center's list; started by id, like the walkthrough below).
+Every place id is checked against the catalogue at parse time (an error with its line).
 
 Step keys (all optional; unknown keys, repeated keys and bad values are errors with their line):
 
@@ -2059,6 +2064,63 @@ narrowed the canvas.
 
 **Needs the device.** Whether a child reads the card before tapping Next; whether the gold ring is
 visible enough on bright places.
+
+### Finding the tours (as built, 2026-10-19)
+
+Requested by the user: make the guided tours easy to discover, tastefully, without nagging. Rule:
+a link only where the question already shows (a label on screen), no popups, everything data in
+the tour files so a new tour lights up by adding its file and one `BUNDLED` line.
+
+| Where | What | Data |
+| --- | --- | --- |
+| HUD, under a line with "period " ("Minibrot, period 7 · 3238×": seek, a journey's stop or leg, the autopilot's target label) | "What's a period?" link | the listed tour with `topics: period` (minibrot-periods) |
+| HUD progress line when settled with points not finished ("12 % not finished at 1.2 M steps") | "What's the fog?" | `topics: fog` (limits) |
+| Control center ▸ Iterations & quality, last row | "Tour: <title>" | `topics: iterations` (limits) |
+| Places grid (Mac and touch) | signpost badge on tiles of places a tour names; Mac detail row "Tour"; touch: the selected tile shows Go / Fly / Tour (labelled, stacked or icons only, whichever fits; else Go / Fly), and Tour in its long-press menu and VoiceOver actions | `place:` (comma list) |
+| A tour's last step | "Next tour: <title> ›" (thumbnail, title) above End tour / Back / Finish | `next:`, else the list order |
+| Control center ▸ Tours | a card per tour: thumbnail, title, two-line summary, "9 steps · ~3 min", a green check and "done" once finished; the walkthrough first | `thumbnail:` / `place:`, step count per platform, `Tour::minutes` |
+| View ▸ Tours (Mac, iPad menu bar) | a checkmark before finished tours | — |
+
+**Topics** are a closed list in the core (`tour::TOPICS`: `period`, `fog`, `iterations`): a topic
+only means something where a UI spot asks for it, so a typo is a parse error, and a new topic is one
+line there plus the link in Swift. A unit test checks that no two listed tours share a topic and
+that every topic has a tour.
+
+**Next tour.** Core `tour::next_tour(id)`: the tour's `next:` if it names a bundled, listed tour;
+else the next listed tour in `BUNDLED` order, wrapping round to the first; a hidden tour (the
+walkthrough) offers the first listed one. Decision on unknown ids: `next:` is checked for form at
+parse time (kebab-case, not the tour itself) but not against `BUNDLED` (`parse` sees one file); a
+unit test (`bundled_discovery_keys_are_consistent`) fails when a bundled tour's `next` names no
+bundled, listed tour, and at run time a missing or hidden one is skipped like an absent key, so
+nothing crashes and no link is dead. The **series order** is `BUNDLED`'s order (also the lists'):
+colours, bulbs, minibrot-periods, limits, valleys, doubling, feigenbaum, misiurewicz, julia, pi; no
+tour sets `next:` yet. Starting a tour from another's last step (`Host::start_tour` during a tour)
+keeps the first tour's saved settings and view (the end restores the user's), and the view flies
+on from where it is instead of jumping back first.
+
+**Length.** `Tour::seconds` on the tour as it plays on the platform: 4 words a second of step text,
+6 s per step to look (and for a flight to land), a moving probe's pass up to 30 s, 15 s per π hunt;
+shown as whole minutes, at least 1. Gives 2–4 min for the eleven tours, ~2 min for the walkthrough
+(the first-launch offer still says "1-minute walkthrough").
+
+**Done.** Reaching a tour's last step marks it done (`tours.done` in user defaults; not in tests and
+demos, `TestLaunch.ephemeral`).
+
+**Thumbnails** reuse the place thumbnails (`Places/<id>.heic`, rendered by `almondbread places
+--render-thumbs`, decoded at launch): no second asset pipeline. A tour whose place thumbnail is dull
+or a duplicate picks another with `thumbnail:` (pi: head-and-shoulders, colours: spiral-wheel).
+
+**FFI.** `tours_on(platform)` (`tours()` = the build's default platform): `TourInfo` with `places`,
+`thumbnail`, `topics`, `next` (resolved), `steps` and `minutes` on that platform.
+
+**Tests.** Core: `discovery_header_keys_parse`, `rejects_discovery_header_mistakes_with_their_line`,
+`next_tour_follows_next_then_list_order_and_skips_missing_and_hidden`,
+`bundled_discovery_keys_are_consistent`; FFI `tours_are_listed`. XCTest `TourDiscoveryUITests`:
+`testNextTourStartsTheNextTour` (π tour to its last step, Next tour, the next tour's step 1 with its
+title) and `testPeriodLinkStartsTheTour` (`--ui-demo=seek`: seek minibrot at the Airplane, the HUD's
+link starts minibrot-periods). Mac captures looked at: `--ui-demo=tours` (cards, a done check),
+`seek` (HUD "Minibrot, period 7 · 3238×" and the link), `places` (badges), `help-control` (the
+iterations link), `tour-welcome` (step 9 with "Next tour: What the colours mean").
 
 ### The limits tour
 

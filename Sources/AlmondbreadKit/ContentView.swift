@@ -421,11 +421,18 @@ struct HUDView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
             }
-            if let hint = motionHint(s) {
+            let hint = motionHint(s)
+            if let hint {
                 Label(hint, systemImage: s.cruise.level == .cruise ? "gauge.with.dots.needle.33percent"
                       : s.flight.active ? "location.north.line" : "airplane")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
+            }
+            // "Minibrot, period 34" (seek, a journey's stop or leg, the autopilot's target): the
+            // tour on periods is one click away (kb: decisions/controls "Finding the tours").
+            if ExplorerModel.tour(forTopic: "period") != nil,
+               [journeyLine(s), hint].contains(where: { $0?.contains("period ") == true }) {
+                TourTopicLink(model: model, topic: "period", label: "What's a period?")
             }
             HUDProgressLine(model: model)
             if model.hudDetails {
@@ -452,7 +459,8 @@ struct HUDView: View {
         // HUD as off-canvas (arrow cursor, no edge pan), so a click there is not lost for zooms.
         // The canvas shows the arrow cursor over the HUD and treats it as off-canvas.
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.hudFrame = $0 }
-        .accessibilityElement(children: .combine)
+        // `.contain`, not `.combine`: the Continue button and the tour links stay buttons.
+        .accessibilityElement(children: .contain)
         .onChange(of: model.zoomSpeedChanged) {
             speedHighlight = true
             Task {
@@ -492,6 +500,10 @@ struct HUDProgressLine: View {
                         #endif
                         .help("Compute another minute on this view (G)")
                 }
+            }
+            // Settled with fog left: the tour that explains it (topic `fog`), if bundled.
+            if model.progressUnfinished, ExplorerModel.tour(forTopic: "fog") != nil {
+                TourTopicLink(model: model, topic: "fog", label: "What's the fog?")
             }
         }
     }

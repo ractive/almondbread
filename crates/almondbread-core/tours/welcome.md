@@ -116,7 +116,7 @@ Further down: colours, overlays and settings. The search field at the top finds 
 control-center: open
 highlight: section-tours
 
-**Tours** show you the maths, step by step: they fly the view and explain what you see.
+**Tours** show you the maths, step by step: they fly the view and explain what you see. Each one says how long it takes and gets a tick once you have finished it.
 
 You can find this walkthrough here again, and in **Help**.
 
@@ -124,6 +124,8 @@ You can find this walkthrough here again, and in **Help**.
 control-center: closed
 
 That's it. Explore, get lost, find something no one has seen before.
+
+Want some maths first? **Next tour** below starts the first tour, and each tour ends by offering the next.
 
 ::: touch
 Lost? Open the control center and tap **Reset** under *View & navigation* to see the whole set again.

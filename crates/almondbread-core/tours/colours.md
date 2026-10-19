@@ -3,6 +3,7 @@ id: colours
 title: What the colours mean
 summary: Escape counts and bands, smooth colours, palettes and looks, the fog, and the five ways to colour the inside.
 place: whole-set
+thumbnail: spiral-wheel
 ---
 
 ## Colours count steps

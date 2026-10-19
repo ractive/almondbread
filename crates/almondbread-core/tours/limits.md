@@ -3,6 +3,7 @@ id: limits
 title: Why some points are hard
 summary: Slow points, fog, proven black, and the limits of computer numbers, and how Almondbread gets past them.
 place: seahorse-minibrot-1e31
+topics: fog, iterations
 ---
 
 ## A very slow point

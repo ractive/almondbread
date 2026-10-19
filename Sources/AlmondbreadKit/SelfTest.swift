@@ -96,7 +96,8 @@ public enum SelfTest {
 /// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
 /// (the default scene with View and Look, or Lighting, Overlays and Quality open),
 /// `progress` / `progress-late` (render progress mid-render at a 2M limit), `journey-stop`
-/// (journey #4711 in the "stop at each find" mode, captured at its first stop), `cruise-reverse`
+/// (journey #4711 in the "stop at each find" mode, captured at its first stop), `seek` (seek
+/// minibrot in the seahorse valley, captured on arrival), `tours` (one tour done), `cruise-reverse`
 /// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
@@ -352,6 +353,15 @@ public enum UIDemo {
             model.maxIterationsCap = 2_000_000
             model.manualIterations = 2_000_000
             try? explorer.setViewport(re: "-0.74999996120361811", im: "0.00036918279150454967", scale: 1e-11)
+        case "seek":
+            // Seek minibrot (N) at the Airplane: the HUD's "Minibrot, period N" and its
+            // "What's a period?" tour link (kb: decisions/controls "Finding the tours"; the iOS UI
+            // test taps it).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace("airplane") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { model.seekMinibrot() }
+        case "tours":
+            // The Tours section with one tour done (its checkmark).
+            model.markTourDone("feigenbaum")
         case "journey-stop":
             // (After the first layout: the journey starts from the fitted home view.)
             model.journeyStops = true
@@ -403,9 +413,11 @@ public enum UIDemo {
             MainActor.assumeIsolated {
                 model.refreshStats()
                 #if os(macOS)
-                let moving = scene.hasPrefix("autopilot") || scene == "cruise-reverse" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp")
+                let moving = scene.hasPrefix("autopilot") || scene == "cruise-reverse" || scene.hasPrefix("pi-flight") || scene.hasPrefix("pi-cusp") || scene == "seek"
                 // journey-stop: captured once the journey rests at its first landmark.
-                let stopReady = scene != "journey-stop" || model.journeyAtStop
+                let stopReady = (scene != "journey-stop" || model.journeyAtStop)
+                    // seek: on arrival at the minibrot found (the HUD names its period for 6 s).
+                    && (scene != "seek" || model.stats?.seek.phase == "arrived")
                 let movingAt: Double = scene.hasSuffix("-late") ? 17 : scene.hasPrefix("pi-") ? 9 : 8
                 let t = Date().timeIntervalSince(start)
                 // Progress scenes: mid-render, with the ETA shown (`-late`: the step count too).
