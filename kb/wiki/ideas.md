@@ -109,6 +109,30 @@ value carries a year and a source (Forbes / World Bank / IMF); the richest perso
 goes stale fastest. Only 16 decades, so it needs the relative mode's milestone spacing. Build
 after the size/time relative mode has been tried.
 
+## 3D worlds: Mandelbox first, as a separate mode (2026-10-19)
+
+User asked which other fractal types almondbread could support, including the 3D Mandelbulb and
+Mandelbox once considered. Researched in [[synthesis/other-fractal-types]] §2c; plan page
+[[plans/3d-worlds]].
+
+- **Verdict: not recommended now.** If wanted, a separate "3D worlds" mode with its own renderer
+  and controls, Mandelbox first (conformal folds, scalar DE, architectural spaces to fly
+  through), then the Mandelbulb. XL: two to four months of agent work.
+- No perturbation scheme for 3D fractals is published (searched 2026-10-19: fractalforums,
+  mathr, Mandelbulber), so depth has a hard ceiling: float32 ray marching ~1e4–1e5
+  (low-reliability source, agrees with our landscape estimate), double-float ~1e10–1e12 at
+  7–12× the cost (inference). That is the opposite of almondbread's 1e-3000.
+- Frame cost (estimate, unmeasured): ~0.1–0.2 Mflop per pixel, 80–150 ms per 2560×1600 frame on
+  an M1 Pro; 60 Hz needs a quarter of the pixels plus temporal upscaling (MetalFX); 120 Hz at
+  full quality is not realistic; an iPad has about half to two thirds of that GPU.
+- Reuse only ~20–30 % (Metal host, frame loop, palettes, overlay text, UI shell); the deep-zoom
+  engine (references, BLA/LA, scheduler levels, interior probe, seek, π, journeys) does not apply.
+- Crowded niche (shadertoys, Mandelbulber, App Store viewers; count unverified) without our
+  depth advantage.
+- **Cheaper route:** the 2.5D landscape ([[decisions/landscape-mode]] L0–L2) already flies at
+  118–120 fps, keeps perturbation and unlimited depth (its 1e-12 limit is a prototype choice).
+  Revisit true 3D only if the user wants the 3D look more than depth.
+
 ## Earlier ideas already filed elsewhere
 
 - Landscape mode with altitude as zoom, flight recorder and rewind:

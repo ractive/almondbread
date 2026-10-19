@@ -112,7 +112,7 @@ table per loop phase, code generation (src: [[sources/mathr-deep-zoom-theory]] �
 §Code Generation; [[sources/mathr-deep-zoom-theory-again]] §Rebasing; [[formulas/hybrids]]). Even KF's
 rebasing had bugs with hybrids because they need references at each phase of the loop
 (src: [[sources/kf-manual]]). Appeal: high for the KF/F3 community, low for casual users. This is
-roadmap M8.
+roadmap F7 (was M8), [[plans/f7-hybrids]].
 
 **Phoenix** (`z_{n+1} = z_n² + p + q z_{n−1}`). The delta is easy (one extra linear term), BLA
 works on the state pair (a 2×2 complex matrix), but rebasing needs both state components to meet
@@ -271,7 +271,7 @@ pluggable-formula refactor (section 6) unless marked.
 7. **Burning Ship family** (L): the payoff. Diffabs in every step site, fold-capped BLA, SA seeds
    off, a needle heuristic (share of steps with `min(|X|,|Y|)` tiny → floatexp kernel), a Burning
    Ship places catalogue and journey tuning.
-8. **Hybrids / opcodes** (L–XL, roadmap M8), after 7, with runtime MSL generation.
+8. **Hybrids / opcodes** (L–XL, roadmap F7, was M8), after 7, with runtime MSL generation.
 9. **Nova / Newton / Magnet**: a one-week research spike on
    [[questions/perturbation-convergent-formulas]] before any commitment.
 

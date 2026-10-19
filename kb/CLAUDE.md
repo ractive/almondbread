@@ -51,6 +51,7 @@ copyleft project. Cite which file or post a fact came from.
 | `decisions/` | `decision` | Design decisions for almondbread, ADR style. |
 | `questions/` | `question` | Open questions, contradictions between sources, things to benchmark. |
 | `synthesis/` | `synthesis` | Answers worth keeping: research reports, comparisons, roadmaps. |
+| `plans/` | `plan` | One page per milestone plan (fractal types F1–F8, optional looks, parked ideas): goal, scope, non-goals, design sketch, affected modules, verification, review gate, risks, open questions, effort breakdown. Listed by `hyalo find --view plans`. |
 | `index.md` | `meta` | Catalogue of every page with a one-line summary, by directory. Updated on every ingest. |
 | `log.md` | `meta` | Append-only. Entry prefix `## [YYYY-MM-DD] ingest\|query\|research\|lint\|decision \| title`. |
 | `overview.md` | `meta` | The current big picture in one page. |
@@ -62,6 +63,18 @@ copyleft project. Cite which file or post a fact came from.
   `hyalo types show <type>`). Common keys: `title`, `type`, `tags`,
   `status` (`stub|draft|reviewed`; questions `open|answered`; sources
   `unread|skimmed|digested`), `sources` (list of `[[sources/...]]` links).
+- `plan` pages (`plans/<milestone-slug>.md`, one per milestone in `roadmap.md`):
+  frontmatter `milestone` (e.g. `F3`), `status` (`proposed|planned|in-progress|done|dropped`),
+  `priority` (number, the order), `effort` (`S` days, `M` 1–2 weeks, `L` 3–6 weeks,
+  `XL` months), `appeal` (`low|medium|high`), `audience` (list: `casual`, `education`,
+  `artists`, `deep-zoom-creators`, `enthusiasts`, `developers`), `depth` and `reuse` (text),
+  `realtime-ipad` (`yes|no|likely|unknown`), `depends-on` (list of `[[plans/...]]`), `risks`
+  (list), `sources` (any wiki links), `tags`, `created`, `updated`. Required body sections
+  (`## ` headings, enforced): Goal, Scope, Non-goals, Design sketch, Affected modules (our
+  files), Verification (acceptance criteria, including how to prove the Mandelbrot fast path is
+  unaffected: bit-identical fields and a `bench` A/B ≈ 1.0), Review gate (what the user tries
+  before the next step), Risks, Open questions, Effort breakdown. Keep `status` in sync with
+  the roadmap row; weak evidence is marked `(unverified)` as everywhere.
 - Every technical claim carries a citation inline:
   `(src: [[sources/mathr-deep-zoom-theory]] §BLA)`. Unsourced claims are
   marked `(unverified)`. Our own measurements say so, with date, machine

@@ -119,6 +119,63 @@ item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
 [schema.types.synthesis.properties.tags]
 type = "list"
 
+[schema.types.plan]
+required = ["title", "type", "milestone", "status", "priority", "effort"]
+required_sections = ["## Goal", "## Scope", "## Non-goals", "## Design sketch", "## Affected modules", "## Verification", "## Review gate", "## Risks", "## Open questions", "## Effort breakdown"]
+
+[schema.types.plan.properties.milestone]
+type = "string"
+pattern = "^[A-Z0-9][A-Za-z0-9.-]*$"
+
+[schema.types.plan.properties.status]
+type = "enum"
+values = ["proposed", "planned", "in-progress", "done", "dropped"]
+
+[schema.types.plan.properties.priority]
+type = "number"
+
+[schema.types.plan.properties.effort]
+type = "enum"
+values = ["S", "M", "L", "XL"]
+
+[schema.types.plan.properties.appeal]
+type = "enum"
+values = ["low", "medium", "high"]
+
+[schema.types.plan.properties.audience]
+type = "string-list"
+item_pattern = "^(casual|education|artists|deep-zoom-creators|enthusiasts|developers)$"
+
+[schema.types.plan.properties.depth]
+type = "string"
+
+[schema.types.plan.properties.realtime-ipad]
+type = "enum"
+values = ["yes", "no", "likely", "unknown"]
+
+[schema.types.plan.properties.reuse]
+type = "string"
+
+[schema.types.plan.properties.depends-on]
+type = "string-list"
+item_pattern = "^\\[\\[plans/[a-z0-9-]+\\]\\]$"
+
+[schema.types.plan.properties.risks]
+type = "list"
+
+[schema.types.plan.properties.sources]
+type = "string-list"
+item_pattern = "^\\[\\[[a-z0-9-]+(/[a-z0-9-]+)*\\]\\]$"
+
+[schema.types.plan.properties.tags]
+type = "list"
+
+[schema.types.plan.properties.created]
+type = "date"
+
+[schema.types.plan.properties.updated]
+type = "date"
+
 [schema.types.meta]
 required = ["title", "type"]
 
@@ -133,3 +190,9 @@ properties = ["type=question", "status=open"]
 
 [views.orphans]
 orphan = true
+
+[views.plans]
+fields = ["title", "properties"]
+properties = ["type=plan"]
+sort = "property:priority"
+

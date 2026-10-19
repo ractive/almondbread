@@ -1753,3 +1753,22 @@ skytopia-mandelbulb, wikipedia-mandelbulb, wikipedia-mandelbox, hvidtfeldt-de-3d
 mandelbulber2-readme, alltools-mandelbulb-explorer, superliminal-buddhabrot,
 wikipedia-fractal-flame, wikipedia-newton-fractal, wikipedia-lyapunov-fractal, frax-about,
 hpdz-animations. Pointer added to [[formulas/others-feasibility]].
+
+## [2026-10-19] decision | Roadmap through 2026-10-19, fractal-type milestones, plan pages
+
+[[roadmap]]: rows for the work after PJ, from the log, [[decisions/controls]], the iOS pages,
+[[synthesis/benchmarks]] and the merges on main: R6 and X1 (the rest of 2026-10-15), AP2
+(autopilot and driving), Q1 (rendering quality and interior), UX2 (Mac UI and content), RB
+(robustness: hang prevention, GPU queue guard, recolour fix, overlay layout), OS (open-source
+release), I1 / I2 (iOS / iPad port and touch, before and after the iPad device round), T1 (tour
+engine and 10 maths tours, π only through its tour), T2 (walkthrough and tour discovery), ST
+(simulator tooling), DS (docs and App Store drafts). Awaiting device review: rest / swipe
+thresholds, tours and walkthrough on the iPad. M8 replaced by F1–F8 and BB in the order of
+[[synthesis/other-fractal-types]] §5 (F7 is the old M8); M9 kept. New page type `plan`
+(`plans/`, schema with enums, required body sections, `plans` view sorted by priority; rules in
+`kb/CLAUDE.md`) and ten plan pages: [[plans/f1-julia-view]] (proposed, awaiting go),
+[[plans/f2-pluggable-formulas]], [[plans/f3-multibrot]], [[plans/f4-deep-julia]],
+[[plans/f5-mandelbar]], [[plans/f6-burning-ship]], [[plans/f7-hybrids]],
+[[plans/f8-convergent-spike]], [[plans/buddhabrot]], [[plans/3d-worlds]] (proposed, last, not
+recommended now; also in [[ideas]]). The Julia view stays on the roadmap only: [[ideas]] holds
+the user's ideas, proposals go to plans.

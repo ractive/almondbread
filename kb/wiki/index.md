@@ -229,6 +229,21 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [[decisions/open-source-release]] — MIT + AI notice, signed/notarised dmg via GitHub releases, Homebrew cask, CI on push (accepted)
 - [[decisions/controls]] — keyboard (WASD/arrows pan, Space zoom, Q/E zoom speed), pointer and touch controls; pointer/keyboard modes, crosshair zoom target, spring glide, edge panning (accepted, as built in M2.5); FL motion feel (eased velocities, flings, animated steps) and gamepad; autopilot (Z, pointer steers, adaptive speed, target lock and rescue, survey steering opt-in) and fly to coordinates (van Wijk & Nuij path at any depth, exact landing); driving levels (manual, cruise, autopilot, journey as clickable cockpit icons; Q/E pedals, reverse cruise, lane assist), journey with stops (J / Z / X), cosmic size scale (C: your window stays, the set grows, imaginary universes nest by Planck-length levels), full screen, render progress line, help popovers; compass (click to north, drag to turn), π meter
 
+## Plans
+
+One page per planned milestone (type `plan`; `hyalo find --view plans` lists them by priority).
+
+- [[plans/f1-julia-view]] — F1: Julia set of the point under the pointer or finger in an inset next to the mini-maps; shallow, no refactor; improves the Julia tour (proposed, awaiting go; S)
+- [[plans/f2-pluggable-formulas]] — F2: `kFormula` function constant, `Formula` enum, capability struct over FFI; proof: bit-identical Mandelbrot fields, `bench` A/B ≈ 1.0 (planned; M)
+- [[plans/f3-multibrot]] — F3: Multibrot `z^p + c`, p = 3..8, every per-formula hook with scalar arithmetic (planned; M)
+- [[plans/f4-deep-julia]] — F4: deep Julia sets via critical-orbit rebasing (the Mandelbrot orbit of k; untested), Julia twin (planned; M)
+- [[plans/f5-mandelbar]] — F5: Mandelbar / Tricorn, the non-conformal path: 2×2 BLA, dual numbers, Jacobian Newton (planned; M)
+- [[plans/f6-burning-ship]] — F6: Burning Ship family: diffabs, fold-capped BLA, needle heuristic, places and journeys (planned; L)
+- [[plans/f7-hybrids]] — F7: hybrids via an opcode model (old M8): per-phase references and BLA, runtime MSL (planned; XL)
+- [[plans/f8-convergent-spike]] — F8: one-week spike on perturbation for Nova / Newton / Magnet (planned; M)
+- [[plans/buddhabrot]] — BB: Buddhabrot / Nebulabrot as an optional shallow look, any time (planned; M)
+- [[plans/3d-worlds]] — 3D worlds (Mandelbox first) as a separate mode: not recommended now (proposed, last; XL)
+
 ## Questions
 
 - [[questions/apple-gpu-denormals]] — do Apple GPUs flush float32 subnormals?
