@@ -147,6 +147,15 @@ image in linear light (rgba16f, alpha = per-pixel confidence) plus the viewport 
   colour parameters it was made with (palette phase aside: depth tint changes it slightly
   every zoom frame). A colour change while idle recolours from the exact samples; colour
   cycling advances only while the view rests, so flying keeps reprojection valid.
+- **A recolour is not a new job, so it must keep the display link alive itself.** A colour
+  change (palette, look, a switch between non-flat interior colourings) keeps the compute key:
+  the only work is one exact recompose, then AA again (the AA samples hold the old colours and
+  are dropped). Until 2026-10-19 neither kept the frame loop running once the view had settled:
+  a recolour refresh with no drawable reported idle and the display link paused on the old
+  colours, and a done recolour left the job "settled" with AA not rerun (aliased edges). Now a
+  planned frame without a target asks for the next refresh, and a recolour clears the settled
+  flag ([[decisions/controls]] "The colours tour"). Rule: anything the plan still wants to
+  compose must show up in the idle test.
 
 Pitfalls found: (1) a jittered gesture level reused as the refined frame breaks the
 shown-frame check (the refined level must be centre samples, so gesture levels always live

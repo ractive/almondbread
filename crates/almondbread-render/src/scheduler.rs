@@ -41,6 +41,8 @@ use crate::la_gpu::{LaBuildJob, LaGpu};
 use crate::memory::{MemoryBudget, Thermal};
 
 mod device;
+#[cfg(all(test, target_vendor = "apple"))]
+mod recolour_tests;
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
 /// Dense-region colours cached per palette: (palette key, deep, filament).
@@ -2437,9 +2439,13 @@ impl<B: GpuBackend> Renderer<B> {
                         job.further_done_at.get_or_insert(now);
                     }
                     COMPOSE_EXACT => {
-                        // Recoloured from the exact samples: anti-aliasing starts over.
+                        // Recoloured from the exact samples: anti-aliasing starts over, so
+                        // the view is not settled until it has run again (it stayed
+                        // `final_presented`: reported idle, the display link paused on the
+                        // aliased recolour, kb: decisions/controls "The colours tour").
                         job.drop_aa();
                         job.complete_at = Some(f64::NEG_INFINITY);
+                        job.final_presented = false;
                     }
                     _ => {}
                 }
@@ -2461,6 +2467,12 @@ impl<B: GpuBackend> Renderer<B> {
             fs.skipped += 1;
             fs.skipped_no_target += 1;
         }
+        // A frame the plan wanted but had no target for must be tried again next refresh. A
+        // recolour of a settled view (an interior colouring or palette switch: same key, no new
+        // job) is the one plan nothing else keeps alive: reported idle, the display link paused
+        // and the old colours stayed on screen until the view moved (the colours tour, kb:
+        // decisions/controls "The colours tour").
+        let missed_frame = plan.is_some() && !outcome.presented;
         // The next AA sample right after the previous one was composed (it reuses the same
         // textures), so a sample costs one refresh, not two.
         if !self.job.as_ref().expect("job").interactive && plan.is_some_and(|p| p.0 == COMPOSE_AA) {
@@ -2510,6 +2522,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.update_progress(now);
         let job = self.job.as_ref().expect("job");
         let busy = overlay_pending
+            || missed_frame
             || interacting
             || !job.final_presented
             || job.key != key

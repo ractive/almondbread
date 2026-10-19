@@ -77,7 +77,6 @@ Inside, the numbers settle into a loop. **Bubbles** colours each point by how cl
 ## Period
 center: -0.45, 0.25
 span: 1.3
-move: jump
 interior: period
 
 **Period** gives one colour per loop length: the heart (1), the big disc (2), the top bulbs (3), and so on. Bulbs with the same period share a colour.
@@ -85,7 +84,6 @@ interior: period
 ## Internal angle
 center: -0.45, 0.25
 span: 1.3
-move: jump
 interior: angle
 
 **Internal angle** draws spokes and rings in every bulb. They show *where* inside the bulb a point is, measured by how its loop pulls in nearby numbers. The spokes meet at each bulb's centre.
@@ -93,7 +91,6 @@ interior: angle
 ## Interior distance
 center: -0.45, 0.25
 span: 1.3
-move: jump
 interior: distance
 
 **Interior distance**: bright deep inside, dark towards the edge. It estimates how far each point is from the boundary.
