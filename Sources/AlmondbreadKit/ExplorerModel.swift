@@ -1127,6 +1127,8 @@ public final class ExplorerModel {
     var tourHighlightFrame: CGRect?
     /// Where the cockpit is while a tour runs (global; the card keeps clear of it too).
     var tourCockpitFrame: CGRect?
+    /// Where the mini-map row is while a tour runs (global; the card keeps clear of it too).
+    var tourMapsFrame: CGRect?
 
     /// The running tour's step (nil: no tour); set only by the tour calls below.
     public private(set) var tour: TourStepInfo?

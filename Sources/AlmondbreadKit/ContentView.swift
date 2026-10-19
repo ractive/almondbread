@@ -18,6 +18,8 @@ struct ContentView: View {
     /// Size of the canvas in points (narrower than the window while the iPad sidebar shows).
     @State private var canvasWidth: CGFloat = 1000
     @State private var canvasHeight: CGFloat = 800
+    /// The touch controls' global frames ("throttle", "buttons"): the tour card keeps clear of them.
+    @State private var controlFrames: [String: CGRect] = [:]
 
     /// Where the touch controls go (kb: decisions/controls "Touch", "Round buttons" ▸ Fit).
     private var touchLayout: TouchLayout {
@@ -119,7 +121,8 @@ struct ContentView: View {
         .overlay {
             TourCardLayer(model: model, compact: compactWidth,
                           trailing: compactWidth ? 12 : Self.tourTrailing(compact: false),
-                          bottom: Self.tourBottom(compact: compactWidth, cockpit: model.showHUD))
+                          bottom: Self.tourBottom(compact: compactWidth, cockpit: model.showHUD),
+                          controls: Array(controlFrames.values))
         }
         // The ring around the cockpit (Rust draws it) when a tour step points at it.
         .overlay {
@@ -172,6 +175,7 @@ struct ContentView: View {
                                                         max(120, canvasHeight - (landscapePhone ? 200 : 260))))
                     .touchHintAnchor("throttle")
                     .tourTarget("throttle", model: model, cornerRadius: 22)
+                    .reportFrame("throttle", into: $controlFrames)
                     .padding(.trailing, 12)
                     .padding(.bottom, landscapePhone ? 56 : 0)
             }
@@ -189,6 +193,7 @@ struct ContentView: View {
                     ThrottleLever(model: model, height: min(220, max(120, canvasHeight - 528)))
                         .touchHintAnchor("throttle")
                         .tourTarget("throttle", model: model, cornerRadius: 22)
+                        .reportFrame("throttle", into: $controlFrames)
                         .padding(.bottom, 6)
                 }
                 // The Mac toolbar's items (kb: decisions/controls "Touch", "Round buttons"): the
@@ -211,6 +216,7 @@ struct ContentView: View {
                     .tourTarget("control-center", model: model, cornerRadius: 22)
                 }
                 .tourTarget("toolbar", model: model, cornerRadius: 26)
+                .reportFrame("buttons", into: $controlFrames)
             }
             .padding(12)
         }
@@ -353,6 +359,14 @@ extension ContentView {
         #else
         12
         #endif
+    }
+}
+
+extension View {
+    /// Keeps `frames[id]` at this view's global frame while it shows (the tour card's obstacles).
+    func reportFrame(_ id: String, into frames: Binding<[String: CGRect]>) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.wrappedValue[id] = $0 }
+            .onDisappear { frames.wrappedValue[id] = nil }
     }
 }
 

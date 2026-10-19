@@ -482,6 +482,93 @@ pub(crate) fn map_decades(depth: f64, want: usize, prev: &[i32]) -> Vec<i32> {
     out
 }
 
+/// Map row metrics (points): margin from the canvas edges, gap between panels, the panel's
+/// height per width, and the room kept above a bottom row for its info lines.
+const MAP_MARGIN: f64 = 12.0;
+const MAP_GAP: f64 = 8.0;
+const MAP_ASPECT: f64 = 0.72;
+const MAP_INFO: f64 = 44.0;
+
+/// The map row of this frame (kb: decisions/controls "Mini-map on small screens").
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MapFit {
+    /// Levels shown: the setting's, or fewer where the row has no room for them.
+    pub levels: usize,
+    /// Panel width (points): the setting's, or down to 2/3 of it to keep a level.
+    pub width: f64,
+    /// Margins from the platform's controls besides the safe area (points): right (the
+    /// trailing column or throttle; at the bottom also a phone's bottom button row) and top
+    /// (the iPad's top-trailing buttons, for a top-right row).
+    pub right: f64,
+    pub top: f64,
+}
+
+/// How many map levels fit and how wide: the row keeps clear of the platform's trailing
+/// controls (`trailing`: the button column or the throttle; `cockpit.inset_right`: the bottom
+/// button row or column, which a bottom row also keeps left of; `top_controls`: the iPad's
+/// top-trailing row). Panels narrow down to 2/3 of `map_size` before a level is dropped. A
+/// bottom-left row also leaves the cockpit a place: beside the row, or lifted above it while
+/// the lifted cockpit stays in the lower half of the canvas (the upper half is the HUD's and
+/// the tour card's); otherwise fewer levels (a phone on its side: one map beside a two-row
+/// cockpit, where two maps lifted it into the HUD).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fit_maps(
+    want: usize,
+    map_size: f64,
+    corner: Corner,
+    size: (usize, usize),
+    ppp: f64,
+    insets: (f64, f64, f64, f64),
+    trailing: f64,
+    top_controls: f64,
+    cockpit: &crate::cockpit::CockpitOverlay,
+) -> MapFit {
+    let (w, h) = (size.0 as f64 * ppp, size.1 as f64 * ppp);
+    let bottom = matches!(corner, Corner::BottomLeft | Corner::BottomRight);
+    let right = if bottom {
+        trailing.max(cockpit.inset_right)
+    } else {
+        trailing
+    }
+    .max(0.0);
+    let top = if corner == Corner::TopRight {
+        top_controls.max(0.0)
+    } else {
+        0.0
+    };
+    let left_edge = insets.1.max(0.0) + MAP_MARGIN;
+    let avail = w - left_edge - insets.3.max(0.0) - right - MAP_MARGIN;
+    let min_w = (map_size * 2.0 / 3.0).max(80.0).min(map_size);
+    let fit = |levels: usize, width: f64| MapFit {
+        levels,
+        width,
+        right,
+        top,
+    };
+    let want = want.max(1);
+    for n in (1..=want).rev() {
+        let k = n as f64;
+        let width = map_size.min((avail - (k - 1.0) * MAP_GAP) / k);
+        if width < min_w {
+            continue;
+        }
+        if corner != Corner::BottomLeft || !cockpit.enabled {
+            return fit(n, width);
+        }
+        let row_right = left_edge + k * width + (k - 1.0) * MAP_GAP;
+        if cockpit.fits(size, ppp, insets, row_right) {
+            return fit(n, width);
+        }
+        let lift = width * MAP_ASPECT + MAP_MARGIN + MAP_INFO;
+        let lifted = cockpit.layout_lifted(size, ppp, insets, 0.0, lift);
+        if lifted[1] * ppp >= h / 2.0 {
+            return fit(n, width);
+        }
+    }
+    // No room even for one panel at 2/3 size (a tiny canvas): one, as wide as there is room.
+    fit(1, map_size.min(avail).max(min_w.min(80.0)))
+}
+
 fn full_set_view(w: usize, h: usize) -> Viewport {
     let s = (3.2 / w as f64).max(2.6 / h as f64);
     Viewport::new(-0.7, 0.0, s)
@@ -871,12 +958,25 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         }
         // ---- Maps (the orbit overlay shows the whole-set map too).
         let want_levels = if s.map { s.map_levels } else { 1 };
+        // Fewer or narrower panels where the platform's controls or the cockpit leave no room
+        // (kb: decisions/controls "Mini-map on small screens").
+        let fit = fit_maps(
+            want_levels,
+            s.map_size,
+            s.map_corner,
+            size,
+            ppp,
+            renderer.navigator.insets(),
+            self.cosmic.inset_right,
+            self.pi.inset_top,
+            &self.cockpit,
+        );
         let panel = (
-            ((s.map_size * px_per_pt).round() as usize).clamp(32, 4096),
-            ((s.map_size * 0.72 * px_per_pt).round() as usize).clamp(24, 4096),
+            ((fit.width * px_per_pt).round() as usize).clamp(32, 4096),
+            ((fit.width * MAP_ASPECT * px_per_pt).round() as usize).clamp(24, 4096),
         );
         if s.any()
-            && let Err(e) = self.update_maps(renderer, &view, want_levels, panel, size, &s, px_per_pt)
+            && let Err(e) = self.update_maps(renderer, &view, &fit, panel, size, &s, px_per_pt)
         {
             eprintln!("almondbread: overlay maps: {e}");
             self.maps = None;
@@ -1021,7 +1121,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         &mut self,
         renderer: &Renderer<B>,
         view: &Viewport,
-        want: usize,
+        fit: &MapFit,
         panel: (usize, usize),
         size: (usize, usize),
         s: &OverlaySettings,
@@ -1042,7 +1142,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             .as_ref()
             .map(|m| m.levels.iter().map(|l| l.decade).filter(|&d| d > 0).collect())
             .unwrap_or_default();
-        let decades = map_decades(depth, want, &prev);
+        let decades = map_decades(depth, fit.levels, &prev);
         let stack = self.maps.get_or_insert_with(|| MapStack {
             levels: Vec::new(),
             panels: Vec::new(),
@@ -1122,15 +1222,16 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         stack.spare.truncate(4);
         stack.levels = kept;
         // Layout: a row from the chosen corner, the whole set first.
-        let margin = (12.0 * px_per_pt) as f32;
-        let gap = (8.0 * px_per_pt) as f32;
+        let margin = (MAP_MARGIN * px_per_pt) as f32;
+        let gap = (MAP_GAP * px_per_pt) as f32;
         let (pw, ph) = (panel.0 as f32, panel.1 as f32);
         let (w, h) = (size.0 as f32, size.1 as f32);
-        // Clear of the toolbar and a sidebar over the canvas (safe-area insets, points).
+        // Clear of the toolbar and a sidebar over the canvas (safe-area insets, points), and of
+        // the platform's controls (`fit`).
         let (top, left, bottom, right) = renderer.navigator.insets();
         let px = |v: f64| (v * px_per_pt) as f32;
-        let (x0, x1) = (px(left) + margin, w - px(right) - margin);
-        let (y0, y1) = (px(top) + margin, h - px(bottom) - margin);
+        let (x0, x1) = (px(left.max(0.0)) + margin, w - px(right.max(0.0) + fit.right) - margin);
+        let (y0, y1) = (px(top.max(0.0) + fit.top) + margin, h - px(bottom.max(0.0)) - margin);
         let n = stack.levels.len();
         stack.panels = (0..n)
             .map(|i| {
@@ -1506,18 +1607,25 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // fits there, else above it (a phone in portrait: no map covers a 44-point cell; kb:
         // decisions/controls "Touch").
         let insets = renderer.navigator.insets();
-        self.drawn_maps.set(None);
-        // The bottom-left map row, in points (across, high), for the cockpit.
+        // The map row as drawn (pixels: x0, y0, x1, y1), whatever its corner.
+        let map_row = self.maps.as_ref().filter(|m| !m.panels.is_empty()).map(|stack| {
+            let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
+            stack.panels.iter().fold(
+                [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY],
+                |r, o| [r[0].min(o[0]), r[1].min(o[1]), r[2].max(o[0] + pw), r[3].max(o[1] + ph)],
+            )
+        });
+        self.drawn_maps.set(map_row);
+        // The bottom-left map row, in points (its right edge from the canvas's left edge, its
+        // height with the margin and the info lines above it), for the cockpit.
         let maps_bottom_left = self
             .maps
             .as_ref()
-            .filter(|m| !m.panels.is_empty() && s.map_corner == Corner::BottomLeft)
-            .map(|stack| {
-                let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
-                let n = stack.panels.len() as f32;
-                let extent = (12.0 * px) as f32 + n * pw + (n - 1.0) * (8.0 * px) as f32;
-                let block = ph + (12.0 * px) as f32 + (44.0 * px) as f32;
-                (f64::from(extent) / px, f64::from(block) / px)
+            .zip(map_row)
+            .filter(|_| s.map_corner == Corner::BottomLeft)
+            .map(|(stack, r)| {
+                let block = stack.panel.1 as f64 / px + MAP_MARGIN + MAP_INFO;
+                (f64::from(r[2]) / px, block)
             });
         let cosmic_w = self.cosmic.enabled().then(|| self.cosmic.width_pt(w / px));
         let mut left = cosmic_w.map_or(0.0, |cw| 12.0 + cw + 24.0);
@@ -1582,22 +1690,17 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // decisions/controls "π meter on narrow canvases").
         let mut reserve = crate::pi_meter::Reserve::default();
         if let Some(stack) = &self.maps
-            && !stack.panels.is_empty()
+            && let Some(row) = map_row
         {
-            let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
-            let n = stack.panels.len() as f32;
-            let extent = (12.0 * px) as f32 + n * pw + (n - 1.0) * (8.0 * px) as f32;
+            let ph = stack.panel.1 as f32;
             // (Plus the info lines next to the first panel.)
-            let block = ph + (12.0 * px) as f32 + (44.0 * px) as f32;
+            let block = ph + (MAP_MARGIN * px) as f32 + (MAP_INFO * px) as f32;
             match s.map_corner {
                 Corner::BottomRight => reserve.bottom_right = block,
                 Corner::TopRight => reserve.top_right = block,
                 Corner::BottomLeft => {
-                    reserve.bottom_left = extent;
-                    reserve.keep_clear([0.0, h as f32 - block, extent, h as f32]);
-                    // (The panels themselves; the block above also reserves their info lines.)
-                    let top = stack.panels.iter().map(|o| o[1]).fold(f32::INFINITY, f32::min);
-                    self.drawn_maps.set(Some([(12.0 * px) as f32, top, extent, top + ph]));
+                    reserve.bottom_left = row[2];
+                    reserve.keep_clear([0.0, h as f32 - block, row[2], h as f32]);
                 }
                 Corner::TopLeft => {}
             }
@@ -1851,5 +1954,139 @@ mod tests {
         assert!(w > 26.0 && w < 60.0, "{w}");
         // The halo width is limited to what the atlas stores.
         assert!(f32::from_bits(s.prims[0].info[2]) <= crate::font::SPREAD * 26.0 / crate::font::EM);
+    }
+
+    /// The map row keeps clear of the touch controls and leaves the cockpit a place below the
+    /// HUD's half (kb: decisions/controls "Mini-map on small screens"); points as on the
+    /// shared simulators (iPhone 17e, iPad mini) and a Mac window.
+    #[test]
+    fn map_row_fits_beside_the_controls_and_the_cockpit() {
+        let touch = |inset_right: f64| {
+            let mut c = crate::cockpit::CockpitOverlay::default();
+            c.enabled = true;
+            c.touch = true;
+            c.inset_right = inset_right;
+            c
+        };
+        // (size points, ppp, safe insets, trailing, top controls, cockpit inset, levels wanted,
+        // expected levels, expected width)
+        let cases = [
+            // iPhone portrait: two narrowed panels left of the button column, cockpit lifted.
+            (
+                (390.0, 844.0),
+                1.0 / 3.0,
+                (47.0, 0.0, 34.0, 0.0),
+                56.0,
+                0.0,
+                56.0,
+                2,
+                2,
+                151.0,
+            ),
+            (
+                (390.0, 844.0),
+                1.0 / 3.0,
+                (47.0, 0.0, 34.0, 0.0),
+                56.0,
+                0.0,
+                56.0,
+                3,
+                2,
+                151.0,
+            ),
+            // iPhone on its side: two maps would lift the cockpit into the HUD; one map beside
+            // the two-row cockpit.
+            (
+                (844.0, 390.0),
+                1.0 / 3.0,
+                (0.0, 47.0, 21.0, 47.0),
+                60.0,
+                0.0,
+                272.0,
+                2,
+                1,
+                180.0,
+            ),
+            // iPad mini, both orientations: unchanged (three full panels).
+            (
+                (744.0, 1133.0),
+                0.5,
+                (24.0, 0.0, 20.0, 0.0),
+                60.0,
+                56.0,
+                0.0,
+                3,
+                3,
+                180.0,
+            ),
+            (
+                (1133.0, 744.0),
+                0.5,
+                (24.0, 0.0, 20.0, 0.0),
+                60.0,
+                56.0,
+                0.0,
+                3,
+                3,
+                180.0,
+            ),
+        ];
+        for (pt, ppp, insets, trailing, top, cockpit_inset, want, levels, width) in cases {
+            let size = ((pt.0 / ppp) as usize, (pt.1 / ppp) as usize);
+            let cockpit = touch(cockpit_inset);
+            let f = fit_maps(
+                want,
+                180.0,
+                Corner::BottomLeft,
+                size,
+                ppp,
+                insets,
+                trailing,
+                top,
+                &cockpit,
+            );
+            assert_eq!(f.levels, levels, "{pt:?} want {want}: {f:?}");
+            assert!((f.width - width).abs() < 0.5, "{pt:?} want {want}: {f:?}");
+            // The row ends left of the trailing controls.
+            let row_right = insets.1 + 12.0 + f.levels as f64 * (f.width + 8.0) - 8.0;
+            assert!(
+                row_right <= pt.0 - insets.3 - trailing.max(cockpit_inset) - 12.0 + 1e-9,
+                "{pt:?}: {f:?}"
+            );
+            // The cockpit beside the row, or lifted above it into the lower half only.
+            if !cockpit.fits(size, ppp, insets, row_right) {
+                let lift = f.width * MAP_ASPECT + MAP_MARGIN + MAP_INFO;
+                let r = cockpit.layout_lifted(size, ppp, insets, 0.0, lift);
+                assert!(r[1] * ppp >= pt.1 / 2.0, "{pt:?}: lifted cockpit at {}", r[1] * ppp);
+            }
+        }
+        // Without the cockpit (HUD off) the row only keeps clear of the controls.
+        let mut off = crate::cockpit::CockpitOverlay::default();
+        off.inset_right = 272.0;
+        let f = fit_maps(
+            2,
+            180.0,
+            Corner::BottomLeft,
+            (2532, 1170),
+            1.0 / 3.0,
+            (0.0, 47.0, 21.0, 47.0),
+            60.0,
+            0.0,
+            &off,
+        );
+        assert_eq!(f.levels, 2);
+        // A top-right row stays below the iPad's top-trailing buttons and left of the throttle.
+        let f = fit_maps(
+            2,
+            180.0,
+            Corner::TopRight,
+            (1488, 2266),
+            0.5,
+            (24.0, 0.0, 20.0, 0.0),
+            60.0,
+            56.0,
+            &off,
+        );
+        assert_eq!((f.right, f.top), (60.0, 56.0));
     }
 }

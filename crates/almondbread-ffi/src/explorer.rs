@@ -1625,7 +1625,9 @@ impl Explorer {
     }
 
     /// The width of a column of platform controls at the trailing edge (view points: the
-    /// iPhone's round buttons and throttle) that the cosmic scale keeps clear of.
+    /// iPhone's round buttons and throttle, the Mac's control center over the canvas) that the
+    /// cosmic scale and the mini-map row keep clear of (kb: decisions/controls "Mini-map on
+    /// small screens").
     pub fn set_cosmic_inset(&self, right: f64) {
         self.lock().host.overlay.cosmic.inset_right = if right.is_finite() {
             right.clamp(0.0, 2000.0)

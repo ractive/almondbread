@@ -1724,3 +1724,15 @@ iPad simulator, "Period 2688") is guarded by `GPU_QUEUE_LIMIT`. The Period 2688 
 23 s of M1 Pro GPU at iPad mini size; its text now says so. `--ui-demo-size=WxH`, `--ui-demo-aa=`,
 UI tests `OverlayLayoutUITests`, `TourPerformanceUITests`. [[decisions/controls]] "π meter on
 narrow canvases", "Cosmic size scale", "Round buttons"; [[techniques/hang-prevention]] "GPU queue".
+
+## [2026-10-19] decision | Maps, cockpit and tour card keep clear on phones
+
+Three iPhone clashes: on its side two mini-maps lifted the cockpit into the HUD; in portrait the
+second map ran under the button column and the compact tour card's Next sat under the throttle.
+The map row now fits (`fit_maps`): it keeps clear of the trailing controls, narrows its panels to
+2/3 before dropping a level, and leaves the cockpit a place beside it or lifted within the lower
+half (phone on its side: one map beside the two-row cockpit). The tour card at the top keeps clear
+of the throttle, the round buttons, the cockpit and the maps (narrowed beside the column in
+portrait, the trailing side on its side when the maps are under it; the text scrolls in what is
+left). The UI tests' round-button lookup had matched identifiers only and checked nothing; it
+matches labels now. [[decisions/controls]] "Mini-map on small screens", "Tour card on a phone".

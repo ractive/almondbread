@@ -85,7 +85,7 @@ struct TourCockpitLayer: View {
     var body: some View {
         if let t = model.tour {
             let id = t.highlight == "cockpit" || t.highlight.hasPrefix("cockpit-") ? t.highlight : nil
-            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 // The canvas's own frame (it runs under the Mac's toolbar): the cells are
                 // relative to its centre.
                 GeometryReader { proxy in
@@ -101,17 +101,34 @@ struct TourCockpitLayer: View {
                     }
                     .onAppear { report(whole, ring, origin) }
                     .onChange(of: [whole, ring, CGRect(origin: origin, size: .zero)]) { report(whole, ring, origin) }
+                    // (Every tick too: the Rust panel lags its cells by a frame after a turn.)
+                    .onChange(of: context.date) { report(whole, ring, origin) }
                 }
                 .ignoresSafeArea()
             }
-            .onDisappear { model.tourCockpitFrame = nil }
+            .onDisappear {
+                model.tourCockpitFrame = nil
+                model.tourMapsFrame = nil
+            }
         }
     }
 
     private func report(_ whole: CGRect?, _ ring: CGRect?, _ origin: CGPoint) {
-        // The panel reaches beyond its icons (name, gauge, the (?) badge).
-        let panel = whole.map { $0.insetBy(dx: -40, dy: -8).offsetBy(dx: origin.x, dy: origin.y) }
+        // The panel as Rust laid it out (points from the canvas's top left); else around its
+        // icons (it reaches beyond them: name, gauge, the (?) badge). The cells measured from
+        // this layer's centre were 17 points low on a phone on its side (2026-10-19), so the
+        // card overlapped the cockpit's top.
+        let panels = model.explorer?.overlayPanels() ?? []
+        func frame(_ id: String) -> CGRect? {
+            panels.first { $0.id == id }.map {
+                CGRect(x: model.canvasOrigin.x + $0.x, y: model.canvasOrigin.y + $0.y, width: $0.width, height: $0.height)
+            }
+        }
+        let panel = frame("cockpit") ?? whole.map { $0.insetBy(dx: -40, dy: -8).offsetBy(dx: origin.x, dy: origin.y) }
         if model.tourCockpitFrame != panel { model.tourCockpitFrame = panel }
+        // The mini-map row (the card keeps clear of it too).
+        let maps = frame("maps")
+        if model.tourMapsFrame != maps { model.tourMapsFrame = maps }
         if let ring {
             let r = ring.offsetBy(dx: origin.x, dy: origin.y)
             if model.tourHighlightFrame != r { model.tourHighlightFrame = r }
@@ -141,6 +158,9 @@ struct TourCardLayer: View {
     let compact: Bool
     let trailing: CGFloat
     let bottom: CGFloat
+    /// The platform's controls over the canvas (global frames: the throttle, the round
+    /// buttons): the narrow canvas's card at the top keeps clear of them.
+    var controls: [CGRect] = []
     @State private var cardHeight: CGFloat = 220
 
     var body: some View {
@@ -151,18 +171,33 @@ struct TourCardLayer: View {
                 // A phone on its side: narrower and at the leading side, so a π panel (316 points
                 // and its margins) fits beside it (kb: decisions/controls "π meter on narrow canvases").
                 let wide = compact && size.width > size.height
-                let w = !compact ? 340 : wide ? max(280, min(480, size.width - 24 - 340)) : min(max(0, size.width - 24), 480)
+                let fullWidth = !compact ? 340 : wide ? max(280, min(480, size.width - 24 - 340)) : min(max(0, size.width - 24), 480)
                 // Clear of the ringed element and of the cockpit (a narrow Mac window, the
                 // control center open).
                 let ringed = model.tourHighlightFrame.map { $0.offsetBy(dx: -g.minX, dy: -g.minY).insetBy(dx: -10, dy: -10) }
                 let cockpit = model.tourCockpitFrame.map { $0.offsetBy(dx: -g.minX, dy: -g.minY).insetBy(dx: -10, dy: -10) }
-                let avoid = [ringed, cockpit].compactMap { $0 }
-                let spots = Self.spots(size: size, card: CGSize(width: w, height: cardHeight), compact: compact,
-                                       trailing: trailing, bottom: bottom, above: cockpit?.minY)
-                let spot = spots.first { s in !avoid.contains { $0.intersects(s) } } ?? spots[0]
-                TourCard(model: model, compact: compact)
+                let maps = model.tourMapsFrame.map { $0.offsetBy(dx: -g.minX, dy: -g.minY).insetBy(dx: -8, dy: -8) }
+                let avoid = [ringed, cockpit, maps].compactMap { $0 }
+                // Narrow canvas: the top card's place, width and height clear of the controls,
+                // the cockpit and the maps below it (kb: decisions/controls "Tour card on a phone").
+                let below = controls.map { $0.offsetBy(dx: -g.minX, dy: -g.minY).insetBy(dx: -8, dy: -8) }
+                    + [cockpit, maps].compactMap { $0 }
+                let top = compact ? Self.topFit(size: size, width: fullWidth, leading: wide, obstacles: below) : nil
+                let w = top?.width ?? fullWidth
+                // (At the top the card shrinks to its limit: test the spots at that height.)
+                let h = top.map { min(cardHeight, $0.maxHeight) } ?? cardHeight
+                let spots = Self.spots(size: size, card: CGSize(width: w, height: h), compact: compact,
+                                       trailing: trailing, bottom: bottom, above: cockpit?.minY,
+                                       topX: top?.x)
+                let spot = spots.first { s in s.minY >= Self.margin - 0.5 && !avoid.contains { $0.intersects(s) } } ?? spots[0]
+                // (A card moved off the top for a ring: no taller than from its bottom to the top.)
+                let limit = top.map { spot.minY == Self.margin ? $0.maxHeight : spot.maxY - Self.margin }
+                TourCard(model: model, compact: compact, maxHeight: limit)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("tour-card")
+                    // (UI tests: the height limit and the obstacles' tops it came from.)
+                    .accessibilityValue(TestLaunch.uiTest
+                        ? "limit \(Int(limit ?? -1)) below \(below.map { "\(Int($0.minX)),\(Int($0.minY))" })" : "")
                     .frame(width: w)
                     .fixedSize(horizontal: false, vertical: true)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
@@ -178,13 +213,11 @@ struct TourCardLayer: View {
 
     /// The card's places in order of preference (frames in the layer).
     /// `above`: the cockpit's top (the layer's coordinates): the card may sit just above it.
+    /// `topX`: the top card's left edge (`topFit`), else centred.
     static func spots(size: CGSize, card: CGSize, compact: Bool, trailing: CGFloat, bottom: CGFloat,
-                      above: CGFloat? = nil) -> [CGRect] {
+                      above: CGFloat? = nil, topX: CGFloat? = nil) -> [CGRect] {
         let (w, h) = (card.width, card.height)
-        // A wide narrow-class canvas (a phone on its side): the card at the leading side, so a
-        // π panel (316 points and its margin) fits beside it at the trailing side.
-        let leading = compact && size.width > size.height
-        let top = CGRect(x: leading ? 12 : (size.width - w) / 2, y: 12, width: w, height: h)
+        let top = CGRect(x: topX ?? (size.width - w) / 2, y: margin, width: w, height: h)
         let bottomCentre = CGRect(x: (size.width - w) / 2, y: size.height - bottom - h, width: w, height: h)
         if compact { return [top, bottomCentre] }
         let bottomTrailing = CGRect(x: size.width - trailing - w, y: size.height - bottom - h, width: w, height: h)
@@ -195,6 +228,42 @@ struct TourCardLayer: View {
                                 width: w, height: h))
         }
         return spots + [bottomLeading, top]
+    }
+
+    /// The card's distance from the canvas edges (points).
+    static let margin: CGFloat = 12
+
+    /// A card at the top of a narrow canvas: its left edge, width and the height it may take
+    /// before it reaches `obstacles` below it (the throttle and round buttons, the cockpit, the
+    /// maps; layer coordinates, margins included). The places in order: its usual one (centred,
+    /// or leading on a phone on its side), narrowed to the leading side of the trailing
+    /// obstacles that limit it (the phone's button column with the throttle on top; at least
+    /// 280 points wide), and at the trailing side left of the controls reaching up there (the
+    /// throttle of a phone on its side, when the maps or the cockpit are under the leading
+    /// side). The first that leaves the card `TourCard.fullHeight`, else the tallest; the card's
+    /// text scrolls in what is left.
+    static func topFit(size: CGSize, width: CGFloat, leading: Bool,
+                       obstacles: [CGRect]) -> (x: CGFloat, width: CGFloat, maxHeight: CGFloat) {
+        func room(_ x0: CGFloat, _ w: CGFloat) -> CGFloat {
+            let under = obstacles.filter { $0.maxX > x0 && $0.minX < x0 + w && $0.maxY > margin }
+            return (under.map(\.minY).min() ?? size.height - margin) - margin
+        }
+        let band = margin + TourCard.fullHeight
+        let x0 = leading ? margin : (size.width - width) / 2
+        var places: [(x: CGFloat, width: CGFloat)] = [(x0, width)]
+        // Narrowed: left of the trailing obstacles that limit the usual place.
+        let limiting = obstacles.filter { $0.maxX > x0 && $0.minX < x0 + width && $0.minY < band }
+        if let edge = limiting.map(\.minX).min(), edge > size.width / 2 {
+            let narrow = min(width, edge - 2 * margin)
+            if narrow >= 280, narrow < width { places.append((margin, narrow)) }
+        }
+        // Trailing: left of the controls in the trailing half that reach up into the card's band.
+        let edge = obstacles.filter { $0.minX > size.width / 2 && $0.minY < band }.map(\.minX).min() ?? size.width
+        let trailingX = edge - margin - width
+        if trailingX >= margin, abs(trailingX - x0) > 1 { places.append((trailingX, width)) }
+        let rooms = places.map { (x: $0.x, width: $0.width, maxHeight: room($0.x, $0.width)) }
+        return rooms.first { $0.maxHeight >= TourCard.fullHeight }
+            ?? rooms.max { $0.maxHeight < $1.maxHeight } ?? rooms[0]
     }
 }
 
