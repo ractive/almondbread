@@ -174,6 +174,14 @@ pub trait GpuBackend {
     /// Starts a command buffer with one compute pass.
     fn begin(&self, label: &str) -> Result<Self::Encoder, GpuError>;
 
+    /// Command buffers committed on this queue that the GPU has not finished. Metal hands out
+    /// at most 64 per queue and `commandBuffer()` blocks the caller (the main thread) until one
+    /// frees up, so the host skips refreshes while many are queued (kb:
+    /// techniques/hang-prevention "GPU queue"). Backends that never block return 0.
+    fn submissions_in_flight(&self) -> usize {
+        0
+    }
+
     /// Compiles `source` as a library of its own with `math` semantics and returns a pipeline
     /// per name in `functions` (M7: the float-float kernels, which must not share the fast
     /// library's compile options or registers). Backends without one return an error.
