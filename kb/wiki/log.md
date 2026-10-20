@@ -5,6 +5,8 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-20
 
+- **Lint:** OKF conversion of the wiki. 2876 body wikilinks (2830 plain, 46 with alias text) became relative Markdown links (`[Title](../dir/page.md)`), with the alias or the target page title as text; frontmatter `sources` / `depends-on` keep the `[[...]]` form the schemas require. 230 pages got a `# Citations` section built only from what they already cite; 9 pages cite nothing and are listed in `[lint] ignore` in `.hyalo.toml`. `index.md` and `log.md` lost their frontmatter (OKF reserved files; the root index carries `okf_version`); this log is now grouped under date headings, newest first; `hyalo okf index` added the managed region to `index.md` and an `index.md` per directory. New conventions in `kb/CLAUDE.md`.
+
 ### decision | Tours in plain language; tour writing rules
 
 The user took the tours with his son and met words before their explanations ("settle on one
