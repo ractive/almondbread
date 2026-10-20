@@ -166,6 +166,10 @@ simulators, no `xcodebuild test` outside the scripts); keep simulator runs targe
 `kb/` is an LLM-maintained wiki of the maths and engineering behind the
 app. Its rules are in `kb/CLAUDE.md`; read them before touching `kb/`.
 Use `hyalo` for wiki operations (`.hyalo.toml` sets `dir = "kb/wiki"`).
+The wiki is an Open Knowledge Format (OKF) bundle: pages link to each other
+with relative Markdown links (`[Title](../techniques/bla.md)`), not
+`[[wikilinks]]`, pages that cite sources end with a `# Citations` list, and
+`hyalo lint` (OKF profile) must be clean.
 Before implementing a technique, read its page (`hyalo read
 techniques/<name>.md`) and the roadmap in
 `synthesis/deep-zoom-rendering-techniques.md`; cite pages in code comments
