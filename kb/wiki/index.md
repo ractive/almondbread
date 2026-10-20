@@ -1,6 +1,5 @@
 ---
-title: Index
-type: meta
+okf_version: "0.1"
 ---
 
 # Index
@@ -278,3 +277,25 @@ One page per planned milestone (type `plan`; `hyalo find --view plans` lists the
 - [The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](synthesis/neck-escape-statistics.md) — known hard case: the −3/4 neck gap at 1e8–1e9; ground truth to 1e7 (everything escapes, minimum ~8 500, medians 4e4–4e5, chaotic below the pixel), GPU float32 matches it statistically, the seam is real, why the app showed black (4× depth cap, list overflow, seed stall, long render in progress)
 - [Other fractal types: what almondbread could support, at what cost](synthesis/other-fractal-types.md) — which other fractal types almondbread could support: per-family matrix (reuse, perturbation/BLA, depth, interior/DE/seek, effort, appeal), recommended order (Julia companion → formula refactor → Multibrot → deep Julia → Mandelbar → Burning Ship → hybrids), 3D verdict (separate XL mode; landscape first), pluggable-formula architecture
 - [Motion sample reuse: fewer iterations per gesture frame (R4)](synthesis/motion-sample-reuse.md) — R4: fewer iterations per gesture frame: sample cache vs FL vs MetalFX on five flights, how many iterations can go (2–50 %), bookkeeping cost, integration design, risks; production as built (bookkeeping 0.1–0.6 ms, 55–92 % fewer iterations) (code removed 2026-10-17)
+
+<!-- okf:index:begin -->
+
+## Subdirectories
+
+* [decisions](decisions/index.md)
+* [formulas](formulas/index.md)
+* [implementations](implementations/index.md)
+* [plans](plans/index.md)
+* [platform](platform/index.md)
+* [questions](questions/index.md)
+* [sources](sources/index.md)
+* [synthesis](synthesis/index.md)
+* [techniques](techniques/index.md)
+
+## meta
+
+* [Ideas](ideas.md)
+* [Overview](overview.md)
+* [Roadmap](roadmap.md)
+
+<!-- okf:index:end -->
