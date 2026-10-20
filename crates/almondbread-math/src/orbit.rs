@@ -399,7 +399,8 @@ impl Job<'_> {
         load(&mut cx, &self.c.re);
         load(&mut cy, &self.c.im);
         let mut t = [reg(), reg(), reg(), reg(), reg(), reg()];
-        let mut regs = StepRegs::<S>::new(if shared.is_some() { n } else { 1 });
+        // n limbs even when unused: fixed-size storage requires it (debug_assert in Storage::zeroed).
+        let mut regs = StepRegs::<S>::new(n);
         let interval = control.check_interval.max(1);
         let (mut done, mut escaped, mut cancelled) = (0, false, false);
         if let Some((z, first)) = self.start {
