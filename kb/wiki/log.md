@@ -1862,3 +1862,14 @@ nucleus with a "zero" marker; Period visits the nuclei of periods 1–4; Interna
 dots spiralling into the heart's fixed point. Pitfall: the overlay's 1/64-point orbit key makes
 a chaotic end count vary between runs (959, 2 158 shown for an f64 594). See
 [[decisions/controls]] "The colours tour".
+
+## [2026-10-20] decision | Tours in plain language; tour writing rules
+
+The user took the tours with his son and met words before their explanations ("settle on one
+point (the ringed c = −0.2): period 1", "period", fractions round the heart). Every tour but
+colours and the walkthrough got a plain-language pass: each opens with the rule, the ring and the
+dots where it needs them, explains heart, bulb, loop, period, nucleus, minibrot, spike, antenna at
+first use, and shows orbit behaviour with the dots instead of naming it. The bulbs tour's fractions
+became visual steps (labelled markers where each bulb sits, dots counting 2, 3, 4; then 2 + 3 = 5
+and 5 + 3 = 8 shown with the probe). The rules for future tours: [[decisions/controls]] "Tour
+writing rules".
