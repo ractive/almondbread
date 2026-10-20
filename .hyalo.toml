@@ -15,6 +15,23 @@ required = ["title", "type"]
 # okf` on such a vault is then a no-op overlay (idempotent).
 [lint]
 profiles = ["okf"]
+# Pages that cite no source at all (decision records, meta pages, one source
+# page about local tool output). OKF-CITATIONS-PRESENT cannot be met for them
+# without inventing a citation, and hyalo has no per-file rule switch (OKF
+# rules ignore markdownlint-disable comments). Naming a file still lints it
+# fully: `hyalo lint roadmap.md`. Drop a page from this list once it cites a
+# source and has a `# Citations` section.
+ignore = [
+  "decisions/app-stack.md",
+  "decisions/arbitrary-precision.md",
+  "decisions/landscape-mode.md",
+  "decisions/open-source-release.md",
+  "decisions/rust-core.md",
+  "ideas.md",
+  "overview.md",
+  "roadmap.md",
+  "sources/apple-device-tooling.md",
+]
 
 [schema.types.source]
 required = ["title", "type", "authors", "year", "raw", "status", "tags"]
