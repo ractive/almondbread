@@ -2,7 +2,7 @@
 title: "Does local series approximation hold in the float32 perturbation kernel?"
 type: question
 status: answered
-sources: ["[[sources/mathr-deep-zoom-theory]]"]
+sources: ["sources/mathr-deep-zoom-theory"]
 tags: [series-approximation, float32, dense-regions, verification, measured]
 ---
 

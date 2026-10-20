@@ -129,3 +129,7 @@ scheduler, verification harness, arbitrary-precision library
   ([almondbread benchmarks and verification record](../synthesis/benchmarks.md), R2b). FFI per frame 2–7 µs.
 - The R2a pool predictor needed two corrections (count `acquired − presented`; gate only
   gesture frames before encoding), see [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md).
+
+# Citations
+
+- [No cited source: our own design decision; its basis is the Context and Reasons above](#context)

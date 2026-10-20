@@ -2,7 +2,7 @@
 title: "Is a higher-order (second-order) BLA worth it?"
 type: question
 status: open
-sources: ["[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/imagina-hinfla-evaluator]]"]
+sources: ["sources/desarso-mandelbrot-webgpu-readme", "sources/mathr-deep-zoom-theory-again", "sources/imagina-hinfla-evaluator"]
 tags: [bla, iteration-skipping, contradiction]
 ---
 

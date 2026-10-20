@@ -2,7 +2,7 @@
 title: "Series approximation (legacy)"
 type: technique
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/philthompson-bla]]", "[[sources/kf-manual]]", "[[sources/kf-page]]", "[[sources/desarso-mandelbrot-webgpu-readme]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/wikipedia-plotting-algorithms", "sources/philthompson-bla", "sources/kf-manual", "sources/kf-page", "sources/desarso-mandelbrot-webgpu-readme"]
 tags: [iteration-skipping, series-approximation, legacy]
 ---
 

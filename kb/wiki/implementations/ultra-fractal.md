@@ -3,7 +3,7 @@ title: "Ultra Fractal 6"
 type: implementation
 status: draft
 license: "commercial"
-sources: ["[[sources/ultrafractal-perturbation-calculations]]", "[[sources/ultrafractal-perturbation-equations]]"]
+sources: ["sources/ultrafractal-perturbation-calculations", "sources/ultrafractal-perturbation-equations"]
 tags: [implementation, commercial, perturbation, glitch-detection]
 ---
 

@@ -76,3 +76,7 @@ The release pipeline is modelled on the sibling project saturnus (its `desktop.y
   nothing secret).
 - Source pages point at `raw/web/...` files that are not committed (copyrighted); the
   manifest says how to fetch them.
+
+# Citations
+
+- [No cited source: our own release decision; its basis is the Context above](#context)

@@ -2,7 +2,7 @@
 title: "Linear approximation with period-aligned stages and AT (Imagina)"
 type: technique
 status: draft
-sources: ["[[sources/imagina-hinfla-evaluator]]", "[[sources/imagina-readme]]", "[[sources/fractalshark-readme]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/mathr-deep-zoom-theory]]"]
+sources: ["sources/imagina-hinfla-evaluator", "sources/imagina-readme", "sources/fractalshark-readme", "sources/mathr-deep-zoom-page", "sources/mathr-deep-zoom-theory"]
 tags: [la, bla, iteration-skipping, imagina, minibrot, state-of-the-art]
 ---
 

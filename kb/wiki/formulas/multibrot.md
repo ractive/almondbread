@@ -2,7 +2,7 @@
 title: "Multibrot (integer power p)"
 type: formula
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/ultrafractal-perturbation-equations]]", "[[sources/kf-page]]", "[[sources/kf-manual]]", "[[sources/fraktaler-3-site]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/ultrafractal-perturbation-equations", "sources/kf-page", "sources/kf-manual", "sources/fraktaler-3-site"]
 tags: [multibrot, formula, perturbation, bla]
 ---
 

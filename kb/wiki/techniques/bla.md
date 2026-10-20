@@ -2,7 +2,7 @@
 title: "Bivariate linear approximation (BLA)"
 type: technique
 status: reviewed
-sources: ["[[sources/mathr-deep-zoom-theory-again]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/muency-bla]]", "[[sources/philthompson-bla]]", "[[sources/fraktaler-3-site]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/muency-bla", "sources/philthompson-bla", "sources/fraktaler-3-site", "sources/desarso-mandelbrot-webgpu-readme", "sources/fractalforums-zhuoran-rebasing-bla", "sources/fractalforums-interior-detection"]
 tags: [bla, iteration-skipping, perturbation, core]
 ---
 

@@ -2,7 +2,7 @@
 title: "What is the exact Metal GPU watchdog limit on macOS and iOS?"
 type: question
 status: open
-sources: ["[[sources/mlx-watchdog-issue]]", "[[sources/fraktaler-3-site]]"]
+sources: ["sources/mlx-watchdog-issue", "sources/fraktaler-3-site"]
 tags: [metal, watchdog, ios, scheduling]
 ---
 

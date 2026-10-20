@@ -10,13 +10,13 @@ audience: [deep-zoom-creators, enthusiasts]
 depth: "unlimited"
 realtime-ipad: likely
 reuse: "medium: F2's hooks, F5's 2×2 path and F6's diffabs as opcodes; new codegen and per-phase references"
-depends-on: ["[[plans/f2-pluggable-formulas]]", "[[plans/f6-burning-ship]]"]
+depends-on: ["plans/f2-pluggable-formulas", "plans/f6-burning-ship"]
 risks:
   - "runtime MSL generation on iOS may meet App Store review questions (unverified)"
   - "one reference and one BLA table per loop phase multiplies memory and reference time"
   - "even KF's rebasing had bugs with hybrids"
   - "low appeal for casual users"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/hybrids]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/kf-manual]]", "[[implementations/fraktaler-3]]"]
+sources: ["synthesis/other-fractal-types", "formulas/hybrids", "sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/kf-manual", "implementations/fraktaler-3"]
 tags: [formulas, hybrids, opcodes, codegen]
 created: 2026-10-19
 updated: 2026-10-19

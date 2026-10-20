@@ -2,7 +2,7 @@
 title: "Perturbation"
 type: technique
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/ultrafractal-perturbation-calculations]]", "[[sources/ultrafractal-perturbation-equations]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/kf-manual]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-page", "sources/wikipedia-plotting-algorithms", "sources/ultrafractal-perturbation-calculations", "sources/ultrafractal-perturbation-equations", "sources/fractalforums-zhuoran-rebasing-bla", "sources/kf-manual"]
 tags: [perturbation, deep-zoom, core]
 ---
 

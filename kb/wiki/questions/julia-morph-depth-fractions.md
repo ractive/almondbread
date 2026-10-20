@@ -2,7 +2,7 @@
 title: "At what fraction of the log-depth to a minibrot does each doubling appear?"
 type: question
 status: open
-sources: ["[[sources/muency-newton-raphson-zooming]]", "[[sources/dinkydau-evolution-journals]]", "[[sources/fractalforums-pathfinding-revisited]]", "[[sources/kf-manual]]"]
+sources: ["sources/muency-newton-raphson-zooming", "sources/dinkydau-evolution-journals", "sources/fractalforums-pathfinding-revisited", "sources/kf-manual"]
 tags: [julia-morphing, embedded-julia-set, places, minibrot]
 ---
 

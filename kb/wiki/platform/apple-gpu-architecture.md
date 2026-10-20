@@ -2,7 +2,7 @@
 title: "Apple GPU architecture for compute"
 type: platform
 status: draft
-sources: ["[[sources/metal-benchmarks-readme]]", "[[sources/apple-dynamic-caching-talk]]", "[[sources/apple-forums-fp64-emulation]]", "[[sources/luma-gl-gpu-precision]]"]
+sources: ["sources/metal-benchmarks-readme", "sources/apple-dynamic-caching-talk", "sources/apple-forums-fp64-emulation", "sources/luma-gl-gpu-precision"]
 tags: [apple-gpu, metal, fp32, occupancy, hardware]
 ---
 

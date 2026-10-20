@@ -2,7 +2,7 @@
 title: "Flight benchmark: one fixed flight, a score, a regression guard"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/metal-benchmarks-readme]]"]
+sources: ["sources/metal-benchmarks-readme"]
 tags: [benchmark, measured, interaction, regression, decision]
 ---
 

@@ -2,7 +2,7 @@
 title: "Places: a catalogue of famous views to visit"
 type: synthesis
 date: 2026-10-14
-sources: ["[[sources/beyer-mandelbrot-zoom-sequence]]", "[[sources/muency-named-places]]", "[[sources/wikipedia-misiurewicz-point]]", "[[sources/robotmoon-mandelbrot-set]]"]
+sources: ["sources/beyer-mandelbrot-zoom-sequence", "sources/muency-named-places", "sources/wikipedia-misiurewicz-point", "sources/robotmoon-mandelbrot-set"]
 tags: [places, locations, misiurewicz, product, decision]
 ---
 

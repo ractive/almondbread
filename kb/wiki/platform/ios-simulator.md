@@ -2,7 +2,7 @@
 title: "iOS and iPadOS on the simulator: setup, checks, what broke"
 type: platform
 status: draft
-sources: ["[[sources/apple-simulator-tooling]]"]
+sources: ["sources/apple-simulator-tooling"]
 tags: [ios, ipad, simulator, testing, xctest, ui]
 ---
 

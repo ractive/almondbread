@@ -2,7 +2,7 @@
 title: "Reference selection: nucleus, period detection, Newton"
 type: technique
 status: draft
-sources: ["[[sources/kf-manual]]", "[[sources/muency-newton-raphson]]", "[[sources/muency-atom-domain]]", "[[sources/philthompson-bla]]", "[[sources/fractalshark-readme]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/fraktaler-3-site]]"]
+sources: ["sources/kf-manual", "sources/muency-newton-raphson", "sources/muency-atom-domain", "sources/philthompson-bla", "sources/fractalshark-readme", "sources/mathr-deep-zoom-theory-again", "sources/fractalforums-zhuoran-rebasing-bla", "sources/fraktaler-3-site"]
 tags: [reference, period-detection, newton, minibrot]
 ---
 

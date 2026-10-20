@@ -2,7 +2,7 @@
 title: "What does Metal's default math mode allow for runtime-compiled kernels?"
 type: question
 status: open
-sources: ["[[sources/apple-metal-compile-options]]", "[[sources/luma-gl-gpu-precision]]"]
+sources: ["sources/apple-metal-compile-options", "sources/luma-gl-gpu-precision"]
 tags: [metal, fast-math, double-float, compiler]
 ---
 

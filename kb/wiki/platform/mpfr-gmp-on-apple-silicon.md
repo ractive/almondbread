@@ -2,7 +2,7 @@
 title: "Arbitrary precision on Apple Silicon (GMP, MPFR)"
 type: platform
 status: draft
-sources: ["[[sources/gmp-m1-discuss]]", "[[sources/gmp-fixed-size-mul]]", "[[sources/fractalshark-readme]]", "[[sources/fractalforums-interior-detection]]", "[[sources/kf-manual]]", "[[sources/metal-benchmarks-readme]]"]
+sources: ["sources/gmp-m1-discuss", "sources/gmp-fixed-size-mul", "sources/fractalshark-readme", "sources/fractalforums-interior-detection", "sources/kf-manual", "sources/metal-benchmarks-readme"]
 tags: [cpu, gmp, mpfr, reference-orbit, multithreading, apple-silicon]
 ---
 

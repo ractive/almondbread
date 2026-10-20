@@ -2,7 +2,7 @@
 title: "Other formulas: feasibility of deep zoom"
 type: formula
 status: draft
-sources: ["[[sources/ultrafractal-perturbation-equations]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/fractalzoomer-readme]]"]
+sources: ["sources/ultrafractal-perturbation-equations", "sources/fractalforums-zhuoran-rebasing-bla", "sources/mathr-deep-zoom-page", "sources/fractalzoomer-readme"]
 tags: [formula, feasibility, nova, newton, mandelbulb, lyapunov]
 ---
 

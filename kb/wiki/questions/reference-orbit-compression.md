@@ -2,7 +2,7 @@
 title: "How does Imagina/FractalShark reference-orbit compression work?"
 type: question
 status: answered
-sources: ["[[sources/fractalshark-readme]]", "[[sources/imagina-readme]]", "[[sources/imagina-hinfla-evaluator]]"]
+sources: ["sources/fractalshark-readme", "sources/imagina-readme", "sources/imagina-hinfla-evaluator"]
 tags: [reference-orbit, memory, compression, ios]
 ---
 

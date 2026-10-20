@@ -2,7 +2,7 @@
 title: "Double-float (float-float) arithmetic"
 type: technique
 status: draft
-sources: ["[[sources/thall-extended-precision]]", "[[sources/luma-gl-gpu-precision]]", "[[sources/fractalshark-readme]]", "[[sources/metal-benchmarks-readme]]", "[[sources/apple-forums-fp64-emulation]]", "[[sources/apple-metal-compile-options]]", "[[sources/swift-mandelbrot-readme]]"]
+sources: ["sources/thall-extended-precision", "sources/luma-gl-gpu-precision", "sources/fractalshark-readme", "sources/metal-benchmarks-readme", "sources/apple-forums-fp64-emulation", "sources/apple-metal-compile-options", "sources/swift-mandelbrot-readme"]
 tags: [numerics, double-float, df64, float32, metal]
 ---
 

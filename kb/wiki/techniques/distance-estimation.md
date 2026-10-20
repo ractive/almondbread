@@ -2,7 +2,7 @@
 title: "Distance estimation"
 type: technique
 status: draft
-sources: ["[[sources/cheritat-mandelbrot-rendering]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/kf-manual]]", "[[sources/imagina-hinfla-evaluator]]", "[[sources/zoomasm]]"]
+sources: ["sources/cheritat-mandelbrot-rendering", "sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-page", "sources/wikipedia-plotting-algorithms", "sources/kf-manual", "sources/imagina-hinfla-evaluator", "sources/zoomasm"]
 tags: [distance-estimation, derivative, anti-aliasing, lighting]
 ---
 

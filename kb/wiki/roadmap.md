@@ -70,3 +70,7 @@ milestone must show bit-identical Mandelbrot fields and a `bench` A/B geomean â‰
 
 **Awaiting device review (2026-10-19):** the user has not yet tried on the iPad the rest / swipe
 thresholds (I2), the tours (T1) or the walkthrough (T2).
+
+# Citations
+
+- [No cited source: milestone status; the evidence is on the linked pages](#roadmap)

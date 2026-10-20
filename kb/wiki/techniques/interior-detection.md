@@ -2,7 +2,7 @@
 title: "Interior detection"
 type: technique
 status: draft
-sources: ["[[sources/cheritat-mandelbrot-rendering]]", "[[sources/fractalforums-interior-detection]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/mathr-interior-distance]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/wikibooks-mandelbrot-interior]]", "[[sources/wikibooks-fraktaler-3]]", "[[sources/kf-manual]]", "[[sources/imagina-hinfla-evaluator]]"]
+sources: ["sources/cheritat-mandelbrot-rendering", "sources/fractalforums-interior-detection", "sources/mathr-deep-zoom-page", "sources/mathr-interior-distance", "sources/wikipedia-plotting-algorithms", "sources/wikibooks-mandelbrot-interior", "sources/wikibooks-fraktaler-3", "sources/kf-manual", "sources/imagina-hinfla-evaluator"]
 tags: [interior, derivative, periodicity, performance]
 ---
 

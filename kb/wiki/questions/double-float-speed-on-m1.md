@@ -2,7 +2,7 @@
 title: "Which extended-precision emulation is fastest and correct on Apple GPUs?"
 type: question
 status: answered
-sources: ["[[sources/apple-forums-fp64-emulation]]", "[[sources/metal-benchmarks-readme]]", "[[sources/luma-gl-gpu-precision]]", "[[sources/thall-extended-precision]]", "[[sources/fractalshark-readme]]"]
+sources: ["sources/apple-forums-fp64-emulation", "sources/metal-benchmarks-readme", "sources/luma-gl-gpu-precision", "sources/thall-extended-precision", "sources/fractalshark-readme"]
 tags: [double-float, apple-gpu, benchmark, precision]
 ---
 

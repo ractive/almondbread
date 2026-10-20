@@ -2,7 +2,7 @@
 title: "Finding good places at extreme depth (1e100 to 1e100000+)"
 type: synthesis
 date: 2026-10-17
-sources: ["[[sources/mathr-julia-morphing-posts]]", "[[sources/mathr-embedded-julia-navigation]]", "[[sources/mathr-domains-and-periodicity-scan]]", "[[sources/heiland-allen-inflected-julia-sets-2025]]", "[[sources/dinkydau-evolution-journals]]", "[[sources/fractalforums-pathfinding-revisited]]", "[[sources/fractalforums-deepest-zoom-poll]]", "[[sources/deep-zoom-videos]]", "[[sources/wikibooks-emndl]]", "[[sources/kf-manual]]", "[[sources/fraktaler-3-site]]", "[[sources/fractalshark-readme]]", "[[sources/imagina-readme]]", "[[sources/muency-newton-raphson-zooming]]", "[[sources/muency-atom-domain]]"]
+sources: ["sources/mathr-julia-morphing-posts", "sources/mathr-embedded-julia-navigation", "sources/mathr-domains-and-periodicity-scan", "sources/heiland-allen-inflected-julia-sets-2025", "sources/dinkydau-evolution-journals", "sources/fractalforums-pathfinding-revisited", "sources/fractalforums-deepest-zoom-poll", "sources/deep-zoom-videos", "sources/wikibooks-emndl", "sources/kf-manual", "sources/fraktaler-3-site", "sources/fractalshark-readme", "sources/imagina-readme", "sources/muency-newton-raphson-zooming", "sources/muency-atom-domain"]
 tags: [places, julia-morphing, shape-stacking, minibrot, misiurewicz, newton, coloring, records, automation, research]
 ---
 

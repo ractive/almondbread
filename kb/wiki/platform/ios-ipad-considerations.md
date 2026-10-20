@@ -2,7 +2,7 @@
 title: "iOS and iPadOS port considerations"
 type: platform
 status: draft
-sources: ["[[sources/swift-mandelbrot-readme]]", "[[sources/fractalshark-readme]]", "[[sources/fraktaler-3-site]]", "[[sources/imagina-hinfla-evaluator]]", "[[sources/mlx-watchdog-issue]]"]
+sources: ["sources/swift-mandelbrot-readme", "sources/fractalshark-readme", "sources/fraktaler-3-site", "sources/imagina-hinfla-evaluator", "sources/mlx-watchdog-issue"]
 tags: [ios, ipad, memory, thermal, port]
 ---
 

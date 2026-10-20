@@ -2,7 +2,7 @@
 title: "Smooth (continuous) iteration count"
 type: technique
 status: draft
-sources: ["[[sources/quilez-smooth-iteration]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/kf-manual]]", "[[sources/zoomasm]]"]
+sources: ["sources/quilez-smooth-iteration", "sources/wikipedia-plotting-algorithms", "sources/cheritat-mandelbrot-rendering", "sources/kf-manual", "sources/zoomasm"]
 tags: [coloring, smooth-iteration, bailout, precision]
 ---
 

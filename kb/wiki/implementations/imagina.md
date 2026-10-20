@@ -3,7 +3,7 @@ title: "Imagina"
 type: implementation
 status: draft
 license: "AGPL-3.0"
-sources: ["[[sources/imagina-readme]]", "[[sources/imagina-hinfla-evaluator]]", "[[sources/muency-bla]]", "[[sources/fractalshark-readme]]", "[[sources/kf-page]]"]
+sources: ["sources/imagina-readme", "sources/imagina-hinfla-evaluator", "sources/muency-bla", "sources/fractalshark-readme", "sources/kf-page"]
 tags: [implementation, linear-approximation, rebasing, floatexp, cpu-simd]
 ---
 

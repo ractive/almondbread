@@ -2,7 +2,7 @@
 title: "Metal compute pipeline for a deep-zoom renderer"
 type: platform
 status: draft
-sources: ["[[sources/apple-metal-compile-options]]", "[[sources/metal-benchmarks-readme]]", "[[sources/luma-gl-gpu-precision]]", "[[sources/mlx-watchdog-issue]]", "[[sources/fraktaler-3-site]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/swift-mandelbrot-readme]]"]
+sources: ["sources/apple-metal-compile-options", "sources/metal-benchmarks-readme", "sources/luma-gl-gpu-precision", "sources/mlx-watchdog-issue", "sources/fraktaler-3-site", "sources/mathr-deep-zoom-theory", "sources/swift-mandelbrot-readme"]
 tags: [metal, pipeline, function-constants, unified-memory, compilation]
 ---
 

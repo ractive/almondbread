@@ -10,13 +10,13 @@ audience: [deep-zoom-creators, artists, enthusiasts, casual]
 depth: "unlimited; slow at deep needles"
 realtime-ipad: likely
 reuse: "medium: the non-conformal path from F5; diffabs at every step site; no SA seeds"
-depends-on: ["[[plans/f2-pluggable-formulas]]", "[[plans/f5-mandelbar]]"]
+depends-on: ["plans/f2-pluggable-formulas", "plans/f5-mandelbar"]
 risks:
   - "deep needle in float32: full floatexp steps when either part of Z is small; detection unresolved even in KF"
   - "local SA seeds do not work on folded regions"
   - "autopilot, target lock and journeys tuned on Mandelbrot"
   - "popularity claim is a forum anecdote (unverified)"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/burning-ship]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/fractalshades-readme]]", "[[sources/hpdz-animations]]", "[[sources/fraktaler-3-site]]"]
+sources: ["synthesis/other-fractal-types", "formulas/burning-ship", "sources/mathr-deep-zoom-page", "sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/fractalshades-readme", "sources/hpdz-animations", "sources/fraktaler-3-site"]
 tags: [formulas, burning-ship, non-conformal, bla, needle]
 created: 2026-10-19
 updated: 2026-10-19

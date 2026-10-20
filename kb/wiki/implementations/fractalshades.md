@@ -3,7 +3,7 @@ title: "Fractalshades"
 type: implementation
 status: draft
 license: "MIT"
-sources: ["[[sources/fractalshades-readme]]", "[[sources/kf-page]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/fractalshades-readme", "sources/kf-page", "sources/fractalforums-interior-detection"]
 tags: [implementation, python, bla, perturbation, interior-detection]
 ---
 

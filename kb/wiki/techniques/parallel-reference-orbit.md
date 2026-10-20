@@ -2,7 +2,7 @@
 title: "Faster deep references: three-thread orbit, progressive delivery, cheap Newton"
 type: technique
 status: draft
-sources: ["[[sources/fractalshark-readme]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]"]
+sources: ["sources/fractalshark-readme", "sources/fractalforums-zhuoran-rebasing-bla"]
 tags: [reference, arbitrary-precision, threads, newton, latency]
 ---
 

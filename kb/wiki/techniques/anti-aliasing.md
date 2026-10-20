@@ -2,7 +2,7 @@
 title: "Anti-aliasing and supersampling"
 type: technique
 status: draft
-sources: ["[[sources/kf-manual]]", "[[sources/zoomasm]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/wikibooks-fraktaler-3]]", "[[sources/fractalshark-readme]]"]
+sources: ["sources/kf-manual", "sources/zoomasm", "sources/cheritat-mandelbrot-rendering", "sources/wikibooks-fraktaler-3", "sources/fractalshark-readme"]
 tags: [anti-aliasing, jitter, supersampling, progressive]
 ---
 

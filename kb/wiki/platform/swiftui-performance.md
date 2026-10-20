@@ -2,7 +2,7 @@
 title: "SwiftUI performance: the control center sidebar"
 type: platform
 status: draft
-sources: ["[[sources/apple-swiftui-observation]]"]
+sources: ["sources/apple-swiftui-observation"]
 tags: [swiftui, macos, ios, ui, performance, control-center]
 ---
 

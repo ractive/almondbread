@@ -2,7 +2,7 @@
 title: "Rust core to Swift: UniFFI and the XCFramework pipeline"
 type: platform
 status: draft
-sources: ["[[sources/uniffi-user-guide]]"]
+sources: ["sources/uniffi-user-guide"]
 tags: [rust, swift, ffi, uniffi, xcframework, build, ios, macos]
 ---
 

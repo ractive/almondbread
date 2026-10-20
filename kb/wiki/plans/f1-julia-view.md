@@ -15,7 +15,7 @@ risks:
   - "no room for another panel on an iPhone"
   - "a live Julia under the pointer could cost frame budget during gestures"
   - "users may expect to zoom the inset deeply (that is F4)"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/julia]]", "[[sources/frax-about]]", "[[sources/kisaka-julia-sets-in-mandelbrot]]", "[[decisions/controls]]"]
+sources: ["synthesis/other-fractal-types", "formulas/julia", "sources/frax-about", "sources/kisaka-julia-sets-in-mandelbrot", "decisions/controls"]
 tags: [julia, overlay, education, formulas]
 created: 2026-10-19
 updated: 2026-10-19

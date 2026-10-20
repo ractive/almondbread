@@ -15,7 +15,7 @@ risks:
   - "a slower Mandelbrot path if the function-constant fold does not happen"
   - "pipeline count multiplies by formula (cold shader cache, memory)"
   - "a refactor with no visible result invites scope creep"
-sources: ["[[synthesis/other-fractal-types]]", "[[platform/metal-compute]]", "[[techniques/bla]]", "[[techniques/double-float]]", "[[synthesis/benchmarks]]"]
+sources: ["synthesis/other-fractal-types", "platform/metal-compute", "techniques/bla", "techniques/double-float", "synthesis/benchmarks"]
 tags: [formulas, architecture, refactor, metal, kernels]
 created: 2026-10-19
 updated: 2026-10-19

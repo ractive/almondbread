@@ -2,7 +2,7 @@
 title: "Exponential map (log-polar) rendering"
 type: technique
 status: draft
-sources: ["[[sources/kf-manual]]", "[[sources/zoomasm]]", "[[sources/fraktaler-3-site]]", "[[sources/wikibooks-fraktaler-3]]"]
+sources: ["sources/kf-manual", "sources/zoomasm", "sources/fraktaler-3-site", "sources/wikibooks-fraktaler-3"]
 tags: [exponential-map, video, zoomasm, log-polar]
 ---
 

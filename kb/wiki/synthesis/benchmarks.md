@@ -2,7 +2,7 @@
 title: "almondbread benchmarks and verification record"
 type: synthesis
 date: 2026-10-14
-sources: ["[[sources/mlx-watchdog-issue]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/fractalforums-interior-detection]]", "[[sources/metal-benchmarks-readme]]"]
+sources: ["sources/mlx-watchdog-issue", "sources/cheritat-mandelbrot-rendering", "sources/fractalforums-interior-detection", "sources/metal-benchmarks-readme"]
 tags: [benchmark, verification, measured, metal, interior, chunking, interaction]
 ---
 

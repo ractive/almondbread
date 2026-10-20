@@ -2,7 +2,7 @@
 title: "Reference orbit: precision, cost, storage, compression"
 type: technique
 status: draft
-sources: ["[[sources/kf-manual]]", "[[sources/fractalshark-readme]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/gmp-m1-discuss]]", "[[sources/gmp-fixed-size-mul]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fraktaler-3-site]]"]
+sources: ["sources/kf-manual", "sources/fractalshark-readme", "sources/mathr-deep-zoom-theory", "sources/gmp-m1-discuss", "sources/gmp-fixed-size-mul", "sources/desarso-mandelbrot-webgpu-readme", "sources/fraktaler-3-site"]
 tags: [reference, arbitrary-precision, mpfr, gmp, memory]
 ---
 

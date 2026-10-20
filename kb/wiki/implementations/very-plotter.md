@@ -3,7 +3,7 @@ title: "Very Plotter"
 type: implementation
 status: draft
 license: "MIT"
-sources: ["[[sources/very-plotter-readme]]", "[[sources/philthompson-bla]]"]
+sources: ["sources/very-plotter-readme", "sources/philthompson-bla"]
 tags: [implementation, javascript, bla, series-approximation, benchmark]
 ---
 

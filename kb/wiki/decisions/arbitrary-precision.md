@@ -61,3 +61,7 @@ cheap-derivative Newton. Toom-3/NTT stay unbuilt: the short Comba square beats t
 Karatsuba square 1.5-1.8x at every size up to 157 limbs (1e-3000), so they cannot pay
 before ~300 limbs. A jump to dendrite-1e1000 shows its first frame after ~0.13 s instead
 of ~2.1 s ([Faster deep references: three-thread orbit, progressive delivery, cheap Newton](../techniques/parallel-reference-orbit.md), [almondbread benchmarks and verification record](../synthesis/benchmarks.md) R6).
+
+# Citations
+
+- [No cited source: our own design decision; its basis is the Context and Reasons above](#context)

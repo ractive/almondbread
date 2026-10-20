@@ -2,7 +2,7 @@
 title: "Colouring methods"
 type: technique
 status: draft
-sources: ["[[sources/wikipedia-plotting-algorithms]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/wikibooks-triangle-inequality]]", "[[sources/wikibooks-mandelbrot-interior]]", "[[sources/kf-manual]]", "[[sources/zoomasm]]", "[[sources/philthompson-bla]]", "[[sources/mathr-interior-distance]]", "[[sources/muency-atom-domain]]"]
+sources: ["sources/wikipedia-plotting-algorithms", "sources/cheritat-mandelbrot-rendering", "sources/wikibooks-triangle-inequality", "sources/wikibooks-mandelbrot-interior", "sources/kf-manual", "sources/zoomasm", "sources/philthompson-bla", "sources/mathr-interior-distance", "sources/muency-atom-domain"]
 tags: [coloring, histogram, stripe-average, lighting, palette, interior-coloring]
 ---
 

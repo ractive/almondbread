@@ -564,3 +564,7 @@ at S = 1.76e-6 was, as measured, the fill-limited zoom stuck at 0.1–0.15 e-fol
   oracle disagrees with 0–16 of 600 samples per level (DE off by more than 2×): the f64 limit
   of the oracle and the f64 nucleus, as in L1.
 - 120 Hz under a quiet GPU is not re-measured (see above).
+
+# Citations
+
+- [No cited source: our own design decision and our own prototype measurements, as stated above](#context)

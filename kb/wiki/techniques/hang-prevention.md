@@ -2,7 +2,7 @@
 title: Hang prevention (loop guards, extreme-value tests, main-thread watchdog)
 type: technique
 status: draft
-sources: ["[[sources/apple-metrickit-hang-diagnostics]]"]
+sources: ["sources/apple-metrickit-hang-diagnostics"]
 tags: [robustness, hangs, numerics, watchdog, engineering]
 ---
 

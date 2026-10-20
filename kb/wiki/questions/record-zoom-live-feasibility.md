@@ -3,7 +3,7 @@ title: "Can almondbread play a world-record zoom live, without post-processing?"
 type: question
 status: open
 tags: [performance, video, exponential-map, linear-approximation, roadmap]
-sources: ["[[sources/maths-town-videos]]", "[[sources/mathr-deep-zoom-theory-again]]"]
+sources: ["sources/maths-town-videos", "sources/mathr-deep-zoom-theory-again"]
 ---
 
 # Can almondbread play a world-record zoom live, without post-processing?

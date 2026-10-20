@@ -2,7 +2,7 @@
 title: "Can perturbation and rebasing handle Nova, Newton and Magnet formulas?"
 type: question
 status: open
-sources: ["[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/ultrafractal-perturbation-equations]]", "[[sources/fractalzoomer-readme]]"]
+sources: ["sources/fractalforums-zhuoran-rebasing-bla", "sources/ultrafractal-perturbation-equations", "sources/fractalzoomer-readme"]
 tags: [formulas, perturbation, rebasing, contradiction]
 ---
 

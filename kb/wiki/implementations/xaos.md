@@ -3,7 +3,7 @@ title: "XaoS"
 type: implementation
 status: draft
 license: "GPL-2.0-or-later"
-sources: ["[[sources/xaos-readme]]", "[[sources/wikipedia-xaos]]"]
+sources: ["sources/xaos-readme", "sources/wikipedia-xaos"]
 tags: [implementation, realtime, frame-reuse, interactive]
 ---
 

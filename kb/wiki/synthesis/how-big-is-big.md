@@ -2,7 +2,7 @@
 title: "How big is big? Zoom depth against huge numbers, one dial per up-arrow"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/wikipedia-knuth-up-arrow-notation]]", "[[sources/wikipedia-tetration]]", "[[sources/wikipedia-grahams-number]]", "[[sources/wikipedia-kruskal-tree-theorem]]", "[[sources/wikipedia-steinhaus-moser-notation]]", "[[sources/wikipedia-skewes-number]]", "[[sources/wikipedia-googolplex]]", "[[sources/wikipedia-names-of-large-numbers]]", "[[sources/wikipedia-fast-growing-hierarchy]]", "[[sources/wikipedia-observable-universe]]", "[[sources/make-ganson-machine-with-concrete]]"]
+sources: ["sources/wikipedia-knuth-up-arrow-notation", "sources/wikipedia-tetration", "sources/wikipedia-grahams-number", "sources/wikipedia-kruskal-tree-theorem", "sources/wikipedia-steinhaus-moser-notation", "sources/wikipedia-skewes-number", "sources/wikipedia-googolplex", "sources/wikipedia-names-of-large-numbers", "sources/wikipedia-fast-growing-hierarchy", "sources/wikipedia-observable-universe", "sources/make-ganson-machine-with-concrete"]
 tags: [how-big, big-numbers, up-arrow, product, ui, removed]
 ---
 

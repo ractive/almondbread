@@ -2,7 +2,7 @@
 title: "How many bits does the reference orbit need?"
 type: question
 status: open
-sources: ["[[sources/kf-manual]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/muency-newton-raphson]]"]
+sources: ["sources/kf-manual", "sources/mathr-deep-zoom-theory", "sources/muency-newton-raphson"]
 tags: [reference-orbit, precision, mpfr]
 ---
 

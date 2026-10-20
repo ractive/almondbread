@@ -2,7 +2,7 @@
 title: "Dense boundary regions: fewer pixel-iterations for the same image (R3)"
 type: synthesis
 date: 2026-10-14
-sources: ["[[sources/mathr-adaptive-supersampling-de]]", "[[sources/mitchell-1987-adaptive-sampling]]", "[[sources/ultrafractal-antialiasing]]", "[[sources/xaos-algorithms]]", "[[sources/muency-adjacency-optimization]]", "[[sources/fractint-passes-help]]", "[[sources/kopf-2007-joint-bilateral-upsampling]]", "[[sources/schied-2017-svgf]]", "[[sources/kf-manual]]", "[[sources/fraktaler-3-site]]", "[[sources/wikipedia-plotting-algorithms]]"]
+sources: ["sources/mathr-adaptive-supersampling-de", "sources/mitchell-1987-adaptive-sampling", "sources/ultrafractal-antialiasing", "sources/xaos-algorithms", "sources/muency-adjacency-optimization", "sources/fractint-passes-help", "sources/kopf-2007-joint-bilateral-upsampling", "sources/schied-2017-svgf", "sources/kf-manual", "sources/fraktaler-3-site", "sources/wikipedia-plotting-algorithms"]
 tags: [dense-regions, adaptive-sampling, series-approximation, anti-aliasing, guessing, measured, decision]
 ---
 

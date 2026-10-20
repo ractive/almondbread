@@ -16,7 +16,7 @@ risks:
   - "the opposite of almondbread's selling point (unlimited depth)"
   - "crowded niche (shadertoys, Mandelbulber, App Store viewers; count unverified)"
   - "a new renderer, camera, lighting and content: months of work"
-sources: ["[[synthesis/other-fractal-types]]", "[[sources/quilez-mandelbulb]]", "[[sources/wikipedia-mandelbox]]", "[[sources/hvidtfeldt-de-3d-fractals]]", "[[sources/skytopia-mandelbulb]]", "[[sources/alltools-mandelbulb-explorer]]", "[[sources/mandelbulber2-readme]]", "[[sources/apple-metalfx-docs]]", "[[decisions/landscape-mode]]", "[[techniques/double-float]]"]
+sources: ["synthesis/other-fractal-types", "sources/quilez-mandelbulb", "sources/wikipedia-mandelbox", "sources/hvidtfeldt-de-3d-fractals", "sources/skytopia-mandelbulb", "sources/alltools-mandelbulb-explorer", "sources/mandelbulber2-readme", "sources/apple-metalfx-docs", "decisions/landscape-mode", "techniques/double-float"]
 tags: [3d, mandelbox, mandelbulb, ray-marching, verdict]
 created: 2026-10-19
 updated: 2026-10-19

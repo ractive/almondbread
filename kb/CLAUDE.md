@@ -33,9 +33,9 @@ else through hyalo. `hyalo lint` must be clean before a commit.
 
 The wiki is an Open Knowledge Format (OKF) bundle: `../.hyalo.toml` sets
 `[lint] profiles = ["okf"]`, so a plain `hyalo lint` also runs the OKF
-rules (citations, reserved `index.md` / `log.md` structure). Its
-`[lint] ignore` list holds the pages that cite no source (see Page
-conventions); `hyalo lint <page>` still lints such a page when named.
+rules (citations, reserved `index.md` / `log.md` structure) on every
+page. Nothing is exempt: do not add `[lint] ignore` entries or switch rules
+off to get a clean run.
 
 ## Code licences
 
@@ -68,18 +68,20 @@ copyleft project. Cite which file or post a fact came from.
 - Frontmatter per type is enforced by `../.hyalo.toml` (`hyalo types list`,
   `hyalo types show <type>`). Common keys: `title`, `type`, `tags`,
   `status` (`stub|draft|reviewed`; questions `open|answered`; sources
-  `unread|skimmed|digested`), `sources` (list of `"[[sources/...]]"` strings).
-  Frontmatter lists (`sources`, `depends-on`) keep this `[[...]]` form: the
-  schemas in `../.hyalo.toml` require it (`item_pattern`), hyalo counts these
-  as links (backlinks, orphans, broken links) and `hyalo mv` rewrites them.
-  Everywhere else (page bodies) links are Markdown links, see below.
+  `unread|skimmed|digested`), `sources` (list of OKF concept IDs, the page
+  path without `.md`: `sources: ["sources/kf-manual", "sources/muency-bla"]`).
+  Frontmatter lists (`sources`, `depends-on`) hold concept IDs, never
+  `[[wikilinks]]` (the schemas' `item_pattern` checks the form). hyalo does not
+  see these as links, so every ID in `sources` must also appear as a link in
+  the page's `# Citations`, and after `hyalo mv` update the IDs by hand
+  (`hyalo find --property 'sources~=old-name'` finds them).
 - `plan` pages (`plans/<milestone-slug>.md`, one per milestone in `roadmap.md`):
   frontmatter `milestone` (e.g. `F3`), `status` (`proposed|planned|in-progress|done|dropped`),
   `priority` (number, the order), `effort` (`S` days, `M` 1–2 weeks, `L` 3–6 weeks,
   `XL` months), `appeal` (`low|medium|high`), `audience` (list: `casual`, `education`,
   `artists`, `deep-zoom-creators`, `enthusiasts`, `developers`), `depth` and `reuse` (text),
-  `realtime-ipad` (`yes|no|likely|unknown`), `depends-on` (list of `[[plans/...]]`), `risks`
-  (list), `sources` (any wiki links), `tags`, `created`, `updated`. Required body sections
+  `realtime-ipad` (`yes|no|likely|unknown`), `depends-on` (list of `plans/...` concept IDs), `risks`
+  (list), `sources` (concept IDs of any wiki pages), `tags`, `created`, `updated`. Required body sections
   (`## ` headings, enforced): Goal, Scope, Non-goals, Design sketch, Affected modules (our
   files), Verification (acceptance criteria, including how to prove the Mandelbrot fast path is
   unaffected: bit-identical fields and a `bench` A/B ≈ 1.0), Review gate (what the user tries
@@ -93,20 +95,23 @@ copyleft project. Cite which file or post a fact came from.
   manifest; for material not saved, give the URL and write `raw: "web"`.
 - Formulas in LaTeX-ish inline code or `$...$`; pseudocode in fenced
   blocks, our own.
-- Every page that cites anything ends with a `# Citations` section (level-1
+- Every page ends with a `# Citations` section (level-1
   heading, OKF §8): a list with one link per cited document, built from the
   page's own citations (its `sources`, the pages in its `(src: ...)`
   citations, the external URLs it cites), e.g.
   `- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)` or
   `- <https://mathr.co.uk/kf/manual.html>`. A `source` page lists the URL of
   the document it describes. Keep the section in step with the body. Never
-  invent a citation to satisfy lint: a page that cites nothing gets no
-  `# Citations` section and goes into `[lint] ignore` in `../.hyalo.toml`.
+  invent a citation to satisfy lint: a page that cites nothing (a decision
+  record, a meta page) says so in one entry that links to its own section
+  where its basis is stated, e.g.
+  `- [No cited source: our own design decision; its basis is the Context and Reasons above](#context)`.
 - Link liberally with plain relative Markdown links that GitHub renders:
   `[Title](../techniques/bla.md)`, the path relative to the linking page,
   `.md` included, a heading as its GitHub anchor (`bla.md#as-built`). The
   link text is the target page's title, or a shorter phrase that fits the
-  sentence. No `[[wikilinks]]` in page bodies (except inside code). Code
+  sentence. No `[[wikilinks]]` in page bodies (except inside code; do not
+  run `hyalo links auto`, it writes them). Code
   comments keep citing pages as `kb: techniques/bla` (not a link). A link
   to a missing page is a todo;
   `hyalo find --broken-links` lists them.

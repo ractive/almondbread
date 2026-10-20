@@ -2,7 +2,7 @@
 title: "Julia sets"
 type: formula
 status: draft
-sources: ["[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/swift-mandelbrot-readme]]", "[[sources/fractalzoomer-readme]]"]
+sources: ["sources/fractalforums-zhuoran-rebasing-bla", "sources/swift-mandelbrot-readme", "sources/fractalzoomer-readme"]
 tags: [julia, formula, perturbation, rebasing]
 ---
 

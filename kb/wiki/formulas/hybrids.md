@@ -2,7 +2,7 @@
 title: "Hybrid formulas"
 type: formula
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/fraktaler-3-site]]", "[[sources/kf-page]]", "[[sources/kf-manual]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/fraktaler-3-site", "sources/kf-page", "sources/kf-manual"]
 tags: [hybrids, formula, perturbation, bla, rebasing, code-generation]
 ---
 

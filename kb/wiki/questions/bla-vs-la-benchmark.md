@@ -2,7 +2,7 @@
 title: "How much faster is Imagina-style LA than binary-tree BLA on a GPU?"
 type: question
 status: answered
-sources: ["[[sources/mathr-deep-zoom-theory-again]]", "[[sources/philthompson-bla]]", "[[sources/imagina-hinfla-evaluator]]", "[[sources/fractalshark-readme]]", "[[sources/fraktaler-3-site]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/mathr-deep-zoom-theory-again", "sources/philthompson-bla", "sources/imagina-hinfla-evaluator", "sources/fractalshark-readme", "sources/fraktaler-3-site", "sources/fractalforums-interior-detection"]
 tags: [bla, linear-approximation, benchmark, iteration-skipping]
 ---
 

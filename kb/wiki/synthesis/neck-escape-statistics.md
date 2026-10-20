@@ -2,7 +2,7 @@
 title: The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)
 type: synthesis
 date: 2026-10-17
-sources: ["[[sources/klebanoff-pi-in-mandelbrot]]"]
+sources: ["sources/klebanoff-pi-in-mandelbrot"]
 tags: [neck, escape-time, ground-truth, max-iterations, precision, known-hard-case]
 ---
 

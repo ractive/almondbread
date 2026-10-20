@@ -3,7 +3,7 @@ title: "Fractal Zoomer"
 type: implementation
 status: draft
 license: "GPL-3.0"
-sources: ["[[sources/fractalzoomer-readme]]", "[[sources/kf-page]]", "[[sources/fractalshark-readme]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]"]
+sources: ["sources/fractalzoomer-readme", "sources/kf-page", "sources/fractalshark-readme", "sources/fractalforums-zhuoran-rebasing-bla"]
 tags: [implementation, java, perturbation, bla, linear-approximation]
 ---
 

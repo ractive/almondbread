@@ -2,7 +2,7 @@
 title: "Motion sample reuse: fewer iterations per gesture frame (R4)"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/xaos-algorithms]]", "[[sources/wikipedia-xaos]]", "[[sources/apple-metalfx-docs]]", "[[sources/wwdc22-metalfx-upscaling]]", "[[sources/wwdc25-metal4-games]]", "[[sources/apple-metal-feature-set-tables]]", "[[sources/apple-metalfx-taa-sample]]"]
+sources: ["sources/xaos-algorithms", "sources/wikipedia-xaos", "sources/apple-metalfx-docs", "sources/wwdc22-metalfx-upscaling", "sources/wwdc25-metal4-games", "sources/apple-metal-feature-set-tables", "sources/apple-metalfx-taa-sample"]
 tags: [frame-reuse, sample-reuse, temporal, metalfx, interactive, measured, decision]
 ---
 

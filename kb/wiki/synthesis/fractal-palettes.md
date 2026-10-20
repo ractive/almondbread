@@ -2,7 +2,7 @@
 title: "Fractal palettes: research and the palette library"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/fractalset-viewer]]", "[[sources/ultrafractal-gradients-help]]", "[[sources/fractint-map-format]]", "[[sources/kf-manual]]", "[[sources/kovesi-good-colour-maps]]", "[[sources/colorcet]]", "[[sources/crameri-scientific-colour-maps]]", "[[sources/bids-viridis-colormaps]]", "[[sources/cmocean]]", "[[sources/turbo-colormap]]", "[[sources/cividis-paper]]", "[[sources/quilez-cosine-palettes]]", "[[sources/ottosson-oklab]]"]
+sources: ["sources/fractalset-viewer", "sources/ultrafractal-gradients-help", "sources/fractint-map-format", "sources/kf-manual", "sources/kovesi-good-colour-maps", "sources/colorcet", "sources/crameri-scientific-colour-maps", "sources/bids-viridis-colormaps", "sources/cmocean", "sources/turbo-colormap", "sources/cividis-paper", "sources/quilez-cosine-palettes", "sources/ottosson-oklab"]
 tags: [palette, coloring, licence, library]
 ---
 

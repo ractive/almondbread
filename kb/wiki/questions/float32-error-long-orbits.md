@@ -2,7 +2,7 @@
 title: "How large is float32 perturbation error over long orbits?"
 type: question
 status: answered
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fractalshark-readme]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/fractalforums-zhuoran-rebasing-bla", "sources/desarso-mandelbrot-webgpu-readme", "sources/fractalshark-readme"]
 tags: [float32, precision, verification, benchmark]
 ---
 

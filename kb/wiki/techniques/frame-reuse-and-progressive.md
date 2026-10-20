@@ -2,7 +2,7 @@
 title: "Frame reuse and progressive refinement"
 type: technique
 status: draft
-sources: ["[[sources/wikipedia-xaos]]", "[[sources/xaos-readme]]", "[[sources/kf-manual]]", "[[sources/zoomasm]]", "[[sources/fractalshark-readme]]", "[[sources/fraktaler-3-site]]"]
+sources: ["sources/wikipedia-xaos", "sources/xaos-readme", "sources/kf-manual", "sources/zoomasm", "sources/fractalshark-readme", "sources/fraktaler-3-site"]
 tags: [interaction, reprojection, progressive, xaos, reuse-reference]
 ---
 

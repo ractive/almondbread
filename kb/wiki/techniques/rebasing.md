@@ -2,7 +2,7 @@
 title: "Rebasing (Zhuoran, 2021)"
 type: technique
 status: draft
-sources: ["[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/kf-manual]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/muency-bla]]", "[[sources/imagina-hinfla-evaluator]]"]
+sources: ["sources/fractalforums-zhuoran-rebasing-bla", "sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/kf-manual", "sources/desarso-mandelbrot-webgpu-readme", "sources/muency-bla", "sources/imagina-hinfla-evaluator"]
 tags: [perturbation, rebasing, glitches, core]
 ---
 

@@ -15,23 +15,6 @@ required = ["title", "type"]
 # okf` on such a vault is then a no-op overlay (idempotent).
 [lint]
 profiles = ["okf"]
-# Pages that cite no source at all (decision records, meta pages, one source
-# page about local tool output). OKF-CITATIONS-PRESENT cannot be met for them
-# without inventing a citation, and hyalo has no per-file rule switch (OKF
-# rules ignore markdownlint-disable comments). Naming a file still lints it
-# fully: `hyalo lint roadmap.md`. Drop a page from this list once it cites a
-# source and has a `# Citations` section.
-ignore = [
-  "decisions/app-stack.md",
-  "decisions/arbitrary-precision.md",
-  "decisions/landscape-mode.md",
-  "decisions/open-source-release.md",
-  "decisions/rust-core.md",
-  "ideas.md",
-  "overview.md",
-  "roadmap.md",
-  "sources/apple-device-tooling.md",
-]
 
 [schema.types.source]
 required = ["title", "type", "authors", "year", "raw", "status", "tags"]
@@ -76,7 +59,7 @@ values = ["stub", "draft", "reviewed"]
 
 [schema.types.technique.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+item_pattern = "^sources/[a-z0-9-]+$"
 
 [schema.types.technique.properties.tags]
 type = "list"
@@ -90,7 +73,7 @@ values = ["stub", "draft", "reviewed"]
 
 [schema.types.formula.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+item_pattern = "^sources/[a-z0-9-]+$"
 
 [schema.types.formula.properties.tags]
 type = "list"
@@ -107,7 +90,7 @@ type = "string"
 
 [schema.types.implementation.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+item_pattern = "^sources/[a-z0-9-]+$"
 
 [schema.types.implementation.properties.tags]
 type = "list"
@@ -121,7 +104,7 @@ values = ["stub", "draft", "reviewed"]
 
 [schema.types.platform.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+item_pattern = "^sources/[a-z0-9-]+$"
 
 [schema.types.platform.properties.tags]
 type = "list"
@@ -135,7 +118,7 @@ values = ["open", "answered"]
 
 [schema.types.question.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+item_pattern = "^sources/[a-z0-9-]+$"
 
 [schema.types.question.properties.tags]
 type = "list"
@@ -161,7 +144,7 @@ type = "date"
 
 [schema.types.synthesis.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[sources/[a-z0-9-]+\\]\\]$"
+item_pattern = "^sources/[a-z0-9-]+$"
 
 [schema.types.synthesis.properties.tags]
 type = "list"
@@ -205,14 +188,14 @@ type = "string"
 
 [schema.types.plan.properties.depends-on]
 type = "string-list"
-item_pattern = "^\\[\\[plans/[a-z0-9-]+\\]\\]$"
+item_pattern = "^plans/[a-z0-9-]+$"
 
 [schema.types.plan.properties.risks]
 type = "list"
 
 [schema.types.plan.properties.sources]
 type = "string-list"
-item_pattern = "^\\[\\[[a-z0-9-]+(/[a-z0-9-]+)*\\]\\]$"
+item_pattern = "^[a-z0-9-]+(/[a-z0-9-]+)*$"
 
 [schema.types.plan.properties.tags]
 type = "list"

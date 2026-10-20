@@ -2,7 +2,7 @@
 title: "Guessing, border tracing and rectangle subdivision"
 type: technique
 status: draft
-sources: ["[[sources/wikipedia-plotting-algorithms]]", "[[sources/kf-manual]]", "[[sources/xaos-readme]]", "[[sources/fractint-passes-help]]", "[[sources/muency-adjacency-optimization]]", "[[sources/xaos-algorithms]]"]
+sources: ["sources/wikipedia-plotting-algorithms", "sources/kf-manual", "sources/xaos-readme", "sources/fractint-passes-help", "sources/muency-adjacency-optimization", "sources/xaos-algorithms"]
 tags: [guessing, mariani-silver, border-tracing, performance, gpu]
 ---
 

@@ -3,7 +3,7 @@ title: "mandelbrot-webgpu (Desarso)"
 type: implementation
 status: draft
 license: "GPL-3.0"
-sources: ["[[sources/desarso-mandelbrot-webgpu-readme]]"]
+sources: ["sources/desarso-mandelbrot-webgpu-readme"]
 tags: [implementation, webgpu, float32, bla, rebasing, verification]
 ---
 

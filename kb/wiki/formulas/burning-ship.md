@@ -2,7 +2,7 @@
 title: "Burning Ship and abs variations"
 type: formula
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/fraktaler-3-site]]", "[[sources/kf-page]]", "[[sources/fractalshades-readme]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/fraktaler-3-site", "sources/kf-page", "sources/fractalshades-readme"]
 tags: [burning-ship, formula, abs-variation, perturbation, bla]
 ---
 

@@ -10,12 +10,12 @@ audience: [artists, enthusiasts]
 depth: "unknown (brute force needed 192-bit at 4.3e-21 for Nova)"
 realtime-ipad: unknown
 reuse: "low–medium: viewport, scheduler, colour; perturbation and BLA criteria unknown for convergent formulas"
-depends-on: ["[[plans/f2-pluggable-formulas]]"]
+depends-on: ["plans/f2-pluggable-formulas"]
 risks:
   - "no published perturbation or BLA scheme for convergence to a root"
   - "rational maps need the quotient identity in every step site"
   - "the spike may end in 'not feasible deep'"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/others-feasibility]]", "[[questions/perturbation-convergent-formulas]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/hpdz-animations]]", "[[sources/wikipedia-newton-fractal]]"]
+sources: ["synthesis/other-fractal-types", "formulas/others-feasibility", "questions/perturbation-convergent-formulas", "sources/fractalforums-zhuoran-rebasing-bla", "sources/hpdz-animations", "sources/wikipedia-newton-fractal"]
 tags: [formulas, nova, newton, magnet, convergent, research]
 created: 2026-10-19
 updated: 2026-10-19

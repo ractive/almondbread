@@ -2,7 +2,7 @@
 title: "Sample reuse while zooming and panning (sample cache in fractal coordinates)"
 type: technique
 status: reviewed
-sources: ["[[sources/xaos-algorithms]]", "[[sources/wikipedia-xaos]]"]
+sources: ["sources/xaos-algorithms", "sources/wikipedia-xaos"]
 tags: [frame-reuse, sample-reuse, temporal, interactive, xaos, measured]
 ---
 

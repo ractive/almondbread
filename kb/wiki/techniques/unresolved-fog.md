@@ -2,7 +2,7 @@
 title: Fog over unresolved pixels
 type: technique
 status: draft
-sources: ["[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/fractalforums-interior-detection"]
 tags: [coloring, unresolved, max-iterations, gpu, as-built]
 ---
 

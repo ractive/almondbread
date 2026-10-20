@@ -2,7 +2,7 @@
 title: "Mandelbar (Tricorn)"
 type: formula
 status: draft
-sources: ["[[sources/mathr-deep-zoom-page]]", "[[sources/fraktaler-3-site]]", "[[sources/kf-page]]"]
+sources: ["sources/mathr-deep-zoom-page", "sources/fraktaler-3-site", "sources/kf-page"]
 tags: [mandelbar, tricorn, formula, non-conformal, bla]
 ---
 

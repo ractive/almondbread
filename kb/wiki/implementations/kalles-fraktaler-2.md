@@ -3,7 +3,7 @@ title: "Kalles Fraktaler 2 +"
 type: implementation
 status: draft
 license: "AGPL-3.0-or-later"
-sources: ["[[sources/kf-page]]", "[[sources/kf-manual]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/muency-bla]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/kf-page", "sources/kf-manual", "sources/mathr-deep-zoom-theory", "sources/muency-bla", "sources/fractalforums-zhuoran-rebasing-bla", "sources/fractalforums-interior-detection"]
 tags: [implementation, perturbation, series-approximation, windows, opencl]
 ---
 

@@ -3,7 +3,7 @@ title: "SuperFractalThing"
 type: implementation
 status: stub
 license: "unknown"
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/ultrafractal-perturbation-calculations]]", "[[sources/wikipedia-plotting-algorithms]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/ultrafractal-perturbation-calculations", "sources/wikipedia-plotting-algorithms"]
 tags: [implementation, java, perturbation, series-approximation, history]
 ---
 

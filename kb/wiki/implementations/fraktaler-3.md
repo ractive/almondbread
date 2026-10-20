@@ -3,7 +3,7 @@ title: "Fraktaler 3"
 type: implementation
 status: draft
 license: "AGPL-3.0"
-sources: ["[[sources/fraktaler-3-site]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/fractalforums-interior-detection]]", "[[sources/kf-page]]", "[[sources/wikibooks-fraktaler-3]]"]
+sources: ["sources/fraktaler-3-site", "sources/mathr-deep-zoom-page", "sources/fractalforums-interior-detection", "sources/kf-page", "sources/wikibooks-fraktaler-3"]
 tags: [implementation, bla, rebasing, opencl, hybrids]
 ---
 

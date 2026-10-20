@@ -2,7 +2,7 @@
 title: "Glitch detection (Pauldelbrot) and multi-reference correction (legacy)"
 type: technique
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/ultrafractal-perturbation-calculations]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/wikipedia-plotting-algorithms", "sources/ultrafractal-perturbation-calculations", "sources/fractalforums-zhuoran-rebasing-bla"]
 tags: [perturbation, glitches, legacy]
 ---
 

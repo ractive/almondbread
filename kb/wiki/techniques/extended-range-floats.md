@@ -2,7 +2,7 @@
 title: "Extended range: floatexp, rescaled iterations, depth thresholds"
 type: technique
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/muency-floatexp]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fraktaler-3-site]]", "[[sources/fractalshark-readme]]", "[[sources/imagina-hinfla-evaluator]]", "[[sources/fractalforums-interior-detection]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/muency-floatexp", "sources/desarso-mandelbrot-webgpu-readme", "sources/fraktaler-3-site", "sources/fractalshark-readme", "sources/imagina-hinfla-evaluator", "sources/fractalforums-interior-detection", "sources/fractalforums-zhuoran-rebasing-bla"]
 tags: [numerics, floatexp, rescaling, float32, extended-range]
 ---
 

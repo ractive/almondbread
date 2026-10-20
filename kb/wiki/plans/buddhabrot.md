@@ -15,7 +15,7 @@ risks:
   - "slow convergence: noisy for seconds to minutes"
   - "iPad thermals under a long accumulation"
   - "atomic adds into a texture contend on hot pixels"
-sources: ["[[synthesis/other-fractal-types]]", "[[sources/superliminal-buddhabrot]]", "[[decisions/controls]]", "[[techniques/frame-reuse-and-progressive]]"]
+sources: ["synthesis/other-fractal-types", "sources/superliminal-buddhabrot", "decisions/controls", "techniques/frame-reuse-and-progressive"]
 tags: [buddhabrot, nebulabrot, look, accumulation, optional]
 created: 2026-10-19
 updated: 2026-10-19

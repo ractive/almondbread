@@ -10,11 +10,11 @@ audience: [enthusiasts, education]
 depth: "unlimited"
 realtime-ipad: likely
 reuse: "high: the three-product reference split carries over; new 2×2 BLA, dual-number derivatives, Jacobian Newton"
-depends-on: ["[[plans/f2-pluggable-formulas]]"]
+depends-on: ["plans/f2-pluggable-formulas"]
 risks:
   - "2×2 derivatives double the derivative state per pixel (registers, speed)"
   - "medium appeal on its own; its value is the path it builds for F6"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/mandelbar]]", "[[sources/mathr-deep-zoom-page]]", "[[techniques/bla]]", "[[techniques/interior-detection]]"]
+sources: ["synthesis/other-fractal-types", "formulas/mandelbar", "sources/mathr-deep-zoom-page", "techniques/bla", "techniques/interior-detection"]
 tags: [formulas, mandelbar, tricorn, non-conformal, bla]
 created: 2026-10-19
 updated: 2026-10-19

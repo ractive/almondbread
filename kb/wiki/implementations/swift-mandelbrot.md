@@ -3,7 +3,7 @@ title: "swift-mandelbrot (drquicksilver)"
 type: implementation
 status: draft
 license: "none stated (all rights reserved)"
-sources: ["[[sources/swift-mandelbrot-readme]]"]
+sources: ["sources/swift-mandelbrot-readme"]
 tags: [implementation, swift, metal, ios, macos, bla, rebasing]
 ---
 

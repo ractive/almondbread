@@ -2,7 +2,7 @@
 title: "GPU watchdog and chunked, resumable kernels"
 type: platform
 status: draft
-sources: ["[[sources/mlx-watchdog-issue]]", "[[sources/fraktaler-3-site]]", "[[sources/kf-manual]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/mlx-watchdog-issue", "sources/fraktaler-3-site", "sources/kf-manual", "sources/fractalforums-interior-detection"]
 tags: [metal, watchdog, scheduling, divergence, indirect-dispatch]
 ---
 

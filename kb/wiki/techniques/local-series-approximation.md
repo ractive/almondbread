@@ -2,7 +2,7 @@
 title: "Local series approximation (tile and pixel seeds)"
 type: technique
 status: reviewed
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/wikipedia-plotting-algorithms]]", "[[sources/mathr-deep-zoom-theory-again]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/wikipedia-plotting-algorithms", "sources/mathr-deep-zoom-theory-again"]
 tags: [series-approximation, iteration-skipping, anti-aliasing, dense-regions, measured]
 ---
 

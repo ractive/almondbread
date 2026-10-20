@@ -3,7 +3,7 @@ title: "FractalShark"
 type: implementation
 status: draft
 license: "GPL-3.0"
-sources: ["[[sources/fractalshark-readme]]", "[[sources/desarso-mandelbrot-webgpu-readme]]"]
+sources: ["sources/fractalshark-readme", "sources/desarso-mandelbrot-webgpu-readme"]
 tags: [implementation, cuda, linear-approximation, gpu-reference-orbit, orbit-compression]
 ---
 

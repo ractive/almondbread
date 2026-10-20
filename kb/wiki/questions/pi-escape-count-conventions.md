@@ -2,7 +2,7 @@
 title: "Why do published π escape counts differ by one (Mu-Ency) or disagree at ε = 1e-7 (Boll)?"
 type: question
 status: answered
-sources: ["[[sources/klebanoff-pi-in-mandelbrot]]", "[[sources/boll-pi-post]]", "[[sources/muency-pi]]"]
+sources: ["sources/klebanoff-pi-in-mandelbrot", "sources/boll-pi-post", "sources/muency-pi"]
 tags: [pi, escape-time, conventions, precision]
 ---
 

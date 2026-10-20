@@ -108,3 +108,7 @@ reference → interaction → Imagina LA/AT → float-float → more formulas) i
 contradictions between sources are in `questions/` (see [Index](index.md)).
 
 State (2026-10-19): the research run is ingested and the app is built through M7 plus the 2026-10-16 to 19 features (touch, tours, walkthrough); open items are in [Roadmap](roadmap.md) and `questions/`.
+
+# Citations
+
+- [No cited source: a summary of the linked wiki pages, which carry the citations](#overview)

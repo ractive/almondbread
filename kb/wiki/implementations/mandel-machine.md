@@ -3,7 +3,7 @@ title: "Mandel Machine"
 type: implementation
 status: stub
 license: "freeware (unverified)"
-sources: ["[[sources/fractalforums-mandel-machine]]"]
+sources: ["sources/fractalforums-mandel-machine"]
 tags: [implementation, windows, perturbation, legacy]
 ---
 

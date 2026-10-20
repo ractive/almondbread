@@ -2,7 +2,7 @@
 title: "Does Kalles Fraktaler 2+ implement BLA?"
 type: question
 status: open
-sources: ["[[sources/kf-page]]", "[[sources/muency-bla]]", "[[sources/kf-manual]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/kf-page", "sources/muency-bla", "sources/kf-manual", "sources/fractalforums-interior-detection"]
 tags: [kalles-fraktaler, bla, contradiction]
 ---
 

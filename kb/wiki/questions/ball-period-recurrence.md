@@ -2,7 +2,7 @@
 title: "What exactly is the ball-method period recurrence?"
 type: question
 status: open
-sources: ["[[sources/kf-manual]]", "[[sources/muency-newton-raphson]]", "[[sources/muency-atom-domain]]"]
+sources: ["sources/kf-manual", "sources/muency-newton-raphson", "sources/muency-atom-domain"]
 tags: [reference-selection, period-detection, newton]
 ---
 

@@ -46,4 +46,4 @@ counts.
 
 # Citations
 
-- <https://arxiv.org/abs/2505.07138v1>
+- <https://arxiv.org/pdf/2505.07138>

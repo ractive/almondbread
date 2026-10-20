@@ -2,7 +2,7 @@
 title: "Do Apple GPUs flush float32 denormals to zero?"
 type: question
 status: open
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/luma-gl-gpu-precision]]", "[[sources/desarso-mandelbrot-webgpu-readme]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/luma-gl-gpu-precision", "sources/desarso-mandelbrot-webgpu-readme"]
 tags: [float32, denormals, apple-gpu, range]
 ---
 

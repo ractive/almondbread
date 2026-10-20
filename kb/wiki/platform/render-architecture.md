@@ -2,7 +2,7 @@
 title: "Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)"
 type: platform
 status: draft
-sources: ["[[sources/mlx-watchdog-issue]]", "[[sources/apple-metal-compile-options]]"]
+sources: ["sources/mlx-watchdog-issue", "sources/apple-metal-compile-options"]
 tags: [rust, metal, gpu, scheduler, chunking, architecture, objc2, interaction]
 ---
 

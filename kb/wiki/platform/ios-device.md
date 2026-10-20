@@ -2,7 +2,7 @@
 title: "iOS and iPadOS on a device: first run, signing, memory, thermal, background"
 type: platform
 status: draft
-sources: ["[[sources/apple-device-tooling]]", "[[sources/apple-simulator-tooling]]"]
+sources: ["sources/apple-device-tooling", "sources/apple-simulator-tooling"]
 tags: [ios, ipad, device, signing, memory, thermal, testing]
 ---
 

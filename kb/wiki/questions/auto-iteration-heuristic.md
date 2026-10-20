@@ -2,7 +2,7 @@
 title: "What auto-maxIter rule should almondbread use?"
 type: question
 status: open
-sources: ["[[sources/kf-manual]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/wikibooks-fraktaler-3]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/kf-manual", "sources/cheritat-mandelbrot-rendering", "sources/wikibooks-fraktaler-3", "sources/fractalforums-interior-detection"]
 tags: [max-iterations, heuristic, interior-detection]
 ---
 

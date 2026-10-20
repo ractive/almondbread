@@ -2,7 +2,7 @@
 title: "Mandelbrot set (power 2)"
 type: formula
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/mathr-deep-zoom-page]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/muency-bla]]", "[[sources/imagina-hinfla-evaluator]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/fractalforums-zhuoran-rebasing-bla", "sources/muency-bla", "sources/imagina-hinfla-evaluator"]
 tags: [mandelbrot, formula, perturbation, bla, rebasing]
 ---
 

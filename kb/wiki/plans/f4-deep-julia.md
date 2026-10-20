@@ -10,12 +10,12 @@ audience: [deep-zoom-creators, artists, education]
 depth: "unlimited if critical-orbit rebasing holds in float32 (unverified)"
 realtime-ipad: likely
 reuse: "high: the critical orbit of k is the Mandelbrot reference orbit of k we already compute"
-depends-on: ["[[plans/f2-pluggable-formulas]]", "[[plans/f1-julia-view]]"]
+depends-on: ["plans/f2-pluggable-formulas", "plans/f1-julia-view"]
 risks:
   - "critical-orbit rebasing for Julia is untested in float32"
   - "deep Julia zooms repeat themselves (less variety than Mandelbrot dives)"
   - "no seek: there are no minibrots in a Julia set"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/julia]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[techniques/rebasing]]", "[[techniques/bla]]"]
+sources: ["synthesis/other-fractal-types", "formulas/julia", "sources/fractalforums-zhuoran-rebasing-bla", "techniques/rebasing", "techniques/bla"]
 tags: [formulas, julia, perturbation, rebasing]
 created: 2026-10-19
 updated: 2026-10-19

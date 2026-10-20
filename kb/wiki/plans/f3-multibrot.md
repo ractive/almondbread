@@ -10,12 +10,12 @@ audience: [casual, artists, enthusiasts]
 depth: "unlimited"
 realtime-ipad: likely
 reuse: "high: every per-formula hook with scalar complex arithmetic; no LA, no closed-form components, no π meter"
-depends-on: ["[[plans/f2-pluggable-formulas]]"]
+depends-on: ["plans/f2-pluggable-formulas"]
 risks:
   - "float32 iteration-band glitches at high powers (F3 warns of them in plain float)"
   - "the shapes get repetitive; low novelty at depth"
   - "reference cost grows with p on the CPU"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/multibrot]]", "[[sources/kf-page]]", "[[sources/fraktaler-3-site]]", "[[techniques/bla]]"]
+sources: ["synthesis/other-fractal-types", "formulas/multibrot", "sources/kf-page", "sources/fraktaler-3-site", "techniques/bla"]
 tags: [formulas, multibrot, perturbation, bla]
 created: 2026-10-19
 updated: 2026-10-19

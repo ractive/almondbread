@@ -2,7 +2,7 @@
 title: "Automatic maximum-iteration control"
 type: technique
 status: draft
-sources: ["[[sources/kf-manual]]", "[[sources/fraktaler-3-site]]", "[[sources/wikibooks-fraktaler-3]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/kf-manual", "sources/fraktaler-3-site", "sources/wikibooks-fraktaler-3", "sources/cheritat-mandelbrot-rendering", "sources/fractalforums-interior-detection"]
 tags: [max-iterations, heuristics, interaction]
 ---
 

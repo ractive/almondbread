@@ -2,7 +2,7 @@
 title: "π in the Mandelbrot set (neck and cusp escape counts)"
 type: technique
 status: draft
-sources: ["[[sources/boll-pi-post]]", "[[sources/klebanoff-pi-in-mandelbrot]]", "[[sources/brockmoeller-pi-everywhere]]", "[[sources/edgar-pi-and-mandelbrot]]", "[[sources/muency-pi]]"]
+sources: ["sources/boll-pi-post", "sources/klebanoff-pi-in-mandelbrot", "sources/brockmoeller-pi-everywhere", "sources/edgar-pi-and-mandelbrot", "sources/muency-pi"]
 tags: [pi, parabolic, escape-time, maths-moment, overlay, precision]
 ---
 

@@ -2,7 +2,7 @@
 title: "What is the FFMA32 latency on Apple GPUs?"
 type: question
 status: open
-sources: ["[[sources/metal-benchmarks-readme]]"]
+sources: ["sources/metal-benchmarks-readme"]
 tags: [apple-gpu, latency, contradiction]
 ---
 

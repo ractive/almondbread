@@ -3,11 +3,11 @@ title: "MetalFX upscaling (temporal, spatial) for motion sample reuse"
 type: platform
 status: draft
 sources:
-  - "[[sources/apple-metalfx-docs]]"
-  - "[[sources/apple-metalfx-taa-sample]]"
-  - "[[sources/wwdc22-metalfx-upscaling]]"
-  - "[[sources/wwdc25-metal4-games]]"
-  - "[[sources/apple-metal-feature-set-tables]]"
+  - "sources/apple-metalfx-docs"
+  - "sources/apple-metalfx-taa-sample"
+  - "sources/wwdc22-metalfx-upscaling"
+  - "sources/wwdc25-metal4-games"
+  - "sources/apple-metal-feature-set-tables"
 tags: [metalfx, upscaling, temporal, reprojection, motion-vectors, jitter, apple-gpu, objc2, measured]
 ---
 

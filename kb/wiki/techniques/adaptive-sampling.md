@@ -2,7 +2,7 @@
 title: "Adaptive and sparse sampling, reconstruction, early termination"
 type: technique
 status: draft
-sources: ["[[sources/mathr-adaptive-supersampling-de]]", "[[sources/mitchell-1987-adaptive-sampling]]", "[[sources/ultrafractal-antialiasing]]", "[[sources/xaos-algorithms]]", "[[sources/muency-adjacency-optimization]]", "[[sources/fractint-passes-help]]", "[[sources/kopf-2007-joint-bilateral-upsampling]]", "[[sources/schied-2017-svgf]]", "[[sources/kf-manual]]", "[[sources/fraktaler-3-site]]", "[[sources/mathr-interior-distance]]"]
+sources: ["sources/mathr-adaptive-supersampling-de", "sources/mitchell-1987-adaptive-sampling", "sources/ultrafractal-antialiasing", "sources/xaos-algorithms", "sources/muency-adjacency-optimization", "sources/fractint-passes-help", "sources/kopf-2007-joint-bilateral-upsampling", "sources/schied-2017-svgf", "sources/kf-manual", "sources/fraktaler-3-site", "sources/mathr-interior-distance"]
 tags: [adaptive-sampling, anti-aliasing, guessing, reconstruction, dense-regions, measured]
 ---
 

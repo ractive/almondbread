@@ -2,7 +2,7 @@
 title: "Overlay text: SDF font atlas in Rust and Metal"
 type: platform
 status: draft
-sources: ["[[sources/inter-font]]"]
+sources: ["sources/inter-font"]
 tags: [overlay, font, sdf, text, metal, rendering]
 ---
 

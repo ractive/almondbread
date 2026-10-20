@@ -139,3 +139,7 @@ Mandelbox once considered. Researched in [Other fractal types: what almondbread 
   [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md).
 - Game mechanics (atlas, daily challenge, canyon racing, depth missions,
   journey mode) and store distribution: kept in private notes, not in this wiki.
+
+# Citations
+
+- [No cited source: the user's ideas with first thoughts](#ideas)

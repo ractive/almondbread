@@ -38,3 +38,7 @@ Xcode app is needed only for GPU profiling.
 - No offline `metal` compiler without Xcode: shader errors surface at
   runtime; `makeLibrary(source:)` costs a little at startup.
 - A small script builds the `.app` bundle.
+
+# Citations
+
+- [No cited source: our own design decision; its basis is the Context and Reasons above](#context)
