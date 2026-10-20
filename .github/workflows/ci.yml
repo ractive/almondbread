@@ -4,7 +4,7 @@ name: CI
 # Modelled on saturnus's ci.yml: third-party actions are pinned to a commit SHA with the
 # version in a comment; ractive/setup-hyalo floats on its first-party major tag.
 #
-# - Linux (cheap): rustfmt, clippy -D warnings, cargo test and cargo-deny for every crate
+# - Linux (cheap): rustfmt, clippy -D warnings, cargo test (release and debug) and cargo-deny for every crate
 #   but almondbread-ffi (the UniFFI surface hosts the Metal renderer and is Apple-only).
 #   math and core must build for Linux and Windows (CLAUDE.md); render and cli build there
 #   without a GPU backend. `make rust-check` runs the same locally (plus the ffi crate).
@@ -70,6 +70,23 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --workspace --exclude almondbread-ffi --release --locked
+
+  # The same tests unoptimised (`make rust-check-debug`): debug_assert!s and overflow checks
+  # on. A debug-only panic in every 2+-limb reference orbit went unseen while only release
+  # ran (review M1/E1). Timing bounds are asserted in optimised builds only. The Metal tests
+  # (kernels, chunking, LA/BLA, layouts) run on developer machines only, as above.
+  test-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --workspace --exclude almondbread-ffi --locked
 
   # math and core on Windows: they must stay platform-neutral (CLAUDE.md).
   windows-core:

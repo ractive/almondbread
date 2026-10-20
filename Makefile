@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live swift-test
+.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check rust-check-debug core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live swift-test
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -150,6 +150,12 @@ rust-check:
 	cargo test --workspace --release
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo fmt --all --check
+
+## The tests unoptimised: debug_assert!s and integer-overflow checks on (a debug-only panic
+## in every 2+-limb orbit went unseen while everything ran --release; review M1/E1). Timing
+## bounds are asserted in optimised builds only. Includes the Metal tests (CI cannot run them).
+rust-check-debug:
+	cargo test --workspace
 
 ## The renderer's headless tools (crates/almondbread-cli, binary `almondbread`; kb:
 ## platform/render-architecture).
