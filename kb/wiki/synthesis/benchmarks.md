@@ -1943,6 +1943,23 @@ capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 
 ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
 Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.
 
+## Review fixes M1–X1: Mandelbrot A/B and orbit threads, 2026-10-20
+
+Measured 2026-10-20, M1 Pro, release, on a heavily loaded machine (load average 22–220: an
+iOS simulator and other agents' builds), so timings are noisy.
+
+- `bench --no-verify 1`, main (c22ccb7) against the review-fix branch, two alternating runs
+  each, 21 locations × 2 sizes: all 84 output files (PNGs and `.iter` fields) **bit-identical**
+  in both rounds; geomean of the per-location minimum GPU ms, new / main, **0.979** (the
+  per-location spread is the load). The 2^24 iteration cap ([Automatic maximum-iteration control](../techniques/auto-iterations.md))
+  does not touch any benchmark limit (largest 100 000).
+- Orbit (`math_check bench`, iterations/s, best of three alternating runs): three threads at
+  1024 / 2048 / 4096 / 8192 / 16384 bits 2.20 M / 1.15 M / 0.61 M / 176 k / 55 k after the
+  stall-sleep change, 1.86 M / 1.10 M / 0.53 M / 81 k / 59 k before; single-thread columns
+  unchanged. With the process on the two efficiency cores (`taskpolicy -b`) three threads
+  manage 100–500 it/s against 12 000–120 000 for one thread: the layout the new
+  performance-core rule excludes ([Faster deep references: three-thread orbit, progressive delivery, cheap Newton](../techniques/parallel-reference-orbit.md)).
+
 # Citations
 
 - [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)

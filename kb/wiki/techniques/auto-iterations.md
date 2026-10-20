@@ -214,6 +214,10 @@ a resolved frame there needs 10^12–10^13 iterations (minutes of GPU). Escalati
 user's cap belongs in an explicit or idle background refinement with progress, and the
 unresolved colour should differ from interior (done 2026-10-17: [Fog over unresolved pixels](unresolved-fog.md)).
 
+Every limit (manual, automatic, extension and compute further) is capped at
+`MAX_ITERATION_LIMIT` = 2^24 since 2026-10-20: the kernel stores the escape iteration as
+float32, exact only to 2^24 (review M2; [The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](../synthesis/neck-escape-statistics.md) says what that costs there).
+
 ## Compute further (2026-10-17)
 
 The idle background refinement the section above asked for. When a refined view's levels and

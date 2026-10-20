@@ -57,6 +57,11 @@ The four views, 160 × 100 framing the 2000-point window, limit 10^7:
   differs for 2 %, at `c + 1e−26` for 0.4 %, at `c + 1e−30` for none. Only statistics and the
   smooth large-scale structure are meaningful; per-pixel counts are not reproducible by any
   renderer at affordable precision.
+- **Iteration limits stop at 2^24 = 16 777 216** (since 2026-10-20, review M2): the GPU
+  stores the escape iteration as float32, exact only to 2^24, so a manual limit above it is
+  clamped (the control center says so). The disc's 2e7–7e7 pixels therefore stay
+  unresolved in the app; before, they were drawn with counts off by up to 4 (quantised). A
+  uint escape count (iteration texture format and every consumer) would lift the cap.
 - **Cost of the truth.** Mean iterations per pixel are 10^5–10^6, so a resolved frame at the
   window's 4000 × 2500 pixels needs 10^12–10^13 iterations: minutes to tens of minutes of GPU at
   the plain kernel's 6–12e9 it/s. An auto limit of 4 000–18 000 leaves 90–99 % of the pixels

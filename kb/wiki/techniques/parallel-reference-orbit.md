@@ -55,16 +55,25 @@ thread 0 also writes the float32 / floatexp point and tests escape
   all of iteration i.
 - Values travel through `AtomicU64` slots padded to 128-byte lines (Apple silicon),
   relaxed element accesses ordered by release/acquire counters; no `unsafe`.
-- Waits spin 4096 times, then `yield_now`, so a descheduled helper on a loaded machine
-  costs a time slice, not a stall; a drop guard stops the helpers on any exit.
+- Waits spin 1024 times, then `yield_now`, so a descheduled helper on a loaded machine
+  costs a time slice, not a stall; after 2 ms of yielding (a real stall: the partner is
+  descheduled or the caller busy elsewhere) a wait sleeps 0.2 ms between polls instead of
+  burning a core (since 2026-10-20, review P1). In lockstep no wait gets past the spin
+  phase. A drop guard stops the helpers on any exit.
 - The operations and inputs are those of the serial loop, so the orbit is
   bit-identical (`orbit_digest`, unit tests through escapes, cancellation and resume).
 - The exchange costs ~0.1 µs; the measured crossover is ~1400 bits (22 limbs): 1.8x at
   3456 bits (1e-1000), 2.2x at 6784 (1e-2000), 2.3x at 10048 (measured 2026-10-15, M1
   Pro, release, medians, lightly loaded; [almondbread benchmarks and verification record](../synthesis/benchmarks.md) R6).
-  `Threads::Automatic` uses it from 24 limbs (1536 bits) and 256 iterations, on
-  machines with at least 8 cores (a 6-core iPhone has 2 performance cores; a helper on
-  an efficiency core would set the pace).
+  `Threads::Automatic` uses it from 24 limbs (1536 bits) and 256 iterations, where the
+  core layout allows (`parallel::helpers_pay`): at least 6 **performance** cores when the
+  platform reports them (the Metal backend reads `hw.perflevel0.logicalcpu` and hands it
+  to the platform-free math crate), else at least 8 cores in all. The three threads run at
+  the pace of the slowest, so a helper on an efficiency core slows the orbit below one
+  thread; the old 8-core rule admitted 4P+4E iPads and M1/M2 base Macs (review P1, 2026-10-20).
+  M1 Pro (8P+2E) keeps the helpers; 4P devices now run one thread. Whether 4 performance
+  cores could still gain while the GPU scheduler and the display link run is unmeasured
+  (no such device was available; (unverified)).
 - It is opt-in (`Threads::Single` is the default): the reference worker and Newton ask
   for it. Callers that already run many orbits at once (the CPU oracle under rayon)
   must not triple their threads: with helpers on by default one core test went from

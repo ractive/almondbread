@@ -52,6 +52,9 @@ they are.
 | `pi_meter.rs` `set_layout` | `px = inf` → usize::MAX trail picture | positive finite only |
 | `viewport.rs` centre bits | 2^-1e9 scale before the caller clamps it | capped at `-MIN_SCALE_LOG2 + 1024 + guard` |
 | `decimal.rs` `BigFloat::parse` | exact 10^1e9 | decimal exponent ≤ 100 000, else `None` |
+| `viewport.rs` `Center::parse` | a pasted million digits: 1.6 s quadratic parse, a 52 000-limb centre for the session | ≤ 20 000 digits (`MAX_COORDINATE_DIGITS`), else `None`; precision ≤ `MAX_CENTER_BITS` (2026-10-20, review M3) |
+| `viewport.rs` `Scale::big_times` | a pan by f64::MAX points: `x * mantissa` = inf, `BigFloat::from_f64` asserts | product saturates at ±f64::MAX, NaN is 0 (review M4) |
+| `floatexp.rs` `DoubleExp` `*`, `/`, `times_power_of_two` | Newton's derivative of a far-escaped orbit (bailout f64::MAX squares the exponent each step) wrapped i64 (debug panic; garbage steps in release) | exponent in i128, saturates to ±inf or zero; the finite check then stops Newton (review E1) |
 | `orbit.rs` `recommended_precision_bits_with` | inf → i64::MAX bits | saturating, ≤ 2^20 bits |
 | `input.rs` `Navigator::handle` / `advance` | NaN/inf events reach BigFloat (panic) or sizes; NaN dt | non-finite events ignored, negative sizes 0, NaN dt = 0 |
 | `autopilot.rs` substeps | `dt = inf` → usize::MAX substeps | 1 ... 1000 |
