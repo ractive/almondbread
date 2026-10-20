@@ -45,9 +45,9 @@ pub enum Threads {
     /// stays single-threaded).
     Three,
     /// Three from [`PARALLEL_MIN_LIMBS`] limbs and [`PARALLEL_MIN_ITERATIONS`] iterations
-    /// on machines with at least eight cores, else one (a 6-core iPhone has two
-    /// performance cores: a helper on an efficiency core would set the pace). Used by
-    /// the reference worker and Newton, one orbit at a time.
+    /// where the core layout allows ([`parallel::helpers_pay`]: six performance cores, or
+    /// eight cores when the layout is unknown), else one (a helper on an efficiency core
+    /// would set the pace). Used by the reference worker and Newton, one orbit at a time.
     Automatic,
 }
 
@@ -169,7 +169,7 @@ impl ReferenceOrbitComputer {
             Threads::Automatic => {
                 self.limb_count() >= PARALLEL_MIN_LIMBS
                     && max_iterations >= PARALLEL_MIN_ITERATIONS
-                    && std::thread::available_parallelism().is_ok_and(|n| n.get() >= 8)
+                    && parallel::helpers_pay()
             }
         }
     }

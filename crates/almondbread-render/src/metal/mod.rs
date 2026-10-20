@@ -59,6 +59,44 @@ struct CommandBuffer(Retained<ProtocolObject<dyn MTLCommandBuffer>>);
 unsafe impl Send for CommandBuffer {}
 unsafe impl Sync for CommandBuffer {}
 
+unsafe extern "C" {
+    fn sysctlbyname(
+        name: *const std::ffi::c_char,
+        oldp: *mut c_void,
+        oldlenp: *mut usize,
+        newp: *mut c_void,
+        newlen: usize,
+    ) -> i32;
+}
+
+/// Performance cores (`hw.perflevel0.logicalcpu`; None on a machine without perf levels).
+pub fn performance_cores() -> Option<usize> {
+    let mut v: i32 = 0;
+    let mut len = size_of::<i32>();
+    // SAFETY: a NUL-terminated name and an out buffer of `len` bytes; no new value.
+    let r = unsafe {
+        sysctlbyname(
+            c"hw.perflevel0.logicalcpu".as_ptr(),
+            (&raw mut v).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (r == 0 && len == size_of::<i32>() && v > 0).then_some(v as usize)
+}
+
+/// The reference orbit's three-thread rule needs the performance-core count, which the
+/// platform-free math crate cannot read (review P1, kb: techniques/parallel-reference-orbit).
+fn tell_orbit_the_core_layout() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if let Some(n) = performance_cores() {
+            almondbread_core::math::set_performance_cores(n);
+        }
+    });
+}
+
 impl MetalBackend {
     /// The system default GPU with the kernels compiled from [`KERNEL_SOURCE`].
     pub fn new() -> Result<Self, GpuError> {
@@ -81,6 +119,7 @@ impl MetalBackend {
     }
 
     pub fn with_source(source: &str) -> Result<Self, GpuError> {
+        tell_orbit_the_core_layout();
         autoreleasepool(|_| {
             let device = MTLCreateSystemDefaultDevice().ok_or_else(|| GpuError("no Metal device".into()))?;
             let queue = device
@@ -155,12 +194,24 @@ impl Submission for MetalSubmission {
     }
 }
 
-/// One command buffer with one compute pass.
+/// One command buffer with one compute pass. Dropped without [`ComputeEncoder::commit`] (a
+/// panic between `begin` and `commit`, caught by the frame's recovery), it still ends the
+/// pass: Metal requires `endEncoding` before an encoder is released, and the command buffer
+/// is then released uncommitted (nothing runs).
 pub struct MetalEncoder {
     cb: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     enc: Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>,
     present: Option<MetalDrawable>,
     committed: Arc<Mutex<Vec<CommandBuffer>>>,
+    ended: bool,
+}
+
+impl Drop for MetalEncoder {
+    fn drop(&mut self) {
+        if !self.ended {
+            self.enc.endEncoding();
+        }
+    }
 }
 
 fn size3(v: [usize; 3]) -> MTLSize {
@@ -221,8 +272,9 @@ impl ComputeEncoder<MetalBackend> for MetalEncoder {
         self.present = Some(drawable.clone());
     }
 
-    fn commit(self) -> MetalSubmission {
+    fn commit(mut self) -> MetalSubmission {
         self.enc.endEncoding();
+        self.ended = true;
         if let Some(d) = &self.present {
             self.cb.presentDrawable(d);
         }
@@ -230,7 +282,7 @@ impl ComputeEncoder<MetalBackend> for MetalEncoder {
         if let Ok(mut v) = self.committed.lock() {
             v.push(CommandBuffer(self.cb.clone()));
         }
-        MetalSubmission(self.cb)
+        MetalSubmission(self.cb.clone())
     }
 }
 
@@ -555,6 +607,7 @@ impl GpuBackend for MetalBackend {
             enc,
             present: None,
             committed: Arc::clone(&self.committed),
+            ended: false,
         })
     }
 
@@ -598,6 +651,36 @@ mod tests {
             s.wait();
         }
         assert_eq!(b.submissions_in_flight(), 0);
+    }
+
+    /// An encoder dropped without commit (a panic mid-encoding) ends its pass; the queue
+    /// keeps working (review C5). Run with `MTL_DEBUG_LAYER=1` to have Metal check the
+    /// endEncoding rule.
+    #[test]
+    fn dropped_encoder_ends_its_pass() {
+        let b = MetalBackend::new().expect("metal");
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut enc = b.begin("abandoned").expect("begin");
+            enc.set_bytes(0, &[0u8; 5000]); // asserts: more than setBytes takes
+        }));
+        assert!(r.is_err());
+        drop(b.begin("abandoned twice").expect("begin"));
+        let s = b.begin("after").expect("begin").commit();
+        s.wait();
+        assert!(matches!(s.status(), SubmissionStatus::Completed), "{:?}", s.status());
+        assert_eq!(b.submissions_in_flight(), 0);
+    }
+
+    /// The performance-core count reaches the orbit's helper rule.
+    #[test]
+    fn core_layout_reaches_the_orbit() {
+        let _b = MetalBackend::new().expect("metal");
+        let p = performance_cores().expect("Apple silicon has perf levels");
+        assert!(p >= 1);
+        assert_eq!(
+            almondbread_core::math::helpers_pay(),
+            p >= almondbread_core::math::MIN_PERFORMANCE_CORES
+        );
     }
 
     /// The MSL struct sizes as the Metal compiler lays them out equal the Rust ones.

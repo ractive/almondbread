@@ -40,7 +40,9 @@ pub use orbit::{
     AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Threads, Variant,
     recommended_precision_bits, recommended_precision_bits_with, with_no_control,
 };
-pub use parallel::{PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS};
+pub use parallel::{
+    MIN_PERFORMANCE_CORES, PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS, helpers_pay, set_performance_cores,
+};
 pub use rays::{BinaryAngle, RayOptions, trace_ray_inward};
 pub use selection::{
     MisiurewiczResult, NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period,
