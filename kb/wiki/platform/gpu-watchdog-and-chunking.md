@@ -169,3 +169,10 @@ Measured 2026-10-14, M1 Pro, release; numbers in [almondbread benchmarks and ver
 
 - No Apple document states the threshold or how it differs on iOS, without a
   display, or under load ([What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md), [iOS and iPadOS port considerations](ios-ipad-considerations.md)).
+
+# Citations
+
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

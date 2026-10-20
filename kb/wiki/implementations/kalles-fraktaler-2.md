@@ -90,3 +90,12 @@ depth thresholds, rescaled iterations, EXR raw-data export compatible with
 zoomasm, GLSL-style user colouring, exponential-map export. Avoid SA,
 NanoMB and multi-reference glitch correction
 ([Series approximation (legacy)](../techniques/series-approximation.md), [Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md)).
+
+# Citations
+
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Mu-Ency: Bivariate Linear Approximation](../sources/muency-bla.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

@@ -53,3 +53,11 @@ the neighbour pattern for the AA test and how guessing works are not stated.
 ## Used by
 
 [Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)
+
+# Citations
+
+- <https://www.ultrafractal.com/help/exporting/antialiasing.html>
+- <http://www.ultrafractal.com/help/fractalwindows/antialiasing.html>
+- <https://www.ultrafractal.com/help/writing/reference/settings/method.html>
+- <https://www.ultrafractal.com/help/exporting/renderingimages.html>
+- <https://www.ultrafractal.com/help/writing/reference/settings/periodicity.html>

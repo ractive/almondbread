@@ -82,3 +82,11 @@ all three kernels in the same `.safe` library ([almondbread benchmarks and verif
   operation); a kernel that rescales only when the exponent drifts, like the float32 deep
   kernel, would sit closer to plain float-float (inference, not built: M7 found no
   artefacts to repair, [How large is float32 perturbation error over long orbits?](float32-error-long-orbits.md)).
+
+# Citations
+
+- [Apple Developer Forums thread 718737: FP64 emulation on Apple GPUs](../sources/apple-forums-fp64-emulation.md)
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)
+- [Thall: Extended-precision floating-point numbers for GPU computation](../sources/thall-extended-precision.md)
+- [FractalShark README](../sources/fractalshark-readme.md)

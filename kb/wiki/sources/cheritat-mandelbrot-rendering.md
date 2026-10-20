@@ -58,3 +58,8 @@ non-perturbative; deep-zoom applicability of the interior trick is shown in
 
 [Interior detection](../techniques/interior-detection.md), [Distance estimation](../techniques/distance-estimation.md), [Smooth (continuous) iteration count](../techniques/smooth-coloring.md),
 [Colouring methods](../techniques/coloring-methods.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [Automatic maximum-iteration control](../techniques/auto-iterations.md)
+
+# Citations
+
+- <https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set>
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](fractalforums-interior-detection.md)

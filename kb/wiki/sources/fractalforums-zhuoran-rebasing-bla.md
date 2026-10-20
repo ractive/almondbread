@@ -51,3 +51,9 @@ for this idea is wrong; the post is dated 3 Aug 2021.
 [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md), [Perturbation](../techniques/perturbation.md),
 [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md), [Imagina](../implementations/imagina.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md),
 [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)
+
+# Citations
+
+- <https://web.archive.org/web/20230125202704/https://fractalforums.org/f/28/t/4360>
+- <https://fractalforums.org/f/28/t/4360>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)

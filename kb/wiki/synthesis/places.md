@@ -395,3 +395,11 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 | `star-1e2000` | Sixteen-Point Star | deep | 2000.5 | ember | `locate --misiurewicz 5,1` + `locate --radius 1e-1333` (generated) |
 | `swirl-1e3000` | Swirl at 1e3000 | deep | 3000.5 | lagoon | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) (c = i) + `locate --radius 1e-1714` (generated) |
 | `rock-bottom` | Rock Bottom | deep | 3007.5 | classic | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) (M(4,1)) + `locate --radius 1e-2103` (generated) |
+
+# Citations
+
+- [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md)
+- [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md)
+- [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md)
+- [Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](../sources/robotmoon-mandelbrot-set.md)
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)

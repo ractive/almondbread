@@ -105,3 +105,16 @@ XL (two to four months of agent work to reach the 2D app's polish,
 - Camera, flight model, temporal reuse and upscaling: 3–4 weeks.
 - Content (places, tours), UI integration: 2–3 weeks.
 - Verification and tuning on the iPad: 2 weeks.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Inigo Quilez: Mandelbulb](../sources/quilez-mandelbulb.md)
+- [Wikipedia: Mandelbox](../sources/wikipedia-mandelbox.md)
+- [Hvidtfeldt: Distance Estimated 3D Fractals (blog series)](../sources/hvidtfeldt-de-3d-fractals.md)
+- [Daniel White: Mandelbulb (skytopia)](../sources/skytopia-mandelbulb.md)
+- [AllTools: Mandelbulb 3D Explorer (WebGL)](../sources/alltools-mandelbulb-explorer.md)
+- [Mandelbulber v2 repository](../sources/mandelbulber2-readme.md)
+- [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)
+- [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](../decisions/landscape-mode.md)
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)

@@ -348,3 +348,13 @@ Open:
 [Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md), [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md),
 [Dense boundary regions: fewer pixel-iterations for the same image (R3)](dense-region-sampling.md), [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md),
 [almondbread benchmarks and verification record](benchmarks.md) (R4), [Roadmap](../roadmap.md).
+
+# Citations
+
+- [XaoS: Algorithms document](../sources/xaos-algorithms.md)
+- [Wikipedia: XaoS](../sources/wikipedia-xaos.md)
+- [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)
+- [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)
+- [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)
+- [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)
+- [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](../sources/apple-metalfx-taa-sample.md)

@@ -242,3 +242,17 @@ AA sample (listMode 2): init from the pixel's AA seed shifted by the Halton offs
 [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md), [Series approximation (legacy)](../techniques/series-approximation.md),
 [Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md),
 [almondbread benchmarks and verification record](benchmarks.md) (R3 section), [Roadmap](../roadmap.md).
+
+# Citations
+
+- [mathr: Adaptive super-sampling using distance estimate (2014)](../sources/mathr-adaptive-supersampling-de.md)
+- [Mitchell 1987: Generating Antialiased Images at Low Sampling Densities](../sources/mitchell-1987-adaptive-sampling.md)
+- [Ultra Fractal help: Anti-aliasing and drawing methods](../sources/ultrafractal-antialiasing.md)
+- [XaoS: Algorithms document](../sources/xaos-algorithms.md)
+- [Mu-Ency: Adjacency optimization (with Mariani/Silver and circle tiling)](../sources/muency-adjacency-optimization.md)
+- [Fractint / Xfractint help: drawing passes](../sources/fractint-passes-help.md)
+- [Kopf et al. 2007: Joint Bilateral Upsampling](../sources/kopf-2007-joint-bilateral-upsampling.md)
+- [Schied et al. 2017: Spatiotemporal Variance-Guided Filtering (SVGF)](../sources/schied-2017-svgf.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)

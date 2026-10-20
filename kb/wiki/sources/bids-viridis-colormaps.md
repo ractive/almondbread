@@ -28,3 +28,7 @@ Primary data source.
 ## Used by
 
 [Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://github.com/BIDS/colormap>

@@ -236,3 +236,15 @@ colouring pass over stored per-pixel data (n, frac, de_px, u, arg z, flags), so
 palette edits are instant. Histogram colouring as an option via GPU
 reduction. Per-iteration averages later, restricted to the post-skip tail.
 Related: [Anti-aliasing and supersampling](anti-aliasing.md), [Exponential map (log-polar) rendering](exponential-map.md).
+
+# Citations
+
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [Wikibooks: Triangle inequality average (TIA) colouring](../sources/wikibooks-triangle-inequality.md)
+- [Wikibooks: Mandelbrot set interior](../sources/wikibooks-mandelbrot-interior.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)
+- [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)

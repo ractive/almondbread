@@ -66,3 +66,9 @@ How FractalShark decompresses on demand during rendering, and the
 compression ratios on typical (non-pathological) orbits. Read FractalShark.pdf
 §14, then measure on our own references. Write-up lives in
 [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md).
+
+# Citations
+
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Imagina README](../sources/imagina-readme.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)

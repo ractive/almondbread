@@ -107,3 +107,34 @@ For the iPhone/iPad port, the same Metal kernels apply. The differences that mat
 The research mostly changes priorities rather than adding algorithms. The mathematics of fast deep zoom has been stable since 2022. What separates a toy from a serious explorer is now numerical hygiene on a float32 GPU (norms that do not underflow, per-quantity exponents in skip tables, ε matched to 24 bits, verification against an oracle) and scheduling under a watchdog that kills long command buffers. Both are almondbread-specific problems that no existing renderer solves for you, because the serious renderers lean on fp64 (CPU, OpenCL) or CUDA.
 
 The strategic opening is Imagina-class LA with the AT minibrot shortcut on Metal. It is the fastest known method, it is public only as AGPL C++ code and FractalShark's CUDA port, and nobody ships it on Apple hardware. Reaching it safely means building the boring layers first: rebasing, chunking, the diff harness, BLA and rescaling. Then LA becomes a measurable upgrade rather than a leap of faith. The open empirical question is how far plain float32 deltas hold up over 1e6+ iteration orbits. No source answers it, and almondbread's own benchmark set should be the first to publish that answer.
+
+# Citations
+
+- [Imagina README](../sources/imagina-readme.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [GMP on Apple M1 (gmp-discuss, 2020)](../sources/gmp-m1-discuss.md)
+- [Fixed-size multiplication kernels on M1 (gmp-devel, 2024)](../sources/gmp-fixed-size-mul.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)
+- [Apple tech talk: Explore GPU advancements in M3 and A17 Pro (Dynamic Caching)](../sources/apple-dynamic-caching-talk.md)
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [Quilez: Smooth iteration count for generalized Mandelbrot sets](../sources/quilez-smooth-iteration.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)
+- [Wikipedia: XaoS](../sources/wikipedia-xaos.md)
+- [Fractal Zoomer README](../sources/fractalzoomer-readme.md)
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
+- <https://developer.apple.com/documentation/metal/mtlcommandbuffererror-swift.struct/code.md>
+- <https://www.hpdz.net/TechInfo/Convergent.htm>

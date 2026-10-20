@@ -59,3 +59,7 @@ speculative. Use primary sources for deep-zoom claims.
 [Smooth (continuous) iteration count](../techniques/smooth-coloring.md), [Colouring methods](../techniques/coloring-methods.md), [Distance estimation](../techniques/distance-estimation.md),
 [Interior detection](../techniques/interior-detection.md), [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md), [Perturbation](../techniques/perturbation.md),
 [Series approximation (legacy)](../techniques/series-approximation.md), [Mandelbrot set (power 2)](../formulas/mandelbrot.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Plotting_algorithms_for_the_Mandelbrot_set>

@@ -180,3 +180,12 @@ fractal coordinates that keeps every computed sample at its exact position and r
 each frame. It matches FL's image with 2–50 % of FL's iterations per frame, or is sharper at
 the same iterations, except in the deep, sample-starved zoom. MetalFX upscaling gave no gain
 over the compose above. (The cache was built opt-in and deleted again 2026-10-17, never default.) Details: [Sample reuse while zooming and panning (sample cache in fractal coordinates)](sample-reuse.md), [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md).
+
+# Citations
+
+- [Wikipedia: XaoS](../sources/wikipedia-xaos.md)
+- [XaoS README](../sources/xaos-readme.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)

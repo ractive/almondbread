@@ -185,3 +185,13 @@ Implement rebasing in the first GPU kernel, with norm tests that do not
 underflow. Drop glitch detection except as a debug overlay
 ([Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](glitch-detection.md)). Use one reference per critical point per
 phase when other formulas arrive ([Hybrid formulas](../formulas/hybrids.md)).
+
+# Citations
+
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [Mu-Ency: Bivariate Linear Approximation](../sources/muency-bla.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)

@@ -98,3 +98,11 @@ M overall (1–2 weeks).
 - Jacobian Newton and period in math: 2 days.
 - Oracle, places, UI: 1 day.
 - Verification: 2 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Mandelbar (Tricorn)](../formulas/mandelbar.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [Interior detection](../techniques/interior-detection.md)

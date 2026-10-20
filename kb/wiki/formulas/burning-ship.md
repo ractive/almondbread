@@ -75,3 +75,12 @@ Feasible after Mandelbar: needs the matrix BLA path and diffabs. Budget for
 a floatexp-only kernel for needle locations and a detection heuristic (e.g.
 fraction of steps where `min(|X|,|Y|)` is tiny), since nobody has solved
 automatic switching (inference).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Fractalshades README](../sources/fractalshades-readme.md)

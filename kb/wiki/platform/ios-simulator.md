@@ -220,3 +220,7 @@ XCTest's event record instead ([Controls: keyboard, pointer and touch](../decisi
   control-center step (not reproduced in the next run).
 - No device run yet: speed, thermal behaviour and ProMotion pacing on an iPhone/iPad are
   unmeasured.
+
+# Citations
+
+- [Apple simulator and UI-test tooling (simctl, xcodebuild, XCTest)](../sources/apple-simulator-tooling.md)

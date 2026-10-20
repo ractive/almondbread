@@ -62,3 +62,8 @@ Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, exp
 - [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)
 - [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md)
 - [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)
+
+# Citations
+
+- <https://andrewthall.org/papers/df64_qf128.pdf>
+- [luma.gl: GPU floating-point precision techniques](luma-gl-gpu-precision.md)

@@ -188,3 +188,15 @@ centre reference, then the period-998 nucleus near the seahorse point). Times in
 - At c = i the ball method finds a period whose nucleus lies outside the view, so the
   Newton work is thrown away (the fallback rule above). It cost 1.3 s at 1e-2000 before,
   ~0.3 s now. Details: [Faster deep references: three-thread orbit, progressive delivery, cheap Newton](parallel-reference-orbit.md).
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md)

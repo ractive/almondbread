@@ -63,3 +63,9 @@ Philip Turner's long README describing the M1/M2 (Apple GPU families 7 and 8) GP
 - [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)
 - [What is the FFMA32 latency on Apple GPUs?](../questions/ffma32-latency.md)
 - [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/philipturner/metal-benchmarks/main/README.md>
+- [Apple tech talk: Explore GPU advancements in M3 and A17 Pro (Dynamic Caching)](apple-dynamic-caching-talk.md)
+- [Apple Developer Forums thread 718737: FP64 emulation on Apple GPUs](apple-forums-fp64-emulation.md)

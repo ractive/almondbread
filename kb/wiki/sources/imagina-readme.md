@@ -37,3 +37,8 @@ Primary but thin. The code on `master` is the pre-rewrite version; the rewrite m
 
 - [Imagina](../implementations/imagina.md)
 - [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/5E-324/Imagina/master/Readme.md>
+- [Imagina HInfLAEvaluator (source code)](imagina-hinfla-evaluator.md)

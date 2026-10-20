@@ -28,3 +28,7 @@ Secondary and thin; the selection criterion is unknown (inferred from output onl
 ## Used by
 
 [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://en.wikibooks.org/wiki/Fractals/emndl>

@@ -34,3 +34,7 @@ Jitter section (worked example), motion vector section.
 ## Used by
 
 - [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)
+
+# Citations
+
+- <https://developer.apple.com/videos/play/wwdc2022/10103/>

@@ -58,3 +58,8 @@ A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than
 - [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md)
 - [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)
 - [Do Apple GPUs flush float32 denormals to zero?](../questions/apple-gpu-denormals.md)
+
+# Citations
+
+- <https://luma.gl/docs/api-guide/shaders/gpu-floating-point-precision>
+- [Apple docs: MTLCompileOptions mathMode](apple-metal-compile-options.md)

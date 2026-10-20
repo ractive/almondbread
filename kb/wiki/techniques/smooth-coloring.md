@@ -78,3 +78,11 @@ buffer; never a single float `μ`. Bailout 2⁸ (squared test against 2¹⁶); g
 higher only if DE needs it. Do colouring in a separate pass from stored data so
 palette changes never recompute the fractal. Related:
 [Distance estimation](distance-estimation.md), [Anti-aliasing and supersampling](anti-aliasing.md).
+
+# Citations
+
+- [Quilez: Smooth iteration count for generalized Mandelbrot sets](../sources/quilez-smooth-iteration.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)

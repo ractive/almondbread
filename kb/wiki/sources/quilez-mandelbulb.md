@@ -43,3 +43,7 @@ transcribed here).
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://iquilezles.org/articles/mandelbulb/>

@@ -138,3 +138,9 @@ looked around, and where minibrots were found.
 ## Status
 
 Proposed 2026-10-15. Implementation waits for the user's go.
+
+# Citations
+
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)

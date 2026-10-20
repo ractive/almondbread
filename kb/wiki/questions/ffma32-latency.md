@@ -33,3 +33,7 @@ path ([Apple GPU architecture for compute](../platform/apple-gpu-architecture.md
 
 Microbenchmark on the M1 Pro: dependent FFMA32 chain at 1, 2, 4, 8 SIMD-groups per
 core and ILP 1 to 4; then time the real kernel with 1 vs 2 pixels per thread.
+
+# Citations
+
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)

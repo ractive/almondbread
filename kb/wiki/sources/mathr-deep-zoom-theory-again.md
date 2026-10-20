@@ -49,3 +49,8 @@ merge rules for `A`, `B` remain valid.
 
 [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Hybrid formulas](../formulas/hybrids.md), [Burning Ship and abs variations](../formulas/burning-ship.md),
 [Fraktaler 3](../implementations/fraktaler-3.md), [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md), [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2022-02-21_deep_zoom_theory_and_practice_again.html>
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

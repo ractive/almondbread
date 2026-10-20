@@ -30,3 +30,8 @@ Widely cited design paper.
 ## Used by
 
 [Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://arxiv.org/abs/1509.03700>
+- [colorcet: the CET perceptually uniform colour maps](colorcet.md)

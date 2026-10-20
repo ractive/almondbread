@@ -355,3 +355,8 @@ formula 0 and its code is the pre-F2 code.
   after).
 - A separate path argument to the app (`--selftest-png out.png`) makes AppKit treat it as
   a file to open, and SwiftUI then opens no window. Use `--flag=value`.
+
+# Citations
+
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)

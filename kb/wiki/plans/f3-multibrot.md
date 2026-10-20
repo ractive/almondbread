@@ -110,3 +110,11 @@ M overall (1–2 weeks).
 - Kernel step functions, BLA: 2–3 days.
 - Places, UI picker, capabilities: 1–2 days.
 - Verification and review fixes: 2 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Multibrot (integer power p)](../formulas/multibrot.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)

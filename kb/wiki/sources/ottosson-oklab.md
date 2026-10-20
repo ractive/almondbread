@@ -28,3 +28,7 @@ Primary; widely adopted (CSS Color 4).
 ## Used by
 
 [Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://bottosson.github.io/posts/oklab/>

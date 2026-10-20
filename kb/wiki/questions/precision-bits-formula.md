@@ -47,3 +47,9 @@ periodic orbits, 6 bits over 3000 iterations at the seahorse point, 24 bits over
 iterations at a chaotic point (measured 2026-10-14, M1 Pro). Loss grows with the orbit's
 Lyapunov exponent, so a fixed guard is not enough for long chaotic orbits; the image
 diff test above is still needed.
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)

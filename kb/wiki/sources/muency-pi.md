@@ -35,3 +35,10 @@ cusp between the cardioid and the period-2 disc, which has a "Relation to Pi" pa
 ## Reliability
 
 An informal encyclopedia entry; the counts are consistent with ours up to the +1 convention.
+
+# Citations
+
+- <https://www.mrob.com/pub/muency/r2c12.html>
+- <https://www.mrob.com/pub/muency/pi.html>
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md)
+- [Dave Boll's 1991 π post, reproduced by Mark VandeWettering (brainwagon, 2011)](boll-pi-post.md)

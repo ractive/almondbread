@@ -178,3 +178,7 @@ presentation-log drain; nothing per pixel crosses.
   interfaces or foreign traits, when something needs them (R2b got by with polling).
 - An async export (UniFFI supports `async fn`) instead of blocking calls on a Swift
   background queue, once reference orbits move off the render thread (M3b).
+
+# Citations
+
+- [The UniFFI user guide (Mozilla)](../sources/uniffi-user-guide.md)

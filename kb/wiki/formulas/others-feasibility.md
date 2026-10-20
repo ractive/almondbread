@@ -68,3 +68,10 @@ No source covers perturbation for either. The triplex power uses trig and
 atan2 and is non-holomorphic; ray marching multiplies the cost. Lyapunov is a
 real logistic-map sequence and deep zooms are rare (inference). Not for
 almondbread v1.
+
+# Citations
+
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Fractal Zoomer README](../sources/fractalzoomer-readme.md)

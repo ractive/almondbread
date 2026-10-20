@@ -43,3 +43,10 @@ supports (with rebasing, the reference can be shorter than maxIter).
 Run zoom-in and zoom-out sequences on the benchmark locations with the rule, count
 frames with unresolved pixels and compare time against a fixed high cap with
 derivative interior detection ([Interior detection](../techniques/interior-detection.md)).
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

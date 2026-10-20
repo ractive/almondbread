@@ -36,3 +36,9 @@ Secondary; not read (status unread). Formulas marked unverified until the page i
 ## Used by
 
 [Colouring methods](../techniques/coloring-methods.md), [Smooth (continuous) iteration count](../techniques/smooth-coloring.md)
+
+# Citations
+
+- <https://en.wikibooks.org/wiki/Fractals/Iterations_in_the_complex_plane/triangle_ineq>
+- [Kalles Fraktaler 2 + manual](kf-manual.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](cheritat-mandelbrot-rendering.md)

@@ -127,3 +127,7 @@ was involved (shown frames match fresh renders and the oracle at their hard limi
 - Unresolved pixels are drawn in the interior colour mixed 0.5 % towards grey
   (`mix(edge, 0.5, 0.005)`), indistinguishable from interior; pending pixels of a frame in
   progress look the same. See [Automatic maximum-iteration control](../techniques/auto-iterations.md) and the UI proposal in the log.
+
+# Citations
+
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)

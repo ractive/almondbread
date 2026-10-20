@@ -171,3 +171,13 @@ frame-time feedback, would remove the probe.
 
 - No fetched Apple WWDC session on compute tuning (threadgroup sizing, 64-bit ints).
 - Default math mode of runtime compilation not verified.
+
+# Citations
+
+- [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)

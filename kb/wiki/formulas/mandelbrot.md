@@ -84,3 +84,12 @@ Ship first. Pipeline: CPU reference (nucleus when found, see
 [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)), float32 rebasing kernel, BLA tree,
 rescaled float32 past ~1e-25, then Imagina-style LA+AT
 (see [Deep zoom Mandelbrot rendering techniques](../synthesis/deep-zoom-rendering-techniques.md) roadmap).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [Mu-Ency: Bivariate Linear Approximation](../sources/muency-bla.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)

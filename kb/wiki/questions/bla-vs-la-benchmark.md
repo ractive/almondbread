@@ -62,3 +62,12 @@ Both are built behind function constants ([Bivariate linear approximation (BLA)]
   locations, no exterior painted interior.
 - **SA.** Local SA (M5) is what pays in dense and spiral views; no linear skip (BLA or LA) helps
   where deltas reach the orbit's size within ~2 000 iterations (the spiral).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

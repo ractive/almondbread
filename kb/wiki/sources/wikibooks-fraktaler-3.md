@@ -38,3 +38,8 @@ is the primary source. Verify before citing anything else from this page.
 
 [Fraktaler 3](../implementations/fraktaler-3.md), [Interior detection](../techniques/interior-detection.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md),
 [Exponential map (log-polar) rendering](../techniques/exponential-map.md), [Automatic maximum-iteration control](../techniques/auto-iterations.md)
+
+# Citations
+
+- <https://en.wikibooks.org/wiki/Fractals/fraktaler-3>
+- [Fraktaler 3 (documentation site, v3.1)](fraktaler-3-site.md)

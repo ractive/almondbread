@@ -36,3 +36,14 @@ digits shown). Use it to convert a photon energy to a wavelength (λ = hc / E), 
 Highest available: CODATA is the internationally adopted set. h and c are exact by the
 2019 SI definitions. Planck length and time are derived from G and carry its 1e-5
 relative uncertainty; they are scale markers, not physically probed lengths.
+
+# Citations
+
+- <https://physics.nist.gov/cuu/Constants/>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?plkl>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?plkt>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?bohrrada0>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?rp>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?h>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?hev>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?c>

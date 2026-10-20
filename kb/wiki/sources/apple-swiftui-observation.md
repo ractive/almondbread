@@ -29,3 +29,8 @@ saved (local tool output). They show which SwiftUI types do the layout. Read 202
   layout passes.
 
 Used by [SwiftUI performance: the control center sidebar](../platform/swiftui-performance.md).
+
+# Citations
+
+- <https://developer.apple.com/documentation/observation>
+- <https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app>

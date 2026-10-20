@@ -41,3 +41,9 @@ page) with both tables, then proves the π-theorem.
 
 Peer-reviewed; cusp only (the neck stayed unproved until
 [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md)). The proof has no error bound.
+
+# Citations
+
+- <https://www.doc.ic.ac.uk/~jb/teaching/jmc/pi-in-mandelbrot.pdf>
+- [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](edgar-pi-and-mandelbrot.md)
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md)

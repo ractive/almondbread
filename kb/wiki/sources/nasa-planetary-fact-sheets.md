@@ -40,3 +40,13 @@ see [IAU astronomical unit (2012 Resolution B2) and the light-year](iau-astronom
 High. NASA's reference tables, kept current and dated per page. Radii are mean values of
 oblate bodies: quote "mean radius" in the overlay, or equatorial where that is meant.
 The text conversion of the pages drops superscripts (`106 km` means 10^6 km).
+
+# Citations
+
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/jupiterfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/sunfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/neptunefact.html>
+- [IAU astronomical unit (2012 Resolution B2) and the light-year](iau-astronomical-units.md)

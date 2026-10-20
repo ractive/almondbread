@@ -37,3 +37,10 @@ the primary sources ([mathr: Practical interior distance rendering (2014)](mathr
 ## Used by
 
 [Interior detection](../techniques/interior-detection.md), [Colouring methods](../techniques/coloring-methods.md)
+
+# Citations
+
+- <https://en.wikibooks.org/wiki/Fractals/Iterations_in_the_complex_plane/Mandelbrot_set_interior>
+- [mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](cheritat-mandelbrot-rendering.md)
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

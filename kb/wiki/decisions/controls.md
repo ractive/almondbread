@@ -3203,3 +3203,18 @@ and `pressesCancelled` (hardware keyboard). Cancelled touches already end cleanl
 paths: the finger tracker sends `FingerUp { cancelled: true }` and `TouchesLifted`, a cancelled
 pan or pinch sends no `GestureEnd` (no fling), the rotation sends `TouchRotateEnd`, a cancelled
 long press or compass pan resets. Gamepad: `GCControllerDidDisconnect` sends centred axes.
+
+# Citations
+
+- [Smooth and efficient zooming and panning (van Wijk & Nuij)](../sources/van-wijk-nuij-smooth-zooming.md)
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)
+- [Kisaka: Julia sets in the Mandelbrot set and small Mandelbrot sets (seminar abstract)](../sources/kisaka-julia-sets-in-mandelbrot.md)
+- [Ottosson: A perceptual color space for image processing (OKLab)](../sources/ottosson-oklab.md)
+- [Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](../sources/cosmic-history-timeline.md)
+- [NASA NSSDCA planetary fact sheets (Earth, Moon, Jupiter, Sun, Neptune)](../sources/nasa-planetary-fact-sheets.md)
+- [IAU astronomical unit (2012 Resolution B2) and the light-year](../sources/iau-astronomical-units.md)
+- [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](../sources/codata-2022-constants.md)
+- [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](../sources/cosmic-scale-references.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [mathr blog: automated Julia morphing (2016-2021)](../sources/mathr-julia-morphing-posts.md)
+- [Deep-zoom videos: record and landmark YouTube descriptions](../sources/deep-zoom-videos.md)

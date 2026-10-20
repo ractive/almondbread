@@ -116,3 +116,11 @@ and the catalogue spirals at 1e50 and 1e1000.
 - Still unmeasured: DE and slope-lighting error against an oracle (the oracle computes no
   derivative; the lit GPU renders show no speckle), and the split between delta and reference
   rounding (step 4 of "How to resolve": no longer needed for a decision).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [FractalShark README](../sources/fractalshark-readme.md)

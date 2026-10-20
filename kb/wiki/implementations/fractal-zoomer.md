@@ -51,3 +51,10 @@ Boundary tracing gave a 4x win at the 5e-433 minibrot on CPU, which argues
 for tile-level early-out experiments ([Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md)).
 Its breadth of perturbed formulas is the evidence for
 [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](../questions/perturbation-convergent-formulas.md). GPL code must not be copied.
+
+# Citations
+
+- [Fractal Zoomer README](../sources/fractalzoomer-readme.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)

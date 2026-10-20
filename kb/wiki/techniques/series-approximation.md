@@ -115,3 +115,13 @@ Fraktaler 3 ship no SA for the Mandelbrot set (notes: iteration_skipping §1).
 Skip SA and nanoMB entirely. Implement [Bivariate linear approximation (BLA)](bla.md) first, then
 [Linear approximation with period-aligned stages and AT (Imagina)](linear-approximation-imagina.md). Re-test the SA counter-example
 only if our own BLA loses at floatexp depths ([How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)

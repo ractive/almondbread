@@ -28,3 +28,8 @@ Encyclopedia article on the googolplex. Read through a summarising fetch on 2026
 ## Used by
 
 [How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Googolplex>
+- [Wikipedia: Names of large numbers](wikipedia-names-of-large-numbers.md)

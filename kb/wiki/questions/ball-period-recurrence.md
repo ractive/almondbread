@@ -48,3 +48,9 @@ locations; it reports lower periods than the other two in skewed places (973 vs 
 around the seahorse point at r = 1e-10; 96084 vs 280245 vs none at r = 9e-36), and its
 period's nucleus can lie outside the disc, so Newton must be checked. Still open: which
 variant KF uses, and which one gives the best references in practice.
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)

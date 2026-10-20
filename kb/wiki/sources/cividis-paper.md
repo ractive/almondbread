@@ -28,3 +28,7 @@ Peer-reviewed.
 ## Used by
 
 [Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://doi.org/10.1371/journal.pone.0199239>

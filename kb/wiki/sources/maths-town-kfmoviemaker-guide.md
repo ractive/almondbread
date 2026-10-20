@@ -29,3 +29,7 @@ Primary documentation of the leading creator's own pipeline; the best evidence o
 ## Used by
 
 Market research notes (kept private, not in this wiki).
+
+# Citations
+
+- <https://www.maths.town/after-effects-plugins/kfmoviemaker/kfmoviemaker-user-guide/>

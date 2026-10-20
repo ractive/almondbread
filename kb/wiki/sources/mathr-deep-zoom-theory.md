@@ -66,3 +66,10 @@ remains current. Hand-wavy derivations, no benchmarks.
 [Series approximation (legacy)](../techniques/series-approximation.md), [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md), [Burning Ship and abs variations](../formulas/burning-ship.md),
 [Hybrid formulas](../formulas/hybrids.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md), [SuperFractalThing](../implementations/superfractalthing.md),
 [Distance estimation](../techniques/distance-estimation.md), [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](fractalforums-zhuoran-rebasing-bla.md)
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

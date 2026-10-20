@@ -37,3 +37,8 @@ with dy looks like.
 ## Reliability
 
 A second-hand quote of a Usenet post; the numbers agree with our 256-bit reference counts.
+
+# Citations
+
+- <https://brainwagon.org/blog/happy-day/>
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](klebanoff-pi-in-mandelbrot.md)

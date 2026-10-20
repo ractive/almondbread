@@ -52,3 +52,9 @@ rule in [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)).
 
 Cheapest way to build and test the 2x2 matrix BLA path that Burning Ship and
 hybrids need. Do it before [Burning Ship and abs variations](burning-ship.md).
+
+# Citations
+
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)

@@ -25,3 +25,7 @@ Encyclopedia article on number names. Read through a summarising fetch on 2026-1
 ## Used by
 
 [How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Names_of_large_numbers>

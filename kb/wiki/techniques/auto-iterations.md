@@ -316,3 +316,11 @@ statistics-driven growth with hysteresis (never decrease on zoom-out), a
 separate per-pixel step cap, and a statistics overlay like mathr's for
 diagnosis. Related: [Frame reuse and progressive refinement](frame-reuse-and-progressive.md),
 [Rebasing (Zhuoran, 2021)](rebasing.md).
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

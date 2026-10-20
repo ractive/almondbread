@@ -102,3 +102,9 @@ Code files have no headings; § gives the function names.
 - [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
 - [How does Imagina/FractalShark reference-orbit compression work?](../questions/reference-orbit-compression.md)
 - [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/5E-324/Imagina/master/HInfLAEvaluator.cpp>
+- [FractalShark README](fractalshark-readme.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](philthompson-bla.md)

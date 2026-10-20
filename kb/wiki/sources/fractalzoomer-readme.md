@@ -37,3 +37,8 @@ Primary but a feature list only. It understates the deep-zoom engine relative to
 - [Fractal Zoomer](../implementations/fractal-zoomer.md)
 - [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md)
 - [Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/hrkalona/Fractal-Zoomer/master/README.md>
+- [FractalShark README](fractalshark-readme.md)

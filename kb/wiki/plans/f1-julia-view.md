@@ -193,3 +193,11 @@ S overall (the research gives S–M; S if the panel reuses the mini-map path as 
 - Panel, update policy, layout on all screens: 1–2 days.
 - Settings, FFI, Swift toggles, help, Julia tour steps: 1 day.
 - Verification runs, review fixes: 1 day.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Julia sets](../formulas/julia.md)
+- [Frax: What is Frax?](../sources/frax-about.md)
+- [Kisaka: Julia sets in the Mandelbrot set and small Mandelbrot sets (seminar abstract)](../sources/kisaka-julia-sets-in-mandelbrot.md)
+- [Controls: keyboard, pointer and touch](../decisions/controls.md)

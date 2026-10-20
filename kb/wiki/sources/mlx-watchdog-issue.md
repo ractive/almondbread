@@ -46,3 +46,7 @@ A GitHub issue in Apple's MLX machine-learning framework, opened 24 March 2026 b
 - [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)
 - [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md)
 - [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+
+# Citations
+
+- <https://github.com/ml-explore/mlx/issues/3302>

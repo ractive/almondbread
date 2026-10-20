@@ -55,3 +55,7 @@ number doubles); the descriptions are not quoted elsewhere in this wiki.
 
 - Each file page's "Coordinates of the center", "Horizontal diameter", "Magnification".
 - `Mandel_zoom_00_mandelbrot_set.jpg` also carries the Ultra Fractal parameter file.
+
+# Citations
+
+- <https://commons.wikimedia.org/wiki/Category:Mandelbrot_zoom_sequence_by_Wolfgang_Beyer>

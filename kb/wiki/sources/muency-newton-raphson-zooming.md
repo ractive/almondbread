@@ -43,3 +43,9 @@ only to propose framings that a probe render then accepts or rejects
 ## Used by
 
 [Controls: keyboard, pointer and touch](../decisions/controls.md) (Journey: embedded Julia stages), [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://mrob.com/pub/muency/newtonraphsonzooming.html>
+- <https://mrob.com/pub/muency/juliamorphing.html>
+- <https://mrob.com/pub/muency/embeddedjuliaset.html>

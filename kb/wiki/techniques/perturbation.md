@@ -116,3 +116,13 @@ Metal kernel with rebasing from day one; BLA on top. See the roadmap in
 [Deep zoom Mandelbrot rendering techniques](../synthesis/deep-zoom-rendering-techniques.md).
 Other formulas: [Mandelbrot set (power 2)](../formulas/mandelbrot.md), [Multibrot (integer power p)](../formulas/multibrot.md),
 [Burning Ship and abs variations](../formulas/burning-ship.md), [Hybrid formulas](../formulas/hybrids.md).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Ultra Fractal help: Perturbation calculations](../sources/ultrafractal-perturbation-calculations.md)
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)

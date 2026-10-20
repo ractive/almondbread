@@ -29,3 +29,8 @@ Anecdotal comments from a technical audience; useful for qualitative demand, not
 ## Used by
 
 Market research notes (kept private, not in this wiki).
+
+# Citations
+
+- <https://news.ycombinator.com/item?id=43375676>
+- <https://news.ycombinator.com/item?id=41720454>

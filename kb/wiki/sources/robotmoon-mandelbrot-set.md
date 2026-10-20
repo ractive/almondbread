@@ -52,3 +52,10 @@ approximation of M(23,2), which is preperiod 24 with z_0 = 0
 
 - §Overview and §Deep zoom: the named regions and their coordinates.
 - Image captions (`alt` text in the HTML): the viewer readouts.
+
+# Citations
+
+- <https://robotmoon.com/mandelbrot-set/>
+- [mathr: Deep zoom theory and practice (2021)](mathr-deep-zoom-theory.md)
+- [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](beyer-mandelbrot-zoom-sequence.md)
+- [Wikipedia: Misiurewicz point](wikipedia-misiurewicz-point.md)

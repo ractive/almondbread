@@ -48,3 +48,7 @@ The post has no subheadings; cite by topic:
 
 [Interior detection](../techniques/interior-detection.md), [Distance estimation](../techniques/distance-estimation.md), [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md),
 [What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2014-11-02_practical_interior_distance_rendering.html>

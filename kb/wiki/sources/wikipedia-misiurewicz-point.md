@@ -49,3 +49,7 @@ orbit check settles it.
 ## Useful sections
 
 - §Examples: the six points above.
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Misiurewicz_point>

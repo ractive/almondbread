@@ -81,3 +81,9 @@ exponents; orbit compression for iPad memory ([iOS and iPadOS port consideration
 MT3 threading for the CPU reference ([Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)).
 A GPU bignum is not worth it on Apple GPUs given slow integer multiply
 ([Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)).
+
+# Citations
+
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)

@@ -170,3 +170,7 @@ recovered: the main thread answered the heartbeat 2.98 s after it was sent
   ring buffer then says which setting or event preceded it.
 - Hangs on other threads (the reference worker, the orbit threads) are not watched; the
   scheduler's offscreen loop waits on GPU submissions and has no cap of its own.
+
+# Citations
+
+- [Apple: MetricKit MXHangDiagnostic and main-thread hangs](../sources/apple-metrickit-hang-diagnostics.md)

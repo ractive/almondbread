@@ -29,3 +29,8 @@ their sizes. For sizes see [Mu-Ency: Newton-Raphson zooming (embedded Julia set 
 ## Used by
 
 [Controls: keyboard, pointer and touch](../decisions/controls.md) (Journey)
+
+# Citations
+
+- <https://www.math.kyoto-u.ac.jp/en/node/2851>
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](muency-newton-raphson-zooming.md)

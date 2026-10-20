@@ -53,3 +53,9 @@ companion view (src: [swift-mandelbrot README (drquicksilver)](../sources/swift-
 Shallow Julia companion view (direct float32 or double-float) is cheap and
 useful. Deep Julia zoom: research-grade until the rebasing question is
 answered; defer.
+
+# Citations
+
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)
+- [Fractal Zoomer README](../sources/fractalzoomer-readme.md)

@@ -40,3 +40,8 @@ The reuse idea, not the code: show the reprojected previous frame at once and
 recompute what is missing, focus first. On a GPU a per-pixel affine
 reprojection of stored per-pixel data replaces row/column matching (inference).
 See [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md).
+
+# Citations
+
+- [XaoS README](../sources/xaos-readme.md)
+- [Wikipedia: XaoS](../sources/wikipedia-xaos.md)

@@ -137,3 +137,12 @@ inside pixel of a whole tile with tileBad != epoch: written interior (.y = 1, DE
   starts from local SA seeds (a fill candidate waits for its seed round before its first
   chunk). R3's CPU study found 0.76 at minibrot-p4 with 32 → 4 px subdivision; on the GPU the
   single-level fill loses there.
+
+# Citations
+
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [XaoS README](../sources/xaos-readme.md)
+- [Fractint / Xfractint help: drawing passes](../sources/fractint-passes-help.md)
+- [Mu-Ency: Adjacency optimization (with Mariani/Silver and circle tiling)](../sources/muency-adjacency-optimization.md)
+- [XaoS: Algorithms document](../sources/xaos-algorithms.md)

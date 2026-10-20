@@ -118,3 +118,14 @@ L overall (3–6 weeks).
 - Newton/seek with Jacobians, oracle, fixtures: 3–4 days.
 - Places catalogue, autopilot and journey tuning, tour: 1–2 weeks.
 - Verification and two review rounds: 3–4 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Burning Ship and abs variations](../formulas/burning-ship.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fractalshades README](../sources/fractalshades-readme.md)
+- [HPDZ.NET: Burning Ship and Nova deep zooms](../sources/hpdz-animations.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)

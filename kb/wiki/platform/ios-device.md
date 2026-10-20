@@ -185,3 +185,8 @@ suspended renderer commits nothing and settles after resume.
   critical in Xcode's Device Conditions.
 - Background mid-render (home gesture), back after a minute: no crash, the view resumes.
 - Speed: gesture frame rate and preview resolution at home, 1e-300 and 1e-1000.
+
+# Citations
+
+- [Apple device tooling and iOS process APIs (devicectl, xcodebuild provisioning, os/proc.h)](../sources/apple-device-tooling.md)
+- [Apple simulator and UI-test tooling (simctl, xcodebuild, XCTest)](../sources/apple-simulator-tooling.md)

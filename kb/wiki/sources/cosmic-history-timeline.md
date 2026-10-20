@@ -62,3 +62,20 @@ Sources:
 - Recombination: 380 000 yr (ESA, CERN, NASA) against "about 370,000 years" (PDG cosmology
   review). Both round the same last-scattering epoch; not worth a question page.
 - Sun age: 4.6 Gyr and 4.5 Gyr on the same NASA page; 4.6 matches the PDG (radioactive dating) value.
+
+# Citations
+
+- [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](cosmic-scale-references.md)
+- [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md)
+- <https://pdg.lbl.gov/2024/reviews/rpp2024-rev-bbang-cosmology.pdf>
+- <https://pdg.lbl.gov/2024/reviews/rpp2024-rev-bbang-nucleosynthesis.pdf>
+- <https://arxiv.org/abs/1807.06209>
+- <https://science.nasa.gov/sun/facts/>
+- <https://science.nasa.gov/mission/webb/science-overview/science-explainers/what-were-the-first-stars-like/>
+- <https://www.esa.int/Science_Exploration/Space_Science/Planck/Planck_and_the_cosmic_microwave_background>
+- <https://home.cern/science/physics/early-universe>
+- <https://arxiv.org/abs/1812.08235>
+- <https://arxiv.org/abs/1404.3565>
+- <https://www.astronomy.com/science/how-can-we-determine-that-inflation-occurred-from-10-35-to-10-32-second-after-the-big-bang-and-that-the-universe-grew-1026-in-that-time/>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?hbcmevf>
+- <https://physics.nist.gov/cgi-bin/cuu/Value?plkt>

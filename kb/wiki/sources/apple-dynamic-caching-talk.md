@@ -36,3 +36,9 @@ None recorded yet (video; no headings captured).
 
 - [Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)
 - [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+
+# Citations
+
+- <https://developer.apple.com/videos/play/tech-talks/111375>
+- <https://developer.apple.com/kr/videos/play/tech-talks/111431/>
+- [metal-benchmarks README (Apple GPU microarchitecture)](metal-benchmarks-readme.md)

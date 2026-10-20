@@ -109,3 +109,12 @@ XL overall (the research gives L–XL; months with the editor and content).
 - Per-phase references and BLA tables: 2 weeks.
 - Editor UI and presets: 1–2 weeks.
 - Verification: 1 week.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Hybrid formulas](../formulas/hybrids.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3](../implementations/fraktaler-3.md)

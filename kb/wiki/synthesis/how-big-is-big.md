@@ -137,3 +137,17 @@ What was built, for the record; none of it is in the app any more.
 - Lessons: a separate window broke the app's one-window, overlay-and-control-center pattern,
   and the panel needed too much explanatory text for an idea most people would not follow.
   A future take should be one glanceable number or an achievement, not an essay.
+
+# Citations
+
+- [Wikipedia: Knuth's up-arrow notation](../sources/wikipedia-knuth-up-arrow-notation.md)
+- [Wikipedia: Tetration](../sources/wikipedia-tetration.md)
+- [Wikipedia: Graham's number](../sources/wikipedia-grahams-number.md)
+- [Wikipedia: Kruskal's tree theorem (TREE(3))](../sources/wikipedia-kruskal-tree-theorem.md)
+- [Wikipedia: Steinhaus–Moser notation (mega, Moser's number)](../sources/wikipedia-steinhaus-moser-notation.md)
+- [Wikipedia: Skewes's number](../sources/wikipedia-skewes-number.md)
+- [Wikipedia: Googolplex](../sources/wikipedia-googolplex.md)
+- [Wikipedia: Names of large numbers](../sources/wikipedia-names-of-large-numbers.md)
+- [Wikipedia: Fast-growing hierarchy](../sources/wikipedia-fast-growing-hierarchy.md)
+- [Wikipedia: Observable universe (atom count)](../sources/wikipedia-observable-universe.md)
+- [Make: Arthur Ganson's "Machine with Concrete"](../sources/make-ganson-machine-with-concrete.md)

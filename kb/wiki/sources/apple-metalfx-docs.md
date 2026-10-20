@@ -33,3 +33,7 @@ Header doc comments of `MTLFXTemporalScalerBase` (jitter, motion, reset, exposur
 ## Used by
 
 - [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)
+
+# Citations
+
+- <https://developer.apple.com/documentation/metalfx>

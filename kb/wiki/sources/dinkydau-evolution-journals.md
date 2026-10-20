@@ -52,3 +52,12 @@ and [Heiland-Allen: Patterns in Inflected Julia Sets (2025)](heiland-allen-infle
 ## Used by
 
 [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://www.deviantart.com/dinkydauset/journal/Newton-Raphson-zooming-and-Evolution-zoom-method-657051421>
+- <https://www.deviantart.com/dinkydauset/journal/Simulating-Julia-morphings-793105862>
+- <https://github.com/DinkydauSet/ExploreFractals>
+- [Deep-zoom videos: record and landmark YouTube descriptions](deep-zoom-videos.md)
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](muency-newton-raphson-zooming.md)
+- [Heiland-Allen: Patterns in Inflected Julia Sets (2025)](heiland-allen-inflected-julia-sets-2025.md)

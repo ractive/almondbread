@@ -77,3 +77,12 @@ emit MSL per formula, specialise with function constants
 
 Last of the realistic formulas. Requires: opcode model, per-phase references
 and tables, matrix BLA, code generation. Imagina-style LA does not apply.
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)

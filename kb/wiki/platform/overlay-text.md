@@ -73,3 +73,7 @@ disappeared on pale palettes: `+0.451` over the white boundary glow was unreadab
   a hard edge where the clamp starts, hence the clamp in `text_halo`.
 - Regenerating the atlas rewrites `metrics.rs`; run `cargo fmt` afterwards (the table itself
   is `#[rustfmt::skip]`).
+
+# Citations
+
+- [Inter typeface (Rasmus Andersson), release 4.1](../sources/inter-font.md)

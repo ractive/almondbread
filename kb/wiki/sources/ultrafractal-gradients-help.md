@@ -31,3 +31,7 @@ Primary for UF semantics. The meaning of `rotation` (assumed: index units) is no
 ## Used by
 
 [Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://www.ultrafractal.com/help/gradients/gradients.html>

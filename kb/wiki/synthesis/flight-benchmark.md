@@ -268,3 +268,7 @@ worth a look; it stayed under the jump check's 32/255 per-block threshold.
 
 See also [almondbread benchmarks and verification record](benchmarks.md) (the running record), [Automatic maximum-iteration control](../techniques/auto-iterations.md),
 [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md).
+
+# Citations
+
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)

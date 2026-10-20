@@ -54,3 +54,9 @@ page gives no history (inventors, dates).
 ## Used by
 
 [Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)
+
+# Citations
+
+- <https://mrob.com/pub/muency/adjacencyoptimization.html>
+- <https://mrob.com/pub/muency/marianisilveralgorithm.html>
+- <https://mrob.com/pub/muency/circletiling.html>

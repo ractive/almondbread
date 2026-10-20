@@ -54,3 +54,8 @@ The notes' statement was about the formula-writing page only.
 Hand-written perturbed equations per formula are the low-tech alternative to
 an opcode compiler ([Hybrid formulas](../formulas/hybrids.md)). Its glitch approach is the legacy
 multi-reference one ([Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md)).
+
+# Citations
+
+- [Ultra Fractal help: Perturbation calculations](../sources/ultrafractal-perturbation-calculations.md)
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)

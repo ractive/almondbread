@@ -39,3 +39,9 @@ Check Fractal Zoomer (GPL-3.0; read behaviour and docs, not code) for which
 formulas support perturbation (src: [Fractal Zoomer README](../sources/fractalzoomer-readme.md)); derive the
 perturbed Nova step ourselves (rational: perturb numerator and denominator,
 quotient identity) and test rebasing at the formula's critical point.
+
+# Citations
+
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
+- [Fractal Zoomer README](../sources/fractalzoomer-readme.md)

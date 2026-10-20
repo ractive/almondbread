@@ -29,3 +29,7 @@ Secondary but exact (the formula is self-evident).
 ## Used by
 
 [Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://iquilezles.org/articles/palettes/>

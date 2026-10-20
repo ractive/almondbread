@@ -39,3 +39,7 @@ without rotation (inference).
 ## Used by
 
 [XaoS](../implementations/xaos.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/XaoS>

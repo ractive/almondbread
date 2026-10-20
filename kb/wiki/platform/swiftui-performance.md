@@ -301,3 +301,7 @@ against 67-92 ms. Rendering with Places open stays at the collapsed baseline (8 
 lazy stack with only the settled width (fix 1) measured in between: stress worst 281 ms,
 scroll longest 25-40 ms. If the hang never returns with a `VStack`, the remaining cost to
 attack is the palette grid and the Places grid (fewer views per tile).
+
+# Citations
+
+- [Apple SwiftUI and Observation documentation, and the macOS 26 SwiftUI call stacks](../sources/apple-swiftui-observation.md)

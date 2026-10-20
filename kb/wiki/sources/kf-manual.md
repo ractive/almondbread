@@ -83,3 +83,8 @@ since 2022 and never got BLA, so its performance advice reflects SA-era practice
 [Colouring methods](../techniques/coloring-methods.md), [Interior detection](../techniques/interior-detection.md), [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md),
 [Does Kalles Fraktaler 2+ implement BLA?](../questions/kf-bla-support.md), [What auto-maxIter rule should almondbread use?](../questions/auto-iteration-heuristic.md), [What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md),
 [Mandel Machine](../implementations/mandel-machine.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://mathr.co.uk/kf/manual.html>
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](fractalforums-interior-detection.md)

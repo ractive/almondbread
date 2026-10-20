@@ -69,3 +69,8 @@ The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), li
 - [Automatic maximum-iteration control](../techniques/auto-iterations.md)
 - [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)
 - [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/Desarso/mandelbrot-webgpu/main/README.md>
+- [FractalShark README](fractalshark-readme.md)

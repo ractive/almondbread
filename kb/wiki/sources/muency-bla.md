@@ -44,3 +44,10 @@ The single-step coefficient recurrence and the one-multiply refactor are correct
 ## Used by
 
 [Bivariate linear approximation (BLA)](../techniques/bla.md), [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Does Kalles Fraktaler 2+ implement BLA?](../questions/kf-bla-support.md)
+
+# Citations
+
+- <https://mrob.com/pub/muency/bivariatelinearapproximati.html>
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](fractalforums-zhuoran-rebasing-bla.md)
+- [Kalles Fraktaler 2 + (home page)](kf-page.md)

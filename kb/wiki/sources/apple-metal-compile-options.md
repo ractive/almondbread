@@ -37,3 +37,9 @@ None recorded (page did not render).
 - [Double-float (float-float) arithmetic](../techniques/double-float.md)
 - [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md)
 - [Do Apple GPUs flush float32 denormals to zero?](../questions/apple-gpu-denormals.md)
+
+# Citations
+
+- <https://developer.apple.com/documentation/metal/mtlcompileoptions/mathmode>
+- [luma.gl: GPU floating-point precision techniques](luma-gl-gpu-precision.md)
+- [Thall: Extended-precision floating-point numbers for GPU computation](thall-extended-precision.md)

@@ -170,3 +170,11 @@ M overall (1–2 weeks).
 - Maths and core hooks, gates, settings: 2–3 days.
 - Capabilities over FFI, Swift hiding: 1 day.
 - A/B proof runs and fixes: 2 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [almondbread benchmarks and verification record](../synthesis/benchmarks.md)

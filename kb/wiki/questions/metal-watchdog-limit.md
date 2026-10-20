@@ -58,3 +58,8 @@ with the display on/off and on an iPad. Record date, device and OS version here.
   budgeted chunks after a jump the error still appeared in 2 of 6 runs under that load, on the
   refine job's chunks; so a presenting process is killed well below the 10 s seen above when
   the GPU is contended. Still no clean threshold.
+
+# Citations
+
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)

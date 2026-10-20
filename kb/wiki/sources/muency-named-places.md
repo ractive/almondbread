@@ -52,3 +52,7 @@ limit.
 ## Useful sections
 
 - The `Coordinates:` line under each figure; `favoriteviews*` for deep hand-made views.
+
+# Citations
+
+- <https://mrob.com/pub/muency.html>

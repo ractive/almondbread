@@ -41,3 +41,9 @@ Language specification was not read.
 Note the practical floor is higher anyway: squared norms underflow near 1e-19
 (notes: perturbation_core §7), and the float32 WebGPU renderer hands over to an
 exponent-carrying delta at 1e-25 (src: [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)

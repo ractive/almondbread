@@ -47,3 +47,7 @@ code is not reusable; ideas and test strategy are.
   harness the roadmap asks for ([Deep zoom Mandelbrot rendering techniques](../synthesis/deep-zoom-rendering-techniques.md)).
 - iOS thermal and memory behaviour is still unmeasured there too
   ([iOS and iPadOS port considerations](../platform/ios-ipad-considerations.md)).
+
+# Citations
+
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)

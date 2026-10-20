@@ -243,3 +243,8 @@ measurement and the user's own check show that zoom-out stays sharp and fast zoo
   of the compose pass at Retina size; a conditional subtraction does it.
 - **Apple GPUs overlap command buffers.** A compose next to a 20 ms chunk reports 20 ms GPU
   time. Pass costs needed a serial-compose measurement mode (`ALMONDBREAD_SERIAL_COMPOSE`, removed 2026-10-17).
+
+# Citations
+
+- [XaoS: Algorithms document](../sources/xaos-algorithms.md)
+- [Wikipedia: XaoS](../sources/wikipedia-xaos.md)

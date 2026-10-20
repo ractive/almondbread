@@ -130,3 +130,12 @@ Interactive: one centre sample, then progressive uniform low-discrepancy jitter
 coverage for filaments. Export: N subframes (16–64) with jitter, gamma-correct
 resolve. Adaptive extra samples by DE in a later step. Related:
 [Frame reuse and progressive refinement](frame-reuse-and-progressive.md), [Colouring methods](coloring-methods.md).
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

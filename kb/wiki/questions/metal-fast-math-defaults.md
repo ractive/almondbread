@@ -53,3 +53,8 @@ Measured 2026-10-15, M1 Pro, macOS 26.5, MSL 3.0, runtime compilation
   `fastMathEnabled = false` there (untested on such an OS).
 - Still open: the default mode when nothing is set, and `.relaxed`. The float32 library sets
   fast math explicitly and the float-float library `.safe`, so neither depends on the default.
+
+# Citations
+
+- [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)

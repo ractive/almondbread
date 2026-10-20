@@ -43,3 +43,9 @@ guesses (see [mathr: Practical interior distance rendering (2014)](mathr-interio
 
 [Interior detection](../techniques/interior-detection.md), [Colouring methods](../techniques/coloring-methods.md), [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md),
 [What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://mrob.com/pub/muency/atomdomain.html>
+- [mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md)
+- [Kalles Fraktaler 2 + manual](kf-manual.md)

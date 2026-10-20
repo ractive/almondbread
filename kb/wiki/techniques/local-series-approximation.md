@@ -348,3 +348,9 @@ in 224 rounds (~3.5 s), then pixels iterate. `render --iterations 1e6` of the sa
 the gate rejects those seeds anyway, 0.1 % of the steps). Auto limits rarely pass 2^16; `make
 bench` is unchanged within noise (feigenbaum 200 000, home-100k, needle-1e1004 included;
 measured 2026-10-17, M1 Pro, release) and `make regress` passes.
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)

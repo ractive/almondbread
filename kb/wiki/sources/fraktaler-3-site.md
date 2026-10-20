@@ -70,3 +70,8 @@ not the algorithms in depth. Timing example is one location on unspecified hardw
 [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md), [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md), [Hybrid formulas](../formulas/hybrids.md),
 [Burning Ship and abs variations](../formulas/burning-ship.md), [Mandelbar (Tricorn)](../formulas/mandelbar.md), [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md),
 [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md), [How does Imagina/FractalShark reference-orbit compression work?](../questions/reference-orbit-compression.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://fraktaler.mathr.co.uk/>
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

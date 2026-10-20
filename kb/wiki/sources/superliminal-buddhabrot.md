@@ -31,3 +31,7 @@ Primary (the originator). Old hardware numbers.
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <http://superliminal.com/fractals/bbrot/>

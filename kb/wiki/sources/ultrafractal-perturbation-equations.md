@@ -43,3 +43,7 @@ Primary and correct for the basic derivation. It covers plain perturbation only:
 - [Multibrot (integer power p)](../formulas/multibrot.md)
 - [Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)
 - [Ultra Fractal 6](../implementations/ultra-fractal.md)
+
+# Citations
+
+- <https://www.ultrafractal.com/help/writing/formulas/perturbationequations.html>

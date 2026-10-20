@@ -35,3 +35,9 @@ None recorded (not read).
 - [Double-float (float-float) arithmetic](../techniques/double-float.md)
 - [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)
 - [Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)
+
+# Citations
+
+- <https://developer.apple.com/forums/thread/718737>
+- [metal-benchmarks README (Apple GPU microarchitecture)](metal-benchmarks-readme.md)
+- [luma.gl: GPU floating-point precision techniques](luma-gl-gpu-precision.md)

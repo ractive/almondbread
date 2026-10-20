@@ -111,3 +111,11 @@ M overall (1–2 weeks).
 - Two-reference scheduling, kernel steps, BLA: 3 days.
 - Oracle, places, UI, twin: 2 days.
 - Verification and review fixes: 2 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Julia sets](../formulas/julia.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)

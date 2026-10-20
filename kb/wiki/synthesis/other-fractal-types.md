@@ -329,3 +329,34 @@ through both apps, as for Mandelbrot today.
 - Needle detection heuristic for Burning Ship in float32 ([Burning Ship and abs variations](../formulas/burning-ship.md)).
 - [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](../questions/perturbation-convergent-formulas.md) for Nova/Newton/Magnet.
 - Measured 3D cost on M1 Pro / iPad (only estimates here).
+
+# Citations
+
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Fractal Zoomer README](../sources/fractalzoomer-readme.md)
+- [Fractalshades README](../sources/fractalshades-readme.md)
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
+- [HPDZ.NET: Burning Ship and Nova deep zooms](../sources/hpdz-animations.md)
+- [Inigo Quilez: Mandelbulb](../sources/quilez-mandelbulb.md)
+- [Daniel White: Mandelbulb (skytopia)](../sources/skytopia-mandelbulb.md)
+- [Wikipedia: Mandelbulb](../sources/wikipedia-mandelbulb.md)
+- [Wikipedia: Mandelbox](../sources/wikipedia-mandelbox.md)
+- [Hvidtfeldt: Distance Estimated 3D Fractals (blog series)](../sources/hvidtfeldt-de-3d-fractals.md)
+- [Mandelbulber v2 repository](../sources/mandelbulber2-readme.md)
+- [AllTools: Mandelbulb 3D Explorer (WebGL)](../sources/alltools-mandelbulb-explorer.md)
+- [Melinda Green: The Buddhabrot Technique](../sources/superliminal-buddhabrot.md)
+- [Wikipedia: Fractal flame](../sources/wikipedia-fractal-flame.md)
+- [Wikipedia: Newton fractal](../sources/wikipedia-newton-fractal.md)
+- [Wikipedia: Lyapunov fractal](../sources/wikipedia-lyapunov-fractal.md)
+- [Frax: What is Frax?](../sources/frax-about.md)
+- [Frax help: Explore (precision limit)](../sources/frax-help-explore.md)
+- [Burning Ship and abs variations](../formulas/burning-ship.md)
+- [Hybrid formulas](../formulas/hybrids.md)
+- [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)
+- [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](../decisions/landscape-mode.md)

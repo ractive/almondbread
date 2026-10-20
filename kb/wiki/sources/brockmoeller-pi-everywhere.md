@@ -43,3 +43,7 @@ theorem, Shishikura). Cites Siewert (2023) for a sharper proof at c = 1/4.
 
 A preprint (not refereed when retrieved); consistent with Klebanoff, Edgar's heuristics and our
 counts.
+
+# Citations
+
+- <https://arxiv.org/abs/2505.07138v1>

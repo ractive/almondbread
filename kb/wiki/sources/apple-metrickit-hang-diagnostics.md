@@ -35,3 +35,8 @@ and were not re-checked line by line (unverified).
 ## Reliability
 
 Primary source (Apple). Thresholds and delivery timing change between OS releases.
+
+# Citations
+
+- <https://developer.apple.com/documentation/metrickit/mxhangdiagnostic>
+- <https://developer.apple.com/documentation/xcode/understanding-hangs-in-your-app>

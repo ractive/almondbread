@@ -259,3 +259,22 @@ Not worth building now: external-angle tracing (quadratic in period), a "deepest
   a morph at 1/2 of the log-depth. Our measurement (4k arms at 1/2, 8k at 3/4 around a k-armed
   point) is consistent with "doubling per halving of the remaining distance" if the first
   doubling happens before 1/2; not resolved, see [At what fraction of the log-depth to a minibrot does each doubling appear?](../questions/julia-morph-depth-fractions.md).
+
+# Citations
+
+- [mathr blog: automated Julia morphing (2016-2021)](../sources/mathr-julia-morphing-posts.md)
+- [mathr blog: navigating embedded Julia sets in the hairs](../sources/mathr-embedded-julia-navigation.md)
+- [mathr blog: atom domain size, Misiurewicz domains, periodicity scan](../sources/mathr-domains-and-periodicity-scan.md)
+- [Heiland-Allen: Patterns in Inflected Julia Sets (2025)](../sources/heiland-allen-inflected-julia-sets-2025.md)
+- [Dinkydau: evolution zooms, Julia morphing simulation, ExploreFractals](../sources/dinkydau-evolution-journals.md)
+- [Fractal Forums: Pathfinding in the Mandelbrot set - Revisited (2019)](../sources/fractalforums-pathfinding-revisited.md)
+- [Fractal Forums: How deep was the deepest Mandelbrot zoom you've ever made? (2016)](../sources/fractalforums-deepest-zoom-poll.md)
+- [Deep-zoom videos: record and landmark YouTube descriptions](../sources/deep-zoom-videos.md)
+- [Wikibooks: Fractals/emndl (emndl_autotune)](../sources/wikibooks-emndl.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Imagina README](../sources/imagina-readme.md)
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [Places: a catalogue of famous views to visit](places.md)

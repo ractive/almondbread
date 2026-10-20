@@ -183,3 +183,12 @@ Findings (measured 2026-10-14, M1 Pro, release, rustc 1.99):
 ## Gaps
 
 - No MPFR M1 benchmark; no published M1 Pro reference-orbit timing for any renderer.
+
+# Citations
+
+- [GMP on Apple M1 (gmp-discuss, 2020)](../sources/gmp-m1-discuss.md)
+- [Fixed-size multiplication kernels on M1 (gmp-devel, 2024)](../sources/gmp-fixed-size-mul.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)

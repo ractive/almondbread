@@ -111,3 +111,13 @@ colouring pass. Use DE for filament AA, slope lighting, and as the adaptive
 sampling trigger. Add exponent tracking for `der` together with the rescaled
 float32 path of [Extended range: floatexp, rescaled iterations, depth thresholds](extended-range-floats.md). Related:
 [Perturbation](perturbation.md), [Bivariate linear approximation (BLA)](bla.md).
+
+# Citations
+
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)

@@ -42,3 +42,8 @@ Primary for Ultra Fractal's behaviour, but marketing-level: it does not say how 
 - [Perturbation](../techniques/perturbation.md)
 - [Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md)
 - [Series approximation (legacy)](../techniques/series-approximation.md)
+
+# Citations
+
+- <https://www.ultrafractal.com/help/formulas/perturbationcalculations.html>
+- [Ultra Fractal help: Perturbation equations](ultrafractal-perturbation-equations.md)

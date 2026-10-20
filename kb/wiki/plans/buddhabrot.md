@@ -101,3 +101,10 @@ M overall (1–2 weeks).
 - Metropolis–Hastings sampling: 2 days.
 - Scheduler job kind, UI, export: 2 days.
 - Verification, iPad thermals: 2 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Melinda Green: The Buddhabrot Technique](../sources/superliminal-buddhabrot.md)
+- [Controls: keyboard, pointer and touch](../decisions/controls.md)
+- [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)

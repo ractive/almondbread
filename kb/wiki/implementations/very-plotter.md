@@ -52,3 +52,8 @@ Last push 2023-05-09 (gh api, 2026-10-14); MIT. Dormant.
 The auto-epsilon search is a practical way to validate BLA radii per
 location, and the benchmark table is the only public SA-vs-BLA comparison
 ([Bivariate linear approximation (BLA)](../techniques/bla.md), [Series approximation (legacy)](../techniques/series-approximation.md)).
+
+# Citations
+
+- [Very Plotter (visualize-primes) README](../sources/very-plotter-readme.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)

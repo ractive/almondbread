@@ -491,3 +491,15 @@ DE in v1; interior DE is a later colouring feature. Store an interior flag per
 pixel for colouring and for [Guessing, border tracing and rectangle subdivision](guessing-and-subdivision.md).
 Related: [Reference selection: nucleus, period detection, Newton](reference-selection.md), [Bivariate linear approximation (BLA)](bla.md),
 [Linear approximation with period-aligned stages and AT (Imagina)](linear-approximation-imagina.md).
+
+# Citations
+
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Wikibooks: Mandelbrot set interior](../sources/wikibooks-mandelbrot-interior.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)

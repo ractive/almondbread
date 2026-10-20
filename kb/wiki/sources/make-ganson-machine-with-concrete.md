@@ -33,3 +33,7 @@ Consistent with Wikipedia and with our arithmetic: `50^12 / 200 rpm` = 1.22·10^
 ## Used by
 
 [How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://makezine.com/article/craft/arthur-gansons-machine-with-concrete/>

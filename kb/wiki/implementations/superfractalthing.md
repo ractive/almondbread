@@ -30,3 +30,9 @@ perturbation_core §1 Gaps).
 
 Origin of [Perturbation](../techniques/perturbation.md) and [Series approximation (legacy)](../techniques/series-approximation.md);
 SA itself is superseded by [Bivariate linear approximation (BLA)](../techniques/bla.md).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Ultra Fractal help: Perturbation calculations](../sources/ultrafractal-perturbation-calculations.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)

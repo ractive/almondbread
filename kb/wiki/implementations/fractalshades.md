@@ -46,3 +46,9 @@ Active: last push 2026-08-30 (gh api); MIT; Linux, macOS, Windows.
 MIT, so code could be read freely, but it is NumPy/Numba CPU code, not GPU.
 The interior-detection result is the evidence that the derivative test works
 with BLA at depth.
+
+# Citations
+
+- [Fractalshades README](../sources/fractalshades-readme.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

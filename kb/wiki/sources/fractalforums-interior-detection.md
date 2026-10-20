@@ -56,3 +56,9 @@ is stated to hold only for nucleus references; general case left open.
 [Interior detection](../techniques/interior-detection.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md),
 [Fraktaler 3](../implementations/fraktaler-3.md), [Fractalshades](../implementations/fractalshades.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md),
 [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+
+# Citations
+
+- <https://web.archive.org/web/20221120133203/https://fractalforums.org/fractal-mathematics-and-new-theories/28/interior-detection-for-deep-mandelbrot-set-zooms/4802>
+- <https://fractalforums.org/fractal-mathematics-and-new-theories/28/interior-detection-for-deep-mandelbrot-set-zooms/4802>
+- [Kalles Fraktaler 2 + (home page)](kf-page.md)

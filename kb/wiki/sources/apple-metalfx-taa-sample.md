@@ -34,3 +34,7 @@ Primary, runnable vendor code; the formulas are the de facto convention. Apple s
 ## Used by
 
 - [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)
+
+# Citations
+
+- <https://developer.apple.com/documentation/metalfx/applying-temporal-antialiasing-and-upscaling-using-metalfx>

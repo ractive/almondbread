@@ -244,3 +244,11 @@ A14+ on iOS. [Motion sample reuse: fewer iterations per gesture frame (R4)](../s
 [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md),
 [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](render-architecture.md), [Apple GPU architecture for compute](apple-gpu-architecture.md),
 [iOS and iPadOS port considerations](ios-ipad-considerations.md), [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)
+
+# Citations
+
+- [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)
+- [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](../sources/apple-metalfx-taa-sample.md)
+- [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)
+- [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)
+- [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)

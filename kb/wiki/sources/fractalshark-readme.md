@@ -60,3 +60,8 @@ The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, push
 - [How does Imagina/FractalShark reference-orbit compression work?](../questions/reference-orbit-compression.md)
 - [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)
 - [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/mattsaccount364/FractalShark/main/README.md>
+- [Fractal Zoomer README](fractalzoomer-readme.md)

@@ -33,3 +33,7 @@ Standard, stable mathematical definitions; fine for the notation.
 ## Used by
 
 [How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Knuth%27s_up-arrow_notation>

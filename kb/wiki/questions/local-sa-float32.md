@@ -89,3 +89,7 @@ differ by more than 3 % in colour; 0.44 % at sea-1e20 after the deep DE fix, 3.1
 
 Recommendation and the M5 integration design: [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md)
 "GPU prototype (R5)".
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)

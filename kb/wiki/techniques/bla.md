@@ -337,3 +337,14 @@ of short nucleus references, each skipped again. Measured 1.5× to 26× at every
 location, 125× fewer steps at `needle-1e1004` ([almondbread benchmarks and verification record](../synthesis/benchmarks.md) M3b). Fields with and
 without the table differ only by float32 noise (class mismatch 0.264 % vs 0.270 % against the
 oracle at the densest view).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [Mu-Ency: Bivariate Linear Approximation](../sources/muency-bla.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

@@ -94,3 +94,11 @@ background knowledge and are marked so.
 ## Gaps
 
 - No sourced iOS memory limits, watchdog value or thermal curves for GPU compute.
+
+# Citations
+
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)

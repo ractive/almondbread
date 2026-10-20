@@ -37,3 +37,11 @@ float + int and Fraktaler 3.1 added `doubleexp` ([Fraktaler 3 (documentation sit
 ## Used by
 
 [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md), [How many bits does the reference orbit need?](../questions/precision-bits-formula.md)
+
+# Citations
+
+- <https://mrob.com/pub/muency/floatexp.html>
+- [mathr: Deep zoom theory and practice (2021)](mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](kf-manual.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](fractalforums-interior-detection.md)
+- [Fraktaler 3 (documentation site, v3.1)](fraktaler-3-site.md)

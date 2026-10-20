@@ -95,3 +95,10 @@ generations are less well measured.
 
 - No microbenchmarks for M3/M4/M5 fp32 throughput per core or int32 multiply.
 - No occupancy-versus-register-count table for Apple GPUs.
+
+# Citations
+
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
+- [Apple tech talk: Explore GPU advancements in M3 and A17 Pro (Dynamic Caching)](../sources/apple-dynamic-caching-talk.md)
+- [Apple Developer Forums thread 718737: FP64 emulation on Apple GPUs](../sources/apple-forums-fp64-emulation.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)

@@ -45,3 +45,10 @@ the same "4k at 1/2, 8k at 3/4" as the places data ([Controls: keyboard, pointer
 Render a contact sheet at `f = 0.25 … 0.9375` for three starts (a tip, M(4,1), a nucleus)
 and count arms; once `locate --frame f` exists this is one command per start
 ([Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)).
+
+# Citations
+
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)
+- [Dinkydau: evolution zooms, Julia morphing simulation, ExploreFractals](../sources/dinkydau-evolution-journals.md)
+- [Fractal Forums: Pathfinding in the Mandelbrot set - Revisited (2019)](../sources/fractalforums-pathfinding-revisited.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)

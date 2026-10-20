@@ -89,3 +89,12 @@ verdict would be L–XL.
 - Literature and derivation: 2 days.
 - CPU prototype and checks: 2 days.
 - Verdict and kb pages: 1 day.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)
+- [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](../questions/perturbation-convergent-formulas.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [HPDZ.NET: Burning Ship and Nova deep zooms](../sources/hpdz-animations.md)
+- [Wikipedia: Newton fractal](../sources/wikipedia-newton-fractal.md)

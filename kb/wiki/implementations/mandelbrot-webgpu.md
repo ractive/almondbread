@@ -73,3 +73,7 @@ skip tables ([Bivariate linear approximation (BLA)](../techniques/bla.md)), the 
 under the watchdog ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)), reprojection
 ([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)), and sweep-calibrated
 auto-iterations ([Automatic maximum-iteration control](../techniques/auto-iterations.md)). GPL code must not be copied.
+
+# Citations
+
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)

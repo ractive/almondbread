@@ -25,3 +25,7 @@ since about 2015-2016 (unverified). Licence, last version and date not found.
 Little that is documented. It mattered historically for speed comparisons
 ("Mandel Machine vs KF" threads, not fetched). See
 [Kalles Fraktaler 2 +](kalles-fraktaler-2.md) for the same generation.
+
+# Citations
+
+- [fractalforums.com: Mandel Machine board](../sources/fractalforums-mandel-machine.md)

@@ -59,3 +59,11 @@ implementations_and_formulas §Q1).
 The fastest known skip method for power-2 Mandelbrot (LA + AT), worth porting
 to Metal as roadmap step 9. AGPL: implement from our own description in
 [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md), never from the code.
+
+# Citations
+
+- [Imagina README](../sources/imagina-readme.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [Mu-Ency: Bivariate Linear Approximation](../sources/muency-bla.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)

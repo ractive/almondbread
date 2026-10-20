@@ -137,3 +137,14 @@ in `crates/almondbread-math` exists, [Rust core with a Rust Metal backend; Swift
 - **Speed**: 16 M iterations/s at 64 bits, 7 M at 512, 2.6 M at 1024, 0.3 M at 4096
   (measured 2026-10-14, M1 Pro, release, one thread). A 1e7-iteration orbit at 1e-100
   (448 bits) takes about 1.2 s; a nucleus reference needs only p iterations.
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [GMP on Apple M1 (gmp-discuss, 2020)](../sources/gmp-m1-discuss.md)
+- [Fixed-size multiplication kernels on M1 (gmp-devel, 2024)](../sources/gmp-fixed-size-mul.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)

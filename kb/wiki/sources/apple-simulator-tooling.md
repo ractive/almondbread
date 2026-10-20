@@ -32,3 +32,7 @@ tags: [ios, simulator, xctest, tooling]
   an accessibility snapshot of the app, which times out when the main thread is blocked.
 
 Used by [iOS and iPadOS on the simulator: setup, checks, what broke](../platform/ios-simulator.md).
+
+# Citations
+
+- <https://developer.apple.com/documentation/xctest>

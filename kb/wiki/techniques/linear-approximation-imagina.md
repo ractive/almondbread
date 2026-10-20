@@ -291,3 +291,11 @@ future formulas ([Burning Ship and abs variations](../formulas/burning-ship.md) 
 - Fresh pixels may start at `z_0 = 0` only when the AT takes them (the deep full step would
   zero `w` there and "prove" interior).
 - Coarse stages (Imagina-like 16×) ran needle-1e1004 about 1.5× slower than 4× stages (one A/B: 37 vs 24 ms medians).
+
+# Citations
+
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [Imagina README](../sources/imagina-readme.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)

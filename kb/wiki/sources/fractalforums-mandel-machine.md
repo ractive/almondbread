@@ -36,3 +36,8 @@ dates are approximate (unverified).
 ## Used by
 
 [Mandel Machine](../implementations/mandel-machine.md)
+
+# Citations
+
+- <https://www.fractalforums.com/mandel-machine/mandel-machine/>
+- [Kalles Fraktaler 2 + manual](kf-manual.md)

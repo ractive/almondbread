@@ -42,3 +42,7 @@ check the path's end points, continuity and exact landing ([Controls: keyboard, 
 
 [Controls: keyboard, pointer and touch](../decisions/controls.md) (fly to coordinates, as built): the van Wijk part of the path, with
 log-space head and tail for deep zoom.
+
+# Citations
+
+- <https://www.win.tue.nl/~vanwijk/zoompan.pdf>

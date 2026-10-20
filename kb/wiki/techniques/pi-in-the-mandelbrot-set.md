@@ -232,3 +232,11 @@ tool with `--pi-flight neck|cusp`) and headless stills (`almondbread render out.
 - Mu-Ency's neck table is one higher throughout (34, 316, 3144, 31418, 314161 for ε = 1e-1 ...
   1e-5; src: [Mu-Ency (Robert Munafo): pi and R2.C(1/2)](../sources/muency-pi.md)): another counting convention. See
   [Why do published π escape counts differ by one (Mu-Ency) or disagree at ε = 1e-7 (Boll)?](../questions/pi-escape-count-conventions.md).
+
+# Citations
+
+- [Dave Boll's 1991 π post, reproduced by Mark VandeWettering (brainwagon, 2011)](../sources/boll-pi-post.md)
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md)
+- [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](../sources/edgar-pi-and-mandelbrot.md)
+- [Mu-Ency (Robert Munafo): pi and R2.C(1/2)](../sources/muency-pi.md)

@@ -31,3 +31,7 @@ Expert primary source, but not read here; claims taken from it are marked as fro
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://blog.hvidtfeldts.net/index.php/2011/08/distance-estimated-3d-fractals-iii-folding-space/>

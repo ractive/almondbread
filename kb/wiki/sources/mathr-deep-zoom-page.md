@@ -68,3 +68,8 @@ manifest year 2022 is the content year; the page footer says 2024-05-31.
 [Perturbation](../techniques/perturbation.md), [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Distance estimation](../techniques/distance-estimation.md),
 [Interior detection](../techniques/interior-detection.md), [Mandelbrot set (power 2)](../formulas/mandelbrot.md), [Mandelbar (Tricorn)](../formulas/mandelbar.md), [Burning Ship and abs variations](../formulas/burning-ship.md),
 [Hybrid formulas](../formulas/hybrids.md), [Fraktaler 3](../implementations/fraktaler-3.md), [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md), [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+
+# Citations
+
+- <https://mathr.co.uk/web/deep-zoom.html>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)

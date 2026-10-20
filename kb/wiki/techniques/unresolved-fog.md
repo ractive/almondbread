@@ -139,3 +139,7 @@ Before / after, 1600 × 1000, `render --extend 1`: the −3/4 neck at 4.48e−12
 satellite head (3 000), `cusp-1e5` (3 000), the cardioid edge `0.37418 + 0.19342 i` at 2e−7
 (1 000); plus `verify --history` frames of the neck and the cardioid edge (compose path).
 Not committed (scratch).
+
+# Citations
+
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

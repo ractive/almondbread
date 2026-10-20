@@ -31,3 +31,10 @@ Three published tables of neck escape counts for `c = -3/4 + iε` disagree:
   Most likely Boll's program (1991, probably single or double precision in `z² + c` form)
   drifted at that depth, as textbook f64 visibly does one decade further down (it never escapes
   at ε = 1e-8). (unverified: we do not have Boll's program.)
+
+# Citations
+
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)
+- [Dave Boll's 1991 π post, reproduced by Mark VandeWettering (brainwagon, 2011)](../sources/boll-pi-post.md)
+- [Mu-Ency (Robert Munafo): pi and R2.C(1/2)](../sources/muency-pi.md)
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md)

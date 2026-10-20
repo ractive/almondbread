@@ -29,3 +29,7 @@ Low: an anonymous tool page. The 1e4–1e5 float32 figure agrees with our own es
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://alltools.dev/tools/visualizations/mandelbulb-3d-explorer/>

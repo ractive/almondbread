@@ -49,3 +49,7 @@ exponential-map pipeline and the float49 iteration-count idea, not for the itera
 [Exponential map (log-polar) rendering](../techniques/exponential-map.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md), [Colouring methods](../techniques/coloring-methods.md),
 [Smooth (continuous) iteration count](../techniques/smooth-coloring.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md),
 [Fraktaler 3](../implementations/fraktaler-3.md)
+
+# Citations
+
+- <https://mathr.co.uk/zoomasm/>

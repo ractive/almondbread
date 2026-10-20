@@ -74,3 +74,11 @@ Do not build multi-reference correction. Keep the Pauldelbrot test as a
 debug overlay (colour pixels where it fires) to catch float32 paths that go
 wrong silently, and as a fallback flag for formulas without a rebasing
 derivation ([Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md)
+- [Ultra Fractal help: Perturbation calculations](../sources/ultrafractal-perturbation-calculations.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)

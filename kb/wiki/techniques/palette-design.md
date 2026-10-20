@@ -139,3 +139,20 @@ ship UF, KF (AGPL), Fractint (non-commercial) or fractalset palettes.
   noisy under smooth colouring at high density.
 - JWildfire pads missing `.ugr` indices 0 and 399 with black, which breaks UF's
   wrap; do not copy that (src: research notes `ultra-fractal-gradients.md`).
+
+# Citations
+
+- [fractalset.com viewer and gradient editor](../sources/fractalset-viewer.md)
+- [Ultra Fractal help: gradients and colouring settings](../sources/ultrafractal-gradients-help.md)
+- [Fractint documentation: palette maps (.map)](../sources/fractint-map-format.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Kovesi: Good Colour Maps: How to Design Them](../sources/kovesi-good-colour-maps.md)
+- [colorcet: the CET perceptually uniform colour maps](../sources/colorcet.md)
+- [Crameri: Scientific colour maps](../sources/crameri-scientific-colour-maps.md)
+- [BIDS colormap: viridis, magma, inferno, plasma](../sources/bids-viridis-colormaps.md)
+- [cmocean: colour maps for oceanography](../sources/cmocean.md)
+- [Google Turbo colour map](../sources/turbo-colormap.md)
+- [Nuñez et al.: cividis, a colour map for colour vision deficiency](../sources/cividis-paper.md)
+- [Quilez: procedural colour palettes](../sources/quilez-cosine-palettes.md)
+- [Ottosson: A perceptual color space for image processing (OKLab)](../sources/ottosson-oklab.md)
+- [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)

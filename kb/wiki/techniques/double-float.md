@@ -146,3 +146,13 @@ pass:
 - **Not built** (no artefacts to remove): the repair pass and its flagging
   (Pauldelbrot test, AA-sample or neighbour disagreement, precision-loss
   estimate), the "max precision" setting, the shallow direct float-float band.
+
+# Citations
+
+- [Thall: Extended-precision floating-point numbers for GPU computation](../sources/thall-extended-precision.md)
+- [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
+- [Apple Developer Forums thread 718737: FP64 emulation on Apple GPUs](../sources/apple-forums-fp64-emulation.md)
+- [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)

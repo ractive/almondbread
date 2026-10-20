@@ -29,3 +29,7 @@ Primary statement by the vendor.
 ## Used by
 
 Market research notes (kept private, not in this wiki).
+
+# Citations
+
+- <https://fr.ax/help/explore>

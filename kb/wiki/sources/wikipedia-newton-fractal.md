@@ -24,3 +24,7 @@ tags: [newton, nova, convergent, encyclopedia]
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Newton_fractal>

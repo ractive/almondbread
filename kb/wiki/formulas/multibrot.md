@@ -73,3 +73,12 @@ powers" (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-si
 Easy second formula: same reference machinery, one critical point, scalar
 complex BLA. Generate one kernel per p. Imagina-style LA is power-2 only
 (inference from [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)); use the BLA tree.
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)

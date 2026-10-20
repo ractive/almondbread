@@ -78,3 +78,10 @@ factor 2 each) around the reference, writing (n, frac, phase, DE, flags), plus
 a Metal reprojection pass. Compatibility with zoomasm's EXR layout is cheap to
 add and lets users assemble videos with existing tools. Related:
 [Frame reuse and progressive refinement](frame-reuse-and-progressive.md), [Smooth (continuous) iteration count](smooth-coloring.md).
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [zoomasm (zoom video assembler)](../sources/zoomasm.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)

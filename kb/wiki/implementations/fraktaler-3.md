@@ -90,3 +90,11 @@ timeouts ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog
 (mathr collects mean/min/max of BLA steps, perturb steps, rebases by cause)
 for diagnosing limit problems (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
 §Reply #1).
+
+# Citations
+
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)

@@ -40,3 +40,9 @@ After first-order BLA works, prototype second-order coefficients and radius in t
 table builder and compare steps per pixel and time on the benchmark set
 ([How much faster is Imagina-style LA than binary-tree BLA on a GPU?](bla-vs-la-benchmark.md)). Do not copy the GPL code; derive from the
 composition rules.
+
+# Citations
+
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)

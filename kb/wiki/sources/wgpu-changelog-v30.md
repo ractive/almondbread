@@ -29,3 +29,8 @@ Primary project documentation.
 ## Used by
 
 Game-edition research notes (kept private, not in this wiki).
+
+# Citations
+
+- <https://github.com/gfx-rs/wgpu/blob/trunk/CHANGELOG.md>
+- <https://docs.rs/wgpu/latest/wgpu/struct.Features.html>

@@ -30,3 +30,12 @@ Creator's own statements. Render times date from 2017 to 2020 KF + series-approx
 
 Market research notes (kept private, not in this wiki); [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md) (with
 fuller descriptions in [Deep-zoom videos: record and landmark YouTube descriptions](deep-zoom-videos.md)).
+
+# Citations
+
+- <https://www.maths.town/videos/>
+- <https://archive.org/details/youtube-_zGNMiOBaPA>
+- <https://archive.org/details/youtube-HVJXdZgWnF8>
+- <https://archive.org/details/youtube-u1pwtSBTnPU>
+- <https://www.maths.town/videos/eye-of-the-universe-video/>
+- [Deep-zoom videos: record and landmark YouTube descriptions](deep-zoom-videos.md)

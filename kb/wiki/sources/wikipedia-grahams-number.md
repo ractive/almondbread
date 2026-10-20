@@ -30,3 +30,8 @@ Encyclopedia article on Graham's number. Read through a summarising fetch on 202
 ## Used by
 
 [How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Graham%27s_number>
+- [Wikipedia: Steinhaus–Moser notation (mega, Moser's number)](wikipedia-steinhaus-moser-notation.md)

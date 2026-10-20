@@ -38,3 +38,7 @@ deep nuclei, period detection, or the ball/box period methods used in KF.
 
 [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md), [Interior detection](../techniques/interior-detection.md), [What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md),
 [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md), [Fraktaler 3](../implementations/fraktaler-3.md)
+
+# Citations
+
+- <https://mrob.com/pub/muency/newtonraphsonmethod.html>

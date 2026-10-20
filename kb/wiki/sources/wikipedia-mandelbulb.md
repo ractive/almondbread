@@ -23,3 +23,7 @@ tags: [3d, mandelbulb, encyclopedia]
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Mandelbulb>

@@ -222,3 +222,15 @@ Pitfall found: a reference's precision must cover the *minibrot* it serves, not 
 radius: near the needle a period-255 nucleus found in a 1e-152 disc has size 1e-303; computed at
 640 bits it was no nucleus at all (`|z_255|` = 1e-160 only after refining to 1152 bits).
 `almondbread locate` refines until bits ≥ −log2(size) + 96.
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Mu-Ency: floatexp](../sources/muency-floatexp.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)

@@ -59,3 +59,8 @@ A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on
 - [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)
 - [Very Plotter](../implementations/very-plotter.md)
 - [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+
+# Citations
+
+- <https://philthompson.me/2023/Faster-Mandelbrot-Set-Rendering-with-BLA-Bivariate-Linear-Approximation.html>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)

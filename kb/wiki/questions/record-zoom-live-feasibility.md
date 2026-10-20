@@ -44,3 +44,8 @@ published record location, measure precompute time, keyframe time per
 doubling at 1440p and 4K, live playback rate, and image error against an
 offline high-quality render. Depends on
 [How large is float32 perturbation error over long orbits?](float32-error-long-orbits.md).
+
+# Citations
+
+- [Maths Town videos and video descriptions](../sources/maths-town-videos.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)

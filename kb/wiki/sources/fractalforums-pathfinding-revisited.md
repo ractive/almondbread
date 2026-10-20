@@ -37,3 +37,9 @@ Newton-zoom presets ([Kalles Fraktaler 2 + manual](kf-manual.md)) and [Dinkydau:
 ## Used by
 
 [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://fractalforums.org/fractal-mathematics-and-new-theories/28/pathfinding-in-the-mandelbrot-set-revisited/2916>
+- [Kalles Fraktaler 2 + manual](kf-manual.md)
+- [Dinkydau: evolution zooms, Julia morphing simulation, ExploreFractals](dinkydau-evolution-journals.md)

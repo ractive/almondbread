@@ -139,3 +139,8 @@ other orbit unchanged.
 
 [Reference orbit: precision, cost, storage, compression](reference-orbit-precision.md), [Reference selection: nucleus, period detection, Newton](reference-selection.md),
 [Rebasing (Zhuoran, 2021)](rebasing.md), [Arbitrary precision: own Swift/C implementation, not GMP/MPFR](../decisions/arbitrary-precision.md).
+
+# Citations
+
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)

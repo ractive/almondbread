@@ -26,3 +26,8 @@ tags: [market, competitors, frax, ios, lighting]
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://www.fr.ax/about>
+- [Frax help: Explore (precision limit)](frax-help-explore.md)

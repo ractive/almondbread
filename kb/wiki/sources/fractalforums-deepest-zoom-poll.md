@@ -27,3 +27,7 @@ Anecdotal; shows that by 2016 e1000-e20000 was common among perturbation users.
 ## Used by
 
 [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <http://www.fractalforums.com/mandelbrot-and-julia-set/how-deep-was-the-deepest-mandelbrot-zoom-you've-ever-made>

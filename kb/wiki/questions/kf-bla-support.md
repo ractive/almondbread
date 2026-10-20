@@ -34,3 +34,10 @@ and how to describe it in [Kalles Fraktaler 2 +](../implementations/kalles-frakt
 KF2+ (last release 2.15.5.2, 2022-06-07) has no BLA; Mu-Ency probably conflates
 KF with mathr's successor Fraktaler 3 ([Fraktaler 3](../implementations/fraktaler-3.md)). Mark as
 answered once the KF2+ changelog in [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) is checked for "BLA".
+
+# Citations
+
+- [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
+- [Mu-Ency: Bivariate Linear Approximation](../sources/muency-bla.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

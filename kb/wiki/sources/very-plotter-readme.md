@@ -36,3 +36,8 @@ Primary but minimal. The README lags the code: it lists perturbation and SA only
 ## Used by
 
 - [Very Plotter](../implementations/very-plotter.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/philthompson/visualize-primes/master/readme.md>
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](philthompson-bla.md)

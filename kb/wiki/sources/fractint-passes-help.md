@@ -47,3 +47,7 @@ colouring or perturbation.
 ## Used by
 
 [Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)
+
+# Citations
+
+- <https://sources.debian.org/src/xfractint/3.04-1/help3.src>

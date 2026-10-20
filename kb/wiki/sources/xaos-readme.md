@@ -38,3 +38,8 @@ Primary but promotional; no technical content. No deep-zoom (perturbation) suppo
 
 - [XaoS](../implementations/xaos.md)
 - [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/xaos-project/XaoS/master/README.md>
+- [Wikipedia: XaoS](wikipedia-xaos.md)

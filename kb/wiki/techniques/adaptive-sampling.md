@@ -111,3 +111,17 @@ Keep FL's sampling (DE-adaptive AA list, temporal accumulation); make each sampl
 [Local series approximation (tile and pixel seeds)](local-series-approximation.md); add interior-only tile fill
 ([Guessing, border tracing and rectangle subdivision](guessing-and-subdivision.md)) for interior-heavy views. Do not guess exterior
 colours or reconstruct texture from sparse samples.
+
+# Citations
+
+- [mathr: Adaptive super-sampling using distance estimate (2014)](../sources/mathr-adaptive-supersampling-de.md)
+- [Mitchell 1987: Generating Antialiased Images at Low Sampling Densities](../sources/mitchell-1987-adaptive-sampling.md)
+- [Ultra Fractal help: Anti-aliasing and drawing methods](../sources/ultrafractal-antialiasing.md)
+- [XaoS: Algorithms document](../sources/xaos-algorithms.md)
+- [Mu-Ency: Adjacency optimization (with Mariani/Silver and circle tiling)](../sources/muency-adjacency-optimization.md)
+- [Fractint / Xfractint help: drawing passes](../sources/fractint-passes-help.md)
+- [Kopf et al. 2007: Joint Bilateral Upsampling](../sources/kopf-2007-joint-bilateral-upsampling.md)
+- [Schied et al. 2017: Spatiotemporal Variance-Guided Filtering (SVGF)](../sources/schied-2017-svgf.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md)

@@ -26,3 +26,7 @@ tags: [3d, mandelbox, encyclopedia]
 ## Used by
 
 [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Mandelbox>
