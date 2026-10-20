@@ -49,15 +49,46 @@ struct SendLayer(Retained<CAMetalLayer>);
 // SAFETY: `nextDrawable` is documented thread-safe; the thread calls nothing else on it.
 unsafe impl Send for SendLayer {}
 
-/// One-slot mailbox between the acquire thread and the frame thread.
-#[derive(Default)]
-struct Mailbox {
-    slot: Mutex<Option<Parked>>,
+/// One-slot mailbox between the acquire thread and the frame thread (generic over the item
+/// only so the parking rule can be tested without a layer).
+struct Mailbox<T = Parked> {
+    slot: Mutex<Option<T>>,
     /// Signalled when the slot changes (filled or emptied) or on stop.
     changed: Condvar,
     stop: AtomicBool,
     /// The app is in the background: acquire nothing (kb: platform/ios-device "Background").
     paused: AtomicBool,
+}
+
+impl<T> Default for Mailbox<T> {
+    fn default() -> Self {
+        Self {
+            slot: Mutex::new(None),
+            changed: Condvar::new(),
+            stop: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
+        }
+    }
+}
+
+impl<T> Mailbox<T> {
+    /// Parks `item` (a drawable the acquire thread just obtained) unless the surface was paused
+    /// or stopped while `nextDrawable` blocked: then the item is dropped at once (the drawable
+    /// goes back to the pool) and false is returned. Checked under the slot's lock, which
+    /// `set_paused` takes after setting the flag, so a pause either finds the drawable parked
+    /// and empties the slot, or this sees the flag (review C4: a drawable parked after
+    /// `set_paused(true)` was held for the whole background stay).
+    fn park(&self, item: T) -> bool {
+        let mut slot = self.slot.lock().unwrap_or_else(|e| e.into_inner());
+        if self.paused.load(Ordering::Acquire) || self.stop.load(Ordering::Acquire) {
+            drop(slot);
+            drop(item);
+            return false;
+        }
+        *slot = Some(item);
+        self.changed.notify_all();
+        true
+    }
 }
 
 /// A `CAMetalLayer` configured for the renderer.
@@ -141,9 +172,7 @@ impl MetalLayerSurface {
                     let d = autoreleasepool(|_| layer.0.nextDrawable());
                     match d {
                         Some(d) => {
-                            let mut slot = mailbox.slot.lock().unwrap_or_else(|e| e.into_inner());
-                            *slot = Some(Parked(d));
-                            mailbox.changed.notify_all();
+                            mailbox.park(Parked(d));
                         }
                         // Timed out (hidden window) or not displayable: try again shortly.
                         None => std::thread::sleep(Duration::from_millis(4)),
@@ -327,5 +356,78 @@ impl Drop for MetalLayerSurface {
         if let Ok(mut slot) = self.mailbox.slot.lock() {
             *slot = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Counts drops, standing in for a drawable (dropped = back in the pool).
+    struct Token(Arc<AtomicU64>);
+    impl Drop for Token {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    /// Review C4: a drawable obtained after `set_paused(true)` (the acquire thread was inside
+    /// `nextDrawable` when the app went to the background) is dropped, not parked; after a
+    /// resume the next one parks again. Stop behaves like pause.
+    #[test]
+    fn no_drawable_is_parked_while_paused_or_stopped() {
+        let dropped = Arc::new(AtomicU64::new(0));
+        let m: Mailbox<Token> = Mailbox::default();
+        assert!(m.park(Token(dropped.clone())));
+        assert!(m.slot.lock().unwrap().is_some());
+        // set_paused(true): the flag, then the slot emptied under the lock.
+        m.paused.store(true, Ordering::Release);
+        *m.slot.lock().unwrap() = None;
+        assert_eq!(dropped.load(Ordering::Acquire), 1);
+        // The acquire thread returns from nextDrawable with a new drawable.
+        assert!(!m.park(Token(dropped.clone())));
+        assert!(m.slot.lock().unwrap().is_none(), "a drawable is held while paused");
+        assert_eq!(dropped.load(Ordering::Acquire), 2);
+        // Resumed: parks again.
+        m.paused.store(false, Ordering::Release);
+        assert!(m.park(Token(dropped.clone())));
+        assert!(m.slot.lock().unwrap().is_some());
+        // Stopped (the surface dropped): nothing parks.
+        *m.slot.lock().unwrap() = None;
+        m.stop.store(true, Ordering::Release);
+        assert!(!m.park(Token(dropped.clone())));
+        assert!(m.slot.lock().unwrap().is_none());
+        assert_eq!(dropped.load(Ordering::Acquire), 4);
+    }
+
+    /// The real surface on a windowless layer: paused, it holds no drawable while the acquire
+    /// thread keeps running; resumed, a drawable is parked again.
+    #[test]
+    fn a_paused_surface_holds_no_drawable() {
+        let backend = MetalBackend::new().expect("metal");
+        let layer = CAMetalLayer::new();
+        let mut surface = MetalLayerSurface::new(layer, &backend);
+        surface.set_drawable_size(64, 64);
+        let ready = |s: &mut MetalLayerSurface| {
+            let t = std::time::Instant::now();
+            while t.elapsed() < Duration::from_secs(3) {
+                if s.drawable_ready(0.0) {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            false
+        };
+        assert!(ready(&mut surface), "no drawable parked on a windowless layer");
+        surface.set_paused(true);
+        for _ in 0..50 {
+            std::thread::sleep(Duration::from_millis(10));
+            assert!(
+                surface.mailbox.slot.lock().unwrap().is_none(),
+                "a drawable is held while paused"
+            );
+        }
+        surface.set_paused(false);
+        assert!(ready(&mut surface), "no drawable after resuming");
     }
 }

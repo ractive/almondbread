@@ -242,6 +242,7 @@ One page per planned milestone (type `plan`; `hyalo find --view plans` lists the
 - [F8: Nova, Newton and Magnet research spike](plans/f8-convergent-spike.md) — F8: one-week spike on perturbation for Nova / Newton / Magnet (planned; M)
 - [Buddhabrot and Nebulabrot as a look](plans/buddhabrot.md) — BB: Buddhabrot / Nebulabrot as an optional shallow look, any time (planned; M)
 - [3D worlds (Mandelbox first): not recommended now](plans/3d-worlds.md) — 3D worlds (Mandelbox first) as a separate mode: not recommended now (proposed, last; XL)
+- [A11Y: Accessibility of the canvas and the Rust-drawn controls](plans/a11y-canvas-controls.md) — A11Y: cockpit, help badges, compass, mini-maps, Julia panel, π meter and cosmic scale as accessibility elements with labels, values and actions; the canvas as one sentence (built, awaiting review; S)
 
 ## Questions
 

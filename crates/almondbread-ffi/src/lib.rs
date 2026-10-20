@@ -22,6 +22,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 uniffi::setup_scaffolding!();
 
 #[cfg(target_vendor = "apple")]
+mod accessibility;
+#[cfg(target_vendor = "apple")]
 mod compass;
 #[cfg(target_vendor = "apple")]
 mod cosmic;

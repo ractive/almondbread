@@ -387,6 +387,20 @@ public enum UIDemo {
             explorer.setAngle(degrees: 35)
             model.mapEnabled = true
             model.mapLevels = 2
+        case "accessibility":
+            // The accessibility elements of the Rust-drawn controls (kb: plans/a11y-canvas-controls):
+            // a turned view (compass), two maps, the Julia panel, the cosmic scale and the π meter;
+            // the tree is printed and pressed once the view settled (macOS: `accessibilityCheck`).
+            // At 1e-9 (deep enough for a second map level; at 3000× there is only one).
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
+            explorer.setAngle(degrees: 35)
+            model.orbitEnabled = true
+            model.mapEnabled = true
+            model.mapLevels = 2
+            model.juliaEnabled = true
+            model.cosmicScale = true
+            model.piMeterEnabled = true
+            _ = explorer.input(event: .pointer(x: 150, y: -80))
         case "compass-maps":
             // Maps in the top-right corner too: the compass moves left of them.
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
@@ -504,6 +518,7 @@ public enum UIDemo {
                     }
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
+                    if scene == "accessibility" { accessibilityCheck(window: w, model: model) }
                     if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
                     if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
@@ -530,6 +545,85 @@ public enum UIDemo {
 
 #if os(macOS)
 extension UIDemo {
+    /// `--ui-demo=accessibility` (kb: plans/a11y-canvas-controls): prints the fractal view's
+    /// accessibility tree as AppKit serves it (role, identifier, label, value, frame), checks the
+    /// expected elements, the hit test at the cruise icon, AXPress on the cruise icon (the level
+    /// switches) and on the cockpit's help badge (its popover opens), and that the view's window
+    /// observers go when it leaves its window and do not pile up over 20 round trips (review I1).
+    /// Ends with "ui-demo: accessibility OK" or "... FAILED: reasons".
+    @MainActor
+    static func accessibilityCheck(window: NSWindow, model: ExplorerModel) {
+        var failures: [String] = []
+        guard let root = window.contentView, let view = findFractalView(root) as? FractalNSView else {
+            print("ui-demo: accessibility FAILED: no fractal view")
+            return
+        }
+        let children = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+        print("ui-demo: a11y view role=\(view.accessibilityRole()?.rawValue ?? "none") label=\"\(view.accessibilityLabel() ?? "")\" children=\(children.count)")
+        for e in children {
+            let value = e.accessibilityValue().map { "\($0)" } ?? ""
+            let f = e.accessibilityFrame()
+            print("ui-demo: a11y \(e.accessibilityRole()?.rawValue ?? "?") id=\(e.accessibilityIdentifier() ?? "") "
+                  + "label=\"\(e.accessibilityLabel() ?? "")\" value=\"\(value)\" selected=\(e.isAccessibilitySelected()) "
+                  + "frame=\(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))")
+        }
+        func element(_ id: String) -> NSAccessibilityElement? { children.first { $0.accessibilityIdentifier() == id } }
+        for id in ["fractal", "compass", "map-0", "map-1", "julia", "cosmic", "pi", "cockpit-manual", "cockpit-cruise",
+                   "cockpit-autopilot", "cockpit-journey", "cockpit-lane", "help-cockpit", "help-mini-map"]
+        where element(id) == nil {
+            failures.append("no \(id)")
+        }
+        if element("cockpit-manual")?.isAccessibilitySelected() != true { failures.append("manual not selected") }
+        if let v = element("fractal")?.accessibilityValue() as? String, !v.hasPrefix("zoom ") || !v.contains("turned 35°") {
+            failures.append("canvas value \(v)")
+        }
+        if (element("compass")?.accessibilityValue() as? String) != "turned 35° counter-clockwise" { failures.append("compass value") }
+        if !((element("map-0")?.accessibilityValue() as? String) ?? "").hasPrefix("whole set, level 1 of 2") { failures.append("map-0 value") }
+        // The hit test at the cruise icon's centre (screen points) is the cruise element; at the
+        // canvas's middle, the canvas.
+        if let cruise = element("cockpit-cruise") {
+            let f = cruise.accessibilityFrame()
+            let hit = view.accessibilityHitTest(NSPoint(x: f.midX, y: f.midY)) as? NSAccessibilityElement
+            if hit?.accessibilityIdentifier() != "cockpit-cruise" { failures.append("hit test at cruise: \(hit?.accessibilityIdentifier() ?? "nil")") }
+        }
+        let mid = NSAccessibility.screenRect(fromView: view, rect: NSRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0))
+        if (view.accessibilityHitTest(mid.origin) as? NSAccessibilityElement)?.accessibilityIdentifier() != "fractal" {
+            failures.append("hit test at the middle is not the canvas")
+        }
+        // AXPress: cruise, then (a second later) the cockpit's help badge.
+        let pressed = element("cockpit-cruise")?.accessibilityPerformPress() ?? false
+        if !pressed { failures.append("cruise press not taken") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            model.refreshStats()
+            if model.drivingLevel != .cruise { failures.append("level after the cruise press: \(model.drivingLevel)") }
+            view.refreshAccessibility()
+            let cruise = (view.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+                .first { $0.accessibilityIdentifier() == "cockpit-cruise" }
+            print("ui-demo: a11y after press: cruise selected=\(cruise?.isAccessibilitySelected() ?? false) value=\"\(cruise?.accessibilityValue() ?? "")\"")
+            if cruise?.isAccessibilitySelected() != true { failures.append("cruise not selected after the press") }
+            _ = element("cockpit-manual")?.accessibilityPerformPress()
+            if element("help-cockpit")?.accessibilityPerformPress() != true || model.canvasHelp?.topic != .cockpit {
+                failures.append("help badge press: popover \(model.canvasHelp?.topic.rawValue ?? "none")")
+            }
+            model.canvasHelp = nil
+            // Review I1: observers while in a window, none once out of it, no pile-up.
+            let attached = view.windowObserverCount
+            var detached = -1
+            if let parent = view.superview {
+                for _ in 0..<20 {
+                    view.removeFromSuperview()
+                    detached = max(detached, view.windowObserverCount)
+                    parent.addSubview(view)
+                }
+            }
+            let reattached = view.windowObserverCount
+            print("ui-demo: observers attached=\(attached) detached=\(detached) after 20 round trips=\(reattached)")
+            if attached == 0 || detached != 0 || reattached != attached { failures.append("observers \(attached)/\(detached)/\(reattached)") }
+            print("ui-demo: accessibility " + (failures.isEmpty ? "OK" : "FAILED: " + failures.joined(separator: "; ")))
+            fflush(stdout)
+        }
+    }
+
     /// `--ui-demo=interior-cycle`: switches the interior colouring as the control center's picker
     /// does (bubbles, period, angle, distance, flat; the view stays) and captures each once the
     /// view settled (`window-interior-cycle-<mode>.png`); prints how long each took to settle.

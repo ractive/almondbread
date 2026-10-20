@@ -3203,6 +3203,40 @@ and `pressesCancelled` (hardware keyboard). Cancelled touches already end cleanl
 paths: the finger tracker sends `FingerUp { cancelled: true }` and `TouchesLifted`, a cancelled
 pan or pinch sends no `GestureEnd` (no fling), the rotation sends `TouchRotateEnd`, a cancelled
 long press or compass pan resets. Gamepad: `GCControllerDidDisconnect` sends centred axes.
+On the Mac, leaving its window also removes the view's key monitor, its notification observers
+and its layout observation (they outlived the view before 2026-10-20, review I1; the window test
+`--ui-demo=accessibility` checks none is left after 20 round trips).
+
+## Accessibility (as built, 2026-10-20)
+
+The controls Rust draws into the frame (cockpit icons, help badges, compass, mini-maps, the
+Julia panel, the π meter, the cosmic size scale) are accessibility elements of the fractal view,
+and the canvas reads as one short sentence ([A11Y: Accessibility of the canvas and the Rust-drawn controls](../plans/a11y-canvas-controls.md)).
+Rust says what was drawn where and in which words (`Host::accessible_controls`,
+`accessibility_summary`; `Explorer.accessibleControls()` / `accessibilitySummary()`); the views
+make `NSAccessibilityElement`s / `UIAccessibilityElement`s and route activation to the calls a
+click or a tap makes.
+
+| Element (id) | Role | Label | Value | Activate |
+| --- | --- | --- | --- | --- |
+| canvas (`fractal`) | image (Mac), direct interaction (iOS) | Mandelbrot set | "zoom 2.4e+06×, centre -0.7436439, 0.1318259, turned 35° counter-clockwise, cruise gear 5" | custom actions Zoom in / Zoom out (×2) |
+| `cockpit-manual` … `cockpit-journey` | button, current one selected | Manual, Cruise, Autopilot, Journey | current one: "current, gear 5, zooming in ×4.2 per second" | switch level (as a click) |
+| `cockpit-lane` | button | Lane assist | on / off | toggle |
+| `help-<topic>` | button | "Help: mini-map", … | — | the topic's popover |
+| `compass` | button | Compass | "north is up", "turned 35° counter-clockwise" | turn to north |
+| `map-<i>` | image | Mini-map panel (Orbit map without the mini-map) | "whole set, level 1 of 3", "zoom 1e+06×, level 2 of 3" | jump to the panel's centre |
+| `julia` | image | Julia set panel | "c = −0.1226 + 0.7449i" | — |
+| `cosmic` | text | Cosmic size scale | its sentence | — |
+| `pi` | text | π meter | point, count, product, digits, progress | — |
+
+Labels never equal a round button's ("Mini-map", "Julia set", "Size scale"): UI tests find those
+by label. **Cost:** nothing per frame. Elements read Rust on demand, at most every 0.1 s, and keep
+their identity per id (VoiceOver keeps focus); while VoiceOver or Switch Control runs the view also
+refreshes at the stats cadence and posts a layout-changed notification when controls come, go or
+move. **Hit testing:** the Mac's `accessibilityHitTest` takes the smallest control under the point
+(a help badge over its panel), else the canvas; iOS lists the controls before the canvas element
+(the UI test checks the cockpit, compass and help elements are hittable). With
+`ALMONDBREAD_UITEST=1` the iOS canvas element's value stays the UI tests' state string.
 
 # Citations
 
