@@ -557,6 +557,7 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
             }
             let body = lines[start..i].join("\n").trim().to_string();
             check_text_blocks(&lines[start..i], start + 1)?;
+            check_text_icons(&lines[start..i], start + 1)?;
             steps.push(parse_step(h.trim(), line, &settings, body)?);
         } else if l.trim().is_empty() {
             i += 1;
@@ -1278,6 +1279,17 @@ fn check_text_blocks(text: &[&str], first: usize) -> Result<(), TourError> {
     }
 }
 
+/// Checks a step's inline icons (`{icon:cockpit-manual}`, core `icon::INLINE_ICONS`): each one
+/// closed on its line and a known id. `first` is the file line of `text[0]`.
+fn check_text_icons(text: &[&str], first: usize) -> Result<(), TourError> {
+    for (k, l) in text.iter().enumerate() {
+        if let Some((_, Err(e))) = crate::icon::icons_in(l).into_iter().find(|(_, r)| r.is_err()) {
+            return err(first + k, e);
+        }
+    }
+    Ok(())
+}
+
 /// A step's text on platform `p`: its platform blocks for `p` kept (without their `:::` lines),
 /// the others dropped; runs of blank lines folded to one.
 pub fn text_for(text: &str, p: Platform) -> String {
@@ -1919,6 +1931,8 @@ mod tests {
             ("\n::: tv\nX\n:::", 9, "not mac, touch, phone or pad"),
             ("\n::: mac\nKeys only.\n:::", 7, "no text on Phone"),
             ("platform: mac\n\nText.", 1, "no step is shown on Phone"),
+            ("\nSee {icon:nope} here.", 9, "unknown icon `nope`"),
+            ("\nText.\n\nA {icon:orbit here.", 11, "not closed with `}`"),
         ];
         for (body, line, msg) in cases {
             let e = parse(&format!("{head}{body}")).expect_err(body);

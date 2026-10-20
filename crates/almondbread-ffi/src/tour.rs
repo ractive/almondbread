@@ -74,6 +74,78 @@ fn tours_for(p: Platform) -> Vec<TourInfo> {
         .collect()
 }
 
+/// One stroke of a glyph (core `icon::Stroke`), in design points from the glyph's centre, y
+/// down.
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum GlyphStroke {
+    /// A polyline with round caps and joins; `points` is x, y, x, y, ...; `width` across.
+    Line { points: Vec<f64>, width: f64 },
+    /// A circle outline: centre line at `radius`, `width` across.
+    Ring { x: f64, y: f64, radius: f64, width: f64 },
+    /// A filled circle.
+    Disc { x: f64, y: f64, radius: f64 },
+}
+
+/// An icon a tour's text shows inline, `{icon:<id>}` (core `icon::INLINE_ICONS`; kb:
+/// decisions/controls "Guided tours"): an SF Symbol (`symbol`), or the cockpit's own glyph
+/// (`strokes`, `symbol` empty) to draw in the text's colour.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct InlineIconInfo {
+    pub id: String,
+    /// What a screen reader says for it (what it looks like).
+    pub label: String,
+    /// SF Symbol name, or "" for a glyph.
+    pub symbol: String,
+    pub strokes: Vec<GlyphStroke>,
+    /// Half the side of the square the strokes fit (points), the same for every glyph, so the
+    /// icons keep the cockpit's relative sizes.
+    pub half_extent: f64,
+}
+
+/// Every inline icon a tour text may use.
+#[uniffi::export]
+pub fn inline_icons() -> Vec<InlineIconInfo> {
+    use almondbread_core::icon::{Glyph, INLINE_ICONS, IconArt, Stroke};
+    INLINE_ICONS
+        .iter()
+        .map(|i| {
+            let (symbol, strokes) = match i.art {
+                IconArt::Symbol(s) => (s.to_string(), Vec::new()),
+                IconArt::Glyph(g) => (
+                    String::new(),
+                    g.strokes()
+                        .into_iter()
+                        .map(|s| match s {
+                            Stroke::Line { points, half_width } => GlyphStroke::Line {
+                                points: points.into_iter().flatten().collect(),
+                                width: 2.0 * half_width,
+                            },
+                            Stroke::Ring { center, radius, width } => GlyphStroke::Ring {
+                                x: center[0],
+                                y: center[1],
+                                radius,
+                                width,
+                            },
+                            Stroke::Disc { center, radius } => GlyphStroke::Disc {
+                                x: center[0],
+                                y: center[1],
+                                radius,
+                            },
+                        })
+                        .collect(),
+                ),
+            };
+            InlineIconInfo {
+                id: i.id.to_string(),
+                label: i.label.to_string(),
+                symbol,
+                strokes,
+                half_extent: Glyph::HALF_EXTENT,
+            }
+        })
+        .collect()
+}
+
 /// The platform a tour plays on by default: the Mac, or a touch screen (a tablet's steps).
 fn default_platform() -> Platform {
     if cfg!(target_os = "ios") {
@@ -260,5 +332,25 @@ mod tests {
         let first = mac.iter().find(|t| !t.hidden).expect("a listed tour");
         assert_eq!(w(&mac).next, first.id);
         assert!(t.iter().any(|t| t.topics.iter().any(|x| x == "period")));
+    }
+
+    #[test]
+    fn inline_icons_are_glyphs_or_symbols() {
+        let icons = super::inline_icons();
+        let get = |id: &str| icons.iter().find(|i| i.id == id).cloned().expect(id);
+        let wheel = get("cockpit-manual");
+        assert!(wheel.symbol.is_empty() && wheel.strokes.len() == 4 && wheel.half_extent > 0.0);
+        assert!(matches!(wheel.strokes[0], super::GlyphStroke::Ring { .. }));
+        assert_eq!(get("mini-map").symbol, "map");
+        assert!(get("mini-map").strokes.is_empty());
+        for i in &icons {
+            assert!(i.symbol.is_empty() != i.strokes.is_empty(), "{}", i.id);
+            assert!(!i.label.is_empty());
+            for s in &i.strokes {
+                if let super::GlyphStroke::Line { points, .. } = s {
+                    assert!(points.len() >= 4 && points.len() % 2 == 0, "{}", i.id);
+                }
+            }
+        }
     }
 }

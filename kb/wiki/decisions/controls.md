@@ -1931,6 +1931,35 @@ The parser checks the blocks (unclosed, nested, stray `:::`, unknown platform) a
 shown on a platform has text there and every platform gets a step. The UI names its platform when
 it starts a tour (`Explorer.start_tour_on(id, "mac" | "phone" | "pad")`; `Tour::for_platform`).
 
+**Inline icons in the text** (2026-10-20). `{icon:<id>}` anywhere in a step's text shows that
+control's icon in the line, in the text's colour, where the words would otherwise name it by a
+letter or a word the reader cannot match to the screen (user, 2026-10-20: "people won't know what
+M C A J are"). Braces are not Markdown and do not clash with `:::`; an icon may sit inside
+`**bold**`. The parser checks every icon (`{icon:` closed with `}` on its line, a known id; else an
+error with its line, `tour::check_text_icons`, core `icon::icons_in`). The ids are the controls'
+`highlight:` names:
+
+| Id | Icon | Spoken |
+| --- | --- | --- |
+| `cockpit-manual`, `cockpit-cruise`, `cockpit-autopilot`, `cockpit-journey` | the cockpit's steering wheel, speedometer, plane, sparkles | steering wheel, speedometer, plane, sparkles |
+| `cockpit-lane` | the cockpit's lane-assist icon | lane lines |
+| `throttle` | a small lever (the touch throttle is a SwiftUI lever, not an icon; unused so far) | lever |
+| `orbit`, `mini-map`, `julia`, `size-scale`, `fly-to`, `control-center` | the round buttons' and Mac toolbar's SF Symbols | curved path, map, seal, ruler, arrow, sliders |
+
+*One source.* The cockpit is drawn by Rust, so its icons are not SF Symbols. Core `icon::Glyph`
+holds each glyph as strokes (polylines with round caps, rings, discs; design points around the
+centre, all within `Glyph::HALF_EXTENT` = 7); the cockpit draws them (`cockpit::glyph`, unchanged
+pixels) and FFI `inline_icons()` hands the same strokes to Swift, which draws them once per size
+into a white template image (`InlineIcons.swift`, Core Graphics, cached) and puts it into the
+`Text` (`Text(Image)`, `baselineOffset` so it sits on the capitals' middle; the box is 1.3 × the
+font's point size, so the icons keep the cockpit's relative sizes). The SF Symbol names live in
+the same Rust table (`icon::INLINE_ICONS`) and the toolbar and round buttons take theirs from it
+(`InlineIcons.symbol(id)`), so a changed button symbol changes the text too. The Markdown is
+parsed once with a placeholder per icon (`HelpMarkdownView`), so emphasis may span an icon; a
+paragraph with icons gets an accessibility label with each icon's spoken name (what it looks like,
+since the text names the control). The help pages may use the same syntax (not parse-checked by
+Rust; a Swift unit test, `InlineIconsTests`, checks their ids).
+
 **Highlight targets** (`tour::HIGHLIGHT_TARGETS`; a typo is a parse error): `hud`, `cockpit` (the
 whole panel) and `cockpit-manual`, `-cruise`, `-autopilot`, `-journey`, `-lane` (one icon; Rust
 draws the cockpit, Swift rings the cells `Explorer.cockpit_controls` reports), `throttle` (touch),
@@ -2136,10 +2165,10 @@ any tour.
 | --- | --- | --- |
 | Welcome! | — | the set; Next goes on (flies to the whole set) |
 | Move and zoom | — (`goal: zoom-in`) | pinch, swipe, double tap / point and hold Space, pinch, wheel, drag; "try it" |
-| The cockpit | `cockpit` | M, C, A, J: who is flying; tap / click or Esc E Z J |
+| The cockpit | `cockpit` | the four icons inline (wheel, speedometer, plane, sparkles) with their names: who is flying; tap / click or Esc E Z J |
 | Cruise | `throttle` / `cockpit-cruise` | the lever up, down, M; rest a finger to steer towards it, swipe to move the picture / E, Q, Esc, the pointer steers |
 | Autopilot and journeys | `cockpit-autopilot` | the plane, a suggested direction, the sparkles, the wheel / Z, J, Esc |
-| The round buttons / The toolbar | `toolbar` | orbit, mini-map, size scale, fly to, control center |
+| The round buttons / The toolbar | `toolbar` | orbit, mini-map, (Mac: Julia set,) size scale, fly to, control center, each with its icon inline |
 | The control center | `section-places` (opens it) | places: Go or Fly; search |
 | Tours | `section-tours` | the maths tours; the walkthrough is here and in Help |
 | Off you go! | — (closes it) | lost: Reset / R |
@@ -2358,11 +2387,41 @@ minibrot at step 6.
 ### The colours tour
 
 `tours/colours.md` ("What the colours mean", place `whole-set`), 12 steps, user request
-2026-10-18: escape counts with the orbit overlay (c = 0.6 escapes after 8 steps; a path from 0.6
-towards the cusp at 0.2501, 283 steps at its end), smooth colouring
+2026-10-18: escape counts with the orbit overlay, smooth colouring
 ([[techniques/smooth-coloring]]), a palette (`grey`) and a look (`ember`) on seahorse valley, fog in
 the neck gap (the same view as the limits tour), proven black, then the five interior colourings
 on the cardioid and its bulbs ([[techniques/coloring-methods]], [[techniques/interior-detection]]).
+
+**Orbits that show it (2026-10-20, user feedback: the old probe on the real axis drew "a line with
+dots").** Steps 1–2 use the view centre 0.3 + 0.15i, span 1.4 (heart, its dent, the elephant side):
+step 1's probe 0.55 + 0.2i escapes after 8 steps, its dots leave the picture after two; step 2
+runs a 16 s path along the outward normal of the cardioid at internal angle 1/(12 + φ⁻¹) ≈ 0.079
+(a noble angle: the counts along it grow monotonically further in than at the other angles tried)
+through 12, 14, 17, 31 and 55 steps to 0.30381 + 0.0292i, where the orbit whirls round a big
+loop around the dent for hundreds of turns before flying off. Probes tried and dropped: the
+seahorse neck (−0.75 + iε, counts π/ε, smooth, but the period-2 orbit alternates sides, a zigzag
+fan, and it is the π tour's path), the period-3 junction and noble angles at 0.10–0.18 turns
+(rotations of a third to a sixth of a turn draw webs of chords, not a whirl). Counts measured
+in f64 (CLI `render --orbit`, a Python check) and in the app (`--ui-demo=tour-colours`, step 2 at
+6, 11 and 18 s: 14, 41, end).
+
+*Pitfall: the end count is not reproducible.* Past ~60 steps every point near this edge sits
+between hairs: the count changes over 10⁻⁷ (0.30381 + 0.0292i: 594 in f64, 395 to 7468 within
+2.5·10⁻⁵). The overlay recomputes the orbit only when the probe moved by 1/64 point (the key in
+`Overlay::update_probe` rounds the target; 1/64 pt is 2.4·10⁻⁵ here), so where a slowing path
+stops, the shown orbit is of a point up to 1/64 pt short of the end: the app showed 959 and
+2 158 steps at the end in two runs. The text therefore names only the robust counts (12, 17, 31,
+55) and says "hundreds or thousands" at the end. A tour probe could key on the exact point
+instead (not done; renderer change).
+
+The inside steps (view −0.4 + 0.3i, span 1.5, keeping the period-4 loop's top point and z = 0 in
+frame above the card): *Bubbles* defines loop and period at first use and bounces the probe
+from the period-3 nucleus −0.1226 + 0.7449i to −0.1226 + 0.82i (|λ| 0.80, min |z| 0 → 0.13) with
+a marker "zero" at 0; *Period* runs through the nuclei 0, −1, the period-3 and the period-4
+(0.2822 + 0.5301i) nuclei with holds (repeated path points), the overlay reading "settles on a
+fixed point" … "settles into a period-4 cycle"; *Internal angle* puts the probe at 0.3 + 0.1i
+inside the heart (λ = 2z*, |λ| 0.86, 0.115 turns per step: the dots spiral in); *Interior
+distance* turns the orbit off.
 
 **Pitfall (fixed 2026-10-19): a step that only changes `interior:` did not always show in the
 app until the view moved.** In the first capture the angle and distance steps still showed the

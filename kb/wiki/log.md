@@ -1840,6 +1840,29 @@ releases held keys, pedal and gamepad, `Host` drops a compass press, and the pla
 `FocusLost` on every focus loss. See [[decisions/controls]] "Held input" (unit tests per held
 kind, core-check "E held, focus lost, Esc").
 
+## [2026-10-20] decision | Inline icons in tour texts
+
+The walkthrough's cockpit step listed the driving levels as **M**, **C**, **A**, **J**; the cockpit
+shows icons (a steering wheel, a speedometer, a plane, sparkles) and the letters appear nowhere on
+screen. Tour texts now take `{icon:<id>}` (ids = the controls' `highlight:` names; unknown ids and
+unclosed braces are parse errors with their line). The cockpit glyphs moved to core `icon::Glyph`
+as strokes, which the Rust cockpit draws and Swift rasterises into template images for the text
+(FFI `inline_icons()`); the round buttons' SF Symbol names live in the same table. The
+walkthrough's cockpit, cruise, autopilot and toolbar steps and help page 3 use them. See
+[[decisions/controls]] "Guided tours" ▸ Inline icons.
+
+## [2026-10-20] decision | Colours tour: orbits that show escape and loops
+
+User feedback: the colours tour's escape steps showed "a line with dots" (a probe on the real
+axis) and the inside steps explained loops in words only. Steps 1–2 now zoom on the heart's dent
+(0.3 + 0.15i, span 1.4) and run the probe along a noble-angle normal of the cardioid: 8 steps far
+out, then 12, 17, 31, 55, and an end where the orbit whirls round the dent for hundreds or
+thousands of steps. Bubbles defines loop and period and moves the probe out of the period-3
+nucleus with a "zero" marker; Period visits the nuclei of periods 1–4; Internal angle shows the
+dots spiralling into the heart's fixed point. Pitfall: the overlay's 1/64-point orbit key makes
+a chaotic end count vary between runs (959, 2 158 shown for an f64 594). See
+[[decisions/controls]] "The colours tour".
+
 ## [2026-10-20] decision | Tours in plain language; tour writing rules
 
 The user took the tours with his son and met words before their explanations ("settle on one
