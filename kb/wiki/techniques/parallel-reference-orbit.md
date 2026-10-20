@@ -100,6 +100,13 @@ before all 2x-limit points exist:
 
 A nucleus reference is one period long and is delivered whole.
 
+(2026-10-20) Storage grows with the orbit instead of being reserved for the request: each
+stage resizes it, and a centre orbit longer than 2^20 points runs in extra stages that double
+it (resuming is exact; the prefixes handed out are the same). The worker uploads every
+reference it hands out to the GPU on its own thread, and the points are shared (`Arc`), so
+neither the copy nor the table builds touch the orbit on the frame thread; see
+[Hang prevention](hang-prevention.md#long-references-as-built-2026-10-20).
+
 ## Newton with a cheap derivative
 
 Newton's step `c -= z_p / z_p'` only needs the derivative to a few digits. Computing

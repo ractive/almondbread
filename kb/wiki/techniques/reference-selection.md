@@ -173,6 +173,13 @@ reprojected history. A Space zoom from 1e-12 to 4e-39 needed two background refe
 centre reference, then the period-998 nucleus near the seahorse point). Times in
 [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M3b.
 
+(2026-10-20) Cancellation reaches every long loop of the selection, not only the period
+search and the orbit: the exact Newton phase polls inside a step (a step is `period`
+full-precision iterations), the selection checks between Newton and the size estimate, and the
+size estimate itself polls (`minibrot_size_cancellable`). Before, a cancelled request with a
+period near 1e6 at thousands of bits kept a core busy for seconds after the user had moved on
+(review finding C3; [Hang prevention](hang-prevention.md#long-references-as-built-2026-10-20)).
+
 ## R6 changes
 
 - **Newton derivative in extended-range f64.** The step only needs `dz/dc` to a few

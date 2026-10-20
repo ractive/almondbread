@@ -18,7 +18,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use almondbread_core::autoiter::{self, InteriorStats, LevelOutcome};
@@ -27,7 +27,9 @@ use almondbread_core::formula::{Formula, FormulaCapabilities};
 use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::math::{DoubleExp, DoubleExpComplex};
 use almondbread_core::oracle::ITER_UNRESOLVED;
-use almondbread_core::reference::{DEEP_SCALE, Fit, Reference, ReferenceRequest, ReferenceWorker};
+use almondbread_core::reference::{
+    DEEP_SCALE, F64_SYNC_POINTS, Fit, Reference, ReferenceKind, ReferenceRequest, ReferenceWorker, f64_reference_near,
+};
 use almondbread_core::settings::{MANUAL_ITERATIONS_MAX, RenderSettings, depth_iterations};
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use bytemuck::bytes_of;
@@ -38,12 +40,16 @@ use crate::gpu_types::{
     LEVEL_COUNTERS_SIZE, PixelState, PixelStateIC, PixelStateProbe, SeedNode, SeedParams, SurveyParams,
     UnresolvedListParams,
 };
-use crate::la_gpu::{LaBuildJob, LaGpu};
+use crate::la_gpu::LaGpu;
 use crate::memory::{MemoryBudget, Thermal};
 
 mod device;
+mod reference_gpu;
+use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
 mod formula_tests;
+#[cfg(all(test, target_vendor = "apple"))]
+mod long_reference_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod recolour_tests;
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
@@ -486,6 +492,14 @@ impl FurtherStop {
 /// GPU): 16 M points, ~128 MB each, ~60 ms on a thread.
 const FURTHER_REF_MAX: usize = 1 << 24;
 
+/// A longer f64 orbit from compute further's thread: `extends` says whether it starts with
+/// `old` (the job's orbit when the thread started), checked there, not on the frame thread.
+struct FurtherOrbit {
+    r: Reference,
+    old: Arc<Vec<[f32; 2]>>,
+    extends: bool,
+}
+
 /// Iterations per GPU second compute further assumes before its passes have measured their own
 /// (the plain kernel near the -3/4 neck: 2–3e10 on M1 Pro, 2026-10-17).
 const FURTHER_RATE_GUESS: f64 = 3e10;
@@ -514,7 +528,7 @@ struct Further<B: GpuBackend> {
     /// The segment scan on the GPU and its count buffer.
     scan: Option<(B::Submission, B::Buffer)>,
     /// A longer f64 orbit being computed on a thread (the next pass passes the orbit's end).
-    longer: Option<std::sync::mpsc::Receiver<Reference>>,
+    longer: Option<std::sync::mpsc::Receiver<FurtherOrbit>>,
     /// Why it ended (None: running).
     stop: Option<FurtherStop>,
     passes: usize,
@@ -799,6 +813,9 @@ struct Job<B: GpuBackend> {
 
 /// The CPU copy of a BLA table: float32 (plain kernel, f64 references) or extended range
 /// (deep kernel, big references; M3b).
+/// A BLA table build: polls the flag it gets (None: cancelled).
+type BlaBuildFn = Box<dyn FnOnce(&AtomicBool) -> Option<BlaCpu> + Send>;
+
 #[derive(Clone)]
 enum BlaCpu {
     Plain(Arc<BlaTable>),
@@ -1247,7 +1264,7 @@ pub struct Renderer<B: GpuBackend> {
     pub reference_log: Vec<ReferenceLogEntry>,
     /// The current reference's BLA table on the GPU, or its build on a thread.
     bla: Option<BlaGpu<B>>,
-    bla_build: Option<(u64, JoinHandle<BlaCpu>)>,
+    bla_build: Option<TableBuild<BlaCpu>>,
     /// log2 of eps max|2 Z| of the current reference: no BLA block is valid at |dc| beyond it.
     bla_reach_log2: f64,
     /// Build time (s), entries and bytes of the last table.
@@ -1255,7 +1272,7 @@ pub struct Renderer<B: GpuBackend> {
     /// M6: the current reference's LA table on the GPU, or its build on a thread; build time
     /// (s), entries, bytes and stages of the last one.
     la: Option<LaGpu<B>>,
-    la_build: Option<LaBuildJob>,
+    la_build: Option<TableBuild<Arc<almondbread_core::la::LaTable>>>,
     la_info: (f64, usize, usize, usize),
 
     palette_id: Option<String>,
@@ -1402,6 +1419,8 @@ impl<B: GpuBackend> Renderer<B> {
         let args_buffer = backend.create_buffer(16, Storage::Private)?;
         let level_buffer = backend.create_buffer(LEVEL_COUNTERS_SIZE, Storage::Private)?;
         let list_count_buffer = backend.create_buffer(4, Storage::Private)?;
+        // References are uploaded on the worker thread that computed them (C2).
+        let prepare = reference_gpu::prepare_hook(&backend);
         Ok(Self {
             backend,
             viewport: Viewport::home(),
@@ -1482,7 +1501,7 @@ impl<B: GpuBackend> Renderer<B> {
             reference_buffer: None,
             refx_buffer: None,
             reference_serial: 0,
-            reference_worker: ReferenceWorker::default(),
+            reference_worker: ReferenceWorker::with_prepare(prepare),
             spare_reference: None,
             reference_log: Vec::new(),
             bla: None,
@@ -3094,7 +3113,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let serial = job.reference_serial;
         let building = self.bla.as_ref().is_some_and(|t| t.serial == serial)
-            || self.bla_build.as_ref().is_some_and(|(s, _)| *s == serial);
+            || self.bla_build.as_ref().is_some_and(|b| b.serial == serial);
         if !building {
             // Built on demand: no block is valid for a pixel at |dc| >= eps max|2 Z| (a block's
             // R is at most a single step's eps |2 Z|), so shallow views never build one.
@@ -3131,7 +3150,7 @@ impl<B: GpuBackend> Renderer<B> {
                 job.bla = Some(t);
                 BlaReady::Ready
             }
-            _ if self.bla_build.as_ref().is_some_and(|(s, _)| *s == serial) => BlaReady::Pending,
+            _ if self.bla_build.as_ref().is_some_and(|b| b.serial == serial) => BlaReady::Pending,
             _ => {
                 // No table (too short a reference, or the build failed): decided for this job.
                 self.job.as_mut().expect("job").bla_forecast = Some(BlaForecast::default());
@@ -3142,17 +3161,18 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// Collects a finished table build (or waits for it) and uploads it.
     fn finish_bla_build(&mut self, wait: bool) {
-        let Some((serial, handle)) = self.bla_build.take() else {
+        let Some(build) = self.bla_build.take() else {
             return;
         };
-        if !wait && !handle.is_finished() {
-            self.bla_build = Some((serial, handle));
+        if !wait && !build.is_finished() {
+            self.bla_build = Some(build);
             return;
         }
-        match handle.join() {
-            Ok(table) if serial == self.reference_serial => self.upload_bla(serial, table),
-            Ok(_) => {}
-            Err(_) => eprintln!("almondbread: BLA table build failed"),
+        let serial = build.serial;
+        if let Some(table) = build.join()
+            && serial == self.reference_serial
+        {
+            self.upload_bla(serial, table);
         }
     }
 
@@ -3219,21 +3239,24 @@ impl<B: GpuBackend> Renderer<B> {
         let serial = self.reference_serial;
         let eps = BLA_EPSILON;
         let formula = r.formula;
-        let build: Box<dyn FnOnce() -> BlaCpu + Send> = if r.deep_kernel {
+        // (The orbit is shared, not copied: C2 of the 2026-10 review.)
+        let build: BlaBuildFn = if r.deep_kernel {
             let points = r.extended.clone();
-            Box::new(move || BlaCpu::Deep(Arc::new(BlaTableX::build_for(&points, eps, formula))))
+            Box::new(move |cancel| {
+                BlaTableX::build_cancellable(&points, eps, formula, cancel).map(|t| BlaCpu::Deep(Arc::new(t)))
+            })
         } else {
             let points = r.points.clone();
-            Box::new(move || BlaCpu::Plain(Arc::new(BlaTable::build_for(&points, eps, formula))))
+            Box::new(move |cancel| {
+                BlaTable::build_cancellable(&points, eps, formula, cancel).map(|t| BlaCpu::Plain(Arc::new(t)))
+            })
         };
         if r.points.len() >= self.config.bla_async_from {
-            let handle = std::thread::Builder::new().name("almondbread-bla".into()).spawn(build);
-            match handle {
-                Ok(h) => self.bla_build = Some((serial, h)),
+            match TableBuild::spawn("almondbread-bla", serial, build) {
+                Ok(b) => self.bla_build = Some(b),
                 Err(e) => eprintln!("almondbread: BLA build thread: {e}"),
             }
-        } else {
-            let table = build();
+        } else if let Some(table) = build(&AtomicBool::new(false)) {
             self.upload_bla(serial, table);
         }
     }
@@ -3259,7 +3282,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let serial = job.reference_serial;
         let building = self.la.as_ref().is_some_and(|t| t.serial == serial)
-            || self.la_build.as_ref().is_some_and(|(s, _)| *s == serial);
+            || self.la_build.as_ref().is_some_and(|b| b.serial == serial);
         if !building {
             // As for BLA: no block is valid for a pixel beyond eps max|2 Z|.
             if job.max_dc_log2 >= self.bla_reach_log2 || !self.prefer_la() {
@@ -3282,7 +3305,7 @@ impl<B: GpuBackend> Renderer<B> {
                     BlaReady::Without
                 }
             }
-            _ if self.la_build.as_ref().is_some_and(|(s, _)| *s == serial) => BlaReady::Pending,
+            _ if self.la_build.as_ref().is_some_and(|b| b.serial == serial) => BlaReady::Pending,
             _ => {
                 self.job.as_mut().expect("job").la_decided = true;
                 BlaReady::Without
@@ -3310,17 +3333,18 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     fn finish_la_build(&mut self, wait: bool) {
-        let Some((serial, handle)) = self.la_build.take() else {
+        let Some(build) = self.la_build.take() else {
             return;
         };
-        if !wait && !handle.is_finished() {
-            self.la_build = Some((serial, handle));
+        if !wait && !build.is_finished() {
+            self.la_build = Some(build);
             return;
         }
-        match handle.join() {
-            Ok(table) if serial == self.reference_serial => self.upload_la(serial, table),
-            Ok(_) => {}
-            Err(_) => eprintln!("almondbread: LA table build failed"),
+        let serial = build.serial;
+        if let Some(table) = build.join()
+            && serial == self.reference_serial
+        {
+            self.upload_la(serial, table);
         }
     }
 
@@ -3356,12 +3380,11 @@ impl<B: GpuBackend> Renderer<B> {
         let serial = self.reference_serial;
         let build = crate::la_gpu::build_table(r, BLA_EPSILON);
         if r.points.len() >= self.config.bla_async_from / 4 {
-            match std::thread::Builder::new().name("almondbread-la".into()).spawn(build) {
-                Ok(h) => self.la_build = Some((serial, h)),
+            match TableBuild::spawn("almondbread-la", serial, build) {
+                Ok(b) => self.la_build = Some(b),
                 Err(e) => eprintln!("almondbread: LA build thread: {e}"),
             }
-        } else {
-            let table = build();
+        } else if let Some(table) = build(&AtomicBool::new(false)) {
             self.upload_la(serial, table);
         }
     }
@@ -4665,11 +4688,20 @@ impl<B: GpuBackend> Renderer<B> {
                     scale: r.scale,
                     angle: 0.0,
                 };
+                // The prefix check and the upload run on the thread too (up to 2^24 points:
+                // ~130 MB of compare and copy kept off the frame thread, C2).
+                let old = r.points.clone();
+                let prepare = self.reference_worker.prepare.clone();
                 let (tx, rx) = std::sync::mpsc::channel();
                 let spawned = std::thread::Builder::new()
                     .name("almondbread-further-ref".into())
                     .spawn(move || {
-                        let _ = tx.send(Reference::compute_f64_with(&viewport, formula, want, BAILOUT));
+                        let mut r = Reference::compute_f64_with(&viewport, formula, want, BAILOUT);
+                        let extends = r.points.len() >= old.len() && r.points[..old.len()] == old[..];
+                        if let Some(p) = &prepare {
+                            r.prepared = p(&r);
+                        }
+                        let _ = tx.send(FurtherOrbit { r, old, extends });
                     })
                     .is_ok();
                 if spawned {
@@ -4783,9 +4815,9 @@ impl<B: GpuBackend> Renderer<B> {
         }
         if let Some(rx) = &f.longer {
             match rx.try_recv() {
-                Ok(r) => {
+                Ok(o) => {
                     f.longer = None;
-                    self.adopt_further_reference(r);
+                    self.adopt_further_reference(o);
                     self.further_next_pass();
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
@@ -4879,16 +4911,17 @@ impl<B: GpuBackend> Renderer<B> {
     /// Takes a longer f64 orbit of the job's reference point: bit-identical up to the old end
     /// (same arithmetic), so levels already computed stay exact. The job iterates the rest
     /// without the BLA / LA tables (they belong to the old orbit; f64 views rarely use them).
-    fn adopt_further_reference(&mut self, r: Reference) {
-        let same = self
-            .job
-            .as_ref()
-            .is_some_and(|j| j.reference_serial == self.reference_serial)
-            && self.reference.as_ref().is_some_and(|old| {
-                old.point == r.point
-                    && r.points.len() >= old.points.len()
-                    && r.points[..old.points.len()] == old.points[..]
-            });
+    fn adopt_further_reference(&mut self, o: FurtherOrbit) {
+        let FurtherOrbit { r, old, extends } = o;
+        let same = extends
+            && self
+                .job
+                .as_ref()
+                .is_some_and(|j| j.reference_serial == self.reference_serial)
+            && self
+                .reference
+                .as_ref()
+                .is_some_and(|cur| cur.point == r.point && Arc::ptr_eq(&cur.points, &old));
         if !same {
             return self.stop_further(FurtherStop::Reach);
         }
@@ -5784,57 +5817,41 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// Makes `r` the current reference: GPU buffers, BLA reach (the old table goes; in-flight
-    /// chunks keep their buffers).
-    fn set_reference(&mut self, r: Reference) {
+    /// chunks keep their buffers). A reference from the worker comes with its GPU form made on
+    /// the worker's thread (`reference_gpu`); only one computed here (the short f64 orbit) is
+    /// uploaded here. False when it was not taken: of another formula, or its upload failed
+    /// (then no reference is current, so the view waits instead of rendering on one that does
+    /// not fit it, and asks again).
+    fn set_reference(&mut self, r: Reference) -> bool {
         // (One of another formula, computed before a switch, serves no view: F2.)
         if r.formula != self.settings.formula {
-            return;
+            return false;
         }
-        let buf = match self.backend.create_buffer_with_data(bytemuck::cast_slice(&r.points)) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("almondbread: reference buffer: {e}");
-                return;
-            }
+        let gpu = match reference_gpu::attached::<B>(&r) {
+            Some(g) => Ok(g),
+            None => reference_gpu::gpu_reference(&r, &|d: &[u8]| self.backend.create_buffer_with_data(d)),
         };
-        let refx = if r.extended.is_empty() {
-            None
-        } else {
-            // FloatExpComplex has a padding word: copy into the padded GPU form.
-            let gpu: Vec<[u32; 4]> = r
-                .extended
-                .iter()
-                .map(|z| [z.mantissa[0].to_bits(), z.mantissa[1].to_bits(), z.exponent as u32, 0])
-                .collect();
-            match self.backend.create_buffer_with_data(bytemuck::cast_slice(&gpu)) {
-                Ok(b) => Some(b),
-                Err(e) => {
-                    eprintln!("almondbread: reference buffer: {e}");
-                    return;
-                }
-            }
-        };
-        self.reference_time = r.time();
-        self.reference_buffer = Some(buf);
-        self.refx_buffer = refx;
-        self.reference_serial += 1;
-        // The table of the old reference goes (in-flight chunks keep their buffer); a build
-        // still running for it finishes on its thread and is dropped.
+        // The table of the old reference goes (in-flight chunks keep their buffer); dropping a
+        // build still running for it cancels it.
         self.bla = None;
         self.bla_build = None;
         self.la = None;
         self.la_build = None;
-        let eps = BLA_EPSILON;
-        self.bla_reach_log2 = if r.deep_kernel {
-            BlaTableX::reach_log2(&r.extended, eps)
-        } else {
-            let n = r.points.len().saturating_sub(1);
-            r.points[1.min(n)..n]
-                .iter()
-                .map(|z| eps * 2.0 * f64::from(z[0]).hypot(f64::from(z[1])))
-                .fold(0.0, f64::max)
-                .log2()
+        self.reference_serial += 1;
+        let gpu = match gpu {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("almondbread: reference buffer: {e}");
+                self.reference = None;
+                self.reference_buffer = None;
+                self.refx_buffer = None;
+                return false;
+            }
         };
+        self.reference_time = r.time();
+        self.reference_buffer = Some(gpu.points);
+        self.refx_buffer = gpu.extended;
+        self.bla_reach_log2 = gpu.bla_reach_log2;
         if self.config.trace {
             println!(
                 "reference: {} {} bits, {} points{}, {:.1} ms",
@@ -5846,6 +5863,7 @@ impl<B: GpuBackend> Renderer<B> {
             );
         }
         self.reference = Some(r);
+        true
     }
 
     /// Takes a finished background reference if it serves the view at least as well as the
@@ -5921,11 +5939,22 @@ impl<B: GpuBackend> Renderer<B> {
         self.reference_worker.start(q);
     }
 
+    /// Whether a pending f64 request will give an orbit that serves this view to `reach`.
+    fn pending_f64_serves(&self, viewport: &Viewport, size: usize, reach: usize, formula: Formula) -> bool {
+        self.reference_worker.pending().is_some_and(|q| {
+            q.kind == ReferenceKind::F64
+                && q.formula == formula
+                && q.max_iter >= reach
+                && f64_reference_near(&q.center, q.scale, viewport, size)
+        })
+    }
+
     /// Whether a pending request will give a reference that serves this view.
     /// (`max_iter`: the orbit must reach the view's limit; a nucleus orbit always does.)
     fn pending_serves(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> bool {
         self.reference_worker.pending().is_some_and(|q| {
-            q.formula == self.settings.formula
+            q.kind == ReferenceKind::Big
+                && q.formula == self.settings.formula
                 && q.precision_bits >= almondbread_core::reference::needed_bits(&viewport.center, texel, size, 40)
                 && viewport.center.distance_in(&q.center, texel) <= size as f64
                 && q.max_iter >= max_iter
@@ -5956,17 +5985,34 @@ impl<B: GpuBackend> Renderer<B> {
             }
         }
         if viewport.scale.to_f64() >= DEEP_SCALE {
-            // The f64 orbit is cheap (no precision to pick, 1e5 steps in well under a ms; its
-            // BLA/LA tables build off the main thread): make it as long as the extension passes
-            // may iterate, so a centre that has not escaped at the limit does not stop them at
-            // its cut (`exact_reach`). Near the -3/4 neck the centre escapes long after the
-            // limit, and the passes are what resolve the view.
+            // The f64 orbit is made as long as the extension passes may iterate, so a centre
+            // that has not escaped at the limit does not stop them at its cut (`exact_reach`).
+            // Near the -3/4 neck the centre escapes long after the limit, and the passes are
+            // what resolve the view. Its cost is linear in that length (~0.36 ms per 1e5 points
+            // where the centre never escapes, M1 Pro): up to `F64_SYNC_POINTS` (which covers
+            // every reach of the default cap) it is computed here; a longer one (a manual
+            // limit, a raised cap: 1e9 took seconds and 8 GB on this thread before, C1 of the
+            // 2026-10 review) on the reference worker, with its upload.
             let factor = self.config.extension_factor.max(self.config.offscreen_extension).max(1);
             let reach = max_iter.saturating_mul(factor).min(max_iter.max(self.iteration_cap()));
             let short = self.reference.as_ref().is_some_and(|r| r.exact_reach() < reach);
             if fit != Fit::Good || short {
-                let r = Reference::compute_f64_with(viewport, key.formula, reach, BAILOUT);
-                self.set_reference(r);
+                if wait || reach <= F64_SYNC_POINTS {
+                    // (Offscreen renders wait anyway: no worker round trip.)
+                    let r = Reference::compute_f64_with(viewport, key.formula, reach, BAILOUT);
+                    return self.set_reference(r);
+                }
+                if !self.pending_f64_serves(viewport, size, reach, key.formula) {
+                    if self.config.trace {
+                        println!("reference request: f64, {reach} points (on the worker)");
+                    }
+                    self.reference_worker
+                        .start(ReferenceRequest::f64_orbit(viewport, key.formula, reach, BAILOUT));
+                }
+                // A good one that is only shorter than the extension's reach serves meanwhile
+                // (the passes stop at its end, `exact_reach`); without one the view waits
+                // (frames show the history) and takes the orbit when it arrives.
+                return fit == Fit::Good && self.reference_buffer.is_some();
             }
             return self.reference_buffer.is_some();
         }

@@ -29,6 +29,7 @@
 //! exact step later. Rebasing brings the pixel to `m = 0 = b_0`, so it re-enters the chains
 //! after every rebase ("skip one period, rebase" at a minibrot).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use almondbread_math::FloatExpComplex;
@@ -338,6 +339,18 @@ impl LaTable {
 
     /// [`LaTable::build`] with explicit construction parameters (studies).
     pub fn build_with(points: &[FloatExpComplex], epsilon: f64, params: &LaBuild) -> Self {
+        Self::build_cancellable(points, epsilon, params, &AtomicBool::new(false)).expect("never cancelled")
+    }
+
+    /// [`LaTable::build_with`] that polls `cancel` before each stage and before the chains (the
+    /// renderer cancels the build of a reference it replaced); None when cancelled.
+    pub fn build_cancellable(
+        points: &[FloatExpComplex],
+        epsilon: f64,
+        params: &LaBuild,
+        cancel: &AtomicBool,
+    ) -> Option<Self> {
+        let cancelled = || cancel.load(Ordering::Relaxed);
         let start = Instant::now();
         let mut t = LaTable {
             ref_len: points.len(),
@@ -349,7 +362,10 @@ impl LaTable {
             t.bounds = vec![[0, 0], [last as u32, 0]];
             t.next_j = vec![1; points.len()];
             t.build_time = start.elapsed().as_secs_f64();
-            return t;
+            return Some(t);
+        }
+        if cancelled() {
+            return None;
         }
         let single = |k: usize| MergedX::single(&points[k], epsilon);
         let zl: Vec<f64> = points.iter().map(log2_abs).collect();
@@ -365,6 +381,9 @@ impl LaTable {
             .collect();
         let mut stages = vec![compose_stage(&units, &zl, &single, params.near0_log2, params)];
         while stages.len() < MAX_STAGES {
+            if cancelled() {
+                return None;
+            }
             let prev = stages.last().expect("stage");
             if prev.len() <= 1 {
                 break;
@@ -376,6 +395,9 @@ impl LaTable {
             stages.push(next);
         }
         t.stage_steps = stages.iter().map(Vec::len).collect();
+        if cancelled() {
+            return None;
+        }
 
         // Chains per stage-0 boundary. A natural boundary b is a near-return: its lookups are at
         // L = b + 1, after the exact step from b. A synthetic one is linearised too: L = b. L must
@@ -429,7 +451,7 @@ impl LaTable {
         t.next_j = (0..points.len()).map(|m| next_of(m) as u32).collect();
 
         t.build_time = start.elapsed().as_secs_f64();
-        t
+        Some(t)
     }
 
     /// [`LaTable::build`] for a float32 reference (f64 views and plain-kernel big references).
@@ -439,6 +461,16 @@ impl LaTable {
 
     /// [`LaTable::build_plain`] with explicit construction parameters.
     pub fn build_plain_with(points: &[[f32; 2]], epsilon: f64, params: &LaBuild) -> Self {
+        Self::build_plain_cancellable(points, epsilon, params, &AtomicBool::new(false)).expect("never cancelled")
+    }
+
+    /// [`LaTable::build_plain_with`] polling `cancel` ([`LaTable::build_cancellable`]).
+    pub fn build_plain_cancellable(
+        points: &[[f32; 2]],
+        epsilon: f64,
+        params: &LaBuild,
+        cancel: &AtomicBool,
+    ) -> Option<Self> {
         let x: Vec<FloatExpComplex> = points
             .iter()
             .map(|p| {
@@ -454,7 +486,7 @@ impl LaTable {
                 }
             })
             .collect();
-        Self::build_with(&x, epsilon, params)
+        Self::build_cancellable(&x, epsilon, params, cancel)
     }
 
     /// The kernel's parameters.

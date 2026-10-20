@@ -427,7 +427,12 @@ pub fn find_nucleus_for(
         if exact {
             raw::set_zero(&mut dx);
             raw::set_zero(&mut dy);
-            for _ in 0..period {
+            for i in 0..period {
+                // A step is `period` full-precision iterations (seconds at period 1e6 and
+                // thousands of bits): poll inside it (C3 of the 2026-10 review).
+                if i % CANCEL_POLL == CANCEL_POLL - 1 && is_cancelled() {
+                    return None;
+                }
                 // dz <- 2 z dz + 1 (uses the old z)
                 {
                     let [t0, t1, _, _] = &mut t;
@@ -543,6 +548,16 @@ pub fn minibrot_size(nucleus: &BigComplex, period: usize) -> DoubleExp {
 /// Complex size estimate: its magnitude is the minibrot's scale relative to the whole set,
 /// its argument the minibrot's rotation (a point w of the set maps to c + size * w).
 pub fn minibrot_size_complex(nucleus: &BigComplex, period: usize) -> DoubleExpComplex {
+    minibrot_size_cancellable(nucleus, period, &mut || false).expect("never cancelled")
+}
+
+/// [`minibrot_size_complex`] polling `is_cancelled` every 4096 iterations (it runs `period`
+/// full-precision squarings: seconds at period 1e6 and thousands of bits); None when cancelled.
+pub fn minibrot_size_cancellable(
+    nucleus: &BigComplex,
+    period: usize,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<DoubleExpComplex> {
     let n = BigFloat::limb_count_for_bits(nucleus.precision_bits());
     let (mut x, mut y, mut cx, mut cy) = (reg(n), reg(n), reg(n), reg(n));
     let mut t = temps(n);
@@ -550,8 +565,13 @@ pub fn minibrot_size_complex(nucleus: &BigComplex, period: usize) -> DoubleExpCo
     load(&mut cy, &nucleus.im);
     let mut l = DoubleExpComplex::ONE;
     let mut b = DoubleExpComplex::ONE;
+    let mut cancelled = false;
     let degenerate = with_scratch(n, |s| {
-        for _ in 1..period {
+        for i in 1..period {
+            if i % CANCEL_POLL == 0 && is_cancelled() {
+                cancelled = true;
+                return false;
+            }
             complex_square_add(&mut x, &mut y, &cx, &cy, &mut t, s);
             l = (complex_value(&x, &y) * l).times_two();
             if l.re.is_zero() && l.im.is_zero() {
@@ -561,11 +581,17 @@ pub fn minibrot_size_complex(nucleus: &BigComplex, period: usize) -> DoubleExpCo
         }
         false
     });
-    if degenerate {
-        return DoubleExpComplex::ZERO;
+    if cancelled {
+        return None;
     }
-    DoubleExpComplex::ONE / (b * l * l)
+    if degenerate {
+        return Some(DoubleExpComplex::ZERO);
+    }
+    Some(DoubleExpComplex::ONE / (b * l * l))
 }
+
+/// Iterations between two polls of a cancel closure in the full-precision loops here.
+const CANCEL_POLL: usize = 4096;
 
 // ---------------------------------------------------------------------------------------
 // Newton's method for Misiurewicz points
@@ -743,7 +769,19 @@ pub fn select_reference_for(
     if radius.double_exp().abs() < dist {
         return fallback;
     }
-    let size = formula.is_mandelbrot().then(|| minibrot_size(&nr.nucleus, p));
+    // (Cancellation reaches the size estimate too, C3 of the 2026-10 review: the caller
+    // checks `is_cancelled` after this returns and drops the choice.)
+    if is_cancelled() {
+        return fallback;
+    }
+    let size = if formula.is_mandelbrot() {
+        match minibrot_size_cancellable(&nr.nucleus, p, is_cancelled) {
+            Some(s) => Some(s.magnitude()),
+            None => return fallback,
+        }
+    } else {
+        None
+    };
     ReferenceChoice {
         point: nr.nucleus,
         period: Some(p),
@@ -831,5 +869,53 @@ mod formula_tests {
             &mut never,
         );
         assert!(choice.is_nucleus && choice.period == Some(2) && choice.minibrot_size.is_none());
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+
+    /// C3 (2026-10 review): the size estimate runs `period` full-precision squarings; a
+    /// cancelled one returns within one poll, not after the whole period.
+    #[test]
+    fn minibrot_size_stops_when_cancelled() {
+        let c = BigComplex::from_f64(-1.754_877_666_246_693, 0.0, 3072);
+        let t = std::time::Instant::now();
+        let mut calls = 0;
+        let r = minibrot_size_cancellable(&c, 1_000_000, &mut || {
+            calls += 1;
+            calls > 1
+        });
+        assert!(r.is_none());
+        assert!(t.elapsed().as_secs_f64() < 0.1, "{:?}", t.elapsed());
+        // Uncancelled it is the estimate it always was.
+        let n = BigComplex::from_f64(-1.754_877_666_246_693, 0.0, 128);
+        assert_eq!(
+            minibrot_size_cancellable(&n, 3, &mut || false).map(|s| s.magnitude()),
+            Some(minibrot_size(&n, 3))
+        );
+    }
+
+    /// A cancel that arrives after Newton found the nucleus reaches the selection before the
+    /// size estimate: the choice falls back to the centre (the worker then drops it).
+    #[test]
+    fn selection_checks_cancel_after_newton() {
+        let view = BigComplex::from_f64(-1.752, 0.0005, 128);
+        let radius = BigFloat::from_f64(0.01, 64);
+        let mut calls = 0usize;
+        let full = select_reference(&view, &radius, 1000, None, PeriodMethod::Ball, &mut || {
+            calls += 1;
+            false
+        });
+        assert!(full.is_nucleus && full.minibrot_size.is_some());
+        // The last poll is the one after Newton (period 3: the estimate does not poll).
+        let total = calls;
+        let mut k = 0usize;
+        let cut = select_reference(&view, &radius, 1000, None, PeriodMethod::Ball, &mut || {
+            k += 1;
+            k >= total
+        });
+        assert!(!cut.is_nucleus && cut.minibrot_size.is_none() && cut.detected_period == Some(3));
     }
 }

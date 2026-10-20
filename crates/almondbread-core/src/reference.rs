@@ -2,9 +2,12 @@
 //! techniques/reference-selection, techniques/rebasing).
 //!
 //! Two kinds:
-//! - **f64** (`Reference::compute_f64`): `Z_{n+1} = Z_n^2 + C` in f64 at the view centre, computed
-//!   synchronously (sub-millisecond). Serves views down to [`DEEP_SCALE`] per point, exactly as
-//!   M1–M4 did (bit-identical fields at the benchmark locations).
+//! - **f64** (`Reference::compute_f64`): `Z_{n+1} = Z_n^2 + C` in f64 at the view centre. Its
+//!   cost is linear in its length (about 0.36 ms per 1e5 points when the centre never escapes,
+//!   M1 Pro): the scheduler computes it on the frame thread only up to [`F64_SYNC_POINTS`],
+//!   longer ones (manual limits, raised caps) on the [`ReferenceWorker`]
+//!   ([`ReferenceRequest::f64_orbit`]). Serves views down to [`DEEP_SCALE`] per point, exactly
+//!   as M1–M4 did (bit-identical fields at the benchmark locations).
 //! - **big** (`Reference::compute_big`, M3b): the orbit at the precision the view needs
 //!   (`almondbread_math`, BigFloat), at a minibrot nucleus inside the view when the ball period
 //!   detector and Newton find one (orbit length = period, `Z_p = 0`, wraps by rebasing), else at
@@ -16,6 +19,7 @@
 //! a reference is reused while panning and zooming as long as its precision covers the pixel
 //! spacing and it lies within float32 reach of the pixels ([`Reference::fit`]).
 
+use std::any::Any;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -56,6 +60,29 @@ pub const PARTIAL_FIRST_FRACTION: f64 = 1.0 / 16.0;
 /// Prefixes shorter than this are not handed out (the whole orbit is quick anyway).
 pub const PARTIAL_MIN_POINTS: usize = 4096;
 
+/// Longest f64 orbit the scheduler computes on the frame thread (C1 of the 2026-10 review):
+/// 2^18 points, ~0.9 ms where the centre never escapes (M1 Pro). The default automatic cap
+/// (200 000) stays below it, so the default path is unchanged; longer orbits (manual limits,
+/// a raised cap) go to the [`ReferenceWorker`].
+pub const F64_SYNC_POINTS: usize = 1 << 18;
+
+/// Orbit storage reserved up front; longer orbits grow as they are computed (an orbit
+/// usually escapes long before a high limit, and a request of 1e9 must not reserve 8 GB).
+const PREALLOC_POINTS: usize = 1 << 18;
+
+/// A big centre orbit longer than this is computed in stages that double its storage (below,
+/// as before: the stages of the prefixes it hands out, storage for each reserved at once).
+const GROW_FROM_POINTS: usize = 1 << 20;
+
+/// What a [`ReferencePrepare`] hook made of a reference on the worker thread (the renderer's
+/// GPU buffers): opaque to this crate.
+pub type ReferenceAttachment = Arc<dyn Any + Send + Sync>;
+
+/// Runs on the [`ReferenceWorker`]'s thread for every reference it hands out (prefixes too),
+/// so that work proportional to the orbit's length (GPU upload, conversions) stays off the
+/// frame thread (C2 of the 2026-10 review).
+pub type ReferencePrepare = Arc<dyn Fn(&Reference) -> Option<ReferenceAttachment> + Send + Sync>;
+
 /// A reference orbit and where it came from.
 #[derive(Clone, Debug)]
 pub struct Reference {
@@ -69,10 +96,11 @@ pub struct Reference {
     pub precision_bits: usize,
     /// Iteration limit it was computed for.
     pub max_iter: usize,
-    /// Z_0 ... Z_{len-1} rounded to float32 (Z_0 = 0).
-    pub points: Vec<[f32; 2]>,
+    /// Z_0 ... Z_{len-1} rounded to float32 (Z_0 = 0). Shared: table builds and copies of the
+    /// reference never copy the orbit.
+    pub points: Arc<Vec<[f32; 2]>>,
     /// The same in floatexp (big references only; empty for f64).
-    pub extended: Vec<FloatExpComplex>,
+    pub extended: Arc<Vec<FloatExpComplex>>,
     /// Nucleus period (then `points.len() == period + 1` and `Z_period ~ 0`).
     pub period: Option<usize>,
     /// The period the detector reported (also when Newton was not used).
@@ -84,6 +112,8 @@ pub struct Reference {
     /// Seconds: selection (period + Newton) and orbit.
     pub select_time: f64,
     pub orbit_time: f64,
+    /// Made from it on the worker thread ([`ReferencePrepare`]); None when computed elsewhere.
+    pub prepared: Option<ReferenceAttachment>,
 }
 
 /// How well a reference serves a view.
@@ -114,46 +144,74 @@ impl Reference {
 
     /// [`Reference::compute_f64`] for any formula (F2; Mandelbrot runs the loop it always ran).
     pub fn compute_f64_with(viewport: &Viewport, formula: Formula, max_iter: usize, bailout: f64) -> Self {
+        Self::compute_f64_cancellable(viewport, formula, max_iter, bailout, &AtomicBool::new(false), None)
+            .expect("never cancelled")
+    }
+
+    /// [`Reference::compute_f64_with`] that polls `cancel` (and stores the iterations done in
+    /// `progress`) every 65 536 iterations; None when cancelled. The points are the same (the
+    /// loop only runs in slices). Storage grows with the orbit past [`PREALLOC_POINTS`]
+    /// instead of reserving `max_iter` points up front.
+    pub fn compute_f64_cancellable(
+        viewport: &Viewport,
+        formula: Formula,
+        max_iter: usize,
+        bailout: f64,
+        cancel: &AtomicBool,
+        progress: Option<&AtomicUsize>,
+    ) -> Option<Self> {
+        const SLICE: usize = 1 << 16;
         let start = Instant::now();
         let (cr, ci) = (viewport.center.re(), viewport.center.im());
-        let mut pts = Vec::with_capacity(max_iter + 1);
+        let mut pts = Vec::with_capacity(max_iter.min(PREALLOC_POINTS) + 1);
         let (mut x, mut y) = (0.0f64, 0.0f64);
         let b2 = bailout * bailout;
         pts.push([0.0f32, 0.0]);
         let mut escaped = false;
-        if formula.is_mandelbrot() {
-            for _ in 0..max_iter {
-                let nx = x * x - y * y + cr;
-                y = 2.0 * x * y + ci;
-                x = nx;
-                pts.push([x as f32, y as f32]);
-                if x * x + y * y > b2 {
-                    escaped = true;
-                    break;
+        let mut done = 0usize;
+        while done < max_iter && !escaped {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            let n = (max_iter - done).min(SLICE);
+            if formula.is_mandelbrot() {
+                for _ in 0..n {
+                    let nx = x * x - y * y + cr;
+                    y = 2.0 * x * y + ci;
+                    x = nx;
+                    pts.push([x as f32, y as f32]);
+                    if x * x + y * y > b2 {
+                        escaped = true;
+                        break;
+                    }
+                }
+            } else {
+                for _ in 0..n {
+                    (x, y) = formula.step((x, y), (cr, ci));
+                    pts.push([x as f32, y as f32]);
+                    if x * x + y * y > b2 {
+                        escaped = true;
+                        break;
+                    }
                 }
             }
-        } else {
-            for _ in 0..max_iter {
-                (x, y) = formula.step((x, y), (cr, ci));
-                pts.push([x as f32, y as f32]);
-                if x * x + y * y > b2 {
-                    escaped = true;
-                    break;
-                }
+            done += n;
+            if let Some(p) = progress {
+                p.store(pts.len() - 1, Ordering::Relaxed);
             }
         }
         if pts.len() < 2 {
             pts.push([cr as f32, ci as f32]);
         }
-        Self {
+        Some(Self {
             formula,
             // The orbit is of the f64-rounded centre: offsets are taken from that point.
             point: Center::new(cr, ci),
             scale: viewport.scale,
             precision_bits: 53,
             max_iter,
-            points: pts,
-            extended: Vec::new(),
+            points: Arc::new(pts),
+            extended: Arc::default(),
             period: None,
             detected_period: None,
             escaped,
@@ -161,7 +219,8 @@ impl Reference {
             deep_kernel: false,
             select_time: 0.0,
             orbit_time: start.elapsed().as_secs_f64(),
-        }
+            prepared: None,
+        })
     }
 
     /// A big reference for `request` (see the module docs). `cancel` is polled every 4096
@@ -214,28 +273,45 @@ impl Reference {
         let comp = ReferenceOrbitComputer::new(point.big(), bits)
             .with_threads(Threads::Automatic)
             .with_formula(request.formula);
-        let mut points = vec![[0.0f32; 2]; iters + 1];
-        let mut extended = vec![FloatExpComplex::ZERO; iters + 1];
+        // Storage grows stage by stage (a centre orbit usually escapes long before the end of
+        // the request; C1 of the 2026-10 review: twice a 1e9 limit reserved 48 GB up front).
+        let mut points: Vec<[f32; 2]> = Vec::new();
+        let mut extended: Vec<FloatExpComplex> = Vec::new();
         let mut never_progress = |n: usize| progress.store(n, Ordering::Relaxed);
         let mut ctl = almondbread_math::Control {
             check_interval: 4096,
             is_cancelled: &mut is_cancelled,
             progress: &mut never_progress,
         };
-        // Centre orbits run in stages; a nucleus orbit (one period) in one go.
-        let mut stages = Vec::new();
+        // Centre orbits run in stages, handing out the prefixes at `handouts`; a nucleus orbit
+        // (one period) in one go.
+        let mut handouts = Vec::new();
         if period.is_none() {
             let first = (iters as f64 * PARTIAL_FIRST_FRACTION) as usize;
             if first >= PARTIAL_MIN_POINTS {
-                stages.push(first);
+                handouts.push(first);
             }
             if iters / 2 > first && iters / 2 >= PARTIAL_MIN_POINTS {
-                stages.push(iters / 2);
+                handouts.push(iters / 2);
             }
         }
+        let mut stages = handouts.clone();
         stages.push(iters);
+        // Past GROW_FROM_POINTS the storage doubles stage by stage (resuming is exact), so an
+        // orbit that escapes early never holds the whole request.
+        if period.is_none() {
+            let mut s = GROW_FROM_POINTS;
+            while s < iters {
+                stages.push(s);
+                s *= 2;
+            }
+            stages.sort_unstable();
+            stages.dedup();
+        }
         let mut r: Option<almondbread_math::OrbitResult> = None;
         for &stage in &stages {
+            points.resize(stage + 1, [0.0; 2]);
+            extended.resize(stage + 1, FloatExpComplex::ZERO);
             let next = match &r {
                 None => comp.compute(stage, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl),
                 Some(prev) => comp.resume(
@@ -251,15 +327,15 @@ impl Reference {
                 return None;
             }
             let done = next.escaped || stage == iters;
-            if !done {
+            if !done && handouts.contains(&stage) {
                 partial(Self {
                     formula: request.formula,
                     point: point.clone(),
                     scale: request.scale,
                     precision_bits: bits,
                     max_iter: request.max_iter,
-                    points: points[..next.count].to_vec(),
-                    extended: extended[..next.count].to_vec(),
+                    points: Arc::new(points[..next.count].to_vec()),
+                    extended: Arc::new(extended[..next.count].to_vec()),
                     period: None,
                     detected_period: detected,
                     escaped: false,
@@ -267,6 +343,7 @@ impl Reference {
                     deep_kernel: request.scale.to_f64() < DEEP_KERNEL_SCALE,
                     select_time,
                     orbit_time: t1.elapsed().as_secs_f64(),
+                    prepared: None,
                 });
             }
             r = Some(next);
@@ -295,8 +372,8 @@ impl Reference {
             scale: request.scale,
             precision_bits: bits,
             max_iter: request.max_iter,
-            points,
-            extended,
+            points: Arc::new(points),
+            extended: Arc::new(extended),
             period,
             detected_period: detected,
             escaped: r.escaped,
@@ -304,6 +381,7 @@ impl Reference {
             deep_kernel: request.scale.to_f64() < DEEP_KERNEL_SCALE,
             select_time,
             orbit_time: t1.elapsed().as_secs_f64(),
+            prepared: None,
         })
     }
 
@@ -346,13 +424,7 @@ impl Reference {
             if deep {
                 return Fit::No;
             }
-            let radius = viewport.scale.to_f64() * size as f64;
-            let (dr, di) = self.point.delta_from(&viewport.center);
-            let ok = self.max_iter >= max_iter
-                && dr.abs() < radius
-                && di.abs() < radius
-                && self.scale <= viewport.scale * 4.0
-                && self.scale >= viewport.scale / 4.0;
+            let ok = self.max_iter >= max_iter && f64_reference_near(&self.point, self.scale, viewport, size);
             return if ok { Fit::Good } else { Fit::No };
         }
         if !deep {
@@ -381,9 +453,29 @@ impl Reference {
     }
 }
 
-/// What a big reference is computed for.
+/// Whether an f64 reference made at `point` for a view of `scale` lies close enough to
+/// `viewport` (`size` texels across): within the view, made at a scale within 4x (M1–M4).
+pub fn f64_reference_near(point: &Center, scale: Scale, viewport: &Viewport, size: usize) -> bool {
+    let radius = viewport.scale.to_f64() * size as f64;
+    let (dr, di) = point.delta_from(&viewport.center);
+    dr.abs() < radius && di.abs() < radius && scale <= viewport.scale * 4.0 && scale >= viewport.scale / 4.0
+}
+
+/// The kind of orbit a [`ReferenceRequest`] asks for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReferenceKind {
+    /// A big reference (see the module docs).
+    #[default]
+    Big,
+    /// The f64 orbit at the centre ([`Reference::compute_f64_with`]), too long for the frame
+    /// thread ([`F64_SYNC_POINTS`]).
+    F64,
+}
+
+/// What a reference is computed for.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReferenceRequest {
+    pub kind: ReferenceKind,
     /// The iteration (F2; [`ReferenceRequest::for_view`]: Mandelbrot).
     pub formula: Formula,
     pub center: Center,
@@ -412,6 +504,7 @@ impl ReferenceRequest {
     ) -> Self {
         let bits = needed_bits(&viewport.center, texel, size, GOOD_GUARD_BITS) + EXTRA_BITS;
         Self {
+            kind: ReferenceKind::Big,
             formula: Formula::Mandelbrot,
             center: viewport.center.clone(),
             scale: viewport.scale,
@@ -423,6 +516,50 @@ impl ReferenceRequest {
             nucleus: true,
         }
     }
+
+    /// The f64 orbit of `formula` at `viewport`'s centre, `max_iter` steps long.
+    pub fn f64_orbit(viewport: &Viewport, formula: Formula, max_iter: usize, bailout: f64) -> Self {
+        Self {
+            kind: ReferenceKind::F64,
+            formula,
+            center: viewport.center.clone(),
+            scale: viewport.scale,
+            radius_points: 0.0,
+            max_iter,
+            period_limit: 0,
+            precision_bits: 53,
+            bailout,
+            nucleus: false,
+        }
+    }
+
+    /// Computes it on the caller's thread ([`Reference::compute_big_progressive`],
+    /// [`Reference::compute_f64_cancellable`]).
+    pub fn compute(
+        &self,
+        cancel: &AtomicBool,
+        progress: &AtomicUsize,
+        partial: &mut dyn FnMut(Reference),
+    ) -> Option<Reference> {
+        match self.kind {
+            ReferenceKind::Big => Reference::compute_big_progressive(self, cancel, progress, partial),
+            ReferenceKind::F64 => {
+                let v = Viewport {
+                    center: self.center.clone(),
+                    scale: self.scale,
+                    angle: 0.0,
+                };
+                Reference::compute_f64_cancellable(
+                    &v,
+                    self.formula,
+                    self.max_iter,
+                    self.bailout,
+                    cancel,
+                    Some(progress),
+                )
+            }
+        }
+    }
 }
 
 /// Computes big references on a background thread, one at a time; a new request cancels the
@@ -432,6 +569,8 @@ pub struct ReferenceWorker {
     job: Option<WorkerJob>,
     /// Requests started so far (diagnostics).
     pub started: usize,
+    /// Run on the worker thread for each reference handed out (the renderer's GPU upload).
+    pub prepare: Option<ReferencePrepare>,
 }
 
 struct WorkerJob {
@@ -445,6 +584,15 @@ struct WorkerJob {
 }
 
 impl ReferenceWorker {
+    /// A worker that runs `prepare` on its thread for each reference it hands out.
+    pub fn with_prepare(prepare: Option<ReferencePrepare>) -> Self {
+        Self {
+            job: None,
+            started: 0,
+            prepare,
+        }
+    }
+
     /// Starts computing `request` (cancelling a running computation).
     pub fn start(&mut self, request: ReferenceRequest) {
         self.cancel();
@@ -452,14 +600,27 @@ impl ReferenceWorker {
         let progress = Arc::new(AtomicUsize::new(0));
         let partial = Arc::new(Mutex::new(None));
         let (c, p, r, slot) = (cancel.clone(), progress.clone(), request.clone(), partial.clone());
+        let prepare = self.prepare.clone();
         let handle = std::thread::Builder::new()
             .name("almondbread-reference".into())
             .spawn(move || {
-                Reference::compute_big_progressive(&r, &c, &p, &mut |prefix| {
+                let finish = |mut r: Reference| {
+                    if let Some(f) = &prepare {
+                        r.prepared = f(&r);
+                    }
+                    r
+                };
+                let r = r.compute(&c, &p, &mut |prefix| {
+                    let prefix = finish(prefix);
                     if let Ok(mut s) = slot.lock() {
                         *s = Some(prefix);
                     }
-                })
+                })?;
+                // (A cancelled one is dropped unprepared: nobody takes it.)
+                if c.load(Ordering::Relaxed) {
+                    return None;
+                }
+                Some(finish(r))
             });
         match handle {
             Ok(handle) => {
@@ -514,6 +675,13 @@ impl ReferenceWorker {
                 None
             }
         }
+    }
+}
+
+impl Drop for ReferenceWorker {
+    /// A computation nobody will take stops at its next poll (the thread is detached).
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -596,6 +764,70 @@ mod tests {
         assert!(r.truncated_before(usize::MAX) && !r.truncated_before(2 * limit));
         let whole = Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
         assert!(whole.points == r.points && whole.extended == r.extended);
+    }
+
+    /// C1 (2026-10 review): a limit of 1e9 reserves nothing like 1e9 points when the orbit
+    /// escapes early (the f64 orbit reserved 8 GB, a big one 48 GB for twice the limit).
+    #[test]
+    fn long_requests_grow_instead_of_reserving() {
+        let out = Viewport::new(0.3, 0.6, 1e-6);
+        let r = Reference::compute_f64(&out, 1_000_000_000, 65536.0);
+        assert!(r.escaped && r.points.len() < 1000);
+        assert!(r.points.capacity() <= PREALLOC_POINTS + 1, "{}", r.points.capacity());
+        let v = Viewport::with_center(Center::new(0.3, 0.6), Scale::from_f64(1e-30));
+        let mut req = ReferenceRequest::for_view(&v, v.scale, 800, 500.0, 2_000_000_000, 65536.0);
+        req.nucleus = false;
+        let big = Reference::compute_big(&req, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
+        assert!(big.escaped && big.points.len() < 1000);
+        assert!(
+            big.points.capacity() <= GROW_FROM_POINTS + 1,
+            "{}",
+            big.points.capacity()
+        );
+        assert!(big.extended.capacity() <= GROW_FROM_POINTS + 1);
+    }
+
+    /// A centre orbit longer than GROW_FROM_POINTS, computed in doubling stages, equals the
+    /// prefix of a longer one (resuming is exact); prefixes are handed out as before.
+    #[test]
+    fn staged_growth_is_exact() {
+        let v = Viewport::with_center(Center::new(-0.1, 0.1), Scale::from_f64(1e-20));
+        let mut req = ReferenceRequest::for_view(&v, v.scale, 100, 50.0, 3 * GROW_FROM_POINTS, 65536.0);
+        req.nucleus = false;
+        req.precision_bits = 128;
+        let mut parts = Vec::new();
+        let r = Reference::compute_big_progressive(&req, &AtomicBool::new(false), &AtomicUsize::new(0), &mut |p| {
+            parts.push(p.points.len())
+        })
+        .unwrap();
+        assert_eq!(r.points.len(), 3 * GROW_FROM_POINTS + 1);
+        assert_eq!(parts, vec![3 * GROW_FROM_POINTS / 16 + 1, 3 * GROW_FROM_POINTS / 2 + 1]);
+        let mut short = req.clone();
+        short.max_iter = GROW_FROM_POINTS / 2;
+        let s = Reference::compute_big(&short, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
+        assert_eq!(s.points[..], r.points[..s.points.len()]);
+        assert_eq!(s.extended[..], r.extended[..s.points.len()]);
+    }
+
+    /// The f64 orbit on the worker (C1): the same points as on the caller's thread, and a
+    /// cancelled one stops.
+    #[test]
+    fn f64_orbit_on_the_worker() {
+        let v = Viewport::new(-0.1, 0.1, 1e-6);
+        let mut w = ReferenceWorker::default();
+        w.start(ReferenceRequest::f64_orbit(&v, Formula::Mandelbrot, 300_000, 65536.0));
+        let r = w.poll(true).expect("reference");
+        let here = Reference::compute_f64(&v, 300_000, 65536.0);
+        assert!(!r.big && r.points == here.points && r.max_iter == 300_000 && !r.escaped);
+        assert_eq!(r.fit(&v, v.scale, 800, 300_000), Fit::Good);
+        let stop = AtomicBool::new(true);
+        assert!(Reference::compute_f64_cancellable(&v, Formula::Mandelbrot, 1 << 30, 65536.0, &stop, None).is_none());
+        // Dropping the worker cancels what it runs.
+        let mut w = ReferenceWorker::default();
+        w.start(ReferenceRequest::f64_orbit(&v, Formula::Mandelbrot, 1 << 31, 65536.0));
+        let cancel = w.job.as_ref().unwrap().cancel.clone();
+        drop(w);
+        assert!(cancel.load(Ordering::Relaxed));
     }
 
     #[test]

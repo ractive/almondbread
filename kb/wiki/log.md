@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-20
 
+- **Decision:** Long references off the frame thread: review findings C1-C3 fixed (f64 orbits past 2^18 points on the reference worker, orbits grow instead of reserving the limit, GPU upload on the worker thread, superseded BLA/LA builds cancelled, cancellation inside selection); as built in techniques/hang-prevention, parallel-reference-orbit, reference-selection
 - **Lint:** OKF conversion of the wiki. 2876 body wikilinks (2830 plain, 46 with alias text) became relative Markdown links (`[Title](../dir/page.md)`), with the alias or the target page title as text; 516 frontmatter entries in `sources` / `depends-on` became OKF concept IDs (`sources/kf-manual`), and the `item_pattern`s in `.hyalo.toml` changed to match. Every page got a `# Citations` section: 230 built only from what they already cite; the 9 pages that cite nothing (five decisions, ideas, overview, roadmap, sources/apple-device-tooling) say so in one entry that links to their own section. `index.md` and `log.md` lost their frontmatter (OKF reserved files; the root index carries `okf_version`); this log is now grouped under date headings, newest first; `hyalo okf index` added the managed region to `index.md` and an `index.md` per directory. New conventions in `kb/CLAUDE.md` and `.claude/rules/knowledgebase.md`.
 
 ### decision | Tours in plain language; tour writing rules

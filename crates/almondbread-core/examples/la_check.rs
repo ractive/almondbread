@@ -91,7 +91,7 @@ fn main() {
         let pts = if r.extended.is_empty() {
             to_x(&r.points)
         } else {
-            r.extended.clone()
+            r.extended.to_vec()
         };
         let off = v.center.delta_in(&r.point, texel);
         let t0 = Instant::now();

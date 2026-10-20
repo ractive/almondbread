@@ -4,7 +4,7 @@
 //! pipelines without them are unchanged.
 
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::sync::atomic::AtomicBool;
 
 use almondbread_core::la::{LaBuild, LaEntryX, LaParams, LaTable};
 use almondbread_core::reference::Reference;
@@ -77,19 +77,19 @@ impl<B: GpuBackend> LaGpu<B> {
 
 /// Builds the LA table of `r` (validity `epsilon`, as BLA's), from the floatexp points for the
 /// deep kernel and from the float32 points the plain kernel iterates against otherwise.
-pub(crate) fn build_table(r: &Reference, epsilon: f64) -> Box<dyn FnOnce() -> Arc<LaTable> + Send> {
+/// The build polls the flag it gets (None: cancelled); the orbit is shared, not copied.
+pub(crate) type LaBuildFn = Box<dyn FnOnce(&AtomicBool) -> Option<Arc<LaTable>> + Send>;
+
+pub(crate) fn build_table(r: &Reference, epsilon: f64) -> LaBuildFn {
     let b = LaBuild::default();
     if r.deep_kernel {
         let points = r.extended.clone();
-        Box::new(move || Arc::new(LaTable::build_with(&points, epsilon, &b)))
+        Box::new(move |cancel| LaTable::build_cancellable(&points, epsilon, &b, cancel).map(Arc::new))
     } else {
         let points = r.points.clone();
-        Box::new(move || Arc::new(LaTable::build_plain_with(&points, epsilon, &b)))
+        Box::new(move |cancel| LaTable::build_plain_cancellable(&points, epsilon, &b, cancel).map(Arc::new))
     }
 }
-
-/// A table build on its thread, for the reference with this serial.
-pub(crate) type LaBuildJob = (u64, JoinHandle<Arc<LaTable>>);
 
 #[cfg(all(test, target_vendor = "apple"))]
 mod tests {

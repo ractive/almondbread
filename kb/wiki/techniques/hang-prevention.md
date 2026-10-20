@@ -133,6 +133,50 @@ XCTest's screenshot request times out and Core Animation's commit can wait on th
 GPU sharing; whether a real device's compositor is ever starved by the iterate chunks is not
 measured (unverified).
 
+## Long references (as built, 2026-10-20)
+
+An external code review (2026-10, findings C1-C3) found work proportional to an iteration
+limit on the frame thread. The limit is user-set: a manual limit is accepted up to
+`MANUAL_ITERATIONS_MAX`, and the automatic cap can be raised to 10 M.
+
+- **f64 orbit (C1).** Shallow views (scale per point >= 1e-12) computed the f64 reference
+  synchronously in `prepare_reference`, as long as the extension passes may iterate, into a
+  vector that reserved the whole limit: a manual 1e9 at a centre inside the set meant 8 GB and
+  seconds per refresh, and a failed GPU upload left the old reference current, so the next
+  refresh did it all again. Now up to `F64_SYNC_POINTS` (2^18 points, 0.94 ms at a centre that
+  never escapes, measured 2026-10-20, M1 Pro, release) it stays on the frame thread; that covers
+  every reach of the default cap of 200 000, so the default path is unchanged. Longer orbits are
+  an `F64` request on the `ReferenceWorker` (cancellable every 65 536 iterations): the view
+  waits, frames show the history, and the orbit is taken when it arrives; a good reference that
+  is only shorter than the extension's reach serves meanwhile (the passes stop at its end).
+  `set_reference` returns false and clears the reference when an upload fails, so the view
+  waits instead of rendering on a reference that does not fit it. Offscreen renders still
+  compute it in line (they wait anyway).
+- **Allocations (C1).** Orbits grow as they are computed instead of reserving the request: the
+  f64 orbit past 2^18 points, a big centre orbit past 2^20 points in stages that double its
+  storage (resuming is exact, so the points are unchanged). Twice a 1e9 limit had reserved
+  48 GB before the first iteration.
+- **Copies on the frame thread (C2).** `Reference::points` and `extended` are shared
+  (`Arc`), so table builds and copies no longer clone the orbit. The reference worker runs a
+  hook on its own thread for every reference it hands out (`ReferencePrepare`): the GPU upload,
+  the padded floatexp form and the BLA reach, through `GpuBackend::uploader` (Metal: the device
+  is thread-safe). Taking a 4 M-point f64 reference from the worker costs the frame thread
+  0.001 ms; uploading it there 11.8 ms (measured 2026-10-20, M1 Pro, release,
+  `worker_reference_is_uploaded_off_the_frame_thread`). Compute further's longer orbit checks its
+  prefix and uploads on its own thread too.
+- **Detached builds (C2).** A BLA/LA table build is a `TableBuild`: dropping it (a new
+  reference replaced the old one) sets its cancel flag, and the builds poll it before each
+  level or stage. Before, a superseded build ran to the end and held its intermediates.
+- **Cancellation inside selection (C3).** The worker's cancel flag reaches the minibrot size
+  estimate (`minibrot_size_cancellable`, `period` full-precision squarings) and the exact
+  Newton phase (polled every 4096 iterations inside a step); the selection checks it between
+  Newton and the size estimate. A dropped `ReferenceWorker` cancels what it runs.
+
+Tests: `long_reference_tests.rs` in render (a manual 1e9 limit: longest refresh 0.08 ms while
+the orbit computes; a 2e7 limit: 0.20 ms until the orbit arrives; the upload; a replaced
+reference cancels its build), `reference_gpu::tests`, `reference::tests` (growth, staged
+growth exact, the f64 orbit on the worker), `selection::cancel_tests`.
+
 ## Example report
 
 From `--hang-test` (measured 2026-10-16, M1 Pro, `swift build -c release`; abridged): the
@@ -170,6 +214,8 @@ recovered: the main thread answered the heartbeat 2.98 s after it was sent
   ring buffer then says which setting or event preceded it.
 - Hangs on other threads (the reference worker, the orbit threads) are not watched; the
   scheduler's offscreen loop waits on GPU submissions and has no cap of its own.
+- Compute further's f64 orbit thread (at most 2^24 points) is not cancelled when the view
+  changes; it ends on its own within ~60 ms.
 
 # Citations
 

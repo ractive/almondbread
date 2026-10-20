@@ -275,6 +275,18 @@ impl GpuBackend for MetalBackend {
         .ok_or_else(|| GpuError(format!("buffer of {} bytes", data.len())))
     }
 
+    fn uploader(&self) -> Option<crate::backend::Uploader<MetalBuffer>> {
+        // MTLDevice is thread-safe; buffers made on the reference worker's thread are used on
+        // the frame thread after the hand-over (kb: platform/metal-compute).
+        let backend = self.clone();
+        Some(Arc::new(move |data: &[u8]| {
+            let b = backend.create_buffer_with_data(data)?;
+            // SAFETY: Metal copied `data` into the new buffer; nothing touches its contents
+            // from the CPU again, and retain/release are thread-safe.
+            Ok(unsafe { crate::backend::SentBuffer::new(b) })
+        }))
+    }
+
     fn read_buffer(&self, buffer: &MetalBuffer, offset: usize, out: &mut [u8]) {
         assert!(offset + out.len() <= buffer.length(), "read past the buffer");
         assert!(
