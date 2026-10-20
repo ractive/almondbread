@@ -114,9 +114,13 @@ impl Scale {
         DoubleExp::new(self.mant * 0.5, self.exp + 1)
     }
 
-    /// Exact BigFloat of `x * self` (x finite).
+    /// Exact BigFloat of `x * self` for |x| < f64::MAX / 2. Beyond (a pan by 1e308 points),
+    /// the product saturates at +-f64::MAX instead of overflowing to inf; NaN is 0 (kb:
+    /// techniques/hang-prevention).
     pub fn big_times(self, x: f64, precision_bits: usize) -> BigFloat {
-        BigFloat::from_f64(x * self.mant, precision_bits.max(64)).times_power_of_two(self.exp)
+        let p = x * self.mant;
+        let p = if p.is_nan() { 0.0 } else { p.clamp(-f64::MAX, f64::MAX) };
+        BigFloat::from_f64(p, precision_bits.max(64)).times_power_of_two(self.exp)
     }
 
     pub fn min(self, b: Scale) -> Scale {
@@ -192,6 +196,13 @@ pub struct Center {
 
 /// Smallest centre precision (whole 64-bit limbs).
 pub const MIN_CENTER_BITS: usize = 64;
+/// Largest centre precision: a little past the deepest scale ([`MIN_SCALE_LOG2`]) plus the
+/// guard bits, whole limbs. Neither the view nor a pasted coordinate takes more.
+pub const MAX_CENTER_BITS: usize = ((-MIN_SCALE_LOG2 + 1024 + CENTER_GUARD_BITS) as usize).div_ceil(64) * 64;
+/// Most digits a coordinate may have ([`Center::parse`]): about 6x the ~3 350 digits that
+/// [`MAX_CENTER_BITS`] holds, so any coordinate another program writes at our depths is
+/// accepted (then rounded), and parsing stays around a millisecond.
+pub const MAX_COORDINATE_DIGITS: usize = 20_000;
 
 impl Center {
     /// From f64 coordinates (exact).
@@ -209,10 +220,17 @@ impl Center {
     }
 
     /// Parses decimal coordinates (the format coordinates cross the FFI in) with enough
-    /// precision for every digit given.
+    /// precision for every digit given, up to [`MAX_CENTER_BITS`] (the deepest view uses no
+    /// more). `None` for more than [`MAX_COORDINATE_DIGITS`] digits: parsing is quadratic in
+    /// the digit count (a pasted million digits took 1.6 s and left a 52 000-limb centre;
+    /// kb: techniques/hang-prevention).
     pub fn parse(re: &str, im: &str) -> Option<Self> {
         let digits = |s: &str| s.bytes().filter(u8::is_ascii_digit).count();
-        let bits = ((digits(re).max(digits(im)) as f64 * 3.33) as usize + 16).max(MIN_CENTER_BITS);
+        let n = digits(re).max(digits(im));
+        if n > MAX_COORDINATE_DIGITS {
+            return None;
+        }
+        let bits = ((n as f64 * 3.33) as usize + 16).clamp(MIN_CENTER_BITS, MAX_CENTER_BITS);
         let c = BigComplex::parse(re.trim(), im.trim(), bits)?;
         Some(Self { c })
     }
@@ -347,9 +365,8 @@ pub const CENTER_GUARD_BITS: i64 = 96;
 /// "1e-999999999" asked for billions of bits before the caller clamped the scale, and the
 /// precision raise hung the UI (kb: techniques/hang-prevention).
 fn center_bits_for(scale: Scale) -> usize {
-    const MAX_CENTER_BITS: i64 = -MIN_SCALE_LOG2 + 1024 + CENTER_GUARD_BITS;
     let bits = ((-scale.log2()).ceil() as i64).saturating_add(CENTER_GUARD_BITS);
-    (bits.clamp(MIN_CENTER_BITS as i64, MAX_CENTER_BITS) as usize).div_ceil(64) * 64
+    (bits.clamp(MIN_CENTER_BITS as i64, MAX_CENTER_BITS as i64) as usize).div_ceil(64) * 64
 }
 
 impl Viewport {

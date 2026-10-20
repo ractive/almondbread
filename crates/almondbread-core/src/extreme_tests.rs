@@ -38,6 +38,24 @@ fn extreme_viewport_scales_stay_in_range() {
 }
 
 #[test]
+fn extreme_coordinate_digits_are_bounded() {
+    // A pasted 200 000-digit coordinate is rejected quickly; 15 000 digits parse and are
+    // rounded to the deepest view's precision.
+    let t0 = std::time::Instant::now();
+    let long = format!("-0.{}", "7".repeat(200_000));
+    assert!(Center::parse(&long, "0.1").is_none());
+    let ok = format!("-0.{}", "7".repeat(15_000));
+    let c = Center::parse(&ok, "0.1").expect("15 000 digits");
+    assert!(
+        c.precision_bits() <= crate::viewport::MAX_CENTER_BITS,
+        "{}",
+        c.precision_bits()
+    );
+    assert!(c.precision_bits() >= 11_000);
+    assert!(t0.elapsed().as_secs_f64() < 0.5, "{:?}", t0.elapsed());
+}
+
+#[test]
 fn extreme_view_text_is_rejected_or_clamped() {
     // "1e-999999999" used to compute 10^999999999 exactly (a beach ball on paste).
     let t0 = std::time::Instant::now();
@@ -90,6 +108,37 @@ fn extreme_navigator_survives_bad_times_and_sizes() {
     ] {
         n.handle(e, &mut v, 0.1);
     }
+    // Huge finite pans, wheels and pinches (x * scale overflowed to inf in Scale::big_times
+    // and hit BigFloat::from_f64's assertion).
+    let mut huge = Viewport::new(-0.5, 0.25, 1e-3);
+    for e in [
+        InputEvent::Pan { dx: 1e308, dy: -1e308 },
+        InputEvent::Pan {
+            dx: f64::MAX,
+            dy: f64::MAX,
+        },
+        InputEvent::WheelZoom {
+            delta: 1e308,
+            x: 1e308,
+            y: -1e308,
+        },
+        InputEvent::Magnify {
+            magnification: 1e308,
+            x: -1e308,
+            y: 1e308,
+        },
+        InputEvent::ZoomBy { factor: 1e308 },
+    ] {
+        n.handle(e, &mut huge, 0.1);
+        n.advance(&mut huge, 0.2);
+    }
+    assert!(scale_ok(&huge));
+    for x in [1e308, -f64::MAX, f64::MAX, f64::NAN] {
+        let b = Scale::from_f64(1e-3).big_times(x, 64);
+        assert!(!b.to_f64().is_nan(), "{x}");
+    }
+    huge.pan_by_points(f64::MAX, -f64::MAX);
+    assert!(scale_ok(&huge));
     // Bad clocks: NaN, backwards, a huge jump. Frames end; the view stays usable.
     let mut frames = 0;
     for t in [f64::NAN, -1e9, 0.2, f64::INFINITY, 1e12, f64::NAN] {
