@@ -17,7 +17,7 @@ or FMA contraction that would break TwoSum/TwoProd? From which OS versions do
 
 ## Why it matters
 
-Float-float code ([[techniques/double-float]]) silently collapses to float32 if the
+Float-float code ([Double-float (float-float) arithmetic](../techniques/double-float.md)) silently collapses to float32 if the
 compiler reassociates. The research notes assumed fast math is on by default
 (unverified).
 
@@ -25,23 +25,23 @@ compiler reassociates. The research notes assumed fast math is on by default
 
 - `mathMode` (`.safe`, `.relaxed`, `.fast`) replaces `fastMathEnabled`;
   `mathFloatingPointFunctions` selects `.fast`/`.precise` library functions; the page
-  did not render, so semantics are unverified (src: [[sources/apple-metal-compile-options]]).
+  did not render, so semantics are unverified (src: [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)).
 - Error-free transforms need round-to-nearest, no reassociation and no unintended
   contraction; source-level tricks (temporaries, parentheses) are not guarantees
-  (src: [[sources/luma-gl-gpu-precision]] §Why This Is Fragile In WGSL And Metal).
+  (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §Why This Is Fragile In WGSL And Metal).
 
 ## How to resolve
 
 1. Read the `MTLCompileOptions` and MSL spec text offline (Xcode documentation).
 2. Startup known-answer test in each mode: TwoSum(1, 1e-8) low limb, and a
    TwoProd residual check, on real hardware. Record which modes preserve them.
-3. Update [[platform/metal-compute]].
+3. Update [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md).
 
 ## Partial answer (M7, measured)
 
 Measured 2026-10-15, M1 Pro, macOS 26.5, MSL 3.0, runtime compilation
 (`newLibraryWithSource`), the float-float known-answer test of `almondbread precision --kat 1`
-([[techniques/double-float]] "As built (M7)", [[synthesis/benchmarks]] M7):
+([Double-float (float-float) arithmetic](../techniques/double-float.md) "As built (M7)", [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M7):
 
 - **`mathMode = .fast` breaks the error-free transforms**: TwoSum(1, 1e-8) and
   QuickTwoSum(1, 2^-30) return a low part of 0, and a 1000-step float-float orbit is only

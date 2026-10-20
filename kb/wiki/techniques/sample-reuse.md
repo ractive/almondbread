@@ -17,25 +17,25 @@ only where the image lacks them. A sample of the Mandelbrot set is a pure functi
 position `c` (and the iteration limit), so a sample computed in an earlier frame is **exact**
 in every later frame; only where it sits in the new pixel grid changes. R4 measured this
 against the FL pipeline, which recomputes a fresh jittered preview every gesture frame and
-reuses only the previous *image* ([[techniques/frame-reuse-and-progressive]] FL). Results
-and recommendation: [[synthesis/motion-sample-reuse]].
+reuses only the previous *image* ([Frame reuse and progressive refinement](frame-reuse-and-progressive.md) FL). Results
+and recommendation: [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md).
 
 ## XaoS: approximate reuse of rows and columns
 
 XaoS (Hubička, 1990s) keeps only the previous frame and remembers one real coordinate per
-column and one imaginary coordinate per row, not per pixel (src: [[sources/xaos-algorithms]]
-§Saving Previous Pixels; [[sources/wikipedia-xaos]] §XaoS). For each new frame it matches old
+column and one imaginary coordinate per row, not per pixel (src: [XaoS: Algorithms document](../sources/xaos-algorithms.md)
+§Saving Previous Pixels; [Wikipedia: XaoS](../sources/wikipedia-xaos.md) §XaoS). For each new frame it matches old
 rows/columns to new ones by dynamic programming in linear time: a reuse costs the squared
 distance from the ideal position, a fresh row/column costs `(4·step)²`, matches must stay in
 order (no doubling, no swaps), at most ~8 candidates per old line (src:
-[[sources/xaos-algorithms]] §Approximation Algorithm). Unmatched lines are computed fresh at
+[XaoS: Algorithms document](../sources/xaos-algorithms.md) §Approximation Algorithm). Unmatched lines are computed fresh at
 the mean of their neighbours' positions, so displayed rows and columns are **not** at their
 ideal positions: XaoS trades a positional error of up to a few pixel steps for computing about
 `xsize + ysize` samples per frame instead of `xsize × ysize`
-([[techniques/frame-reuse-and-progressive]] XaoS). Errors show as distortion; doubling makes the
-image jagged (src: [[sources/xaos-algorithms]]). Dynamic resolution computes the middle of the
+([Frame reuse and progressive refinement](frame-reuse-and-progressive.md) XaoS). Errors show as distortion; doubling makes the
+image jagged (src: [XaoS: Algorithms document](../sources/xaos-algorithms.md)). Dynamic resolution computes the middle of the
 largest uncomputed block first and raises rows near the zoom centre (src:
-[[sources/xaos-algorithms]] §Dynamic Resolution).
+[XaoS: Algorithms document](../sources/xaos-algorithms.md) §Dynamic Resolution).
 
 ## Exact positions instead of approximate ones
 
@@ -52,7 +52,7 @@ raw kernel outputs, and draw it where it really is:
 - **Data**: escape count `n`, smooth offset, distance estimate, normal angle, class
   (exterior / interior / unresolved), the limit it ran to. Colour is **not** stored: it is
   re-shaded every frame, because the look depends on the DE in *current* output pixels
-  (outline width, palette filter level; [[techniques/coloring-methods]] FL). FL's history
+  (outline width, palette filter level; [Colouring methods](coloring-methods.md) FL). FL's history
   image bakes the old pixel scale into colours; a sample cache does not.
 - **Validity**: escaped samples are valid forever; derivative-proven interior samples too.
   Unresolved samples are stale once the limit has grown (prototype: evicted when the limit
@@ -79,7 +79,7 @@ With exact positions there is no positional error: every displayed sample sits w
 computed; what remains is reconstruction from irregular samples, which the Gaussian handles.
 The XaoS-like variant (show the sample nearest the pixel centre; compute a new centre sample
 when no cached sample lies within ε of the centre, per axis) has positional error up to ε:
-measured in [[synthesis/motion-sample-reuse]] (`xn-*` rows). Its aliasing, not ε, dominates.
+measured in [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md) (`xn-*` rows). Its aliasing, not ε, dominates.
 
 ## Interaction with temporal accumulation and AA
 
@@ -87,13 +87,13 @@ The cache *is* the temporal accumulation, of exact samples instead of resampled 
 no Catmull-Rom blur per frame, no confidence heuristics. Under a pan or slow zoom it keeps
 gaining samples per pixel (up to K) while moving, i.e. it anti-aliases in motion. When the
 view rests, the cached samples inside each pixel are legitimate jittered AA samples for the
-settled image: the idle AA (target 9 per pixel, [[techniques/anti-aliasing]] FL) can count them
+settled image: the idle AA (target 9 per pixel, [Anti-aliasing and supersampling](anti-aliasing.md) FL) can count them
 and compute only the remainder.
 
 ## The "shown frame = fresh render" check
 
 The check compares the refined (centre-sample) level with a fresh render
-([[platform/render-architecture]], `displayed_frame_mismatch`); gesture frames are already
+([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md), `displayed_frame_mismatch`); gesture frames are already
 exempt. Proposal: keep the refined level computed fresh at pixel centres (the check is
 unchanged), and add a **cache check**: re-iterate a random subset (e.g. 4096) of the cached
 samples from scratch at their recomputed birth positions with a fresh renderer and require
@@ -104,7 +104,7 @@ the bugs the frame check would have. Samples reused as AA samples go through the
 ## Measured (R4)
 
 Measured 2026-10-15 on an M1 Pro, release builds, in a deterministic simulator of five flights
-against 16-sample references. Full tables are in [[synthesis/motion-sample-reuse]].
+against 16-sample references. Full tables are in [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md).
 
 | strategy | iterations per gesture frame vs FL | quality vs FL |
 |---|---|---|
@@ -121,7 +121,7 @@ before the iteration savings turn into GPU time savings.
 `crates/almondbread-render/src/sample_cache.rs`, kernels in `shaders/sample_cache.metal`,
 hooks in `scheduler.rs`. Our design, built after R4; it departs from R4's design (per-pixel
 cells holding K free-positioned samples, a move pass) because that bookkeeping was O(pixels)
-and cost 19–23 ms per frame at Retina size (measured R4, [[synthesis/motion-sample-reuse]]).
+and cost 19–23 ms per frame at Retina size (measured R4, [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md)).
 
 **A lattice fixed in the plane instead of free samples.** Lattice point `(i, j)` of a level
 is `anchor + h · R(angle) · (i, −j)`. Samples sit only on lattice points, so a sample never
@@ -199,7 +199,7 @@ differs from a fresh render (0.2–55 % in dense views, the reference's float32 
 `verify` gates escape counts relative to that noise and class strictly (0.05 %). A one-texel
 position error shows as 5–6 % in a smooth view, a 0.1-texel one as 2 % (tested 2026-10-15).
 
-Measured (M1 Pro, release, 2026-10-15; [[synthesis/benchmarks]] "Sample cache"):
+Measured (M1 Pro, release, 2026-10-15; [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Sample cache"):
 
 - **Iterations per gesture frame**, against fresh previews: shallow −56 % at 1600 × 1000 and
   −92 % at 3456 × 2160; 1e-14 −55 % and −92 %. In the 1e-19 dense spiral −99.9 %, but the

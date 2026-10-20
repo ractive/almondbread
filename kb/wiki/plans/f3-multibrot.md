@@ -23,23 +23,23 @@ updated: 2026-10-19
 
 # F3: Multibrot z^p + c
 
-Status: planned, after [[plans/f2-pluggable-formulas]].
+Status: planned, after [F2: Pluggable-formula refactor](f2-pluggable-formulas.md).
 
 ## Goal
 
 The first new formula, chosen because it exercises every per-formula hook (reference, BLA,
 oracle, derivative, Newton) with scalar complex arithmetic only. It is "the best test that the
-refactor kept the Mandelbrot fast path intact" (src: [[synthesis/other-fractal-types]] §5).
+refactor kept the Mandelbrot fast path intact" (src: [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §5).
 Users get p-fold symmetric sets, `p = 3..8`, at any depth.
 
 ## Scope
 
 - Formula `Multibrot { p }`, `p = 3..8` (integer only).
 - Reference orbit in BigFloat; perturbed step from the binomial expansion of `(Z + z)^p − Z^p`;
-  BLA with `A = pZ^{p−1}`, `B = 1` and its radius ([[formulas/multibrot]], [[techniques/bla]]).
+  BLA with `A = pZ^{p−1}`, `B = 1` and its radius ([Multibrot (integer power p)](../formulas/multibrot.md), [Bivariate linear approximation (BLA)](../techniques/bla.md)).
 - Rebasing as for Mandelbrot (one critical point at 0).
 - DE and the interior derivative test with `pz^{p−1}`; Newton nucleus and period detection
-  (seek minibrot) with the same derivative (inference in [[synthesis/other-fractal-types]] §2a).
+  (seek minibrot) with the same derivative (inference in [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a).
 - CPU oracle, f64 reference, orbit overlay for the formula.
 - A small places set (10–20 views per power, found with seek), formula picker in the control
   center, capability-driven hiding of LA, π, closed-form components, external rays.
@@ -47,8 +47,8 @@ Users get p-fold symmetric sets, `p = 3..8`, at any depth.
 ## Non-goals
 
 - Non-integer powers: they "do not reduce at all" for perturbation
-  (src: [[synthesis/other-fractal-types]] §2a "Transcendental").
-- LA (power 2 only, [[techniques/linear-approximation-imagina]]), local SA seeds for p > 2
+  (src: [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a "Transcendental").
+- LA (power 2 only, [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)), local SA seeds for p > 2
   unless measured to pay.
 - Tours and journeys tuned for Multibrot (journeys may run, untuned).
 
@@ -62,7 +62,7 @@ Users get p-fold symmetric sets, `p = 3..8`, at any depth.
   validity radius scales with `|Z|^{p−1}` (inference, to be measured).
 - Iteration-band guard: compare float32 against the oracle at p = 8 deep; if bands show, use
   floatexp steps near small `|Z|` (F3 warns plain float "gives iteration-band glitches at high
-  powers", src: [[sources/fraktaler-3-site]]).
+  powers", src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 
 ## Affected modules
 
@@ -94,7 +94,7 @@ Multibrot ships visible or stays as a hidden test formula, and whether to contin
 ## Risks
 
 - Band glitches in float32 at high p (above).
-- Repetitive shapes: appeal medium (src: [[synthesis/other-fractal-types]] §2a).
+- Repetitive shapes: appeal medium (src: [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a).
 - Seek and the autopilot target lock tuned on Mandelbrot; may need per-formula thresholds.
 
 ## Open questions

@@ -30,8 +30,8 @@ so the super-logarithm section itself was not read.
 ## Reliability
 
 Good for the definition. The inverse, the linear super-logarithm, follows from it by inverting each
-piece; we did that ourselves ([[synthesis/how-big-is-big]]) rather than reading it here.
+piece; we did that ourselves ([How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)) rather than reading it here.
 
 ## Used by
 
-[[synthesis/how-big-is-big]]
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)

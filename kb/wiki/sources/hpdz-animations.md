@@ -28,4 +28,4 @@ Primary for its own renders; pre-perturbation era (2010–2011).
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)

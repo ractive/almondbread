@@ -32,8 +32,8 @@ tags: [julia-morphing, shape-stacking, internal-address, places]
 ## Reliability
 
 Forum discussion, no proofs (wbarry says so); the 3/4, 7/8, 15/16 rule matches the KF
-Newton-zoom presets ([[sources/kf-manual]]) and [[sources/dinkydau-evolution-journals]].
+Newton-zoom presets ([Kalles Fraktaler 2 + manual](kf-manual.md)) and [Dinkydau: evolution zooms, Julia morphing simulation, ExploreFractals](dinkydau-evolution-journals.md).
 
 ## Used by
 
-[[synthesis/finding-deep-places]]
+[Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)

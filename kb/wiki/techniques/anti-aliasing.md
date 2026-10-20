@@ -19,25 +19,25 @@ aliases: moiré in the exterior bands, missing or sparkling filaments.
   better)". Images with different seeds can be stacked for AA instead of
   rendering large and downscaling; this reduces moiré at the cost of noise.
   Downscaling uses Pixman and is sRGB gamma-correct since 2.15.2; dithering
-  reduces banding (src: [[sources/kf-manual]]). Directional DE (DEX/DEY) fixes
-  noisy slope texture when jitter is on (src: [[sources/kf-manual]]).
+  reduces banding (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)). Directional DE (DEX/DEY) fixes
+  noisy slope texture when jitter is on (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - **zoomasm** has samples per pixel (reduces "sparkle") and shutter speed
-  (motion blur), and recommends KF jitter to reduce moiré (src: [[sources/zoomasm]]).
+  (motion blur), and recommends KF jitter to reduce moiré (src: [zoomasm (zoom video assembler)](../sources/zoomasm.md)).
 - **Fraktaler 3** EXR metadata records `image.subframes = 64`: it accumulates
-  many jittered subframes (src: [[sources/wikibooks-fraktaler-3]]).
+  many jittered subframes (src: [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)).
 - **Chéritat** renders large and downscales by an integer factor (e.g. 8000² →
   800²) with "extra attention" to a gamma-correct downscale. Pixel-centre
-  sampling hides thin strands (src: [[sources/cheritat-mandelbrot-rendering]] §Images and speed).
-- **FractalShark** lists GPU antialiasing (src: [[sources/fractalshark-readme]]).
+  sampling hides thin strands (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Images and speed).
+- **FractalShark** lists GPU antialiasing (src: [FractalShark README](../sources/fractalshark-readme.md)).
 
 ## DE-based coverage (no extra samples)
 
 `t = clamp(d / (thickness·pixel_size), 0, 1)`, lerp from boundary colour to the
 exterior colour, thickness ≈ 1.414
-(src: [[sources/cheritat-mandelbrot-rendering]] §Implementation). With `de_px`
+(src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Implementation). With `de_px`
 already in pixels: `coverage = clamp(de_px / 1.414, 0, 1)`. Partial AA: it
 widens filaments to visibility but does not fix exterior band moiré
-(inference). See [[techniques/distance-estimation]].
+(inference). See [Distance estimation](distance-estimation.md).
 
 ## Progressive jittered accumulation (design, inference)
 
@@ -60,7 +60,7 @@ display: toSRGB(accum / count)               // RGBA16F/32F accumulation texture
 - The per-sample colourise step means palette changes re-run accumulation
   unless raw samples are kept; storing all raw samples is "too space intensive"
   for mathr's exports, which is why it uses 1 jittered sample per pixel for raw
-  data (src: [[sources/fractalforums-interior-detection]] §Reply #6).
+  data (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Reply #6).
 
 ## Denoising
 
@@ -71,12 +71,12 @@ filter is possible but risks blurring filaments (inference).
 
 - Gamma: downscale/accumulate in linear light.
 - Regular-grid supersampling still moirés on periodic bands; jitter trades
-  moiré for noise (src: [[sources/kf-manual]]).
+  moiré for noise (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - Gaussian jitter wider than a pixel blurs.
 
 ## As built in almondbread (FL: progressive adaptive AA)
 
-Built 2026-10-14 (measured M1 Pro, release; [[synthesis/benchmarks]] FL):
+Built 2026-10-14 (measured M1 Pro, release; [almondbread benchmarks and verification record](../synthesis/benchmarks.md) FL):
 
 - **Progressive, idle only.** After the refined frame has faded in, idle frames accumulate
   jittered samples (Halton(2,3) positions; the refined level is the pixel-centre sample 0)
@@ -86,7 +86,7 @@ Built 2026-10-14 (measured M1 Pro, release; [[synthesis/benchmarks]] FL):
 - **Adaptive.** A GPU pass lists the pixels that gain from more samples: exterior within 4
   pixels of the set by the distance estimate (all exterior without DE) and interior pixels
   with an exterior neighbour. Far exterior is smooth (and palette-filtered, see
-  [[techniques/coloring-methods]]) and deep interior is flat and the most expensive to
+  [Colouring methods](coloring-methods.md)) and deep interior is flat and the most expensive to
   iterate. AA samples iterate only the listed pixels (the unresolved-list admission of the
   extension passes, `listMode 2`), at the nominal limit; unresolved samples do not count.
 - **Interruptible.** AA chunks are 8 ms of GPU with at most two queued, so input waits at
@@ -95,7 +95,7 @@ Built 2026-10-14 (measured M1 Pro, release; [[synthesis/benchmarks]] FL):
 - **Pipelined.** The next sample is queued in the same refresh that composes the previous
   one (one refresh per sample instead of two).
 - **Each sample's palette filter is its share of the pixel** (fixed 2026-10-16). The palette
-  filter ([[techniques/coloring-methods]], palette anti-aliasing) already averages a pixel's
+  filter ([Colouring methods](coloring-methods.md), palette anti-aliasing) already averages a pixel's
   colour band over the pixel's footprint. Every AA sample (and every texel of the offscreen
   supersampling grid) was filtered over the *whole* pixel and then averaged with the others:
   a second box filter on top of the first, so fine rings went to the palette's mean grey after
@@ -120,8 +120,8 @@ In dense boundary views nearly every pixel is on the adaptive list, so the settl
 ~9× the refined frame (dense-5e-14: 8.94×). Starting each AA sample from its pixel's orbit
 with a local series approximation cuts that to 2.05× (pixel seeds alone) or 1.24× (with
 quadtree tile seeds for the centre samples), with the same error against a converged reference
-([[techniques/local-series-approximation]], [[synthesis/dense-region-sampling]]). Variance-stopped
-AA saved 9–35 % there at a visible noise cost ([[techniques/adaptive-sampling]]).
+([Local series approximation (tile and pixel seeds)](local-series-approximation.md), [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)). Variance-stopped
+AA saved 9–35 % there at a visible noise cost ([Adaptive and sparse sampling, reconstruction, early termination](adaptive-sampling.md)).
 
 ## For almondbread
 
@@ -129,4 +129,4 @@ Interactive: one centre sample, then progressive uniform low-discrepancy jitter
 (1 px box) accumulated in linear light, reset on camera change. Always apply DE
 coverage for filaments. Export: N subframes (16–64) with jitter, gamma-correct
 resolve. Adaptive extra samples by DE in a later step. Related:
-[[techniques/frame-reuse-and-progressive]], [[techniques/coloring-methods]].
+[Frame reuse and progressive refinement](frame-reuse-and-progressive.md), [Colouring methods](coloring-methods.md).

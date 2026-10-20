@@ -21,7 +21,7 @@ renderer by Botond Kósa. Not saved or read for this wiki; summary from the rese
 
 - Mandel Machine described as a "highly efficient Mandelbrot set explorer" for 64-bit Windows.
 - Author active on the board around 2014.
-- The KF manual describes it as "a fast Mandelbrot renderer for Windows written in Java and assembly" and mentions Dinkydau's unreleased converter from its MMI format to KFB ([[sources/kf-manual]] §Dinkydau's Mandel Machine Convertor).
+- The KF manual describes it as "a fast Mandelbrot renderer for Windows written in Java and assembly" and mentions Dinkydau's unreleased converter from its MMI format to KFB ([Kalles Fraktaler 2 + manual](kf-manual.md) §Dinkydau's Mandel Machine Convertor).
 
 ## Reliability
 
@@ -35,4 +35,4 @@ dates are approximate (unverified).
 
 ## Used by
 
-[[implementations/mandel-machine]]
+[Mandel Machine](../implementations/mandel-machine.md)

@@ -17,7 +17,7 @@ tags: [apple, metrickit, hangs, diagnostics, main-thread]
 ## What it is
 
 Apple's documentation of MetricKit's hang diagnostics and of app hangs in general. Read for the
-hang watchdog ([[techniques/hang-prevention]]); the points below are from memory of these pages
+hang watchdog ([Hang prevention (loop guards, extreme-value tests, main-thread watchdog)](../techniques/hang-prevention.md)); the points below are from memory of these pages
 and were not re-checked line by line (unverified).
 
 ## What it covers

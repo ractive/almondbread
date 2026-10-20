@@ -21,7 +21,7 @@ tags: [julia-morphing, shape-stacking, evolution, newton, places]
 ## What it is
 
 Notes by one of the best-known deep-zoom artists (the "Evolution of trees" series, the 2013
-e1500 zoom; see [[sources/deep-zoom-videos]]) on how deep shapes are built by hand.
+e1500 zoom; see [Deep-zoom videos: record and landmark YouTube descriptions](deep-zoom-videos.md)) on how deep shapes are built by hand.
 
 ## What it covers
 
@@ -46,9 +46,9 @@ e1500 zoom; see [[sources/deep-zoom-videos]]) on how deep shapes are built by ha
 
 ## Reliability
 
-Practitioner knowledge, consistent with [[sources/muency-newton-raphson-zooming]] (`s^(3/4)`)
-and [[sources/heiland-allen-inflected-julia-sets-2025]] (half the zoom again per morph).
+Practitioner knowledge, consistent with [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](muency-newton-raphson-zooming.md) (`s^(3/4)`)
+and [Heiland-Allen: Patterns in Inflected Julia Sets (2025)](heiland-allen-inflected-julia-sets-2025.md) (half the zoom again per morph).
 
 ## Used by
 
-[[synthesis/finding-deep-places]]
+[Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)

@@ -33,4 +33,4 @@ Primary, runnable vendor code; the formulas are the de facto convention. Apple s
 
 ## Used by
 
-- [[platform/metalfx]]
+- [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)

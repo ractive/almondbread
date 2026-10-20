@@ -53,4 +53,4 @@ page gives no history (inventors, dates).
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)

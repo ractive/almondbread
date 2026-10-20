@@ -39,7 +39,7 @@ Secondary/tutorial but written by a research mathematician; maths statements are
 DE bounds, Fatou's conjecture). Note the factor 2 in Milnor's `d_n` appears in the Principle section
 but is dropped in the later normal-map variation formula (affects scale only). Double-precision,
 non-perturbative; deep-zoom applicability of the interior trick is shown in
-[[sources/fractalforums-interior-detection]].
+[fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](fractalforums-interior-detection.md).
 
 ## Useful sections
 
@@ -56,5 +56,5 @@ non-perturbative; deep-zoom applicability of the interior trick is shown in
 
 ## Used by
 
-[[techniques/interior-detection]], [[techniques/distance-estimation]], [[techniques/smooth-coloring]],
-[[techniques/coloring-methods]], [[techniques/anti-aliasing]], [[techniques/auto-iterations]]
+[Interior detection](../techniques/interior-detection.md), [Distance estimation](../techniques/distance-estimation.md), [Smooth (continuous) iteration count](../techniques/smooth-coloring.md),
+[Colouring methods](../techniques/coloring-methods.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [Automatic maximum-iteration control](../techniques/auto-iterations.md)

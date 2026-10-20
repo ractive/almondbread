@@ -24,7 +24,7 @@ Apple's MetalFX reference (MTLFXTemporalScaler, MTLFXSpatialScaler, their descri
 
 ## Reliability
 
-Primary vendor documentation. The doc comments are terse: the jitter sign is ambiguous in prose and was settled by experiment ([[platform/metalfx]]).
+Primary vendor documentation. The doc comments are terse: the jitter sign is ambiguous in prose and was settled by experiment ([MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)).
 
 ## Useful sections
 
@@ -32,4 +32,4 @@ Header doc comments of `MTLFXTemporalScalerBase` (jitter, motion, reset, exposur
 
 ## Used by
 
-- [[platform/metalfx]]
+- [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)

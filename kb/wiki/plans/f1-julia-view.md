@@ -24,18 +24,18 @@ updated: 2026-10-19
 # F1: Julia view (companion inset)
 
 Status: built on branch `worktree-agent-af944c8f0b4aa1b2c` (2026-10-19), awaiting the user's
-review gate; "As built" below. First of the fractal-type milestones in [[roadmap]]; the order
-and its reasons are in [[synthesis/other-fractal-types]] §5.
+review gate; "As built" below. First of the fractal-type milestones in [Roadmap](../roadmap.md); the order
+and its reasons are in [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §5.
 
 ## Goal
 
 Show the Julia set of the point under the pointer (Mac) or finger (touch), or of the view
 centre while a flight runs, in a small inset next to the mini-maps. Every point `c` of the
 Mandelbrot set has a Julia set `z ← z² + c`; seeing it change as you move is the most direct
-way to understand what the Mandelbrot set is (src: [[synthesis/other-fractal-types]] §2a
+way to understand what the Mandelbrot set is (src: [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a
 "Julia sets"). It also fixes the gap the Julia tour has today: "No Julia renderer in the app:
 the tour uses the orbit overlay and places; a Julia view would improve it" (log 2026-10-19,
-[[decisions/controls]] "The Julia tour").
+[Controls: keyboard, pointer and touch](../decisions/controls.md) "The Julia tour").
 
 ## Scope
 
@@ -52,10 +52,10 @@ the tour uses the orbit overlay and places; a Julia view would improve it" (log 
 
 ## Non-goals
 
-- Zooming into the Julia set, deep Julia, perturbation (that is [[plans/f4-deep-julia]]).
+- Zooming into the Julia set, deep Julia, perturbation (that is [F4: Deep Julia sets](f4-deep-julia.md)).
 - The "Julia twin" of a deep view (same local framing around a Misiurewicz point): needs deep
   Julia.
-- Any change to the main `iterate` kernel or the formula model ([[plans/f2-pluggable-formulas]]).
+- Any change to the main `iterate` kernel or the formula model ([F2: Pluggable-formula refactor](f2-pluggable-formulas.md)).
 - Exports: overlays never enter exports or the history.
 
 ## Design sketch
@@ -72,9 +72,9 @@ the tour uses the orbit overlay and places; a Julia view would improve it" (log 
   resolution once the gesture ends.
 - Interior: if the probe classifies `k` as interior with period `p`, iterate the panel pixels
   and test convergence to that cycle (every interior pixel falls into the same attracting
-  cycle, inference in [[synthesis/other-fractal-types]] §2a); otherwise everything that does not
+  cycle, inference in [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a); otherwise everything that does not
   escape by the limit is black.
-- Layout: one more panel in `fit_maps` (kb: [[decisions/controls]] "Mini-map on small
+- Layout: one more panel in `fit_maps` (kb: [Controls: keyboard, pointer and touch](../decisions/controls.md) "Mini-map on small
   screens"); on an iPhone it replaces the second map level when both are on.
 
 ## Affected modules

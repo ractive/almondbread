@@ -56,6 +56,6 @@ speculative. Use primary sources for deep-zoom claims.
 
 ## Used by
 
-[[techniques/smooth-coloring]], [[techniques/coloring-methods]], [[techniques/distance-estimation]],
-[[techniques/interior-detection]], [[techniques/guessing-and-subdivision]], [[techniques/perturbation]],
-[[techniques/series-approximation]], [[formulas/mandelbrot]]
+[Smooth (continuous) iteration count](../techniques/smooth-coloring.md), [Colouring methods](../techniques/coloring-methods.md), [Distance estimation](../techniques/distance-estimation.md),
+[Interior detection](../techniques/interior-detection.md), [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md), [Perturbation](../techniques/perturbation.md),
+[Series approximation (legacy)](../techniques/series-approximation.md), [Mandelbrot set (power 2)](../formulas/mandelbrot.md)

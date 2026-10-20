@@ -8,14 +8,14 @@ tags: [rust, metal, gpu, scheduler, chunking, architecture, objc2, interaction]
 
 # Render architecture: GPU backend trait, chunked scheduler, Metal backend
 
-How the renderer is built in Rust since R2a of [[decisions/rust-core]]: one scheduler
+How the renderer is built in Rust since R2a of [Rust core with a Rust Metal backend; Swift for UI only](../decisions/rust-core.md): one scheduler
 written against a small GPU backend trait, a Metal backend on objc2-metal, and the
 platform-neutral pieces (viewport, settings, navigation, oracle) in the core crate; since
 R2b both apps render through it and Swift is UI only. The Swift renderer
 (`Sources/AlmondbreadKit/Renderer.swift`, deleted in R2b) was the reference; the port makes
 the same decisions with the same constants and kernel inputs, so iteration fields are
-bit-identical ([[synthesis/benchmarks]], R2a section). The scheduler's design is the one
-on [[platform/gpu-watchdog-and-chunking]] and [[techniques/frame-reuse-and-progressive]];
+bit-identical ([almondbread benchmarks and verification record](../synthesis/benchmarks.md), R2a section). The scheduler's design is the one
+on [GPU watchdog and chunked, resumable kernels](gpu-watchdog-and-chunking.md) and [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md);
 this page covers how it is cut into crates and traits, and what changed in the port.
 Numbers: measured 2026-10-14, M1 Pro, release, unless noted.
 
@@ -64,15 +64,15 @@ across FFI and threads, and observes completion no later than the handlers did.
 ## Scheduler
 
 `Renderer<B>` owns the backend, `viewport`, `settings`, the `Navigator`, and the GPU
-state. Everything on [[platform/gpu-watchdog-and-chunking]] (As built) carries over
+state. Everything on [GPU watchdog and chunked, resumable kernels](gpu-watchdog-and-chunking.md) (As built) carries over
 unchanged: jobs per view with generations (cancellation by ignoring old generations),
 GPU-side admission in `prepareChunk`, ping-ponged live lists with order-preserving
 compaction, K from the damped throughput model (16 ms idle, 8 ms gesture chunks), the
 64-slot stats ring, gesture frames with dynamic preview resolution (1/8 steps from the
 measured cost per texel, 6 ms budget), refinement over the bilinear preview, unresolved
 extension passes (x4 / x2, 2 GPU-second estimated budget, never cut short), the adaptive
-interior test ([[techniques/interior-detection]]) and the learned limit
-([[techniques/auto-iterations]], pure functions in `core::autoiter`). Failed chunks divide
+interior test ([Interior detection](../techniques/interior-detection.md)) and the learned limit
+([Automatic maximum-iteration control](../techniques/auto-iterations.md), pure functions in `core::autoiter`). Failed chunks divide
 the rate by 8 and restart the job.
 
 Changes from the Swift renderer:
@@ -95,7 +95,7 @@ Changes from the Swift renderer:
 
 Kernels compile at runtime from `include_str!` source with the Swift options: MSL 3.0,
 `fastMathEnabled = true` (deprecated in favour of `mathMode`, but the same setting keeps
-results bit-identical; [[platform/metal-compute]]).
+results bit-identical; [Metal compute pipeline for a deep-zoom renderer](metal-compute.md)).
 
 ## The 9.4 ms draw CPU in "neck zoom" (Swift), and the design answer
 
@@ -131,7 +131,7 @@ stay.
 **Outcome (R2b, measured 2026-10-14, M1 Pro, 60 Hz display, interleaved runs):** the stall
 is gone. Neck zoom draw CPU p50 Swift 8.6–8.9 ms (it shows in neck zoom every round, and in
 WASD, Space and limit zoom in some), Rust 0.1–1.0 ms, at the same frame rate
-([[synthesis/benchmarks]], R2b). Two corrections to the design were needed:
+([almondbread benchmarks and verification record](../synthesis/benchmarks.md), R2b). Two corrections to the design were needed:
 
 - **The strict count is too conservative.** With `in use = acquired − (presented − 1)`
   every skip was "no drawable" and the test ran at 36–38 fps: the presented callback
@@ -170,7 +170,7 @@ test's window on the ProMotion panel reports `duration` 8.33 ms but receives 60 
 per second whatever `preferredFrameRateRange` asks for (both links; 2026-10-14, macOS 26).
 M2.5's 120 Hz runs had the panel alone. 2026-10-15 the same window got only 20–33
 callbacks per second, and with frames offered by a `CVDisplayLink` at 120 Hz half the
-refreshes found no free drawable ([[synthesis/benchmarks]] "120 Hz on ProMotion"): 120 Hz
+refreshes found no free drawable ([almondbread benchmarks and verification record](../synthesis/benchmarks.md) "120 Hz on ProMotion"): 120 Hz
 presentation needs a frontmost window (`make interaction-test-120`, run by a person).
 So FL's numbers are 60 Hz; the headless flight
 recorder (`almondbread fly --hz 120`) can drive 120 Hz refreshes with real budgets.
@@ -180,8 +180,8 @@ recorder (`almondbread fly --hz 120`) can drive 120 Hz refreshes with real budge
 Interactive frames no longer colorize the shown level directly: a `compose` pass blends a
 reprojected history image with new samples (gesture: temporal upsampling of jittered
 previews; refine: per-pixel fade; idle: adaptive AA samples) and writes both the drawable
-and the next history ([[techniques/frame-reuse-and-progressive]] FL,
-[[techniques/anti-aliasing]] FL). Offscreen renders keep `colorize` with grid supersampling.
+and the next history ([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md) FL,
+[Anti-aliasing and supersampling](../techniques/anti-aliasing.md) FL). Offscreen renders keep `colorize` with grid supersampling.
 Levels admit 16×16 tiles in raster or priority order. `Renderer::frames_committed` /
 `frames_completed` and `GpuBackend::read_shared_texture` let headless capture read frames
 without draining the queue.
@@ -190,11 +190,11 @@ without draining the queue.
 
 **Removed 2026-10-17.** The cache was opt-in and never the default (it made zoom-out blurry in the
 real window), so `sample_cache.rs`, its kernels and switches were deleted. This section describes
-what was built, as history; see [[techniques/sample-reuse]].
+what was built, as history; see [Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md).
 
 Gesture frames no longer render a fresh jittered preview each refresh. They reuse the exact
 samples of earlier frames, kept on a lattice fixed in the plane, and compute only the tiles
-the view lacks ([[techniques/sample-reuse]] "As built", [[synthesis/motion-sample-reuse]]).
+the view lacks ([Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md) "As built", [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md)).
 The module is `sample_cache.rs` (`SampleCache<B>`, owned by the renderer); its kernels are
 `shaders/sample_cache.metal`, appended to `mandelbrot.metal` at compile time. The scheduler
 hooks are narrow:
@@ -247,7 +247,7 @@ ExplorerModel (@Observable)  -- setSettings(record) on change; stats() at ~10 Hz
    Shift and pointer moves do not, unless the move switches the input mode or starts edge
    panning. The result's bits also carry the input mode; in keyboard mode Swift reads the
    crosshair's position with two scalar calls and applies it to a Core Animation overlay layer right after the call (M2.5,
-   [[decisions/controls]] As built). An idle refresh whose job is finally presented with
+   [Controls: keyboard, pointer and touch](../decisions/controls.md) As built). An idle refresh whose job is finally presented with
    unchanged settings presents nothing (before M2.5 every `frame` call re-coloured and
    re-presented the same image; the crosshair glide would have done so ~60 times).
 3. **Events.** Swift decodes only: key codes and characters to `NavKey` (WASD/arrows,
@@ -259,7 +259,7 @@ ExplorerModel (@Observable)  -- setSettings(record) on change; stats() at ~10 Hz
 4. **Settings and HUD.** `ExplorerModel` mirrors the settings record for SwiftUI bindings
    and forwards every change (`setSettings`). It reads `stats()` at ~10 Hz while the link
    runs and once when it stops, assigning only on change (SwiftUI invalidation stays at
-   10 Hz, [[synthesis/benchmarks]] M2 findings).
+   10 Hz, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M2 findings).
 5. **Self-test and interaction test** run through the same path: the self-test waits for
    `stats().settled`, `finishFrames()` (GPU completion), `displayedFrameMismatch()` and
    writes an offscreen PNG (`renderPng`). The interaction test brackets each scenario with
@@ -270,7 +270,7 @@ ExplorerModel (@Observable)  -- setSettings(record) on change; stats() at ~10 Hz
 **Per-frame FFI cost:** Swift-side time of `frame` minus the time Rust measures inside it:
 2–7 µs in the window (incl. Rust's autorelease pool and the presentation-log drain),
 0.2–1 µs on a windowless layer; `input` ~0.9 µs, `stats()` ~6 µs
-([[platform/rust-swift-ffi]]). A frame is one call; nothing per pixel crosses.
+([Rust core to Swift: UniFFI and the XCFramework pipeline](rust-swift-ffi.md)). A frame is one call; nothing per pixel crosses.
 
 **Platform-neutral split.** `Host<B>` holds everything a Windows or Linux UI needs besides
 its own surface: view size and first fit, input forwarding with the redraw decision, the
@@ -287,7 +287,7 @@ check and presentation timestamps, and the event decoding.
   parameters use. Coordinates cross the FFI as decimal strings with the digits the depth needs;
   `set_viewport_text`, `paste_coordinates` and the "Go to Copied Coordinates" menu take them back.
 - **References**: f64 orbit (synchronous) above 1e-12 per point; big references from a
-  `ReferenceWorker` thread below ([[techniques/reference-selection]] M3b). The renderer adopts a
+  `ReferenceWorker` thread below ([Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md) M3b). The renderer adopts a
   finished one when it serves the view at least as well as the current one; a deep view without
   a usable reference has no job, and each refresh composes the history reprojected into the
   current view (`encode_history_only`, counted as `waiting_frames`) until it arrives. Offscreen
@@ -295,13 +295,13 @@ check and presentation timestamps, and the event decoding.
 - **Kernels**: the iterate pipeline gains `kDeep` (function constant 3; buffers 16: floatexp
   reference points, 17: extended-range BLA table); `IterateParams` 112 B (`scaleExp`),
   `PixelState` 48 B (delta and DE exponents; the plain kernel ignores them).
-  [[techniques/extended-range-floats]] "As built (M3b)".
+  [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md) "As built (M3b)".
 - **Gesture previews** may drop to 1/8 resolution (was 1/4): dense deep views need 10^4+
   iterations per texel.
 
 ## F2: pluggable formulas (2026-10-19)
 
-The formula is a parameter of the engine ([[plans/f2-pluggable-formulas]]); Mandelbrot stays
+The formula is a parameter of the engine ([F2: Pluggable-formula refactor](../plans/f2-pluggable-formulas.md)); Mandelbrot stays
 formula 0 and its code is the pre-F2 code.
 
 - **Maths** (`almondbread-math/src/formula.rs`): `Formula { Mandelbrot, Multibrot(p) }`, an enum

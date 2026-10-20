@@ -22,7 +22,7 @@ The short README of Phil Thompson's GitHub repository `visualize-primes`, which 
 - The latest release is served from the author's blog (philthompson.me/very-plotter), not from GitHub releases.
 - Points to two background posts: "The Mandelbrot set on Very Plotter" (2021) and "Perturbation Theory and the Mandelbrot set" (2022).
 - Licence: MIT.
-- It does not mention BLA, which was added later in v0.10.0 (see [[sources/philthompson-bla]]).
+- It does not mention BLA, which was added later in v0.10.0 (see [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](philthompson-bla.md)).
 
 ## Reliability
 
@@ -35,4 +35,4 @@ Primary but minimal. The README lags the code: it lists perturbation and SA only
 
 ## Used by
 
-- [[implementations/very-plotter]]
+- [Very Plotter](../implementations/very-plotter.md)

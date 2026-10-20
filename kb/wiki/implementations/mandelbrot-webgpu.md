@@ -12,7 +12,7 @@ tags: [implementation, webgpu, float32, bla, rebasing, verification]
 A browser Mandelbrot renderer (WebGPU, WebGL2 fallback) by GitHub user
 Desarso, live at mandelbrot.gabrielmalek.com. The best-documented float32 GPU
 deep zoomer, and the source of most known float32 pitfalls
-(src: [[sources/desarso-mandelbrot-webgpu-readme]]). All facts below are from
+(src: [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)). All facts below are from
 that README.
 
 ## Algorithms
@@ -37,7 +37,7 @@ that README.
   iterations; greedy largest valid step. At 2.8e40: 21x faster, 96.9% of
   iterations skipped, bit-identical to the unapproximated render. `A` over a
   4096-step reaches ~1e700, so coefficients and radii carry exponents
-  (§Skipping most of the work). See [[questions/higher-order-bla]].
+  (§Skipping most of the work). See [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md).
 - Method by depth (units/pixel): > 1e-5 direct f32; > 1e-25 perturbation
   with plain f32 delta; deeper, exponent-carrying delta plus skip table. The
   handover is "thirteen decades above the f32 floor"; the WebGL path's plain
@@ -67,9 +67,9 @@ browser tested; lost-device recovery not implemented.
 ## What almondbread can learn
 
 Nearly everything is directly relevant to a float32 Metal renderer: the depth
-handover table ([[techniques/extended-range-floats]]), the magnitude-compare
-rule for rebase tests ([[techniques/rebasing]]), per-quantity exponents in
-skip tables ([[techniques/bla]]), the verification modes, banded submission
-under the watchdog ([[platform/gpu-watchdog-and-chunking]]), reprojection
-([[techniques/frame-reuse-and-progressive]]), and sweep-calibrated
-auto-iterations ([[techniques/auto-iterations]]). GPL code must not be copied.
+handover table ([Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)), the magnitude-compare
+rule for rebase tests ([Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)), per-quantity exponents in
+skip tables ([Bivariate linear approximation (BLA)](../techniques/bla.md)), the verification modes, banded submission
+under the watchdog ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)), reprojection
+([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)), and sweep-calibrated
+auto-iterations ([Automatic maximum-iteration control](../techniques/auto-iterations.md)). GPL code must not be copied.

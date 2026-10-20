@@ -24,26 +24,26 @@ updated: 2026-10-19
 # Buddhabrot and Nebulabrot as a look
 
 Status: planned as an optional look, independent of the formula track: it can be done at any
-time ([[synthesis/other-fractal-types]] §5, item 3).
+time ([Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §5, item 3).
 
 ## Goal
 
 Show the Mandelbrot set as the famous Buddhabrot: a histogram of where escaping orbits go.
-Nebulabrot maps three iteration limits to RGB (src: [[sources/superliminal-buddhabrot]]). It is
-the same orbits the orbit overlay draws, accumulated ([[decisions/controls]] "Orbit overlay").
+Nebulabrot maps three iteration limits to RGB (src: [Melinda Green: The Buddhabrot Technique](../sources/superliminal-buddhabrot.md)). It is
+the same orbits the orbit overlay draws, accumulated ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Orbit overlay").
 
 ## Scope
 
 - A look "Buddhabrot" (and "Nebulabrot") for still views, shallow (whole set to ~1e-3).
 - GPU sampling of `c` (uniform, then Metropolis–Hastings for close-ups, Boswell's method,
-  src: [[sources/superliminal-buddhabrot]]), orbit iteration, atomic adds into a histogram
+  src: [Melinda Green: The Buddhabrot Technique](../sources/superliminal-buddhabrot.md)), orbit iteration, atomic adds into a histogram
   texture, progressive display with tone mapping.
 - Accumulation runs while the view rests; any motion clears and restarts at low resolution.
 - Export as PNG at full quality (long accumulation).
 
 ## Non-goals
 
-- Deep zoom: "not possible to zoom arbitrarily deeply" (src: [[sources/superliminal-buddhabrot]]).
+- Deep zoom: "not possible to zoom arbitrarily deeply" (src: [Melinda Green: The Buddhabrot Technique](../sources/superliminal-buddhabrot.md)).
 - Real-time flight with the look on (the view falls back to the normal look while moving).
 - Anti-Buddhabrot and other variants (later, if wanted).
 
@@ -57,7 +57,7 @@ the same orbits the orbit overlay draws, accumulated ([[decisions/controls]] "Or
   smaller than the set.
 - Display: tone-map the histogram (log or power curve), palette from the current look; the
   progressive display and history code show it like a refining frame
-  ([[techniques/frame-reuse-and-progressive]]).
+  ([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)).
 
 ## Affected modules
 
@@ -85,7 +85,7 @@ in the picker, a tour step ("where the orbits go"), or both.
 
 - Noise for a long time at large sizes; set expectations with a progress line.
 - iPad thermals: the device policy already lowers GPU budgets at serious thermal state
-  ([[platform/ios-device]]).
+  ([iOS and iPadOS on a device: first run, signing, memory, thermal, background](../platform/ios-device.md)).
 - Atomic contention on bright bins; measure, consider per-threadgroup bins.
 
 ## Open questions

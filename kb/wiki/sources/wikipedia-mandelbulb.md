@@ -22,4 +22,4 @@ tags: [3d, mandelbulb, encyclopedia]
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)

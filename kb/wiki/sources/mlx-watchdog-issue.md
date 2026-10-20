@@ -29,7 +29,7 @@ A GitHub issue in Apple's MLX machine-learning framework, opened 24 March 2026 b
 
 ## Reliability
 
-- Primary user report with reproduction; the "~5 seconds" and "per command buffer" claims are the reporter's observations, not Apple documentation. Apple publishes no watchdog limit (see [[questions/metal-watchdog-limit]]).
+- Primary user report with reproduction; the "~5 seconds" and "per command buffer" claims are the reporter's observations, not Apple documentation. Apple publishes no watchdog limit (see [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md)).
 - The validating comment lists "macOS 25.3.0 (Darwin 25.3.0)", which mixes up macOS and Darwin version numbers; the hardware facts are still usable.
 - The issue is about compute kernels on a machine driving a display. Whether the limit differs on a headless Mac or with no display attached is not covered.
 
@@ -43,6 +43,6 @@ A GitHub issue in Apple's MLX machine-learning framework, opened 24 March 2026 b
 
 ## Used by
 
-- [[platform/gpu-watchdog-and-chunking]]
-- [[questions/metal-watchdog-limit]]
-- [[platform/metal-compute]]
+- [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)
+- [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md)
+- [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)

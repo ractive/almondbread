@@ -52,4 +52,4 @@ the neighbour pattern for the AA test and how guessing works are not stated.
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)

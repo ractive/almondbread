@@ -18,7 +18,7 @@ The README of XaoS (GNU XaoS), a real-time interactive fractal zoomer in develop
 
 ## What it covers
 
-- Real-time smooth zooming into any point "without the long calculation" of other generators. The README does not explain the method; the zoom algorithm keeps only the previous frame and reuses its rows and columns (src: [[sources/wikipedia-xaos]] §Hubička algorithm).
+- Real-time smooth zooming into any point "without the long calculation" of other generators. The README does not explain the method; the zoom algorithm keeps only the previous frame and reuses its rows and columns (src: [Wikipedia: XaoS](wikipedia-xaos.md) §Hubička algorithm).
 - Features: several fractal types, autopilot, special colouring modes, random palettes, colour cycling.
 - Since 4.3 (September 2023) a full web app at xaos.app; a simplified algorithm demo is XaoS.js.
 - Built on Qt Widgets; tested on Windows, Mac and Linux.
@@ -36,5 +36,5 @@ Primary but promotional; no technical content. No deep-zoom (perturbation) suppo
 
 ## Used by
 
-- [[implementations/xaos]]
-- [[techniques/frame-reuse-and-progressive]]
+- [XaoS](../implementations/xaos.md)
+- [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)

@@ -24,14 +24,14 @@ updated: 2026-10-19
 
 # F6: Burning Ship family
 
-Status: planned, after [[plans/f5-mandelbar]]. The payoff of the formula track.
+Status: planned, after [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md). The payoff of the formula track.
 
 ## Goal
 
 Deep, real-time Burning Ship zooms (and its abs relatives: Celtic, Buffalo, Perpendicular, the
 cubic ones) with the same engine. "The Burning Ship's ships and needles are the most popular
 non-Mandelbrot deep-zoom subject" (unverified: forum anecdote; src:
-[[synthesis/other-fractal-types]] §2a). No Apple-native app offers it deep and interactive
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a). No Apple-native app offers it deep and interactive
 (§3 there).
 
 ## Scope
@@ -39,22 +39,22 @@ non-Mandelbrot deep-zoom subject" (unverified: forum anecdote; src:
 - Formulas `BurningShip`, then `Celtic`, `Buffalo`, `Perpendicular` (power 2), cubic variants
   if cheap.
 - `diffabs` case analysis in the perturbed step at every kernel step site
-  (src: [[sources/mathr-deep-zoom-page]] §4.2; [[formulas/burning-ship]]).
+  (src: [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md) §4.2; [Burning Ship and abs variations](../formulas/burning-ship.md)).
 - 2×2 BLA with fold caps `min(..., |X|, |Y|)`, halved for safety as Fraktaler 3 does
   (same sources).
 - Local SA seeds off ("only good so long as the region is not folded", src:
-  [[sources/mathr-deep-zoom-theory]] §Series Approximation).
+  [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Series Approximation).
 - Needle heuristic: when the share of steps with `min(|X|, |Y|)` tiny is high, run the floatexp
-  kernel for the view (the deep-needle problem, src: [[sources/mathr-deep-zoom-theory]] §Deep
-  Needle; KF defaults "reference strict zero" on near the needle, src: [[sources/kf-manual]]).
-- Newton zooming with 2×2 Jacobians (works in Fraktaler 3, src: [[sources/fraktaler-3-site]]),
+  kernel for the view (the deep-needle problem, src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Deep
+  Needle; KF defaults "reference strict zero" on near the needle, src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
+- Newton zooming with 2×2 Jacobians (works in Fraktaler 3, src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)),
   so seek carries over.
 - A Burning Ship places catalogue (ships, needles, deep views to 1e-1000), journey and autopilot
   tuning, one tour.
 
 ## Non-goals
 
-- Hybrids ([[plans/f7-hybrids]]).
+- Hybrids ([F7: Hybrid formulas via an opcode model](f7-hybrids.md)).
 - Burning Ship Julia sets (later, after F4's pattern).
 - LA for abs formulas.
 
@@ -65,8 +65,8 @@ non-Mandelbrot deep-zoom subject" (unverified: forum anecdote; src:
 - Needle detection per view from the reference: count steps where `min(|X|,|Y|)` is below a
   threshold relative to the pixel spacing; above a share, pick the deep (floatexp) pipeline.
   Threshold found by experiment against the oracle.
-- fractalshades demonstrates depth to 1e-2000 (src: [[sources/fractalshades-readme]]); the
-  first Burning Ship deep zoom (~2.35e-100) was brute force (src: [[sources/hpdz-animations]]).
+- fractalshades demonstrates depth to 1e-2000 (src: [Fractalshades README](../sources/fractalshades-readme.md)); the
+  first Burning Ship deep zoom (~2.35e-100) was brute force (src: [HPDZ.NET: Burning Ship and Nova deep zooms](../sources/hpdz-animations.md)).
 
 ## Affected modules
 
@@ -105,8 +105,8 @@ review of the content, as for Mandelbrot.
 
 ## Open questions
 
-- Needle detection heuristic in float32 (open in [[formulas/burning-ship]] and
-  [[synthesis/other-fractal-types]]).
+- Needle detection heuristic in float32 (open in [Burning Ship and abs variations](../formulas/burning-ship.md) and
+  [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)).
 - Which abs variants are worth a picker entry?
 
 ## Effort breakdown

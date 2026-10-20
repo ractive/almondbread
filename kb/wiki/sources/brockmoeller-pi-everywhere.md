@@ -32,7 +32,7 @@ theorem, Shishikura). Cites Siewert (2023) for a sharper proof at c = 1/4.
   1/4, 1/2 at -5/4.
 - **Error**: the escape time is `π·(...) + O(1)` (eq. 3 in §3), so the product's error is
   O(ε) at satellite roots and O(√ε) at primitive ones; the choice of R changes N by a constant
-  (§1). Our measurements agree ([[techniques/pi-in-the-mandelbrot-set]]).
+  (§1). Our measurements agree ([π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)).
 - **Theorem 2**: points near the ray (within a disc not meeting M, radius a·distance, 1 < a ≤ 8)
   keep the limit; whether the vertical line -3/4 + it meets M only at -3/4 is still open.
 - **Mechanism**: the critical orbit passes through a "gate" between the two fixed points the

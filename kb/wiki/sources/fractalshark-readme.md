@@ -37,7 +37,7 @@ The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, push
 
 - Primary for FractalShark's own design; all speed numbers are the author's, on his hardware, often without a matched baseline (stated openly). Self-described as experimental and buggy.
 - Author name: the manifest says "Matt Reiman"; the Desarso README credits "Matt Renzelmann". The README itself gives no full name. Unresolved; check the GitHub profile.
-- The README says the CPU-side LA came from Fractal Zoomer, whose own README does not mention LA (see [[sources/fractalzoomer-readme]]).
+- The README says the CPU-side LA came from Fractal Zoomer, whose own README does not mention LA (see [Fractal Zoomer README](fractalzoomer-readme.md)).
 
 ## Useful sections
 
@@ -52,11 +52,11 @@ The README of FractalShark (GitHub `mattsaccount364/FractalShark`, GPL-3.0, push
 
 ## Used by
 
-- [[implementations/fractalshark]]
-- [[techniques/linear-approximation-imagina]]
-- [[techniques/reference-orbit-precision]]
-- [[techniques/extended-range-floats]]
-- [[techniques/double-float]]
-- [[questions/reference-orbit-compression]]
-- [[techniques/reference-selection]]
-- [[synthesis/finding-deep-places]]
+- [FractalShark](../implementations/fractalshark.md)
+- [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)
+- [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)
+- [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [How does Imagina/FractalShark reference-orbit compression work?](../questions/reference-orbit-compression.md)
+- [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)
+- [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)

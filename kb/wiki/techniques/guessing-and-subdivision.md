@@ -17,7 +17,7 @@ value.
 **Border tracing.** Follow the boundary of a region of one iteration level and
 fill its inside. Wikipedia reports a 93.16% reduction in iterations on a
 1000-iteration example, growing with maxIter
-(src: [[sources/wikipedia-plotting-algorithms]] §Border tracing / edge checking).
+(src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Border tracing / edge checking).
 
 **Rectangle checking (Mariani–Silver).** If every border pixel of a rectangle
 has the same value, fill it; else subdivide and recurse, reusing computed
@@ -26,7 +26,7 @@ boxes is faster. The corner-only Fractint method "causes damaged pictures more
 often" and works only with ~6×6 boxes and no recursion. All variants are exact
 only for regions of one discrete colour; smooth-coloured exteriors only benefit
 if the inside uses a smooth method such as interior DE
-(src: [[sources/wikipedia-plotting-algorithms]] §Rectangle checking).
+(src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Rectangle checking).
 
 **KF2+ "Use guessing".** Interpolates neighbouring pixel data when the iteration
 count is the same. History: disabled in 2.12.4 for random speckles (possibly a
@@ -34,12 +34,12 @@ race), re-enabled behind a menu option in 2.12.7; a race with progressive
 interlacing remains; guessing exterior gives poor quality; only interpolates
 when both neighbours share glitch status. With OpenCL on GPU it gave about 1.5×
 instead of 4× on interior-heavy views, and needs even image dimensions
-(src: [[sources/kf-manual]]).
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 **XaoS** is reported to use an adjacency optimisation that skips the interior of
 large solid regions (research notes citing Mu-Ency's XaoS page, not saved)
 (unverified). Its README only describes realtime zooming
-(src: [[sources/xaos-readme]]).
+(src: [XaoS README](../sources/xaos-readme.md)).
 
 ## Safety analysis (inference)
 
@@ -49,8 +49,8 @@ large solid regions (research notes citing Mu-Ency's XaoS page, not saved)
   lost. Mitigations: small tiles (8×8, 16×16), test every border pixel, and a DE
   check: if any border pixel has `de_px` below the tile size, refine. By Koebe
   1/4 no set point lies closer than `DE/4`, so this bound is rigorous for
-  exterior pixels ([[techniques/distance-estimation]]).
-- With derivative interior detection ([[techniques/interior-detection]])
+  exterior pixels ([Distance estimation](distance-estimation.md)).
+- With derivative interior detection ([Interior detection](interior-detection.md))
   interior pixels already stop early, so the payoff shrinks. Measure first.
 
 ## GPU mapping (inference)
@@ -71,7 +71,7 @@ extra passes. No GPU benchmark for perturbation deep zoom was found.
 
 ## Measured (R3, CPU f64, 2026-10-14, M1 Pro)
 
-From `prototypes/dense-sampling` ([[synthesis/dense-region-sampling]]): 800 × 500 crops,
+From `prototypes/dense-sampling` ([Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)): 800 × 500 crops,
 default look, cost = iterations relative to exact 1 spp, error = OKLab ΔE × 100 against a
 converged reference.
 
@@ -84,19 +84,19 @@ converged reference.
   when they share a class and differ by ≤ τ): at the dense view τ 5 saves 4 %, τ 10 saves 27 %
   and changes colours (p99 vs exact 16.7); elsewhere τ 10 costs 0.24–0.61 with growing p99 and
   max errors (neck: max ΔE 83). Exterior guessing confirms the KF note "guessing exterior gives
-  poor quality" (src: [[sources/kf-manual]]).
+  poor quality" (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - Guessing failure modes in the literature: islands inside uniform borders
-  (src: [[sources/fractint-passes-help]]), sub-pixel cusps and thin channels
-  (src: [[sources/muency-adjacency-optimization]]), connections thinner than the sampling
-  (src: [[sources/xaos-algorithms]] §Calculating New Pixels).
+  (src: [Fractint / Xfractint help: drawing passes](../sources/fractint-passes-help.md)), sub-pixel cusps and thin channels
+  (src: [Mu-Ency: Adjacency optimization (with Mariani/Silver and circle tiling)](../sources/muency-adjacency-optimization.md)), connections thinner than the sampling
+  (src: [XaoS: Algorithms document](../sources/xaos-algorithms.md) §Calculating New Pixels).
 
 ## For almondbread
 
 Interior-only tile fill shipped in M5 (below), gated to the views where it pays; never
-exterior guessing. Local SA ([[techniques/local-series-approximation]]) cannot shorten
+exterior guessing. Local SA ([Local series approximation (tile and pixel seeds)](local-series-approximation.md)) cannot shorten
 interior detection, so the two complement each other, but they do not combine well on one
 level (the fill's border-first order breaks the seeds' admission coherence): a level uses one
-or the other. Related: [[techniques/frame-reuse-and-progressive]].
+or the other. Related: [Frame reuse and progressive refinement](frame-reuse-and-progressive.md).
 
 ## As built (M5, 2026-10-15): interior-only tile fill
 

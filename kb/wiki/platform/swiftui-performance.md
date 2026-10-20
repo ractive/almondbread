@@ -9,7 +9,7 @@ tags: [swiftui, macos, ios, ui, performance, control-center]
 # SwiftUI performance: the control center sidebar
 
 What made the control center (`Sources/AlmondbreadKit/ControlCenterView.swift`, kb:
-[[decisions/controls]] "Control center") slow on the Mac, how it was measured, and what
+[Controls: keyboard, pointer and touch](../decisions/controls.md) "Control center") slow on the Mac, how it was measured, and what
 helped. All numbers are our own measurements (measured 2026-10-16, M1-class Mac, Release
 Xcode build, background window, other agents loading the machine, so expect ±30 % noise).
 
@@ -79,7 +79,7 @@ neither depends on nor changes the user's sidebar.
   `ExplorerModel.attach`). One utility-QoS serial queue decodes all 71 at display size:
   140 pt × the largest screen scale on the Mac (280 px from the 320 px file at 2×), 120 pt on
   iOS. It uses ImageIO thumbnailing into plain sRGB bitmaps; full bitmaps still avoid the
-  iOS simulator HEIF deadlock (kb: [[platform/ios-simulator]]). It takes 0.6-0.75 s in the
+  iOS simulator HEIF deadlock (kb: [iOS and iPadOS on the simulator: setup, checks, what broke](ios-simulator.md)). It takes 0.6-0.75 s in the
   background at launch (3 s on a loaded machine) and uses 13.3 MB instead of ~71 MB. When
   Places first opens, all 71 have their image in their first body and the grid shows complete
   in its first frame (51 ms after the section appears, against 733 ms before).

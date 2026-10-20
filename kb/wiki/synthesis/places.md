@@ -43,10 +43,10 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
   --misiurewicz k,p --bits b`): Newton on `g = (z_{k+p} − z_k) / ∏_{i<k}(z_{i+p} − z_i)`,
   which divides out the lower-preperiod roots, with the derivative carried alongside.
   Wikipedia's seahorse spiral "M(23,2)" is M(24,2) with z_0 = 0 (orbit check; see
-  [[sources/wikipedia-misiurewicz-point]]); M(4,1), M(3,1) converge in 4–8 steps up to
+  [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md)); M(4,1), M(3,1) converge in 4–8 steps up to
   3,500 bits.
 - Minibrots: `almondbread locate` (ball period + Newton nucleus) as for the deep benchmark
-  set ([[synthesis/benchmarks]] M3b). The starburst at 1e-112 is the period-477 nucleus
+  set ([almondbread benchmarks and verification record](benchmarks.md) M3b). The starburst at 1e-112 is the period-477 nucleus
   5 radii from M(4,1) found with `--radius 1e-60`. Robot Moon's "pine compass" names a
   period-70 nucleus near -1.4303584327 but frames it at 1e-34 off-centre without giving
   the centre; `locate --radius 1e-10` finds the nucleus -1.430358432725985534067 (size
@@ -66,7 +66,7 @@ category)`, `place_scale(id, w, h)`, `Explorer::go_to_place(id)`), thumbnails in
 - Deep places through `verify --place id` against the CPU oracle at 160×100: class
   mismatch 0 % for all 15 places beyond f64 (1e-14 to 1e-1000); escape-n differs 0.08–18 %
   in the dense spiral and mandala views and 39 % at the seahorse minibrot, the known
-  float32-vs-f64 chaos of dense regions ([[synthesis/benchmarks]] M3b: sea-8007 23 % at
+  float32-vs-f64 chaos of dense regions ([almondbread benchmarks and verification record](benchmarks.md) M3b: sea-8007 23 % at
   400 wide), and below 0.2 % at the needle minibrots.
 - Thumbnails: HEIC through `sips` (quality 70), 2 × 69 files, 4.6 MB; JPEG at the same
   size was 2× larger.
@@ -93,7 +93,7 @@ at 3/4 of the way 8k, near the minibrot 2^n k arms and then the rings of
 `starburst-1e112` and the needles (measured by eye, 2026-10-16). The point M decides the
 symmetry, the fraction the arm count, so four views from three points at four fractions
 look different (the community's version of this, Julia morphing and shape stacking, is in
-[[synthesis/finding-deep-places]]):
+[Finding good places at extreme depth (1e100 to 1e100000+)](finding-deep-places.md)):
 
 | id | depth | from | minibrot (period, size) | view | look |
 | --- | --- | --- | --- | --- | --- |
@@ -213,7 +213,7 @@ for this: `verify --history ... --no-verify 1` (timings only; branch only) and `
 
 ## Endless dives (2026-10-17)
 
-How such points are found: [[synthesis/finding-deep-places]]; the autopilot and journey that fly into them: [[decisions/controls]].
+How such points are found: [Finding good places at extreme depth (1e100 to 1e100000+)](finding-deep-places.md); the autopilot and journey that fly into them: [Controls: keyboard, pointer and touch](../decisions/controls.md).
 
 A category (`endless-dive`, "Endless dives") of places centred **exactly** on a Misiurewicz
 point, so a straight zoom with no steering keeps the boundary in the middle of the view down
@@ -285,7 +285,7 @@ almondbread places --format landscape       # landscape-rt start commands (f64 p
 
 Thumbnails (re-rendered 2026-10-15 after the merge into the control-center branch) use the
 calm dense regions and the *bubbles* interior colouring with extension passes
-([[techniques/coloring-methods]] "Interior colouring as built"): the flat black interiors
+([Colouring methods](../techniques/coloring-methods.md) "Interior colouring as built"): the flat black interiors
 hid most landmarks, and the dense bands of deep minibrots were grey. The three needle
 minibrots (1e91, 1e302, 1e1000) showed moiré: their radial spokes and ring bands come
 within a pixel or two of the thumbnail grid, and the calm dense colouring does not touch
@@ -320,78 +320,78 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 
 | id | name | category | depth (log10 zoom) | look | source |
 | --- | --- | --- | --- | --- | --- |
-| `whole-set` | The Whole Set | landmark | 0.1 | aurora | [[sources/beyer-mandelbrot-zoom-sequence]] 00 |
-| `head-and-shoulders` | Head and Shoulders | landmark | 0.9 | lagoon | [[sources/beyer-mandelbrot-zoom-sequence]] 01 |
-| `pi-at-the-neck` | π at the Neck | landmark | 1.6 | aurora | [[sources/klebanoff-pi-in-mandelbrot]] (Boll 1991); ε = 0.02 on -3/4 + iε, [[techniques/pi-in-the-mandelbrot-set]] |
-| `pi-at-the-cusp` | π at the Cusp | landmark | 3.7 | aurora | [[sources/klebanoff-pi-in-mandelbrot]]; ε = 2e-4 on 1/4 + ε, [[techniques/pi-in-the-mandelbrot-set]] |
-| `the-spike` | The Spike | landmark | 0.3 | ember | [[sources/muency-named-places]]: R2F(1/2B) (the spike / main antenna) |
+| `whole-set` | The Whole Set | landmark | 0.1 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 00 |
+| `head-and-shoulders` | Head and Shoulders | landmark | 0.9 | lagoon | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 01 |
+| `pi-at-the-neck` | π at the Neck | landmark | 1.6 | aurora | [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md) (Boll 1991); ε = 0.02 on -3/4 + iε, [π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md) |
+| `pi-at-the-cusp` | π at the Cusp | landmark | 3.7 | aurora | [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md); ε = 2e-4 on 1/4 + ε, [π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md) |
+| `the-spike` | The Spike | landmark | 0.3 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2F(1/2B) (the spike / main antenna) |
 | `third-bulb` | The 1/3 Bulb | landmark | 0.9 | dusk | Nucleus of period 3 (root of c³ + 2c² + c + 1), computed with almondbread locate (generated) |
-| `quarter-bulb` | The 1/4 Bulb | landmark | 0.8 | moss | [[sources/muency-named-places]]: R2.1/4 |
-| `fifth-bulb` | The 1/5 Bulb | landmark | 1.1 | spectrum | [[sources/muency-named-places]]: R2.1/5 |
-| `two-fifths-bulb` | The 2/5 Bulb | landmark | 0.9 | classic | [[sources/muency-named-places]]: R2.2/5 |
-| `five-eighths-limb` | The 5/8 Limb | landmark | 1.3 | aurora | [[sources/muency-named-places]]: R2F(5/8B) |
-| `feigenbaum-point` | Feigenbaum Point | landmark | 3.2 | spectrum | [[sources/muency-named-places]]: Feigenbaum point |
-| `seahorse-valley` | Seahorse Valley | valley | 1.9 | aurora | [[sources/beyer-mandelbrot-zoom-sequence]] 02 |
-| `seahorse` | A Seahorse | valley | 2.4 | lagoon | [[sources/beyer-mandelbrot-zoom-sequence]] 03 |
-| `elephant-valley` | Elephant Valley | valley | 1.2 | ember | [[sources/muency-named-places]]: Elephant Valley (R2.C(0)) |
-| `elephant-herd` | Elephant Herd | valley | 2.3 | ember | [[sources/muency-named-places]]: R2.C(0) |
-| `elephants` | Among the Elephants | valley | 3.5 | moss | [[sources/muency-named-places]]: R2.C(0) |
-| `triple-spiral-valley` | Triple Spiral Valley | valley | 2.3 | nebula | [[sources/muency-named-places]]: R2.C(1/3) |
-| `quad-spiral-valley` | Quad Spiral Valley | valley | 2.4 | ice | [[sources/muency-named-places]]: Quad Spiral Valley and Rational Coordinates (1/4 + 1/2 i) (generated) |
-| `scepter-valley` | Scepter Valley | valley | 2.6 | classic | [[sources/muency-named-places]]: R2.1/2.C(1/2) (Scepter Valley) |
-| `scepter` | A Scepter | valley | 3.5 | ember | [[sources/muency-named-places]]: R2.1/2.C(1/2) |
-| `scepter-crown` | Scepter Crown | valley | 3.8 | ember | [[sources/robotmoon-mandelbrot-set]] |
-| `double-scepter-valley` | Double Scepter Valley | valley | 2.8 | lagoon | [[sources/muency-named-places]]: R2.1/3.C(1/2) (Double Scepter Valley) |
-| `peacock-eye` | Peacock Eye | valley | 2.6 | spectrum | [[sources/muency-named-places]]: Peacock eye |
-| `shepherds-crook` | Shepherd's Crook | valley | 5.1 | graphite | [[sources/muency-named-places]]: Shepherds crook |
-| `double-hook` | Double Hook | valley | 4.5 | aurora | [[sources/beyer-mandelbrot-zoom-sequence]] 06 |
-| `spiral-sanctuary` | Spiral Sanctuary | spiral | 2.7 | lagoon | [[sources/robotmoon-mandelbrot-set]] |
-| `triple-spiral` | Triple Spiral | spiral | 3.2 | dusk | [[sources/muency-named-places]]: R2.C(1/3), figure 2 |
-| `seahorse-tail` | Seahorse Tail | spiral | 3.2 | nebula | [[sources/beyer-mandelbrot-zoom-sequence]] 04 |
-| `tail-part` | Inside the Tail | spiral | 3.7 | moss | [[sources/beyer-mandelbrot-zoom-sequence]] 05 |
-| `two-arm-spiral` | Two-Arm Spiral | spiral | 4.5 | lagoon | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `satellite-double-spiral` | Satellite Double Spirals | spiral | 8.4 | aurora | [[sources/beyer-mandelbrot-zoom-sequence]] 11 |
-| `spiral-wheel` | Spiral Wheel | spiral | 9.0 | ember | [[sources/beyer-mandelbrot-zoom-sequence]] 12 |
-| `dendrite-i` | The Tip at i | dendrite | 1.7 | ice | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `three-way-junction` | Three-Way Junction | dendrite | 2.8 | dusk | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `antenna-junction` | Antenna Crossroads | dendrite | 1.8 | ember | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `snowflake` | Snowflakes | dendrite | 3.5 | ice | [[sources/robotmoon-mandelbrot-set]] |
+| `quarter-bulb` | The 1/4 Bulb | landmark | 0.8 | moss | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.1/4 |
+| `fifth-bulb` | The 1/5 Bulb | landmark | 1.1 | spectrum | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.1/5 |
+| `two-fifths-bulb` | The 2/5 Bulb | landmark | 0.9 | classic | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.2/5 |
+| `five-eighths-limb` | The 5/8 Limb | landmark | 1.3 | aurora | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2F(5/8B) |
+| `feigenbaum-point` | Feigenbaum Point | landmark | 3.2 | spectrum | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Feigenbaum point |
+| `seahorse-valley` | Seahorse Valley | valley | 1.9 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 02 |
+| `seahorse` | A Seahorse | valley | 2.4 | lagoon | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 03 |
+| `elephant-valley` | Elephant Valley | valley | 1.2 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Elephant Valley (R2.C(0)) |
+| `elephant-herd` | Elephant Herd | valley | 2.3 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.C(0) |
+| `elephants` | Among the Elephants | valley | 3.5 | moss | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.C(0) |
+| `triple-spiral-valley` | Triple Spiral Valley | valley | 2.3 | nebula | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.C(1/3) |
+| `quad-spiral-valley` | Quad Spiral Valley | valley | 2.4 | ice | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Quad Spiral Valley and Rational Coordinates (1/4 + 1/2 i) (generated) |
+| `scepter-valley` | Scepter Valley | valley | 2.6 | classic | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.1/2.C(1/2) (Scepter Valley) |
+| `scepter` | A Scepter | valley | 3.5 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.1/2.C(1/2) |
+| `scepter-crown` | Scepter Crown | valley | 3.8 | ember | [Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](../sources/robotmoon-mandelbrot-set.md) |
+| `double-scepter-valley` | Double Scepter Valley | valley | 2.8 | lagoon | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.1/3.C(1/2) (Double Scepter Valley) |
+| `peacock-eye` | Peacock Eye | valley | 2.6 | spectrum | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Peacock eye |
+| `shepherds-crook` | Shepherd's Crook | valley | 5.1 | graphite | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Shepherds crook |
+| `double-hook` | Double Hook | valley | 4.5 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 06 |
+| `spiral-sanctuary` | Spiral Sanctuary | spiral | 2.7 | lagoon | [Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](../sources/robotmoon-mandelbrot-set.md) |
+| `triple-spiral` | Triple Spiral | spiral | 3.2 | dusk | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2.C(1/3), figure 2 |
+| `seahorse-tail` | Seahorse Tail | spiral | 3.2 | nebula | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 04 |
+| `tail-part` | Inside the Tail | spiral | 3.7 | moss | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 05 |
+| `two-arm-spiral` | Two-Arm Spiral | spiral | 4.5 | lagoon | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `satellite-double-spiral` | Satellite Double Spirals | spiral | 8.4 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 11 |
+| `spiral-wheel` | Spiral Wheel | spiral | 9.0 | ember | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 12 |
+| `dendrite-i` | The Tip at i | dendrite | 1.7 | ice | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `three-way-junction` | Three-Way Junction | dendrite | 2.8 | dusk | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `antenna-junction` | Antenna Crossroads | dendrite | 1.8 | ember | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `snowflake` | Snowflakes | dendrite | 3.5 | ice | [Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](../sources/robotmoon-mandelbrot-set.md) |
 | `airplane` | The Airplane | minibrot | 1.9 | nebula | Nucleus of period 3 on the real axis, computed with almondbread locate (generated) |
-| `period-4-minibrot` | Period-4 Minibrot | minibrot | 2.9 | classic | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
-| `third-limb-island` | Island on the 1/3 Limb | minibrot | 1.7 | moss | [[sources/muency-named-places]]: R2F(1/3B1)S |
-| `satellite` | Satellite | minibrot | 5.4 | aurora | [[sources/beyer-mandelbrot-zoom-sequence]] 07 |
-| `satellite-antenna` | Satellite Antenna | minibrot | 6.1 | lagoon | [[sources/beyer-mandelbrot-zoom-sequence]] 08 |
-| `satellite-head` | Satellite Head and Shoulders | minibrot | 6.8 | nebula | [[sources/beyer-mandelbrot-zoom-sequence]] 09 |
-| `satellite-seahorse-valley` | Satellite Seahorse Valley | minibrot | 7.5 | dusk | [[sources/beyer-mandelbrot-zoom-sequence]] 10 |
-| `pine-compass` | Pine Compass | minibrot | 12.3 | moss | [[sources/robotmoon-mandelbrot-set]] (generated) |
-| `crystal-compass` | Crystal Compass | minibrot | 14.2 | ice | [[sources/robotmoon-mandelbrot-set]] (generated) |
-| `embedded-julia` | Embedded Julia Set | julia-island | 5.2 | ember | [[sources/muency-named-places]]: Embedded Julia Set |
-| `cantor-island` | Cantor Island | julia-island | 6.7 | moss | [[sources/muency-named-places]]: Favorite Views 1992 |
-| `paramecium` | Paramecium | julia-island | 6.3 | ice | [[sources/muency-named-places]]: Paramecia |
-| `cauliflower-medallion` | Cauliflower Medallion | julia-island | 6.0 | moss | [[sources/muency-named-places]]: Cauliflower Medallion |
-| `triple-spiral-medallion` | Triple Spiral Medallion | julia-island | 6.6 | nebula | [[sources/muency-named-places]]: Triple Spiral Medallion |
-| `elephant-medallion` | Elephant Medallion | julia-island | 7.0 | ember | [[sources/muency-named-places]]: Elephant Medallion |
-| `seahorse-medallion` | Seahorse Medallion | julia-island | 8.4 | spectrum | [[sources/muency-named-places]]: Seahorse Medallion |
-| `second-order-julia` | Julia Within Julia | julia-island | 8.3 | classic | [[sources/muency-named-places]]: Second-Order Embedded Julia Set |
-| `two-fold-julia` | Two-Fold Julia | julia-island | 9.9 | dusk | [[sources/muency-named-places]]: 2-fold Embedded Julia Set |
-| `julia-island-tail` | Island in the Tail | julia-island | 9.8 | nebula | [[sources/beyer-mandelbrot-zoom-sequence]] 13 |
-| `julia-island` | Julia Island | julia-island | 11.6 | lagoon | [[sources/beyer-mandelbrot-zoom-sequence]] 14 |
-| `spiral-ring-island` | Ring of Spirals | julia-island | 11.2 | aurora | [[sources/muency-named-places]]: Favorite Views 1994 |
-| `four-fold-julia` | Four-Fold Julia | julia-island | 14.4 | spectrum | [[sources/muency-named-places]]: 4-fold Embedded Julia Set |
-| `sunflower-island` | Sunflower Island | julia-island | 15.1 | dusk | [[sources/muency-named-places]]: Favorite Views 1993 |
-| `third-order-satellite` | Third-Order Satellite | julia-island | 19.0 | nebula | [[sources/muency-named-places]]: Favorite Views 1994 |
-| `copper-mandala` | Copper Mandala | julia-island | 21.7 | ember | [[sources/muency-named-places]]: Second-Order Embedded Julia Set |
-| `frost-mandala` | Frost Mandala | julia-island | 27.0 | ice | [[sources/muency-named-places]]: Favorite Views 1994 |
-| `seahorse-minibrot-1e31` | Minibrot of the Seahorse | deep | 31.2 | aurora | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
-| `spiral-1e50` | Spiral at 1e50 | deep | 50.5 | lagoon | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `needle-minibrot-1e91` | Needle Minibrot | deep | 91.5 | aurora | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
-| `junction-1e100` | Junction at 1e100 | deep | 100.5 | nebula | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
+| `period-4-minibrot` | Period-4 Minibrot | minibrot | 2.9 | classic | benchmark set ([almondbread benchmarks and verification record](benchmarks.md)), `locate` (generated) |
+| `third-limb-island` | Island on the 1/3 Limb | minibrot | 1.7 | moss | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): R2F(1/3B1)S |
+| `satellite` | Satellite | minibrot | 5.4 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 07 |
+| `satellite-antenna` | Satellite Antenna | minibrot | 6.1 | lagoon | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 08 |
+| `satellite-head` | Satellite Head and Shoulders | minibrot | 6.8 | nebula | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 09 |
+| `satellite-seahorse-valley` | Satellite Seahorse Valley | minibrot | 7.5 | dusk | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 10 |
+| `pine-compass` | Pine Compass | minibrot | 12.3 | moss | [Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](../sources/robotmoon-mandelbrot-set.md) (generated) |
+| `crystal-compass` | Crystal Compass | minibrot | 14.2 | ice | [Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](../sources/robotmoon-mandelbrot-set.md) (generated) |
+| `embedded-julia` | Embedded Julia Set | julia-island | 5.2 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Embedded Julia Set |
+| `cantor-island` | Cantor Island | julia-island | 6.7 | moss | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Favorite Views 1992 |
+| `paramecium` | Paramecium | julia-island | 6.3 | ice | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Paramecia |
+| `cauliflower-medallion` | Cauliflower Medallion | julia-island | 6.0 | moss | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Cauliflower Medallion |
+| `triple-spiral-medallion` | Triple Spiral Medallion | julia-island | 6.6 | nebula | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Triple Spiral Medallion |
+| `elephant-medallion` | Elephant Medallion | julia-island | 7.0 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Elephant Medallion |
+| `seahorse-medallion` | Seahorse Medallion | julia-island | 8.4 | spectrum | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Seahorse Medallion |
+| `second-order-julia` | Julia Within Julia | julia-island | 8.3 | classic | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Second-Order Embedded Julia Set |
+| `two-fold-julia` | Two-Fold Julia | julia-island | 9.9 | dusk | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): 2-fold Embedded Julia Set |
+| `julia-island-tail` | Island in the Tail | julia-island | 9.8 | nebula | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 13 |
+| `julia-island` | Julia Island | julia-island | 11.6 | lagoon | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 14 |
+| `spiral-ring-island` | Ring of Spirals | julia-island | 11.2 | aurora | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Favorite Views 1994 |
+| `four-fold-julia` | Four-Fold Julia | julia-island | 14.4 | spectrum | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): 4-fold Embedded Julia Set |
+| `sunflower-island` | Sunflower Island | julia-island | 15.1 | dusk | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Favorite Views 1993 |
+| `third-order-satellite` | Third-Order Satellite | julia-island | 19.0 | nebula | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Favorite Views 1994 |
+| `copper-mandala` | Copper Mandala | julia-island | 21.7 | ember | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Second-Order Embedded Julia Set |
+| `frost-mandala` | Frost Mandala | julia-island | 27.0 | ice | [Mu-Ency: named features and favourite views (coordinates)](../sources/muency-named-places.md): Favorite Views 1994 |
+| `seahorse-minibrot-1e31` | Minibrot of the Seahorse | deep | 31.2 | aurora | benchmark set ([almondbread benchmarks and verification record](benchmarks.md)), `locate` (generated) |
+| `spiral-1e50` | Spiral at 1e50 | deep | 50.5 | lagoon | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `needle-minibrot-1e91` | Needle Minibrot | deep | 91.5 | aurora | benchmark set ([almondbread benchmarks and verification record](benchmarks.md)), `locate` (generated) |
+| `junction-1e100` | Junction at 1e100 | deep | 100.5 | nebula | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `starburst-1e112` | Starburst | deep | 112.5 | dusk | Generated: almondbread locate --radius 1e-60 at M(4,1) (generated) |
-| `junction-1e300` | Junction at 1e300 | deep | 300.5 | dusk | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `needle-minibrot-1e302` | Needle Minibrot at 1e302 | deep | 302.5 | aurora | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
-| `spiral-1e1000` | Spiral at 1e1000 | deep | 1000.5 | ice | [[sources/wikipedia-misiurewicz-point]] + `locate --misiurewicz` (generated) |
-| `needle-minibrot-1e1000` | Needle Minibrot at 1e1000 | deep | 1000.9 | spectrum | benchmark set ([[synthesis/benchmarks]]), `locate` (generated) |
-| `pinwheel-1e1500` | Pinwheel at 1e1500 | deep | 1500.5 | moss | [[sources/wikipedia-misiurewicz-point]] (c = i) + `locate --radius 1e-1000` (generated) |
+| `junction-1e300` | Junction at 1e300 | deep | 300.5 | dusk | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `needle-minibrot-1e302` | Needle Minibrot at 1e302 | deep | 302.5 | aurora | benchmark set ([almondbread benchmarks and verification record](benchmarks.md)), `locate` (generated) |
+| `spiral-1e1000` | Spiral at 1e1000 | deep | 1000.5 | ice | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
+| `needle-minibrot-1e1000` | Needle Minibrot at 1e1000 | deep | 1000.9 | spectrum | benchmark set ([almondbread benchmarks and verification record](benchmarks.md)), `locate` (generated) |
+| `pinwheel-1e1500` | Pinwheel at 1e1500 | deep | 1500.5 | moss | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) (c = i) + `locate --radius 1e-1000` (generated) |
 | `star-1e2000` | Sixteen-Point Star | deep | 2000.5 | ember | `locate --misiurewicz 5,1` + `locate --radius 1e-1333` (generated) |
-| `swirl-1e3000` | Swirl at 1e3000 | deep | 3000.5 | lagoon | [[sources/wikipedia-misiurewicz-point]] (c = i) + `locate --radius 1e-1714` (generated) |
-| `rock-bottom` | Rock Bottom | deep | 3007.5 | classic | [[sources/wikipedia-misiurewicz-point]] (M(4,1)) + `locate --radius 1e-2103` (generated) |
+| `swirl-1e3000` | Swirl at 1e3000 | deep | 3000.5 | lagoon | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) (c = i) + `locate --radius 1e-1714` (generated) |
+| `rock-bottom` | Rock Bottom | deep | 3007.5 | classic | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) (M(4,1)) + `locate --radius 1e-2103` (generated) |

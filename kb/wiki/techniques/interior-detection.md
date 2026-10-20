@@ -12,7 +12,7 @@ Pixels inside the set never escape, so without a test they run to maxIter. Near
 minibrots at depth, maxIter is often 1e6 to 1e9, so interior pixels dominate the
 cost. Interior detection stops them early. It also makes a very large maxIter
 cheap, which removes most of the need for hand-tuned iteration limits
-(see [[techniques/auto-iterations]]).
+(see [Automatic maximum-iteration control](auto-iterations.md)).
 
 ## Methods compared
 
@@ -27,7 +27,7 @@ cheap, which removes most of the need for hand-tuned iteration limits
 
 Main cardioid: with `q = (x − 1/4)² + y²`, the point is inside if
 `q·(q + (x − 1/4)) ≤ y²/4`. Period-2 bulb: `(x + 1)² + y² ≤ 1/16`. No exact
-test exists for higher bulbs (src: [[sources/wikipedia-plotting-algorithms]] §Cardioid / bulb checking).
+test exists for higher bulbs (src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Cardioid / bulb checking).
 Evaluated naively in the pixel's own `c` it only works at low zoom. Expanded exactly around
 the view it works at any depth and matters most where the other tests fail: near the two
 components' parabolic boundaries (the −3/4 neck, the cusp). See "Closed-form component test"
@@ -38,9 +38,9 @@ below.
 Keep a saved iterate; if the current `z` comes back to it within a tolerance,
 declare interior. Refresh the saved point periodically (Wikipedia's example
 every 20 iterations), or use Brent's power-of-two schedule to catch any period
-(src: [[sources/wikipedia-plotting-algorithms]] §Periodicity checking). The
+(src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Periodicity checking). The
 tolerance is the weak point: rounding can also make the detected period a
-multiple of the true one (src: [[sources/wikipedia-plotting-algorithms]] §Interior distance estimation).
+multiple of the true one (src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Interior distance estimation).
 Under perturbation in float32 the full orbit `Z+z` only has ~1e-7 relative
 resolution, so it cannot resolve cycle closure at deep zoom; comparing deltas
 only works if the reference is periodic too (inference). Treat it as secondary.
@@ -51,19 +51,19 @@ Track the derivative of the orbit with respect to its starting point,
 `der = (Pⁿ)′`, which is the product of `2z` along the orbit. If the parameter is
 hyperbolic the orbit falls into an attracting cycle and the product tends to 0.
 Stop when `|der| < ε` and call the pixel interior
-(src: [[sources/cheritat-mandelbrot-rendering]] §Following the derivative).
+(src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Following the derivative).
 
 - Start from `z = c, der = 1` (starting at the critical point 0 would multiply by 0 at once).
 - Update `der` **before** `z`; `z = z² + c; der = der·2z` uses the new `z` and is wrong
-  (src: [[sources/cheritat-mandelbrot-rendering]] §Following the derivative).
+  (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Following the derivative).
 - ε = 0.001 gives good images; ε = 0.1 visibly misclassifies near parabolic
   parameters (e.g. the neck near c = −3/4)
-  (src: [[sources/cheritat-mandelbrot-rendering]] §Images and speed).
+  (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Images and speed).
 - Each iteration costs about 2× a plain iteration, but a huge N stops mattering:
   "N = 10⁶ is OK, but avoid N = 10¹⁰"
-  (src: [[sources/cheritat-mandelbrot-rendering]] §Images and speed).
+  (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Images and speed).
 - False positives exist (some non-hyperbolic `c` have `liminf |der| = 0`) but are
-  rare and lie close to the set (src: [[sources/cheritat-mandelbrot-rendering]] §The idea).
+  rare and lie close to the set (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §The idea).
 
 **Under perturbation and BLA.** GBy (fractalshades) iterates `∂z_n/∂Z₁` and stops
 when it drops below ε. It "seems to work surprisingly well in combination with
@@ -71,9 +71,9 @@ perturbation and Bilinear approximation"; ε = 0.001 or even 0.01 is safe in mos
 cases. His examples need 1e7 iterations at period 14292, and a period-57853
 minibrot at 5e-433 with 4e8 max iterations renders 3200×3200 in under 5 minutes.
 He advises activating it only when a minibrot is in view, because it costs an
-extra quantity per iteration (src: [[sources/fractalforums-interior-detection]] §Interior detection for deep Mandelbrot set zooms).
+extra quantity per iteration (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Interior detection for deep Mandelbrot set zooms).
 mathr notes that without interior checking KF needed NanoMB1 to make such a
-location feasible at all (src: [[sources/fractalforums-interior-detection]] §Reply #9).
+location feasible at all (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Reply #9).
 
 mathr's deep-zoom page states the rule: track the derivative with respect to
 `z₁`, classify as interior when its magnitude drops below a threshold such as
@@ -82,11 +82,11 @@ mathr's deep-zoom page states the rule: track the derivative with respect to
 the reference is the nucleus of a hyperbolic component, because then the
 reference's own contribution `dZ/dZ₁` is 0. For non-conformal formulas use dual
 numbers with four dual parts (two for DE, two for interior) and the matrix
-operator norm (src: [[sources/mathr-deep-zoom-page]] §6 Interior Detection).
+operator norm (src: [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md) §6 Interior Detection).
 
 Imagina carries `dzdz` (and `dzdc`) through LA steps: each LA step multiplies
 the derivative by `2(dz + Ref)·ZCoeff`, so the test survives iteration skipping
-almost for free (src: [[sources/imagina-hinfla-evaluator]]). With BLA the same
+almost for free (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)). With BLA the same
 holds: a skip `z → A z + B c` has `∂z/∂z₁` multiplied by `A` (inference).
 
 ```text
@@ -104,11 +104,11 @@ Float32 safety (inference): only `|der|` matters and `Z+z` is O(1), so rounding
 (~1e-7 relative) barely affects it. Interior `der` shrinks and may underflow,
 which already means interior. Exterior `der` grows: clamp or stop updating it
 past ~1e30 to stay below float32 max ~3.4e38. Note this is `d/dz`, not `d/dc`;
-the exterior DE derivative is separate ([[techniques/distance-estimation]]).
+the exterior DE derivative is separate ([Distance estimation](distance-estimation.md)).
 
 ### Interior distance estimate
 
-mathr's practical method (src: [[sources/mathr-interior-distance]] §Practical interior distance rendering):
+mathr's practical method (src: [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md) §Practical interior distance rendering):
 
 1. Each new minimum of `|z_n|` gives a candidate period `p` (atom domains).
 2. Newton-solve `f^p(z₀) = z₀` with `z₀ ← z₀ − (f^p(z₀) − z₀)/((f^p)′(z₀) − 1)`,
@@ -120,21 +120,21 @@ Strategies: plain (no checks), unbiased (check at every new minimum), biased
 (if the previous pixel was exterior, defer checks to maxIter). Biased was best
 overall. Near double-precision limits interior DE fails visibly while exterior
 DE still works; fix with more precision or perturbation around the island's
-nucleus (src: [[sources/mathr-interior-distance]] §Practical interior distance rendering).
+nucleus (src: [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md) §Practical interior distance rendering).
 All points within `b/4` of `c` are interior; a period detected as a multiple of
-the true one overestimates `b` (src: [[sources/wikipedia-plotting-algorithms]] §Interior distance estimation).
+the true one overestimates `b` (src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Interior distance estimation).
 The multiplier test `|d| ≤ 1` alone (without the distance) is the cheap part
-(src: [[sources/wikibooks-mandelbrot-interior]]).
+(src: [Wikibooks: Mandelbrot set interior](../sources/wikibooks-mandelbrot-interior.md)).
 
 ### Other
 
 - Neighbour heuristic: a pixel is probably interior if it and all neighbours are
-  interior with the same period (src: [[sources/wikibooks-mandelbrot-interior]]).
+  interior with the same period (src: [Wikibooks: Mandelbrot set interior](../sources/wikibooks-mandelbrot-interior.md)).
 - KF2+ "interior checking" exists only for power-2 Mandelbrot with NanoMB1/2, is
-  experimental and "may or may not speed up" (src: [[sources/kf-manual]]).
+  experimental and "may or may not speed up" (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - Fraktaler 3 EXR metadata shows `bailout.inscape_radius = 0.000976562` (2⁻¹⁰);
   plausibly the interior threshold, meaning unverified
-  (src: [[sources/wikibooks-fraktaler-3]]) (unverified).
+  (src: [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)) (unverified).
 
 ## Pitfalls
 
@@ -142,7 +142,7 @@ The multiplier test `|d| ≤ 1` alone (without the distance) is the cheap part
 - ε too large (≥ 0.1) fills necks and thin parts near parabolic points.
 - With a non-periodic reference (e.g. view centre), `dz/dz₁` is not the full
   derivative; track `d(Z+z)` instead or use a nucleus reference (inference from
-  [[sources/mathr-deep-zoom-page]] §6 Interior Detection).
+  [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md) §6 Interior Detection).
 - Periodicity tolerances in float32 at depth.
 - On GPU, a history-dependent "biased" strategy increases divergence; a fixed
   per-iteration test is simpler (inference).
@@ -174,9 +174,9 @@ The multiplier test `|d| ≤ 1` alone (without the distance) is the cheap part
   interior), and ε = 1 is already clean. The cost is that slow, near-parabolic
   *interior* converges like `C/n²` at first, the same as the exterior dip, so it
   cannot be proven before the geometric phase. Those pixels are not interior
-  failures but unresolved, see [[techniques/auto-iterations]]. Elephant
+  failures but unresolved, see [Automatic maximum-iteration control](auto-iterations.md). Elephant
   (detected 26.9 % → 23.3 %) and feigenbaum (24.4 % → 15.0 %) get slower; see
-  [[synthesis/benchmarks]].
+  [almondbread benchmarks and verification record](../synthesis/benchmarks.md).
   Shortcuts that confirm a candidate by "no escape for k·n more iterations" or
   "`|w| n²` non-increasing" fail on an orbit that enters a second, much longer
   gate early. Its `|w| n²` grows only slowly there (inference from the gate model
@@ -187,7 +187,7 @@ The multiplier test `|d| ≤ 1` alone (without the distance) is the cheap part
 
 ## Measured in almondbread (milestone 2)
 
-Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
+Measured 2026-10-14, M1 Pro, release; tables in [almondbread benchmarks and verification record](../synthesis/benchmarks.md).
 
 - Implemented as above, with `w = dz_n/dz_1` of the **full** orbit `z = Z_m + dz` (so a
   non-periodic view-centre reference is fine), `w_1 = 1` set by a peeled first step,
@@ -215,7 +215,7 @@ Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
   unresolved everywhere looks 100 % interior to the switch. At `sea-8007` every pixel
   reached the depth limit without escaping and without a proof, so the view showed flat
   unresolved grey (not false interior). The fix is in the iteration learner (see
-  [[techniques/auto-iterations]], "Nothing escaped"). After the ×4 render, the switch sees
+  [Automatic maximum-iteration control](auto-iterations.md), "Nothing escaped"). After the ×4 render, the switch sees
   ~0.3 % interior and turns the test off for the full level. The few remaining limit pixels
   (the minibrot) are then drawn as interior, which matches the CPU.
 - **Speedups** (3456×2234, GPU): home at 100 000 iterations 2211 → 48 ms (46×),
@@ -228,12 +228,12 @@ Measured 2026-10-14, M1 Pro, release; tables in [[synthesis/benchmarks]].
 period `P`, an interior orbit needs `|λ|^(n/P) n² < ε`. At the place `satellite` (P 39, auto
 limit 1994 = 51 periods) that is `|λ| < ~0.7`: the core disc of the cardioid. The rest of the
 body, the bulbs (P 78, 117, …) and small attached minibrots stayed unresolved, which since
-the unresolved fog ([[techniques/unresolved-fog]]) is visible. Root cause is the test itself, not ε, the
+the unresolved fog ([Fog over unresolved pixels](unresolved-fog.md)) is visible. Root cause is the test itself, not ε, the
 check stride, BLA/LA or float32 range (measured 2026-10-17, M1 Pro, release: at limit 100 000
 the same pixels are proven, 3.6 % of 3.7 %).
 
 **Method** (our own; Newton on the cycle as in mathr's interior DE, src:
-[[sources/mathr-interior-distance]] §Practical interior distance rendering, plus a
+[mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md) §Practical interior distance rendering, plus a
 Kantorovich bound for a proof). A pixel unresolved at the limit continues its orbit:
 
 1. Scan: base point `z_B` = smallest `|z|` so far (the cycle's point nearest 0, where `z` has
@@ -298,7 +298,7 @@ Settle time in the app scheduler (`almondbread progress`, 1600×1000, plain sett
 extension passes: satellite 0.18 → 0.19 s, unresolved 6597 → 331 pixels; cardioid edge
 0.26 → 0.20 s (140 489 → 23 235); elephant 43 034 → 9 456; cusp 0.80 → 0.51 s
 (276 810 → 126 074); satellite-head 0.88 → 0.32 s (216 268 → 10 256). Offscreen renders
-without extension passes (`bench`) pay for the probe: see [[synthesis/benchmarks]].
+without extension passes (`bench`) pay for the probe: see [almondbread benchmarks and verification record](../synthesis/benchmarks.md).
 
 **Known limits.** Periods above ~400 (2048 steps) are not proven: Feigenbaum (P 2048+),
 sea-8007, deep needles. Where the probe needs about its whole step budget (the satellite
@@ -398,7 +398,7 @@ exterior one. `0` is a point of the cycle at the nucleus, and the cycle point it
 stays in Newton's basin across the component. Newton does not care how slowly the orbit
 converges (`|λ − 1|` stays large away from the root). From the 4th pass on the step at
 least halved for every attracting pixel. Mathr's interior DE does the same Newton step, but
-from the orbit (src: [[sources/mathr-interior-distance]] §Practical interior distance
+from the orbit (src: [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md) §Practical interior distance
 rendering); starting at 0 with a known period is our own.
 
 **Method.**
@@ -488,6 +488,6 @@ multiply per perturbation step, `A·der` per BLA/LA skip, ε = 1e-3
 many maxIter pixels or a nucleus reference is in use (GBy's advice). Keep the
 cardioid/bulb test, expanded exactly per level so it works at any depth (as built above). Skip periodicity checking and interior
 DE in v1; interior DE is a later colouring feature. Store an interior flag per
-pixel for colouring and for [[techniques/guessing-and-subdivision]].
-Related: [[techniques/reference-selection]], [[techniques/bla]],
-[[techniques/linear-approximation-imagina]].
+pixel for colouring and for [Guessing, border tracing and rectangle subdivision](guessing-and-subdivision.md).
+Related: [Reference selection: nucleus, period detection, Newton](reference-selection.md), [Bivariate linear approximation (BLA)](bla.md),
+[Linear approximation with period-aligned stages and AT (Imagina)](linear-approximation-imagina.md).

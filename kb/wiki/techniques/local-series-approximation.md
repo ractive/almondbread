@@ -12,20 +12,20 @@ Neighbouring samples share most of their orbit. Expand `z_n(c)` to second order 
 *local* seed point `c₀` (a tile centre, or a pixel centre for its anti-aliasing samples)
 instead of around the view's reference, iterate only the seed while the expansion holds,
 then start every sample of the region from the expansion. This is classic series
-approximation ([[techniques/series-approximation]]) with two changes: the expansion point is
+approximation ([Series approximation (legacy)](series-approximation.md)) with two changes: the expansion point is
 local, so it stays valid much longer where the global one fails, and regions are nested
 (quadtree), so a fold that stops a big region early only costs that region's children a
 restart, not every pixel. Our design (R3, 2026-10-14); the recurrences are the standard SA
-ones (src: [[sources/wikipedia-plotting-algorithms]] §Perturbation theory and series approximation).
+ones (src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Perturbation theory and series approximation).
 
 ## Why it works in dense regions where BLA does not
 
-[[techniques/bla]] (M4) linearises each step around the *reference* orbit: valid while the
+[Bivariate linear approximation (BLA)](bla.md) (M4) linearises each step around the *reference* orbit: valid while the
 pixel's delta `|dz| ≪ |Z|`. At the dense benchmark view deltas restart at `≥ 1e−5` after every
 rebase, so linear runs are 2–8 steps. But the pixels of a small region stay close to *each
 other*: the image of one pixel's footprint, `|dz/dc| · pixel`, stays below 1e−3 (z-plane
 units) for about 97 % of the orbit and expands only in the last ~3 % before escape (measured
-2026-10-14, CPU f64, 4e5 pixels at dense-5e-14; [[synthesis/dense-region-sampling]]). So
+2026-10-14, CPU f64, 4e5 pixels at dense-5e-14; [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)). So
 `c ↦ z_n(c)` is nearly linear across a pixel, and across a small tile, for most of the orbit,
 even though the step map is not linear around the reference.
 
@@ -82,12 +82,12 @@ where an exact orbit from a point about `ε² |δ|` away would be; later iterati
 alike. In chaotic regions individual escape counts change anyway: a rounding-level change of
 `c` (branching at iteration 28 with ε = 1e−9) already changes 36–48 % of escape counts in f64
 at the dense view, and float32 perturbation differs from the f64 oracle on 30 %
-([[synthesis/benchmarks]] M4). What matters is that branched samples are statistically the
+([almondbread benchmarks and verification record](../synthesis/benchmarks.md) M4). What matters is that branched samples are statistically the
 same draw: measured, every error statistic against an independent 16-sample reference equals
 the exact render's to two decimals (dense view: mean ΔE 5.41 at 1 spp, 1.96 with 3 × 3 AA,
 both ways), and the images look the same at 200 % (crops in the study output).
 
-## Measured (CPU f64, 2026-10-14, M1 Pro; full table in [[synthesis/dense-region-sampling]])
+## Measured (CPU f64, 2026-10-14, M1 Pro; full table in [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md))
 
 Dense view (−1.40803213403045 + 0.13680236432900i, 4.6e−14/px, 800 × 500 of the 1600-wide
 framing, limit 4 × 5791):
@@ -112,7 +112,7 @@ flat tiles are not enough: every tile size from 4 to 32 branched at ~10 % of the
 Metal, float32 deltas, the production perturbation/rebasing loop (`iterate` with function
 constant `kSeeded`), floatexp seeds in the deep kernel; offscreen renders only (`almondbread
 render|verify --sa 1 [--sa-eps e] [--sa-top t] [--sa-leaf l]`, `ALMONDBREAD_SA=1`, since removed). Answer and
-per-view numbers: [[questions/local-sa-float32]], [[synthesis/benchmarks]] R5.
+per-view numbers: [Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md), [almondbread benchmarks and verification record](../synthesis/benchmarks.md) R5.
 
 ```text
 seedLevel (one dispatch per quadtree level, 32 -> 16 -> 8 -> 4 -> 2 texels; one thread per node)
@@ -218,9 +218,9 @@ Design (ours; from the prototype's measurements):
    than plain; escape-n/median |Δμ| within the measured R5 margins), and a deep minibrot view
    with the interior test on (needle-1e305: the case that caught the `w` restart).
 
-Complements [[techniques/bla]]: BLA skips the start of orbits at M3b depths, local SA the
+Complements [Bivariate linear approximation (BLA)](bla.md): BLA skips the start of orbits at M3b depths, local SA the
 coherent middle at any depth. Interior-heavy views need interior-only Mariani–Silver
-([[techniques/guessing-and-subdivision]]) instead.
+([Guessing, border tracing and rectangle subdivision](guessing-and-subdivision.md)) instead.
 
 ## As built (M5, 2026-10-15)
 
@@ -229,7 +229,7 @@ Code: `crates/almondbread-render/src/shaders/mandelbrot.metal` (`seedBegin`, `se
 scheduler (`start_seeding`, `encode_seed_round`, `harvest_seed_round`, `advance_seeding`).
 Always on (auto; the switch `ALMONDBREAD_SA` and `--sa` were removed 2026-10-17), CLI tunables
 `--sa-leaf`, `--sa-top`, `--sa-eps`, `--sa-gate rel,abs`, `--sa-budget`. Numbers:
-[[synthesis/benchmarks]] M5.
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) M5.
 
 ```text
 seeding of a level (its own texel size and jitter):
@@ -337,7 +337,7 @@ set to 0, exact by conjugate symmetry) fixed the on-axis row alone and is subsum
 A seeded level admits no pixel until every seed node is final, and a node runs until its
 expansion fails the validity test, escapes, or reaches the limit, about 256 steps per round.
 Where the expansion stays valid for very long, a few slow nodes stall the whole level. In the
-−3/4 neck gap at 6.7e8 with a manual limit of 10 M ([[synthesis/neck-escape-statistics]]) the
+−3/4 neck gap at 6.7e8 with a manual limit of 10 M ([The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](../synthesis/neck-escape-statistics.md)) the
 striped regions keep one passage count across a node, so their expansions hold for 10^5–10^6
 iterations: after 20 s at 4000 × 2500, 210 000 of 830 000 nodes were still running and not one
 pixel chunk had run (all-black frame; the user saw the previous gesture frame instead). Seeds

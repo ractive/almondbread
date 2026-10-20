@@ -46,5 +46,5 @@ The post has no subheadings; cite by topic:
 
 ## Used by
 
-[[techniques/interior-detection]], [[techniques/distance-estimation]], [[techniques/guessing-and-subdivision]],
-[[questions/ball-period-recurrence]]
+[Interior detection](../techniques/interior-detection.md), [Distance estimation](../techniques/distance-estimation.md), [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md),
+[What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md)

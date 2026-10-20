@@ -28,5 +28,5 @@ Creator's own statements. Render times date from 2017 to 2020 KF + series-approx
 
 ## Used by
 
-Market research notes (kept private, not in this wiki); [[synthesis/finding-deep-places]] (with
-fuller descriptions in [[sources/deep-zoom-videos]]).
+Market research notes (kept private, not in this wiki); [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md) (with
+fuller descriptions in [Deep-zoom videos: record and landmark YouTube descriptions](deep-zoom-videos.md)).

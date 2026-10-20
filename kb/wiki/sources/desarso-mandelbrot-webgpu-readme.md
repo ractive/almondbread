@@ -42,7 +42,7 @@ The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), li
 
 - Primary for this implementation, with the author's own measurements on unnamed hardware (Chrome on macOS). Claims are specific and checkable, and several bugs are documented.
 - "Bit-identical" is claimed for one view at 2.8e40.
-- Credits FractalShark's author as "Matt Renzelmann"; the manifest has "Matt Reiman" (see [[sources/fractalshark-readme]]).
+- Credits FractalShark's author as "Matt Renzelmann"; the manifest has "Matt Reiman" (see [FractalShark README](fractalshark-readme.md)).
 - GPL-3.0: algorithms only, no code.
 
 ## Useful sections
@@ -60,12 +60,12 @@ The README of a browser Mandelbrot renderer (WebGPU, with a WebGL2 fallback), li
 
 ## Used by
 
-- [[implementations/mandelbrot-webgpu]]
-- [[techniques/rebasing]]
-- [[techniques/bla]]
-- [[techniques/extended-range-floats]]
-- [[techniques/reference-orbit-precision]]
-- [[techniques/frame-reuse-and-progressive]]
-- [[techniques/auto-iterations]]
-- [[platform/gpu-watchdog-and-chunking]]
-- [[questions/higher-order-bla]]
+- [mandelbrot-webgpu (Desarso)](../implementations/mandelbrot-webgpu.md)
+- [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)
+- [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)
+- [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)
+- [Automatic maximum-iteration control](../techniques/auto-iterations.md)
+- [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)
+- [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md)

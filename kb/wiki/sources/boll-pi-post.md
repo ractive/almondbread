@@ -25,10 +25,10 @@ with dy looks like.
 ## Useful parts
 
 - The original observation and table (neck only; Klebanoff quotes a longer version with the
-  cusp, [[sources/klebanoff-pi-in-mandelbrot]]).
+  cusp, [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](klebanoff-pi-in-mandelbrot.md)).
 - The escape convention of the program: `z = 0`, then for `i = 1, 2, ...` `z = z² + c` and stop
   when `|z| > 2`; the count is that i. Our counts match Boll's table with this convention
-  ([[techniques/pi-in-the-mandelbrot-set]]).
+  ([π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)).
 - A numerical pitfall worth keeping: the post's own program, in complex double, gives a wrong
   result at the last row (dy = 1e-9: "the Mandelbrot iteration runs to limit, instead of
   stopping where it should"); the author suspected precision. Our measurements reproduce this:

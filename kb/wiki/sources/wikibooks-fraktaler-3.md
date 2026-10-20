@@ -26,7 +26,7 @@ facts below come from the research notes. The year is a placeholder (revision da
 ## Reliability
 
 Secondary, community-written; not read directly (status unread). The metadata values match the
-parameter names and the inscape default in [[sources/fraktaler-3-site]] §Bailout Parameters, which
+parameter names and the inscape default in [Fraktaler 3 (documentation site, v3.1)](fraktaler-3-site.md) §Bailout Parameters, which
 is the primary source. Verify before citing anything else from this page.
 
 ## Useful sections
@@ -36,5 +36,5 @@ is the primary source. Verify before citing anything else from this page.
 
 ## Used by
 
-[[implementations/fraktaler-3]], [[techniques/interior-detection]], [[techniques/anti-aliasing]],
-[[techniques/exponential-map]], [[techniques/auto-iterations]]
+[Fraktaler 3](../implementations/fraktaler-3.md), [Interior detection](../techniques/interior-detection.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md),
+[Exponential map (log-polar) rendering](../techniques/exponential-map.md), [Automatic maximum-iteration control](../techniques/auto-iterations.md)

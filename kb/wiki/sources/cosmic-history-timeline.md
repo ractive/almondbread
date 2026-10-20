@@ -12,8 +12,8 @@ tags: [cosmic-scale, overlay, reference-values, cosmology]
 
 A collection page: the time after the Big Bang of each epoch the cosmic size scale
 overlay marks, one number in seconds each. Read 2026-10-15; nothing saved under `raw/`.
-Companion of [[sources/cosmic-scale-references]] (age of the universe, Sun age) and
-[[sources/codata-2022-constants]] (Planck time).
+Companion of [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](cosmic-scale-references.md) (age of the universe, Sun age) and
+[NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md) (Planck time).
 
 Conventions: 1 yr = 1 Julian year = 3.15576e7 s. Before ~1 s every time is a
 temperature converted with the radiation-era relation of the PDG review
@@ -37,7 +37,7 @@ Sources:
 
 | Epoch | Value (s) | Figure as quoted | Source | Reliability |
 | --- | --- | --- | --- | --- |
-| Today | 4.351e17 | `13.787 ± 0.020` Gyr | Planck 2018 results VI, <https://arxiv.org/abs/1807.06209>; see [[sources/cosmic-scale-references]] | High (base ΛCDM). PDG quotes t0 = (13.80 ± 0.02) Gyr |
+| Today | 4.351e17 | `13.787 ± 0.020` Gyr | Planck 2018 results VI, <https://arxiv.org/abs/1807.06209>; see [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](cosmic-scale-references.md) | High (base ΛCDM). PDG quotes t0 = (13.80 ± 0.02) Gyr |
 | Sun and Earth form | 2.90e17 (= 13.787 − 4.6 Gyr = 9.19 Gyr) | "The Sun formed about 4.6 billion years ago" | NASA Sun facts, <https://science.nasa.gov/sun/facts/>; PDG cosmology §22.2 (radioactive dating): chemical fractionation "helps pin down a precise age for the pre-Solar nebula of 4.6 Gyr" | High. Same page's intro says "4.5 billion-year-old"; use 4.6 |
 | First stars | 3.16e15 (100 Myr) | "The first stars are thought to have formed as early as 100 million years after the big bang" | NASA Webb, *What Were the First Stars Like?*, <https://science.nasa.gov/mission/webb/science-overview/science-explainers/what-were-the-first-stars-like/> | Low-medium: a theoretical estimate, no Population III star has been observed. Say "~100–200 Myr". Planck's "Dark Ages" end at ~550 Myr is reionisation, not first stars |
 | Recombination, CMB released | 1.20e13 (380 000 yr) | "decoupled 380,000 years after the Big Bang"; "cooled to around 3000 Kelvin" | ESA, *Planck and the cosmic microwave background*, <https://www.esa.int/Science_Exploration/Space_Science/Planck/Planck_and_the_cosmic_microwave_background>; CERN *The early universe*, <https://home.cern/science/physics/early-universe> ("It took 380,000 years …") | High. PDG cosmology §22.4: last scattering at z ≃ 1100, "when the age of the Universe was about 370,000 years" (1.17e13 s) |
@@ -47,14 +47,14 @@ Sources:
 | Electroweak transition (Higgs field switches on) | 1e-11 | "the cross-over is sharply defined at T_c = (159 ± 1) GeV" | D'Onofrio, Rummukainen, Tranberg, *The Sphaleron Rate in the Minimal Standard Model*, Phys. Rev. Lett. 113, 141602 (2014), <https://arxiv.org/abs/1404.3565>. Derived: 9.2e-12 s (N = 106.75) | Medium-high for the Standard Model; a crossover, not a phase transition. No agency page found stating the time; secondary reviews quote 1e-12 to 1e-11 s |
 | Inflation | 1e-32 (end; start ~1e-36) | "from 10^-36 seconds after the Big Bang to a point between 10^-33 and 10^-32 seconds" | Secondary only (Wikipedia mirrors, Astronomy magazine Q&A, <https://www.astronomy.com/science/how-can-we-determine-that-inflation-occurred-from-10-35-to-10-32-second-after-the-big-bang-and-that-the-universe-grew-1026-in-that-time/>). ESA's Planck page says only "immediately after the hot Big Bang"; the PDG cosmology review gives no time | (unverified). Model-dependent: the energy scale of inflation is unknown (only an upper bound from the tensor-to-scalar ratio). Label it "hypothetical, ~1e-36 to 1e-32 s" |
 | GUT scale (as a length) | 1.97e-32 m | `ħc = 197.3269804 MeV fm` (CODATA 2022, <https://physics.nist.gov/cgi-bin/cuu/Value?hbcmevf>); `ħc / 1e16 GeV` | Derived; 1e16 GeV as the GUT scale is the conventional figure (unverified, no source fetched) | Hypothetical: grand unification is not established. Show "~2e-32 m, hypothetical" |
-| Planck epoch | < 5.39e-44 | `5.391 247(60) x 10^-44 s` | CODATA 2022 Planck time, <https://physics.nist.gov/cgi-bin/cuu/Value?plkt>; see [[sources/codata-2022-constants]] | Constant exact to 1e-5. That it marks the limit of known physics is a convention, not a measurement |
+| Planck epoch | < 5.39e-44 | `5.391 247(60) x 10^-44 s` | CODATA 2022 Planck time, <https://physics.nist.gov/cgi-bin/cuu/Value?plkt>; see [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md) | Constant exact to 1e-5. That it marks the limit of known physics is a convention, not a measurement |
 
 ## Notes for the overlay
 
 - Order of the markers, earliest first: Planck epoch, inflation (hypothetical), electroweak,
   quark-hadron, neutrino decoupling, nucleosynthesis, CMB, first stars, Sun and Earth, today.
 - Before about 1e-11 s nothing is tested by experiment; the LHC reaches roughly that energy
-  (13.6 TeV collisions, [[sources/cosmic-scale-references]]). Inflation and GUT markers should
+  (13.6 TeV collisions, [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](cosmic-scale-references.md)). Inflation and GUT markers should
   read as hypothetical.
 
 ## Contradictions

@@ -24,7 +24,7 @@ zooming by hand.
 ## What it covers
 
 - The island nucleus found by Newton "is exact to within the precision being used"; the
-  island's size is estimated next ([[techniques/reference-selection]] has our size formula).
+  island's size is estimated next ([Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md) has our size formula).
 - **Embedded Julia set sizes:** with the island's size `s` estimated, Claude Heiland-Allen
   found that its 2-fold embedded Julia set is about `s^(3/4)` in size, with the caveat that he
   was not sure it always holds. Munafo adds `s^(1/2)` for the 2-fold *second-order* set, and
@@ -38,8 +38,8 @@ zooming by hand.
 A careful amateur source; the size rule is flagged as an estimate by the source itself. The
 two readings of `s^(3/4)` (2-fold vs 4-fold) are not reconciled on the page. We use the rule
 only to propose framings that a probe render then accepts or rejects
-([[decisions/controls]] "Journey").
+([Controls: keyboard, pointer and touch](../decisions/controls.md) "Journey").
 
 ## Used by
 
-[[decisions/controls]] (Journey: embedded Julia stages), [[techniques/reference-selection]], [[synthesis/finding-deep-places]]
+[Controls: keyboard, pointer and touch](../decisions/controls.md) (Journey: embedded Julia stages), [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)

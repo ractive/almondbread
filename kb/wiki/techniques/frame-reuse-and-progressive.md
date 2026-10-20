@@ -16,17 +16,17 @@ skip table).
 
 - Saves only the previous frame, kept aligned in rows and columns; remembers a
   real coordinate per column and an imaginary coordinate per row instead of
-  per-pixel positions (src: [[sources/wikipedia-xaos]] §XaoS).
+  per-pixel positions (src: [Wikipedia: XaoS](../sources/wikipedia-xaos.md) §XaoS).
 - Choosing which saved rows/columns to draw where is treated as an
   optimisation problem; mistakes show as distortion
-  (src: [[sources/wikipedia-xaos]] §XaoS).
+  (src: [Wikipedia: XaoS](../sources/wikipedia-xaos.md) §XaoS).
 - Rows/columns without a good match take the colour of the nearest one, then are
   recalculated as CPU time allows, prioritising the zoom target (the edges when
-  zooming out) (src: [[sources/wikipedia-xaos]] §XaoS).
+  zooming out) (src: [Wikipedia: XaoS](../sources/wikipedia-xaos.md) §XaoS).
 - Recalculating every frame also causes 'twinkle' without AA; reuse avoids it
-  (src: [[sources/wikipedia-xaos]] §XaoS).
+  (src: [Wikipedia: XaoS](../sources/wikipedia-xaos.md) §XaoS).
 - Still maintained (GPL-2.0, Qt, web version since 4.3 in 2023)
-  (src: [[sources/xaos-readme]]). It has no perturbation; see [[implementations/xaos]].
+  (src: [XaoS README](../sources/xaos-readme.md)). It has no perturbation; see [XaoS](../implementations/xaos.md).
 
 The approximation step costs about `xsize + ysize` work per frame rather than
 `xsize × ysize` (notes: pixel_and_image_techniques §6).
@@ -35,21 +35,21 @@ The approximation step costs about `xsize + ysize` work per frame rather than
 
 - Progressive previews with Adam7-style interlacing and circular sorting
   (centre first); an option disables the sorting to save time and memory
-  (src: [[sources/kf-manual]]).
+  (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - "Reuse reference" keeps the reference orbit for further zooming; works with
-  auto glitch solving since 2.15.3 (src: [[sources/kf-manual]]).
-- Guessing races with progressive interlacing (src: [[sources/kf-manual]]).
+  auto glitch solving since 2.15.3 (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
+- Guessing races with progressive interlacing (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 ## Others
 
 - FractalShark's "perturbed perturbation" caches intermediate-resolution
-  reference orbits across zooms (src: [[sources/fractalshark-readme]]).
+  reference orbits across zooms (src: [FractalShark README](../sources/fractalshark-readme.md)).
 - Fraktaler 3 notes that reusing BLA tables across a zoom-out sequence is not
   generally applicable, because radii depend on the image's max `|c|`
-  (src: [[sources/fraktaler-3-site]]).
+  (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 - zoomasm re-renders only on change (2.0+) and renders the fractal once as
-  exponential-map strips for videos (src: [[sources/zoomasm]]); see
-  [[techniques/exponential-map]].
+  exponential-map strips for videos (src: [zoomasm (zoom video assembler)](../sources/zoomasm.md)); see
+  [Exponential map (log-polar) rendering](exponential-map.md).
 
 ## Design for a Metal explorer (inference)
 
@@ -73,11 +73,11 @@ on pan/zoom (new view V', old view V with buffer B):
 - With rebasing, the reference only needs to lie near the view, so it stays
   valid for many zoom steps; BLA radii depend on max `|c|`, so a zoom-in (max
   `|c|` shrinks) keeps the table valid, a zoom-out or big pan may not
-  (inference from [[techniques/rebasing]] and [[techniques/bla]]).
+  (inference from [Rebasing (Zhuoran, 2021)](rebasing.md) and [Bivariate linear approximation (BLA)](bla.md)).
 - Off-grid zooms allow only approximate reuse; never present approximate
   pixels as final.
 - Refinement fits the chunked, resumable kernel architecture
-  ([[platform/gpu-watchdog-and-chunking]]): each refinement level is a work list.
+  ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)): each refinement level is a work list.
 
 No published 2025–2026 interactive deep-zoom renderer documents temporal
 reprojection with perturbation (notes: pixel_and_image_techniques §6 Gaps).
@@ -85,7 +85,7 @@ reprojection with perturbation (notes: pixel_and_image_techniques §6 Gaps).
 ## As built in almondbread (milestone 2)
 
 Measured 2026-10-14, M1 Pro, 2560×1640 px window at 120 Hz, release
-(`--interaction-test`; tables in [[synthesis/benchmarks]]).
+(`--interaction-test`; tables in [almondbread benchmarks and verification record](../synthesis/benchmarks.md)).
 
 - **Gesture frames.** While input is younger than 150 ms, every display refresh shows
   its own view: a preview level whose scale (1/8 steps, 0.25…1) is the largest whose
@@ -114,7 +114,7 @@ Measured 2026-10-14, M1 Pro, 2560×1640 px window at 120 Hz, release
 Every presented interactive frame is composed by one kernel (`compose`,
 `crates/almondbread-render/src/shaders/mandelbrot.metal`) from a **history**: the last shown
 image in linear light (rgba16f, alpha = per-pixel confidence) plus the viewport it shows
-(our design, built 2026-10-14; measured M1 Pro, release, [[synthesis/benchmarks]] FL).
+(our design, built 2026-10-14; measured M1 Pro, release, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) FL).
 
 - **Reprojection is exact.** A pan or zoom between two views is a pure scale and
   translation, so each output pixel's history position is `origin + pixel · step` with
@@ -154,7 +154,7 @@ image in linear light (rgba16f, alpha = per-pixel confidence) plus the viewport 
   a recolour refresh with no drawable reported idle and the display link paused on the old
   colours, and a done recolour left the job "settled" with AA not rerun (aliased edges). Now a
   planned frame without a target asks for the next refresh, and a recolour clears the settled
-  flag ([[decisions/controls]] "The colours tour"). Rule: anything the plan still wants to
+  flag ([Controls: keyboard, pointer and touch](../decisions/controls.md) "The colours tour"). Rule: anything the plan still wants to
   compose must show up in the idle test.
 
 Pitfalls found: (1) a jittered gesture level reused as the refined frame breaks the
@@ -170,8 +170,8 @@ they now take the outline colour.
 Reproject the stored previous frame as an immediate placeholder, copy exact
 pixels on centred ×2 zooms, keep the reference and skip table across zooms
 (KF "reuse reference"), and refine coarse-to-fine from the focus with chunked
-dispatches, then accumulate AA. Related: [[techniques/reference-selection]],
-[[techniques/auto-iterations]].
+dispatches, then accumulate AA. Related: [Reference selection: nucleus, period detection, Newton](reference-selection.md),
+[Automatic maximum-iteration control](auto-iterations.md).
 
 ## R4: reuse samples, not the image
 
@@ -179,4 +179,4 @@ FL computes every gesture frame's preview fresh. R4 measured an alternative: a s
 fractal coordinates that keeps every computed sample at its exact position and re-shades it
 each frame. It matches FL's image with 2–50 % of FL's iterations per frame, or is sharper at
 the same iterations, except in the deep, sample-starved zoom. MetalFX upscaling gave no gain
-over the compose above. (The cache was built opt-in and deleted again 2026-10-17, never default.) Details: [[techniques/sample-reuse]], [[synthesis/motion-sample-reuse]].
+over the compose above. (The cache was built opt-in and deleted again 2026-10-17, never default.) Details: [Sample reuse while zooming and panning (sample cache in fractal coordinates)](sample-reuse.md), [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md).

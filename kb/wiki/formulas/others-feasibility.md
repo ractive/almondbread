@@ -8,13 +8,13 @@ tags: [formula, feasibility, nova, newton, mandelbulb, lyapunov]
 
 # Other formulas: feasibility of deep zoom
 
-Which formulas beyond [[formulas/mandelbrot]], [[formulas/multibrot]],
-[[formulas/mandelbar]], [[formulas/burning-ship]], [[formulas/hybrids]] and
-[[formulas/julia]] can use perturbation, rebasing and BLA.
+Which formulas beyond [Mandelbrot set (power 2)](mandelbrot.md), [Multibrot (integer power p)](multibrot.md),
+[Mandelbar (Tricorn)](mandelbar.md), [Burning Ship and abs variations](burning-ship.md), [Hybrid formulas](hybrids.md) and
+[Julia sets](julia.md) can use perturbation, rebasing and BLA.
 
 For the full survey (all families incl. Buddhabrot, Lyapunov, flames and 3D, a feasibility
 matrix, the recommended order and the pluggable-formula architecture) see
-[[synthesis/other-fractal-types]].
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md).
 
 | Formula | Perturbation | Rebasing | BLA | Verdict |
 |---|---|---|---|---|
@@ -29,7 +29,7 @@ matrix, the recommended order and the pluggable-formula architecture) see
 Ultra Fractal's `perturb` setting marks when hand-written perturbation
 equations are valid: positive integer powers reduce so every term contains
 the delta, while non-integer or complex powers do not, and "not all fractal
-types are suitable" (src: [[sources/ultrafractal-perturbation-equations]]
+types are suitable" (src: [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)
 §Perturbation equations).
 
 ## Nova, Newton, magnet, lambda (convergent and rational maps)
@@ -41,9 +41,9 @@ reports using rebasing for "Mandelbrot 2-5 powers and burning ships, lambda,
 nova, magnet and the newton parameter space without any issue", and mathr
 replies that nothing in rebasing is Mandelbrot-specific: it needs the
 perturbation identity and an iteration where the reference orbit is 0
-(src: [[sources/fractalforums-zhuoran-rebasing-bla]] §Reply #8, §Reply #10).
+(src: [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md) §Reply #8, §Reply #10).
 superheal is the author of Fractal Zoomer, which lists perturbation theory and
-over 500 formulas (src: [[sources/fractalzoomer-readme]]). Rational maps need
+over 500 formulas (src: [Fractal Zoomer README](../sources/fractalzoomer-readme.md)). Rational maps need
 a quotient-perturbation identity (`(N+n)/(D+d) - N/D = (nD - Nd)/(D(D+d))`,
 our restatement), and convergent fractals test convergence to a root rather
 than escape, so glitch and BLA radius criteria are not worked out (inference).
@@ -53,13 +53,13 @@ than escape, so glitch and BLA radius criteria are not worked out (inference).
 - Notes: "no perturbation scheme found for Nova/Newton". Forum (2021):
   Fractal Zoomer uses perturbation with rebasing for nova, magnet, lambda and
   Newton parameter space. The forum claim is first-hand but unbenchmarked.
-  See [[questions/perturbation-convergent-formulas]].
+  See [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](../questions/perturbation-convergent-formulas.md).
 
 ## Multiple critical points
 
 A reference per critical point, rebase to the orbit minimising
 `|(Z - Z_o) + z|`, separate BLA table per reference; none implemented in
-Fraktaler 3 (src: [[sources/mathr-deep-zoom-page]] §4.4 Multiple Critical
+Fraktaler 3 (src: [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md) §4.4 Multiple Critical
 Points).
 
 ## Mandelbulb and Lyapunov

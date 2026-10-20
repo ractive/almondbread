@@ -11,8 +11,8 @@ tags: [ios, ipad, device, signing, memory, thermal, testing]
 How the iPhone/iPad app gets onto a real device, and what the renderer does about the
 limits a device has and a Mac does not: a per-app memory limit, passive cooling, no GPU work
 in the background. Prepared 2026-10-18 without a device (Xcode 26.6, M1 Pro); everything
-marked *device only* is still unmeasured. Background: [[platform/ios-ipad-considerations]],
-[[platform/ios-simulator]].
+marked *device only* is still unmeasured. Background: [iOS and iPadOS port considerations](ios-ipad-considerations.md),
+[iOS and iPadOS on the simulator: setup, checks, what broke](ios-simulator.md).
 
 ## First run on a fresh iPad (the steps)
 
@@ -123,7 +123,7 @@ lowers it) and derives:
   older references, the preview allocation outside a gesture) and the thumbnails' bitmaps
   (`PlaceThumbnails.purge`).
 - 0 from `os_proc_available_memory()` on a device means "at or over the limit"
-  (src: [[sources/apple-device-tooling]]): Swift passes 1 byte, so the budget drops to its
+  (src: [Apple device tooling and iOS process APIs (devicectl, xcodebuild provisioning, os/proc.h)](../sources/apple-device-tooling.md)): Swift passes 1 byte, so the budget drops to its
   floors.
 
 What that means: a 3 GB iPad (~1.4 GB per app, inference from common reports, unverified)
@@ -166,9 +166,9 @@ suspended renderer commits nothing and settles after resume.
   *Device only:* whether frames keep up at 120 Hz.
 - **GPU watchdog:** no change. Every command buffer is a chunk sized by the measured rate:
   16 ms idle, 8 ms in gestures (×0.5 / ×0.35 when hot), a failed chunk divides the rate by 8
-  ([[platform/gpu-watchdog-and-chunking]]); the first chunk on a slower A-series GPU uses the
+  ([GPU watchdog and chunked, resumable kernels](gpu-watchdog-and-chunking.md)); the first chunk on a slower A-series GPU uses the
   Mac's starting rate and may run a few times longer than 16 ms, still far from any watchdog
-  reported (inference). iOS's limit is unknown ([[questions/metal-watchdog-limit]]).
+  reported (inference). iOS's limit is unknown ([What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md)).
 - **Licences in the iOS binary:** no LGPL. BigFloat is our own code (`almondbread-math` has no
   dependencies); there is no GMP/MPFR. `cargo tree --target aarch64-apple-ios` of the FFI crate:
   MIT / Apache-2.0 / Zlib crates and UniFFI (MPL-2.0, file-level copyleft, unmodified: its

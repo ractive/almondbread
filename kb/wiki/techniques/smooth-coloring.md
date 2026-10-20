@@ -11,7 +11,7 @@ tags: [coloring, smooth-iteration, bailout, precision]
 The integer escape count `n` gives visible bands. The smooth count adds a
 fractional part from how far past the bailout the last iterate landed. It is
 the near-free baseline for every colouring method
-([[techniques/coloring-methods]]).
+([Colouring methods](coloring-methods.md)).
 
 ## Formula
 
@@ -19,15 +19,15 @@ For `z → z^p + c` with bailout radius `B`:
 
 - `μ = n − log_p( log|z_n| / log B )` (Wikipedia's normalised iteration count;
   for p = 2 often written `n + 1 − log₂(log|z_n|)` with an offset)
-  (src: [[sources/wikipedia-plotting-algorithms]] §Continuous (smooth) coloring).
+  (src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Continuous (smooth) coloring).
 - Quilez: `μ = n − log(log(length(z))/log(B))/log(2)`. A bailout "in the order of
   50" is enough for visual smoothness; his examples use B = 256. Compare
   `dot(z,z)` against `B²` to skip the square root; for B = 2⁸ the optimised form
   is `n − log2(log2(dot(z,z))) + 4`
-  (src: [[sources/quilez-smooth-iteration]] §Smooth iteration count).
+  (src: [Quilez: Smooth iteration count for generalized Mandelbrot sets](../sources/quilez-smooth-iteration.md) §Smooth iteration count).
 - Potential view: `V = log|z_n| / 2ⁿ` (Chéritat uses `log|z|²/2ⁿ`, stopping at
   `|z|² > 10⁶`); relative error about `1/R`
-  (src: [[sources/cheritat-mandelbrot-rendering]] §The potential).
+  (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §The potential).
   `μ` and `log V` differ only by sign and constants.
 
 ```text
@@ -39,16 +39,16 @@ store n (uint32), frac (float32)          // mu = n + frac
 
 With a large bailout the B-dependent term is a constant offset; dropping it
 just shifts the palette (inference). KF 2.15.1+ offsets the log smooth count
-by `−log(log(BailoutRadius))/log(Power)` (src: [[sources/kf-manual]]).
+by `−log(log(BailoutRadius))/log(Power)` (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 ## Bailout choice
 
 - Larger B makes `μ` smoother and more accurate (error ~1/R) at a cost of a few
-  extra iterations (src: [[sources/cheritat-mandelbrot-rendering]] §The potential).
+  extra iterations (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §The potential).
 - KF2+ offers High, Bailout = 2, Low bailout and Custom radii, plus custom norm
   power; its "Log" smooth method is the renormalised count and can show seams,
   "Linear" interpolates the last two iterations and suits small bailouts
-  (src: [[sources/kf-manual]]).
+  (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - Under perturbation the escape test is on `|Z+z|²`, fine in float32 (inference).
 - Use R ≥ 256 (inference from Quilez's B = 256; Chéritat uses 1000 for DE).
 
@@ -60,9 +60,9 @@ image bands (inference). Existing tools split the count:
 
 - zoomasm stores N in split EXR channels N0/N1/NF (with an IterationsBias) and
   `getN()` returns it "at higher precision than single-precision float"
-  (src: [[sources/zoomasm]]).
+  (src: [zoomasm (zoom video assembler)](../sources/zoomasm.md)).
 - KF's GLSL colouring uses a `float49` type (libqd-derived, ~49 bits) so smooth
-  counts survive large N (src: [[sources/kf-manual]]).
+  counts survive large N (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 So store `n` as uint32 and `frac` as float32 separately, and form colours from
 `(n − n_ref) + frac` or from `log(μ)` computed in mixed form (inference).
@@ -77,4 +77,4 @@ Per pixel store `uint32 n` and `float frac` (plus flags) in the iteration
 buffer; never a single float `μ`. Bailout 2⁸ (squared test against 2¹⁶); go
 higher only if DE needs it. Do colouring in a separate pass from stored data so
 palette changes never recompute the fractal. Related:
-[[techniques/distance-estimation]], [[techniques/anti-aliasing]].
+[Distance estimation](distance-estimation.md), [Anti-aliasing and supersampling](anti-aliasing.md).

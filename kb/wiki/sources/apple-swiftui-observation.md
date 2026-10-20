@@ -28,4 +28,4 @@ saved (local tool output). They show which SwiftUI types do the layout. Read 202
 - From the call trees: a `LazyVGrid` inside that form runs `LazyStack.measureEstimates` on
   layout passes.
 
-Used by [[platform/swiftui-performance]].
+Used by [SwiftUI performance: the control center sidebar](../platform/swiftui-performance.md).

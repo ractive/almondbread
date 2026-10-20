@@ -27,4 +27,4 @@ Primary description by the author. It shows that links and video export are avai
 
 ## Used by
 
-[[sources/hn-mandelbrot-site-thread]]; market research notes (kept private)
+[Hacker News: Mandelbrot Set Explorer thread (2025)](hn-mandelbrot-site-thread.md); market research notes (kept private)

@@ -10,14 +10,14 @@ tags: [dense-regions, adaptive-sampling, series-approximation, anti-aliasing, gu
 
 **Question.** In dense, chaotic boundary regions (the user's slow view `dense-5e-14`:
 −1.4080321340304542 + 0.13680236432900417i, 4.6e−14/px, ~3000 iterations per pixel, 85–160 ms
-GPU at 1600 × 1000) BLA and AT cannot skip ([[techniques/bla]] M4) and the kernel has ~1.5×
+GPU at 1600 × 1000) BLA and AT cannot skip ([Bivariate linear approximation (BLA)](../techniques/bla.md) M4) and the kernel has ~1.5×
 headroom. Can we compute fewer pixel-iterations for the same perceived image, while flying and
 when settling after a stop?
 
 **Answer.** Yes, but not by sampling fewer pixels. Every pixel-sparse or "guess the colour"
 scheme lost visible structure in exactly these regions. What works is sharing the coherent
 part of neighbouring orbits: a **local series approximation** around tile and pixel seeds
-([[techniques/local-series-approximation]]). Measured on the CPU (f64), the refined frame
+([Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md)). Measured on the CPU (f64), the refined frame
 needs 5.2× fewer iterations at the dense view, and the settled FL image (3 × 3 adaptive AA)
 7.2× fewer, with error statistics against a converged reference equal to the exact render's.
 Gains are 1.5–5.6× on the other exterior-heavy views and ≤ 1.15× on interior-heavy ones, where
@@ -122,29 +122,29 @@ the exact ones in every statistic and at 200 % (`prototypes/dense-sampling/galle
    reference that is itself a 16-sample mean; but at 300 % it is blotchy and it erases the
    one-pixel minibrots on the spike (gallery `feigenbaum-ref-a9-quadAA-sparse.jpg`). ΔE against a
    finite-sample reference rewards smoothing; the images decide. Edge-aware upsampling needs a cheap guide image
-   whose edges match the result (src: [[sources/kopf-2007-joint-bilateral-upsampling]] §3); a
+   whose edges match the result (src: [Kopf et al. 2007: Joint Bilateral Upsampling](../sources/kopf-2007-joint-bilateral-upsampling.md) §3); a
    fractal has none, the iteration data is the expensive part. SVGF-style filtering assumes the
-   noise is noise (src: [[sources/schied-2017-svgf]] §4); here it is detail.
+   noise is noise (src: [Schied et al. 2017: Spatiotemporal Variance-Guided Filtering (SVGF)](../sources/schied-2017-svgf.md) §4); here it is detail.
 3. **Colour guessing (KF/XaoS style, in OKLab): no in dense regions.** τ = 5 saves 4 % at the
    dense view; τ = 10 saves 27 % and changes colours (ΔE p99 vs exact 16.7). It saves 70 % at
    the neck, but with a ΔE max of 83 (lost features). The literature agrees: guessing misses
-   sub-pixel features (src: [[sources/muency-adjacency-optimization]]), Ultra Fractal
-   recommends linear drawing for final quality (src: [[sources/ultrafractal-antialiasing]]),
-   and KF only guesses between pixels of equal glitch status (src: [[sources/kf-manual]]).
+   sub-pixel features (src: [Mu-Ency: Adjacency optimization (with Mariani/Silver and circle tiling)](../sources/muency-adjacency-optimization.md)), Ultra Fractal
+   recommends linear drawing for final quality (src: [Ultra Fractal help: Anti-aliasing and drawing methods](../sources/ultrafractal-antialiasing.md)),
+   and KF only guesses between pixels of equal glitch status (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 4. **Mariani–Silver, interior only: yes, but only where there is interior.** Zero wrongly
    filled pixels at every location (10 views) (the set is full: a closed curve of interior pixels encloses
    no exterior, and the derivative test is conservative near parabolic points, where it leaves
    pixels unresolved instead of interior). 1.6× at elephant, 1.4× at Feigenbaum, 1.3× at minibrot-p4,
-   nothing in dense or parabolic views. See [[techniques/guessing-and-subdivision]].
+   nothing in dense or parabolic views. See [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md).
 5. **Variance-driven AA: small.** Stopping a pixel's 3 × 3 samples once the standard error of its
-   OKLab mean is below τ (Mitchell-style, src: [[sources/mitchell-1987-adaptive-sampling]] §3)
+   OKLab mean is below τ (Mitchell-style, src: [Mitchell 1987: Generating Antialiased Images at Low Sampling Densities](../sources/mitchell-1987-adaptive-sampling.md) §3)
    saves 5–28 % of the settled image's iterations at τ 1.5 (root-third 5 %, minibrot-p4 28 %;
    ΔE mean +0 to +23 %, e.g. 0.31 → 0.35 at minibrot-p4, 1.59 → 1.96 at Feigenbaum);
    at the dense view 9 % (τ 1.5) or 35 % (τ 3) for a visibly noisier result (ΔE mean
    1.96 → 2.16 / 2.59): every texture pixel's variance is high. Adaptivity by DE has the same
    problem: on a dense view it is no better than uniform supersampling
-   (src: [[sources/mathr-adaptive-supersampling-de]]).
-6. **Local series approximation: yes** (above and [[techniques/local-series-approximation]]).
+   (src: [mathr: Adaptive super-sampling using distance estimate (2014)](../sources/mathr-adaptive-supersampling-de.md)).
+6. **Local series approximation: yes** (above and [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md)).
    It does not change what is sampled, only how much of each orbit is iterated per sample, so
    minibrots, filaments and the texture's fibres are exactly as in the exact render.
 
@@ -157,9 +157,9 @@ the exact ones in every statistic and at 200 % (`prototypes/dense-sampling/galle
    root-third 1.55× / 1.5×; minibrots 1.5× / 2.5×; interior- or unresolved-heavy views
    (elephant, minibrot-p4, Feigenbaum) 1.04–1.15× / 1.06–1.17×. GPU time gains will be smaller
    (seed passes, state copies; to measure on an idle GPU). Start with a kernel prototype that
-   answers [[questions/local-sa-float32]] before touching the scheduler.
+   answers [Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md) before touching the scheduler.
 2. **Then interior-only Mariani–Silver tiles** (1.3–1.6× on interior-heavy views), as the
-   2-pass tile design on [[techniques/guessing-and-subdivision]]. It complements local SA,
+   2-pass tile design on [Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md). It complements local SA,
    which cannot shorten interior detection (a branched sample restarts its interior
    derivative).
 3. **Do not build** exterior guessing, texture fill / sparse reconstruction, footprint
@@ -170,7 +170,7 @@ the exact ones in every statistic and at 200 % (`prototypes/dense-sampling/galle
 4. **Unresolved pixels** (near parabolic points and minibrot halos) are now the largest cost
    outside dense views: 50 % of iterations at neck-2e5, 65 % at root-third, 44 % at
    minibrots-5e-12. Local SA helps them only partly; a better interior/unresolved decision is
-   a separate question ([[techniques/interior-detection]]).
+   a separate question ([Interior detection](../techniques/interior-detection.md)).
 
 ## Design: how it slots into the scheduler
 
@@ -215,12 +215,12 @@ AA sample (listMode 2): init from the pixel's AA seed shifted by the Halton offs
 
 ## Risks
 
-- **float32 at the branch** ([[questions/local-sa-float32]]): if `|A δ|` falls below float32
+- **float32 at the branch** ([Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md)): if `|A δ|` falls below float32
   rounding of `dz`, neighbours start identical; `+dc` separates them again but could leave
   streaks. Must be checked on the GPU before anything else. **Checked (R5):** no collapse;
   8.7× fewer steps and 5× less GPU time at the dense view, but the interior derivative must
   be carried, not restarted, and interior-heavy views lose time
-  ([[questions/local-sa-float32]]).
+  ([Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md)).
 - **GPU efficiency**: the seed phase has 1/1024 of the threads at the 32 × 32 root level (the
   first few hundred iterations of a level run on few threads); children arrive in waves. The
   chunked live list hides some of it; measure wall and GPU time, not just iterations.
@@ -238,7 +238,7 @@ AA sample (listMode 2): init from the pixel's AA seed shifted by the Halton offs
 
 ## Related
 
-[[techniques/adaptive-sampling]] (the sampling approaches and literature),
-[[techniques/local-series-approximation]], [[techniques/series-approximation]],
-[[techniques/anti-aliasing]], [[techniques/frame-reuse-and-progressive]],
-[[synthesis/benchmarks]] (R3 section), [[roadmap]].
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md) (the sampling approaches and literature),
+[Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md), [Series approximation (legacy)](../techniques/series-approximation.md),
+[Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md),
+[almondbread benchmarks and verification record](benchmarks.md) (R3 section), [Roadmap](../roadmap.md).

@@ -25,10 +25,10 @@ Very short glossary entry (2023-06-21) defining the floatexp number format.
 ## Reliability
 
 Secondary, correct but minimal; no performance data. Implementations differ: KF's original
-floatexp uses a double mantissa ([[sources/mathr-deep-zoom-theory]] §Rescaling) and added a single
-variant in 2.15.3 ([[sources/kf-manual]] §kf-2.15.3); fractalshades uses int32 + float64
-([[sources/fractalforums-interior-detection]] §Reply #8); Heiland-Allen's newer renderer uses
-float + int and Fraktaler 3.1 added `doubleexp` ([[sources/fraktaler-3-site]] §Version 3.1).
+floatexp uses a double mantissa ([mathr: Deep zoom theory and practice (2021)](mathr-deep-zoom-theory.md) §Rescaling) and added a single
+variant in 2.15.3 ([Kalles Fraktaler 2 + manual](kf-manual.md) §kf-2.15.3); fractalshades uses int32 + float64
+([fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](fractalforums-interior-detection.md) §Reply #8); Heiland-Allen's newer renderer uses
+float + int and Fraktaler 3.1 added `doubleexp` ([Fraktaler 3 (documentation site, v3.1)](fraktaler-3-site.md) §Version 3.1).
 
 ## Useful sections
 
@@ -36,4 +36,4 @@ float + int and Fraktaler 3.1 added `doubleexp` ([[sources/fraktaler-3-site]] §
 
 ## Used by
 
-[[techniques/extended-range-floats]], [[questions/precision-bits-formula]]
+[Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md), [How many bits does the reference orbit need?](../questions/precision-bits-formula.md)

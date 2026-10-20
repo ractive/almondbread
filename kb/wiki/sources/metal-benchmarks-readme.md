@@ -36,14 +36,14 @@ Philip Turner's long README describing the M1/M2 (Apple GPU families 7 and 8) GP
 
 ## Reliability
 
-- Single-author microbenchmarks (scripts are in the repo, so they can be reproduced). M1/M2 only; nothing on M3 Dynamic Caching or later (see [[sources/apple-dynamic-caching-talk]]).
-- Internal contradiction on FP32 latency: the instruction table gives FFMA32 adjusted latency ~2.21 cycles (raw 3.5–3.9), while §ALU Bottlenecks says later, better benchmarks measured 6 cycles for FFMA32 and 3 for FADD32/FMUL32. The ILP tables also show 11.34 cycles for FFMA32 at 4 SIMDs/core. Tracked in [[questions/ffma32-latency]].
-- The "FP59" emulation ratios are estimates from instruction counts, not a measured kernel. They differ from his own forum estimate (see [[sources/apple-forums-fp64-emulation]]).
+- Single-author microbenchmarks (scripts are in the repo, so they can be reproduced). M1/M2 only; nothing on M3 Dynamic Caching or later (see [Apple tech talk: Explore GPU advancements in M3 and A17 Pro (Dynamic Caching)](apple-dynamic-caching-talk.md)).
+- Internal contradiction on FP32 latency: the instruction table gives FFMA32 adjusted latency ~2.21 cycles (raw 3.5–3.9), while §ALU Bottlenecks says later, better benchmarks measured 6 cycles for FFMA32 and 3 for FADD32/FMUL32. The ILP tables also show 11.34 cycles for FFMA32 at 4 SIMDs/core. Tracked in [What is the FFMA32 latency on Apple GPUs?](../questions/ffma32-latency.md).
+- The "FP59" emulation ratios are estimates from instruction counts, not a measured kernel. They differ from his own forum estimate (see [Apple Developer Forums thread 718737: FP64 emulation on Apple GPUs](apple-forums-fp64-emulation.md)).
 - Opinionated passages (core counts, AI, Nanite history) are commentary, not measurement.
 
 ## Contradictions
 
-- FFMA32 latency: ~2.21 (table) vs 6 cycles (later note) vs 11.34 (4 SIMDs, ILP 1). See [[questions/ffma32-latency]].
+- FFMA32 latency: ~2.21 (table) vs 6 cycles (later note) vs 11.34 (4 SIMDs, ILP 1). See [What is the FFMA32 latency on Apple GPUs?](../questions/ffma32-latency.md).
 
 ## Useful sections
 
@@ -57,9 +57,9 @@ Philip Turner's long README describing the M1/M2 (Apple GPU families 7 and 8) GP
 
 ## Used by
 
-- [[platform/apple-gpu-architecture]]
-- [[platform/metal-compute]]
-- [[techniques/double-float]]
-- [[techniques/extended-range-floats]]
-- [[questions/ffma32-latency]]
-- [[questions/double-float-speed-on-m1]]
+- [Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)
+- [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)
+- [What is the FFMA32 latency on Apple GPUs?](../questions/ffma32-latency.md)
+- [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)

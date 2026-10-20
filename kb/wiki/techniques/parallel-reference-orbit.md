@@ -10,8 +10,8 @@ tags: [reference, arbitrary-precision, threads, newton, latency]
 
 What R6 did to the time from "Go to coordinates" (or any jump without a usable
 reference) to the first frame at depths of 1e-300 to 1e-2000. Measurements are in
-[[synthesis/benchmarks]] R6; the arithmetic itself is on
-[[platform/mpfr-gmp-on-apple-silicon]] and [[decisions/arbitrary-precision]].
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) R6; the arithmetic itself is on
+[Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md) and [Arbitrary precision: own Swift/C implementation, not GMP/MPFR](../decisions/arbitrary-precision.md).
 
 ## Where the time went
 
@@ -23,7 +23,7 @@ A jump with no nucleus in the view (the dendrite benchmarks, c = i) waited for:
    nucleus lands outside the view and is thrown away; at 1e-2000 that cost 1.3 s.
 
 Result for a jump to dendrite-1e1000: first frame after ~0.1 s instead of ~1.8 s
-([[synthesis/benchmarks]] R6).
+([almondbread benchmarks and verification record](../synthesis/benchmarks.md) R6).
 3. The centre orbit to twice the iteration limit (400 001 points for the default
    200 000), before any frame.
 
@@ -35,7 +35,7 @@ every multiplication (see "Short products" below).
 
 The squaring form needs `X²`, `Y²` and `(X+Y)²`, three independent products
 (FractalShark's MT3 splits the multiplication form the same way, src:
-[[sources/fractalshark-readme]] §4). Ours (`parallel.rs`, safe Rust, no
+[FractalShark README](../sources/fractalshark-readme.md) §4). Ours (`parallel.rs`, safe Rust, no
 dependencies):
 
 ```text
@@ -61,7 +61,7 @@ thread 0 also writes the float32 / floatexp point and tests escape
   bit-identical (`orbit_digest`, unit tests through escapes, cancellation and resume).
 - The exchange costs ~0.1 µs; the measured crossover is ~1400 bits (22 limbs): 1.8x at
   3456 bits (1e-1000), 2.2x at 6784 (1e-2000), 2.3x at 10048 (measured 2026-10-15, M1
-  Pro, release, medians, lightly loaded; [[synthesis/benchmarks]] R6).
+  Pro, release, medians, lightly loaded; [almondbread benchmarks and verification record](../synthesis/benchmarks.md) R6).
   `Threads::Automatic` uses it from 24 limbs (1536 bits) and 256 iterations, on
   machines with at least 8 cores (a 6-core iPhone has 2 performance cores; a helper on
   an efficiency core would set the pace).
@@ -77,7 +77,7 @@ a carry merge) would cut the critical path by roughly another third at 1e-1000
 
 ## Progressive delivery of centre references
 
-With [[techniques/rebasing]] a prefix of an orbit is a correct reference for every
+With [Rebasing (Zhuoran, 2021)](rebasing.md) a prefix of an orbit is a correct reference for every
 pixel that escapes before its end; a pixel that reaches the end rebases to `m = 0`
 with a rounding loss and is wrong (rebasing, "Truncated references"). So the frame
 drawn with a prefix is provisional, and the reference worker hands prefixes out
@@ -103,7 +103,7 @@ A nucleus reference is one period long and is delivered whole.
 ## Newton with a cheap derivative
 
 Newton's step `c -= z_p / z_p'` only needs the derivative to a few digits. Computing
-`z'` in extended-range f64 ([[techniques/extended-range-floats]]) over the orbit
+`z'` in extended-range f64 ([Extended range: floatexp, rescaled iterations, depth thresholds](extended-range-floats.md)) over the orbit
 (which now runs through the orbit code, with fixed-size kernels and three threads)
 makes a step ~3x cheaper (dendrite@1e-2000: Newton 1333 -> ~230 ms with the threads). The derivative's relative error turns quadratic convergence
 into linear convergence of ~50-90 bits per step once the error is below ~2^-50 in
@@ -126,7 +126,7 @@ other orbit unchanged.
 ## What did not pay (measured or bounded)
 
 - Toom-3 and NTT multiplication: the short Comba product beats full Karatsuba up to
-  at least 256 limbs (R1, [[platform/mpfr-gmp-on-apple-silicon]]), and depths to
+  at least 256 limbs (R1, [Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)), and depths to
   1e-3000 need at most ~160 limbs. Toom-3 is asymptotically ~1.3x cheaper than
   Karatsuba but would still have to beat a short product that already does half the
   limb products of a full one; FFT crossovers are in the thousands of limbs.
@@ -137,5 +137,5 @@ other orbit unchanged.
 
 ## See also
 
-[[techniques/reference-orbit-precision]], [[techniques/reference-selection]],
-[[techniques/rebasing]], [[decisions/arbitrary-precision]].
+[Reference orbit: precision, cost, storage, compression](reference-orbit-precision.md), [Reference selection: nucleus, period detection, Newton](reference-selection.md),
+[Rebasing (Zhuoran, 2021)](rebasing.md), [Arbitrary precision: own Swift/C implementation, not GMP/MPFR](../decisions/arbitrary-precision.md).

@@ -30,4 +30,4 @@ Expert primary source, but not read here; claims taken from it are marked as fro
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)

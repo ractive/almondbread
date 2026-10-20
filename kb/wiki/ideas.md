@@ -6,7 +6,7 @@ type: meta
 # Ideas
 
 Backlog of the user's ideas as they come up, with first thoughts. Not
-scheduled; picked up after the feel-and-look review ([[roadmap]]). Newest
+scheduled; picked up after the feel-and-look review ([Roadmap](roadmap.md)). Newest
 last.
 
 ## [2026-10-14] Music generated from the landscape
@@ -18,9 +18,9 @@ Background music derived from what you fly over.
   CodeParade's "Sounds of the Mandelbrot Set" did this and got about 4M
   views (unverified).
 - Periods as harmony: periods of nearby minibrots
-  ([[techniques/reference-selection]]) as chords or overtones; approaching
+  ([Reference selection: nucleus, period detection, Newton](techniques/reference-selection.md)) as chords or overtones; approaching
   a period-p minibrot tunes in a matching harmony.
-- Landscape as score ([[decisions/landscape-mode]]): terrain height under
+- Landscape as score ([Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md)): terrain height under
   the camera → pitch/register, canyon roughness → rhythm density, depth →
   slow key changes.
 - Motion as tempo: flight speed sets the pace.
@@ -50,7 +50,7 @@ view is turning while zooming in. Maybe the color palette could change etc."
 - **Status 2026-10-15: built** (pilot track PJ): view rotation end to end, spin
   tied to the zoom rate, OKLab hue and phase drift with depth, slow cycling while
   flying, all off by default; together with the journey mode (planned flights
-  from landmark to landmark, seeded). As built: [[decisions/controls]] "Journey",
+  from landmark to landmark, seeded). As built: [Controls: keyboard, pointer and touch](decisions/controls.md) "Journey",
   "View rotation", "Cinematic effects". Not built: vignette/glow at speed,
   music-driven effects, cross-fading between two palettes (the hue drift gives
   most of the look change for one palette lookup).
@@ -59,11 +59,11 @@ view is turning while zooming in. Maybe the color palette could change etc."
 
 User asked which unsolved questions the tool could explore. Pictures cannot settle MLC,
 density of hyperbolicity or the boundary's area; experimental maths can. Written up as
-[[decisions/minibrot-atlas]] (waits for go). Side idea, a "maths moment" in the app: π in
+[Mini-Mandelbrot atlas](decisions/minibrot-atlas.md) (waits for go). Side idea, a "maths moment" in the app: π in
 the iteration counts. At `c = -0.75 + iε` the escape count times ε tends to π, and at
 `c = 0.25 + ε` the count times √ε does (Boll 1991). **Built 2026-10-15** as the π meter with
 places and guided flights: sources, proofs, error orders and our precision measurements in
-[[techniques/pi-in-the-mandelbrot-set]], controls in [[decisions/controls]] "π meter".
+[π in the Mandelbrot set (neck and cusp escape counts)](techniques/pi-in-the-mandelbrot-set.md), controls in [Controls: keyboard, pointer and touch](decisions/controls.md) "π meter".
 
 ## Cosmic size scale (2026-10-15)
 
@@ -85,7 +85,7 @@ atoms, nuclei, strings, shown like the mini-map at the bottom left.
 - **Status 2026-10-15: built** (off by default, key C): screen and set-as-object anchors
   (physical), light-crossing times and probe energies, the unexplored band, big numbers and
   ladders past the Planck length, and a relative "zoom range = cosmos" metaphor that also travels
-  back in cosmic time. As built: [[decisions/controls]] "Cosmic size scale". Not built: icons
+  back in cosmic time. As built: [Controls: keyboard, pointer and touch](decisions/controls.md) "Cosmic size scale". Not built: icons
   (coloured dots instead), depth badges, the panel in exported videos (overlays never enter
   exports).
 
@@ -98,7 +98,7 @@ gear train after Ganson's "Machine with Concrete".
 - **Status 2026-10-15: built, then removed the same day.** User: "It's an own window, which
   is not like the rest; way too much text; not sure if people understand it." Panel, window,
   menu item, control-center button, the cosmic scale's link and the Rust maths are gone. The
-  convention, numbers and sources stay in [[synthesis/how-big-is-big]] for achievements later.
+  convention, numbers and sources stay in [How big is big? Zoom depth against huge numbers, one dial per up-arrow](synthesis/how-big-is-big.md) for achievements later.
 
 ## Money ladder for the relative mode (2026-10-15)
 
@@ -112,8 +112,8 @@ after the size/time relative mode has been tried.
 ## 3D worlds: Mandelbox first, as a separate mode (2026-10-19)
 
 User asked which other fractal types almondbread could support, including the 3D Mandelbulb and
-Mandelbox once considered. Researched in [[synthesis/other-fractal-types]] §2c; plan page
-[[plans/3d-worlds]].
+Mandelbox once considered. Researched in [Other fractal types: what almondbread could support, at what cost](synthesis/other-fractal-types.md) §2c; plan page
+[3D worlds (Mandelbox first): not recommended now](plans/3d-worlds.md).
 
 - **Verdict: not recommended now.** If wanted, a separate "3D worlds" mode with its own renderer
   and controls, Mandelbox first (conformal folds, scalar DE, architectural spaces to fly
@@ -129,13 +129,13 @@ Mandelbox once considered. Researched in [[synthesis/other-fractal-types]] §2c;
   engine (references, BLA/LA, scheduler levels, interior probe, seek, π, journeys) does not apply.
 - Crowded niche (shadertoys, Mandelbulber, App Store viewers; count unverified) without our
   depth advantage.
-- **Cheaper route:** the 2.5D landscape ([[decisions/landscape-mode]] L0–L2) already flies at
+- **Cheaper route:** the 2.5D landscape ([Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md) L0–L2) already flies at
   118–120 fps, keeps perturbation and unlimited depth (its 1e-12 limit is a prototype choice).
   Revisit true 3D only if the user wants the 3D look more than depth.
 
 ## Earlier ideas already filed elsewhere
 
 - Landscape mode with altitude as zoom, flight recorder and rewind:
-  [[decisions/landscape-mode]].
+  [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md).
 - Game mechanics (atlas, daily challenge, canyon racing, depth missions,
   journey mode) and store distribution: kept in private notes, not in this wiki.

@@ -9,7 +9,7 @@ tags: [hybrids, formula, perturbation, bla, rebasing, code-generation]
 # Hybrid formulas
 
 A hybrid interleaves formulas in a loop, e.g. Mandelbrot and Burning Ship as
-(M,BS,M,M), to combine their features (src: [[sources/mathr-deep-zoom-theory]]
+(M,BS,M,M), to combine their features (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
 §Hybrid Fractals).
 
 ## Formula models
@@ -17,12 +17,12 @@ A hybrid interleaves formulas in a loop, e.g. Mandelbrot and Burning Ship as
 - **KF stanzas**: 1-4 stanzas, each 1-2 lines, each line two operators
   combined by +, - or x; each operator has abs x, abs y, negate x, negate y,
   integer power p and complex multiplier a; `+c` at the end of each stanza;
-  per-stanza repeat counts (src: [[sources/mathr-deep-zoom-theory]] §Hybrid
-  Fractals; Ctrl-H designer in [[sources/kf-page]]).
+  per-stanza repeat counts (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Hybrid
+  Fractals; Ctrl-H designer in [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)).
 - **Fraktaler 3 lines/opcodes**: each line is power P with |X|, |Y|, -X, -Y
   toggles; lines iterate in turn; advanced mode exposes opcodes store, sqr,
   mul, absx, absy, negx, negy, rot, add. N lines cost N times the reference
-  work and memory (src: [[sources/fraktaler-3-site]]).
+  work and memory (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 
 ## Perturbation per operator
 
@@ -39,14 +39,14 @@ S = sum_{i=0..p-1} W^i B^(p-1-i)   // see formulas/multibrot
 return a * w * S                   // delta of a * (transformed input)^p
 ```
 
-(src: [[sources/mathr-deep-zoom-theory]] §Hybrid Fractals; written in our own
+(src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Hybrid Fractals; written in our own
 form.) Combining operators within a line uses perturbation algebra for sums
 and products; the reference `Z` is iterated alongside in low precision within
 a stanza, since only `+C` needs high precision.
 
 Rescaling threads the scale `s` through: start with `W = Z + z s`, use
 `diffabs(Z/s, z)` in the abs cases, and do a full floatexp iteration whenever
-either part of the reference is small (src: [[sources/mathr-deep-zoom-theory]]
+either part of the reference is small (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
 §Hybrid Fractals).
 
 ## Code generation
@@ -54,9 +54,9 @@ either part of the reference is small (src: [[sources/mathr-deep-zoom-theory]]
 Interpreting the toggles per iteration is very slow; generate source per
 formula (OpenCL in KF and Fraktaler) so the branches are resolved once. This
 is faster even on the same device that would interpret the parametric code
-(src: [[sources/mathr-deep-zoom-theory]] §Code Generation). For almondbread:
+(src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Code Generation). For almondbread:
 emit MSL per formula, specialise with function constants
-([[platform/metal-compute]]).
+([Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)).
 
 ## Rebasing and BLA
 
@@ -65,13 +65,13 @@ emit MSL per formula, specialise with function constants
   (M,M,BS,M). A pre-periodic prefix needs one more per prefix step. Each
   phase needs as many references as the starting formula has critical
   points; they can be computed in parallel
-  (src: [[sources/mathr-deep-zoom-theory-again]] §Rebasing).
+  (src: [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md) §Rebasing).
 - One BLA table per reference; rebasing switches to the current phase's
-  reference (src: [[sources/mathr-deep-zoom-page]] §4.3 Hybrid BLA).
+  reference (src: [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md) §4.3 Hybrid BLA).
 - Non-conformal phases force the 2x2 matrix BLA everywhere
-  ([[formulas/mandelbar]], [[formulas/burning-ship]]).
+  ([Mandelbar (Tricorn)](mandelbar.md), [Burning Ship and abs variations](burning-ship.md)).
 - KF's single-reference method "does not work with every hybrid formula"
-  (src: [[sources/kf-manual]]).
+  (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 ## Verdict for almondbread
 

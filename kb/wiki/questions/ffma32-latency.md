@@ -19,7 +19,7 @@ metal-benchmarks lists FFMA32 with raw latency 3.50 to 3.91 and adjusted latency
 2.21 cycles in its instruction table, while its ALU bottlenecks section says those
 tables "reflect a sub-optimal shader setup" and later benchmarks gave absolute
 latencies of 6 cycles for FFMA32 and 3 for FFMA16, FADD32 and FMUL32
-(src: [[sources/metal-benchmarks-readme]] §ALU Bottlenecks, §Instruction Throughputs).
+(src: [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md) §ALU Bottlenecks, §Instruction Throughputs).
 "Adjusted" subtracts a measured overhead, so the figures are not like-for-like.
 
 ## Why it matters
@@ -27,7 +27,7 @@ latencies of 6 cycles for FFMA32 and 3 for FFMA16, FADD32 and FMUL32
 The perturbation step is a short dependent chain (complex square, add, norm). With
 6-cycle latency, a kernel needs several independent pixels per thread or high
 occupancy to keep the ALUs busy, which argues for 2 pixels per thread in the fp32
-path ([[platform/apple-gpu-architecture]]) (inference).
+path ([Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)) (inference).
 
 ## How to resolve
 

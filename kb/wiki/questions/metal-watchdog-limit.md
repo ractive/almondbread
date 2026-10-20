@@ -17,17 +17,17 @@ many timeouts before the device is revoked?
 ## Why it matters
 
 It bounds the work per command buffer in the chunked scheduler
-([[platform/gpu-watchdog-and-chunking]]) and decides how cautious the iOS port
-must be ([[platform/ios-ipad-considerations]]).
+([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)) and decides how cautious the iOS port
+must be ([iOS and iPadOS port considerations](../platform/ios-ipad-considerations.md)).
 
 ## What sources say
 
 - Community report: "~5 seconds", per command buffer not per dispatch; error
   `kIOGPUCommandBufferCallbackErrorImpactingInteractivity`; a separate trigger when
   a display is active (MLX #3267); `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` disables it
-  system-wide (src: [[sources/mlx-watchdog-issue]]).
+  system-wide (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)).
 - Fraktaler 3 warns that big tiles or large step limits cause OS GPU timeouts with
-  OpenCL, without giving a number (src: [[sources/fraktaler-3-site]]).
+  OpenCL, without giving a number (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 - No Apple document with the threshold was found.
 
 ## How to resolve
@@ -44,17 +44,17 @@ with the display on/off and on an iPad. Record date, device and OS version here.
   3456×2234, 200 000 iterations) completed without error from a headless command-line
   process, with the built-in display on and the user's session active. So the limit
   for a background, non-presenting process is above 10 s on this machine, contradicting
-  a flat "~5 s" (src: [[sources/mlx-watchdog-issue]]); the reported trigger may need
+  a flat "~5 s" (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)); the reported trigger may need
   the process to be presenting or the display to be starved. Not probed further: longer
   stalls freeze the user's display. Still open for presenting apps and for iOS.
 - almondbread's chunked scheduler keeps command buffers at ~16 ms (p99 17.6 ms over a
   1e7-iteration render), so the question no longer constrains the design
-  ([[platform/gpu-watchdog-and-chunking]], [[synthesis/benchmarks]]).
+  ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md), [almondbread benchmarks and verification record](../synthesis/benchmarks.md)).
 - Seen 2026-10-16 (M1 Pro, background interaction-test window, GPU 83–100 % busy with other
   processes): `kIOGPUCommandBufferCallbackErrorImpactingInteractivity` on iterate chunks of
   the "spiral zoom" scenario. The gesture frames there were single command buffers of 2.6 s
   GPU (a jump left the cost model unknown, so the first previews ran at 1/2 resolution and
-  K = the whole 41 604-iteration limit; [[synthesis/benchmarks]] "Motion fixes"). With
+  K = the whole 41 604-iteration limit; [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Motion fixes"). With
   budgeted chunks after a jump the error still appeared in 2 of 6 runs under that load, on the
   refine job's chunks; so a presenting process is killed well below the 10 s seen above when
   the GPU is contended. Still no clean threshold.

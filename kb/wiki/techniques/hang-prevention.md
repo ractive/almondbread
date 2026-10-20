@@ -82,7 +82,7 @@ No property tests or fuzzing (a project rule: CI stays fast).
 
 - A background thread posts a block to the main queue every 0.5 s. A heartbeat unanswered for
   more than 2 s is a hang (macOS shows the beach ball at about that point; Apple calls 250 ms a
-  hang, src: [[sources/apple-metrickit-hang-diagnostics]]).
+  hang, src: [Apple: MetricKit MXHangDiagnostic and main-thread hangs](../sources/apple-metrickit-hang-diagnostics.md)).
 - Once per hang it writes `~/Library/Logs/Almondbread/hang-<yyyyMMdd-HHmmss>.txt` (iOS: the
   container's Library/Logs; `--hang-dir=path` overrides): duration, whether the main thread is
   inside `Explorer.frame`, the last 32 UI events and settings changes (a ring buffer fed by
@@ -102,7 +102,7 @@ No property tests or fuzzing (a project rule: CI stays fast).
   quits (exit 0 when the report and the recovery line were written).
 - MetricKit: `MXMetricManager` hang diagnostics (`MXHangDiagnostic`, iOS 14+, macOS 12+) are
   saved next to the reports as `hang-metrickit-<time>.json` when the system delivers them (App
-  Store builds; daily or next launch; src: [[sources/apple-metrickit-hang-diagnostics]]).
+  Store builds; daily or next launch; src: [Apple: MetricKit MXHangDiagnostic and main-thread hangs](../sources/apple-metrickit-hang-diagnostics.md)).
 
 ## GPU queue (as built, 2026-10-19)
 

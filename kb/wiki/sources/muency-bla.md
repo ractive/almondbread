@@ -28,12 +28,12 @@ Glossary entry in Robert Munafo's Mandelbrot Set Glossary and Encyclopedia (firs
 ## Reliability
 
 Low. Secondary and partly wrong or confused:
-- It misses the point of BLA: the coefficients exist to skip many iterations at once with a validity radius and a merged table ([[sources/mathr-deep-zoom-page]] §3.2-§3.4); concluding they are "not needed" describes plain perturbation instead.
-- Dates the rebasing test to "2021 Dec"; Zhuoran posted it on 3 Aug 2021 ([[sources/fractalforums-zhuoran-rebasing-bla]]).
+- It misses the point of BLA: the coefficients exist to skip many iterations at once with a validity radius and a merged table ([mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md) §3.2-§3.4); concluding they are "not needed" describes plain perturbation instead.
+- Dates the rebasing test to "2021 Dec"; Zhuoran posted it on 3 Aug 2021 ([fractalforums.org: Another solution to perturbation glitches (topic 4360)](fractalforums-zhuoran-rebasing-bla.md)).
 - Says the reference must be periodic (nucleus or Misiurewicz point); rebasing and BLA do not require this.
 - Describes rebasing as "two tests, one for a c delta and one for a z delta"; the published rule is one test `|Z+z| < |z|` plus running out of reference.
 - Says Zhuoran collaborated with Heiland-Allen on Imagina; Imagina is Zhuoran's project (unverified either way).
-- Says BLA is used in "more recent versions of Kalles Fraktaler"; KF never got BLA ([[sources/kf-page]] §Future).
+- Says BLA is used in "more recent versions of Kalles Fraktaler"; KF never got BLA ([Kalles Fraktaler 2 + (home page)](kf-page.md) §Future).
 The single-step coefficient recurrence and the one-multiply refactor are correct.
 
 ## Useful sections
@@ -43,4 +43,4 @@ The single-step coefficient recurrence and the one-multiply refactor are correct
 
 ## Used by
 
-[[techniques/bla]], [[techniques/rebasing]], [[questions/kf-bla-support]]
+[Bivariate linear approximation (BLA)](../techniques/bla.md), [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Does Kalles Fraktaler 2+ implement BLA?](../questions/kf-bla-support.md)

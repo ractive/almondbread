@@ -25,7 +25,7 @@ A user-facing help page of Ultra Fractal (commercial Windows/macOS fractal progr
 - The Statistics window shows e.g. "Arbitrary (Perturbation: 99.7%)": the share of arbitrary-precision work skipped.
 - With perturbation on, the Periodicity Checking setting becomes a Perturbation tolerance: Precise (default), Fast, Very Fast. Precise can add so many references that efficiency drops to ~60 %; Fast options trade accuracy for speed.
 - Series approximation is used only in the built-in Mandelbrot formula. The page says SA is hard to generalise and gives much less benefit than perturbation itself.
-- Formula authors can add perturbation support (see [[sources/ultrafractal-perturbation-equations]]).
+- Formula authors can add perturbation support (see [Ultra Fractal help: Perturbation equations](ultrafractal-perturbation-equations.md)).
 
 ## Reliability
 
@@ -38,7 +38,7 @@ Primary for Ultra Fractal's behaviour, but marketing-level: it does not say how 
 
 ## Used by
 
-- [[implementations/ultra-fractal]]
-- [[techniques/perturbation]]
-- [[techniques/glitch-detection]]
-- [[techniques/series-approximation]]
+- [Ultra Fractal 6](../implementations/ultra-fractal.md)
+- [Perturbation](../techniques/perturbation.md)
+- [Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md)
+- [Series approximation (legacy)](../techniques/series-approximation.md)

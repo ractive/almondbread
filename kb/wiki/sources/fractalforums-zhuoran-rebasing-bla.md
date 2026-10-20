@@ -35,7 +35,7 @@ hinted at and discussed, are not in the raw file.
 Primary source for rebasing (the original post). Claims of reliability are empirical, from
 a few locations; no proof. Image attachments are not saved (Reply #12-14 confusion is about
 difference images). Since only page 1 is archived, statements about BLA "hinted at in the thread"
-([[sources/mathr-deep-zoom-theory-again]]) cannot be checked here. Mu-Ency's date of "2021 Dec"
+([mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)) cannot be checked here. Mu-Ency's date of "2021 Dec"
 for this idea is wrong; the post is dated 3 Aug 2021.
 
 ## Useful sections
@@ -48,6 +48,6 @@ for this idea is wrong; the post is dated 3 Aug 2021.
 
 ## Used by
 
-[[techniques/rebasing]], [[techniques/glitch-detection]], [[techniques/perturbation]],
-[[techniques/reference-selection]], [[implementations/imagina]], [[implementations/kalles-fraktaler-2]],
-[[questions/float32-error-long-orbits]]
+[Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md), [Perturbation](../techniques/perturbation.md),
+[Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md), [Imagina](../implementations/imagina.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md),
+[How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)

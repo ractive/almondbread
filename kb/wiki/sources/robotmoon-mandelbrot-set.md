@@ -18,7 +18,7 @@ A long illustrated web page with an in-browser explorer: the iteration, the name
 regions of the set, then three galleries of deeper views ("Deep zoom",
 "Labyrinthine", "Transfinite", down to 2.86e-111). Each image carries a caption with the
 viewer's readout (vertical span, iteration limit). Credits Jussi Härkönen (stripe-average
-colouring) and links mathr's deep-zoom article ([[sources/mathr-deep-zoom-theory]]).
+colouring) and links mathr's deep-zoom article ([mathr: Deep zoom theory and practice (2021)](mathr-deep-zoom-theory.md)).
 
 ## What it covers
 
@@ -28,7 +28,7 @@ colouring) and links mathr's deep-zoom article ([[sources/mathr-deep-zoom-theory
   (-0.74364990 + 0.13188204i, 5.54e-4), double hook (-0.74364085 + 0.13182733i, 9.05e-5),
   concentric satellite crowns (-0.743643135 + 0.131825963i, 1.10e-5): these are the
   centres and widths of Wolfgang Beyer's Commons zoom sequence
-  ([[sources/beyer-mandelbrot-zoom-sequence]]), quoted with his magnifications.
+  ([Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](beyer-mandelbrot-zoom-sequence.md)), quoted with his magnifications.
 - Regions only it gives: seahorse valley spiral sanctuary (near -0.747 + 0.108i, span
   5.8e-3), scepter crown (near -1.25066 + 0.02012i, 5.2e-4), snowflake (near
   -0.658448 - 0.466852i, viewer span 8.67e-4).
@@ -37,15 +37,15 @@ colouring) and links mathr's deep-zoom article ([[sources/mathr-deep-zoom-theory
   at 1e-60 and 1e-100, scepter star-heart (2.86e-111). The page gives a span and a
   region, not a centre, so they cannot be revisited from it.
 - Spans are *vertical* spans of 4:3 images: the shorter side, which is what
-  [[synthesis/places]] stores.
+  [Places: a catalogue of famous views to visit](../synthesis/places.md) stores.
 
 ## Reliability
 
 Secondary and anonymous. Its coordinates for the classic views match Beyer's to every
 digit; the places we took from it render as described (checked 2026-10-14, see
-[[synthesis/places]]). The "double spiral nexus" repeats Wikipedia's 8-digit
+[Places: a catalogue of famous views to visit](../synthesis/places.md)). The "double spiral nexus" repeats Wikipedia's 8-digit
 approximation of M(23,2), which is preperiod 24 with z_0 = 0
-([[sources/wikipedia-misiurewicz-point]]). Some captions mix span and magnification
+([Wikipedia: Misiurewicz point](wikipedia-misiurewicz-point.md)). Some captions mix span and magnification
 (the 1e-100 needle is captioned "10^100×").
 
 ## Useful sections

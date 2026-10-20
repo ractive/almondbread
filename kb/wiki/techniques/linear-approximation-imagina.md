@@ -10,17 +10,17 @@ tags: [la, bla, iteration-skipping, imagina, minibrot, state-of-the-art]
 
 Zhuoran's evaluator in Imagina (`HInfLAEvaluator`) is the fastest known
 skip method for the Mandelbrot set. It differs from the binary-tree
-[[techniques/bla]] in four ways: the first iteration of each step is done
+[Bivariate linear approximation (BLA)](bla.md) in four ways: the first iteration of each step is done
 non-linearly, step boundaries follow the reference's returns towards 0 (its
 period structure), lookup is a sequential walk with no search, and a final
 "AT" step iterates an ordinary low-precision Mandelbrot in rescaled
 coordinates near a minibrot. Fractal Zoomer and FractalShark's CUDA
-"LA/LAv2" descend from it (src: [[sources/fractalshark-readme]]).
+"LA/LAv2" descend from it (src: [FractalShark README](../sources/fractalshark-readme.md)).
 
 Imagina is AGPL-3.0. Everything below is a description in our own words
-of what the code does (src: [[sources/imagina-hinfla-evaluator]]), not code.
+of what the code does (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)), not code.
 The repository's last push was 2024-01-23 and the README says the project
-"is being rewritten" (src: [[sources/imagina-readme]]).
+"is being rewritten" (src: [Imagina README](../sources/imagina-readme.md)).
 
 ## LA step
 
@@ -36,7 +36,7 @@ z  = Ref_next + dz                    // for bailout and rebase tests
 ```
 
 `‖·‖∞` is the Chebyshev norm `max(|re|, |im|)`. A stage is usable only while
-`‖dc‖∞ < LAThresholdC` (src: [[sources/imagina-hinfla-evaluator]] §EvaluateLA).
+`‖dc‖∞ < LAThresholdC` (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §EvaluateLA).
 
 Why the non-linear first step matters (inference): at the reference's near
 returns to 0 the binary-tree radius `ε|Z|` collapses to 0, so a BLA step
@@ -47,7 +47,7 @@ can begin at and span those points.
 ## Building steps
 
 Extending a step by one reference iteration with value `z`
-(src: [[sources/imagina-hinfla-evaluator]] §LAInfo::Step):
+(src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §LAInfo::Step):
 
 ```text
 LAThreshold  = min(LAThreshold,  ‖z‖∞ / ‖ZCoeff‖∞ * 2^-24)
@@ -57,7 +57,7 @@ CCoeff = 2 z CCoeff + 1
 ```
 
 Composing step `a` with a following step `b`
-(src: [[sources/imagina-hinfla-evaluator]] §LAInfo::Composite):
+(src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §LAInfo::Composite):
 
 ```text
 tighten a's thresholds with b.Ref as above
@@ -91,7 +91,7 @@ towards 0, and the step is cut there.
 - An index record per step holds its `StepLength` and `NextStageLAIndex`
   (where to continue in the finer stage), and a per-stage descriptor holds
   its first index, macro-iteration count and a "use double precision" flag
-  (src: [[sources/imagina-hinfla-evaluator]] §CreateLAFromOrbit).
+  (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §CreateLAFromOrbit).
 
 Total entries are below 2M for an M-iteration reference (inference).
 
@@ -114,7 +114,7 @@ loop:
 ```
 
 There is no search over levels: try the next step of the current stage, and
-if it is invalid descend one stage (src: [[sources/imagina-hinfla-evaluator]] §EvaluateLA).
+if it is invalid descend one stage (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §EvaluateLA).
 Imagina processes 4 pixels at a time with SIMD masks. Because steps are
 period-aligned, a pixel near a minibrot can repeat "skip one period,
 rebase" at the coarse stage instead of falling back to fine levels at every
@@ -124,8 +124,8 @@ period boundary, as an unaligned power-of-two tree does (inference).
 
 Near a minibrot of period P, P delta iterations act like one quadratic
 iteration in rescaled coordinates (the renormalisation idea behind knighty's
-nanoMB, see [[techniques/series-approximation]]). From the top-stage step
-that covers one whole period (src: [[sources/imagina-hinfla-evaluator]] §LAInfo::CreateAT):
+nanoMB, see [Series approximation (legacy)](series-approximation.md)). From the top-stage step
+that covers one whole period (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §LAInfo::CreateAT):
 
 ```text
 ZCoeff_AT = ZCoeff
@@ -142,7 +142,7 @@ iteration counts as `StepLength` (one period) reference iterations, until
 `|z|^2 > SqrEscapeRadius`. Then map back and continue with LA and
 perturbation. AT is tried from the coarsest stage down and the first usable
 one is taken; it is used when the reference is periodic or when maxIter is
-below the reference length (src: [[sources/imagina-hinfla-evaluator]] §EvaluateAT).
+below the reference length (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §EvaluateAT).
 
 The name is often expanded as "approximation terminator" in forum usage;
 not confirmed from a saved source (unverified).
@@ -154,14 +154,14 @@ not confirmed from a saved source (unverified).
   FloatExp (mantissa plus separate exponent). The decision is per stage, so
   coarse stages with huge or tiny coefficients stay FloatExp while fine
   stages run in double. The reference is also converted to double when
-  usable (src: [[sources/imagina-hinfla-evaluator]] §ConvertStageToDouble).
+  usable (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §ConvertStageToDouble).
 - Derivatives ride along: `dzdc ← dzdc · 2(dz + Ref) · ZCoeff + CCoeff · scale`,
   the same for `dzdz`; held scaled (by 2^448) to avoid overflow. Distance
   estimation and interior detection through LA steps are therefore nearly
-  free (src: [[sources/imagina-hinfla-evaluator]] §EvaluateLA); see
-  [[techniques/distance-estimation]], [[techniques/interior-detection]].
+  free (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §EvaluateLA); see
+  [Distance estimation](distance-estimation.md), [Interior detection](interior-detection.md).
 - FractalShark's CUDA LA rows are 52 B with HDR float and 32-bit indices,
-  plus 16 B per stage descriptor (src: [[sources/fractalshark-readme]]).
+  plus 16 B per stage descriptor (src: [FractalShark README](../sources/fractalshark-readme.md)).
 
 ## Costs
 
@@ -170,15 +170,15 @@ not confirmed from a saved source (unverified).
   hundred perturbation steps near escape and rebases; in a minibrot-centred
   view AT reduces the bulk to one cheap iteration per period (inference).
 - No published benchmark compares Imagina LA with binary-tree BLA
-  ([[questions/bla-vs-la-benchmark]]). FractalShark's author expects Imagina
+  ([How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)). FractalShark's author expects Imagina
   "will probably beat it on performance in the long term"
-  (src: [[sources/fractalshark-readme]]).
+  (src: [FractalShark README](../sources/fractalshark-readme.md)).
 
 ## Limits
 
 - Mandelbrot-specific as written (complex coefficients, critical point 0).
   For Burning Ship, Mandelbar and hybrids keep the matrix and fold-capped
-  [[techniques/bla]] variants (src: [[sources/mathr-deep-zoom-page]] §4 BLA Extensions).
+  [Bivariate linear approximation (BLA)](bla.md) variants (src: [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md) §4 BLA Extensions).
 - The thresholds use a fixed `2^-24` scale, i.e. float32-level accuracy even
   when evaluating in double.
 
@@ -190,8 +190,8 @@ int32 exponent each, thresholds as float + int32 (about 48 B per entry),
 plus `{StepLength, NextStageLAIndex}` (inference). Pixels walk a stage
 sequentially, so access is coalesced. Implement from this description only;
 no code from Imagina, Fractal Zoomer or FractalShark. See
-[[implementations/imagina]], [[implementations/fractalshark]],
-[[implementations/fractal-zoomer]].
+[Imagina](../implementations/imagina.md), [FractalShark](../implementations/fractalshark.md),
+[Fractal Zoomer](../implementations/fractal-zoomer.md).
 
 ## As built (M6, 2026-10-15)
 
@@ -201,7 +201,7 @@ Code: `crates/almondbread-core/src/la.rs` (stages, chains, AT, CPU model `iterat
 `kAT` = 9, buffers 25–29, plain and deep paths), the scheduler's `job_la` / `prefer_la`. Study
 tool: `cargo run --release -p almondbread-core --example la_check`. Our design unless cited.
 
-**Steps in BLA terms.** We keep the BLA validity of [[techniques/bla]] "As built" (per-pixel
+**Steps in BLA terms.** We keep the BLA validity of [Bivariate linear approximation (BLA)](bla.md) "As built" (per-pixel
 `c`, `|u| + K|c| < R`, ε = 2⁻²⁴) instead of Imagina's two Chebyshev thresholds. A step from a
 boundary `s` to `s'` is one exact perturbation step from `s` (Imagina's non-linear first
 iteration, `u = dz(2Z_s + dz) + dc`) followed by an ordinary BLA block over the inner points
@@ -253,7 +253,7 @@ sea-8007: 2 913 entries in 4 stages, 187 KB, 2.6 ms; 40 000-point centre referen
 Plain-kernel entries are float32 (`|A|, |B| ≤ 2^40`, an invalid entry invalidates the rest of
 its chain), deep entries `BlaEntryX` plus `len`, `endJ` (48 B).
 
-### Result (measured 2026-10-15, M1 Pro, release; [[synthesis/benchmarks]] M6)
+### Result (measured 2026-10-15, M1 Pro, release; [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M6)
 
 - **Needle minibrots (nucleus references of period 79, 255, 834, limits of 120–250 periods):
   1.9–2.4× less GPU time than BLA** (1600 × 1000, interleaved medians), 1.5–2.1× fewer loop
@@ -274,7 +274,7 @@ its chain), deep entries `BlaEntryX` plus `len`, `endJ` (48 B).
 So `auto` (the default) uses LA only in the deep kernel on a nucleus reference whose limit spans
 at least 4 periods; everywhere else BLA (or nothing) as before, and those pipelines are
 unchanged. **LA does not replace BLA**: BLA stays for centre references, for the seeds and for
-future formulas ([[formulas/burning-ship]] needs its fold-capped variant).
+future formulas ([Burning Ship and abs variations](../formulas/burning-ship.md) needs its fold-capped variant).
 
 ### Pitfalls
 

@@ -36,9 +36,9 @@ path in closed form.
 
 Peer-reviewed and widely used (d3-zoom's `interpolateZoom` implements the same formulas).
 We use the formulas only; the derivation was not re-checked, but our implementation's tests
-check the path's end points, continuity and exact landing ([[decisions/controls]] "Fly to").
+check the path's end points, continuity and exact landing ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Fly to").
 
 ## Used in
 
-[[decisions/controls]] (fly to coordinates, as built): the van Wijk part of the path, with
+[Controls: keyboard, pointer and touch](../decisions/controls.md) (fly to coordinates, as built): the van Wijk part of the path, with
 log-space head and tail for deep zoom.

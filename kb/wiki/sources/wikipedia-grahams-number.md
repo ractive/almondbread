@@ -25,8 +25,8 @@ Encyclopedia article on Graham's number. Read through a summarising fetch on 202
   n-Parameter Sets", Trans. AMS) has a different explicit bound.
 - Numbers far larger have since appeared in serious proofs, e.g. TREE(3) (Friedman's finite form
   of Kruskal's theorem).
-- No comparison with Moser's number on this page (see [[sources/wikipedia-steinhaus-moser-notation]]).
+- No comparison with Moser's number on this page (see [Wikipedia: Steinhaus–Moser notation (mega, Moser's number)](wikipedia-steinhaus-moser-notation.md)).
 
 ## Used by
 
-[[synthesis/how-big-is-big]]
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)

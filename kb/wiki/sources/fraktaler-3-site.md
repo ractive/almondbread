@@ -38,7 +38,7 @@ build, alternatives and version history. Licence AGPL-3.0.
 - Information window: iteration histograms (peak at the right edge = limit too low) and DE histogram for auto-unstretch.
 - Location zoom 1 = vertical span -2..+2. Reference period 0 = unknown; a wrong period corrupts images.
 - Web build needs SharedArrayBuffer (COOP/COEP headers); much slower than native.
-- History: project started 2021-12-10; v1 2023-03-13 (fixes include high-power glitches); v2 2023-03-31; v3 2025-06-10 (needs OpenGL ES 3 / WebGL 2); v3.1 2025-12-15. Theory section points to [[sources/mathr-deep-zoom-page]].
+- History: project started 2021-12-10; v1 2023-03-13 (fixes include high-power glitches); v2 2023-03-31; v3 2025-06-10 (needs OpenGL ES 3 / WebGL 2); v3.1 2025-12-15. Theory section points to [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md).
 - Alternatives using BLA: fractalshades, FractalShark, Fractal Zoomer, Imagina ("being rewritten"), Mandelbrot Perturbator GTK.
 
 ## Reliability
@@ -65,8 +65,8 @@ not the algorithms in depth. Timing example is one location on unspecified hardw
 
 ## Used by
 
-[[implementations/fraktaler-3]], [[techniques/bla]], [[techniques/rebasing]], [[techniques/extended-range-floats]],
-[[techniques/exponential-map]], [[techniques/anti-aliasing]], [[techniques/interior-detection]],
-[[techniques/frame-reuse-and-progressive]], [[techniques/reference-orbit-precision]], [[formulas/hybrids]],
-[[formulas/burning-ship]], [[formulas/mandelbar]], [[platform/gpu-watchdog-and-chunking]],
-[[questions/metal-watchdog-limit]], [[questions/reference-orbit-compression]], [[synthesis/finding-deep-places]]
+[Fraktaler 3](../implementations/fraktaler-3.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md),
+[Exponential map (log-polar) rendering](../techniques/exponential-map.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [Interior detection](../techniques/interior-detection.md),
+[Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md), [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md), [Hybrid formulas](../formulas/hybrids.md),
+[Burning Ship and abs variations](../formulas/burning-ship.md), [Mandelbar (Tricorn)](../formulas/mandelbar.md), [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md),
+[What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md), [How does Imagina/FractalShark reference-orbit compression work?](../questions/reference-orbit-compression.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)

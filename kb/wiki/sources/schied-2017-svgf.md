@@ -49,4 +49,4 @@ deterministic detail, and there is no separate clean guide (inference).
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)

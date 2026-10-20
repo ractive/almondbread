@@ -11,28 +11,28 @@ tags: [metal, pipeline, function-constants, unified-memory, compilation]
 How almondbread should drive Metal. Several Apple API details could not be
 checked because Apple's documentation pages did not render during research;
 those are marked (unverified). The decision to use Metal is in
-[[decisions/app-stack]].
+[App stack: Swift, SwiftUI/AppKit and Metal](../decisions/app-stack.md).
 
 ## Runtime compilation and math mode
 
 - Shaders are compiled at runtime from source with `MTLDevice.makeLibrary(source:options:)`
-  ([[decisions/app-stack]]). `MTLCompileOptions.mathMode` (`.safe`, `.relaxed`,
+  ([App stack: Swift, SwiftUI/AppKit and Metal](../decisions/app-stack.md)). `MTLCompileOptions.mathMode` (`.safe`, `.relaxed`,
   `.fast`) supersedes the deprecated `fastMathEnabled`, and
   `mathFloatingPointFunctions` (`.fast`/`.precise`) controls library function
-  precision (src: [[sources/apple-metal-compile-options]]). Exact semantics, the
+  precision (src: [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)). Exact semantics, the
   default and the OS version that introduced them are (unverified); see
-  [[questions/metal-fast-math-defaults]].
-- Rule: compile the float-float library ([[techniques/double-float]]) with
+  [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md).
+- Rule: compile the float-float library ([Double-float (float-float) arithmetic](../techniques/double-float.md)) with
   `.safe` and keep `.fast`/`.relaxed` elsewhere. Error-free transforms
   (TwoSum, TwoProd) rely on exact rounding events; "a compiler that reassociates
   the expression can therefore erase the information"
-  (src: [[sources/luma-gl-gpu-precision]] §Why This Is Fragile In WGSL And Metal).
-  fp32 FMA throughput is the same either way (src: [[sources/metal-benchmarks-readme]] §Operations per Second),
+  (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §Why This Is Fragile In WGSL And Metal).
+  fp32 FMA throughput is the same either way (src: [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md) §Operations per Second),
   so `.safe` costs little for perturbation (inference).
 - Startup known-answer test: run a tiny kernel computing TwoSum(1, 1e-8) and
   check that the low limb is nonzero; luma.gl's validation advice is to inspect a
   required nonzero low component on real hardware
-  (src: [[sources/luma-gl-gpu-precision]] §Validation Is Part Of The Technique).
+  (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §Validation Is Part Of The Technique).
 
 ## Specialisation with function constants
 
@@ -40,9 +40,9 @@ those are marked (unverified). The decision to use Metal is in
   `MTLFunctionConstantValues` and `makeFunction(name:constantValues:)` so dead
   branches are removed at compile time (unverified API details; standard Metal feature).
 - Why: on M1/M2 worst-case register use sets occupancy
-  ([[platform/apple-gpu-architecture]]), and mathr found that generating code per
+  ([Apple GPU architecture for compute](apple-gpu-architecture.md)), and mathr found that generating code per
   formula, instead of branching per iteration, "runs much faster"
-  (src: [[sources/mathr-deep-zoom-theory]] §Code Generation).
+  (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Code Generation).
 - Suggested axes (inference):
 
 | Constant | Values |
@@ -61,26 +61,26 @@ those are marked (unverified). The decision to use Metal is in
   while the GPU renders from A; hand over with a command-buffer completion handler
   or `MTLSharedEvent` (inference). Do not make a command buffer wait long on a
   CPU-signalled event: waiting time counts toward the watchdog
-  (src: [[sources/mlx-watchdog-issue]]).
+  (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)).
 
 ## Dispatch, timing and compaction
 
 - Each command buffer should carry 10 to 30 ms of work; measure with
   `gpuStartTime`/`gpuEndTime` (or `kernelEndTime`) and adapt the per-dispatch
   iteration budget (inference; API (unverified)). Details and scheduler pseudocode:
-  [[platform/gpu-watchdog-and-chunking]].
+  [GPU watchdog and chunked, resumable kernels](gpu-watchdog-and-chunking.md).
 - GPU time is measured at whatever clock the GPU runs at, and the clock follows the load:
   a light per-frame load (a 1/8-resolution gesture preview) took 2.5x longer for the same
   iterations within ~15 frames, and a fixed full-resolution pass 2x (measured 2026-10-17,
   M1-class, release). Time per texel from light frames overstates the cost of heavier ones;
-  the gesture resolution can probe upwards for that (default since 2026-10-17) ([[synthesis/benchmarks]] "Autopilot
+  the gesture resolution can probe upwards for that (default since 2026-10-17) ([almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Autopilot
   throttle and GPU clocks"). Other processes' GPU work keeps the clocks up, so timings on a
   busy machine can be *faster*.
 - Indirect dispatch (`dispatchThreadgroups(indirectBuffer:...)`) launches the next
   chunk over a compacted list of still-live pixels whose count was produced on the
   GPU by an atomic counter, with no CPU round trip (inference).
 - Fraktaler 3 schedules OpenCL work in tiles (default 128x128); bigger tiles are
-  faster but risk OS timeouts (src: [[sources/fraktaler-3-site]]).
+  faster but risk OS timeouts (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 
 ## MetalFX
 
@@ -92,7 +92,7 @@ those are marked (unverified). The decision to use Metal is in
 
 - swift-mandelbrot (SwiftUI + Metal, iPhone/iPad/Mac) steps from Float to
   double-float to perturbation with BLA and rebasing and claims zooms past 10^1000
-  (src: [[sources/swift-mandelbrot-readme]]). See [[implementations/swift-mandelbrot]].
+  (src: [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)). See [swift-mandelbrot (drquicksilver)](../implementations/swift-mandelbrot.md).
 
 ## Measured in almondbread (milestone 2)
 
@@ -104,19 +104,19 @@ Measured 2026-10-14, M1 Pro, release, macOS 26 (Darwin 25.5), Xcode 26.
   returns nil in the .app. The Swift renderer shipped the source as `Mandelbrot.metalsrc`
   (copied verbatim by both SwiftPM and Xcode, compiled at runtime with explicit options).
   Since R2b the kernels live only in the Rust crate (`include_str!`, compiled at runtime
-  with the same options; [[platform/render-architecture]]), so no bundle resource is
+  with the same options; [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](render-architecture.md)), so no bundle resource is
   involved.
 - **Function constants** (`kDE`, `kInterior`) select four iterate pipelines; a disabled
   feature costs nothing per iteration.
 - **Float atomics are slow**: `atomic_float` add, one per SIMD-group per chunk, cost
   ~28 ms per million threads; `atomic_uint` is fine
-  ([[platform/gpu-watchdog-and-chunking]]).
+  ([GPU watchdog and chunked, resumable kernels](gpu-watchdog-and-chunking.md)).
 - **`MTLDrawable.addPresentedHandler` is not in the iOS simulator SDK** (compile
   error); guard it with `#if os(macOS)` if used for measurements.
 - **Presentation latency.** In a window at 120 Hz, draw → `presentedTime` is ~28 ms
   (3.4 refreshes) whatever the frames-in-flight limit or drawable count; it is the
   compositor. `displaySyncEnabled = false` cut it to ~10 ms but most frames were never
-  presented. Details in [[synthesis/benchmarks]].
+  presented. Details in [almondbread benchmarks and verification record](../synthesis/benchmarks.md).
 - **`preferredFramesPerSecond` defaults to 60.** Set it to the screen's
   `maximumFramesPerSecond` for ProMotion (and `CADisableMinimumFrameDurationOnPhone`
   on iPhone).
@@ -144,7 +144,7 @@ Since 2026-10-16 the renderer warms them (`Renderer::warm_pipelines`,
 deep, LA and the rest) to `cores / 3` threads (3 on a 10-core M1 Pro), and each frame takes the
 finished ones from a channel. Cold, the needle fly-to has no slow frame after the first two
 (late refreshes 29–37 → 5–8, all at start-up), and the π hunt's first frame takes 0.7–0.9 ms
-(3 of 3 runs each way, [[synthesis/benchmarks]] "Motion fixes"). The switch
+(3 of 3 runs each way, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Motion fixes"). The switch
 `ALMONDBREAD_WARM_PIPELINES=0` (off for A/B runs) was removed 2026-10-17; the warm-up is always on.
 
 ## Gesture resolution and GPU clocks (2026-10-17)
@@ -162,9 +162,9 @@ back off from 0.5 s to 4 s) and hysteresis (a step is kept while the median fit 
 frames is at least 0.85 of it; a moving average held steps too long). Result: autopilot ×4.3–4.7
 in 2.4 s, preview resolution about doubled in most gestures, skipped draws equal except a few
 more at dense and deep views. Always on since the user compared it in the foreground app.
-Numbers and the bisect: [[synthesis/benchmarks]] "Autopilot throttle and GPU clocks". Related:
+Numbers and the bisect: [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Autopilot throttle and GPU clocks". Related:
 a jump resets the gesture resolution to 1/8 until it is measured ("Pipeline warm-up" above and
-[[synthesis/benchmarks]] "Motion fixes"). Open: a model of clock-independent work, or
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Motion fixes"). Open: a model of clock-independent work, or
 frame-time feedback, would remove the probe.
 
 ## Gaps

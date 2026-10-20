@@ -9,11 +9,11 @@ tags: [coloring, unresolved, max-iterations, gpu, as-built]
 # Fog over unresolved pixels
 
 How almondbread draws a pixel that reached the iteration limit without escaping and without
-being proven interior (iteration code −3, *unresolved*; [[techniques/auto-iterations]]). Such
+being proven interior (iteration code −3, *unresolved*; [Automatic maximum-iteration control](auto-iterations.md)). Such
 pixels may still resolve: extension passes and compute further keep iterating them. Without an
 interior test every interior pixel runs to the limit (src:
-[[sources/fractalforums-interior-detection]] §opening post); with one (almondbread's derivative
-test and cycle probe, [[techniques/interior-detection]]), what is left at the limit is mostly
+[fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §opening post); with one (almondbread's derivative
+test and cycle probe, [Interior detection](interior-detection.md)), what is left at the limit is mostly
 slow escape or slow convergence near parabolic points. The look is our own design (user decision
 2026-10-17); no source describes it. Built 2026-10-17.
 

@@ -40,11 +40,11 @@ Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, exp
 
 ## Reliability
 
-- Primary and widely cited, but old (Cg, 2006–2007 Nvidia hardware). The accuracy figures depend on G80 rounding; Apple GPU rounding must be checked separately ([[questions/apple-gpu-denormals]]).
+- Primary and widely cited, but old (Cg, 2006–2007 Nvidia hardware). The accuracy figures depend on G80 rounding; Apple GPU rounding must be checked separately ([Do Apple GPUs flush float32 denormals to zero?](../questions/apple-gpu-denormals.md)).
 - The paper gives no per-operation costs or GPU timings for df64 add/mul (and the FFT timings were deleted). The flop counts above are our own tally from its algorithms.
 - Draft marks remain ("[xxAT …]" placeholders, "Major hassles" for modulo). The cos error (241 ulps) comes from the `sqrt(1 − sin²)` shortcut.
 - Year: the manifest says 2006 (the poster). The saved document is the March 2007 report with a 2009 addendum.
-- The FMA warning still applies: a compiler that contracts or reassociates can zero the error terms. See [[sources/luma-gl-gpu-precision]] and [[questions/metal-fast-math-defaults]].
+- The FMA warning still applies: a compiler that contracts or reassociates can zero the error terms. See [luma.gl: GPU floating-point precision techniques](luma-gl-gpu-precision.md) and [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md).
 
 ## Useful sections
 
@@ -58,7 +58,7 @@ Andrew Thall's (Alma College) technical report CIM-007-01, dated March 2007, exp
 
 ## Used by
 
-- [[techniques/double-float]]
-- [[questions/double-float-speed-on-m1]]
-- [[questions/metal-fast-math-defaults]]
-- [[questions/float32-error-long-orbits]]
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)
+- [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md)
+- [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)

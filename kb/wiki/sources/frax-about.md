@@ -21,8 +21,8 @@ tags: [market, competitors, frax, ios, lighting]
   scaleable chaotic textures", almost 100 parameters; colours and lights animate in real time;
   "400 times faster" than the original by a CPU/GPU design.
 - Mandelbrot depth "more than a trillion-to-one" (the 64-bit limit, see
-  [[sources/frax-help-explore]]). A third-party listing calls development dormant (unverified).
+  [Frax help: Explore (precision limit)](frax-help-explore.md)). A third-party listing calls development dormant (unverified).
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)

@@ -57,4 +57,4 @@ zoom without rotation.
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)

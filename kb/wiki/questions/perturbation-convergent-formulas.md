@@ -23,19 +23,19 @@ formulas such as Nova, Newton parameter space and Magnet, and what does it cost?
   the Newton parameter space "without any issue", and that it works for Julia sets;
   mathr replied that nothing in rebasing depends on the Mandelbrot set: it needs the
   basic perturbation property and an iteration at which the reference orbit is 0
-  (src: [[sources/fractalforums-zhuoran-rebasing-bla]]).
+  (src: [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)).
 - Ultra Fractal lets formula authors write perturbed equations by hand and marks
   validity with a `perturb` flag; non-integer powers do not reduce
-  (src: [[sources/ultrafractal-perturbation-equations]]).
+  (src: [Ultra Fractal help: Perturbation equations](../sources/ultrafractal-perturbation-equations.md)).
 
 ## Why it matters
 
-It moves Nova/Newton from "defer" to "feasible" in [[formulas/others-feasibility]]
-and shapes the opcode formula model ([[formulas/hybrids]]).
+It moves Nova/Newton from "defer" to "feasible" in [Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)
+and shapes the opcode formula model ([Hybrid formulas](../formulas/hybrids.md)).
 
 ## How to resolve
 
 Check Fractal Zoomer (GPL-3.0; read behaviour and docs, not code) for which
-formulas support perturbation (src: [[sources/fractalzoomer-readme]]); derive the
+formulas support perturbation (src: [Fractal Zoomer README](../sources/fractalzoomer-readme.md)); derive the
 perturbed Nova step ourselves (rational: perturb numerator and denominator,
 quotient identity) and test rebasing at the formula's critical point.

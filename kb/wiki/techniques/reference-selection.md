@@ -8,7 +8,7 @@ tags: [reference, period-detection, newton, minibrot]
 
 # Reference selection: nucleus, period detection, Newton
 
-With [[techniques/rebasing]], any reference near the view works and none
+With [Rebasing (Zhuoran, 2021)](rebasing.md), any reference near the view works and none
 has to outlast the deepest pixel. The best choice is still the nucleus of
 the lowest-period minibrot in or near the view: its orbit is exactly
 periodic, so only p high-precision iterations are needed, and the skip
@@ -25,14 +25,14 @@ tables follow its period structure.
 Before rebasing, a reference that escaped early or sat in the wrong place
 caused glitches; Zhuoran reported rebasing working at every location he
 tried, "including those which don't have a central minibrot"
-(src: [[sources/fractalforums-zhuoran-rebasing-bla]] §Reply #2).
+(src: [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md) §Reply #2).
 
 ## Step 1: find a period
 
 **Atom domain (cheapest).** Iterate the view centre (or the current
 reference); the dominant period is the iteration `n ≥ 1` at which `|Z_n|`
 reaches a new minimum (Peitgen and Richter 1986)
-(src: [[sources/muency-atom-domain]]). Cheap, but it gives the period of the
+(src: [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)). Cheap, but it gives the period of the
 atom domain containing the point, not necessarily of a minibrot inside the
 view.
 
@@ -44,10 +44,10 @@ perturbation_core §5, citing Mu-Ency's Jordan curve page, not saved).
 **Ball method (knighty, gerrit).** Interval or ball arithmetic: iterate a
 disc of radius r around c and stop at the first n whose image disc contains
 0. KF uses it by default since it "works much better than box method in
-skewed locations" (src: [[sources/kf-manual]] §kf-2.14.10). Very Plotter uses
+skewed locations" (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §kf-2.14.10). Very Plotter uses
 gerrit's first-order version; the second-order one was too slow
-(src: [[sources/philthompson-bla]] §Finding A Periodic Point). A common
-first-order form (unverified, see [[questions/ball-period-recurrence]]):
+(src: [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md) §Finding A Periodic Point). A common
+first-order form (unverified, see [What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md)):
 
 ```text
 z = 0; dz = 0; R = 0                 // dz = dz/dc
@@ -64,7 +64,7 @@ Run it in enough precision for the view (the disc radius is the view size).
 
 Solve `z_p(c) = 0`. Both `z_p` and its derivative come from ordinary
 iteration, so polynomials are never expanded; an approximate starting point
-is enough (src: [[sources/muency-newton-raphson]]).
+is enough (src: [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)).
 
 ```text
 repeat:
@@ -81,29 +81,29 @@ until |step| < target (e.g. 1e-3 of the pixel spacing)
   being used"; the minibrot size follows from the first p − 1 iterates
   (notes: perturbation_core §5, citing Mu-Ency's NR zooming page).
 - KF's Newton actions: Period, Center, Size, Skew; it "calculates a new
-  reference after each zoom" (src: [[sources/kf-manual]] §Newton-Raphson Zooming).
+  reference after each zoom" (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §Newton-Raphson Zooming).
 - Very Plotter loops: find the dominant period, Newton to the minibrot, and
   if it is off screen repeat with a deeper, higher-period one
-  (src: [[sources/philthompson-bla]] §Finding A Periodic Point).
+  (src: [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md) §Finding A Periodic Point).
 - FractalShark's "Feature Finder" refines periodic points with
   high-precision Newton, and its reference periodicity detection comes from
-  Imagina (src: [[sources/fractalshark-readme]]).
+  Imagina (src: [FractalShark README](../sources/fractalshark-readme.md)).
 
 ## Using the nucleus
 
 - Store p + 1 values (`Z_0 ... Z_p`, with `Z_p = 0`); rebasing on
   exhaustion makes the orbit effectively infinite (inference).
 - Fraktaler 3: locking maximum reference iterations to a known period "can
-  give a good speedup for high iteration areas" (src: [[sources/fraktaler-3-site]]).
+  give a good speedup for high iteration areas" (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 - Keep `|c|` small: a nucleus far outside the frame costs float32 sub-pixel
   bits and shrinks BLA radii through `max|c|` (inference).
 - Hybrids and multiple critical points need one reference per phase and per
-  critical point (src: [[sources/mathr-deep-zoom-theory-again]] §Rebasing).
+  critical point (src: [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md) §Rebasing).
 
 ## Misiurewicz points
 
 Pre-periodic points matter for references in hybrids with pre-periodic
-parts (src: [[sources/mathr-deep-zoom-theory-again]] §Rebasing). No source
+parts (src: [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md) §Rebasing). No source
 found for choosing a Misiurewicz point as the main reference for plain
 Mandelbrot; with rebasing there is little reason to (inference).
 
@@ -116,7 +116,7 @@ divides out the lower-preperiod roots: `g = f / ∏_{i<k} (z_{i+p} − z_i)` and
 carried alongside (BigComplex arithmetic; fine for catalogue use, not per frame). Same
 stopping rule as the nucleus Newton. CLI: `almondbread locate --center re,im
 --misiurewicz k,p --bits b`. Converges in 4–8 steps to 3,500 bits from 8–15-digit starts
-([[synthesis/places]], [[sources/wikipedia-misiurewicz-point]]).
+([Places: a catalogue of famous views to visit](../synthesis/places.md), [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md)).
 
 ## For almondbread
 
@@ -124,7 +124,7 @@ Roadmap step 7: atom-domain period from the current reference, ball-method
 confirmation in MPFR, Newton to the nucleus with doubling precision, then
 use it if it lies within a few view widths; otherwise fall back to the view
 centre. Recompute only when the view leaves the region the reference
-serves ([[techniques/frame-reuse-and-progressive]]).
+serves ([Frame reuse and progressive refinement](frame-reuse-and-progressive.md)).
 
 ## In almondbread (milestone 3a, measured)
 
@@ -139,7 +139,7 @@ code deleted in R2b):
   with each other at depth: around the seahorse point with r = 1e-10 the rigorous ball
   says 973, first-order and box 998; with r = 9e-36 near the period-8007 minibrot the
   rigorous ball says 96084 (= 12 × 8007), first-order 280245, box none (measured
-  2026-10-14). See [[questions/ball-period-recurrence]].
+  2026-10-14). See [What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md).
 - **Newton**: z and dz/dc iterated p times at full precision on preallocated registers,
   `c -= z/dz`, stop when the step is within 16 bits of the working precision or stops
   shrinking. Converges in 3 to 11 steps on all tested locations; nuclei of periods 3, 4,
@@ -171,7 +171,7 @@ in the background) below + 40 bits, beyond 2 view widths, shorter than the limit
 plain-kernel reference below 1e-17 per point. With no usable reference the frame shows the
 reprojected history. A Space zoom from 1e-12 to 4e-39 needed two background references (a
 centre reference, then the period-998 nucleus near the seahorse point). Times in
-[[synthesis/benchmarks]] M3b.
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) M3b.
 
 ## R6 changes
 
@@ -187,4 +187,4 @@ centre reference, then the period-998 nucleus near the seahorse point). Times in
   then 2x): with rebasing any prefix is a correct reference.
 - At c = i the ball method finds a period whose nucleus lies outside the view, so the
   Newton work is thrown away (the fallback rule above). It cost 1.3 s at 1e-2000 before,
-  ~0.3 s now. Details: [[techniques/parallel-reference-orbit]].
+  ~0.3 s now. Details: [Faster deep references: three-thread orbit, progressive delivery, cheap Newton](parallel-reference-orbit.md).

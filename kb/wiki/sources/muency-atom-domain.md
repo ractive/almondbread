@@ -28,8 +28,8 @@ regions), their computation and their size relative to the mu-atoms they contain
 ## Reliability
 
 Secondary but careful and long-standing. Size rules are empirical from a few tables. Useful for period
-guesses (see [[sources/mathr-interior-distance]]) and Newton-zoom targets (KF "Atom Domain" mode in
-[[sources/kf-manual]]).
+guesses (see [mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md)) and Newton-zoom targets (KF "Atom Domain" mode in
+[Kalles Fraktaler 2 + manual](kf-manual.md)).
 
 ## Useful sections
 
@@ -41,5 +41,5 @@ guesses (see [[sources/mathr-interior-distance]]) and Newton-zoom targets (KF "A
 
 ## Used by
 
-[[techniques/interior-detection]], [[techniques/coloring-methods]], [[techniques/reference-selection]],
-[[questions/ball-period-recurrence]], [[synthesis/finding-deep-places]]
+[Interior detection](../techniques/interior-detection.md), [Colouring methods](../techniques/coloring-methods.md), [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md),
+[What exactly is the ball-method period recurrence?](../questions/ball-period-recurrence.md), [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)

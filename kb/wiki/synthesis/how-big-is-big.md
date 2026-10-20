@@ -16,12 +16,12 @@ tags: [how-big, big-numbers, up-arrow, product, ui, removed]
 > with the code is `ab82452`
 > (`git show ab82452:crates/almondbread-core/src/bignum_scale.rs`, tests included).
 
-The user's idea ([[ideas]]): compare our zoom (up to about 10^3008, a 3009-digit number) with
+The user's idea ([Ideas](../ideas.md)): compare our zoom (up to about 10^3008, a 3009-digit number) with
 googol, googolplex, Graham's number and TREE(3). Comparing values makes no sense, so the panel
 compares the *kind* of size with Knuth's up-arrows, as a gear train with one dial per arrow
 level. The metaphor is Arthur Ganson's "Machine with Concrete": twelve 1:50 worm reductions
 driven at 200 rpm, whose last gear is set in concrete and would turn once in about 2.3·10^12
-years (src: [[sources/make-ganson-machine-with-concrete]]).
+years (src: [Make: Arthur Ganson's "Machine with Concrete"](../sources/make-ganson-machine-with-concrete.md)).
 
 As built 2026-10-15 (removed the same day, see above): maths in
 `almondbread-core/src/bignum_scale.rs`, FFI in `almondbread-ffi/src/how_big.rs`, UI in
@@ -30,11 +30,11 @@ As built 2026-10-15 (removed the same day, see above): maths in
 ## The dials and the fractional convention
 
 Dial k reads the arrow height `h_k(x)`: the real `h` with `10 ↑^k h = x`
-(notation: src: [[sources/wikipedia-knuth-up-arrow-notation]]). Dial 1 is `log10` (digits), dial
+(notation: src: [Wikipedia: Knuth's up-arrow notation](../sources/wikipedia-knuth-up-arrow-notation.md)). Dial 1 is `log10` (digits), dial
 2 the super-logarithm (height of a tower of tens), dial 3 the height in towers of towers.
 
 Fractional heights use the **linear approximation**. Tetration for real heights is
-`10↑↑t = 1 + t` on `(-1, 0]` and `10^(10↑↑(t-1))` above (src: [[sources/wikipedia-tetration]]
+`10↑↑t = 1 + t` on `(-1, 0]` and `10^(10↑↑(t-1))` above (src: [Wikipedia: Tetration](../sources/wikipedia-tetration.md)
 §Linear approximation for real heights). Its inverse, applied at every arrow level (our own
 generalisation):
 
@@ -71,11 +71,11 @@ Computed by `big_number_markers` (2026-10-15; values to 3 decimals):
 | `3↑↑↑3` (tower of 7 625 597 484 987 threes) | — | 7.6·10^12 | 2.311 | 1.364 | 1.135 |
 | Graham's `g₁ = 3↑↑↑↑3` | — | — | — | 2.364 | 1.374 |
 
-Sources for the numbers: googol and googolplex (src: [[sources/wikipedia-googolplex]]),
-googolplexian is an informal name (src: [[sources/wikipedia-names-of-large-numbers]]), Skewes'
-bounds (src: [[sources/wikipedia-skewes-number]]), mega's range (src:
-[[sources/wikipedia-steinhaus-moser-notation]]), `3↑↑↑3` (src:
-[[sources/wikipedia-knuth-up-arrow-notation]]), `g₁` (src: [[sources/wikipedia-grahams-number]]).
+Sources for the numbers: googol and googolplex (src: [Wikipedia: Googolplex](../sources/wikipedia-googolplex.md)),
+googolplexian is an informal name (src: [Wikipedia: Names of large numbers](../sources/wikipedia-names-of-large-numbers.md)), Skewes'
+bounds (src: [Wikipedia: Skewes's number](../sources/wikipedia-skewes-number.md)), mega's range (src:
+[Wikipedia: Steinhaus–Moser notation (mega, Moser's number)](../sources/wikipedia-steinhaus-moser-notation.md)), `3↑↑↑3` (src:
+[Wikipedia: Knuth's up-arrow notation](../sources/wikipedia-knuth-up-arrow-notation.md)), `g₁` (src: [Wikipedia: Graham's number](../sources/wikipedia-grahams-number.md)).
 Skewes' numbers are placed at their published upper-bound expressions, not the true crossing.
 
 `g₁` on dial 4 is our own tower arithmetic: `h_3(3↑↑↑n) ≈ n − 3 + h_3(3↑↑↑3)` (each further
@@ -91,15 +91,15 @@ at our limit; ↑⁵ reads 1.060, ↑⁶ 1.025, ↑⁷ 1.011, ↑⁸ 1.005, tend
 ## Beyond every dial
 
 - **Graham's number**: `g_n = 3 ↑^(g_(n-1)) 3`, `G = g₆₄`: the number of arrows itself
-  recurses 64 times (src: [[sources/wikipedia-grahams-number]]). Every dial has a fixed arrow
+  recurses 64 times (src: [Wikipedia: Graham's number](../sources/wikipedia-grahams-number.md)). Every dial has a fixed arrow
   count; `g₂` already needs `g₁` arrows.
 - **Moser's number**: only bounded from above, `moser < 3→3→4→2`, and `≪ G`
-  (src: [[sources/wikipedia-steinhaus-moser-notation]]). `3→3→4→2 = g₂` by the Conway-chain
+  (src: [Wikipedia: Steinhaus–Moser notation (mega, Moser's number)](../sources/wikipedia-steinhaus-moser-notation.md)). `3→3→4→2 = g₂` by the Conway-chain
   rules (our reading, (unverified)). With no lower bound in arrow terms we do not put it on a dial.
 - **TREE(3)**: "even the number of arrows can't describe it". In the fast-growing hierarchy a
   fixed arrow count is below level ω, `f_ω` is a unary Ackermann function, `f_(ω+1)(64) > G`
-  (src: [[sources/wikipedia-fast-growing-hierarchy]]), and TREE grows far faster than `f_Γ₀`
-  (src: [[sources/wikipedia-kruskal-tree-theorem]]). The page's own lower bound `A^A(187196)(1)`
+  (src: [Wikipedia: Fast-growing hierarchy](../sources/wikipedia-fast-growing-hierarchy.md)), and TREE grows far faster than `f_Γ₀`
+  (src: [Wikipedia: Kruskal's tree theorem (TREE(3))](../sources/wikipedia-kruskal-tree-theorem.md)). The page's own lower bound `A^A(187196)(1)`
   is called extremely weak.
 
 ## Facts along the way (recomputed)
@@ -112,10 +112,10 @@ second:
   (↑↑ = 2) after 14 s.
 - A googolplex zoom: `10^100 / 0.6949` s = 4.56·10^92 years (Julian years; the brief's ~5·10^92).
 - Bits: a reference orbit needs about `log2` of the zoom, 3.32 bits per digit: 9966 bits at
-  10^3000 (the app's cap is `2^-10000` per pixel, [[decisions/arbitrary-precision]]). A
+  10^3000 (the app's cap is `2^-10000` per pixel, [Arbitrary precision: own Swift/C implementation, not GMP/MPFR](../decisions/arbitrary-precision.md)). A
   googolplex zoom needs `10^100 · log2 10` = 3.3·10^100 bits, more than the ~10^80 atoms in the
-  observable universe (src: [[sources/wikipedia-observable-universe]]) by 10^20.
-- Ganson: `50^12 / 200 rpm` = 2.32·10^12 years (src: [[sources/make-ganson-machine-with-concrete]]).
+  observable universe (src: [Wikipedia: Observable universe (atom count)](../sources/wikipedia-observable-universe.md)) by 10^20.
+- Ganson: `50^12 / 200 rpm` = 2.32·10^12 years (src: [Make: Arthur Ganson's "Machine with Concrete"](../sources/make-ganson-machine-with-concrete.md)).
 
 ## UI (removed 2026-10-15)
 
@@ -133,7 +133,7 @@ What was built, for the record; none of it is in the app any more.
   renders the panel offscreen (`ImageRenderer`, 760 pt and 390 pt wide) next to the usual
   window captures; no window comes to the front.
 - A gold "How big is big? →" link above the cosmic size scale panel past the Planck length
-  ([[decisions/controls]]), placed from `Explorer.cosmicHint()`.
+  ([Controls: keyboard, pointer and touch](../decisions/controls.md)), placed from `Explorer.cosmicHint()`.
 - Lessons: a separate window broke the app's one-window, overlay-and-control-center pattern,
   and the panel needed too much explanatory text for an idea most people would not follow.
   A future take should be one glanceable number or an achievement, not an essay.

@@ -11,7 +11,7 @@ tags: [numerics, double-float, df64, float32, metal]
 A value is an unevaluated sum of two float32s, `hi + lo` with
 `|lo| ≤ ulp(hi)/2`. It gives about 48 bits of significand with float32's
 exponent range. It is a precision fix, not a range fix
-(src: [[sources/luma-gl-gpu-precision]] §How Classic Double-Single Arithmetic Works).
+(src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §How Classic Double-Single Arithmetic Works).
 On Apple GPUs, which have no fp64, it is the cheap way to get more than 24
 bits.
 
@@ -21,19 +21,19 @@ bits.
   A direct double-single renderer reaches about 1e13 zoom (notes:
   gpu_apple_silicon, luma.gl Mandelbrot example). swift-mandelbrot steps
   Float → double-float → perturbation automatically
-  (src: [[sources/swift-mandelbrot-readme]]).
+  (src: [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)).
 - **Repair or verification mode** if long-orbit float32 rounding shows as
   speckle near minibrots: deltas or the stored reference in float-float plus
   a floatexp exponent, like FractalShark's "2×32 + exponent" type, which the
   author says gives "substantially higher performance on consumer GPUs with
-  only a modest loss of precision" (src: [[sources/fractalshark-readme]]).
-  See [[questions/float32-error-long-orbits]].
+  only a modest loss of precision" (src: [FractalShark README](../sources/fractalshark-readme.md)).
+  See [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md).
 - Not for deltas at depth: they need range, see
-  [[techniques/extended-range-floats]].
+  [Extended range: floatexp, rescaled iterations, depth thresholds](extended-range-floats.md).
 
 ## Error-free transforms
 
-From Dekker/Knuth as implemented for GPUs by Thall (src: [[sources/thall-extended-precision]] §Algorithm 1 Fast-Two-Sum; §Algorithm 2 Two-Sum; §Algorithm 3 Split):
+From Dekker/Knuth as implemented for GPUs by Thall (src: [Thall: Extended-precision floating-point numbers for GPU computation](../sources/thall-extended-precision.md) §Algorithm 1 Fast-Two-Sum; §Algorithm 2 Two-Sum; §Algorithm 3 Split):
 
 ```text
 quickTwoSum(a, b):            // requires |a| >= |b|
@@ -60,41 +60,41 @@ complex df square, the Mandelbrot hot path, 30 to 50 ops against 3 to 4 for
 plain float32, so 10 to 20× slower. Emulated extended precision costs
 "more than an order of magnitude" over fp32 (notes: gpu_apple_silicon,
 luma.gl fp64 module). The `fma` in MSL maps to native full-rate FFMA32 on
-Apple GPUs (src: [[sources/metal-benchmarks-readme]]).
+Apple GPUs (src: [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)).
 
 ## Pitfalls
 
 - **Compiler reassociation.** The transforms depend on exact rounding
   events; "a compiler that reassociates the expression can therefore erase
   the information". Parentheses, temporaries or `fma` spelling are not
-  portable guarantees (src: [[sources/luma-gl-gpu-precision]] §Why This Is Fragile In WGSL And Metal).
+  portable guarantees (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §Why This Is Fragile In WGSL And Metal).
   luma.gl switches to an integer-controlled double-single path on Apple
-  adapters for this reason (src: [[sources/luma-gl-gpu-precision]] §luma.gl's Apple/Metal Path).
+  adapters for this reason (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §luma.gl's Apple/Metal Path).
 - **Metal math mode.** `MTLCompileOptions.mathMode` (`.safe`, `.relaxed`,
   `.fast`) replaces `fastMathEnabled`; whether the default permits
   reassociation or contraction is unverified
-  (src: [[sources/apple-metal-compile-options]]). Compile the float-float
+  (src: [Apple docs: MTLCompileOptions mathMode](../sources/apple-metal-compile-options.md)). Compile the float-float
   library with `.safe`, keep `.fast` for float32 kernels, and run a startup
   known-answer test (does `twoSum(1, 1e-8)` keep a non-zero low part?).
-  See [[questions/metal-fast-math-defaults]].
+  See [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md).
 - **Split overflow.** `4097·a` overflows for large finite inputs
-  (src: [[sources/luma-gl-gpu-precision]] §How Classic Double-Single Arithmetic Works);
+  (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §How Classic Double-Single Arithmetic Works);
   use fma-based `twoProd` instead.
 - **Tapering precision.** When `lo` becomes subnormal (results near 2^-126
   to 2^-102) precision tapers towards 24 bits
-  (src: [[sources/luma-gl-gpu-precision]] §How Classic Double-Single Arithmetic Works).
+  (src: [luma.gl: GPU floating-point precision techniques](../sources/luma-gl-gpu-precision.md) §How Classic Double-Single Arithmetic Works).
 - **Register pressure.** Two registers per real, so a complex df kernel
   uses about twice the registers; on M1/M2 that lowers occupancy for the
-  whole dispatch. Keep it in its own pipeline ([[platform/apple-gpu-architecture]]).
+  whole dispatch. Keep it in its own pipeline ([Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)).
 
 ## Contradictions
 
 Philip Turner argued on Apple's forums that integer-based fp64 emulation
-beats double-single on Apple GPUs (src: [[sources/apple-forums-fp64-emulation]]),
+beats double-single on Apple GPUs (src: [Apple Developer Forums thread 718737: FP64 emulation on Apple GPUs](../sources/apple-forums-fp64-emulation.md)),
 while his own benchmarks show int32 multiply at 1/8 of fp32 FMA rate
-(src: [[sources/metal-benchmarks-readme]]), which favours fma-based
+(src: [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)), which favours fma-based
 float-float for speed (inference). luma.gl picks the integer path on Apple
-for correctness, not speed. Unresolved: [[questions/double-float-speed-on-m1]].
+for correctness, not speed. Unresolved: [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md).
 
 ## For almondbread
 
@@ -110,7 +110,7 @@ period-32412 spiral, 1e6-iteration orbits) the float32 GPU field differs from
 the CPU oracle by less than the oracle differs from itself with its pixel grid
 moved by 0.001 px at 17 views and 0.01 px at 5 (0.1–0.2 px at the catalogue
 spiral at 1e1000), and no crop shows speckle (measured 2026-10-15, M1 Pro, release;
-[[questions/float32-error-long-orbits]] "M7", [[synthesis/benchmarks]] M7).
+[How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md) "M7", [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M7).
 So float-float is built as scaffolding with no runtime cost, not as a repair
 pass:
 
@@ -128,7 +128,7 @@ pass:
   1000-step float-float orbit is only float32-accurate (4.5e-8). TwoProd
   through an explicit `fma` survives fast math. On failure `new` returns the
   report as an error and callers stay on float32 (the fallback). Settles
-  [[questions/metal-fast-math-defaults]] for `.fast`.
+  [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md) for `.fast`.
 - **fx type**: a complex float-float mantissa with one `int` exponent,
   `(re + i im) 2^e`, renormalised after every operation, so one kernel
   (`ffIterate`) covers every depth (`fx a^2 + a` at 2^-1000 is exact). It
@@ -142,7 +142,7 @@ pass:
   slower than float32 (better than the 10–20× guessed above); fx 3.4–6.6e9,
   27–52×. A whole fx field costs 10–300× the float32 renderer, which also
   skips iterations (BLA, local SA): a repair pass would have to stay on a few
-  flagged pixels ([[questions/double-float-speed-on-m1]]).
+  flagged pixels ([Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)).
 - **Not built** (no artefacts to remove): the repair pass and its flagging
   (Pauldelbrot test, AA-sample or neighbour disagreement, precision-loss
   estimate), the "max precision" setting, the shallow direct float-float band.

@@ -23,4 +23,4 @@ tags: [3d, mandelbulber, ray-marching, opencl, gpl, competitors]
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)

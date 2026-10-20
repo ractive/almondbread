@@ -8,8 +8,8 @@ tags: [coloring, histogram, stripe-average, lighting, palette, interior-coloring
 
 # Colouring methods
 
-Everything here runs on top of the smooth count ([[techniques/smooth-coloring]])
-and, for lighting, the derivative ([[techniques/distance-estimation]]). Two
+Everything here runs on top of the smooth count ([Smooth (continuous) iteration count](smooth-coloring.md))
+and, for lighting, the derivative ([Distance estimation](distance-estimation.md)). Two
 families: **post-process** methods that need only per-pixel outputs (n, frac,
 DE, final z, flags) and **per-iteration averages** that add work inside the
 loop.
@@ -23,13 +23,13 @@ Map `μ` through a transfer function, then into a palette.
 - KF2+ transfer functions: Standard, Square root, Cubic root, Logarithm,
   Stretched, distance-based, LogLog, ATan, Fourth root (the last three ported
   from Mandel Machine); plus palette waves, infinite waves, texture, and
-  dithering at the end to reduce banding (src: [[sources/kf-manual]]).
+  dithering at the end to reduce banding (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - Deep-zoom log-potential palette (Chéritat): `x = log(V)/K` with `K = log 2`,
   colour `= g(x)` periodic, e.g. `g(x) = (1 + cos 2πx)/2`. Larger K for "furry"
-  deep zooms (src: [[sources/cheritat-mandelbrot-rendering]] §The potential).
+  deep zooms (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §The potential).
   Taking the log keeps colour density usable as iteration counts grow.
 - Exponentially mapped and cyclic iterations, HSV and LCH gradients
-  (src: [[sources/wikipedia-plotting-algorithms]] §Exponentially mapped and cyclic iterations).
+  (src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Exponentially mapped and cyclic iterations).
 
 ### Histogram colouring
 
@@ -38,7 +38,7 @@ Map `μ` through a transfer function, then into a palette.
 3. `hue(pixel) = Σ_{i ≤ n} hist[i] / total`, optionally interpolated with `frac`.
 
 It spreads colours by area independently of maxIter
-(src: [[sources/wikipedia-plotting-algorithms]] §Histogram coloring; that section
+(src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Histogram coloring; that section
 is flagged as needing citations). On GPU: atomic histogram over the frame, then
 a prefix sum, then a lookup pass (inference). With counts up to 1e9, bin by
 `log(μ)` or by `n − n_min` rather than raw `n` (inference). It flickers across
@@ -47,8 +47,8 @@ zoom frames unless the CDF is smoothed over time (inference).
 ### Phase, binary decomposition, field lines
 
 KF2+ stores a phase channel `T = arg(z_final)` with a "phase strength" control
-(src: [[sources/kf-manual]]); zoomasm keyframes carry it as T
-(src: [[sources/zoomasm]]). Binary decomposition is the sign of `Im(z_final)`
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)); zoomasm keyframes carry it as T
+(src: [zoomasm (zoom video assembler)](../sources/zoomasm.md)). Binary decomposition is the sign of `Im(z_final)`
 and field lines come from `arg(z_final)` against the smooth count (standard,
 formulas not retrieved) (unverified). Both are free once `z_final` is stored.
 
@@ -58,20 +58,20 @@ Chéritat defines a normal from the potential: `u = z/der` with
 `der = dz/dc`, normalised. Light from direction `v = exp(i·angle)` at height
 `h2`: `t = (Re u·Re v + Im u·Im v + h2)/(1 + h2)`, clamped at 0, then
 `colour = lerp(black, white, t)`. He uses `h2 = 1.5`, angle 45°, `R = 100`
-(src: [[sources/cheritat-mandelbrot-rendering]] §Normal map effect). A
+(src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Normal map effect). A
 Milnor-DE variant adds a second derivative `der2 ← 2(der2·z + der²)` and uses
 `u = z·der·((1 + lo)·conj(der²) − lo·conj(z·der2))`, `lo = ½ log|z|²`
-(src: [[sources/cheritat-mandelbrot-rendering]] §Variation). The normals match
-no real height field (src: [[sources/cheritat-mandelbrot-rendering]] §Normal map effect).
+(src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Variation). The normals match
+no real height field (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Normal map effect).
 The scale of `der` cancels in `u/|u|`, so slopes are nearly free once DE is
 tracked (inference). KF2+ slopes became zoom- and iteration-independent in
 2.15.1; directional DE (DEX/DEY) fixes noisy slopes with jitter
-(src: [[sources/kf-manual]]).
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 ### Interior colouring
 
 Closest-approach index (`√min|z|` scaled), argument of the last iterate
-(Fractint INSIDE=ATAN), capture time (src: [[sources/wikibooks-mandelbrot-interior]]).
+(Fractint INSIDE=ATAN), capture time (src: [Wikibooks: Mandelbrot set interior](../sources/wikibooks-mandelbrot-interior.md)).
 These need per-iteration tracking of `min|z|` for interior pixels.
 
 ## Per-iteration averages (branching averages)
@@ -86,22 +86,22 @@ bands vanish.
 `sum += (|z_new| − lo)/(hi − lo)`. Divide by i. Smooth with the previous average
 `sum2`: `f = (1/ln p)·ln(ln(B)/2) − (1/ln p)·ln(ln|z|)`,
 `index = sum2 + (sum − sum2)·(f + 1)`. TIA is discontinuous where points map to
-zero (src: [[sources/wikibooks-triangle-inequality]]).
+zero (src: [Wikibooks: Triangle inequality average (TIA) colouring](../sources/wikibooks-triangle-inequality.md)).
 KF2+ has TIA only under OpenCL, replacing the final angle in the phase channel
-(src: [[sources/kf-manual]]).
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 
 **Curvature average.** `a += |arg((z_n − z_{n−1})/(z_{n−1} − z_{n−2}))|`,
 interpolated the same way; continuous where TIA is not
-(src: [[sources/wikibooks-triangle-inequality]]).
+(src: [Wikibooks: Triangle inequality average (TIA) colouring](../sources/wikibooks-triangle-inequality.md)).
 
 **Stripe average (Jussi Härkönen).** Accumulate `½ sin(s·arg z_n) + ½` with stripe
 density `s`. Chéritat prefers it to TIA because it follows external rays
-(src: [[sources/cheritat-mandelbrot-rendering]] §Radial strands). The exact
+(src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Radial strands). The exact
 formula was not retrieved from a fetched source (unverified).
 
 **Iteration skipping breaks averages.** A BLA/LA skip does not produce the
 intermediate `z_n`, so averages need per-step values. Very Plotter's BLA does
-not support stripe colouring (src: [[sources/philthompson-bla]]). Options:
+not support stripe colouring (src: [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](../sources/philthompson-bla.md)). Options:
 accumulate only over the non-skipped tail (the last k iterations before
 escape, which dominate visually), or disable skipping for those pixels
 (inference).
@@ -130,7 +130,7 @@ kernels). Our design; the OKLab matrices are Björn Ottosson's (unverified, not 
   average instead of noise, and moving images shimmer less before any AA sample arrives.
   A pixel made of N samples (AA, the supersampling grid) filters each sample over `1/√N` of
   the pixel, not the whole of it: filtering every sample over the full pixel and averaging
-  them filters twice and greyed fine rings ([[techniques/anti-aliasing]], 2026-10-16).
+  them filters twice and greyed fine rings ([Anti-aliasing and supersampling](anti-aliasing.md), 2026-10-16).
 - **Order: outline, then light.** The DE outline (boundary emphasis and filament coverage)
   darkens towards the edge colour first, also where the palette filter averaged more than
   1/8 cycle per pixel; lighting (Lambert on Chéritat's normal lifted to 3D, plus a
@@ -151,17 +151,17 @@ flat needs the attracting cycle of each interior pixel, so the iterate kernel an
 
 **Atom domain during iteration.** The pipeline with the analysis tracks the iteration `q` of
 the smallest `|z_n|` (the atom domain: the `N` minimising `|Z_N|`, Peitgen and Richter;
-src: [[sources/muency-atom-domain]] §Definition) with one compare per exact step, in floatexp
+src: [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md) §Definition) with one compare per exact step, in floatexp
 where `|Z|` is tiny (deep kernel). BLA blocks are not looked into; they are never valid where
 `|Z|` is small, which is where the minimum is (inference).
 
 **Cycle analysis after the interior test.** A pixel proven interior (`|w| n² < 1e-3`, see
-[[techniques/interior-detection]]), or at the limit with the test off, keeps iterating from
+[Interior detection](interior-detection.md)), or at the limit with the test off, keeps iterating from
 its current point `z_s`, now close to the cycle, with exact perturbation steps in floatexp
 (any depth, no BLA). The period `p` is the first `k` that **divides q** at which the orbit
 closes, `|z_{s+k} − z_s| ≤ 1e-3 |z_s|`, **and** whose multiplier is attracting,
 `|λ_k| = |∏ 2 z| < 1`. Our design; mathr takes new minima of `|z_n|` as period candidates and
-verifies each by Newton (src: [[sources/mathr-interior-distance]] §atom domain partials). Two
+verifies each by Newton (src: [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md) §atom domain partials). Two
 pitfalls found while building it:
 
 - *Closure alone is wrong at depth.* At sea-8007 (period 8007) 1501 of 1502 interior pixels
@@ -179,7 +179,7 @@ up (period 0: drawn flat). Near a component's boundary `q` is a multiple `b·p` 
 comes closest when `λ^b ≈ 1`), which still contains `p`.
 
 Along the period it accumulates (old values on the right, `dz = λ` from 1, the others from 0;
-src: [[sources/mathr-interior-distance]] §Practical interior distance rendering):
+src: [mathr: Practical interior distance rendering (2014)](../sources/mathr-interior-distance.md) §Practical interior distance rendering):
 
 ```text
 dcdz <- 2 (z dcdz + dc dz)
@@ -189,7 +189,7 @@ dz   <- 2 z dz                  // the multiplier lambda after p steps
 ```
 
 and the interior distance `(1 − |λ|²) / |dcdz + dzdz dc / (1 − λ)|`
-(src: [[sources/wikipedia-plotting-algorithms]] §Interior distance estimation), plus
+(src: [Wikipedia: Plotting algorithms for the Mandelbrot set](../sources/wikipedia-plotting-algorithms.md) §Interior distance estimation), plus
 `log2 min |z|` over the cycle. Mathematically any cycle point serves as `z0`; ours is the
 settled orbit point, accurate to the closure tolerance (inference).
 
@@ -208,7 +208,7 @@ internal rays (faded where they converge) and rings of equal `log(1 − |λ|)`; 
 by `log2(1 + d_px)`, dark within ~6 px of the boundary.
 
 **Cost** (measured 2026-10-15, M1 Pro, release, 960×600, `--extend 16`): see
-[[synthesis/benchmarks]] "Interior colourings, overlays, control center". Under 1 % more
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Interior colourings, overlays, control center". Under 1 % more
 iterations at home, about 3 % more loop steps at sea-8007 and needle-1e305 (one period of floatexp steps per interior pixel).
 
 ## Dense regions (as built)
@@ -235,4 +235,4 @@ darkening and slope lighting from stored `u` direction. All in a separate
 colouring pass over stored per-pixel data (n, frac, de_px, u, arg z, flags), so
 palette edits are instant. Histogram colouring as an option via GPU
 reduction. Per-iteration averages later, restricted to the post-skip tail.
-Related: [[techniques/anti-aliasing]], [[techniques/exponential-map]].
+Related: [Anti-aliasing and supersampling](anti-aliasing.md), [Exponential map (log-polar) rendering](exponential-map.md).

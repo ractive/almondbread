@@ -26,5 +26,5 @@ through a summarising fetch on 2026-10-15.
 
 ## Used by
 
-[[synthesis/how-big-is-big]], with [[sources/wikipedia-kruskal-tree-theorem]] for TREE
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md), with [Wikipedia: Kruskal's tree theorem (TREE(3))](wikipedia-kruskal-tree-theorem.md) for TREE
 (faster than `f_Γ₀`).

@@ -43,7 +43,7 @@ refining them with Newton (`almondbread locate --misiurewicz k,p`, 2026-10-14):
 
 ## Contradictions
 
-The off-by-one above; see [[synthesis/places]]. Not worth a `questions/` page: the
+The off-by-one above; see [Places: a catalogue of famous views to visit](../synthesis/places.md). Not worth a `questions/` page: the
 orbit check settles it.
 
 ## Useful sections

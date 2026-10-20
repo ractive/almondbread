@@ -43,4 +43,4 @@ the only full-resolution signal, so a cheap guide must be invented (inference).
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)

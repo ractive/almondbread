@@ -17,16 +17,16 @@ and what does decompression cost per pixel step?
 ## Why it matters
 
 Memory is the main limit for the iPhone/iPad port
-([[platform/ios-ipad-considerations]]) and for very long references
-([[techniques/reference-orbit-precision]]).
+([iOS and iPadOS port considerations](../platform/ios-ipad-considerations.md)) and for very long references
+([Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)).
 
 ## What sources say
 
 - Reference-orbit compression was first implemented in Imagina for save/load;
   FractalShark decompresses segments on demand during rendering; a period
   600,000,000 case saved multiple GB; files are Imagina-compatible; details are in
-  FractalShark.pdf §14 (src: [[sources/fractalshark-readme]] §6. Reference orbit compression and on-the-fly decompression).
-- The Imagina README does not describe it (src: [[sources/imagina-readme]]).
+  FractalShark.pdf §14 (src: [FractalShark README](../sources/fractalshark-readme.md) §6. Reference orbit compression and on-the-fly decompression).
+- The Imagina README does not describe it (src: [Imagina README](../sources/imagina-readme.md)).
 - Inferred mechanism (unverified): store sparse exact "waypoints" and regenerate
   the low-precision orbit between them by iterating `Z ← Z² + C` in double,
   re-seeding when the recomputation drifts past a tolerance (notes: perturbation_core §6).
@@ -35,7 +35,7 @@ Memory is the main limit for the iPhone/iPad port
 
 Imagina's `SaveCompressedOrbit` / `LoadCompressedOrbit` (AGPL; described in
 our own words) confirm and sharpen the waypoint idea
-(src: [[sources/imagina-hinfla-evaluator]] §SaveCompressedOrbit):
+(src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §SaveCompressedOrbit):
 
 1. **Before the first near-zero.** Re-iterate the orbit in low precision
    (`z ← z² + c` in double) and compare with the stored orbit. Whenever the
@@ -57,7 +57,7 @@ Why it compresses well (inference): a periodic or nearly periodic reference
 is mostly a perturbation of its own early iterations, so after the first
 near return to 0 very few corrections are needed. FractalShark extends this
 to decompress segments on demand during rendering
-(src: [[sources/fractalshark-readme]] §6. Reference orbit compression and on-the-fly decompression);
+(src: [FractalShark README](../sources/fractalshark-readme.md) §6. Reference orbit compression and on-the-fly decompression);
 its exact segment scheme (FractalShark.pdf §14) is still unread.
 
 ## Still open
@@ -65,4 +65,4 @@ its exact segment scheme (FractalShark.pdf §14) is still unread.
 How FractalShark decompresses on demand during rendering, and the
 compression ratios on typical (non-pathological) orbits. Read FractalShark.pdf
 §14, then measure on our own references. Write-up lives in
-[[techniques/reference-orbit-precision]].
+[Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md).

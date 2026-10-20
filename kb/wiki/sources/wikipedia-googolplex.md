@@ -23,8 +23,8 @@ Encyclopedia article on the googolplex. Read through a summarising fetch on 2026
   "googolplex" ("one, followed by writing zeroes until you get tired").
 - Writing it out is physically impossible; Carl Sagan: more space than the known universe.
 - Mentions about 10^97 elementary particles in the visible universe; not atoms.
-- "Googolplexian" is not on this page; see [[sources/wikipedia-names-of-large-numbers]].
+- "Googolplexian" is not on this page; see [Wikipedia: Names of large numbers](wikipedia-names-of-large-numbers.md).
 
 ## Used by
 
-[[synthesis/how-big-is-big]]
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)

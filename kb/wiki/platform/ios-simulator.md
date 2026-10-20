@@ -10,7 +10,7 @@ tags: [ios, ipad, simulator, testing, xctest, ui]
 
 The first runs of the iPhone/iPad app (2026-10-15, Xcode 26.6, iOS 26.5 simulator runtime,
 M1 Pro). Simulator Metal says nothing about speed: these checks are correctness and UI only.
-Port background: [[platform/ios-ipad-considerations]].
+Port background: [iOS and iPadOS port considerations](ios-ipad-considerations.md).
 
 ## Setup
 
@@ -131,7 +131,7 @@ Gestures needed no fix: drag pans (scale unchanged), pinch ×3 zooms > 1.5×, ro
 > 20°, double tap zooms in, two-finger tap zooms out, the autopilot and journey buttons start
 and stop them, on both devices. (Those round buttons became the Mac toolbar's items on
 2026-10-18; the cockpit's icons start and stop the autopilot and journeys now:
-[[decisions/controls]] "Round buttons: the Mac toolbar on touch".)
+[Controls: keyboard, pointer and touch](../decisions/controls.md) "Round buttons: the Mac toolbar on touch".)
 
 ## Results (2026-10-15)
 
@@ -144,7 +144,7 @@ and stop them, on both devices. (Those round buttons became the Mac toolbar's it
 
 ## Touch controls tests (2026-10-18)
 
-- `Tests/iOSUITests/TouchControlsUITests.swift` ([[decisions/controls]] "Touch"): XCTest drags the
+- `Tests/iOSUITests/TouchControlsUITests.swift` ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Touch"): XCTest drags the
   throttle (`press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)`, 14 points per
   detent), taps the Rust-drawn cockpit through the real hit test, long-presses for the menu and
   steps the tour card (`--ui-demo=tour-feigenbaum` now starts the tour on iOS too). The fractal
@@ -172,7 +172,7 @@ and stop them, on both devices. (Those round buttons became the Mac toolbar's it
 - On iOS, reading `UIPasteboard.general.string` asks "Allow paste?" (seen when the fly-to sheet
   opened); `hasStrings` and SwiftUI's `PasteButton` do not.
 - Settings no longer persist from the UI tests or `--ui-demo` (`TestLaunch.ephemeral`;
-  [[decisions/controls]] "Touch", round 2): the open item below is fixed.
+  [Controls: keyboard, pointer and touch](../decisions/controls.md) "Touch", round 2): the open item below is fixed.
 
 ## QA: a first-time user (2026-10-18, before a child's first try)
 
@@ -190,7 +190,7 @@ view stays finite, the cockpit stops everything), `testSmallTwistDoesNotTurn`. S
 | Found | Severity | Fix |
 | --- | --- | --- |
 | Long-press "Seek Minibrot Here" stayed "searching" with nothing on screen until the next touch: `SeekAt` (and `Probe`) asked for no frame, so the search was never polled (the round-1 test accepted "searching") | high | `Navigator::wants_frames` (motion or a search); the host's redraw uses it and counts `Probe` as orbit input |
-| Tapping a place's picture in the control center did nothing visible: it only selected, and the name and Go sit below the 79-tile grid, off screen | high | iOS: a tap goes there (and selects); replaced the same day: a tap selects and puts Go and Fly on the picture, a second tap goes ([[decisions/controls]] "Touch", places grid) |
+| Tapping a place's picture in the control center did nothing visible: it only selected, and the name and Go sit below the 79-tile grid, off screen | high | iOS: a tap goes there (and selects); replaced the same day: a tap selects and puts Go and Fly on the picture, a second tap goes ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Touch", places grid) |
 | Pinching turned the view (XCUITest: 32° per synthesised pinch on both devices; real fingers twist a little too), the compass and "turned 78°" appeared | medium | touch twist dead band of 15° in Rust (`TouchRotate`, `TouchRotateEnd`); the Mac's trackpad `Rotate` stays 1:1 |
 | "Go to Copied" read the clipboard itself: "Allow Paste?" on every tap for text from another app | medium | a system `PasteButton` beside the row (and in the control center's Copy / Paste / Reset row); the row's title keeps the old path |
 | Keyboard and mouse words on touch: "click to resume" (paused autopilot or journey), the Tours footer's → ← Esc, the tour's last step ("the pointer", → ← Esc) | low | iOS wording; the tour text names both |
@@ -210,7 +210,7 @@ scale (×1.5 for "×3"), so pinch feel needs the device. XCUITest's `rotate(_:wi
 with an 18.4° finger jump (fingers down 18.4° off the start line, moved onto it 10 ms later) and
 drops its last 12° keyframe, and UIKit reads the jump as 12.3° or 24.6° run to run: no use for
 angles near a threshold; `Tests/iOSUITests/TwoFingerTwist.swift` draws an exact twist through
-XCTest's event record instead ([[decisions/controls]] "Touch", the flaky small-twist test).
+XCTest's event record instead ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Touch", the flaky small-twist test).
 
 ## Open
 

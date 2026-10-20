@@ -23,7 +23,7 @@ float32 Metal GPU. Five sub-reports saved unchanged under
 `raw/research/deep-zoom-mandelbrot-rendering-techniques/`
 (perturbation_core, iteration_skipping, pixel_and_image_techniques,
 gpu_apple_silicon, implementations_and_formulas). Final report filed as
-[[synthesis/deep-zoom-rendering-techniques]]: single reference with
+[Deep zoom Mandelbrot rendering techniques](synthesis/deep-zoom-rendering-techniques.md): single reference with
 rebasing, BLA then Imagina-style LA/AT, rescaled float32 past ~1e-25,
 chunked kernels under the watchdog, and a ranked 12-step roadmap.
 
@@ -53,20 +53,20 @@ README used); Apple developer pages are JS-only and were not saved
 Created: source pages for every saved document plus seven web-only ones;
 19 technique pages, 7 formula pages, 13 implementation pages, 5 platform
 pages, 14 question pages. Filled the synthesis `sources` list and turned
-its URL citations into `[[sources/...]]` links. Rewrote [[overview]] and
-[[index]].
+its URL citations into `[[sources/...]]` links. Rewrote [Overview](overview.md) and
+[Index](index.md).
 
 Findings that changed the notes: the archived forum topic dates rebasing to
 3 Aug 2021 (notes had a conflict between Aug and Dec 2021); topic 4802 is
 the interior-detection thread, not the BLA thread; Fractal Zoomer's author
 reports rebasing working for Nova, magnet and Newton (contradicts "no
-scheme found", see [[questions/perturbation-convergent-formulas]]); mathr
+scheme found", see [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](questions/perturbation-convergent-formulas.md)); mathr
 measured software floats (uint32 + int) about 2× faster than float32 + int32
 floatexp on CPU. Contradictions raised as questions: KF BLA support,
 higher-order BLA, FFMA32 latency, integer vs float-float emulation, Ultra
 Fractal SA use. The deep-zoom page calls an earlier BLA validity check
 "nonsense", most likely the 2022 radius formula the synthesis quotes; noted
-under `## Contradictions` on [[techniques/bla]] (synthesis body left as
+under `## Contradictions` on [Bivariate linear approximation (BLA)](techniques/bla.md) (synthesis body left as
 written). Lint, broken links and orphans clean after the pass.
 
 ## [2026-10-14] decision | Milestone 1 built and measured
@@ -81,45 +81,45 @@ seahorse 1.9e5× 43.5 ms (2015), 7.5e10× 185 ms (5763); colorize about
 colour error 0.001; 0.2–2 % of pixels differ by > 0.05, all isolated
 boundary pixels (no glitch clusters). Fast math measured about 10 % faster
 than `.safe` with identical results for this kernel. See
-[[decisions/arbitrary-precision]] for the next step.
+[Arbitrary precision: own Swift/C implementation, not GMP/MPFR](decisions/arbitrary-precision.md) for the next step.
 
 ## [2026-10-14] decision | Milestone 2: chunked iteration, interior detection, verification harness
 
 Built roadmap step 2, step 3 and the interior part of step 4, plus interaction fixes.
-New [[synthesis/benchmarks]] holds the benchmark set (7 locations), M1 vs M2 timings,
+New [almondbread benchmarks and verification record](synthesis/benchmarks.md) holds the benchmark set (7 locations), M1 vs M2 timings,
 GPU-vs-CPU verify metrics and interaction measurements (measured 2026-10-14, M1 Pro,
 release). Findings filed: compaction must preserve pixel order (per-SIMD-group atomic
 appends cost 31 % throughput through incoherent `ref[m]` reads), float atomics are very
 slow, GPU-side pixel admission, K from a throughput model gives 16 ms chunks (p99 17.6 ms
-at 1e7 iterations) ([[platform/gpu-watchdog-and-chunking]]); Xcode precompiles `.metal`
+at 1e7 iterations) ([GPU watchdog and chunked, resumable kernels](platform/gpu-watchdog-and-chunking.md)); Xcode precompiles `.metal`
 resources, compositor latency ~28 ms, SwiftUI HUD invalidation throttles MTKView
-([[platform/metal-compute]]); derivative interior test bit-identical to maxIter at
+([Metal compute pipeline for a deep-zoom renderer](platform/metal-compute.md)); derivative interior test bit-identical to maxIter at
 ε = 1e−3, ~1.5× per-iteration cost with an every-8th-iteration check, adaptive switch,
-15–46× on interior-heavy views ([[techniques/interior-detection]]); gesture frames with
+15–46× on interior-heavy views ([Interior detection](techniques/interior-detection.md)); gesture frames with
 dynamic-resolution bilinear previews and refine-after-idle
-([[techniques/frame-reuse-and-progressive]]). A 10.4 s single command buffer completed
-without a watchdog kill ([[questions/metal-watchdog-limit]], still open). The float32
+([Frame reuse and progressive refinement](techniques/frame-reuse-and-progressive.md)). A 10.4 s single command buffer completed
+without a watchdog kill ([What is the exact Metal GPU watchdog limit on macOS and iOS?](questions/metal-watchdog-limit.md), still open). The float32
 question got a partial answer: boundary disagreement at shallow depth is chaotic
 sensitivity, real float32 error appears near 5e−14 per pixel
-([[questions/float32-error-long-orbits]], still open). New [[decisions/controls]].
+([How large is float32 perturbation error over long orbits?](questions/float32-error-long-orbits.md), still open). New [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-14] decision | Milestone 3a: own arbitrary precision, reference orbits, nuclei
 
-Built `Sources/AlmondbreadMath` per [[decisions/arbitrary-precision]]: correctly rounded
+Built `Sources/AlmondbreadMath` per [Arbitrary precision: own Swift/C implementation, not GMP/MPFR](decisions/arbitrary-precision.md): correctly rounded
 BigFloat/BigComplex, `ReferenceOrbitComputer` (float32 + shared-exponent floatexp output,
 cancellation, progress), ball/first-order/box period detection, Newton nuclei, minibrot
 size estimate, `ReferenceSelector`. Tests bit-exact against an exact Python oracle and
 within 1 bit of mpmath for nuclei down to 6e-300. Measured (M1 Pro, release): 1.08x to
 1.55x GMP mpf orbit speed up to 1024 bits, 0.56x at 16384 bits; short products with exact
 rounding, two-accumulator Comba and unrolled 3...8-limb kernels were what mattered,
-Karatsuba lost to short Comba up to 256 limbs ([[platform/mpfr-gmp-on-apple-silicon]],
-[[synthesis/benchmarks]]). Findings on the ball recurrence and precision rule added to
-[[questions/ball-period-recurrence]] and [[questions/precision-bits-formula]] (both still
-open); Newton/period pitfalls on [[techniques/reference-selection]].
+Karatsuba lost to short Comba up to 256 limbs ([Arbitrary precision on Apple Silicon (GMP, MPFR)](platform/mpfr-gmp-on-apple-silicon.md),
+[almondbread benchmarks and verification record](synthesis/benchmarks.md)). Findings on the ball recurrence and precision rule added to
+[What exactly is the ball-method period recurrence?](questions/ball-period-recurrence.md) and [How many bits does the reference orbit need?](questions/precision-bits-formula.md) (both still
+open); Newton/period pitfalls on [Reference selection: nucleus, period detection, Newton](techniques/reference-selection.md).
 
 ## [2026-10-14] decision | R1: Rust workspace, arithmetic port, UniFFI XCFramework
 
-Implemented R1 of [[decisions/rust-core]]: Cargo workspace (`crates/`: math, core,
+Implemented R1 of [Rust core with a Rust Metal backend; Swift for UI only](decisions/rust-core.md): Cargo workspace (`crates/`: math, core,
 render skeleton, ffi, uniffi-bindgen), the AlmondbreadMath port with all oracle tests
 bit-exact plus rational property tests, `scripts/build-rust-xcframework.sh` (`make
 rust`), `AlmondbreadCoreFFI` binary target and `AlmondbreadCore` Swift module linked by
@@ -127,9 +127,9 @@ the swift-run, macOS and iOS-simulator builds, and `almondbread-core-check` (bit
 parity with Swift through the bindings). Measured (M1 Pro, release): reference orbit
 1.05x to 4x the Swift build; kernel findings (const-generic storage, unrolled
 `carrying_add` chains, fused shift in addition, two-column Comba) on
-[[platform/mpfr-gmp-on-apple-silicon]]; FFI call costs and rules on the new
-[[platform/rust-swift-ffi]] with source [[sources/uniffi-user-guide]]; table in
-[[synthesis/benchmarks]]; R1 marked done in [[roadmap]].
+[Arbitrary precision on Apple Silicon (GMP, MPFR)](platform/mpfr-gmp-on-apple-silicon.md); FFI call costs and rules on the new
+[Rust core to Swift: UniFFI and the XCFramework pipeline](platform/rust-swift-ffi.md) with source [The UniFFI user guide (Mozilla)](sources/uniffi-user-guide.md); table in
+[almondbread benchmarks and verification record](synthesis/benchmarks.md); R1 marked done in [Roadmap](roadmap.md).
 
 ## [2026-10-14] decision | Wedge bug: derivative interior test false positives near parabolic points
 
@@ -146,13 +146,13 @@ linear `w(c)` into rotated squares. Fix: `|w| n² < 1e−3`. Also: unresolved �
 a statistics-learned auto limit with hysteresis. Regressions in `--bench` (fails
 above 0.02 % false interior), `make regress` and `--interaction-test` (shown frame
 vs fresh render). Cost: elephant, minibrot-p4 and feigenbaum are 1.5 to 1.8× slower
-(near-parabolic interior is slower to prove). Pages: [[techniques/interior-detection]]
-(Pitfalls), [[techniques/auto-iterations]], [[platform/gpu-watchdog-and-chunking]]
-(Pitfalls), [[synthesis/benchmarks]].
+(near-parabolic interior is slower to prove). Pages: [Interior detection](techniques/interior-detection.md)
+(Pitfalls), [Automatic maximum-iteration control](techniques/auto-iterations.md), [GPU watchdog and chunked, resumable kernels](platform/gpu-watchdog-and-chunking.md)
+(Pitfalls), [almondbread benchmarks and verification record](synthesis/benchmarks.md).
 
 ## [2026-10-14] decision | R2a: renderer in Rust, headless parity with Swift
 
-Implemented R2a of [[decisions/rust-core]]: `almondbread-core` (viewport with an
+Implemented R2a of [Rust core with a Rust Metal backend; Swift for UI only](decisions/rust-core.md): `almondbread-core` (viewport with an
 M3b-ready `Center`, render settings, palettes, f64 reference, auto-iteration learning,
 rayon CPU oracle, verify metrics, benchmark locations, PNG, `Navigator` input model),
 `almondbread-render` (`GpuBackend` trait, scheduler, MSL kernels, Metal backend on
@@ -165,19 +165,19 @@ Investigated the 9.4 ms draw CPU in the Swift "neck zoom" scenario: 8.9 ms is bl
 `currentDrawable` (a presentation queue one frame deeper than the drawable pool), not
 texture allocation or GPU load; the Rust surface predicts the pool and skips a refresh
 instead. Preview textures are now allocated once at maximum size (sub-regions). Pages: new
-[[platform/render-architecture]], [[synthesis/benchmarks]] (R2a), [[roadmap]] (R2a done).
+[Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md) (R2a), [Roadmap](roadmap.md) (R2a done).
 
 ## [2026-10-14] research | Fractal app market research
 
 Deep-research run on the fractal-app market (competitors, audience, business models). The
 report, its raw notes and the business source pages are kept private, outside this
-repository. Public source pages from the run: [[sources/frax-help-explore]],
-[[sources/maths-town-videos]], [[sources/maths-town-kfmoviemaker-guide]],
-[[sources/mandelbrot-site]], [[sources/hn-mandelbrot-site-thread]].
+repository. Public source pages from the run: [Frax help: Explore (precision limit)](sources/frax-help-explore.md),
+[Maths Town videos and video descriptions](sources/maths-town-videos.md), [KF Movie Maker user guide (Maths Town)](sources/maths-town-kfmoviemaker-guide.md),
+[How mandelbrot.site was built](sources/mandelbrot-site.md), [Hacker News: Mandelbrot Set Explorer thread (2025)](sources/hn-mandelbrot-site-thread.md).
 
 ## [2026-10-14] decision | R2b: apps on the Rust renderer, Swift UI only
 
-Implemented R2b of [[decisions/rust-core]]: `Explorer` UniFFI object over a new
+Implemented R2b of [Rust core with a Rust Metal backend; Swift for UI only](decisions/rust-core.md): `Explorer` UniFFI object over a new
 platform-neutral `Host<B>` (layer address once, one `frame` call per display refresh,
 `input(InputEvent)`, settings record, 10 Hz stats, offscreen PNG, measurements); Swift
 reduced to SwiftUI views, an `ExplorerModel` settings mirror and the platform views
@@ -190,23 +190,23 @@ gesture frames). Final frames 10–25 ms later in some scenarios for the same GP
 R2a seahorse skew does not appear in the app. FFI 2–7 µs per frame. Pitfalls filed:
 occluded windows give no presentation times, SwiftUI shows the window after the view
 orders it back, a bare path argument suppresses the SwiftUI window. Pages:
-[[platform/render-architecture]], [[platform/rust-swift-ffi]], [[synthesis/benchmarks]] (R2b),
-[[decisions/rust-core]] (R2b outcome), [[roadmap]], [[overview]]; Swift-path notes on
-[[decisions/arbitrary-precision]], [[techniques/reference-orbit-precision]],
-[[techniques/reference-selection]], [[platform/mpfr-gmp-on-apple-silicon]],
-[[platform/metal-compute]].
+[Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md), [Rust core to Swift: UniFFI and the XCFramework pipeline](platform/rust-swift-ffi.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md) (R2b),
+[Rust core with a Rust Metal backend; Swift for UI only](decisions/rust-core.md) (R2b outcome), [Roadmap](roadmap.md), [Overview](overview.md); Swift-path notes on
+[Arbitrary precision: own Swift/C implementation, not GMP/MPFR](decisions/arbitrary-precision.md), [Reference orbit: precision, cost, storage, compression](techniques/reference-orbit-precision.md),
+[Reference selection: nucleus, period detection, Newton](techniques/reference-selection.md), [Arbitrary precision on Apple Silicon (GMP, MPFR)](platform/mpfr-gmp-on-apple-silicon.md),
+[Metal compute pipeline for a deep-zoom renderer](platform/metal-compute.md).
 
 ## [2026-10-14] research | Fractal games and Steam
 
 Deep-research run on a game edition and a Steam release. The report, its raw notes, the
 game-mechanics decision and the Steam source pages are kept private, outside this
 repository. Technical outcome: a portable edition would use no engine (wgpu + winit) and
-keep Metal on Apple. Public source pages: [[sources/wgpu-changelog-v30]],
-[[sources/bevy-0-20-release-notes]].
+keep Metal on Apple. Public source pages: [wgpu CHANGELOG (v27–v30) and Features docs](sources/wgpu-changelog-v30.md),
+[Bevy 0.20 release notes](sources/bevy-0-20-release-notes.md).
 
 ## [2026-10-14] decision | M2.5: pointer and keyboard modes, crosshair zoom target
 
-Implemented the controls revision ([[decisions/controls]], As built). The Rust core's `Navigator` owns
+Implemented the controls revision ([Controls: keyboard, pointer and touch](decisions/controls.md), As built). The Rust core's `Navigator` owns
 the input mode (pointer mode by default; W A S D / arrows switch to keyboard mode; more than 6 pt of
 pointer travel, a double-click, a drag or a touch pinch switch back), the zoom target for every zoom
 input, the crosshair glide (critically damped spring in closed form, ω = 25 /s, 1 % after 265 ms, no
@@ -215,11 +215,11 @@ always) and the canvas from safe-area insets. Swift presents: crosshair cursor r
 hidden-until-moved cursor and a Core Animation crosshair overlay in keyboard mode, iPad hover and
 `UIPointerInteraction`. Fixed on the way: motion from rest jumped by up to 0.1 s of motion on its first
 frame; idle `frame` calls re-presented the unchanged image. Measured at 120 Hz against the Swift
-renderer and Rust HEAD ([[synthesis/benchmarks]] M2.5): zoom-target drift 0 px, edge pan at the
+renderer and Rust HEAD ([almondbread benchmarks and verification record](synthesis/benchmarks.md) M2.5): zoom-target drift 0 px, edge pan at the
 expected 0.381 view widths/s, no per-frame cost after replacing a UniFFI record result with bit flags
 (11–18 µs → 2–3 µs); R2b's late final frame does not reproduce at 120 Hz; open: fewer gesture frames
-than Swift on heavy zooms at 120 Hz. Updated [[platform/render-architecture]],
-[[platform/rust-swift-ffi]], [[roadmap]].
+than Swift on heavy zooms at 120 Hz. Updated [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md),
+[Rust core to Swift: UniFFI and the XCFramework pipeline](platform/rust-swift-ffi.md), [Roadmap](roadmap.md).
 
 ## [2026-10-14] decision | L0: landscape prototype results
 
@@ -232,24 +232,24 @@ the camera, and only the far field depends on the camera scale. Linear gives a
 horizon wall or a flat plain, and the potential is unusable. Timings: 20–50 s per
 1920×1080 2×2-SS still, 110–160 s near deep minibrots. GPU estimate: ~140 k DE
 evaluations per frame while flying and sinking. Results and open problems in
-[[decisions/landscape-mode]]; [[roadmap]] L0 done.
+[Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md); [Roadmap](roadmap.md) L0 done.
 
 ## [2026-10-14] decision | FL: feel and look
 
-Built milestone FL ([[roadmap]]). Motion: eased velocities on critically damped springs
+Built milestone FL ([Roadmap](roadmap.md)). Motion: eased velocities on critically damped springs
 (closed form, frame-rate independent), drag/touch flings that respect the macOS trackpad's
 own momentum, animated zoom steps, gamepad through GameController with dead zones and
-curves in Rust ([[decisions/controls]] FL). Rendering: a `compose` pass with a reprojected
+curves in Rust ([Controls: keyboard, pointer and touch](decisions/controls.md) FL). Rendering: a `compose` pass with a reprojected
 linear-light history, Halton-jittered temporal upsampling during gestures, per-pixel fade of
 refined pixels, focus-first 16×16 tile admission, adaptive progressive AA capped by the
 supersampling setting, a gesture budget from the measured refresh, and a drawable
-pre-acquisition thread replacing the pool prediction ([[techniques/frame-reuse-and-progressive]],
-[[techniques/anti-aliasing]], [[platform/render-architecture]]). Look: OKLab palettes,
+pre-acquisition thread replacing the pool prediction ([Frame reuse and progressive refinement](techniques/frame-reuse-and-progressive.md),
+[Anti-aliasing and supersampling](techniques/anti-aliasing.md), [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md)). Look: OKLab palettes,
 ten looks, DE lighting with highlight and outline by default, palette anti-aliasing from the
-DE gradient, colour cycling and depth tint ([[techniques/coloring-methods]]). Review: the
+DE gradient, colour cycling and depth tint ([Colouring methods](techniques/coloring-methods.md)). Review: the
 `almondbread fly` flight recorder renders scripted flights in real time through the same
 navigator and scheduler and encodes them with ffmpeg; four review flights plus a converged
-reference in `review/` (gitignored). Numbers in [[synthesis/benchmarks]] FL. Found: background
+reference in `review/` (gitignored). Numbers in [almondbread benchmarks and verification record](synthesis/benchmarks.md) FL. Found: background
 test windows get 60 display-link callbacks/s on the 120 Hz panel while an external display is
 attached, so FL's interaction numbers are at 60 Hz.
 
@@ -263,11 +263,11 @@ blocks are 2–8 steps between the reference's period-7 near-zeros, only 56 % of
 linear at ε = 2⁻²⁴, and a lookup costs several steps. AT does not apply there either. A
 forecast from the table enables it per view (`auto`), which happens from about 1e−20/px
 (2.4×; 47× at 1e−24). Default renders bit-identical to before. Pages:
-[[techniques/bla]] (As built), [[synthesis/benchmarks]] M4, [[roadmap]].
+[Bivariate linear approximation (BLA)](techniques/bla.md) (As built), [almondbread benchmarks and verification record](synthesis/benchmarks.md) M4, [Roadmap](roadmap.md).
 
 ## [2026-10-14] decision | L1: real-time landscape prototype
 
-Built milestone L1 ([[roadmap]]) in `prototypes/landscape-rt/`: Metal (objc2-metal) +
+Built milestone L1 ([Roadmap](roadmap.md)) in `prototypes/landscape-rt/`: Metal (objc2-metal) +
 winit, geometry clipmap over camera-independent DE samples per absolute level (tagged
 toroidal tiles, fade-in, geomorph to the coarser ring), float32 perturbation DE on the GPU
 with resumable 16×16 tiles, an eased flight model in units of S with dives towards a
@@ -278,7 +278,7 @@ carry an exponent. A tile with slow pixels can stall a frame by 10 ms: resume ti
 frames. Straight-down dives lose the set: zoom towards an aim point. The "melting" the user
 saw while diving is σ = 0.1 S: fixed with a σ that is constant within layers of 2 octaves and
 changes in S-driven transitions inside a mist. 118–120 fps presented at 120 Hz. Results in
-[[decisions/landscape-mode]] L1 and [[synthesis/benchmarks]] L1.
+[Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md) L1 and [almondbread benchmarks and verification record](synthesis/benchmarks.md) L1.
 
 ## [2026-10-14] decision | L1: world-fixed terrain colour
 
@@ -287,7 +287,7 @@ two-state diff on a hilltop mask isolated the cause: strata keyed to DE/σ shift
 cycles per σ transition (colour-only change 5.7/255 per frame, 21 % of pixels > 8). Strata are
 now keyed to the absolute DE; layer-relative terms cross-fade between σ layers. Colour change
 in transitions 0.28, 0 % of pixels > 8. What remains on hilltops is lighting from the real shape
-change. Details in [[decisions/landscape-mode]] L1.
+change. Details in [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md) L1.
 
 ## [2026-10-14] decision | M3b: unlimited depth
 
@@ -301,8 +301,8 @@ deep CPU oracle validated against direct BigFloat; deep benchmark locations made
 interaction scenarios. Found: the interior test missed nucleus returns whose period is not a
 multiple of 8; locate must refine nuclei to the minibrot's size, not the search radius; gesture
 previews needed 1/8 resolution in dense deep views (26 → 51–56 fps). Pages:
-[[techniques/extended-range-floats]], [[techniques/bla]], [[techniques/reference-selection]],
-[[platform/render-architecture]], [[synthesis/benchmarks]] M3b, [[roadmap]].
+[Extended range: floatexp, rescaled iterations, depth thresholds](techniques/extended-range-floats.md), [Bivariate linear approximation (BLA)](techniques/bla.md), [Reference selection: nucleus, period detection, Newton](techniques/reference-selection.md),
+[Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md) M3b, [Roadmap](roadmap.md).
 
 ## [2026-10-14] decision | L1: lake flicker fix, R32F data, nose-flying controls with explicit zoom
 
@@ -313,7 +313,7 @@ the nose in a rigid world (W/S/↑/↓ stick, A/D/←/→ bank, Q/E throttle), e
 (Shift+stick) about the crosshair, optional auto zoom (Z: steep nose-down zooms in, height
 zooms out), detail following the eye's height, speed scaled by height. A closed-loop target
 dive onto a minibrot lake reaches 1e-7 within 3.6 S of the chosen point. Details in
-[[decisions/landscape-mode]] L1.
+[Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md) L1.
 
 ## [2026-10-14] decision | Auto iterations: a view where nothing escaped renders again at 4×
 
@@ -325,7 +325,7 @@ raises the limit 4× (still capped at 4× depth) and renders the *same* view aga
 offscreen renders loop). sea-8007 settles at ~118 000 with the seahorse rings. Views inside
 the minibrot and the cardioid settle as before. New `verify --history jump` (Go to
 coordinates), `--max-unresolved`, two regress sessions, two Metal tests. Pages:
-[[techniques/auto-iterations]] "Nothing escaped", [[techniques/interior-detection]].
+[Automatic maximum-iteration control](techniques/auto-iterations.md) "Nothing escaped", [Interior detection](techniques/interior-detection.md).
 
 ## [2026-10-14] research | R3: dense-region sampling
 
@@ -344,10 +344,10 @@ pixel seeds (second order, ε = 1e−2) cuts iterations 5.2× (refined frame) an
 AA) at the dense view with unchanged error statistics; 1.5–5.6× on other exterior views;
 interior-only Mariani–Silver adds 1.3–1.6× on interior-heavy views with zero wrong pixels.
 Recommendation: local SA in M5 after a float32 kernel check. Pages:
-[[synthesis/dense-region-sampling]], [[techniques/adaptive-sampling]],
-[[techniques/local-series-approximation]], [[questions/local-sa-float32]]; updated
-[[techniques/guessing-and-subdivision]], [[techniques/series-approximation]],
-[[techniques/anti-aliasing]], [[synthesis/benchmarks]] R3, [[index]].
+[Dense boundary regions: fewer pixel-iterations for the same image (R3)](synthesis/dense-region-sampling.md), [Adaptive and sparse sampling, reconstruction, early termination](techniques/adaptive-sampling.md),
+[Local series approximation (tile and pixel seeds)](techniques/local-series-approximation.md), [Does local series approximation hold in the float32 perturbation kernel?](questions/local-sa-float32.md); updated
+[Guessing, border tracing and rectangle subdivision](techniques/guessing-and-subdivision.md), [Series approximation (legacy)](techniques/series-approximation.md),
+[Anti-aliasing and supersampling](techniques/anti-aliasing.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md) R3, [Index](index.md).
 
 ## [2026-10-15] decision | L2: landscape detail and robustness
 
@@ -361,8 +361,8 @@ reuse in the DE kernel (1.15–1.27× cold), world-anchored detail noise from a 
 equipotential ridges on plains (σ-weighted; baked into DE they striped every flank), 256²
 rings with footprint-based shading levels, curvature-correct geomorph. No-data pixels 0 in
 every run (L1: 45 % max starved, 99.9 % max in the target dive). Depth limit not lifted (what
-it takes is on the page). Pages: [[decisions/landscape-mode]] L2, [[synthesis/benchmarks]] L2,
-[[roadmap]].
+it takes is on the page). Pages: [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](decisions/landscape-mode.md) L2, [almondbread benchmarks and verification record](synthesis/benchmarks.md) L2,
+[Roadmap](roadmap.md).
 
 ## [2026-10-15] decision | Interior colourings, calm dense regions, orbit overlay and mini-map, control center
 
@@ -376,9 +376,9 @@ vector primitives, own 5×7 font, overlay-only frames from the history), map lev
 by small renderers between gestures, click-to-jump with snapping to a minibrot's cusp; the
 control center (searchable sections), a macOS Settings window and persistence. Found and
 fixed with main: a colour change during progressive AA crashed the app (main's `aa_epoch`).
-Pages: [[techniques/coloring-methods]] (Interior colouring as built, Dense regions),
-[[decisions/controls]] (control center, orbit overlay and mini-map),
-[[synthesis/benchmarks]] (Interior colourings, overlays, control center).
+Pages: [Colouring methods](techniques/coloring-methods.md) (Interior colouring as built, Dense regions),
+[Controls: keyboard, pointer and touch](decisions/controls.md) (control center, orbit overlay and mini-map),
+[almondbread benchmarks and verification record](synthesis/benchmarks.md) (Interior colourings, overlays, control center).
 
 ## [2026-10-15] decision | Autopilot and fly to coordinates (as built); Lagoon crash fix
 
@@ -398,21 +398,21 @@ requested like a jump's; regress gates on escape counts). Also fixed: `fly` scri
 a refresh boundary fired twice. Crash "selected Lagoon and almondbread died": a colour change
 dropped AA levels while their chunks were in flight; harvest indexed a missing level
 (commit 1fef638, regression test, panics now caught at the FFI and logged to
-`~/Library/Logs/Almondbread/panic.log`). Pages: [[decisions/controls]] Autopilot and Fly to,
-[[sources/van-wijk-nuij-smooth-zooming]], [[synthesis/benchmarks]] Autopilot and fly to,
-[[roadmap]] AP, [[index]].
+`~/Library/Logs/Almondbread/panic.log`). Pages: [Controls: keyboard, pointer and touch](decisions/controls.md) Autopilot and Fly to,
+[Smooth and efficient zooming and panning (van Wijk & Nuij)](sources/van-wijk-nuij-smooth-zooming.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md) Autopilot and fly to,
+[Roadmap](roadmap.md) AP, [Index](index.md).
 
 ## [2026-10-15] ingest | Places catalogue (P1)
 
 User request: a list of well-known places to visit. Sources ingested:
-[[sources/beyer-mandelbrot-zoom-sequence]] (Commons wikitext), [[sources/muency-named-places]],
-[[sources/wikipedia-misiurewicz-point]] (its "M(23,2)" is M(24,2) with z_0 = 0), and
-[[sources/robotmoon-mandelbrot-set]] (saved to `raw/web/`, manifest entries; user tip). New
+[Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](sources/beyer-mandelbrot-zoom-sequence.md) (Commons wikitext), [Mu-Ency: named features and favourite views (coordinates)](sources/muency-named-places.md),
+[Wikipedia: Misiurewicz point](sources/wikipedia-misiurewicz-point.md) (its "M(23,2)" is M(24,2) with z_0 = 0), and
+[Robot Moon: The Mandelbrot Set (interactive explorer, deep zooms)](sources/robotmoon-mandelbrot-set.md) (saved to `raw/web/`, manifest entries; user tip). New
 `find_misiurewicz` (Newton with lower preperiods divided out; `locate --misiurewicz k,p`).
 69 places (landmark 9, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 9;
 whole set to 1e-1000), each thumbnail rendered and looked at, deep ones verified against
-the CPU oracle (class mismatch 0 %). Pages: [[synthesis/places]], [[techniques/reference-selection]]
-(Misiurewicz Newton), [[roadmap]] P1, [[index]].
+the CPU oracle (class mismatch 0 %). Pages: [Places: a catalogue of famous views to visit](synthesis/places.md), [Reference selection: nucleus, period detection, Newton](techniques/reference-selection.md)
+(Misiurewicz Newton), [Roadmap](roadmap.md) P1, [Index](index.md).
 
 ## [2026-10-15] research | Fractal palettes and the palette library
 
@@ -421,11 +421,11 @@ gradients and `.ugr`, Fractint `.map`, KF palettes, cosine palettes, open
 perceptual maps and their licences, OKLab interpolation, cyclic maps, density
 mapping, dense regions, CVD safety). Notes saved unchanged under
 `raw/research/fractal-palettes/` (9 files, manifest entries added). Pages:
-[[techniques/palette-design]], [[synthesis/fractal-palettes]], and 12 source
+[Palette design for fractals](techniques/palette-design.md), [Fractal palettes: research and the palette library](synthesis/fractal-palettes.md), and 12 source
 pages (fractalset-viewer, ultrafractal-gradients-help, fractint-map-format,
 kovesi-good-colour-maps, colorcet, crameri-scientific-colour-maps,
 bids-viridis-colormaps, cmocean, turbo-colormap, cividis-paper,
-quilez-cosine-palettes, ottosson-oklab); [[index]] updated. Built: the
+quilez-cosine-palettes, ottosson-oklab); [Index](index.md) updated. Built: the
 67-palette library (`almondbread-core` `palette_library`, `palette_import`)
 and `almondbread palettes` contact sheets.
 
@@ -441,10 +441,10 @@ step, exact Newton finishes very close starts). Short products round down withou
 product when the round bit is clear (exact orbits like c = i 2.5x faster). Jump to
 dendrite-1e1000: first frame 1.8 s -> 0.1 s; dendrite-1e300 0.32 s -> 0.03 s; needles
 unchanged. Toom-3/NTT not built: the short Comba square beats full Karatsuba 1.5-1.8x up to
-157 limbs. Pages: [[techniques/parallel-reference-orbit]] (new), [[synthesis/benchmarks]] R6,
-[[decisions/arbitrary-precision]], [[techniques/reference-selection]],
-[[techniques/reference-orbit-precision]], [[platform/mpfr-gmp-on-apple-silicon]] (corrected
-the unmeasured MT3 handoff guess), [[index]].
+157 limbs. Pages: [Faster deep references: three-thread orbit, progressive delivery, cheap Newton](techniques/parallel-reference-orbit.md) (new), [almondbread benchmarks and verification record](synthesis/benchmarks.md) R6,
+[Arbitrary precision: own Swift/C implementation, not GMP/MPFR](decisions/arbitrary-precision.md), [Reference selection: nucleus, period detection, Newton](techniques/reference-selection.md),
+[Reference orbit: precision, cost, storage, compression](techniques/reference-orbit-precision.md), [Arbitrary precision on Apple Silicon (GMP, MPFR)](platform/mpfr-gmp-on-apple-silicon.md) (corrected
+the unmeasured MT3 handoff guess), [Index](index.md).
 
 ## [2026-10-15] decision | Integration: autopilot, places, palette library and R6 into the control center
 
@@ -457,14 +457,14 @@ deep colour, and imports .ugr / .map / JSON palettes into "My palettes" (JSON ke
 defaults, registered again at launch). A library palette's deep colour gives the calm dense
 regions their hue (at the calm luminance). Option-click on a mini-map flies there. Place
 thumbnails re-rendered with calm dense regions and the bubbles interior
-([[synthesis/places]]); Go / Fly switch a flat interior to bubbles to match. Checks after
+([Places: a catalogue of famous views to visit](synthesis/places.md)); Go / Fly switch a flat interior to bubbles to match. Checks after
 the merge: the R6 orbit digest is identical to the R6 branch's; `verify --history jump` at
-dendrite-1e1000 shows the first frame after 93 ms. Pages: [[decisions/controls]],
-[[synthesis/places]], [[techniques/coloring-methods]].
+dendrite-1e1000 shows the first frame after 93 ms. Pages: [Controls: keyboard, pointer and touch](decisions/controls.md),
+[Places: a catalogue of famous views to visit](synthesis/places.md), [Colouring methods](techniques/coloring-methods.md).
 
 ## [2026-10-14] research | R5: local series approximation on the GPU (float32 check)
 
-Answered [[questions/local-sa-float32]]. Metal prototype in the render crate (behind `--sa 1` /
+Answered [Does local series approximation hold in the float32 perturbation kernel?](questions/local-sa-float32.md). Metal prototype in the render crate (behind `--sa 1` /
 `ALMONDBREAD_SA=1`, offscreen only): `seedLevel` kernel per quadtree level (32 → 2 texels,
 ε = 1e−2), float32 seeds in the plain kernel and floatexp seeds with BLA blocks in the deep
 kernel, `iterate` with function constant `kSeeded` starting fresh pixels from their leaf.
@@ -476,8 +476,8 @@ but invisible μ errors in smooth ones, zero false interior. Found: restarting t
 derivative at the branch (R3 design) paints 96 % of needle-1e305 interior; carry `w` and
 `dw/dc` instead. Also found and fixed two DE bugs of the deep kernel (clamp before scaling,
 mantissa overflow before escape). Recommendation: go for M5 with a per-view gate, leaf-sorted
-admission, chunked seed passes. Pages: [[techniques/local-series-approximation]] (GPU
-prototype, pitfalls, M5 design), [[synthesis/benchmarks]] R5, [[roadmap]], [[index]].
+admission, chunked seed passes. Pages: [Local series approximation (tile and pixel seeds)](techniques/local-series-approximation.md) (GPU
+prototype, pitfalls, M5 design), [almondbread benchmarks and verification record](synthesis/benchmarks.md) R5, [Roadmap](roadmap.md), [Index](index.md).
 
 ## [2026-10-15] decision | PJ: journey autopilot, view rotation, cinematic effects
 
@@ -490,31 +490,31 @@ legs are fly-to flights with a rest; the next plan runs on a thread during the l
 next reference is prefetched during the rest. View rotation end to end (kernel, reprojection,
 tile priorities, oracle, overlays, navigator keys and gestures, coordinates text, regress
 sessions). Cinematic effects (spin with the zoom, OKLab hue and phase drift with depth,
-cycling in flight). Ingested [[sources/muency-newton-raphson-zooming]] and
-[[sources/kisaka-julia-sets-in-mandelbrot]]. Pages: [[decisions/controls]] (Journey, View
-rotation, Cinematic effects), [[ideas]] (status), [[roadmap]] (PJ), [[synthesis/benchmarks]]
-(PJ), [[index]].
+cycling in flight). Ingested [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](sources/muency-newton-raphson-zooming.md) and
+[Kisaka: Julia sets in the Mandelbrot set and small Mandelbrot sets (seminar abstract)](sources/kisaka-julia-sets-in-mandelbrot.md). Pages: [Controls: keyboard, pointer and touch](decisions/controls.md) (Journey, View
+rotation, Cinematic effects), [Ideas](ideas.md) (status), [Roadmap](roadmap.md) (PJ), [almondbread benchmarks and verification record](synthesis/benchmarks.md)
+(PJ), [Index](index.md).
 
 ## [2026-10-15] decision | M5: local series approximation and interior fill in production
 
-Shipped local SA ([[techniques/local-series-approximation]] "As built (M5)") on by default:
+Shipped local SA ([Local series approximation (tile and pixel seeds)](techniques/local-series-approximation.md) "As built (M5)") on by default:
 quadtree seeds 32 → 4 texels in resumable rounds (a node keeps its whole loop state; rounds
 sized by a learnt latency model; pixel admission gated on the GPU until the seeds are final),
 every level seeded at its own texel size, extension passes and AA samples from the full
 level's leaves, float32 deep seeds down to 2^−80 texels (the spiral's seeds 150 → 40 ms), a
 deterministic per-tile gate whose bar comes from the last level's steps per texel, Morton order
 inside admission tiles, bounded rounds for gesture frames. Interior-only tile fill
-([[techniques/guessing-and-subdivision]] "As built (M5)"): borders first, insides of
+([Guessing, border tracing and rectangle subdivision](techniques/guessing-and-subdivision.md) "As built (M5)"): borders first, insides of
 all-proven-interior tiles written without iterating, bit-identical, gated (elephant 1.35×,
 off with analysed interior colourings). New benchmark location `spiral-32412-1e19` (the
 user's slowest view) and regress sessions; auto iterations take a floor from the big
 reference and keep the interior test on while pixels end unresolved
-([[techniques/auto-iterations]]). Results ([[synthesis/benchmarks]] M5): dense-5e-14 4.95×,
+([Automatic maximum-iteration control](techniques/auto-iterations.md)). Results ([almondbread benchmarks and verification record](synthesis/benchmarks.md) M5): dense-5e-14 4.95×,
 sea-1e20 8.7×, neck-2e5 5.8×, root-third 3.3×, deep-5e-14 4.1×, dendrite-1e300 2.5×, spiral
 3.96× (first render 4.0 → 0.78 s GPU), interactive refined frames 2–5× sooner, 0–3 % cost
 where nothing is seeded; 0.000 % class change and no false interior at all 17 locations.
-Pages: [[techniques/local-series-approximation]], [[techniques/guessing-and-subdivision]],
-[[techniques/auto-iterations]], [[synthesis/benchmarks]], [[roadmap]], [[index]].
+Pages: [Local series approximation (tile and pixel seeds)](techniques/local-series-approximation.md), [Guessing, border tracing and rectangle subdivision](techniques/guessing-and-subdivision.md),
+[Automatic maximum-iteration control](techniques/auto-iterations.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md), [Roadmap](roadmap.md), [Index](index.md).
 
 ## [2026-10-15] decision | FB: flight benchmark with a score
 
@@ -533,7 +533,7 @@ switches (`--sa 0`). The script player and real-time recorder moved into
 `almondbread_core::flight`, shared with `fly`; `jump` and `location` events were added. The
 first, noisy runs found a path-dependent black frame at the heavy spot after the dive (auto
 iterations stay at 10384, below the period), reported for M5. Pages:
-[[synthesis/flight-benchmark]], [[synthesis/benchmarks]] (FB), [[index]].
+[Flight benchmark: one fixed flight, a score, a regression guard](synthesis/flight-benchmark.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md) (FB), [Index](index.md).
 
 ## [2026-10-15] decision | M5 fix: learned state across jumps
 
@@ -541,7 +541,7 @@ The flight benchmark found the spiral settling black after a dive at c = i (1e-2
 old view's interior-test statistics turned the test off and the learner could not retry
 without it. Jumps now reset the learned iteration and gate state; a view at the limit without
 the test renders again with it; `verify --history` checks against a from-scratch render; a
-regress session runs the path. Page: [[techniques/auto-iterations]].
+regress session runs the path. Page: [Automatic maximum-iteration control](techniques/auto-iterations.md).
 
 ## [2026-10-15] decision | M7: float32 artefacts measured (none visible); float-float as scaffolding
 
@@ -560,10 +560,10 @@ creation runs (passes under `.safe`; under `.fast` TwoSum and QuickTwoSum lose t
 with float32 as the fallback, a pixel-list fx perturbation kernel at any depth used by
 `verify --ff 1` / `precision --ff 1` (30–3000× closer to the oracle than float32), and number-type
 benchmarks (float-float 7–12×, fx 27–52× slower than float32). `bench` A/B against main: geomean
-1.014 under load, fields bit-identical. Pages: [[questions/float32-error-long-orbits]] (answered),
-[[questions/double-float-speed-on-m1]] (answered), [[questions/metal-fast-math-defaults]]
-(partial), [[techniques/double-float]] (As built), [[synthesis/benchmarks]] (M7), [[roadmap]]
-(M7), [[overview]], [[index]].
+1.014 under load, fields bit-identical. Pages: [How large is float32 perturbation error over long orbits?](questions/float32-error-long-orbits.md) (answered),
+[Which extended-precision emulation is fastest and correct on Apple GPUs?](questions/double-float-speed-on-m1.md) (answered), [What does Metal's default math mode allow for runtime-compiled kernels?](questions/metal-fast-math-defaults.md)
+(partial), [Double-float (float-float) arithmetic](techniques/double-float.md) (As built), [almondbread benchmarks and verification record](synthesis/benchmarks.md) (M7), [Roadmap](roadmap.md)
+(M7), [Overview](overview.md), [Index](index.md).
 
 ## [2026-10-15] decision | M6: Imagina-style LA and AT built; used only where it pays
 
@@ -582,25 +582,25 @@ does not replace BLA. Verify: 0 % exterior painted interior, class mismatch with
 at all locations; regress all OK; selftest OK; interaction test OK except the autopilot zoom check
 (×2.6–2.8 < ×3.16 at load average 534, the same with LA off). Found on the way: a pre-existing M5
 real-axis row at the needles (seeded pixels escape where the oracle does not). Pages:
-[[techniques/linear-approximation-imagina]] (As built), [[synthesis/benchmarks]] (M6),
-[[questions/bla-vs-la-benchmark]] (answered), [[roadmap]] (M6), [[overview]], [[index]].
+[Linear approximation with period-aligned stages and AT (Imagina)](techniques/linear-approximation-imagina.md) (As built), [almondbread benchmarks and verification record](synthesis/benchmarks.md) (M6),
+[How much faster is Imagina-style LA than binary-tree BLA on a GPU?](questions/bla-vs-la-benchmark.md) (answered), [Roadmap](roadmap.md) (M6), [Overview](overview.md), [Index](index.md).
 
 ## [2026-10-15] decision | Overlay font, place thumbnail moiré, 120 Hz measurement, iOS simulator
 
 Overlay text in Rust/Metal is now Inter SemiBold (OFL 1.1, licence shipped) as a
 signed-distance-field atlas with a soft dark halo, crisp at any backing scale and legible on
-pale and dark palettes ([[platform/overlay-text]]); `render --ppp` sets the overlay scale for
+pale and dark palettes ([Overlay text: SDF font atlas in Rust and Metal](platform/overlay-text.md)); `render --ppp` sets the overlay scale for
 stills. Place thumbnails render 3× larger and resample with a Gaussian (σ 0.5 px, linear
-light); the three needle minibrots were re-rendered without moiré ([[synthesis/places]]).
+light); the three needle minibrots were re-rendered without moiré ([Places: a catalogue of famous views to visit](synthesis/places.md)).
 120 Hz: the interaction test reports the display link's actual and granted rate and can run
 from a CVDisplayLink; a background window gets 20–33 callbacks per second (granted 120) and,
 fed at 120 Hz, half the refreshes find no drawable, so real 120 Hz presentation needs a
 frontmost window: `make interaction-test-120` for a person to run
-([[synthesis/benchmarks]] "120 Hz on ProMotion"). iOS: simulator runtime installed, iPhone and
+([almondbread benchmarks and verification record](synthesis/benchmarks.md) "120 Hz on ProMotion"). iOS: simulator runtime installed, iPhone and
 iPad simulators, self-test and an XCTest touch UI test; fixed a crash (presented handlers
 missing on simulator drawables), a main-thread HEIC decode deadlock when the control center
 opened, the HUD under the buttons on narrow canvases and the status bar
-([[platform/ios-simulator]]). Updated [[platform/render-architecture]], [[index]].
+([iOS and iPadOS on the simulator: setup, checks, what broke](platform/ios-simulator.md)). Updated [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md), [Index](index.md).
 
 ## [2026-10-15] decision | Journey variety: dives, cross-overs, novelty
 
@@ -615,7 +615,7 @@ only measure that told seahorse spirals from dendrite carpets on 40-texel probes
 novelty score; near-duplicates are rejected and a dive ends when nothing new is left. Long
 legs fly faster; with cinematic effects each dive gets its own palette phase. Contact sheets
 and three 3-minute review videos: 6–7 regions per 3 minutes instead of 2–3. Pages:
-[[decisions/controls]] (Journey, variety revision), [[synthesis/benchmarks]] (PJ variety).
+[Controls: keyboard, pointer and touch](decisions/controls.md) (Journey, variety revision), [almondbread benchmarks and verification record](synthesis/benchmarks.md) (PJ variety).
 
 ## [2026-10-15] decision | FB: window test took focus, fixed
 
@@ -625,12 +625,12 @@ window). `AlmondbreadMac/main.swift` activated a bare executable unless `--selft
 `--flight-bench=` and `--ui-demo=` too. The bench ends with `FOCUS TAKEN` and exit 1 on any
 activation or key window; 5 runs were clean. Also explained `stats.max_iterations` 10384
 against 41536 (nominal limit vs extension to the hard limit) and the 1e−1004 disc
-(supersampling of sub-pixel rings). Page: [[synthesis/flight-benchmark]].
+(supersampling of sub-pixel rings). Page: [Flight benchmark: one fixed flight, a score, a regression guard](synthesis/flight-benchmark.md).
 
 ## [2026-10-15] decision | Sample cache: motion sample reuse in production
 
-Built the sample cache R4 recommended ([[techniques/sample-reuse]] "As built",
-[[synthesis/motion-sample-reuse]] "Production"). R4's free per-pixel samples and move pass
+Built the sample cache R4 recommended ([Sample reuse while zooming and panning (sample cache in fractal coordinates)](techniques/sample-reuse.md) "As built",
+[Motion sample reuse: fewer iterations per gesture frame (R4)](synthesis/motion-sample-reuse.md) "Production"). R4's free per-pixel samples and move pass
 were replaced: samples sit on a lattice fixed in the plane, held as a toroidal window of
 16 × 16 tiles.
 
@@ -647,8 +647,8 @@ Bookkeeping is 0.1–0.6 ms per frame (budget 1.5 ms). Iterations per gesture fr
 ~1 ms more at Retina size. LA views (1e-305 needle) keep fresh previews. Pitfalls are filed on
 the technique page: superseded jobs wasting budgeted batches, latency vs throughput, biased
 interior statistics, `%` in per-pixel code, overlapping command buffers. Brought in the R4
-pages, sources, raw notes and prototypes. Numbers: [[synthesis/benchmarks]] "Sample cache".
-Pages: [[platform/render-architecture]], [[index]].
+pages, sources, raw notes and prototypes. Numbers: [almondbread benchmarks and verification record](synthesis/benchmarks.md) "Sample cache".
+Pages: [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md), [Index](index.md).
 
 ## [2026-10-15] decision | Sample cache off by default after user test
 
@@ -657,13 +657,13 @@ bisection with env switches in the real window traced it to the sample cache; M5
 as smooth as or smoother than the previous day. The cache is now opt-in
 (`ALMONDBREAD_SAMPLE_CACHE=1`). Lesson: headless replays and background windows (capped near 30 Hz)
 do not show interactive feel; a speed feature needs a foreground check before it becomes the
-default. Pages: [[techniques/sample-reuse]].
+default. Pages: [Sample reuse while zooming and panning (sample cache in fractal coordinates)](techniques/sample-reuse.md).
 
 ## [2026-10-15] decision | Mini-Mandelbrot atlas proposed
 
-Wrote up [[decisions/minibrot-atlas]] (proposed, not scheduled): local atlas from the journey's
+Wrote up [Mini-Mandelbrot atlas](decisions/minibrot-atlas.md) (proposed, not scheduled): local atlas from the journey's
 target finder first, then a shallow census and deep samples. Filed the π-in-the-set idea in
-[[ideas]] with our own numeric check.
+[Ideas](ideas.md) with our own numeric check.
 
 ## [2026-10-15] ingest | Cosmic size scale: sizes, epochs and the overlay
 
@@ -672,25 +672,25 @@ IAU units, CODATA 2022, a references page (galaxies, universe, cells, viruses, n
 quark size limit, big numbers, ages) and a cosmic-history timeline (times before ~1 s derived
 from transition temperatures with the PDG radiation-era relation). Unconfirmed figures are
 marked (unverified): adult height, the 93 vs 92 billion light-year universe (92 used), inflation
-times. Design and costs: [[decisions/controls]] "Cosmic size scale"; status in [[ideas]].
-Pages: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
-[[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
-[[sources/cosmic-history-timeline]], [[index]].
+times. Design and costs: [Controls: keyboard, pointer and touch](decisions/controls.md) "Cosmic size scale"; status in [Ideas](ideas.md).
+Pages: [NASA NSSDCA planetary fact sheets (Earth, Moon, Jupiter, Sun, Neptune)](sources/nasa-planetary-fact-sheets.md), [IAU astronomical unit (2012 Resolution B2) and the light-year](sources/iau-astronomical-units.md),
+[NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](sources/codata-2022-constants.md), [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](sources/cosmic-scale-references.md),
+[Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](sources/cosmic-history-timeline.md), [Index](index.md).
 
 ## [2026-10-15] ingest | How big is big? panel
 
-Built the up-arrow gear-train panel and wrote [[synthesis/how-big-is-big]]: the linear
+Built the up-arrow gear-train panel and wrote [How big is big? Zoom depth against huge numbers, one dial per up-arrow](synthesis/how-big-is-big.md): the linear
 super-logarithm generalised to every arrow level, marker positions (googol 2.301, our limit
 2.541, googolplex 3.301 on ↑↑; g₁ 2.364 on ↑↑↑↑), recomputed facts (googol after 2 min 24 s at
 ×4.95/s, googolplex zoom 4.6·10^92 years and 3.3·10^100 bits vs ~10^80 atoms). Finding: the
 four-arrow dial and beyond read 1.15, 1.06, 1.03 … at our limit, not 1.000. Ingested (skimmed,
-not saved) eleven web sources: [[sources/wikipedia-knuth-up-arrow-notation]],
-[[sources/wikipedia-tetration]], [[sources/wikipedia-grahams-number]],
-[[sources/wikipedia-kruskal-tree-theorem]], [[sources/wikipedia-steinhaus-moser-notation]],
-[[sources/wikipedia-skewes-number]], [[sources/wikipedia-googolplex]],
-[[sources/wikipedia-names-of-large-numbers]], [[sources/wikipedia-fast-growing-hierarchy]],
-[[sources/wikipedia-observable-universe]], [[sources/make-ganson-machine-with-concrete]].
-Status in [[ideas]].
+not saved) eleven web sources: [Wikipedia: Knuth's up-arrow notation](sources/wikipedia-knuth-up-arrow-notation.md),
+[Wikipedia: Tetration](sources/wikipedia-tetration.md), [Wikipedia: Graham's number](sources/wikipedia-grahams-number.md),
+[Wikipedia: Kruskal's tree theorem (TREE(3))](sources/wikipedia-kruskal-tree-theorem.md), [Wikipedia: Steinhaus–Moser notation (mega, Moser's number)](sources/wikipedia-steinhaus-moser-notation.md),
+[Wikipedia: Skewes's number](sources/wikipedia-skewes-number.md), [Wikipedia: Googolplex](sources/wikipedia-googolplex.md),
+[Wikipedia: Names of large numbers](sources/wikipedia-names-of-large-numbers.md), [Wikipedia: Fast-growing hierarchy](sources/wikipedia-fast-growing-hierarchy.md),
+[Wikipedia: Observable universe (atom count)](sources/wikipedia-observable-universe.md), [Make: Arthur Ganson's "Machine with Concrete"](sources/make-ganson-machine-with-concrete.md).
+Status in [Ideas](ideas.md).
 
 ## [2026-10-15] decision | Cosmic size scale: relative mode paced in linear zoom
 
@@ -698,7 +698,7 @@ User: "From hair to blood cell it takes ages." The relative cosmos now spans zoo
 with the things evenly spaced in zoom decades (about 12 s a step at the default speed). The
 epochs share the same grid, placed by thermal wavelength. Past 1e200 the panel counts cosmos
 lengths. Also: a darker backing and outlines, labels kept near their dots, a captioned anchor
-picker, and a "How big is big?" link past the Planck length. Pages: [[decisions/controls]].
+picker, and a "How big is big?" link past the Planck length. Pages: [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-15] ingest | π in the Mandelbrot set, and the π meter
 
@@ -712,8 +712,8 @@ count matches double-double everywhere at 11–13 ns per iteration. Boll's 1e-7 
 (31415928) is not reproduced (31415927); Mu-Ency counts one higher (convention). Built the
 π meter, two places and guided flights. Raising the image's iteration limit near the points
 was measured and rejected (8 s GPU per frame at the cusp, minutes at the neck). Pages:
-[[techniques/pi-in-the-mandelbrot-set]], [[questions/pi-escape-count-conventions]],
-[[decisions/controls]] "π meter", [[synthesis/places]], [[ideas]], [[index]].
+[π in the Mandelbrot set (neck and cusp escape counts)](techniques/pi-in-the-mandelbrot-set.md), [Why do published π escape counts differ by one (Mu-Ency) or disagree at ε = 1e-7 (Boll)?](questions/pi-escape-count-conventions.md),
+[Controls: keyboard, pointer and touch](decisions/controls.md) "π meter", [Places: a catalogue of famous views to visit](synthesis/places.md), [Ideas](ideas.md), [Index](index.md).
 
 ## [2026-10-15] decision | "How big is big?" panel removed
 
@@ -724,8 +724,8 @@ ui-demo scenes, the cosmic size scale's "How big is big? →" link with `Explore
 and its Rust side (`CosmicOverlay::hint`, `Host::cosmic_hint_points`, `CosmicScale::past_planck`),
 `almondbread-ffi/src/how_big.rs` and `almondbread-core/src/bignum_scale.rs` with its tests.
 The maths (linear super-log convention, marker table, facts) stays in
-[[synthesis/how-big-is-big]], marked removed, for achievements later; the sources pages stay.
-Pages: [[synthesis/how-big-is-big]], [[decisions/controls]], [[ideas]], [[index]].
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](synthesis/how-big-is-big.md), marked removed, for achievements later; the sources pages stay.
+Pages: [How big is big? Zoom depth against huge numbers, one dial per up-arrow](synthesis/how-big-is-big.md), [Controls: keyboard, pointer and touch](decisions/controls.md), [Ideas](ideas.md), [Index](index.md).
 
 ## [2026-10-16] decision | Autopilot target lock and rescue
 
@@ -738,7 +738,7 @@ by default with a control-center toggle and `ALMONDBREAD_AUTOPILOT_LOCK=0|1`; th
 gone. Headless tools: `almondbread autopilot` (CPU simulator), `fly --lock`, fly metrics.
 Uniform share over 90 s went from 94–100 % (plain Z) to 0–8 % at the default speed on 11 of
 12 starts; high-period minibrot starts at max speed stay weak (CPU probe iteration cap).
-Pages: [[decisions/controls]], [[synthesis/benchmarks]].
+Pages: [Controls: keyboard, pointer and touch](decisions/controls.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md).
 
 ## [2026-10-15] decision | π hunt: the view stays in the valley, a probe and the orbit trail
 
@@ -756,7 +756,7 @@ the orbit goes round the unit circle once at 2ε (2√ε) per step, which is whe
 The inset shows the orbit plot and that turn circle. Tracing costs 20 % (neck) and 5 % (cusp)
 of the count. The magnifier at scale ε was not built (it would be black and cost π/ε
 iterations per pixel). Menu items renamed "Hunt π at the Neck/Cusp". Pages:
-[[techniques/pi-in-the-mandelbrot-set]] "The orbit", "In the app"; [[decisions/controls]]
+[π in the Mandelbrot set (neck and cusp escape counts)](techniques/pi-in-the-mandelbrot-set.md) "The orbit", "In the app"; [Controls: keyboard, pointer and touch](decisions/controls.md)
 "π meter".
 
 ## [2026-10-16] decision | Compass
@@ -766,7 +766,7 @@ the view is turned (or always, a setting), fading 3 s after north. Click or tap 
 north in 0.4 s (exactly 0, the spin of an autopilot, flight or journey goes on from north;
 flights are turned along); drag turns the view 1:1. Rust draws (new triangle overlay
 primitive), hit-tests and moves; Swift routes presses. Mini-map panels now respect the
-safe-area insets. Pages: [[decisions/controls]] "Compass", [[index]].
+safe-area insets. Pages: [Controls: keyboard, pointer and touch](decisions/controls.md) "Compass", [Index](index.md).
 
 ## [2026-10-16] decision | Control center performance: invalidation, search, thumbnails
 
@@ -782,7 +782,7 @@ as view structs, leaf views, change-only `zoomSpeed`, `panelStats` at most 4 Hz 
 a search field that owns its text with a 120 ms debounce to the form (one rebuild per pause),
 thumbnails pre-decoded at launch at display size (13.3 MB, all shown in the first frame, 51
 ms), and a fixed-geometry `TileGrid`. The toggle cost is not fixed: it needs a lazy container
-that would change how the sidebar looks. Page: [[platform/swiftui-performance]].
+that would change how the sidebar looks. Page: [SwiftUI performance: the control center sidebar](platform/swiftui-performance.md).
 
 ## [2026-10-16] decision | Control center: settings only, lazy sidebar, place captions
 
@@ -796,7 +796,7 @@ grid row), styled like the grouped form; iOS keeps its `Form`. Places thumbnails
 zoom on a caption strip. Measured (3 runs each): rendering with sections open 23 % → 14 % main
 busy (collapsed baseline 13-16 %), no sidebar body re-runs while rendering; section toggles
 160-400 ms → 10-20 ms; Places open/close 433 → 84 ms; search rebuild 425 → 78 ms. Page:
-[[platform/swiftui-performance]], [[decisions/controls]].
+[SwiftUI performance: the control center sidebar](platform/swiftui-performance.md), [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-16] research | Places below 1e1000: four views to the depth limit
 
@@ -808,7 +808,7 @@ and M(5,1) gives a minibrot of size ~r²; centred on it, the junction appears wi
 the geometric mean and 8k at 3/4 of the log-distance (by eye). Newton found no minibrot next
 to the seahorse spiral M(24,2) at any radius. Cost with `verify --history jump` at 1600×1000:
 first frame 85 ms to 1.0 s, resolved 0.2-1.1 s, all of it the reference (period 2659-17046 at
-5120-10176 bits); class mismatch 0 against the oracle. Page: [[synthesis/places]].
+5120-10176 bits); class mismatch 0 against the oracle. Page: [Places: a catalogue of famous views to visit](synthesis/places.md).
 
 ## [2026-10-16] decision | Truncated references: a prefix's end is no rebase point
 
@@ -827,8 +827,8 @@ capped at a truncated orbit's end; `verify --history jump|flyto` now fails on a 
 `ALMONDBREAD_NUCLEUS=0` the period floor lifted the limit to 115,436 past a 57,719-point
 centre orbit (class mismatch 0.061 %, resolved 2.9 s); now 0 %, 0.5 s. In the flight
 benchmark's heavy segment the shown limit is now 41,536 like the jump render (was 10,384,
-the path-dependent black frame FB reported); noisy machine, no clean timing comparison. Pages: [[techniques/rebasing]] (Truncated
-references), [[techniques/parallel-reference-orbit]].
+the path-dependent black frame FB reported); noisy machine, no clean timing comparison. Pages: [Rebasing (Zhuoran, 2021)](techniques/rebasing.md) (Truncated
+references), [Faster deep references: three-thread orbit, progressive delivery, cheap Newton](techniques/parallel-reference-orbit.md).
 
 ## [2026-10-16] decision | Places zoom pills, full screen with F and Esc
 
@@ -839,7 +839,7 @@ entering and is restored on leaving, the toolbar auto-hides (macOS 15+), insets 
 after transitions and on `contentLayoutRect` changes. In full screen Esc stops motion first
 and leaves full screen only when nothing moved; repeats never leave. Interaction-test scenario
 "esc full screen" checks it through a probe (no window enters full screen). Page:
-[[decisions/controls]] "Full screen".
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Full screen".
 
 ## [2026-10-16] decision | Needle axis band for local SA; AA samples filter over their share; learned limit survives AA
 
@@ -854,9 +854,9 @@ trace line was the flight benchmark's fresh jump-check renderer. Test
 palette-filtered over the whole pixel, then averaged (a second box filter); samples now filter
 over `1/√N` of the pixel (the offscreen grid over `1/ss`): chroma 86 → 97 % of a 256-sample
 reference, error −33 %. CLI: `verify --dump-cpu`, `--calm 0|1`. Pages:
-[[techniques/local-series-approximation]], [[techniques/anti-aliasing]],
-[[techniques/coloring-methods]], [[techniques/auto-iterations]],
-[[synthesis/flight-benchmark]], [[synthesis/benchmarks]].
+[Local series approximation (tile and pixel seeds)](techniques/local-series-approximation.md), [Anti-aliasing and supersampling](techniques/anti-aliasing.md),
+[Colouring methods](techniques/coloring-methods.md), [Automatic maximum-iteration control](techniques/auto-iterations.md),
+[Flight benchmark: one fixed flight, a score, a regression guard](synthesis/flight-benchmark.md), [almondbread benchmarks and verification record](synthesis/benchmarks.md).
 
 ## [2026-10-16] decision | Motion fixes: pipeline warm-up, gesture cost after jumps, lock probes, deeper journeys
 
@@ -877,10 +877,10 @@ interior; the view probe now escalates to 240 000 (uniform 5 → 0 %, rescue 2.6
 (3) Journeys: deeper dive styles and smaller period-search discs for deep dives (median dive
 1e4.5–1e7.2 → 1e8.4–1e16.9); each leg's path is probed and self-similar stretches (look change
 < 0.15 per e-fold) fly 3× faster (Pine Compass tail 5.9 → 2.0 s); black frames not reproduced
-in 62 700 recorded frames. Pages: [[platform/metal-compute]] "Pipeline warm-up",
-[[decisions/controls]] (Fly to stalls, target lock, Journey revision),
-[[techniques/pi-in-the-mandelbrot-set]], [[questions/metal-watchdog-limit]],
-[[synthesis/benchmarks]] "Motion fixes".
+in 62 700 recorded frames. Pages: [Metal compute pipeline for a deep-zoom renderer](platform/metal-compute.md) "Pipeline warm-up",
+[Controls: keyboard, pointer and touch](decisions/controls.md) (Fly to stalls, target lock, Journey revision),
+[π in the Mandelbrot set (neck and cusp escape counts)](techniques/pi-in-the-mandelbrot-set.md), [What is the exact Metal GPU watchdog limit on macOS and iOS?](questions/metal-watchdog-limit.md),
+[almondbread benchmarks and verification record](synthesis/benchmarks.md) "Motion fixes".
 
 ## [2026-10-16] decision | Extension passes stop at the end of an f64 orbit cut at the limit
 
@@ -895,8 +895,8 @@ that cut with the rounding loss of a truncated reference. Medians of |Δmu| agai
 1.9–6.5 and class mismatch up to 25 % before; ≤ 3e-4 after. Fix: `Reference::exact_reach` caps
 the extension for every reference; the f64 orbit is computed as far as the passes may go. Bench
 iteration counts and verify metrics are unchanged; the regression is in `make regress`
-(`--max-cpu-median 0.05`, a new history gate). Pages: [[techniques/rebasing]] (Truncated
-references), [[techniques/auto-iterations]].
+(`--max-cpu-median 0.05`, a new history gate). Pages: [Rebasing (Zhuoran, 2021)](techniques/rebasing.md) (Truncated
+references), [Automatic maximum-iteration control](techniques/auto-iterations.md).
 
 ## [2026-10-16] decision | Hang prevention: loop audit, lints, extreme-value tests, main-thread watchdog
 
@@ -914,7 +914,7 @@ workspace-wide. 13 extreme-value unit tests (`cargo test extreme_`, ~10 ms in al
 `HangWatchdog` (heartbeat every 0.5 s, report after 2 s with the main thread's stack via
 public Mach calls and a ring buffer of recent events, to ~/Library/Logs/Almondbread) and
 `--hang-test`; MetricKit hang diagnostics saved alongside. Pages:
-[[techniques/hang-prevention]], [[sources/apple-metrickit-hang-diagnostics]].
+[Hang prevention (loop guards, extreme-value tests, main-thread watchdog)](techniques/hang-prevention.md), [Apple: MetricKit MXHangDiagnostic and main-thread hangs](sources/apple-metrickit-hang-diagnostics.md).
 
 ## [2026-10-17] query | The −3/4 neck gap at 1e8–1e9: ground truth, GPU check, seed horizon
 
@@ -922,14 +922,14 @@ User report: just above the neck (`−0.74999996… + 0.00036918… i`, 1.9e8–
 is almost black with thin filaments, areas appear while zooming, and a 10 M limit changes
 nothing. New tool `examples/neck_truth` (direct f64 with an interior proof, escape histograms,
 `|dz/dc|`, double-double checks, `--paint` for any `.iter` dump). Findings
-([[synthesis/neck-escape-statistics]]): everything in view escapes (minimum ~8 500 ≈ π/ε,
+([The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](synthesis/neck-escape-statistics.md)): everything in view escapes (minimum ~8 500 ≈ π/ε,
 medians 4e4–4e5, a disc at 2e7–7e7), escape counts are chaotic far below the pixel (f64 vs
 double-double differ for 9 % of pixels; only statistics are meaningful); the GPU's float32
 histograms at 1e6 and 1e7 match the f64 oracle to sampling noise, and the straight seam of
 `render --iterations 1e6` is real structure. The app's black: the learner caps at 4× depth
 (15–18 k) whatever the user's cap, the extension list overflows at Retina sizes, and with a
 manual 10 M the local SA seeds stalled the level (no pixel ran in 20 s at 4000 × 2500; fixed:
-`SEED_HORIZON` = 2^16, [[techniques/local-series-approximation]] "Seed horizon"); after that the
+`SEED_HORIZON` = 2^16, [Local series approximation (tile and pixel seeds)](techniques/local-series-approximation.md) "Seed horizon"); after that the
 frame is a 10–20 minute render in progress, whose early escapes look like filaments ending
 mid-screen. `f77cf7b` is not involved (same reference, 7 283 203 points, escaped). CLI: `--cap n`
 (auto-iteration cap), history `--timeout s`, `ALMONDBREAD_SNAPSHOT=png` (the shown frame at a
@@ -956,7 +956,7 @@ counter), plus predicted extension and AA stages. Measured with the new `almondb
 command: at a 2 M limit at the neck (3–4 min) the line stays within −10 / +6 points of the
 share of real time, at a 10 M limit with a slow tail (8 s) within ±10. Shallow zooms show
 nothing. Found: the first AA sample at a 2 M limit costs as much as the full level. Page:
-[[decisions/controls]] "Render progress".
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Render progress".
 
 ## [2026-10-16] decision | Cosmic scale: "Your screen" keeps the window, the set grows
 
@@ -973,7 +973,7 @@ plain words ("to see it you need X-rays", "Smaller than anything ever measured",
 the Planck length: only maths from here") instead of light times and GeV; the "GUT scale?" mark
 is gone everywhere (the metaphor grid now has 23 steps of 8.7 decades). Labels of marks close
 to the marker are nudged off it instead of hidden. Stills: `build/cosmic-stills/` (not
-committed). Page: [[decisions/controls]] "Cosmic size scale".
+committed). Page: [Controls: keyboard, pointer and touch](decisions/controls.md) "Cosmic size scale".
 
 ## [2026-10-17] decision | Cosmic scale: one mode, three phases, nested universes
 
@@ -988,11 +988,11 @@ rung, level `max(2, floor(n / 36.92))` ("A universe in a universe", "… (26 tim
 Ruler: things, "1,000 × universe", "universe = galaxy" … "universe = Planck", "googol ×",
 "3× nested" …; linear to the Planck rung, then slope 1/8; marks ≥ 25 pt apart. No light times
 or GeV anywhere. Long sentences wrap onto a second line. Contact sheet of the stills:
-`~/Desktop/cosmic-scale-stills.png`. Page: [[decisions/controls]] "Cosmic size scale".
+`~/Desktop/cosmic-scale-stills.png`. Page: [Controls: keyboard, pointer and touch](decisions/controls.md) "Cosmic size scale".
 
 ## [2026-10-17] decision | Open-source release
 
-[[decisions/open-source-release]]: MIT with saturnus's AI notice, `THIRD_PARTY_NOTICES.md`
+[Open-source release: licence, distribution, CI](decisions/open-source-release.md): MIT with saturnus's AI notice, `THIRD_PARTY_NOTICES.md`
 (Inter OFL, colour-map licences, crates), `deny.toml`, and the pipeline: CI on push (Linux
 Rust gates without the Apple-only ffi crate, Windows check of math and core, kb lint, a
 clean-checkout macOS build), a tag-driven Developer ID signed, notarised and stapled `.dmg`
@@ -1008,8 +1008,8 @@ repository: the market and game/Steam research reports, the distribution and gam
 decisions, thirteen business source pages (store listings, pricing and conversion benchmarks,
 Steam process) and their raw research notes. Links to them were replaced with plain text,
 index entries removed, and price and conversion figures trimmed from the remaining pages.
-Pages: [[index]], [[ideas]], [[decisions/open-source-release]], [[decisions/minibrot-atlas]],
-[[synthesis/places]], [[synthesis/how-big-is-big]], and the "Used by" sections of the
+Pages: [Index](index.md), [Ideas](ideas.md), [Open-source release: licence, distribution, CI](decisions/open-source-release.md), [Mini-Mandelbrot atlas](decisions/minibrot-atlas.md),
+[Places: a catalogue of famous views to visit](synthesis/places.md), [How big is big? Zoom depth against huge numbers, one dial per up-arrow](synthesis/how-big-is-big.md), and the "Used by" sections of the
 remaining market and engine source pages.
 
 ## [2026-10-17] research | Finding good places at extreme depth
@@ -1025,18 +1025,18 @@ web pages, orbit save files). Density is a colouring problem (KF iteration divis
 log/histogram, DE and slopes); our flat 1.4 M-period needle minibrot is read as palette
 cycles per pixel, an inference. Recommendations: `locate --frame f`, a thumbnail scorer,
 period-aware colouring, a morph walker, a GPU domain scan. New pages:
-[[synthesis/finding-deep-places]], [[questions/julia-morph-depth-fractions]] and nine source
-pages ([[sources/mathr-julia-morphing-posts]], [[sources/mathr-embedded-julia-navigation]],
-[[sources/mathr-domains-and-periodicity-scan]],
-[[sources/heiland-allen-inflected-julia-sets-2025]], [[sources/dinkydau-evolution-journals]],
-[[sources/fractalforums-pathfinding-revisited]], [[sources/fractalforums-deepest-zoom-poll]],
-[[sources/deep-zoom-videos]], [[sources/wikibooks-emndl]]); "Used by" backlinks on seven
-existing sources and one line in [[synthesis/places]]. Nothing saved to `raw/` (read on the
+[Finding good places at extreme depth (1e100 to 1e100000+)](synthesis/finding-deep-places.md), [At what fraction of the log-depth to a minibrot does each doubling appear?](questions/julia-morph-depth-fractions.md) and nine source
+pages ([mathr blog: automated Julia morphing (2016-2021)](sources/mathr-julia-morphing-posts.md), [mathr blog: navigating embedded Julia sets in the hairs](sources/mathr-embedded-julia-navigation.md),
+[mathr blog: atom domain size, Misiurewicz domains, periodicity scan](sources/mathr-domains-and-periodicity-scan.md),
+[Heiland-Allen: Patterns in Inflected Julia Sets (2025)](sources/heiland-allen-inflected-julia-sets-2025.md), [Dinkydau: evolution zooms, Julia morphing simulation, ExploreFractals](sources/dinkydau-evolution-journals.md),
+[Fractal Forums: Pathfinding in the Mandelbrot set - Revisited (2019)](sources/fractalforums-pathfinding-revisited.md), [Fractal Forums: How deep was the deepest Mandelbrot zoom you've ever made? (2016)](sources/fractalforums-deepest-zoom-poll.md),
+[Deep-zoom videos: record and landmark YouTube descriptions](sources/deep-zoom-videos.md), [Wikibooks: Fractals/emndl (emndl_autotune)](sources/wikibooks-emndl.md)); "Used by" backlinks on seven
+existing sources and one line in [Places: a catalogue of famous views to visit](synthesis/places.md). Nothing saved to `raw/` (read on the
 web; the forum thread via the Wayback Machine).
 
 ## [2026-10-17] decision | Help: (?) popovers, a help window, Markdown texts
 
-Help in three layers ([[decisions/controls]] "Help"): (?) popovers in the control center's
+Help in three layers ([Controls: keyboard, pointer and touch](decisions/controls.md) "Help"): (?) popovers in the control center's
 section headers (Iterations & quality, Look & colour, Interior, Overlays, Controls) and on the
 Rust-drawn panels (cosmic scale, π meter, mini-map row); one help window (Help ▸ Almondbread
 Help, ⌘?; a sheet on iOS) with six pages; the texts as Markdown in
@@ -1059,8 +1059,8 @@ with a Kantorovich bound and float32 noise margins; repelling parents of satelli
 resume the search for longer periods. No false interior in 19 views against the CPU oracle
 at high limits; satellite proven 1.1 → 3.4 % of 3.7 %, cardioid edge 55.7 → 84.0 % of 86.1 %,
 cusp 35.7 → 87.9 %. Near-parabolic views (neck, 1/3 root) stay unresolved and cost 10–40 %
-offscreen. Pages: [[techniques/interior-detection]] "Attracting-cycle probe",
-[[synthesis/benchmarks]] "Interior probe". Contact sheet: `~/Desktop/interior-before-after.png`.
+offscreen. Pages: [Interior detection](techniques/interior-detection.md) "Attracting-cycle probe",
+[almondbread benchmarks and verification record](synthesis/benchmarks.md) "Interior probe". Contact sheet: `~/Desktop/interior-before-after.png`.
 
 ## [2026-10-17] query | Autopilot check failure: GPU clocks trap the gesture resolution at 1/8
 
@@ -1075,7 +1075,7 @@ same ×2.2). Fix in `Renderer`, opt-in (`ALMONDBREAD_GESTURE_PROBE=1`, off until
 the foreground app): upward resolution probes and a median-fit hysteresis. Autopilot
 ×4.3–4.7 in 8/8 interleaved runs (main 3/8), preview scale about 2x in most gesture
 scenarios, skipped draws equal except a few more at dense views; numbers in
-[[synthesis/benchmarks]] "Autopilot throttle and GPU clocks".
+[almondbread benchmarks and verification record](synthesis/benchmarks.md) "Autopilot throttle and GPU clocks".
 
 ## [2026-10-17] decision | Compute further: background passes up to the Upper limit
 
@@ -1090,7 +1090,7 @@ incremental. Neck at 4.48e-12/px: 1600 x 1000 15.2 -> 3.78 % unresolved (200 k c
 100 -> 6.9 % (24 s) and 0.064 % with 10 M (75 s). Matches `neck_truth` (15.1 % at 65 536,
 ~3.8 % at 200 k); class mismatch against the CPU oracle 0.020 % at 8.3 M, all chaos. HUD:
 "computing further · ... · 12 % not finished", settled "3.8 % not finished at 200 k steps
-(upper limit)". Page: [[techniques/auto-iterations]] "Compute further". Image:
+(upper limit)". Page: [Automatic maximum-iteration control](techniques/auto-iterations.md) "Compute further". Image:
 `~/Desktop/compute-further.png`.
 
 ## [2026-10-17] decision | Compute further after AA; off by default in `verify --history`
@@ -1102,7 +1102,7 @@ its samples. New `verify --history` check: resolved pixels drawn in the unresolv
 on home, seahorse and the neck with AA; 14 % with the compose mode disabled on purpose).
 `verify --history` defaults to `--further 0`; one regress session (neck, 400 × 250, AA, 4 s
 budget) runs it: `make regress` 302.8 s against 300.2 s on main. Page:
-[[techniques/auto-iterations]] "Compute further".
+[Automatic maximum-iteration control](techniques/auto-iterations.md) "Compute further".
 
 ## [2026-10-17] decision | Cosmic scale: nested-universe count off by one
 
@@ -1111,7 +1111,7 @@ The user asked whether the cosmic comparison's maths is right. Phase 1 and 2 che
 flight passes all of astronomy in its first 27 decades). Phase 3 counted `max(2, floor(n / a))`
 universes, one short: at `n = a` the set is already a universe whose atoms are universes. Now
 `floor(n / a) + 1` ("… (27 times)" at 1e1000), and the "k× nested" ruler marks sit at
-`n = (k - 1) a`. [[decisions/controls]] "Cosmic size scale" updated.
+`n = (k - 1) a`. [Controls: keyboard, pointer and touch](decisions/controls.md) "Cosmic size scale" updated.
 
 ## [2026-10-17] decision | Previews wait for a new reference's BLA table
 
@@ -1123,7 +1123,7 @@ on b466f42 too; not caused by the interior probe, compute further or the gesture
 the dive every job is a gesture job: no full levels, probe chunks, further passes or AA). Fix:
 a job's first level waits for the table (1.3–6.4 ms) and the history is shown meanwhile
 (`ALMONDBREAD_PREVIEW_WAIT_BLA=0` restores the old behaviour). Largest chunk 937–1086 →
-10–14 ms, longest unpresented run 13–15 → 0–2 refreshes. Page: [[techniques/bla]] "Pitfalls".
+10–14 ms, longest unpresented run 13–15 → 0–2 refreshes. Page: [Bivariate linear approximation (BLA)](techniques/bla.md) "Pitfalls".
 
 ## [2026-10-17] decision | Zoom-out autopilot (⇧Z) and journey with stops (⇧J, Z / X at a stop)
 
@@ -1133,7 +1133,7 @@ from 1e-3000 without overflow. The journey's new "stop at each find" mode (contr
 J the set mode, ⇧J the other) rests at each landmark until J (as planned: the continuous journey's
 target), Z (`plan_with` `Choice::Deeper`: ≥ 1 e-fold deeper in this view, else the plan with
 "nothing deeper here") or X (`Choice::Elsewhere`: cross over now). Reproducible from seed, start view
-and the choices; `journey --choices jzx`. Page: [[decisions/controls]] "Zoom-out autopilot",
+and the choices; `journey --choices jzx`. Page: [Controls: keyboard, pointer and touch](decisions/controls.md) "Zoom-out autopilot",
 "Journey with stops".
 
 ## [2026-10-17] decision | Unresolved pixels drawn as fog
@@ -1153,7 +1153,7 @@ the probe multiplier) was looked at and dropped: near-constant near parabolic po
 seams elsewhere. The `verify --history` compute-further check now compares the texels it
 resolved with a fresh render by field data (the fog has no one colour); it found the last
 pass's texels left part faded (12 %), so compute further's compose runs on for 4 τ after the
-last pass. Help texts say "fog". Page: [[techniques/unresolved-fog]].
+last pass. Help texts say "fog". Page: [Fog over unresolved pixels](techniques/unresolved-fog.md).
 
 ## [2026-10-17] decision | Endless dives: places centred exactly on Misiurewicz points
 
@@ -1162,7 +1162,7 @@ New place category "Endless dives": `endless-forking` (c = i), `endless-spiral` 
 45°, 1.0789 at −14.87°, 1.3283 at 119.55°), and `endless-wander`, a never-repeating point from
 `locate --endless-seed 2026` (1,000 random angle bits, ray tracing + Newton, 42 s; changes down
 to ~1e-295, then repeats ×4.605). M(24,2) and M(4,1) extended to 3,307 digits (agree with the
-stored digits). Page: [[synthesis/places]] "Endless dives".
+stored digits). Page: [Places: a catalogue of famous views to visit](synthesis/places.md) "Endless dives".
 
 ## [2026-10-17] decision | Autopilot survey steering (opt-in)
 
@@ -1175,7 +1175,7 @@ default): whenever no lock target is followed, aim at the GPU survey's boundary 
 cell the highest-escape-count texel, a new field of the survey kernel), kept while its region
 holds detail, uphill in escape count when nothing is detailed. User point, 90 s × 5
 interleaved runs: uniform 6.7 → 1.3 s per run, rescues 6 → 1, zoom 25.4 → 26.8 decades;
-other deep paths unchanged (no voids either way). Page: [[decisions/controls]] "Survey
+other deep paths unchanged (no voids either way). Page: [Controls: keyboard, pointer and touch](decisions/controls.md) "Survey
 steering".
 
 ## [2026-10-17] decision | Driving levels: M · C · A · J, pedals, reverse cruise, lane assist hook
@@ -1187,7 +1187,7 @@ with depth, `(1 + D/3)^ramp`, ramping over 4 s, and hands the last stretch to th
 home from 1e-10 / 1e-50 / 1e-300 / 1e-3000 in 17 / 29 / 42 / 58 s at the first rung. User
 steering or pedal-to-zero in A or a journey leg hands over to cruise at the current speed; the
 autopilot no longer takes the wheel back. ⇧Z removed. Lane assist (L) is a setting and a hook,
-wired to the survey steering in phase 2. Page: [[decisions/controls]] "Driving levels".
+wired to the survey steering in phase 2. Page: [Controls: keyboard, pointer and touch](decisions/controls.md) "Driving levels".
 
 ## [2026-10-17] decision | Gesture resolution probes on by default
 
@@ -1195,7 +1195,7 @@ The user compared `ALMONDBREAD_GESTURE_PROBE=1` against the default in the foreg
 zooming, the autopilot near 1e45): smooth, sharp, no stutter noticed, hard to tell apart by eye. The
 measured gains (autopilot ×4.5 vs ×2.2 in 2.4 s, preview resolution about doubled) decide: the probes
 and median-fit hysteresis are now the only gesture-resolution path; the switch is removed
-([[synthesis/benchmarks]] "Autopilot throttle and GPU clocks").
+([almondbread benchmarks and verification record](synthesis/benchmarks.md) "Autopilot throttle and GPU clocks").
 
 ## [2026-10-17] decision | Behaviour switches removed: a decided choice is the only code
 
@@ -1230,7 +1230,7 @@ paste: actions itself (macOS routes Edit > Copy / Paste to the focused view), so
 view's coordinates and ⌘V goes to copied ones while the canvas has focus, and text fields keep
 normal copy and paste; ⇧⌘C / ⇧⌘V stay as menu items. A jump (pasted coordinates, a link, a
 place) now calls `Navigator::jumped`: cruise, autopilot, flights and flings stop dead and a
-journey ends (user request). [[decisions/controls]].
+journey ends (user request). [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-17] decision | Cockpit polish; two-finger scroll setting; help popovers at the bottom edge
 
@@ -1257,7 +1257,7 @@ The user reworded the cosmic scale's deep phases.
 - Phase 3: imaginary universes nest. At each level the Planck length is as big as the universe below, so a level is P = log10(U / Planck) ≈ 61.7 decades. The readout says "…, 16 levels deep" / "at the bottom, 1/72,000 of a proton is as big as ours".
 - The atom-ratio nesting (and `level_decades`) is gone. Ruler marks "Earth = universe" … "Planck = universe", then "3 levels" … "52 levels".
 
-The π meter, autopilot and journey buttons left the macOS toolbar: the π meter is niche, and the cockpit shows the levels. The cockpit's icons now take clicks: manual stops (Esc), cruise starts cruising in (E), autopilot and journey toggle (Z, J). The pointer shows a hand over them as over (?) badges. [[decisions/controls]].
+The π meter, autopilot and journey buttons left the macOS toolbar: the π meter is niche, and the cockpit shows the levels. The cockpit's icons now take clicks: manual stops (Esc), cruise starts cruising in (E), autopilot and journey toggle (Z, J). The pointer shows a hand over them as over (?) badges. [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-17] decision | Closed-form cardioid / period-2 bulb test at any depth
 
@@ -1268,7 +1268,7 @@ kernel's texel offset. The kernel marks a fresh texel interior iff the float32 s
 −(2^-16 · sum of magnitudes + slack), which is a proof at any depth. Neck at 4176×: 45 % →
 0.05 % unresolved, GPU 25 → 2.5 ms. Cusp at 1e-9: 100 % → 0 %, 210 → 4 ms. No class mismatch
 anywhere. The user's second view (−0.6443−0.3662i) is inside a period-64 component, not the
-cardioid, and is unchanged. Page: [[techniques/interior-detection]] "Closed-form component
+cardioid, and is unchanged. Page: [Interior detection](techniques/interior-detection.md) "Closed-form component
 test".
 
 ## [2026-10-17] decision | Orbit overlay: dot cloud on the whole-set map, plain result text
@@ -1279,7 +1279,7 @@ least 10^5 steps and keeps a decimated `OrbitCloud` (10^5 points, stride doublin
 whole-set map draws the first 50 steps as a line and the rest as one-pixel dots from a CPU
 picture blended by the overlay kernel (0.43 ms per rebuild of 10^5 points, rebuilt every ~19 %
 of growth). The text says "escapes after 48 213 steps", "settles into a period-34 cycle",
-"still undecided after 100 000 steps". [[decisions/controls]] "Orbit overlay".
+"still undecided after 100 000 steps". [Controls: keyboard, pointer and touch](decisions/controls.md) "Orbit overlay".
 
 ## [2026-10-17] decision | Seek minibrot (N)
 
@@ -1290,14 +1290,14 @@ of growth). The text says "escapes after 48 213 steps", "settles into a period-3
   3.2 |s| centred inside the cardioid. From a minibrot's framing it goes on to the next smaller
   one: the tuned copy of the period-3 minibrot (period 3p) or a lower period in a ring of discs
   around it. Bounded (4 s, cancel flag, fixed discs and retries). Home → 3 → 7; needle →
-  4640 → 13920. [[decisions/controls]] "Seek minibrot".
+  4640 → 13920. [Controls: keyboard, pointer and touch](decisions/controls.md) "Seek minibrot".
 
 ## [2026-10-17] lint | Consolidation pass after the 2026-10-16/17 features
 
 Read the log entries of both days and swept the wiki for what they removed or changed.
-- Stale claims fixed: [[decisions/controls]] (cockpit levels shown as icons, not M · C · A · J, and clickable; toolbar buttons for the π meter, autopilot and journey gone; the iOS zoom-out long press and `NavKey::AutopilotOut` went with ⇧Z; the cosmic scale phases 2 and 3 and the ruler reworded to imaginary universes and 61.7-decade Planck levels; survey steering marked as still an env switch, shared with lane assist), [[techniques/interior-detection]] and [[decisions/controls]] (the grey veil is fog now), sample-cache mentions in [[synthesis/motion-sample-reuse]], [[techniques/frame-reuse-and-progressive]], [[platform/metalfx]], [[synthesis/flight-benchmark]] and [[techniques/unresolved-fog]] (code deleted), a switch-names note on [[synthesis/benchmarks]], its gesture-probe paragraph (no longer opt-in), the M6 row of [[roadmap]] (AT deleted). Other pages already carried "removed 2026-10-17" notes.
-- Technique homes: new section "Gesture resolution and GPU clocks" in [[platform/metal-compute]] (the explanation; numbers stay in [[synthesis/benchmarks]]). The other techniques already had one home section each (interior-detection probe and closed-form test, auto-iterations "Compute further", unresolved-fog, bla "Pitfalls", places "Endless dives", controls driving levels, lane assist, survey steering, journey stops, cosmic scale); cross-links added.
-- [[overview]] rewritten for the current state (LA without AT, interior tests, fog, compute further, controls, switches removed); [[index]] one-liners updated.
+- Stale claims fixed: [Controls: keyboard, pointer and touch](decisions/controls.md) (cockpit levels shown as icons, not M · C · A · J, and clickable; toolbar buttons for the π meter, autopilot and journey gone; the iOS zoom-out long press and `NavKey::AutopilotOut` went with ⇧Z; the cosmic scale phases 2 and 3 and the ruler reworded to imaginary universes and 61.7-decade Planck levels; survey steering marked as still an env switch, shared with lane assist), [Interior detection](techniques/interior-detection.md) and [Controls: keyboard, pointer and touch](decisions/controls.md) (the grey veil is fog now), sample-cache mentions in [Motion sample reuse: fewer iterations per gesture frame (R4)](synthesis/motion-sample-reuse.md), [Frame reuse and progressive refinement](techniques/frame-reuse-and-progressive.md), [MetalFX upscaling (temporal, spatial) for motion sample reuse](platform/metalfx.md), [Flight benchmark: one fixed flight, a score, a regression guard](synthesis/flight-benchmark.md) and [Fog over unresolved pixels](techniques/unresolved-fog.md) (code deleted), a switch-names note on [almondbread benchmarks and verification record](synthesis/benchmarks.md), its gesture-probe paragraph (no longer opt-in), the M6 row of [Roadmap](roadmap.md) (AT deleted). Other pages already carried "removed 2026-10-17" notes.
+- Technique homes: new section "Gesture resolution and GPU clocks" in [Metal compute pipeline for a deep-zoom renderer](platform/metal-compute.md) (the explanation; numbers stay in [almondbread benchmarks and verification record](synthesis/benchmarks.md)). The other techniques already had one home section each (interior-detection probe and closed-form test, auto-iterations "Compute further", unresolved-fog, bla "Pitfalls", places "Endless dives", controls driving levels, lane assist, survey steering, journey stops, cosmic scale); cross-links added.
+- [Overview](overview.md) rewritten for the current state (LA without AT, interior tests, fog, compute further, controls, switches removed); [Index](index.md) one-liners updated.
 - Links: no broken links, no orphans, `hyalo lint` clean. Left alone: the business pages (market, Steam, gamification, distribution and their sources) are still in the tree but not in the index, although the 2026-10-17 entry says they moved out of the repository.
 
 ## [2026-10-17] decision | Smooth journey legs: eased landings and turns, no dull-pace pulses
@@ -1313,17 +1313,17 @@ bridged and ramped and off for the landing, paced legs capped at 16 e-folds/s; w
 acceleration 41 → 17 e-folds/s² (default), 462 → 23 (×35/s), 1069 → 20 (×1000/s); legs take longer. The cruise taken
 over from a leg is set to the journey speed (it was the leg's paced rate, ×55/s), and J lets a
 released cruise glide out or carry on into the leg instead of halting it. Page:
-[[decisions/controls]] "Journey" (revision "smooth legs").
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Journey" (revision "smooth legs").
 
 ## [2026-10-17] decision | Survey steering on by default
 
-The user tried `ALMONDBREAD_SURVEY_STEER=1` in the foreground at the 1e247 path. It ran into featureless regions twice, backed out quickly and resumed. Headless numbers: 1.3 s instead of 6.7 s featureless per 90 s, 1 reversal instead of 6. Survey steering is now always on, and the switch is removed. [[decisions/controls]] "Survey steering".
+The user tried `ALMONDBREAD_SURVEY_STEER=1` in the foreground at the 1e247 path. It ran into featureless regions twice, backed out quickly and resumed. Headless numbers: 1.3 s instead of 6.7 s featureless per 90 s, 1 reversal instead of 6. Survey steering is now always on, and the switch is removed. [Controls: keyboard, pointer and touch](decisions/controls.md) "Survey steering".
 
 ## [2026-10-17] decision | Compute further: "Continue" at the time limit; cosmic scale without numbers
 
 When compute further stops at its time limit (`further_budget`, 60 GPU s), the HUD's progress line offers **Continue** (button, key G). `Renderer::continue_further` adds another budget to this view's passes (`Further::extra_budget`) and resumes where they stopped. Only a stop at the time limit is offered; at the upper limit more time does not help. The HUD is hit-testable now, for the button. At 100 % the line reads "nothing finished yet" (user: "Is there a reason why not saying 0% finished?").
 
-The cosmic scale's deep phases name no numbers any more (user: "concrete numbers don't make sense anymore"). The thing as big as our universe is named when within a factor 2. Otherwise it reads "something between the solar system and the Milky Way", or beyond the ends "bigger than the Milky Way" / "smaller than the Planck length". [[techniques/auto-iterations]], [[decisions/controls]].
+The cosmic scale's deep phases name no numbers any more (user: "concrete numbers don't make sense anymore"). The thing as big as our universe is named when within a factor 2. Otherwise it reads "something between the solar system and the Milky Way", or beyond the ends "bigger than the Milky Way" / "smaller than the Planck length". [Automatic maximum-iteration control](techniques/auto-iterations.md), [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-17] decision | Component Newton: interior near the edge of any low-period component
 
@@ -1336,18 +1336,18 @@ candidates, the smallest that Newton shows attracting; < 0.5 ms in f64). The pro
 from `z = 0` before its scan, and the existing Kantorovich bound proves each pixel. A lean
 chunk dropped the probe state of probing pixels; that is fixed. Results: period-22 view
 unresolved 8.3 → 4.4 %; period-64 view 79 → 22 %, settled 20.6 → 3.0 s in the app scheduler.
-0 false interior in 13 views. Page: [[techniques/interior-detection]] "Component Newton".
+0 false interior in 13 views. Page: [Interior detection](techniques/interior-detection.md) "Component Newton".
 
 ## [2026-10-17] decision | Pointer hand-over from the autopilot needs real steering
 
 The user: "when in Autopilot mode, moving the mouse just a bit throws you into cruise mode".
 The hand-over now needs all three: 60 points of pointer travel (was 12), the pointer more
 than 0.35 of the steering radius off-centre (was the 0.1 dead zone), and that held for 0.6 s
-(was 0.25). WASD, a drag and the stick still hand over at once. [[decisions/controls]] "Driving levels".
+(was 0.25). WASD, a drag and the stick still hand over at once. [Controls: keyboard, pointer and touch](decisions/controls.md) "Driving levels".
 
 ## [2026-10-17] decision | Pointer hides while the autopilot or a journey flies
 
-User request. In A or J, the pointer hides after 1.5 s without moving over the canvas (`NSCursor.setHiddenUntilMouseMoves`) and shows again as soon as the mouse moves. It is a direction wish in the autopilot, so it shows whenever it is in use. The HUD, the control center and window tests are unaffected. [[decisions/controls]].
+User request. In A or J, the pointer hides after 1.5 s without moving over the canvas (`NSCursor.setHiddenUntilMouseMoves`) and shows again as soon as the mouse moves. It is a direction wish in the autopilot, so it shows whenever it is in use. The HUD, the control center and window tests are unaffected. [Controls: keyboard, pointer and touch](decisions/controls.md).
 
 ## [2026-10-17] decision | Steady autopilot rate: the throttle slows only when frames miss the budget
 
@@ -1359,7 +1359,7 @@ the scheduler runs at (median 0.137 at 1/8, 0.238 at 1/4, 0.81 at 7/8), so the 1
 toggling and cheap/dear regions swung it 0.36 ↔ 0.95, while slowing does not make a fresh preview
 cheaper. Fix: throttle full at fit 1/10, floor at 1/16 (only a coarsest preview that misses the
 budget slows), fit log filtered 0.5 s down / 1 s up. Rate sd 0.15–0.33 → 0.06–0.09 e-folds/s at
-the user point, 0.22 → 0.002 at seahorse; ~5 more decades per 90 s. Page: [[decisions/controls]]
+the user point, 0.22 → 0.002 at seahorse; ~5 more decades per 90 s. Page: [Controls: keyboard, pointer and touch](decisions/controls.md)
 "Steady autopilot rate".
 
 ## [2026-10-17] lint | Business pages removed from the tree
@@ -1385,7 +1385,7 @@ the wished way there.
 Target marker (the user's extension): a ring where A or a journey leg is heading. It glides on
 target changes and fades. A short label shows for 2.5 s for known kinds ("spiral", "minibrot ·
 period 34"), and a faint line points towards the wish. Toggle: View ▸ "Autopilot Target Marker",
-control center Overlays; on by default; persisted. [[decisions/controls]] "Pointer wish",
+control center Overlays; on by default; persisted. [Controls: keyboard, pointer and touch](decisions/controls.md) "Pointer wish",
 "Target marker".
 
 ## [2026-10-17] decision | Guided tours; the Feigenbaum tour
@@ -1400,7 +1400,7 @@ and 120 Hz) and a marker. The start saves the user's settings and view and stops
 the end restores them. Card with Back / Next / End tour (→ ← Esc), a Tours section in the
 control center, View ▸ Tours, and a Tour button on places a tour names. First tour: the
 Feigenbaum point in 9 steps, every number computed (nuclei, doubling points, attractors).
-Format and keys: [[decisions/controls]] "Guided tours".
+Format and keys: [Controls: keyboard, pointer and touch](decisions/controls.md) "Guided tours".
 
 ## [2026-10-17] query | Beach ball opening and scrolling the control center
 
@@ -1415,14 +1415,14 @@ a plain `VStack` replaces the `LazyVStack` (whose prefetch cycle is the only mec
 hang for good), the place pill offset is cached in the model (no Rust call in a body). Scroll
 longest iteration 31-38 → 3-5 ms, first open 77 → 40 ms, stress 63 → 8 long iterations; section
 opens 10-20 → 30-150 ms and the search rebuild 67-92 → 330-350 ms are the price. Page:
-[[platform/swiftui-performance]] "Hang: opening and scrolling the sidebar".
+[SwiftUI performance: the control center sidebar](platform/swiftui-performance.md) "Hang: opening and scrolling the sidebar".
 
 ## [2026-10-17] decision | Cruise: 26 gears, gear-scaled reverse boost, gear / target line
 
 User-approved: the pedal ladder has 26 gears (×1.1 … ×1000/s), a held pedal repeats every
 0.15 s, the reverse depth boost ramps over 10 s and its exponent is scaled by the gear (0.5 in
 gear 1 to 1 in gear 26), so low gears zoom out gently: home from 1e-10 in gear 1 takes 126 s,
-from 1e-3000 in gear 10 (×5) 69 s, in the top gear 10 s (table in [[decisions/controls]]
+from 1e-3000 in gear 10 (×5) 69 s, in the top gear 10 s (table in [Controls: keyboard, pointer and touch](decisions/controls.md)
 "Driving levels"). Two real bugs surfaced while adapting the navigator tests: the soft landing
 stalled about 1e-4 of path short of home and snapped after 1.5 s (it left its brake curve for
 the spring; now it stays on the curve), and Q could not bring the autopilot or a journey to zero
@@ -1433,7 +1433,7 @@ with the leg's flown speed. Cockpit 306 points wide (fits a phone).
 
 ## [2026-10-18] decision | Touch controls for iPhone and iPad
 
-[[decisions/controls]] "Touch": parity audit of the Mac's keyboard and pointer features against
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch": parity audit of the Mac's keyboard and pointer features against
 touch, iPad keyboard and pointer, and the touch design built on branch `ios-touch`: a throttle
 jog lever (one gear per 14 points, the pedals' paths, zero stop per drag, double tap stops), a
 touch cockpit (44-point cells, one or two rows, above a bottom-left map row on a phone),
@@ -1458,12 +1458,12 @@ budget from `os_proc_available_memory()` caps output texels (the drawable shrink
 iteration limit; memory warnings drop caches; thermal serious/critical lower GPU budgets, drop
 compute further, cap 60/30 Hz, critical stops refinement after the first full frame; scenes
 in the background submit no GPU work. Licence: no LGPL in the iOS binary (own BigFloat).
-Pages: [[platform/ios-device]], [[platform/ios-ipad-considerations]],
-[[sources/apple-device-tooling]].
+Pages: [iOS and iPadOS on a device: first run, signing, memory, thermal, background](platform/ios-device.md), [iOS and iPadOS port considerations](platform/ios-ipad-considerations.md),
+[Apple device tooling and iOS process APIs (devicectl, xcodebuild provisioning, os/proc.h)](sources/apple-device-tooling.md).
 
 ## [2026-10-18] decision | Touch round 2: a first run by a child
 
-[[decisions/controls]] "Touch", round 2 (branch `ios-touch-2`, simulators only): where a finger
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch", round 2 (branch `ios-touch-2`, simulators only): where a finger
 steers (A, C, a journey's flight; `Navigator::finger_steers`, `touch_hold`) it never opens the
 long-press menu — a resting finger steers after 0.2 s, a journey's flight hands over to cruise
 on a touch off the dead zone; the menu stays where nothing flies (its point would be stale
@@ -1472,17 +1472,17 @@ by any touch, back from Help). Tour card on a phone at the top, folding and scro
 bar: Tours, Help, Show Touch Hints. Fixes from the surface review: help popovers off-screen at
 the bottom of a phone (iOS `arrowEdge` semantics), fly-to sheet clipped (420-point minimum) and
 asking "Allow paste?" on open. Window tests, `--ui-demo` and the iOS UI tests no longer read or
-write settings (`TestLaunch.ephemeral`). See also [[platform/ios-simulator]].
+write settings (`TestLaunch.ephemeral`). See also [iOS and iPadOS on the simulator: setup, checks, what broke](platform/ios-simulator.md).
 
 ## [2026-10-18] decision | iOS QA pass: a first-time user before a child's first try
 
 Branch `ios-qa`, simulators `QA iPad Air 11` and `QA iPhone 17e`. `FirstUseUITests` scripts
-first sessions with screenshots at every step ([[platform/ios-simulator]] "QA"). Fixed: the
+first sessions with screenshots at every step ([iOS and iPadOS on the simulator: setup, checks, what broke](platform/ios-simulator.md) "QA"). Fixed: the
 long-press seek was never polled (no frame requested: `Navigator::wants_frames`); a tap on a
 place's picture only selected it (now goes there on iOS); pinches turned the view (touch twist
 dead band 15°, `TouchRotate`, Mac unchanged); "Allow Paste?" on Go to Copied (system Paste
 control); click / key words on touch; compass over the throttle on a phone on its side.
-[[decisions/controls]] "Touch" notes the decisions.
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" notes the decisions.
 
 ## [2026-10-18] decision | Places grid on touch: select, then Go or Fly on the picture
 
@@ -1493,11 +1493,11 @@ points, material background); a second tap on the picture goes there; VoiceOver 
 as actions. The smallest tiles (~100 × 63 points: iPhone sheet, iPad sidebar at its minimum)
 take the label under the icon; wider tiles side by side (`ViewThatFits`). New XCTest
 `testPlaceTileGoAndFly`; `testControlCenterPlaceAndTour` now selects, then taps again.
-[[decisions/controls]] "Touch" (places grid).
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" (places grid).
 
 ## [2026-10-18] decision | Touch device round: pinch release, cruise drag, wish line
 
-First try on a real iPad Pro 11" (M5); [[decisions/controls]] "Touch", "Device round". (1) A
+First try on a real iPad Pro 11" (M5); [Controls: keyboard, pointer and touch](decisions/controls.md) "Touch", "Device round". (1) A
 pinch whose fingers lift one at a time panned with the remaining finger: UIKit keeps the pinch
 alive with one finger and its location jumps to it. Swift now sends pinch and twist events only
 with two fingers down; Rust ignores `Pan` / `TouchSteer` after a pinch until `TouchesLifted`
@@ -1515,12 +1515,12 @@ User on a real iPad: the round buttons duplicated the cockpit. Now Orbit, Mini-m
 moved under the HUD as labelled buttons; the autopilot button's menu is covered by the cockpit,
 the throttle and a new iOS control-center "Seek minibrot"; the orbit toggle on touch shows the
 view centre's orbit (or the last Orbit Here point); touch hints point at the cockpit's plane.
-[[decisions/controls]] "Touch" ▸ "Round buttons".
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" ▸ "Round buttons".
 
 ## [2026-10-18] decision | Double click / tap zoom: a gentle glide, and click streams keep zooming
 
 User: double-click zoom felt abrupt and a stream of clicks or taps stopped after the second.
-[[decisions/controls]] "Animated zoom steps": the double click / tap is now its own ×2
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Animated zoom steps": the double click / tap is now its own ×2
 minimum-jerk glide of 0.35 s (`TAP_ZOOM_SECONDS`, `Navigator::tap_zoom`, `TapZoom`), extended
 by each further click from the current rate (C², exact ×2ⁿ). Mac zooms on every click count
 ≥ 2; iOS chains taps within 0.4 s and 60 pt through a third tap recogniser. Wheel notches,
@@ -1531,7 +1531,7 @@ as `space zoom`).
 
 ## [2026-10-18] decision | Touch throttle becomes a position lever
 
-[[decisions/controls]] "Touch" ▸ "Position lever": user feedback from a real iPad (the jog
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" ▸ "Position lever": user feedback from a real iPad (the jog
 lever read as "gear up / gear down"; the drag length chose the gear unnoticed). The knob's tick
 is now the gear (M in the middle stops, up in, down out), it stays where it is left, a tap on a
 tick goes there, chevrons step one gear, double tap stops. New core event `SetGear { gear }`
@@ -1549,20 +1549,20 @@ from identical synthesised events; 24.6° − 15° is the 9.57° the test saw, s
 worked. The test now draws an exact 8.6° twist through XCTest's event record
 (`TwoFingerTwist.swift`): 10 of 10 on the iPad, 1 of 1 on `AB iPhone 17e`. Rust test
 `a_single_twist_event_crossing_the_dead_band_turns_by_the_excess`. Noted: UIKit's 5–6° start
-hysteresis adds to the 15° band on real fingers. [[decisions/controls]] "Touch" ▸ "Device round",
-[[platform/ios-simulator]] "QA".
+hysteresis adds to the 15° band on real fingers. [Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" ▸ "Device round",
+[iOS and iPadOS on the simulator: setup, checks, what broke](platform/ios-simulator.md) "QA".
 
 ## [2026-10-18] decision | Closing the control center on touch
 
 Device feedback: no visible way to close the control center on iPhone / iPad. A pinned ✕ at the
 trailing end of the pane's search bar and the Control center round button lit (accent fill,
 selected trait) while the pane is open; the Mac unchanged. Test
-`TouchControlsUITests.testControlCenterClose`. [[decisions/controls]] "Touch" ▸ "Closing the
+`TouchControlsUITests.testControlCenterClose`. [Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" ▸ "Closing the
 control center on touch".
 
 ## [2026-10-18] decision | Touch: rest to steer, swipe to move the picture
 
-[[decisions/controls]] "Touch" ▸ "Rest or swipe": iPad feedback (C lost the resting finger that
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch" ▸ "Rest or swipe": iPad feedback (C lost the resting finger that
 steered; A's wish line from the centre to the finger did not follow a swipe). One rule while A,
 C or a journey's flight flies: a finger within 10 points for its first 0.25 s rests and steers
 until it lifts (C: like the pointer; A: the wish; journey: takes the wheel off the dead zone),
@@ -1580,7 +1580,7 @@ then the real chain of Seek minibrot from the Airplane (periods 3, 7, 16, 48, 80
 896, 2688) ending at a period-2688 minibrot at 10^15.7 with `iterations: 300000`. Coordinates from
 `seek::seek` and f64 checks; headless renders and a background `--ui-demo` run confirm every
 fate line. Our size bound `p ≳ 0.83 d` (inference) and the needle places sitting on it:
-[[decisions/controls]] "The minibrot-periods tour". Help: one sentence under Seek a minibrot.
+[Controls: keyboard, pointer and touch](decisions/controls.md) "The minibrot-periods tour". Help: one sentence under Seek a minibrot.
 
 ## [2026-10-18] decision | The π meter becomes a tour
 
@@ -1589,14 +1589,14 @@ neck hunt, why π, the cusp hunt, your turn) and step key `pi-hunt: neck|cusp` (
 guided flight in its own step). Removed the P key, View ▸ π Meter / Hunt π at the Neck / at the
 Cusp, the control center's π switch, reading and hunt buttons, FFI `pi_flight` and the meter's
 persistence; help (getting started, overlays, popovers) and the neck place point to the tour. The
-π panel keeps left of the tour card. [[decisions/controls]] "π meter", "Guided tours" key table,
+π panel keeps left of the tour card. [Controls: keyboard, pointer and touch](decisions/controls.md) "π meter", "Guided tours" key table,
 "The π tour".
 
 ## [2026-10-19] decision | First-launch walkthrough as a hidden tour
 
 The walkthrough is `tours/welcome.md`, a hidden tour; the tour engine gained `platform`, `highlight`,
 `control-center` and `goal` step keys, `::: mac` / `::: touch` text blocks and the `hidden` header.
-Offered once at the first launch (never in tests unless forced). See [[decisions/controls]]
+Offered once at the first launch (never in tests unless forced). See [Controls: keyboard, pointer and touch](decisions/controls.md)
 "Walkthrough".
 
 ## [2026-10-19] lint | Four unmerged branches triaged; their knowledge brought to main
@@ -1608,28 +1608,28 @@ the R5 prototype as `e4ce6e1`, R4's pages, raw notes and prototypes as `635e849`
 main: the `deep_distance_estimate` test passes (0 isolated DE 0, 0 of 40 687 smooth-neighbour
 jumps at sea-1e20) and DE-shaded renders of sea-1e20, sea-8007 and dendrite-1e300 show no
 outline bands or dotted arcs. Brought over as text only: the needle-of-the-needle research
-([[synthesis/places]], marked not in the catalogue), the 2026-10-16 menu-hang record
-([[platform/swiftui-performance]], marked superseded by the `VStack` fix; the 2026-10-17
-section already pointed at it), R5's corrected image-diff numbers ([[questions/local-sa-float32]],
-[[synthesis/benchmarks]]), and a note that `prototypes/motion-reuse` does not build against main
-([[synthesis/motion-sample-reuse]]).
+([Places: a catalogue of famous views to visit](synthesis/places.md), marked not in the catalogue), the 2026-10-16 menu-hang record
+([SwiftUI performance: the control center sidebar](platform/swiftui-performance.md), marked superseded by the `VStack` fix; the 2026-10-17
+section already pointed at it), R5's corrected image-diff numbers ([Does local series approximation hold in the float32 perturbation kernel?](questions/local-sa-float32.md),
+[almondbread benchmarks and verification record](synthesis/benchmarks.md)), and a note that `prototypes/motion-reuse` does not build against main
+([Motion sample reuse: fewer iterations per gesture frame (R4)](synthesis/motion-sample-reuse.md)).
 
 ## [2026-10-19] lint | Stale statements after the touch, tour and walkthrough changes
 
-[[decisions/controls]] "Touch": the iPad's round buttons are a top-trailing row only on a canvas
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Touch": the iPad's round buttons are a top-trailing row only on a canvas
 at least 560 points wide; narrower (portrait with the control center open, split views) they
 are the phone's bottom-trailing column with the throttle on top; a regular-width phone on its
 side gets its row top trailing (read from `ContentView.swift`, not checked). The P key is gone
 from the parity table and the full-screen key list; place tiles: Go / Fly clear the selection.
-[[overview]]: the iOS port exists, survey steering is the default, tours and touch controls
-listed. [[platform/ios-simulator]] and [[platform/ios-ipad-considerations]]: superseded
+[Overview](overview.md): the iOS port exists, survey steering is the default, tours and touch controls
+listed. [iOS and iPadOS on the simulator: setup, checks, what broke](platform/ios-simulator.md) and [iOS and iPadOS port considerations](platform/ios-ipad-considerations.md): superseded
 pointers. Help: click / tap streams, Smart zoom, place tiles on touch. CLAUDE.md: the iOS 26.5
 simulator runtime is installed; `ALMONDBREAD_UITEST` in the env table.
 
 ## [2026-10-19] decision | Simulator jobs: one at a time, one shared pair, low priority
 
 After the 2026-10-18 overload (12 simulators from parallel agents, load ~800, swapping):
-[[platform/ios-simulator]] "Low-load rules". A machine-wide lock (`~/Library/Caches/almondbread/
+[iOS and iPadOS on the simulator: setup, checks, what broke](platform/ios-simulator.md) "Low-load rules". A machine-wide lock (`~/Library/Caches/almondbread/
 sim.lock`, fcntl via `zsystem flock`, `scripts/sim-common.zsh`) serializes every simulator job;
 one shared pair `AB iPhone 17e` / `AB iPad mini`, booted one at a time and shut down by UDID;
 `make ios-uitest TESTS=… DEVICE=ipad` for targeted runs (`build-for-testing` outside the lock,
@@ -1643,13 +1643,13 @@ New tour `tours/limits.md` (9 steps): slow points at the neck with the orbit ove
 interior, fog that stays (the neck gap at 1.5e-8), computing further, f64's 16 digits,
 perturbation and skipping, ending at the 1e302 needle minibrot. Two pitfalls found on the way:
 low `iterations:` values show no fog in the app (the scheduler extends and computes further), and
-the tour test cannot take views below about 1e-305. [[decisions/controls]] "The limits tour".
+the tour test cannot take views below about 1e-305. [Controls: keyboard, pointer and touch](decisions/controls.md) "The limits tour".
 
 ## [2026-10-19] decision | Tour: bulbs and spokes
 
 New tour `tours/bulbs.md` (8 steps): periods round the cardioid with a probe path through the
 nuclei, counting the antenna's branches (1/4 and 1/5 bulbs, forks located as M(5,1) and M(6,1)),
-the p/q rule and Farey addition (2/5, 3/8). Nuclei and forks in [[decisions/controls]] "The bulbs
+the p/q rule and Farey addition (2/5, 3/8). Nuclei and forks in [Controls: keyboard, pointer and touch](decisions/controls.md) "The bulbs
 tour".
 
 ## [2026-10-19] decision | Tour: Seahorse and Elephant valleys
@@ -1657,34 +1657,34 @@ tour".
 New tour `tours/valleys.md` (10 steps): seahorses and their tails, Misiurewicz points at the spiral
 centres, M(24,2) at 1e4 and 1e50 (self-similarity), elephant valley, the M(4,1) fork at 0.005 and
 1e100. Orbit probes at Misiurewicz points are misleading in f64 (M(4,1) "escapes after 137 steps").
-[[decisions/controls]] "The valleys tour".
+[Controls: keyboard, pointer and touch](decisions/controls.md) "The valleys tour".
 
 ## [2026-10-19] decision | Tour: patterns that double
 
 New tour `tours/doubling.md` (9 steps): from the M(4,1) fork to a period-39 minibrot 5.2e-6 away,
 the arms double 3 → 6 → 12 → 24 on the way (12 at half of the log-depth, 24 at three quarters:
-added to [[questions/julia-morph-depth-fractions]]), why squaring doubles, embedded Julia sets and
-Julia morphing. [[decisions/controls]] "The doubling tour".
+added to [At what fraction of the log-depth to a minibrot does each doubling appear?](questions/julia-morph-depth-fractions.md)), why squaring doubles, embedded Julia sets and
+Julia morphing. [Controls: keyboard, pointer and touch](decisions/controls.md) "The doubling tour".
 
 ## [2026-10-19] decision | Tour: what the colours mean
 
 New tour `tours/colours.md` (12 steps): escape counts and bands, smooth colouring, palettes and
 looks, fog, proven black, and the five interior colourings. Found: an interior-only step change
 did not recolour the shown frame in the app until a new job (worked around with `move: jump`;
-possible renderer bug). [[decisions/controls]] "The colours tour".
+possible renderer bug). [Controls: keyboard, pointer and touch](decisions/controls.md) "The colours tour".
 
 ## [2026-10-19] decision | Tour: every point has a Julia set
 
 New tour `tours/julia.md` (8 steps): fix c and vary the start; connected inside, dust outside;
 the set looks like a point's Julia set near it; embedded Julia sets. No Julia renderer in the app:
-the tour uses the orbit overlay and places; a Julia view would improve it. [[decisions/controls]]
+the tour uses the orbit overlay and places; a Julia view would improve it. [Controls: keyboard, pointer and touch](decisions/controls.md)
 "The Julia tour".
 
 ## [2026-10-19] decision | Tour: Misiurewicz points
 
 New tour `tours/misiurewicz.md` (8 steps): pre-periodic orbits at −2, i, the M(4,1) fork and the
 spike's M(3,1) crossing; self-similarity with the cycle multipliers (1.33 / 120° at M(4,1), 5.66 /
-45° at i, 4 at −2); the fork at 1e300; spirals at 1e4 and 1e50. [[decisions/controls]] "The
+45° at i, 4 at −2); the fork at 1e300; spirals at 1e4 and 1e50. [Controls: keyboard, pointer and touch](decisions/controls.md) "The
 Misiurewicz tour".
 
 ## [2026-10-19] decision | Finding the tours
@@ -1696,7 +1696,7 @@ User request: make the guided tours easy to discover. New tour header keys `plac
 on the not-finished line, a link in Iterations & quality, "Next tour" on every last step (the
 walkthrough offers the first tour), tour cards with place thumbnails, "9 steps · ~3 min" and a done
 check, signpost badges on tour places. The series order is `BUNDLED`'s. In
-[[decisions/controls]] "Finding the tours".
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Finding the tours".
 
 ## [2026-10-19] decision | Recolour without a new job; tour views at any depth
 
@@ -1708,8 +1708,8 @@ after it. Fix: a planned frame without a target keeps `animating`, and `COMPOSE_
 interior `move: jump` workarounds removed; new `--ui-demo=interior-cycle` scene. Tour `span` /
 `zoom` already parsed any depth; the bundled-tour test checked f64 and now checks log2. The limits
 tour gained a 1e3000 step (`swirl-1e3000`, resolved 417 ms after the jump at 1600×1000).
-[[decisions/controls]] "The colours tour", "The limits tour";
-[[techniques/frame-reuse-and-progressive]].
+[Controls: keyboard, pointer and touch](decisions/controls.md) "The colours tour", "The limits tour";
+[Frame reuse and progressive refinement](techniques/frame-reuse-and-progressive.md).
 
 ## [2026-10-19] decision | Overlay layout on narrow canvases; GPU queue hang
 
@@ -1722,8 +1722,8 @@ swift-test`); the Mac control center's hidden width no longer shifts the π pane
 main-thread stall (up to 24.8 s in `commandBuffer()` with the queue full of long iterate chunks,
 iPad simulator, "Period 2688") is guarded by `GPU_QUEUE_LIMIT`. The Period 2688 step costs about
 23 s of M1 Pro GPU at iPad mini size; its text now says so. `--ui-demo-size=WxH`, `--ui-demo-aa=`,
-UI tests `OverlayLayoutUITests`, `TourPerformanceUITests`. [[decisions/controls]] "π meter on
-narrow canvases", "Cosmic size scale", "Round buttons"; [[techniques/hang-prevention]] "GPU queue".
+UI tests `OverlayLayoutUITests`, `TourPerformanceUITests`. [Controls: keyboard, pointer and touch](decisions/controls.md) "π meter on
+narrow canvases", "Cosmic size scale", "Round buttons"; [Hang prevention (loop guards, extreme-value tests, main-thread watchdog)](techniques/hang-prevention.md) "GPU queue".
 
 ## [2026-10-19] decision | Maps, cockpit and tour card keep clear on phones
 
@@ -1735,14 +1735,14 @@ half (phone on its side: one map beside the two-row cockpit). The tour card at t
 of the throttle, the round buttons, the cockpit and the maps (narrowed beside the column in
 portrait, the trailing side on its side when the maps are under it; the text scrolls in what is
 left). The UI tests' round-button lookup had matched identifiers only and checked nothing; it
-matches labels now. [[decisions/controls]] "Mini-map on small screens", "Tour card on a phone".
+matches labels now. [Controls: keyboard, pointer and touch](decisions/controls.md) "Mini-map on small screens", "Tour card on a phone".
 
 ## [2026-10-19] research | Other fractal types: feasibility and roadmap
 
 User question: which other fractal types could almondbread support on top of what exists (Julia,
 3D Mandelbulb/Mandelbox)? Read the formula pages, landscape decision and the code (about 12 modules
 are formula-specific; the perturbed step is inline at ~10 kernel sites; nine function constants
-already specialise the kernel), plus web research. Result: [[synthesis/other-fractal-types]],
+already specialise the kernel), plus web research. Result: [Other fractal types: what almondbread could support, at what cost](synthesis/other-fractal-types.md),
 with a family × capability matrix, the order Julia companion → pluggable-formula refactor
 (`kFormula`/`kConformal` function constants, `Formula` enum in math, capability struct over FFI) →
 Multibrot → deep Julia (critical-orbit rebasing: the Mandelbrot orbit of k; untested) →
@@ -1752,30 +1752,30 @@ scheme; the 2.5D landscape is the cheaper route. New sources: quilez-mandelbulb,
 skytopia-mandelbulb, wikipedia-mandelbulb, wikipedia-mandelbox, hvidtfeldt-de-3d-fractals,
 mandelbulber2-readme, alltools-mandelbulb-explorer, superliminal-buddhabrot,
 wikipedia-fractal-flame, wikipedia-newton-fractal, wikipedia-lyapunov-fractal, frax-about,
-hpdz-animations. Pointer added to [[formulas/others-feasibility]].
+hpdz-animations. Pointer added to [Other formulas: feasibility of deep zoom](formulas/others-feasibility.md).
 
 ## [2026-10-19] decision | Roadmap through 2026-10-19, fractal-type milestones, plan pages
 
-[[roadmap]]: rows for the work after PJ, from the log, [[decisions/controls]], the iOS pages,
-[[synthesis/benchmarks]] and the merges on main: R6 and X1 (the rest of 2026-10-15), AP2
+[Roadmap](roadmap.md): rows for the work after PJ, from the log, [Controls: keyboard, pointer and touch](decisions/controls.md), the iOS pages,
+[almondbread benchmarks and verification record](synthesis/benchmarks.md) and the merges on main: R6 and X1 (the rest of 2026-10-15), AP2
 (autopilot and driving), Q1 (rendering quality and interior), UX2 (Mac UI and content), RB
 (robustness: hang prevention, GPU queue guard, recolour fix, overlay layout), OS (open-source
 release), I1 / I2 (iOS / iPad port and touch, before and after the iPad device round), T1 (tour
 engine and 10 maths tours, π only through its tour), T2 (walkthrough and tour discovery), ST
 (simulator tooling), DS (docs and App Store drafts). Awaiting device review: rest / swipe
 thresholds, tours and walkthrough on the iPad. M8 replaced by F1–F8 and BB in the order of
-[[synthesis/other-fractal-types]] §5 (F7 is the old M8); M9 kept. New page type `plan`
+[Other fractal types: what almondbread could support, at what cost](synthesis/other-fractal-types.md) §5 (F7 is the old M8); M9 kept. New page type `plan`
 (`plans/`, schema with enums, required body sections, `plans` view sorted by priority; rules in
-`kb/CLAUDE.md`) and ten plan pages: [[plans/f1-julia-view]] (proposed, awaiting go),
-[[plans/f2-pluggable-formulas]], [[plans/f3-multibrot]], [[plans/f4-deep-julia]],
-[[plans/f5-mandelbar]], [[plans/f6-burning-ship]], [[plans/f7-hybrids]],
-[[plans/f8-convergent-spike]], [[plans/buddhabrot]], [[plans/3d-worlds]] (proposed, last, not
-recommended now; also in [[ideas]]). The Julia view stays on the roadmap only: [[ideas]] holds
+`kb/CLAUDE.md`) and ten plan pages: [F1: Julia view (companion inset)](plans/f1-julia-view.md) (proposed, awaiting go),
+[F2: Pluggable-formula refactor](plans/f2-pluggable-formulas.md), [F3: Multibrot z^p + c](plans/f3-multibrot.md), [F4: Deep Julia sets](plans/f4-deep-julia.md),
+[F5: Mandelbar (Tricorn) and the non-conformal path](plans/f5-mandelbar.md), [F6: Burning Ship family](plans/f6-burning-ship.md), [F7: Hybrid formulas via an opcode model](plans/f7-hybrids.md),
+[F8: Nova, Newton and Magnet research spike](plans/f8-convergent-spike.md), [Buddhabrot and Nebulabrot as a look](plans/buddhabrot.md), [3D worlds (Mandelbox first): not recommended now](plans/3d-worlds.md) (proposed, last, not
+recommended now; also in [Ideas](ideas.md)). The Julia view stays on the roadmap only: [Ideas](ideas.md) holds
 the user's ideas, proposals go to plans.
 
 ## [2026-10-19] decision | F1 Julia panel built, awaiting review
 
-[[plans/f1-julia-view]] built on its branch (status in-progress until the user's review gate; roadmap
+[F1: Julia view (companion inset)](plans/f1-julia-view.md) built on its branch (status in-progress until the user's review gate; roadmap
 row F1 "built, awaiting review"). A Julia companion panel at the end of the map row: the Julia set
 of the orbit's point in its own float32 kernel library (`julia.metal`, compiled on first use; the
 Mandelbrot kernels and scheduler untouched), the main palette and colouring, the attracting cycle
@@ -1786,11 +1786,11 @@ round button, control center, tour key `julia:`; tours/julia.md shows it. Measur
 ms GPU per one-sample picture at 360 × 259 px for typical k, ~1.1 ms near-parabolic; interaction
 test "julia sweep" / "julia pan" within noise of the panel off (109–117 fps vs 111–116). Float32
 field vs f64 reference: class identical at five k, 62 of 93 240 pixels just outside the set
-(seahorse). Pages: [[decisions/controls]] ("Julia panel", "The Julia tour", tour keys).
+(seahorse). Pages: [Controls: keyboard, pointer and touch](decisions/controls.md) ("Julia panel", "The Julia tour", tour keys).
 
 ## [2026-10-19] decision | F2 pluggable formulas built, awaiting review
 
-[[plans/f2-pluggable-formulas]] built on its branch (status in-progress until the driver's review
+[F2: Pluggable-formula refactor](plans/f2-pluggable-formulas.md) built on its branch (status in-progress until the driver's review
 of the A/B table; roadmap row F2 "built, awaiting review"). `Formula { Mandelbrot,
 Multibrot(p) }` in almondbread-math, matched outside the hot loops; per-formula hooks in the
 reference orbit, selection (`*_for`), f64 reference, CPU oracle, orbit overlay, both BLA tables
@@ -1802,14 +1802,14 @@ compile lazily. Multibrot(p) is the generic path, test-only until F3. Proof (mea
 2026-10-19, M1 Pro): bench fields and PNGs byte-identical to main (one interior texel of
 elephant with period colouring differs run to run on main too), GPU ms geomean 1.004 over 42
 cases, regress and history sessions OK, interaction test not slower. Pages:
-[[synthesis/benchmarks]] "F2", [[platform/render-architecture]] "F2", the plan's "As built"
+[almondbread benchmarks and verification record](synthesis/benchmarks.md) "F2", [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](platform/render-architecture.md) "F2", the plan's "As built"
 (what F3 needs).
 
 ## [2026-10-19] lint | core-check green again: stale Q / E and frame-bit checks
 
 `make core-check` failed five checks on main since 2026-10-17; nobody ran it in the full check.
 All five were stale checks, not regressions. (1) Q / E: the check pressed E without Space and
-expected the old Space-speed step; since the pedals (f1b69d2, [[decisions/controls]] "Driving
+expected the old Space-speed step; since the pedals (f1b69d2, [Controls: keyboard, pointer and touch](decisions/controls.md) "Driving
 levels") E from rest starts a cruise. Its key-down was never released, so the pedal's hold
 repeat climbed to gear 26 (×1000/s) and (2) the view never settled in 6000 frames, (3) the
 keyboard-mode check saw the link still running (bits 3), and (5) after the place jump the held
@@ -1837,7 +1837,7 @@ navigation key's key-up while ⌘ was down or a text field had the focus; app de
 iOS scene's deactivation / background did not send it; `jumped()` left a held pedal stepping, so a
 jump with E held started a new cruise. Now `release_all` covers every held kind, `jumped()`
 releases held keys, pedal and gamepad, `Host` drops a compass press, and the platforms send
-`FocusLost` on every focus loss. See [[decisions/controls]] "Held input" (unit tests per held
+`FocusLost` on every focus loss. See [Controls: keyboard, pointer and touch](decisions/controls.md) "Held input" (unit tests per held
 kind, core-check "E held, focus lost, Esc").
 
 ## [2026-10-20] decision | Inline icons in tour texts
@@ -1849,7 +1849,7 @@ unclosed braces are parse errors with their line). The cockpit glyphs moved to c
 as strokes, which the Rust cockpit draws and Swift rasterises into template images for the text
 (FFI `inline_icons()`); the round buttons' SF Symbol names live in the same table. The
 walkthrough's cockpit, cruise, autopilot and toolbar steps and help page 3 use them. See
-[[decisions/controls]] "Guided tours" ▸ Inline icons.
+[Controls: keyboard, pointer and touch](decisions/controls.md) "Guided tours" ▸ Inline icons.
 
 ## [2026-10-20] decision | Colours tour: orbits that show escape and loops
 
@@ -1861,7 +1861,7 @@ thousands of steps. Bubbles defines loop and period and moves the probe out of t
 nucleus with a "zero" marker; Period visits the nuclei of periods 1–4; Internal angle shows the
 dots spiralling into the heart's fixed point. Pitfall: the overlay's 1/64-point orbit key makes
 a chaotic end count vary between runs (959, 2 158 shown for an f64 594). See
-[[decisions/controls]] "The colours tour".
+[Controls: keyboard, pointer and touch](decisions/controls.md) "The colours tour".
 
 ## [2026-10-20] decision | Tours in plain language; tour writing rules
 
@@ -1871,5 +1871,5 @@ colours and the walkthrough got a plain-language pass: each opens with the rule,
 dots where it needs them, explains heart, bulb, loop, period, nucleus, minibrot, spike, antenna at
 first use, and shows orbit behaviour with the dots instead of naming it. The bulbs tour's fractions
 became visual steps (labelled markers where each bulb sits, dots counting 2, 3, 4; then 2 + 3 = 5
-and 5 + 3 = 8 shown with the probe). The rules for future tours: [[decisions/controls]] "Tour
+and 5 + 3 = 8 shown with the probe). The rules for future tours: [Controls: keyboard, pointer and touch](decisions/controls.md) "Tour
 writing rules".
