@@ -3,14 +3,14 @@ title: "swift-mandelbrot (drquicksilver)"
 type: implementation
 status: draft
 license: "none stated (all rights reserved)"
-sources: ["[[sources/swift-mandelbrot-readme]]"]
+sources: ["sources/swift-mandelbrot-readme"]
 tags: [implementation, swift, metal, ios, macos, bla, rebasing]
 ---
 
 # swift-mandelbrot (drquicksilver)
 
 A SwiftUI + Metal Mandelbrot explorer for iPhone, iPad and Mac: the closest
-existing project to almondbread (src: [[sources/swift-mandelbrot-readme]]).
+existing project to almondbread (src: [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)).
 
 ## What it does
 
@@ -30,20 +30,24 @@ existing project to almondbread (src: [[sources/swift-mandelbrot-readme]]).
   Python `Decimal` direct iteration at 1e50, 1e200, 1e1000 and a period-312
   minibrot at 1e100.
 - Needs Xcode 26.2; targets iOS 18 and macOS 15.7.
-(all src: [[sources/swift-mandelbrot-readme]])
+(all src: [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md))
 
 ## Status
 
 Active: last push 2026-09-24 (gh api), (c) 2026. Plan: still-image export,
 periodicity checking and validation on iPhone 11 Pro and 16 Pro, where frame
 pacing, heat and memory "have not yet been measured"
-(src: [[sources/swift-mandelbrot-readme]] §Status). No licence file, so the
+(src: [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md) §Status). No licence file, so the
 code is not reusable; ideas and test strategy are.
 
 ## What almondbread can learn
 
 - Proof that float32 Metal plus BLA plus rebasing works on Apple Silicon.
 - The oracle-based golden-image test strategy is exactly the verification
-  harness the roadmap asks for ([[synthesis/deep-zoom-rendering-techniques]]).
+  harness the roadmap asks for ([Deep zoom Mandelbrot rendering techniques](../synthesis/deep-zoom-rendering-techniques.md)).
 - iOS thermal and memory behaviour is still unmeasured there too
-  ([[platform/ios-ipad-considerations]]).
+  ([iOS and iPadOS port considerations](../platform/ios-ipad-considerations.md)).
+
+# Citations
+
+- [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)

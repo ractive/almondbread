@@ -2,7 +2,7 @@
 title: "How large is float32 perturbation error over long orbits?"
 type: question
 status: answered
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fractalshark-readme]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/fractalforums-zhuoran-rebasing-bla", "sources/desarso-mandelbrot-webgpu-readme", "sources/fractalshark-readme"]
 tags: [float32, precision, verification, benchmark]
 ---
 
@@ -16,27 +16,27 @@ counts reach 1e5 to 1e9, at which depths, and where in the image?
 
 ## Why it matters
 
-almondbread's GPU has no fp64 ([[platform/apple-gpu-architecture]]). If float32
+almondbread's GPU has no fp64 ([Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)). If float32
 fails visibly near minibrots at high iteration counts, the float-float mode
-([[techniques/double-float]]) moves from "repair option" to "required path".
+([Double-float (float-float) arithmetic](../techniques/double-float.md)) moves from "repair option" to "required path".
 The synthesis calls this the biggest technical risk
-([[synthesis/deep-zoom-rendering-techniques]]).
+([Deep zoom Mandelbrot rendering techniques](../synthesis/deep-zoom-rendering-techniques.md)).
 
 ## What sources say
 
 - mathr: single precision (24 bits) "can be used successfully" for perturbed
   orbits; the stated problem is range (underflow below about 1e-38), not precision
-  (src: [[sources/mathr-deep-zoom-theory]] §Rescaling).
+  (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Rescaling).
 - Zhuoran: the rebasing method "appears to be very reliable, even when single
   precision is used", with a single-precision example at height 4e-15 and 5,000,000
-  iterations (src: [[sources/fractalforums-zhuoran-rebasing-bla]]).
+  iterations (src: [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)).
 - KF2+ disables single precision by default because it can cause "undetected
-  glitches at some locations", limited to shallow zooms (src: [[sources/kf-manual]]).
+  glitches at some locations", limited to shallow zooms (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - FractalShark uses a 2x32 + exponent type for "substantially higher performance on
   consumer GPUs with only a modest loss of precision", implying plain float32 was
-  not enough for its author (src: [[sources/fractalshark-readme]] §5. Custom “2×32 + exponent” numeric type).
+  not enough for its author (src: [FractalShark README](../sources/fractalshark-readme.md) §5. Custom “2×32 + exponent” numeric type).
 - The float32 WebGPU renderer verifies with an approximated-vs-unapproximated
-  pixel diff and a BigInt oracle (src: [[sources/desarso-mandelbrot-webgpu-readme]]).
+  pixel diff and a BigInt oracle (src: [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)).
 - No 2023 to 2026 quantitative study was found (notes: perturbation_core §8).
 
 ## How to resolve
@@ -44,21 +44,21 @@ The synthesis calls this the biggest technical risk
 1. Pick 10 to 20 benchmark locations: shallow spirals, minibrot centres at 1e50,
    1e300, 1e1000, iteration counts 1e4 to 1e8.
 2. Render each with the GPU float32 path and with a CPU path using double (or
-   floatexp) deltas and the same reference ([[techniques/perturbation]]).
+   floatexp) deltas and the same reference ([Perturbation](../techniques/perturbation.md)).
 3. Report per location: fraction of pixels whose integer n differs, max and
    p99 smooth-count error, interior/exterior flips, DE relative error; plot error
    against n.
 4. Repeat with float-float deltas and with a float-float reference to separate
-   delta rounding from reference rounding ([[techniques/reference-orbit-precision]]).
+   delta rounding from reference rounding ([Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)).
 5. Record results here with date, machine and build.
 
-Related: [[techniques/rebasing]], [[techniques/extended-range-floats]], [[questions/apple-gpu-denormals]].
+Related: [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md), [Do Apple GPUs flush float32 denormals to zero?](apple-gpu-denormals.md).
 
 ## Partial answer (milestone 2 harness)
 
 Measured 2026-10-14, M1 Pro, release, with `AlmondbreadMac --verify` (float32
 perturbation with rebasing against a Double reference, vs direct Double iteration on
-the CPU), 400×259; full table in [[synthesis/benchmarks]].
+the CPU), 400×259; full table in [almondbread benchmarks and verification record](../synthesis/benchmarks.md).
 
 - Shallow views (home, minibrot at 4.5e−3 width): median |Δmu| 2–10e−7, 0.2–0.5 % of
   pixels with a different escape iteration, interior/exterior mismatches ≤ 0.01 %.
@@ -81,12 +81,12 @@ the CPU), 400×259; full table in [[synthesis/benchmarks]].
   do not: at 1.36e-31/px next to the period-8007 minibrot, 20 % of escape counts differ and
   0.26 % of pixels change class in each direction, identical with and without BLA and with a
   centre instead of a nucleus reference, so it is float32 rounding over 10^4-iteration orbits,
-  not the reference. Remedy is M7 (float-float repair mode) ([[synthesis/benchmarks]] M3b).
+  not the reference. Remedy is M7 (float-float repair mode) ([almondbread benchmarks and verification record](../synthesis/benchmarks.md) M3b).
 
 ## Answer (M7): measurable, not visible
 
 Measured 2026-10-15, M1 Pro, release, `almondbread precision` (full table and method in
-[[synthesis/benchmarks]] M7): the float32 field against the oracle **next to the oracle against
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) M7): the float32 field against the oracle **next to the oracle against
 itself with the pixel grid shifted by 0.001, 0.01, 0.1 and 0.5 pixel**, at 23 views from 3e-7 to
 4e-1003 per pixel, including minibrots at 1e14–1e34 (catalogue places, sea-8007 with 1e5
 iterations), the period-32412 spiral at 1e19, a needle minibrot at 1e1000 with 1e6 iterations,
@@ -112,7 +112,15 @@ and the catalogue spirals at 1e50 and 1e1000.
 - Float-float reduces the disagreement with the oracle 30–3000× (deep-5e-14 0.30 %, sea-1e20
   0.29 %, spiral-1e50 0.021 %, starburst-1e112 0.001 %, spiral-1e1000 0.031 % of escape counts)
   at 10–300× the GPU time of the float32 renderer, so it stays a verification tool
-  (`verify --ff 1`, `precision --ff 1`; [[techniques/double-float]] "As built (M7)").
+  (`verify --ff 1`, `precision --ff 1`; [Double-float (float-float) arithmetic](../techniques/double-float.md) "As built (M7)").
 - Still unmeasured: DE and slope-lighting error against an oracle (the oracle computes no
   derivative; the lit GPU renders show no speckle), and the split between delta and reference
   rounding (step 4 of "How to resolve": no longer needed for a decision).
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [FractalShark README](../sources/fractalshark-readme.md)

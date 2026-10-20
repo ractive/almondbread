@@ -34,4 +34,8 @@ Primary but minimal. The depth claim (1e-2000) is unquantified: no timings, no n
 
 ## Used by
 
-- [[implementations/fractalshades]]
+- [Fractalshades](../implementations/fractalshades.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/GBillotey/Fractalshades/master/README.md>

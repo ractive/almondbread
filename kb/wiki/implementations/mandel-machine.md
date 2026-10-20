@@ -3,7 +3,7 @@ title: "Mandel Machine"
 type: implementation
 status: stub
 license: "freeware (unverified)"
-sources: ["[[sources/fractalforums-mandel-machine]]"]
+sources: ["sources/fractalforums-mandel-machine"]
 tags: [implementation, windows, perturbation, legacy]
 ---
 
@@ -11,7 +11,7 @@ tags: [implementation, windows, perturbation, legacy]
 
 Botond Kósa's Windows 64-bit Mandelbrot explorer, described on Fractal Forums
 as a "highly efficient Mandelbrot set explorer"
-(src: [[sources/fractalforums-mandel-machine]]). It belongs to the
+(src: [fractalforums.com: Mandel Machine board](../sources/fractalforums-mandel-machine.md)). It belongs to the
 2013-2016 generation of perturbation plus series-approximation renderers,
 alongside KF (unverified: algorithms not confirmed from a fetched source).
 
@@ -24,4 +24,8 @@ since about 2015-2016 (unverified). Licence, last version and date not found.
 
 Little that is documented. It mattered historically for speed comparisons
 ("Mandel Machine vs KF" threads, not fetched). See
-[[implementations/kalles-fraktaler-2]] for the same generation.
+[Kalles Fraktaler 2 +](kalles-fraktaler-2.md) for the same generation.
+
+# Citations
+
+- [fractalforums.com: Mandel Machine board](../sources/fractalforums-mandel-machine.md)

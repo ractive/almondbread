@@ -44,6 +44,10 @@ newer list.
 
 ## Used by
 
-[[implementations/kalles-fraktaler-2]], [[implementations/fractalshades]], [[implementations/fractal-zoomer]],
-[[implementations/fraktaler-3]], [[implementations/imagina]], [[implementations/fractalshark]],
-[[techniques/bla]], [[techniques/series-approximation]], [[questions/kf-bla-support]]
+[Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md), [Fractalshades](../implementations/fractalshades.md), [Fractal Zoomer](../implementations/fractal-zoomer.md),
+[Fraktaler 3](../implementations/fraktaler-3.md), [Imagina](../implementations/imagina.md), [FractalShark](../implementations/fractalshark.md),
+[Bivariate linear approximation (BLA)](../techniques/bla.md), [Series approximation (legacy)](../techniques/series-approximation.md), [Does Kalles Fraktaler 2+ implement BLA?](../questions/kf-bla-support.md)
+
+# Citations
+
+- <https://mathr.co.uk/kf/kf.html>

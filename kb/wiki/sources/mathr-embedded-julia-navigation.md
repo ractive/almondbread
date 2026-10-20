@@ -36,4 +36,9 @@ Primary; the binary subdivision is the author's conjecture from observation.
 
 ## Used by
 
-[[synthesis/finding-deep-places]]
+[Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2014-11-18_navigating_in_the_hairs.html>
+- <https://mathr.co.uk/blog/2017-11-06_patterns_in_embedded_julia_sets.html>

@@ -43,8 +43,8 @@ approximation including knighty's NanoMB1/NanoMB2.
 
 Primary source by the KF2+ / Fraktaler 3 author, describing his own implementation. Accurate for
 2021 practice but superseded on two points: glitch detection plus multiple references was replaced
-by rebasing ([[sources/mathr-deep-zoom-theory-again]], [[sources/fractalforums-zhuoran-rebasing-bla]]),
-and series approximation by BLA ([[sources/mathr-deep-zoom-page]]). The rescaling and floatexp material
+by rebasing ([mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md), [fractalforums.org: Another solution to perturbation glitches (topic 4360)](fractalforums-zhuoran-rebasing-bla.md)),
+and series approximation by BLA ([mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)). The rescaling and floatexp material
 remains current. Hand-wavy derivations, no benchmarks.
 
 ## Useful sections
@@ -62,7 +62,14 @@ remains current. Hand-wavy derivations, no benchmarks.
 
 ## Used by
 
-[[techniques/perturbation]], [[techniques/glitch-detection]], [[techniques/extended-range-floats]],
-[[techniques/series-approximation]], [[techniques/reference-orbit-precision]], [[formulas/burning-ship]],
-[[formulas/hybrids]], [[implementations/kalles-fraktaler-2]], [[implementations/superfractalthing]],
-[[techniques/distance-estimation]], [[questions/float32-error-long-orbits]]
+[Perturbation](../techniques/perturbation.md), [Glitch detection (Pauldelbrot) and multi-reference correction (legacy)](../techniques/glitch-detection.md), [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md),
+[Series approximation (legacy)](../techniques/series-approximation.md), [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md), [Burning Ship and abs variations](../formulas/burning-ship.md),
+[Hybrid formulas](../formulas/hybrids.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md), [SuperFractalThing](../implementations/superfractalthing.md),
+[Distance estimation](../techniques/distance-estimation.md), [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](fractalforums-zhuoran-rebasing-bla.md)
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

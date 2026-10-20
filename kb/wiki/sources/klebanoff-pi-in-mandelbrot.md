@@ -31,13 +31,19 @@ page) with both tables, then proves the π-theorem.
 - **Boll's tables** (p. 394): neck ε = 1 ... 1e-7: 3, 33, 315, 3143, 31417, 314160, 3141593,
   31415928; cusp ε = 1 ... 1e-10: 2, 8, 30, 97, 312, 991, 3140, 9933, 31414, 99344, 314157.
   The neck row for 1e-7 disagrees with our reference count 31415927
-  ([[questions/pi-escape-count-conventions]]); every other entry matches
-  ([[techniques/pi-in-the-mandelbrot-set]]).
+  ([Why do published π escape counts differ by one (Mu-Ency) or disagree at ε = 1e-7 (Boll)?](../questions/pi-escape-count-conventions.md)); every other entry matches
+  ([π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)).
 - History: the result along the real axis was known by 1980 (refs 5, 6), Boll found the neck
   in 1991, popularised by Peitgen, Jürgens, Saupe *Chaos and Fractals* and Gerald Edgar
-  ([[sources/edgar-pi-and-mandelbrot]]).
+  ([Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](edgar-pi-and-mandelbrot.md)).
 
 ## Reliability
 
 Peer-reviewed; cusp only (the neck stayed unproved until
-[[sources/brockmoeller-pi-everywhere]]). The proof has no error bound.
+[Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md)). The proof has no error bound.
+
+# Citations
+
+- <https://www.doc.ic.ac.uk/~jb/teaching/jmc/pi-in-mandelbrot.pdf>
+- [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](edgar-pi-and-mandelbrot.md)
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md)

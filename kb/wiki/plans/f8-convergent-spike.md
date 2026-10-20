@@ -10,12 +10,12 @@ audience: [artists, enthusiasts]
 depth: "unknown (brute force needed 192-bit at 4.3e-21 for Nova)"
 realtime-ipad: unknown
 reuse: "low–medium: viewport, scheduler, colour; perturbation and BLA criteria unknown for convergent formulas"
-depends-on: ["[[plans/f2-pluggable-formulas]]"]
+depends-on: ["plans/f2-pluggable-formulas"]
 risks:
   - "no published perturbation or BLA scheme for convergence to a root"
   - "rational maps need the quotient identity in every step site"
   - "the spike may end in 'not feasible deep'"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/others-feasibility]]", "[[questions/perturbation-convergent-formulas]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]", "[[sources/hpdz-animations]]", "[[sources/wikipedia-newton-fractal]]"]
+sources: ["synthesis/other-fractal-types", "formulas/others-feasibility", "questions/perturbation-convergent-formulas", "sources/fractalforums-zhuoran-rebasing-bla", "sources/hpdz-animations", "sources/wikipedia-newton-fractal"]
 tags: [formulas, nova, newton, magnet, convergent, research]
 created: 2026-10-19
 updated: 2026-10-19
@@ -27,15 +27,15 @@ Status: planned, a time-boxed spike after the formula refactor; no feature is co
 
 ## Goal
 
-Answer [[questions/perturbation-convergent-formulas]]: can convergent and rational formulas
+Answer [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](../questions/perturbation-convergent-formulas.md): can convergent and rational formulas
 (Nova, Newton, Magnet) be rendered deep with perturbation, rebasing and some form of BLA? They
 have a distinct, smooth look and "mini-novas" in parameter space
-(src: [[synthesis/other-fractal-types]] §2a).
+(src: [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a).
 
 ## Scope
 
 - Literature and forum pass: Fractal Zoomer reportedly uses perturbation with rebasing for nova,
-  magnet, lambda and Newton parameter space (src: [[sources/fractalforums-zhuoran-rebasing-bla]]
+  magnet, lambda and Newton parameter space (src: [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
   §Reply #8).
 - A CPU prototype (Rust example, f64 and BigFloat reference) of perturbed Nova with rebasing,
   checked against direct BigFloat at 1e-20, 1e-50, 1e-100.
@@ -46,7 +46,7 @@ have a distinct, smooth look and "mini-novas" in parameter space
 
 - GPU kernels, UI, places.
 - Newton basins of polynomials as a shallow look (could be a separate small item; Newton basins
-  are Julia sets of the Newton map, src: [[sources/wikipedia-newton-fractal]]).
+  are Julia sets of the Newton map, src: [Wikipedia: Newton fractal](../sources/wikipedia-newton-fractal.md)).
 
 ## Design sketch
 
@@ -72,8 +72,8 @@ The user reads the verdict and decides: drop, a shallow-only look, or a full mil
 
 ## Risks
 
-- No published scheme ([[formulas/others-feasibility]]); the spike may not converge on one.
-- Brute-force Nova at 4.3e-21 already needed 192-bit arithmetic (src: [[sources/hpdz-animations]]),
+- No published scheme ([Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)); the spike may not converge on one.
+- Brute-force Nova at 4.3e-21 already needed 192-bit arithmetic (src: [HPDZ.NET: Burning Ship and Nova deep zooms](../sources/hpdz-animations.md)),
   so shallow float32 alone will not go far.
 
 ## Open questions
@@ -89,3 +89,12 @@ verdict would be L–XL.
 - Literature and derivation: 2 days.
 - CPU prototype and checks: 2 days.
 - Verdict and kb pages: 1 day.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)
+- [Can perturbation and rebasing handle Nova, Newton and Magnet formulas?](../questions/perturbation-convergent-formulas.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)
+- [HPDZ.NET: Burning Ship and Nova deep zooms](../sources/hpdz-animations.md)
+- [Wikipedia: Newton fractal](../sources/wikipedia-newton-fractal.md)

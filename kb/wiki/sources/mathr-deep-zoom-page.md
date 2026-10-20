@@ -40,7 +40,7 @@ detection, and is the page Fraktaler 3's §Theory points to.
 ## Reliability
 
 Primary and the most authoritative statement of the BLA method by the Fraktaler 3 author;
-supersedes the radius in [[sources/mathr-deep-zoom-theory-again]]. Still heuristic: no proof of
+supersedes the radius in [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md). Still heuristic: no proof of
 the radius bounds. Small inconsistency: §3.1 derives `R_{n,1} = |A_{n,1}|` without the precision
 factor `eps` or the `c` term, while §4.1 gives `R = eps inf|A| - sup|B||c|/inf|A|`; for the
 conformal case the §4.1 form with complex moduli is presumably the intended one (inference). The
@@ -65,6 +65,11 @@ manifest year 2022 is the content year; the page footer says 2024-05-31.
 
 ## Used by
 
-[[techniques/perturbation]], [[techniques/rebasing]], [[techniques/bla]], [[techniques/distance-estimation]],
-[[techniques/interior-detection]], [[formulas/mandelbrot]], [[formulas/mandelbar]], [[formulas/burning-ship]],
-[[formulas/hybrids]], [[implementations/fraktaler-3]], [[questions/higher-order-bla]], [[questions/bla-vs-la-benchmark]]
+[Perturbation](../techniques/perturbation.md), [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Distance estimation](../techniques/distance-estimation.md),
+[Interior detection](../techniques/interior-detection.md), [Mandelbrot set (power 2)](../formulas/mandelbrot.md), [Mandelbar (Tricorn)](../formulas/mandelbar.md), [Burning Ship and abs variations](../formulas/burning-ship.md),
+[Hybrid formulas](../formulas/hybrids.md), [Fraktaler 3](../implementations/fraktaler-3.md), [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md), [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+
+# Citations
+
+- <https://mathr.co.uk/web/deep-zoom.html>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)

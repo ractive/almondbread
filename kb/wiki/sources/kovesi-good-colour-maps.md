@@ -10,7 +10,7 @@ tags: [palette, perceptual, cyclic, colour-maps]
 
 # Kovesi: Good Colour Maps: How to Design Them
 
-**URL:** <https://arxiv.org/abs/1509.03700> · **Saved:** not saved; notes in `raw/research/fractal-palettes/cyclic-and-mapping.md` · **Terms:** arXiv non-exclusive licence (paper); the CET map data is CC BY 4.0 (see [[sources/colorcet]])
+**URL:** <https://arxiv.org/abs/1509.03700> · **Saved:** not saved; notes in `raw/research/fractal-palettes/cyclic-and-mapping.md` · **Terms:** arXiv non-exclusive licence (paper); the CET map data is CC BY 4.0 (see [colorcet: the CET perceptually uniform colour maps](colorcet.md))
 
 ## What it is
 
@@ -29,4 +29,9 @@ Widely cited design paper.
 
 ## Used by
 
-[[techniques/palette-design]], [[synthesis/fractal-palettes]]
+[Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://arxiv.org/abs/1509.03700>
+- [colorcet: the CET perceptually uniform colour maps](colorcet.md)

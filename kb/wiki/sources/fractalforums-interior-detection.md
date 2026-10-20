@@ -37,7 +37,7 @@ and a speed table of CPU number types.
 ## Reliability
 
 Primary forum discussion between two renderer authors; numbers are single-location, single-machine
-measurements (claude's machine is the Ryzen 7 2700X named in [[sources/kf-page]], inferred). The
+measurements (claude's machine is the Ryzen 7 2700X named in [Kalles Fraktaler 2 + (home page)](kf-page.md), inferred). The
 number-type table is CPU-only and says nothing about GPU float32. The `dz/dz_1` justification
 is stated to hold only for nucleus references; general case left open.
 
@@ -53,6 +53,12 @@ is stated to hold only for nucleus references; general case left open.
 
 ## Used by
 
-[[techniques/interior-detection]], [[techniques/bla]], [[techniques/extended-range-floats]],
-[[implementations/fraktaler-3]], [[implementations/fractalshades]], [[implementations/kalles-fraktaler-2]],
-[[questions/bla-vs-la-benchmark]]
+[Interior detection](../techniques/interior-detection.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md),
+[Fraktaler 3](../implementations/fraktaler-3.md), [Fractalshades](../implementations/fractalshades.md), [Kalles Fraktaler 2 +](../implementations/kalles-fraktaler-2.md),
+[How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+
+# Citations
+
+- <https://web.archive.org/web/20221120133203/https://fractalforums.org/fractal-mathematics-and-new-theories/28/interior-detection-for-deep-mandelbrot-set-zooms/4802>
+- <https://fractalforums.org/fractal-mathematics-and-new-theories/28/interior-detection-for-deep-mandelbrot-set-zooms/4802>
+- [Kalles Fraktaler 2 + (home page)](kf-page.md)

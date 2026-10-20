@@ -34,4 +34,8 @@ above).
   an app, or the calling process exceeds its memory limit". The iOS simulator returns 0
   (measured 2026-10-18: no per-app limit there).
 
-Used by [[platform/ios-device]].
+Used by [iOS and iPadOS on a device: first run, signing, memory, thermal, background](../platform/ios-device.md).
+
+# Citations
+
+- [Local tool output and the SDK header named above (read 2026-10-18, not saved; no URL)](#apple-device-tooling-and-ios-process-apis)

@@ -15,7 +15,7 @@ risks:
   - "a slower Mandelbrot path if the function-constant fold does not happen"
   - "pipeline count multiplies by formula (cold shader cache, memory)"
   - "a refactor with no visible result invites scope creep"
-sources: ["[[synthesis/other-fractal-types]]", "[[platform/metal-compute]]", "[[techniques/bla]]", "[[techniques/double-float]]", "[[synthesis/benchmarks]]"]
+sources: ["synthesis/other-fractal-types", "platform/metal-compute", "techniques/bla", "techniques/double-float", "synthesis/benchmarks"]
 tags: [formulas, architecture, refactor, metal, kernels]
 created: 2026-10-19
 updated: 2026-10-19
@@ -25,21 +25,21 @@ updated: 2026-10-19
 
 Status: built on branch `worktree-agent-a6270c6cca3092d81` (2026-10-19, merged with main after
 F1), awaiting the driver's review of the A/B table ("As built" below). Enables
-[[plans/f3-multibrot]] and every milestone after it. Design from [[synthesis/other-fractal-types]] §6.
+[F3: Multibrot z^p + c](f3-multibrot.md) and every milestone after it. Design from [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §6.
 
 ## Goal
 
 Make the formula a parameter of the engine without changing a single bit or a single
 microsecond of Mandelbrot rendering. Mandelbrot stays formula 0 and compiles to exactly
 today's code; each new formula is a set of capabilities, and what a formula lacks is hidden in
-the UI rather than faked (src: [[synthesis/other-fractal-types]] §6 "Principle").
+the UI rather than faked (src: [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §6 "Principle").
 
 ## Scope
 
 - Kernel: factor the ~10 inline step sites of `iterate` and friends into inline functions
   (`fStep` float2, `fStepX` floatexp, `fDeriv`, `fJac`, the seed-SA coefficient recurrences),
   each branching on a new function constant `kFormula` (uint). Add `kConformal` (bool) now, used
-  from [[plans/f5-mandelbar]] on.
+  from [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md) on.
 - Maths: a `Formula` enum in `almondbread-math`, passed to `orbit.rs` and matched outside the
   limb-specialised loop; `parallel.rs` dispatch per formula; `selection.rs` period and Newton
   with a per-formula derivative hook.
@@ -54,7 +54,7 @@ the UI rather than faked (src: [[synthesis/other-fractal-types]] §6 "Principle"
 ## Non-goals
 
 - Any new user-visible formula (F3 is the first).
-- Runtime MSL generation for hybrids ([[plans/f7-hybrids]]).
+- Runtime MSL generation for hybrids ([F7: Hybrid formulas via an opcode model](f7-hybrids.md)).
 - 2×2 BLA and dual numbers (F5).
 - Performance work on the Mandelbrot path beyond keeping it equal.
 
@@ -62,7 +62,7 @@ the UI rather than faked (src: [[synthesis/other-fractal-types]] §6 "Principle"
 
 - Function constants already specialise one MSL source into pipelines (`kDE`, `kInterior`,
   `kBLA`, `kDeep`, `kInteriorColor`, `kSeeded`, `kProbe`, `kLA`, ...;
-  [[synthesis/other-fractal-types]] §1, [[platform/metal-compute]]). A `kFormula` branch is
+  [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §1, [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)). A `kFormula` branch is
   folded at pipeline compile time, so the formula-0 pipeline is the current code.
 - Pipelines are compiled lazily per formula; Mandelbrot's set stays warm as today.
 - `Formula` is an enum, not a trait object, so the inner loops stay monomorphic.
@@ -72,7 +72,7 @@ the UI rather than faked (src: [[synthesis/other-fractal-types]] §6 "Principle"
 
 ## Affected modules
 
-The ~12 formula-specific modules from [[synthesis/other-fractal-types]] §1:
+The ~12 formula-specific modules from [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §1:
 
 - `crates/almondbread-math/src/orbit.rs`, `parallel.rs` (reference orbit and three-thread
   split), `selection.rs` (period, nucleus), `rays.rs` stays Mandelbrot-only.
@@ -92,7 +92,7 @@ This milestone is accepted only on proof that Mandelbrot is unaffected:
 - Fields bit-identical before/after at every benchmark location (`make bench ARGS="--out before"`
   on main, the same on the branch, `verify --fields a.iter --against b.iter` for each), plain,
   BLA, LA, deep, seeded and probe pipelines all hit; the M7 precedent: "`bench` A/B geomean
-  1.014, fields bit-identical" ([[synthesis/benchmarks]] M7).
+  1.014, fields bit-identical" ([almondbread benchmarks and verification record](../synthesis/benchmarks.md) M7).
 - `make bench` A/B GPU ms geomean ≈ 1.0 (accept 0.98–1.02; repeat on a quiet machine, report
   per location).
 - `make regress` and `verify --history zoom|out|pan|jump` at 0 % mismatch.
@@ -126,8 +126,8 @@ Mac and the iPad).
 
 ## As built (2026-10-19, awaiting review)
 
-Architecture in [[platform/render-architecture]] "F2: pluggable formulas"; the A/B proof in
-[[synthesis/benchmarks]] "F2: pluggable formulas, Mandelbrot A/B".
+Architecture in [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md) "F2: pluggable formulas"; the A/B proof in
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F2: pluggable formulas, Mandelbrot A/B".
 
 - **Choices where the plan left one.** The test-only second formula is `Multibrot(p)` with the
   power generic (`p ≤ 8`), not a p = 2 special case, so F3 mostly opens it rather than writes it;
@@ -170,3 +170,11 @@ M overall (1–2 weeks).
 - Maths and core hooks, gates, settings: 2–3 days.
 - Capabilities over FFI, Swift hiding: 1 day.
 - A/B proof runs and fixes: 2 days.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [almondbread benchmarks and verification record](../synthesis/benchmarks.md)

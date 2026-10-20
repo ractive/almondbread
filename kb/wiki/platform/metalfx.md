@@ -3,11 +3,11 @@ title: "MetalFX upscaling (temporal, spatial) for motion sample reuse"
 type: platform
 status: draft
 sources:
-  - "[[sources/apple-metalfx-docs]]"
-  - "[[sources/apple-metalfx-taa-sample]]"
-  - "[[sources/wwdc22-metalfx-upscaling]]"
-  - "[[sources/wwdc25-metal4-games]]"
-  - "[[sources/apple-metal-feature-set-tables]]"
+  - "sources/apple-metalfx-docs"
+  - "sources/apple-metalfx-taa-sample"
+  - "sources/wwdc22-metalfx-upscaling"
+  - "sources/wwdc25-metal4-games"
+  - "sources/apple-metal-feature-set-tables"
 tags: [metalfx, upscaling, temporal, reprojection, motion-vectors, jitter, apple-gpu, objc2, measured]
 ---
 
@@ -15,7 +15,7 @@ tags: [metalfx, upscaling, temporal, reprojection, motion-vectors, jitter, apple
 
 Can Apple's MetalFX replace or complement our own gesture-frame compose (jittered
 reduced-resolution preview + exactly reprojected history,
-[[techniques/frame-reuse-and-progressive]] FL)? This page covers the API, the conventions
+[Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md) FL)? This page covers the API, the conventions
 (checked by experiment), availability, cost, and what MetalFX cannot know about fractal
 content. Raw notes with all URLs and quotes:
 `kb/raw/research/motion-sample-reuse/metalfx-notes.md`. Probe code:
@@ -25,44 +25,44 @@ content. Raw notes with all URLs and quotes:
 
 - **Spatial scaler** (`MTLFXSpatialScalerDescriptor` → `MTLFXSpatialScaler`): one colour
   texture in, one larger texture out; no history. `colorProcessingMode` is perceptual
-  (default), linear (`[0,1]`) or HDR (src: [[sources/apple-metalfx-docs]] SDK header
+  (default), linear (`[0,1]`) or HDR (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md) SDK header
   MTLFXSpatialScaler.h). Apple: it "will perform best if the input has been tone mapped and
-  is in a perceptual color space" (src: [[sources/wwdc22-metalfx-upscaling]]).
+  is in a perceptual color space" (src: [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)).
 - **Temporal scaler** (`MTLFXTemporalScalerDescriptor` → `MTLFXTemporalScaler`): needs a
   jittered colour texture, a depth texture and a motion texture each frame; MetalFX keeps
-  the upscaled history itself (src: [[sources/wwdc22-metalfx-upscaling]]). The descriptor
+  the upscaled history itself (src: [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)). The descriptor
   fixes formats and sizes (`colorTextureFormat`, `depthTextureFormat`,
   `motionTextureFormat`, `outputTextureFormat`, `inputWidth/Height`, `outputWidth/Height`).
   Per frame: set `colorTexture`, `depthTexture`, `motionTexture`, `outputTexture`,
   `inputContentWidth/Height`, `jitterOffsetX/Y`, `motionVectorScaleX/Y`, `reset`, then
-  `encodeToCommandBuffer:` (src: [[sources/apple-metalfx-docs]] MTLFXTemporalScaler.h).
+  `encodeToCommandBuffer:` (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md) MTLFXTemporalScaler.h).
 - **Texture rules**: each scaler reports the minimum `MTLTextureUsage` per input
   (`colorTextureUsage`, `depthTextureUsage`, `motionTextureUsage`, `outputTextureUsage`);
-  the output texture must have private storage (src: [[sources/apple-metalfx-docs]]). On
+  the output texture must have private storage (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). On
   M1 Pro the temporal scaler asks for ShaderRead (0x1) on colour, depth and motion and
   ShaderRead | ShaderWrite | RenderTarget (0x7) on the output (measured 2026-10-14, M1 Pro,
   release, `metalfx-probe create`).
 - **Exposure**: either `autoExposureEnabled` or a 1×1 R16Float `exposureTexture` whose R
   value multiplies the input colour; `preExposure` divides a pre-multiplied input (src:
-  [[sources/apple-metalfx-docs]]). A "drastically wrong value … can lead to flickering and
+  [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). A "drastically wrong value … can lead to flickering and
   ghosting"; the value is only a hint and does not change output brightness (src:
-  [[sources/wwdc25-metal4-games]]). We pass 1.0 (linear colours in `[0,1]`).
+  [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)). We pass 1.0 (linear colours in `[0,1]`).
 - **Reactive mask** (macOS 14.4 / iOS 17.4): per-pixel `[0,1]`, 1 = ignore history there
-  (src: [[sources/apple-metalfx-docs]]). Apple: "Only use the reactive mask if going to higher
-  input resolutions is not an option" (src: [[sources/wwdc25-metal4-games]]).
+  (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). Apple: "Only use the reactive mask if going to higher
+  input resolutions is not an option" (src: [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)).
 - **Dynamic resolution**: `inputContentPropertiesEnabled` with `inputContentMinScale` /
   `inputContentMaxScale`, then any `inputContentWidth/Height` inside the fixed-size input
-  texture; the aspect ratio must not change (src: [[sources/apple-metalfx-docs]]). Apple
-  advises not to allow more than 2× if not needed (src: [[sources/wwdc25-metal4-games]]).
+  texture; the aspect ratio must not change (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). Apple
+  advises not to allow more than 2× if not needed (src: [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)).
   This matters for us: our preview ratio changes per frame (0.125–1 per axis), so a scaler
   would need dynamic resolution or one scaler per ratio.
 - **Creation**: "make an instance … at launch or when a display changes resolutions"
-  (src: [[sources/apple-metalfx-docs]]). `requiresSynchronousInitialization` (default false)
+  (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). `requiresSynchronousInitialization` (default false)
   returns fast and compiles a faster upscaler in the background, same image quality.
 - **Newer (macOS/iOS 26)**: `MTLFXTemporalDenoisedScaler` (denoise + upscale for ray
   tracing; needs normals, albedos, roughness; Apple9+ GPUs) and `MTLFXFrameInterpolator`
   (generates an in-between frame from two frames + motion + depth + `deltaTime` + camera
-  near/far/FOV) (src: [[sources/wwdc25-metal4-games]], [[sources/apple-metal-feature-set-tables]]).
+  near/far/FOV) (src: [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md), [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)).
   Neither fits: we have no normals/albedo, and interpolation adds a frame of latency to an
   interaction whose acceptance criterion is latency (inference). **OS 27** adds
   `isJitteredMotionVectorsEnabled` and `isOutputResolutionMotionVectorsEnabled`, and WWDC26
@@ -80,13 +80,13 @@ Our probe's API takes a jitter `j ∈ [0,1)²` (sample position inside its input
   frames, 320×200 → 640×400) gave RMSE 0.086 for `(−,−)`, 0.125 / 0.194 / 0.208 for the
   others, 0.137 with no jitter, 0.130 for a bilinear upscale; scaling the offset by 2 or 0.5
   was worse (0.124, 0.096). This matches WWDC22's example (sample at (0.625, 0.78) → offset
-  (−0.125, −0.28)) (src: [[sources/wwdc22-metalfx-upscaling]]) and Apple's sample, which flips
-  y because its projection is y up (src: [[sources/apple-metalfx-taa-sample]]).
+  (−0.125, −0.28)) (src: [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)) and Apple's sample, which flips
+  y because its projection is y up (src: [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](../sources/apple-metalfx-taa-sample.md)).
 - **Motion**: with `motionVectorScale = (1, 1)`, motion is in input pixels and points from the
   current position to the previous one: "an object that moves down and to the right … by 10
-  pixels would be (-10,-10)" (src: [[sources/apple-metalfx-docs]]). Apple's sample instead
+  pixels would be (-10,-10)" (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). Apple's sample instead
   stores UV-space vectors and sets the scale to the input size (src:
-  [[sources/apple-metalfx-taa-sample]]). Our pan test (content moving 1.3, 0.7 output px per
+  [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](../sources/apple-metalfx-taa-sample.md)). Our pan test (content moving 1.3, 0.7 output px per
   frame, 32 frames): correct motion 0.119, zero 0.242, negated 0.255, ×2 0.253, ×0.5 0.227.
 - **Motion must be de-jittered** (camera motion only): "MetalFX expects dejittered motion
   vectors" (WWDC26 session 359, raw notes §7). Our affine motion is exact and jitter-free.
@@ -101,11 +101,11 @@ Our probe's API takes a jitter `j ∈ [0,1)²` (sample position inside its input
 ## Requirements and availability
 
 - **OS**: temporal and spatial since macOS 13 / iOS 16; spatial also visionOS; temporal not
-  on visionOS (src: [[sources/apple-metalfx-docs]]). iOS gained MetalFX support in practice
+  on visionOS (src: [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)). iOS gained MetalFX support in practice
   with iOS 17, together with "up to 3X upscaling" (WWDC23, raw notes §5).
 - **GPU**: spatial Apple3+, temporal **Apple7+ (A14, M1 and later)**, frame interpolation
   Apple5+, denoised upscaler Apple9+ (A17 Pro, M3) (src:
-  [[sources/apple-metal-feature-set-tables]]). Intel Macs: contradictory (sample README says
+  [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)). Intel Macs: contradictory (sample README says
   supported; forum reports nil temporal scalers); always gate on `supportsDevice:` (raw notes
   §8).
 - **Scale range**: `supportedInputContentMinScale/MaxScale` = 1.0 / 3.0 on M1 Pro
@@ -150,7 +150,7 @@ waited at a time).
 - The temporal cost scales with the output (~1 ms per Mpx output at 1/2 ratio, min) and
   falls with the input size; at full Retina 16" resolution it is 4.7–6.6 ms at best, which
   is a large part of a 120 Hz frame (8.3 ms) and of our gesture budget (half the refresh
-  interval, [[techniques/frame-reuse-and-progressive]] FL). Every configuration was
+  interval, [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md) FL). Every configuration was
   supported (temporal 1.5×, 2×, 3×; spatial all three).
 - Committing 10 scaler command buffers back to back did not lower `min` (it is the same
   within 10 %) but raised the median under contention.
@@ -170,12 +170,12 @@ waited at a time).
 ## What MetalFX cannot know about our content
 
 - **No depth.** MetalFX uses depth to tell foreground from background (src:
-  [[sources/wwdc22-metalfx-upscaling]]); with a constant plane it only has colour statistics
+  [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)); with a constant plane it only has colour statistics
   to reject stale history. In our motion model there is no occlusion at all, so this loses
   nothing structural, but it also means MetalFX cannot exploit the fact.
 - **Our reprojection is exact; MetalFX resamples.** Our compose knows each pixel's history
   position exactly (`origin + pixel·step`) and samples with Catmull-Rom because bilinear blurs
-  within a second ([[techniques/frame-reuse-and-progressive]] FL). MetalFX gets per-pixel
+  within a second ([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md) FL). MetalFX gets per-pixel
   motion at input resolution and does its own (undocumented) resampling and history
   rejection. On our synthetic high-frequency pattern, sub-pixel motion lost almost all of
   the static gain: after 32 frames, temporal vs bilinear-of-the-current-frame RMSE was
@@ -185,7 +185,7 @@ waited at a time).
   gestures are almost always fractional motion, so this is the key risk.
 - **Sample positions.** We know the exact complex coordinate of every sample; MetalFX only
   knows the frame's single jitter offset. Per-pixel jitter or variable sample density
-  (adaptive sampling, [[synthesis/dense-region-sampling]]) cannot be expressed.
+  (adaptive sampling, [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)) cannot be expressed.
 - **Confidence.** Our history carries per-pixel confidence (alpha) and refinement fades in
   exact pixels; MetalFX history is opaque. Exact (fully iterated) pixels cannot be injected
   as "trusted"; the reactive mask can only make MetalFX trust history less.
@@ -202,7 +202,7 @@ Measured on real flights with `prototypes/motion-reuse` (feature `metalfx`). Bot
 our FL compose got the same input: the jittered preview, shaded at the same ratio, with exact
 affine motion and constant depth. The metrics are OKLab ΔE × 100 against a 16-sample converged
 reference, plus temporal error, the change of the error from frame to frame along the motion
-([[synthesis/motion-sample-reuse]]). Measured 2026-10-15, M1 Pro, release.
+([Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md)). Measured 2026-10-15, M1 Pro, release.
 
 | flight | ratio/axis | our compose: ΔE / p99 / temporal | temporal scaler | spatial scaler |
 |---|---|---|---|---|
@@ -222,7 +222,7 @@ reference, plus temporal error, the change of the error from frame to frame alon
 
 Verdict: MetalFX does not pay for almondbread's fractal content. It gives no quality gain over
 our compose, cannot go below 1/3 resolution, costs 5–7 ms at Retina resolution, and needs
-A14+ on iOS. [[synthesis/motion-sample-reuse]] has the recommendation.
+A14+ on iOS. [Motion sample reuse: fewer iterations per gesture frame (R4)](../synthesis/motion-sample-reuse.md) has the recommendation.
 
 ## Pitfalls
 
@@ -241,6 +241,14 @@ A14+ on iOS. [[synthesis/motion-sample-reuse]] has the recommendation.
 
 ## Related
 
-[[techniques/frame-reuse-and-progressive]], [[techniques/anti-aliasing]],
-[[platform/render-architecture]], [[platform/apple-gpu-architecture]],
-[[platform/ios-ipad-considerations]], [[synthesis/dense-region-sampling]]
+[Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md), [Anti-aliasing and supersampling](../techniques/anti-aliasing.md),
+[Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](render-architecture.md), [Apple GPU architecture for compute](apple-gpu-architecture.md),
+[iOS and iPadOS port considerations](ios-ipad-considerations.md), [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)
+
+# Citations
+
+- [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)
+- [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](../sources/apple-metalfx-taa-sample.md)
+- [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)
+- [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)
+- [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)

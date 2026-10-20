@@ -40,4 +40,8 @@ term must be computed from the full value `Z + z` (inference).
 
 ## Used by
 
-[[techniques/smooth-coloring]], [[techniques/coloring-methods]], [[formulas/multibrot]], [[formulas/mandelbrot]]
+[Smooth (continuous) iteration count](../techniques/smooth-coloring.md), [Colouring methods](../techniques/coloring-methods.md), [Multibrot (integer power p)](../formulas/multibrot.md), [Mandelbrot set (power 2)](../formulas/mandelbrot.md)
+
+# Citations
+
+- <https://iquilezles.org/articles/msetsmooth/>

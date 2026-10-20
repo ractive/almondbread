@@ -31,4 +31,8 @@ MetalFX rows and the GPU family table.
 
 ## Used by
 
-- [[platform/metalfx]]
+- [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)
+
+# Citations
+
+- <https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf>

@@ -11,8 +11,8 @@ tags: [cosmic-scale, overlay, reference-values]
 # Cosmic size scale: other references
 
 A collection page: every value the cosmic size scale overlay needs that is not on
-[[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]] or
-[[sources/codata-2022-constants]]. Read 2026-10-15; nothing saved under `raw/`.
+[NASA NSSDCA planetary fact sheets (Earth, Moon, Jupiter, Sun, Neptune)](nasa-planetary-fact-sheets.md), [IAU astronomical unit (2012 Resolution B2) and the light-year](iau-astronomical-units.md) or
+[NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md). Read 2026-10-15; nothing saved under `raw/`.
 "Typical" sizes are order-of-magnitude markers; give them with "~" in the overlay.
 
 ## Stars, galaxies, the universe
@@ -43,7 +43,7 @@ A collection page: every value the cosmic size scale overlay needs that is not o
 | Object | Figure as quoted | SI | Source | Reliability |
 | --- | --- | --- | --- | --- |
 | Nuclear radius | "R=r_{0} A^{1 / 3}" with r0 "about 1.2 fm" | Gold (A=197): 7.0e-15 m; lead-208: 7.1e-15 m | LibreTexts, Modeling the Nucleus, <https://phys.libretexts.org/Courses/Coalinga_College/Physical_Science_for_Educators_Volume_2/10%3A_Nuclear_Physics/10.04%3A_Modeling_the_Nucleus> | Formula standard; the page's worked gold example is wrong (uses 179 for 197, gets 6.76 fm). r0 ranges ~1.2–1.3 fm. HyperPhysics shows the formula only as an image |
-| Proton radius | see [[sources/codata-2022-constants]] (0.84075 fm) | | | |
+| Proton radius | see [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md) (0.84075 fm) | | | |
 | Quark radius upper limit | "The resulting 95% C.L. upper limit on the effective quark radius is 0.43·10^-16 cm." | < 4.3e-19 m | ZEUS Collaboration, Phys. Lett. B 757 (2016) 468, arXiv:1604.01280, <https://ar5iv.arxiv.org/html/1604.01280> | High; model-dependent (form-factor model) |
 | LHC collision energy | "the record collision energy of 13.6 trillion electronvolts (TeV)" | 13.6e12 eV; λ = hc/E ≈ 9.1e-20 m | CERN Run 3 media kit, <https://home.cern/press/media-kits/run-3/> | High |
 | Smallest scale probed directly | "The Large Hadron Collider will directly probe distance scales as short as 10^{-19}m" | ~1e-19 m | Buras, Buttazzo, Girrbach-Noe, Knegjens, JHEP 11 (2014) 121, arXiv:1408.0728, <https://arxiv.org/abs/1408.0728> | Medium: a physicist's round statement, not a measured record. Indirect flavour probes reach ~1e-21 m (Buras, arXiv:2403.02387). Say "~1e-19 m, the shortest distance probed directly at colliders" |
@@ -60,7 +60,7 @@ No electron-size limit was looked up; use the quark limit instead.
 
 ## Times
 
-Epochs after the Big Bang are on [[sources/cosmic-history-timeline]]. 1 yr = 3.15576e7 s.
+Epochs after the Big Bang are on [Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](cosmic-history-timeline.md). 1 yr = 3.15576e7 s.
 
 | Quantity | Figure as quoted | SI | Source | Reliability |
 | --- | --- | --- | --- | --- |
@@ -74,3 +74,32 @@ Epochs after the Big Bang are on [[sources/cosmic-history-timeline]]. 1 yr = 3.1
 - Observable universe: 92 Gly (NASA, Caltech) against the commonly quoted 93 Gly
   (secondary). Both round the comoving diameter; not worth a question page.
 - Andromeda: 2.5 Mly (NASA, ESA/Hubble text) against 2 Mly (ESA/Hubble image box).
+
+# Citations
+
+- [NASA NSSDCA planetary fact sheets (Earth, Moon, Jupiter, Sun, Neptune)](nasa-planetary-fact-sheets.md)
+- [IAU astronomical unit (2012 Resolution B2) and the light-year](iau-astronomical-units.md)
+- [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md)
+- <https://science.nasa.gov/sun/facts/>
+- <https://imagine.gsfc.nasa.gov/ask_astro/galaxies.html>
+- <https://www.nasa.gov/science-research/astrophysics/how-big-is-space-we-asked-a-nasa-expert-episode-61/>
+- <https://science.nasa.gov/missions/hubble/nasas-hubble-traces-hidden-history-of-andromeda-galaxy/>
+- <https://coolcosmos.ipac.caltech.edu/ask/237-How-big-is-the-Universe->
+- <https://arxiv.org/abs/1807.06209>
+- <https://thehimalayantimes.com/nepal/everest-2-0-worlds-tallest-peaks-revised-height-revealed-stands-at-8848-86m/>
+- <https://pmc.ncbi.nlm.nih.gov/articles/PMC4961475/>
+- <https://bionumbers.hms.harvard.edu/bionumber.aspx?id=116402>
+- <https://www.ncbi.nlm.nih.gov/sites/books/NBK562141/>
+- <https://book.bionumbers.org/how-big-is-an-e-coli-cell-and-what-is-its-mass/>
+- <https://book.bionumbers.org/how-big-are-viruses/>
+- <https://pmc.ncbi.nlm.nih.gov/articles/PMC3478330/>
+- <https://phys.libretexts.org/Courses/Coalinga_College/Physical_Science_for_Educators_Volume_2/10%3A_Nuclear_Physics/10.04%3A_Modeling_the_Nucleus>
+- <https://ar5iv.arxiv.org/html/1604.01280>
+- <https://home.cern/press/media-kits/run-3/>
+- <https://arxiv.org/abs/1408.0728>
+- <https://arxiv.org/abs/2112.04473>
+- <https://www.pi.infn.it/~carosi/chess/shannon.txt>
+- <https://mathworld.wolfram.com/Googol.html>
+- [Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](cosmic-history-timeline.md)
+- <https://www.eva.mpg.de/homo-sapiens.html>
+- <https://photon-science.desy.de/news__events/news__highlights/archive/archive_of_2020/zeptoseconds_new_world_record_in_short_time_measurement_at_petra_iii/PIF_eng.html>

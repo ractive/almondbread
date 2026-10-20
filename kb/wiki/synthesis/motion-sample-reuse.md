@@ -2,25 +2,25 @@
 title: "Motion sample reuse: fewer iterations per gesture frame (R4)"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/xaos-algorithms]]", "[[sources/wikipedia-xaos]]", "[[sources/apple-metalfx-docs]]", "[[sources/wwdc22-metalfx-upscaling]]", "[[sources/wwdc25-metal4-games]]", "[[sources/apple-metal-feature-set-tables]]", "[[sources/apple-metalfx-taa-sample]]"]
+sources: ["sources/xaos-algorithms", "sources/wikipedia-xaos", "sources/apple-metalfx-docs", "sources/wwdc22-metalfx-upscaling", "sources/wwdc25-metal4-games", "sources/apple-metal-feature-set-tables", "sources/apple-metalfx-taa-sample"]
 tags: [frame-reuse, sample-reuse, temporal, metalfx, interactive, measured, decision]
 ---
 
 # Motion sample reuse: fewer iterations per gesture frame (R4)
 
-> **Code removed 2026-10-17.** The production sample cache this page recommends and describes "as built" was opt-in, never the default, and is deleted ([[techniques/sample-reuse]] has the note and what stays). The research and measurements below are history.
+> **Code removed 2026-10-17.** The production sample cache this page recommends and describes "as built" was opt-in, never the default, and is deleted ([Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md) has the note and what stays). The research and measurements below are history.
 
 **Question.** While zooming and panning continuously (Space at 1–8 e-folds/s, WASD,
 autopilot), how many pixel-iterations per displayed frame can we avoid while the shown image
 stays as sharp and stable as now or better? FL computes every gesture frame's samples fresh
 (a jittered preview at a dynamic ratio) and reuses only the previous *image*
-([[techniques/frame-reuse-and-progressive]] FL). Candidates: XaoS-style sample reuse
-([[techniques/sample-reuse]]) and Apple MetalFX upscaling ([[platform/metalfx]]).
+([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md) FL). Candidates: XaoS-style sample reuse
+([Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md)) and Apple MetalFX upscaling ([MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)).
 
 **Answer.** Reuse the samples, not the image. A **sample cache in fractal coordinates** keeps
 computed samples with their exact position and raw data, moves them with the view, re-shades
 them every frame, reconstructs with a Gaussian, and computes new samples only where pixels
-lack them ([[techniques/sample-reuse]]). It gives today's shown gesture image **at 2 % (pans)
+lack them ([Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md)). It gives today's shown gesture image **at 2 % (pans)
 to 50 % (zooms) of FL's iterations per frame**. At FL's iterations it gives a clearly sharper
 image (OKLab ΔE 1.4–1.8× lower) with equal or lower temporal error, in every flight except the
 deep zoom beyond 1e-24. There, FL's budget (preview ratio 0.125) is far below what any reuse
@@ -167,7 +167,7 @@ At the same jittered input, MetalFX's temporal scaler is at best equal to our co
 | pan at 1e5 | 0.5 | 1.06 / 10.5 / 0.59 | 1.14 / 11.0 / 0.62 | 2.74 / 23.0 / 3.66 |
 | pan at 1e5 | 0.375 | 1.19 / 11.8 / 0.60 | 1.51 / 14.5 / 0.66 | 3.12 / 26.1 / 3.98 |
 
-Why it does not fit ([[platform/metalfx]] unless noted):
+Why it does not fit ([MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md) unless noted):
 
 - Its history logic cannot use what we know exactly: sample positions, re-shading, sub-pixel
   motion of fractal detail. Its gain vanishes with fractional per-frame motion on
@@ -175,10 +175,10 @@ Why it does not fit ([[platform/metalfx]] unless noted):
 - Its range ends at 3× per axis; our deep previews need 4–8×.
 - It costs 1.0–1.5 ms at 1600×1000 and 4.7–6.6 ms at 3456×2160 (minimum over loaded runs),
   plus 41–278 MB.
-- On iOS it needs A14+ and, in practice, iOS 17 (src: [[sources/apple-metal-feature-set-tables]]).
+- On iOS it needs A14+ and, in practice, iOS 17 (src: [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)).
 - The spatial scaler is far worse than our bilinear preview path.
 - The newer denoiser and frame interpolator do not fit either: we have no normals or albedo,
-  and interpolation adds a frame of latency (src: [[sources/wwdc25-metal4-games]]).
+  and interpolation adds a frame of latency (src: [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)).
 
 ## GPU cost of the cache's bookkeeping
 
@@ -200,7 +200,7 @@ About half is the move pass (1080p: 3.2 ms) and half the resolve (2.7 ms).
   loops are the suspect.
 - **The resolve shades much more than FL.** It shades every cached sample (~2 M at 1080p),
   where FL shades only the preview. FL's compose plus preview colour takes 1.7 ms at 1080p
-  (`fly`, [[synthesis/benchmarks]] FL).
+  (`fly`, [almondbread benchmarks and verification record](benchmarks.md) FL).
 - **Today the cache trades iterations for bookkeeping about one to one at 1080p, and loses at
   Retina resolution.** FL iterates for at most half a refresh per gesture frame (≤ 8 ms at
   60 Hz), so saving 50–85 % of that is worth ~2–7 ms at 1080p. At equal GPU time, the cache's
@@ -228,7 +228,7 @@ About half is the move pass (1080p: 3.2 ms) and half the resolve (2.7 ms).
    Measure frame rate and latency with `--interaction-test`.
 3. **Do M5 local SA first, or together.** In deep dense views the cache is sample-starved: FL's
    budget covers 1.6 % of pixels per frame against the 8 % needed at 2.5 e-folds/s. Local SA's
-   3–5× cheaper samples ([[synthesis/dense-region-sampling]]) close most of that gap, and each
+   3–5× cheaper samples ([Dense boundary regions: fewer pixel-iterations for the same image (R3)](dense-region-sampling.md)) close most of that gap, and each
    sample then lives for many frames.
 4. **Do not build**:
    - MetalFX upscaling: no quality gain over our compose, the 3× limit, the Retina cost and the
@@ -309,7 +309,7 @@ each scenario and in `verify --history`.
 
 ## Production (as built, 2026-10-15)
 
-The cache was built ([[techniques/sample-reuse]] "As built"), but not as designed above. The
+The cache was built ([Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md) "As built"), but not as designed above. The
 design's per-pixel cells with K free samples and a move pass are O(pixels), and the
 bookkeeping cost was the risk. The build keeps samples on a **lattice fixed in the plane**,
 held as a **toroidal window** of 16 × 16 tiles:
@@ -320,7 +320,7 @@ held as a **toroidal window** of 16 × 16 tiles:
   only kernel change).
 - Reconstruction is the FL compose pass with the lattice as its new samples.
 
-Measured ([[synthesis/benchmarks]] "Sample cache"): bookkeeping is 0.1–0.6 ms per frame,
+Measured ([almondbread benchmarks and verification record](benchmarks.md) "Sample cache"): bookkeeping is 0.1–0.6 ms per frame,
 within the 1.5 ms budget. Iterations per gesture frame fall by 55–56 % at 1600 × 1000 (at up
 to √2 × the preview resolution) and by 92 % at Retina size. Iterate GPU falls by 4–8 ms per
 frame.
@@ -344,7 +344,17 @@ Open:
 
 ## Related
 
-[[techniques/sample-reuse]], [[techniques/frame-reuse-and-progressive]],
-[[techniques/anti-aliasing]], [[platform/metalfx]], [[platform/render-architecture]],
-[[synthesis/dense-region-sampling]], [[techniques/local-series-approximation]],
-[[synthesis/benchmarks]] (R4), [[roadmap]].
+[Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md),
+[Anti-aliasing and supersampling](../techniques/anti-aliasing.md), [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md), [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md),
+[Dense boundary regions: fewer pixel-iterations for the same image (R3)](dense-region-sampling.md), [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md),
+[almondbread benchmarks and verification record](benchmarks.md) (R4), [Roadmap](../roadmap.md).
+
+# Citations
+
+- [XaoS: Algorithms document](../sources/xaos-algorithms.md)
+- [Wikipedia: XaoS](../sources/wikipedia-xaos.md)
+- [Apple docs and SDK headers: MetalFX framework](../sources/apple-metalfx-docs.md)
+- [WWDC22 session 10103: Boost performance with MetalFX Upscaling](../sources/wwdc22-metalfx-upscaling.md)
+- [WWDC25 session 211: Go further with Metal 4 games](../sources/wwdc25-metal4-games.md)
+- [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)
+- [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](../sources/apple-metalfx-taa-sample.md)

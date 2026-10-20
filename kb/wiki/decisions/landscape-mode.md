@@ -12,13 +12,13 @@ tags: [3d, landscape, flight, navigation, product]
 
 The user wants to fly through a 3D fractal landscape and asked how that
 combines with zooming. True 3D fractals (Mandelbulb, Mandelbox) have no
-practical deep-zoom scheme ([[formulas/others-feasibility]]); the 2D
-engine does ([[techniques/perturbation]], [[techniques/bla]]).
+practical deep-zoom scheme ([Other formulas: feasibility of deep zoom](../formulas/others-feasibility.md)); the 2D
+engine does ([Perturbation](../techniques/perturbation.md), [Bivariate linear approximation (BLA)](../techniques/bla.md)).
 
 ## Proposal
 
 - **Terrain:** height = f(exterior distance estimate)
-  ([[techniques/distance-estimation]]); the set boundary is the valley
+  ([Distance estimation](../techniques/distance-estimation.md)); the set boundary is the valley
   floor at 0, interior regions (minibrots) are flat lakes, the exterior
   rises. DE scales with zoom, so the terrain is self-similar at every
   depth. Candidate f: linear, or a soft log curve so plateaus do not
@@ -44,9 +44,9 @@ engine does ([[techniques/perturbation]], [[techniques/bla]]).
   automatic waypoints at dives and sharp turns.
 - **Rendering:** nested rings of 2D renders around the point below the
   camera, each at its own scale (clipmap / exponential-map idea,
-  [[techniques/exponential-map]]), reused while flying; height-field ray
+  [Exponential map (log-polar) rendering](../techniques/exponential-map.md)), reused while flying; height-field ray
   marching with the existing normals, fog, sky, water, shadows.
-- **Controls:** the crosshair and keyboard model of [[decisions/controls]]
+- **Controls:** the crosshair and keyboard model of [Controls: keyboard, pointer and touch](controls.md)
   carries over (Space = dive towards the crosshair, WASD = fly/steer).
 
 ## Plan
@@ -78,8 +78,8 @@ picks the level from the pixel footprint at distance `t`. Shading: normals by ce
 differences at the hit level, sun with soft shadows, horizon-style AO, water with
 Fresnel and marched reflections, fog, sky. Strata colour keyed by `log2(DE/S)` keeps
 the colour self-similar. Interior uses the `|w|·n² < 1e-3` test
-([[techniques/interior-detection]]); DE has bailout 1e5
-([[techniques/distance-estimation]]).
+([Interior detection](../techniques/interior-detection.md)); DE has bailout 1e5
+([Distance estimation](../techniques/distance-estimation.md)).
 
 **Height function: use `log`, `h = σ·ln(1 + k·DE/σ)` with σ = 0.1 S and k = 4.**
 - `linear` (`k·DE`) is the only fixed-world function that is exactly self-similar.
@@ -156,9 +156,9 @@ is fetched for the two-level blend and in 32-sample tiles.
   with N = 1024. A cold start (teleport) is the full ~10–40 M.
 - Iterations: 140 k × 100–1500 per evaluation (typical exterior) = 0.014–0.2 G
   iterations per frame. That is fine at the app's ~30–50 Giter/s of float32
-  perturbation on the GPU ([[synthesis/benchmarks]]). Minibrot shores (5–9 k average,
+  perturbation on the GPU ([almondbread benchmarks and verification record](../synthesis/benchmarks.md)). Minibrot shores (5–9 k average,
   with slow interior) reach 0.7–1.2 G per frame, 25–40 ms: these need BLA/LA
-  ([[techniques/bla]]) and the auto-iteration statistics.
+  ([Bivariate linear approximation (BLA)](../techniques/bla.md)) and the auto-iteration statistics.
 - Marching: ~60 steps × 2 bilinear fetches × 2 M pixels ≈ 250 M fetches per frame,
   plus shadows. That is cheap on the GPU compared with the iteration.
 
@@ -176,7 +176,7 @@ Code: `prototypes/landscape-rt/` (own Cargo workspace; README there). Measured 2
 M1 Pro, release, 1280×800 pt window (2560×1600 px) on the 120 Hz panel, background test window.
 
 **Stack: Metal on objc2-metal + winit, not wgpu.** This is the app's own stack
-([[platform/render-architecture]]): the same MSL dialect, so the DE kernel is a cut-down copy
+([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md)): the same MSL dialect, so the DE kernel is a cut-down copy
 of the app's `iterate` kernel, and the same crates were already in the cargo cache. It gives
 direct `CAMetalLayer` control (drawable count, `presentedTime` for pacing measurements),
 memoryless MSAA and depth targets on the tile GPU, and no shader translation layer. wgpu would
@@ -203,8 +203,8 @@ the second difference is larger than the first, which is noise, not motion.
   Vertex heights are geomorphed to the coarser ring's triangle surface by an L∞ distance α,
   and towards it wherever data is missing or fading. Crack-free by construction.
 - *DE on the GPU*: float32 perturbation against an f64 Newton nucleus reference (periodic, so
-  rebasing at the end wraps), Zhuoran rebasing ([[techniques/rebasing]]), derivative interior
-  test ([[techniques/interior-detection]]), maxIter 20 000. **dz/dc needs a power-of-two
+  rebasing at the end wraps), Zhuoran rebasing ([Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)), derivative interior
+  test ([Interior detection](../techniques/interior-detection.md)), maxIter 20 000. **dz/dc needs a power-of-two
   exponent**: near the set it overflows float32, inf − inf gives NaN, and NaN became DE = 2^60
   (needles at the horizon). After the fix, `landscape-rt check` (GPU vs CPU f64, 1000–4000
   random samples per level) finds no DE error above a factor 2 among samples with
@@ -370,7 +370,7 @@ holes (height 0) or, with a longer fallback chain, tile-shaped slabs. Fixes:
 The seahorse target dive is then clean, at the price of speed: 1e-3 → 2.8e-7 in 30 s instead of
 → 8e-8 in 13 s.
 
-**Results.** Frame pacing at 120 Hz in [[synthesis/benchmarks]] (L1): first version 117.9–119.6 fps; after the controls redesign hover 119.3, cruise 119.2, dive 117.2, tour 118.8 fps (render 3.8–4.6 ms p50, ≤ 7.7 ms p99; measured with no other GPU load; with another agent's dense-sampling job and a second landscape-rt instance running it drops to 65–106 fps)
+**Results.** Frame pacing at 120 Hz in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) (L1): first version 117.9–119.6 fps; after the controls redesign hover 119.3, cruise 119.2, dive 117.2, tour 118.8 fps (render 3.8–4.6 ms p50, ≤ 7.7 ms p99; measured with no other GPU load; with another agent's dense-sampling job and a second landscape-rt instance running it drops to 65–106 fps)
 presented, 0.2–1.8 % refreshes missed, render 3.5–4.4 ms p50 / ≤ 9 ms p99, DE ≤ 3 ms p99.
 Review videos 1080p60 in `review/landscape/` (gitignored): `l1-tour.mp4` (35 s, 1e-3 → 9e-8),
 `l1-dive.mp4`, `l1-dive-continuous-sigma.mp4` (before/after of the melting fix),
@@ -455,7 +455,7 @@ whole SIMD groups finish at once: 25 % fewer SIMD cycles. Cold prefill of 6 loca
 (`bench`, ~360 k tiles with the 4 extra levels): L1 82–86 k tiles/s, L2 98–109 k tiles/s
 (1.15–1.27×; per location 0.93–1.7×, noisy). Not 1.33×: the slowest samples dominate a tile.
 BLA and local SA were not tried: M4 found BLA does not pay at f64-reference depths, and
-float32 local SA is an open question ([[questions/local-sa-float32]]); the scheduler, not the
+float32 local SA is an open question ([Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md)); the scheduler, not the
 per-tile cost, was the bottleneck (the demand while flying low is 1–6 k tiles/s against a
 capacity of 10–50 k tiles/s inside a 2.5 ms budget).
 
@@ -488,7 +488,7 @@ from the camera (400–460 samples); a fade keyed to the window edge jumped with
 steps.
 
 **Results** (recorder 1920×1080 at 60 fps, DE budget = live 2.5 ms × 2; two interleaved
-repeats; numbers in [[synthesis/benchmarks]] L2):
+repeats; numbers in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) L2):
 
 | run | L1 | L2 |
 | --- | --- | --- |
@@ -541,7 +541,7 @@ pilot), `l2-l1-target-seahorse.mp4` / `l2-l2-target-seahorse.mp4` (1e-3 → 1e-7
   and reference offsets, and clear the ground cache.
 - *GPU kernel, float32 deltas.* dc and dz are float32 offsets of about S; the rebasing test
   |z|² < |dz|² underflows below |dz| ≈ 1e-19, so the plain kernel serves S down to ~1e-16 (the
-  app's plain kernel stops at 1e-17 per pixel for the same reason, [[synthesis/benchmarks]] M3b).
+  app's plain kernel stops at 1e-17 per pixel for the same reason, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M3b).
   Deeper needs the app's rescaled deep kernel (float32 mantissa with a shared exponent,
   floatexp full steps where |Z| is tiny), with dz/dc already carrying an exponent here.
 So the first step (big reference, perturbed ground, moving origin) buys about four decades
@@ -564,3 +564,7 @@ at S = 1.76e-6 was, as measured, the fill-limited zoom stuck at 0.1–0.15 e-fol
   oracle disagrees with 0–16 of 600 samples per level (DE off by more than 2×): the f64 limit
   of the oracle and the f64 nucleus, as in L1.
 - 120 Hz under a quiet GPU is not re-measured (see above).
+
+# Citations
+
+- [No cited source: our own design decision and our own prototype measurements, as stated above](#context)

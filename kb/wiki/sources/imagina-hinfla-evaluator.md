@@ -38,7 +38,7 @@ Notation below: `‖x‖` is the Chebyshev norm `max(|Re x|, |Im x|)`, used for 
 - Stage 0 is built from orbit points with the Step rule. Walk from iteration 1 until a period is detected; that first record's length is the period `P`. Then cut the rest of the orbit into records, closing a record when a period is detected or when it reaches length `P`.
 - If no period appears and the orbit is longer than 64, or `P > 64`, an artificial chunk length is used: `P = round(N^(1/k))` with `k = round(log2(N)/4)` (a "log16" root), so records are roughly 16 iterations long (e.g. `N = 10^6` gives `k = 5`, `P ≈ 16`) (inference from the formula). If the orbit is 64 or shorter with no period, one record covers it and no further stages are built.
 - Stage n+1 is built from stage n's records with the Composite rule and the same logic. Step lengths add; the artificial chunk is `len0 × round(ratio^(1/round(log2(ratio)/4)))`, where `len0` is the length of stage n's first record. Building stops when a stage finds no period. Each stage ends with a sentinel record holding the final orbit value, so the last record has a "next Ref".
-- The c-threshold is only checked once per stage, against that stage's first record: if `‖δc‖ ≥ R_c`, the whole stage is skipped for that pixel. FractalShark keeps the same rule ("each stage retains its first row's threshold", [[sources/fractalshark-readme]] §Build instructions).
+- The c-threshold is only checked once per stage, against that stage's first record: if `‖δc‖ ≥ R_c`, the whole stage is skipped for that pixel. FractalShark keeps the same rule ("each stage retains its first row's threshold", [FractalShark README](fractalshark-readme.md) §Build instructions).
 
 **Evaluation order per pixel.**
 
@@ -72,7 +72,7 @@ Notation below: `‖x‖` is the Chebyshev norm `max(|Re x|, |Im x|)`, used for 
 
 - Primary: the actual implementation by the inventor of the method. Comments are sparse, constants are unexplained, and the repo is marked "being rewritten".
 - Read in full: the header, orbit, stage, AT, LA/PT/direct/AT evaluation and the main `Evaluate`. Skimmed: the multithreaded stage-0 builder (appears to do the same work in parallel), Julia mipmap rendering, orbit save/load.
-- ε = `2^-24` is used for both thresholds even when records run in double. That is far larger than the forum values for double-precision BLA (`2e-53`, see [[sources/philthompson-bla]]). The two ε's sit in different inequalities (Chebyshev, entry `w`), so they are not directly comparable (inference).
+- ε = `2^-24` is used for both thresholds even when records run in double. That is far larger than the forum values for double-precision BLA (`2e-53`, see [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](philthompson-bla.md)). The two ε's sit in different inequalities (Chebyshev, entry `w`), so they are not directly comparable (inference).
 - The c-threshold of a composite is bounded by Y's z-threshold divided by `‖B_t‖`, a per-term split of `‖A_t w + B_t δc‖ < R_z^Y` with no factor for the sum. This is slightly optimistic (inference).
 - A header constant `Order = 4` is never used in the code read.
 
@@ -92,13 +92,19 @@ Code files have no headings; § gives the function names.
 
 ## Used by
 
-- [[techniques/linear-approximation-imagina]]
-- [[techniques/bla]]
-- [[techniques/rebasing]]
-- [[techniques/reference-selection]]
-- [[techniques/extended-range-floats]]
-- [[techniques/distance-estimation]]
-- [[implementations/imagina]]
-- [[questions/bla-vs-la-benchmark]]
-- [[questions/reference-orbit-compression]]
-- [[questions/higher-order-bla]]
+- [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)
+- [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)
+- [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)
+- [Distance estimation](../techniques/distance-estimation.md)
+- [Imagina](../implementations/imagina.md)
+- [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+- [How does Imagina/FractalShark reference-orbit compression work?](../questions/reference-orbit-compression.md)
+- [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/5E-324/Imagina/master/HInfLAEvaluator.cpp>
+- [FractalShark README](fractalshark-readme.md)
+- [Phil Thompson: Faster Mandelbrot set rendering with BLA (2023)](philthompson-bla.md)

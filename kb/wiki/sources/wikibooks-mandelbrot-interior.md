@@ -20,15 +20,15 @@ research notes only. The year is a placeholder.
 
 ## What it covers
 
-- Multiplier test: a point is interior (in a hyperbolic component) when the multiplier of its attracting cycle, `(f^p)'(z0)`, has modulus below 1; requires the period and a cycle point (compare [[sources/mathr-interior-distance]]).
-- Neighbour heuristic: use the result of neighbouring pixels to decide when to run costly interior checks (compare the "biased" method in [[sources/mathr-interior-distance]]).
+- Multiplier test: a point is interior (in a hyperbolic component) when the multiplier of its attracting cycle, `(f^p)'(z0)`, has modulus below 1; requires the period and a cycle point (compare [mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md)).
+- Neighbour heuristic: use the result of neighbouring pixels to decide when to run costly interior checks (compare the "biased" method in [mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md)).
 - Interior colouring methods (for example by multiplier, period, or interior distance).
 
 ## Reliability
 
 Secondary, community-written, long and uneven in quality; not read directly (status unread). Use
-the primary sources ([[sources/mathr-interior-distance]], [[sources/cheritat-mandelbrot-rendering]],
-[[sources/mathr-deep-zoom-page]] §6 Interior Detection) for anything load-bearing.
+the primary sources ([mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md), [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](cheritat-mandelbrot-rendering.md),
+[mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md) §6 Interior Detection) for anything load-bearing.
 
 ## Useful sections
 
@@ -36,4 +36,11 @@ the primary sources ([[sources/mathr-interior-distance]], [[sources/cheritat-man
 
 ## Used by
 
-[[techniques/interior-detection]], [[techniques/coloring-methods]]
+[Interior detection](../techniques/interior-detection.md), [Colouring methods](../techniques/coloring-methods.md)
+
+# Citations
+
+- <https://en.wikibooks.org/wiki/Fractals/Iterations_in_the_complex_plane/Mandelbrot_set_interior>
+- [mathr: Practical interior distance rendering (2014)](mathr-interior-distance.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](cheritat-mandelbrot-rendering.md)
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

@@ -24,8 +24,13 @@ formulates and proves this and shows the same nesting in Julia sets for paramete
 ## Reliability
 
 Abstract only (the talk is not published here); it confirms the order of the stages, not
-their sizes. For sizes see [[sources/muency-newton-raphson-zooming]].
+their sizes. For sizes see [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](muency-newton-raphson-zooming.md).
 
 ## Used by
 
-[[decisions/controls]] (Journey)
+[Controls: keyboard, pointer and touch](../decisions/controls.md) (Journey)
+
+# Citations
+
+- <https://www.math.kyoto-u.ac.jp/en/node/2851>
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](muency-newton-raphson-zooming.md)

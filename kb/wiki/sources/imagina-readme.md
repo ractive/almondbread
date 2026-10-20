@@ -21,7 +21,7 @@ The very short README of Imagina (GitHub `5E-324/Imagina`), Zhuoran's "fast frac
 - Status note: "The project is being rewritten"; the repository may be renamed and replaced by the rewrite. Last push 2024-01-23 (brief, gh api 2026-10-14).
 - Controls: drag to pan, scroll to zoom, double-click to "find nearby feature" and open a Feature Finder dialog; A/S colour density, D/F iteration limit, E/R colour cycling.
 - Build dependencies: MPIR (arbitrary precision) and libpng; CMake variables `INCLUDE_PATH`, `LIBRARY_PATH`, `MPIR_USE_DLL` (default ON).
-- Says nothing about algorithms. These are in the source; see [[sources/imagina-hinfla-evaluator]].
+- Says nothing about algorithms. These are in the source; see [Imagina HInfLAEvaluator (source code)](imagina-hinfla-evaluator.md).
 
 ## Reliability
 
@@ -35,5 +35,10 @@ Primary but thin. The code on `master` is the pre-rewrite version; the rewrite m
 
 ## Used by
 
-- [[implementations/imagina]]
-- [[synthesis/finding-deep-places]]
+- [Imagina](../implementations/imagina.md)
+- [Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/5E-324/Imagina/master/Readme.md>
+- [Imagina HInfLAEvaluator (source code)](imagina-hinfla-evaluator.md)

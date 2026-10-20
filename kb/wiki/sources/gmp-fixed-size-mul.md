@@ -37,5 +37,9 @@ Primary but anecdotal: one message, one machine, no table of timings, no code. T
 
 ## Used by
 
-- [[platform/mpfr-gmp-on-apple-silicon]]
-- [[techniques/reference-orbit-precision]]
+- [Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)
+- [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)
+
+# Citations
+
+- <https://gmplib.org/list-archives/gmp-devel/2024-April/006255.html>

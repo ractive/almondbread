@@ -51,4 +51,8 @@ derived. Exterior only.
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2014-11-22_adaptive_supersampling_using_distance_estimate.html>

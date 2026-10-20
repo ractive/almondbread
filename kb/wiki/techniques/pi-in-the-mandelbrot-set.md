@@ -2,49 +2,49 @@
 title: "π in the Mandelbrot set (neck and cusp escape counts)"
 type: technique
 status: draft
-sources: ["[[sources/boll-pi-post]]", "[[sources/klebanoff-pi-in-mandelbrot]]", "[[sources/brockmoeller-pi-everywhere]]", "[[sources/edgar-pi-and-mandelbrot]]", "[[sources/muency-pi]]"]
+sources: ["sources/boll-pi-post", "sources/klebanoff-pi-in-mandelbrot", "sources/brockmoeller-pi-everywhere", "sources/edgar-pi-and-mandelbrot", "sources/muency-pi"]
 tags: [pi, parabolic, escape-time, maths-moment, overlay, precision]
 ---
 
 # π in the Mandelbrot set
 
-A "maths moment" the app shows with the π meter ([[decisions/controls]] "π meter"): near two
+A "maths moment" the app shows with the π meter ([Controls: keyboard, pointer and touch](../decisions/controls.md) "π meter"): near two
 pinch points of the set the escape count, times the distance, tends to π.
 
 ## The phenomenon
 
 Escape count: `z_0 = 0`, `z_{n+1} = z_n² + c`, N = the first n ≥ 1 with `|z_n| > 2`
-(src: [[sources/klebanoff-pi-in-mandelbrot]] eq. 3; the convention of Boll's tables).
+(src: [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md) eq. 3; the convention of Boll's tables).
 
 - **Neck** `c = -3/4 + iε` (where the period-2 disc touches the cardioid): `N·ε → π`
-  (src: [[sources/boll-pi-post]]; first proof [[sources/brockmoeller-pi-everywhere]] Thm. 1,
+  (src: [Dave Boll's 1991 π post, reproduced by Mark VandeWettering (brainwagon, 2011)](../sources/boll-pi-post.md); first proof [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md) Thm. 1,
   2025).
-- **Cusp** `c = 1/4 + ε`, ε > 0: `N·√ε → π` (src: [[sources/klebanoff-pi-in-mandelbrot]]
+- **Cusp** `c = 1/4 + ε`, ε > 0: `N·√ε → π` (src: [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)
   main theorem, the first proof, 2001).
-- Also `c = -5/4 - ε² + iε`: `N·ε → π/2` (src: [[sources/brockmoeller-pi-everywhere]] §1;
-  David Petry in [[sources/edgar-pi-and-mandelbrot]] saw near-(half-)integers of `Nε/π` at
+- Also `c = -5/4 - ε² + iε`: `N·ε → π/2` (src: [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md) §1;
+  David Petry in [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](../sources/edgar-pi-and-mandelbrot.md) saw near-(half-)integers of `Nε/π` at
   `-5/4 + iε`). Not in the app.
 - General form: at every parabolic parameter `c_0` (a root of a hyperbolic component), along a
   parameter ray, `N·|c - c_0|·τ(c_0) → π` (satellite roots, like -3/4) or
   `N·|c - c_0|^{1/2}·τ(c_0) → π` (primitive roots, like 1/4), `τ` from the multiplier map's
-  derivative; τ = 1 at -3/4 and 1/4 (src: [[sources/brockmoeller-pi-everywhere]] Thm. 1).
+  derivative; τ = 1 at -3/4 and 1/4 (src: [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md) Thm. 1).
   The vertical line at -3/4 is not a parameter ray, but points close enough to the ray keep
   the limit (Thm. 2).
 
 **Why π (cusp, heuristic).** With `x = 1/2 + y` the real map becomes `y' = y + y² + ε`. Near
 y = 0 the steps are tiny, so `dy/dn ≈ y² + ε`, solved by `y = √ε tan(√ε n + C)`; the orbit
 enters near one pole of tan and leaves near the next, so `√ε N ≈ π`
-(src: [[sources/edgar-pi-and-mandelbrot]], Petry 1992; made rigorous in
-[[sources/klebanoff-pi-in-mandelbrot]] §2). **Neck:** the fixed point -1/2 of `z² - 3/4` has
+(src: [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](../sources/edgar-pi-and-mandelbrot.md), Petry 1992; made rigorous in
+[Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md) §2). **Neck:** the fixed point -1/2 of `z² - 3/4` has
 multiplier -1, so the second iterate is parabolic; Edgar's integral gives π/(2ε) steps of
-f∘f, i.e. π/ε steps (src: [[sources/edgar-pi-and-mandelbrot]]). Conceptually: the critical
+f∘f, i.e. π/ε steps (src: [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](../sources/edgar-pi-and-mandelbrot.md)). Conceptually: the critical
 orbit passes through the "gate" between the two fixed points the bifurcation split off, and
 it takes `2π / arg μ` steps to turn once around, μ the perturbed multiplier
-(src: [[sources/brockmoeller-pi-everywhere]] §1).
+(src: [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md) §1).
 
 **Error order.** The proofs give `N = π/ε + O(1)` at the neck and `N = π/√ε + O(1)` at the
 cusp, and the escape radius only shifts N by a constant (src:
-[[sources/brockmoeller-pi-everywhere]] eq. 3 and §1). So `|N·ε − π| = O(ε)` and
+[Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md) eq. 3 and §1). So `|N·ε − π| = O(ε)` and
 `|N·√ε − π| = O(√ε)`: each decade of ε adds one digit at the neck, every second decade one at
 the cusp. Our measurements confirm both (below).
 
@@ -92,7 +92,7 @@ same; full output in the example.) Findings:
   part of the error is quantisation of the same order.
 - **Precision.** Textbook f64 fails at the neck from ε = 1e-8 (the orbit never escapes: the
   rounding of `c = -0.75 + iε` and of each step piles up over the slow passage; Mark
-  VandeWettering's 2011 program hit the same at ε = 1e-9, [[sources/boll-pi-post]]) and drifts
+  VandeWettering's 2011 program hit the same at ε = 1e-9, [Dave Boll's 1991 π post, reproduced by Mark VandeWettering (brainwagon, 2011)](../sources/boll-pi-post.md)) and drifts
   at the cusp from ε = 1e-12 (`0.25 + ε` is not even representable below about 3e-17). Plain
   f64 in coordinates centred on the parabolic fixed point (`z = -1/2 + w` at the neck,
   `z = 1/2 + w` at the cusp, so ε is never rounded into c) is exact at the neck down to 1e-9
@@ -213,7 +213,7 @@ point down to ε = 1e-8 (neck) or 1e-16 (cusp), and the image there is black (ab
 "pi hunt", 3 of 3 runs with a cold Metal shader cache; 1–2 ms with a warm one, so it showed
 after every app update): the place's look turns on DE (shading, outline) and the app switches
 the interior colouring to bubbles, and the frame compiled that iterate variant. The renderer
-now warms the variants on threads at start ([[platform/metal-compute]] "Pipeline warm-up"):
+now warms the variants on threads at start ([Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md) "Pipeline warm-up"):
 0.7–0.9 ms (3 of 3 cold runs).
 
 The probe stays after the flight while its pinch point is in view; it wins over a view
@@ -221,14 +221,22 @@ centred on the line (the valley views are). The trail inset sits above the meter
 (434 x ~280 points; left of it when the view is too low, hidden when neither fits), clear of
 the maps and the cosmic scale. Seen in `review/pi-neck.mp4`, `review/pi-cusp.mp4` (the `fly`
 tool with `--pi-flight neck|cusp`) and headless stills (`almondbread render out.png
---pi-probe neck,1e-5`). Controls: [[decisions/controls]] "π meter". Code:
+--pi-probe neck,1e-5`). Controls: [Controls: keyboard, pointer and touch](../decisions/controls.md) "π meter". Code:
 `crates/almondbread-core/src/pi_moment.rs`, `crates/almondbread-render/src/pi_meter.rs`.
 
 ## Contradictions
 
 - Boll's table as quoted by Klebanoff gives N = 31415928 at ε = 1e-7 (src:
-  [[sources/klebanoff-pi-in-mandelbrot]] p. 394); the 256-bit reference, double-double, the
+  [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md) p. 394); the 256-bit reference, double-double, the
   compensated count and plain f64 all give 31415927. The other neck and cusp entries agree.
 - Mu-Ency's neck table is one higher throughout (34, 316, 3144, 31418, 314161 for ε = 1e-1 ...
-  1e-5; src: [[sources/muency-pi]]): another counting convention. See
-  [[questions/pi-escape-count-conventions]].
+  1e-5; src: [Mu-Ency (Robert Munafo): pi and R2.C(1/2)](../sources/muency-pi.md)): another counting convention. See
+  [Why do published π escape counts differ by one (Mu-Ency) or disagree at ε = 1e-7 (Boll)?](../questions/pi-escape-count-conventions.md).
+
+# Citations
+
+- [Dave Boll's 1991 π post, reproduced by Mark VandeWettering (brainwagon, 2011)](../sources/boll-pi-post.md)
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](../sources/brockmoeller-pi-everywhere.md)
+- [Gerald Edgar: Pi and the Mandelbrot set (with the 1992 alt.fractals heuristics)](../sources/edgar-pi-and-mandelbrot.md)
+- [Mu-Ency (Robert Munafo): pi and R2.C(1/2)](../sources/muency-pi.md)

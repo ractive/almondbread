@@ -22,7 +22,7 @@ An Apple developer tech talk (video) on the GPU in M3 and A17 Pro, mainly Dynami
 - Registers, threadgroup memory and tile memory share one on-chip pool, split dynamically (unverified).
 - Works without app changes; existing shaders gain occupancy automatically (unverified).
 - Second-generation talk (M5): warns that running too many SIMD-groups can cause spilling, so occupancy is not free (unverified).
-- Consequence for almondbread: the M1/M2 occupancy and register-pressure numbers in [[sources/metal-benchmarks-readme]] (fixed ~208 KB register file, saturation at 24 SIMDs/core) may not carry over to M3 and later (inference).
+- Consequence for almondbread: the M1/M2 occupancy and register-pressure numbers in [metal-benchmarks README (Apple GPU microarchitecture)](metal-benchmarks-readme.md) (fixed ~208 KB register file, saturation at 24 SIMDs/core) may not carry over to M3 and later (inference).
 
 ## Reliability
 
@@ -34,5 +34,11 @@ None recorded yet (video; no headings captured).
 
 ## Used by
 
-- [[platform/apple-gpu-architecture]]
-- [[platform/metal-compute]]
+- [Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)
+- [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+
+# Citations
+
+- <https://developer.apple.com/videos/play/tech-talks/111375>
+- <https://developer.apple.com/kr/videos/play/tech-talks/111431/>
+- [metal-benchmarks README (Apple GPU microarchitecture)](metal-benchmarks-readme.md)

@@ -40,17 +40,17 @@ while navigating.
   beep). Losing key-window status, or focus on iPad, releases every key, because the
   key-up may never arrive (see "Held input" below for every held kind and every trigger).
 - Continuous zoom stops at the precision limit without drifting the centre; the HUD then
-  shows a prominent warning. Measured in [[synthesis/benchmarks]] (interaction section).
+  shows a prominent warning. Measured in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) (interaction section).
 
 ## Consequences
 
 The interaction test drives the same key paths with synthetic events. Gesture frames
-render a dynamic-resolution preview ([[techniques/frame-reuse-and-progressive]]).
+render a dynamic-resolution preview ([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)).
 
 ## Revision 2026-10-14: pointer and keyboard modes, crosshair zoom target
 
-Requested by the user; **implemented in M2.5** ([[roadmap]]); as built in the
-next section, measured in [[synthesis/benchmarks]] (M2.5).
+Requested by the user; **implemented in M2.5** ([Roadmap](../roadmap.md)); as built in the
+next section, measured in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) (M2.5).
 
 **Zoom target.** Every zoom (held Space, Shift+Space, pinch, Magic Mouse
 or trackpad scroll-zoom, wheel, double-click, + / −) zooms exactly
@@ -145,12 +145,12 @@ the platform views decode events and present what each `frame` call returns.
   frame-rate independence at 30 / 60 / 120 Hz against the closed form, the fixed point
   for every zoom input in both modes, the edge-pan ramp, corners, insets and setting,
   motion from idle). `--interaction-test` scenarios `pointer space`, `keyboard glide`
-  and `edge pan` ([[synthesis/benchmarks]], M2.5).
+  and `edge pan` ([almondbread benchmarks and verification record](../synthesis/benchmarks.md), M2.5).
 
 ## Revision FL (2026-10-14): motion feel and gamepad, as built
 
 All in the core `Navigator` (`crates/almondbread-core/src/input.rs`); platforms forward raw
-events. Measured in [[synthesis/benchmarks]] FL and judged on the review videos.
+events. Measured in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) FL and judged on the review videos.
 
 - **Eased velocities.** Held keys, edge panning and the gamepad set a *target* velocity (pan
   in points/s, zoom in e-folds/s). The actual velocity follows on a critically damped spring,
@@ -203,7 +203,7 @@ events. Measured in [[synthesis/benchmarks]] FL and judged on the review videos.
 
 Requested by the user ("show the c value as a dot plus the first n iterations as lines",
 interior colourings, "a settings menu or a control center", then a mini-map "where you
-actually are", with nested levels and click-to-jump). Measured in [[synthesis/benchmarks]]
+actually are", with nested levels and click-to-jump). Measured in [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
 ("Overlays").
 
 **Control center** (`Sources/AlmondbreadKit/ControlCenterView.swift`, replaces the inspector).
@@ -216,7 +216,7 @@ renderer statistics (iterations, GPU, render size, reference, kernel, state; the
 grouped form; Places thumbnails show only their zoom, in a small dark pill at the bottom right,
 with the name as the tooltip (user, 2026-10-16: the caption strip cut names to "The Wh…"); iOS
 has no hover, so a tap selects the picture and puts the name, Go and Fly on it, a second tap
-goes there, and a long press opens a menu titled with the name (Go, Fly; "Touch", places grid) ([[platform/swiftui-performance]]). A search field at the top
+goes there, and a long press opens a menu titled with the name (Go, Fly; "Touch", places grid) ([SwiftUI performance: the control center sidebar](../platform/swiftui-performance.md)). A search field at the top
 filters sections by title and keywords ("dense", "orbit", "aa", ...); headers collapse
 (remembered). A trailing sidebar on the Mac and iPad, so nothing covers the image; a sheet on
 iPhone (medium/large detents, translucent material). Toggled by the toolbar button and ⌘I
@@ -238,7 +238,7 @@ each over a dark halo so it reads on any palette. The orbit is computed in Rust
 against the renderer's reference (`z = Z_m + δ` with rebasing), so iterates that come back
 near c (after a period, where the reference rebases to m = 1) land exactly. The fate of c is
 classified like the kernels classify pixels (derivative test, atom domain, period by
-closure among divisors of q with `|λ| < 1`, see [[techniques/coloring-methods]] "Interior
+closure among divisors of q with `|λ| < 1`, see [Colouring methods](../techniques/coloring-methods.md) "Interior
 colouring as built") in steps of ~1.5 ms per frame, and shown under the mini-map in plain
 words (revision 2026-10-17, user: "analysing …" / `|z50| 0.5362` said nothing): "escapes after
 48 213 steps", "settles into a period-34 cycle" ("settles on a fixed point" for period 1),
@@ -540,7 +540,7 @@ factors are what matters.
 30–81 % of the time; rate ×1.32–×2.46 at the default speed. The throttle followed `fit`, and
 `fit` reads back the step the scheduler runs at: median fit at the 1/8 preview 0.137, at 1/4
 0.238, 3/8 0.347, 1/2 0.45, 7/8 0.81. A gesture frame fills the budget at any step (and the GPU
-clocks follow the load, [[synthesis/benchmarks]] "Autopilot throttle and GPU clocks"), so
+clocks follow the load, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Autopilot throttle and GPU clocks"), so
 `fit ≈ step × √(budget / GPU time)`: no measure of headroom. With the old mapping (1/4 → 1, 1/10
 → 0.3) the 1/8 ↔ 1/4 probe toggling (every 0.5–4 s) swung the throttle 0.36 ↔ 0.95, and cheap
 regions (5 iterations per texel under BLA, previews at 7/8) ran at full speed between them.
@@ -699,7 +699,7 @@ speed with Q and E"). Core: `crates/almondbread-core/src/flyto.rs` (path and fli
 | any navigation (keys, Space, drag, pinch, wheel zoom, double click, gamepad, Z) | takes over: the flight's velocity is handed to the pan and zoom springs, which glide out |
 | Go to coordinates, R | cancel the flight |
 
-**Path** (src: [[sources/van-wijk-nuij-smooth-zooming]]). Van Wijk & Nuij's optimal
+**Path** (src: [Smooth and efficient zooming and panning (van Wijk & Nuij)](../sources/van-wijk-nuij-smooth-zooming.md)). Van Wijk & Nuij's optimal
 zoom-and-pan path with ρ = √2 in (u, w) space (u along the line to the target, w the view
 width): zoom out as far as the distance needs, pan, zoom in; at its ends a pure zoom at
 `d ln w/ds = ±ρ`. Deep views need three changes, all ours:
@@ -730,7 +730,7 @@ zoom-out-and-in path brakes ahead of its apex onto `k cosh x` (`FlyPath::turn_li
 prefetch:** when the target is inside the current view and deeper, a needed big reference is
 requested as a jump to the target would request it (nucleus search around the target, the
 target's precision and scale), and it then serves most of the rest of the dive
-([[techniques/rebasing]]): 2 references for home → sea-8007, 6 for home → 1e-300. The first
+([Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)): 2 references for home → sea-8007, 6 for home → 1e-300. The first
 version asked for a plain centre reference at the target (nucleus search off, kernel picked
 at the current depth); the settled frame at sea-8007 then showed smooth wrong fans around the
 minibrot, with 35.8 % of escape counts different from a fresh render, while the class check
@@ -754,7 +754,7 @@ reference, requested once the view passes 1e-12, came in 26 ms as a progressive 
 renderer back-off slows it to 0.3 of the speed at most, where previews are at 1/8). Two things
 did freeze the picture: (1) frames of 165–310 ms CPU where the flight first needed a new kernel
 variant (BLA, LA, the deep kernel) with a cold Metal shader cache, fixed by the pipeline
-warm-up ([[platform/metal-compute]] "Pipeline warm-up"); a frame that long also made the
+warm-up ([Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md) "Pipeline warm-up"); a frame that long also made the
 scheduler see a jump (zoom ×20 between keys) and reset its learned state; (2) refreshes with
 nothing presented for up to 250 ms while two colorize passes waited on a GPU that other
 processes kept 83–100 % busy (our own chunks were ≤ 32 ms): load, not the app.
@@ -787,7 +787,7 @@ switches, 1e52.0 → 1e54.4 (the first search: 0 → 10 candidates); lock off: 9
 Requested by the user: an endless, planned, random-but-seeded flight from landmark to
 landmark, with targets chosen from the maths rather than by taste. Core:
 `crates/almondbread-core/src/journey.rs` (planner and state machine, owned by the
-`Navigator`); legs are ordinary fly-to flights ([[sources/van-wijk-nuij-smooth-zooming]]).
+`Navigator`); legs are ordinary fly-to flights ([Smooth and efficient zooming and panning (van Wijk & Nuij)](../sources/van-wijk-nuij-smooth-zooming.md)).
 
 | Input | Action |
 | --- | --- |
@@ -816,11 +816,11 @@ the *spare* until a view needs it).
 2. At each point: ball period detection over a disc of 0.7–2.5 probe texels, Newton for the
    nucleus at 128 bits beyond the view's precision (deep minibrots in view are 2^-40 … 2^-100 of
    it; at the view's precision Newton failed for every period above ~1000), the complex size
-   estimate ([[techniques/reference-selection]]). Candidates: the **minibrot** framed at
+   estimate ([Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)). Candidates: the **minibrot** framed at
    6–18 σ; **embedded Julia stages** at t = 1/2, 3/4, 7/8 of the way from the view to σ in log
    scale and at 2 σ^(3/4) (Heiland-Allen's size estimate,
-   [[sources/muency-newton-raphson-zooming]]; the stage order — Julia-like figure, nested
-   preimages, minibrot — after [[sources/kisaka-julia-sets-in-mandelbrot]]), aimed 3–18 % of
+   [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md); the stage order — Julia-like figure, nested
+   preimages, minibrot — after [Kisaka: Julia sets in the Mandelbrot set and small Mandelbrot sets (seminar abstract)](../sources/kisaka-julia-sets-in-mandelbrot.md)), aimed 3–18 % of
    the view off the nucleus so the shapes around it double; an **approach** centred on a
    minibrot too deep for one leg.
 3. **Misiurewicz points** (first four samples): the orbit of the sample shadows a repelling
@@ -830,7 +830,7 @@ the *spare* until a view needs it).
    nucleus). The cycle multiplier `Π 2 z_i` labels it a **spiral** (complex) or a **branch
    point** (real, a dendrite).
 4. A **boundary detail** zoom (3–6 e-folds into the sample) as a fallback (never twice in a
-   row), and **resurfacing** to a shallow catalogue place ([[synthesis/places]]) when nothing
+   row), and **resurfacing** to a shallow catalogue place ([Places: a catalogue of famous views to visit](../synthesis/places.md)) when nothing
    else is found. (Until the variety revision below: resurfacing after 6 legs or below 1e40.)
 
 **Scoring with survey-style statistics.** Each candidate's framing is probed (40 × 40) and
@@ -920,7 +920,7 @@ regions, at most 3 legs per region in a row, no landing within 0.22 of the one b
 `regions_of_known_places`, `bulb_anchors_find_their_nuclei_and_hubs`. Tools:
 `almondbread journey --describe 1` prints each landing's region, dive and look with its
 distances to the last legs; `--save f` writes the targets, `--views f` describes fixed views
-(to compare descriptor variants on one set). Results in [[synthesis/benchmarks]] (PJ,
+(to compare descriptor variants on one set). Results in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) (PJ,
 variety).
 
 **Determinism.** A plan depends only on the start view (centre, shorter-side span) and the
@@ -1190,7 +1190,7 @@ the discovery path (help: keys list, the controls popover, "Seek a minibrot" on 
 autopilot/journeys page).
 
 **Search** (all bounded: 4 s wall clock, a cancel flag, at most 3 discs × 6 retries in the view,
-1 + 8 discs × 6 around a minibrot, periods ≤ 200 000; [[techniques/hang-prevention]]):
+1 + 8 discs × 6 around a minibrot, periods ≤ 200 000; [Hang prevention (loop guards, extreme-value tests, main-thread watchdog)](../techniques/hang-prevention.md)):
 
 1. Ball period detection over discs about the view centre of radius 1, 3 and 9 view spans
    (shorter side; radius 1 covers the whole view up to 16:9), lowest period first, Newton for
@@ -1250,7 +1250,7 @@ Removed with the driving levels (above): ⇧Z, `Navigator::start_zoom_out`, `Nav
 
 Requested by the user: the autopilot in reverse, a scenic flight back to the whole set that can be
 stopped anywhere, not a quick reset. Core: `Navigator::start_zoom_out` (`crates/almondbread-core/src/input.rs`),
-a fly-to flight ([[sources/van-wijk-nuij-smooth-zooming]], `flyto.rs`) with a soft landing.
+a fly-to flight ([Smooth and efficient zooming and panning (van Wijk & Nuij)](../sources/van-wijk-nuij-smooth-zooming.md), `flyto.rs`) with a soft landing.
 
 | Input | Action |
 | --- | --- |
@@ -1396,7 +1396,7 @@ four strengths in the control center, menu "Cinematic Effects".
   flight still lands exactly). Manual zooming never spins. At the default journey speed that is
   5.6°/s.
 - **Hue drift**: the palette turns in OKLab hue (lightness and chroma kept; Ottosson's
-  matrices, in the kernel's `paletteAt`; src: [[sources/ottosson-oklab]]) by 1° per e-fold
+  matrices, in the kernel's `paletteAt`; src: [Ottosson: A perceptual color space for image processing (OKLab)](../sources/ottosson-oklab.md)) by 1° per e-fold
   of depth. The first default, 2.5°, turned the aurora look by 115° over the 46 e-folds of an
   85 s journey: its peach and teal went brown and pink, muddy in the review video; 1° keeps the
   look recognisable and still shifts it noticeably over a dive.
@@ -1472,12 +1472,12 @@ default.
     cell, atom: the view `X · 10^-d` down to the Planck length, then big-number milestones and
     universe-to-Planck ladders) and "Zoom range as cosmos (metaphor)" (zoom 1 … 1e200 as the
     universe … the Planck length and today … the Planck epoch, epochs from
-    [[sources/cosmic-history-timeline]]; its pacing was tuned twice, see [[log]]). One mode is
+    [Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](../sources/cosmic-history-timeline.md); its pacing was tuned twice, see [Log](../log.md)). One mode is
     easier to understand; the picker is gone.
   - Dropped with them: the third line (light's crossing time, probe energy and band, "GUT
     scale?" mark, the red "unexplored" band).
 - **How big is big?** (removed 2026-10-15): past the Planck length a gold "How big is big? →"
-  link above the panel opened the gear panel ([[synthesis/how-big-is-big]]).
+  link above the panel opened the gear panel ([How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)).
 - **Readability**: the backing is 86 % opaque black, and the labels and lines have a 2.4 to
   2.6 px dark outline. Labels go above or below the ruler, whichever row is free, at least
   9 pt from the next label and never far from their dot; a label that does not fit is hidden.
@@ -1505,13 +1505,13 @@ default.
   build ~0.01 ms, the rest binning and uploading the overlay scene every frame while the
   zoom changes). Off: no overlay work at all, the shown frame matched a fresh render.
 
-Sources: [[sources/nasa-planetary-fact-sheets]], [[sources/iau-astronomical-units]],
-[[sources/codata-2022-constants]], [[sources/cosmic-scale-references]],
-[[sources/cosmic-history-timeline]] (removed metaphor). Idea: [[ideas]] "Cosmic size scale".
+Sources: [NASA NSSDCA planetary fact sheets (Earth, Moon, Jupiter, Sun, Neptune)](../sources/nasa-planetary-fact-sheets.md), [IAU astronomical unit (2012 Resolution B2) and the light-year](../sources/iau-astronomical-units.md),
+[NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](../sources/codata-2022-constants.md), [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](../sources/cosmic-scale-references.md),
+[Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](../sources/cosmic-history-timeline.md) (removed metaphor). Idea: [Ideas](../ideas.md) "Cosmic size scale".
 
 ## π meter (as built, 2026-10-15)
 
-A maths moment ([[techniques/pi-in-the-mandelbrot-set]]), off by default, drawn in Rust/Metal
+A maths moment ([π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)), off by default, drawn in Rust/Metal
 like the mini-map (`crates/almondbread-render/src/pi_meter.rs`, maths in
 `crates/almondbread-core/src/pi_moment.rs`).
 
@@ -1799,7 +1799,7 @@ non-mathematicians (what you see and what to do, no jargon).
 2. **One help window**, "Almondbread Help" (macOS: Help ▸ Almondbread Help, ⌘?, a SwiftUI
    `Window` scene with a sidebar of pages; iOS: a sheet with a page menu, opened by "More…").
    Pages: Getting started & controls; What am I seeing? (the rule, black = proven inside,
-   colours = escape speed, the "not decided yet" fog (first a dark grey veil, [[techniques/unresolved-fog]]) and what to do about it,
+   colours = escape speed, the "not decided yet" fog (first a dark grey veil, [Fog over unresolved pixels](../techniques/unresolved-fog.md)) and what to do about it,
    automatic vs manual iterations and the upper limit, the progress line); Autopilot,
    journeys & places; Overlays (cosmic scale, π meter, mini-map, orbit, compass, status);
    Deep zoom & precision (briefly); Tips.
@@ -1814,7 +1814,7 @@ non-mathematicians (what you see and what to do, no jargon).
 - *Control center* section headers that need explaining: Iterations & quality, Look & colour,
   Interior, Overlays, Controls. `HelpButton` is a static view with its own `@State` popover:
   it reads nothing from the model, so the sidebar's change-only rule holds
-  ([[platform/swiftui-performance]]).
+  ([SwiftUI performance: the control center sidebar](../platform/swiftui-performance.md)).
 - *Overlays drawn by Rust*: the cosmic scale panel, the π meter (panel and hint panel) and the
   mini-map row (the whole-set panel's top-right corner; "orbit" when only the orbit overlay
   shows that map). A 7 pt dark disc with a light rim and a "?" glyph, 5 pt inside the panel's
@@ -1909,7 +1909,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `palette` | palette id (built-in or library) | the palette with its mapping, after the look |
 | `interior` | `flat`, `bubbles`, `period`, `angle`, `distance` | interior colouring |
 | `iterations` | `auto` or a whole number | the iteration limit (a deliberately low one too) |
-| `orbit`, `map`, `julia`, `cosmic`, `pi-meter`, `compass` | `on` / `off` | orbit overlay, mini-map, Julia panel of the probe's point ([[plans/f1-julia-view]]), cosmic size scale, π meter, always-on compass |
+| `orbit`, `map`, `julia`, `cosmic`, `pi-meter`, `compass` | `on` / `off` | orbit overlay, mini-map, Julia panel of the probe's point ([F1: Julia view (companion inset)](../plans/f1-julia-view.md)), cosmic size scale, π meter, always-on compass |
 | `orbit-length` | 1 to 1000 | iterates drawn |
 | `map-levels` | 1 to 4 | mini-map levels |
 | `probe` | `re, im` or `pointer` | the orbit overlay's point c: fixed, or back to the pointer |
@@ -2078,7 +2078,7 @@ iterations; f64, 2026-10-17), not taken from memory:
 
 Period-doubling points on the axis: −0.75, −1.25, −1.3680989394, −1.3940461566, −1.3996312389;
 the bulbs between them are 0.5, 0.1181, 0.02595, 0.005585 long, ratios 4.234, 4.552, 4.646 →
-δ = 4.669… (src: [[sources/muency-atom-domain]] for the Feigenbaum series of sizes;
+δ = 4.669… (src: [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md) for the Feigenbaum series of sizes;
 the numbers are our computation). Nuclei: period 16 at −1.3969453597, 32 at −1.4002530812.
 
 Checked in the app (2026-10-17, M1 Pro, release, background window, `--ui-demo=tour-feigenbaum
@@ -2105,7 +2105,7 @@ fixed point, 2, 3, 3, 7, 128; interior periods of the 2688 view at 500 k: 2688 (
 8064, …
 
 "Why deeper means longer" (our explanation, inference): a minibrot's size goes like `1/(β λ²)`
-with `λ = ∏ 2 z_n` over the loop ([[sources/muency-newton-raphson-zooming]] size estimate), and
+with `λ = ∏ 2 z_n` over the loop ([Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md) size estimate), and
 `|2z| ≤ 4` inside the escape radius, so a copy `10^-d` small needs `p ≳ d / (2 log₁₀ 4) ≈ 0.83 d`.
 The needle places sit right on that bound (period 79 at 1e-91, 255 at 1e-302, 834 at 4e-1001:
 0.83–0.87 per digit); the Seahorse minibrot (8007 at 1e-31) and this chain (2688 at 10^15.7) are far
@@ -2125,7 +2125,7 @@ roughly 30–40 s to settle the step; it refines progressively meanwhile. The st
 picture takes a few seconds"; it now says "half a minute or more to fill in" (true on the M1 Pro
 at window size too: 11 s at 1600 × 1000, about 29 s at 1280 × 820 Retina by pixel count). The iPad simulator
 did not settle it within 300 s (its GPU is the Mac's, translated, at low priority); that run found
-the main-thread stall in `commandBuffer()` ([[techniques/hang-prevention]] "GPU queue"). Not
+the main-thread stall in `commandBuffer()` ([Hang prevention (loop guards, extreme-value tests, main-thread watchdog)](../techniques/hang-prevention.md) "GPU queue"). Not
 changed: a shallower minibrot for touch via `platform:` (the text names 2688 and the N chain;
 finding another chain's coordinates was out of scope).
 
@@ -2135,7 +2135,7 @@ finding another chain's coordinates was out of scope).
 2026-10-18 (the meter's only way in from now on, see "π meter"): the neck marked at −0.75; the
 place view with the meter counting the centre (c = −0.75 + 0.02i, N = 158, N·ε = 3.16); `pi-hunt:
 neck` (to ε = 1e-8, N = 314 159 266); "Why π?" (the panel's turn circle: one turn from start to
-escape at 2ε per step, so N·2ε ≈ 2π, [[techniques/pi-in-the-mandelbrot-set]] "Why π"); `pi-hunt:
+escape at 2ε per step, so N·2ε ≈ 2π, [π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md) "Why π"); `pi-hunt:
 cusp` (to ε = 1e-16, N = 314 159 263, one digit per two decades); back to the neck place with the
 meter on. Counts in the text are the measured ones on the technique page (315, 31 417, 3 141 593 at
 the neck).
@@ -2278,12 +2278,12 @@ iterations link), `tour-welcome` (step 9 with "Next tour: What the colours mean"
 
 `tours/limits.md` ("Why some points are hard", place `seahorse-minibrot-1e31`), 10 steps, user
 request 2026-10-18: a slow point 0.001 above the neck (orbit overlay: escapes after 3 147 steps;
-`N ≈ π/ε`, [[techniques/pi-in-the-mandelbrot-set]]), one 1e-5 above it (*still undecided after 100 000
+`N ≈ π/ε`, [π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)), one 1e-5 above it (*still undecided after 100 000
 steps*; it escapes after about 314 000), −0.74 just inside the cardioid (proven after about 1 900
 steps), fog in the neck gap at −0.74999996120361811 + 0.00036918279150454967i, span 1.5e-8
-([[synthesis/neck-escape-statistics]]: its discs escape after 2e7–7e7), computing further, then
-f64's 16 digits at the 1e31 seahorse minibrot, perturbation ([[techniques/perturbation]],
-[[techniques/rebasing]]) and skipping ([[techniques/linear-approximation-imagina]]) at the 1e302 needle
+([The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](../synthesis/neck-escape-statistics.md): its discs escape after 2e7–7e7), computing further, then
+f64's 16 digits at the 1e31 seahorse minibrot, perturbation ([Perturbation](../techniques/perturbation.md),
+[Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)) and skipping ([Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)) at the 1e302 needle
 minibrot (one sample per pixel: 1.09e9 iterations in 1.97e7 steps, 55×; headless `render`,
 2026-10-19, M1 Pro), and the same tricks at the 1e3000 swirl (`swirl-1e3000`, 61×).
 
@@ -2355,7 +2355,7 @@ a new step key.
 ### The valleys tour
 
 `tours/valleys.md` ("Seahorse and Elephant valleys", place `seahorse-valley`), 10 steps, user
-request 2026-10-18, built from catalogue places ([[synthesis/places]]): seahorse valley, a
+request 2026-10-18, built from catalogue places ([Places: a catalogue of famous views to visit](../synthesis/places.md)): seahorse valley, a
 seahorse, its tail (a Misiurewicz point at the centre), the two-arm spiral M(24,2) marked at 1e-4
 and again at `spiral-1e50` (self-similar: zoom by the cycle's multiplier and turn by its angle),
 elephant valley and the herd, the three-way junction M(4,1) and the same at `junction-1e100`.
@@ -2377,9 +2377,9 @@ the text says that, not "spirals").
 10^−10.41), views centred on the nucleus at spans 2e−5 (the fork at the top, a ring on the
 nucleus), 1.5e−6 (6 arms), 1.4e−8 (12), 8e−10 (24 and a lace ring), 1.2e−10 (the minibrot); then why
 (near a minibrot one round of its loop acts like a fresh z² + c, and squaring doubles angles; our
-simplification of the embedded-Julia mechanism, [[sources/mathr-julia-morphing-posts]]), the
-`embedded-julia` place and Julia morphing in deep-zoom videos ([[sources/deep-zoom-videos]]).
-Depth fractions of the doublings: [[questions/julia-morph-depth-fractions]].
+simplification of the embedded-Julia mechanism, [mathr blog: automated Julia morphing (2016-2021)](../sources/mathr-julia-morphing-posts.md)), the
+`embedded-julia` place and Julia morphing in deep-zoom videos ([Deep-zoom videos: record and landmark YouTube descriptions](../sources/deep-zoom-videos.md)).
+Depth fractions of the doublings: [At what fraction of the log-depth to a minibrot does each doubling appear?](../questions/julia-morph-depth-fractions.md).
 
 Checked in the app (2026-10-19, `--ui-demo=tour-doubling`): 6, 12 and 24 arms at steps 3–5, the
 minibrot at step 6.
@@ -2388,9 +2388,9 @@ minibrot at step 6.
 
 `tours/colours.md` ("What the colours mean", place `whole-set`), 12 steps, user request
 2026-10-18: escape counts with the orbit overlay, smooth colouring
-([[techniques/smooth-coloring]]), a palette (`grey`) and a look (`ember`) on seahorse valley, fog in
+([Smooth (continuous) iteration count](../techniques/smooth-coloring.md)), a palette (`grey`) and a look (`ember`) on seahorse valley, fog in
 the neck gap (the same view as the limits tour), proven black, then the five interior colourings
-on the cardioid and its bulbs ([[techniques/coloring-methods]], [[techniques/interior-detection]]).
+on the cardioid and its bulbs ([Colouring methods](../techniques/coloring-methods.md), [Interior detection](../techniques/interior-detection.md)).
 
 **Orbits that show it (2026-10-20, user feedback: the old probe on the real axis drew "a line with
 dots").** Steps 1–2 use the view centre 0.3 + 0.15i, span 1.4 (heart, its dent, the elephant side):
@@ -2463,7 +2463,7 @@ then catalogue places whose shapes echo Julia sets: `cantor-island` (a dust-like
 set), `two-arm-spiral` (M(24,2); Tan Lei 1990: the set near a Misiurewicz point looks like that c's
 Julia set, unverified, no source page yet), `three-way-junction`, `embedded-julia`.
 
-Since F1 (2026-10-19, [[plans/f1-julia-view]], awaiting review) the tour shows the **Julia panel**
+Since F1 (2026-10-19, [F1: Julia view (companion inset)](../plans/f1-julia-view.md), awaiting review) the tour shows the **Julia panel**
 (`julia: on` from step 1): basilica, rabbit and dust in the panel; at `cantor-island` the panel of
 the pointer's c is dust strung along the real axis; at `two-arm-spiral` two-armed spirals; at
 `three-way-junction` a tree with three-way forks (checked with `render --place … --julia 1`). Off at
@@ -2675,7 +2675,7 @@ center's button rows (Copy / Go to copied / Reset, Autopilot / Fly to… / Copie
 Daily): in the iPad's sidebar next to a portrait canvas their titles wrapped letter by letter
 ("Co py", "Au-topi-lot"); `FitRow` shows the icons alone when the titles do not fit (the titles
 stay the accessibility labels). The rest fitted. One iPad run's control-center tap did not
-open the sidebar (the open item in [[platform/ios-simulator]]); the rerun passed.
+open the sidebar (the open item in [iOS and iPadOS on the simulator: setup, checks, what broke](../platform/ios-simulator.md)); the rerun passed.
 The HUD's Continue button was not reached in a test (it needs a view at its time limit); it is
 a regular-size bordered button.
 
@@ -2694,7 +2694,7 @@ them back); haptics on the map fly; how the folded tour card feels; Allow-paste 
 on "Go to Copied" (user-initiated, once per tap; since the QA pass the system Paste control
 beside it avoids them).
 
-**QA pass (2026-10-18, [[platform/ios-simulator]] "QA").** A two-finger twist turns the view
+**QA pass (2026-10-18, [iOS and iPadOS on the simulator: setup, checks, what broke](../platform/ios-simulator.md) "QA").** A two-finger twist turns the view
 only past 15° (`TouchRotate`: a pinch always twists a little, and a child's pinches turned the
 view); a search started from rest asks for frames (`Navigator::wants_frames`); a tap on a
 place's picture goes there on iOS (replaced the same day, next paragraph); the long-press menu
@@ -2992,7 +2992,7 @@ of the round buttons in both orientations.
 
 ### Julia panel (as built 2026-10-19, awaiting review)
 
-[[plans/f1-julia-view]] ("As built"): the filled Julia set of the orbit's point (pointer, touch
+[F1: Julia view (companion inset)](../plans/f1-julia-view.md) ("As built"): the filled Julia set of the orbit's point (pointer, touch
 probe, tour probe) as the last panel of the map row, drawn by its own kernel library
 (`shaders/julia.metal`), nothing compiled or drawn while off.
 
@@ -3203,3 +3203,18 @@ and `pressesCancelled` (hardware keyboard). Cancelled touches already end cleanl
 paths: the finger tracker sends `FingerUp { cancelled: true }` and `TouchesLifted`, a cancelled
 pan or pinch sends no `GestureEnd` (no fling), the rotation sends `TouchRotateEnd`, a cancelled
 long press or compass pan resets. Gamepad: `GCControllerDidDisconnect` sends centred axes.
+
+# Citations
+
+- [Smooth and efficient zooming and panning (van Wijk & Nuij)](../sources/van-wijk-nuij-smooth-zooming.md)
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)
+- [Kisaka: Julia sets in the Mandelbrot set and small Mandelbrot sets (seminar abstract)](../sources/kisaka-julia-sets-in-mandelbrot.md)
+- [Ottosson: A perceptual color space for image processing (OKLab)](../sources/ottosson-oklab.md)
+- [Cosmic history timeline: epoch times after the Big Bang (PDG, Planck, NASA, ESA, CERN)](../sources/cosmic-history-timeline.md)
+- [NASA NSSDCA planetary fact sheets (Earth, Moon, Jupiter, Sun, Neptune)](../sources/nasa-planetary-fact-sheets.md)
+- [IAU astronomical unit (2012 Resolution B2) and the light-year](../sources/iau-astronomical-units.md)
+- [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](../sources/codata-2022-constants.md)
+- [Cosmic size scale: sources for galaxies, cosmology, life, particles and big numbers](../sources/cosmic-scale-references.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [mathr blog: automated Julia morphing (2016-2021)](../sources/mathr-julia-morphing-posts.md)
+- [Deep-zoom videos: record and landmark YouTube descriptions](../sources/deep-zoom-videos.md)

@@ -49,4 +49,8 @@ deterministic detail, and there is no separate clean guide (inference).
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)
+
+# Citations
+
+- <https://cg.ivd.kit.edu/publications/2017/svgf/svgf_preprint.pdf>

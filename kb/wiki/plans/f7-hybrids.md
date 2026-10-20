@@ -10,13 +10,13 @@ audience: [deep-zoom-creators, enthusiasts]
 depth: "unlimited"
 realtime-ipad: likely
 reuse: "medium: F2's hooks, F5's 2×2 path and F6's diffabs as opcodes; new codegen and per-phase references"
-depends-on: ["[[plans/f2-pluggable-formulas]]", "[[plans/f6-burning-ship]]"]
+depends-on: ["plans/f2-pluggable-formulas", "plans/f6-burning-ship"]
 risks:
   - "runtime MSL generation on iOS may meet App Store review questions (unverified)"
   - "one reference and one BLA table per loop phase multiplies memory and reference time"
   - "even KF's rebasing had bugs with hybrids"
   - "low appeal for casual users"
-sources: ["[[synthesis/other-fractal-types]]", "[[formulas/hybrids]]", "[[sources/mathr-deep-zoom-theory]]", "[[sources/mathr-deep-zoom-theory-again]]", "[[sources/kf-manual]]", "[[implementations/fraktaler-3]]"]
+sources: ["synthesis/other-fractal-types", "formulas/hybrids", "sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/kf-manual", "implementations/fraktaler-3"]
 tags: [formulas, hybrids, opcodes, codegen]
 created: 2026-10-19
 updated: 2026-10-19
@@ -24,30 +24,30 @@ updated: 2026-10-19
 
 # F7: Hybrid formulas via an opcode model
 
-Status: planned, after [[plans/f6-burning-ship]]. This is the old roadmap M8 ("more formulas via
-an opcode model", roadmap step 11 in [[synthesis/deep-zoom-rendering-techniques]]).
+Status: planned, after [F6: Burning Ship family](f6-burning-ship.md). This is the old roadmap M8 ("more formulas via
+an opcode model", roadmap step 11 in [Deep zoom Mandelbrot rendering techniques](../synthesis/deep-zoom-rendering-techniques.md)).
 
 ## Goal
 
 Let a formula be a short program of opcodes (square, power, abs, neg, conj, add c) repeated in
 a loop of phases, as Kalles Fraktaler's stanzas and Fraktaler 3's opcode lines do
-(src: [[formulas/hybrids]], [[implementations/fraktaler-3]]). This opens the whole space the
+(src: [Hybrid formulas](../formulas/hybrids.md), [Fraktaler 3](../implementations/fraktaler-3.md)). This opens the whole space the
 KF/F3 community explores, at almondbread's speed.
 
 ## Scope
 
 - An opcode list per phase, a loop of phases, validated in core.
 - Per-operator perturbation (each opcode's delta rule composed), one reference and one BLA table
-  per loop phase (src: [[sources/mathr-deep-zoom-theory]] §Hybrid Fractals;
-  [[sources/mathr-deep-zoom-theory-again]] §Rebasing).
+  per loop phase (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Hybrid Fractals;
+  [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md) §Rebasing).
 - Code generation: MSL source per formula, compiled at runtime with `newLibraryWithSource`, as
-  KF and F3 do with OpenCL (src: [[sources/mathr-deep-zoom-theory]] §Code Generation).
+  KF and F3 do with OpenCL (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Code Generation).
 - An editor in the control center (opcode rows), a few presets, save/share as text.
 
 ## Non-goals
 
 - Transcendental opcodes (sin, exp): need BigFloat trig we do not have
-  ([[synthesis/other-fractal-types]] §2a).
+  ([Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §2a).
 - Non-integer powers.
 - A node-graph editor.
 
@@ -55,7 +55,7 @@ KF/F3 community explores, at almondbread's speed.
 
 - Core: `HybridFormula { phases: Vec<Vec<Op>> }`; the reference orbit runs the phases in
   BigFloat; rebasing needs references at each phase of the loop ("even KF's rebasing had bugs
-  with hybrids", src: [[sources/kf-manual]]).
+  with hybrids", src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)).
 - Codegen: emit `fStep`/`fStepX`/`fDeriv`/`fJac` bodies per phase from opcode templates into the
   F2 kernel skeleton; cache compiled libraries by a hash of the opcode list.
 - BLA: per-phase 2×2 tables (scalar when every opcode is conformal).
@@ -89,7 +89,7 @@ opcode set and the editor sketch. After: review of presets in a real window.
 ## Risks
 
 - App Store review and runtime MSL compilation: compiling MSL source is permitted on iOS, but
-  review acceptance is unverified ([[synthesis/other-fractal-types]] §6).
+  review acceptance is unverified ([Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §6).
 - References × phases: memory and reference time on the iPad.
 - Rebasing per phase is subtle (KF's bugs).
 - Small audience; may stay a Mac-first, enthusiast feature.
@@ -109,3 +109,12 @@ XL overall (the research gives L–XL; months with the editor and content).
 - Per-phase references and BLA tables: 2 weeks.
 - Editor UI and presets: 1–2 weeks.
 - Verification: 1 week.
+
+# Citations
+
+- [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+- [Hybrid formulas](../formulas/hybrids.md)
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [mathr: Deep zoom theory and practice (again) (2022)](../sources/mathr-deep-zoom-theory-again.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3](../implementations/fraktaler-3.md)

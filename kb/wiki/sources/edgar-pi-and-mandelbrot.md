@@ -26,15 +26,21 @@ Petry.
 - **Cusp heuristic (Petry):** `x = y + 1/2` turns `x² + 1/4 + ε` into `y' = y² + y + ε`; with
   steps small, `y'(n) = y² + ε`, `y = √ε tan(√ε n + C)`; start and end are consecutive poles, so
   `√ε N = π`. This is the shifted map the app's counter iterates
-  ([[techniques/pi-in-the-mandelbrot-set]]).
+  ([π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)).
 - **Neck heuristic (Edgar):** the fixed point -1/2 of `z² - 3/4` has multiplier -1, so take
   f∘f (multiplier +1), shift `z = -1/2 + y`, and the time near 0 is an integral that behaves
   like π/(2r) steps of f∘f, so π/r steps of f.
 - **-5/4** (Petry): at `(-1.25, ε)` the value `nε/π` jumps around but stays close to an integer
-  or half-integer (proved in [[sources/brockmoeller-pi-everywhere]] for a parabola of points).
+  or half-integer (proved in [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md) for a parabola of points).
 - Guckenheimer & Holmes, *Nonlinear Oscillations*, §6.8 as the reference for the approach.
 
 ## Reliability
 
-Heuristic (Edgar says so); the proofs are [[sources/klebanoff-pi-in-mandelbrot]] (cusp) and
-[[sources/brockmoeller-pi-everywhere]] (neck).
+Heuristic (Edgar says so); the proofs are [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](klebanoff-pi-in-mandelbrot.md) (cusp) and
+[Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md) (neck).
+
+# Citations
+
+- <https://people.math.osu.edu/edgar.2/piand.html>
+- [Brockmoeller, Scherz, Srkalovic: Pi in the Mandelbrot set everywhere (arXiv 2025)](brockmoeller-pi-everywhere.md)
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](klebanoff-pi-in-mandelbrot.md)

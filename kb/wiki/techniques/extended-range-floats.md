@@ -2,7 +2,7 @@
 title: "Extended range: floatexp, rescaled iterations, depth thresholds"
 type: technique
 status: draft
-sources: ["[[sources/mathr-deep-zoom-theory]]", "[[sources/kf-manual]]", "[[sources/muency-floatexp]]", "[[sources/desarso-mandelbrot-webgpu-readme]]", "[[sources/fraktaler-3-site]]", "[[sources/fractalshark-readme]]", "[[sources/imagina-hinfla-evaluator]]", "[[sources/fractalforums-interior-detection]]", "[[sources/fractalforums-zhuoran-rebasing-bla]]"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/muency-floatexp", "sources/desarso-mandelbrot-webgpu-readme", "sources/fraktaler-3-site", "sources/fractalshark-readme", "sources/imagina-hinfla-evaluator", "sources/fractalforums-interior-detection", "sources/fractalforums-zhuoran-rebasing-bla"]
 tags: [numerics, floatexp, rescaling, float32, extended-range]
 ---
 
@@ -11,7 +11,7 @@ tags: [numerics, floatexp, rescaling, float32, extended-range]
 For perturbation, the binding limit of float32 is range, not precision.
 24 bits of mantissa are enough for deltas: "double precision ... is more
 than enough for computing perturbed orbits: even single precision (with 24
-bits) can be used successfully" (src: [[sources/mathr-deep-zoom-theory]] §Rescaling).
+bits) can be used successfully" (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Rescaling).
 But deltas start near the pixel spacing, so they underflow once the zoom
 passes the type's exponent range.
 
@@ -23,18 +23,18 @@ passes the type's exponent range.
 | float64 | 2.2e-308 | ~1e-308 | ~1e-154 |
 
 Single precision "underflows below 1e-38 or so"; double below about 1e-308
-(src: [[sources/mathr-deep-zoom-theory]] §Deep Needle; §Rescaling). Tests
+(src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Deep Needle; §Rescaling). Tests
 on `|z|^2` (bailout, rebase, BLA radius) break at the square root of the
 floor (inference). Apple GPU denormal handling is unknown, so assume
-flush-to-zero and a floor of 1.18e-38 ([[questions/apple-gpu-denormals]]).
+flush-to-zero and a floor of 1.18e-38 ([Do Apple GPUs flush float32 denormals to zero?](../questions/apple-gpu-denormals.md)).
 
 ## floatexp
 
 A mantissa normalised near 1 plus a separate integer exponent. Works at any
 depth, but "the performance is terrible because it needs to handle every
-arithmetic operation in software" (src: [[sources/mathr-deep-zoom-theory]] §Rescaling).
+arithmetic operation in software" (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Rescaling).
 Munafo: a normal float, usually 32-bit, plus an explicit integer exponent
-(src: [[sources/muency-floatexp]]).
+(src: [Mu-Ency: floatexp](../sources/muency-floatexp.md)).
 
 ```text
 struct fe { float m; int e; }          // value = m * 2^e, 0.5 <= |m| < 1 or m = 0
@@ -53,11 +53,11 @@ between real and imaginary parts.
 Measured on mathr's desktop CPU, 2022 (iterations per second): float 270M,
 double 256M, x87 long double 143M, softfloat (uint32 mantissa + int
 exponent) 8.2M, floatexp (float + int) 4.3M
-(src: [[sources/fractalforums-interior-detection]] §Reply #7). He found
+(src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Reply #7). He found
 all-integer software floats about 2× faster than float32 + int32 for basic
-arithmetic on CPU (src: [[sources/fractalforums-interior-detection]] §Reply #9).
+arithmetic on CPU (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Reply #9).
 Whether that holds on a GPU, where int multiply is slow, is open
-([[questions/double-float-speed-on-m1]]).
+([Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)).
 
 ## Rescaled iterations
 
@@ -71,14 +71,14 @@ Choose S so |w| ≈ 1; redo the scaling when |w| risks over- or underflow,
 "typically a few hundred iterations as |Z| is bounded by 2 except at final
 escape". If S underflows to 0 in hardware precision, skip the `S w²` term
 when Z is not small; likewise skip `d` if it underflowed
-(src: [[sources/mathr-deep-zoom-theory]] §Rescaling).
+(src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Rescaling).
 
 **Full iterations.** When |Z| is very small it underflows in the scaled
 iteration and |w| can change dramatically. Then compute `z = S w` in
 floatexp (S kept as floatexp), do the plain perturbed step in floatexp,
 and rescale: `S = |z|`, `w = z/S`, `d = c/S` (rounded to hardware precision),
 and recompute the hardware `s`. This is Pauldelbrot's "Rescaled Iterations
-in Nanoscope" (src: [[sources/mathr-deep-zoom-theory]] §Full Iterations).
+in Nanoscope" (src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Full Iterations).
 
 Float32 kernel sketch (our own; GPU details are inference):
 
@@ -105,44 +105,44 @@ KF results: rescaled perturbation (2.15.3) for "arbitrarily deep zooms",
 "usually faster than old long double and floatexp", for Mandelbrot powers
 2 and 3, Burning Ship power 2 and hybrids; single precision disabled by
 default "due to some locations having undetected glitches"; rescaled SA
-about 30% faster than all-floatexp (src: [[sources/kf-manual]] §kf-2.15.3).
+about 30% faster than all-floatexp (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §kf-2.15.3).
 Known issue: "Rescaled Double is slow in some locations"
-(src: [[sources/kf-manual]] §Known Bugs). Rebasing works with rescaled
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §Known Bugs). Rebasing works with rescaled
 iterations in KF after a fix credited to superheal
-(src: [[sources/kf-manual]] §kf-2.15.5.1).
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §kf-2.15.5.1).
 
 **Deep needle.** For Burning Ship and other abs variations, full iterations
 are needed when either X or Y is small, not only both; near the needle that
 is nearly every iteration, so plain floatexp is faster than rescaling. KF
 never solved detecting such locations automatically
-(src: [[sources/mathr-deep-zoom-theory]] §Deep Needle). See
-[[formulas/burning-ship]].
+(src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Deep Needle). See
+[Burning Ship and abs variations](../formulas/burning-ship.md).
 
 **Derivatives.** Initialise dual parts with the pixel spacing instead of 1
 and do not rescale at the end; this avoids derivative overflow and lets the
 same scale factor serve value and derivative
-(src: [[sources/mathr-deep-zoom-theory]] §Hybrid Fractals). See
-[[techniques/distance-estimation]].
+(src: [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md) §Hybrid Fractals). See
+[Distance estimation](distance-estimation.md).
 
 ## Exponent-carrying deltas renormalised every iteration
 
 The webgpu renderer carries the delta as a mantissa/exponent pair
 renormalised every iteration. Two silent-failure bugs it found
-(src: [[sources/desarso-mandelbrot-webgpu-readme]] §Deltas that carry their own exponent):
+(src: [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md) §Deltas that carry their own exponent):
 
 - renormalising with a single `exp2(-shift)` overflows when the mantissa
   drops below 2^-128 (whenever the reference passes near zero); split the
   rescale into two halves;
 - a comparison that looked at exponents first broke the rebase test
-  ([[techniques/rebasing]]).
+  ([Rebasing (Zhuoran, 2021)](rebasing.md)).
 
 ## Skip-table coefficients
 
 BLA/LA coefficients grow over long skips (`A` reaches about 1e700 over 4096
 iterations), so they need explicit exponents even in double
-(src: [[sources/desarso-mandelbrot-webgpu-readme]] §Skipping most of the work).
+(src: [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md) §Skipping most of the work).
 Imagina stores a stage in double only when its radii and thresholds stay
-above about 2^-896 / 2^-768, else FloatExp (src: [[sources/imagina-hinfla-evaluator]] §ConvertStageToDouble).
+above about 2^-896 / 2^-768, else FloatExp (src: [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md) §ConvertStageToDouble).
 In float32 every coefficient and radius needs its own exponent once the
 zoom passes about 1e-30 (inference).
 
@@ -156,40 +156,40 @@ zoom passes about 1e-30 (inference).
 
 The webgpu renderer hands over to exponent-carrying deltas at 1e-25 units
 per pixel, "still thirteen decades above the f32 floor", because the skip
-table carries the frame from there and plain deltas lose (src: [[sources/desarso-mandelbrot-webgpu-readme]] §Choosing a method by depth).
+table carries the frame from there and plain deltas lose (src: [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md) §Choosing a method by depth).
 KF limited plain single precision to shallow zooms "until zoom e20"
-(src: [[sources/kf-manual]] §kf-2.15.3), and its SIMD double path to about
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §kf-2.15.3), and its SIMD double path to about
 1e300, scaled double to about 1e600 (power 2) and 1e400 (power 3)
-(src: [[sources/kf-manual]] §kf-2.14.8).
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §kf-2.14.8).
 
 Type ladders elsewhere:
 
 - Fraktaler 3: float, double, floatexp, doubleexp (3.1), long double (x86),
   float128 (3.1), chosen per location by benchmarking ("wisdom")
-  (src: [[sources/fraktaler-3-site]]).
+  (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 - FractalShark: float, double, double-float, "2×32 + exponent" (two floats
   and a shared exponent, about 48-bit mantissa) and HDR float + exponent;
   2×32+exp gives "substantially higher performance on consumer GPUs with only
-  a modest loss of precision" (src: [[sources/fractalshark-readme]]).
+  a modest loss of precision" (src: [FractalShark README](../sources/fractalshark-readme.md)).
 - Zhuoran's single-precision rebasing test: a location at height 4e-15
   with 5M iterations rendered correctly in float32
-  (src: [[sources/fractalforums-zhuoran-rebasing-bla]] §Reply #2).
+  (src: [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md) §Reply #2).
 
 ## Pitfalls
 
 - Squared-norm tests underflow 19 decades before deltas do.
 - Compare normalised magnitudes on extended-range types.
 - Keep separate Metal pipelines per number type, so floatexp register
-  pressure does not slow the float32 path on M1/M2 ([[platform/apple-gpu-architecture]]).
+  pressure does not slow the float32 path on M1/M2 ([Apple GPU architecture for compute](../platform/apple-gpu-architecture.md)).
 - Float32 errors are silent: verify against a CPU double/floatexp render
-  ([[questions/float32-error-long-orbits]]).
+  ([How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)).
 
 ## For almondbread
 
 Roadmap step 6: float32 perturbation to about 1e-25, then rescaled float32
 with floatexp scale and full steps, floatexp per-quantity skip tables,
 selected by depth (later by measured speed, like Fraktaler's wisdom).
-[[techniques/double-float]] is a separate precision fix, not a range fix.
+[Double-float (float-float) arithmetic](double-float.md) is a separate precision fix, not a range fix.
 
 ## As built (M3b, 2026-10-14)
 
@@ -222,3 +222,15 @@ Pitfall found: a reference's precision must cover the *minibrot* it serves, not 
 radius: near the needle a period-255 nucleus found in a 1e-152 disc has size 1e-303; computed at
 640 bits it was no nucleus at all (`|z_255|` = 1e-160 only after refining to 1152 bits).
 `almondbread locate` refines until bits ≥ −log2(size) + 96.
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Mu-Ency: floatexp](../sources/muency-floatexp.md)
+- [mandelbrot-webgpu README (Desarso)](../sources/desarso-mandelbrot-webgpu-readme.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [FractalShark README](../sources/fractalshark-readme.md)
+- [Imagina HInfLAEvaluator (source code)](../sources/imagina-hinfla-evaluator.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [fractalforums.org: Another solution to perturbation glitches (topic 4360)](../sources/fractalforums-zhuoran-rebasing-bla.md)

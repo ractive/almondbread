@@ -34,5 +34,9 @@ Primary and authoritative (GMP maintainer), but an early impression on base M1 w
 
 ## Used by
 
-- [[platform/mpfr-gmp-on-apple-silicon]]
-- [[techniques/reference-orbit-precision]]
+- [Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)
+- [Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)
+
+# Citations
+
+- <https://gmplib.org/list-archives/gmp-discuss/2020-November/006600.html>

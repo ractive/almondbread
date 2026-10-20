@@ -46,8 +46,12 @@ The README of a SwiftUI + Metal Mandelbrot explorer for iPhone, iPad and Mac. It
 
 ## Used by
 
-- [[implementations/swift-mandelbrot]]
-- [[techniques/double-float]]
-- [[techniques/frame-reuse-and-progressive]]
-- [[platform/ios-ipad-considerations]]
-- [[decisions/app-stack]]
+- [swift-mandelbrot (drquicksilver)](../implementations/swift-mandelbrot.md)
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)
+- [iOS and iPadOS port considerations](../platform/ios-ipad-considerations.md)
+- [App stack: Swift, SwiftUI/AppKit and Metal](../decisions/app-stack.md)
+
+# Citations
+
+- <https://raw.githubusercontent.com/drquicksilver/swift-mandelbrot/main/README.md>

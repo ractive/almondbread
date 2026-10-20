@@ -31,4 +31,8 @@ tags: [ios, simulator, xctest, tooling]
   `twoFingerTap()`; `XCUIDevice.shared.orientation` rotates the device. Element queries need
   an accessibility snapshot of the app, which times out when the main thread is blocked.
 
-Used by [[platform/ios-simulator]].
+Used by [iOS and iPadOS on the simulator: setup, checks, what broke](../platform/ios-simulator.md).
+
+# Citations
+
+- <https://developer.apple.com/documentation/xctest>

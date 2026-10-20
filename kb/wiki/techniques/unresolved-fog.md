@@ -2,18 +2,18 @@
 title: Fog over unresolved pixels
 type: technique
 status: draft
-sources: ["[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/fractalforums-interior-detection"]
 tags: [coloring, unresolved, max-iterations, gpu, as-built]
 ---
 
 # Fog over unresolved pixels
 
 How almondbread draws a pixel that reached the iteration limit without escaping and without
-being proven interior (iteration code −3, *unresolved*; [[techniques/auto-iterations]]). Such
+being proven interior (iteration code −3, *unresolved*; [Automatic maximum-iteration control](auto-iterations.md)). Such
 pixels may still resolve: extension passes and compute further keep iterating them. Without an
 interior test every interior pixel runs to the limit (src:
-[[sources/fractalforums-interior-detection]] §opening post); with one (almondbread's derivative
-test and cycle probe, [[techniques/interior-detection]]), what is left at the limit is mostly
+[fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §opening post); with one (almondbread's derivative
+test and cycle probe, [Interior detection](interior-detection.md)), what is left at the limit is mostly
 slow escape or slow convergence near parabolic points. The look is our own design (user decision
 2026-10-17); no source describes it. Built 2026-10-17.
 
@@ -139,3 +139,7 @@ Before / after, 1600 × 1000, `render --extend 1`: the −3/4 neck at 4.48e−12
 satellite head (3 000), `cusp-1e5` (3 000), the cardioid edge `0.37418 + 0.19342 i` at 2e−7
 (1 000); plus `verify --history` frames of the neck and the cardioid edge (compose path).
 Not committed (scratch).
+
+# Citations
+
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

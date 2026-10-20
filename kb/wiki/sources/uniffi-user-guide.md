@@ -17,7 +17,7 @@ tags: [rust, swift, ffi, uniffi, build]
 
 The official guide to UniFFI, Mozilla's generator of foreign-language bindings
 (Kotlin, Swift, Python, Ruby) for a Rust library. Read for version 0.32, which
-almondbread uses ([[platform/rust-swift-ffi]]).
+almondbread uses ([Rust core to Swift: UniFFI and the XCFramework pipeline](../platform/rust-swift-ffi.md)).
 
 ## What it covers
 
@@ -41,4 +41,8 @@ almondbread uses ([[platform/rust-swift-ffi]]).
 
 Primary documentation of the tool; behaviour was confirmed by our own build
 (measured 2026-10-14, M1 Pro). The cost of `Vec` serialisation is not quantified in
-the guide; our measurement is on [[platform/rust-swift-ffi]].
+the guide; our measurement is on [Rust core to Swift: UniFFI and the XCFramework pipeline](../platform/rust-swift-ffi.md).
+
+# Citations
+
+- <https://mozilla.github.io/uniffi-rs/latest/>

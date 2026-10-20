@@ -2,13 +2,13 @@
 title: "Rust core to Swift: UniFFI and the XCFramework pipeline"
 type: platform
 status: draft
-sources: ["[[sources/uniffi-user-guide]]"]
+sources: ["sources/uniffi-user-guide"]
 tags: [rust, swift, ffi, uniffi, xcframework, build, ios, macos]
 ---
 
 # Rust core to Swift: UniFFI and the XCFramework pipeline
 
-How the Rust workspace of [[decisions/rust-core]] reaches the Swift UI on macOS and
+How the Rust workspace of [Rust core with a Rust Metal backend; Swift for UI only](../decisions/rust-core.md) reaches the Swift UI on macOS and
 iOS, what a call across the boundary costs, and the rules that follow. All numbers
 are our own measurements (measured 2026-10-14, M1 Pro, release builds, Xcode 26.6,
 rustc 1.99, UniFFI 0.32).
@@ -46,7 +46,7 @@ project.yml: both app targets depend on the AlmondbreadCore product.
 - UniFFI runs in proc-macro mode: `uniffi::setup_scaffolding!()` plus
   `#[uniffi::export]` functions and `uniffi::Record` / `Object` / `Enum` / `Error`
   types; no UDL file. Library mode reads the interface from metadata embedded in the
-  compiled library (src: [[sources/uniffi-user-guide]]), so the host dylib is enough
+  compiled library (src: [The UniFFI user guide (Mozilla)](../sources/uniffi-user-guide.md)), so the host dylib is enough
   to generate bindings for all slices.
 - The binary target's name must equal the XCFramework's file name, so the
   framework is `AlmondbreadCoreFFI` and the Swift wrapper module `AlmondbreadCore`.
@@ -74,8 +74,8 @@ project.yml: both app targets depend on the AlmondbreadCore product.
 | `core_version()` | "almondbread-core 0.1.0" |
 | `ping(x)` | x + 1; measures the bare call cost |
 | `normalize_coordinate(re, im, bits, digits?)` | correctly rounded parse + format |
-| `recommended_precision_bits(spacing_log2, size)` | precision rule ([[techniques/reference-orbit-precision]]) |
-| `select_reference(re, im, radius, max_iter, bits, method, cancel?)` | period + Newton nucleus or centre ([[techniques/reference-selection]]) |
+| `recommended_precision_bits(spacing_log2, size)` | precision rule ([Reference orbit: precision, cost, storage, compression](../techniques/reference-orbit-precision.md)) |
+| `select_reference(re, im, radius, max_iter, bits, method, cancel?)` | period + Newton nucleus or centre ([Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)) |
 | `compute_reference_orbit(re, im, bits, max_iter, bailout, cancel?)` | returns a `ReferenceOrbit` object owned by Rust |
 | `ReferenceOrbit.copy_extended_to(address, capacity)` | one copy of the floatexp points into caller memory |
 | `ReferenceOrbit.copy_points_to`, `points_interleaved()`, `final_z(digits?)` | float32 points, the full-precision last point |
@@ -84,7 +84,7 @@ project.yml: both app targets depend on the AlmondbreadCore product.
 
 `FloatExpComplex` is `#[repr(C, align(8))] { mantissa: [f32; 2], exponent: i32 }`:
 16-byte stride, 8-byte alignment, the MSL `struct { float2 m; int e; }`
-([[techniques/extended-range-floats]]). A compile-time assertion pins it in Rust and
+([Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)). A compile-time assertion pins it in Rust and
 `almondbread-core-check` checked it against Swift's `MemoryLayout` while the Swift maths
 existed (R1); since R2b it checks the exported size and alignment, [16, 8].
 
@@ -102,12 +102,12 @@ existed (R1); since R2b it checks the exported size and alignment, [16, 8].
 
 A scalar call costs a few nanoseconds: a frame's handful of control calls is free.
 Bulk data is the trap: UniFFI serialises a `Vec<f32>` through a `RustBuffer`
-(src: [[sources/uniffi-user-guide]]) and the generated Swift reads it back element by
+(src: [The UniFFI user guide (Mozilla)](../sources/uniffi-user-guide.md)) and the generated Swift reads it back element by
 element, about 1700 times slower than a memcpy.
 
 ## Rules
 
-- Nothing per pixel or per iteration crosses the boundary ([[decisions/rust-core]]).
+- Nothing per pixel or per iteration crosses the boundary ([Rust core with a Rust Metal backend; Swift for UI only](../decisions/rust-core.md)).
   A frame makes a handful of calls.
 - Bulk data never travels as a UniFFI `Vec`: Rust keeps it in an object and copies it
   once into caller memory (`copy_extended_to(address, capacity)`; in R2 the Metal
@@ -130,13 +130,13 @@ element, about 1700 times slower than a memcpy.
 ## The R2b interface: `Explorer`
 
 The app's renderer is one UniFFI object per window (`crates/almondbread-ffi/src/explorer.rs`,
-Apple targets; it wraps the platform-neutral `Host` of [[platform/render-architecture]]).
+Apple targets; it wraps the platform-neutral `Host` of [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](render-architecture.md)).
 
 | Export | Purpose |
 | --- | --- |
 | `Explorer(layer: u64, scale)` | the `CAMetalLayer`'s address, passed once (`Unmanaged.passUnretained(layer).toOpaque()`); Rust retains and configures it, creates device, queue, pipelines |
 | `resize(width, height, scale)` | view size in points, backing scale; sets `contentsScale` and the drawable size; the first size fits the home view |
-| `frame(timestamp) -> UInt8` | one per display refresh (the display link's timestamp); bit 1 clear: pause the link; bit 2: keyboard mode (M2.5, [[decisions/controls]]). Bits, not a record: a record is serialised through a heap buffer per call (11–18 µs per frame in the window vs 2–3 µs, [[synthesis/benchmarks]] M2.5) |
+| `frame(timestamp) -> UInt8` | one per display refresh (the display link's timestamp); bit 1 clear: pause the link; bit 2: keyboard mode (M2.5, [Controls: keyboard, pointer and touch](../decisions/controls.md)). Bits, not a record: a record is serialised through a heap buffer per call (11–18 µs per frame in the window vs 2–3 µs, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M2.5) |
 | `crosshairX()`, `crosshairY()` | the keyboard crosshair after the last `frame` (points from the centre, y up); called only in keyboard mode |
 | `input(InputEvent) -> InputResult {handled, redraw, mode}` | decoded events (`KeyDown/KeyUp(NavKey)`, `Shift`, `FocusLost`, `Insets`, `Pointer`, `PointerExited`, `Pan`, `WheelZoom`, `Magnify`, `Pinch`, `DoubleTap`, `ZoomBy`); `handled`: swallow it, `redraw`: resume the link, `mode`: pointer or keyboard after the event. Non-finite coordinates are rejected |
 | `setEdgePan(EdgePan)`, `edgePan()` | edge-panning setting (off / while zooming / always) |
@@ -178,3 +178,7 @@ presentation-log drain; nothing per pixel crosses.
   interfaces or foreign traits, when something needs them (R2b got by with polling).
 - An async export (UniFFI supports `async fn`) instead of blocking calls on a Swift
   background queue, once reference orbits move off the render thread (M3b).
+
+# Citations
+
+- [The UniFFI user guide (Mozilla)](../sources/uniffi-user-guide.md)

@@ -24,8 +24,8 @@ data that is not published in a usable form, as far as we know (unverified), and
 features we already have:
 
 - Journey and autopilot pick targets by period detection, Newton nucleus and size estimate
-  ([[decisions/controls]] "Journey", [[sources/muency-newton-raphson-zooming]]).
-- Places catalogue and thumbnails ([[synthesis/places]]).
+  ([Controls: keyboard, pointer and touch](controls.md) "Journey", [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)).
+- Places catalogue and thumbnails ([Places: a catalogue of famous views to visit](../synthesis/places.md)).
 - Gamification ideas: an atlas to fill in, discoveries, depth missions
   (private notes, not in this wiki).
 
@@ -33,14 +33,14 @@ features we already have:
 
 | Field | How we get it |
 | --- | --- |
-| period `p` | atom-domain / period detection ([[sources/muency-atom-domain]]), confirmed by Newton |
-| nucleus `c₀` (arbitrary precision) | Newton on `f_c^p(0) = 0` ([[sources/muency-newton-raphson]]) |
-| size and orientation | complex size estimate at the nucleus (the journey's σ, [[sources/muency-newton-raphson-zooming]]) |
+| period `p` | atom-domain / period detection ([Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)), confirmed by Newton |
+| nucleus `c₀` (arbitrary precision) | Newton on `f_c^p(0) = 0` ([Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)) |
+| size and orientation | complex size estimate at the nucleus (the journey's σ, [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)) |
 | parent and island | which component or minibrot it hangs off; primitive vs satellite |
 | external angles of its root (optional) | ray tracing; expensive, later |
-| neighbourhood descriptor | the journey's look descriptor ([[decisions/controls]] "Journey variety"): spiral pitch, density, dendrite vs spiral |
+| neighbourhood descriptor | the journey's look descriptor ([Controls: keyboard, pointer and touch](controls.md) "Journey variety"): spiral pitch, density, dendrite vs spiral |
 | depth and location tags | scale, region (seahorse valley, needle, limb `p/q`, ...) |
-| thumbnail | `places --render-thumbs` path ([[synthesis/places]]) |
+| thumbnail | `places --render-thumbs` path ([Places: a catalogue of famous views to visit](../synthesis/places.md)) |
 
 ## How to build it
 
@@ -61,7 +61,7 @@ file format so the app, the journey and later a game server can read them.
 ## Questions it can answer
 
 - How minibrot size scales with period and with depth, overall and per region. Known
-  heuristic: near −2, distances shrink about like `4^-p` (our own note, see [[synthesis/places]]).
+  heuristic: near −2, distances shrink about like `4^-p` (our own note, see [Places: a catalogue of famous views to visit](../synthesis/places.md)).
 - How minibrots cluster: along needles, in valleys, around Misiurewicz points.
 - How regular the surroundings of a minibrot are (descriptor statistics): when does a dive
   look "new"? This feeds journey scoring directly.
@@ -131,10 +131,16 @@ looked around, and where minibrots were found.
 - Mostly reuse: period detection, Newton, size estimate, descriptors and thumbnails exist.
   The new parts are the census driver, de-duplication, storage and the overlay.
 - Risk: the census at higher periods is dominated by Newton failures and near-duplicate
-  nuclei; needs the 128-extra-bit Newton the journey uses at depth ([[decisions/controls]]).
+  nuclei; needs the 128-extra-bit Newton the journey uses at depth ([Controls: keyboard, pointer and touch](controls.md)).
 - Risk: a large dataset with no consumer. Mitigation: build step 1 with the overlay first, so
   every entry is visible in the app from day one.
 
 ## Status
 
 Proposed 2026-10-15. Implementation waits for the user's go.
+
+# Citations
+
+- [Mu-Ency: Newton-Raphson zooming (embedded Julia set sizes)](../sources/muency-newton-raphson-zooming.md)
+- [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
+- [Mu-Ency: Newton-Raphson method](../sources/muency-newton-raphson.md)

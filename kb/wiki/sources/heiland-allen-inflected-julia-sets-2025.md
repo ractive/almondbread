@@ -36,4 +36,8 @@ Primary, peer-reviewed conference paper by the main toolmaker of the community.
 
 ## Used by
 
-[[synthesis/finding-deep-places]]
+[Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://2025.algorithmicpattern.org/proceedings/CVCS8B/paper.html>

@@ -31,4 +31,8 @@ panel places mega but not Moser's number. Note `3→3→4→2 = 3 ↑^(3→3→4
 
 ## Used by
 
-[[synthesis/how-big-is-big]]
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Steinhaus%E2%80%93Moser_notation>

@@ -2,7 +2,7 @@
 title: "Automatic maximum-iteration control"
 type: technique
 status: draft
-sources: ["[[sources/kf-manual]]", "[[sources/fraktaler-3-site]]", "[[sources/wikibooks-fraktaler-3]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/kf-manual", "sources/fraktaler-3-site", "sources/wikibooks-fraktaler-3", "sources/cheritat-mandelbrot-rendering", "sources/fractalforums-interior-detection"]
 tags: [max-iterations, heuristics, interaction]
 ---
 
@@ -13,7 +13,7 @@ spiral centres, blurry minibrots); too high wastes time on true interior
 pixels. Depth alone does not set the right value: near a minibrot of period
 `p`, escaping pixels need several hundred times `p` iterations (GBy: 1e7
 iterations for a period-14292 minibrot)
-(src: [[sources/fractalforums-interior-detection]] §Interior detection for deep Mandelbrot set zooms).
+(src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Interior detection for deep Mandelbrot set zooms).
 
 ## What renderers do
 
@@ -22,7 +22,7 @@ iterations for a period-14292 minibrot)
   is rendered). Known bug: zoom-out sequences get black regions because maxIter
   is reduced too much before spirals appear in the next frame; workaround:
   disable it. It was refactored with an issue left unresolved; Newton-Raphson
-  zooming raises maxiters "more suitably" (src: [[sources/kf-manual]] §Use auto iterations).
+  zooming raises maxiters "more suitably" (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §Use auto iterations).
 - **Fraktaler 3** has no auto mode; it splits the limit into three caps:
   total iterations (can be "arbitrarily high without too much slowdown"),
   maximum reference iterations (normally equal to iterations; too low corrupts
@@ -31,25 +31,25 @@ iterations for a period-14292 minibrot)
   or minis not sharp), plus maximum BLA steps (a few thousand; raise for glitchy
   areas). Limits exist partly to avoid GPU-driver timeouts. Iteration-count
   histograms help inspect limits; keypad +/− doubles/halves the count
-  (src: [[sources/fraktaler-3-site]]). A saved example uses 262144 iterations and
-  4096 perturb iterations (src: [[sources/wikibooks-fraktaler-3]]).
+  (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)). A saved example uses 262144 iterations and
+  4096 perturb iterations (src: [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)).
 - **Chéritat**: with interior detection, a huge N barely costs anything
   ("N = 10⁶ is OK, but avoid N = 10¹⁰")
-  (src: [[sources/cheritat-mandelbrot-rendering]] §Images and speed).
+  (src: [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md) §Images and speed).
 - mathr's own renderer reports per-image statistics (mean/min/max/stddev of
   steps, BLA steps, perturbation steps, iterations, max reference iteration
   accessed, rebases by cause) to diagnose limits that are too small ("blobby"
   false interior) or too large
-  (src: [[sources/fractalforums-interior-detection]] §Reply #1).
+  (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md) §Reply #1).
 
 The useful idea in Fraktaler: once each skip covers many iterations, the cost
 is in **steps**, not iterations, so a step cap (perturb steps + BLA steps)
 bounds work while the iteration cap can be very high (inference from
-[[sources/fraktaler-3-site]]).
+[Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 
 ## Heuristic for almondbread (inference, not a published method)
 
-Needs derivative interior detection ([[techniques/interior-detection]]), so that
+Needs derivative interior detection ([Interior detection](interior-detection.md)), so that
 "reached maxIter" means "undecided", not "interior".
 
 ```text
@@ -71,22 +71,22 @@ after each completed frame (or coarse refinement level):
 - Use the coarse refinement pass as the sample, so maxIter adapts before the
   full-resolution pass.
 - Expose a step cap per dispatch for the watchdog
-  ([[platform/gpu-watchdog-and-chunking]]), separate from maxIter.
+  ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)), separate from maxIter.
 
 Open: thresholds and whether to use per-tile statistics; see
-[[questions/auto-iteration-heuristic]].
+[What auto-maxIter rule should almondbread use?](../questions/auto-iteration-heuristic.md).
 
 ## As built in almondbread (2026-10-14)
 
 From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers in
-[[synthesis/benchmarks]]).
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md)).
 
 - **Unresolved is not interior.** A pixel that reaches the limit without being
-  proven interior by the derivative test ([[techniques/interior-detection]]) is
+  proven interior by the derivative test ([Interior detection](interior-detection.md)) is
   stored as *unresolved* (iteration code −3). It was drawn as the interior colour
   lifted 3 % (linear) towards neutral grey, then (2026-10-17) as a flat dark grey veil;
   since 2026-10-17 it is fog, lit by the resolved pixels around and almost black further
-  in ([[techniques/unresolved-fog]]). Most such pixels are
+  in ([Fog over unresolved pixels](unresolved-fog.md)). Most such pixels are
   slow-converging interior near parabolic points. Without the test (the adaptive
   switch turned it off) nothing can be told apart, and limit pixels are drawn as
   interior as before.
@@ -98,10 +98,10 @@ From the −3/4 neck wedge report (measured 2026-10-14, M1 Pro, release; numbers
   A pass is never cut short, because the list is in scanline order and stopping
   inside it left a straight horizontal edge. An extension is all-or-nothing for
   the same reason (a view with more unresolved pixels than the list holds gets
-  none). See [[platform/gpu-watchdog-and-chunking]] for why the passes restart
+  none). See [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md) for why the passes restart
   instead of keeping state. The passes need a reference orbit that reaches as far
   as they go, or one that escaped: an orbit cut at the nominal limit made them
-  draw noise near the −3/4 neck (fixed 2026-10-16; [[techniques/rebasing]]
+  draw noise near the −3/4 neck (fixed 2026-10-16; [Rebasing (Zhuoran, 2021)](rebasing.md)
   "Truncated references").
 - **Learned limit.** When the passes found escapes past the nominal limit in at
   least 1 % of the pixels, later views start from the smallest of 2× or 4× the
@@ -206,13 +206,13 @@ renderer's AA; the live renderer's limit was unchanged.
 
 The learned limit is capped at 4× the depth heuristic whatever the user's cap: with a cap of
 10 M the −3/4 neck gap at 1.9e8–1.3e9 settles at 15 000–18 000, while its escape counts have
-a minimum of ~8 500 and medians of 42 000–434 000 ([[synthesis/neck-escape-statistics]]).
+a minimum of ~8 500 and medians of 42 000–434 000 ([The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](../synthesis/neck-escape-statistics.md)).
 At Retina window sizes (4000 × 2500) the ~9.7 M unresolved pixels overflow the 4 M-entry list,
 so no extension pass runs and `escapedPast` stays zero; at 1600 × 1000 the passes reach 57 008
 in the 2 s budget and the learner still stops at 4× depth. Lifting the cap would not be cheap:
 a resolved frame there needs 10^12–10^13 iterations (minutes of GPU). Escalation towards the
 user's cap belongs in an explicit or idle background refinement with progress, and the
-unresolved colour should differ from interior (done 2026-10-17: [[techniques/unresolved-fog]]).
+unresolved colour should differ from interior (done 2026-10-17: [Fog over unresolved pixels](unresolved-fog.md)).
 
 ## Compute further (2026-10-17)
 
@@ -271,7 +271,7 @@ loop:
   --history` check "resolved pixels in the unresolved colour" was 0 on home, seahorse and the
   neck with `--ss 3`, and 14 % when the mode is disabled on purpose. With the fog it became
   "pixels resolved by compute further not showing their colour" (by the field data against a
-  fresh render; [[techniques/unresolved-fog]] "Checks"), which found the last pass's texels
+  fresh render; [Fog over unresolved pixels](unresolved-fog.md) "Checks"), which found the last pass's texels
   left part faded; the compose now runs on for 4 τ after the last pass.
 - Switches: always on in the app (the env switch `ALMONDBREAD_FURTHER` and `--further 0|1` were removed
   2026-10-17); `--further-budget s` on
@@ -303,7 +303,7 @@ extension budget), view `−0.74999994719705121 + 0.00036918485351065104 i`, 4.4
 160 × 100 of the same window): unresolved by 65 536 15.1 % (GPU 15.2 %), by 200 000 ~3.8 %
 (GPU 3.78 %), by 8.33 M 0.11 % of 16 000 samples (GPU 0.059 %). Against the CPU oracle at the
 reached limit: class mismatch 0.020 % at 8.3 M, all of it chaos (GPU escapes where f64 does not
-and the reverse in equal shares, see [[synthesis/neck-escape-statistics]]); no wrong escapes.
+and the reverse in equal shares, see [The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)](../synthesis/neck-escape-statistics.md)); no wrong escapes.
 Ordinary views are unaffected: home (0.015 % unresolved) and needle-minibrot-1e91 (0.007 %)
 stop at once ("finished"), junction-1e100 has none, seahorse goes 0.35 → 0.10 % in +45 ms.
 A view whose f64 orbit is cut (`−0.74999996120361811 + 0.00036918279150454967 i`, 1e−11/px,
@@ -314,5 +314,13 @@ cap 10 M): five orbit extensions to 3.97 M (escape), 98.7 → 1.2 % unresolved a
 High default maxIter, derivative interior detection always available,
 statistics-driven growth with hysteresis (never decrease on zoom-out), a
 separate per-pixel step cap, and a statistics overlay like mathr's for
-diagnosis. Related: [[techniques/frame-reuse-and-progressive]],
-[[techniques/rebasing]].
+diagnosis. Related: [Frame reuse and progressive refinement](frame-reuse-and-progressive.md),
+[Rebasing (Zhuoran, 2021)](rebasing.md).
+
+# Citations
+
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Wikibooks: Fractals/fraktaler-3](../sources/wikibooks-fraktaler-3.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

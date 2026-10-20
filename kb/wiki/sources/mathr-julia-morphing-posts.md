@@ -61,4 +61,11 @@ length, view multiplier) are stated as empirical and limited by the author.
 
 ## Used by
 
-[[synthesis/finding-deep-places]]
+[Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2016-02-25_automated_julia_morphing.html>
+- <https://mathr.co.uk/blog/2016-03-05_julia_morphing_symmetry.html>
+- <https://mathr.co.uk/blog/2017-11-09_efficent_automated_julia_morphing.html>
+- <https://mathr.co.uk/blog/2021-06-09_julia_morph_orbit_in_the_hairs.html>

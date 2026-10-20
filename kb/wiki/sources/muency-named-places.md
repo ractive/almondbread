@@ -22,7 +22,7 @@ embedded Julia sets) and give views as `re + im i @ r` with an iteration limit (
 
 ## What it covers
 
-Views used by [[synthesis/places]] (entry: centre @ r):
+Views used by [Places: a catalogue of famous views to visit](../synthesis/places.md) (entry: centre @ r):
 
 - `r2c0` elephant valley: 0.29833 + 0.00111i @ 0.1; 0.291665 - 0.015555i @ 0.008249;
   0.2925755 - 0.0149977i @ 0.0004277 (the landscape prototype's `elephant`).
@@ -52,3 +52,7 @@ limit.
 ## Useful sections
 
 - The `Coordinates:` line under each figure; `favoriteviews*` for deep hand-made views.
+
+# Citations
+
+- <https://mrob.com/pub/muency.html>

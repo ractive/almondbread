@@ -12,8 +12,8 @@ tags: [architecture, arbitrary-precision, ios]
 
 Zooms past about 1e-15 need the reference orbit (and the viewport centre)
 in arbitrary precision. GMP/MPFR are the usual choice
-([[platform/mpfr-gmp-on-apple-silicon]]), but almondbread also targets
-iPhone and iPad ([[platform/ios-ipad-considerations]]).
+([Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)), but almondbread also targets
+iPhone and iPad ([iOS and iPadOS port considerations](../platform/ios-ipad-considerations.md)).
 
 ## Proposal
 
@@ -29,7 +29,7 @@ Double/floatexp and decimal strings.
   with the LGPL relinking requirement; an own type keeps iOS shippable.
 - Reference orbits need only a handful of operations at fixed precision;
   hand-tuned fixed-size multiplication beat GMP's basecase by 80 % at 8
-  limbs in one 2024 report ([[platform/mpfr-gmp-on-apple-silicon]]).
+  limbs in one 2024 report ([Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)).
 - No C library build per platform and architecture.
 
 ## Risks
@@ -43,21 +43,25 @@ Double/floatexp and decimal strings.
 
 Built as `Sources/AlmondbreadMath` (pure Swift, builds for macOS 14 and iOS 17; ported
 bit-exact to Rust as `crates/almondbread-math` in R1 and deleted in R2b,
-[[decisions/rust-core]]): a
+[Rust core with a Rust Metal backend; Swift for UI only](rust-core.md)): a
 correctly rounded floating `BigFloat` rather than fixed point, because Newton's
 derivative and the period radii need the exponent range. GMP is used only by a
 test-only benchmark. It beats GMP `mpf` on the reference orbit up to 1024 bits (1.1x to
 1.55x) and loses from 4096 bits (0.56x at 16384); see
-[[platform/mpfr-gmp-on-apple-silicon]] and [[synthesis/benchmarks]] (measured
+[Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md) and [almondbread benchmarks and verification record](../synthesis/benchmarks.md) (measured
 2026-10-14, M1 Pro, release). The correctness risk is covered by bit-exact oracle tests.
 
 M3b (2026-10-14): the same library carries the app's viewport centre and every deep
 reference; reference orbits take 3 ms (1e-20) to 0.6 s (1e-1000) per 100 000 iterations on one
-core ([[synthesis/benchmarks]] M3b).
+core ([almondbread benchmarks and verification record](../synthesis/benchmarks.md) M3b).
 
 R6 (2026-10-15): still our own library, now on three cores for deep orbits (bit-identical
 three-squaring split from 1536 bits), with jump references delivered as prefixes and a
 cheap-derivative Newton. Toom-3/NTT stay unbuilt: the short Comba square beats the full
 Karatsuba square 1.5-1.8x at every size up to 157 limbs (1e-3000), so they cannot pay
 before ~300 limbs. A jump to dendrite-1e1000 shows its first frame after ~0.13 s instead
-of ~2.1 s ([[techniques/parallel-reference-orbit]], [[synthesis/benchmarks]] R6).
+of ~2.1 s ([Faster deep references: three-thread orbit, progressive delivery, cheap Newton](../techniques/parallel-reference-orbit.md), [almondbread benchmarks and verification record](../synthesis/benchmarks.md) R6).
+
+# Citations
+
+- [No cited source: our own design decision; its basis is the Context and Reasons above](#context)

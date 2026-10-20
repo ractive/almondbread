@@ -2,7 +2,7 @@
 title: "GPU watchdog and chunked, resumable kernels"
 type: platform
 status: draft
-sources: ["[[sources/mlx-watchdog-issue]]", "[[sources/fraktaler-3-site]]", "[[sources/kf-manual]]", "[[sources/fractalforums-interior-detection]]"]
+sources: ["sources/mlx-watchdog-issue", "sources/fraktaler-3-site", "sources/kf-manual", "sources/fractalforums-interior-detection"]
 tags: [metal, watchdog, scheduling, divergence, indirect-dispatch]
 ---
 
@@ -18,26 +18,26 @@ gives the facts and the scheduler design.
   26.3.1) says a single long dispatch exceeds "the macOS GPU watchdog threshold
   (~5 seconds)" and that "the watchdog fires per-command-buffer, not per-dispatch";
   several dispatches in one command buffer do not reset the timer
-  (src: [[sources/mlx-watchdog-issue]]). This is a community report, not Apple
-  documentation; see [[questions/metal-watchdog-limit]].
+  (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)). This is a community report, not Apple
+  documentation; see [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md).
 - **Error codes.** The MLX report shows
   `kIOGPUCommandBufferCallbackErrorImpactingInteractivity` and process termination
-  (src: [[sources/mlx-watchdog-issue]]). The research notes also name
+  (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)). The research notes also name
   `kIOGPUCommandBufferCallbackErrorTimeout` and an Apple error for a device whose
   access was revoked after too many timeouts (notes: gpu_apple_silicon §Apple GPU architecture facts).
   Handle both: treat a timeout as "chunk too big", halve the budget, retry.
 - **Display-active variant.** A separate MLX issue (#3267) reports the watchdog
   killing work while a display is active, a different trigger
-  (src: [[sources/mlx-watchdog-issue]]). Whether headless machines differ is unknown.
+  (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)). Whether headless machines differ is unknown.
 - **Unofficial override.** `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` works as a system-wide
   workaround but disables the watchdog entirely; not acceptable for an app
-  (src: [[sources/mlx-watchdog-issue]]).
+  (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)).
 - **Fraktaler 3 hits the same wall** with OpenCL: larger tiles are faster (one
   location: 960x1080 tile 1m34s vs 3 min with default 128x128 tiles), but too-large
   tiles or excessive perturbation/BLA step limits cause OS GPU timeouts
-  (src: [[sources/fraktaler-3-site]]).
+  (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 - MLX's fix is the same idea as ours: split the work into chunks with partial
-  results and reduce afterwards (src: [[sources/mlx-watchdog-issue]]).
+  results and reduce afterwards (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)).
 
 ## Design: resumable per-pixel state
 
@@ -57,8 +57,8 @@ struct PixelState {            // one per sample; SoA in practice
 ```
 
 Kernel body: load state, run at most `budget` iterations (or skip-table steps)
-with the normal escape, rebase and interior tests from [[techniques/perturbation]],
-[[techniques/rebasing]], [[techniques/bla]] and [[techniques/interior-detection]],
+with the normal escape, rebase and interior tests from [Perturbation](../techniques/perturbation.md),
+[Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Bivariate linear approximation (BLA)](../techniques/bla.md) and [Interior detection](../techniques/interior-detection.md),
 store state, and if still live append the pixel index to the next live list.
 
 ## Scheduler pseudocode (our own)
@@ -93,23 +93,23 @@ Points:
   kernel must still be bounded by an iteration budget (inference).
 - Skip-table steps cost about the same as perturbation steps, so budget in "steps",
   not "iterations" (inference). mathr's Fraktaler statistics distinguish the two
-  for the same reason (src: [[sources/fractalforums-interior-detection]]).
-- KF2+ shows progressive previews by interlacing (src: [[sources/kf-manual]]);
+  for the same reason (src: [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)).
+- KF2+ shows progressive previews by interlacing (src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md));
   chunking gives the same effect for free: publish the state buffer as an image
-  between command buffers ([[techniques/frame-reuse-and-progressive]]).
+  between command buffers ([Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md)).
 
 ## Pitfalls
 
 - Fence or event waits inside a command buffer count toward the watchdog
-  (src: [[sources/mlx-watchdog-issue]]).
+  (src: [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)).
 - Iteration counts per pixel vary by orders of magnitude; a fixed budget either
   wastes dispatches on shallow pixels or times out on deep ones. Adapt from timing.
-- Register-heavy kernels lose occupancy on M1/M2 ([[platform/apple-gpu-architecture]]);
-  chunking does not fix that, specialisation does ([[platform/metal-compute]]).
+- Register-heavy kernels lose occupancy on M1/M2 ([Apple GPU architecture for compute](apple-gpu-architecture.md));
+  chunking does not fix that, specialisation does ([Metal compute pipeline for a deep-zoom renderer](metal-compute.md)).
 
 - **Pixels that keep iterating past the frame's limit must not hold live capacity**
   (found 2026-10-14, M1 Pro, release). A first version of unresolved-pixel extension
-  ([[techniques/auto-iterations]]) let pixels continue past the nominal limit inside
+  ([Automatic maximum-iteration control](../techniques/auto-iterations.md)) let pixels continue past the nominal limit inside
   the level. Slow pixels (half the frame at the −3/4 neck) filled the 1 M live slots,
   `prepareChunk` admitted only 3 to 9 K fresh pixels per chunk, and the complete frame
   took 2.9 s instead of 0.40 s. Now the level stops at the limit, collects unresolved
@@ -123,7 +123,7 @@ Points:
 - **Lesson from the wedge report:** a long straight edge in a fractal image is a
   pipeline or test artefact. But "never written" and "stale" are not the only
   causes: here the culprit was a max-norm test on a nearly linear function of `c`
-  ([[techniques/interior-detection]] Pitfalls). `--verify --history` drives the real
+  ([Interior detection](../techniques/interior-detection.md) Pitfalls). `--verify --history` drives the real
   scheduler (`Renderer.renderFrame`, the code the view runs per refresh) headlessly
   through scripted Space/wheel/pan sessions and diffs the final frame against the
   CPU oracle and a fresh render. `--interaction-test` checks the shown frame against
@@ -131,7 +131,7 @@ Points:
 
 ## As built in almondbread (milestone 2)
 
-Measured 2026-10-14, M1 Pro, release; numbers in [[synthesis/benchmarks]].
+Measured 2026-10-14, M1 Pro, release; numbers in [almondbread benchmarks and verification record](../synthesis/benchmarks.md).
 
 - **State moves with its list slot.** Each live pixel's state (dz, d, w + exponent,
   pixel index, n, m: 40 bytes) sits in a ping-ponged buffer indexed by live-list
@@ -163,9 +163,16 @@ Measured 2026-10-14, M1 Pro, release; numbers in [[synthesis/benchmarks]].
   older generations only feed the rate model. One serial queue plus "every admitted
   pixel is rewritten by its own job" means no stale chunk can show in a newer frame.
 - **Watchdog.** M2 never sees one. Separately, M1's single 10.4 s command buffer
-  completed without error (headless, display on); see [[questions/metal-watchdog-limit]].
+  completed without error (headless, display on); see [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md).
 
 ## Gaps
 
 - No Apple document states the threshold or how it differs on iOS, without a
-  display, or under load ([[questions/metal-watchdog-limit]], [[platform/ios-ipad-considerations]]).
+  display, or under load ([What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md), [iOS and iPadOS port considerations](ios-ipad-considerations.md)).
+
+# Citations
+
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)

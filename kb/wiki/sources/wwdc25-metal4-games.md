@@ -33,4 +33,8 @@ Upscaler and frame interpolation chapters.
 
 ## Used by
 
-- [[platform/metalfx]]
+- [MetalFX upscaling (temporal, spatial) for motion sample reuse](../platform/metalfx.md)
+
+# Citations
+
+- <https://developer.apple.com/videos/play/wwdc2025/211/>

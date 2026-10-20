@@ -2,7 +2,7 @@
 title: "Fractal palettes: research and the palette library"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/fractalset-viewer]]", "[[sources/ultrafractal-gradients-help]]", "[[sources/fractint-map-format]]", "[[sources/kf-manual]]", "[[sources/kovesi-good-colour-maps]]", "[[sources/colorcet]]", "[[sources/crameri-scientific-colour-maps]]", "[[sources/bids-viridis-colormaps]]", "[[sources/cmocean]]", "[[sources/turbo-colormap]]", "[[sources/cividis-paper]]", "[[sources/quilez-cosine-palettes]]", "[[sources/ottosson-oklab]]"]
+sources: ["sources/fractalset-viewer", "sources/ultrafractal-gradients-help", "sources/fractint-map-format", "sources/kf-manual", "sources/kovesi-good-colour-maps", "sources/colorcet", "sources/crameri-scientific-colour-maps", "sources/bids-viridis-colormaps", "sources/cmocean", "sources/turbo-colormap", "sources/cividis-paper", "sources/quilez-cosine-palettes", "sources/ottosson-oklab"]
 tags: [palette, coloring, licence, library]
 ---
 
@@ -10,36 +10,36 @@ tags: [palette, coloring, licence, library]
 
 The user asked for many selectable, well-designed palettes. This page records
 the research (notes in `raw/research/fractal-palettes/`, 2026-10-14) and what
-was built from it. The design rules are in [[techniques/palette-design]].
+was built from it. The design rules are in [Palette design for fractals](../techniques/palette-design.md).
 
 ## Findings
 
 1. Every mature program stores a few key colours and keeps density, transfer and
    offset separate (UF, KF, fractalset)
-   (src: [[sources/ultrafractal-gradients-help]], [[sources/kf-manual]],
-   [[sources/fractalset-viewer]]).
+   (src: [Ultra Fractal help: gradients and colouring settings](../sources/ultrafractal-gradients-help.md), [Kalles Fraktaler 2 + manual](../sources/kf-manual.md),
+   [fractalset.com viewer and gradient editor](../sources/fractalset-viewer.md)).
 2. Interpolate in OKLab with a spline; reduce chroma to fit sRGB
-   (src: [[sources/ottosson-oklab]]).
+   (src: [Ottosson: A perceptual color space for image processing (OKLab)](../sources/ottosson-oklab.md)).
 3. Lightness carries the detail; alternate light and dark keys; isoluminant maps
-   lose fractal structure (src: [[sources/kovesi-good-colour-maps]]).
+   lose fractal structure (src: [Kovesi: Good Colour Maps: How to Design Them](../sources/kovesi-good-colour-maps.md)).
 4. Every palette must cycle without a seam: cyclic by design, or mirrored
-   (src: [[sources/kovesi-good-colour-maps]], [[sources/fractalset-viewer]]).
+   (src: [Kovesi: Good Colour Maps: How to Design Them](../sources/kovesi-good-colour-maps.md), [fractalset.com viewer and gradient editor](../sources/fractalset-viewer.md)).
 5. Dense regions average to the palette mean; give each palette a deliberate
-   dark deep tone ([[synthesis/dense-region-sampling]]).
+   dark deep tone ([Dense boundary regions: fewer pixel-iterations for the same image (R3)](dense-region-sampling.md)).
 6. About 25 curated palettes is fractalset's size; our library is larger but
-   grouped into categories (src: [[sources/fractalset-viewer]]).
+   grouped into categories (src: [fractalset.com viewer and gradient editor](../sources/fractalset-viewer.md)).
 
 ## Licences
 
 | Family | Licence | Shipped |
 | --- | --- | --- |
 | almondbread designs (40, incl. 3 cosine palettes) | CC0-1.0 (own work) | yes |
-| viridis, magma, inferno, plasma | CC0-1.0 (src: [[sources/bids-viridis-colormaps]]) | yes |
-| cividis | BSD-style, Battelle/PNNL; article CC0 (src: [[sources/cividis-paper]]) | yes, credited |
-| Turbo | Apache-2.0 (src: [[sources/turbo-colormap]]) | yes, credited |
-| Crameri batlow, hawaii, lajolla, oslo, tokyo, romaO, vikO, bamO | MIT (src: [[sources/crameri-scientific-colour-maps]]) | yes, credited |
-| cmocean haline, dense, solar, algae | MIT (src: [[sources/cmocean]]) | yes, credited |
-| CET C1, C2, C3, C6, C9 | CC-BY-4.0 (src: [[sources/colorcet]]) | yes, credited |
+| viridis, magma, inferno, plasma | CC0-1.0 (src: [BIDS colormap: viridis, magma, inferno, plasma](../sources/bids-viridis-colormaps.md)) | yes |
+| cividis | BSD-style, Battelle/PNNL; article CC0 (src: [Nuñez et al.: cividis, a colour map for colour vision deficiency](../sources/cividis-paper.md)) | yes, credited |
+| Turbo | Apache-2.0 (src: [Google Turbo colour map](../sources/turbo-colormap.md)) | yes, credited |
+| Crameri batlow, hawaii, lajolla, oslo, tokyo, romaO, vikO, bamO | MIT (src: [Crameri: Scientific colour maps](../sources/crameri-scientific-colour-maps.md)) | yes, credited |
+| cmocean haline, dense, solar, algae | MIT (src: [cmocean: colour maps for oceanography](../sources/cmocean.md)) | yes, credited |
+| CET C1, C2, C3, C6, C9 | CC-BY-4.0 (src: [colorcet: the CET perceptually uniform colour maps](../sources/colorcet.md)) | yes, credited |
 | twilight | matplotlib licence only (author's repository has none) | yes, credited |
 | ColorBrewer | Apache-2.0 | not used (few classes, made for maps) |
 | UF, KF (AGPL), Fractint (non-commercial), fractalset gradients | not free | no; formats only |
@@ -76,3 +76,19 @@ Lowest lightness spans (least CVD-robust): CET C6 0.26, CET C1 0.29, Macaron
   palettes, so setting `RenderSettings::palette_id` to a library id renders it
   with no other change.
 - `palette_import::{parse_ugr, write_ugr, parse_map, write_map}`.
+
+# Citations
+
+- [fractalset.com viewer and gradient editor](../sources/fractalset-viewer.md)
+- [Ultra Fractal help: gradients and colouring settings](../sources/ultrafractal-gradients-help.md)
+- [Fractint documentation: palette maps (.map)](../sources/fractint-map-format.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
+- [Kovesi: Good Colour Maps: How to Design Them](../sources/kovesi-good-colour-maps.md)
+- [colorcet: the CET perceptually uniform colour maps](../sources/colorcet.md)
+- [Crameri: Scientific colour maps](../sources/crameri-scientific-colour-maps.md)
+- [BIDS colormap: viridis, magma, inferno, plasma](../sources/bids-viridis-colormaps.md)
+- [cmocean: colour maps for oceanography](../sources/cmocean.md)
+- [Google Turbo colour map](../sources/turbo-colormap.md)
+- [Nuñez et al.: cividis, a colour map for colour vision deficiency](../sources/cividis-paper.md)
+- [Quilez: procedural colour palettes](../sources/quilez-cosine-palettes.md)
+- [Ottosson: A perceptual color space for image processing (OKLab)](../sources/ottosson-oklab.md)

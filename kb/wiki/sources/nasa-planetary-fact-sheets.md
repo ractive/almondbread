@@ -33,10 +33,20 @@ orbits); we convert to metres.
 | Neptune | Semimajor axis | `Semimajor axis (10^6 km) 4,514.953` | 4.514953e12 m (≈ 30.2 au) | [neptunefact](https://nssdc.gsfc.nasa.gov/planetary/factsheet/neptunefact.html) (3 Oct 2024) |
 
 The Sun's 695 700 km equals the IAU 2015 nominal solar radius (IAU 2015 Resolution B3,
-see [[sources/iau-astronomical-units]]).
+see [IAU astronomical unit (2012 Resolution B2) and the light-year](iau-astronomical-units.md)).
 
 ## Reliability
 
 High. NASA's reference tables, kept current and dated per page. Radii are mean values of
 oblate bodies: quote "mean radius" in the overlay, or equatorial where that is meant.
 The text conversion of the pages drops superscripts (`106 km` means 10^6 km).
+
+# Citations
+
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/jupiterfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/sunfact.html>
+- <https://nssdc.gsfc.nasa.gov/planetary/factsheet/neptunefact.html>
+- [IAU astronomical unit (2012 Resolution B2) and the light-year](iau-astronomical-units.md)

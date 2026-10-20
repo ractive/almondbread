@@ -2,7 +2,7 @@
 title: The −3/4 neck gap at 1e8–1e9 (escape statistics, what is true)
 type: synthesis
 date: 2026-10-17
-sources: ["[[sources/klebanoff-pi-in-mandelbrot]]"]
+sources: ["sources/klebanoff-pi-in-mandelbrot"]
 tags: [neck, escape-time, ground-truth, max-iterations, precision, known-hard-case]
 ---
 
@@ -20,8 +20,8 @@ Near the neck the cardioid is `re ≈ −3/4 + (3/4) im²` and the period-2 disc
 `re ≈ −3/4 − 2 im²` (our expansion of `c(t) = e^{it}/2 − e^{2it}/4` at `t = π` and of
 `|c + 1| = 1/4`). At `im = 3.69e−4` the gap is 3.7e−7 wide; the user's views are 1e−8 to 4e−8
 wide, well inside it. No interior of either component is in view. The neck escape count is
-`N ≈ π/ε` for `c = −3/4 + iε` (src: [[sources/klebanoff-pi-in-mandelbrot]];
-[[techniques/pi-in-the-mandelbrot-set]]): about 8 500 here, and that is the *minimum* escape
+`N ≈ π/ε` for `c = −3/4 + iε` (src: [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md);
+[π in the Mandelbrot set (neck and cusp escape counts)](../techniques/pi-in-the-mandelbrot-set.md)): about 8 500 here, and that is the *minimum* escape
 count in these views (measured 8 516–9 463), not a typical one: an orbit passes the slow
 parabolic gate near `z = −1/2` many times before it escapes.
 
@@ -105,7 +105,7 @@ limit), the same with and without `f77cf7b`. Two things kept the view black:
    the striped regions the expansion stays valid for 10^5–10^6 iterations, at ~256 steps per
    node per round: after 20 s at 4000 × 2500, 210 000 of 830 000 nodes were still running and
    not one pixel chunk had run (snapshot: all black). Seeds now stop at
-   `SEED_HORIZON` = 65 536 iterations ([[techniques/local-series-approximation]] "Seed
+   `SEED_HORIZON` = 65 536 iterations ([Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md) "Seed
    horizon"); the same run seeds in 224 rounds (~3.5 s) and pixels iterate from then on.
 2. *The frame is a long render in progress.* 10^13 iterations at 4000 × 2500 take an estimated
    10–20 minutes. Pixels are admitted tile by tile into 1 M live slots, and each slot is held
@@ -126,4 +126,8 @@ was involved (shown frames match fresh renders and the oracle at their hard limi
   list in segments or per tile would lift that.
 - Unresolved pixels are drawn in the interior colour mixed 0.5 % towards grey
   (`mix(edge, 0.5, 0.005)`), indistinguishable from interior; pending pixels of a frame in
-  progress look the same. See [[techniques/auto-iterations]] and the UI proposal in the log.
+  progress look the same. See [Automatic maximum-iteration control](../techniques/auto-iterations.md) and the UI proposal in the log.
+
+# Citations
+
+- [Klebanoff: π in the Mandelbrot set (Fractals 9(4), 2001)](../sources/klebanoff-pi-in-mandelbrot.md)

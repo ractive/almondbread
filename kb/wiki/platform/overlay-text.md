@@ -2,7 +2,7 @@
 title: "Overlay text: SDF font atlas in Rust and Metal"
 type: platform
 status: draft
-sources: ["[[sources/inter-font]]"]
+sources: ["sources/inter-font"]
 tags: [overlay, font, sdf, text, metal, rendering]
 ---
 
@@ -10,8 +10,8 @@ tags: [overlay, font, sdf, text, metal, rendering]
 
 The orbit overlay and the mini-map draw their text in Rust and the `overlay` kernel
 (`crates/almondbread-render/src/overlay.rs`, `src/font/`), not in SwiftUI, so every
-platform the renderer runs on gets the same labels ([[platform/render-architecture]],
-[[decisions/controls]] "Orbit overlay and mini-map"). Built 2026-10-15.
+platform the renderer runs on gets the same labels ([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](render-architecture.md),
+[Controls: keyboard, pointer and touch](../decisions/controls.md) "Orbit overlay and mini-map"). Built 2026-10-15.
 
 ## Before
 
@@ -63,7 +63,7 @@ disappeared on pale palettes: `+0.451` over the white boundary glow was unreadab
 - `scripts/ui-screenshots.sh` (`orbit`, `deep`): window captures at 2× show the labels on the
   map panels (`×1e84` over a cream panel) and the info lines.
 - iOS simulator: the same overlays render in the iPhone screenshots
-  ([[platform/ios-simulator]]).
+  ([iOS and iPadOS on the simulator: setup, checks, what broke](ios-simulator.md)).
 - Tests: atlas size matches the metrics, the table is sorted, a cell's corner is far outside
   and an `l` stem is inside, digits are tabular, one primitive per glyph, halo width clamped.
 
@@ -73,3 +73,7 @@ disappeared on pale palettes: `+0.451` over the white boundary glow was unreadab
   a hard edge where the clamp starts, hence the clamp in `text_halo`.
 - Regenerating the atlas rewrites `metrics.rs`; run `cargo fmt` afterwards (the table itself
   is `#[rustfmt::skip]`).
+
+# Citations
+
+- [Inter typeface (Rasmus Andersson), release 4.1](../sources/inter-font.md)

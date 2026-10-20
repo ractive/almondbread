@@ -2,7 +2,7 @@
 title: "Does local series approximation hold in the float32 perturbation kernel?"
 type: question
 status: answered
-sources: ["[[sources/mathr-deep-zoom-theory]]"]
+sources: ["sources/mathr-deep-zoom-theory"]
 tags: [series-approximation, float32, dense-regions, verification, measured]
 ---
 
@@ -10,8 +10,8 @@ tags: [series-approximation, float32, dense-regions, verification, measured]
 
 ## Question
 
-[[techniques/local-series-approximation]] was measured on the CPU in f64 with direct
-iteration (R3, [[synthesis/dense-region-sampling]]): 5× fewer iterations at the dense view with
+[Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md) was measured on the CPU in f64 with direct
+iteration (R3, [Dense boundary regions: fewer pixel-iterations for the same image (R3)](../synthesis/dense-region-sampling.md)): 5× fewer iterations at the dense view with
 error statistics equal to the exact render. The app iterates float32 deltas against a
 reference with rebasing. Does branching `dz = dz_seed + A δ + B δ²/2` in float32 keep the
 samples statistically equivalent, and does the gain survive the GPU's costs (seed passes,
@@ -22,7 +22,7 @@ state copies, lower occupancy of the seed phase)?
 **Yes in float32, and yes on the GPU where the orbits are coherent; no gain where they are
 not.** A Metal prototype (quadtree seeds 32 → 2 texels, ε = 1e−2, float32 deltas with the
 production perturbation and rebasing, floatexp seeds in the deep kernel) gives at 1600 × 1000
-(full numbers: [[synthesis/benchmarks]] R5):
+(full numbers: [almondbread benchmarks and verification record](../synthesis/benchmarks.md) R5):
 
 | view | steps plain → SA | GPU ms plain → SA (median of 9, interleaved) |
 |---|---|---|
@@ -87,5 +87,9 @@ differ by more than 3 % in colour; 0.44 % at sea-1e20 after the deep DE fix, 3.1
 - Rebasing between branch and admission: children and pixels re-test `|Z_m + dz| < |dz|` at
   admission; no artefact.
 
-Recommendation and the M5 integration design: [[techniques/local-series-approximation]]
+Recommendation and the M5 integration design: [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md)
 "GPU prototype (R5)".
+
+# Citations
+
+- [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)

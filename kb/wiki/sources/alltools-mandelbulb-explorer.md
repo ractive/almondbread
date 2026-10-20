@@ -24,8 +24,12 @@ summary on 2026-10-19, not read in full
 ## Reliability
 
 Low: an anonymous tool page. The 1e4–1e5 float32 figure agrees with our own estimate in
-[[decisions/landscape-mode]]; the perturbation claim is unsupported.
+[Landscape mode: fly over the Mandelbrot set as 2.5D terrain](../decisions/landscape-mode.md); the perturbation claim is unsupported.
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://alltools.dev/tools/visualizations/mandelbulb-3d-explorer/>

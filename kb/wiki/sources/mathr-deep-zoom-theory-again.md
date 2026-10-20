@@ -35,7 +35,7 @@ rules as used in early Fraktaler 3.
 ## Reliability
 
 Primary, by the Fraktaler 3 author, but an early draft of the method. The later
-[[sources/mathr-deep-zoom-page]] §3.1 says "My earlier attempt at a validity check was nonsense, best
+[mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md) §3.1 says "My earlier attempt at a validity check was nonsense, best
 to ignore that part of the older posts", so the radius formula here must not be used. The same page
 says this table construction is "suboptimal according to Zhuoran". The rebasing description and the
 merge rules for `A`, `B` remain valid.
@@ -47,5 +47,10 @@ merge rules for `A`, `B` remain valid.
 
 ## Used by
 
-[[techniques/rebasing]], [[techniques/bla]], [[formulas/hybrids]], [[formulas/burning-ship]],
-[[implementations/fraktaler-3]], [[questions/bla-vs-la-benchmark]], [[questions/higher-order-bla]]
+[Rebasing (Zhuoran, 2021)](../techniques/rebasing.md), [Bivariate linear approximation (BLA)](../techniques/bla.md), [Hybrid formulas](../formulas/hybrids.md), [Burning Ship and abs variations](../formulas/burning-ship.md),
+[Fraktaler 3](../implementations/fraktaler-3.md), [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md), [Is a higher-order (second-order) BLA worth it?](../questions/higher-order-bla.md)
+
+# Citations
+
+- <https://mathr.co.uk/blog/2022-02-21_deep_zoom_theory_and_practice_again.html>
+- [mathr: Deep zoom (reference page)](mathr-deep-zoom-page.md)

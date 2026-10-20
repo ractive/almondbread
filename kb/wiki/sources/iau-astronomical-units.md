@@ -28,7 +28,7 @@ Not saved under `raw/`. Read 2026-10-15.
 
 - **Value:** 9 460 730 472 580 800 m, exact by construction: the distance light travels
   in vacuum in one Julian year, `c × 365.25 × 86 400 s` with `c = 299 792 458 m/s`
-  exact (see [[sources/codata-2022-constants]]). Arithmetic checked 2026-10-15.
+  exact (see [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md)). Arithmetic checked 2026-10-15.
 - **Quotes found:**
   - NIST Guide to the SI (SP 811), Appendix B.8: "light year (l.y.) [18] meter (m)
     9.460 73 E+15" (rounded to 6 figures):
@@ -46,3 +46,10 @@ Not saved under `raw/`. Read 2026-10-15.
 ## Also in NIST SP 811 B.8
 
 "astronomical unit (au) meter (m) 1.495 979 E+11", consistent with the above.
+
+# Citations
+
+- <https://www.iau.org/common/Uploaded%20files/IAUGA2015-Resolution-B3-recommended-nominal-conversion.pdf>
+- [NIST CODATA 2022 recommended values (Planck units, Bohr radius, proton radius, h, c)](codata-2022-constants.md)
+- <https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b8>
+- <https://astro4edu.org/resources/glossary/term/178/>

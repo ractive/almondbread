@@ -8,7 +8,7 @@ tags: [architecture, rust, metal, swift, portability]
 
 # Rust core with a Rust Metal backend; Swift for UI only
 
-Amends [[decisions/app-stack]] (Swift stays the UI language on Apple
+Amends [App stack: Swift, SwiftUI/AppKit and Metal](app-stack.md) (Swift stays the UI language on Apple
 platforms; everything else moves to Rust).
 
 ## Context
@@ -16,7 +16,7 @@ platforms; everything else moves to Rust).
 The user wants all non-UI code reusable, so that Windows and Linux UIs can
 be added later. Milestones 1–3a were written in Swift (renderer, chunked
 scheduler, verification harness, arbitrary-precision library
-[[decisions/arbitrary-precision]]).
+[Arbitrary precision: own Swift/C implementation, not GMP/MPFR](arbitrary-precision.md)).
 
 ## Decision
 
@@ -46,11 +46,11 @@ scheduler, verification harness, arbitrary-precision library
 
 - Nothing per pixel or per iteration crosses the FFI boundary; a frame
   makes a handful of FFI calls at most.
-- Acceptance for the port: the benchmark set in [[synthesis/benchmarks]]
+- Acceptance for the port: the benchmark set in [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
   (GPU ms per location, reference-orbit iterations per second per
   precision, interaction frame rate and latency) matches the Swift
   baseline within measurement noise on the same machine.
-- No GMP/MPFR (licence, [[decisions/arbitrary-precision]]); the own
+- No GMP/MPFR (licence, [Arbitrary precision: own Swift/C implementation, not GMP/MPFR](arbitrary-precision.md)); the own
   arithmetic is ported, with the existing oracle fixtures.
 
 ## Consequences
@@ -74,13 +74,13 @@ scheduler, verification harness, arbitrary-precision library
   property tests against exact rationals; the Rust core matches AlmondbreadMath bit
   for bit through the Swift bindings (`make core-check`).
 - Speed: reference orbit 1.05x (2048 bits) to 4x (64 bits) the Swift build on the
-  same machine; allocating operators up to 14x (parse) ([[synthesis/benchmarks]],
-  [[platform/mpfr-gmp-on-apple-silicon]]). The acceptance rule above is met for the
+  same machine; allocating operators up to 14x (parse) ([almondbread benchmarks and verification record](../synthesis/benchmarks.md),
+  [Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)). The acceptance rule above is met for the
   maths; GPU and interaction parity is R2's.
 - Build: `make rust` produces `build/rust/AlmondbreadCoreFFI.xcframework` and the Swift
   bindings; the Swift package has `AlmondbreadCoreFFI` (binary) and `AlmondbreadCore`
   (Swift) targets; `make build`, `make app` and `make ios-sim` link the core
-  ([[platform/rust-swift-ffi]]).
+  ([Rust core to Swift: UniFFI and the XCFramework pipeline](../platform/rust-swift-ffi.md)).
 - FFI: a scalar call costs 3.6 ns; returning bulk data as a UniFFI `Vec` is ~1700x
   slower than one copy into caller memory, so bulk data never crosses as a `Vec`.
 - Open for R2: the render crate with the `objc2-metal` backend and the MSL kernels,
@@ -95,10 +95,10 @@ scheduler, verification harness, arbitrary-precision library
   `CAMetalLayer` surface; no backend on Linux/Windows yet (the crates still `cargo check`
   there). `almondbread-core` gained viewport, settings, palettes, the navigation model,
   CPU oracle and verify metrics; `almondbread-cli` has render/verify/bench/regress
-  ([[platform/render-architecture]]).
+  ([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md)).
 - Acceptance met headlessly: iteration fields bit-identical to Swift at every benchmark
   location and the regress views (extension passes included), GPU ms per location within
-  noise (geomean 0.998), regress sessions pass the same guards ([[synthesis/benchmarks]]).
+  noise (geomean 0.998), regress sessions pass the same guards ([almondbread benchmarks and verification record](../synthesis/benchmarks.md)).
 - Open for R2b: export the engine through UniFFI (layer pointer, per-frame call, input
   events), switch both apps, measure interaction parity (including the drawable-pool
   predictor that replaces the blocking `nextDrawable` wait), delete the Swift renderer and
@@ -111,8 +111,8 @@ scheduler, verification harness, arbitrary-precision library
   with a decoded `InputEvent`, settings as one record, `stats()` at ~10 Hz, viewport,
   coordinates text, palettes, offscreen PNG, interaction-test measurements); it wraps
   the platform-neutral `Host<B>` in `almondbread-render`, which a Windows or Linux UI
-  reuses with its own backend and surface ([[platform/render-architecture]],
-  [[platform/rust-swift-ffi]]).
+  reuses with its own backend and surface ([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md),
+  [Rust core to Swift: UniFFI and the XCFramework pipeline](../platform/rust-swift-ffi.md)).
 - Swift is UI only: SwiftUI views, `ExplorerModel` (settings mirror), the platform views
   (CAMetalLayer, display link, event decoding), self-test and interaction test. All
   motion policy is the core `Navigator`.
@@ -126,6 +126,10 @@ scheduler, verification harness, arbitrary-precision library
 - Acceptance met: interaction frame rate, interval and latency at parity or better in all
   eight scenarios, the 9.4 ms drawable stall gone, shown frames identical to fresh
   renders; final refined frames 10–25 ms later in some scenarios for the same GPU work
-  ([[synthesis/benchmarks]], R2b). FFI per frame 2–7 µs.
+  ([almondbread benchmarks and verification record](../synthesis/benchmarks.md), R2b). FFI per frame 2–7 µs.
 - The R2a pool predictor needed two corrections (count `acquired − presented`; gate only
-  gesture frames before encoding), see [[platform/render-architecture]].
+  gesture frames before encoding), see [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md).
+
+# Citations
+
+- [No cited source: our own design decision; its basis is the Context and Reasons above](#context)

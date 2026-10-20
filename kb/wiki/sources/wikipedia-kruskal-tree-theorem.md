@@ -36,4 +36,8 @@ The bounds are Friedman's, reported second-hand. Fine for the one-liner in the p
 
 ## Used by
 
-[[synthesis/how-big-is-big]]
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Kruskal%27s_tree_theorem>

@@ -38,7 +38,7 @@ A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than
 
 - Secondary and recent (manifest year 2026, retrieved 2026-10-14). Careful and well argued; the claim that compilers on Apple/Metal may break classic double-single is stated as a WGSL-spec issue plus their experience, without a named failing case.
 - No numeric timings in the saved page; the benchmark is interactive and not captured.
-- Its statements concern WebGPU/WGSL. For native Metal, whether `fastMathEnabled`/`mathMode` settings break error-free transforms is a separate question (see [[sources/apple-metal-compile-options]]).
+- Its statements concern WebGPU/WGSL. For native Metal, whether `fastMathEnabled`/`mathMode` settings break error-free transforms is a separate question (see [Apple docs: MTLCompileOptions mathMode](apple-metal-compile-options.md)).
 
 ## Useful sections
 
@@ -53,8 +53,13 @@ A guide page in the luma.gl (vis.gl, WebGL/WebGPU) docs on ways to get more than
 
 ## Used by
 
-- [[techniques/double-float]]
-- [[platform/metal-compute]]
-- [[questions/metal-fast-math-defaults]]
-- [[questions/double-float-speed-on-m1]]
-- [[questions/apple-gpu-denormals]]
+- [Double-float (float-float) arithmetic](../techniques/double-float.md)
+- [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md)
+- [What does Metal's default math mode allow for runtime-compiled kernels?](../questions/metal-fast-math-defaults.md)
+- [Which extended-precision emulation is fastest and correct on Apple GPUs?](../questions/double-float-speed-on-m1.md)
+- [Do Apple GPUs flush float32 denormals to zero?](../questions/apple-gpu-denormals.md)
+
+# Citations
+
+- <https://luma.gl/docs/api-guide/shaders/gpu-floating-point-precision>
+- [Apple docs: MTLCompileOptions mathMode](apple-metal-compile-options.md)

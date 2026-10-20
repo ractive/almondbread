@@ -38,7 +38,7 @@ A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on
 ## Reliability
 
 - Primary for Very Plotter's own implementation, secondary for the theory (taken from the fractalforums thread). Author's own benchmarks on one machine; SA and BLA used different "algorithm" settings per location, so comparisons are rough.
-- The merge formula for `B` reads `A_x·B_x + B_y`. Composing x then y gives `Δz = A_y(A_x Δz + B_x Δc) + B_y Δc`, so `B = A_y·B_x + B_y` (inference; compare the merge rule in [[sources/mathr-deep-zoom-theory-again]]). Treat the post's version as a typo.
+- The merge formula for `B` reads `A_x·B_x + B_y`. Composing x then y gives `Δz = A_y(A_x Δz + B_x Δc) + B_y Δc`, so `B = A_y·B_x + B_y` (inference; compare the merge rule in [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)). Treat the post's version as a typo.
 - The post defines `Δz_n = Z_n − z_n` and `Δc = C_ref − c`, the opposite sign to the usual convention, yet writes the standard `+Δz²` recurrence. The sign slip does not affect the magnitudes used in the radius tests (inference).
 - The text conversion turned "O(n/2)" into "O(n2)"; the HTML has the fraction.
 - Auto-epsilon is a heuristic with no error bound; it only checks the sampled test points.
@@ -55,7 +55,12 @@ A blog post (9 May 2023) by the author of the JavaScript viewer Very Plotter, on
 
 ## Used by
 
-- [[techniques/bla]]
-- [[techniques/reference-selection]]
-- [[implementations/very-plotter]]
-- [[questions/bla-vs-la-benchmark]]
+- [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)
+- [Very Plotter](../implementations/very-plotter.md)
+- [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md)
+
+# Citations
+
+- <https://philthompson.me/2023/Faster-Mandelbrot-Set-Rendering-with-BLA-Bivariate-Linear-Approximation.html>
+- [mathr: Deep zoom theory and practice (again) (2022)](mathr-deep-zoom-theory-again.md)

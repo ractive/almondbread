@@ -29,3 +29,8 @@ Primary project announcement. Compute-shader ergonomics are not covered.
 ## Used by
 
 Game-edition research notes (kept private, not in this wiki).
+
+# Citations
+
+- <https://bevy.org/news/bevy-0-20/>
+- <https://bevy.org/news/>

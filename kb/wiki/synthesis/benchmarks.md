@@ -2,7 +2,7 @@
 title: "almondbread benchmarks and verification record"
 type: synthesis
 date: 2026-10-14
-sources: ["[[sources/mlx-watchdog-issue]]", "[[sources/cheritat-mandelbrot-rendering]]", "[[sources/fractalforums-interior-detection]]", "[[sources/metal-benchmarks-readme]]"]
+sources: ["sources/mlx-watchdog-issue", "sources/cheritat-mandelbrot-rendering", "sources/fractalforums-interior-detection", "sources/metal-benchmarks-readme"]
 tags: [benchmark, verification, measured, metal, interior, chunking, interaction]
 ---
 
@@ -13,7 +13,7 @@ section per milestone; keep older tables for comparison. All numbers are ours:
 `measured 2026-10-14, M1 Pro (16-core GPU), macOS 26 (Darwin 25.5), release`
 unless a section says otherwise.
 
-> **Switches named below were removed 2026-10-17** (`ALMONDBREAD_SA`, `_FILL`, `_BLA`, `_LA`, `_AT`, `_ITER_FLOOR`, `_SAMPLE_CACHE`, `_SERIAL_COMPOSE`, `_WARM_PIPELINES`, `_AUTOPILOT_LOCK`, `_PROBE_ESCALATE`, `--sa/--fill/--bla/--la/--at/--lock/--further`; the auto path is the only one). Sections are measurement history and keep the names; see [[log]] "Behaviour switches removed".
+> **Switches named below were removed 2026-10-17** (`ALMONDBREAD_SA`, `_FILL`, `_BLA`, `_LA`, `_AT`, `_ITER_FLOOR`, `_SAMPLE_CACHE`, `_SERIAL_COMPOSE`, `_WARM_PIPELINES`, `_AUTOPILOT_LOCK`, `_PROBE_ESCALATE`, `--sa/--fill/--bla/--la/--at/--lock/--further`; the auto path is the only one). Sections are measurement history and keep the names; see [Log](../log.md) "Behaviour switches removed".
 
 ## Tools
 
@@ -56,7 +56,7 @@ Defined in `Sources/AlmondbreadKit/BenchmarkLocations.swift`.
 
 Iterate-pass GPU time in ms (sum over chunks for M2). *M1* = single dispatch per
 frame; *M2 off* = chunked, interior test off; *M2* = chunked, interior test on
-(adaptive, see [[techniques/interior-detection]]).
+(adaptive, see [Interior detection](../techniques/interior-detection.md)).
 
 | location | size | M1 | M2 off | M2 | M2 chunks | speedup M1→M2 |
 |---|---|---:|---:|---:|---:|---:|
@@ -107,7 +107,7 @@ at feigenbaum, 5.1 % at seahorse, but only 0.7 % at deep-5e-14. So at seahorse
 and feigenbaum the GPU disagreement is mostly chaotic sensitivity of boundary
 pixels (any tiny perturbation of c does it), while at deep-5e-14 the 14.9 % is
 real float32 error (float32 `dc`/reference rounding at 5e−14/px). See
-[[questions/float32-error-long-orbits]].
+[How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md).
 
 ### Scheduler findings
 
@@ -130,7 +130,7 @@ real float32 error (float32 `dc`/reference rounding at 5e−14/px). See
   at feigenbaum, 4 M slots gained ~5 %.
 - **Watchdog.** M1's single 10.4 s command buffer (feigenbaum 3456×2234) completed
   without error from a headless CLI process with the display on; see
-  [[questions/metal-watchdog-limit]]. M2 never runs a command buffer much past
+  [What is the exact Metal GPU watchdog limit on macOS and iOS?](../questions/metal-watchdog-limit.md). M2 never runs a command buffer much past
   ~20 ms.
 
 ### Interaction (2560×1640 px window, 120 Hz ProMotion)
@@ -185,7 +185,7 @@ parallel build loaded the machine):
 | 16384 | 20 k | 23 k | 41 k | 39 k |
 
 Target (>= GMP up to 1024 bits) met; GMP is up to 1.8x faster from 4096 bits. Details
-and the optimisations that mattered: [[platform/mpfr-gmp-on-apple-silicon]].
+and the optimisations that mattered: [Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md).
 
 Correctness (`swift test --filter AlmondbreadMathTests`, 18 tests, debug and release):
 1500 random add/sub/mul/square/div/small-multiply cases at 64...4096 bits, 411 parses
@@ -193,7 +193,7 @@ and 400 formats, all bit-exact against exact Python rationals with round-to-near
 7 reference orbits (64...4096 bits, 119...5000 iterations) bit-exact for both
 formulations; 8 nuclei (periods 3...8007, depths to 6e-300) within 1 bit of mpmath.
 Reference selection: period 8007 nucleus at 192 bits in 20 ms, period 250 at 2048
-bits in 7 ms ([[techniques/reference-selection]]).
+bits in 7 ms ([Reference selection: nucleus, period detection, Newton](../techniques/reference-selection.md)).
 
 ## R1: Rust core vs Swift AlmondbreadMath, 2026-10-14
 
@@ -220,9 +220,9 @@ are below the quiet-machine M3a table; the ratios are what counts
 | 8192 | 72 k | 94 k | 67 k | 80 k | 1.29x |
 | 16384 | 22.4 k | 27.5 k | 19.3 k | 21.9 k | 1.23x |
 
-Acceptance of [[decisions/rust-core]] (Rust >= Swift within noise at every precision)
+Acceptance of [Rust core with a Rust Metal backend; Swift for UI only](../decisions/rust-core.md) (Rust >= Swift within noise at every precision)
 met; 2048 bits is the narrowest margin. The kernel changes that got there are on
-[[platform/mpfr-gmp-on-apple-silicon]].
+[Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md).
 
 Allocating BigFloat operators (`math_check ops` vs `almondbread-math-check ops`, same
 session): 128 bits mul 55 ns (Swift 101), add 65 ns (104), div 298 ns (594), format
@@ -239,7 +239,7 @@ operands half the time), decimal parse correctly rounded and round-tripping, sqr
 operators. A deliberately broken rounding step was caught. `make core-check` matches
 the Rust core through the Swift bindings against AlmondbreadMath bit for bit
 (coordinates, 5 orbits point by point, reference selection). FFI costs:
-[[platform/rust-swift-ffi]].
+[Rust core to Swift: UniFFI and the XCFramework pipeline](../platform/rust-swift-ffi.md).
 
 ## Contradictions
 
@@ -249,8 +249,8 @@ it to ~1.5× (48 ms), and the adaptive switch removes it where no interior is in
 
 ## Interior test `|w| n²`, unresolved pixels, extension passes (2026-10-14)
 
-The fix for the −3/4 neck wedge (see [[techniques/interior-detection]] Pitfalls and
-[[techniques/auto-iterations]]). `--bench`, best of 2, iterate GPU ms. *Before* is
+The fix for the −3/4 neck wedge (see [Interior detection](../techniques/interior-detection.md) Pitfalls and
+[Automatic maximum-iteration control](../techniques/auto-iterations.md)). `--bench`, best of 2, iterate GPU ms. *Before* is
 the same tree with the previous kernel and renderer (built side by side, run back to
 back).
 
@@ -297,14 +297,14 @@ extension pass:
 
 Before, the neck at 2.2e5 completed in 0.2 s, with the wedge. A first version that
 continued unresolved pixels inside the level took 2.9 s to complete (live-list
-starvation, [[platform/gpu-watchdog-and-chunking]] Pitfalls). The final frames of
+starvation, [GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md) Pitfalls). The final frames of
 these sessions are identical in class to a fresh headless render (0.000 %).
 `--interaction-test` (60 Hz display) with the new "neck zoom" scenario: 58.5 fps,
 final frame 407 ms after input, shown frame vs fresh render 0 pixels differing.
 
 ## R2a: Rust renderer vs Swift renderer, 2026-10-14
 
-The Rust scheduler and Metal backend ([[platform/render-architecture]]) against the Swift
+The Rust scheduler and Metal backend ([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md)) against the Swift
 `Renderer`, same machine, same session: three interleaved rounds of
 `AlmondbreadMac --bench --out dir` and `almondbread bench --out dir` (each best of 2 after a
 warm-up), load average 9–17 from other work. Iterate GPU ms (measured 2026-10-14, M1 Pro,
@@ -367,7 +367,7 @@ test.
 **Interaction (Swift, for the record):** `--interaction-test` "neck zoom" draw CPU p50
 9.5 ms (60 Hz display) is blocking in `currentDrawable` (8.9 ms), not CPU work;
 frames-in-flight 1 removes it but costs frame rate on heavy views. Analysis and the Rust
-design answer on [[platform/render-architecture]]. Interaction parity of the Rust renderer
+design answer on [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md). Interaction parity of the Rust renderer
 is measured in R2b, when the app hosts it (section below).
 
 ## R2b: the apps on the Rust renderer, interaction parity, 2026-10-14
@@ -405,7 +405,7 @@ Findings:
 - **The 9.4 ms drawable stall is gone** (draw CPU p50 8.6–8.9 ms → 0.8–1.0 ms in neck
   zoom, p95 ≤ 1.2 ms everywhere vs up to 9.5 ms). Two corrections to the R2a design were
   needed (strict pool count 36–38 fps; gate refinement → final frame +50 ms), see
-  [[platform/render-architecture]].
+  [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md).
 - **Final frame is 10–25 ms later** in some scenarios (the neck at 400–416 ms vs Swift's
   bimodal 341/392). The refinement is chunk-for-chunk the same work (neck: 1.12e11 vs
   1.13e11 iterations, 2862 vs 2835 GPU ms over the scenario, same K sequence); two
@@ -419,7 +419,7 @@ Findings:
   renderers' decisions. The GPU-ms-per-frame column differs (neck 9.6 vs 11.4) only by
   attribution: chunks counted inside the measuring window.
 - **FFI cost of the frame call** (Swift-side minus inside-Rust time): 2–7 µs per frame in
-  the window. `input()` 0.9 µs, `stats()` 6 µs ([[platform/rust-swift-ffi]]).
+  the window. `input()` 0.9 µs, `stats()` 6 µs ([Rust core to Swift: UniFFI and the XCFramework pipeline](../platform/rust-swift-ffi.md)).
 - **Occluded test windows measure nothing.** With the window fully covered, presented
   handlers report no times for either renderer (12 such rounds discarded). The test now
   places its rearmost window in the screen corner and warns when nothing was presented.
@@ -485,16 +485,16 @@ Findings:
 - **Open: gesture fps on heavy zooms at 120 Hz.** Swift reaches more frames in 1e5 zoom
   (117 vs 103–105) and neck zoom (83 vs 76, Swift varying 56–93); Rust skips 12–21
   refreshes as "no drawable" in 1e5 zoom where Swift skips none. Latency is equal or
-  better in Rust. Likely the drawable-pool prediction of [[platform/render-architecture]]
+  better in Rust. Likely the drawable-pool prediction of [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md)
   (presented callbacks lag a refresh, 8 ms here) is conservative at 120 Hz; not part of
-  M2.5, see [[roadmap]] FL.
+  M2.5, see [Roadmap](../roadmap.md) FL.
 
 ## FL: feel and look, 2026-10-14
 
 `--interaction-test`, 2560×1640 px window, M1 Pro, release. **60 Hz**: with the external
 60 Hz display attached, the background test window on the 120 Hz panel gets 60
 display-link callbacks per second whatever `preferredFrameRateRange` asks
-([[platform/render-architecture]] FL), so M2.5's 120 Hz rows are not directly comparable.
+([Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md) FL), so M2.5's 120 Hz rows are not directly comparable.
 Before = HEAD a54749b (M2.5) with the test placed on the fastest screen, one round; after =
 FL, two rounds. Final frame = all pixels exact; settled = faded in plus progressive AA
 (9 samples, adaptive) done. The after-look has DE lighting on by default (the before-look had
@@ -523,7 +523,7 @@ Checks: shown frame vs fresh render 0–0.001 % in all 22 checks; zoom-target dr
 266 ms, no overshoot; edge pan 0.358 view widths/s (expected 0.364 with the eased start),
 glide after the pointer left 53.3 pt (expected 54.2). FFI 3.1–3.3 µs per frame.
 
-**120 Hz drawable fix** (pre-acquisition thread, [[platform/render-architecture]] FL), one
+**120 Hz drawable fix** (pre-acquisition thread, [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md) FL), one
 round each at 60 Hz before the rendering changes: neck zoom 53.7 → 58.7 fps with "no
 drawable" skips 16 → 2, space zoom 50.0 → 55.0 fps (26 → 12 skips, now mostly GPU frames in
 flight). Final FL rounds: "no drawable" 0 in 9 of 11 scenarios, 8–10 in space zoom and one
@@ -554,7 +554,7 @@ extension passes) took 8.5 min headless.
 Measured 2026-10-14, M1 Pro (16-core GPU), macOS 26, release. The machine had other GPU
 load during parts of this session (the user's app, another agent): timings below are from
 interleaved runs (`--repeat 3`, two rounds, minimum), single runs varied by up to 2×.
-Design and analysis: [[techniques/bla]] (As built).
+Design and analysis: [Bivariate linear approximation (BLA)](../techniques/bla.md) (As built).
 
 **New benchmark location** `dense-5e-14` (−1.4080321340304542 + 0.13680236432900417i, width
 7.384e−11, maxIter 5791): the user's "everything is slower here" view. 1600×1000: 4.61e9
@@ -647,7 +647,7 @@ dive script: 2048² data 15 k p50 / 32 k p95; 1024² data 0.4 k p50 / 5.9 k p95.
 
 Temporal stability. Pop check: same camera, previous vs new world, mean |diff| 0..255:
 level flight 0.0002 p50 / 0.08 max. Dive with σ = 0.1 S: 2.9 p50 every frame. Layered σ:
-0.6–1.0 p50 and 6.2 max in transitions ([[decisions/landscape-mode]] L1). Hover frame
+0.6–1.0 p50 and 6.2 max in transitions ([Landscape mode: fly over the Mandelbrot set as 2.5D terrain](../decisions/landscape-mode.md) L1). Hover frame
 difference 0.000. L0's dive video (640×360 at 30 fps): first difference 17.5, second 29.3
 (second > first: per-frame noise). L1's videos have second/first ≈ 1.45–1.57 at 60 fps,
 dominated by fast low-altitude motion over fine texture, with no spike frames. The pop check
@@ -680,13 +680,13 @@ Window (`fly --background`, 2560×1600, 120 Hz): `low` L1 106.5 / 111.9 fps, L2 
 `dive` L1 114.4 / 106.3, L2 88.3 / 112.5 (L2 zooms to ~1e-6 in the 13 s, L1 to ~1e-4).
 Render p50 4.0–5.9 ms both; p99 16–42 ms both under this load. Earlier, with less load:
 hashed detail noise 12.9 ms (L1 6.5), texture noise + 256² rings 6.8 ms (L1 6.5–6.6), no
-detail 5.8 ms. Details: [[decisions/landscape-mode]] L2.
+detail 5.8 ms. Details: [Landscape mode: fly over the Mandelbrot set as 2.5D terrain](../decisions/landscape-mode.md) L2.
 
 ## M3b: unlimited depth, 2026-10-14
 
 Measured 2026-10-14, M1 Pro, release, with the user's app and another agent running (GPU
-timings vary ±50 % between runs; best of 3 given). Design: [[techniques/extended-range-floats]]
-"As built (M3b)", [[techniques/bla]] "M3b", [[platform/render-architecture]] "M3b".
+timings vary ±50 % between runs; best of 3 given). Design: [Extended range: floatexp, rescaled iterations, depth thresholds](../techniques/extended-range-floats.md)
+"As built (M3b)", [Bivariate linear approximation (BLA)](../techniques/bla.md) "M3b", [Render architecture: GPU backend trait, chunked scheduler, Metal backend (Rust)](../platform/render-architecture.md) "M3b".
 
 **Deep benchmark locations** (`almondbread locate`; `DEEP_LOCATIONS` in
 `crates/almondbread-core/src/locations.rs`): `sea-1e20` (seahorse valley, 1e-20/px),
@@ -714,7 +714,7 @@ pixel tested (384/384 escape counts, max |Δμ| 1.2e-7 = float32 storage of s) a
 | dendrite-1e50 / 1e300 / 1e1000 | 0.004–0.005 % | 0 | 0 | 2–5e-7 | 0.01 % |
 
 Escape-n differences are the chaotic boundary pixels float32 cannot resolve (the M2 caveat,
-[[questions/float32-error-long-orbits]]); they are independent of BLA and of the reference
+[How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md)); they are independent of BLA and of the reference
 (at the sea view 1.36e-31/px, 1280×820: class mismatch 0.264 % with BLA, 0.270 % without,
 0.266 % with a centre instead of a nucleus reference, all GPU-ext/CPU-int ⇄ GPU-unresolved/CPU-ext
 symmetric). Smooth views (needle, dendrite) match to 1e-5 or better at every depth, also at
@@ -780,7 +780,7 @@ Measured 2026-10-14, M1 Pro, release, CPU only (`prototypes/dense-sampling`, f64
 iteration, CPU port of the default look); deterministic iteration counts and OKLab ΔE × 100
 against an independent 16-sample-per-pixel reference, no timing. 800 × 500 crops at each
 location's 1600-wide pixel size (Feigenbaum 400 × 250), limit 4 × the location's. Method,
-all strategies and the motion numbers: [[synthesis/dense-region-sampling]].
+all strategies and the motion numbers: [Dense boundary regions: fewer pixel-iterations for the same image (R3)](dense-region-sampling.md).
 
 Iterations relative to the exact 1 spp render; ΔE mean / p99:
 
@@ -798,14 +798,14 @@ Iterations relative to the exact 1 spp render; ΔE mean / p99:
 | feigenbaum | 4.22 / 12.8 | 2.27, 1.59 / 7.1 | 0.937 | 1.94, 1.60 / 7.2 | 0.736 |
 
 Local SA: quadtree from 32 × 32 tiles, ε = 1e−2, AA samples from pixel seeds
-([[techniques/local-series-approximation]]). Not GPU numbers: the GPU check is
-[[questions/local-sa-float32]].
+([Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md)). Not GPU numbers: the GPU check is
+[Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md).
 
 ## Interior colourings, overlays, control center (2026-10-15)
 
 Measured 2026-10-15, M1 Pro, release, while other agents used the GPU (timings noisy; counts
-are exact). See [[techniques/coloring-methods]] "Interior colouring as built" and
-[[decisions/controls]] "control center, orbit overlay and mini-map".
+are exact). See [Colouring methods](../techniques/coloring-methods.md) "Interior colouring as built" and
+[Controls: keyboard, pointer and touch](../decisions/controls.md) "control center, orbit overlay and mini-map".
 
 **Interior cycle analysis** (`almondbread render --inside period --extend 16`, 960×600,
 look aurora; iterations and loop steps from the chunk counters):
@@ -840,7 +840,7 @@ checks stay at 0 pixels differing in class.
 
 Measured 2026-10-15, M1 Pro, release, with other agents' GPU jobs running (motion-reuse
 renders, deep verifies): absolute frame rates and the depth reached in real time are
-pessimistic. Design: [[decisions/controls]] "Autopilot", "Fly to coordinates".
+pessimistic. Design: [Controls: keyboard, pointer and touch](../decisions/controls.md) "Autopilot", "Fly to coordinates".
 
 **Interaction test** (`make interaction-test`; this run had **120 Hz** callbacks, so fps are
 not comparable with the 60 Hz FL table; 2560×1640 px):
@@ -878,7 +878,7 @@ and the session gates on escape counts (≤ 1 %).
   the throttle was 0.3 for most of the deep part (previews at 1/8 resolution: "Rendering" 75 %
   of the time), so the flight reached 3.2e-27 per point instead of ~1e-30. Images sharp at
   every still (seahorse valley, spirals, minibrot clusters at 1e-24).
-- Earlier tuning runs (same day) are in [[decisions/controls]] Autopilot "Tuning".
+- Earlier tuning runs (same day) are in [Controls: keyboard, pointer and touch](../decisions/controls.md) Autopilot "Tuning".
 - `fly-to-seahorse.mp4`: see the log entry of 2026-10-15.
 
 **Crash fix** (1fef638): a colour change while progressive AA chunks were on the GPU
@@ -889,7 +889,7 @@ fails with the reported panic without the fix.
 ## PJ: journey, view rotation, cinematic effects, 2026-10-15
 
 Measured 2026-10-15, M1 Pro, release, with another agent's GPU jobs (M5) running at times.
-Design: [[decisions/controls]] "Journey", "View rotation", "Cinematic effects".
+Design: [Controls: keyboard, pointer and touch](../decisions/controls.md) "Journey", "View rotation", "Cinematic effects".
 
 **Planner** (`almondbread journey --seed s --legs 18`, CPU only, one thread plus the oracle's
 rayon rows): 0.01–0.3 s per plan from home to 1e43 (seeds 4711, 7, 20261015), 10–20
@@ -936,7 +936,7 @@ scenarios `rotate zoom`, `cinematic autopilot` and `journey` are in
 
 ### PJ variety: dives and cross-overs, 2026-10-15
 
-Design: [[decisions/controls]] "Journey", variety revision. Measured 2026-10-15, M1 Pro,
+Design: [Controls: keyboard, pointer and touch](../decisions/controls.md) "Journey", variety revision. Measured 2026-10-15, M1 Pro,
 release, with several other agents' builds, GPU benches and regress runs on the machine
 (load average 120–190 during the second set of videos: the pacing numbers of that set are
 the machine's, see below).
@@ -983,7 +983,7 @@ on its own thread and took ≤ 0.26 s per plan at the same load. Re-measure on a
 
 ## R6: faster deep references, 2026-10-15
 
-What changed: [[techniques/parallel-reference-orbit]]. Measured 2026-10-15, M1 Pro (8 P +
+What changed: [Faster deep references: three-thread orbit, progressive delivery, cheap Newton](../techniques/parallel-reference-orbit.md). Measured 2026-10-15, M1 Pro (8 P +
 2 E cores), release, base = `b781bee` (M3b/R3 main) against the R6 branch, runs
 interleaved base/new. Other agents shared the machine throughout: "loaded" = 1-minute load
 average 35-90, "lighter" = load 4-12 (the quietest it got). Both are given.
@@ -1044,7 +1044,7 @@ views escape by ~2700 iterations, so the prefix covers them entirely. `make regr
 load ~20): short Comba vs full square (Comba < 48 limbs, Karatsuba above): 18 limbs 101 vs
 170, 54 limbs 616 vs 1128, 106 limbs 2071 vs 3553, 157 limbs 4596 vs 6784, 256 limbs 11206
 vs 15576. No Toom-3, Mulders or NTT was built: they would have to beat the short product,
-not Karatsuba ([[platform/mpfr-gmp-on-apple-silicon]]).
+not Karatsuba ([Arbitrary precision on Apple Silicon (GMP, MPFR)](../platform/mpfr-gmp-on-apple-silicon.md)).
 
 **Correctness**: `orbit_digest` (5 points incl. c = i, 64-10048 bits, all variants, one and
 three threads) identical to base; unit tests for three threads through escape, resume after
@@ -1059,8 +1059,8 @@ Measured 2026-10-14, M1 Pro (16-core GPU), macOS 26, release, branch
 single renders varied by up to 3× (dense-5e-14 plain 75–255 ms across sessions). Timings are
 interleaved A/B (3 rounds, alternating order, 3 renders each after a warm-up; min / median /
 max of 9); step counts are deterministic. Prototype and design:
-[[techniques/local-series-approximation]] "GPU prototype (R5)"; answer:
-[[questions/local-sa-float32]].
+[Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md) "GPU prototype (R5)"; answer:
+[Does local series approximation hold in the float32 perturbation kernel?](../questions/local-sa-float32.md).
 
 `almondbread render --sa 0|1 --size 1600x1000 --iterations <location's>` (offscreen, plain
 look, interior test as configured). Steps: loop steps (BLA blocks count one); SA = seed steps
@@ -1138,8 +1138,8 @@ Measured 2026-10-15, M1 Pro (16-core GPU), macOS 26, release, branch
 `worktree-agent-a9436fdde1a6473db` after merging main (view rotation). **The GPU was shared**
 with the user's open app and other agents: the same plain render took 77 ms in the morning
 and 125 ms (dense-5e-14) in the afternoon runs, so compare within a row only. Design and
-as-built notes: [[techniques/local-series-approximation]] "As built (M5)",
-[[techniques/guessing-and-subdivision]] "As built (M5)", [[techniques/auto-iterations]]
+as-built notes: [Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md) "As built (M5)",
+[Guessing, border tracing and rectangle subdivision](../techniques/guessing-and-subdivision.md) "As built (M5)", [Automatic maximum-iteration control](../techniques/auto-iterations.md)
 "Floor from the reference".
 
 ### Offscreen GPU time, M5 default vs all off
@@ -1207,7 +1207,7 @@ sea-1e20, spiral, elephant, root-third, dense, neck-2e5, needle): no seams, patc
 minibrots. Interior fill: bit-identical fields with and without (test `interior_fill_exact`).
 `make regress` with SA auto and forced on: all sessions OK, including two new spiral sessions
 (jump and pan; the pan exposed the interior-test switch bug, fixed, see
-[[techniques/auto-iterations]]).
+[Automatic maximum-iteration control](../techniques/auto-iterations.md)).
 
 ### Interactive (interaction test, background window 1280 × 820 pt at 2x, 120 Hz display)
 
@@ -1246,7 +1246,7 @@ several before: 12 fps).
 
 Measured 2026-10-14/15 on an M1 Pro, release builds, `prototypes/motion-reuse`. Iteration
 counts and image metrics are deterministic. GPU timings were taken on a shared GPU; their
-spread is given. Method, all tables and the design: [[synthesis/motion-sample-reuse]].
+spread is given. Method, all tables and the design: [Motion sample reuse: fewer iterations per gesture frame (R4)](motion-sample-reuse.md).
 
 The table gives, per gesture frame, iterations relative to FL's compose at its
 dynamic-resolution ratio, then OKLab ΔE mean / p99 / temporal error against a 16-sample
@@ -1276,7 +1276,7 @@ GPU time per frame:
 `almondbread benchmark` (`make flight-bench`, `make flight-bench-live`) plays one fixed
 60 s flight at 1920×1080 through every regime and scores it against a reference machine
 (M1 Pro = 1000). Design, checks and the calibration procedure are on
-[[synthesis/flight-benchmark]]. The reference in the repo is **provisional**: it was written
+[Flight benchmark: one fixed flight, a score, a regression guard](flight-benchmark.md). The reference in the repo is **provisional**: it was written
 from single laps while other agents loaded the machine (the NOISY banner fired on every run:
 3–9 other cores busy, GPU 24–97 % busy before the laps).
 
@@ -1302,7 +1302,7 @@ first case was reported to the driver for the M5 work.
 
 Measured 2026-10-15, M1 Pro (16-core GPU), release, with other agents' GPU jobs running
 (load average 140–600). Tool: `almondbread precision` (`crates/almondbread-cli/src/precision.rs`):
-the float32 GPU field against the CPU oracle (f64 deltas, [[questions/float32-error-long-orbits]])
+the float32 GPU field against the CPU oracle (f64 deltas, [How large is float32 perturbation error over long orbits?](../questions/float32-error-long-orbits.md))
 **next to control oracles whose pixel grid is shifted by 0.001–0.5 pixel**. Where a 0.001-pixel
 shift changes as many escape counts as float32 does, the float32 "error" is the view's own
 chaotic sensitivity, not an artefact: any image of those pixels is one random draw. Both fields
@@ -1334,7 +1334,7 @@ interior test off (as the oracle), auto iterations unless noted; "differs" = esc
 | spiral-1e1000 (3.8e-1003, 2e5 it) | 17.8 / 34.0 | 2.80 / 5.08 | 6.07 / 11.1 | 0.1–0.2 px | 0.031 / 0.062 |
 | needle-minibrot-1e1000 (1e6 it, 200×130) | 0.15 / 0.24 | 5.15 / 15.7 | 23.8 / 77.5 | < 0.001 px | |
 
-(Places are from the catalogue, [[synthesis/places]]; sea-8007 framed 400 wide needs 1e5
+(Places are from the catalogue, [Places: a catalogue of famous views to visit](places.md); sea-8007 framed 400 wide needs 1e5
 iterations, at its auto limit of 29 004 every pixel is still iterating.)
 
 **No visible artefacts.** At 100 % and 4× crops (GPU | oracle | 0.001-px control) of
@@ -1387,8 +1387,8 @@ tools and tests).
 Measured 2026-10-15, M1 Pro (16-core GPU), macOS 26, release, branch
 `worktree-agent-aa5f8d75073184c1d` (main d7ab9e1 merged). **The GPU and CPU were shared** with
 other agents (load averages 13 → 550 during the session): single renders varied up to 3×, so
-only interleaved medians within a row compare. Design: [[techniques/linear-approximation-imagina]]
-"As built (M6)"; answer: [[questions/bla-vs-la-benchmark]].
+only interleaved medians within a row compare. Design: [Linear approximation with period-aligned stages and AT (Imagina)](../techniques/linear-approximation-imagina.md)
+"As built (M6)"; answer: [How much faster is Imagina-style LA than binary-tree BLA on a GPU?](../questions/bla-vs-la-benchmark.md).
 
 ### CPU model (deterministic step counts)
 
@@ -1466,9 +1466,9 @@ needle-1e1004's bands): no seams or patches, LA and off look the same.
 `ALMONDBREAD_SA=0`: one pixel row lies exactly on the real axis, where c > −2 by 1e−301 and the
 orbit is bounded only on a knife edge; seeded pixels there escape near n = 2 200. Which runs show
 it depends on which tiles the M5 gate seeds (LA changes the statistics). Not an LA error; noted
-for the seed work ([[techniques/local-series-approximation]]). **Fixed 2026-10-16**: seeds are
+for the seed work ([Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md)). **Fixed 2026-10-16**: seeds are
 not used within 16 texels of the axis when the reference is real; 0.000 % at all three needles
-([[techniques/local-series-approximation]] "Real axis").
+([Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md) "Real axis").
 
 ### `make bench` (M6 build, load average 440–550)
 
@@ -1545,7 +1545,7 @@ scenario but fly-to (12 ms iterate GPU in its jump frames) fits 8.33 ms.
 
 ## Sample cache: motion sample reuse in production, 2026-10-15
 
-What was built: [[techniques/sample-reuse]] "As built". Measured 2026-10-15 on an M1 Pro,
+What was built: [Sample reuse while zooming and panning (sample cache in fractal coordinates)](../techniques/sample-reuse.md) "As built". Measured 2026-10-15 on an M1 Pro,
 release, at 8b3d608. Other agents were building and benchmarking at the same time (load
 average 6–200), so every run was repeated at least twice; the numbers below are the last
 full set, and single-frame CPU maxima are load spikes. Tool: `almondbread fly --out null`
@@ -1626,7 +1626,7 @@ Measured 2026-10-15/16, M1 Pro, release, `almondbread fly` (real-time pipeline, 
 default speed (0.9 e-folds/s) and at the maximum (4). "Uniform" = frames whose survey heading
 region has danger > 0.5 (the HUD's "slower: featureless / interior" condition), share of
 surveyed frames; deepest zoom reached (log10). Lock off is the old plain Z (the pure joystick
-going straight ahead). See [[decisions/controls]] "Target lock and rescue".
+going straight ahead). See [Controls: keyboard, pointer and touch](../decisions/controls.md) "Target lock and rescue".
 
 | Start | off, default: uniform / zoom | lock, default: uniform / longest / rescue / zoom | lock, max: uniform / longest / rescue / zoom |
 | --- | --- | --- | --- |
@@ -1660,7 +1660,7 @@ agrees in tendency; it took 2–470 s CPU per 90 s run (deep max-speed runs with
 perturbation probes are the slowest). The first lock version aimed the heading straight at
 the target through the pointer spring and oscillated at 4 e-folds/s (target offsets ±450
 points, lost within 4 s at the 1e-50 start, 69 % uniform); the gain law fixed that (see
-[[decisions/controls]]).
+[Controls: keyboard, pointer and touch](../decisions/controls.md)).
 
 ## Rendering-quality fixes (2026-10-16): needle axis band, AA palette filter width
 
@@ -1685,7 +1685,7 @@ spike during the first "after" run doubled neck-2e5 … sea-1e20, not repeated):
 
 No regression beyond noise. Verify (400 × 259): class mismatch at the needles 0.108 / 0.124 /
 0.093 % → 0.000 %, every other location unchanged. Details:
-[[techniques/local-series-approximation]] "Real axis", [[techniques/anti-aliasing]].
+[Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md) "Real axis", [Anti-aliasing and supersampling](../techniques/anti-aliasing.md).
 
 ## Motion fixes: fly-to stalls, π hunt start, journeys, target lock, spiral zoom, 2026-10-16
 
@@ -1697,7 +1697,7 @@ given. Tools: `fly --log` (per refresh: zoom, frame CPU, late ms), `ALMONDBREAD_
 in the interaction test (longest gaps and slowest draws with times), `ALMONDBREAD_KERNEL_SALT`
 (cold Metal shader cache), `journey --path 1|2`, ffmpeg `signalstats` over recorded journeys.
 
-**Fly-to stalls** ([[decisions/controls]] "Fly to", stalls). Eight headless flights (home →
+**Fly-to stalls** ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Fly to", stalls). Eight headless flights (home →
 sea-8007, junction-1e300, needle-minibrot-1e302, spiral-1e1000 at the default speed and with
 nine E presses, junction-1e300 → spiral-1e1000): the path speed never stopped (lowest
 throttle 0.3, the preview back-off; the reference wait never engaged). Freezes came from
@@ -1744,7 +1744,7 @@ rescue 2.6 → 0 s, target switches 23 → 12, zoom reached 1e52.0 → 1e54.4; l
 With the old fixed survey the same start read as uniform interior for 4.5 s and the lock
 dived into the period-8007 minibrot's interior twice.
 
-**Journeys** ([[decisions/controls]] "Journey", revision 2026-10-16). Plans, 16 legs, median
+**Journeys** ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Journey", revision 2026-10-16). Plans, 16 legs, median
 dive depth (deepest landing per cross-over and its legs):
 
 | seed | old: median / deepest | new: median / deepest | longest dull stretch at the default speed, new: uniform → dull pace |
@@ -1764,7 +1764,7 @@ Black frames: none in 62 700 frames of five recorded journeys (the old and new b
 
 ## Interior probe (attracting-cycle proof), 2026-10-17
 
-kb: [[techniques/interior-detection]] "Attracting-cycle probe". `bench` (offscreen, fixed
+kb: [Interior detection](../techniques/interior-detection.md) "Attracting-cycle probe". `bench` (offscreen, fixed
 limit, no extension passes), M1 Pro, release, base b466f42 against the probe, interleaved per
 location (3 rounds × `--repeat 4`, min GPU ms). Other agents were loading the GPU: rows the
 probe never touches (dendrites, spiral, deep-5e-14) still moved by 15–50 %, so differences under
@@ -1828,7 +1828,7 @@ the GPU 70–100 % busy (`ioreg -c IOAccelerator` "Device Utilization %" read be
 
 **Symptom.** The interaction test's "autopilot" scenario (Z, Esc at 2.4 s, check: zoomed
 ≥ ×3.16) failed on main at ×2.2–2.5, on every run with an idle GPU. The autopilot itself was
-fine: `throttle` (kb: [[decisions/controls]] Autopilot) followed `fit`, the gesture-preview
+fine: `throttle` (kb: [Controls: keyboard, pointer and touch](../decisions/controls.md) Autopilot) followed `fit`, the gesture-preview
 resolution the cost model affords, and `fit` sat at 0.13–0.15, so the throttle settled at
 ~0.4 and gesture frames stayed at 1/8 resolution.
 
@@ -1855,7 +1855,7 @@ check passed "on a busy machine" earlier in the week and fails on an idle one.
 (off by default, because background-window numbers are not enough and skipped draws rose at the
 dense and deep views). The user then compared both in the foreground app (smooth, sharp, no
 stutter noticed) and the switch was removed; the table column below named after it is the
-fixed build. Short explanation: [[platform/metal-compute]] "Gesture resolution and GPU clocks". `scheduler.rs`, `probe_gesture_ratio`: (1) a probe: when the model's level fits the
+fixed build. Short explanation: [Metal compute pipeline for a deep-zoom renderer](../platform/metal-compute.md) "Gesture resolution and GPU clocks". `scheduler.rs`, `probe_gesture_ratio`: (1) a probe: when the model's level fits the
 budget, a gesture tries one 1/8 step above for 0.25 s and keeps it if its own measured cost
 fits; the next probe waits 0.5 s, doubling to 4 s after failures; no probe in a gesture's
 first 0.5 s (its first frames are sized by the refined frame's cost); a probe aborts after
@@ -1885,7 +1885,7 @@ feedback (skipped draws) would remove the probe; not needed for the check.
 
 ## F2: pluggable formulas, Mandelbrot A/B, 2026-10-19
 
-The acceptance proof of [[plans/f2-pluggable-formulas]]: formula 0 (Mandelbrot) must be the
+The acceptance proof of [F2: Pluggable-formula refactor](../plans/f2-pluggable-formulas.md): formula 0 (Mandelbrot) must be the
 pre-F2 code (measured 2026-10-19, M1 Pro, release; main = 1350f29 with F1, F2 = the branch
 merged with it; both CLI binaries built from their commits).
 
@@ -1942,3 +1942,10 @@ Mandelbrot vs the oracle at dense, sea and spiral views). It is slower where Man
 capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 40–64 vs 10–16
 ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
 Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.
+
+# Citations
+
+- [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
+- [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
+- [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)

@@ -51,4 +51,8 @@ nearly every cell has high contrast.
 
 ## Used by
 
-[[techniques/adaptive-sampling]]
+[Adaptive and sparse sampling, reconstruction, early termination](../techniques/adaptive-sampling.md)
+
+# Citations
+
+- <http://mentallandscape.com/Papers_siggraph87.pdf>

@@ -39,4 +39,24 @@ Town's (SeryZone is a separate artist and software author credited in Dinkydau's
 
 ## Used by
 
-[[synthesis/finding-deep-places]]
+[Finding good places at extreme depth (1e100 to 1e100000+)](../synthesis/finding-deep-places.md)
+
+# Citations
+
+- <https://www.youtube.com/watch?v=0jGaio87u3A>
+- <https://www.youtube.com/watch?v=Rzmv2nBCIjw>
+- <https://www.youtube.com/watch?v=c0C8DTbfj3g>
+- <https://www.youtube.com/watch?v=kQY-1NAhgQ0>
+- <https://www.youtube.com/watch?v=W8jF0yTVCGM>
+- <http://www.chillheimer.de/kallesfraktaler/e20004.kfr>
+- <https://www.youtube.com/watch?v=_o-oKa8avtc>
+- <https://www.youtube.com/watch?v=ModQ59muXmU>
+- <https://www.youtube.com/watch?v=HS9beZB0ztA>
+- <https://www.youtube.com/watch?v=pCpLWbHVNhk>
+- <https://www.youtube.com/watch?v=6ouG6L-2L3Q>
+- <https://www.youtube.com/watch?v=7CSrcN1jZ24>
+- <https://www.maths.town/videos/deepish-video/>
+- <https://www.youtube.com/watch?v=CfqHAOOM8Tw>
+- <https://www.youtube.com/watch?v=BsH8uiRvYJk>
+- <https://www.youtube.com/watch?v=FqrlMnWbOas>
+- <https://www.youtube.com/watch?v=uNEWN8PKAe4>

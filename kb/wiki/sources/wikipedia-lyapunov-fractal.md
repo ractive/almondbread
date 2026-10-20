@@ -21,4 +21,8 @@ tags: [lyapunov, logistic-map, encyclopedia]
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Lyapunov_fractal>

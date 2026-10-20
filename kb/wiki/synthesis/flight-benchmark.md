@@ -2,7 +2,7 @@
 title: "Flight benchmark: one fixed flight, a score, a regression guard"
 type: synthesis
 date: 2026-10-15
-sources: ["[[sources/metal-benchmarks-readme]]"]
+sources: ["sources/metal-benchmarks-readme"]
 tags: [benchmark, measured, interaction, regression, decision]
 ---
 
@@ -108,7 +108,7 @@ starts it with `--live-app` and samples the machine while it runs.
 The output always shows the sub-scores and the per-segment numbers next to the total. The
 reference machine (the user's M1 Pro, 32 GB) scores 1000. A fixed pixel count makes devices comparable. Apple
 GPUs differ mainly in core count (M1 2.6, M1 Pro 5.3, M1 Max 10.6 TFLOPS32; src:
-[[sources/metal-benchmarks-readme]] chip table), so mode A tracks that. Mode B also depends
+[metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md) chip table), so mode A tracks that. Mode B also depends
 on the panel's rate: a 60 Hz display halves the due frames but not the work per frame.
 
 ## Hygiene
@@ -159,7 +159,7 @@ The reference in the repo is **provisional**. It comes from single noisy laps on
    It keeps the throughput and headless values and adds the live ones. The screen must be
    unlocked and the window partly uncovered, or there are no presentation times.
 5. Check that the spreads are under ~3 %, commit the reference, and log it here and in
-   [[synthesis/benchmarks]].
+   [almondbread benchmarks and verification record](benchmarks.md).
 
 ## Findings from the first (noisy) runs, 2026-10-15
 
@@ -219,7 +219,7 @@ works.
 ## After the fix (main d7ab9e1, 2026-10-15)
 
 The M5 fix resets the learned state on jumps
-([[techniques/auto-iterations]]). Measured on the M1 Pro at commit fbf692e, release, still
+([Automatic maximum-iteration control](../techniques/auto-iterations.md)). Measured on the M1 Pro at commit fbf692e, release, still
 noisy (other processes 7–10 cores, GPU up to 84 % busy). Three full v1 laps, A plus headless
 B (`--repeat 3 --warmup 0`): **every lap valid**. The heavy segment ends with 0.000 % class
 mismatch and 0.00 % of blocks differing from a jump render; it is no longer black, and
@@ -236,7 +236,7 @@ stat is the scheduler's); the HUD would need a "hard limit" field to show it. Si
 from the same trace: after the AA level the learner returns 41536 → 0 (`escapedPast
 [64, 0, 0, 0]`). Correction (2026-10-16): that line is the segment-end jump check's fresh
 renderer (auto iterations, learned state 0), not the live renderer, whose limit survives AA
-([[techniques/auto-iterations]], test `learned_limit_survives_aa`).
+([Automatic maximum-iteration control](../techniques/auto-iterations.md), test `learned_limit_survives_aa`).
 
 | | median of 3 | spread |
 |---|---|---|
@@ -266,5 +266,9 @@ worth a look; it stayed under the jump check's 32/255 per-block threshold.
 - A user-facing "Benchmark" (later): the score and per-segment table already come from
   Rust, so a SwiftUI sheet only has to show the JSON.
 
-See also [[synthesis/benchmarks]] (the running record), [[techniques/auto-iterations]],
-[[techniques/local-series-approximation]], [[techniques/frame-reuse-and-progressive]].
+See also [almondbread benchmarks and verification record](benchmarks.md) (the running record), [Automatic maximum-iteration control](../techniques/auto-iterations.md),
+[Local series approximation (tile and pixel seeds)](../techniques/local-series-approximation.md), [Frame reuse and progressive refinement](../techniques/frame-reuse-and-progressive.md).
+
+# Citations
+
+- [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)

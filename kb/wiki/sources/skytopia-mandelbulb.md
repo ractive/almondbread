@@ -32,4 +32,8 @@ Primary but promotional and from 2009; no numbers on depth.
 
 ## Used by
 
-[[synthesis/other-fractal-types]]
+[Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)
+
+# Citations
+
+- <https://www.skytopia.com/project/fractal/mandelbulb.html>

@@ -26,4 +26,8 @@ Primary data source.
 
 ## Used by
 
-[[techniques/palette-design]], [[synthesis/fractal-palettes]]
+[Palette design for fractals](../techniques/palette-design.md), [Fractal palettes: research and the palette library](../synthesis/fractal-palettes.md)
+
+# Citations
+
+- <https://gist.github.com/mikhailov-work/6a308c20e494d9e0ccc29036b28faa7a>

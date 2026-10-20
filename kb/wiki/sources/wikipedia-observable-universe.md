@@ -29,4 +29,8 @@ Order of magnitude only. The panel's comparison (3·10^100 bits vs ~10^80 atoms)
 
 ## Used by
 
-[[synthesis/how-big-is-big]]
+[How big is big? Zoom depth against huge numbers, one dial per up-arrow](../synthesis/how-big-is-big.md)
+
+# Citations
+
+- <https://en.wikipedia.org/wiki/Observable_universe>

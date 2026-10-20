@@ -2,7 +2,7 @@
 title: Hang prevention (loop guards, extreme-value tests, main-thread watchdog)
 type: technique
 status: draft
-sources: ["[[sources/apple-metrickit-hang-diagnostics]]"]
+sources: ["sources/apple-metrickit-hang-diagnostics"]
 tags: [robustness, hangs, numerics, watchdog, engineering]
 ---
 
@@ -82,7 +82,7 @@ No property tests or fuzzing (a project rule: CI stays fast).
 
 - A background thread posts a block to the main queue every 0.5 s. A heartbeat unanswered for
   more than 2 s is a hang (macOS shows the beach ball at about that point; Apple calls 250 ms a
-  hang, src: [[sources/apple-metrickit-hang-diagnostics]]).
+  hang, src: [Apple: MetricKit MXHangDiagnostic and main-thread hangs](../sources/apple-metrickit-hang-diagnostics.md)).
 - Once per hang it writes `~/Library/Logs/Almondbread/hang-<yyyyMMdd-HHmmss>.txt` (iOS: the
   container's Library/Logs; `--hang-dir=path` overrides): duration, whether the main thread is
   inside `Explorer.frame`, the last 32 UI events and settings changes (a ring buffer fed by
@@ -102,7 +102,7 @@ No property tests or fuzzing (a project rule: CI stays fast).
   quits (exit 0 when the report and the recovery line were written).
 - MetricKit: `MXMetricManager` hang diagnostics (`MXHangDiagnostic`, iOS 14+, macOS 12+) are
   saved next to the reports as `hang-metrickit-<time>.json` when the system delivers them (App
-  Store builds; daily or next launch; src: [[sources/apple-metrickit-hang-diagnostics]]).
+  Store builds; daily or next launch; src: [Apple: MetricKit MXHangDiagnostic and main-thread hangs](../sources/apple-metrickit-hang-diagnostics.md)).
 
 ## GPU queue (as built, 2026-10-19)
 
@@ -170,3 +170,7 @@ recovered: the main thread answered the heartbeat 2.98 s after it was sent
   ring buffer then says which setting or event preceded it.
 - Hangs on other threads (the reference worker, the orbit threads) are not watched; the
   scheduler's offscreen loop waits on GPU submissions and has no cap of its own.
+
+# Citations
+
+- [Apple: MetricKit MXHangDiagnostic and main-thread hangs](../sources/apple-metrickit-hang-diagnostics.md)
