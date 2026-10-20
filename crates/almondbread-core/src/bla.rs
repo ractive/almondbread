@@ -41,6 +41,7 @@
 //! skips. [`BlaTable::forecast`] estimates the skip for a view; the renderer only uses the
 //! table where it promises long blocks (deep views: 1e-20 per pixel 2.4x, 1e-24 47x faster).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use almondbread_math::{FloatExpComplex, Formula};
@@ -158,6 +159,12 @@ impl BlaTable {
 
     /// [`BlaTable::build`] for the orbit of any formula (F2: its single steps).
     pub fn build_for(points: &[[f32; 2]], epsilon: f64, formula: Formula) -> Self {
+        Self::build_cancellable(points, epsilon, formula, &AtomicBool::new(false)).expect("never cancelled")
+    }
+
+    /// [`BlaTable::build_for`] that polls `cancel` before each level (the renderer cancels the
+    /// build of a reference it replaced); None when cancelled.
+    pub fn build_cancellable(points: &[[f32; 2]], epsilon: f64, formula: Formula, cancel: &AtomicBool) -> Option<Self> {
         let start = Instant::now();
         let mut t = BlaTable {
             ref_len: points.len(),
@@ -170,7 +177,10 @@ impl BlaTable {
         let singles = points.len().saturating_sub(2);
         if singles < (1 << MIN_LEVEL) {
             t.build_time = start.elapsed().as_secs_f64();
-            return t;
+            return Some(t);
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return None;
         }
         let steps = points[1..1 + singles].iter();
         let mut level: Vec<Merged> = if formula.is_mandelbrot() {
@@ -181,6 +191,9 @@ impl BlaTable {
         let mut lev = 0u32;
         let mut entries: Vec<BlaEntry> = Vec::with_capacity(singles);
         loop {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
             if lev >= MIN_LEVEL {
                 t.offsets[lev as usize] = entries.len() as u32;
                 entries.extend(level.iter().map(Merged::entry));
@@ -194,7 +207,7 @@ impl BlaTable {
         }
         t.entries = entries;
         t.build_time = start.elapsed().as_secs_f64();
-        t
+        Some(t)
     }
 
     /// The entry of `level` starting at reference index `m`, if one exists.
@@ -555,6 +568,16 @@ impl BlaTableX {
 
     /// [`BlaTableX::build`] for the orbit of any formula (F2).
     pub fn build_for(points: &[FloatExpComplex], epsilon: f64, formula: Formula) -> Self {
+        Self::build_cancellable(points, epsilon, formula, &AtomicBool::new(false)).expect("never cancelled")
+    }
+
+    /// [`BlaTableX::build_for`] that polls `cancel` before each level; None when cancelled.
+    pub fn build_cancellable(
+        points: &[FloatExpComplex],
+        epsilon: f64,
+        formula: Formula,
+        cancel: &AtomicBool,
+    ) -> Option<Self> {
         let start = Instant::now();
         let mut t = BlaTableX {
             ref_len: points.len(),
@@ -566,7 +589,10 @@ impl BlaTableX {
         let singles = points.len().saturating_sub(2);
         if singles < (1 << MIN_LEVEL) {
             t.build_time = start.elapsed().as_secs_f64();
-            return t;
+            return Some(t);
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return None;
         }
         let steps = points[1..1 + singles].iter();
         let mut level: Vec<MergedX> = if formula.is_mandelbrot() {
@@ -577,6 +603,9 @@ impl BlaTableX {
         let mut lev = 0u32;
         let mut entries: Vec<BlaEntryX> = Vec::with_capacity(singles);
         loop {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
             if lev >= MIN_LEVEL {
                 t.offsets[lev as usize] = entries.len() as u32;
                 entries.extend(level.iter().map(MergedX::entry));
@@ -590,7 +619,7 @@ impl BlaTableX {
         }
         t.entries = entries;
         t.build_time = start.elapsed().as_secs_f64();
-        t
+        Some(t)
     }
 
     pub fn bytes(&self) -> usize {
@@ -888,7 +917,9 @@ mod tests {
     }
 
     fn reference(re: f64, im: f64, max_iter: usize) -> Vec<[f32; 2]> {
-        Reference::compute_f64(&Viewport::new(re, im, 1e-10), max_iter, 65536.0).points
+        Reference::compute_f64(&Viewport::new(re, im, 1e-10), max_iter, 65536.0)
+            .points
+            .to_vec()
     }
 
     #[test]

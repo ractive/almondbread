@@ -47,5 +47,6 @@ pub use rays::{BinaryAngle, RayOptions, trace_ray_inward};
 pub use selection::{
     MisiurewiczResult, NewtonOptions, NucleusResult, PeriodMethod, ReferenceChoice, atom_domain_period,
     atom_domain_period_for, find_misiurewicz, find_nucleus, find_nucleus_for, find_period, find_period_for,
-    find_period_from, minibrot_size, minibrot_size_complex, select_reference, select_reference_for,
+    find_period_from, minibrot_size, minibrot_size_cancellable, minibrot_size_complex, select_reference,
+    select_reference_for,
 };

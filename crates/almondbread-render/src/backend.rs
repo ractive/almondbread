@@ -98,9 +98,33 @@ pub enum MathMode {
     Fast,
 }
 
+/// Makes a shared buffer initialised with the given bytes, from any thread.
+pub type Uploader<Buf> = std::sync::Arc<dyn Fn(&[u8]) -> Result<SentBuffer<Buf>, GpuError> + Send + Sync>;
+
+/// A buffer an [`Uploader`] made on one thread, to be used on another.
+pub struct SentBuffer<Buf>(Buf);
+
+impl<Buf> SentBuffer<Buf> {
+    /// # Safety
+    /// `buf` may be moved to, retained, released and bound on another thread: nothing reads or
+    /// writes its contents from the CPU any more (Metal: a buffer initialised by
+    /// `newBufferWithBytes`; retain and release are atomic).
+    pub unsafe fn new(buf: Buf) -> Self {
+        Self(buf)
+    }
+
+    pub fn get(&self) -> &Buf {
+        &self.0
+    }
+}
+
+// SAFETY: see `SentBuffer::new`, whose caller vouches for it.
+unsafe impl<Buf> Send for SentBuffer<Buf> {}
+unsafe impl<Buf> Sync for SentBuffer<Buf> {}
+
 /// A GPU device with one serial queue and the kernel library compiled.
 pub trait GpuBackend {
-    type Buffer: Clone;
+    type Buffer: Clone + 'static;
     type Texture: Clone;
     type Pipeline: Clone;
     type Drawable;
@@ -119,6 +143,12 @@ pub trait GpuBackend {
     fn create_buffer(&self, len: usize, storage: Storage) -> Result<Self::Buffer, GpuError>;
     /// A shared buffer initialised with `data`.
     fn create_buffer_with_data(&self, data: &[u8]) -> Result<Self::Buffer, GpuError>;
+    /// [`GpuBackend::create_buffer_with_data`] callable from any thread: the reference worker
+    /// uploads a long orbit on its own thread instead of the frame thread (C2 of the 2026-10
+    /// review). None: buffers are made only where the backend lives.
+    fn uploader(&self) -> Option<Uploader<Self::Buffer>> {
+        None
+    }
     /// Copies from a shared buffer. The caller ensures no pending submission writes it.
     fn read_buffer(&self, buffer: &Self::Buffer, offset: usize, out: &mut [u8]);
 
