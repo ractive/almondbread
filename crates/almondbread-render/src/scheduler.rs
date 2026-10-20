@@ -28,7 +28,7 @@ use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::math::{DoubleExp, DoubleExpComplex};
 use almondbread_core::oracle::ITER_UNRESOLVED;
 use almondbread_core::reference::{DEEP_SCALE, Fit, Reference, ReferenceRequest, ReferenceWorker};
-use almondbread_core::settings::{MANUAL_ITERATIONS_MAX, RenderSettings, depth_iterations};
+use almondbread_core::settings::{MAX_ITERATION_LIMIT, RenderSettings, depth_iterations};
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use bytemuck::bytes_of;
 
@@ -4643,7 +4643,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         // The cap bounds the auto limit; a manual limit above it is its own ceiling (as for the
         // extension passes' `extend_to`).
-        let ceiling = job.key.max_iter.max(cap).min(MANUAL_ITERATIONS_MAX);
+        let ceiling = job.key.max_iter.max(cap).min(MAX_ITERATION_LIMIT);
         if f.reached >= ceiling {
             return self.stop_further(FurtherStop::Limit);
         }
@@ -4925,7 +4925,7 @@ impl<B: GpuBackend> Renderer<B> {
         // pixel running to each limit (bounded by the budget left).
         let mut remaining_gpu = 0.0;
         if f.running() {
-            let ceiling = job.key.max_iter.max(self.iteration_cap()).min(MANUAL_ITERATIONS_MAX);
+            let ceiling = job.key.max_iter.max(self.iteration_cap()).min(MAX_ITERATION_LIMIT);
             let rate = Self::further_rate(job, self.rate).max(1.0);
             let mut n = f.limit.max(f.reached);
             let pass_left = f.unresolved.saturating_sub(f.resolved + f.left + finished);

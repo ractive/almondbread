@@ -910,8 +910,16 @@ impl From<&RenderSettings> for ExplorerSettings {
     }
 }
 
-/// Upper bound on iteration limits accepted over the FFI.
+/// Upper bound on iteration limits accepted over the FFI. The renderer uses at most
+/// [`max_iteration_limit`] (2^24); larger values are accepted and clamped.
 const MAX_ITERATIONS: u64 = 1 << 31;
+
+/// The largest iteration limit the renderer uses (2^24: the escape count is float32 on the
+/// GPU, exact to there). The UI says so when a manual limit is set above it.
+#[uniffi::export]
+pub fn max_iteration_limit() -> u64 {
+    almondbread_core::settings::MAX_ITERATION_LIMIT as u64
+}
 
 impl ExplorerSettings {
     /// Applies onto `s` (keeping what the renderer learned), validating every value.

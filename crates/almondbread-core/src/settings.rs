@@ -79,8 +79,12 @@ impl InteriorMode {
     }
 }
 
-/// Upper bound of a manual iteration limit (the kernel counts in 32 bits).
-pub const MANUAL_ITERATIONS_MAX: usize = 1_000_000_000;
+/// Upper bound of every iteration limit (manual, automatic, extension and "compute further"
+/// passes): 2^24. The iterate kernel stores the escape iteration n as float32, exact only up
+/// to 2^24; above, counts were quantised (n +- 1, 2, ...) in the smooth colouring, the
+/// verifier and the learner's statistics (review M2). Far above any view's need (the default
+/// cap is 200 000; the deepest benchmark needs 100 000).
+pub const MAX_ITERATION_LIMIT: usize = 1 << 24;
 
 /// Everything that affects the image except the viewport.
 #[derive(Clone, Debug, PartialEq)]
@@ -210,11 +214,12 @@ impl RenderSettings {
     /// manual 10 M to the default 200 k).
     pub fn max_iterations(&self, viewport: &Viewport) -> usize {
         if !self.auto_iterations {
-            return self.manual_iterations.clamp(1, MANUAL_ITERATIONS_MAX);
+            return self.manual_iterations.clamp(1, MAX_ITERATION_LIMIT);
         }
         depth_iterations(viewport)
             .max(self.learned_iterations)
             .min(self.max_iterations_cap)
+            .clamp(1, MAX_ITERATION_LIMIT)
     }
 
     /// Distance estimate needed (shading or outline).
@@ -315,5 +320,25 @@ mod tests {
         // neck at 2.2e5: the Swift model gives 2053 (kb: synthesis/benchmarks)
         let neck = Viewport::new(-0.7500016386523336, -0.002107342465685259, 3.75e-3 / 2.2155e5);
         assert_eq!(s.max_iterations(&neck), 2053);
+    }
+
+    /// Every limit stays where the GPU's float32 escape count is exact (review M2).
+    #[test]
+    fn limits_stay_float32_exact() {
+        let v = Viewport::home();
+        let mut s = RenderSettings {
+            auto_iterations: false,
+            manual_iterations: 20_000_000,
+            ..RenderSettings::default()
+        };
+        assert_eq!(s.max_iterations(&v), MAX_ITERATION_LIMIT);
+        assert_eq!(MAX_ITERATION_LIMIT as f32 as usize, MAX_ITERATION_LIMIT);
+        assert_ne!((MAX_ITERATION_LIMIT + 1) as f32 as usize, MAX_ITERATION_LIMIT + 1);
+        s.manual_iterations = 1000;
+        assert_eq!(s.max_iterations(&v), 1000);
+        s.auto_iterations = true;
+        s.learned_iterations = 1 << 30;
+        s.max_iterations_cap = 1 << 31;
+        assert_eq!(s.max_iterations(&v), MAX_ITERATION_LIMIT);
     }
 }

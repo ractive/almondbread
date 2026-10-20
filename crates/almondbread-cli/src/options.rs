@@ -187,6 +187,12 @@ impl Options {
         }
         s.supersampling = Supersampling::Off;
         if let Some(n) = self.usize("iterations") {
+            let max = almondbread_core::settings::MAX_ITERATION_LIMIT;
+            if n > max {
+                eprintln!(
+                    "almondbread: --iterations {n} is above {max} (2^24, where float32 escape counts stay exact); using {max}"
+                );
+            }
             s.auto_iterations = false;
             s.manual_iterations = n;
             s.max_iterations_cap = s.max_iterations_cap.max(n);
