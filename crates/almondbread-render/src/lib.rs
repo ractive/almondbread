@@ -21,6 +21,7 @@
 
 pub use almondbread_core as core;
 
+pub mod accessibility;
 pub mod backend;
 pub mod cockpit;
 pub mod compass;

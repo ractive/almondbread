@@ -119,6 +119,11 @@ class FractalHostBase {
     /// The overlay state after the last `frame` call (interaction test: crosshair positions).
     struct Overlay { let keyboard: Bool; let x: Double; let y: Double }
     private(set) var lastFrame: Overlay?
+    /// The canvas's accessibility elements' data (CanvasAccessibility.swift).
+    let accessibility = CanvasAccessibilityState()
+    /// Called at the stats cadence (~10 Hz while animating, once when it stops): the view
+    /// refreshes its accessibility elements there while an assistive technology runs.
+    var onStats: (() -> Void)?
 
     init(model: ExplorerModel, scale: CGFloat) {
         self.model = model
@@ -187,6 +192,7 @@ class FractalHostBase {
         if !animating || t1 - lastStats > 0.1 {
             lastStats = t1
             model.refreshStats()
+            onStats?()
         }
         if selfTestPending, let s = model.stats, s.settled {
             selfTestPending = false
@@ -205,7 +211,7 @@ protocol FractalHostView: AnyObject {
 #if os(macOS)
 import AppKit
 
-final class FractalNSView: NSView, ExplorerHost, FractalHostView {
+final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessibilityHost {
     let base: FractalHostBase
     var explorer: Explorer? { base.explorer }
     var model: ExplorerModel { base.model }
@@ -244,6 +250,81 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
         // Window tests never read the user's controller.
         if !TestLaunch.enabled && Preferences.gamepadEnabled { gamepad = GamepadInput { [weak self] e in self?.send(e) } }
+        base.onStats = { [weak self] in self?.accessibilityTick() }
+    }
+
+    // MARK: Accessibility (kb: plans/a11y-canvas-controls)
+
+    /// A group of the canvas (an image with the view as its value) and the controls Rust draws.
+    private lazy var canvasElement = CanvasElement(view: self)
+    private var controlElements: [String: CanvasControlElement] = [:]
+    private var orderedControlElements: [CanvasControlElement] = []
+    private var elementsGeneration = -1
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    override func accessibilityLabel() -> String? { "Fractal explorer" }
+    override func accessibilityChildren() -> [Any]? {
+        refreshAccessibility()
+        return [canvasElement] + orderedControlElements
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        guard let window else { return nil }
+        let p = convert(window.convertPoint(fromScreen: point), from: nil)
+        guard bounds.contains(p) else { return nil }
+        refreshAccessibility()
+        let top = CGPoint(x: p.x, y: isFlipped ? p.y : bounds.height - p.y)
+        if let c = CanvasAccessibility.control(at: top, in: base.accessibility.controls), let e = controlElements[c.id] {
+            return e
+        }
+        return canvasElement
+    }
+
+    /// A control's frame (view points from the top left) on the screen.
+    func screenRect(canvas r: CGRect) -> NSRect {
+        let local = NSRect(x: r.minX, y: isFlipped ? r.minY : bounds.height - r.maxY, width: r.width, height: r.height)
+        return NSAccessibility.screenRect(fromView: self, rect: local)
+    }
+
+    var canvasAccessibilityValue: String { base.accessibility.summary }
+
+    func refreshAccessibility() {
+        base.accessibility.refresh(explorer)
+        syncAccessibilityElements()
+    }
+
+    private func syncAccessibilityElements() {
+        let a = base.accessibility
+        guard a.generation != elementsGeneration else { return }
+        elementsGeneration = a.generation
+        var kept: [String: CanvasControlElement] = [:]
+        orderedControlElements = a.controls.map { c in
+            let e = controlElements[c.id] ?? CanvasControlElement(c, view: self)
+            e.update(c)
+            kept[c.id] = e
+            return e
+        }
+        controlElements = kept
+    }
+
+    func activate(_ control: CanvasControl) -> Bool {
+        let done = model.activate(control, size: bounds.size)
+        base.accessibility.invalidate()
+        return done
+    }
+
+    /// At the stats cadence: while VoiceOver or Switch Control runs, the elements follow the
+    /// drawn controls and VoiceOver hears when they came, went or moved. Two flag reads otherwise.
+    private func accessibilityTick() {
+        let ws = NSWorkspace.shared
+        guard ws.isVoiceOverEnabled || ws.isSwitchControlEnabled else { return }
+        if base.accessibility.refresh(explorer) {
+            syncAccessibilityElements()
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        } else {
+            syncAccessibilityElements()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -276,6 +357,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
         link = nil
         guard let window else {
             releaseAll()
+            // Off its window (SwiftUI rebuilt the scene, the window closed): nothing app-wide
+            // stays registered for it (review I1: the key monitor and the block observers
+            // outlived the view; `installKeyHandling` adds them again on the next window).
+            removeWindowObservers()
             return
         }
         window.makeFirstResponder(self)
@@ -423,10 +508,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     /// the inspector (a slider, a picker) has focus; only text editing keeps its keys. Handled
     /// keys are swallowed, which also avoids the system beep.
     private func installKeyHandling() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        resignObservers.forEach(NotificationCenter.default.removeObserver)
-        resignObservers = []
-        keyMonitor = nil
+        removeWindowObservers()
         guard let window else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self, event.window === self.window else { return event }
@@ -445,6 +527,33 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
             },
         ]
         observeFullScreen(window)
+    }
+
+    /// Removes the key monitor (app-wide: AppKit keeps it until removed), the notification
+    /// block observers (never removed automatically) and the content-layout observation.
+    private func removeWindowObservers() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        let nc = NotificationCenter.default
+        (resignObservers + fullScreenObservers).forEach(nc.removeObserver)
+        resignObservers = []
+        fullScreenObservers = []
+        layoutRectObservation?.invalidate()
+        layoutRectObservation = nil
+    }
+
+    /// Registered observers (window tests: none may outlive the view's window).
+    var windowObserverCount: Int {
+        (keyMonitor == nil ? 0 : 1) + resignObservers.count + fullScreenObservers.count
+            + (layoutRectObservation == nil ? 0 : 1)
+    }
+
+    deinit {
+        // A view released while still in a window (the window deallocated with it) never
+        // hears `viewDidMoveToWindow` with nil.
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        (resignObservers + fullScreenObservers).forEach(NotificationCenter.default.removeObserver)
+        layoutRectObservation?.invalidate()
     }
 
     /// Every held key, button and press lets go (Rust's `FocusLost`); the mouse press in
@@ -481,6 +590,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView {
     /// top edge), so the compass and mini-maps sit right below whatever covers the canvas.
     private func observeFullScreen(_ window: NSWindow) {
         for o in fullScreenObservers { NotificationCenter.default.removeObserver(o) }
+        layoutRectObservation?.invalidate()
         let nc = NotificationCenter.default
         // will*: the state the transition goes to; did*: the window's actual state (a failed
         // transition ends where it started).
@@ -836,7 +946,7 @@ struct FractalCanvas: NSViewRepresentable {
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
-final class FractalUIView: UIView, ExplorerHost, FractalHostView {
+final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessibilityHost {
     let base: FractalHostBase
     private var link: CADisplayLink?
     private var lastPinchScale: CGFloat = 1
@@ -928,12 +1038,70 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
         if let explorer = base.explorer, UIDemo.enabled { UIDemo.configure(model, explorer: explorer) }
         // Touch-sized cockpit cells and help badges (kb: decisions/controls "Touch").
         base.explorer?.setCockpitTouch(on: true)
-        // VoiceOver (and the UI tests): one element, touches pass through to the gestures,
-        // its value is the view (`accessibilityValue`).
-        isAccessibilityElement = true
-        accessibilityIdentifier = "fractal"
-        accessibilityLabel = "Fractal"
-        accessibilityTraits = .allowsDirectInteraction
+        // VoiceOver, Switch Control and the UI tests: a container of the controls Rust draws and
+        // the canvas element "fractal" (touches pass through to the gestures; kb:
+        // plans/a11y-canvas-controls).
+        isAccessibilityElement = false
+        base.onStats = { [weak self] in self?.accessibilityTick() }
+    }
+
+    var model: ExplorerModel { base.model }
+
+    // MARK: Accessibility (kb: plans/a11y-canvas-controls)
+
+    private lazy var canvasElement = CanvasElementUI(view: self)
+    private var controlElements: [String: CanvasControlElementUI] = [:]
+    private var orderedControlElements: [CanvasControlElementUI] = []
+    private var elementsGeneration = -1
+
+    /// The controls first (VoiceOver's touch exploration finds them over the canvas they sit
+    /// on), then the canvas.
+    override var accessibilityElements: [Any]? {
+        get {
+            refreshAccessibility()
+            canvasElement.accessibilityFrameInContainerSpace = bounds
+            return orderedControlElements + [canvasElement]
+        }
+        set {}
+    }
+
+    func refreshAccessibility() {
+        base.accessibility.refresh(base.explorer)
+        let a = base.accessibility
+        guard a.generation != elementsGeneration else { return }
+        elementsGeneration = a.generation
+        var kept: [String: CanvasControlElementUI] = [:]
+        orderedControlElements = a.controls.map { c in
+            let e = controlElements[c.id] ?? CanvasControlElementUI(c, view: self)
+            e.update(c)
+            kept[c.id] = e
+            return e
+        }
+        controlElements = kept
+    }
+
+    func activate(_ control: CanvasControl) -> Bool {
+        let done = base.model.activate(control, size: bounds.size)
+        base.accessibility.invalidate()
+        return done
+    }
+
+    /// At the stats cadence: while VoiceOver or Switch Control runs, the elements follow the
+    /// drawn controls and VoiceOver hears when they came, went or moved. Two flag reads otherwise.
+    private func accessibilityTick() {
+        guard UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning else { return }
+        let before = elementsGeneration
+        let changed = base.accessibility.refresh(base.explorer)
+        refreshAccessibility()
+        if changed && before != elementsGeneration { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+    }
+
+    /// The canvas element's value: the view in one sentence; with `ALMONDBREAD_UITEST=1` the
+    /// UI tests' state string ([`uiTestState`]).
+    var canvasAccessibilityValue: String {
+        if Self.uiTest { return uiTestState ?? "" }
+        refreshAccessibility()
+        return base.accessibility.summary
     }
 
     /// The view as text: "re im scale angle° autopilot on|off journey on|off level m|c|a|j gear
@@ -941,7 +1109,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
     /// is drawn; settled: the render finished). UI
     /// tests read it to check that a gesture moved, zoomed or turned the view, and what the
     /// throttle and the long-press menu did.
-    override var accessibilityValue: String? {
+    private var uiTestState: String? {
         get {
             guard let explorer = base.explorer else { return nil }
             let v = explorer.viewport()
@@ -959,7 +1127,6 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView {
                 + "wish \(explorer.wishLineShown() ? "on" : "off") settled \(s.settled ? "yes" : "no")"
                 + uiTestTargets(explorer)
         }
-        set {}
     }
 
     /// UI tests only (launch environment `ALMONDBREAD_UITEST=1`): where Rust drew the cockpit's

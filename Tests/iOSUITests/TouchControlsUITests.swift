@@ -669,16 +669,15 @@ final class TouchControlsUITests: XCTestCase {
         settle(1.5)
         XCTAssertEqual(fields()["orbit"], "on")
         app.terminate()
-        // A normal launch (no test environment): the user's settings, orbit off.
+        // A normal launch (no test environment): the user's settings, orbit off. (Without
+        // ALMONDBREAD_UITEST the canvas's value is VoiceOver's summary, so read the round toggle.)
         let normal = XCUIApplication()
         normal.launch()
-        let c = normal.otherElements["fractal"]
-        XCTAssertTrue(c.waitForExistence(timeout: 30))
+        XCTAssertTrue(normal.otherElements["fractal"].waitForExistence(timeout: 30))
         settle(3)
-        let v = (c.value as? String ?? "").split(separator: " ").map(String.init)
-        let i = v.firstIndex(of: "orbit")
-        XCTAssertNotNil(i)
-        if let i { XCTAssertEqual(v[i + 1], "off", "the test's Orbit Here persisted") }
+        let orbit = normal.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Orbit")).firstMatch
+        XCTAssertTrue(orbit.waitForExistence(timeout: 5), "no Orbit toggle")
+        XCTAssertEqual(orbit.value as? String, "off", "the test's Orbit Here persisted")
         normal.terminate()
     }
 

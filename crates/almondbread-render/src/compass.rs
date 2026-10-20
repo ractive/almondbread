@@ -27,12 +27,21 @@ pub struct CompassOverlay {
     /// The rose's centre as last laid out: view points from the view centre, y up.
     centre: Option<(f64, f64)>,
     drag: Option<Drag>,
+    /// The time of the last [`CompassOverlay::update`] (the last drawn frame).
+    updated_at: f64,
 }
 
 impl CompassOverlay {
     /// Follows the view (call once per refresh, before the overlay decides to draw).
     pub fn update(&mut self, angle: f64, turning_north: bool, now: f64) {
         self.visibility.update(angle, turning_north || self.drag.is_some(), now);
+        self.updated_at = now;
+    }
+
+    /// Whether the last drawn frame shows the rose. The display link pauses on a still view,
+    /// so `shown(now)` would hide a rose that stays on screen (kb: plans/a11y-canvas-controls).
+    pub fn shown_in_last_frame(&self) -> bool {
+        self.visibility.shown(self.updated_at)
     }
 
     pub fn shown(&self, now: f64) -> bool {
@@ -203,6 +212,14 @@ mod tests {
         c.update(0.5, false, 0.0);
         c.layout((1000.0, 600.0), (40.0, 0.0, 0.0, 300.0), None);
         c
+    }
+
+    #[test]
+    fn a_turned_rose_stays_shown_in_the_last_frame_while_frames_pause() {
+        let c = shown();
+        // No frames for a minute (the display link paused on a still view): still on screen.
+        assert!(!c.shown(60.0));
+        assert!(c.shown_in_last_frame());
     }
 
     #[test]

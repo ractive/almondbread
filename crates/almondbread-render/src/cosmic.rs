@@ -78,6 +78,12 @@ impl CosmicOverlay {
         self.primed = true;
     }
 
+    /// What the panel says now (its sentence and explanation), None while it has no scale
+    /// (accessibility value, kb: plans/a11y-canvas-controls).
+    pub fn reading(&self) -> Option<almondbread_core::cosmic::Reading> {
+        self.scale.as_ref().map(|(_, s)| s.reading(self.d))
+    }
+
     /// The panel's width in view points on a canvas `width_pt` points wide (left at 12 points):
     /// 340, narrower where the canvas and `inset_right` leave less, never under 120.
     pub fn width_pt(&self, width_pt: f64) -> f64 {

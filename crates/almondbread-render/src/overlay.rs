@@ -1516,6 +1516,22 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         key.push_str(&format!("julia {} {} {:?} ", self.julia.serial, slot, o));
     }
 
+    /// The mini-map panels as drawn in the last scene: each panel's rect (pixels: x0, y0, x1,
+    /// y1) and its level's depth in decades below the whole set (0: the whole set). Empty while
+    /// no map shows (accessibility elements, kb: plans/a11y-canvas-controls).
+    pub fn map_panels(&self) -> Vec<([f32; 4], i32)> {
+        let (Some(_), Some(stack)) = (self.drawn_maps.get(), &self.maps) else {
+            return Vec::new();
+        };
+        let (pw, ph) = (stack.panel.0 as f32, stack.panel.1 as f32);
+        stack
+            .panels
+            .iter()
+            .zip(&stack.levels)
+            .map(|(o, l)| ([o[0], o[1], o[0] + pw, o[1] + ph], l.decade))
+            .collect()
+    }
+
     /// The panels of the scene just built ([`Self::panels`]).
     fn collect_panels(&self) -> Vec<(&'static str, [f32; 4])> {
         let [pi, trail] = self.pi.drawn();
