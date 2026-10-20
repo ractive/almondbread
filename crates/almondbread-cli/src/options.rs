@@ -31,18 +31,55 @@ pub struct Options {
     pub positional: Vec<String>,
 }
 
+/// On/off options: given bare (`--log`) they mean `--log 1`; `--log 0` still switches off.
+const FLAGS: &[&str] = &[
+    "calm",
+    "compass",
+    "converged",
+    "deep",
+    "ff",
+    "filter",
+    "final",
+    "interior",
+    "interior-stats",
+    "ios",
+    "jump-check",
+    "julia",
+    "kat",
+    "list",
+    "log",
+    "map",
+    "noise",
+    "pi-overlay",
+    "plain",
+    "quiet",
+    "scale-overlay",
+];
+
 impl Options {
+    /// `--key value` pairs and positionals. A value never starts with `--`: `--log --size
+    /// 800x600` is an error for a valued key (it used to read as log = "--size"), and the
+    /// bare form of an on/off key in [`FLAGS`] (negative numbers such as `-1e-3` are values).
     pub fn parse(args: &[String]) -> Result<Self> {
         let mut o = Options::default();
         let mut i = 0;
         while i < args.len() {
             let a = &args[i];
             if let Some(key) = a.strip_prefix("--") {
-                let Some(v) = args.get(i + 1) else {
-                    return err(format!("missing value for {a}"));
-                };
-                o.values.insert(key.to_string(), v.clone());
-                i += 2;
+                if key.is_empty() {
+                    return err("bare -- is not an option");
+                }
+                match args.get(i + 1).filter(|v| !v.starts_with("--")) {
+                    Some(v) => {
+                        o.values.insert(key.to_string(), v.clone());
+                        i += 2;
+                    }
+                    None if FLAGS.contains(&key) => {
+                        o.values.insert(key.to_string(), "1".to_string());
+                        i += 1;
+                    }
+                    None => return err(format!("missing value for {a}")),
+                }
             } else {
                 o.positional.push(a.clone());
                 i += 1;
@@ -187,6 +224,12 @@ impl Options {
         }
         s.supersampling = Supersampling::Off;
         if let Some(n) = self.usize("iterations") {
+            let max = almondbread_core::settings::MAX_ITERATION_LIMIT;
+            if n > max {
+                eprintln!(
+                    "almondbread: --iterations {n} is above {max} (2^24, where float32 escape counts stay exact); using {max}"
+                );
+            }
             s.auto_iterations = false;
             s.manual_iterations = n;
             s.max_iterations_cap = s.max_iterations_cap.max(n);
@@ -306,4 +349,33 @@ pub fn parse_size(s: &str) -> Result<(usize, usize)> {
         return err(format!("bad size {s}"));
     }
     Ok((parts[0], parts[1]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Options> {
+        Options::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_key_is_not_a_value() {
+        // A valued key followed by another key, or last, is an error.
+        let e = parse(&["--size", "--log", "1"]).unwrap_err();
+        assert_eq!(e.to_string(), "missing value for --size");
+        assert!(parse(&["out.png", "--center"]).is_err());
+        assert!(parse(&["--"]).is_err());
+        // On/off keys may be bare: `--log --size 800x600` is log = 1, not log = "--size".
+        let o = parse(&["out.png", "--log", "--size", "800x600", "--map"]).unwrap();
+        assert_eq!(o.get("log"), Some("1"));
+        assert_eq!(o.get("map"), Some("1"));
+        assert_eq!(o.size("size", (1, 1)).unwrap(), (800, 600));
+        assert_eq!(o.positional, vec!["out.png".to_string()]);
+        // Explicit values still work, negative numbers included.
+        let o = parse(&["--log", "0", "--center", "-0.75,-0.1", "--scale", "-1e-3"]).unwrap();
+        assert_eq!(o.get("log"), Some("0"));
+        assert_eq!(o.get("center"), Some("-0.75,-0.1"));
+        assert_eq!(o.get("scale"), Some("-1e-3"));
+    }
 }

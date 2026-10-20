@@ -152,11 +152,21 @@ fn colours_tour_interior_steps_recolour() {
         .create_texture(W, H, TextureFormat::Bgra8Unorm, Storage::Shared)
         .unwrap();
     let settle_host = |h: &mut Host<MetalBackend>| -> Vec<u8> {
-        let end = h.renderer.clock() + 30.0;
+        let end = h.renderer.clock() + if cfg!(debug_assertions) { 120.0 } else { 30.0 };
+        // The Bubbles and Period steps animate their probe orbit for as long as they are shown
+        // (`probe-motion: bounce`), so the host never idles there: count the step settled once
+        // the fractal is (settled job, no motion, no overlay work) for 30 refreshes in a row,
+        // time enough for a pending recolour to reach the target.
+        let mut quiet = 0;
         loop {
             let now = h.renderer.clock();
             let o = h.frame(now, &|| now, true, &mut |_| Some(((t.clone(), None), 0)));
             if !o.animating {
+                break;
+            }
+            let fractal_settled = h.renderer.is_settled() && !h.renderer.navigator.is_animating() && !h.overlay.busy();
+            quiet = if fractal_settled { quiet + 1 } else { 0 };
+            if quiet >= 30 {
                 break;
             }
             assert!(h.renderer.clock() < end, "the step did not settle");
@@ -173,7 +183,8 @@ fn colours_tour_interior_steps_recolour() {
         let shown = settle_host(&mut h);
         if let Some(p) = &prev {
             let d = diff(&shown, p);
-            assert!(d > 0.2, "{mode:?}: only {d} of the pixels changed");
+            // (The interior is ~17-20 % of these views since the tour's 2026-10-20 rework.)
+            assert!(d > 0.1, "{mode:?}: only {d} of the pixels changed");
         }
         prev = Some(shown);
     }

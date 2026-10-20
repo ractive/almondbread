@@ -587,7 +587,10 @@ mod tests {
         let never = AtomicBool::new(false);
         let t = Instant::now();
         let n = seek(&c, span, &never, Duration::from_secs(30)).expect("deeper");
-        assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
+        // (A timing bound for optimised builds; the debug-profile run checks only the result.)
+        if !cfg!(debug_assertions) {
+            assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
+        }
         // The copy of the period-3 minibrot on its antenna (tuning: 3 x 4640).
         assert_eq!(n.period, 13920);
         assert!(n.sigma().ratio(m.sigma()) < 0.6);

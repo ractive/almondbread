@@ -699,6 +699,12 @@ struct QualitySectionRows: View {
             TextField("Maximum", value: $model.manualIterations, format: .number)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
+            if model.manualIterations > Int(maxIterationLimit()) {
+                // The renderer clamps (crates/almondbread-core MAX_ITERATION_LIMIT).
+                Text("Renders with \(Int(maxIterationLimit()).formatted()): the most the GPU counts exactly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         if model.autoIterations {
             // Bounds only the automatic limit (a manual limit is used as set).

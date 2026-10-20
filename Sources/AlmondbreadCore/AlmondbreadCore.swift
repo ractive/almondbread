@@ -12,21 +12,24 @@ public enum AlmondbreadCoreLayout {
     public static let pointStride = 8
 }
 
+// The raw `copyExtendedTo` / `copyPointsTo` exports take an address and a capacity that Rust
+// cannot check for liveness (the FFI's one unsafe contract, crates/almondbread-ffi `copy_to`);
+// call them only through these wrappers, which derive both from one buffer. A misaligned
+// buffer throws `CoreError.InvalidArgument` (it used to trap).
 extension ReferenceOrbit {
     /// Copies the extended-range points into `buffer` (16 bytes each, 8-byte aligned), e.g. an
     /// `MTLBuffer`'s contents. Returns the number of points copied.
-    public func copyExtended(into buffer: UnsafeMutableRawBufferPointer) -> Int {
+    public func copyExtended(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         guard let base = buffer.baseAddress else { return 0 }
-        precondition(Int(bitPattern: base) % 8 == 0, "FloatExpComplex buffer must be 8-byte aligned")
         let capacity = UInt64(buffer.count / AlmondbreadCoreLayout.floatExpComplexStride)
-        return Int(copyExtendedTo(address: UInt64(UInt(bitPattern: base)), capacity: capacity))
+        return Int(try copyExtendedTo(address: UInt64(UInt(bitPattern: base)), capacity: capacity))
     }
 
-    /// Copies the float32 points (8 bytes each) into `buffer`. Returns the number copied.
-    public func copyPoints(into buffer: UnsafeMutableRawBufferPointer) -> Int {
+    /// Copies the float32 points (8 bytes each, 4-byte aligned) into `buffer`. Returns the
+    /// number copied.
+    public func copyPoints(into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
         guard let base = buffer.baseAddress else { return 0 }
-        precondition(Int(bitPattern: base) % 4 == 0, "point buffer must be 4-byte aligned")
         let capacity = UInt64(buffer.count / AlmondbreadCoreLayout.pointStride)
-        return Int(copyPointsTo(address: UInt64(UInt(bitPattern: base)), capacity: capacity))
+        return Int(try copyPointsTo(address: UInt64(UInt(bitPattern: base)), capacity: capacity))
     }
 }

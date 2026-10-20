@@ -43,8 +43,16 @@ do {
 let orbit = try computeReferenceOrbit(re: "-0.1", im: "0.1", precisionBits: 128, maxIterations: 1000, bailout: 2, cancel: nil)
 check(orbit.count() == 1001 && !orbit.escaped(), "orbit count \(orbit.count())")
 var pts = [SIMD2<Float>](repeating: .zero, count: Int(orbit.count()))
-let copied = pts.withUnsafeMutableBytes { orbit.copyPoints(into: $0) }
+let copied = try pts.withUnsafeMutableBytes { try orbit.copyPoints(into: $0) }
 check(copied == pts.count && pts[1] == SIMD2<Float>(-0.1, 0.1), "orbit copy: \(copied) points, Z1 \(pts[1])")
+// A misaligned destination is an error, not a trap (review U1).
+do {
+    _ = try pts.withUnsafeMutableBytes { try orbit.copyPoints(into: UnsafeMutableRawBufferPointer(rebasing: $0[1...])) }
+    check(false, "misaligned orbit copy accepted")
+} catch CoreError.InvalidArgument {
+} catch {
+    check(false, "misaligned orbit copy: unexpected error \(error)")
+}
 let sel = try selectReference(re: "-1.752", im: "0.0005", radius: "0.01", maxIterations: 1000, precisionBits: 128,
                               method: .ball, cancel: nil)
 check(sel.isNucleus && sel.period == 3, "reference selection: period \(String(describing: sel.period))")

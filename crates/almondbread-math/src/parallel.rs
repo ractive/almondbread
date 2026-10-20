@@ -11,10 +11,18 @@
 //!
 //! The operations and their inputs are exactly those of the serial loop, so the orbit is
 //! bit-identical. It pays from about [`PARALLEL_MIN_LIMBS`] limbs (measured). Waits spin
-//! briefly (1024 polls, a few µs), then yield, so a descheduled thread on a loaded machine costs time slices,
-//! not a stall.
+//! briefly (1024 polls, a few µs), then yield; after 2 ms (a stall: the partner is
+//! descheduled or the caller is busy elsewhere) they sleep 0.2 ms between polls, so a
+//! stalled thread no longer burns a core (review P1). In lockstep no wait gets past the
+//! spinning, and the yield phase keeps a loaded machine's short stalls cheap (a first try that
+//! slept after ~2000 polls with a 20 us..1 ms backoff was many times slower under load).
+//!
+//! Whether to use helpers at all depends on the core layout ([`helpers_pay`]): three threads
+//! that each need the others' product every iteration run at the pace of the slowest, so a
+//! helper on an efficiency core slows the orbit below one thread.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::raw::{self, Raw, Storage, View};
 
@@ -104,10 +112,12 @@ impl Drop for StopGuard<'_> {
     }
 }
 
-/// Spins until `ready()`, then yields between polls. False if `shared` stopped first.
+/// Spins until `ready()`, then yields between polls, then (a stall: the partner is
+/// descheduled or stopped) sleeps. False if `shared` stopped first.
 #[inline(always)]
 fn wait_until(shared: &Shared, mut ready: impl FnMut() -> bool) -> bool {
     let mut spins = 0u32;
+    let mut yielding_since: Option<Instant> = None;
     loop {
         if ready() {
             return true;
@@ -118,9 +128,50 @@ fn wait_until(shared: &Shared, mut ready: impl FnMut() -> bool) -> bool {
         if spins < 1024 {
             spins += 1;
             core::hint::spin_loop();
-        } else {
+        } else if yielding_since.get_or_insert_with(Instant::now).elapsed() < STALL {
             std::thread::yield_now();
+        } else {
+            std::thread::sleep(STALL_POLL);
         }
+    }
+}
+
+/// A wait longer than this is a stall, polled with [`STALL_POLL`] sleeps: in lockstep a
+/// wait lasts less than an iteration (~1-100 us), and under load a descheduled partner
+/// returns within a scheduler quantum (~10 ms), so a 0.2 ms poll costs little either way.
+const STALL: Duration = Duration::from_millis(2);
+const STALL_POLL: Duration = Duration::from_micros(200);
+
+/// Performance cores as the platform reports them (0: unknown). Set by the platform layer
+/// (the Metal backend reads `hw.perflevel0.logicalcpu` on Apple silicon); this crate has no
+/// platform code.
+static PERFORMANCE_CORES: AtomicUsize = AtomicUsize::new(0);
+
+/// Tells the orbit how many performance cores the machine has (Apple: `hw.perflevel0`).
+pub fn set_performance_cores(n: usize) {
+    PERFORMANCE_CORES.store(n, Ordering::Relaxed);
+}
+
+/// Fewest performance cores for [`helpers_pay`]: the three orbit threads plus the main
+/// thread, the display link and the GPU scheduler, so no orbit thread has to share a
+/// performance core or move to an efficiency core.
+pub const MIN_PERFORMANCE_CORES: usize = 6;
+
+/// Whether the three-thread orbit pays on this machine: [`MIN_PERFORMANCE_CORES`]
+/// performance cores when the platform says how many (M1 Pro 8P+2E: yes; a 4P+4E iPad or
+/// M1, a 2P+4E iPhone: no), else at least 8 cores in all.
+pub fn helpers_pay() -> bool {
+    layout_pays(
+        PERFORMANCE_CORES.load(Ordering::Relaxed),
+        std::thread::available_parallelism().map_or(1, |n| n.get()),
+    )
+}
+
+fn layout_pays(performance: usize, total: usize) -> bool {
+    if performance > 0 {
+        performance >= MIN_PERFORMANCE_CORES
+    } else {
+        total >= 8
     }
 }
 
@@ -225,5 +276,20 @@ pub(crate) fn helper<S: Storage>(shared: &Shared, role: usize, n: usize, start: 
         if !step(shared, role, seq, &mut x, &mut y, &cx, &cy, &mut regs, &mut scratch) {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_layouts() {
+        assert!(layout_pays(8, 10)); // M1 Pro 8P+2E
+        assert!(!layout_pays(4, 8)); // iPad / M1, 4P+4E
+        assert!(!layout_pays(2, 6)); // iPhone 2P+4E
+        assert!(!layout_pays(4, 10)); // 4P+6E
+        assert!(layout_pays(0, 8)); // unknown layout: total cores
+        assert!(!layout_pays(0, 6));
     }
 }

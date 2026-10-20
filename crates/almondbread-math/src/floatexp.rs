@@ -130,20 +130,39 @@ impl DoubleExp {
 
     #[inline]
     pub(crate) fn normalised(m: f64, e: i64) -> Self {
+        Self::normalised_wide(m, e as i128)
+    }
+
+    /// `m * 2^e` normalised, the exponent computed without overflow: past i64's range the
+    /// value saturates to +-inf (mantissa, as an f64 overflow would) or to zero. An orbit
+    /// that escapes far (Newton from a start outside the set, bailout f64::MAX) squares its
+    /// exponent each iteration; i64 exponents used to wrap there (a debug-build panic).
+    #[inline]
+    fn normalised_wide(m: f64, e: i128) -> Self {
         if m == 0.0 {
             return Self::ZERO;
         }
         if !m.is_finite() {
             return DoubleExp {
                 mantissa: m,
-                exponent: e,
+                exponent: e.clamp(i64::MIN as i128, i64::MAX as i128) as i64,
             };
         }
         let (k, s) = exponent_significand(m);
         let mm = s * 0.5;
+        let e = e + k as i128 + 1;
+        if e > i64::MAX as i128 {
+            return DoubleExp {
+                mantissa: m * f64::INFINITY,
+                exponent: 0,
+            };
+        }
+        if e < i64::MIN as i128 {
+            return Self::ZERO;
+        }
         DoubleExp {
             mantissa: if m < 0.0 { -mm } else { mm },
-            exponent: e + k + 1,
+            exponent: e as i64,
         }
     }
 
@@ -198,15 +217,17 @@ impl DoubleExp {
         }
     }
 
-    /// Multiplies by 2^k.
+    /// Multiplies by 2^k (saturating to inf or zero past i64's exponent range).
     pub fn times_power_of_two(self, k: i64) -> Self {
         if self.is_zero() {
             self
-        } else {
+        } else if let Some(exponent) = self.exponent.checked_add(k) {
             DoubleExp {
                 mantissa: self.mantissa,
-                exponent: self.exponent + k,
+                exponent,
             }
+        } else {
+            Self::normalised_wide(self.mantissa, self.exponent as i128 + k as i128)
         }
     }
 
@@ -224,7 +245,7 @@ impl DoubleExp {
 impl Mul for DoubleExp {
     type Output = DoubleExp;
     fn mul(self, b: DoubleExp) -> DoubleExp {
-        DoubleExp::normalised(self.mantissa * b.mantissa, self.exponent + b.exponent)
+        DoubleExp::normalised_wide(self.mantissa * b.mantissa, self.exponent as i128 + b.exponent as i128)
     }
 }
 
@@ -232,7 +253,7 @@ impl Div for DoubleExp {
     type Output = DoubleExp;
     fn div(self, b: DoubleExp) -> DoubleExp {
         assert!(!b.is_zero(), "DoubleExp division by zero");
-        DoubleExp::normalised(self.mantissa / b.mantissa, self.exponent - b.exponent)
+        DoubleExp::normalised_wide(self.mantissa / b.mantissa, self.exponent as i128 - b.exponent as i128)
     }
 }
 
@@ -250,7 +271,7 @@ impl Add for DoubleExp {
         } else {
             (b, self)
         };
-        let d = x.exponent - y.exponent;
+        let d = x.exponent.saturating_sub(y.exponent);
         if d > 60 {
             return x;
         }
@@ -390,5 +411,28 @@ mod tests {
         assert!(DoubleExp::from_f64(-2.0) < DoubleExp::from_f64(-1.0));
         assert_eq!(DoubleExp::from_f64(16.0).sqrt().to_f64(), 4.0);
         assert_eq!(DoubleExp::from_f64(8.0).sqrt().to_f64(), 8f64.sqrt());
+    }
+
+    /// Past i64's exponent range values saturate to inf or zero instead of wrapping (a
+    /// debug-build overflow panic in Newton's derivative of a far-escaped orbit).
+    #[test]
+    fn double_exp_exponent_saturates() {
+        let big = DoubleExp::new(0.75, i64::MAX - 1);
+        let small = DoubleExp::new(-0.75, i64::MIN + 1);
+        assert_eq!((big * big).mantissa, f64::INFINITY);
+        assert_eq!((big * -big).mantissa, f64::NEG_INFINITY);
+        assert!((small * small).is_zero());
+        assert!((big / small).mantissa == f64::NEG_INFINITY);
+        assert!((small / big).is_zero());
+        assert_eq!(big.times_power_of_two(10).mantissa, f64::INFINITY);
+        assert!(small.times_power_of_two(-10).is_zero());
+        assert_eq!(big + small, big);
+        assert_eq!(small + big, big);
+        // In range: unchanged.
+        assert_eq!(big.times_power_of_two(-5), DoubleExp::new(0.75, i64::MAX - 6));
+        assert_eq!(
+            DoubleExp::new(0.5, 1 << 62) * DoubleExp::new(0.5, 1 << 61),
+            DoubleExp::new(0.5, (1 << 62) + (1 << 61) - 1)
+        );
     }
 }

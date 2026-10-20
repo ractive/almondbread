@@ -514,31 +514,47 @@ impl ReferenceOrbit {
     /// Copies up to `capacity` extended-range points (16-byte `FloatExpComplex`, MSL
     /// `struct { float2 m; int e; }`) to `address`; returns the number copied.
     ///
-    /// The caller guarantees `address` is valid for `capacity * 16` writable bytes, aligned to
-    /// 8 (e.g. `MTLBuffer.contents()` or an `UnsafeMutableBufferPointer<FloatExpComplex>`),
-    /// and not aliased by Rust memory. This is the zero-serialisation path for bulk data.
-    pub fn copy_extended_to(&self, address: u64, capacity: u64) -> u64 {
+    /// The FFI's one unsafe contract (review U1): Rust cannot check that `address` is live, so
+    /// the caller guarantees it is valid for `capacity * 16` writable bytes and not aliased by
+    /// Rust memory (e.g. `MTLBuffer.contents()` or an `UnsafeMutableBufferPointer<FloatExpComplex>`).
+    /// Use it only through the typed wrapper `ReferenceOrbit.copyExtended(into:)` in
+    /// AlmondbreadCore.swift, which derives both from one buffer. What can be checked is an
+    /// error, not a trap: a misaligned address (alignment 8) or a range that wraps the address
+    /// space. A null address or zero capacity copies nothing. The zero-serialisation path for
+    /// bulk data.
+    pub fn copy_extended_to(&self, address: u64, capacity: u64) -> Result<u64, CoreError> {
         copy_to(&self.orbit.extended, address, capacity)
     }
 
-    /// Same for the f32 points (8-byte `float2`, alignment 4).
-    pub fn copy_points_to(&self, address: u64, capacity: u64) -> u64 {
+    /// Same for the f32 points (8-byte `float2`, alignment 4; wrapper `copyPoints(into:)`).
+    pub fn copy_points_to(&self, address: u64, capacity: u64) -> Result<u64, CoreError> {
         copy_to(&self.orbit.points, address, capacity)
     }
 }
 
-fn copy_to<T: Copy>(src: &[T], address: u64, capacity: u64) -> u64 {
-    let n = src.len().min(capacity as usize);
+fn copy_to<T: Copy>(src: &[T], address: u64, capacity: u64) -> Result<u64, CoreError> {
+    let n = src.len().min(usize::try_from(capacity).unwrap_or(usize::MAX));
     if n == 0 || address == 0 {
-        return 0;
+        return Ok(0);
     }
-    let dst = address as usize as *mut T;
-    assert!(dst.is_aligned(), "copy destination is not aligned");
-    // SAFETY: the caller guarantees `address` points to `capacity` writable, aligned,
-    // non-overlapping elements of T (documented on the exported methods); n <= capacity and
-    // n <= src.len(). T is plain data (f32 pairs, FloatExpComplex).
+    let Ok(addr) = usize::try_from(address) else {
+        return Err(invalid("copy destination is outside the address space"));
+    };
+    if !addr.is_multiple_of(align_of::<T>()) {
+        return Err(invalid(format!(
+            "copy destination {addr:#x} is not aligned to {} bytes",
+            align_of::<T>()
+        )));
+    }
+    if (n * size_of::<T>()).checked_add(addr).is_none() {
+        return Err(invalid("copy destination range wraps the address space"));
+    }
+    let dst = addr as *mut T;
+    // SAFETY: the caller guarantees `address` points to `capacity` writable, non-overlapping
+    // elements of T (the contract on the exported methods); alignment is checked above,
+    // n <= capacity and n <= src.len(). T is plain data (f32 pairs, FloatExpComplex).
     unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), dst, n) };
-    n as u64
+    Ok(n as u64)
 }
 
 /// Computes the reference orbit of `re + i im` at `precision_bits` (rounded up to whole
@@ -607,8 +623,24 @@ mod tests {
         let o = compute_reference_orbit("-0.1".into(), "0.1".into(), 128, 1000, 2.0, None).unwrap();
         assert_eq!(o.count(), 1001);
         let mut buf = vec![FloatExpComplex::ZERO; 1001];
-        assert_eq!(o.copy_extended_to(buf.as_mut_ptr() as u64, 1001), 1001);
+        assert_eq!(o.copy_extended_to(buf.as_mut_ptr() as u64, 1001).unwrap(), 1001);
         assert_eq!(buf[1].exponent, -3); // Z_1 = C = -0.1 + 0.1i
+        // Misaligned or wrapping destinations are errors, not traps; null copies nothing.
+        let misaligned = buf.as_mut_ptr() as u64 + 4;
+        assert!(matches!(
+            o.copy_extended_to(misaligned, 10),
+            Err(CoreError::InvalidArgument { .. })
+        ));
+        assert!(matches!(
+            o.copy_points_to(buf.as_mut_ptr() as u64 + 2, 10),
+            Err(CoreError::InvalidArgument { .. })
+        ));
+        assert!(matches!(
+            o.copy_points_to(u64::MAX - 7, 10),
+            Err(CoreError::InvalidArgument { .. })
+        ));
+        assert_eq!(o.copy_points_to(0, 10).unwrap(), 0);
+        assert_eq!(o.copy_points_to(buf.as_mut_ptr() as u64, 0).unwrap(), 0);
         let token = CancelToken::new();
         token.cancel();
         let o = compute_reference_orbit("-0.1".into(), "0.1".into(), 128, 100_000, 2.0, Some(token)).unwrap();

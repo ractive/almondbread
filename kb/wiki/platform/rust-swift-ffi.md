@@ -112,8 +112,11 @@ element, about 1700 times slower than a memcpy.
 - Bulk data never travels as a UniFFI `Vec`: Rust keeps it in an object and copies it
   once into caller memory (`copy_extended_to(address, capacity)`; in R2 the Metal
   buffers are owned by Rust and nothing is copied at all). The one `unsafe` block in
-  the FFI crate is this copy; the address, capacity and alignment contract is on the
-  export, and the Swift helper `ReferenceOrbit.copyExtended(into:)` checks alignment.
+  the FFI crate is this copy; the address and capacity contract is on the export. Since
+  2026-10-20 (review U1) the exports return `Result`: a misaligned address or a range that
+  wraps the address space is `CoreError.InvalidArgument` instead of a panic (a Swift trap),
+  and the Swift helpers `ReferenceOrbit.copyExtended(into:)` / `copyPoints(into:)` throw
+  and are the only callers (they derive address and capacity from one buffer).
 - Long computations (orbits, reference selection) block: call them off the main
   thread, cancel with a `CancelToken` from any thread (polled every 4096
   iterations), read `progress()` for the UI.

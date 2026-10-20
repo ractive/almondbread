@@ -54,6 +54,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let Some(path) = o.positional.first().cloned().or_else(|| o.get("out").map(String::from)) else {
         return err("missing output path");
     };
+    if o.positional.len() > 1 {
+        return err(format!("render takes one output path, got {:?}", o.positional));
+    }
     let (width, height) = o.size("size", (1600, 1000))?;
     let mut r = new_renderer(backend, o)?;
     r.viewport = o.viewport(width, height)?;

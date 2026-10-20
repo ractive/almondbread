@@ -109,11 +109,15 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The iteration-limit ceiling the memory budget allows (usize::MAX: none).
     pub(super) fn memory_iteration_cap(&self) -> usize {
-        self.memory_budget.max_iterations().unwrap_or(usize::MAX)
+        self.memory_budget
+            .max_iterations()
+            .unwrap_or(usize::MAX)
+            .min(almondbread_core::settings::MAX_ITERATION_LIMIT)
     }
 
     /// The iteration cap of automatic limits, extension and "compute further" passes, and
-    /// longer references: the settings' cap within the memory budget.
+    /// longer references: the settings' cap within the memory budget (and within
+    /// `MAX_ITERATION_LIMIT`, the float32-exact escape count).
     pub(super) fn iteration_cap(&self) -> usize {
         self.settings.max_iterations_cap.min(self.memory_iteration_cap())
     }
