@@ -1982,6 +1982,52 @@ Feigenbaum tour. `--ui-demo=tour-<id>` captures every step of a tour in a backgr
 (`window-tour-<id>-<n>.png`, `--ui-demo-tour-wait=n:s` for moving probes) and the restored view
 at the end.
 
+### Tour writing rules (2026-10-20)
+
+From the user's run through the tours with his son (a child, on an iPad): words were used before
+they were explained ("the numbers settle on one point (the ringed c = −0.2): period 1"; "period" in
+the colours tour; fractions round the heart with nothing on the picture to read them from). The
+audience is a curious non-mathematician, a child included. Every tour follows these rules:
+
+- **Each tour stands on its own.** People start any tour from the list. The first time a tour uses
+  one of these, it says what it is in one short plain sentence: the **rule** (start at 0, square
+  the number, add the point, repeat); the tested point (the ringed point, not "c"); the **dots** of
+  the orbit overlay (the numbers the rule makes, one dot per step); **escape / fly off**,
+  **settle**, **loop**, **period** (the loop's length), the **heart** (never "main cardioid"),
+  **bulb**, **nucleus** (a bulb's middle), **minibrot** (a tiny copy of the whole set), **spike**,
+  **antenna** (a bulb's thin hair), **neck**, **cusp**. A tour that needs several opens with a
+  "How to read the dots" step. One sentence each, not repeated.
+- **Show, don't tell.** A step that explains an orbit behaviour (settles on one spot, a loop of 3,
+  flies off) has the orbit overlay on and a probe where it happens, and says what to look at: "the
+  dots close in on one spot", "the dots hop round three spots", "(see the map)" when the dots
+  leave the view. A rule like "the biggest bulb between a period-2 and a period-3 bulb has period
+  5" is shown: the ring visits both, then the bulb between, and the dots count it. Where f64
+  cannot follow the orbit (Misiurewicz forks), the step turns the dots off and says so. The model
+  is the bulbs tour's "Round the heart" (a probe path through the bulbs, the dots counting 2, 7, 5,
+  8, 3, …).
+- **Orbit off where it is not the subject**: dots left over from the previous step distract.
+- **No unexplained symbols.** Coordinates only where they add something (a value on the middle
+  line, explained once: "points on the middle line have a number for a name"); "magnified 10³¹
+  times (a 1 with 31 zeros)"; a Greek letter only with its name and meaning (ε in the π tour).
+- **The marker** is referred to as part of the picture: a `marker-label` names it ("first fork",
+  "halfway round", "2 + 3 = 5") and the text says "the marked fork" / "(marked)", not "the gold
+  ring". The probe is "the ring" / "the ringed point". Marker labels are drawn with the overlay
+  font, which has no ½ ⅓ glyphs: write labels in words or ASCII (the card's text can use them).
+- **Short cards**: 340 points wide, two or three short paragraphs; one idea per step, several
+  steps rather than one dense one.
+- **Facts stay checked**: numbers come from the CLI or the orbit overlay (`render --center P
+  --scale 1e-6 --size 160x100 --orbit 80,50` prints the fate of P; `--orbit` takes pixel
+  coordinates, not c), and a changed probe is re-measured; a `--ui-demo=tour-<id>` capture is
+  looked at (text fits the card, the dots are where the text points).
+
+Applied 2026-10-20 to every tour but colours and the walkthrough (done separately): bulbs (see its
+section); minibrot-periods, feigenbaum, misiurewicz, julia and limits open with the rule, the ring
+and the dots, and say "the dots hop round three spots" instead of "the orbit visits"; c, "main
+cardioid", "disc", "real axis", "c = i" (now "the point mathematicians call *i*") and bare powers of
+ten are gone from the texts; valleys, doubling and π (no orbit) explain the rule in one sentence
+where a Misiurewicz point, a period or an escape count needs it; π names ε and says what π is.
+Steps, probes, views and numbers unchanged outside the bulbs tour.
+
 ### The Feigenbaum tour
 
 `tours/feigenbaum.md`, 9 steps, on the real axis with the period interior colouring (one colour
@@ -2258,6 +2304,24 @@ is M(q+1, 1) in `locate`'s numbering (z_{q+1} = z_{q+2}) for q = 3, 4, 5 (our ob
 
 Checked in the app (2026-10-19, `--ui-demo=tour-bulbs`): fates period-4, 5, 3, 5, 8 at the fixed
 probes; the rings sit on the forks and on the 2/5 and 3/8 bulbs.
+
+**Plain-language pass (2026-10-20, 12 steps).** The user found step 1 ("settle on one point (the
+ringed c = −0.2): period 1"), "Fractions" (going round the heart, with nothing on the picture and
+the previous step's period-3 triangle still drawn) and "Between two bulbs" ("add the tops and add
+the bottoms") hard to follow; "Round the heart" was the part that worked. Now: "How to read the
+dots" (the rule, the ring, the dots, one spot in the heart at −0.2); "Bulbs and loops" (probe −1:
+two spots, loop, period, one colour per period); "Round the heart" unchanged apart from wording;
+the two fork steps with `marker-label: first fork`; the fractions as three steps, each with its
+bulb's nucleus probed (2, 3, 4 spots) and a labelled marker where the bulb sits on the heart
+("halfway round" at −0.75, "a third of the way" at −0.125 + 0.6495i, "a quarter of the way" at
+0.25 + 0.5i: cardioid points `e^{iθ}/2 − e^{2iθ}/4` at θ = 2πp/q); "Two and three" (a probe path
+−1 → −0.7 → −0.3 + 0.3i → −0.125 + 0.55i → the 1/3 nucleus, 16 s: 2 spots, 1 in the heart, 3; every
+waypoint checked "settles on a fixed point" with `render --orbit`); "Between them" (2/5 nucleus,
+label "2 + 3 = 5", 5 spots) and "And again" (3/8, "5 + 3 = 8", 8 spots; the fractions only as one
+closing sentence). Checked in the app (2026-10-20, `--ui-demo=tour-bulbs`, 1440×900): fates fixed
+point, 2, 8 (moving), 4, 5, 2, 3, 4, fixed point (moving), 5, 8; labels next to their bulbs.
+One labelled marker per step was enough; several at once (all fractions at the same time) would be
+a new step key.
 
 ### The valleys tour
 

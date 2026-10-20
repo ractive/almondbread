@@ -1839,3 +1839,14 @@ jump with E held started a new cruise. Now `release_all` covers every held kind,
 releases held keys, pedal and gamepad, `Host` drops a compass press, and the platforms send
 `FocusLost` on every focus loss. See [[decisions/controls]] "Held input" (unit tests per held
 kind, core-check "E held, focus lost, Esc").
+
+## [2026-10-20] decision | Tours in plain language; tour writing rules
+
+The user took the tours with his son and met words before their explanations ("settle on one
+point (the ringed c = −0.2): period 1", "period", fractions round the heart). Every tour but
+colours and the walkthrough got a plain-language pass: each opens with the rule, the ring and the
+dots where it needs them, explains heart, bulb, loop, period, nucleus, minibrot, spike, antenna at
+first use, and shows orbit behaviour with the dots instead of naming it. The bulbs tour's fractions
+became visual steps (labelled markers where each bulb sits, dots counting 2, 3, 4; then 2 + 3 = 5
+and 5 + 3 = 8 shown with the probe). The rules for future tours: [[decisions/controls]] "Tour
+writing rules".
