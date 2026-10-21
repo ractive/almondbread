@@ -3027,7 +3027,7 @@ probe, tour probe) as the last panel of the map row, drawn by its own kernel lib
 | Mac toolbar "Julia Set" (`seal`); iPad round button "Julia set" (top row, after Mini-map) | the same; no phone button (the column and the side row hold five) |
 | control center Overlays "Julia set of that point" | the same |
 | tour step `julia: on` / `off` | the same during a tour |
-| click / tap on the panel | taken, nothing happens (open question: open as the main view, F4) |
+| click / tap on the panel | opens that Julia set as the main view (F4, below) |
 
 Layout: one more slot in `fit_maps`; map levels go first (`row_map_levels`): iPhone portrait the
 whole-set map and the panel, iPhone on its side the panel alone, iPad mini and Mac three levels and
@@ -3036,6 +3036,28 @@ the panel (159 points wide on the iPad mini in portrait). With the panel on, at 
 whichever it is. `overlay_panels` reports `julia`; `OverlayLayoutUITests.testJuliaPanelKeepsClearOfTheControls`
 checks it against the HUD, round buttons, throttle, cockpit and maps in both orientations (passes on
 the iPhone 17e and the iPad mini, screenshots `layout-julia-*`).
+
+### Deep Julia sets: open, twin, way back (as built 2026-10-22, awaiting review)
+
+[F4: Deep Julia sets](../plans/f4-deep-julia.md) ("As built"): a Julia set as the main view, zoomed like the Mandelbrot set
+(perturbation with critical-orbit rebasing). Three ways in, one way back; the policy is Rust's
+(`Host::open_julia`, `julia_twin`, `back_from_julia`), the platforms only call it.
+
+| Input | Action |
+| --- | --- |
+| click / tap on the Julia panel | the panel's Julia set, whole (centre 0, the panel's 4.2 × 3.0 framing); the panel's k is kept while the pointer is over the panel, so moving onto it does not change it |
+| **⇧U** (Mac; iPad hardware keyboard), View ▸ "Julia Twin of This View" (⇧⌘U), control center Overlays "Julia twin of this view" | the Julia twin: the Julia set of the view's centre (k = the centre at full precision) at the same centre, zoom and angle |
+| **⇧U** again, View ▸ "Back to the Mandelbrot Set", control center "Back to the Mandelbrot set", the HUD's back button (↺ next to "Julia set, k = …") | back to the view the Julia set was opened from (the whole Mandelbrot set when there is none: a pasted Julia link, a restored setting) |
+| R / ⌘0 in a Julia view | the whole Julia set |
+| copy / paste coordinates | a Julia view's text has a `julia re im` line (k to the centre's digits + 2); pasting it opens that set at that view; a text without it leaves a Julia view; fly-to between the two is a jump |
+
+While a Julia set is shown, what it lacks is hidden, not faked (`FormulaCapabilities::JULIA`): no
+Julia panel or orbit overlay (their settings stay for the way back), no places, tours, journeys,
+seek, π meter or interior colourings (flat interior); the mini-map shows the Julia set (whole level
+centred on 0; clicks jump without minibrot snapping). The HUD shows "Julia set, k = re ± im i" (9
+digits) and the back button. Settings carry the formula `julia` with k (`julia_re`, `julia_im`),
+so a restored session opens it whole. iOS UI tests: `OverlayLayoutUITests.testJuliaPanelTapOpensTheSet`,
+`TouchControlsUITests.testJuliaTwinAndBack`.
 
 ### Mini-map on small screens (as built, 2026-10-19)
 

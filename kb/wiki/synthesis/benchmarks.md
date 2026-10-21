@@ -1943,6 +1943,74 @@ capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 
 ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
 Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.
 
+## F4: deep Julia sets, gate, verify and Mandelbrot A/B, 2026-10-22
+
+[F4: Deep Julia sets](../plans/f4-deep-julia.md) (measured 2026-10-21/22, M1 Pro, release, a shared machine: load average 11–340
+during the runs; main = 7f5ec27, F4 = the branch merged with it; both CLI binaries built from
+their commits).
+
+**Gate.** Critical-orbit rebasing in float32 / floatexp against a direct high-precision oracle at
+five `k` and 1e-20 … 1e-1000: the plan page's "Step 1 results" table (float32 always at least as
+close to the oracle as the oracle is to itself under a 0.01-texel shift; without the
+`|Z + z| < |z|` rebase up to 53 % class mismatch).
+
+**Verify (real kernel vs the CPU oracle, 200 × 125, the gate views).** Class mismatch 0–0.04 %,
+escape-n differs 0–0.14 % for the cardioid, period-3 bulb, `i` and Siegel `k` at 1e-20, 1e-100,
+1e-300, 1e-1000 (the Siegel disc unresolved, by nature); the dust 7.7–11.8 % escape-n (chaos:
+the oracle differs from itself by 22–40 %). `verify --history zoom|out|pan|jump` at 1280 × 820
+(auto iterations) at rabbit 1e-100, `i` 1e-300 and cardioid 1e-1000: all 12 sessions OK; class
+mismatch vs the oracle ≤ 0.007 %, vs a fresh render 0 % except the rabbit pan (0.007 %, the
+reused reference's float32 offsets in chaotic pixels).
+
+**Mandelbrot fields.** `bench --out` (both sizes, plain): 126 of 126 files byte-identical (`cmp`);
+`bench --sizes 1600x1000 --shading 1 --inside period`: 82 of 84, the two others `elephant-1600`
+(`.iter`, `.png`), whose period colouring differs run to run **on main itself** (main vs main
+differs; F4 equals main's second run byte for byte): the pre-existing nondeterminism noted in F2.
+
+**GPU ms**, best of 3 interleaved rounds of `bench --no-verify 1 --repeat 3` (main, F4 alternating),
+geomean F4/main **1.0007** over 42 cases; the 1600 px dendrite-1e300 case read 6.7 vs 2.8 ms in
+two rounds and 3.3 vs 2.8 in the third (a 3 ms view; single renders alternate 2.9–5.8 ms for both
+builds: noise).
+
+| location | 3456×2234 main / F4 ms | ratio | 1600×1000 main / F4 ms | ratio |
+|---|---:|---:|---:|---:|
+| home | 12.9 / 12.8 | 0.992 | 3.5 / 3.5 | 1.000 |
+| home-100k | 33.6 / 33.4 | 0.994 | 21.7 / 21.9 | 1.009 |
+| seahorse-1e5 | 20.6 / 20.5 | 0.995 | 7.0 / 6.0 | 0.857 |
+| elephant | 46.6 / 46.6 | 1.000 | 10.8 / 10.8 | 1.000 |
+| minibrot-p4 | 64.6 / 64.6 | 1.000 | 21.9 / 23.1 | 1.055 |
+| deep-5e-14 | 37.0 / 36.6 | 0.989 | 10.9 / 10.7 | 0.982 |
+| feigenbaum | 13227.8 / 13030.6 | 0.985 | 2581.6 / 2550.3 | 0.988 |
+| neck-2e5 | 53.5 / 53.2 | 0.994 | 13.1 / 13.1 | 1.000 |
+| neck-7e6 | 92.4 / 92.2 | 0.998 | 44.9 / 44.6 | 0.993 |
+| cusp-1e5 | 59.0 / 59.7 | 1.012 | 13.3 / 13.4 | 1.008 |
+| dense-5e-14 | 93.1 / 93.3 | 1.002 | 24.4 / 24.6 | 1.008 |
+| root-third | 109.3 / 109.1 | 0.998 | 33.1 / 33.1 | 1.000 |
+| sea-1e20 | 81.6 / 81.6 | 1.000 | 22.2 / 22.1 | 0.995 |
+| sea-8007 | 1830.0 / 1832.8 | 1.002 | 382.9 / 383.9 | 1.003 |
+| needle-1e94 | 42.1 / 42.1 | 1.000 | 9.9 / 9.9 | 1.000 |
+| needle-1e305 | 69.5 / 69.5 | 1.000 | 16.2 / 16.2 | 1.000 |
+| needle-1e1004 | 66.4 / 66.3 | 0.998 | 15.4 / 15.4 | 1.000 |
+| dendrite-1e50 | 8.8 / 8.8 | 1.000 | 2.8 / 2.9 | 1.036 |
+| dendrite-1e300 | 8.8 / 8.8 | 1.000 | 2.8 / 3.3 | 1.179 |
+| dendrite-1e1000 | 8.7 / 8.8 | 1.011 | 2.9 / 2.8 | 0.966 |
+| spiral-32412-1e19 | 2596.6 / 2597.0 | 1.000 | 756.3 / 762.8 | 1.009 |
+
+**Interaction** (`make interaction-test`, background window 1280 × 820 pt at 2x, 120 Hz panel):
+| scenario | fps | interval p50 / p95 / max ms | draw CPU p50 / p95 ms | GPU ms / frame |
+|---|---:|---|---|---|
+| deep zoom 1e-12 to 1e-40 (Mandelbrot) | 109.8 | 8.3 / 8.3 / 50.0 | 0.20 / 0.64 | 5.54 + 1.82 |
+| julia twin deep zoom (its twin) | 111.0 | 8.3 / 16.7 / 25.0 | 0.37 / 0.99 | 4.02 + 2.04 |
+| 1e-100 pan (c = i) | 117.3 | 8.3 / 8.3 / 16.7 | 0.37 / 0.73 | 4.22 + 2.17 |
+| julia 1e-100 pan (rabbit) | 117.7 | 8.3 / 8.3 / 16.7 | 0.28 / 0.56 | 4.19 + 1.71 |
+| 1e-300 zoom (c = i) | 111.8 | 8.3 / 8.3 / 25.0 | 0.38 / 1.05 | 4.37 + 2.19 |
+| julia 1e-300 zoom (k = i) | 114.7 | 8.3 / 8.3 / 16.7 | 0.28 / 0.37 | 5.09 + 1.55 |
+
+One run, load average 115–190; every scenario's shown frame equals a fresh render in class (the
+Julia 1e-100 pan 0.003 % after the fix below). Mean over all 48 scenarios 103 fps. The run found
+a test-tool bug: the fresh-render check built a Mandelbrot renderer for a Julia view (26 % "differ");
+it now renders the shown view's formula.
+
 ## Review fixes M1–X1: Mandelbrot A/B and orbit threads, 2026-10-20
 
 Measured 2026-10-20, M1 Pro, release, on a heavily loaded machine (load average 22–220: an

@@ -37,7 +37,7 @@ as milestones start and finish.
 | F1 | Julia view: companion inset with the Julia set of the point under the pointer or finger, shallow, no refactor; improves the Julia tour ([F1: Julia view (companion inset)](plans/f1-julia-view.md)) | 2026-10-19 | done 2026-10-21: U, off by default, iPhone layout as built (done) |
 | F2 | pluggable-formula refactor: `kFormula` function constant, `Formula` enum, capability struct over FFI; proof: bit-identical fields and `bench` A/B ≈ 1.0 ([F2: Pluggable-formula refactor](plans/f2-pluggable-formulas.md)) | 2026-10-19 | built, awaiting review (in-progress): fields byte-identical, A/B 1.004 |
 | F3 | Multibrot `z^p + c`, p = 3..8 ([F3: Multibrot z^p + c](plans/f3-multibrot.md)) | — | planned |
-| F4 | deep Julia sets: critical-orbit rebasing, Julia twin of a deep view ([F4: Deep Julia sets](plans/f4-deep-julia.md)) | — | planned |
+| F4 | deep Julia sets: critical-orbit rebasing, Julia twin of a deep view ([F4: Deep Julia sets](plans/f4-deep-julia.md)) | — | built, awaiting review (in-progress): step-1 gate passed (float32 rebasing matches a direct oracle at five k to 1e-1000); panel click, Julia twin (⇧U), way back; Mandelbrot fields byte-identical |
 | F5 | Mandelbar / Tricorn: the non-conformal path (2×2 BLA, dual-number derivatives, Jacobian Newton) ([F5: Mandelbar (Tricorn) and the non-conformal path](plans/f5-mandelbar.md)) | — | planned |
 | F6 | Burning Ship family: diffabs, fold-capped BLA, needle heuristic, places and journey tuning ([F6: Burning Ship family](plans/f6-burning-ship.md)) | — | planned |
 | F7 | hybrids via an opcode model (was M8): per-phase references and BLA, runtime MSL generation ([F7: Hybrid formulas via an opcode model](plans/f7-hybrids.md)) | 11 | planned |
