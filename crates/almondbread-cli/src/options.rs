@@ -45,6 +45,7 @@ const FLAGS: &[&str] = &[
     "ios",
     "jump-check",
     "julia",
+    "julia-k",
     "kat",
     "list",
     "log",
@@ -286,6 +287,21 @@ impl Options {
             match almondbread_core::formula::Formula::parse(v) {
                 Some(f) => s.formula = f,
                 None => eprintln!("almondbread: --formula {v}: expected mandelbrot or multibrot2..8"),
+            }
+        }
+        // F4: the Julia set of `z^2 + k` as the main view (`--julia-k re,im`, any number of
+        // digits; kb: plans/f4-deep-julia): the view's points are the starts z_0. (`--julia 1`
+        // is F1's panel.)
+        if let Some(v) = self.get("julia-k") {
+            match v
+                .split_once(',')
+                .and_then(|(re, im)| almondbread_core::viewport::Center::parse(re.trim(), im.trim()))
+            {
+                Some(k) => {
+                    s.formula =
+                        almondbread_core::formula::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()))
+                }
+                None => eprintln!("almondbread: --julia-k {v}: expected re,im"),
             }
         }
         // Interior colouring (kb: techniques/coloring-methods): flat|bubbles|period|angle|distance.

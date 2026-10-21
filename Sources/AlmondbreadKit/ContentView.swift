@@ -468,6 +468,24 @@ struct HUDView: View {
                 if s.shown.angleDegrees != 0 {
                     Text(String(format: "turned %.1f°", s.shown.angleDegrees))
                 }
+                // F4: a Julia set is the main view: its k, and the way back.
+                if !s.juliaK.isEmpty {
+                    HStack(spacing: 6) {
+                        Label("Julia set, k = " + s.juliaK, systemImage: InlineIcons.symbol("julia"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        Button {
+                            model.backFromJulia()
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Back to the Mandelbrot set (⇧U)")
+                        .accessibilityLabel("Back to the Mandelbrot set")
+                        .accessibilityIdentifier("julia-back-hud")
+                    }
+                }
                 Text(speedLine(s))
                     .padding(.horizontal, speedHighlight ? 5 : 0)
                     .background(speedHighlight ? Color.orange.opacity(0.35) : .clear, in: Capsule())

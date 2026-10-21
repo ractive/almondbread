@@ -173,6 +173,13 @@ struct FractalCommands: Commands {
                                               set: { model?.juliaEnabled = $0 }))
                 .keyboardShortcut("u", modifiers: [.command, .option])
                 .disabled(model == nil || model?.has(\.juliaPanel) == false)
+            // F4 (kb: plans/f4-deep-julia): the Julia set of the view's centre at the same
+            // framing, and the way back; ⇧U on the canvas.
+            Button(model?.isJulia == true ? "Back to the Mandelbrot Set" : "Julia Twin of This View") {
+                model?.juliaTwinOrBack()
+            }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
+            .disabled(model == nil || (model?.isJulia == false && model?.has(\.juliaPanel) == false))
             // Guided tours (kb: decisions/controls "Guided tours"); → ← and Esc on the canvas. The
             // π meter has no switch of its own: the tour "π in the Mandelbrot set" drives it.
             TourMenu(model: model)

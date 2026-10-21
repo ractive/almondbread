@@ -32,6 +32,8 @@ Every point c has a picture of its own: keep c fixed and start the rule from eve
 
 The panel shows the Julia set of the orbit's point: the point under the pointer (on iPhone and iPad: the middle of the picture, or where you chose *Orbit Here*), and it changes as that point moves. Where c is inside the Mandelbrot set its Julia set is one connected piece; outside it falls apart into dust. **U** shows or hides it.
 
+Click or tap the panel to open that Julia set as the main view and zoom it as deep as the Mandelbrot set. **⇧U** (or *Julia twin* in the control center) opens the Julia set of the view's centre at the same zoom: near a Misiurewicz point the two pictures look alike. The status shows its c (called k there) and the way back; **⇧U** goes back too.
+
 ## cockpit
 
 How the zoom is driven, like the levels of a car: **Manual** (the steering wheel: you do everything), **Cruise** (the speedometer: **E** / **Q** set a speed in or out, you steer), **Autopilot** (the plane, **Z**: it steers to interesting places), **Journey** (the sparkles, **J**: from landmark to landmark). The lit icon is the level now; click an icon to switch.

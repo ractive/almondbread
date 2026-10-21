@@ -654,8 +654,12 @@ impl FormulaCapabilities {
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ExplorerSettings {
     /// The fractal (F2): "mandelbrot" (the only one a user can pick until F3; see
-    /// `Explorer::formulas`).
+    /// `Explorer::formulas`), or "julia" (F4: a Julia set, opened from the Julia panel or as a
+    /// view's twin, with its `k` below).
     pub formula: String,
+    /// F4: the Julia set's `k` (decimal strings at its full precision; empty unless "julia").
+    pub julia_re: String,
+    pub julia_im: String,
     pub auto_iterations: bool,
     pub manual_iterations: u64,
     pub max_iterations_cap: u64,
@@ -868,6 +872,16 @@ impl From<&RenderSettings> for ExplorerSettings {
             manual_iterations: s.manual_iterations as u64,
             max_iterations_cap: s.max_iterations_cap as u64,
             formula: s.formula.name(),
+            julia_re: s
+                .formula
+                .julia_k()
+                .map(|k| k.value().re.to_decimal_string(None))
+                .unwrap_or_default(),
+            julia_im: s
+                .formula
+                .julia_k()
+                .map(|k| k.value().im.to_decimal_string(None))
+                .unwrap_or_default(),
             interior_detection: s.interior_detection,
             palette_id: s.palette_id.clone(),
             color_density: s.color_density,
@@ -964,9 +978,23 @@ impl ExplorerSettings {
         }
         let ss = Supersampling::from_factor(self.supersampling as usize)
             .ok_or_else(|| invalid("supersampling must be 1 to 4"))?;
-        let formula = almondbread_core::Formula::parse(&self.formula)
-            .filter(|f| almondbread_core::formula::selectable().contains(f))
-            .ok_or_else(|| invalid(format!("unknown formula {}", self.formula)))?;
+        let formula = if self.formula == "julia" {
+            // F4: the k it names (the current one when the value is the same: interned).
+            let k = Center::parse(&self.julia_re, &self.julia_im)
+                .filter(|k| k.re().is_finite() && k.im().is_finite())
+                .ok_or_else(|| invalid(format!("julia k {}, {}", self.julia_re, self.julia_im)))?;
+            // A settings round trip writes k with the round-trip digits of its precision; parsed
+            // at the precision the digits imply it would differ in its last bits (a new k: new
+            // references, a moved set at depth). The same value at k's own precision is k.
+            match s.formula.julia_k() {
+                Some(cur) if k.big().with_precision(cur.value().precision_bits()) == *cur.value() => s.formula,
+                _ => almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big())),
+            }
+        } else {
+            almondbread_core::Formula::parse(&self.formula)
+                .filter(|f| almondbread_core::formula::selectable().contains(f))
+                .ok_or_else(|| invalid(format!("unknown formula {}", self.formula)))?
+        };
         s.formula = formula;
         s.auto_iterations = self.auto_iterations;
         s.manual_iterations = self.manual_iterations as usize;
@@ -1096,6 +1124,11 @@ pub struct ExplorerStats {
     pub failed_frames: u64,
     /// Render progress of the settled view (the line at the top is drawn by Rust).
     pub progress: RenderProgressInfo,
+    /// The fractal (as `ExplorerSettings::formula`): the UI takes the settings over when Rust
+    /// changed it (F4: a click on the Julia panel, the twin, the way back, a tour).
+    pub formula: String,
+    /// F4: the Julia set's k for the HUD ("−0.12256117 + 0.74486177i"; empty otherwise).
+    pub julia_k: String,
 }
 
 /// Render progress for the HUD (kb: decisions/controls "Render progress"): shown once a
@@ -1633,8 +1666,50 @@ impl Explorer {
         if !almondbread_core::FormulaCapabilities::of(s.formula).pi_meter {
             g.host.overlay.pi.enabled = false;
         }
+        let before = g.host.renderer.settings.formula;
+        // F4: a Julia set named by the settings (restored at launch, a test) opens like one
+        // from the panel: the way back is kept, the untouched home view becomes the set's.
+        if s.formula.is_julia() && s.formula != before {
+            let (w, h) = g.host.view_points();
+            let home = g.host.renderer.viewport == Viewport::fitting(w, h);
+            let view = if home {
+                almondbread_core::julia::home_view(w, h)
+            } else {
+                g.host.renderer.viewport.clone()
+            };
+            g.host.open_julia(s.formula, view);
+        }
+        // (Left through the settings, not the way back: nothing to go back to.)
+        if before.is_julia() && !s.formula.is_julia() {
+            g.host.julia_return = None;
+        }
         g.host.renderer.settings = s;
         Ok(())
+    }
+
+    /// F4 (kb: plans/f4-deep-julia): the Julia twin of the view, the Julia set of its centre at
+    /// the same framing (key ⇧U, View ▸ Julia Twin, the control center). False in a Julia view.
+    pub fn julia_twin(&self) -> bool {
+        self.lock().host.julia_twin()
+    }
+
+    /// F4: back to the view a Julia view was opened from (the whole Mandelbrot set without
+    /// one). False when not in a Julia view.
+    pub fn back_from_julia(&self) -> bool {
+        self.lock().host.back_from_julia()
+    }
+
+    /// F4: opens the Julia set of `k` (decimal strings, any digits) whole, as a click on the
+    /// Julia panel does (tests, a typed k). False for a malformed `k`.
+    pub fn open_julia(&self, re: String, im: String) -> bool {
+        let Some(k) = Center::parse(&re, &im).filter(|k| k.re().is_finite() && k.im().is_finite()) else {
+            return false;
+        };
+        let mut g = self.lock();
+        let (w, h) = g.host.view_points();
+        let f = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
+        g.host.open_julia(f, almondbread_core::julia::home_view(w, h));
+        true
     }
 
     /// The pivot of a user's density edit (kb: techniques/coloring-methods, "Density pivot"):
@@ -1930,6 +2005,13 @@ impl Explorer {
             settled: r.is_settled(),
             failed_frames: r.failed_frames as u64,
             progress: r.progress.current().into(),
+            formula: r.settings.formula.name(),
+            julia_k: r
+                .settings
+                .formula
+                .julia_k()
+                .map(|k| almondbread_core::julia::k_text(k, 9))
+                .unwrap_or_default(),
         }
     }
 
@@ -1989,7 +2071,22 @@ impl Explorer {
         // The optional `angle` line (degrees); without it the view comes upright.
         if ok {
             let a = almondbread_core::flyto::parse_angle(&text).unwrap_or(0.0);
-            self.lock().host.renderer.viewport.angle = a;
+            let mut g = self.lock();
+            g.host.renderer.viewport.angle = a;
+            // F4: a `julia re im` line names the Julia set the view is of; without one the text
+            // is a Mandelbrot view (a Julia view is left).
+            let view = g.host.renderer.viewport.clone();
+            match almondbread_core::julia::parse_k_line(&text) {
+                Some(k) => {
+                    let f = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
+                    g.host.open_julia(f, view);
+                }
+                None if g.host.renderer.settings.formula.is_julia() => {
+                    g.host.back_from_julia();
+                    g.host.renderer.viewport = view;
+                }
+                None => {}
+            }
         }
         ok
     }
@@ -2012,6 +2109,13 @@ impl Explorer {
     /// Flies to coordinates as copied by `coordinates_text` (or "re im scale"). Returns false
     /// if the text is not a view.
     pub fn fly_to_coordinates(&self, text: String) -> bool {
+        // F4: no flight between two fractals (a Julia view's text, or any text from a Julia
+        // view): a jump.
+        if almondbread_core::julia::parse_k_line(&text).is_some()
+            || self.lock().host.renderer.settings.formula.is_julia()
+        {
+            return self.paste_coordinates(text);
+        }
         let Some((re, im, scale)) = almondbread_core::flyto::parse_coordinates(&text) else {
             return false;
         };
@@ -2308,5 +2412,45 @@ impl Explorer {
             width: m.width as u32,
             height: m.height as u32,
         })
+    }
+}
+
+#[cfg(test)]
+mod julia_settings_tests {
+    use super::*;
+    use almondbread_core::formula::{Formula, JuliaK};
+
+    /// F4: a settings round trip (the UI pushes the record it pulled) keeps k exactly, so a
+    /// slider change in a Julia view never makes a new k (new references, a moved set at depth).
+    #[test]
+    fn a_settings_round_trip_keeps_k() {
+        let k = Center::parse(
+            "-0.743643887037158704752191506114774",
+            "0.131825904205311970493132056385139",
+        )
+        .unwrap()
+        .with_min_precision(512);
+        let s = RenderSettings {
+            formula: Formula::Julia(JuliaK::new(k.big())),
+            ..RenderSettings::default()
+        };
+        let e = ExplorerSettings::from(&s);
+        assert_eq!(e.formula, "julia");
+        assert!(!e.julia_re.is_empty() && !e.julia_im.is_empty());
+        let mut t = s.clone();
+        e.apply(&mut t).unwrap();
+        assert_eq!(t.formula, s.formula);
+        // A Mandelbrot record has no k; a Julia record applied to Mandelbrot settings opens it.
+        let m = ExplorerSettings::from(&RenderSettings::default());
+        assert!(m.julia_re.is_empty() && m.julia_im.is_empty());
+        let mut u = RenderSettings::default();
+        e.apply(&mut u).unwrap();
+        assert!(u.formula.is_julia());
+        // A malformed k is refused.
+        let bad = ExplorerSettings {
+            julia_re: "x".into(),
+            ..e
+        };
+        assert!(bad.apply(&mut u).is_err());
     }
 }

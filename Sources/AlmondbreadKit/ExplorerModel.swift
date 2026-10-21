@@ -188,8 +188,10 @@ struct SavedSettings: Codable {
     var cosmicScale: Bool?
     var compassAlways: Bool?
     var targetMarker: Bool?
-    /// The fractal (F2): "mandelbrot".
+    /// The fractal (F2): "mandelbrot", or "julia" (F4) with its k.
     var formula: String?
+    var juliaRe: String?
+    var juliaIm: String?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -207,6 +209,13 @@ public final class ExplorerModel {
             if !pulling, let c = explorer?.capabilities(), c != capabilities { capabilities = c }
         }
     }
+    /// F4 (kb: plans/f4-deep-julia): the Julia set's k when `formula` is "julia" (decimal, full
+    /// precision; Rust opens and leaves Julia sets, the model mirrors it).
+    public private(set) var juliaRe = ""
+    public private(set) var juliaIm = ""
+    /// A Julia set is the main view (F4).
+    public var isJulia: Bool { formula == "julia" }
+
     /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
     /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
     public private(set) var capabilities: FormulaCapabilities?
@@ -518,6 +527,8 @@ public final class ExplorerModel {
     private func pull(_ s: ExplorerSettings) {
         pulling = true
         defer { pulling = false }
+        juliaRe = s.juliaRe
+        juliaIm = s.juliaIm
         formula = s.formula
         if let c = explorer?.capabilities(), c != capabilities { capabilities = c }
         autoIterations = s.autoIterations
@@ -559,7 +570,7 @@ public final class ExplorerModel {
 
     private var settings: ExplorerSettings {
         ExplorerSettings(
-            formula: formula,
+            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm,
             autoIterations: autoIterations, manualIterations: UInt64(max(1, manualIterations)),
             maxIterationsCap: UInt64(max(1, maxIterationsCap)), interiorDetection: interiorDetection,
             paletteId: paletteID, colorDensity: colorDensity, colorOffset: colorOffset,
@@ -720,7 +731,7 @@ public final class ExplorerModel {
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker,
-            formula: formula)
+            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm)
     }
 
     private func writeSaved() {
@@ -777,6 +788,8 @@ public final class ExplorerModel {
         interiorDensity = s.interiorDensity ?? interiorDensity
         interiorStripes = s.interiorStripes ?? interiorStripes
         denseCalm = s.denseCalm ?? denseCalm
+        juliaRe = s.juliaRe ?? juliaRe
+        juliaIm = s.juliaIm ?? juliaIm
         formula = s.formula ?? formula
         orbitEnabled = s.orbitEnabled ?? orbitEnabled
         orbitLength = s.orbitLength ?? orbitLength
@@ -1289,6 +1302,25 @@ public final class ExplorerModel {
     public func toggleOrbit() { orbitEnabled.toggle() }
     public func toggleMap() { mapEnabled.toggle() }
     public func toggleJulia() { juliaEnabled.toggle() }
+
+    /// F4 (kb: plans/f4-deep-julia): the Julia twin of the view (the Julia set of its centre at the
+    /// same framing), or, in a Julia view, back to where it was opened from (⇧U, View menu,
+    /// control center, the HUD's back button).
+    public func juliaTwinOrBack() {
+        if isJulia { backFromJulia() } else { juliaTwin() }
+    }
+
+    public func juliaTwin() {
+        guard let explorer, explorer.juliaTwin() else { return }
+        pull(explorer.settings())
+        host?.requestFrames()
+    }
+
+    public func backFromJulia() {
+        guard let explorer, explorer.backFromJulia() else { return }
+        pull(explorer.settings())
+        host?.requestFrames()
+    }
     public func toggleCosmicScale() { cosmicScale.toggle() }
 
     /// A click on the canvas at (x, y) points from the centre, y up: true if a mini-map panel
@@ -1297,6 +1329,9 @@ public final class ExplorerModel {
         guard let explorer, mapEnabled || orbitEnabled || juliaEnabled else { return false }
         let taken = explorer.mapClick(x: x, y: y, fly: fly)
         if taken { host?.requestFrames() }
+        // A click on the Julia panel opened its set (F4): take the settings over at once, so the
+        // next push does not send the old formula back.
+        if taken, explorer.stats().formula != formula { pull(explorer.settings()) }
         return taken
     }
 
@@ -1378,6 +1413,11 @@ public final class ExplorerModel {
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
         guard let new = explorer?.stats(), new != stats else { return }
+        // Rust changed the fractal (F4: a Julia set opened or left, a tour, a pasted link): the
+        // mirror takes the settings over.
+        if let explorer, new.formula != formula || new.juliaK != (stats?.juliaK ?? new.juliaK) {
+            pull(explorer.settings())
+        }
         #if os(iOS)
         Haptics.stats(old: stats, new: new)
         #endif

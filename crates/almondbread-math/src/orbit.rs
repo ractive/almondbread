@@ -127,6 +127,10 @@ pub struct ReferenceOrbitComputer {
     /// The iteration (F2): Mandelbrot runs the specialised loops below, any other formula one
     /// generic loop (matched once per computation, outside the limb-specialised loops).
     pub formula: Formula,
+    /// Z_0 (None: the critical point 0). A Julia set's view-centre orbit starts at the centre
+    /// `z_0` with `c = k` fixed (F4, kb: plans/f4-deep-julia); its critical orbit is the
+    /// ordinary orbit of `c = k` from 0.
+    start: Option<BigComplex>,
 }
 
 impl ReferenceOrbitComputer {
@@ -139,7 +143,20 @@ impl ReferenceOrbitComputer {
             variant: Variant::Automatic,
             threads: Threads::Single,
             formula: Formula::Mandelbrot,
+            start: None,
         }
+    }
+
+    /// Starts the orbit at `z0` instead of 0 (rounded to the computer's precision): the orbit
+    /// of the point `z0` under `z^2 + c` (a Julia set's reference, F4).
+    pub fn with_start(mut self, z0: &BigComplex) -> Self {
+        self.start = Some(z0.with_precision(self.precision_bits));
+        self
+    }
+
+    /// Z_0 (0 unless [`ReferenceOrbitComputer::with_start`]).
+    pub fn start(&self) -> Option<&BigComplex> {
+        self.start.as_ref()
     }
 
     pub fn with_formula(mut self, formula: Formula) -> Self {
@@ -160,7 +177,7 @@ impl ReferenceOrbitComputer {
     /// Whether a computation of `max_iterations` runs on three threads.
     pub fn uses_helpers(&self, max_iterations: usize) -> bool {
         // (The three-thread split is Mandelbrot's X^2, Y^2, (X+Y)^2.)
-        if self.resolved_variant() != Variant::Squarings || !self.formula.is_mandelbrot() {
+        if self.resolved_variant() != Variant::Squarings || matches!(self.formula, Formula::Multibrot(_)) {
             return false;
         }
         match self.threads {
@@ -246,16 +263,21 @@ impl ReferenceOrbitComputer {
         let need = max_iterations + 1;
         if let Some(p) = points.as_deref_mut() {
             assert!(p.len() >= need, "orbit point buffer too small");
-            p[0] = [0.0, 0.0];
+            p[0] = self.start.as_ref().map_or([0.0, 0.0], BigComplex::to_f32);
         }
         if let Some(e) = extended.as_deref_mut() {
             assert!(e.len() >= need, "orbit extended buffer too small");
-            e[0] = FloatExpComplex::ZERO;
+            e[0] = self
+                .start
+                .as_ref()
+                .map_or(FloatExpComplex::ZERO, BigComplex::float_exp_complex);
         }
         let first = from.map_or(0, |f| f.iterations());
         let job = Job {
             c: &self.c,
-            start: from.map(|f| (&f.final_z, first)),
+            start: from
+                .map(|f| (&f.final_z, first))
+                .or(self.start.as_ref().map(|z| (z, 0))),
             squarings: self.resolved_variant() == Variant::Squarings,
             helpers: self.uses_helpers(max_iterations - first),
             max_iterations,
@@ -293,9 +315,12 @@ impl ReferenceOrbitComputer {
         control: &mut Control<'_>,
     ) -> (Vec<DoubleExpComplex>, OrbitResult) {
         let mut d = vec![DoubleExpComplex::ZERO; max_iterations + 1];
+        if let Some(z) = &self.start {
+            d[0] = DoubleExpComplex::new(z.re.double_exp(), z.im.double_exp());
+        }
         let job = Job {
             c: &self.c,
-            start: None,
+            start: self.start.as_ref().map(|z| (z, 0)),
             squarings: self.resolved_variant() == Variant::Squarings,
             helpers: self.uses_helpers(max_iterations),
             max_iterations,
@@ -741,6 +766,36 @@ mod tests {
         for p in &pts[1..] {
             z = Formula::Multibrot(3).step(z, (-0.1, 0.8));
             assert!((p[0] as f64 - z.0).abs() < 1e-6 && (p[1] as f64 - z.1).abs() < 1e-6);
+        }
+    }
+
+    /// F4: an orbit from `z_0` (a Julia set's centre orbit) is the plain iteration from there,
+    /// with every output form starting at `z_0`, on one thread and on three, and resumable.
+    #[test]
+    fn orbit_from_a_start_point() {
+        for bits in [128usize, 1088] {
+            let k = BigComplex::parse("-0.1225611668766536", "0.7448617666197442", bits).unwrap();
+            let z0 = BigComplex::parse("0.31", "-0.27", bits).unwrap();
+            let mut z = (0.31f64, -0.27f64);
+            let (kr, ki) = (-0.1225611668766536f64, 0.7448617666197442f64);
+            for threads in [Threads::Single, Threads::Three] {
+                let comp = ReferenceOrbitComputer::new(&k, bits)
+                    .with_start(&z0)
+                    .with_threads(threads);
+                let (pts, ext, r) = comp.compute_vec(40, 1e10);
+                assert_eq!(r.count, 41);
+                assert_eq!(pts[0], [0.31f32, -0.27f32]);
+                assert!((ext[0].to_f64()[0] - 0.31).abs() < 1e-7);
+                let (d, _) = with_no_control(4096, |ctl| comp.compute_double_exp(40, 1e10, ctl));
+                assert!((d[0].re.to_f64() - 0.31).abs() < 1e-15);
+                let mut w = z;
+                for p in &pts[1..] {
+                    w = (w.0 * w.0 - w.1 * w.1 + kr, 2.0 * w.0 * w.1 + ki);
+                    assert!((f64::from(p[0]) - w.0).abs() < 1e-5 && (f64::from(p[1]) - w.1).abs() < 1e-5);
+                }
+            }
+            z = (z.0, z.1);
+            let _ = z;
         }
     }
 }

@@ -179,6 +179,62 @@ final class TouchControlsUITests: XCTestCase {
         settle(1)
     }
 
+    /// F4 (kb: plans/f4-deep-julia): the control center's "Julia twin of this view" opens the
+    /// Julia set of the view's centre at the same zoom (the HUD names its k, the zoom stays), and
+    /// "Back to the Mandelbrot set" there, or the HUD's back button, returns.
+    func testJuliaTwinAndBack() throws {
+        try launchSettled()
+        let scale0 = scale()
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        if control.value as? String != "shown" { control.tap() }
+        settle(2)
+        XCTAssertEqual(control.value as? String, "shown", "the control center did not open")
+        // The Overlays section alone (the search filters sections by keyword).
+        let search = app.textFields["Search settings"]
+        if !search.waitForExistence(timeout: 10) {
+            // (Opened before the scene was ready: close and open again.)
+            control.tap()
+            settle(1.5)
+            control.tap()
+        }
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "no search field")
+        search.tap()
+        search.typeText("twin\n")
+        settle(1.5)
+        let twin = app.buttons["julia-twin"]
+        for _ in 0..<4 where !(twin.exists && twin.isHittable) {
+            app.swipeUp()
+            settle(0.8)
+        }
+        XCTAssertTrue(twin.exists && twin.isHittable, "no Julia twin button in the control center")
+        twin.tap()
+        settle(2)
+        let backHUD = app.buttons["julia-back-hud"]
+        XCTAssertTrue(backHUD.waitForExistence(timeout: 5), "the twin did not open (no back button in the HUD)")
+        XCTAssertEqual(scale(), scale0, accuracy: scale0 * 1e-9, "the twin changed the zoom")
+        let back = app.buttons["julia-back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button in the control center")
+        shot("julia-twin-cc")
+        back.tap()
+        settle(2)
+        XCTAssertFalse(app.buttons["julia-back-hud"].exists, "still in the Julia set after Back")
+        // Again, and back through the HUD this time.
+        let twinAgain = app.buttons["julia-twin"]
+        XCTAssertTrue(twinAgain.waitForExistence(timeout: 5), "no twin button after Back")
+        twinAgain.tap()
+        settle(2)
+        let close = app.buttons["control-center-close"]
+        if close.exists && close.isHittable { close.tap() }
+        settle(2)
+        let hudBack = app.buttons["julia-back-hud"]
+        XCTAssertTrue(hudBack.waitForExistence(timeout: 5) && hudBack.isHittable, "no hittable back button in the HUD")
+        shot("julia-twin-hud")
+        hudBack.tap()
+        settle(2)
+        XCTAssertFalse(app.buttons["julia-back-hud"].exists, "still in the Julia set after the HUD's back")
+    }
+
     private func launchSettled() throws {
         app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")

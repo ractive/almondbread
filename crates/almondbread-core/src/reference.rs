@@ -29,6 +29,7 @@ use almondbread_math::{
     BigFloat, FloatExpComplex, Formula, PeriodMethod, ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
 };
 
+use crate::julia_reference::{self, JuliaLayout};
 use crate::viewport::{Center, Scale, Viewport};
 
 /// Views with a scale per point below this use big references (and, per texel, the deep
@@ -114,6 +115,10 @@ pub struct Reference {
     pub orbit_time: f64,
     /// Made from it on the worker thread ([`ReferencePrepare`]); None when computed elsewhere.
     pub prepared: Option<ReferenceAttachment>,
+    /// A Julia reference (F4): `points` hold the critical orbit, zeros, then the centre orbit
+    /// ([`crate::julia_reference`]); `point` is the centre (the orbit's `Z_0`), `escaped` and
+    /// `period` describe the centre orbit.
+    pub julia: Option<JuliaLayout>,
 }
 
 /// How well a reference serves a view.
@@ -163,6 +168,38 @@ impl Reference {
         const SLICE: usize = 1 << 16;
         let start = Instant::now();
         let (cr, ci) = (viewport.center.re(), viewport.center.im());
+        if let Formula::Julia(k) = formula {
+            // F4: the critical orbit of k, then the centre orbit (crate::julia_reference).
+            let kf = k.approx();
+            let (crit, crit_escaped) = julia_reference::orbit_f64(kf, (0.0, 0.0), max_iter, bailout, cancel)?;
+            let (center, escaped) = julia_reference::orbit_f64(kf, (cr, ci), max_iter, bailout, cancel)?;
+            if let Some(p) = progress {
+                p.store(center.len() - 1, Ordering::Relaxed);
+            }
+            let layout = JuliaLayout {
+                crit_last: crit.len() - 1,
+                center_start: julia_reference::center_start(crit.len()),
+                crit_escaped,
+            };
+            return Some(Self {
+                formula,
+                point: Center::new(cr, ci),
+                scale: viewport.scale,
+                precision_bits: 53,
+                max_iter,
+                points: Arc::new(julia_reference::assemble(&crit, &center, [0.0; 2])),
+                extended: Arc::default(),
+                period: None,
+                detected_period: None,
+                escaped,
+                big: false,
+                deep_kernel: false,
+                select_time: 0.0,
+                orbit_time: start.elapsed().as_secs_f64(),
+                prepared: None,
+                julia: Some(layout),
+            });
+        }
         let mut pts = Vec::with_capacity(max_iter.min(PREALLOC_POINTS) + 1);
         let (mut x, mut y) = (0.0f64, 0.0f64);
         let b2 = bailout * bailout;
@@ -220,6 +257,7 @@ impl Reference {
             select_time: 0.0,
             orbit_time: start.elapsed().as_secs_f64(),
             prepared: None,
+            julia: None,
         })
     }
 
@@ -247,6 +285,9 @@ impl Reference {
     ) -> Option<Self> {
         let bits = request.precision_bits.div_ceil(64) * 64;
         let center = request.center.with_min_precision(bits);
+        if let Formula::Julia(k) = request.formula {
+            return Self::compute_julia_big(request, k, &center, bits, cancel, progress);
+        }
         let t0 = Instant::now();
         let mut is_cancelled = || cancel.load(Ordering::Relaxed);
         let (point, period, detected) = if request.nucleus {
@@ -344,6 +385,7 @@ impl Reference {
                     select_time,
                     orbit_time: t1.elapsed().as_secs_f64(),
                     prepared: None,
+                    julia: None,
                 });
             }
             r = Some(next);
@@ -382,7 +424,58 @@ impl Reference {
             select_time,
             orbit_time: t1.elapsed().as_secs_f64(),
             prepared: None,
+            julia: None,
         })
+    }
+
+    /// F4: a big Julia reference: the critical orbit of `k` (cached per `k`, at least the
+    /// centre orbit's precision) and the centre orbit, concatenated
+    /// ([`crate::julia_reference`]). No nucleus search and no prefixes: both orbits whole.
+    fn compute_julia_big(
+        request: &ReferenceRequest,
+        k: almondbread_math::JuliaK,
+        center: &Center,
+        bits: usize,
+        cancel: &AtomicBool,
+        progress: &AtomicUsize,
+    ) -> Option<Self> {
+        let t1 = Instant::now();
+        let iters = request.max_iter.max(1);
+        let crit = julia_reference::critical_orbit(k, bits, iters, request.bailout, cancel)?;
+        let (cp, ce, escaped) = julia_reference::center_orbit(k, center.big(), bits, iters, request.bailout, cancel)?;
+        progress.store(cp.len() - 1, Ordering::Relaxed);
+        let layout = JuliaLayout {
+            crit_last: crit.points.len() - 1,
+            center_start: julia_reference::center_start(crit.points.len()),
+            crit_escaped: crit.escaped,
+        };
+        Some(Self {
+            formula: request.formula,
+            point: center.clone(),
+            scale: request.scale,
+            precision_bits: bits,
+            max_iter: request.max_iter,
+            points: Arc::new(julia_reference::assemble(&crit.points, &cp, [0.0; 2])),
+            extended: Arc::new(julia_reference::assemble(&crit.extended, &ce, FloatExpComplex::ZERO)),
+            period: None,
+            detected_period: None,
+            escaped,
+            big: true,
+            deep_kernel: request.scale.to_f64() < DEEP_KERNEL_SCALE,
+            select_time: 0.0,
+            orbit_time: t1.elapsed().as_secs_f64(),
+            prepared: None,
+            julia: Some(layout),
+        })
+    }
+
+    /// Iterations of the orbit the view's pixels start on (the centre orbit; for Julia the
+    /// second part of `points`).
+    pub fn orbit_iterations(&self) -> usize {
+        match &self.julia {
+            Some(j) => j.center_iterations(self.points.len()),
+            None => self.points.len() - 1,
+        }
     }
 
     /// Seconds it took in all.
@@ -398,6 +491,12 @@ impl Reference {
     /// an escape (`|z|` is then comparable to `|Z|`) or at a nucleus (`Z_p = 0`) the reset is
     /// exact. Usable for a first frame, which must be rendered again once the whole orbit is in.
     pub fn truncated_before(&self, max_iter: usize) -> bool {
+        if let Some(j) = &self.julia {
+            // (Both orbits: a pixel's index on either never exceeds its n.)
+            return self.big
+                && ((!self.escaped && self.orbit_iterations() < max_iter)
+                    || (!j.crit_escaped && j.crit_last < max_iter));
+        }
         self.big && self.period.is_none() && !self.escaped && self.points.len() - 1 < max_iter
     }
 
@@ -407,6 +506,15 @@ impl Reference {
     /// up to that limit, and an extension pass past it rebases every pixel at the cut with a
     /// rounding loss (kb: techniques/rebasing, "Truncated references").
     pub fn exact_reach(&self) -> usize {
+        if let Some(j) = &self.julia {
+            let center = if self.escaped {
+                usize::MAX
+            } else {
+                self.orbit_iterations()
+            };
+            let crit = if j.crit_escaped { usize::MAX } else { j.crit_last };
+            return center.min(crit);
+        }
         if self.escaped || self.period.is_some() {
             usize::MAX
         } else {

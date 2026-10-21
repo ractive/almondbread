@@ -216,10 +216,22 @@ impl RenderSettings {
         if !self.auto_iterations {
             return self.manual_iterations.clamp(1, MAX_ITERATION_LIMIT);
         }
-        depth_iterations(viewport)
+        self.depth_iterations(viewport)
             .max(self.learned_iterations)
             .min(self.max_iterations_cap)
             .clamp(1, MAX_ITERATION_LIMIT)
+    }
+
+    /// The depth heuristic of the formula: [`depth_iterations`] for the parameter planes; a
+    /// Julia set's escape counts grow linearly with depth (a pixel needs about `depth / log10|f'|`
+    /// steps to leave its neighbours, then a few hundred to escape; F4, kb: plans/f4-deep-julia),
+    /// [`crate::julia::depth_iterations`].
+    pub fn depth_iterations(&self, viewport: &Viewport) -> usize {
+        if self.formula.is_julia() {
+            crate::julia::depth_iterations(viewport)
+        } else {
+            depth_iterations(viewport)
+        }
     }
 
     /// Distance estimate needed (shading or outline).

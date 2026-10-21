@@ -11,7 +11,7 @@
 //! (places, tours, journeys) and the Julia panel (`z^2 + k`) do not; seek (Newton framing of
 //! minibrots) waits for F3.
 
-pub use almondbread_math::{Formula, MULTIBROT_MAX_POWER};
+pub use almondbread_math::{Formula, JuliaK, MULTIBROT_MAX_POWER};
 
 /// How a formula's references rebase (kb: techniques/rebasing).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,10 +100,36 @@ impl FormulaCapabilities {
         ..Self::MANDELBROT
     };
 
+    /// A Julia set of `z^2 + k` (F4, kb: plans/f4-deep-julia): perturbation against the
+    /// view-centre orbit, then the critical orbit (the Mandelbrot orbit of `k`), the scalar BLA
+    /// with `B = 0`, DE by `dz/dz_0`, the derivative interior test (every interior pixel falls
+    /// into `k`'s attracting cycle). No LA until measured, no SA seeds (their c-expansion), no
+    /// attracting-cycle probe or interior cycle analysis (both follow the c-plane derivatives),
+    /// no closed-form components, seek, π meter, rays, orbit overlay, content or Julia panel.
+    pub const JULIA: Self = Self {
+        perturbation: true,
+        rebasing: Rebasing::CriticalOrbit,
+        bla: BlaForm::Scalar,
+        la: false,
+        sa_seeds: false,
+        interior_derivative: true,
+        interior_probe: false,
+        closed_form_components: false,
+        de: true,
+        seek: false,
+        atom_domain: false,
+        pi_meter: false,
+        external_rays: false,
+        orbit_overlay: false,
+        content: false,
+        julia_panel: false,
+    };
+
     pub fn of(formula: Formula) -> Self {
         match formula {
             Formula::Mandelbrot => Self::MANDELBROT,
             Formula::Multibrot(_) => Self::MULTIBROT,
+            Formula::Julia(_) => Self::JULIA,
         }
     }
 }

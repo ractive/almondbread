@@ -157,6 +157,35 @@ final class OverlayLayoutUITests: XCTestCase {
         app.terminate()
     }
 
+    /// F4 (kb: plans/f4-deep-julia): a tap on the Julia panel opens that Julia set as the main
+    /// view (the HUD names its k and offers the way back; the panel itself is gone, a Julia set
+    /// has no panel), and the HUD's back button returns to the Mandelbrot view with the panel.
+    func testJuliaPanelTapOpensTheSet() {
+        app.launchArguments = ["--ui-demo=julia"]
+        app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")
+        let close = app.buttons["control-center-close"]
+        if close.waitForExistence(timeout: 5) { close.tap() }
+        settle(4)
+        guard let julia = panels()["julia"] else {
+            XCTFail("no Julia panel in \(panels())")
+            return
+        }
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: julia.midX, dy: julia.midY)).tap()
+        let back = app.buttons["julia-back-hud"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "the tap did not open the Julia set (no back button in the HUD)")
+        settle(3)
+        shot("julia-opened")
+        XCTAssertNil(panels()["julia"], "a Julia view still shows the Julia panel")
+        back.tap()
+        settle(3)
+        XCTAssertFalse(app.buttons["julia-back-hud"].exists, "still in the Julia set after the back button")
+        XCTAssertNotNil(panels()["julia"], "the panel did not come back with the Mandelbrot set")
+        shot("julia-back")
+        app.terminate()
+    }
+
     /// The mini-map at its default three levels, no other panel: the map row (fewer or
     /// narrower panels where there is no room) and the cockpit clear of the HUD, the buttons
     /// and the throttle, in portrait and on its side.

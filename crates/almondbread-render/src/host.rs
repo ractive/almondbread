@@ -98,6 +98,9 @@ pub struct Host<B: GpuBackend> {
     measure: Option<Measurement>,
     /// The guided tour being played (kb: decisions/controls "Guided tours").
     pub tour: Option<TourPlayer>,
+    /// F4 (kb: plans/f4-deep-julia): the view and formula a Julia view was opened from (the
+    /// way back); None when not in a Julia view opened here.
+    pub julia_return: Option<(Viewport, almondbread_core::Formula)>,
 }
 
 impl<B: GpuBackend + Clone> Host<B> {
@@ -116,6 +119,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             overlay: Overlay::default(),
             overlay_tick: 0,
             tour: None,
+            julia_return: None,
         }
     }
 
@@ -239,7 +243,59 @@ impl<B: GpuBackend + Clone> Host<B> {
         let ppp = self.points_per_pixel;
         let px = self.width as f64 / 2.0 + x / ppp;
         let py = self.height as f64 / 2.0 - y / ppp;
-        self.overlay.click(&self.renderer, px, py, ppp, fly)
+        let hit = self.overlay.click(&self.renderer, px, py, ppp, fly);
+        // A click on the Julia panel: its set as the main view, whole (F4).
+        if let Some(k) = self.overlay.open_julia.take() {
+            let formula = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
+            let (w, h) = self.view_points;
+            self.open_julia(formula, almondbread_core::julia::home_view(w, h));
+        }
+        hit
+    }
+
+    /// Shows `formula` (a Julia set) at `view` (kb: plans/f4-deep-julia), remembering the view
+    /// it came from when that was not a Julia view (the way back). A jump: flights stop.
+    pub fn open_julia(&mut self, formula: almondbread_core::Formula, mut view: Viewport) {
+        let r = &mut self.renderer;
+        if !r.settings.formula.is_julia() {
+            self.julia_return = Some((r.viewport.clone(), r.settings.formula));
+        }
+        r.navigator.cancel_flight();
+        r.navigator.jumped();
+        view.ensure_precision();
+        r.settings.formula = formula;
+        r.viewport = view;
+    }
+
+    /// The Julia twin (F4): the Julia set of the view's centre at the same framing. False in a
+    /// Julia view (its twin is the way back) or for a formula without the Julia panel's `z^2+k`.
+    pub fn julia_twin(&mut self) -> bool {
+        let f = self.renderer.settings.formula;
+        if f.is_julia() || !almondbread_core::FormulaCapabilities::of(f).julia_panel {
+            return false;
+        }
+        let (formula, view) = almondbread_core::julia::twin(&self.renderer.viewport);
+        self.open_julia(formula, view);
+        true
+    }
+
+    /// Back to the view a Julia view was opened from (F4); without one (a Julia view from a
+    /// link), the whole Mandelbrot set. False when not in a Julia view.
+    pub fn back_from_julia(&mut self) -> bool {
+        if !self.renderer.settings.formula.is_julia() {
+            return false;
+        }
+        let (w, h) = self.view_points;
+        let (view, formula) = self
+            .julia_return
+            .take()
+            .unwrap_or_else(|| (Viewport::fitting(w, h), almondbread_core::Formula::Mandelbrot));
+        let r = &mut self.renderer;
+        r.navigator.cancel_flight();
+        r.navigator.jumped();
+        r.settings.formula = formula;
+        r.viewport = view;
+        true
     }
 
     /// The help badge (kb: decisions/controls "Help") under a press at (x, y) view points from
@@ -564,11 +620,15 @@ impl<B: GpuBackend + Clone> Host<B> {
         true
     }
 
-    /// The home view fitted to the view.
+    /// The home view fitted to the view (a Julia set's whole view in a Julia view, F4).
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
         self.renderer.navigator.cancel_flight();
-        self.renderer.viewport = Viewport::fitting(w, h);
+        self.renderer.viewport = if self.renderer.settings.formula.is_julia() {
+            almondbread_core::julia::home_view(w, h)
+        } else {
+            Viewport::fitting(w, h)
+        };
     }
 
     /// One display refresh. `now` is the refresh's timestamp, `clock` reads the same clock
@@ -723,7 +783,19 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Centre and scale for the clipboard, at the precision the view needs (M3b: arbitrary;
     /// pasting it back gives the same view to a fraction of a point).
     pub fn coordinates_text(&self) -> String {
-        coordinates_text_of(&self.renderer.viewport)
+        let v = &self.renderer.viewport;
+        let mut text = coordinates_text_of(v);
+        // A Julia view (F4): its k, to the centre's digits (k places the set to them as well).
+        if let Some(k) = self.renderer.settings.formula.julia_k() {
+            let d = coordinate_digits(v) + 2;
+            let kv = k.value();
+            text.push_str(&format!(
+                "\njulia {} {}",
+                kv.re.to_decimal_string(Some(d)),
+                kv.im.to_decimal_string(Some(d))
+            ));
+        }
+        text
     }
 }
 

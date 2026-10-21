@@ -639,6 +639,15 @@ fn full_set_view(w: usize, h: usize) -> Viewport {
     Viewport::new(-0.7, 0.0, s)
 }
 
+/// The whole-set map level of `formula` (F4: a Julia set's whole view, centred on 0).
+fn full_view_of(formula: almondbread_core::Formula, w: usize, h: usize) -> Viewport {
+    if formula.is_julia() {
+        almondbread_core::julia::home_view(w as f64, h as f64)
+    } else {
+        full_set_view(w, h)
+    }
+}
+
 /// The whole-set map's dot cloud as a picture of `size` pixels (BGRA8: straight sRGB colour,
 /// alpha), `centre` and `scale` (complex units per pixel) placing it like the map. One pixel
 /// per point: an orbit of 10^5 steps is a cloud, not a polyline (kb: decisions/controls "Orbit
@@ -814,6 +823,12 @@ pub struct Overlay<B: GpuBackend> {
     /// the map row (top-left pixel, panel pixels) while it is on.
     pub julia: crate::julia::JuliaPanel<B>,
     julia_at: Option<([f32; 2], (usize, usize))>,
+    /// The panel's k at full precision (F4: what a click on the panel opens; kept while the
+    /// pointer is over the panel, so moving onto it does not change the picture).
+    pub julia_k: Option<Center>,
+    /// A click on the panel asked to open its Julia set as the main view (the host applies it,
+    /// kb: plans/f4-deep-julia).
+    pub open_julia: Option<Center>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -849,6 +864,8 @@ impl<B: GpuBackend> Default for Overlay<B> {
             drawn_julia: Cell::new(None),
             julia: Default::default(),
             julia_at: None,
+            julia_k: None,
+            open_julia: None,
         }
     }
 }
@@ -973,7 +990,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// the renderer (None when there is nothing to draw). Called once per refresh, before
     /// the renderer's frame. `size`: output pixels, `ppp`: view points per pixel.
     pub fn prepare(&mut self, renderer: &mut Renderer<B>, size: (usize, usize), ppp: f64, now: f64) {
-        let s = self.settings.clone().sanitized();
+        let mut s = self.settings.clone().sanitized();
+        // What the formula lacks is not drawn (F4 Julia: the orbit overlay, its dot cloud and
+        // the Julia panel; the settings stay for the way back).
+        let caps = almondbread_core::FormulaCapabilities::of(renderer.settings.formula);
+        s.orbit &= caps.orbit_overlay;
+        s.julia &= caps.julia_panel;
         if size.0 > 0 && size.1 > 0 && ppp > 0.0 {
             let short = size.0.min(size.1) as f64 * ppp;
             let rate = renderer.navigator.zoom_speed();
@@ -1002,6 +1024,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if !s.julia || empty {
             self.julia.clear();
             self.julia_at = None;
+            self.julia_k = None;
         }
         if !s.any() || empty {
             self.maps = None;
@@ -1081,7 +1104,18 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 px_per_pt,
             )[n];
             self.julia_at = Some((origin, panel));
-            let k = self.probe_c(renderer, &view);
+            // The pointer over the panel itself keeps the panel's k (F4: the click there opens
+            // the set the panel shows).
+            let (px, py) = renderer.navigator.probe_point();
+            let (x, y) = (
+                size.0 as f64 / 2.0 + px * px_per_pt,
+                size.1 as f64 / 2.0 - py * px_per_pt,
+            );
+            let k = match &self.julia_k {
+                Some(k) if self.tour.probe.is_none() && self.julia_hit(x, y) => k.clone(),
+                _ => self.probe_c(renderer, &view),
+            };
+            self.julia_k = Some(k.clone());
             let settings = renderer.settings.clone();
             if let Err(e) = self
                 .julia
@@ -1257,7 +1291,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     ) -> Result<(), GpuError> {
         // Level decades: 0 (whole set), then `want - 1` levels spread evenly between it and the
         // view (`map_decades`).
-        let full = full_set_view(panel.0, panel.1);
+        let full = full_view_of(renderer.settings.formula, panel.0, panel.1);
         let view_px = view.scale; // per point; maps are per pixel
         // In logs: the f64 ratio overflows to infinity past ~1e308, and the level loop below
         // then never ended (the app hung when the map was on at such depths).
@@ -1281,6 +1315,14 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             stack.levels.clear();
             stack.spare.clear();
             stack.panel = panel;
+        }
+        // A formula change (F4: a Julia set opened or left) makes every level anew.
+        if stack
+            .levels
+            .iter()
+            .any(|l| l.renderer.settings.formula != renderer.settings.formula)
+        {
+            stack.spare.extend(std::mem::take(&mut stack.levels));
         }
         // Drop levels no longer wanted (or whose area the view left), add new ones.
         let mut kept: Vec<MapLevel<B>> = Vec::new();
@@ -1412,9 +1454,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if crate::help::hit(&self.help, x, y, 1.0 / ppp).is_some() {
             return false;
         }
-        // The Julia panel takes its clicks and does nothing with them yet (a click must not
-        // zoom the view under it; "open as the main view" would be F4's entry point).
+        // A click on the Julia panel opens its Julia set as the main view (F4, kb:
+        // plans/f4-deep-julia; the host applies it). It never zooms the view under it.
         if self.julia_hit(x, y) {
+            self.open_julia = self.julia_k.clone();
             return true;
         }
         let Some(stack) = &self.maps else { return false };
@@ -1431,7 +1474,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 .center
                 .offset_scaled(px + 0.5 - pw / 2.0, ph / 2.0 - py - 0.5, map_scale);
             let view_px = renderer.viewport.scale * ppp;
-            let ratio = map_scale.ratio(view_px);
+            // (Minibrot snapping is Mandelbrot's: a Julia map jumps to the point itself, F4.)
+            let ratio = if renderer.settings.formula.is_julia() {
+                1.0
+            } else {
+                map_scale.ratio(view_px)
+            };
             let view_scale = renderer.viewport.scale;
             let max_iter = renderer.max_iterations().max(1000);
             let mut probe_view = Viewport::with_center(c.clone(), view_scale);
