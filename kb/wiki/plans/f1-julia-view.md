@@ -2,7 +2,7 @@
 title: "F1: Julia view (companion inset)"
 type: plan
 milestone: F1
-status: in-progress
+status: completed
 priority: 1
 effort: S
 appeal: high
@@ -112,6 +112,11 @@ The user tries the panel in a real Mac window and on the iPad (pointer hover, fi
 the Julia tour) before it is on in any tour by default. Decide there: default on or off, where
 the panel sits on an iPhone, whether a "tap to open as the main view" is wanted (that would be
 F4's entry point).
+
+Decided by the user on 2026-10-21: the key stays **U**, the panel stays **off by default**, and
+"tap to open as the main view" is wanted (it is F4's entry point, built there). The iPhone
+placement stays as built (portrait: whole-set map + Julia panel; on its side: the panel alone)
+until the user has tried it on a phone; the user had no preference yet.
 
 ## Risks
 
