@@ -68,6 +68,10 @@ const SURVEY_ROWS: usize = 10;
 const SURVEY_INTERVAL: f64 = 0.1;
 /// Bytes per survey cell: the counts, then the peak (the kernel's two uint4).
 const SURVEY_CELL_BYTES: usize = 32;
+/// Density pivot sample grid (kb: techniques/coloring-methods, "Density pivot"): one texel
+/// per cell of a finished level, 2560 smooth counts (10 KB).
+const PIVOT_COLS: usize = 64;
+const PIVOT_ROWS: usize = 40;
 /// Gesture resolution probe (kb: synthesis/benchmarks "Autopilot throttle and GPU clocks"):
 /// how long a probe holds one 1/8 step above the cost model's resolution (s), and the wait
 /// before the next probe after a success and, doubling, after failures (s).
@@ -1153,6 +1157,13 @@ pub struct Renderer<B: GpuBackend> {
     survey_buffer: B::Buffer,
     pending_survey: Option<(B::Submission, Survey)>,
     last_survey: f64,
+    /// Density pivot (kb: techniques/coloring-methods, "Density pivot"): the sample kernel,
+    /// its result buffer, the sample in flight, and the median smooth escape count of the
+    /// last finished level of a resting view (None: no escaped pixels, no data yet).
+    pivot_pipeline: B::Pipeline,
+    pivot_buffer: B::Buffer,
+    pending_pivot: Option<B::Submission>,
+    escape_pivot: Option<f64>,
     /// The adaptive AA list (texel indices) and its capacity.
     aa_list_buffer: Option<(B::Buffer, usize)>,
     /// Ping-pong history images (linear colour + confidence) at the output size (FL).
@@ -1401,6 +1412,8 @@ impl<B: GpuBackend> Renderer<B> {
         let unresolved_list_pipeline = backend.pipeline("unresolvedList", &[])?;
         let unresolved_mask_pipeline = backend.pipeline("unresolvedMask", &[])?;
         let survey_pipeline = backend.pipeline("survey", &[])?;
+        let pivot_pipeline = backend.pipeline("escapeSample", &[])?;
+        let pivot_buffer = backend.create_buffer(PIVOT_COLS * PIVOT_ROWS * 4, Storage::Shared)?;
         let seed_begin_pipeline = backend.pipeline("seedBegin", &[])?;
         let seed_gate_pipeline = backend.pipeline("seedGate", &[])?;
         let seed_status = backend.create_buffer_with_data(&[0u8; 16])?;
@@ -1446,6 +1459,10 @@ impl<B: GpuBackend> Renderer<B> {
             survey_buffer,
             pending_survey: None,
             last_survey: f64::NEG_INFINITY,
+            pivot_pipeline,
+            pivot_buffer,
+            pending_pivot: None,
+            escape_pivot: None,
             aa_list_buffer: None,
             history: None,
             history_ping: 0,
@@ -1555,6 +1572,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.seed_round = None;
         self.frames_in_flight.clear();
         self.pending_survey = None;
+        self.pending_pivot = None;
         self.failed_frames += 1;
     }
 
@@ -2368,6 +2386,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         self.harvest();
         self.poll_survey(now);
+        self.poll_pivot();
         self.poll_longer_reference();
         self.poll_further();
         let key = self.make_key(width, height, points_per_pixel, false);
@@ -4296,6 +4315,73 @@ impl<B: GpuBackend> Renderer<B> {
             level.crossed,
         ));
         self.survey_level(index);
+        self.sample_pivot(index);
+    }
+
+    /// Density pivot: samples a just-completed level of a resting view (not gesture frames,
+    /// not AA or extension passes) on a grid, in a command buffer of its own committed now,
+    /// read back when it has run ([`Renderer::poll_pivot`]). One tiny pass per finished level,
+    /// nothing per frame.
+    fn sample_pivot(&mut self, index: usize) {
+        let Some(job) = &self.job else { return };
+        let level = &job.levels[index];
+        if job.interactive || level.aa.is_some() || level.is_extension() {
+            return;
+        }
+        let (w, h) = (level.set.width, level.set.height);
+        if w == 0 || h == 0 {
+            return;
+        }
+        let iter = level.set.iter.clone();
+        let Ok(mut enc) = self.backend.begin("density pivot") else {
+            return;
+        };
+        let p = SurveyParams {
+            width: w as u32,
+            height: h as u32,
+            cols: PIVOT_COLS as u32,
+            rows: PIVOT_ROWS as u32,
+        };
+        enc.set_pipeline(&self.pivot_pipeline);
+        enc.set_texture(0, &iter);
+        enc.set_bytes(0, bytes_of(&p));
+        enc.set_buffer(1, &self.pivot_buffer, 0);
+        enc.dispatch_threads([PIVOT_COLS, PIVOT_ROWS, 1], [16, 8, 1]);
+        // A newer level replaces a sample still in flight (the serial queue runs both; the
+        // buffer is read once the later one has).
+        self.pending_pivot = Some(enc.commit());
+    }
+
+    /// Takes the median of a finished pivot sample.
+    fn poll_pivot(&mut self) {
+        let Some(sub) = &self.pending_pivot else { return };
+        match sub.status() {
+            SubmissionStatus::Pending => {}
+            SubmissionStatus::Failed(_) => self.pending_pivot = None,
+            SubmissionStatus::Completed => {
+                self.pending_pivot = None;
+                let mut samples = vec![0f32; PIVOT_COLS * PIVOT_ROWS];
+                self.backend
+                    .read_buffer(&self.pivot_buffer, 0, bytemuck::cast_slice_mut(&mut samples));
+                self.escape_pivot = almondbread_core::density_pivot::escape_pivot(&mut samples);
+            }
+        }
+    }
+
+    /// The pivot of user density edits: the median smooth escape count of the last finished
+    /// level of a resting view (kb: techniques/coloring-methods, "Density pivot"). None: no
+    /// escaped pixels or no finished view yet (the edit is not compensated).
+    pub fn density_pivot(&mut self) -> Option<f64> {
+        self.poll_pivot();
+        self.escape_pivot
+    }
+
+    /// [`Renderer::density_pivot`] after waiting for a sample in flight (headless tools).
+    pub fn density_pivot_blocking(&mut self) -> Option<f64> {
+        if let Some(sub) = &self.pending_pivot {
+            sub.wait();
+        }
+        self.density_pivot()
     }
 
     /// Autopilot: surveys a just-completed level (at most every [`SURVEY_INTERVAL`]). The pass

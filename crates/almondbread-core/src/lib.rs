@@ -21,6 +21,7 @@ pub mod components;
 pub mod cosmic;
 pub mod cruise;
 pub mod cycles;
+pub mod density_pivot;
 pub mod flight;
 pub mod flyto;
 pub mod formula;

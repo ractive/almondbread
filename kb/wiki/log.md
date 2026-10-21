@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-21
 
+- **Decision:** Density pivot: user edits of the colour density move the offset so the colour at the view's median escape count stays (no scrambling at depth); techniques/coloring-methods
 - **Ingest:** Spiral Galaxy: first hand-found place (spiral-galaxy, 1e22.6, period-461 core, spectrum look); span = app scale x window short side; App Store drafts via --ui-demo=place-<id> and AppStoreShotsUITests.test10SpiralGalaxy
 - **Decision:** Pinned place details: the control center keeps the selected place's name, description and Go / Fly / Tour in a bar at its bottom (decisions/controls)
 
