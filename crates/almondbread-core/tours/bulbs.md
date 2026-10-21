@@ -116,4 +116,4 @@ marker: off
 
 The ring and its dots follow the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Point into any bulb and count the spots its dots hop round, then zoom in on its antenna and count the branches.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.

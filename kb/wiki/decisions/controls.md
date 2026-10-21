@@ -1858,7 +1858,7 @@ tour on the Feigenbaum point. Core: `crates/almondbread-core/src/tour.rs` (forma
 | View ▸ Tours ▸ (a tour); control center "Tours" ▸ Start; a place's "Tour" button (places a tour names); a topic link ("What's a period?"); "Next tour" on a tour's last step | starts it at step 1 |
 | → or "Next ›" (last step: "Finish") | next step |
 | ← or "‹ Back" | previous step |
-| Esc or "End tour" | ends the tour |
+| "End tour", or Esc twice within 2 s | ends the tour; the first Esc stops motion like any Esc, and the card says "Press Esc again to end the tour" (2026-10-21: one Esc was too harsh, and the welcome tour's "press Esc" to stop a cruise ended the tour) |
 | anything else (pan, zoom, places, autopilot, journey, overlays) | as without a tour; the card stays |
 
 **Tours are data.** One Markdown file per tour in `crates/almondbread-core/tours/<id>.md`, listed in
@@ -2513,7 +2513,7 @@ simulators only; feel, haptics and thumb reach need a real device.
 | Long press (0.45 s), released in place, nothing flying (round 2: in A, C and J a held finger steers) | a popover menu at the finger: Seek Minibrot Here, Orbit Here, Fly Here, Copy Coordinates, Go to Copied (when the clipboard has text) | `SeekAt`, `Probe`, `FlyHere`, `coordinates_text_at` |
 | Long press, then drag (orbit on) | the orbit probe follows the finger and stays (touch has no hover) | `Probe(Some)` |
 | Tap a (?) badge | its help popover; a fingertip within 18 points counts (`help::hit_touch`) | `help_hit` |
-| Tour card ‹ Back / Next › / End tour | as ← / → / Esc; regular-size buttons on iOS | — |
+| Tour card ‹ Back / Next › / End tour | as ← / → / Esc twice; regular-size buttons on iOS | — |
 | HUD "Continue" | regular-size bordered button on iOS; G on an iPad keyboard | — |
 
 **Reasons.**
@@ -2574,7 +2574,7 @@ simulators only; feel, haptics and thumb reach need a real device.
 | ⌘I, toolbar Control Center | round button (lit while open); ✕ in the pane; phone: swipe the sheet down | ⌘I |
 | ⇧⌘C / ⇧⌘V coordinates | long-press Copy / Go to Copied; control center | ⇧⌘C / ⇧⌘V (menu bar) |
 | ⌘G / ⇧⌘G fly to | control center Fly to… / Copied; long-press Fly Here | ⌘G / ⇧⌘G |
-| Tour ← / → / Esc | card buttons | ← / → / Esc |
+| Tour ← / → / Esc twice | card buttons | ← / → / Esc twice |
 | Journey stop J / Z / X | Next / Deeper here / Elsewhere under the HUD | J / Z / X |
 | Cockpit click and tooltips | taps; the (?) explains (no hover, no tooltips) | pointer clicks |
 | (?) badges | tap (18-point fingertip) | — |

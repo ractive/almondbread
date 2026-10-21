@@ -5,6 +5,10 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-21
 
+- **Update:** Density pivot checked by the user in a real Mac window: the density slider now behaves as expected ([Coloring methods](techniques/coloring-methods.md), "Density pivot (as built)").
+- **Decision:** F1 Julia panel reviewed by the user: key U, off by default, tap-to-open wanted (F4); iPhone placement kept as built until tried on a phone. F1 done ([F1: Julia view (companion inset)](plans/f1-julia-view.md)).
+- **Decision:** Tours end with Esc twice within 2 s; the first Esc stops motion like any Esc and the card says "Press Esc again to end the tour" (one Esc was too harsh, and the welcome tour's "press Esc" ended the tour). See [Controls and interaction design](decisions/controls.md).
+- **Decision:** Density pivot: user edits of the colour density move the offset so the colour at the view's median escape count stays (no scrambling at depth); techniques/coloring-methods
 - **Ingest:** Spiral Galaxy: first hand-found place (spiral-galaxy, 1e22.6, period-461 core, spectrum look); span = app scale x window short side; App Store drafts via --ui-demo=place-<id> and AppStoreShotsUITests.test10SpiralGalaxy
 - **Decision:** Pinned place details: the control center keeps the selected place's name, description and Go / Fly / Tour in a bar at its bottom (decisions/controls)
 

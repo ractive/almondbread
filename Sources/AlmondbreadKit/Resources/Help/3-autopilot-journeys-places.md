@@ -57,7 +57,7 @@ The control center starts with **Places**: famous views, from the seahorse valle
 A tour walks you through one piece of the maths, step by step. Start one from **View ▸ Tours**, the **Tours** section of the control center, or the **Tour** button of a place that has one (for example the *Feigenbaum Point*).
 
 - A card at the bottom right explains each step. The tour flies the view there, sets the colours and overlays, and moves the orbit's point for you, so you can watch what the text describes.
-- **Next ›** or **→** goes on, **‹ Back** or **←** goes back, **End tour** or **Esc** ends it.
+- **Next ›** or **→** goes on, **‹ Back** or **←** goes back, **End tour** or **Esc** twice ends it (one **Esc** stops the motion, as anywhere).
 - Look around in between as you like; **Next** carries on from the tour's own next view.
 - When the tour ends, your view and settings come back as they were.
 - The **walkthrough** is a tour of the app itself: the cockpit, the throttle, the buttons and the control center, each ringed in gold while the card explains it. It sits at the top of the Tours list and in the Help menu.

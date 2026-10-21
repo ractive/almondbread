@@ -126,4 +126,4 @@ probe: pointer
 
 The control center's **Interior** section switches between flat, bubbles, period, angle and distance at any time, and **Look & colour** changes the rest.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.

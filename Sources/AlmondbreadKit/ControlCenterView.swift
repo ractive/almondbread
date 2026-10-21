@@ -567,8 +567,14 @@ struct LookSectionRows: View {
         .pickerStyle(.navigationLink)
         #endif
         PalettePicker(model: model)
-        ControlRows.slider("Density", value: ControlRows.log($model.colorDensity, range: 0.001...1), in: 0...1,
-                           text: String(format: "%.4g", model.colorDensity))
+        // A user edit pivots on the view's median escape count (kb: techniques/coloring-methods,
+        // "Density pivot"): the offset slider moves along.
+        ControlRows.slider("Density",
+                           value: ControlRows.log(Binding(get: { model.colorDensity },
+                                                          set: { model.editColorDensity($0) }),
+                                                  range: 0.001...1),
+                           in: 0...1, text: String(format: "%.4g", model.colorDensity),
+                           onEditingChanged: { model.densityEditing($0) })
         ControlRows.slider("Offset", value: $model.colorOffset, in: 0...1, text: String(format: "%.2f", model.colorOffset))
         Toggle("Logarithmic", isOn: $model.logColoring)
         Toggle("Smooth", isOn: $model.smoothColoring)
@@ -952,14 +958,15 @@ enum ControlRows {
         }
     }
 
-    static func slider(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, text: String) -> some View {
+    static func slider(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, text: String,
+                       onEditingChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(title)
                 Spacer()
                 Text(text).monospacedDigit().foregroundStyle(.secondary)
             }
-            Slider(value: value, in: range)
+            Slider(value: value, in: range, onEditingChanged: onEditingChanged)
                 .labelsHidden()
                 .accessibilityLabel(title)
                 .accessibilityValue(text)
@@ -1115,7 +1122,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         #if os(iOS)
         case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. Next and Back on its card step through it, End tour ends it and brings back your view and settings. Look around in between as you like."
         #else
-        case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. → and ← step through it, Esc ends it and brings back your view and settings. Look around in between as you like."
+        case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. → and ← step through it, Esc twice ends it and brings back your view and settings. Look around in between as you like."
         #endif
         case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Steering or Q down to zero hands over to cruise, other input pauses it; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
@@ -1346,7 +1353,7 @@ struct PlaceDetailsBar<Footer: View>: View {
                     } label: {
                         Label("Tour", systemImage: "signpost.right")
                     }
-                    .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc ends it")
+                    .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc twice ends it")
                 }
                 Spacer()
                 PlaceRandomButton(model: model, selection: selection, iconOnly: true)

@@ -189,3 +189,35 @@ fn colours_tour_interior_steps_recolour() {
         prev = Some(shown);
     }
 }
+
+/// Density pivot (kb: techniques/coloring-methods, "Density pivot"): a settled deep view has
+/// a pivot from the live frame path (no blocking readback), and a +3 % density edit with the
+/// offset pivoted on it changes far fewer pixels than the same edit without (the place
+/// spiral-galaxy at 1e22.6, its own look).
+#[test]
+fn density_edit_pivots_on_the_median_escape_count() {
+    let place = almondbread_core::places::place_named("spiral-galaxy").unwrap();
+    let mut r = Renderer::new(MetalBackend::new().unwrap()).unwrap();
+    r.viewport = place.viewport(W, H);
+    almondbread_core::palette::Look::named(place.look)
+        .unwrap()
+        .apply(&mut r.settings);
+    let t = r
+        .backend
+        .create_texture(W, H, TextureFormat::Bgra8Unorm, Storage::Shared)
+        .unwrap();
+    let before = settle(&mut r, &t, 30.0);
+    let pivot = r.density_pivot().expect("a pivot once the view settled");
+    assert!(pivot > 100.0, "{pivot}");
+    let (d1, o1) = (r.settings.color_density, r.settings.color_offset);
+    let d2 = d1 * 1.03;
+    r.settings.color_density = d2;
+    let plain = diff(&settle(&mut r, &t, 30.0), &before);
+    r.settings.color_offset =
+        almondbread_core::density_pivot::pivoted_offset(o1, d1, d2, Some(pivot), r.settings.log_coloring);
+    let pivoted = diff(&settle(&mut r, &t, 30.0), &before);
+    // A recolour starts no job: the pivot is still the view's.
+    assert_eq!(r.density_pivot(), Some(pivot));
+    println!("density edit +3 %: pivot {pivot:.1}, pixels changed pivoted {pivoted:.3}, plain {plain:.3}");
+    assert!(pivoted < 0.5 * plain, "pivoted {pivoted}, plain {plain}");
+}

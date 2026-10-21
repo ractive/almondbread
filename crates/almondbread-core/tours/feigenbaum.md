@@ -90,4 +90,4 @@ probe: pointer
 
 The ring and its dots follow the pointer again (on a touch screen: hold a finger on the picture and drag). Move it along the spike and through the bulbs, and watch the cycles split and smear.
 
-**Back** and **Next** (or **←** and **→**) step through the tour; **End tour** (or **Esc**) ends it and brings back your view and settings.
+**Back** and **Next** (or **←** and **→**) step through the tour; **End tour** (or **Esc** twice) ends it and brings back your view and settings.

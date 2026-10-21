@@ -55,4 +55,4 @@ place: pi-at-the-neck
 
 The π meter stays on to the end of the tour. It counts the middle of the view whenever the view is centred on the line above the neck or right of the cusp: zoom in down the line yourself and watch the digits.
 
-**End tour** (or **Esc**) switches it off and brings back your view and settings.
+**End tour** (or **Esc** twice) switches it off and brings back your view and settings.
