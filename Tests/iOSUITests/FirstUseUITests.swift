@@ -414,6 +414,11 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertEqual(go.label, "Go to Head and Shoulders")
         XCTAssertTrue(go.isHittable, "Go not hittable")
         XCTAssertTrue(fly.isHittable, "Fly not hittable")
+        // The pinned details bar: the selected place's description, readable without scrolling.
+        let details = app.descendants(matching: .any)["placeDetails"].firstMatch
+        XCTAssertTrue(details.waitForExistence(timeout: 3), "no details bar for the selected place")
+        XCTAssertTrue(details.staticTexts["Head and Shoulders"].exists, "the details bar does not name the place")
+        XCTAssertTrue(details.isHittable, "details bar off screen")
 
         // Go jumps.
         go.tap()
@@ -423,6 +428,7 @@ final class FirstUseUITests: XCTestCase {
         XCTAssertTrue(v1["re"] != v0["re"] || v1["scale"] != v0["scale"], "Go did not go there")
         XCTAssertFalse(go.exists, "Go still on the picture after Go")
         XCTAssertFalse(fly.exists, "Fly still on the picture after Go")
+        XCTAssertFalse(details.exists, "details bar still shown after Go")
 
         // Another tile moves the selection (still one Go) and does not move the view.
         second.tap()

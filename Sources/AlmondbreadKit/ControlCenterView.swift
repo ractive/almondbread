@@ -25,6 +25,9 @@ struct ControlCenterView: View {
     /// The applied query (the field's text, debounced).
     @State private var query = UIDemo.search ?? ""
     @State private var confirmReset = false
+    /// The Places grid's selection, shared with the pinned details bar. It lives as long as
+    /// the control center does: closing the control center clears it.
+    @State private var places = PlaceSelection(id: UIDemo.selectedPlace)
     /// The width the content is laid out at (the tile grids' columns follow it): the sidebar's
     /// width once it has settled for 150 ms.
     @State private var layoutWidth: CGFloat = 330
@@ -43,13 +46,19 @@ struct ControlCenterView: View {
         let searching = !query.isEmpty
         // (Sections a formula has nothing for are hidden, F2: places and tours are Mandelbrot.)
         let shown = ControlSection.allCases.filter { $0.matches(query) && $0.offered(by: model) }
-        sections(shown: shown, collapsed: searching ? [] : collapsed)
+        let closed: Set<String> = searching ? [] : collapsed
+        let placesOpen = shown.contains(.places) && !closed.contains(ControlSection.places.rawValue)
+        sections(shown: shown, collapsed: closed)
         .controlSize(.small)
         .safeAreaInset(edge: .top, spacing: 0) {
             ControlSearchField(model: model, query: $query, close: close)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            resetAllBar
+            // The selected place stays readable however the grid is scrolled (user,
+            // 2026-10-21: the details under the 80-tile grid were off screen).
+            PlaceDetailsBar(model: model, selection: places, sectionOpen: placesOpen) {
+                resetAllBar
+            }
         }
         .onReceive(UIPerf.actions) { action in
             if case .toggle(let s) = action { withAnimation(.snappy(duration: 0.2)) { toggle(s) } }
@@ -94,8 +103,9 @@ struct ControlCenterView: View {
                     .padding(.bottom, open ? 6 : 8)
                     if open {
                         ControlCardRows {
-                            ControlSectionRows(section: section, model: model)
+                            ControlSectionRows(section: section, model: model, places: places)
                         }
+                        .modifier(PlacesOnScreen(selection: places, active: section == .places))
                         if let f = section.footer {
                             Text(f)
                                 .font(.caption)
@@ -115,6 +125,12 @@ struct ControlCenterView: View {
             .padding(.top, 10)
             .background(TourSectionScroller(model: model, proxy: proxy))
         }
+        .task {
+            // UI demo scenes that show the end of a section (`places-bottom`).
+            guard let target = UIDemo.scrollTarget else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            proxy.scrollTo(target, anchor: .bottom)
+        }
         }
         .labeledContentStyle(ControlRowLabeledStyle())
         .toggleStyle(ControlRowToggleStyle())
@@ -128,7 +144,7 @@ struct ControlCenterView: View {
                     let open = !collapsed.contains(section.rawValue)
                     Section {
                         if open {
-                            ControlSectionRows(section: section, model: model)
+                            ControlSectionRows(section: section, model: model, places: places)
                         }
                     } header: {
                         ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
@@ -311,11 +327,13 @@ struct ControlSectionHeader: View {
 struct ControlSectionRows: View {
     let section: ControlSection
     let model: ExplorerModel
+    /// The Places selection (one object for the control center's life, so the inputs stay equal).
+    let places: PlaceSelection
 
     var body: some View {
         let _ = UIPerf.body("rows.\(section.rawValue)")
         switch section {
-        case .places: PlacesSection(model: model)
+        case .places: PlacesSection(model: model, selection: places)
         case .tours: ToursSectionRows(model: model)
         case .view: ViewSectionRows(model: model)
         case .journey: JourneySectionRows(model: model)
@@ -1093,12 +1111,14 @@ enum ControlSection: String, CaseIterable, Identifiable {
 }
 
 /// Places: the catalogue of famous views (Rust core `places()`, kb: synthesis/places) as a
-/// thumbnail grid by category. Selecting one shows what it is; Go jumps there, Fly flies there
-/// (the fly-to path), Random picks one (of the shown category).
+/// thumbnail grid by category. Selecting one shows what it is in the pinned `PlaceDetailsBar`
+/// (Go jumps there, Fly flies there: the fly-to path); Random picks one (of the shown category).
 struct PlacesSection: View {
     let model: ExplorerModel
-    @State private var category: PlaceCategory?
-    @State private var selected: String?
+    @Bindable var selection: PlaceSelection
+
+    private var category: PlaceCategory? { selection.category }
+    private var selected: String? { selection.id }
 
     private var categories: [(PlaceCategory, String)] {
         var seen: [(PlaceCategory, String)] = []
@@ -1116,7 +1136,7 @@ struct PlacesSection: View {
     var body: some View {
         let _ = UIPerf.body("PlacesSection")
         let _ = UIPerf.placesAppeared()
-        ControlRows.picker("Category", selection: $category) {
+        ControlRows.picker("Category", selection: $selection.category) {
             Text("All (\(ExplorerModel.places.count))").tag(PlaceCategory?.none)
             ForEach(categories, id: \.1) { c in
                 Text(c.1).tag(PlaceCategory?.some(c.0))
@@ -1128,16 +1148,16 @@ struct PlacesSection: View {
             let p = shown[i]
             #if os(iOS)
             // Touch: the first tap selects and puts the name, Go and Fly on the picture itself
-            // (the rows below the 79-tile grid are off screen); a second tap goes there. Going or
+            // (the pinned details bar has the description); a second tap goes there. Going or
             // flying deselects it, so the buttons leave the picture.
             PlaceTouchTile(place: p, zoomLog10: p.zoomLog10 + zoomOffset, isSelected: selected == p.id,
-                           select: { selected = p.id },
-                           go: { selected = nil; model.goToPlace(p.id) },
-                           fly: { selected = nil; model.flyToPlace(p.id) },
-                           tour: ExplorerModel.tour(forPlace: p.id).map { t in { selected = nil; model.startTour(t.id) } })
+                           select: { selection.id = p.id },
+                           go: { selection.id = nil; model.goToPlace(p.id) },
+                           fly: { selection.id = nil; model.flyToPlace(p.id) },
+                           tour: ExplorerModel.tour(forPlace: p.id).map { t in { selection.id = nil; model.startTour(t.id) } })
             #else
             Button {
-                selected = p.id
+                selection.id = p.id
             } label: {
                 PlaceThumbnail(id: p.id)
                     .aspectRatio(1.6, contentMode: .fit)
@@ -1161,45 +1181,11 @@ struct PlacesSection: View {
             .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
             #endif
         }
-        if let id = selected, let p = ExplorerModel.places.first(where: { $0.id == id }) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(p.name).font(.callout.weight(.semibold))
-                Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10 + model.placeZoomOffset)) · \(p.feature)")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(p.description).font(.caption).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        // The selected place's name, description and Go / Fly / Tour are in the pinned
+        // `PlaceDetailsBar` (under the grid they were off screen for every tile near the top).
         HStack {
-            Button {
-                if let id = selected { model.goToPlace(id) }
-            } label: {
-                Label("Go", systemImage: "arrow.right.circle")
-            }
-            .disabled(selected == nil)
-            .help("Jump there (double-click a thumbnail)")
-            Button {
-                if let id = selected { model.flyToPlace(id) }
-            } label: {
-                Label("Fly", systemImage: "airplane")
-            }
-            .disabled(selected == nil)
-            .help("Fly there: out, across and in; Esc stops")
-            // A place with a guided tour (kb: decisions/controls "Guided tours").
-            if let id = selected, let tour = ExplorerModel.tour(forPlace: id) {
-                Button {
-                    model.startTour(tour.id)
-                } label: {
-                    Label("Tour", systemImage: "signpost.right")
-                }
-                .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc ends it")
-            }
             Spacer()
-            Button {
-                selected = model.randomPlace(category: category).id
-            } label: {
-                Label("Random", systemImage: "dice")
-            }
-            .help("A random place\(category == nil ? "" : " of this category")")
+            PlaceRandomButton(model: model, selection: selection)
         }
         #if os(iOS)
         .buttonStyle(.borderless)
@@ -1207,10 +1193,195 @@ struct PlacesSection: View {
     }
 }
 
+/// The Places grid's selection and category, shared by the grid (`PlacesSection`) and the
+/// pinned details bar (`PlaceDetailsBar`). One object per control center: the sections keep
+/// equal inputs, and only the views that read `id` follow a new selection (no per-tile cost).
+@Observable
+@MainActor
+final class PlaceSelection {
+    /// The selected place's id; nil: none (the bar hides).
+    var id: String?
+    /// The grid's category filter (Random picks from it).
+    var category: PlaceCategory?
+    /// Whether enough of the Places section is inside the scroll view's visible area (Mac;
+    /// `PlacesOnScreen`): scrolled down to other sections, the bar gets out of the way.
+    var onScreen = true
+
+    init(id: String? = nil) { self.id = id }
+}
+
+/// Mac: keeps `PlaceSelection.onScreen` up to date from the Places card's frame in the scroll
+/// view (one geometry reader on the card, not per tile; its value is a Bool, so the action runs
+/// only when the section scrolls in or out). iOS's `Form` is lazy: the section's open state alone
+/// decides there.
+struct PlacesOnScreen: ViewModifier {
+    let selection: PlaceSelection
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .onGeometryChange(for: Bool.self) { proxy in
+                    // At least ~two tile rows of the section in view.
+                    guard let visible = proxy.bounds(of: .scrollView) else { return true }
+                    return CGRect(origin: .zero, size: proxy.size).intersection(visible).height > 90
+                } action: { selection.onScreen = $0 }
+                .onDisappear { selection.onScreen = true }
+        } else {
+            content
+        }
+    }
+}
+
+/// Random: selects (and jumps to) a random place of the shown category.
+struct PlaceRandomButton: View {
+    let model: ExplorerModel
+    let selection: PlaceSelection
+    var iconOnly = false
+
+    var body: some View {
+        Button {
+            selection.id = model.randomPlace(category: selection.category).id
+        } label: {
+            if iconOnly {
+                Image(systemName: "dice")
+            } else {
+                Label("Random", systemImage: "dice")
+            }
+        }
+        .help("A random place\(selection.category == nil ? "" : " of this category")")
+        .accessibilityLabel("Random place")
+    }
+}
+
+/// The selected place, pinned to the bottom of the control center (Mac: above Reset all) while the
+/// Places section is open (and, on the Mac, in view) and a place is selected: name, category ·
+/// zoom · feature, the description (a few lines, the rest scrolls) and, on the Mac, Go / Fly /
+/// Tour / Random. ✕ clears the selection. Touch has Go / Fly / Tour on the selected tile itself,
+/// so the bar only adds what the tile cannot show, and replaces the footer (Reset all) while it
+/// shows: on the iPhone's half sheet every point goes to the grid (kb: decisions/controls "Places").
+struct PlaceDetailsBar<Footer: View>: View {
+    let model: ExplorerModel
+    let selection: PlaceSelection
+    let sectionOpen: Bool
+    @ViewBuilder let footer: Footer
+
+    var body: some View {
+        let place = sectionOpen && selection.onScreen
+            ? selection.id.flatMap { id in ExplorerModel.places.first { $0.id == id } } : nil
+        VStack(spacing: 0) {
+            if let place { details(place) }
+            #if os(iOS)
+            if place == nil { footer }
+            #else
+            footer
+            #endif
+        }
+    }
+
+    private func details(_ p: PlaceInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(p.name)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Button {
+                    selection.id = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        #if os(iOS)
+                        .font(.body)
+                        .frame(minWidth: 32, minHeight: 28)
+                        .contentShape(Rectangle())
+                        #endif
+                }
+                .buttonStyle(.plain)
+                .help("Clear the selection")
+                .accessibilityLabel("Clear the place selection")
+            }
+            Text("\(p.categoryName) · \(Format.zoom(log10: p.zoomLog10 + model.placeZoomOffset)) · \(p.feature)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(Self.metaLines)
+            CappedText(text: p.description, maxHeight: Self.descriptionCap)
+            #if os(macOS)
+            HStack {
+                Button {
+                    model.goToPlace(p.id)
+                } label: {
+                    Label("Go", systemImage: "arrow.right.circle")
+                }
+                .help("Jump there (double-click a thumbnail)")
+                Button {
+                    model.flyToPlace(p.id)
+                } label: {
+                    Label("Fly", systemImage: "airplane")
+                }
+                .help("Fly there: out, across and in; Esc stops")
+                // A place with a guided tour (kb: decisions/controls "Guided tours").
+                if let tour = ExplorerModel.tour(forPlace: p.id) {
+                    Button {
+                        model.startTour(tour.id)
+                    } label: {
+                        Label("Tour", systemImage: "signpost.right")
+                    }
+                    .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc ends it")
+                }
+                Spacer()
+                PlaceRandomButton(model: model, selection: selection, iconOnly: true)
+            }
+            .padding(.top, 2)
+            #endif
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("placeDetails")
+    }
+
+    /// The description's height before it scrolls: five caption lines on the Mac (the longest
+    /// description fits the default width), two and a half on touch (the iPhone's half sheet
+    /// keeps its height for the grid; the cut line says there is more to scroll).
+    #if os(macOS)
+    static var descriptionCap: CGFloat { 66 }
+    static var metaLines: Int { 2 }
+    #else
+    static var descriptionCap: CGFloat { 40 }
+    static var metaLines: Int { 1 }
+    #endif
+}
+
+/// A text as tall as it is up to `maxHeight`, then scrolling (the full text stays reachable).
+struct CappedText: View {
+    let text: String
+    let maxHeight: CGFloat
+    @State private var height: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            Text(text)
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+        // A new text starts at its top.
+        .id(text)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: min(max(height, 14), maxHeight))
+    }
+}
+
 #if os(iOS)
 /// A place's tile on touch (kb: decisions/controls "Touch", places grid). No hover, and the
-/// name and Go / Fly under the grid are off screen, so everything is on the picture: the first
-/// tap selects it (a border, the name along the bottom edge, Go and Fly over the image); a tap on
+/// grid is long, so the actions are on the picture (the pinned `PlaceDetailsBar` has the
+/// description): the first tap selects it (a border, the name along the bottom edge, Go and Fly over the image); a tap on
 /// the selected picture outside the buttons goes there; another tile moves the selection. A
 /// long press offers Go / Fly too; VoiceOver has them as the tile's actions.
 struct PlaceTouchTile: View {

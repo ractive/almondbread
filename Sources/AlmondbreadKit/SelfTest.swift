@@ -98,7 +98,9 @@ public enum SelfTest {
 /// `progress` / `progress-late` (render progress mid-render at a 2M limit), `journey-stop`
 /// (journey #4711 in the "stop at each find" mode, captured at its first stop), `seek` (seek
 /// minibrot in the seahorse valley, captured on arrival), `tours` (one tour done), `cruise-reverse`
-/// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A);
+/// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A); `places-top` /
+/// `places-bottom` (only Places open, a place selected, the grid at its top or its end: the
+/// pinned place details bar);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -228,6 +230,9 @@ public enum UIDemo {
         d.removePersistentDomain(forName: name)
         if scene == "perf" {
             d.set("controls,interior,journey,lighting,overlays,places", forKey: "controlCenter.collapsed")
+        } else if scene == "places-top" || scene == "places-bottom" {
+            // Only Places open: the grid alone fills the sidebar.
+            d.set("controls,interior,journey,lighting,look,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
         } else if scene == "sidebar" || scene == "sidebar-2" {
             // The settings rows: View, Look (or, scrolled past it, Overlays and Quality) open.
             d.set(scene == "sidebar" ? "controls,interior,journey,lighting,places,overlays,quality"
@@ -235,6 +240,21 @@ public enum UIDemo {
         }
         return d
     }()
+
+    /// `places-top` / `places-bottom`: a place selected (its pinned details bar), the grid scrolled
+    /// to its top or to its end. Top: the grid's first tile; bottom: the place with the longest
+    /// description (the bar's capped, scrolling text).
+    @MainActor static var selectedPlace: String? {
+        switch scene {
+        case "places-top": ExplorerModel.places.first?.id
+        case "places-bottom": ExplorerModel.places.max { $0.description.count < $1.description.count }?.id
+        default: nil
+        }
+    }
+    /// The section header the control center scrolls to (bottom edge) once it is laid out.
+    static var scrollTarget: String? {
+        scene == "places-bottom" ? ControlSection.controls.tourID : nil
+    }
 
     /// The control center's search text the scene starts with (shows that section on top).
     static var search: String? {
@@ -315,6 +335,8 @@ public enum UIDemo {
         case "places":
             // (After the first layout: a place is fitted to the view size.)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace("elephants") }
+        case "places-top", "places-bottom":
+            if let id = selectedPlace { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace(id) } }
         case "palettes":
             model.applyPalette(model.library.first { $0.category == "natural" }?.id ?? "aurora")
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
