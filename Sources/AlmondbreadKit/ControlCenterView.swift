@@ -567,8 +567,14 @@ struct LookSectionRows: View {
         .pickerStyle(.navigationLink)
         #endif
         PalettePicker(model: model)
-        ControlRows.slider("Density", value: ControlRows.log($model.colorDensity, range: 0.001...1), in: 0...1,
-                           text: String(format: "%.4g", model.colorDensity))
+        // A user edit pivots on the view's median escape count (kb: techniques/coloring-methods,
+        // "Density pivot"): the offset slider moves along.
+        ControlRows.slider("Density",
+                           value: ControlRows.log(Binding(get: { model.colorDensity },
+                                                          set: { model.editColorDensity($0) }),
+                                                  range: 0.001...1),
+                           in: 0...1, text: String(format: "%.4g", model.colorDensity),
+                           onEditingChanged: { model.densityEditing($0) })
         ControlRows.slider("Offset", value: $model.colorOffset, in: 0...1, text: String(format: "%.2f", model.colorOffset))
         Toggle("Logarithmic", isOn: $model.logColoring)
         Toggle("Smooth", isOn: $model.smoothColoring)
@@ -934,14 +940,15 @@ enum ControlRows {
         }
     }
 
-    static func slider(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, text: String) -> some View {
+    static func slider(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, text: String,
+                       onEditingChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(title)
                 Spacer()
                 Text(text).monospacedDigit().foregroundStyle(.secondary)
             }
-            Slider(value: value, in: range)
+            Slider(value: value, in: range, onEditingChanged: onEditingChanged)
                 .labelsHidden()
                 .accessibilityLabel(title)
                 .accessibilityValue(text)

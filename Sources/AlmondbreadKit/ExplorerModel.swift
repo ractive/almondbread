@@ -583,6 +583,37 @@ public final class ExplorerModel {
                         mapSize: mapSize, mapCorner: mapPlacement.ffi, julia: juliaEnabled)
     }
 
+    // MARK: Density edits
+
+    /// The pivot of the density drag in progress (kb: techniques/coloring-methods, "Density
+    /// pivot"): taken once when the drag starts, so one drag keeps one anchor. `.some(nil)`:
+    /// a drag without a pivot (no escaped pixels yet).
+    @ObservationIgnored private var densityDragPivot: Double??
+
+    /// The density control's drag starts / ends (the slider's editing state).
+    public func densityEditing(_ editing: Bool) {
+        densityDragPivot = editing ? .some(explorer?.densityPivot()) : nil
+    }
+
+    /// A user edit of the density (the control center's slider, its keyboard steps): the
+    /// offset moves with it so the colour at the view's median escape count stays (Rust's
+    /// `pivotedColorOffset`); bands widen or narrow around it instead of scrambling at depth.
+    /// Programmatic changes (looks, places, tours, reset) set `colorDensity` directly.
+    public func editColorDensity(_ density: Double) {
+        guard density != colorDensity, let explorer else {
+            colorDensity = density
+            return
+        }
+        let pivot = densityDragPivot ?? explorer.densityPivot()
+        let offset = pivotedColorOffset(offset: colorOffset, from: colorDensity, to: density,
+                                        pivot: pivot, logScale: logColoring)
+        // One push for both.
+        pulling = true
+        colorOffset = offset
+        pulling = false
+        colorDensity = density
+    }
+
     /// Applies a look (palette and colouring) in Rust and takes over the result.
     public func applyLook(_ id: String) {
         guard let explorer else { return }
