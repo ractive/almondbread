@@ -49,6 +49,8 @@ use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
 mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod julia_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod long_reference_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod recolour_tests;
@@ -335,6 +337,10 @@ impl<B: GpuBackend> TextureSet<B> {
         }
     }
 }
+
+/// A pipeline of another formula: its kernel constants (`kFormula`, `kPower`), the function and
+/// the variant key.
+type FormulaPipelineKey = ((u32, u32), &'static str, usize);
 
 #[derive(Clone, Debug, PartialEq)]
 struct ComputeKey {
@@ -1200,8 +1206,8 @@ pub struct Renderer<B: GpuBackend> {
     seed_pipelines: [Option<B::Pipeline>; 16],
     /// F2: iterate and seed pipelines of the formulas other than Mandelbrot (compiled lazily,
     /// on first need; Mandelbrot's arrays above stay as they were), keyed by formula, kernel and
-    /// variant key.
-    formula_pipelines: std::collections::HashMap<(Formula, &'static str, usize), B::Pipeline>,
+    /// variant key (the formula as its kernel constants `kFormula`, `kPower`).
+    formula_pipelines: std::collections::HashMap<FormulaPipelineKey, B::Pipeline>,
     /// The formula of the last key (a change is a jump: references, tables and what was
     /// learned belong to the old one).
     last_key_formula: Formula,
@@ -1587,7 +1593,16 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// Forwards a decoded input event to the navigator (which moves the viewport).
     pub fn handle_input(&mut self, event: InputEvent, now: f64) -> bool {
-        self.navigator.handle(event, &mut self.viewport, now)
+        let handled = self.navigator.handle(event, &mut self.viewport, now);
+        // Reset (R) in a Julia view: the whole Julia set, not the Mandelbrot home (F4).
+        if handled
+            && self.settings.formula.is_julia()
+            && event == InputEvent::KeyDown(almondbread_core::input::NavKey::Reset)
+        {
+            let (w, h) = self.navigator.view_size();
+            self.viewport = almondbread_core::julia::home_view(w, h).with_angle(self.viewport.angle);
+        }
+        handled
     }
 
     /// Marks input that moved the view now (gesture frames follow).
@@ -1647,12 +1662,14 @@ impl<B: GpuBackend> Renderer<B> {
         key: usize,
         constants: &[bool],
     ) -> Result<B::Pipeline, GpuError> {
-        if let Some(p) = self.formula_pipelines.get(&(formula, function, key)) {
+        // (Keyed by the kernel's constants: every Julia set shares one set of pipelines, F4.)
+        let codes = (formula.kernel_code(), formula.power());
+        if let Some(p) = self.formula_pipelines.get(&(codes, function, key)) {
             return Ok(p.clone());
         }
-        let uints = [(16usize, formula.kernel_code()), (17, formula.power())];
+        let uints = [(16usize, codes.0), (17, codes.1)];
         let p = self.backend.pipeline_with(function, constants, &uints)?;
-        self.formula_pipelines.insert((formula, function, key), p.clone());
+        self.formula_pipelines.insert((codes, function, key), p.clone());
         Ok(p)
     }
 
@@ -2735,7 +2752,10 @@ impl<B: GpuBackend> Renderer<B> {
             points_per_pixel,
             de: self.settings.de_needed(),
             interior: self.settings.interior_detection,
-            interior_color: self.settings.interior_mode.needs_analysis(),
+            // (The cycle analysis follows c-plane derivatives: flat interior for a formula
+            // without atom domains, F4 Julia.)
+            interior_color: self.settings.interior_mode.needs_analysis()
+                && FormulaCapabilities::of(self.settings.formula).atom_domain,
             width,
             height,
             // Interactive views anti-alias progressively at 1x (a supersampling change only
@@ -2775,7 +2795,7 @@ impl<B: GpuBackend> Renderer<B> {
             Some(p) => (p as f64 * 1.25).ceil() as usize,
             // (A centre orbit runs to twice the limit it was made for; its last index is where
             // it escaped, or how far it is known not to.)
-            None if r.points.len() - 1 > heuristic => 4 * heuristic,
+            None if r.orbit_iterations() > heuristic => 4 * heuristic,
             None => 0,
         };
         floor.min(4 * heuristic).min(self.iteration_cap())
@@ -2901,6 +2921,14 @@ impl<B: GpuBackend> Renderer<B> {
         if reference.period.is_some_and(|p| 4 * p > probe as usize) {
             probe = 0;
         }
+        // (The probe follows c-plane derivatives: off for formulas without it, F4 Julia.)
+        if !FormulaCapabilities::of(key.formula).interior_probe {
+            probe = 0;
+        }
+        // F4: where a Julia reference's two orbits lie (kb: plans/f4-deep-julia).
+        let (crit_last, center_start) = reference
+            .julia
+            .map_or((0, 0), |j| (j.crit_last as u32, j.center_start as u32));
         let (rc, rs) = viewport.rotation();
         let rot = [rc as f32, rs as f32];
         let params = |ratio: f64, w: usize, h: usize| {
@@ -2930,6 +2958,8 @@ impl<B: GpuBackend> Renderer<B> {
                 rot,
                 real_axis: u32::from(ref_on_axis),
                 probe,
+                crit_last,
+                center_start,
                 ..IterateParams::default()
             }
         };
@@ -4676,10 +4706,10 @@ impl<B: GpuBackend> Renderer<B> {
             // thread; it is bit-identical up to its old end, so the frame stays exact.
             let want = next.min(FURTHER_REF_MAX);
             let extendable = self.reference_serial == job.reference_serial
-                && self
-                    .reference
-                    .as_ref()
-                    .is_some_and(|r| !r.big && !r.escaped && r.period.is_none() && r.points.len() - 1 < want);
+                && self.reference.as_ref().is_some_and(|r| {
+                    // (F4: a Julia reference is whole at its limit; its layout does not extend.)
+                    !r.big && !r.escaped && r.period.is_none() && r.julia.is_none() && r.points.len() - 1 < want
+                });
             if extendable && want > f.reached {
                 let r = self.reference.as_ref().expect("reference");
                 let formula = r.formula;

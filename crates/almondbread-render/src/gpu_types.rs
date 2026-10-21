@@ -39,7 +39,9 @@ pub struct IterateParams {
     /// Deep kernel (M3b): `texel_scale` and `ref_offset` are mantissas in units of
     /// 2^`scale_exp`. 0 for the plain kernel.
     pub scale_exp: i32,
-    pub pad0: u32,
+    /// F4 Julia references (kb: plans/f4-deep-julia, `almondbread_core::julia_reference`): the
+    /// critical orbit's last index (0 otherwise).
+    pub crit_last: u32,
     /// View rotation `(cos, sin)` applied to the texel offset before scaling (cinematic
     /// rotation, kb: decisions/controls "View rotation"); `(1, 0)` unrotated. Every
     /// constructor must set it (`[0, 0]` would collapse the view to a point).
@@ -60,6 +62,10 @@ pub struct IterateParams {
     pub probe: u32,
     /// The probe state buffer half this chunk reads (it writes the other).
     pub probe_half: u32,
+    /// F4 Julia references: the index where the centre orbit starts (fresh pixels start
+    /// there); 0 otherwise.
+    pub center_start: u32,
+    pub pad1: u32,
 }
 
 /// Closed-form interior test of the main cardioid and the period-2 bulb for one level
@@ -338,7 +344,7 @@ const _: () = {
     assert!(size_of::<SurveyParams>() == 16);
     assert!(size_of::<AaListParams>() == 32);
     assert!(size_of::<UnresolvedListParams>() == 32);
-    assert!(size_of::<IterateParams>() == 136);
+    assert!(size_of::<IterateParams>() == 144);
     assert!(size_of::<ComponentParams>() == 192);
     assert!(offset_of!(ComponentParams, cardioid) == 24);
     assert!(offset_of!(ComponentParams, slack) == 144);

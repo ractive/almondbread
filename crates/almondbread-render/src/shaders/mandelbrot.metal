@@ -44,7 +44,7 @@ constant bool kLA       [[function_constant(8)]];   // M6: period-aligned linear
 // F2: the formula (kb: plans/f2-pluggable-formulas; see "Formula hooks"). Unset (every
 // Mandelbrot pipeline): formula 0, power 2, conformal; so formula 0 compiles to the pre-F2
 // kernels. 16.. leaves room for more feature flags below.
-constant uint kFormulaFC   [[function_constant(16)]];   // 0 Mandelbrot, 1 z^p + c (generic)
+constant uint kFormulaFC   [[function_constant(16)]];   // 0 Mandelbrot, 1 z^p + c (generic), 2 Julia
 constant uint kPowerFC     [[function_constant(17)]];   // p of formula 1
 constant bool kConformalFC [[function_constant(18)]];   // false: 2x2 derivatives (F5, unused yet)
 constant uint kFormula = is_function_constant_defined(kFormulaFC) ? kFormulaFC : 0u;
@@ -90,7 +90,7 @@ struct IterateParams {
     // M3b (kDeep): texelScale and refOffset are mantissas in units of 2^scaleExp, so a texel
     // of 1e-1000 is texelScale * 2^scaleExp with texelScale in [1, 2). Plain kernels: 0.
     int    scaleExp;
-    uint   pad0;
+    uint   critLast;      // F4 Julia: the critical orbit's last index (see kJulia)
     // View rotation (cos, sin) of the texel offset (kb: decisions/controls "View rotation");
     // (1, 0) unrotated, which keeps the plain products bit for bit.
     float2 rot;
@@ -105,6 +105,8 @@ struct IterateParams {
                           // probe steps per pixel (0: off)
     uint   probeHalf;     // probe state buffer: this chunk reads half probeHalf (capacity
                           // entries each) and writes the other
+    uint   centerStart;   // F4 Julia: the centre orbit's first index (fresh pixels start there)
+    uint   pad1;
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -617,7 +619,8 @@ static inline float lgSum(float a, float b) {
 // S = sum_{i<p} W^i Z^(p-1-i), W = Z + z (Horner), f'(z) = p z^(p-1), f''(z) = p (p-1) z^(p-2).
 // kPower is a function constant too, so the small loops unroll.
 // Naming: f* float2, f*X floatexp; *XT the variants that keep FE_ZERO (feTwice) where the site
-// used it.
+// used it. Formula 2 (F4 Julia, z^2 + k) shares Mandelbrot's derivative hooks (`kFormula != 1u`)
+// and only drops the +c of the steps.
 
 // z^k, k >= 1.
 static inline float2 fPow(float2 z, uint k) {
@@ -634,26 +637,27 @@ static inline FE fPowX(FE z, uint k) {
 
 // f'(z).
 static inline float2 fPrime(float2 z) {
-    if (kFormula == 0u) return 2.0f * z;
+    if (kFormula != 1u) return 2.0f * z;
     return float(kPower) * fPow(z, kPower - 1u);
 }
 
 // f''(z).
 static inline float2 fPrime2(float2 z) {
-    if (kFormula == 0u) return float2(2.0f, 0.0f);
+    if (kFormula != 1u) return float2(2.0f, 0.0f);
     const float k = float(kPower * (kPower - 1u));
     return kPower == 2u ? float2(k, 0.0f) : k * fPow(z, kPower - 2u);
 }
 
 // f'(z) d: the derivative updates (dz/dc, dz/dz1).
 static inline float2 fMulPrime(float2 z, float2 d) {
-    if (kFormula == 0u) return 2.0f * cmul(z, d);
+    if (kFormula != 1u) return 2.0f * cmul(z, d);
     return cmul(fPrime(z), d);
 }
 
 // The perturbation step: z' = S w + dd for the delta z = s w (s = 1: w = sw = z), W = Z + sw.
 static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
     if (kFormula == 0u) return cmul(2.0f * Z + sw, w) + dd;
+    if (kFormula == 2u) return cmul(2.0f * Z + sw, w);   // F4 Julia: no +c
     const float2 W = Z + sw;
     float2 S = float2(1.0f, 0.0f), Zk = float2(1.0f, 0.0f);
     for (uint i = 1; i < kPower; i++) {
@@ -665,13 +669,13 @@ static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
 
 // f'(z) as floatexp (FE{z.m, z.e + 1} for Mandelbrot).
 static inline FE fPrimeX(FE z) {
-    if (kFormula == 0u) return FE{z.m, z.e + 1};
+    if (kFormula != 1u) return FE{z.m, z.e + 1};
     return feMul(feNorm(float2(float(kPower), 0.0f), 0), fPowX(z, kPower - 1u));
 }
 
 // f'(z) keeping zero (feTwice for Mandelbrot).
 static inline FE fPrimeXT(FE z) {
-    if (kFormula == 0u) return feTwice(z);
+    if (kFormula != 1u) return feTwice(z);
     return fPrimeX(z);
 }
 
@@ -684,6 +688,7 @@ static inline FE fPrime2X(FE z) {
 // with 2Z as FE{Z.m, Z.e + 1}).
 static inline FE fStepX(FE Zx, FE zx, FE C) {
     if (kFormula == 0u) return feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
+    if (kFormula == 2u) return feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx);   // F4 Julia: no +c
     const FE W = feAdd(Zx, zx);
     FE S = FE{float2(0.5f, 0.0f), 1}, Zk = S;
     for (uint i = 1; i < kPower; i++) {
@@ -696,19 +701,20 @@ static inline FE fStepX(FE Zx, FE zx, FE C) {
 // As fStepX, 2Z by feTwice (the probe and the cycle analysis).
 static inline FE fStepXT(FE Zx, FE zx, FE C) {
     if (kFormula == 0u) return feAdd(feMul(feAdd(feTwice(Zx), zx), zx), C);
+    if (kFormula == 2u) return feMul(feAdd(feTwice(Zx), zx), zx);
     return fStepX(Zx, zx, C);
 }
 
 // Seeds (local SA, kb: techniques/local-series-approximation): b' = f''(z) a^2 / ts + f'(z) b
 // (float32 units: a = dz/dc ts, b = d2z/dc2 ts).
 static inline float2 fSeedB(float2 z, float2 A, float2 B, float invTs) {
-    if (kFormula == 0u) return 2.0f * (cmul(A, A * invTs) + cmul(z, B));
+    if (kFormula != 1u) return 2.0f * (cmul(A, A * invTs) + cmul(z, B));
     return cmul(fPrime2(z), cmul(A, A * invTs)) + cmul(fPrime(z), B);
 }
 
 // Floatexp seeds: b' = f''(z) a^2 + f'(z) b.
 static inline FE fSeedBX(FE z, FE A, FE B) {
-    if (kFormula == 0u) {
+    if (kFormula != 1u) {
         const FE t = feAdd(feMul(A, A), feMul(z, B));
         return FE{t.m, t.e + 1};
     }
@@ -717,7 +723,7 @@ static inline FE fSeedBX(FE z, FE A, FE B) {
 
 // The seeds' interior derivative's c-derivative: wd' = f''(z) a w + f'(z) wd.
 static inline FE fSeedWDX(FE z, FE A, FE W, FE WD) {
-    if (kFormula == 0u) {
+    if (kFormula != 1u) {
         const FE t2 = feAdd(feMul(A, W), feMul(z, WD));
         return FE{t2.m, t2.e + 1};
     }
@@ -726,25 +732,49 @@ static inline FE fSeedWDX(FE z, FE A, FE W, FE WD) {
 
 // Probe: F'' of f^P, F'' <- f'(z) F'' + f''(z) lambda^2 (float32: f'' times the alignment sc).
 static inline float2 fProbeF2(float2 z, float2 z2, float2 f, float2 l, float sc) {
-    if (kFormula == 0u) return cmul(z2, f) + (2.0f * sc) * cmul(l, l);
+    if (kFormula != 1u) return cmul(z2, f) + (2.0f * sc) * cmul(l, l);
     return cmul(z2, f) + sc * cmul(fPrime2(z), cmul(l, l));
 }
 
 static inline FE fProbeF2X(FE zf, FE z2, FE fzz, FE lam) {
-    if (kFormula == 0u) return feAdd(feMul(z2, fzz), feTwice(feMul(lam, lam)));
+    if (kFormula != 1u) return feAdd(feMul(z2, fzz), feTwice(feMul(lam, lam)));
     return feAdd(feMul(z2, fzz), feMul(fPrime2X(zf), feMul(lam, lam)));
 }
 
 // Interior cycle analysis: d2z/dc dz' = f'(z) cz + f''(z) dc lambda, d2z/dz2' = f''(z) lambda^2
 // + f'(z) zz (z2 = f'(z)).
 static inline FE fIcCZ(FE zf, FE z2, FE cz, FE dcx, FE lam) {
-    if (kFormula == 0u) return feAdd(feMul(z2, cz), feMul(feTwice(dcx), lam));
+    if (kFormula != 1u) return feAdd(feMul(z2, cz), feMul(feTwice(dcx), lam));
     return feAdd(feMul(z2, cz), feMul(feMul(fPrime2X(zf), dcx), lam));
 }
 
 static inline FE fIcZZ(FE zf, FE z2, FE zz, FE lam) {
-    if (kFormula == 0u) return feAdd(feMul(feTwice(lam), lam), feMul(z2, zz));
+    if (kFormula != 1u) return feAdd(feMul(feTwice(lam), lam), feMul(z2, zz));
     return feAdd(feMul(feMul(fPrime2X(zf), lam), lam), feMul(z2, zz));
+}
+
+// F4: deep Julia sets (kFormula 2; kb: plans/f4-deep-julia, formulas/julia). The pixel is the
+// start z_0 = centre + delta with k fixed: its delta starts at the pixel's offset (at the centre
+// orbit's start p.centerStart, n = 0) and steps without +c (fStep and fStepX ignore it, the DE
+// derivative dz/dz_0 gains no texel). The reference buffer holds the critical orbit (the orbit
+// of 0 under z^2 + k, i.e. the Mandelbrot orbit of k; indices 0 ..= p.critLast), zeros, then the
+// centre orbit: rebasing targets index 0 as in Mandelbrot, and each orbit ends at its own last
+// index (segLast). Formula 0 folds all of this away.
+constant bool kJulia = kFormula == 2u;
+
+static inline uint segLast(uint m, uint last, uint critLast, uint centerStart) {
+    return kJulia && m < centerStart ? critLast : last;
+}
+
+// n^2 for the derivative interior test (a Julia pixel starts at n = 0, where |w| n^2 = 0 would
+// pass the test at once).
+static inline float nSquared(uint n) {
+    return kJulia && n == 0u ? 1e30f : float(n) * float(n);
+}
+
+// The DE's per-step texel term in the deep loop's scaled units (none for Julia).
+static inline float2 tsdOf(FE TS, int dExp) {
+    return kJulia ? float2(0.0f) : float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
 }
 
 // After the delta's exponent e changed: s = 2^e and dd = c 2^-e for the scaled step. A delta
@@ -1346,6 +1376,11 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     const uint freshStart = level.freshStart, freshCount = level.freshCount;
     const uint last = p.refLen - 1;
     const float2 tsDelta = float2(p.texelScale, 0.0f);
+    // (F4 Julia: the DE derivative dz/dz_0 gains no texel per step.)
+    const float2 tsAddP = kJulia ? float2(0.0f) : tsDelta;
+    // The last index of the orbit m is on (F4 Julia: the critical or the centre orbit; else
+    // the one orbit, `last`).
+#define LAST(mv) segLast((mv), last, p.critLast, p.centerStart)
 
     PixelState st;
     bool active = true;     // this thread has a pixel
@@ -1501,13 +1536,19 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             m = sd.m; n = sd.n;
             st.n = n;
         } else if (fresh) {
-            // z_1 = c, d_1 = texel, w_1 = 1.
+            // z_1 = c, d_1 = texel, w_1 = 1. (F4 Julia: z_0 = the pixel's offset from the centre
+            // orbit's start, d_0 = texel, w_0 = 1, n = 0.)
             if (C.e >= DEEP_PLAIN_EXP) { w = feFloat(C); e = 0; } else { w = C.m; e = C.e; }
             dm = TS.m; dExp = TS.e;
             zw = float2(1.0f, 0.0f); wExp = 0;
-            m = 1; n = 1;
-            st.n = 0;   // the first iteration counts in this chunk
-            steps = 1;
+            if (kJulia) {
+                m = p.centerStart; n = 0;
+                st.n = 0;
+            } else {
+                m = 1; n = 1;
+                st.n = 0;   // the first iteration counts in this chunk
+                steps = 1;
+            }
         } else {
             w = st.dz; e = st.e; dm = st.d; dExp = st.dExp; zw = st.w; wExp = st.wExp;
             m = st.m; n = st.n;
@@ -1515,7 +1556,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         float s;
         float2 dd;
         deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
-        float2 tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+        float2 tsd = tsdOf(TS, dExp);
         uint budget = p.chunkIters;
         const uint alignMask = kBLA ? bla.lookupEvery - 1u : 0u;
         uint lookedAt = 0xffffffffu;   // n of the last BLA lookup (one per lookup index visit)
@@ -1544,7 +1585,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kDE) {
                         FE dx = feAdd(feMul(A, feNorm(dm, dExp)), feMul(B, TS));
                         dm = dx.m; dExp = dx.e;
-                        tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                        tsd = tsdOf(TS, dExp);
                     }
                     if (kInterior) {
                         FE wx = feMul(A, feNorm(zw, wExp));
@@ -1580,7 +1621,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 uint len = 0;
                 for (uint lev = bla.minLevel; lev <= top; lev++) {
                     const uint l = 1u << lev;
-                    if (m + l > last || n + l > p.maxIter) break;
+                    if (m + l > LAST(m) || n + l > p.maxIter) break;
                     const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
                     if (!(x.r > 0.0f)) break;
                     // |z| + K |c| < R, all relative to 2^re.
@@ -1596,7 +1637,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kDE) {
                         FE dx = feAdd(feMul(A, feNorm(dm, dExp)), feMul(B, TS));
                         dm = dx.m; dExp = dx.e;
-                        tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                        tsd = tsdOf(TS, dExp);
                     }
                     if (kInterior) {
                         FE wx = feMul(A, feNorm(zw, wExp));
@@ -1627,7 +1668,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (r2 > p.bailout2) { escaped = true; done = true; break; }
                     IC_TRACK(r2, n)
                     float w2 = dot(w, w);
-                    if (r2 < w2 || m == last) {
+                    if (r2 < w2 || m == LAST(m)) {
                         w = z;
                         m = 0;
                         Z = 0.0f;
@@ -1656,7 +1697,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
                                 FE t = feNorm(dm, dExp);
                                 dm = t.m; dExp = t.e;
-                                tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                                tsd = tsdOf(TS, dExp);
                             }
                         }
                         if (kInterior) {
@@ -1666,7 +1707,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                                 zw = t.m; wExp = t.e;
                                 a = max(abs(zw.x), abs(zw.y));
                             }
-                            if (a * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            if (a * nSquared(n) * pow2f(max(wExp, -126)) < p.interiorEps) {
                                 interior = true;
                                 done = true;
                                 break;
@@ -1682,17 +1723,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 // ---- T regime: scaled steps; floatexp where |Z| is small.
                 while (true) {
                     const float2 Z = ref[m];
-                    if (m == 0 || m == last || max(abs(Z.x), abs(Z.y)) < DEEP_SMALL_Z) {
+                    if (m == 0 || m == LAST(m) || max(abs(Z.x), abs(Z.y)) < DEEP_SMALL_Z) {
                         FE zx = feNorm(w, e);
                         FE Zx = refAt(refx, m);
                         FE zf = feAdd(Zx, zx);
-                        if (m == last && zf.e > 0) {
+                        if (m == LAST(m) && zf.e > 0) {
                             // Only an escaped reference ends outside the bailout.
                             z = feFloat(zf);
                             r2 = dot(z, z);
                             if (r2 > p.bailout2) { escaped = true; done = true; break; }
                         }
-                        if (m != 0 && (m == last || feLess(zf, zx))) {
+                        if (m != 0 && (m == LAST(m) || feLess(zf, zx))) {
                             zx = zf;
                             m = 0;
                             Zx = FE{float2(0.0f), FE_ZERO};
@@ -1720,9 +1761,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
                         if (kDE) {
-                            FE dx = feAdd(feMul(fPrimeX(zf), feNorm(dm, dExp)), TS);
+                            FE dx = kJulia ? feMul(fPrimeX(zf), feNorm(dm, dExp)) : feAdd(feMul(fPrimeX(zf), feNorm(dm, dExp)), TS);
                             dm = dx.m; dExp = dx.e;
-                            tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                            tsd = tsdOf(TS, dExp);
                         }
                         if (kInterior) {
                             FE wx = feMul(fPrimeX(zf), feNorm(zw, wExp));
@@ -1766,7 +1807,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
                                 FE t = feNorm(dm, dExp);
                                 dm = t.m; dExp = t.e;
-                                tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                                tsd = tsdOf(TS, dExp);
                             }
                         }
                         if (kInterior) {
@@ -1776,7 +1817,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                                 zw = t.m; wExp = t.e;
                                 a = max(abs(zw.x), abs(zw.y));
                             }
-                            if (a * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            if (a * nSquared(n) * pow2f(max(wExp, -126)) < p.interiorEps) {
                                 interior = true;
                                 done = true;
                                 break;
@@ -1833,6 +1874,24 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             if (r2 > p.bailout2) {
                 escaped = true;
             } else if (st.m != 0 && (r2 < dot(st.dz, st.dz) || st.m == last)) {
+                st.dz = z;
+                st.m = 0;
+            }
+        } else if (fresh && kJulia) {
+            // F4 Julia: z_0 = the pixel, its delta to the centre orbit's start dc, d_0 = texel,
+            // w_0 = 1, n = 0; tested at once (it may lie outside, or nearer 0 than the centre).
+            st.dz = dc;
+            st.d = tsDelta;
+            st.w = float2(1.0f, 0.0f);
+            st.wExp = 0;
+            st.m = p.centerStart;
+            st.n = 0;
+            z = ref[st.m] + st.dz;
+            r2 = dot(z, z);
+            IC_TRACK(r2, 0u)
+            if (r2 > p.bailout2) {
+                escaped = true;
+            } else if (r2 < dot(st.dz, st.dz)) {
                 st.dz = z;
                 st.m = 0;
             }
@@ -1918,7 +1977,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     r2 = dot(z, z);
                     IC_TRACK(r2, n)
                     if (r2 > p.bailout2) { escaped = true; break; }
-                    if (r2 < dot(dz, dz) || m == last) {
+                    if (r2 < dot(dz, dz) || m == LAST(m)) {
                         dz = z;
                         m = 0;
                         laJ = 0;
@@ -1939,7 +1998,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 uint len = 0;
                 for (uint lev = bla.minLevel; lev <= top; lev++) {
                     const uint l = 1u << lev;
-                    if (m + l > last || n + l > p.maxIter) break;
+                    if (m + l > LAST(m) || n + l > p.maxIter) break;
                     const BlaEntry e = table[bla.offset[lev] + ((m - 1) >> lev)];
                     const float t = e.r - e.k * cn;
                     if (!(t > 0.0f && zn2 < t * t)) break;
@@ -1980,7 +2039,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     r2 = dot(z, z);
                     IC_TRACK(r2, n)
                     if (r2 > p.bailout2) { escaped = true; break; }
-                    if (r2 < dot(dz, dz) || m == last) {
+                    if (r2 < dot(dz, dz) || m == LAST(m)) {
                         dz = z;
                         m = 0;
                     }
@@ -1993,7 +2052,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
-                if (kDE) d = fMulPrime(z, d) + tsDelta;
+                if (kDE) d = fMulPrime(z, d) + tsAddP;
                 if (kInterior) {
                     w = fMulPrime(z, w);
                 }
@@ -2010,7 +2069,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     } else if (wExp > 0 && a < 0x1p-60f) {
                         w *= 0x1p60f;
                         wExp -= 60;
-                    } else if (wExp == 0 && a * (float(n) * float(n)) < p.interiorEps) {
+                    } else if (wExp == 0 && a * nSquared(n) < p.interiorEps) {
                         interior = true;
                         break;
                     }
@@ -2022,7 +2081,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 r2 = dot(z, z);
                 IC_TRACK(r2, n)
                 if (r2 > p.bailout2) { escaped = true; break; }
-                if (r2 < dot(dz, dz) || m == last) {
+                if (r2 < dot(dz, dz) || m == LAST(m)) {
                     dz = z;
                     m = 0;
                     if (kLA) { laJ = 0; laLook = la0; }
@@ -2037,6 +2096,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         st.dz = dz; st.d = d; st.w = w; st.m = m; st.n = n; st.wExp = wExp;
     }
 
+#undef LAST
     // ---- Attracting-cycle probe (kProbe, p.probe != 0; kb: techniques/interior-detection
     // "Attracting-cycle probe"). The |w| n^2 test proves only the fast-converging core of a
     // component: with multiplier lambda per period P the orbit needs |lambda|^(n/P) n^2 < eps,
