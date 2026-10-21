@@ -723,7 +723,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
             if event.type == .keyDown && !event.isARepeat { model.toggleMap() }
             return true
         case "u":
-            if event.type == .keyDown && !event.isARepeat { model.toggleJulia() }
+            // ⇧U: the Julia twin of the view, or back from a Julia view (F4).
+            if event.type == .keyDown && !event.isARepeat {
+                if shift { model.juliaTwinOrBack() } else { model.toggleJulia() }
+            }
             return true
         case "c":
             if event.type == .keyDown && !event.isARepeat { model.toggleCosmicScale() }
@@ -1295,7 +1298,10 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
                 switch key.charactersIgnoringModifiers.lowercased() {
                 case "o": base.model.toggleOrbit(); continue
                 case "m": base.model.toggleMap(); continue
-                case "u": base.model.toggleJulia(); continue
+                case "u":
+                    // ⇧U: the Julia twin, or back from a Julia view (F4).
+                    if key.modifierFlags.contains(.shift) { base.model.juliaTwinOrBack() } else { base.model.toggleJulia() }
+                    continue
                 case "c": base.model.toggleCosmicScale(); continue
                 case "l": base.model.toggleLaneAssist(); continue
                 case "g":

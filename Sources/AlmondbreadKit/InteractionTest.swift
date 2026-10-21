@@ -38,6 +38,9 @@ final class InteractionTest: NSObject {
         let input: (FractalNSView, Int, Double) -> Void   // view, tick, seconds since input start
         /// Seconds of input (and measurement).
         var seconds = 3.0
+        /// F4 (kb: plans/f4-deep-julia): a Julia set as the main view: its k (re, im), or "twin"
+        /// for the Julia twin of the viewport; nil: the Mandelbrot set.
+        var julia: (re: String, im: String)? = nil
     }
     private let settleSeconds = 1.0
 
@@ -701,6 +704,17 @@ final class InteractionTest: NSObject {
         let neck2e5 = View(re: "-0.7500016386523336", im: "-0.0021073424656852589", scale: 2 * 2.1666e-5 / 1600)
         let spiral = View(re: "-0.13415002160674054265664", im: "-0.64991906714433853974391", scale: 2 * 4.19804e-19)
         let siegel = View(re: "-0.39054087021839984", im: "0.5867879073469688", scale: 3.75e-3 / 1373)
+        // F4 deep Julia sets (kb: plans/f4-deep-julia): the twin of the seahorse view at 1e-12
+        // zoomed fast to ~1e-40 (the deep zoom above, as a Julia set of a deep k); a pan near a
+        // preimage of 0 in the Douady rabbit at 1e-100 and a zoom at one in the dendrite (k = i)
+        // at 1e-300 (step-1 gate views, the window's points 2 px).
+        let rabbit100 = View(re: "0.13582194234832306384726920844974750963803955544158433695104985552061703718356220531423914345539064577159014155396788582297739",
+                             im: "-0.98408937840354738561303053036751272330190031920474351403645897719626417827245062205230473648568576800988084871583518785926966",
+                             scale: 2e-100)
+        let dendrite300j = View(re: "-1.316217188613384182892301938270293124103893412616323208720307172274596124394581156543859132946211679304026231908661961024336819202086203360168036350362781617862595986112142227701026008880468481898614759175229768762325953986190536194031254729435187793227165530004224246648352068591889334276616386741309913104214101345554899367",
+                                im: "0.6785478674150520237952461553430622991323380058277815194421221054868252650933002485440546541350165849932149350420951796822304685241394963385899335024961001636274825482729138595485370773903166706946136063947425419828687390342905631095799823421179334798563580045190217945069289191899700554854070505266217696214286174348262202054",
+                                scale: 2e-300)
+        let rabbitK = (re: "-0.1225611668766536", im: "0.7448617666197442")
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "sweep", viewport: home, input: sweep(false)),
                 Scenario(name: "julia sweep", viewport: home, input: sweep(true)),
@@ -748,7 +762,10 @@ final class InteractionTest: NSObject {
                 Scenario(name: "sea-1e20 pan", viewport: seaDeep20, input: pan),
                 Scenario(name: "sea-1e20 zoom", viewport: seaDeep20, input: zoom),
                 Scenario(name: "spiral pan", viewport: spiral, input: pan),
-                Scenario(name: "spiral zoom", viewport: spiral, input: zoom)]
+                Scenario(name: "spiral zoom", viewport: spiral, input: zoom),
+                Scenario(name: "julia twin deep zoom", viewport: seaDeep, input: deepZoom, julia: (re: "twin", im: "")),
+                Scenario(name: "julia 1e-100 pan", viewport: rabbit100, input: pan, julia: rabbitK),
+                Scenario(name: "julia 1e-300 zoom", viewport: dendrite300j, input: zoom, julia: (re: "0", im: "1"))]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -834,12 +851,24 @@ final class InteractionTest: NSObject {
             exit(failures == 0 ? 0 : 1)
         }
         let v = scenarios[scenario].viewport
+        // The fractal (F4): a Julia set where the scenario names one (its k, or the twin of the
+        // viewport), else the Mandelbrot set.
+        if explorer.settings().formula == "julia" { _ = explorer.backFromJulia() }
+        if let k = scenarios[scenario].julia, k.re != "twin", !explorer.openJulia(re: k.re, im: k.im) {
+            print("interaction-test: \(scenarios[scenario].name): bad Julia k")
+            exit(1)
+        }
         do {
             try explorer.setViewport(re: v.re, im: v.im, scale: v.scale)
         } catch {
             print("interaction-test: \(scenarios[scenario].name): \(error)")
             exit(1)
         }
+        if scenarios[scenario].julia?.re == "twin", !explorer.juliaTwin() {
+            print("interaction-test: \(scenarios[scenario].name): no Julia twin")
+            exit(1)
+        }
+        view.model.refreshStats()
         // Every scenario starts in pointer mode with the pointer off the canvas (the real
         // pointer is ignored during the test): zooms go to the centre unless a scenario
         // moves the synthetic pointer. Pointer travel switches back from keyboard mode.

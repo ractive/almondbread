@@ -685,7 +685,25 @@ struct OverlaySectionRows: View {
         }
         if model.has(\.juliaPanel) {
             Toggle("Julia set of that point", isOn: $model.juliaEnabled)
-                .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside (U)")
+                .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside. Click it to open that Julia set (U)")
+        }
+        // F4 (kb: plans/f4-deep-julia): the deep Julia set of the view's centre, and back.
+        if model.isJulia {
+            Button {
+                model.backFromJulia()
+            } label: {
+                Label("Back to the Mandelbrot set", systemImage: "arrow.uturn.backward")
+            }
+            .help("Where this Julia set was opened from (⇧U)")
+            .accessibilityIdentifier("julia-back")
+        } else if model.has(\.juliaPanel) {
+            Button {
+                model.juliaTwin()
+            } label: {
+                Label("Julia twin of this view", systemImage: InlineIcons.symbol("julia"))
+            }
+            .help("The Julia set of the view's centre, framed like the view: near a Misiurewicz point the two look alike. Zoom it as deep as you like (⇧U)")
+            .accessibilityIdentifier("julia-twin")
         }
         CosmicScaleRows(model: model)
         Toggle("Always show compass", isOn: $model.compassAlways)
@@ -1676,7 +1694,8 @@ struct ControlsHelp: View {
         row("road.lanes", "L", "Lane assist in cruise: keeps you out of featureless areas")
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
-        row("seal", "U", "Julia set of the orbit's point")
+        row("seal", "U", "Julia set of the orbit's point; click it to open that set")
+        row("seal", "⇧U", "Julia twin of the view (its centre's Julia set) / back")
         row("airplane", "Z", "Autopilot; steering hands over to cruise, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
         row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
@@ -1699,6 +1718,7 @@ struct ControlsHelp: View {
         row("space", "Keyboard: Space / ⇧Space", "Zoom")
         row("gauge.with.dots.needle.33percent", "Keyboard: E / Q, L, N, G", "Cruise in / out, lane assist, seek minibrot, continue")
         row("map", "Keyboard: O / M / U", "Orbit overlay / mini-map / Julia set")
+        row("seal", "Tap the Julia panel · ⇧U", "Open that Julia set · Julia twin / back")
         row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "The knob is the gear: up in, down out, middle stops; tap a notch or a chevron; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")
