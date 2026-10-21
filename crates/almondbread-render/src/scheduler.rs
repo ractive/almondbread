@@ -6787,6 +6787,8 @@ impl<B: GpuBackend + Clone> Renderer<B> {
             scale,
             angle: job.key.viewport.angle,
         };
+        // (The shown view's fractal: a fresh renderer starts as Mandelbrot; F4.)
+        fresh.settings.formula = job.key.formula;
         fresh.settings.auto_iterations = false;
         fresh.settings.manual_iterations = max_iter;
         fresh.settings.max_iterations_cap = self.iteration_cap().max(max_iter);
