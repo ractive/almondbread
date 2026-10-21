@@ -7,10 +7,10 @@
 //! the factored perturbation step) that the generic code paths call; Mandelbrot keeps its own
 //! specialised code everywhere and never goes through the generic hooks.
 //!
-//! `Multibrot(p)` is the generic polynomial path `z^p + c` (kb: formulas/multibrot). In F2 it is
+//! `Multibrot(p)` is the generic polynomial path `z^p + c` (kb: formulas/multibrot). In F2 it was
 //! test-only: `Multibrot(2)` written through the generic code must equal Mandelbrot in the
-//! orbit, the oracle and on the GPU, which exercises every hook before F3 makes powers 3..8
-//! user-selectable.
+//! orbit, the oracle and on the GPU. F3 (kb: plans/f3-multibrot) makes powers 3..8
+//! user-selectable; `Multibrot(2)` stays a test formula.
 
 use crate::floatexp::DoubleExpComplex;
 
@@ -23,7 +23,7 @@ pub enum Formula {
     #[default]
     Mandelbrot,
     /// `z^p + c`, `2 <= p <= MULTIBROT_MAX_POWER`, through the generic hooks (kernel formula 1).
-    /// F2: exercised by tests only (p = 2 must equal Mandelbrot).
+    /// Users pick p = 3..8 (F3); p = 2 is the tests' check that the generic path is Mandelbrot.
     Multibrot(u32),
 }
 
@@ -75,6 +75,29 @@ impl Formula {
             return Some(Self::Mandelbrot);
         }
         v.strip_prefix("multibrot")?.parse().ok().and_then(Self::multibrot)
+    }
+
+    /// The escape radius (F3). Mandelbrot's 2^16 keeps the smooth offset in a small range; for
+    /// `z^p` the escaped value reaches `R^p` and its square `R^{2p}`, which must stay inside
+    /// float32 (2^128) in the kernels, so high powers escape earlier: `R = 2^min(16, 60/p)`
+    /// (p = 3: 2^16, 4: 2^15, 5: 2^12, 6: 2^10, 7: 2^8, 8: 2^7). Also keeps the per-step growth of
+    /// the derivatives near escape (`p R^{p-1}`, at most 2^52) far below float32's range
+    /// (kb: formulas/multibrot "As built").
+    pub fn bailout(self) -> f64 {
+        match self {
+            Self::Mandelbrot => 65536.0,
+            Self::Multibrot(p) => 2f64.powi((60 / p.max(1)).min(16) as i32),
+        }
+    }
+
+    /// The smooth iteration offset of an escaped orbit with `|z|^2 = r2`: `1 - log_p(ln|z|)`
+    /// (continuous across escape counts: `ln|z|` grows by the factor p per step; Mandelbrot's
+    /// `1 - log2(ln|z|)` exactly as before).
+    pub fn smooth_offset(self, r2: f64) -> f64 {
+        match self {
+            Self::Mandelbrot => 1.0 - (0.5 * r2.ln()).log2(),
+            Self::Multibrot(p) => 1.0 - (0.5 * r2.ln()).log2() / f64::from(p).log2(),
+        }
     }
 
     // -----------------------------------------------------------------------------------
@@ -182,6 +205,31 @@ mod tests {
         assert_eq!(Formula::parse("multibrot9"), None);
         assert_eq!(Formula::parse("burningship"), None);
         assert_eq!(Formula::default(), Formula::Mandelbrot);
+    }
+
+    #[test]
+    fn bailout_keeps_the_escaped_square_in_float32() {
+        assert_eq!(Formula::Mandelbrot.bailout(), 65536.0);
+        assert_eq!(Formula::Multibrot(2).bailout(), 65536.0);
+        assert_eq!(Formula::Multibrot(3).bailout(), 65536.0);
+        for p in 2..=MULTIBROT_MAX_POWER {
+            let r = Formula::Multibrot(p).bailout();
+            // |z_n| < R^p + 2 after the last step; its square fits float32 with room.
+            assert!(2.0 * f64::from(p) * r.log2() <= 120.0, "p = {p}");
+            assert!(r >= 128.0, "p = {p}");
+        }
+        // The smooth offset is continuous: one more step (ln|z| times p) is one less offset.
+        for p in 2..=MULTIBROT_MAX_POWER {
+            let f = Formula::Multibrot(p);
+            let r2 = 1e5f64;
+            let r2p = r2.powi(p as i32);
+            assert!(
+                (f.smooth_offset(r2) - f.smooth_offset(r2p) - 1.0).abs() < 1e-12,
+                "p = {p}"
+            );
+        }
+        let r2 = 3e9;
+        assert_eq!(Formula::Mandelbrot.smooth_offset(r2), 1.0 - (0.5 * r2.ln()).log2());
     }
 
     #[test]

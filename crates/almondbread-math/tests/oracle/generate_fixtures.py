@@ -9,6 +9,7 @@ Value encoding: [negative, significand_hex, exponent] meaning (-1)^negative * S 
 with S normalised to exactly `prec` bits; zero is null.
 
 Run:  python3 -m venv venv && venv/bin/pip install mpmath && venv/bin/python generate_fixtures.py
+      (`--only-multibrot` writes just multibrot.json, the z^p + c orbits and nuclei of F3)
 """
 import json
 import math
@@ -459,8 +460,167 @@ def nucleus_cases():
     return cases
 
 
+# ---------- Multibrot z^p + c (F3) ----------
+
+def orbit_power(cx, cy, prec, iters, power):
+    """Bit-exact emulation of the generic step (orbit.rs `orbit_loop_power`): w = z, then
+    p - 1 times w <- w z (four rounded products, two rounded sums), then z = w + c."""
+    R = lambda m, e: round_int(m, e, prec)
+
+    def add(a, b):
+        (am, ae), (bm, be) = a, b
+        if am == 0:
+            return b
+        if bm == 0:
+            return a
+        e = min(ae, be)
+        return R((am << (ae - e)) + (bm << (be - e)), e)
+
+    def neg(a):
+        return (-a[0], a[1])
+
+    def mul(a, b):
+        return R(a[0] * b[0], a[1] + b[1])
+
+    def tod(a):
+        m, e = a
+        if m == 0:
+            return 0.0
+        sh = max(0, abs(m).bit_length() - 64)
+        t = abs(m) >> sh
+        v = math.ldexp(float(t), max(-1100, min(1100, e + sh)))
+        return -v if m < 0 else v
+
+    x, y = (0, 0), (0, 0)
+    count = 0
+    for _ in range(iters):
+        wx, wy = x, y
+        for _ in range(power - 1):
+            p1 = mul(wx, x)
+            p2 = mul(wy, y)
+            p3 = mul(wx, y)
+            p4 = mul(wy, x)
+            wx = add(p1, neg(p2))
+            wy = add(p3, p4)
+        x = add(wx, cx)
+        y = add(wy, cy)
+        count += 1
+        xd, yd = tod(x), tod(y)
+        if xd * xd + yd * yd > 4.0:
+            break
+    return x, y, count
+
+
+def multibrot_cases():
+    """Reference orbits (bit-exact) and nuclei (mpmath) of z^p + c for p = 3..8: the oracle of
+    `Formula::Multibrot(p)` (kb: plans/f3-multibrot "Verification")."""
+    import mpmath
+    mp = mpmath.mp
+    out = {"orbit": [], "nuclei": []}
+
+    def escapes(c, p, n):
+        z = mpmath.mpc(0)
+        for _ in range(n):
+            z = z ** p + c
+            if abs(z) > 2:
+                return True
+        return False
+
+    def boundary(p, angle):
+        # Bisect along the ray at `angle` from 0 (inside) outwards (2: outside).
+        mp.prec = 80
+        lo, hi = mpmath.mpf(0), mpmath.mpf(2)
+        u = mpmath.expjpi(mpmath.mpf(angle) / mpmath.pi)
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            if escapes(mid * u, p, 3000):
+                hi = mid
+            else:
+                lo = mid
+        return lo * u
+
+    def ball_period(c, r, maxp, prec, p):
+        mp.prec = prec
+        z = mpmath.mpc(0)
+        R = mpmath.mpf(0)
+        r = mpmath.mpf(r)
+        for k in range(1, maxp + 1):
+            R = (abs(z) + R) ** p - abs(z) ** p + r
+            z = z ** p + c
+            if abs(z) < R:
+                return k
+            if abs(z) - R > 1e10:
+                return None
+        return None
+
+    def newton(c, k, prec, p):
+        mp.prec = prec
+        c = mpmath.mpc(c)
+        for _ in range(100):
+            z = mpmath.mpc(0)
+            dz = mpmath.mpc(0)
+            for _ in range(k):
+                dz = p * z ** (p - 1) * dz + 1
+                z = z ** p + c
+            step = z / dz
+            c = c - step
+            if abs(step) < mpmath.mpf(2) ** (-prec + 20):
+                break
+        return c
+
+    for p in range(3, 9):
+        angle = 0.37 + 0.11 * p
+        cb = boundary(p, angle)
+        re_s = mpmath.nstr(cb.real, 20, min_fixed=-1, max_fixed=-1)
+        im_s = mpmath.nstr(cb.imag, 20, min_fixed=-1, max_fixed=-1)
+        # Orbits: the boundary point (long, bounded or slow) and a point just outside it.
+        for (ore, oim, prec, iters) in [(re_s, im_s, 128, 1500), (re_s, im_s, 1024, 300),
+                                        (mpmath.nstr(cb.real * 1.01, 20), mpmath.nstr(cb.imag * 1.01, 20), 256, 3000)]:
+            cx = round_frac(parse_decimal(ore), prec)
+            cy = round_frac(parse_decimal(oim), prec)
+            x, y, cnt = orbit_power(cx, cy, prec, iters, p)
+            hx, hy, _ = orbit_power(round_frac(parse_decimal(ore), prec + 256),
+                                    round_frac(parse_decimal(oim), prec + 256), prec + 256, iters, p)
+            hd = int((prec + 256) * 0.30103)
+            out["orbit"].append({
+                "power": p, "re": ore, "im": oim, "prec": prec, "iterations": iters,
+                "z": [enc(x[0], x[1], prec), enc(y[0], y[1], prec)], "count": cnt,
+                "high": [format_decimal(frac_of(*hx), hd) if hx[0] else "0",
+                         format_decimal(frac_of(*hy), hd) if hy[0] else "0"],
+            })
+        # Nuclei: the lowest period touching discs around the boundary point; the deep one
+        # (radius 1e-12 at 1024 bits) runs Newton into its exact finish.
+        # Only discs whose nucleus Newton finds within 4 radii (plain Newton from a poor start
+        # wanders; the fixture is about accuracy, not basins).
+        for radii, prec in [(["1e-4", "1e-5", "1e-6", "1e-7"], 128), (["1e-12", "1e-13", "1e-14"], 1024)]:
+            for r_s in radii:
+                mp.prec = prec + 64
+                c0 = mpmath.mpc(mpmath.mpf(re_s), mpmath.mpf(im_s))
+                bp = ball_period(c0, mpmath.mpf(r_s), 20000, prec + 64, p)
+                if bp is None:
+                    continue
+                n = newton(c0, bp, prec + 128, p)
+                mp.prec = prec + 128
+                if abs(n - c0) < 4 * mpmath.mpf(r_s):
+                    break
+            else:
+                print("multibrot", p, prec, "no nucleus near", file=sys.stderr)
+                continue
+            out["nuclei"].append({
+                "power": p, "re": re_s, "im": im_s, "radius": r_s, "period": bp, "prec": prec,
+                "nucleusRe": mpmath.nstr(n.real, int(prec * 0.30103) + 10, min_fixed=-1, max_fixed=-1),
+                "nucleusIm": mpmath.nstr(n.imag, int(prec * 0.30103) + 10, min_fixed=-1, max_fixed=-1)})
+            print("multibrot", p, "nucleus", re_s, im_s, r_s, "period", bp, file=sys.stderr)
+    return out
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
+    if "--only-multibrot" in sys.argv:
+        # F3: only the Multibrot fixtures (the others stay as generated).
+        with open(os.path.join(OUT, "multibrot.json"), "w") as f:
+            json.dump(multibrot_cases(), f, indent=0)
+        return
     data = {
         "arith": arith_cases(1500),
         "parse": decimal_cases(400),
@@ -468,6 +628,10 @@ def main():
         "orbit": orbit_cases(),
         "nuclei": nucleus_cases(),
     }
+    try:
+        data["multibrot"] = multibrot_cases()
+    except ImportError:
+        print("mpmath not installed; skipping multibrot fixtures", file=sys.stderr)
     for k, v in data.items():
         with open(os.path.join(OUT, k + ".json"), "w") as f:
             json.dump(v, f, indent=0)

@@ -409,3 +409,119 @@ fn reference_selector() {
     assert!(!c2.is_nucleus);
     assert_eq!(c2.point, out);
 }
+
+// ---------------------------------------------------------------------------------------
+// Multibrot z^p + c (F3, kb: plans/f3-multibrot "Verification")
+
+fn multibrot_fixture(key: &str) -> Vec<Value> {
+    let path = format!("{}/tests/fixtures/multibrot.json", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    serde_json::from_str::<Value>(&text).unwrap()[key]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+/// The generic reference orbit of z^p + c, p = 3..8, bit-exact against the Python emulation
+/// (same products and sums, round-to-nearest-even), and close to a 256-bit-wider orbit.
+#[test]
+fn multibrot_orbits_bit_exact() {
+    let cases = multibrot_fixture("orbit");
+    assert!(cases.len() >= 18);
+    for c in cases {
+        let p = as_usize(&c["power"]) as u32;
+        let prec = as_usize(&c["prec"]);
+        let iters = as_usize(&c["iterations"]);
+        let (re, im) = (c["re"].as_str().unwrap(), c["im"].as_str().unwrap());
+        let center = BigComplex::parse(re, im, prec).unwrap();
+        let formula = Formula::multibrot(p).unwrap();
+        let comp = ReferenceOrbitComputer::new(&center, prec).with_formula(formula);
+        let (_, _, r) = comp.compute_vec(iters, 2.0);
+        assert_eq!(r.iterations(), as_usize(&c["count"]), "p={p} {re} @{prec} iterations");
+        let z = c["z"].as_array().unwrap();
+        assert_bits(&r.final_z.re, &z[0], prec, &format!("p={p} {re} @{prec} re"));
+        assert_bits(&r.final_z.im, &z[1], prec, &format!("p={p} {re} @{prec} im"));
+        let high = c["high"].as_array().unwrap();
+        let hre = BigFloat::parse(high[0].as_str().unwrap(), prec + 256).unwrap();
+        let him = BigFloat::parse(high[1].as_str().unwrap(), prec + 256).unwrap();
+        let err = (&r.final_z.re - &hre)
+            .log2_magnitude()
+            .max((&r.final_z.im - &him).log2_magnitude());
+        println!(
+            "multibrot p={p} {re} @{prec}: {} iters, log2|error vs high| = {err}",
+            r.iterations()
+        );
+    }
+}
+
+/// Ball period detection and Newton (with its exact finish at 1024 bits) for z^p + c against
+/// mpmath; the size estimate is finite and below the whole set's.
+#[test]
+fn multibrot_nuclei_against_mpmath() {
+    let cases = multibrot_fixture("nuclei");
+    assert!(cases.len() >= 6);
+    for c in cases {
+        let p = as_usize(&c["power"]) as u32;
+        let formula = Formula::multibrot(p).unwrap();
+        let prec = as_usize(&c["prec"]);
+        let period = as_usize(&c["period"]);
+        let start = BigComplex::parse(c["re"].as_str().unwrap(), c["im"].as_str().unwrap(), prec).unwrap();
+        let radius = BigFloat::parse(c["radius"].as_str().unwrap(), 64).unwrap();
+        let found = find_period_from_for(
+            formula,
+            &start,
+            &radius,
+            1,
+            20_000,
+            PeriodMethod::Ball,
+            4096,
+            &mut never(),
+        );
+        assert_eq!(found, Some(period), "p={p} ball period r {}", c["radius"]);
+        let opts = NewtonOptions {
+            precision_bits: Some(prec),
+            ..NewtonOptions::default()
+        };
+        let nr = find_nucleus_for(formula, &start, period, &opts, &mut never())
+            .unwrap_or_else(|| panic!("newton p={p} period {period}"));
+        let ere = BigFloat::parse(c["nucleusRe"].as_str().unwrap(), prec + 128).unwrap();
+        let eim = BigFloat::parse(c["nucleusIm"].as_str().unwrap(), prec + 128).unwrap();
+        let err = (&nr.nucleus.re - &ere)
+            .log2_magnitude()
+            .max((&nr.nucleus.im - &eim).log2_magnitude());
+        println!(
+            "multibrot p={p} period {period} @{prec} bits: {} Newton steps, log2|error| = {err}",
+            nr.steps
+        );
+        assert!(
+            err < -(prec as f64) + 32.0,
+            "nucleus accuracy p={p} period {period}: {err}"
+        );
+        let size = minibrot_size_complex_for(formula, &nr.nucleus, period).magnitude();
+        assert!(
+            size.log2_magnitude().is_finite() && size.log2_magnitude() < 0.0,
+            "p={p} size"
+        );
+    }
+}
+
+/// The size estimate for z^p + c at period 1 is the whole set (size 1), and at p = 2 the
+/// generic estimate is Mandelbrot's.
+#[test]
+fn multibrot_size_estimate() {
+    let opts = NewtonOptions::default();
+    for p in 3..=MULTIBROT_MAX_POWER {
+        let f = Formula::Multibrot(p);
+        let s = minibrot_size_complex_for(f, &BigComplex::from_f64(0.0, 0.0, 128), 1);
+        assert!(
+            (s.re.to_f64() - 1.0).abs() < 1e-12 && s.im.to_f64().abs() < 1e-12,
+            "p={p}"
+        );
+    }
+    let n = find_nucleus(&BigComplex::from_f64(-1.75, 0.0, 128), 3, &opts, &mut never()).unwrap();
+    let a = minibrot_size_complex(&n.nucleus, 3);
+    let b = minibrot_size_complex_for(Formula::Multibrot(2), &n.nucleus, 3);
+    let m = a.magnitude().to_f64();
+    assert!((a.re.to_f64() - b.re.to_f64()).abs() < 1e-12 * m);
+    assert!((a.im.to_f64() - b.im.to_f64()).abs() < 1e-12 * m);
+}
