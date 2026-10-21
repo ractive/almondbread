@@ -177,7 +177,7 @@ impl ReferenceOrbitComputer {
     /// Whether a computation of `max_iterations` runs on three threads.
     pub fn uses_helpers(&self, max_iterations: usize) -> bool {
         // (The three-thread split is Mandelbrot's X^2, Y^2, (X+Y)^2.)
-        if self.resolved_variant() != Variant::Squarings || self.formula.power() != 2 {
+        if self.resolved_variant() != Variant::Squarings || matches!(self.formula, Formula::Multibrot(_)) {
             return false;
         }
         match self.threads {
