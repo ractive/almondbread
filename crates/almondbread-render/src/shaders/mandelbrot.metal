@@ -772,6 +772,27 @@ constant float DEEP_TINY2 = 0x1p-100f;
 // rebases can only matter there).
 constant float DEEP_SMALL_Z = 0x1p-32f;
 
+// F3 (kb: plans/f3-multibrot "As built"): for z^p the step's factor S grows like |Z|^(p-1), and
+// S w must stay a normal float32 for the plain delta (|w| >= 2^-50) and the scaled one (|w| >=
+// 2^-16): below |Z| = 2^(-70/(p-1)) (rounded up) the step runs in floatexp, in both regimes.
+// Folded per pipeline; Mandelbrot (and p <= 3) keep DEEP_SMALL_Z.
+static inline float deepSmallZ() {
+    if (kFormula == 0u) return DEEP_SMALL_Z;
+    switch (kPower) {
+        case 4u: return 0x1p-23f;
+        case 5u: return 0x1p-17f;
+        case 6u: return 0x1p-14f;
+        case 7u: return 0x1p-11f;
+        case 8u: return 0x1p-10f;
+        default: return DEEP_SMALL_Z;
+    }
+}
+
+// F3: 1 / log2(p) for the smooth count (ln|z| grows by the factor p per step).
+static inline float invLog2Power() {
+    return kFormula == 0u ? 1.0f : 1.0f / log2(float(kPower));
+}
+
 // ---- M6: LA lookups and the AT (kb: techniques/linear-approximation-imagina "As built") ----
 
 // |u| + K |c| < R for a deep entry, |u| = zn 2^ze, |c| = cAbsM 2^ce (relative to R's exponent, as
@@ -1645,12 +1666,48 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (n >= p.maxIter || budget == 0) { done = true; break; }
                     if (kBLA && m != 0 && ((m - 1) & alignMask) == 0 && n != lookedAt) break;
                     if (kLA && m == laLook && n != lookedAt) break;
+                    if (kFormula != 0u && max(abs(Z.x), abs(Z.y)) < deepSmallZ()) {
+                        // F3: Z small (and |z| >= |w| after the rebase test): S w would leave
+                        // float32, so the step and its derivatives run in floatexp, as the T
+                        // regime's full steps.
+                        const FE zf = feNorm(z, 0);
+                        if (kDE) {
+                            FE dx = feAdd(feMul(fPrimeX(zf), feNorm(dm, dExp)), TS);
+                            dm = dx.m; dExp = dx.e;
+                            tsd = float2(TS.m.x * pow2f(min(TS.e - dExp, 100)), 0.0f);
+                        }
+                        if (kInterior) {
+                            FE wx = feMul(fPrimeX(zf), feNorm(zw, wExp));
+                            zw = wx.m; wExp = wx.e;
+                        }
+                        const FE zx = fStepX(refAt(refx, m), feNorm(w, 0), C);
+                        m++;
+                        n++;
+                        budget--;
+                        if (zx.e >= DEEP_PLAIN_EXP) {
+                            w = feFloat(zx);
+                        } else {
+                            w = zx.m;
+                            e = zx.e == FE_ZERO ? C.e : zx.e;
+                            deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                        }
+                        if (kInterior
+                            && max(abs(zw.x), abs(zw.y)) * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            interior = true;
+                            done = true;
+                            break;
+                        }
+                        if (e != 0) break;
+                        continue;
+                    }
                     if (kDE) dm = fMulPrime(z, dm) + tsd;
                     if (kInterior) zw = fMulPrime(z, zw);
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
-                    // would overflow the DE mantissa within 8 steps; R5.)
+                    // would overflow the DE mantissa within 8 steps; R5. F3: for z^p every step
+                    // once |z| > 1, as |f'| = p|z|^(p-1) reaches 2^52 per step.)
                     if ((n & 7u) == 0u || max(abs(z.x), abs(z.y)) < 0x1p-16f
-                        || (kDE && max(abs(z.x), abs(z.y)) > 16.0f)) {
+                        || (kDE && max(abs(z.x), abs(z.y)) > 16.0f)
+                        || (kFormula != 0u && max(abs(z.x), abs(z.y)) > 1.0f)) {
                         if (kDE) {
                             float a = max(abs(dm.x), abs(dm.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
@@ -1682,7 +1739,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 // ---- T regime: scaled steps; floatexp where |Z| is small.
                 while (true) {
                     const float2 Z = ref[m];
-                    if (m == 0 || m == last || max(abs(Z.x), abs(Z.y)) < DEEP_SMALL_Z) {
+                    if (m == 0 || m == last || max(abs(Z.x), abs(Z.y)) < deepSmallZ()) {
                         FE zx = feNorm(w, e);
                         FE Zx = refAt(refx, m);
                         FE zf = feAdd(Zx, zx);
@@ -1760,7 +1817,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     IC_TRACK(dot(zf, zf), n)
                     if (kDE) dm = fMulPrime(zf, dm) + tsd;
                     if (kInterior) zw = fMulPrime(zf, zw);
-                    if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f) {
+                    if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f
+                        || (kFormula != 0u && max(abs(zf.x), abs(zf.y)) > 1.0f)) {
                         if (kDE) {
                             float a = max(abs(dm.x), abs(dm.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
@@ -2002,7 +2060,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 // only in the few steps before escape (|z| 2 -> 4 -> 16 -> 256 -> 65536), so
                 // 8 steps grow it by at most ~2^42 (float32 max 2^128). Detection is at most 7
                 // iterations late.
-                if (kInterior && (n & 7u) == 0u) {
+                if (kInterior && (kFormula != 0u || (n & 7u) == 0u)) {   // (F3: z^p grows w up to 2^52 a step)
                     float a = max(abs(w.x), abs(w.y));
                     if (a > 0x1p60f) {
                         w *= 0x1p-60f;
@@ -2575,7 +2633,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             // escape iteration n (float32 holds integers to 2^24) and the small offset s in
             // [-3.47, -2.47) for bailout 2^16, so large counts keep their fraction and the
             // verifier sees n.
-            float s = 1.0f - log2(0.5f * log(r2));
+            float s = 1.0f - log2(0.5f * log(r2)) * invLog2Power();
             iterOut.write(float4(float(st.n), s, 0.0f, 0.0f), gid);
             if (kDE) {
                 float zr = sqrt(r2);

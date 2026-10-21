@@ -195,7 +195,11 @@ pub fn cpu_render_for(
                 }
                 if r2 > b2 {
                     nrow[x] = i as f32;
-                    srow[x] = (1.0 - (0.5 * r2.ln()).log2()) as f32;
+                    srow[x] = if formula.is_mandelbrot() {
+                        (1.0 - (0.5 * r2.ln()).log2()) as f32
+                    } else {
+                        formula.smooth_offset(r2) as f32
+                    };
                 } else {
                     nrow[x] = ITER_INTERIOR;
                     srow[x] = 0.0;
@@ -399,7 +403,22 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
     let c64 = (cm.0 * pow2(ce), cm.1 * pow2(ce));
     let cx = dx(cm.0, cm.1, ce);
     let c_exp = dx_exponent(cx);
-    let escaped = |n: usize, r2: f64| (n as f32, (1.0 - (0.5 * r2.ln()).log2()) as f32);
+    let escaped = |n: usize, r2: f64| {
+        if generic {
+            (n as f32, formula.smooth_offset(r2) as f32)
+        } else {
+            (n as f32, (1.0 - (0.5 * r2.ln()).log2()) as f32)
+        }
+    };
+    // F3 (kb: plans/f3-multibrot "As built"): for z^p the step's factor S grows like
+    // |Z|^(p-1), and S z must stay far inside f64 for |z| >= 2^-500 (plain) and the rescaled
+    // w: where |Z| < 2^(-500/(p-1)) (p = 8: 2^-71) the step runs in extended range, in either
+    // regime. Mandelbrot keeps its thresholds (and Multibrot(2) gets the same ones).
+    let small_z = if generic {
+        SMALL_Z.max((-500.0 / f64::from(formula.power() - 1)).exp2())
+    } else {
+        SMALL_Z
+    };
     // State: plain z (e == None) or z = w 2^e.
     let (mut z, mut w, mut e): ((f64, f64), (f64, f64), Option<i64>);
     if c_exp >= TO_P_EXP {
@@ -457,6 +476,25 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     if n >= max_iter {
                         return (ITER_INTERIOR, 0.0);
                     }
+                    if generic && zr[0].abs().max(zr[1].abs()) < small_z {
+                        // Z small (|Z + z| >= |z| after the rebase test, so S may be tiny):
+                        // the step in extended range from the reference's extended value.
+                        let zrx = if m == 0 { DoubleExpComplex::ZERO } else { ext[m] };
+                        let zx0 = dx(z.0, z.1, 0);
+                        let zx = zx0 * formula.delta_factor_x(zrx, zrx + zx0) + cx;
+                        m += 1;
+                        n += 1;
+                        let k = dx_exponent(zx);
+                        if k >= TO_P_EXP {
+                            z = dx_scaled(zx, 0);
+                            continue;
+                        }
+                        let mut ee = if zx.re.is_zero() && zx.im.is_zero() { c_exp } else { k };
+                        w = dx_scaled(zx, ee);
+                        (sc, dd) = rescale(&mut w, &mut ee);
+                        e = Some(ee);
+                        break;
+                    }
                     let (t0, t1) = if generic {
                         formula.delta_factor((zr[0], zr[1]), (zr[0] + z.0, zr[1] + z.1))
                     } else {
@@ -469,7 +507,7 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
             }
             Some(mut ee) => {
                 let zm = pts[m];
-                if m == 0 || m == last || zm[0].abs().max(zm[1].abs()) < SMALL_Z {
+                if m == 0 || m == last || zm[0].abs().max(zm[1].abs()) < small_z {
                     // Full step in extended range.
                     let zx = dx(w.0, w.1, ee);
                     let zrx = ext[m];
