@@ -983,7 +983,13 @@ impl ExplorerSettings {
             let k = Center::parse(&self.julia_re, &self.julia_im)
                 .filter(|k| k.re().is_finite() && k.im().is_finite())
                 .ok_or_else(|| invalid(format!("julia k {}, {}", self.julia_re, self.julia_im)))?;
-            almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()))
+            // A settings round trip writes k with the round-trip digits of its precision; parsed
+            // at the precision the digits imply it would differ in its last bits (a new k: new
+            // references, a moved set at depth). The same value at k's own precision is k.
+            match s.formula.julia_k() {
+                Some(cur) if k.big().with_precision(cur.value().precision_bits()) == *cur.value() => s.formula,
+                _ => almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big())),
+            }
         } else {
             almondbread_core::Formula::parse(&self.formula)
                 .filter(|f| almondbread_core::formula::selectable().contains(f))
@@ -2406,5 +2412,43 @@ impl Explorer {
             width: m.width as u32,
             height: m.height as u32,
         })
+    }
+}
+
+#[cfg(test)]
+mod julia_settings_tests {
+    use super::*;
+    use almondbread_core::formula::{Formula, JuliaK};
+
+    /// F4: a settings round trip (the UI pushes the record it pulled) keeps k exactly, so a
+    /// slider change in a Julia view never makes a new k (new references, a moved set at depth).
+    #[test]
+    fn a_settings_round_trip_keeps_k() {
+        let k = Center::parse(
+            "-0.743643887037158704752191506114774",
+            "0.131825904205311970493132056385139",
+        )
+        .unwrap()
+        .with_min_precision(512);
+        let mut s = RenderSettings::default();
+        s.formula = Formula::Julia(JuliaK::new(k.big()));
+        let e = ExplorerSettings::from(&s);
+        assert_eq!(e.formula, "julia");
+        assert!(!e.julia_re.is_empty() && !e.julia_im.is_empty());
+        let mut t = s.clone();
+        e.apply(&mut t).unwrap();
+        assert_eq!(t.formula, s.formula);
+        // A Mandelbrot record has no k; a Julia record applied to Mandelbrot settings opens it.
+        let m = ExplorerSettings::from(&RenderSettings::default());
+        assert!(m.julia_re.is_empty() && m.julia_im.is_empty());
+        let mut u = RenderSettings::default();
+        e.apply(&mut u).unwrap();
+        assert!(u.formula.is_julia());
+        // A malformed k is refused.
+        let bad = ExplorerSettings {
+            julia_re: "x".into(),
+            ..e
+        };
+        assert!(bad.apply(&mut u).is_err());
     }
 }
