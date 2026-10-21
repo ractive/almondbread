@@ -97,7 +97,8 @@ public enum SelfTest {
 /// (the default scene with View and Look, or Lighting, Overlays and Quality open),
 /// `progress` / `progress-late` (render progress mid-render at a 2M limit), `journey-stop`
 /// (journey #4711 in the "stop at each find" mode, captured at its first stop), `seek` (seek
-/// minibrot in the seahorse valley, captured on arrival), `tours` (one tour done), `cruise-reverse`
+/// minibrot in the seahorse valley, captured on arrival), `place-<id>` (a catalogue place in its
+/// look, e.g. `place-spiral-galaxy`), `tours` (one tour done), `cruise-reverse`
 /// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A);
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
@@ -315,6 +316,9 @@ public enum UIDemo {
         case "places":
             // (After the first layout: a place is fitted to the view size.)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace("elephants") }
+        case _ where scene.hasPrefix("place-"):
+            // `place-<id>`: any catalogue place in its look (App Store shots of a view).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace(String(scene.dropFirst(6))) }
         case "palettes":
             model.applyPalette(model.library.first { $0.category == "natural" }?.id ?? "aurora")
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)

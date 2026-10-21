@@ -313,10 +313,29 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 `--loc=re,im --scale S`, S = span / 30 (it starts 2 S off the boundary, fog at 60 S);
 `almondbread places --format landscape` prints these lines.
 
+## Spiral Galaxy: a place found by hand (2026-10-21)
+
+The first place the author found by exploring rather than from a source: `spiral-galaxy`,
+re -0.832130215420311320156874621447, im -0.207171646604986446426901492118, just outside the
+period-2 disc (0.267 from its centre -1, radius 1/4). A wheel of arms made of seahorse-tail
+spirals around a dense core; `locate --radius 3.7e-23` finds a period-461 nucleus about 1.5e-24 (0.04 search radii)
+from the centre (size 1e-25.3, below a point at this framing). The look is `spectrum`,
+the one the app had when the view was found (the persisted settings in the
+`ch.ractive.almondbread` defaults matched the Spectrum look exactly).
+
+**Span from the app's scale.** The HUD's scale is complex units per view point and the canvas
+fills the window (it ignores the safe area), so span = scale × the window's shorter side:
+6.79538e-26 × 1083 pt = 7.36e-23. In a window of the same size the place opens on exactly that
+view; elsewhere it is fitted to the shorter side as every place is. The HUD's zoom counts from
+3/800 per point, a place's depth from span 3, so the HUD shows 10^22.7 where the catalogue
+lists 22.6 (the `place_zoom_offset` of the window). Render cost is low (about 0.2 s GPU at
+1600x1000 with 3x3 supersampling, maxIter 18,000); it is also an App Store screenshot draft
+(`--ui-demo=place-spiral-galaxy`, `AppStoreShotsUITests.test10SpiralGalaxy`).
+
 ## The catalogue
 
 <!-- places-table -->
-75 places (landmark 11, valley 14, spiral 7, dendrite 4, minibrot 9, julia-island 17, deep 13). By magnification: < 1e5: 36, 1e5-1e13: 20, 1e13-1e30: 6, 1e30-1e300: 5, >= 1e300: 8. Depth is log10 of the magnification relative to the whole set (span 3); `almondbread places --format tsv` prints centres and spans.
+76 places (landmark 11, valley 14, spiral 8, dendrite 4, minibrot 9, julia-island 17, deep 13; the four endless dives are listed above). By magnification: < 1e5: 36, 1e5-1e13: 20, 1e13-1e30: 7, 1e30-1e300: 5, >= 1e300: 8. Depth is log10 of the magnification relative to the whole set (span 3); `almondbread places --format tsv` prints centres and spans.
 
 | id | name | category | depth (log10 zoom) | look | source |
 | --- | --- | --- | --- | --- | --- |
@@ -352,6 +371,7 @@ point), `elephant` = `elephants`, `minibrot3` = `airplane`, `spiral` ≈ the mir
 | `two-arm-spiral` | Two-Arm Spiral | spiral | 4.5 | lagoon | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `satellite-double-spiral` | Satellite Double Spirals | spiral | 8.4 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 11 |
 | `spiral-wheel` | Spiral Wheel | spiral | 9.0 | ember | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 12 |
+| `spiral-galaxy` | Spiral Galaxy | spiral | 22.6 | spectrum | found by the author in the app (2026-10-21), see "Spiral Galaxy" below |
 | `dendrite-i` | The Tip at i | dendrite | 1.7 | ice | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `three-way-junction` | Three-Way Junction | dendrite | 2.8 | dusk | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `antenna-junction` | Antenna Crossroads | dendrite | 1.8 | ember | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |

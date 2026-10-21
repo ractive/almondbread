@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-21
+
+- **Ingest:** Spiral Galaxy: first hand-found place (spiral-galaxy, 1e22.6, period-461 core, spectrum look); span = app scale x window short side; App Store drafts via --ui-demo=place-<id> and AppStoreShotsUITests.test10SpiralGalaxy
+
 ## 2026-10-20
 
 - **Decision:** Review fixes M1, E1, M2, M3, M4, P1, U1, C5, X1: debug-build orbit panic fixed and a debug-profile test run (make rust-check-debug, CI test-debug); DoubleExp exponents saturate; iteration limits capped at 2^24 (float32 escape count); pasted coordinates at most 20 000 digits and MAX_CENTER_BITS; pans saturate in Scale::big_times; orbit helpers only with 6+ performance cores, sleeping after 2 ms stalls; FFI copies return errors; MetalEncoder ends its pass on drop; CLI rejects a --key as a value. Pages: techniques/parallel-reference-orbit, techniques/hang-prevention, techniques/auto-iterations, synthesis/neck-escape-statistics, platform/rust-swift-ffi, synthesis/benchmarks

@@ -1,9 +1,10 @@
 import XCTest
 
 /// Draft App Store screenshots (not a check): tour cards over their views, the walkthrough's
-/// ring, the control center's tours, a deep place, cruise with the cockpit, the mini-map and the
-/// size scale. `make ios-uitest TESTS=AppStoreShotsUITests DEVICE=iphone|ipad` writes
-/// `build/ios-screens/<idiom>-appstore-*.png`; scripts/appstore-shots.sh adds captions.
+/// ring, the control center's tours, a deep place, cruise with the cockpit, the mini-map, the
+/// size scale and a place as a picture (Spiral Galaxy). `make ios-uitest
+/// TESTS=AppStoreShotsUITests DEVICE=iphone|ipad` writes `build/ios-screens/<idiom>-appstore-*.png`;
+/// scripts/appstore-shots.sh adds captions.
 final class AppStoreShotsUITests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -126,6 +127,15 @@ final class AppStoreShotsUITests: XCTestCase {
         closeControlCenter()
         settle(14)
         shot("9-deep-1e94")
+        app.terminate()
+    }
+
+    /// A place as a picture: Spiral Galaxy (1e22) in its look.
+    func test10SpiralGalaxy() {
+        launch(["--ui-demo=place-spiral-galaxy"])
+        closeControlCenter()
+        settle(15)
+        shot("10-spiral-galaxy")
         app.terminate()
     }
 }
