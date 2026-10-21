@@ -699,11 +699,17 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
             if event.type == .keyUp, let key = Self.navKey(event) { send(.keyUp(key: key)) }
             return false
         }
-        // A guided tour (kb: decisions/controls "Guided tours"): → next, ← back, Esc ends it.
+        // A guided tour (kb: decisions/controls "Guided tours"): → next, ← back, Esc twice ends
+        // it (the first Esc stops motion like any Esc and arms the second).
         // Only the key-downs: a release still reaches Rust (harmless if nothing was held).
         if model.tour != nil, event.type == .keyDown, !event.modifierFlags.contains(.option) {
             let tourKey: (() -> Void)? = switch (event.keyCode, event.specialKey) {
-            case (53, _): { self.model.endTour() }
+            case (53, _): {
+                if !self.model.escapeTour() {
+                    _ = self.send(.keyDown(key: .stop))
+                    _ = self.send(.keyUp(key: .stop))
+                }
+            }
             case (_, .rightArrow?): { self.model.tourNext() }
             case (_, .leftArrow?): { self.model.tourBack() }
             default: nil
@@ -1284,12 +1290,18 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
         var unhandled = Set<UIPress>()
         for press in presses {
             if let key = press.key, key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) {
-                // A guided tour: → next, ← back, Esc ends it (kb: decisions/controls "Guided tours").
+                // A guided tour: → next, ← back, Esc twice ends it, the first stops motion
+                // (kb: decisions/controls "Guided tours").
                 if base.model.tour != nil {
                     switch key.keyCode {
                     case .keyboardRightArrow: base.model.tourNext(); continue
                     case .keyboardLeftArrow: base.model.tourBack(); continue
-                    case .keyboardEscape: base.model.endTour(); continue
+                    case .keyboardEscape:
+                        if !base.model.escapeTour() {
+                            _ = send(.keyDown(key: .stop))
+                            _ = send(.keyUp(key: .stop))
+                        }
+                        continue
                     default: break
                     }
                 }

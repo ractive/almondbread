@@ -83,6 +83,9 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     }
     let out = out.expect("rendered");
     write_png_bgra(&path, &out.pixels, width, height)?;
+    if let Some(to) = o.f64("density-edit") {
+        density_edit(&mut r, &path, &out.pixels, width, height, to)?;
+    }
     let (ref_time, ref_len) = r.reference_info();
     let ms: Vec<String> = times.iter().map(|t| format!("{:.2}", t * 1000.0)).collect();
     let wall: Vec<String> = walls.iter().map(|t| format!("{:.1}", t * 1000.0)).collect();
@@ -144,6 +147,57 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         );
     }
     Ok(0)
+}
+
+/// `render out.png --density-edit d`: what a user's density edit to `d` does to the view
+/// (kb: techniques/coloring-methods, "Density pivot"): renders it with the offset pivoted on
+/// the view's median escape count (`out-pivot.png`, as the app's slider does) and with the
+/// offset unchanged (`out-plain.png`), and prints how far each moved the colours.
+fn density_edit<B: GpuBackend + Clone>(
+    r: &mut Renderer<B>,
+    path: &str,
+    before: &[u8],
+    width: usize,
+    height: usize,
+    to: f64,
+) -> Result<()> {
+    let pivot = r.density_pivot_blocking();
+    let (from, offset) = (r.settings.color_density, r.settings.color_offset);
+    let pivoted = almondbread_core::density_pivot::pivoted_offset(offset, from, to, pivot, r.settings.log_coloring);
+    println!(
+        "density edit {} -> {} ({:+.1} %): pivot {} (median escape count), offset {} -> {}",
+        g(from, 4),
+        g(to, 4),
+        100.0 * (to / from - 1.0),
+        pivot.map_or("none".into(), |p| g(p, 6)),
+        g(offset, 4),
+        g(pivoted, 4)
+    );
+    r.settings.color_density = to;
+    for (suffix, o) in [("-pivot", pivoted), ("-plain", offset)] {
+        r.settings.color_offset = o;
+        let res = r.render_offscreen(width, height, false)?;
+        let file = suffixed(path, suffix);
+        write_png_bgra(&file, &res.pixels, width, height)?;
+        // Mean absolute sRGB difference per channel (0-255) and the share of pixels whose
+        // colour moved by more than 32 in some channel.
+        let (mut sum, mut moved) = (0u64, 0usize);
+        for (a, b) in before.as_chunks::<4>().0.iter().zip(res.pixels.as_chunks::<4>().0) {
+            let d: Vec<u64> = (0..3).map(|k| u64::from(a[k].abs_diff(b[k]))).collect();
+            sum += d.iter().sum::<u64>();
+            moved += usize::from(d.iter().any(|&x| x > 32));
+        }
+        let n = (width * height).max(1);
+        println!(
+            "{file}: offset {}  mean |dRGB| {:.2}  pixels moved > 32: {:.2} %",
+            g(o, 4),
+            sum as f64 / (3 * n) as f64,
+            100.0 * moved as f64 / n as f64
+        );
+    }
+    r.settings.color_offset = offset;
+    r.settings.color_density = from;
+    Ok(())
 }
 
 /// Sets up the orbit overlay and mini-map for a still: probes the orbit to its end and renders

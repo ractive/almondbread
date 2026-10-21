@@ -630,6 +630,37 @@ public final class ExplorerModel {
                         mapSize: mapSize, mapCorner: mapPlacement.ffi, julia: juliaEnabled)
     }
 
+    // MARK: Density edits
+
+    /// The pivot of the density drag in progress (kb: techniques/coloring-methods, "Density
+    /// pivot"): taken once when the drag starts, so one drag keeps one anchor. `.some(nil)`:
+    /// a drag without a pivot (no escaped pixels yet).
+    @ObservationIgnored private var densityDragPivot: Double??
+
+    /// The density control's drag starts / ends (the slider's editing state).
+    public func densityEditing(_ editing: Bool) {
+        densityDragPivot = editing ? .some(explorer?.densityPivot()) : nil
+    }
+
+    /// A user edit of the density (the control center's slider, its keyboard steps): the
+    /// offset moves with it so the colour at the view's median escape count stays (Rust's
+    /// `pivotedColorOffset`); bands widen or narrow around it instead of scrambling at depth.
+    /// Programmatic changes (looks, places, tours, reset) set `colorDensity` directly.
+    public func editColorDensity(_ density: Double) {
+        guard density != colorDensity, let explorer else {
+            colorDensity = density
+            return
+        }
+        let pivot = densityDragPivot ?? explorer.densityPivot()
+        let offset = pivotedColorOffset(offset: colorOffset, from: colorDensity, to: density,
+                                        pivot: pivot, logScale: logColoring)
+        // One push for both.
+        pulling = true
+        colorOffset = offset
+        pulling = false
+        colorDensity = density
+    }
+
     /// Applies a look (palette and colouring) in Rust and takes over the result.
     public func applyLook(_ id: String) {
         guard let explorer else { return }
@@ -1234,6 +1265,10 @@ public final class ExplorerModel {
     public private(set) var tour: TourStepInfo?
     /// The settings before the tour (what persists meanwhile; the look id is ours alone).
     @ObservationIgnored private var tourSaved: SavedSettings?
+    /// Esc in a tour (kb: decisions/controls "Guided tours"): one press stops motion like any Esc
+    /// and arms this for 2 s; the card then says "Press Esc again to end the tour".
+    public private(set) var tourEscapeArmed = false
+    @ObservationIgnored private var tourEscapeDisarm: DispatchWorkItem?
 
     /// Starts a tour at its first step: other motion stops, the settings and view are saved.
     public func startTour(_ id: String) {
@@ -1242,6 +1277,28 @@ public final class ExplorerModel {
         guard let info = try? explorer.startTourOn(id: id, platform: TourPlatform.current) else { return }
         tourSaved = before
         takeTour(info)
+    }
+
+    /// Esc in a tour: the first press arms, a second within 2 s ends the tour. Returns whether
+    /// it ended (the caller stops motion only when it did not: ending flies the view back).
+    @discardableResult public func escapeTour() -> Bool {
+        guard tour != nil else { return false }
+        if tourEscapeArmed {
+            endTour()
+            return true
+        }
+        tourEscapeArmed = true
+        let disarm = DispatchWorkItem { [weak self] in self?.tourEscapeArmed = false }
+        tourEscapeDisarm?.cancel()
+        tourEscapeDisarm = disarm
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: disarm)
+        return false
+    }
+
+    private func disarmTourEscape() {
+        tourEscapeDisarm?.cancel()
+        tourEscapeDisarm = nil
+        if tourEscapeArmed { tourEscapeArmed = false }
     }
 
     /// "Next ›" (→): the next step; on the last one the tour ends.
@@ -1257,12 +1314,14 @@ public final class ExplorerModel {
     }
 
     public func tourGo(_ index: Int) {
+        disarmTourEscape()
         guard let explorer, let info = explorer.tourGo(index: UInt32(max(0, index))) else { return }
         takeTour(info)
     }
 
-    /// "End tour" (Esc): the settings before the tour come back and the view flies back.
+    /// "End tour" (Esc twice): the settings before the tour come back and the view flies back.
     public func endTour() {
+        disarmTourEscape()
         guard let explorer else { return }
         let saved = tourSaved
         tourSaved = nil

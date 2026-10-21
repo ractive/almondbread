@@ -4,6 +4,7 @@
 //!
 //! ```text
 //! almondbread render out.png --center re,im --scale s --size WxH [--iterations N] [--repeat n]
+//!                    [--density-edit d] (also out-pivot.png / out-plain.png: a density edit pivoted / not)
 //! almondbread verify --center re,im --scale s --size WxH [--iterations N] [--dump f.iter] [--heatmap d.png]
 //! almondbread verify --fields a.iter --against b.iter
 //! almondbread verify --history zoom|out|pan|jump --center re,im --scale s [--ppp p] [--pointer x,y] [--then f]

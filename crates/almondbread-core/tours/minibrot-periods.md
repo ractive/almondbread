@@ -92,4 +92,4 @@ probe: pointer
 
 The ring and its dots follow the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Point into the bulbs and copies: the line under the map says *settles into a period-… cycle*, a loop of that length.
 
-**N** always picks the copy with the **lowest period** in or near the view, the biggest and simplest one, and each further press a longer loop. **End tour** (or **Esc**) brings back your view and settings.
+**N** always picks the copy with the **lowest period** in or near the view, the biggest and simplest one, and each further press a longer loop. **End tour** (or **Esc** twice) brings back your view and settings.

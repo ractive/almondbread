@@ -606,9 +606,9 @@ final class InteractionTest: NSObject {
         }
         // π hunt (kb: decisions/controls "π meter"): the π tour's hunt step (the guided flight
         // with the meter and its orbit trail; the counting thread publishes the trail picture,
-        // the frame uploads it) from the home view; End tour at 2.8 s. Checks the meter counted
-        // at the neck and the tour's end switched it off; the frame pacing and draw CPU are
-        // measured like every scenario.
+        // the frame uploads it) from the home view; Esc twice at 2.8 s. Checks the meter counted
+        // at the neck, that one Esc only arms and a second ends the tour, and that the end
+        // switched it off; the frame pacing and draw CPU are measured like every scenario.
         let piHunt: (FractalNSView, Int, Double) -> Void = { v, i, t in
             guard let explorer = v.explorer else { return }
             if i == 0 {
@@ -618,11 +618,17 @@ final class InteractionTest: NSObject {
             }
             once("end", t >= 2.8) {
                 let m = explorer.piMeter()
-                v.model.endTour()
+                // Esc twice ends a tour: the first only arms (the tour runs on), the second ends it.
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let armed = v.model.tour != nil && v.model.tourEscapeArmed
+                InteractionTest.key(v, "\u{1b}", down: true, keyCode: 53)
+                InteractionTest.key(v, "\u{1b}", down: false, keyCode: 53)
+                let ended = v.model.tour == nil
                 let off = !explorer.piMeter().enabled
-                let ok = m.enabled && m.point == "neck" && m.count > 0 && off
+                let ok = m.enabled && m.point == "neck" && m.count > 0 && armed && ended && off
                 if !ok { self.failures += 1 }
-                self.refineLines.append("pi hunt: \(m.point) ε \(String(format: "%.2g", m.eps)) N \(m.count) \(m.digits) digits, off after the tour \(off) \(ok ? "OK" : "FAILED")")
+                self.refineLines.append("pi hunt: \(m.point) ε \(String(format: "%.2g", m.eps)) N \(m.count) \(m.digits) digits, Esc armed \(armed) then ended \(ended), off after the tour \(off) \(ok ? "OK" : "FAILED")")
             }
         }
         // Full screen (kb: decisions/controls "Full screen") through a probe instead of the

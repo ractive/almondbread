@@ -3768,3 +3768,22 @@ kernel void survey(texture2d<float, access::read> iters [[texture(0)]],
     cells[2 * i] = uint4(samples, interior, pairs, edges);
     cells[2 * i + 1] = uint4(peak.x, peak.y, as_type<uint>(peakN), 0u);
 }
+
+// MARK: Density pivot sample (kb: techniques/coloring-methods, "Density pivot")
+
+/// The smooth escape count mu = n + s at the centre of each cell of a cols x rows grid over a
+/// finished level (SurveyParams), -1 where the texel is not escaped (interior, pending,
+/// unresolved): the renderer takes the median of the escaped ones as the pivot of density
+/// edits. One thread per cell.
+kernel void escapeSample(texture2d<float, access::read> iters [[texture(0)]],
+                         constant SurveyParams& p             [[buffer(0)]],
+                         device float* out                    [[buffer(1)]],
+                         uint2 gid                            [[thread_position_in_grid]])
+{
+    if (gid.x >= p.cols || gid.y >= p.rows) return;
+    uint x = min((2u * gid.x + 1u) * p.width / (2u * p.cols), p.width - 1u);
+    uint y = min((2u * gid.y + 1u) * p.height / (2u * p.rows), p.height - 1u);
+    float2 it = iters.read(uint2(x, y)).xy;
+    out[gid.y * p.cols + gid.x] = it.x >= 0.0f ? it.x + it.y : -1.0f;
+}
+

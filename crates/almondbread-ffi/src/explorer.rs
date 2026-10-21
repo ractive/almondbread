@@ -1704,6 +1704,15 @@ impl Explorer {
         Ok(ExplorerSettings::from(&g.host.renderer.settings))
     }
 
+    /// The pivot of a user's density edit (kb: techniques/coloring-methods, "Density pivot"):
+    /// the median smooth escape count of the shown view's last finished level, kept from a
+    /// tiny sample pass per finished level (no GPU wait here). None: no escaped pixels or no
+    /// finished view yet. The UI takes it when a density drag starts and passes it to
+    /// `pivoted_color_offset` for every change of that drag.
+    pub fn density_pivot(&self) -> Option<f64> {
+        self.lock().host.renderer.density_pivot()
+    }
+
     /// What the current formula supports (F2): the UI hides the rest.
     pub fn capabilities(&self) -> FormulaCapabilities {
         FormulaCapabilities::of(self.lock().host.renderer.settings.formula)

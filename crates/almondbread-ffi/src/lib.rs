@@ -197,6 +197,16 @@ pub struct LookInfo {
 }
 
 /// The looks, in menu order (the first is the default; `Explorer::apply_look` applies one).
+/// The colour offset after a user edit of the density from `from` to `to` that keeps the
+/// colour at the smooth escape count `pivot` (`Explorer::density_pivot`): bands widen or
+/// narrow around the view's main colour instead of scrambling at depth (kb:
+/// techniques/coloring-methods, "Density pivot"). Without a pivot the offset is unchanged.
+/// Only user edits of the density control use it; looks, places and resets do not.
+#[uniffi::export]
+pub fn pivoted_color_offset(offset: f64, from: f64, to: f64, pivot: Option<f64>, log_scale: bool) -> f64 {
+    almondbread_core::density_pivot::pivoted_offset(offset, from, to, pivot, log_scale)
+}
+
 #[uniffi::export]
 pub fn looks() -> Vec<LookInfo> {
     almondbread_core::palette::Look::all()

@@ -228,6 +228,43 @@ and interior stay distinguishable from the deep colour. Works for any palette gi
 (`palette::dense_colors`). Off restores the old look. Before/after stills:
 `scripts/render-dense-looks.sh`.
 
+## Density pivot (as built)
+
+Reported by the user (2026-10-21): moving the Density slider a tiny bit made the picture
+flicker and scramble, worst at depth (Pastel palette). Cause: the colour pass maps
+`t = fract(n · density) + s · density + offset` (log scale: `ln(mu + 1) · density + offset`),
+so density stretches the palette around mu = 0, which at depth is nowhere in view. With escape
+counts of 1e4–1e6, one point of slider travel (≈3 %, the log slider spans three decades)
+moves each pixel by `n · Δd`, hundreds of cycles, differently for neighbouring counts.
+
+Fix: a user edit of the density pivots on the view's own counts. When the density goes from
+`d1` to `d2`, the offset becomes `offset + n_ref (d1 − d2)` (log scale: `ln(n_ref + 1)` in
+place of `n_ref`), wrapped into [0, 1), so the colour at `n_ref` stays; a pixel 100 counts
+away moves by `100 · Δd` cycles. Bands widen or narrow around the main colour, like zooming the
+gradient, and the Offset slider moves along.
+
+- `n_ref`: the median smooth count `n + s` of the escaped texels of the shown view. The
+  renderer samples every finished level of a resting view (no gesture frames, AA or extension
+  passes) with the `escapeSample` kernel, one texel per cell of a 64 × 40 grid, in a command
+  buffer of its own (like the autopilot survey), and takes the median when it has run
+  (`almondbread_core::density_pivot::escape_pivot`; fewer than 16 escaped samples: none). One
+  tiny pass per finished view, nothing per frame, no GPU wait on the main thread.
+- Rule: `density_pivot::pivoted_offset` (core), exported as `pivoted_color_offset`;
+  `Explorer::density_pivot()` hands out the cached `n_ref`. Without one (all interior, nothing
+  finished yet) the offset is unchanged.
+- Captured when the drag starts (`Slider`'s `onEditingChanged`), so one drag keeps one
+  anchor even if a level finishes mid-drag; a change without a drag (keyboard steps on the
+  focused slider) takes the current pivot. Escape counts do not depend on colouring, so a
+  density change starts no new job and the pivot stays valid while dragging.
+- Only the slider pivots (`ExplorerModel.editColorDensity`); looks, palettes, places, links,
+  tours and reset set density and offset as stored, and saved values stay ordinary values.
+  The Julia panel uses the same settings: its colours turn uniformly (its counts are small).
+- Measured (2026-10-21, `almondbread render out.png --density-edit d`, 1200 × 800, +3 %):
+  spiral-galaxy (n_ref 1461): mean |ΔRGB| 7.4 pivoted vs 65.1 plain, pixels moved by more than
+  32: 11 % vs 74 %; dense-5e-14 Pastel (n_ref 2773): 36.7 vs 103.8, 65 % vs 97 % (the moved
+  pixels are its noise bands; the large flowers keep their colours); the same with log scale
+  (density 0.5): 0.4 vs 30.4, 0 % vs 87 %.
+
 ## For almondbread
 
 v1: smooth `(n, frac)` → log transfer → periodic cosine palette, plus DE
