@@ -779,7 +779,9 @@ mod tests {
             let mut z = (0.31f64, -0.27f64);
             let (kr, ki) = (-0.1225611668766536f64, 0.7448617666197442f64);
             for threads in [Threads::Single, Threads::Three] {
-                let comp = ReferenceOrbitComputer::new(&k, bits).with_start(&z0).with_threads(threads);
+                let comp = ReferenceOrbitComputer::new(&k, bits)
+                    .with_start(&z0)
+                    .with_threads(threads);
                 let (pts, ext, r) = comp.compute_vec(40, 1e10);
                 assert_eq!(r.count, 41);
                 assert_eq!(pts[0], [0.31f32, -0.27f32]);

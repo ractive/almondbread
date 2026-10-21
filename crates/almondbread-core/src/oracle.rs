@@ -15,6 +15,7 @@ use almondbread_math::{DoubleExp, DoubleExpComplex, Formula, ReferenceOrbitCompu
 use rayon::prelude::*;
 
 use crate::cfmt::g;
+use crate::julia_reference::JuliaLayout;
 use crate::viewport::{Center, Scale};
 #[cfg(test)]
 use almondbread_math::BigFloat;
@@ -172,7 +173,20 @@ pub fn cpu_render_for(
                 };
                 let (mut zr, mut zi, mut r2) = (0.0f64, 0.0f64, 0.0f64);
                 let mut i = 0usize;
-                if formula.is_mandelbrot() {
+                if let Formula::Julia(k) = formula {
+                    // F4: the pixel is z_0, k is fixed (tested before the first step too, as
+                    // the kernels do).
+                    let (kr, ki) = k.approx();
+                    (zr, zi) = (cr, ci);
+                    r2 = zr * zr + zi * zi;
+                    while i < max_iter && r2 <= b2 {
+                        let t = zr * zr - zi * zi + kr;
+                        zi = 2.0 * zr * zi + ki;
+                        zr = t;
+                        i += 1;
+                        r2 = zr * zr + zi * zi;
+                    }
+                } else if formula.is_mandelbrot() {
                     while i < max_iter {
                         let t = zr * zr - zi * zi + cr;
                         zi = 2.0 * zr * zi + ci;
@@ -264,6 +278,9 @@ const ORACLE_GUARD_BITS: usize = 64;
 pub struct OracleReference {
     /// The iteration (F2).
     pub formula: Formula,
+    /// F4: a Julia reference (the critical orbit, zeros, the centre orbit; as the GPU's,
+    /// [`crate::julia_reference`]).
+    pub julia: Option<JuliaLayout>,
     pub points: Vec<[f64; 2]>,
     pub extended: Vec<DoubleExpComplex>,
     pub precision_bits: usize,
@@ -286,12 +303,37 @@ impl OracleReference {
     ) -> Self {
         let t0 = std::time::Instant::now();
         let bits = crate::reference::needed_bits(center, texel, size, ORACLE_GUARD_BITS) + 64;
+        if let Formula::Julia(k) = formula {
+            let kv = k.value();
+            let crit = ReferenceOrbitComputer::new(&kv, bits);
+            let (ce, _) =
+                almondbread_math::with_no_control(4096, |ctl| crit.compute_double_exp(max_iter, bailout, ctl));
+            let comp = ReferenceOrbitComputer::new(&kv, bits).with_start(center.big());
+            let (ze, _) =
+                almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
+            let layout = JuliaLayout {
+                crit_last: ce.len() - 1,
+                center_start: crate::julia_reference::center_start(ce.len()),
+                crit_escaped: false,
+            };
+            let extended = crate::julia_reference::assemble(&ce, &ze, DoubleExpComplex::ZERO);
+            let points = extended.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect();
+            return Self {
+                formula,
+                julia: Some(layout),
+                points,
+                extended,
+                precision_bits: bits,
+                time: t0.elapsed().as_secs_f64(),
+            };
+        }
         let comp = ReferenceOrbitComputer::new(center.big(), bits).with_formula(formula);
         let (extended, _) =
             almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
         let points = extended.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect();
         Self {
             formula,
+            julia: None,
             points,
             extended,
             precision_bits: bits,
@@ -378,12 +420,48 @@ pub fn cpu_render_deep_with(
                 };
                 let px = (ox + offset.0) * tm;
                 let py = (oy + offset.1) * tm;
-                let (it, sm) = deep_pixel(reference, (px, py), te, max_iter, bailout * bailout);
+                let (it, sm) = if reference.julia.is_some() {
+                    julia_deep_pixel(reference, dx(px, py, te), max_iter, bailout * bailout)
+                } else {
+                    deep_pixel(reference, (px, py), te, max_iter, bailout * bailout)
+                };
                 nrow[x] = it;
                 srow[x] = sm;
             }
         });
     IterationField { width, height, n, s }
+}
+
+/// One pixel of a deep Julia view (F4): its start's delta `d0` to the centre orbit, in
+/// extended-range f64 throughout (53-bit mantissas; slower than [`deep_pixel`]'s regimes, fine
+/// for an oracle), no `+c`, Zhuoran's rebase onto the critical orbit (index 0 = 0) when
+/// `|Z_m + z| < |z|` or an orbit ends (kb: plans/f4-deep-julia). Validated against direct
+/// BigFloat iteration (tests).
+fn julia_deep_pixel(r: &OracleReference, d0: DoubleExpComplex, max_iter: usize, b2: f64) -> (f32, f32) {
+    let j = r.julia.expect("a Julia reference");
+    let ext = &r.extended;
+    let (mut m, mut last, mut n) = (j.center_start, ext.len() - 1, 0usize);
+    let mut z = d0;
+    loop {
+        let mut zr = ext[m];
+        let zf = zr + z;
+        let r2 = zf.magnitude_squared().to_f64();
+        if r2 > b2 {
+            return (n as f32, (1.0 - (0.5 * r2.ln()).log2()) as f32);
+        }
+        if m == last || (m != 0 && zf.magnitude_squared() < z.magnitude_squared()) {
+            z = zf;
+            zr = DoubleExpComplex::ZERO;
+            m = 0;
+            last = j.crit_last;
+        }
+        if n >= max_iter {
+            return (ITER_INTERIOR, 0.0);
+        }
+        z = (zr.times_two() + z) * z;
+        m += 1;
+        n += 1;
+    }
 }
 
 /// One pixel of [`cpu_render_deep`]: `c = cm 2^ce`. Returns the field's (n, s).
@@ -782,6 +860,79 @@ mod tests {
                 "deep oracle {re},{im} @ {sc}: {same}/{} same n, max |dmu| {worst:.2e}",
                 w * h
             );
+            assert!(same * 100 >= w * h * 98, "{sc}: only {same} of {} agree", w * h);
+            assert!(worst < 1e-4, "{sc}: |dmu| {worst}");
+        }
+    }
+
+    /// F4: the deep Julia oracle (f64 perturbation, critical-orbit rebasing) against direct
+    /// BigFloat iteration of each pixel's start (no perturbation at all), at two of the step-1
+    /// gate's views (kb: plans/f4-deep-julia), whole at 24 x 16: a preimage of 0 at 1e-100
+    /// (period-3 bulb) and at 1e-300 (Misiurewicz i).
+    #[test]
+    fn deep_julia_oracle_matches_direct_iteration() {
+        use almondbread_math::{BigComplex, JuliaK, ReferenceOrbitComputer, with_no_control};
+        let cases = [
+            (
+                ("-0.1225611668766536", "0.7448617666197442"),
+                "0.13582194234832306384726920844974750963803955544158433695104985552061703718356220531423914345539064577159014155396788582297739",
+                "-0.98408937840354738561303053036751272330190031920474351403645897719626417827245062205230473648568576800988084871583518785926966",
+                "8.3e-100",
+                3670usize,
+            ),
+            (
+                ("0", "1"),
+                "-1.316217188613384182892301938270293124103893412616323208720307172274596124394581156543859132946211679304026231908661961024336819202086203360168036350362781617862595986112142227701026008880468481898614759175229768762325953986190536194031254729435187793227165530004224246648352068591889334276616386741309913104214101345554899367",
+                "0.6785478674150520237952461553430622991323380058277815194421221054868252650933002485440546541350165849932149350420951796822304685241394963385899335024961001636274825482729138595485370773903166706946136063947425419828687390342905631095799823421179334798563580045190217945069289191899700554854070505266217696214286174348262202054",
+                "8.3e-300",
+                6850,
+            ),
+        ];
+        for ((kr, ki), re, im, sc, it) in cases {
+            let k = Center::parse(kr, ki).unwrap();
+            let formula = Formula::Julia(JuliaK::new(k.big()));
+            let center = Center::parse(re, im).unwrap();
+            let texel = Scale::parse(sc).unwrap();
+            let (w, h) = (24usize, 16usize);
+            let (field, _) = cpu_render_deep_for(formula, &center, texel, w, h, it, 65536.0, 0.0);
+            let bits = crate::reference::needed_bits(&center, texel, w, 64) + 64;
+            let kb = k.big().with_precision(bits);
+            let (tm, te) = texel.parts();
+            let (mut same, mut worst, mut levels) = (0usize, 0.0f64, std::collections::BTreeSet::new());
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * w + x;
+                    let dx = (x as f64 + 0.5 - w as f64 / 2.0) * tm;
+                    let dy = -(y as f64 + 0.5 - h as f64 / 2.0) * tm;
+                    let z0 = BigComplex::new(
+                        center.big().re.with_precision(bits) + BigFloat::from_f64(dx, 64).times_power_of_two(te),
+                        center.big().im.with_precision(bits) + BigFloat::from_f64(dy, 64).times_power_of_two(te),
+                    );
+                    let comp = ReferenceOrbitComputer::new(&kb, bits).with_start(&z0);
+                    let r = with_no_control(4096, |ctl| comp.compute(it, 65536.0, None, None, ctl));
+                    let (n, mu) = if r.escaped {
+                        let r2 = r.final_z.magnitude_squared().to_f64();
+                        (
+                            r.iterations() as f32,
+                            r.iterations() as f64 + 1.0 - (0.5 * r2.ln()).log2(),
+                        )
+                    } else {
+                        (ITER_INTERIOR, 0.0)
+                    };
+                    levels.insert(n as i64);
+                    if n == field.n[i] {
+                        same += 1;
+                        if n >= 0.0 {
+                            worst = worst.max((mu - (field.n[i] as f64 + field.s[i] as f64)).abs());
+                        }
+                    }
+                }
+            }
+            println!(
+                "deep Julia oracle k = {kr},{ki} @ {sc}: {same}/{} same n, max |dmu| {worst:.2e}",
+                w * h
+            );
+            assert!(levels.len() > 10, "{sc}: a picture, not a flat view ({levels:?})");
             assert!(same * 100 >= w * h * 98, "{sc}: only {same} of {} agree", w * h);
             assert!(worst < 1e-4, "{sc}: |dmu| {worst}");
         }

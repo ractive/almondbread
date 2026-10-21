@@ -31,6 +31,11 @@
 //! `|z| <= eps 2 |Z| / (p - 1)` (`eps |2Z|` at p = 2; kb: formulas/multibrot "BLA form").
 //! [`BlaTable::build_for`] and [`BlaTableX::build_for`] take the formula; merging is the same.
 //!
+//! **Julia sets (F4).** A Julia step `z' = 2Zz + z^2` has no `c`: `B = 0` (so `K = 0`, and
+//! every block's validity is `|z| < R` for any pixel), built through the same hooks on the
+//! concatenated reference of [`crate::julia_reference`], whose zeros between the two orbits
+//! invalidate every block that would straddle them.
+//!
 //! Derivatives compose through a block: `dz/dc -> A dz/dc + B` (distance estimate) and
 //! `dz/dz_1 -> A dz/dz_1` (interior test), each to the same relative error `eps` per step.
 //!
@@ -99,7 +104,9 @@ impl Merged {
         let p = f64::from(formula.power());
         Merged {
             a: formula.prime(zd),
-            b: (1.0, 0.0),
+            // (A Julia step has no `+c`: B = 0, so K = 0 and the block's radius does not
+            // depend on the pixel; F4, kb: formulas/julia.)
+            b: if formula.is_julia() { (0.0, 0.0) } else { (1.0, 0.0) },
             r: eps * 2.0 * abs(zd) / (p - 1.0),
             k: 0.0,
         }
@@ -496,7 +503,7 @@ impl MergedX {
         let pf = f64::from(p);
         MergedX {
             a: Xc::new(pf * w.re, pf * w.im, w.e),
-            b: Xc::ONE,
+            b: if formula.is_julia() { Xc::ZERO } else { Xc::ONE },
             r: Xr::from_f64(eps * 2.0 / (pf - 1.0)).mul(big_z.abs()),
             k: Xr::ZERO,
         }

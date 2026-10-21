@@ -23,6 +23,9 @@
 //! `cargo run --release -p almondbread-core --example julia_gate -- [--size 200x125]
 //!  [--depths 20,100,300,1000] [--cases card,rabbit,i,siegel,outside] [--png dir]`
 
+// The float32 emulation keeps the kernel's NaN-safe `!(a > 0)` tests.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
 use std::time::Instant;
 
 use almondbread_core::oracle::{self, ITER_INTERIOR, IterationField};
@@ -184,7 +187,15 @@ impl Oracle<'_> {
     }
 }
 
-fn pixel_start(center: &BigComplex, texel: &BigFloat, x: usize, y: usize, w: usize, h: usize, shift: (f64, f64)) -> BigComplex {
+fn pixel_start(
+    center: &BigComplex,
+    texel: &BigFloat,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+    shift: (f64, f64),
+) -> BigComplex {
     let ox = x as f64 + 0.5 - w as f64 / 2.0 + shift.0;
     let oy = -(y as f64 + 0.5 - h as f64 / 2.0) + shift.1;
     let bits = center.precision_bits();
@@ -194,7 +205,14 @@ fn pixel_start(center: &BigComplex, texel: &BigFloat, x: usize, y: usize, w: usi
     )
 }
 
-fn oracle_field(o: &Oracle<'_>, center: &BigComplex, texel: &BigFloat, w: usize, h: usize, shift: (f64, f64)) -> IterationField {
+fn oracle_field(
+    o: &Oracle<'_>,
+    center: &BigComplex,
+    texel: &BigFloat,
+    w: usize,
+    h: usize,
+    shift: (f64, f64),
+) -> IterationField {
     let px: Vec<(f32, f32)> = (0..w * h)
         .into_par_iter()
         .map(|i| o.pixel(pixel_start(center, texel, i % w, i / w, w, h, shift)))
@@ -219,7 +237,11 @@ struct Fe {
 }
 
 fn pow2f(k: i32) -> f32 {
-    if k < -126 { 0.0 } else { f32::from_bits(((k.min(127) + 127) as u32) << 23) }
+    if k < -126 {
+        0.0
+    } else {
+        f32::from_bits(((k.min(127) + 127) as u32) << 23)
+    }
 }
 
 fn scale2(m: [f32; 2], k: i32) -> [f32; 2] {
@@ -239,12 +261,21 @@ fn fe_norm(m: [f32; 2], e: i32) -> Fe {
             // subnormal: renormalise through f64
             let k = (a as f64).log2().floor() as i32 + 1;
             let f = (2.0f64).powi(-k);
-            return Fe { m: [(m[0] as f64 * f) as f32, (m[1] as f64 * f) as f32], e: e + k };
+            return Fe {
+                m: [(m[0] as f64 * f) as f32, (m[1] as f64 * f) as f32],
+                e: e + k,
+            };
         }
-        return Fe { m: [0.0, 0.0], e: FE_ZERO };
+        return Fe {
+            m: [0.0, 0.0],
+            e: FE_ZERO,
+        };
     }
     let k = exp_of(a);
-    Fe { m: scale2(m, -k), e: e + k }
+    Fe {
+        m: scale2(m, -k),
+        e: e + k,
+    }
 }
 
 fn fe_add(a: Fe, b: Fe) -> Fe {
@@ -263,7 +294,10 @@ fn cmulf(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
 
 fn fe_mul(a: Fe, b: Fe) -> Fe {
     if a.e == FE_ZERO || b.e == FE_ZERO {
-        return Fe { m: [0.0, 0.0], e: FE_ZERO };
+        return Fe {
+            m: [0.0, 0.0],
+            e: FE_ZERO,
+        };
     }
     fe_norm(cmulf(a.m, b.m), a.e + b.e)
 }
@@ -293,7 +327,10 @@ fn fe_float(a: Fe) -> [f32; 2] {
 
 fn fe_of(x: FloatExpComplex) -> Fe {
     if x.mantissa == [0.0, 0.0] {
-        Fe { m: [0.0, 0.0], e: FE_ZERO }
+        Fe {
+            m: [0.0, 0.0],
+            e: FE_ZERO,
+        }
     } else {
         fe_norm(x.mantissa, x.exponent)
     }
@@ -375,7 +412,10 @@ fn emulate(center: &Ref, crit: &Ref, d: Fe, max_iter: usize, rebase: bool) -> (f
                 on_crit = true;
                 last = r.pts.len() - 1;
                 m = 0;
-                zr = Fe { m: [0.0, 0.0], e: FE_ZERO };
+                zr = Fe {
+                    m: [0.0, 0.0],
+                    e: FE_ZERO,
+                };
                 rebases += 1;
             }
             if x.e >= PLAIN_EXP {
@@ -386,7 +426,11 @@ fn emulate(center: &Ref, crit: &Ref, d: Fe, max_iter: usize, rebase: bool) -> (f
             if n >= max_iter {
                 return (ITER_INTERIOR, 0.0, rebases);
             }
-            let two_z = if zr.e == FE_ZERO { zr } else { Fe { m: zr.m, e: zr.e + 1 } };
+            let two_z = if zr.e == FE_ZERO {
+                zr
+            } else {
+                Fe { m: zr.m, e: zr.e + 1 }
+            };
             x = fe_mul(fe_add(two_z, x), x);
             m += 1;
             n += 1;
@@ -398,7 +442,15 @@ fn emulate(center: &Ref, crit: &Ref, d: Fe, max_iter: usize, rebase: bool) -> (f
     }
 }
 
-fn emulate_field(center: &Ref, crit: &Ref, texel: Fe, w: usize, h: usize, max_iter: usize, rebase: bool) -> (IterationField, u64) {
+fn emulate_field(
+    center: &Ref,
+    crit: &Ref,
+    texel: Fe,
+    w: usize,
+    h: usize,
+    max_iter: usize,
+    rebase: bool,
+) -> (IterationField, u64) {
     let px: Vec<(f32, f32, u32)> = (0..w * h)
         .into_par_iter()
         .map(|i| {
@@ -445,7 +497,12 @@ fn png(field: &IterationField, path: &str) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let arg = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
     let (w, h) = arg("--size")
         .map(|s| {
             let (a, b) = s.split_once('x').unwrap();
@@ -458,7 +515,10 @@ fn main() {
         .map(|d| d.parse().unwrap())
         .collect();
     let cases: Vec<&Case> = match arg("--cases") {
-        Some(list) => list.split(',').map(|n| CASES.iter().find(|c| c.name == n).expect("case")).collect(),
+        Some(list) => list
+            .split(',')
+            .map(|n| CASES.iter().find(|c| c.name == n).expect("case"))
+            .collect(),
         None => CASES.iter().collect(),
     };
     let png_dir = arg("--png");
@@ -469,7 +529,7 @@ fn main() {
 
     if !locations {
         println!(
-        "case     depth   N(pre)  iters  ref(c/k)    | oracle-shift: class%  esc%   med|dmu| | f32 rebased: class%  esc%   med|dmu|  rebases/px | no-rebase: class%  esc% | times o/e s"
+            "case     depth   N(pre)  iters  ref(c/k)    | oracle-shift: class%  esc%   med|dmu| | f32 rebased: class%  esc%   med|dmu|  rebases/px | no-rebase: class%  esc% | times o/e s"
         );
     }
     for case in cases {
@@ -508,7 +568,11 @@ fn main() {
                 continue;
             }
             // Iterations: the pixels separate from the centre after ~depth / log2|f'| steps.
-            let mi = if max_iter > 0 { max_iter } else { (4 * bits).max(3000) + 2 * npre };
+            let mi = if max_iter > 0 {
+                max_iter
+            } else {
+                (4 * bits).max(3000) + 2 * npre
+            };
             let cycle: Vec<(f64, f64)> = almondbread_core::julia::attracting_cycle(kf)
                 .map(|c| {
                     let mut p = c.point;
@@ -548,7 +612,8 @@ fn main() {
             let (rs, _) = oracle::compare(&shifted, &truth);
             let (re, _) = oracle::compare(&emu, &truth);
             let (rn, _) = oracle::compare(&naive, &truth);
-            let class = |r: &oracle::VerifyReport| 100.0 * (r.false_interior + r.false_exterior) as f64 / r.pixels as f64;
+            let class =
+                |r: &oracle::VerifyReport| 100.0 * (r.false_interior + r.false_exterior) as f64 / r.pixels as f64;
             println!(
                 "{:8} 1e-{:<5} {:6} {:6} {:5}/{:<5} | {:6.2} {:6.2} {:9.2e} | {:6.2} {:6.2} {:9.2e} {:6.2} | {:6.2} {:6.2} | {:.1}/{:.1}",
                 case.name,

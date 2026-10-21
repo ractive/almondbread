@@ -12,6 +12,9 @@
 //! orbit, the oracle and on the GPU, which exercises every hook before F3 makes powers 3..8
 //! user-selectable.
 
+use std::sync::{Arc, Mutex};
+
+use crate::complex::BigComplex;
 use crate::floatexp::DoubleExpComplex;
 
 /// Largest Multibrot power the generic paths accept (KF supports 2..10; kb: formulas/multibrot).
@@ -25,6 +28,53 @@ pub enum Formula {
     /// `z^p + c`, `2 <= p <= MULTIBROT_MAX_POWER`, through the generic hooks (kernel formula 1).
     /// F2: exercised by tests only (p = 2 must equal Mandelbrot).
     Multibrot(u32),
+    /// The Julia set of `z^2 + k` (F4, kb: plans/f4-deep-julia, formulas/julia; kernel formula
+    /// 2): the pixel is the start `z_0`, `k` is fixed. Its orbits are Mandelbrot orbits with
+    /// `c = k` (the step hooks are Mandelbrot's); the view-centre orbit starts at the centre
+    /// ([`crate::ReferenceOrbitComputer::with_start`]) and the critical orbit (from 0) is the
+    /// Mandelbrot orbit of `k`.
+    Julia(JuliaK),
+}
+
+/// The parameter `k` of a Julia set, in high precision, as a small `Copy` handle: values are
+/// interned (equal values, whatever their precision, share one handle), so [`Formula`] stays
+/// `Copy + Eq + Hash` and everything keyed by the formula (references, tables, pipelines, the
+/// scheduler's job key) tells two Julia sets apart. A session interns a handful (each
+/// "open this Julia set" adds at most one).
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct JuliaK(u32);
+
+static JULIA_KS: Mutex<Vec<Arc<BigComplex>>> = Mutex::new(Vec::new());
+
+impl JuliaK {
+    /// The handle of `k` (an existing one if the value was interned before).
+    pub fn new(k: &BigComplex) -> Self {
+        let mut ks = JULIA_KS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = ks.iter().position(|v| v.re == k.re && v.im == k.im) {
+            return Self(i as u32);
+        }
+        ks.push(Arc::new(k.clone()));
+        Self((ks.len() - 1) as u32)
+    }
+
+    /// `k` at the precision it was given with (exact: a larger precision only pads zeros).
+    pub fn value(self) -> Arc<BigComplex> {
+        let ks = JULIA_KS.lock().unwrap_or_else(|e| e.into_inner());
+        ks[self.0 as usize].clone()
+    }
+
+    /// `k` rounded to f64.
+    pub fn approx(self) -> (f64, f64) {
+        let v = self.value().to_f64();
+        (v[0], v[1])
+    }
+}
+
+impl core::fmt::Debug for JuliaK {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (re, im) = self.approx();
+        write!(f, "JuliaK({re:e}, {im:e})")
+    }
 }
 
 type C64 = (f64, f64);
@@ -45,9 +95,21 @@ impl Formula {
     /// The degree of the polynomial `f`.
     pub fn power(self) -> u32 {
         match self {
-            Self::Mandelbrot => 2,
+            Self::Mandelbrot | Self::Julia(_) => 2,
             Self::Multibrot(p) => p,
         }
+    }
+
+    /// The Julia set's `k` (None for the parameter-plane formulas).
+    pub fn julia_k(self) -> Option<JuliaK> {
+        match self {
+            Self::Julia(k) => Some(k),
+            _ => None,
+        }
+    }
+
+    pub fn is_julia(self) -> bool {
+        matches!(self, Self::Julia(_))
     }
 
     pub fn is_mandelbrot(self) -> bool {
@@ -59,17 +121,21 @@ impl Formula {
         match self {
             Self::Mandelbrot => 0,
             Self::Multibrot(_) => 1,
+            Self::Julia(_) => 2,
         }
     }
 
-    /// Stable name (CLI `--formula`, FFI, persisted settings): `mandelbrot`, `multibrot3`, ...
+    /// Stable name (CLI `--formula`, FFI, persisted settings): `mandelbrot`, `multibrot3`, ...;
+    /// `julia` (its `k` travels separately).
     pub fn name(self) -> String {
         match self {
             Self::Mandelbrot => "mandelbrot".into(),
             Self::Multibrot(p) => format!("multibrot{p}"),
+            Self::Julia(_) => "julia".into(),
         }
     }
 
+    /// Parses a name; `julia` needs its `k` and is not parsed here.
     pub fn parse(v: &str) -> Option<Self> {
         if v == "mandelbrot" {
             return Some(Self::Mandelbrot);
@@ -95,7 +161,7 @@ impl Formula {
     #[inline]
     pub fn step(self, z: C64, c: C64) -> C64 {
         let w = match self {
-            Self::Mandelbrot => cmul(z, z),
+            Self::Mandelbrot | Self::Julia(_) => cmul(z, z),
             Self::Multibrot(p) => Self::cpow(z, p),
         };
         (w.0 + c.0, w.1 + c.1)
@@ -213,5 +279,27 @@ mod tests {
             let got = cmul(d, s);
             assert!(((got.0 - exact.0).hypot(got.1 - exact.1)) < 1e-15, "p = {p}");
         }
+    }
+
+    /// F4: `k` is interned by value (precision aside) and the Julia formula steps like
+    /// Mandelbrot with `c = k`.
+    #[test]
+    fn julia_ks_are_interned_by_value() {
+        // (Exact binary values: "0.1" rounds differently at 128 and 1024 bits, two values.)
+        let a = JuliaK::new(&BigComplex::parse("-0.75", "0.125", 128).unwrap());
+        let b = JuliaK::new(&BigComplex::parse("-0.75", "0.125", 1024).unwrap());
+        let c = JuliaK::new(&BigComplex::parse("-0.75", "0.1250001", 128).unwrap());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a.approx(), (-0.75, 0.125));
+        let j = Formula::Julia(a);
+        assert_eq!((j.power(), j.kernel_code(), j.name()), (2, 2, "julia".to_string()));
+        assert_eq!(j.julia_k(), Some(a));
+        assert!(!j.is_mandelbrot() && j.is_julia());
+        assert_eq!(Formula::parse("julia"), None);
+        assert_eq!(
+            j.step((0.3, 0.2), (-0.75, 0.1)),
+            Formula::Mandelbrot.step((0.3, 0.2), (-0.75, 0.1))
+        );
     }
 }

@@ -8,7 +8,9 @@
 
 use rayon::prelude::*;
 
+use crate::formula::{Formula, JuliaK};
 use crate::oracle::{ITER_INTERIOR, IterationField};
+use crate::viewport::Viewport;
 
 /// Escape radius, as the Mandelbrot kernels (smooth offsets in the same range).
 pub const BAILOUT: f64 = 65536.0;
@@ -26,6 +28,46 @@ pub const SPAN_IM: f64 = 3.0;
 /// z units per pixel of a `w` × `h` panel, centred on 0.
 pub fn panel_scale(w: usize, h: usize) -> f64 {
     (SPAN_RE / w.max(1) as f64).max(SPAN_IM / h.max(1) as f64)
+}
+
+/// The whole Julia set as a main view (F4, kb: plans/f4-deep-julia): the panel's framing,
+/// centred on 0, for a view of `w` x `h` points (or pixels).
+pub fn home_view(w: f64, h: f64) -> Viewport {
+    if !(w > 0.0 && h > 0.0) {
+        return Viewport::new(0.0, 0.0, SPAN_RE / 1000.0);
+    }
+    Viewport::new(0.0, 0.0, (SPAN_RE / w).max(SPAN_IM / h))
+}
+
+/// The Julia twin of a view (F4): the Julia set of the view's centre `c`, framed exactly like the
+/// view (around a Misiurewicz point the two look alike, Tan Lei; kb: formulas/julia). `k` is the
+/// centre at full precision.
+pub fn twin(view: &Viewport) -> (Formula, Viewport) {
+    let k = view.center.with_min_precision(view.needed_center_bits());
+    (Formula::Julia(JuliaK::new(k.big())), view.clone())
+}
+
+/// `k` for the HUD and the clipboard: `re ± im i` with `digits` significant digits.
+pub fn k_text(k: JuliaK, digits: usize) -> String {
+    let v = k.value();
+    let re = v.re.to_decimal_string(Some(digits));
+    let im = v.im.abs().to_decimal_string(Some(digits));
+    let sign = if v.im.is_negative() { '−' } else { '+' };
+    format!("{re} {sign} {im}i")
+}
+
+/// The `julia re im` line of a view's text (F4: `Host::coordinates_text` writes it for a Julia
+/// view): `k` at the precision its digits imply.
+pub fn parse_k_line(text: &str) -> Option<crate::viewport::Center> {
+    text.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some("julia"), Some(re), Some(im)) => {
+                crate::viewport::Center::parse(re, im).filter(|k| k.re().is_finite() && k.im().is_finite())
+            }
+            _ => None,
+        }
+    })
 }
 
 /// The start `z₀` of pixel (x, y) (its centre; y down) in a `w` × `h` panel at `scale`.
