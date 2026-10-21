@@ -39,6 +39,14 @@ pub fn home_view(w: f64, h: f64) -> Viewport {
     Viewport::new(0.0, 0.0, (SPAN_RE / w).max(SPAN_IM / h))
 }
 
+/// Auto iterations of a Julia view (F4): linear in the depth (measured 2026-10-21 at the step-1
+/// gate views: escape counts to about 3 200 at 1e-300 and 6 000 at 1e-1000, generous margin;
+/// the learner raises it where pixels stay unresolved).
+pub fn depth_iterations(viewport: &Viewport) -> usize {
+    let depth = viewport.zoom_log10().max(0.0);
+    (1000.0 + 40.0 * depth) as usize
+}
+
 /// The Julia twin of a view (F4): the Julia set of the view's centre `c`, framed exactly like the
 /// view (around a Misiurewicz point the two look alike, Tan Lei; kb: formulas/julia). `k` is the
 /// centre at full precision.

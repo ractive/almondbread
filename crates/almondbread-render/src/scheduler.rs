@@ -30,7 +30,7 @@ use almondbread_core::oracle::ITER_UNRESOLVED;
 use almondbread_core::reference::{
     DEEP_SCALE, F64_SYNC_POINTS, Fit, Reference, ReferenceKind, ReferenceRequest, ReferenceWorker, f64_reference_near,
 };
-use almondbread_core::settings::{MAX_ITERATION_LIMIT, RenderSettings, depth_iterations};
+use almondbread_core::settings::{MAX_ITERATION_LIMIT, RenderSettings};
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use bytemuck::bytes_of;
 
@@ -2790,7 +2790,7 @@ impl<B: GpuBackend> Renderer<B> {
         if r.fit(viewport, texel, size, max_iter) == Fit::No {
             return 0;
         }
-        let heuristic = depth_iterations(viewport);
+        let heuristic = self.settings.depth_iterations(viewport);
         let floor = match r.period {
             Some(p) => (p as f64 * 1.25).ceil() as usize,
             // (A centre orbit runs to twice the limit it was made for; its last index is where
@@ -3875,8 +3875,10 @@ impl<B: GpuBackend> Renderer<B> {
                 eprintln!("almondbread: seed passes failed: {e}");
             }
         }
-        // (A fill candidate waits for its seeds' tile count before its first chunk.)
-        if seed_now && self.fill_wanted(level_index) {
+        // (A fill candidate waits for its seeds' tile count before its first chunk; a formula
+        // without seeds has none to wait for: F4 Julia sets waited forever.)
+        let seeding = self.job.as_ref().expect("job").levels[level_index].seeding.is_some();
+        if seed_now && seeding && self.fill_wanted(level_index) {
             return false;
         }
         self.decide_fill(level_index);
@@ -5043,8 +5045,12 @@ impl<B: GpuBackend> Renderer<B> {
             && !level.use_interior
             && level.crossed as f64 >= autoiter::RETRY_FRACTION * outcome.texels as f64;
         let old = self.settings.learned_iterations;
-        let autoiter::Learned { limit: learned, retry } =
-            autoiter::learn_iterations(old, &outcome, self.iteration_cap(), depth_iterations(&self.viewport));
+        let autoiter::Learned { limit: learned, retry } = autoiter::learn_iterations(
+            old,
+            &outcome,
+            self.iteration_cap(),
+            self.settings.depth_iterations(&self.viewport),
+        );
         if self.config.trace {
             println!(
                 "learn: soft {} reached {} total {} crossed {} escapedPast {:?} maxEscape {} unresolved {} -> {}{}",
@@ -6061,7 +6067,7 @@ impl<B: GpuBackend> Renderer<B> {
             // minibrot in view then sets the limit (`period_floor`) instead of an unresolved
             // first pass.
             let search = if self.settings.auto_iterations {
-                (4 * depth_iterations(viewport)).min(self.iteration_cap())
+                (4 * self.settings.depth_iterations(viewport)).min(self.iteration_cap())
             } else {
                 0
             };

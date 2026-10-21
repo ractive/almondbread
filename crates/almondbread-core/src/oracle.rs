@@ -153,6 +153,7 @@ pub fn cpu_render_for(
     let mut n = vec![0f32; width * height];
     let mut s = vec![0f32; width * height];
     let b2 = bailout * bailout;
+    let cycle = formula.julia_k().map(julia_cycle).unwrap_or_default();
     let half_w = width as f64 / 2.0;
     let half_h = height as f64 / 2.0;
     n.par_chunks_mut(width.max(1))
@@ -175,7 +176,7 @@ pub fn cpu_render_for(
                 let mut i = 0usize;
                 if let Formula::Julia(k) = formula {
                     // F4: the pixel is z_0, k is fixed (tested before the first step too, as
-                    // the kernels do).
+                    // the kernels do); a pixel at k's attracting cycle is interior.
                     let (kr, ki) = k.approx();
                     (zr, zi) = (cr, ci);
                     r2 = zr * zr + zi * zi;
@@ -185,6 +186,9 @@ pub fn cpu_render_for(
                         zr = t;
                         i += 1;
                         r2 = zr * zr + zi * zi;
+                        if i & 15 == 0 && near_cycle(&cycle, (zr, zi)) {
+                            break;
+                        }
                     }
                 } else if formula.is_mandelbrot() {
                     while i < max_iter {
@@ -281,6 +285,10 @@ pub struct OracleReference {
     /// F4: a Julia reference (the critical orbit, zeros, the centre orbit; as the GPU's,
     /// [`crate::julia_reference`]).
     pub julia: Option<JuliaLayout>,
+    /// F4: the points of `k`'s attracting cycle (f64; empty without one): a pixel within
+    /// [`JULIA_CYCLE_RADIUS`] of one is interior (it cannot leave the cycle's basin), so interior
+    /// pixels need not run to the limit.
+    pub cycle: Vec<(f64, f64)>,
     pub points: Vec<[f64; 2]>,
     pub extended: Vec<DoubleExpComplex>,
     pub precision_bits: usize,
@@ -321,6 +329,7 @@ impl OracleReference {
             return Self {
                 formula,
                 julia: Some(layout),
+                cycle: julia_cycle(k),
                 points,
                 extended,
                 precision_bits: bits,
@@ -334,6 +343,7 @@ impl OracleReference {
         Self {
             formula,
             julia: None,
+            cycle: Vec::new(),
             points,
             extended,
             precision_bits: bits,
@@ -432,6 +442,34 @@ pub fn cpu_render_deep_with(
     IterationField { width, height, n, s }
 }
 
+/// How close to a point of `k`'s attracting cycle a Julia oracle pixel must come to count as
+/// interior: far inside the cycle's immediate basin for any attracting multiplier the cycle
+/// finder accepts (inference), far above f64 rounding.
+pub const JULIA_CYCLE_RADIUS: f64 = 1e-9;
+
+/// The points of `k`'s attracting cycle (F4; empty without one).
+fn julia_cycle(k: almondbread_math::JuliaK) -> Vec<(f64, f64)> {
+    let kf = k.approx();
+    crate::julia::attracting_cycle(kf)
+        .map(|c| {
+            let mut p = c.point;
+            (0..c.period)
+                .map(|_| {
+                    let q = p;
+                    p = (p.0 * p.0 - p.1 * p.1 + kf.0, 2.0 * p.0 * p.1 + kf.1);
+                    q
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn near_cycle(cycle: &[(f64, f64)], z: (f64, f64)) -> bool {
+    cycle
+        .iter()
+        .any(|c| (z.0 - c.0).abs() < JULIA_CYCLE_RADIUS && (z.1 - c.1).abs() < JULIA_CYCLE_RADIUS)
+}
+
 /// One pixel of a deep Julia view (F4): its start's delta `d0` to the centre orbit, in
 /// extended-range f64 throughout (53-bit mantissas; slower than [`deep_pixel`]'s regimes, fine
 /// for an oracle), no `+c`, Zhuoran's rebase onto the critical orbit (index 0 = 0) when
@@ -448,6 +486,9 @@ fn julia_deep_pixel(r: &OracleReference, d0: DoubleExpComplex, max_iter: usize, 
         let r2 = zf.magnitude_squared().to_f64();
         if r2 > b2 {
             return (n as f32, (1.0 - (0.5 * r2.ln()).log2()) as f32);
+        }
+        if n & 15 == 0 && near_cycle(&r.cycle, (zf.re.to_f64(), zf.im.to_f64())) {
+            return (ITER_INTERIOR, 0.0);
         }
         if m == last || (m != 0 && zf.magnitude_squared() < z.magnitude_squared()) {
             z = zf;
