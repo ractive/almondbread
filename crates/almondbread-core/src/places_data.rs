@@ -474,6 +474,21 @@ pub const PLACES: &[Place] = &[
         category: PlaceCategory::Spiral,
         ..BASE
     },
+    // Found by hand in the app; span = the app's scale 6.79538e-26 per point x the window's
+    // shorter side, 1083 points.
+    Place {
+        id: "spiral-galaxy",
+        name: "Spiral Galaxy",
+        description: "Deep beside the period-2 bulb, arms made of smaller spirals wind into a dense, glittering core, like a galaxy seen from above.",
+        feature: "Spiral arms around a period-461 minibrot at the centre, magnified 4e22 times.",
+        re: "-0.832130215420311320156874621447",
+        im: "-0.207171646604986446426901492118",
+        span: "7.36e-23",
+        look: "spectrum",
+        source: "Found by the author in almondbread, 2026-10-20",
+        category: PlaceCategory::Spiral,
+        ..BASE
+    },
     // ---- Dendrites
     Place {
         id: "dendrite-i",
