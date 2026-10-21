@@ -54,7 +54,7 @@ public enum PlaceThumbnails {
         let scale = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.scale }.max() ?? 3
         #endif
         let width = Int((maxPointWidth * scale).rounded())
-        let ids = ExplorerModel.places.map(\.id)
+        let ids = ExplorerModel.allPlaces.map(\.id)
         let report = UIPerf.enabled
         queue.async {
             lock.lock()

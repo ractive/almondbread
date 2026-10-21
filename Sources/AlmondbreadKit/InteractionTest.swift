@@ -31,7 +31,11 @@ final class InteractionTest: NSObject {
     private var linkTimes: [CFTimeInterval] = []
     private var linkDurations: [CFTimeInterval] = []
 
-    private struct View { let re: String, im: String, scale: Double }
+    private struct View {
+        let re: String, im: String, scale: Double
+        /// The fractal (F3): Multibrot scenarios switch to theirs, every other one is Mandelbrot.
+        var formula = "mandelbrot"
+    }
     private struct Scenario {
         let name: String
         let viewport: View
@@ -701,6 +705,9 @@ final class InteractionTest: NSObject {
         let neck2e5 = View(re: "-0.7500016386523336", im: "-0.0021073424656852589", scale: 2 * 2.1666e-5 / 1600)
         let spiral = View(re: "-0.13415002160674054265664", im: "-0.64991906714433853974391", scale: 2 * 4.19804e-19)
         let siegel = View(re: "-0.39054087021839984", im: "0.5867879073469688", scale: 3.75e-3 / 1373)
+        let multibrot5 = View(re: "0.84733531576585034", im: "0.58201571377117265", scale: 1.1e-8, formula: "multibrot5")
+        let multibrot8 = View(re: "-0.578757811778842465396026167", im: "0.890676734071857679572348838",
+                              scale: 5.2e-24, formula: "multibrot8")
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "sweep", viewport: home, input: sweep(false)),
                 Scenario(name: "julia sweep", viewport: home, input: sweep(true)),
@@ -748,7 +755,11 @@ final class InteractionTest: NSObject {
                 Scenario(name: "sea-1e20 pan", viewport: seaDeep20, input: pan),
                 Scenario(name: "sea-1e20 zoom", viewport: seaDeep20, input: zoom),
                 Scenario(name: "spiral pan", viewport: spiral, input: pan),
-                Scenario(name: "spiral zoom", viewport: spiral, input: zoom)]
+                Scenario(name: "spiral zoom", viewport: spiral, input: zoom),
+                // F3 (kb: plans/f3-multibrot): z^5 + c at its seek-found period-11 minibrot, and
+                // z^8 + c at its period-19 minibrot beside a Misiurewicz point (1e-24 per point).
+                Scenario(name: "multibrot5 pan", viewport: multibrot5, input: pan),
+                Scenario(name: "multibrot8 deep zoom", viewport: multibrot8, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -835,6 +846,8 @@ final class InteractionTest: NSObject {
         }
         let v = scenarios[scenario].viewport
         do {
+            // (The formula first: a switch goes to its whole set.)
+            _ = try explorer.setFormula(formula: v.formula)
             try explorer.setViewport(re: v.re, im: v.im, scale: v.scale)
         } catch {
             print("interaction-test: \(scenarios[scenario].name): \(error)")

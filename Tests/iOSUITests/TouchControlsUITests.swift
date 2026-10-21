@@ -231,6 +231,44 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertFalse(app.textFields["Search settings"].exists, "the pane is still there after the ✕")
     }
 
+    /// The Fractal picker (F3, kb: plans/f3-multibrot): Multibrot goes to its whole set (centred on
+    /// 0) as z³ + c, the power picker switches to z⁵ + c, and Mandelbrot comes back to its home
+    /// (centre -0.75). The canvas value names the formula.
+    func testFormulaPicker() throws {
+        try launchSettled()
+        app.buttons["Control center"].tap()
+        settle(2)
+        let search = app.textFields["Search settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("fractal")
+        settle(1.5)
+        let family = app.buttons["Mandelbrot"].firstMatch
+        XCTAssertTrue(family.waitForExistence(timeout: 5), "no Fractal picker")
+        family.tap()
+        settle(1)
+        app.buttons["Multibrot"].firstMatch.tap()
+        settle(2.5)
+        shot("formula-multibrot3")
+        XCTAssertEqual(fields()["formula"], "multibrot3")
+        XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, 0, accuracy: 1e-9, "not at the Multibrot set's home")
+        let power = app.buttons["z³ + c"].firstMatch
+        XCTAssertTrue(power.waitForExistence(timeout: 5), "no power picker")
+        power.tap()
+        settle(1)
+        app.buttons["z⁵ + c"].firstMatch.tap()
+        settle(2.5)
+        shot("formula-multibrot5")
+        XCTAssertEqual(fields()["formula"], "multibrot5")
+        app.buttons["Multibrot"].firstMatch.tap()
+        settle(1)
+        app.buttons["Mandelbrot"].firstMatch.tap()
+        settle(2.5)
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, -0.75, accuracy: 1e-9, "not at the Mandelbrot home")
+        XCTAssertFalse(app.buttons["z⁵ + c"].exists, "the power picker stays for Mandelbrot")
+    }
+
     /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
     /// cruise in that gear, zooming in); the chevrons step one gear; one drag crosses the middle
     /// into reverse; a tap on a tick goes there; a double tap goes to manual (M). In the autopilot

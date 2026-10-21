@@ -6681,6 +6681,8 @@ impl<B: GpuBackend + Clone> Renderer<B> {
         fresh.settings.manual_iterations = max_iter;
         fresh.settings.max_iterations_cap = self.iteration_cap().max(max_iter);
         fresh.settings.interior_detection = interior;
+        // (Of the job's formula, F3: the fresh render was always Mandelbrot.)
+        fresh.settings.formula = job.key.formula;
         // The shown level is one sample per pixel (anti-aliasing accumulates separately).
         fresh.settings.supersampling = almondbread_core::settings::Supersampling::Off;
         let theirs = fresh.render_offscreen(set.width, set.height, true).ok()?.iterations?;

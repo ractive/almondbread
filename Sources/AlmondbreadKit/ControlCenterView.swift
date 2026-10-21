@@ -355,6 +355,7 @@ struct ViewSectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.view")
+        FormulaPicker(model: model)
         FitRow {
             Button {
                 Clipboard.copy(model.coordinatesText)
@@ -425,8 +426,11 @@ struct ViewSectionRows: View {
         .buttonStyle(.borderless)
         #endif
         .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
-        Toggle("Autopilot target lock", isOn: $model.autopilotLock)
-            .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
+        // (The target lock's finder is the Mandelbrot journey's: hidden without that content, F3.)
+        if model.has(\.content) {
+            Toggle("Autopilot target lock", isOn: $model.autopilotLock)
+                .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
+        }
         // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
         Toggle("Lane assist", isOn: $model.laneAssist)
             .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
@@ -455,6 +459,31 @@ struct ViewSectionRows: View {
             Button("Straighten") { model.straighten() }
                 .disabled(!model.viewTurned)
                 .help("Turn the view upright (/); , and . turn it, so does a trackpad rotation")
+        }
+    }
+}
+
+/// The fractal (F3, kb: plans/f3-multibrot): its family (Mandelbrot, Multibrot; a later family
+/// is one more entry of Rust's `formula_options()`) and, for a family of several formulas, which
+/// one (Multibrot's power 3 ... 8). A switch goes to the new set's whole view.
+struct FormulaPicker: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let family = Binding(get: { model.formulaFamily }, set: { model.selectFormulaFamily($0) })
+        let formula = Binding(get: { model.formula }, set: { model.selectFormula($0) })
+        let options = ExplorerModel.formulaOptions(family: model.formulaFamily)
+        ControlRows.picker("Fractal", selection: family) {
+            ForEach(ExplorerModel.formulaFamilies, id: \.id) { Text($0.title).tag($0.id) }
+        }
+        .help("The set to explore: the Mandelbrot set (z² + c) or a Multibrot set (zᵖ + c)")
+        .accessibilityIdentifier("formula-family")
+        if options.count > 1 {
+            ControlRows.picker("Power", selection: formula) {
+                ForEach(options, id: \.formula) { o in Text(o.title).tag(o.formula) }
+            }
+            .help("The power p of zᵖ + c: a (p − 1)-fold symmetric set")
+            .accessibilityIdentifier("formula-power")
         }
     }
 }
@@ -999,7 +1028,9 @@ enum ControlSection: String, CaseIterable, Identifiable {
     /// Mandelbrot content).
     @MainActor func offered(by model: ExplorerModel) -> Bool {
         switch self {
-        case .places, .tours: model.has(\.content)
+        // (F3: a Multibrot power has a few places of its own, but no tours.)
+        case .places: model.has(\.content) || !model.currentPlaces.isEmpty
+        case .tours: model.has(\.content)
         default: true
         }
     }
@@ -1081,7 +1112,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp", "fog", "limit", "bulb", "valley", "julia", "misiurewicz", "colour", "color"]
-        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
+        case .view: ["fractal", "formula", "mandelbrot", "multibrot", "power", "coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
@@ -1122,14 +1153,14 @@ struct PlacesSection: View {
 
     private var categories: [(PlaceCategory, String)] {
         var seen: [(PlaceCategory, String)] = []
-        for p in ExplorerModel.places where !seen.contains(where: { $0.0 == p.category }) {
+        for p in model.currentPlaces where !seen.contains(where: { $0.0 == p.category }) {
             seen.append((p.category, p.categoryName))
         }
         return seen
     }
 
     private var shown: [PlaceInfo] {
-        ExplorerModel.places.filter { category == nil || $0.category == category }
+        model.currentPlaces.filter { category == nil || $0.category == category }
     }
 
 
@@ -1137,7 +1168,7 @@ struct PlacesSection: View {
         let _ = UIPerf.body("PlacesSection")
         let _ = UIPerf.placesAppeared()
         ControlRows.picker("Category", selection: $selection.category) {
-            Text("All (\(ExplorerModel.places.count))").tag(PlaceCategory?.none)
+            Text("All (\(model.currentPlaces.count))").tag(PlaceCategory?.none)
             ForEach(categories, id: \.1) { c in
                 Text(c.1).tag(PlaceCategory?.some(c.0))
             }
@@ -1268,7 +1299,7 @@ struct PlaceDetailsBar<Footer: View>: View {
 
     var body: some View {
         let place = sectionOpen && selection.onScreen
-            ? selection.id.flatMap { id in ExplorerModel.places.first { $0.id == id } } : nil
+            ? selection.id.flatMap { id in ExplorerModel.allPlaces.first { $0.id == id } } : nil
         VStack(spacing: 0) {
             if let place { details(place) }
             #if os(iOS)
