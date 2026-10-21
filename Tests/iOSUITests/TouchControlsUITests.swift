@@ -187,10 +187,23 @@ final class TouchControlsUITests: XCTestCase {
         let scale0 = scale()
         let control = app.buttons["Control center"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
-        control.tap()
+        if control.value as? String != "shown" { control.tap() }
         settle(2)
+        XCTAssertEqual(control.value as? String, "shown", "the control center did not open")
+        // The Overlays section alone (the search filters sections by keyword).
+        let search = app.textFields["Search settings"]
+        if !search.waitForExistence(timeout: 10) {
+            // (Opened before the scene was ready: close and open again.)
+            control.tap()
+            settle(1.5)
+            control.tap()
+        }
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "no search field")
+        search.tap()
+        search.typeText("twin\n")
+        settle(1.5)
         let twin = app.buttons["julia-twin"]
-        for _ in 0..<8 where !(twin.exists && twin.isHittable) {
+        for _ in 0..<4 where !(twin.exists && twin.isHittable) {
             app.swipeUp()
             settle(0.8)
         }
