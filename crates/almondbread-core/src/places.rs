@@ -143,7 +143,21 @@ pub fn places() -> &'static [Place] {
 }
 
 pub fn place_named(id: &str) -> Option<&'static Place> {
-    PLACES.iter().find(|p| p.id == id)
+    PLACES.iter().chain(MULTIBROT_PLACES).find(|p| p.id == id)
+}
+
+/// The places of one fractal (F3): the Mandelbrot catalogue ([`places`]) or a Multibrot power's
+/// few (`MULTIBROT_PLACES`); empty for a formula without any.
+pub fn places_for(formula: Formula) -> Vec<&'static Place> {
+    if formula.is_mandelbrot() {
+        return PLACES.iter().collect();
+    }
+    MULTIBROT_PLACES.iter().filter(|p| p.formula == formula).collect()
+}
+
+/// Every place of every formula (thumbnails, tests).
+pub fn all_places() -> impl Iterator<Item = &'static Place> {
+    PLACES.iter().chain(MULTIBROT_PLACES)
 }
 
 /// A random place: `seed` picks it (any u64, e.g. a time or a random number), so the caller
@@ -176,7 +190,7 @@ mod tests {
     #[test]
     fn ids_unique_and_kebab() {
         let mut seen = HashSet::new();
-        for p in PLACES {
+        for p in all_places() {
             assert!(seen.insert(p.id), "duplicate id {}", p.id);
             assert!(
                 p.id.chars()
@@ -192,7 +206,7 @@ mod tests {
 
     #[test]
     fn coordinates_parse_and_are_in_range() {
-        for p in PLACES {
+        for p in all_places() {
             let c = Center::parse(p.re, p.im).unwrap_or_else(|| panic!("{}: centre", p.id));
             assert!(
                 c.re() * c.re() + c.im() * c.im() <= 4.0 + 1e-9,
@@ -242,6 +256,30 @@ mod tests {
             .map(|p| PlaceCategory::ALL.iter().position(|&c| c == p.category).unwrap())
             .collect();
         assert!(order.windows(2).all(|w| w[0] <= w[1]), "places not grouped by category");
+    }
+
+    /// F3: each Multibrot power has its few places (the whole set first, then by category), in
+    /// its own list; the Mandelbrot catalogue is unchanged.
+    #[test]
+    fn multibrot_places_per_power() {
+        assert!(PLACES.iter().all(|p| p.formula == Formula::Mandelbrot));
+        assert_eq!(places_for(Formula::Mandelbrot).len(), PLACES.len());
+        for k in 3..=crate::formula::MULTIBROT_MAX_POWER {
+            let f = Formula::Multibrot(k);
+            let list = places_for(f);
+            assert!((2..=3).contains(&list.len()), "p = {k}: {}", list.len());
+            assert_eq!(list[0].category, PlaceCategory::Landmark);
+            assert!(list.iter().all(|p| p.formula == f && p.generated));
+            let order: Vec<usize> = list
+                .iter()
+                .map(|p| PlaceCategory::ALL.iter().position(|&c| c == p.category).unwrap())
+                .collect();
+            assert!(order.windows(2).all(|w| w[0] <= w[1]));
+            for p in list {
+                assert_eq!(place_named(p.id).map(|q| q.formula), Some(f));
+            }
+        }
+        assert!(places_for(Formula::Multibrot(2)).is_empty());
     }
 
     #[test]

@@ -650,11 +650,38 @@ impl FormulaCapabilities {
     }
 }
 
+/// One entry of the formula picker (F3): the formula (`ExplorerSettings::formula`), its family
+/// (the first choice: "mandelbrot", "multibrot"; later ones append) and labels.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FormulaOption {
+    pub formula: String,
+    pub family: String,
+    /// "Mandelbrot", "Multibrot".
+    pub family_title: String,
+    /// The formula as maths: "z² + c", "z⁵ + c".
+    pub title: String,
+    /// The power p of `z^p + c`.
+    pub power: u32,
+}
+
+pub(crate) fn formula_option_list() -> Vec<FormulaOption> {
+    use almondbread_core::formula::{family, family_title, selectable, title};
+    selectable()
+        .into_iter()
+        .map(|f| FormulaOption {
+            formula: f.name(),
+            family: family(f).into(),
+            family_title: family_title(f).into(),
+            title: title(f),
+            power: f.power(),
+        })
+        .collect()
+}
+
 /// Everything that affects the image except the viewport (the inspector's model).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ExplorerSettings {
-    /// The fractal (F2): "mandelbrot" (the only one a user can pick until F3; see
-    /// `Explorer::formulas`).
+    /// The fractal: "mandelbrot", "multibrot3" ... "multibrot8" (F3; `Explorer::formula_options`).
     pub formula: String,
     pub auto_iterations: bool,
     pub manual_iterations: u64,
@@ -1261,6 +1288,25 @@ struct Inner {
     log: Option<PresentationLog>,
     /// The flight benchmark playing in this view (window test `--flight-bench=`).
     bench: Option<crate::flight_bench::FlightBench>,
+    /// The autopilot target lock as the user set it; it is on only in a formula with the
+    /// Mandelbrot content (F3: its finder is Mandelbrot's journey finder), see `sync_formula`.
+    lock_wanted: Option<bool>,
+}
+
+impl Inner {
+    /// After a formula change (F3): what the formula lacks goes off, the target lock comes
+    /// back with a formula that has it.
+    fn sync_formula(&mut self) {
+        let caps = almondbread_core::FormulaCapabilities::of(self.host.renderer.settings.formula);
+        if !caps.pi_meter {
+            self.host.overlay.pi.enabled = false;
+        }
+        let autopilot = self.host.renderer.navigator.autopilot_mut();
+        let wanted = *self.lock_wanted.get_or_insert(autopilot.lock_enabled());
+        if autopilot.lock_enabled() != (wanted && caps.content) {
+            autopilot.set_lock(wanted && caps.content);
+        }
+    }
 }
 
 // SAFETY: `Inner` holds Objective-C objects (Metal device, queue, buffers, textures, the
@@ -1354,6 +1400,7 @@ impl Explorer {
                 surface,
                 log: None,
                 bench: None,
+                lock_wanted: None,
             }),
         }))
     }
@@ -1452,6 +1499,7 @@ impl Explorer {
             surface,
             log,
             bench,
+            ..
         } = &mut *g;
         // A panic must not cross the FFI (UniFFI turns it into a Swift trap: the app dies, as
         // in "selected Lagoon and almondbread died"). The panic hook has logged it to
@@ -1520,7 +1568,9 @@ impl Explorer {
     /// and backs out of voids (on by default; off: a pure joystick; kb: decisions/controls
     /// "Autopilot").
     pub fn set_autopilot_lock(&self, on: bool) {
-        self.lock().host.renderer.navigator.autopilot_mut().set_lock(on);
+        let mut g = self.lock();
+        g.lock_wanted = Some(on);
+        g.sync_formula();
     }
 
     /// Lane assist (setting "Assist", key L; default off; active in cruise only; kb:
@@ -1629,12 +1679,29 @@ impl Explorer {
         let mut g = self.lock();
         let mut s = g.host.renderer.settings.clone();
         settings.apply(&mut s)?;
-        // (What the formula lacks is off, F2: the π meter.)
-        if !almondbread_core::FormulaCapabilities::of(s.formula).pi_meter {
-            g.host.overlay.pi.enabled = false;
-        }
         g.host.renderer.settings = s;
+        // (What the formula lacks is off: the π meter, F2; the target lock, F3.)
+        g.sync_formula();
         Ok(())
+    }
+
+    /// The formula picker (F3, kb: plans/f3-multibrot): switches to a formula a user can pick
+    /// (`formula_options()`) and goes to its whole set (a view of one set is rarely anything in
+    /// another); what it lacks goes off. The same formula changes nothing. Returns the new
+    /// settings. A frame follows: resume the display link.
+    pub fn set_formula(&self, formula: String) -> Result<ExplorerSettings, CoreError> {
+        let f = almondbread_core::Formula::parse(&formula)
+            .filter(|f| almondbread_core::formula::selectable().contains(f))
+            .ok_or_else(|| invalid(format!("unknown formula {formula}")))?;
+        let mut g = self.lock();
+        if g.host.renderer.settings.formula != f {
+            g.host.renderer.settings.formula = f;
+            g.host.renderer.navigator.set_formula(f);
+            g.host.renderer.navigator.jumped();
+            g.host.reset_viewport();
+            g.sync_formula();
+        }
+        Ok(ExplorerSettings::from(&g.host.renderer.settings))
     }
 
     /// What the current formula supports (F2): the UI hides the rest.
@@ -1642,7 +1709,7 @@ impl Explorer {
         FormulaCapabilities::of(self.lock().host.renderer.settings.formula)
     }
 
-    /// The formulas a user can pick, by name (F2: "mandelbrot").
+    /// The formulas a user can pick, by name ("mandelbrot", "multibrot3" ... "multibrot8").
     pub fn formulas(&self) -> Vec<String> {
         almondbread_core::formula::selectable()
             .into_iter()
@@ -1977,10 +2044,16 @@ impl Explorer {
             (Some(re), Some(im), Some(scale)) => self.set_viewport_text(re, im, scale).is_ok(),
             _ => false,
         };
-        // The optional `angle` line (degrees); without it the view comes upright.
+        // The optional `angle` line (degrees); without it the view comes upright. The fractal
+        // (F3): the `formula` line, Mandelbrot for labelled text without one, else unchanged.
         if ok {
             let a = almondbread_core::flyto::parse_angle(&text).unwrap_or(0.0);
-            self.lock().host.renderer.viewport.angle = a;
+            let mut g = self.lock();
+            g.host.renderer.viewport.angle = a;
+            if let Some(f) = almondbread_core::flyto::parse_formula(&text) {
+                g.host.renderer.settings.formula = f;
+                g.sync_formula();
+            }
         }
         ok
     }
@@ -2015,6 +2088,11 @@ impl Explorer {
         let target = target.with_angle(almondbread_core::flyto::parse_angle(&text).unwrap_or(r.viewport.angle));
         let start = r.viewport.clone();
         r.navigator.fly_to(&target, &start, media_time());
+        // The text's fractal (F3), at once (the flight is through its set).
+        if let Some(f) = almondbread_core::flyto::parse_formula(&text) {
+            r.settings.formula = f;
+            g.sync_formula();
+        }
         true
     }
 
@@ -2128,7 +2206,9 @@ impl Explorer {
             }
             None => s.auto_iterations = true,
         }
-        Ok(ExplorerSettings::from(&*s))
+        let out = ExplorerSettings::from(&*s);
+        g.sync_formula();
+        Ok(out)
     }
 
     /// Flies to a catalogue place (the fly-to path), fitted to the view like `go_to_place`, and
@@ -2159,7 +2239,9 @@ impl Explorer {
             }
             None => s.auto_iterations = true,
         }
-        Ok(ExplorerSettings::from(&*s))
+        let out = ExplorerSettings::from(&*s);
+        g.sync_formula();
+        Ok(out)
     }
 
     /// Centre and scale for the clipboard.
@@ -2177,7 +2259,7 @@ impl Explorer {
         let v = &g.host.renderer.viewport;
         let mut at = Viewport::with_center(v.point_at_offset(x, y), v.scale).with_angle(v.angle);
         at.ensure_precision();
-        almondbread_render::host::coordinates_text_of(&at)
+        almondbread_render::host::coordinates_text_for(&at, g.host.renderer.settings.formula)
     }
 
     /// Renders the current view and settings offscreen at `width` x `height` pixels (the

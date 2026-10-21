@@ -1,7 +1,7 @@
 //! `almondbread places`: the places catalogue (kb: synthesis/places).
 //!
 //! ```text
-//! almondbread places [--format text|tsv|landscape] [--category c]
+//! almondbread places [--format text|tsv|landscape] [--category c] [--catalog multibrot3|all]
 //! almondbread places --render-thumbs dir [--only a,b] [--size 320x200] [--ss 3] [--oversample 3] [--blur 0.5] [--image heic|jpeg] [--quality 70]
 //! ```
 //!
@@ -18,7 +18,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use almondbread_core::image::write_png_bgra;
-use almondbread_core::places::{Place, PlaceCategory, places};
+use almondbread_core::places::{Place, PlaceCategory, all_places, places, places_for};
 use almondbread_render::{GpuBackend, Renderer};
 
 use crate::options::{Options, Result, err, parse_size};
@@ -32,8 +32,18 @@ pub fn places_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         },
     };
     let only: Option<Vec<&str>> = o.get("only").map(|v| v.split(',').map(str::trim).collect());
-    let list: Vec<&Place> = places()
-        .iter()
+    // F3: `--catalog multibrotP` lists (and renders) that power's places, `--catalog all` every
+    // formula's; the default is the Mandelbrot catalogue.
+    let from: Vec<&Place> = match o.get("catalog") {
+        None => places().iter().collect(),
+        Some("all") => all_places().collect(),
+        Some(f) => match almondbread_core::formula::Formula::parse(f) {
+            Some(f) => places_for(f),
+            None => return err(format!("unknown --catalog {f}")),
+        },
+    };
+    let list: Vec<&Place> = from
+        .into_iter()
         .filter(|p| category.is_none_or(|c| p.category == c))
         .filter(|p| only.as_ref().is_none_or(|ids| ids.contains(&p.id)))
         .collect();

@@ -4,12 +4,12 @@
 //! The formula itself ([`Formula`]) lives in `almondbread-math`; this is the platform-free table
 //! of capabilities the renderer gates on and the UIs (over the FFI, and the CLI) hide controls
 //! by: what a formula lacks is hidden, never faked. Mandelbrot has everything. `Multibrot(p)` is
-//! the generic polynomial path (test-only in F2; kb: formulas/multibrot): perturbation with
-//! one rebased reference, the scalar BLA, local SA seeds, the derivative interior test and the
-//! attracting-cycle probe, DE and the orbit overlay carry over; Imagina LA (power 2), the
-//! closed-form cardioid and bulb test, the π meter, external rays and the Mandelbrot content
-//! (places, tours, journeys) and the Julia panel (`z^2 + k`) do not; seek (Newton framing of
-//! minibrots) waits for F3.
+//! the generic polynomial path (F3, kb: plans/f3-multibrot, formulas/multibrot): perturbation
+//! with one rebased reference, the scalar BLA, local SA seeds, the derivative interior test and
+//! the attracting-cycle probe, DE, the orbit overlay and seek (Newton framing of minibrots, F3)
+//! carry over; Imagina LA (power 2), the closed-form cardioid and bulb test, the π meter,
+//! external rays, the Mandelbrot content (tours, journeys; places are per formula,
+//! `places::places_for`) and the Julia panel (`z^2 + k`) do not.
 
 pub use almondbread_math::{Formula, MULTIBROT_MAX_POWER};
 
@@ -88,11 +88,10 @@ impl FormulaCapabilities {
         julia_panel: true,
     };
 
-    /// The generic polynomial path `z^p + c`.
+    /// The generic polynomial path `z^p + c` (seek since F3).
     pub const MULTIBROT: Self = Self {
         la: false,
         closed_form_components: false,
-        seek: false,
         pi_meter: false,
         external_rays: false,
         content: false,
@@ -108,9 +107,41 @@ impl FormulaCapabilities {
     }
 }
 
-/// The formulas a user can pick (F2: Mandelbrot only; F3 adds Multibrot powers).
+/// The formulas a user can pick, in menu order: Mandelbrot, then Multibrot `z^3 + c` ...
+/// `z^8 + c` (F3; `Multibrot(2)` is the tests' generic Mandelbrot and not offered).
 pub fn selectable() -> Vec<Formula> {
-    vec![Formula::Mandelbrot]
+    let mut v = vec![Formula::Mandelbrot];
+    v.extend((3..=MULTIBROT_MAX_POWER).map(Formula::Multibrot));
+    v
+}
+
+/// A formula's family, the formula picker's first choice (F3): `mandelbrot`, `multibrot`. A
+/// family with several formulas (Multibrot's powers) gets a second choice in the picker.
+pub fn family(formula: Formula) -> &'static str {
+    match formula {
+        Formula::Mandelbrot => "mandelbrot",
+        Formula::Multibrot(_) => "multibrot",
+    }
+}
+
+/// The family's name in menus.
+pub fn family_title(formula: Formula) -> &'static str {
+    match formula {
+        Formula::Mandelbrot => "Mandelbrot",
+        Formula::Multibrot(_) => "Multibrot",
+    }
+}
+
+/// The formula as maths ("z² + c", "z⁵ + c"): the picker's label for one formula of a family.
+pub fn title(formula: Formula) -> String {
+    const SUPERSCRIPTS: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
+    let p = formula.power();
+    let exp: String = p
+        .to_string()
+        .bytes()
+        .map(|b| SUPERSCRIPTS[usize::from(b - b'0')])
+        .collect();
+    format!("z{exp} + c")
 }
 
 #[cfg(test)]
@@ -124,6 +155,18 @@ mod tests {
         let g = FormulaCapabilities::of(Formula::Multibrot(2));
         assert!(g.perturbation && g.sa_seeds && g.interior_probe && g.de && g.orbit_overlay);
         assert!(!g.la && !g.pi_meter && !g.content && !g.closed_form_components && !g.julia_panel && c.julia_panel);
-        assert_eq!(selectable(), vec![Formula::Mandelbrot]);
+        assert!(g.seek && c.seek);
+        let all = selectable();
+        assert_eq!(all[0], Formula::Mandelbrot);
+        assert_eq!(&all[1..], &(3..=8).map(Formula::Multibrot).collect::<Vec<_>>()[..]);
+        assert!(!all.contains(&Formula::Multibrot(2)));
+    }
+
+    #[test]
+    fn picker_names() {
+        assert_eq!(title(Formula::Mandelbrot), "z² + c");
+        assert_eq!(title(Formula::Multibrot(5)), "z⁵ + c");
+        assert_eq!(family(Formula::Multibrot(8)), "multibrot");
+        assert_eq!(family_title(Formula::Mandelbrot), "Mandelbrot");
     }
 }

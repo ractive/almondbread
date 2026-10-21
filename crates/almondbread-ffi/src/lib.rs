@@ -281,6 +281,8 @@ pub struct PlaceInfo {
     pub source_url: String,
     /// Computed or framed by us rather than taken verbatim from the source.
     pub generated: bool,
+    /// The fractal it is in (`ExplorerSettings::formula`; F3).
+    pub formula: String,
 }
 
 impl From<&almondbread_core::Place> for PlaceInfo {
@@ -301,14 +303,36 @@ impl From<&almondbread_core::Place> for PlaceInfo {
             source: p.source.into(),
             source_url: p.source_url.into(),
             generated: p.generated,
+            formula: p.formula.name(),
         }
     }
+}
+
+/// The formula picker's entries in menu order (F3, kb: plans/f3-multibrot): each formula with
+/// its family; a family with several entries (Multibrot's powers) is a second choice.
+#[uniffi::export]
+pub fn formula_options() -> Vec<explorer::FormulaOption> {
+    explorer::formula_option_list()
 }
 
 /// Every place, grouped by category in menu order, shallow to deep within a category.
 #[uniffi::export]
 pub fn places() -> Vec<PlaceInfo> {
     almondbread_core::places::places().iter().map(PlaceInfo::from).collect()
+}
+
+/// The places of one formula (F3): the Mandelbrot catalogue (as `places()`) or a Multibrot
+/// power's few; empty for an unknown formula.
+#[uniffi::export]
+pub fn places_for(formula: String) -> Vec<PlaceInfo> {
+    almondbread_core::Formula::parse(&formula)
+        .map(|f| {
+            almondbread_core::places::places_for(f)
+                .into_iter()
+                .map(PlaceInfo::from)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The place with this id.
