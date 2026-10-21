@@ -236,14 +236,19 @@ final class TouchControlsUITests: XCTestCase {
     /// (centre -0.75). The canvas value names the formula.
     func testFormulaPicker() throws {
         try launchSettled()
-        app.buttons["Control center"].tap()
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        // (The pane's open state outlives a launch: open it only if it is closed.)
+        if control.value as? String != "shown" { control.tap() }
         settle(2)
+        XCTAssertTrue(app.buttons["control-center-close"].waitForExistence(timeout: 5), "control center not open")
+        shot("formula-cc-open")
         let search = app.textFields["Search settings"]
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
         search.typeText("fractal")
         settle(1.5)
-        let family = app.buttons["Mandelbrot"].firstMatch
+        let family = app.buttons["formula-family"]
         XCTAssertTrue(family.waitForExistence(timeout: 5), "no Fractal picker")
         family.tap()
         settle(1)
@@ -252,7 +257,7 @@ final class TouchControlsUITests: XCTestCase {
         shot("formula-multibrot3")
         XCTAssertEqual(fields()["formula"], "multibrot3")
         XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, 0, accuracy: 1e-9, "not at the Multibrot set's home")
-        let power = app.buttons["z³ + c"].firstMatch
+        let power = app.buttons["formula-power"]
         XCTAssertTrue(power.waitForExistence(timeout: 5), "no power picker")
         power.tap()
         settle(1)
@@ -260,13 +265,20 @@ final class TouchControlsUITests: XCTestCase {
         settle(2.5)
         shot("formula-multibrot5")
         XCTAssertEqual(fields()["formula"], "multibrot5")
-        app.buttons["Multibrot"].firstMatch.tap()
+        family.tap()
         settle(1)
         app.buttons["Mandelbrot"].firstMatch.tap()
         settle(2.5)
         XCTAssertEqual(fields()["formula"], "mandelbrot")
         XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, -0.75, accuracy: 1e-9, "not at the Mandelbrot home")
-        XCTAssertFalse(app.buttons["z⁵ + c"].exists, "the power picker stays for Mandelbrot")
+        XCTAssertFalse(app.buttons["formula-power"].exists, "the power picker stays for Mandelbrot")
+        // Leave the pane closed, as the other tests expect it at launch (its open state outlives
+        // the launch; the first tap on ✕ may only end the search field's editing).
+        for _ in 0..<3 where control.value as? String == "shown" {
+            app.buttons["control-center-close"].tap()
+            settle(1)
+        }
+        XCTAssertEqual(control.value as? String, "hidden", "the control center stayed open")
     }
 
     /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
