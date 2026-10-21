@@ -1163,6 +1163,10 @@ public final class ExplorerModel {
     public private(set) var tour: TourStepInfo?
     /// The settings before the tour (what persists meanwhile; the look id is ours alone).
     @ObservationIgnored private var tourSaved: SavedSettings?
+    /// Esc in a tour (kb: decisions/controls "Guided tours"): one press stops motion like any Esc
+    /// and arms this for 2 s; the card then says "Press Esc again to end the tour".
+    public private(set) var tourEscapeArmed = false
+    @ObservationIgnored private var tourEscapeDisarm: DispatchWorkItem?
 
     /// Starts a tour at its first step: other motion stops, the settings and view are saved.
     public func startTour(_ id: String) {
@@ -1171,6 +1175,28 @@ public final class ExplorerModel {
         guard let info = try? explorer.startTourOn(id: id, platform: TourPlatform.current) else { return }
         tourSaved = before
         takeTour(info)
+    }
+
+    /// Esc in a tour: the first press arms, a second within 2 s ends the tour. Returns whether
+    /// it ended (the caller stops motion only when it did not: ending flies the view back).
+    @discardableResult public func escapeTour() -> Bool {
+        guard tour != nil else { return false }
+        if tourEscapeArmed {
+            endTour()
+            return true
+        }
+        tourEscapeArmed = true
+        let disarm = DispatchWorkItem { [weak self] in self?.tourEscapeArmed = false }
+        tourEscapeDisarm?.cancel()
+        tourEscapeDisarm = disarm
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: disarm)
+        return false
+    }
+
+    private func disarmTourEscape() {
+        tourEscapeDisarm?.cancel()
+        tourEscapeDisarm = nil
+        if tourEscapeArmed { tourEscapeArmed = false }
     }
 
     /// "Next ›" (→): the next step; on the last one the tour ends.
@@ -1186,12 +1212,14 @@ public final class ExplorerModel {
     }
 
     public func tourGo(_ index: Int) {
+        disarmTourEscape()
         guard let explorer, let info = explorer.tourGo(index: UInt32(max(0, index))) else { return }
         takeTour(info)
     }
 
-    /// "End tour" (Esc): the settings before the tour come back and the view flies back.
+    /// "End tour" (Esc twice): the settings before the tour come back and the view flies back.
     public func endTour() {
+        disarmTourEscape()
         guard let explorer else { return }
         let saved = tourSaved
         tourSaved = nil

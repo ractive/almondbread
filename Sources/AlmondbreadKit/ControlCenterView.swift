@@ -1097,7 +1097,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         #if os(iOS)
         case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. Next and Back on its card step through it, End tour ends it and brings back your view and settings. Look around in between as you like."
         #else
-        case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. → and ← step through it, Esc ends it and brings back your view and settings. Look around in between as you like."
+        case .tours: "A tour walks you through a piece of the maths, step by step: it flies the view, sets the colours and overlays and moves the orbit's point for you. → and ← step through it, Esc twice ends it and brings back your view and settings. Look around in between as you like."
         #endif
         case .journey: "A journey flies on its own from landmark to landmark it finds in the maths: minibrots, the embedded Julia sets on the way to them, spirals and branch points. The same seed from the same start gives the same journey. Steering or Q down to zero hands over to cruise, other input pauses it; J or a click resumes, Esc stops. With \"Stop at each find\" it waits at each landmark: J flies on, Z goes deeper here, X somewhere else. Effects apply to the autopilot, journeys, fly-to and recorded flights."
         case .look: "A look sets palette, lighting, outline and interior colour together. Colours cycle only while the view rests; depth tint shifts the palette as you zoom."
@@ -1328,7 +1328,7 @@ struct PlaceDetailsBar<Footer: View>: View {
                     } label: {
                         Label("Tour", systemImage: "signpost.right")
                     }
-                    .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc ends it")
+                    .help("Take the guided tour “\(tour.title)”: → and ← step through it, Esc twice ends it")
                 }
                 Spacer()
                 PlaceRandomButton(model: model, selection: selection, iconOnly: true)

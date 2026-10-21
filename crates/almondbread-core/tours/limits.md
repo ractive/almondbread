@@ -86,4 +86,4 @@ move: jump
 
 Back in the seahorse valley. **Iterations & quality** in the control center has the automatic limit, its **upper limit** for slow views, and a manual maximum.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.

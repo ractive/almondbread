@@ -72,4 +72,4 @@ move: jump
 
 Back in seahorse valley. Pick a seahorse, follow its tail inwards, and keep zooming into the centre of the spiral: it turns and turns and never ends.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.

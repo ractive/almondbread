@@ -69,4 +69,4 @@ map: on
 
 The ring follows the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Point it at tips and forks of the antenna: where the dots land on a few spots without being pulled in, you are near a Misiurewicz point.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.

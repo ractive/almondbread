@@ -70,4 +70,4 @@ move: jump
 
 Back at the fork. Pick any spot near the edge and cruise in slowly with **E**, keeping the pointer on it: when shapes start to double, a minibrot is near. **N** finds one for you.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.

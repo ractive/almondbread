@@ -101,9 +101,15 @@ struct TourCard: View {
             if last, let next = ExplorerModel.nextTour(after: t.tourId) {
                 NextTourButton(model: model, next: next)
             }
+            if model.tourEscapeArmed {
+                Text("Press Esc again to end the tour")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("tour-escape-armed")
+            }
             HStack(spacing: 8) {
                 Button("End tour") { model.endTour() }
-                    .help("End the tour: your view and settings come back (Esc)")
+                    .help("End the tour: your view and settings come back (Esc twice)")
                 Spacer()
                 Button("‹ Back") { model.tourBack() }
                     .disabled(t.index == 0)
@@ -265,10 +271,10 @@ struct ToursSectionRows: View {
             Spacer(minLength: 4)
             if running == t.id {
                 Button("End") { model.endTour() }
-                    .help("End the tour (Esc)")
+                    .help("End the tour (Esc twice)")
             } else {
                 Button("Start") { model.startTour(t.id) }
-                    .help("Start the tour: → and ← step through it, Esc ends it")
+                    .help("Start the tour: → and ← step through it, Esc twice ends it")
                     .accessibilityIdentifier("tour-start-" + t.id)
             }
         }
@@ -304,7 +310,7 @@ struct TourMenu: View {
                 }
             }
             Divider()
-            Button("End Tour (Esc)") { model?.endTour() }
+            Button("End Tour (Esc Twice)") { model?.endTour() }
                 .disabled(model?.tour == nil)
         }
         .disabled(model == nil)

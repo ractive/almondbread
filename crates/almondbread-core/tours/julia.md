@@ -73,4 +73,4 @@ julia: on
 
 The ring, its dots and the Julia set follow the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Wherever the dots settle or loop, that point has a Julia set in one piece; where they fly off, dust. Watch the panel change as you move: **U** shows or hides it later.
 
-**End tour** (or **Esc**) brings back your view and settings.
+**End tour** (or **Esc** twice) brings back your view and settings.
