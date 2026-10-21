@@ -371,7 +371,7 @@ lists 22.6 (the `place_zoom_offset` of the window). Render cost is low (about 0.
 | `two-arm-spiral` | Two-Arm Spiral | spiral | 4.5 | lagoon | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `satellite-double-spiral` | Satellite Double Spirals | spiral | 8.4 | aurora | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 11 |
 | `spiral-wheel` | Spiral Wheel | spiral | 9.0 | ember | [Wolfgang Beyer: Mandelbrot zoom sequence (Wikimedia Commons)](../sources/beyer-mandelbrot-zoom-sequence.md) 12 |
-| `spiral-galaxy` | Spiral Galaxy | spiral | 22.6 | spectrum | found by the author in the app (2026-10-20), see "Spiral Galaxy" below |
+| `spiral-galaxy` | Spiral Galaxy | spiral | 22.6 | spectrum | found by the author in the app (2026-10-21), see "Spiral Galaxy" below |
 | `dendrite-i` | The Tip at i | dendrite | 1.7 | ice | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `three-way-junction` | Three-Way Junction | dendrite | 2.8 | dusk | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |
 | `antenna-junction` | Antenna Crossroads | dendrite | 1.8 | ember | [Wikipedia: Misiurewicz point](../sources/wikipedia-misiurewicz-point.md) + `locate --misiurewicz` (generated) |

@@ -485,7 +485,7 @@ pub const PLACES: &[Place] = &[
         im: "-0.207171646604986446426901492118",
         span: "7.36e-23",
         look: "spectrum",
-        source: "Found by the author in almondbread, 2026-10-20",
+        source: "Found by the author in almondbread, 2026-10-21",
         category: PlaceCategory::Spiral,
         ..BASE
     },
