@@ -2430,8 +2430,10 @@ mod julia_settings_tests {
         )
         .unwrap()
         .with_min_precision(512);
-        let mut s = RenderSettings::default();
-        s.formula = Formula::Julia(JuliaK::new(k.big()));
+        let s = RenderSettings {
+            formula: Formula::Julia(JuliaK::new(k.big())),
+            ..RenderSettings::default()
+        };
         let e = ExplorerSettings::from(&s);
         assert_eq!(e.formula, "julia");
         assert!(!e.julia_re.is_empty() && !e.julia_im.is_empty());
