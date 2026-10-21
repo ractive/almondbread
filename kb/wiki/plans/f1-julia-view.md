@@ -2,7 +2,7 @@
 title: "F1: Julia view (companion inset)"
 type: plan
 milestone: F1
-status: completed
+status: done
 priority: 1
 effort: S
 appeal: high
