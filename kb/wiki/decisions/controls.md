@@ -2709,7 +2709,7 @@ pill hides), and **Go** (`goToPlace`) and **Fly** (`flyToPlace`) over the image 
 background, each at least 44 × 44 points. Go or Fly acts and clears the selection, so the buttons leave the picture (2026-10-18,
 `379b18c`); a second tap on the selected picture
 outside the buttons (the name strip included) goes there; another picture moves the selection
-(one selected tile). The rows under the grid (name, description, Go / Fly / Tour, Random) stay.
+(one selected tile). The rows under the grid (name, description, Go / Fly / Tour, Random) stayed (2026-10-21: the details moved to a pinned bar, below).
 VoiceOver: the tile is labelled with the name and has the actions Go and Fly; the buttons are
 "Go to …" / "Fly to …" (identifiers `placeTileGo`, `placeTileFly`). **Sizing:** the smallest
 tiles are about 100 × 63 points (iPhone 17e portrait in the sheet, 3 columns, the same width at
@@ -2721,6 +2721,30 @@ both; the buttons then cover most of the picture, the free margin and the name s
 the second tap. XCTest `FirstUseUITests.testPlaceTileGoAndFly` (select moves nothing, one Go,
 Go jumps, another tile moves the selection, Fly changes the view over several samples) and
 `testControlCenterPlaceAndTour` (select, then a second tap on the picture's corner goes there).
+
+**Places: the selected place is pinned (user, 2026-10-21, macOS).** "The description of the
+places is not visible if you select one from the top; it should be sticky." The name,
+description and Go / Fly / Tour sat under the 79-tile grid, off screen for any tile near the top.
+Now a `PlaceDetailsBar` sits in the control center's bottom `safeAreaInset` (the scroll view's or
+`Form`'s visible area, not a popover or window): name, ✕ (clears the selection), category · zoom ·
+feature, and the description, as tall as it is up to five caption lines on the Mac and two and a
+half on touch, then scrolling inside the bar (the full text stays reachable; the cut line says
+there is more). The Mac bar also has Go, Fly, Tour (when a tour starts there) and a Random dice;
+under the grid only Random is left. Touch keeps Go / Fly / Tour on the selected tile (no duplicate
+buttons) and the bar replaces "Reset all…" while it shows, so the iPhone's half sheet keeps two
+tile rows visible. The selection and the category live in one `PlaceSelection` object (an
+`@Observable` owned by `ControlCenterView` and passed to `PlacesSection` and the bar): the
+sections' inputs stay equal, the control center's body reads nothing new, and no tile gains a
+view, layer or reader. The bar shows only while a place is selected and the Places section is
+open (not collapsed, not filtered out by the search); on the Mac also only while at least 90
+points of the section are inside the scroll view (one `onGeometryChange` with a Bool value on the
+Places card, so scrolling down to Lighting puts the bar away). Closing the control center drops the
+selection (the object lives with the view). Random selects as before, so the bar shows its place.
+Checked in `--ui-demo=places-top` / `places-bottom` captures (first tile selected with the grid at
+its top; the longest description, 313 characters, with the grid scrolled to its end: it fits five
+lines at the default width) and in the iPad mini and iPhone 17e simulators;
+`FirstUseUITests.testPlaceTileGoAndFly` now also asserts that the bar (`placeDetails`) names the
+selected place, is hittable, and leaves after Go.
 
 **Tests** (the throttle part superseded by "Position lever" below). Rust: `throttle_steps_the_gears_with_a_detent_at_zero_per_drag`,
 `touch_steering_wishes_in_a_and_steers_in_c`, `a_touch_probe_moves_the_orbit_point_only`,
