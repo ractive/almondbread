@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-22
 
+- **Decision:** Mandelbrot panel: in a Julia view the Julia panel's place shows the Mandelbrot view the set was opened from with a crosshair at k; a click or tap goes back (back_from_julia). On at every entry into a Julia view, also with the Julia panel off; U hides it. Own small renderer, the way-back reference reused at depth; 1e-32 twin: panel call at most 3.6 ms, frame pacing unchanged (decisions/controls, plans/f4-deep-julia addendum).
 - **Decision:** BB Buddhabrot and Nebulabrot built: GPU walkers (uniform and Metropolis–Hastings with recheck/resampling and warm-up), measured tone levels, Nebulabrot RGB; live mode measured on M1 Pro (116–118 fps at 120 Hz at the whole set, falls back where the live accumulation is noise), realtime-ipad likely; whole set clean in 1.6 s, seahorse valley ~1 min, 1e-3 flat; Mandelbrot fields byte-identical, A/B 0.992; plan in-progress awaiting review
 - **Research:** F3+F4 Mandelbrot A/B: quiet-machine bench of merged main vs pre-F4 main, geomean 0.977, byte-identical; see synthesis/benchmarks
 - **Decision:** F3+F4 integration: Multibrot merged onto deep Julia sets; per-formula hooks handle Julia (power 2, bailout 65536, julia home view, julia line in coordinates), the picker is disabled in a Julia view, set_formula leaves Julia first; Mandelbrot, Julia and Multibrot renders byte-identical to their parents

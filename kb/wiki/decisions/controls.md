@@ -3022,7 +3022,7 @@ probe, tour probe) as the last panel of the map row, drawn by its own kernel lib
 
 | Input | Action |
 | --- | --- |
-| **U** (Mac; iPad hardware keyboard) | Julia panel on / off |
+| **U** (Mac; iPad hardware keyboard) | Julia panel on / off (in a Julia view: the Mandelbrot panel, below) |
 | View ▸ Julia Set (⌥⌘U) | the same |
 | Mac toolbar "Julia Set" (`seal`); iPad round button "Julia set" (top row, after Mini-map) | the same; no phone button (the column and the side row hold five) |
 | control center Overlays "Julia set of that point" | the same |
@@ -3329,6 +3329,7 @@ click or a tap makes.
 | `compass` | button | Compass | "north is up", "turned 35° counter-clockwise" | turn to north |
 | `map-<i>` | image | Mini-map panel (Orbit map without the mini-map) | "whole set, level 1 of 3", "zoom 1e+06×, level 2 of 3" | jump to the panel's centre |
 | `julia` | image | Julia set panel | "c = −0.1226 + 0.7449i" | — |
+| `mandelbrot-panel` | button | Mandelbrot set panel (a Julia view, in the Julia panel's place) | "zoom 1e+31×, the view this Julia set was opened from, marked at k; click to return" | back to that view (as a click) |
 | `cosmic` | text | Cosmic size scale | its sentence | — |
 | `pi` | text | π meter | point, count, product, digits, progress | — |
 

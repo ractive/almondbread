@@ -292,6 +292,33 @@ other; the merge makes every per-formula hook handle the third case
 - iOS UI tests on the iPad mini simulator: `testFormulaPicker`, `testJuliaTwinAndBack`,
   `testJuliaPanelTapOpensTheSet` pass.
 
+## Addendum: the Mandelbrot panel (2026-10-22, awaiting review)
+
+The user found no way back from a Julia view without menus or the control center. In a Julia
+view the Julia panel's place now shows the Mandelbrot view the set came from with a crosshair at
+k, and a click or tap there goes back
+([Controls: keyboard, pointer and touch](../decisions/controls.md) "Mandelbrot panel: the way
+back on the canvas"). On at every entry, also with the Julia panel off; U hides it.
+
+- **Renderer:** `render/src/mandelbrot_panel.rs`, a small `Renderer` like a mini-map level at the
+  panel's pixel size, stepped with the maps; `Host::open_julia` keeps the way-back view's
+  reference and offers it (`Renderer::offer_reference`, the spare slot, taken only on
+  `Fit::Good`), so a deep twin's panel does not recompute it.
+- **Tests** (render, Metal): `panel_click_entry_shows_the_way_back_and_returns` (panel in the
+  Julia panel's rect, marker at k to 1e-6 px in a turned view, U hides and shows it, the
+  accessibility button, the click back gives the way-back viewport bit for bit);
+  `deep_twin_shows_the_panel_without_a_stall` (1e-32 twin: on by default with the Julia panel
+  off and after being hidden in the previous Julia view, the panel takes the view's own
+  reference, settles in 85–142 refreshes; the panel's longest call 1.0–3.6 ms over five runs
+  at load average 40–60 (measured 2026-10-22, M1 Pro, release)). iOS
+  `OverlayLayoutUITests.testMandelbrotPanelTapGoesBack`.
+- **Frame pacing** (`make interaction-test`, 1280 × 820 pt background window, 120 Hz, load
+  average 126–165): twin of c = i at 2e-32 per point zoomed in, panel on from the start 112.6
+  fps (p50 / p95 / max interval 8.3 / 8.3 / 20.8 ms), panel switched on as the zoom starts (its
+  deep picture renders during the measured frames) 115.4 fps (8.3 / 8.3 / 25.0), panel off 111.3
+  fps (8.3 / 8.3 / 58.3); draw CPU p50 0.16–0.17 ms in all three; "julia twin deep zoom" (now with
+  the panel) 117.3 fps. No cost above the noise.
+
 ## Effort breakdown
 
 M overall (1–2 weeks).

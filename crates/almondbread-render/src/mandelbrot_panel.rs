@@ -433,7 +433,10 @@ mod tests {
             longest * 1000.0
         );
         // (The panel's own work per refresh; the whole frame also waits for a loaded machine.)
-        assert!(call < 0.008, "a panel call took {:.1} ms", call * 1000.0);
+        // Timing bounds in optimised builds only.
+        if !cfg!(debug_assertions) {
+            assert!(call < 0.008, "a panel call took {:.1} ms", call * 1000.0);
+        }
         let r = rig.host.overlay.mandelbrot.renderer().expect("renderer");
         let used = r.reference().expect("panel reference");
         assert!(used.big, "a deep reference");

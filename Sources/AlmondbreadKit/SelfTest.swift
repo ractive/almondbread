@@ -419,11 +419,10 @@ public enum UIDemo {
                 model.openJulia(re: "-0.122561166876654", im: "0.744861766619744")
             }
         case "mandelbrot-panel-twin":
-            // The Julia twin of a deep view (seahorse valley, 1e-32 per point) with every overlay
-            // off: the Mandelbrot panel shows anyway (on at every entry), the deep view it came
-            // from with the marker at its centre (k).
-            try? explorer.setViewportText(re: "-0.743643887037158704752191506114774",
-                                          im: "0.131825904205311970493132056385139", scale: "1e-32")
+            // The Julia twin of a deep view (the Misiurewicz point c = i, 1e-32 per point) with every
+            // overlay off: the Mandelbrot panel shows anyway (on at every entry), the deep view it
+            // came from with the marker at its centre (k).
+            try? explorer.setViewportText(re: "0", im: "1", scale: "1e-32")
             model.orbitEnabled = false
             model.mapEnabled = false
             model.juliaEnabled = false
