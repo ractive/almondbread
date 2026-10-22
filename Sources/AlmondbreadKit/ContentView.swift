@@ -236,7 +236,7 @@ struct ContentView: View {
         #endif
         // A trailing sidebar on the Mac and iPad (the canvas narrows: nothing covers the image),
         // a sheet on iPhone.
-        .inspector(isPresented: $showInspector) {
+        .inspector(isPresented: inspectorPresented) {
             ControlCenterView(model: model, close: closeControlCenter)
                 .inspectorColumnWidth(min: ControlCenterView.minimumWidth, ideal: 330, max: 440)
                 #if os(iOS)
@@ -338,6 +338,22 @@ extension ContentView {
         guard old?.index != new.index || old?.tourId != new.tourId, !new.controlCenter.isEmpty else { return }
         if inspectorBeforeTour == nil { inspectorBeforeTour = showInspector }
         showInspector = new.controlCenter == "open"
+    }
+
+    /// The control center's presentation. iOS restores an inspector that was open when the app
+    /// was last ended (scene state restoration writes `true` into this binding ~15 ms after the
+    /// first body, and keeps doing so even after the pane was closed); the pane then sometimes
+    /// never came up: the round button read "shown", lit, with no pane, and its first tap did
+    /// nothing visible. The control center starts closed and only the app opens it (round
+    /// button, tours, UIPerf all set `showInspector` directly), so on iOS the binding takes only
+    /// `false` (the phone sheet's swipe down); a refused restore collapses the pane again
+    /// (kb: platform/ios-simulator "Restored control center").
+    var inspectorPresented: Binding<Bool> {
+        #if os(iOS)
+        Binding(get: { showInspector }, set: { shown in if !shown { showInspector = false } })
+        #else
+        $showInspector
+        #endif
     }
 
     /// The control center's ✕ (iPhone and iPad); the Mac closes it from the toolbar and ⌘I.

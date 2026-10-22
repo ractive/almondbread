@@ -212,12 +212,36 @@ drops its last 12° keyframe, and UIKit reads the jump as 12.3° or 24.6° run t
 angles near a threshold; `Tests/iOSUITests/TwoFingerTwist.swift` draws an exact twist through
 XCTest's event record instead ([Controls: keyboard, pointer and touch](../decisions/controls.md) "Touch", the flaky small-twist test).
 
+## Restored control center (2026-10-22)
+
+Pitfall: iOS scene state restoration restores SwiftUI's `.inspector`. When the app is ended
+with the control center open (XCTest's terminate, or iOS ending a backgrounded app), the next
+launch has SwiftUI write `true` into the inspector's `isPresented` binding about 15 ms after
+the first body (traced: the binding's setter, not the app's code; the saved scene's
+`internalUserInfo` holds the `UISplitViewController` column state). The saved state is not
+updated when the pane is closed later, so every following launch restores it. Usually the pane
+then came up; sometimes it never did, and the round button read "shown", lit and Selected,
+with no pane: a user's first tap would close the invisible pane and do nothing visible. In
+UI tests that guarded with "open only if not shown" (`testFormulaPicker`) it failed on every
+retry ("control center not open", no "Search settings" field). Not a regression of one commit:
+the restore has been there since the inspector; the F3 test already worked around it ("the
+pane's open state outlives a launch") and so did the BB test (toggle until the ✕ is there).
+
+Fix (`ContentView.inspectorPresented`): the control center starts closed and only the app
+opens it (round button, tour steps, UIPerf set `showInspector` directly), so on iOS the
+inspector binding takes only `false` (the phone sheet's swipe down). A refused restore
+collapses the pane again within half a second of launch. `testControlCenterAfterRelaunch`
+opens the pane, sends the app home, kills it, relaunches and checks the button reads hidden
+with no pane and one tap opens it; `testFormulaPicker` and `testBuddhabrotLook` assert
+"hidden" at launch instead of the workarounds. The Mac keeps the plain binding.
+
 ## Open
 
 - ~~The `--ui-demo` scenes write their settings into the persisted preferences~~ (fixed
   2026-10-18, round 2).
-- One iPad run found the control center's state already "shown" at the start of the
-  control-center step (not reproduced in the next run).
+- ~~One iPad run found the control center's state already "shown" at the start of the
+  control-center step (not reproduced in the next run).~~ iOS's restore of the inspector
+  (fixed 2026-10-22, "Restored control center" above).
 - No device run yet: speed, thermal behaviour and ProMotion pacing on an iPhone/iPad are
   unmeasured.
 
