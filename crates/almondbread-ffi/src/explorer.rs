@@ -2668,6 +2668,37 @@ mod formula_integration_tests {
         assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
     }
 
+    /// F6: the Burning Ship is a picker entry of its own family; its views copy
+    /// `formula burningship`, which pastes back into it; its places are its own; no probe.
+    #[test]
+    fn burning_ship_picker_text_and_places() {
+        let (e, _layer) = explorer();
+        let opts = crate::formula_options();
+        let o = opts.iter().find(|o| o.formula == "burningship").expect("picker entry");
+        assert_eq!(
+            (o.family.as_str(), o.family_title.as_str(), o.power),
+            ("burningship", "Burning Ship", 2)
+        );
+        assert_eq!(opts.last().map(|o| o.formula.as_str()), Some("burningship"));
+        let s = e.set_formula("burningship".into()).unwrap();
+        assert_eq!(s.formula, "burningship");
+        assert_eq!(view(&e), Viewport::fitting_for(Formula::BurningShip, W, H));
+        assert!(!e.julia_twin(), "no Julia twin outside Mandelbrot");
+        e.set_viewport("-1.7621497225501782136".into(), "0.028770289802635700575".into(), 4.5e-15)
+            .unwrap();
+        let (mv, text) = (view(&e), e.coordinates_text());
+        assert!(text.ends_with("\nformula burningship"), "{text}");
+        e.set_formula("mandelbar".into()).unwrap();
+        assert!(e.paste_coordinates(text));
+        assert_eq!(formula(&e), Formula::BurningShip);
+        assert_eq!(view(&e).center, mv.center);
+        let places = crate::places_for("burningship".into());
+        assert!(places.len() >= 5, "{} places", places.len());
+        assert!(places.iter().all(|p| p.formula == "burningship"));
+        let c = e.capabilities();
+        assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
+    }
+
     /// The picker from a Julia view leaves it first: another formula goes to that set's whole
     /// view, the parent's formula back to where the Julia set was opened from. The twin is
     /// Mandelbrot's alone.
@@ -2709,7 +2740,7 @@ mod formula_integration_tests {
     #[test]
     fn reset_in_each_formula() {
         let (e, _layer) = explorer();
-        for f in ["mandelbrot", "multibrot3", "multibrot8", "mandelbar"] {
+        for f in ["mandelbrot", "multibrot3", "multibrot8", "mandelbar", "burningship"] {
             e.set_formula(f.into()).unwrap();
             e.set_viewport("0.3".into(), "0.01".into(), 1e-9).unwrap();
             e.reset_viewport();

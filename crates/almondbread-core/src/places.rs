@@ -296,6 +296,19 @@ mod tests {
         assert!(places_for(Formula::Multibrot(2)).is_empty());
     }
 
+    /// F6: the Burning Ship's places: the whole set first, all generated, all its own.
+    #[test]
+    fn burning_ship_places() {
+        let list = places_for(Formula::BurningShip);
+        assert_eq!(list.len(), 6);
+        assert_eq!(list[0].id, "burningship-whole-set");
+        for p in &list {
+            assert!(p.generated && p.formula == Formula::BurningShip);
+            assert_eq!(place_named(p.id).map(|q| q.formula), Some(Formula::BurningShip));
+            assert!(p.id.starts_with("burningship-"));
+        }
+    }
+
     /// F5: the Mandelbar set's places, from seek runs: the whole set first, by category, each
     /// found again by id.
     #[test]

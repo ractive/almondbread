@@ -200,3 +200,68 @@ fn mandelbar_matches_its_oracle_with_and_without_bla() {
         );
     }
 }
+
+/// F6 (kb: plans/f6-burning-ship): the Burning Ship through the fold path agrees with its oracle
+/// at the whole set and at its places (plain kernel, deep kernel with the fold-capped matrix BLA,
+/// the needle at 1e-100), and the BLA changes the field no more than float32 does: BLA off (no
+/// table) against on. Its views are chaotic where orbits stay bounded without a cycle, so escape
+/// counts there differ between any two float paths (as between the oracle and its grid shifted
+/// 0.001 px, `almondbread precision`): the bounds are on class errors, and on the BLA diff
+/// relative to the GPU's own difference from the oracle.
+#[test]
+fn burning_ship_matches_its_oracle_with_and_without_bla() {
+    let f = Formula::BurningShip;
+    let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+    r.settings = almondbread_core::settings::RenderSettings::plain();
+    r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+    let mut views: Vec<(String, Viewport)> = almondbread_core::places::places_for(f)
+        .into_iter()
+        .map(|p| (p.id.to_string(), p.viewport(W, H)))
+        .collect();
+    // (Seek's period-3224 minibrot at 6e-27 per pixel, where the BLA skips ~9x of the steps.)
+    views.push((
+        "period-3224".into(),
+        Viewport::with_center(
+            Center::parse("-1.7621497225498208521697460048491", "0.028770289802978131787848363068104").unwrap(),
+            Scale::parse("1.6e-26").unwrap(),
+        ),
+    ));
+    for (id, view) in views {
+        let it = if view.scale.to_f64() > 1e-6 { 2000 } else { 20_000 };
+        let g = field(&mut r, f, &view, it);
+        let bla_used = r.bla_info().1 > 0;
+        let cpu = if view.scale.to_f64() >= 1e-13 {
+            cpu_render_for(
+                f,
+                view.center.re(),
+                view.center.im(),
+                view.scale.to_f64(),
+                W,
+                H,
+                it,
+                f.bailout(),
+                0.0,
+            )
+        } else {
+            cpu_render_deep_for(f, &view.center, view.scale, W, H, it, f.bailout(), 0.0).0
+        };
+        let (rep, _) = compare(&g, &cpu);
+        println!("burning ship {id} vs oracle (BLA table {bla_used}): {}", rep.summary());
+        assert!(rep.false_interior_pct() < 0.1, "{}", rep.summary());
+        if id == "burningship-needle-1e100" {
+            assert!(rep.escape_differs_pct() < 0.1 && rep.mismatch_pct() < 0.05, "{}", rep.summary());
+        }
+        let mut off = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+        off.settings = r.settings.clone();
+        off.config.bla = false;
+        let h = field(&mut off, f, &view, it);
+        assert_eq!(off.bla_info().1, 0);
+        let (d, _) = compare(&g, &h);
+        println!("  BLA on vs off: {}", d.summary());
+        assert!(
+            d.mismatch_pct() <= rep.mismatch_pct() + 0.1 && d.escape_differs_pct() <= rep.escape_differs_pct() + 0.5,
+            "{}",
+            d.summary()
+        );
+    }
+}

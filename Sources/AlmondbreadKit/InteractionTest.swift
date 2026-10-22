@@ -737,6 +737,10 @@ final class InteractionTest: NSObject {
         let mandelbar20 = View(re: "0.90314932019453019", im: "1.4984558966474309", scale: 4.75e-12, formula: "mandelbar")
         let mandelbar620 = View(re: "0.903149322150161032238953132749", im: "1.4984558964696706694156891274",
                                 scale: 2.5e-25, formula: "mandelbar")
+        let shipArmada = View(re: "-1.77", im: "0.03", scale: 8e-5, formula: "burningship")
+        let ship1209 = View(re: "-1.7621497225498208521742813216", im: "0.028770289802978131784199876242",
+                            scale: 5.4e-24, formula: "burningship")
+        let shipNeedle = View(re: "-1.9", im: "3e-101", scale: 1e-100, formula: "burningship")
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "sweep", viewport: home, input: sweep(false)),
                 Scenario(name: "julia sweep", viewport: home, input: sweep(true)),
@@ -800,7 +804,13 @@ final class InteractionTest: NSObject {
                 // F5 (kb: plans/f5-mandelbar): the Mandelbar set at its seek-found period-20
                 // minibrot (5e-12 per point) and the period-620 one below it (2.5e-25 per point).
                 Scenario(name: "mandelbar pan", viewport: mandelbar20, input: pan),
-                Scenario(name: "mandelbar deep zoom", viewport: mandelbar620, input: zoom)]
+                Scenario(name: "mandelbar deep zoom", viewport: mandelbar620, input: zoom),
+                // F6 (kb: plans/f6-burning-ship): the Burning Ship at the ships beside the needle
+                // (8e-5 per point), its seek-found period-1209 minibrot (5e-24) and the needle
+                // itself at 1e-100 (every step folds; no BLA block).
+                Scenario(name: "ship pan", viewport: shipArmada, input: pan),
+                Scenario(name: "ship deep zoom", viewport: ship1209, input: zoom),
+                Scenario(name: "needle zoom", viewport: shipNeedle, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
