@@ -423,6 +423,88 @@ final class TouchControlsUITests: XCTestCase {
         add(a)
     }
 
+    /// The Julia panel's round toggle (iPad) and the control center's Julia twin follow Rust's
+    /// capabilities (kb: decisions/controls "Fractal picker and Julia views"): shown in
+    /// Mandelbrot, hidden in a Multibrot view; a Julia view keeps the toggle (its panel shows
+    /// the Mandelbrot view) and has the way back in the twin's place.
+    func testJuliaControlsFollowFormula() throws {
+        try launchSettled()
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        let search = app.textFields["Search settings"]
+        // (The round buttons are checked with the pane closed, as a user sees them.)
+        func closePane() {
+            for _ in 0..<3 where control.value as? String == "shown" {
+                app.buttons["control-center-close"].tap()
+                settle(1)
+            }
+            XCTAssertEqual(control.value as? String, "hidden", "the control center stayed open")
+        }
+        func find(_ text: String) {
+            if control.value as? String != "shown" { control.tap() }
+            settle(2)
+            if !search.waitForExistence(timeout: 10) {
+                control.tap()
+                settle(1.5)
+                control.tap()
+            }
+            XCTAssertTrue(search.waitForExistence(timeout: 10), "no search field")
+            search.clearAndType(text + "\n")
+            settle(1.5)
+        }
+        func pick(_ family: String) {
+            find("fractal")
+            let picker = app.buttons["formula-family"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 5), "no Fractal picker")
+            picker.tap()
+            settle(1)
+            app.buttons[family].firstMatch.tap()
+            settle(2.5)
+        }
+        let toggle = { self.round("Julia set") }
+        // Mandelbrot: the round button and the twin.
+        settle(1)
+        if pad { XCTAssertTrue(toggle().exists, "no Julia toggle in Mandelbrot") }
+        find("twin")
+        XCTAssertTrue(app.buttons["julia-twin"].waitForExistence(timeout: 5), "no Julia twin in Mandelbrot")
+        // Multibrot: neither (nor the control center's panel switch).
+        pick("Multibrot")
+        XCTAssertEqual(fields()["formula"], "multibrot3")
+        find("twin")
+        XCTAssertFalse(app.buttons["julia-twin"].exists, "Julia twin shown in Multibrot")
+        find("julia")
+        XCTAssertFalse(app.switches["Julia set of that point"].exists, "Julia panel switch shown in Multibrot")
+        closePane()
+        shot("julia-controls-multibrot")
+        if pad { XCTAssertFalse(toggle().exists, "Julia toggle shown in Multibrot") }
+        // Back to Mandelbrot: both again.
+        pick("Mandelbrot")
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        find("twin")
+        let twin = app.buttons["julia-twin"]
+        for _ in 0..<4 where !(twin.exists && twin.isHittable) {
+            app.swipeUp()
+            settle(0.8)
+        }
+        XCTAssertTrue(twin.exists && twin.isHittable, "no Julia twin back in Mandelbrot")
+        // The twin (a Julia view): the round button stays (the Mandelbrot panel's switch there),
+        // Back takes the twin's place.
+        twin.tap()
+        settle(2)
+        XCTAssertTrue(app.buttons["julia-back"].waitForExistence(timeout: 5), "the twin did not open")
+        XCTAssertFalse(app.buttons["julia-twin"].exists, "Julia twin shown in a Julia view")
+        closePane()
+        shot("julia-controls-julia")
+        if pad { XCTAssertTrue(toggle().exists, "the panel's toggle left a Julia view") }
+        let hudBack = app.buttons["julia-back-hud"]
+        XCTAssertTrue(hudBack.waitForExistence(timeout: 5), "no back button in the HUD")
+        hudBack.tap()
+        settle(2)
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        if pad { XCTAssertTrue(toggle().exists, "no Julia toggle after Back") }
+    }
+
     /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
     /// cruise in that gear, zooming in); the chevrons step one gear; one drag crosses the middle
     /// into reverse; a tap on a tick goes there; a double tap goes to manual (M). In the autopilot
@@ -977,10 +1059,11 @@ final class TouchControlsUITests: XCTestCase {
 }
 
 private extension XCUIElement {
-    /// Replaces a text field's text (the search field keeps its last query).
+    /// Replaces a search field's text (focuses it, deletes what is there, then types).
     func clearAndType(_ text: String) {
-        if let v = value as? String, !v.isEmpty, v != placeholderValue {
-            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: v.count))
+        tap()
+        if let old = value as? String, !old.isEmpty, old != placeholderValue, old != "Search settings" {
+            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count))
         }
         typeText(text)
     }

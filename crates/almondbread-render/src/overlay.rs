@@ -772,10 +772,18 @@ struct SnapJob {
 
 // MARK: The overlay manager
 
+/// The orbit probe's target in its key: a tour's exact point, else the pointer's (or touch
+/// probe's) offset from the view centre, bit for bit.
+#[derive(Clone, Debug, PartialEq)]
+enum ProbeTarget {
+    Point(Center),
+    Offset([u64; 2]),
+}
+
 /// Overlay state of one view: settings, the orbit probe, the maps, the uploaded scene.
 pub struct Overlay<B: GpuBackend> {
     pub settings: OverlaySettings,
-    probe_key: Option<(Viewport, [i64; 2], usize, u64, almondbread_core::Formula)>,
+    probe_key: Option<(Viewport, ProbeTarget, usize, u64, almondbread_core::Formula)>,
     probe: Option<OrbitProbe>,
     points: OrbitPoints,
     probe_reference: Option<(u64, Arc<ProbeReference>)>,
@@ -1190,16 +1198,19 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             Some(c) => view.offset_of(c),
             None => renderer.navigator.probe_point(),
         };
-        // Key: the view, the target to 1/64 point, the length, the reference and the formula
-        // (F3: a switch at a shallow view, where no reference changes, follows the new orbit).
+        // Key: the view, the exact target, the length, the reference and the formula (F3: a
+        // switch at a shallow view, where no reference changes, follows the new orbit). The
+        // target was rounded to 1/64 point: where a tour's slowing probe path stopped, the orbit
+        // shown was of a point up to 1/64 point short of the end, and near an edge the escape
+        // count changes over far less (kb: decisions/controls "The colours tour"). Exact keys cost
+        // nothing measurable: the view is in the key, so pans and zooms recompute every frame
+        // anyway, and a moving pointer moves more than 1/64 point per frame.
         let serial = renderer.reference_serial();
-        let key = (
-            view.clone(),
-            [(tx * 64.0).round() as i64, (ty * 64.0).round() as i64],
-            length,
-            serial,
-            renderer.settings.formula,
-        );
+        let target = match &self.tour.probe {
+            Some(c) => ProbeTarget::Point(c.clone()),
+            None => ProbeTarget::Offset([tx.to_bits(), ty.to_bits()]),
+        };
+        let key = (view.clone(), target, length, serial, renderer.settings.formula);
         if self.probe_key.as_ref() == Some(&key) {
             return;
         }
@@ -2533,5 +2544,80 @@ mod tests {
                 f.width
             );
         }
+    }
+}
+
+/// The orbit a tour's probe path shows where the path stops (kb: decisions/controls "The colours
+/// tour"): the exact end point's, not one up to 1/64 point short of it.
+#[cfg(all(test, target_vendor = "apple"))]
+mod tour_probe_tests {
+    use almondbread_core::orbit::OrbitClass;
+    use almondbread_core::settings::OverlaySettings;
+    use almondbread_core::tour::{Probe, named};
+    use almondbread_core::viewport::Center;
+
+    use super::Overlay;
+    use crate::metal::MetalBackend;
+    use crate::scheduler::Renderer;
+
+    /// The escape step of `c` in plain f64 (z_1 = c, escaped at n when |z_n| > `bailout`), the
+    /// probe's convention.
+    fn f64_escape(c: (f64, f64), bailout: f64, limit: usize) -> Option<usize> {
+        let (mut x, mut y) = c;
+        for n in 1..=limit {
+            if x * x + y * y > bailout * bailout {
+                return Some(n);
+            }
+            (x, y) = (x * x - y * y + c.0, 2.0 * x * y + c.1);
+        }
+        None
+    }
+
+    /// The colours tour's "Closer means more steps": its probe creeps (slowing) to the edge of
+    /// the heart, where the escape count changes over 1e-7 while 1/64 point is 2.7e-5 here. Played
+    /// at 60 Hz through the overlay as the host does, the orbit shown at the end is f64's at the
+    /// path's exact end point (594 steps; an orbit keyed to 1/64 point showed 959 or 2158).
+    #[test]
+    fn tour_probe_path_ends_on_the_exact_point() {
+        let tour = named("colours").expect("colours tour");
+        let step = |title: &str| tour.steps.iter().find(|s| s.title == title).expect(title);
+        let Some(Probe::Path(path)) = &step("Closer means more steps").probe else {
+            panic!("the step has no probe path");
+        };
+        let (w, h) = (1280usize, 820usize);
+        let mut r = Renderer::new(MetalBackend::new().expect("metal")).expect("renderer");
+        r.viewport = step("Colours count steps")
+            .view
+            .as_ref()
+            .expect("view")
+            .viewport(h as f64);
+        let mut o: Overlay<MetalBackend> = Overlay {
+            settings: OverlaySettings {
+                orbit: true,
+                orbit_length: 1000,
+                ..OverlaySettings::default()
+            },
+            ..Overlay::default()
+        };
+        let end = path.at(path.seconds);
+        // 60 Hz refreshes until half a second past the path's end.
+        let refreshes = ((path.seconds + 0.5) * 60.0).ceil() as usize;
+        for i in 0..refreshes {
+            let t = i as f64 / 60.0;
+            let (re, im) = path.at(t);
+            o.tour.probe = Some(Center::new(re, im));
+            o.prepare(&mut r, (w, h), 1.0, t);
+            o.step_probe(0.0005);
+        }
+        while matches!(o.orbit_class(), Some(OrbitClass::Pending)) {
+            o.step_probe(0.05);
+        }
+        let want = f64_escape(end, almondbread_core::Formula::Mandelbrot.bailout(), 100_000).expect("escapes");
+        assert_eq!(want, 594, "f64 at the end point {end:?}");
+        assert_eq!(
+            o.orbit_class(),
+            Some(&OrbitClass::Escaped { iteration: want }),
+            "the orbit shown where the path stops"
+        );
     }
 }

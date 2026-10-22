@@ -172,7 +172,7 @@ struct FractalCommands: Commands {
             Toggle("Julia Set", isOn: Binding(get: { model?.juliaEnabled ?? false },
                                               set: { model?.juliaEnabled = $0 }))
                 .keyboardShortcut("u", modifiers: [.command, .option])
-                .disabled(model == nil || model?.has(\.juliaPanel) == false)
+                .disabled(model == nil || model?.hasJuliaPanelSwitch == false)
             // F4 (kb: plans/f4-deep-julia): the Julia set of the view's centre at the same
             // framing, and the way back; ⇧U on the canvas.
             Button(model?.isJulia == true ? "Back to the Mandelbrot Set" : "Julia Twin of This View") {

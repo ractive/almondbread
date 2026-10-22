@@ -285,7 +285,9 @@ other; the merge makes every per-formula hook handle the third case
 - Interaction test (1280 × 820 pt, 120 Hz, background window): "julia twin deep zoom" 109.0 fps,
   "julia 1e-100 pan" 117.8, "julia 1e-300 zoom" 117.0, "multibrot5 pan" 117.1, "multibrot8 deep
   zoom" 41.9 / 104.3 / 46.9 in three runs (bimodal: 19–20 ms GPU per frame in the slow runs; the
-  kernel itself is as fast as F3's, a 2560 × 1640 z⁸ still 111–113 ms vs F3's 113–122 ms); shown
+  kernel itself is as fast as F3's, a 2560 × 1640 z⁸ still 111–113 ms vs F3's 113–122 ms; F3
+  alone is bimodal too: the gesture-frame mode decision sits on its threshold at this view,
+  [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "z⁸ deep zoom frame-rate swings"); shown
   frame vs fresh render 0–0.003 % in class. The first run crashed the app: the Places grid
   indexed its tiles through a list that follows the model, so a tile updated after a formula
   change read the new, shorter list with an old index (F3's; now one snapshot for ids and tiles).

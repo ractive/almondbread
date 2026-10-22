@@ -2107,6 +2107,47 @@ case. Geomean new/main **0.977** over 42 cases (≥ 0.5 ms); worst case home 160
 2.1 vs 3.4 ms here: noise. All three rounds' fields and PNGs byte-identical. The F3 and F4
 fast-path criterion (A/B ≈ 1.0) holds.
 
+## z⁸ deep zoom frame-rate swings: the gesture-frame mode decision, 2026-10-22
+
+The interaction scenario "multibrot8 deep zoom" (z⁸ + c at 5.2e-24 per point, 1280 × 820 pt,
+120 Hz, background window) is bimodal after the F3+F4 merge (41.9 / 104.3 / 46.9 fps, plan
+[F4: Deep Julia sets](../plans/f4-deep-julia.md) "F3+F4 integration"). Measured 2026-10-22, M1 Pro, release, load average 5–145
+(two other agents and an idle app instance from the main checkout on the machine; GPU device
+utilisation 0–98 % before the runs), interleaved runs of merged main (fb4fb56) and F3's head
+(2df8e3e):
+
+| build | multibrot8 deep zoom fps (each run) | GPU ms per frame, slow runs |
+|---|---|---|
+| main | 76.2, 106.7, 45.3, 97.5, 98.2, 106.0, 106.0, 105.9, 77.2, 107.7, 44.6, 105.4, 47.2, 105.7, 88.6, 89.3, 45.9, 95.1, 75.5, 46.2, 110.3 | 19.2–20.2 |
+| F3 | 107.9, 25.0, 107.2, 110.2, 100.4, 104.3, 105.9, 46.3, 106.9, 45.6, 103.6, 44.9 | 19.4–19.7 |
+
+Mandelbrot "1e5 zoom" in the same runs: 110–117 fps throughout. **Not a merge regression and not
+machine load:** F3 alone has the same ~45 fps mode, and slow runs occur with the GPU idle
+before them. **Cause** (`ALMONDBREAD_TRACE=1`): a gesture frame (`encode_interactive`) iterates
+its preview in one chunk with K = maxIter when `cost_per_texel` × preview texels ≤ 50 ms,
+else in budgeted progressive chunks. Here the smallest preview (320 × 205, 1/8 scale) at the
+learned limit ~15 000 costs 15–20 ms in one K = maxIter chunk (19.5 ms per frame: ~46 fps),
+and the progressive chunks keep 4 ms per frame (~105 fps). Which mode a gesture gets depends on
+the `cost_per_texel` the settle phase left behind: 7.5–11.5·10⁻⁷ s per texel from the last
+completed full level, against the threshold 0.05 / 66 560 = 7.51·10⁻⁷. Above it, the gesture
+runs progressive and never updates the estimate (only non-adaptive gesture chunks and completed
+levels do; superseded preview levels never complete): fast. Below it, each K = maxIter chunk
+measures 2.6·10⁻⁷ per texel (17 ms / 66 560), the estimate stays under 50 ms: slow for the
+rest of the gesture. The same knife edge shows at the Mandelbrot "sea-1e20 zoom" (68–80 fps).
+The trace's chunk line prints "(test off)" for chunks of superseded jobs (it looks the level
+up in the current job only); the interior test was on in every level (checked with a
+temporary print of the decision).
+
+**Experiment, not adopted:** the fallback at 12 ms instead of 50 ms (5 interleaved rounds):
+multibrot8 deep zoom 110.8, 112.3, 110.0, 113.2, 101.5 fps (main 45.9, 95.1, 75.5, 46.2,
+110.3), sea-1e20 zoom 86.9–91.1 (main 67.8–79.8); deep zoom 1e-12 to 1e-40, 1e-300 zoom and
+spiral zoom unchanged (110–117, 110–117, 73–79). The price: a gesture frame whose complete
+preview would cost 12–50 ms shows a partly iterated preview instead, a change of feel at every
+deep view, so it waits for the user's decision and a look in a real window (speed features
+stay opt-in until checked there). (F3's 25.0 fps run is another thing: 334 frames encoded at
+3.9 ms GPU, 75 presented, a presentation stall of the background window.) Hysteresis alone (keep the mode for a gesture) would make the slow mode
+the stable one, the opposite of what is wanted.
+
 ## F4: deep Julia sets, gate, verify and Mandelbrot A/B, 2026-10-22
 
 [F4: Deep Julia sets](../plans/f4-deep-julia.md) (measured 2026-10-21/22, M1 Pro, release, a shared machine: load average 11–340

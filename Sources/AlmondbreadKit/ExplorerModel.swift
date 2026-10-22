@@ -1386,7 +1386,17 @@ public final class ExplorerModel {
 
     public func toggleOrbit() { orbitEnabled.toggle() }
     public func toggleMap() { mapEnabled.toggle() }
-    public func toggleJulia() { juliaEnabled.toggle() }
+    /// The Julia panel's switches (U, the toolbar's and the iPad's round button, the menu) are
+    /// shown for a formula with the panel (Rust's capabilities) and in a Julia view (where the
+    /// same switch shows the Mandelbrot panel); hidden in Multibrot views (kb: decisions/controls
+    /// "Fractal picker and Julia views").
+    public var hasJuliaPanelSwitch: Bool { isJulia || has(\.juliaPanel) }
+
+    /// U: the panel, where its switch is shown (elsewhere U does nothing).
+    public func toggleJulia() {
+        guard hasJuliaPanelSwitch else { return }
+        juliaEnabled.toggle()
+    }
 
     /// F4 (kb: plans/f4-deep-julia): the Julia twin of the view (the Julia set of its centre at the
     /// same framing), or, in a Julia view, back to where it was opened from (⇧U, View menu,
