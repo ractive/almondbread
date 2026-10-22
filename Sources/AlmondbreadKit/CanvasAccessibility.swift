@@ -47,6 +47,8 @@ enum CanvasAccessibility {
         if id.hasPrefix("help-") { return .help }
         if id == "compass" { return .compass }
         if id.hasPrefix("map-") { return .map }
+        // The Mandelbrot panel of a Julia view: a click on it goes back (Rust decides).
+        if id == "mandelbrot-panel" { return .map }
         return nil
     }
 

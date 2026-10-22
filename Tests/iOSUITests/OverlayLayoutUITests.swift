@@ -186,6 +186,46 @@ final class OverlayLayoutUITests: XCTestCase {
         app.terminate()
     }
 
+    /// The way back without a keyboard (kb: decisions/controls "Mandelbrot panel"): a tap on the
+    /// Julia panel opens its set, the Mandelbrot panel takes the Julia panel's place (an
+    /// accessibility button `mandelbrot-panel`), and a tap on it goes back to the Mandelbrot
+    /// set, where the Julia panel is again.
+    func testMandelbrotPanelTapGoesBack() {
+        app.launchArguments = ["--ui-demo=julia"]
+        app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")
+        let close = app.buttons["control-center-close"]
+        if close.waitForExistence(timeout: 5) { close.tap() }
+        settle(4)
+        guard let julia = panels()["julia"] else {
+            XCTFail("no Julia panel in \(panels())")
+            return
+        }
+        let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: julia.midX, dy: julia.midY)).tap()
+        XCTAssertTrue(app.buttons["julia-back-hud"].waitForExistence(timeout: 5), "the tap did not open the Julia set")
+        settle(3)
+        shot("mandelbrot-panel-opened")
+        guard let panel = panels()["mandelbrot-panel"] else {
+            XCTFail("no Mandelbrot panel in the Julia view: \(panels())")
+            return
+        }
+        // The Julia panel's place: the end of the map row, the same size (the row may hold a
+        // different number of map levels in the Julia view).
+        XCTAssertEqual(panel.size, julia.size, "the Mandelbrot panel is not the Julia panel's size")
+        XCTAssertEqual(panel.minY, julia.minY, accuracy: 1, "the Mandelbrot panel is not in the map row")
+        XCTAssertNil(panels()["julia"], "a Julia view still shows the Julia panel")
+        let element = app.descendants(matching: .any)["mandelbrot-panel"]
+        XCTAssertTrue(element.exists, "no accessibility element for the Mandelbrot panel")
+        origin.withOffset(CGVector(dx: panel.midX, dy: panel.midY)).tap()
+        settle(3)
+        XCTAssertFalse(app.buttons["julia-back-hud"].exists, "still in the Julia set after a tap on the Mandelbrot panel")
+        XCTAssertNil(panels()["mandelbrot-panel"], "the Mandelbrot panel stays in the Mandelbrot set")
+        XCTAssertNotNil(panels()["julia"], "the Julia panel did not come back with the Mandelbrot set")
+        shot("mandelbrot-panel-back")
+        app.terminate()
+    }
+
     /// The mini-map at its default three levels, no other panel: the map row (fewer or
     /// narrower panels where there is no room) and the cockpit clear of the HUD, the buttons
     /// and the throttle, in portrait and on its side.

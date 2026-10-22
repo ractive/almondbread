@@ -345,6 +345,21 @@ public final class ExplorerModel {
     public var mapPlacement = MapPlacement.bottomLeft { didSet { pushOverlay() } }
     /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
     public var juliaEnabled = false { didSet { pushOverlay() } }
+    /// A Julia view's Mandelbrot panel (the way back in the Julia panel's place) is on: Rust's
+    /// state, mirrored from the stats (kb: decisions/controls "Mandelbrot panel").
+    public private(set) var mandelbrotPanel = false
+    /// What the Julia panel's toggles (U, View menu, toolbar, round button, control center)
+    /// show and switch: in a Julia view the Mandelbrot panel, else the Julia panel's setting.
+    public var juliaPanelToggle: Bool {
+        get { isJulia ? mandelbrotPanel : juliaEnabled }
+        set {
+            if isJulia {
+                if newValue != mandelbrotPanel { toggleJulia() }
+            } else {
+                juliaEnabled = newValue
+            }
+        }
+    }
     /// The π meter (kb: techniques/pi-in-the-mandelbrot-set): at the neck -3/4 + iε or the
     /// cusp 1/4 + ε, the escape count times ε (√ε) closing in on π, drawn by Rust. Only the
     /// tour "π in the Mandelbrot set" switches it on (mirrored here); not saved.
@@ -1392,9 +1407,15 @@ public final class ExplorerModel {
     /// "Fractal picker and Julia views").
     public var hasJuliaPanelSwitch: Bool { isJulia || has(\.juliaPanel) }
 
-    /// U: the panel, where its switch is shown (elsewhere U does nothing).
+    /// U: the Julia panel on or off, where its switch is shown (elsewhere U does nothing); in a
+    /// Julia view Rust toggles the Mandelbrot panel instead.
     public func toggleJulia() {
         guard hasJuliaPanelSwitch else { return }
+        if let explorer, explorer.toggleMandelbrotPanel() {
+            mandelbrotPanel = explorer.stats().mandelbrotPanel
+            host?.requestFrames()
+            return
+        }
         juliaEnabled.toggle()
     }
 
@@ -1416,12 +1437,20 @@ public final class ExplorerModel {
         pull(explorer.settings())
         host?.requestFrames()
     }
+
+    /// Opens the Julia set of k (decimal strings) whole, as a click on the Julia panel does
+    /// (ui-demo scenes).
+    public func openJulia(re: String, im: String) {
+        guard let explorer, explorer.openJulia(re: re, im: im) else { return }
+        pull(explorer.settings())
+        host?.requestFrames()
+    }
     public func toggleCosmicScale() { cosmicScale.toggle() }
 
     /// A click on the canvas at (x, y) points from the centre, y up: true if a mini-map panel
     /// took it (a jump follows).
     func mapClick(x: Double, y: Double, fly: Bool) -> Bool {
-        guard let explorer, mapEnabled || orbitEnabled || juliaEnabled else { return false }
+        guard let explorer, mapEnabled || orbitEnabled || juliaEnabled || isJulia else { return false }
         let taken = explorer.mapClick(x: x, y: y, fly: fly)
         if taken { host?.requestFrames() }
         // A click on the Julia panel opened its set (F4): take the settings over at once, so the
@@ -1524,6 +1553,7 @@ public final class ExplorerModel {
             zoomSpeedChanged = Date()
         }
         stats = new
+        if mandelbrotPanel != new.mandelbrotPanel { mandelbrotPanel = new.mandelbrotPanel }
         if zoomSpeed != new.zoomSpeed { zoomSpeed = new.zoomSpeed }
         if autopilotActive != new.autopilot.active { autopilotActive = new.autopilot.active }
         if journeyActive != new.journey.active { journeyActive = new.journey.active }

@@ -169,8 +169,8 @@ struct FractalCommands: Commands {
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
             // The Julia set of the orbit's point (kb: plans/f1-julia-view); U on the canvas.
-            Toggle("Julia Set", isOn: Binding(get: { model?.juliaEnabled ?? false },
-                                              set: { model?.juliaEnabled = $0 }))
+            Toggle("Julia Set", isOn: Binding(get: { model?.juliaPanelToggle ?? false },
+                                              set: { model?.juliaPanelToggle = $0 }))
                 .keyboardShortcut("u", modifiers: [.command, .option])
                 .disabled(model == nil || model?.hasJuliaPanelSwitch == false)
             // F4 (kb: plans/f4-deep-julia): the Julia set of the view's centre at the same

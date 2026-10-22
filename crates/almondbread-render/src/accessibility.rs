@@ -33,7 +33,7 @@ pub enum Role {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Accessible {
     /// Stable id, the platform's key for the element and its action: `cockpit-<level>`,
-    /// `cockpit-lane`, `help-<topic>`, `compass`, `map-<i>`, `julia`, `cosmic`, `pi`.
+    /// `cockpit-lane`, `help-<topic>`, `compass`, `map-<i>`, `julia`, `mandelbrot-panel`, `cosmic`, `pi`.
     pub id: String,
     pub role: Role,
     pub label: String,
@@ -251,6 +251,26 @@ impl<B: GpuBackend + Clone> Host<B> {
                     .julia
                     .k
                     .map_or_else(String::new, |k| format!("c = {}", crate::overlay::complex_text(k))),
+                selected: false,
+                rect: px_rect(r),
+            });
+        }
+        // ---- The Mandelbrot panel of a Julia view (in the Julia panel's place): the way back.
+        if let Some(r) = panel("mandelbrot-panel") {
+            let zoom = self
+                .overlay
+                .way_back
+                .as_ref()
+                .map(|b| format!("zoom {}, ", zoom_text(b.view.zoom_log10())))
+                .unwrap_or_default();
+            out.push(Accessible {
+                id: "mandelbrot-panel".into(),
+                role: Role::Button,
+                label: "Mandelbrot set panel".into(),
+                value: format!(
+                    "{zoom}the view this Julia set was opened from, marked at k; {}",
+                    self.overlay.mandelbrot_action()
+                ),
                 selected: false,
                 rect: px_rect(r),
             });

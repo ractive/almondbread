@@ -48,6 +48,9 @@ final class InteractionTest: NSObject {
         /// F4 (kb: plans/f4-deep-julia): a Julia set as the main view: its k (re, im), or "twin"
         /// for the Julia twin of the viewport; nil: the Mandelbrot set.
         var julia: (re: String, im: String)? = nil
+        /// A Julia view's Mandelbrot panel (kb: decisions/controls "Mandelbrot panel"): on at
+        /// every entry; false turns it off before the settling phase.
+        var mandelbrotPanel = true
     }
     private let settleSeconds = 1.0
     private var startLook: String?
@@ -729,6 +732,15 @@ final class InteractionTest: NSObject {
                                 im: "0.6785478674150520237952461553430622991323380058277815194421221054868252650933002485440546541350165849932149350420951796822304685241394963385899335024961001636274825482729138595485370773903166706946136063947425419828687390342905631095799823421179334798563580045190217945069289191899700554854070505266217696214286174348262202054",
                                 scale: 2e-300)
         let rabbitK = (re: "-0.1225611668766536", im: "0.7448617666197442")
+        // The Mandelbrot panel of a deep twin (2e-32 per point at the Misiurewicz point c = i,
+        // where the twin shows the dendrite): the twin zooms in; "panel late" switches the panel on as the zoom starts, so the panel's deep picture
+        // (its own reference and chunks) renders during the measured frames; "no panel" is the
+        // same zoom with the panel off.
+        let dendrite32 = View(re: "0", im: "1", scale: 2e-32)
+        let panelLateZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 { _ = v.model.explorer?.toggleMandelbrotPanel() }
+            zoom(v, i, t)
+        }
         let buddhaHome = View(re: "-0.75", im: "0", scale: max(3.2 / 1280, 2.6 / 820), look: "buddhabrot")
         let nebulaSea = View(re: "-0.75", im: "0.1", scale: 3.75e-3 / 30, look: "nebulabrot")
         let multibrot5 = View(re: "0.84733531576585034", im: "0.58201571377117265", scale: 1.1e-8, formula: "multibrot5")
@@ -788,6 +800,11 @@ final class InteractionTest: NSObject {
                 Scenario(name: "julia twin deep zoom", viewport: seaDeep, input: deepZoom, julia: (re: "twin", im: "")),
                 Scenario(name: "julia 1e-100 pan", viewport: rabbit100, input: pan, julia: rabbitK),
                 Scenario(name: "julia 1e-300 zoom", viewport: dendrite300j, input: zoom, julia: (re: "0", im: "1")),
+                Scenario(name: "julia twin 1e-32 zoom", viewport: dendrite32, input: zoom, julia: (re: "twin", im: "")),
+                Scenario(name: "julia twin 1e-32 zoom panel late", viewport: dendrite32, input: panelLateZoom,
+                         julia: (re: "twin", im: ""), mandelbrotPanel: false),
+                Scenario(name: "julia twin 1e-32 zoom no panel", viewport: dendrite32, input: zoom,
+                         julia: (re: "twin", im: ""), mandelbrotPanel: false),
                 // F3 (kb: plans/f3-multibrot): z^5 + c at its seek-found period-11 minibrot, and
                 // z^8 + c at its period-19 minibrot beside a Misiurewicz point (1e-24 per point).
                 Scenario(name: "multibrot5 pan", viewport: multibrot5, input: pan),
@@ -912,6 +929,9 @@ final class InteractionTest: NSObject {
         if scenarios[scenario].julia?.re == "twin", !explorer.juliaTwin() {
             print("interaction-test: \(scenarios[scenario].name): no Julia twin")
             exit(1)
+        }
+        if scenarios[scenario].julia != nil, !scenarios[scenario].mandelbrotPanel {
+            _ = explorer.toggleMandelbrotPanel()
         }
         view.model.refreshStats()
         // Every scenario starts in pointer mode with the pointer off the canvas (the real

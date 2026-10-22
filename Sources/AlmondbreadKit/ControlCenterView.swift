@@ -720,8 +720,12 @@ struct OverlaySectionRows: View {
             }
         }
         if model.has(\.juliaPanel) {
-            Toggle("Julia set of that point", isOn: $model.juliaEnabled)
+            Toggle("Julia set of that point", isOn: $model.juliaPanelToggle)
                 .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside. Click it to open that Julia set (U)")
+        } else if model.isJulia {
+            // In a Julia view the same switch shows the Mandelbrot panel (the way back).
+            Toggle("Mandelbrot panel", isOn: $model.juliaPanelToggle)
+                .help("In the Julia panel's place: the Mandelbrot view this Julia set was opened from, marked at k. Click it to return (U)")
         }
         // F4 (kb: plans/f4-deep-julia): the deep Julia set of the view's centre, and back.
         if model.isJulia {

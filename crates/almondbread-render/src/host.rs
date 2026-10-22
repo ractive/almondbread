@@ -101,6 +101,8 @@ pub struct Host<B: GpuBackend> {
     /// F4 (kb: plans/f4-deep-julia): the view and formula a Julia view was opened from (the
     /// way back); None when not in a Julia view opened here.
     pub julia_return: Option<(Viewport, almondbread_core::Formula)>,
+    /// The Julia set the overlay's way back was made for.
+    overlay_way_back_k: Option<almondbread_core::formula::JuliaK>,
 }
 
 impl<B: GpuBackend + Clone> Host<B> {
@@ -120,6 +122,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             overlay_tick: 0,
             tour: None,
             julia_return: None,
+            overlay_way_back_k: None,
         }
     }
 
@@ -246,6 +249,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         let px = self.width as f64 / 2.0 + x / ppp;
         let py = self.height as f64 / 2.0 - y / ppp;
         let hit = self.overlay.click(&self.renderer, px, py, ppp, fly);
+        // A click on the Mandelbrot panel of a Julia view: back to the view it shows (as ⇧U).
+        if std::mem::take(&mut self.overlay.go_back) {
+            self.back_from_julia();
+        }
         // A click on the Julia panel: its set as the main view, whole (F4).
         if let Some(k) = self.overlay.open_julia.take() {
             let formula = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
@@ -261,7 +268,12 @@ impl<B: GpuBackend + Clone> Host<B> {
         let r = &mut self.renderer;
         if !r.settings.formula.is_julia() {
             self.julia_return = Some((r.viewport.clone(), r.settings.formula));
+            // The Mandelbrot panel starts from this view's reference (a deep twin's is costly).
+            self.overlay.way_back_reference = r.reference().filter(|x| x.formula == r.settings.formula).cloned();
         }
+        // Every entry shows the way back, whatever the Julia panel's setting (kb:
+        // decisions/controls "Mandelbrot panel").
+        self.overlay.mandelbrot_panel = true;
         r.navigator.cancel_flight();
         r.navigator.jumped();
         view.ensure_precision();
@@ -292,12 +304,57 @@ impl<B: GpuBackend + Clone> Host<B> {
             .julia_return
             .take()
             .unwrap_or_else(|| (Viewport::fitting(w, h), almondbread_core::Formula::Mandelbrot));
+        self.overlay.way_back_reference = None;
         let r = &mut self.renderer;
         r.navigator.cancel_flight();
         r.navigator.jumped();
         r.settings.formula = formula;
         r.viewport = view;
         true
+    }
+
+    /// U in a Julia view: the Mandelbrot panel on or off (kb: decisions/controls "Mandelbrot
+    /// panel"). False outside a Julia view (there U is the Julia panel's setting).
+    pub fn toggle_mandelbrot_panel(&mut self) -> bool {
+        if !self.renderer.settings.formula.is_julia() {
+            return false;
+        }
+        self.overlay.mandelbrot_panel = !self.overlay.mandelbrot_panel;
+        true
+    }
+
+    /// The Mandelbrot panel is on (in a Julia view; it shows from the next frame).
+    pub fn mandelbrot_panel_on(&self) -> bool {
+        self.renderer.settings.formula.is_julia() && self.overlay.mandelbrot_panel
+    }
+
+    /// The way back the Mandelbrot panel shows in a Julia view (the view it was opened from, or
+    /// the whole Mandelbrot set as `back_from_julia` goes there), None outside one. Kept while
+    /// nothing changed (the panel's key).
+    fn update_way_back(&mut self) {
+        let f = self.renderer.settings.formula;
+        let Some(k) = f.julia_k() else {
+            self.overlay.way_back = None;
+            self.overlay.way_back_reference = None;
+            return;
+        };
+        let (w, h) = self.view_points;
+        let (view, formula) = self
+            .julia_return
+            .clone()
+            .unwrap_or_else(|| (Viewport::fitting(w, h), almondbread_core::Formula::Mandelbrot));
+        let same = self.overlay.way_back.as_ref().is_some_and(|b| {
+            b.view == view && b.formula == formula && b.view_points == (w, h) && self.overlay_way_back_k == Some(k)
+        });
+        if !same {
+            self.overlay_way_back_k = Some(k);
+            self.overlay.way_back = Some(crate::mandelbrot_panel::WayBack {
+                view,
+                formula,
+                view_points: (w, h),
+                k: almondbread_core::viewport::Center::from_big((*k.value()).clone()),
+            });
+        }
     }
 
     /// The help badge (kb: decisions/controls "Help") under a press at (x, y) view points from
@@ -464,6 +521,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             }
             None => self.overlay.tour = Default::default(),
         }
+        self.update_way_back();
         if self.overlay.active()
             || self.overlay.compass.shown(now)
             || self.overlay.marker.visible()
@@ -476,6 +534,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         } else {
             // Nothing drawn: no badge to press.
             self.overlay.help.clear();
+            self.overlay.panels.clear();
         }
     }
 
@@ -487,7 +546,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             || self.overlay.marker.animating(now)
             || self.tour.as_ref().is_some_and(|t| t.animating(now))
             || self.renderer.progress.animating();
-        if !self.overlay.settings.any() {
+        if !self.overlay.settings.any() && !self.overlay.back_shown() {
             // The π meter alone: its count runs on its own thread; frames show its progress.
             outcome.animating |= self.overlay.busy();
             return;
@@ -499,6 +558,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         if !self.renderer.navigator.is_interacting(now) || self.overlay_tick.is_multiple_of(8) {
             let settings = self.renderer.settings.clone();
             self.overlay.step_maps(&settings, now);
+            self.overlay.mandelbrot.step(&settings, now);
         }
         outcome.animating |= self.overlay.busy();
     }

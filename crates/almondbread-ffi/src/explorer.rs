@@ -1166,6 +1166,8 @@ pub struct ExplorerStats {
     pub formula: String,
     /// F4: the Julia set's k for the HUD ("−0.12256117 + 0.74486177i"; empty otherwise).
     pub julia_k: String,
+    /// A Julia view's Mandelbrot panel is on (U toggles it there; false outside a Julia view).
+    pub mandelbrot_panel: bool,
 }
 
 /// Render progress for the HUD (kb: decisions/controls "Render progress"): shown once a
@@ -1757,6 +1759,14 @@ impl Explorer {
         self.lock().host.back_from_julia()
     }
 
+    /// U in a Julia view: the Mandelbrot panel (the way back, in the Julia panel's place) on or
+    /// off; it is on again at every entry into a Julia view (kb: decisions/controls "Mandelbrot
+    /// panel"). False outside a Julia view: there U is the Julia panel's setting. A frame
+    /// follows: resume the display link.
+    pub fn toggle_mandelbrot_panel(&self) -> bool {
+        self.lock().host.toggle_mandelbrot_panel()
+    }
+
     /// F4: opens the Julia set of `k` (decimal strings, any digits) whole, as a click on the
     /// Julia panel does (tests, a typed k). False for a malformed `k`.
     pub fn open_julia(&self, re: String, im: String) -> bool {
@@ -2096,6 +2106,7 @@ impl Explorer {
                 .julia_k()
                 .map(|k| almondbread_core::julia::k_text(k, 9))
                 .unwrap_or_default(),
+            mandelbrot_panel: g.host.mandelbrot_panel_on(),
         }
     }
 

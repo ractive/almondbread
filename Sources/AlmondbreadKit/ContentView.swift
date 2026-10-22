@@ -210,7 +210,7 @@ struct ContentView: View {
                     // not in Multibrot views (`hasJuliaPanelSwitch`: Rust's capabilities; a Julia
                     // view keeps it).
                     if touchLayout.buttonCorner == .topTrailing && model.hasJuliaPanelSwitch {
-                        RoundToggle("Julia set", symbol: InlineIcons.symbol("julia"), isOn: $model.juliaEnabled)
+                        RoundToggle("Julia set", symbol: InlineIcons.symbol("julia"), isOn: $model.juliaPanelToggle)
                             .tourTarget("julia", model: model, cornerRadius: 22)
                     }
                     RoundToggle("Size scale", symbol: InlineIcons.symbol("size-scale"), isOn: $model.cosmicScale)
@@ -274,7 +274,7 @@ struct ContentView: View {
                 // (Not in Multibrot views, `hasJuliaPanelSwitch`: Rust's capabilities; a Julia
                 // view keeps it; kb: decisions/controls "Fractal picker and Julia views".)
                 if model.hasJuliaPanelSwitch {
-                    Toggle(isOn: $model.juliaEnabled) {
+                    Toggle(isOn: $model.juliaPanelToggle) {
                         Label("Julia Set", systemImage: InlineIcons.symbol("julia"))
                             .tourTarget("julia", model: model, cornerRadius: 6)
                             .tourTarget("toolbar", model: model, cornerRadius: 6)
