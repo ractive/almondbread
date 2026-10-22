@@ -208,6 +208,8 @@ impl Options {
         // A place brings its recommended look and iteration limit (`--look`, `--iterations`
         // override them).
         if let Some(p) = self.get("place").and_then(almondbread_core::places::place_named) {
+            // (A place is in its own fractal, F3; `--formula` below can override it.)
+            s.formula = p.formula;
             if let Some(look) = almondbread_core::palette::Look::named(p.look) {
                 look.apply(s);
             }
@@ -281,8 +283,8 @@ impl Options {
         if let Some(v) = self.get("calm") {
             s.dense_calm = v != "0";
         }
-        // The formula (F2): `mandelbrot` (default); `multibrotP` is the generic path z^P + c,
-        // test-only until F3 (p = 2 must equal Mandelbrot).
+        // The formula (F2, F3): `mandelbrot` (default), `multibrot3` ... `multibrot8` (z^P + c;
+        // `multibrot2` is the generic path's test that it equals Mandelbrot).
         if let Some(v) = self.get("formula") {
             match almondbread_core::formula::Formula::parse(v) {
                 Some(f) => s.formula = f,

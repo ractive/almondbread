@@ -580,6 +580,24 @@ pub fn parse_angle(text: &str) -> Option<f64> {
     })
 }
 
+/// The fractal of copied coordinates (F3): the `formula` line (`formula multibrot5`) when it
+/// names a formula a user can pick; Mandelbrot for the app's labelled text without one (what
+/// Mandelbrot views and older builds copy); None for bare numbers (the view keeps its formula).
+pub fn parse_formula(text: &str) -> Option<crate::formula::Formula> {
+    let mut labelled = false;
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        match (parts.next(), parts.next()) {
+            (Some("formula"), Some(v)) => {
+                return crate::formula::Formula::parse(v).filter(|f| crate::formula::selectable().contains(f));
+            }
+            (Some("re" | "im" | "scale"), Some(_)) => labelled = true,
+            _ => {}
+        }
+    }
+    labelled.then_some(crate::formula::Formula::Mandelbrot)
+}
+
 /// The view of parsed coordinates (None if they are not numbers or the scale is not positive).
 pub fn view_from_text(re: &str, im: &str, scale: &str) -> Option<Viewport> {
     let center = Center::parse(re.trim(), im.trim())?;
@@ -614,6 +632,20 @@ mod tests {
         assert!((parse_angle("angle 270°").unwrap() + 90f64.to_radians()).abs() < 1e-12);
         assert_eq!(parse_angle("re 1\nim 2\nscale 3"), None);
         assert_eq!(parse_angle("angle nan"), None);
+    }
+
+    #[test]
+    fn coordinates_text_carries_the_formula() {
+        use crate::formula::Formula;
+        let m5 = "re 0.1\nim 0.2\nscale 1e-5 (zoom 375×)\nformula multibrot5";
+        assert_eq!(parse_formula(m5), Some(Formula::Multibrot(5)));
+        assert_eq!(parse_coordinates(m5), Some(("0.1".into(), "0.2".into(), "1e-5".into())));
+        // Labelled text without the line: a Mandelbrot view (and older builds' text).
+        assert_eq!(parse_formula("re 0.1\nim 0.2\nscale 1e-5"), Some(Formula::Mandelbrot));
+        // Bare numbers keep the view's formula; unknown or test-only formulas are ignored.
+        assert_eq!(parse_formula("0.1 0.2 1e-5"), None);
+        assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula multibrot2"), None);
+        assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula burningship"), None);
     }
 
     fn sea8007() -> Viewport {

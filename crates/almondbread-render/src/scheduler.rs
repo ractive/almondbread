@@ -61,7 +61,8 @@ type DenseColors = (String, [f32; 3], [f32; 3]);
 
 /// M6 auto: LA when the limit spans at least this many periods of a nucleus reference (deep kernel).
 const LA_MIN_PERIODS: usize = 4;
-/// Escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring).
+/// Mandelbrot's escape radius (2^16: the smooth offset stays in a small range, kb: techniques/smooth-coloring);
+/// other formulas escape at `Formula::bailout` (F3: lower for high powers).
 pub const BAILOUT: f64 = 65536.0;
 const STAT_SLOTS: usize = 64;
 /// Autopilot survey grid and how often a finished level is surveyed (s).
@@ -2965,7 +2966,7 @@ impl<B: GpuBackend> Renderer<B> {
                 ref_offset,
                 jitter: [0.5, 0.5],
                 texel_scale,
-                bailout2: (BAILOUT * BAILOUT) as f32,
+                bailout2: (key.formula.bailout() * key.formula.bailout()) as f32,
                 max_iter: key.max_iter as u32,
                 ref_len,
                 width: w as u32,
@@ -4814,7 +4815,7 @@ impl<B: GpuBackend> Renderer<B> {
                 let spawned = std::thread::Builder::new()
                     .name("almondbread-further-ref".into())
                     .spawn(move || {
-                        let mut r = Reference::compute_f64_with(&viewport, formula, want, BAILOUT);
+                        let mut r = Reference::compute_f64_with(&viewport, formula, want, formula.bailout());
                         let extends = r.points.len() >= old.len() && r.points[..old.len()] == old[..];
                         if let Some(p) = &prepare {
                             r.prepared = p(&r);
@@ -5925,11 +5926,16 @@ impl<B: GpuBackend> Renderer<B> {
     pub fn prime_reference(&mut self, viewport: &Viewport, max_iter: usize, texel: Scale, size: usize) {
         self.reference = None;
         if viewport.scale.to_f64() >= DEEP_SCALE {
-            let r = Reference::compute_f64_with(viewport, self.settings.formula, max_iter, BAILOUT);
+            let r = Reference::compute_f64_with(
+                viewport,
+                self.settings.formula,
+                max_iter,
+                self.settings.formula.bailout(),
+            );
             self.set_reference(r);
             return;
         }
-        let mut req = ReferenceRequest::for_view(viewport, texel, size, 0.0, max_iter, BAILOUT);
+        let mut req = ReferenceRequest::for_view(viewport, texel, size, 0.0, max_iter, self.settings.formula.bailout());
         req.formula = self.settings.formula;
         req.nucleus = false;
         self.reference_worker.start(req);
@@ -6049,7 +6055,8 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         let radius = 0.5 * size as f64 * t_texel.ratio(t.scale);
-        let mut q = ReferenceRequest::for_view(&t, t_texel, size, radius, max_iter * 2, BAILOUT);
+        let mut q =
+            ReferenceRequest::for_view(&t, t_texel, size, radius, max_iter * 2, self.settings.formula.bailout());
         q.formula = self.settings.formula;
         q.period_limit = max_iter;
         if self.config.trace {
@@ -6121,15 +6128,19 @@ impl<B: GpuBackend> Renderer<B> {
             if fit != Fit::Good || short {
                 if wait || reach <= F64_SYNC_POINTS {
                     // (Offscreen renders wait anyway: no worker round trip.)
-                    let r = Reference::compute_f64_with(viewport, key.formula, reach, BAILOUT);
+                    let r = Reference::compute_f64_with(viewport, key.formula, reach, key.formula.bailout());
                     return self.set_reference(r);
                 }
                 if !self.pending_f64_serves(viewport, size, reach, key.formula) {
                     if self.config.trace {
                         println!("reference request: f64, {reach} points (on the worker)");
                     }
-                    self.reference_worker
-                        .start(ReferenceRequest::f64_orbit(viewport, key.formula, reach, BAILOUT));
+                    self.reference_worker.start(ReferenceRequest::f64_orbit(
+                        viewport,
+                        key.formula,
+                        reach,
+                        key.formula.bailout(),
+                    ));
                 }
                 // A good one that is only shorter than the extension's reach serves meanwhile
                 // (the passes stop at its end, `exact_reach`); without one the view waits
@@ -6147,7 +6158,8 @@ impl<B: GpuBackend> Renderer<B> {
         }
         if !self.pending_serves(viewport, texel, size, max_iter) {
             let radius = 0.5 * (key.width as f64).hypot(key.height as f64) * key.points_per_pixel;
-            let mut req = ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, BAILOUT);
+            let mut req =
+                ReferenceRequest::for_view(viewport, texel, size, radius, max_iter * 2, key.formula.bailout());
             req.formula = key.formula;
             // Nuclei up to the learner's reach (4x the depth heuristic): a longer-period
             // minibrot in view then sets the limit (`period_floor`) instead of an unresolved
@@ -6171,7 +6183,7 @@ impl<B: GpuBackend> Renderer<B> {
                 // (nucleus search off, kernel picked at the current depth) left smooth wrong
                 // fans in the settled frame at sea-8007 (35.8 % of escape counts differed from a
                 // fresh render; `verify --history flyto` now gates on that).
-                let mut q = ReferenceRequest::for_view(t, t_texel, size, radius, max_iter * 2, BAILOUT);
+                let mut q = ReferenceRequest::for_view(t, t_texel, size, radius, max_iter * 2, key.formula.bailout());
                 q.formula = key.formula;
                 q.period_limit = max_iter;
                 req = q;
@@ -6793,6 +6805,8 @@ impl<B: GpuBackend + Clone> Renderer<B> {
         fresh.settings.manual_iterations = max_iter;
         fresh.settings.max_iterations_cap = self.iteration_cap().max(max_iter);
         fresh.settings.interior_detection = interior;
+        // (Of the job's formula, F3: the fresh render was always Mandelbrot.)
+        fresh.settings.formula = job.key.formula;
         // The shown level is one sample per pixel (anti-aliasing accumulates separately).
         fresh.settings.supersampling = almondbread_core::settings::Supersampling::Off;
         let theirs = fresh.render_offscreen(set.width, set.height, true).ok()?.iterations?;

@@ -166,10 +166,34 @@ pub fn find_period_from(
     check_interval: usize,
     is_cancelled: &mut dyn FnMut() -> bool,
 ) -> Option<usize> {
+    find_period_from_for(
+        Formula::Mandelbrot,
+        center,
+        radius,
+        min_period,
+        max_period,
+        method,
+        check_interval,
+        is_cancelled,
+    )
+}
+
+/// [`find_period_from`] for any formula (F3: seek and `locate` for Multibrot).
+#[allow(clippy::too_many_arguments)]
+pub fn find_period_from_for(
+    formula: Formula,
+    center: &BigComplex,
+    radius: &BigFloat,
+    min_period: usize,
+    max_period: usize,
+    method: PeriodMethod,
+    check_interval: usize,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<usize> {
     let ci = check_interval.max(1);
     match method {
         PeriodMethod::Ball | PeriodMethod::BallFirstOrder => ball_period(
-            Formula::Mandelbrot,
+            formula,
             center,
             radius.double_exp().abs(),
             min_period,
@@ -178,7 +202,7 @@ pub fn find_period_from(
             ci,
             is_cancelled,
         ),
-        PeriodMethod::Box => box_period(Formula::Mandelbrot, center, radius, max_period, ci, is_cancelled),
+        PeriodMethod::Box => box_period(formula, center, radius, max_period, ci, is_cancelled),
     }
 }
 
@@ -201,7 +225,21 @@ fn ball_period(
     let two = DoubleExp::from_f64(2.0);
     let escape = DoubleExp::from_f64(1e10);
     let power = formula.power();
-    let pow = |a: DoubleExp| (1..power).fold(a, |w, _| w * a);
+    // (|z| + R)^p - |z|^p as sum_{k=1..p} C(p,k) |z|^(p-k) R^k (F3): the difference of the two
+    // powers cancels to 0 in f64 once R < 2^-53 |z|, and the radius then never grows (period
+    // detection failed at every view below ~1e-16).
+    let ball_growth = |z: DoubleExp, r: DoubleExp| {
+        let mut sum = DoubleExp::ZERO;
+        let mut binom = 1.0f64;
+        let mut rk = DoubleExp::ONE;
+        for k in 1..=power {
+            binom = binom * f64::from(power - k + 1) / f64::from(k);
+            rk = rk * r;
+            let zk = (k..power).fold(DoubleExp::ONE, |w, _| w * z);
+            sum = sum + DoubleExp::from_f64(binom) * zk * rk;
+        }
+        sum
+    };
     with_scratch(n, |s| {
         let mut radius_acc = DoubleExp::ZERO; // R_n
         let mut dz = DoubleExpComplex::ZERO; // dz_n/dc
@@ -217,7 +255,7 @@ fn ball_period(
             } else if first_order {
                 dz = formula.prime_x(complex_value(&x, &y)) * dz + DoubleExpComplex::ONE;
             } else {
-                radius_acc = pow(z_abs + radius_acc) - pow(z_abs) + r;
+                radius_acc = ball_growth(z_abs, radius_acc) + r;
             }
             t.step(&mut x, &mut y, &cx, &cy, s);
             z_abs = complex_magnitude(&x, &y);
@@ -415,6 +453,7 @@ pub fn find_nucleus_for(
     // accelerating and more than two such steps remain to the precision floor (a start
     // already very close to the nucleus), exact Newton finishes quadratically.
     let mut exact = false;
+    let mut generic: Option<GenericNewton> = None;
     for step in 1..=options.max_steps {
         if is_cancelled() {
             return None;
@@ -424,7 +463,31 @@ pub fn find_nucleus_for(
         raw::set_zero(&mut zx);
         raw::set_zero(&mut zy);
         let step_log2;
-        if exact {
+        if exact && !formula.is_mandelbrot() {
+            // F3: the exact finish for z^p + c, dz <- p z^(p-1) dz + 1 on registers.
+            raw::set_zero(&mut dx);
+            raw::set_zero(&mut dy);
+            let g = generic.get_or_insert_with(|| GenericNewton::new(formula, n));
+            for i in 0..period {
+                if i % CANCEL_POLL == CANCEL_POLL - 1 && is_cancelled() {
+                    return None;
+                }
+                g.derivative_step(&zx, &zy, &mut dx, &mut dy, &one, s);
+                g.stepper.step(&mut zx, &mut zy, &cx, &cy, s);
+            }
+            if dx.zero && dy.zero {
+                return None;
+            }
+            let z = BigComplex::new(BigFloat::from_raw(&zx), BigFloat::from_raw(&zy));
+            let dz = BigComplex::new(BigFloat::from_raw(&dx), BigFloat::from_raw(&dy));
+            let delta = &z / &dz;
+            c = &c - &delta;
+            step_log2 = if delta.re.is_zero() && delta.im.is_zero() {
+                f64::NEG_INFINITY
+            } else {
+                delta.re.log2_magnitude().max(delta.im.log2_magnitude())
+            };
+        } else if exact {
             raw::set_zero(&mut dx);
             raw::set_zero(&mut dy);
             for i in 0..period {
@@ -525,7 +588,7 @@ pub fn find_nucleus_for(
                 last_step_log2: step_log2,
             });
         }
-        if !exact && formula.is_mandelbrot() && step_log2.is_finite() && previous_step_log2.is_finite() {
+        if !exact && step_log2.is_finite() && previous_step_log2.is_finite() {
             let gain = previous_step_log2 - step_log2;
             if gain <= 1.25 * previous_gain && step_log2 - floor > 2.0 * gain {
                 exact = true;
@@ -535,6 +598,54 @@ pub fn find_nucleus_for(
         previous_step_log2 = step_log2;
     }
     None
+}
+
+/// The exact Newton finish of [`find_nucleus_for`] for a formula other than Mandelbrot (F3):
+/// registers for `w = z^(p-1)`, the product and the power p.
+struct GenericNewton {
+    stepper: Stepper,
+    power: u32,
+    /// wx, wy (z^(p-1)), p1..p4 (products), u0, u1 (w dz).
+    t: [Reg; 8],
+    p: Reg,
+}
+
+impl GenericNewton {
+    fn new(formula: Formula, n: usize) -> Self {
+        let mut p = reg(n);
+        raw::set_f64(&mut p, f64::from(formula.power()));
+        GenericNewton {
+            stepper: Stepper::new(formula, n),
+            power: formula.power(),
+            t: core::array::from_fn(|_| reg(n)),
+            p,
+        }
+    }
+
+    /// dz <- p z^(p-1) dz + 1 (with the old z).
+    fn derivative_step(&mut self, x: &Reg, y: &Reg, dx: &mut Reg, dy: &mut Reg, one: &Reg, s: &mut [u64]) {
+        let [wx, wy, p1, p2, p3, p4, u0, u1] = &mut self.t;
+        raw::copy(wx, x.view());
+        raw::copy(wy, y.view());
+        for _ in 2..self.power {
+            raw::mul(p1, wx.view(), x.view(), s);
+            raw::mul(p2, wy.view(), y.view(), s);
+            raw::mul(p3, wx.view(), y.view(), s);
+            raw::mul(p4, wy.view(), x.view(), s);
+            raw::add(wx, p1.view(), p2.view(), true, s);
+            raw::add(wy, p3.view(), p4.view(), false, s);
+        }
+        raw::mul(p1, wx.view(), dx.view(), s);
+        raw::mul(p2, wy.view(), dy.view(), s);
+        raw::mul(p3, wx.view(), dy.view(), s);
+        raw::mul(p4, wy.view(), dx.view(), s);
+        raw::add(u0, p1.view(), p2.view(), true, s);
+        raw::add(u1, p3.view(), p4.view(), false, s);
+        raw::mul(p1, u0.view(), self.p.view(), s);
+        raw::mul(p2, u1.view(), self.p.view(), s);
+        raw::add(dx, p1.view(), one.view(), false, s);
+        raw::copy(dy, p2.view());
+    }
 }
 
 /// Size estimate of the minibrot with nucleus c and period p (relative to the main
@@ -588,6 +699,79 @@ pub fn minibrot_size_cancellable(
         return Some(DoubleExpComplex::ZERO);
     }
     Some(DoubleExpComplex::ONE / (b * l * l))
+}
+
+/// [`minibrot_size_complex`] for any formula (F3). For `z^d + c` the period-p return map near
+/// the critical point is `z -> l (z^d + b dc)` with `l = prod_{i=1}^{p-1} f'(z_i)` and `b` as for
+/// Mandelbrot (`1 + sum 1/l_i`); rescaling `z = a u` with `a^(d-1) = 1/l` turns it into
+/// `u -> u^d + c'`, `dc = a c' / (l b)`, so a point w of the whole set maps to
+/// `nucleus + w / (b l^(d/(d-1)))` (our derivation; d = 2 is mathr's `1 / (b l^2)`;
+/// kb: formulas/multibrot "As built"). The principal root: the Multibrot set is symmetric
+/// under turns by `2 pi / (d - 1)`, so every root frames the same picture.
+pub fn minibrot_size_complex_for(formula: Formula, nucleus: &BigComplex, period: usize) -> DoubleExpComplex {
+    minibrot_size_cancellable_for(formula, nucleus, period, &mut || false).expect("never cancelled")
+}
+
+/// [`minibrot_size_complex_for`] polling `is_cancelled` (as [`minibrot_size_cancellable`]).
+pub fn minibrot_size_cancellable_for(
+    formula: Formula,
+    nucleus: &BigComplex,
+    period: usize,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<DoubleExpComplex> {
+    if formula.is_mandelbrot() {
+        return minibrot_size_cancellable(nucleus, period, is_cancelled);
+    }
+    let n = BigFloat::limb_count_for_bits(nucleus.precision_bits());
+    let (mut x, mut y, mut cx, mut cy) = (reg(n), reg(n), reg(n), reg(n));
+    let mut t = Stepper::new(formula, n);
+    load(&mut cx, &nucleus.re);
+    load(&mut cy, &nucleus.im);
+    let mut l = DoubleExpComplex::ONE;
+    let mut b = DoubleExpComplex::ONE;
+    let mut cancelled = false;
+    let degenerate = with_scratch(n, |s| {
+        for i in 1..period {
+            if i % CANCEL_POLL == 0 && is_cancelled() {
+                cancelled = true;
+                return false;
+            }
+            t.step(&mut x, &mut y, &cx, &cy, s);
+            l = formula.prime_x(complex_value(&x, &y)) * l;
+            if l.re.is_zero() && l.im.is_zero() {
+                return true;
+            }
+            b = b + DoubleExpComplex::ONE / l;
+        }
+        false
+    });
+    if cancelled {
+        return None;
+    }
+    if degenerate {
+        return Some(DoubleExpComplex::ZERO);
+    }
+    let d = formula.power();
+    Some(DoubleExpComplex::ONE / (b * l * complex_root(l, d - 1)))
+}
+
+/// The principal k-th root of z in extended range (k >= 1).
+fn complex_root(z: DoubleExpComplex, k: u32) -> DoubleExpComplex {
+    if k == 1 {
+        return z;
+    }
+    let m = z.magnitude();
+    if m.is_zero() {
+        return DoubleExpComplex::ZERO;
+    }
+    let angle = (z.im / m).to_f64().atan2((z.re / m).to_f64()) / f64::from(k);
+    let l = m.log2_magnitude() / f64::from(k);
+    let whole = l.floor();
+    let r = DoubleExp::from_f64((l - whole).exp2()).times_power_of_two(whole as i64);
+    DoubleExpComplex::new(
+        r * DoubleExp::from_f64(angle.cos()),
+        r * DoubleExp::from_f64(angle.sin()),
+    )
 }
 
 /// Iterations between two polls of a cancel closure in the full-precision loops here.
@@ -733,7 +917,7 @@ pub fn select_reference(
     )
 }
 
-/// [`select_reference`] for any formula (F2; a minibrot size estimate for Mandelbrot only).
+/// [`select_reference`] for any formula (F2; the size estimate for every formula since F3).
 pub fn select_reference_for(
     formula: Formula,
     center: &BigComplex,
@@ -774,13 +958,9 @@ pub fn select_reference_for(
     if is_cancelled() {
         return fallback;
     }
-    let size = if formula.is_mandelbrot() {
-        match minibrot_size_cancellable(&nr.nucleus, p, is_cancelled) {
-            Some(s) => Some(s.magnitude()),
-            None => return fallback,
-        }
-    } else {
-        None
+    let size = match minibrot_size_cancellable_for(formula, &nr.nucleus, p, is_cancelled) {
+        Some(s) => Some(s.magnitude()),
+        None => return fallback,
     };
     ReferenceChoice {
         point: nr.nucleus,
@@ -868,7 +1048,7 @@ mod formula_tests {
             PeriodMethod::Ball,
             &mut never,
         );
-        assert!(choice.is_nucleus && choice.period == Some(2) && choice.minibrot_size.is_none());
+        assert!(choice.is_nucleus && choice.period == Some(2) && choice.minibrot_size.is_some());
     }
 }
 

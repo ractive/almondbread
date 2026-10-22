@@ -30,9 +30,10 @@
 //! and fast math and the float32 / float-float / fx throughput benchmark.
 
 use almondbread_core::cfmt::g;
+use almondbread_core::formula::Formula;
 use almondbread_core::image::write_png_bgra;
 use almondbread_core::oracle::{
-    IterationField, OracleReference, VerifyReport, compare, cpu_render, cpu_render_deep_with,
+    IterationField, OracleReference, VerifyReport, compare, cpu_render_deep_with, cpu_render_for,
 };
 use almondbread_core::palette::Palette;
 use almondbread_core::reference::DEEP_SCALE;
@@ -44,8 +45,9 @@ use almondbread_render::{GpuBackend, MathMode, Renderer};
 
 use crate::options::{Options, Result};
 
-/// The oracle of `view` with its pixel grid shifted by (sx, sy) texels.
+/// The oracle of `view` (of `formula`, F3) with its pixel grid shifted by (sx, sy) texels.
 pub fn shifted_oracle(
+    formula: Formula,
     view: &Viewport,
     width: usize,
     height: usize,
@@ -54,24 +56,27 @@ pub fn shifted_oracle(
     reference: &mut Option<OracleReference>,
 ) -> IterationField {
     let texel = view.scale;
+    let bailout = formula.bailout();
     if texel.to_f64() >= DEEP_SCALE {
         let s = texel.to_f64();
         let (sn, cs) = view.angle.sin_cos();
         let (dx, dy) = (shift.0 * cs - shift.1 * sn, shift.0 * sn + shift.1 * cs);
-        return cpu_render(
+        return cpu_render_for(
+            formula,
             view.center.re() + dx * s,
             view.center.im() + dy * s,
             s,
             width,
             height,
             max_iter,
-            BAILOUT,
+            bailout,
             view.angle,
         );
     }
-    let r = reference
-        .get_or_insert_with(|| OracleReference::compute(&view.center, texel, width.max(height), max_iter, BAILOUT));
-    cpu_render_deep_with(r, texel, width, height, max_iter, BAILOUT, shift, view.angle)
+    let r = reference.get_or_insert_with(|| {
+        OracleReference::compute_for(formula, &view.center, texel, width.max(height), max_iter, bailout)
+    });
+    cpu_render_deep_with(r, texel, width, height, max_iter, bailout, shift, view.angle)
 }
 
 /// One CPU colouring for any field (the plain look's mapping, no palette filtering): linear
@@ -263,7 +268,15 @@ pub fn precision_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
     let view = r.viewport.clone();
     let mut reference = None;
     let t0 = std::time::Instant::now();
-    let cpu = shifted_oracle(&view, width, height, max_iter, (0.0, 0.0), &mut reference);
+    let cpu = shifted_oracle(
+        r.settings.formula,
+        &view,
+        width,
+        height,
+        max_iter,
+        (0.0, 0.0),
+        &mut reference,
+    );
     let cpu_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let (report, heat) = compare(&gpu, &cpu);
     let gpu_png = colorize_field(&gpu, &r.settings);
@@ -307,9 +320,9 @@ pub fn precision_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Res
             let mut v = view.clone();
             v.scale = v.scale * o.f64("control-zoom").unwrap_or(1.0);
             v.angle += o.f64("control-angle").unwrap_or(0.0);
-            shifted_oracle(&v, width, height, max_iter, xy, &mut None)
+            shifted_oracle(r.settings.formula, &v, width, height, max_iter, xy, &mut None)
         } else {
-            shifted_oracle(&view, width, height, max_iter, xy, &mut reference)
+            shifted_oracle(r.settings.formula, &view, width, height, max_iter, xy, &mut reference)
         };
         let (corr, gain) = error_correlation(&gpu, &ctl, &cpu);
         let (rep, _) = compare(&ctl, &cpu);

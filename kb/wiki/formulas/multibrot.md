@@ -68,6 +68,35 @@ formula line (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler
 Fraktaler warns plain float "can cause iteration-band glitches with high
 powers" (src: [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)).
 
+## As built in almondbread (F3)
+
+Our implementation and measurements (measured 2026-10-21, M1 Pro, release; details in
+[F3: Multibrot z^p + c](../plans/f3-multibrot.md) "As built" and [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F3"):
+
+- **Escape radius.** The escaped value reaches `R^p` and `|z|^2` reaches `R^{2p}`, which must
+  stay inside float32 (2^128) on the GPU: `R = 2^min(16, 60/p)` (p = 4: 2^15, 8: 2^7). With
+  Mandelbrot's 2^16, powers from 4 on wrote infinite smooth counts (black bands). The same
+  bound keeps the derivative's growth near escape, `p R^{p-1}`, at most 2^52 a step.
+- **Smooth count.** `ln|z|` grows by the factor p a step, so the continuous offset is
+  `1 - log_p(ln|z|)` (our derivation; `log_2` gave p-fold steps between bands).
+- **Underflow near small `|Z|`.** The step's factor `S` is of order `|Z|^{p-1}`; in float32
+  `S w` underflows once `|Z| < 2^(-70/(p-1))` (p = 8: about 0.001), and the step silently
+  became `w' = c`. Those steps now run in floatexp (both the plain-delta and the rescaled
+  regime); the f64 oracle does the same below `2^(-500/(p-1))`. This is where the "iteration
+  band glitches at high powers" of plain float come from in our design (inference: we found
+  underflow, not bands, as the mechanism). After the fix `precision` at p = 8 shows no band
+  glitches: the GPU's error is that of a grid shift of at most 0.01–0.1 pixel.
+- **Minibrot size.** Near a period-n nucleus the return map is `z -> l (z^d + b dc)` with
+  `l = prod_{i<n} f'(z_i)` and mathr's `b`; rescaling `z = a u` with `a^{d-1} = 1/l` gives the
+  whole set, so a point w of the set lies at `nucleus + w / (b l^{d/(d-1)})` (our derivation;
+  d = 2 is `1/(b l^2)`). Any of the d - 1 roots frames the same picture (the set is
+  (d−1)-fold symmetric). Seek frames minibrots with it at every power.
+- **Ball period bound.** `(|z| + R)^p - |z|^p` must be summed as
+  `sum_k C(p,k) |z|^{p-k} R^k`: the difference cancels to 0 in f64 once `R < 2^-53 |z|`, and
+  period detection then failed at every view below about 1e-16.
+- **BLA.** The single-step radius `eps 2|Z|/(p-1)` above holds up: class mismatch against the
+  oracle stays at Mandelbrot's level (≤ 0.14 %) down to 1e-1499 for p = 3..8.
+
 ## Verdict for almondbread
 
 Easy second formula: same reference machinery, one critical point, scalar
@@ -82,3 +111,5 @@ complex BLA. Generate one kernel per p. Imagina-style LA is power-2 only
 - [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
 - [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
 - [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
+- [F3: Multibrot z^p + c](../plans/f3-multibrot.md)
+- [almondbread benchmarks and verification record](../synthesis/benchmarks.md)

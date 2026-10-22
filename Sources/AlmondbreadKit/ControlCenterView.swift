@@ -355,6 +355,7 @@ struct ViewSectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.view")
+        FormulaPicker(model: model)
         FitRow {
             Button {
                 Clipboard.copy(model.coordinatesText)
@@ -425,8 +426,11 @@ struct ViewSectionRows: View {
         .buttonStyle(.borderless)
         #endif
         .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
-        Toggle("Autopilot target lock", isOn: $model.autopilotLock)
-            .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
+        // (The target lock's finder is the Mandelbrot journey's: hidden without that content, F3.)
+        if model.has(\.content) {
+            Toggle("Autopilot target lock", isOn: $model.autopilotLock)
+                .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
+        }
         // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
         Toggle("Lane assist", isOn: $model.laneAssist)
             .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
@@ -455,6 +459,36 @@ struct ViewSectionRows: View {
             Button("Straighten") { model.straighten() }
                 .disabled(!model.viewTurned)
                 .help("Turn the view upright (/); , and . turn it, so does a trackpad rotation")
+        }
+    }
+}
+
+/// The fractal (F3, kb: plans/f3-multibrot): its family (Mandelbrot, Multibrot; a later family
+/// is one more entry of Rust's `formula_options()`) and, for a family of several formulas, which
+/// one (Multibrot's power 3 ... 8). A switch goes to the new set's whole view. In a Julia view
+/// (F4) it shows the Mandelbrot set the Julia set belongs to and is disabled: Julia sets are
+/// opened and left through the twin / Julia panel, not picked (kb: decisions/controls).
+struct FormulaPicker: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        let family = Binding(get: { model.formulaFamily }, set: { model.selectFormulaFamily($0) })
+        let formula = Binding(get: { model.formula }, set: { model.selectFormula($0) })
+        let options = ExplorerModel.formulaOptions(family: model.formulaFamily)
+        ControlRows.picker("Fractal", selection: family) {
+            ForEach(ExplorerModel.formulaFamilies, id: \.id) { Text($0.title).tag($0.id) }
+        }
+        .help(model.isJulia
+              ? "A Julia set of the Mandelbrot set is shown: go back to pick another fractal (⇧U)"
+              : "The set to explore: the Mandelbrot set (z² + c) or a Multibrot set (zᵖ + c)")
+        .disabled(model.isJulia)
+        .accessibilityIdentifier("formula-family")
+        if options.count > 1 {
+            ControlRows.picker("Power", selection: formula) {
+                ForEach(options, id: \.formula) { o in Text(o.title).tag(o.formula) }
+            }
+            .help("The power p of zᵖ + c: a (p − 1)-fold symmetric set")
+            .accessibilityIdentifier("formula-power")
         }
     }
 }
@@ -881,13 +915,15 @@ struct TileRows<Tile: View>: View {
         ForEach(Array(stride(from: 0, to: ids.count, by: columns)), id: \.self) { start in
             let row = start..<min(ids.count, start + columns)
             TileGrid(minWidth: minWidth, spacing: spacing, aspect: aspect, height: height, columns: columns) {
-                ForEach(Array(row), id: \.self) { i in tile(i).id(ids[i]) }
+                // (A stale index: SwiftUI may update a row's child once more after the list shrank,
+                // as when the formula changes and the places go from 80 to 3, F3 + F4.)
+                ForEach(Array(row), id: \.self) { i in if i < ids.count { tile(i).id(ids[i]) } }
             }
             .modifier(TightRow())
         }
         #else
         TileGrid(minWidth: minWidth, spacing: spacing, aspect: aspect, height: height) {
-            ForEach(ids.indices, id: \.self) { i in tile(i).id(ids[i]) }
+            ForEach(ids.indices, id: \.self) { i in if i < ids.count { tile(i).id(ids[i]) } }
         }
         #endif
     }
@@ -1024,7 +1060,9 @@ enum ControlSection: String, CaseIterable, Identifiable {
     /// Mandelbrot content).
     @MainActor func offered(by model: ExplorerModel) -> Bool {
         switch self {
-        case .places, .tours: model.has(\.content)
+        // (F3: a Multibrot power has a few places of its own, but no tours.)
+        case .places: model.has(\.content) || !model.currentPlaces.isEmpty
+        case .tours: model.has(\.content)
         default: true
         }
     }
@@ -1106,7 +1144,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp", "fog", "limit", "bulb", "valley", "julia", "misiurewicz", "colour", "color"]
-        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
+        case .view: ["fractal", "formula", "mandelbrot", "multibrot", "power", "coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
@@ -1147,14 +1185,14 @@ struct PlacesSection: View {
 
     private var categories: [(PlaceCategory, String)] {
         var seen: [(PlaceCategory, String)] = []
-        for p in ExplorerModel.places where !seen.contains(where: { $0.0 == p.category }) {
+        for p in model.currentPlaces where !seen.contains(where: { $0.0 == p.category }) {
             seen.append((p.category, p.categoryName))
         }
         return seen
     }
 
     private var shown: [PlaceInfo] {
-        ExplorerModel.places.filter { category == nil || $0.category == category }
+        model.currentPlaces.filter { category == nil || $0.category == category }
     }
 
 
@@ -1162,15 +1200,18 @@ struct PlacesSection: View {
         let _ = UIPerf.body("PlacesSection")
         let _ = UIPerf.placesAppeared()
         ControlRows.picker("Category", selection: $selection.category) {
-            Text("All (\(ExplorerModel.places.count))").tag(PlaceCategory?.none)
+            Text("All (\(model.currentPlaces.count))").tag(PlaceCategory?.none)
             ForEach(categories, id: \.1) { c in
                 Text(c.1).tag(PlaceCategory?.some(c.0))
             }
         }
         // The HUD's zoom at each place in this window (place zooms count from the whole set).
         let zoomOffset = model.placeZoomOffset
-        TileRows(ids: shown.map(\.id), minWidth: 88, spacing: 6, aspect: 1.6) { i in
-            let p = shown[i]
+        // (One snapshot for the ids and the tiles: `shown` follows the model, and a tile updated
+        // after a formula change must not index the new, shorter list with an old index.)
+        let list = shown
+        TileRows(ids: list.map(\.id), minWidth: 88, spacing: 6, aspect: 1.6) { i in
+            let p = list[i]
             #if os(iOS)
             // Touch: the first tap selects and puts the name, Go and Fly on the picture itself
             // (the pinned details bar has the description); a second tap goes there. Going or
@@ -1293,7 +1334,7 @@ struct PlaceDetailsBar<Footer: View>: View {
 
     var body: some View {
         let place = sectionOpen && selection.onScreen
-            ? selection.id.flatMap { id in ExplorerModel.places.first { $0.id == id } } : nil
+            ? selection.id.flatMap { id in ExplorerModel.allPlaces.first { $0.id == id } } : nil
         VStack(spacing: 0) {
             if let place { details(place) }
             #if os(iOS)

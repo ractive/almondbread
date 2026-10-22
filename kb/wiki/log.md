@@ -3,6 +3,11 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-22
+
+- **Decision:** F3+F4 integration: Multibrot merged onto deep Julia sets; per-formula hooks handle Julia (power 2, bailout 65536, julia home view, julia line in coordinates), the picker is disabled in a Julia view, set_formula leaves Julia first; Mandelbrot, Julia and Multibrot renders byte-identical to their parents
+- **Decision:** F3 Multibrot built: Multibrot z^3..z^8 + c selectable with a Fractal/Power picker, seek and 18 seek-found places; fixed F2's float32 escape overflow (bailout 2^min(16,60/p)), smooth count (log_p), small-|Z| underflow (floatexp steps), and the ball period bound's cancellation; class mismatch <= 0.14 % to 1e-1499, Mandelbrot fields byte-identical (A/B 0.986, noisy). Awaiting the user's review gate.
+
 ## 2026-10-21
 
 - **Decision:** F4 deep Julia sets built, awaiting review: step-1 gate passed (critical-orbit rebasing in float32 and floatexp matches a direct high-precision oracle at five k from 1e-20 to 1e-1000, closer than the oracle to itself under a 0.01-texel shift; without the |Z+z|<|z| rebase up to 53 % class mismatch). Built Formula::Julia with k interned in high precision, a two-orbit reference (critical orbit cached per k, then the centre orbit) in one buffer, the kernel's Julia path (no +c, dz/dz0 DE), BLA with B = 0, Julia oracles; entry points: Julia panel click, Julia twin (shift-U, View menu, control center), the way back (HUD, control center, shift-U), links with a julia line. Mandelbrot fields byte-identical to main, GPU geomean 1.0007; deep Julia flights 111-118 fps at 120 Hz. Pages: plans/f4-deep-julia (Step 1 results, As built), formulas/julia, decisions/controls, synthesis/benchmarks, roadmap row F4.

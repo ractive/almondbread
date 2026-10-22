@@ -81,3 +81,42 @@ fn generic_power_two_renders_mandelbrot() {
         rep.summary()
     );
 }
+
+/// F3 (kb: plans/f3-multibrot): every user power at its whole set and at its seek-found minibrot
+/// near 1e-20 agrees with its oracle (same bailout, `Formula::bailout`), with finite smooth
+/// counts everywhere (before F3 the escaped |z|^2 overflowed float32 from p = 4 on: inf bands).
+#[test]
+fn multibrot_powers_match_their_oracle() {
+    let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+    r.settings = almondbread_core::settings::RenderSettings::plain();
+    r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+    for p in 3..=8 {
+        let f = Formula::Multibrot(p);
+        let whole = Viewport::new(0.0, 0.0, 2.9 / H as f64);
+        let g = field(&mut r, f, &whole, 1000);
+        let cpu = cpu_render_for(f, 0.0, 0.0, 2.9 / H as f64, W, H, 1000, f.bailout(), 0.0);
+        let (rep, _) = compare(&g, &cpu);
+        println!("z^{p} + c whole set vs oracle: {}", rep.summary());
+        assert!(
+            rep.false_interior_pct() < 0.05 && rep.mismatch_pct() < 0.5,
+            "{}",
+            rep.summary()
+        );
+        assert!(g.s.iter().all(|s| s.is_finite()), "p = {p}: non-finite smooth offset");
+        let place = almondbread_core::places::places_for(f)
+            .into_iter()
+            .find(|q| q.category == almondbread_core::places::PlaceCategory::Deep)
+            .expect("deep place");
+        let deep = place.viewport(W, H);
+        let g = field(&mut r, f, &deep, 20_000);
+        let (cpu, _) = cpu_render_deep_for(f, &deep.center, deep.scale, W, H, 20_000, f.bailout(), 0.0);
+        let (rep, _) = compare(&g, &cpu);
+        println!("z^{p} + c at {} vs oracle: {}", place.id, rep.summary());
+        assert!(
+            rep.false_interior_pct() < 0.1 && rep.mismatch_pct() < 0.5,
+            "{}",
+            rep.summary()
+        );
+        assert!(g.s.iter().all(|s| s.is_finite()), "p = {p}: non-finite smooth offset");
+    }
+}

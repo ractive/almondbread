@@ -256,6 +256,42 @@ Built on branch `worktree-agent-aad72e725c0292486` after the step-1 gate passed;
 same limit; the critical orbit is cached) and on a device; the twin's usefulness away from
 Misiurewicz points; GPU timing on a quiet machine (the driver re-runs it).
 
+## F3+F4 integration (2026-10-22)
+
+Merged 2026-10-22 (main = F4, ea4aed7, plus F3). The two features did not know about each
+other; the merge makes every per-formula hook handle the third case
+([Controls: keyboard, pointer and touch](../decisions/controls.md) "Fractal picker and Julia views"):
+
+- Julia stays `z² + k` (power 2): `Formula::bailout()` and `smooth_offset()` give Julia
+  Mandelbrot's 65536 and `1 - log2 ln|z|`; the kernel's F3 additions are guarded by
+  `kFormula == 1u` (they were `!= 0u`, which would have put Julia, formula 2, on the Multibrot
+  floatexp and renormalisation paths) and `deepSmallZ()` is `DEEP_SMALL_Z` for formulas 0 and 2,
+  next to F4's per-orbit `LAST(m)`. Formulas 0 and 2 fold to exactly their pre-merge code.
+- `Viewport::fitting_for(Julia)` is `julia::home_view` (Reset, the autopilot's way out, the
+  navigator's home); `coordinates_text_for` writes F4's `julia re im` line for a Julia view and
+  F3's `formula multibrotP` for a Multibrot view; paste reads the `julia` line first, else leaves
+  a Julia view and applies the `formula` line.
+- The picker lists Mandelbrot and Multibrot only; in a Julia view it shows "Mandelbrot",
+  disabled. `Explorer::set_formula` from a Julia view goes back first. Twin and panel stay
+  Mandelbrot's; `places_for(Julia)` is empty; a place from a Julia view is a jump that drops the
+  way back. The mini-map's whole level of a Multibrot set is its home view (was Mandelbrot's).
+- Checks: Mandelbrot `bench --no-verify 1 --out` 84 of 84 files byte-identical to old main;
+  Julia renders (rabbit 1e-100, `k = i` 1e-300, 800 × 500) byte-identical to the F4 binary and
+  Multibrot renders (z⁵ 3.5e-8, z⁸ 1.7e-23) to the F3 binary; `verify --julia-k` class mismatch
+  0.008 % / 0.000 %; `verify --history zoom|pan` at rabbit 1e-100, z⁵ and z⁸: OK, class
+  mismatch ≤ 0.005 % vs the oracle. FFI tests `explorer::formula_integration_tests` (copied
+  coordinates round trip for Julia and Multibrot views, `set_formula` from a Julia view, Reset
+  in each formula).
+- Interaction test (1280 × 820 pt, 120 Hz, background window): "julia twin deep zoom" 109.0 fps,
+  "julia 1e-100 pan" 117.8, "julia 1e-300 zoom" 117.0, "multibrot5 pan" 117.1, "multibrot8 deep
+  zoom" 41.9 / 104.3 / 46.9 in three runs (bimodal: 19–20 ms GPU per frame in the slow runs; the
+  kernel itself is as fast as F3's, a 2560 × 1640 z⁸ still 111–113 ms vs F3's 113–122 ms); shown
+  frame vs fresh render 0–0.003 % in class. The first run crashed the app: the Places grid
+  indexed its tiles through a list that follows the model, so a tile updated after a formula
+  change read the new, shorter list with an old index (F3's; now one snapshot for ids and tiles).
+- iOS UI tests on the iPad mini simulator: `testFormulaPicker`, `testJuliaTwinAndBack`,
+  `testJuliaPanelTapOpensTheSet` pass.
+
 ## Effort breakdown
 
 M overall (1–2 weeks).

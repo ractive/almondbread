@@ -3059,6 +3059,26 @@ digits) and the back button. Settings carry the formula `julia` with k (`julia_r
 so a restored session opens it whole. iOS UI tests: `OverlayLayoutUITests.testJuliaPanelTapOpensTheSet`,
 `TouchControlsUITests.testJuliaTwinAndBack`.
 
+### Fractal picker and Julia views (F3 + F4, 2026-10-22)
+
+The control center's "Fractal" picker ([F3: Multibrot z^p + c](../plans/f3-multibrot.md)) lists
+what Rust's `formula_options()` lists: Mandelbrot and Multibrot (z³ … z⁸ + c). A Julia set
+([F4: Deep Julia sets](../plans/f4-deep-julia.md)) is no picker entry: it is entered through the
+Julia panel or the twin and left through the way back. While a Julia view is shown the picker
+shows its parent, "Mandelbrot", and is disabled (the simplest consistent state: Julia sets are
+`z² + k`, Mandelbrot's, and a choice there would have to mean "leave the Julia set" anyway).
+Rust keeps the same rules for every caller: `Explorer::set_formula` from a Julia view first goes
+back to the view the set was opened from, then switches (another formula: its whole set; the
+same one: nothing more); the twin, the panel and the `julia` settings entry exist for the
+Mandelbrot set only (no `z^p + k` Julia sets; `FormulaCapabilities::MULTIBROT.julia_panel` is
+off, so the twin button is hidden and ⇧U does nothing in a Multibrot view). Reset and the
+autopilot's way out go to `Viewport::fitting_for(formula)`: Mandelbrot's home, a Multibrot set's
+(centred on 0), a Julia set's (`julia::home_view`). Copied coordinates carry `julia re im` for a
+Julia view and `formula multibrotP` for a Multibrot view (never both); pasting text with neither
+line in a Julia view leaves it for the Mandelbrot set. A place (all places are Mandelbrot or
+Multibrot) from a Julia view is a jump that drops the way back. The mini-map's whole level is the
+current set's home view (Multibrot: centred on 0).
+
 ### Mini-map on small screens (as built, 2026-10-19)
 
 Two clashes on the iPhone 17e (390 × 844 points): in portrait the second of two 180-point maps

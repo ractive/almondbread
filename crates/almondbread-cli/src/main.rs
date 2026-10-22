@@ -38,7 +38,7 @@ mod progress;
 
 use options::Options;
 
-const USAGE: &str = "usage: almondbread render|verify|precision|progress|bench|regress|fly|benchmark|places|locate|journey|autopilot|palettes [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|precision|progress|bench|regress|fly|benchmark|places|locate|seek|journey|autopilot|palettes [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -75,6 +75,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "benchmark" => benchmark::benchmark_command(&backend, o),
         "palettes" => palettes::palettes_command(&backend, o),
         "locate" => commands::locate_command(o),
+        "seek" => commands::seek_command(o),
         "journey" => commands::journey_command(&backend, o),
         "autopilot" => autopilot::autopilot_command(o),
         "places" => places::places_command(&backend, o),

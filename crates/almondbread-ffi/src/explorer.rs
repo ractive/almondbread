@@ -650,12 +650,40 @@ impl FormulaCapabilities {
     }
 }
 
+/// One entry of the formula picker (F3): the formula (`ExplorerSettings::formula`), its family
+/// (the first choice: "mandelbrot", "multibrot"; later ones append) and labels.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FormulaOption {
+    pub formula: String,
+    pub family: String,
+    /// "Mandelbrot", "Multibrot".
+    pub family_title: String,
+    /// The formula as maths: "z² + c", "z⁵ + c".
+    pub title: String,
+    /// The power p of `z^p + c`.
+    pub power: u32,
+}
+
+pub(crate) fn formula_option_list() -> Vec<FormulaOption> {
+    use almondbread_core::formula::{family, family_title, selectable, title};
+    selectable()
+        .into_iter()
+        .map(|f| FormulaOption {
+            formula: f.name(),
+            family: family(f).into(),
+            family_title: family_title(f).into(),
+            title: title(f),
+            power: f.power(),
+        })
+        .collect()
+}
+
 /// Everything that affects the image except the viewport (the inspector's model).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ExplorerSettings {
-    /// The fractal (F2): "mandelbrot" (the only one a user can pick until F3; see
-    /// `Explorer::formulas`), or "julia" (F4: a Julia set, opened from the Julia panel or as a
-    /// view's twin, with its `k` below).
+    /// The fractal: "mandelbrot", "multibrot3" ... "multibrot8" (F3; `Explorer::formula_options`),
+    /// or "julia" (F4: a Julia set, opened from the Julia panel or as a view's twin, with its
+    /// `k` below; never in the formula picker).
     pub formula: String,
     /// F4: the Julia set's `k` (decimal strings at its full precision; empty unless "julia").
     pub julia_re: String,
@@ -1294,6 +1322,25 @@ struct Inner {
     log: Option<PresentationLog>,
     /// The flight benchmark playing in this view (window test `--flight-bench=`).
     bench: Option<crate::flight_bench::FlightBench>,
+    /// The autopilot target lock as the user set it; it is on only in a formula with the
+    /// Mandelbrot content (F3: its finder is Mandelbrot's journey finder), see `sync_formula`.
+    lock_wanted: Option<bool>,
+}
+
+impl Inner {
+    /// After a formula change (F3): what the formula lacks goes off, the target lock comes
+    /// back with a formula that has it.
+    fn sync_formula(&mut self) {
+        let caps = almondbread_core::FormulaCapabilities::of(self.host.renderer.settings.formula);
+        if !caps.pi_meter {
+            self.host.overlay.pi.enabled = false;
+        }
+        let autopilot = self.host.renderer.navigator.autopilot_mut();
+        let wanted = *self.lock_wanted.get_or_insert(autopilot.lock_enabled());
+        if autopilot.lock_enabled() != (wanted && caps.content) {
+            autopilot.set_lock(wanted && caps.content);
+        }
+    }
 }
 
 // SAFETY: `Inner` holds Objective-C objects (Metal device, queue, buffers, textures, the
@@ -1387,6 +1434,7 @@ impl Explorer {
                 surface,
                 log: None,
                 bench: None,
+                lock_wanted: None,
             }),
         }))
     }
@@ -1485,6 +1533,7 @@ impl Explorer {
             surface,
             log,
             bench,
+            ..
         } = &mut *g;
         // A panic must not cross the FFI (UniFFI turns it into a Swift trap: the app dies, as
         // in "selected Lagoon and almondbread died"). The panic hook has logged it to
@@ -1553,7 +1602,9 @@ impl Explorer {
     /// and backs out of voids (on by default; off: a pure joystick; kb: decisions/controls
     /// "Autopilot").
     pub fn set_autopilot_lock(&self, on: bool) {
-        self.lock().host.renderer.navigator.autopilot_mut().set_lock(on);
+        let mut g = self.lock();
+        g.lock_wanted = Some(on);
+        g.sync_formula();
     }
 
     /// Lane assist (setting "Assist", key L; default off; active in cruise only; kb:
@@ -1662,16 +1713,12 @@ impl Explorer {
         let mut g = self.lock();
         let mut s = g.host.renderer.settings.clone();
         settings.apply(&mut s)?;
-        // (What the formula lacks is off, F2: the π meter.)
-        if !almondbread_core::FormulaCapabilities::of(s.formula).pi_meter {
-            g.host.overlay.pi.enabled = false;
-        }
         let before = g.host.renderer.settings.formula;
         // F4: a Julia set named by the settings (restored at launch, a test) opens like one
         // from the panel: the way back is kept, the untouched home view becomes the set's.
         if s.formula.is_julia() && s.formula != before {
             let (w, h) = g.host.view_points();
-            let home = g.host.renderer.viewport == Viewport::fitting(w, h);
+            let home = g.host.renderer.viewport == Viewport::fitting_for(before, w, h);
             let view = if home {
                 almondbread_core::julia::home_view(w, h)
             } else {
@@ -1684,6 +1731,8 @@ impl Explorer {
             g.host.julia_return = None;
         }
         g.host.renderer.settings = s;
+        // (What the formula lacks is off: the π meter, F2; the target lock, F3.)
+        g.sync_formula();
         Ok(())
     }
 
@@ -1712,6 +1761,32 @@ impl Explorer {
         true
     }
 
+    /// The formula picker (F3, kb: plans/f3-multibrot): switches to a formula a user can pick
+    /// (`formula_options()`) and goes to its whole set (a view of one set is rarely anything in
+    /// another); what it lacks goes off. The same formula changes nothing. From a Julia view
+    /// (F4) it first goes back to the view the Julia set was opened from (so the same formula
+    /// as that view's is the way back). Returns the new settings. A frame follows: resume the
+    /// display link.
+    pub fn set_formula(&self, formula: String) -> Result<ExplorerSettings, CoreError> {
+        let f = almondbread_core::Formula::parse(&formula)
+            .filter(|f| almondbread_core::formula::selectable().contains(f))
+            .ok_or_else(|| invalid(format!("unknown formula {formula}")))?;
+        let mut g = self.lock();
+        if g.host.back_from_julia() {
+            let back = g.host.renderer.settings.formula;
+            g.host.renderer.navigator.set_formula(back);
+            g.sync_formula();
+        }
+        if g.host.renderer.settings.formula != f {
+            g.host.renderer.settings.formula = f;
+            g.host.renderer.navigator.set_formula(f);
+            g.host.renderer.navigator.jumped();
+            g.host.reset_viewport();
+            g.sync_formula();
+        }
+        Ok(ExplorerSettings::from(&g.host.renderer.settings))
+    }
+
     /// The pivot of a user's density edit (kb: techniques/coloring-methods, "Density pivot"):
     /// the median smooth escape count of the shown view's last finished level, kept from a
     /// tiny sample pass per finished level (no GPU wait here). None: no escaped pixels or no
@@ -1726,7 +1801,7 @@ impl Explorer {
         FormulaCapabilities::of(self.lock().host.renderer.settings.formula)
     }
 
-    /// The formulas a user can pick, by name (F2: "mandelbrot").
+    /// The formulas a user can pick, by name ("mandelbrot", "multibrot3" ... "multibrot8").
     pub fn formulas(&self) -> Vec<String> {
         almondbread_core::formula::selectable()
             .into_iter()
@@ -2068,25 +2143,32 @@ impl Explorer {
             (Some(re), Some(im), Some(scale)) => self.set_viewport_text(re, im, scale).is_ok(),
             _ => false,
         };
-        // The optional `angle` line (degrees); without it the view comes upright.
+        // The optional `angle` line (degrees); without it the view comes upright. The fractal
+        // (F3): the `formula` line, Mandelbrot for labelled text without one, else unchanged.
         if ok {
             let a = almondbread_core::flyto::parse_angle(&text).unwrap_or(0.0);
             let mut g = self.lock();
             g.host.renderer.viewport.angle = a;
-            // F4: a `julia re im` line names the Julia set the view is of; without one the text
-            // is a Mandelbrot view (a Julia view is left).
+            // F4: a `julia re im` line names the Julia set the view is of. Without one, a Julia
+            // view is left (to the view it came from, then the pasted view) and the `formula`
+            // line (F3) picks the set: Mandelbrot for labelled text without one, else unchanged.
             let view = g.host.renderer.viewport.clone();
             match almondbread_core::julia::parse_k_line(&text) {
                 Some(k) => {
                     let f = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
                     g.host.open_julia(f, view);
                 }
-                None if g.host.renderer.settings.formula.is_julia() => {
-                    g.host.back_from_julia();
-                    g.host.renderer.viewport = view;
+                None => {
+                    if g.host.renderer.settings.formula.is_julia() {
+                        g.host.back_from_julia();
+                        g.host.renderer.viewport = view;
+                    }
+                    if let Some(f) = almondbread_core::flyto::parse_formula(&text) {
+                        g.host.renderer.settings.formula = f;
+                    }
                 }
-                None => {}
             }
+            g.sync_formula();
         }
         ok
     }
@@ -2128,6 +2210,11 @@ impl Explorer {
         let target = target.with_angle(almondbread_core::flyto::parse_angle(&text).unwrap_or(r.viewport.angle));
         let start = r.viewport.clone();
         r.navigator.fly_to(&target, &start, media_time());
+        // The text's fractal (F3), at once (the flight is through its set).
+        if let Some(f) = almondbread_core::flyto::parse_formula(&text) {
+            r.settings.formula = f;
+            g.sync_formula();
+        }
         true
     }
 
@@ -2224,6 +2311,8 @@ impl Explorer {
             .max(v.min_scale())
             .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
         v.ensure_precision();
+        // (A Julia view, F4, is left for good: the place is the new start.)
+        g.host.julia_return = None;
         let renderer = &mut g.host.renderer;
         renderer.navigator.jumped();
         renderer.viewport = v;
@@ -2241,13 +2330,19 @@ impl Explorer {
             }
             None => s.auto_iterations = true,
         }
-        Ok(ExplorerSettings::from(&*s))
+        let out = ExplorerSettings::from(&*s);
+        g.sync_formula();
+        Ok(out)
     }
 
     /// Flies to a catalogue place (the fly-to path), fitted to the view like `go_to_place`, and
     /// takes its look and iteration limit at once. Returns the new settings.
     pub fn fly_to_place(&self, id: String) -> Result<ExplorerSettings, CoreError> {
         let place = almondbread_core::places::place_named(&id).ok_or_else(|| invalid(format!("unknown place {id}")))?;
+        // F4: no flight out of a Julia view (another plane): a jump.
+        if self.lock().host.renderer.settings.formula.is_julia() {
+            return self.go_to_place(id);
+        }
         let mut g = self.lock();
         let (w, h) = g.host.view_points();
         let mut v = Viewport::with_center(place.center(), place.span_scale() / w.min(h).max(1.0));
@@ -2272,7 +2367,9 @@ impl Explorer {
             }
             None => s.auto_iterations = true,
         }
-        Ok(ExplorerSettings::from(&*s))
+        let out = ExplorerSettings::from(&*s);
+        g.sync_formula();
+        Ok(out)
     }
 
     /// Centre and scale for the clipboard.
@@ -2290,7 +2387,7 @@ impl Explorer {
         let v = &g.host.renderer.viewport;
         let mut at = Viewport::with_center(v.point_at_offset(x, y), v.scale).with_angle(v.angle);
         at.ensure_precision();
-        almondbread_render::host::coordinates_text_of(&at)
+        almondbread_render::host::coordinates_text_for(&at, g.host.renderer.settings.formula)
     }
 
     /// Renders the current view and settings offscreen at `width` x `height` pixels (the
@@ -2452,5 +2549,144 @@ mod julia_settings_tests {
             ..e
         };
         assert!(bad.apply(&mut u).is_err());
+    }
+}
+
+/// F3 + F4 together (kb: plans/f3-multibrot, plans/f4-deep-julia "F3+F4 integration"): the
+/// formula picker, the Julia twin, Reset and copied coordinates on a real Explorer (windowless
+/// layer; no frames are drawn).
+#[cfg(all(test, target_vendor = "apple"))]
+mod formula_integration_tests {
+    use super::*;
+    use almondbread_core::formula::Formula;
+
+    const W: f64 = 400.0;
+    const H: f64 = 250.0;
+
+    fn explorer() -> (Arc<Explorer>, objc2::rc::Retained<objc2_quartz_core::CAMetalLayer>) {
+        let layer = objc2_quartz_core::CAMetalLayer::new();
+        let ptr = objc2::rc::Retained::as_ptr(&layer) as usize as u64;
+        let e = Explorer::new(ptr, 2.0).expect("explorer");
+        e.resize(W, H, 2.0);
+        (e, layer)
+    }
+
+    fn formula(e: &Explorer) -> Formula {
+        e.lock().host.renderer.settings.formula
+    }
+
+    fn view(e: &Explorer) -> Viewport {
+        e.lock().host.renderer.viewport.clone()
+    }
+
+    /// A Julia view's text carries its k (`julia re im`), a Multibrot view's its `formula` line;
+    /// pasting either from any other view comes back to the same fractal and view, and plain
+    /// Mandelbrot text leaves a Julia view.
+    #[test]
+    fn copied_coordinates_round_trip_julia_and_multibrot() {
+        let (e, _layer) = explorer();
+        // Julia: the set of k at a view of it.
+        assert!(e.open_julia("-0.1225611668766536".into(), "0.7448617666197442".into()));
+        e.set_viewport("0.1358".into(), "-0.9841".into(), 3e-9).unwrap();
+        let (jf, jv) = (formula(&e), view(&e));
+        let text = e.coordinates_text();
+        assert!(text.contains("\njulia -0.1225611668766536"), "{text}");
+        assert!(!text.contains("formula"), "{text}");
+        // Back in Mandelbrot, then elsewhere in Multibrot: the paste reopens that Julia set.
+        assert!(e.back_from_julia());
+        e.set_formula("multibrot5".into()).unwrap();
+        assert!(e.paste_coordinates(text.clone()));
+        assert_eq!(formula(&e), jf);
+        assert_eq!(view(&e).center, jv.center);
+        assert_eq!(view(&e).scale, jv.scale);
+
+        // Multibrot: picked from the Julia view (leaves it), then a view of it.
+        e.set_formula("multibrot5".into()).unwrap();
+        assert_eq!(formula(&e), Formula::Multibrot(5));
+        e.set_viewport("0.84733531576585034".into(), "0.58201571377117265".into(), 1.1e-8)
+            .unwrap();
+        let mv = view(&e);
+        let text = e.coordinates_text();
+        assert!(text.ends_with("\nformula multibrot5"), "{text}");
+        assert!(!text.contains("julia"), "{text}");
+        // From a Julia view: the paste leaves it for the Multibrot set at that view.
+        e.set_formula("mandelbrot".into()).unwrap();
+        assert!(e.julia_twin());
+        assert!(formula(&e).is_julia());
+        assert!(e.paste_coordinates(text));
+        assert_eq!(formula(&e), Formula::Multibrot(5));
+        assert_eq!(view(&e).center, mv.center);
+        assert!(!e.back_from_julia(), "no Julia view left to go back from");
+
+        // Mandelbrot text (no line) in a Julia view: the Mandelbrot set at that view.
+        e.set_formula("mandelbrot".into()).unwrap();
+        e.set_viewport("-0.75".into(), "0.1".into(), 1e-4).unwrap();
+        let mt = e.coordinates_text();
+        assert!(!mt.contains("julia") && !mt.contains("formula"), "{mt}");
+        assert!(e.julia_twin());
+        assert!(e.paste_coordinates(mt));
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        assert_eq!(view(&e).center, Center::parse("-0.75", "0.1").unwrap());
+    }
+
+    /// The picker from a Julia view leaves it first: another formula goes to that set's whole
+    /// view, the parent's formula back to where the Julia set was opened from. The twin is
+    /// Mandelbrot's alone.
+    #[test]
+    fn set_formula_from_a_julia_view() {
+        let (e, _layer) = explorer();
+        e.set_viewport("-0.743643887".into(), "0.131825904".into(), 1e-7)
+            .unwrap();
+        let from = view(&e);
+        assert!(e.julia_twin());
+        assert!(formula(&e).is_julia());
+        let s = e.set_formula("multibrot4".into()).unwrap();
+        assert_eq!(s.formula, "multibrot4");
+        assert_eq!(view(&e), Viewport::fitting_for(Formula::Multibrot(4), W, H));
+        assert!(!e.back_from_julia());
+        // No twin in Multibrot (no z^p + k Julia sets), nor through the settings' formula list.
+        assert!(!e.julia_twin());
+        assert!(e.set_formula("julia".into()).is_err());
+        // Twin again from Mandelbrot; picking Mandelbrot goes back to the view it came from.
+        e.set_formula("mandelbrot".into()).unwrap();
+        e.set_viewport("-0.743643887".into(), "0.131825904".into(), 1e-7)
+            .unwrap();
+        assert!(e.julia_twin());
+        let s = e.set_formula("mandelbrot".into()).unwrap();
+        assert_eq!(s.formula, "mandelbrot");
+        assert_eq!(view(&e).center, from.center);
+        assert_eq!(view(&e).scale, from.scale);
+        // Places of a Julia set: none.
+        assert!(
+            almondbread_core::places::places_for(Formula::Julia(almondbread_core::formula::JuliaK::new(
+                Center::parse("0", "1").unwrap().big()
+            )))
+            .is_empty()
+        );
+    }
+
+    /// Reset goes to the current formula's whole set: Mandelbrot's, a Multibrot set's (centred
+    /// on 0), a Julia set's (`julia::home_view`).
+    #[test]
+    fn reset_in_each_formula() {
+        let (e, _layer) = explorer();
+        for f in ["mandelbrot", "multibrot3", "multibrot8"] {
+            e.set_formula(f.into()).unwrap();
+            e.set_viewport("0.3".into(), "0.01".into(), 1e-9).unwrap();
+            e.reset_viewport();
+            assert_eq!(view(&e), Viewport::fitting_for(formula(&e), W, H), "{f}");
+        }
+        e.set_formula("mandelbrot".into()).unwrap();
+        assert_eq!(view(&e), Viewport::fitting(W, H));
+        assert!(e.open_julia("0".into(), "1".into()));
+        e.set_viewport("0.3".into(), "0.01".into(), 1e-9).unwrap();
+        e.reset_viewport();
+        assert_eq!(view(&e), almondbread_core::julia::home_view(W, H));
+        assert!(formula(&e).is_julia(), "Reset stays in the Julia set");
+        // The navigator's home (R, the autopilot's way out) is the same view.
+        assert_eq!(
+            Viewport::fitting_for(formula(&e), W, H),
+            almondbread_core::julia::home_view(W, H)
+        );
     }
 }

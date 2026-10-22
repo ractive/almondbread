@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-use almondbread_core::math::{DoubleExp, NewtonOptions, PeriodMethod, find_nucleus, find_period};
+use almondbread_core::math::{DoubleExp, NewtonOptions, PeriodMethod, find_nucleus_for, find_period_for};
 use almondbread_core::orbit::{
     MAP_LINE_POINTS, OrbitClass, OrbitPoints, OrbitProbe, PROBE_MIN_STEPS, ProbePoint, ProbeReference, orbit_points,
 };
@@ -639,12 +639,13 @@ fn full_set_view(w: usize, h: usize) -> Viewport {
     Viewport::new(-0.7, 0.0, s)
 }
 
-/// The whole-set map level of `formula` (F4: a Julia set's whole view, centred on 0).
+/// The whole-set map level of `formula` (F4: a Julia set's whole view, centred on 0; F3: a
+/// Multibrot set's home view, centred on 0, as Reset shows it).
 fn full_view_of(formula: almondbread_core::Formula, w: usize, h: usize) -> Viewport {
-    if formula.is_julia() {
-        almondbread_core::julia::home_view(w as f64, h as f64)
-    } else {
+    if formula.is_mandelbrot() {
         full_set_view(w, h)
+    } else {
+        Viewport::fitting_for(formula, w as f64, h as f64)
     }
 }
 
@@ -774,7 +775,7 @@ struct SnapJob {
 /// Overlay state of one view: settings, the orbit probe, the maps, the uploaded scene.
 pub struct Overlay<B: GpuBackend> {
     pub settings: OverlaySettings,
-    probe_key: Option<(Viewport, [i64; 2], usize, u64)>,
+    probe_key: Option<(Viewport, [i64; 2], usize, u64, almondbread_core::Formula)>,
     probe: Option<OrbitProbe>,
     points: OrbitPoints,
     probe_reference: Option<(u64, Arc<ProbeReference>)>,
@@ -1189,13 +1190,15 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             Some(c) => view.offset_of(c),
             None => renderer.navigator.probe_point(),
         };
-        // Key: the view, the target to 1/64 point, the length and the reference.
+        // Key: the view, the target to 1/64 point, the length, the reference and the formula
+        // (F3: a switch at a shallow view, where no reference changes, follows the new orbit).
         let serial = renderer.reference_serial();
         let key = (
             view.clone(),
             [(tx * 64.0).round() as i64, (ty * 64.0).round() as i64],
             length,
             serial,
+            renderer.settings.formula,
         );
         if self.probe_key.as_ref() == Some(&key) {
             return;
@@ -1485,7 +1488,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             let mut probe_view = Viewport::with_center(c.clone(), view_scale);
             probe_view.ensure_precision();
             let bits = probe_view.needed_center_bits().max(c.precision_bits());
-            let handle = std::thread::spawn(move || resolve_click(c, map_scale, ratio, bits, max_iter, fly));
+            let formula = renderer.settings.formula;
+            let handle = std::thread::spawn(move || resolve_click(formula, c, map_scale, ratio, bits, max_iter, fly));
             self.snap = Some(SnapJob { handle });
             return true;
         }
@@ -2047,7 +2051,17 @@ fn map_settings(main: &RenderSettings) -> RenderSettings {
 /// detection, Newton to its nucleus at the view's precision) and jumps to the minibrot's
 /// cusp (nucleus + size/4 along its orientation), a boundary point with structure at every
 /// depth. No minibrot found: the pixel's centre.
-fn resolve_click(c: Center, map_scale: Scale, ratio: f64, bits: usize, max_iter: usize, fly: bool) -> MapJump {
+/// (F3: in the current formula's set; a Multibrot minibrot's cusp on its real axis at
+/// `w = (d-1)/d d^(-1/(d-1))`, 1/4 for Mandelbrot.)
+fn resolve_click(
+    formula: almondbread_core::Formula,
+    c: Center,
+    map_scale: Scale,
+    ratio: f64,
+    bits: usize,
+    max_iter: usize,
+    fly: bool,
+) -> MapJump {
     if ratio <= 4.0 {
         return MapJump {
             center: c,
@@ -2057,7 +2071,8 @@ fn resolve_click(c: Center, map_scale: Scale, ratio: f64, bits: usize, max_iter:
     }
     let big = c.with_min_precision(bits);
     let radius = map_scale.big_times(1.0, 64);
-    let period = find_period(
+    let period = find_period_for(
+        formula,
         big.big(),
         &radius,
         max_iter.min(200_000),
@@ -2077,10 +2092,11 @@ fn resolve_click(c: Center, map_scale: Scale, ratio: f64, bits: usize, max_iter:
         max_steps: 64,
         max_distance: Some(map_scale.big_times(4.0, 64)),
     };
-    match find_nucleus(big.big(), p, &opts, &mut || false) {
+    match find_nucleus_for(formula, big.big(), p, &opts, &mut || false) {
         Some(n) => {
-            let size = almondbread_core::math::minibrot_size_complex(&n.nucleus, p);
-            let quarter = DoubleExp::from_f64(0.25);
+            let size = almondbread_core::math::minibrot_size_complex_for(formula, &n.nucleus, p);
+            let d = f64::from(formula.power());
+            let quarter = DoubleExp::from_f64((d - 1.0) / d * d.powf(-1.0 / (d - 1.0)));
             let (sx, sy) = ((size.re * quarter).to_f64(), (size.im * quarter).to_f64());
             let nucleus = Center::from_big(n.nucleus);
             let cusp = nucleus.offset(sx, sy);

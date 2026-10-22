@@ -508,7 +508,7 @@ pub fn parse(text: &str) -> Result<Tour, TourError> {
         None => false,
         Some((n, v)) => on_off(n, "hidden", &v)?,
     };
-    // The formula: one a user can pick (F2: Mandelbrot only).
+    // The formula: one a user can pick (F3: Mandelbrot and Multibrot 3..8).
     let formula = match get("formula") {
         None => Formula::Mandelbrot,
         Some((n, v)) => match Formula::parse(&v) {
@@ -1670,7 +1670,9 @@ mod tests {
     fn tours_carry_a_formula() {
         assert_eq!(tiny("a", "").formula, Formula::Mandelbrot);
         assert_eq!(tiny("b", "formula: mandelbrot").formula, Formula::Mandelbrot);
-        let e = parse("---\nid: c\ntitle: c\nsummary: S\nformula: multibrot3\n---\n\n## One\n\nText.\n");
+        // F3: Multibrot powers 3..8 are selectable; the generic p = 2 test formula is not.
+        assert_eq!(tiny("c", "formula: multibrot3").formula, Formula::Multibrot(3));
+        let e = parse("---\nid: c\ntitle: c\nsummary: S\nformula: multibrot2\n---\n\n## One\n\nText.\n");
         assert!(e.is_err());
         assert!(crate::places::places().iter().all(|p| p.formula == Formula::Mandelbrot));
     }

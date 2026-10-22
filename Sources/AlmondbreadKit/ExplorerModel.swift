@@ -188,7 +188,7 @@ struct SavedSettings: Codable {
     var cosmicScale: Bool?
     var compassAlways: Bool?
     var targetMarker: Bool?
-    /// The fractal (F2): "mandelbrot", or "julia" (F4) with its k.
+    /// The fractal (F2, F3, F4): "mandelbrot", "multibrot3" ... "multibrot8", or "julia" with its k.
     var formula: String?
     var juliaRe: String?
     var juliaIm: String?
@@ -202,7 +202,9 @@ struct SavedSettings: Codable {
 @MainActor
 @Observable
 public final class ExplorerModel {
-    /// The fractal (F2, kb: plans/f2-pluggable-formulas): "mandelbrot" until F3 adds more.
+    /// The fractal (F2, kb: plans/f2-pluggable-formulas): "mandelbrot", or a Multibrot power
+    /// "multibrot3" ... "multibrot8" (F3). The picker switches with `selectFormula` (which also
+    /// goes to the new set's home); setting this directly only changes the formula (restore).
     public var formula = "mandelbrot" {
         didSet {
             push()
@@ -223,6 +225,52 @@ public final class ExplorerModel {
     /// Whether the current formula has a feature (true before the renderer exists).
     public func has(_ feature: KeyPath<FormulaCapabilities, Bool>) -> Bool {
         capabilities?[keyPath: feature] ?? true
+    }
+
+    // MARK: Formula picker (F3, kb: plans/f3-multibrot)
+
+    /// The picker's entries in menu order (Rust `formula_options()`): every formula a user can
+    /// pick with its family; families come in the order of their first entry.
+    public static let formulaOptions: [FormulaOption] = AlmondbreadCore.formulaOptions()
+
+    /// The families (the picker's first choice), in order: (id, title).
+    public static let formulaFamilies: [(id: String, title: String)] = {
+        var out: [(id: String, title: String)] = []
+        for o in formulaOptions where !out.contains(where: { $0.id == o.family }) {
+            out.append((o.family, o.familyTitle))
+        }
+        return out
+    }()
+
+    /// The entries of one family (its second choice when there are several: Multibrot's powers).
+    public static func formulaOptions(family: String) -> [FormulaOption] {
+        formulaOptions.filter { $0.family == family }
+    }
+
+    /// The current formula's family ("mandelbrot", "multibrot"; a Julia view, F4, is "mandelbrot").
+    public var formulaFamily: String {
+        Self.formulaOptions.first { $0.formula == formula }?.family ?? "mandelbrot"
+    }
+
+    /// The last formula picked in each family (the family choice comes back to it).
+    private var lastInFamily: [String: String] = [:]
+
+    /// Switches the fractal (the picker): Rust sets it, goes to its whole set and turns off
+    /// what it lacks; the settings come back. The same formula changes nothing.
+    public func selectFormula(_ name: String) {
+        guard name != formula, let explorer, let s = try? explorer.setFormula(formula: name) else { return }
+        // (From a Julia view, F4, Rust leaves it first; "julia" is in no family.)
+        if !isJulia { lastInFamily[formulaFamily] = formula }
+        pull(s)
+        lastInFamily[formulaFamily] = formula
+        host?.requestFrames()
+    }
+
+    /// Switches to a family: its last picked formula, else its first.
+    public func selectFormulaFamily(_ family: String) {
+        guard family != formulaFamily else { return }
+        let name = lastInFamily[family] ?? Self.formulaOptions(family: family).first?.formula
+        if let name { selectFormula(name) }
     }
 
     // Iterations
@@ -1113,6 +1161,8 @@ public final class ExplorerModel {
     @discardableResult
     public func flyToCopiedCoordinates() -> Bool {
         guard let text = Clipboard.text(), let explorer, explorer.flyToCoordinates(text: text) else { return false }
+        // (The text may name another fractal, F3: its settings come back.)
+        pull(explorer.settings())
         host?.requestFrames()
         return true
     }
@@ -1126,10 +1176,28 @@ public final class ExplorerModel {
 
     public static let places: [PlaceInfo] = AlmondbreadCore.places()
 
+    /// The places of the other formulas (F3: a few per Multibrot power), by formula.
+    static let formulaPlaces: [String: [PlaceInfo]] = {
+        var out: [String: [PlaceInfo]] = [:]
+        for o in formulaOptions where o.formula != "mandelbrot" {
+            let list = AlmondbreadCore.placesFor(formula: o.formula)
+            if !list.isEmpty { out[o.formula] = list }
+        }
+        return out
+    }()
+
+    /// Every formula's places (thumbnails, lookups by id).
+    static let allPlaces: [PlaceInfo] = places + formulaOptions.compactMap { formulaPlaces[$0.formula] }.flatMap { $0 }
+
+    /// The places of the current formula: the Mandelbrot catalogue, or a Multibrot power's few.
+    public var currentPlaces: [PlaceInfo] {
+        formula == "mandelbrot" ? Self.places : Self.formulaPlaces[formula] ?? []
+    }
+
     /// Jumps to a place (its view, look and iteration limit).
     public func goToPlace(_ id: String) {
         guard let explorer, let s = try? explorer.goToPlace(id: id) else { return }
-        lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
+        lookID = ExplorerModel.allPlaces.first { $0.id == id }?.look ?? lookID
         pull(s)
         showPlaceInterior()
         host?.requestFrames()
@@ -1138,7 +1206,7 @@ public final class ExplorerModel {
     /// Flies to a place (the fly-to path) and takes its look.
     public func flyToPlace(_ id: String) {
         guard let explorer, let s = try? explorer.flyToPlace(id: id) else { return }
-        lookID = ExplorerModel.places.first { $0.id == id }?.look ?? lookID
+        lookID = ExplorerModel.allPlaces.first { $0.id == id }?.look ?? lookID
         pull(s)
         showPlaceInterior()
         host?.requestFrames()
@@ -1154,7 +1222,11 @@ public final class ExplorerModel {
     /// A random place (optionally of one category); `fly` flies there instead of jumping.
     @discardableResult
     public func randomPlace(category: PlaceCategory? = nil, fly: Bool = false) -> PlaceInfo {
-        let p = AlmondbreadCore.randomPlace(seed: UInt64.random(in: 0...UInt64.max), category: category)
+        // (Another formula's few places, F3: one of those; the catalogue's pick is Rust's.)
+        let own = currentPlaces.filter { category == nil || $0.category == category }
+        let p = formula == "mandelbrot" || own.isEmpty
+            ? AlmondbreadCore.randomPlace(seed: UInt64.random(in: 0...UInt64.max), category: category)
+            : own.randomElement()!
         if fly { flyToPlace(p.id) } else { goToPlace(p.id) }
         return p
     }
@@ -1394,6 +1466,8 @@ public final class ExplorerModel {
     @discardableResult
     public func pasteCoordinates(text: String?) -> Bool {
         guard let text, let explorer, explorer.pasteCoordinates(text: text) else { return false }
+        // (The text may name another fractal, F3: its settings come back.)
+        pull(explorer.settings())
         host?.requestFrames()
         return true
     }

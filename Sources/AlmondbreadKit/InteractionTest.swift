@@ -31,7 +31,11 @@ final class InteractionTest: NSObject {
     private var linkTimes: [CFTimeInterval] = []
     private var linkDurations: [CFTimeInterval] = []
 
-    private struct View { let re: String, im: String, scale: Double }
+    private struct View {
+        let re: String, im: String, scale: Double
+        /// The fractal (F3): Multibrot scenarios switch to theirs, every other one is Mandelbrot.
+        var formula = "mandelbrot"
+    }
     private struct Scenario {
         let name: String
         let viewport: View
@@ -721,6 +725,9 @@ final class InteractionTest: NSObject {
                                 im: "0.6785478674150520237952461553430622991323380058277815194421221054868252650933002485440546541350165849932149350420951796822304685241394963385899335024961001636274825482729138595485370773903166706946136063947425419828687390342905631095799823421179334798563580045190217945069289191899700554854070505266217696214286174348262202054",
                                 scale: 2e-300)
         let rabbitK = (re: "-0.1225611668766536", im: "0.7448617666197442")
+        let multibrot5 = View(re: "0.84733531576585034", im: "0.58201571377117265", scale: 1.1e-8, formula: "multibrot5")
+        let multibrot8 = View(re: "-0.578757811778842465396026167", im: "0.890676734071857679572348838",
+                              scale: 5.2e-24, formula: "multibrot8")
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "sweep", viewport: home, input: sweep(false)),
                 Scenario(name: "julia sweep", viewport: home, input: sweep(true)),
@@ -771,7 +778,11 @@ final class InteractionTest: NSObject {
                 Scenario(name: "spiral zoom", viewport: spiral, input: zoom),
                 Scenario(name: "julia twin deep zoom", viewport: seaDeep, input: deepZoom, julia: (re: "twin", im: "")),
                 Scenario(name: "julia 1e-100 pan", viewport: rabbit100, input: pan, julia: rabbitK),
-                Scenario(name: "julia 1e-300 zoom", viewport: dendrite300j, input: zoom, julia: (re: "0", im: "1"))]
+                Scenario(name: "julia 1e-300 zoom", viewport: dendrite300j, input: zoom, julia: (re: "0", im: "1")),
+                // F3 (kb: plans/f3-multibrot): z^5 + c at its seek-found period-11 minibrot, and
+                // z^8 + c at its period-19 minibrot beside a Misiurewicz point (1e-24 per point).
+                Scenario(name: "multibrot5 pan", viewport: multibrot5, input: pan),
+                Scenario(name: "multibrot8 deep zoom", viewport: multibrot8, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -857,15 +868,20 @@ final class InteractionTest: NSObject {
             exit(failures == 0 ? 0 : 1)
         }
         let v = scenarios[scenario].viewport
-        // The fractal (F4): a Julia set where the scenario names one (its k, or the twin of the
-        // viewport), else the Mandelbrot set.
+        // The fractal: leave a Julia view (F4), set the scenario's formula (F3: a switch goes to
+        // its whole set), its view, then open the Julia set where the scenario names one (its k
+        // at the view, or the twin of the view).
         if explorer.settings().formula == "julia" { _ = explorer.backFromJulia() }
-        if let k = scenarios[scenario].julia, k.re != "twin", !explorer.openJulia(re: k.re, im: k.im) {
-            print("interaction-test: \(scenarios[scenario].name): bad Julia k")
-            exit(1)
-        }
         do {
+            _ = try explorer.setFormula(formula: v.formula)
             try explorer.setViewport(re: v.re, im: v.im, scale: v.scale)
+            if let k = scenarios[scenario].julia, k.re != "twin" {
+                guard explorer.openJulia(re: k.re, im: k.im) else {
+                    print("interaction-test: \(scenarios[scenario].name): bad Julia k")
+                    exit(1)
+                }
+                try explorer.setViewport(re: v.re, im: v.im, scale: v.scale)
+            }
         } catch {
             print("interaction-test: \(scenarios[scenario].name): \(error)")
             exit(1)

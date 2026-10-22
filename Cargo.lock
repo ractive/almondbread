@@ -51,6 +51,8 @@ version = "0.1.0"
 dependencies = [
  "almondbread-core",
  "almondbread-render",
+ "objc2",
+ "objc2-quartz-core",
  "serde_json",
  "thiserror",
  "uniffi",

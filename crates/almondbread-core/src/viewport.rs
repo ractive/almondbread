@@ -492,6 +492,19 @@ impl Viewport {
         Self::new(-0.75, 0.0, (3.2 / width).max(2.6 / height))
     }
 
+    /// The home view of a formula's whole set (F3): [`Viewport::fitting`] for Mandelbrot; a
+    /// Multibrot set is centred on 0 and spans about 2.9 in both directions; a Julia set (F4) gets
+    /// [`crate::julia::home_view`].
+    pub fn fitting_for(formula: crate::formula::Formula, width: f64, height: f64) -> Self {
+        if formula.is_julia() {
+            return crate::julia::home_view(width, height);
+        }
+        if formula.is_mandelbrot() || width <= 0.0 || height <= 0.0 {
+            return Self::fitting(width, height);
+        }
+        Self::new(0.0, 0.0, (2.9 / width).max(2.9 / height))
+    }
+
     /// Complex coordinate of a point given in view points from the centre (y up).
     pub fn point_at_offset(&self, dx: f64, dy: f64) -> Center {
         let (x, y) = self.rotate(dx, dy);

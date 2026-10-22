@@ -201,6 +201,8 @@ impl<B: GpuBackend + Clone> Host<B> {
         let before = self.renderer.viewport.clone();
         let interaction = self.renderer.navigator.last_interaction;
         let mode = self.renderer.navigator.mode();
+        // Seek and the home view follow the current formula (F3).
+        self.renderer.navigator.set_formula(self.renderer.settings.formula);
         let handled = self.renderer.handle_input(event, now);
         // Focus lost (kb: decisions/controls "Held input"): a compass press lets go without its
         // click (no turn to north), as the navigator lets go of keys, pedals and fingers.
@@ -624,11 +626,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
         self.renderer.navigator.cancel_flight();
-        self.renderer.viewport = if self.renderer.settings.formula.is_julia() {
-            almondbread_core::julia::home_view(w, h)
-        } else {
-            Viewport::fitting(w, h)
-        };
+        self.renderer.viewport = Viewport::fitting_for(self.renderer.settings.formula, w, h);
     }
 
     /// One display refresh. `now` is the refresh's timestamp, `clock` reads the same clock
@@ -643,6 +641,8 @@ impl<B: GpuBackend + Clone> Host<B> {
         acquire: &mut dyn FnMut(bool) -> Option<(FrameTarget<B>, u64)>,
     ) -> FrameOutcome {
         let start = clock();
+        // (The navigator's formula, F3: a change from the UI reaches it before any input.)
+        self.renderer.navigator.set_formula(self.renderer.settings.formula);
         // A GPU far behind (an iPad simulator iterating 300 000 steps a pixel queued over 64
         // command buffers and `commandBuffer()` blocked the main thread for up to 25 s): skip
         // this refresh entirely until it catches up (kb: techniques/hang-prevention "GPU queue").
@@ -783,19 +783,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Centre and scale for the clipboard, at the precision the view needs (M3b: arbitrary;
     /// pasting it back gives the same view to a fraction of a point).
     pub fn coordinates_text(&self) -> String {
-        let v = &self.renderer.viewport;
-        let mut text = coordinates_text_of(v);
-        // A Julia view (F4): its k, to the centre's digits (k places the set to them as well).
-        if let Some(k) = self.renderer.settings.formula.julia_k() {
-            let d = coordinate_digits(v) + 2;
-            let kv = k.value();
-            text.push_str(&format!(
-                "\njulia {} {}",
-                kv.re.to_decimal_string(Some(d)),
-                kv.im.to_decimal_string(Some(d))
-            ));
-        }
-        text
+        coordinates_text_for(&self.renderer.viewport, self.renderer.settings.formula)
     }
 }
 
@@ -817,6 +805,26 @@ pub fn coordinates_text_of(v: &Viewport) -> String {
             "\nangle {}",
             almondbread_core::cfmt::g(v.angle.to_degrees(), 10)
         ));
+    }
+    text
+}
+
+/// [`coordinates_text_of`] with the fractal (F3): a `formula multibrotP` line for a Multibrot
+/// set, F4's `julia re im` line for a Julia set (its k, to the centre's digits: k places the set
+/// to them as well), nothing for Mandelbrot (whose text stays as older builds wrote and read it;
+/// pasting text without either line means Mandelbrot, `flyto::parse_formula`).
+pub fn coordinates_text_for(v: &Viewport, formula: almondbread_core::formula::Formula) -> String {
+    let mut text = coordinates_text_of(v);
+    if let Some(k) = formula.julia_k() {
+        let d = coordinate_digits(v) + 2;
+        let kv = k.value();
+        text.push_str(&format!(
+            "\njulia {} {}",
+            kv.re.to_decimal_string(Some(d)),
+            kv.im.to_decimal_string(Some(d))
+        ));
+    } else if !formula.is_mandelbrot() {
+        text.push_str(&format!("\nformula {}", formula.name()));
     }
     text
 }

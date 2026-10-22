@@ -17,7 +17,6 @@ use almondbread_core::pi_moment::PiPoint;
 use almondbread_core::reference::DEEP_SCALE;
 use almondbread_core::settings::Supersampling;
 use almondbread_core::viewport::{Center, Scale, Viewport};
-use almondbread_render::scheduler::BAILOUT;
 use almondbread_render::{GpuBackend, OffscreenResult, Renderer, SimulationResult};
 
 use crate::options::{Options, Result, err};
@@ -441,11 +440,21 @@ pub fn oracle(
             width,
             height,
             max_iter,
-            BAILOUT,
+            formula.bailout(),
             angle,
         )
     } else {
-        cpu_render_deep_for(formula, center, texel, width, height, max_iter, BAILOUT, angle).0
+        cpu_render_deep_for(
+            formula,
+            center,
+            texel,
+            width,
+            height,
+            max_iter,
+            formula.bailout(),
+            angle,
+        )
+        .0
     }
 }
 
@@ -1814,6 +1823,42 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
     Ok(0)
 }
 
+// MARK: seek
+
+/// `seek --center re,im --scale s [--size WxH] [--formula f] [--repeat n]`: the N key headless
+/// (kb: decisions/controls "Seek minibrot"; F3 for every formula): the minibrot it finds from
+/// the view and the framing it flies to; `--repeat n` seeks n times from each framing.
+pub fn seek_command(o: &Options) -> Result<i32> {
+    let (width, height) = o.size("size", (400, 260))?;
+    let mut v = o.viewport(width, height)?;
+    let formula = o.get("formula").and_then(Formula::parse).unwrap_or_default();
+    let never = std::sync::atomic::AtomicBool::new(false);
+    let side = width.min(height) as f64;
+    for step in 0..o.usize("repeat").unwrap_or(1).max(1) {
+        let t0 = Instant::now();
+        let span = v.scale * side;
+        let Some(m) =
+            almondbread_core::seek::seek_for(formula, &v.center, span, &never, almondbread_core::seek::BUDGET)
+        else {
+            println!("step {step}: no minibrot found ({:.2} s)", t0.elapsed().as_secs_f64());
+            return Ok(1);
+        };
+        let target = m.viewport(side);
+        let (re, im) = target
+            .center
+            .to_strings_digits(almondbread_render::host::coordinate_digits(&target));
+        println!(
+            "step {step}: period {} size 1e{:.2} ({:.2} s)\n  --center {re},{im} --scale {}",
+            m.period,
+            m.sigma().log10(),
+            t0.elapsed().as_secs_f64(),
+            target.scale.to_text(6)
+        );
+        v = target;
+    }
+    Ok(0)
+}
+
 // MARK: locate
 
 /// `locate --center re,im --radius r [--min-period p] [--max-period N] [--bits b]
@@ -1825,8 +1870,8 @@ pub fn journey_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resul
 /// (kb: synthesis/benchmarks M3b).
 pub fn locate_command(o: &Options) -> Result<i32> {
     use almondbread_core::math::{
-        BigComplex, BigFloat, DoubleExp, NewtonOptions, PeriodMethod, find_nucleus, find_period_from,
-        minibrot_size_complex,
+        BigComplex, BigFloat, DoubleExp, NewtonOptions, PeriodMethod, find_nucleus_for, find_period_from_for,
+        minibrot_size_complex_for,
     };
     if let Some(seed) = o.get("endless-seed") {
         return locate_endless(seed, o);
@@ -1846,6 +1891,8 @@ pub fn locate_command(o: &Options) -> Result<i32> {
     let walk = o.usize("walk").unwrap_or(0);
     let shrink = o.f64("shrink").unwrap_or(0.05);
     let toward = o.pair("toward")?.unwrap_or((-0.75, 0.1));
+    // F3: `--formula multibrotP` walks Multibrot minibrots.
+    let formula = o.get("formula").and_then(Formula::parse).unwrap_or_default();
     let bad = |w: &str| crate::options::CommandError(format!("bad --{w}"));
     let mut r = Scale::parse(radius).ok_or_else(|| bad("radius"))?;
     let bits_for = |r: Scale| {
@@ -1857,7 +1904,8 @@ pub fn locate_command(o: &Options) -> Result<i32> {
     for step in 0..=walk {
         let t0 = Instant::now();
         let rb = r.big_times(1.0, 64);
-        let Some(p) = find_period_from(
+        let Some(p) = find_period_from_for(
+            formula,
             &center,
             &rb,
             min_period,
@@ -1875,15 +1923,15 @@ pub fn locate_command(o: &Options) -> Result<i32> {
         let opts = NewtonOptions {
             precision_bits: Some(bits),
             max_steps: 64,
-            max_distance: Some(rb.times_power_of_two(4)),
+            max_distance: Some(rb.times_power_of_two(o.usize("newton-reach").unwrap_or(4) as i64)),
         };
-        let Some(mut nr) = find_nucleus(&center, p, &opts, &mut || false) else {
+        let Some(mut nr) = find_nucleus_for(formula, &center, p, &opts, &mut || false) else {
             println!("step {step}: period {p}: Newton did not converge");
             return Ok(1);
         };
         // The nucleus must be resolved far below the minibrot's size (often ~ radius^2 near
         // the needle): refine at more bits until the precision covers it.
-        let mut size = minibrot_size_complex(&nr.nucleus, p);
+        let mut size = minibrot_size_complex_for(formula, &nr.nucleus, p);
         // A few precision rounds at most: each raise is to what the last size asked for.
         for _round in 0..8 {
             let need = ((-size.magnitude().log2_magnitude()) as usize)
@@ -1900,12 +1948,12 @@ pub fn locate_command(o: &Options) -> Result<i32> {
                 ..opts.clone()
             };
             let start = nr.nucleus.with_precision(bits);
-            let Some(better) = find_nucleus(&start, p, &opts, &mut || false) else {
+            let Some(better) = find_nucleus_for(formula, &start, p, &opts, &mut || false) else {
                 println!("step {step}: period {p}: Newton did not converge at {bits} bits");
                 return Ok(1);
             };
             nr = better;
-            size = minibrot_size_complex(&nr.nucleus, p);
+            size = minibrot_size_complex_for(formula, &nr.nucleus, p);
         }
         let t = t0.elapsed().as_secs_f64();
         let dist = (&nr.nucleus - &center).magnitude_double_exp();

@@ -31,8 +31,11 @@ pub const CLOUD_POINTS: usize = 100_000;
 /// The probe follows the orbit at least this far before it calls the point undecided (slow
 /// escapes near the necks take 10^4 to 10^5 steps; kb: decisions/controls "Orbit overlay").
 pub const PROBE_MIN_STEPS: usize = 100_000;
-/// Escape radius of the probe (squared: 2^16 as in the kernels).
-const BAILOUT2: f64 = 65536.0 * 65536.0;
+/// Escape radius of the probe, squared: the kernels' (2^16 for Mandelbrot; `Formula::bailout`).
+fn bailout2(formula: Formula) -> f64 {
+    let b = formula.bailout();
+    b * b
+}
 const INTERIOR_EPS: f64 = 1e-3;
 const CLOSE_TAU2: f64 = 1e-6;
 
@@ -268,7 +271,7 @@ pub fn orbit_points(
         let zf = to_f64(z);
         out.plane.push([clamp(zf[0]), clamp(zf[1])]);
         out.last_abs = z.magnitude().to_f64();
-        if z.magnitude_squared().to_f64() > BAILOUT2 || n == count {
+        if z.magnitude_squared().to_f64() > bailout2(p.formula) || n == count {
             break;
         }
         it.advance(zm);
@@ -395,7 +398,7 @@ impl OrbitProbe {
                 Phase::Main => {
                     let (z, zm) = self.full_z();
                     let r2 = z.magnitude_squared();
-                    if r2.to_f64() > BAILOUT2 {
+                    if r2.to_f64() > bailout2(self.point.formula) {
                         self.class = OrbitClass::Escaped { iteration: self.n };
                         self.phase = Phase::Done;
                         return true;
@@ -425,7 +428,7 @@ impl OrbitProbe {
                 }
                 Phase::Cycle => {
                     let (z, zm) = self.full_z();
-                    if z.magnitude_squared().to_f64() > BAILOUT2 {
+                    if z.magnitude_squared().to_f64() > bailout2(self.point.formula) {
                         self.class = OrbitClass::InteriorUnknown;
                         self.phase = Phase::Done;
                         return true;

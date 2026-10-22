@@ -1111,7 +1111,7 @@ impl Navigator {
 
     /// Depth below the home view fitted to the window, e-folds (negative: wider than home).
     fn depth(&self, viewport: &Viewport) -> f64 {
-        let home = Viewport::fitting(self.view_size.0, self.view_size.1);
+        let home = self.home();
         home.scale.ln() - viewport.scale.ln()
     }
 
@@ -1514,6 +1514,17 @@ impl Navigator {
     /// Seek minibrot's state for the HUD: phase, period, the target's zoom (log10).
     pub fn seek_status(&self, now: f64) -> (SeekPhase, usize, f64) {
         self.seek.status(now)
+    }
+
+    /// The fractal the navigator is in (F3, kept in step with the settings by the host): seek
+    /// searches its set and the home view (Reset, the autopilot's way out) is its whole set.
+    pub fn set_formula(&mut self, formula: crate::formula::Formula) {
+        self.seek.formula = formula;
+    }
+
+    /// The home view fitted to the window (the current formula's whole set).
+    fn home(&self) -> Viewport {
+        Viewport::fitting_for(self.seek.formula, self.view_size.0, self.view_size.1)
     }
 
     pub fn seek_mut(&mut self) -> &mut Seeker {
@@ -1990,7 +2001,7 @@ impl Navigator {
                 if let Some(f) = self.flight.take() {
                     let mut target = f.path.target().clone();
                     if self.cruise.landing().is_some() {
-                        target = Viewport::fitting(width, height).with_angle(target.angle);
+                        target = Viewport::fitting_for(self.seek.formula, width, height).with_angle(target.angle);
                     }
                     let mut next = Flight::new(FlyPath::new(viewport, &target, width));
                     next.soft_landing = f.soft_landing;
@@ -2350,7 +2361,7 @@ impl Navigator {
             NavKey::Reset if down => {
                 self.stop_motion();
                 self.journey.stop();
-                *viewport = Viewport::fitting(self.view_size.0, self.view_size.1);
+                *viewport = self.home();
             }
             _ => {}
         }
@@ -2775,7 +2786,7 @@ impl Navigator {
         if depth > lead + 1.0 {
             return;
         }
-        let home = Viewport::fitting(self.view_size.0, self.view_size.1);
+        let home = self.home();
         let path = FlyPath::new(viewport, &home, self.view_size.0);
         if depth > 0.0 && path.length() * flyto::RHO > lead.max(0.02) {
             return;

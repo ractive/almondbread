@@ -14,14 +14,21 @@
 //! attracting cycle; a satellite bulb is a disc of radius ~0.5 |s|, and w = −0.6 lies in its
 //! own period-2 bulb (period 2p). (Beyond the cusp is no test: an embedded minibrot's cusp
 //! sits on the filament it hangs from.)
+//!
+//! **Multibrot `z^d + c` (F3, kb: plans/f3-multibrot).** The same search with the formula's
+//! period detection, Newton and size estimate (`w -> nucleus + s w` maps the whole Multibrot set
+//! onto the minibrot). Its main component has d - 1 cusps and the period-2 bulbs attach at
+//! `|w| = (d+1)/d d^(-1/(d-1))` in the directions `e^(i pi (2k+1)/(d-1))`; the test point is 0.8 of
+//! the way there (`-0.6` for d = 2). The set is centred on 0, so the framing is too; there is no
+//! antenna airship to tune to (the ring search alone finds the next smaller one).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::math::{
-    DoubleExp, DoubleExpComplex, NewtonOptions, PeriodMethod, ReferenceOrbitComputer, find_nucleus, find_period_from,
-    minibrot_size_complex, with_no_control,
+    DoubleExp, DoubleExpComplex, Formula, NewtonOptions, PeriodMethod, ReferenceOrbitComputer, find_nucleus_for,
+    find_period_from_for, minibrot_size_complex_for, with_no_control,
 };
 use crate::viewport::{Center, Scale, Viewport};
 
@@ -50,6 +57,27 @@ pub struct Minibrot {
     pub period: usize,
     /// Complex size estimate: w of the whole set maps to `nucleus + size * w`.
     pub size: DoubleExpComplex,
+    /// The fractal it is a minibrot of (F3).
+    pub formula: Formula,
+}
+
+/// The framing's centre in the minibrot's own coordinates: inside the cardioid for Mandelbrot,
+/// the centre of the (d - 1)-fold symmetric set for Multibrot (F3).
+fn frame_w(formula: Formula) -> f64 {
+    if formula.is_mandelbrot() { FRAME_W } else { 0.0 }
+}
+
+/// The interior test point of a minibrot's main component (w): 0.8 of the way to its period-2
+/// bulb (`-0.6` for Mandelbrot).
+fn test_w(formula: Formula) -> (f64, f64) {
+    let d = f64::from(formula.power());
+    let r = 0.8 * (d + 1.0) / d * d.powf(-1.0 / (d - 1.0));
+    let a = std::f64::consts::PI / (d - 1.0);
+    if formula.is_mandelbrot() {
+        (-0.6, 0.0)
+    } else {
+        (r * a.cos(), r * a.sin())
+    }
 }
 
 impl Minibrot {
@@ -62,7 +90,12 @@ impl Minibrot {
     pub fn framing(&self) -> (Center, Scale) {
         let span = self.sigma() * FRAME_SPAN;
         let bits = Viewport::with_center(Center::new(0.0, 0.0), span / 4096.0).needed_center_bits();
-        let c = offset_by(&self.nucleus.with_min_precision(bits), self.size, FRAME_W, 0.0);
+        let c = offset_by(
+            &self.nucleus.with_min_precision(bits),
+            self.size,
+            frame_w(self.formula),
+            0.0,
+        );
         (c, span)
     }
 
@@ -130,7 +163,9 @@ enum Verdict {
 /// The minibrot of the lowest period touching the disc (`center`, `r`) from `min_period` on
 /// (to `max_period`, never `skip_period`), skipping satellite bulbs and what `verdict` skips;
 /// Newton from the disc centre (within 16 r, as `almondbread locate`).
+#[allow(clippy::too_many_arguments)]
 fn lowest_in_disc(
+    formula: Formula,
     center: &Center,
     r: Scale,
     mut min_period: usize,
@@ -146,7 +181,8 @@ fn lowest_in_disc(
         if min_period > max_period || stop.now() {
             return None;
         }
-        let p = find_period_from(
+        let p = find_period_from_for(
+            formula,
             start.big(),
             &rb,
             min_period,
@@ -159,7 +195,7 @@ fn lowest_in_disc(
         if p == skip_period {
             continue;
         }
-        if let Some(m) = nucleus_near(&start, p, r * 16.0, stop)
+        if let Some(m) = nucleus_near(formula, &start, p, r * 16.0, stop)
             && is_cardioid(&m, stop)
         {
             match verdict(&m) {
@@ -177,7 +213,7 @@ fn lowest_in_disc(
 /// (Newton may stall at half the precision; a nucleus off by more than the size gives a wrong
 /// size and framing). `None` when Newton fails, or lands on the nucleus of a divisor of p
 /// (z_p = 0 there too; its size estimate is then 0 or absurdly large).
-fn nucleus_near(start: &Center, p: usize, max_distance: Scale, stop: &Stop) -> Option<Minibrot> {
+fn nucleus_near(formula: Formula, start: &Center, p: usize, max_distance: Scale, stop: &Stop) -> Option<Minibrot> {
     let mut bits = start.precision_bits();
     let mut opts = NewtonOptions {
         precision_bits: Some(bits),
@@ -185,8 +221,8 @@ fn nucleus_near(start: &Center, p: usize, max_distance: Scale, stop: &Stop) -> O
         max_distance: Some(max_distance.big_times(1.0, 64)),
     };
     let mut cancelled = || stop.now();
-    let mut n = find_nucleus(start.big(), p, &opts, &mut cancelled)?;
-    let mut size = minibrot_size_complex(&n.nucleus, p);
+    let mut n = find_nucleus_for(formula, start.big(), p, &opts, &mut cancelled)?;
+    let mut size = minibrot_size_complex_for(formula, &n.nucleus, p);
     for _ in 0..6 {
         let size_log2 = size.magnitude().log2_magnitude();
         if size_log2.is_nan() || size_log2 >= 0.6 {
@@ -203,12 +239,13 @@ fn nucleus_near(start: &Center, p: usize, max_distance: Scale, stop: &Stop) -> O
                 nucleus: Center::from_big(n.nucleus),
                 period: p,
                 size,
+                formula,
             });
         }
         bits = need.max(bits + 128).min(1 << 17);
         opts.precision_bits = Some(bits);
-        n = find_nucleus(&n.nucleus.with_precision(bits), p, &opts, &mut cancelled)?;
-        size = minibrot_size_complex(&n.nucleus, p);
+        n = find_nucleus_for(formula, &n.nucleus.with_precision(bits), p, &opts, &mut cancelled)?;
+        size = minibrot_size_complex_for(formula, &n.nucleus, p);
     }
     None
 }
@@ -222,14 +259,18 @@ fn nucleus_near(start: &Center, p: usize, max_distance: Scale, stop: &Stop) -> O
 /// 1e-4 of its size (a 2p-cycle: after every second period).
 fn is_cardioid(m: &Minibrot, stop: &Stop) -> bool {
     let p = m.period;
+    let f = m.formula;
     let bits = m.nucleus.precision_bits();
     let (z, r) = with_no_control(4096, |c| {
-        ReferenceOrbitComputer::new(m.nucleus.big(), bits).compute_double_exp(p, 1e10, c)
+        ReferenceOrbitComputer::new(m.nucleus.big(), bits)
+            .with_formula(f)
+            .compute_double_exp(p, 1e10, c)
     });
     if r.escaped || z.len() < p + 1 {
         return false;
     }
-    let dc = m.size * DoubleExpComplex::new(DoubleExp::from_f64(-0.6), DoubleExp::ZERO);
+    let (tr, ti) = test_w(f);
+    let dc = m.size * DoubleExpComplex::new(DoubleExp::from_f64(tr), DoubleExp::from_f64(ti));
     let four = DoubleExp::from_f64(4.0);
     let tol = DoubleExp::from_f64(1e-8);
     let mut d = DoubleExpComplex::ZERO;
@@ -245,7 +286,11 @@ fn is_cardioid(m: &Minibrot, stop: &Stop) -> bool {
         if i % 4096 == 4095 && stop.now() {
             return false;
         }
-        d = z[k].times_two() * d + d * d + dc;
+        d = if f.is_mandelbrot() {
+            z[k].times_two() * d + d * d + dc
+        } else {
+            d * f.delta_factor_x(z[k], z[k] + d) + dc
+        };
         k += 1;
         let full = z[k] + d;
         let f2 = full.magnitude_squared();
@@ -283,6 +328,17 @@ const TEST_PERIODS: usize = 160;
 /// when the view already shows one filling it, the next smaller one around that one. Bounded
 /// by `budget` and `cancel`.
 pub fn seek(center: &Center, span: Scale, cancel: &AtomicBool, budget: Duration) -> Option<Minibrot> {
+    seek_for(Formula::Mandelbrot, center, span, cancel, budget)
+}
+
+/// [`seek`] in any formula's set (F3).
+pub fn seek_for(
+    formula: Formula,
+    center: &Center,
+    span: Scale,
+    cancel: &AtomicBool,
+    budget: Duration,
+) -> Option<Minibrot> {
     let stop = Stop {
         cancel,
         deadline: Instant::now() + budget,
@@ -305,7 +361,7 @@ pub fn seek(center: &Center, span: Scale, cancel: &AtomicBool, budget: Duration)
             }
             Verdict::Skip
         };
-        let found = lowest_in_disc(center, span * f, 1, MAX_PERIOD, 0, &stop, &mut verdict);
+        let found = lowest_in_disc(formula, center, span * f, 1, MAX_PERIOD, 0, &stop, &mut verdict);
         if let Some(m) = found {
             return Some(m);
         }
@@ -344,12 +400,15 @@ fn smaller_than(m: &Minibrot, stop: &Stop) -> Option<Minibrot> {
     let smaller = |c: &Minibrot| c.sigma().ratio(sigma) < 0.6;
     let start = m.at(AIRSHIP);
     let bits = bits_for(sigma * 0.01).max(start.precision_bits());
+    // (Multibrot, F3: no antenna airship; the ring alone.)
     let mut best = m
         .period
         .checked_mul(3)
-        .filter(|&p| p <= MAX_PERIOD)
-        .and_then(|p| nucleus_near(&start.with_min_precision(bits), p, sigma * 0.1, stop))
+        .filter(|&p| p <= MAX_PERIOD && m.formula.is_mandelbrot())
+        .and_then(|p| nucleus_near(m.formula, &start.with_min_precision(bits), p, sigma * 0.1, stop))
         .filter(|c| smaller(c) && is_cardioid(c, stop));
+    // (Multibrot, F3: its decorations end near |w| = 1.3, so the ring is half as wide.)
+    let k = if m.formula.is_mandelbrot() { 1.0 } else { 0.5 };
     for w in RING {
         if stop.now() {
             break;
@@ -357,7 +416,16 @@ fn smaller_than(m: &Minibrot, stop: &Stop) -> Option<Minibrot> {
         // Only a lower period than the best so far can win; 2p near m is its period-2 bulb.
         let max = best.as_ref().map_or(MAX_PERIOD, |b| b.period - 1);
         let mut verdict = |c: &Minibrot| if smaller(c) { Verdict::Take } else { Verdict::Skip };
-        if let Some(c) = lowest_in_disc(&m.at(w), sigma, m.period + 1, max, 2 * m.period, stop, &mut verdict) {
+        if let Some(c) = lowest_in_disc(
+            m.formula,
+            &m.at((w.0 * k, w.1 * k)),
+            sigma * k,
+            m.period + 1,
+            max,
+            2 * m.period,
+            stop,
+            &mut verdict,
+        ) {
             best = Some(c);
         }
     }
@@ -401,6 +469,8 @@ pub struct Seeker {
     found: Option<(usize, f64)>,
     /// Search on the calling thread (tests, headless tools).
     pub synchronous: bool,
+    /// The fractal searched (F3; the host keeps it in step with the settings).
+    pub formula: Formula,
 }
 
 impl Seeker {
@@ -417,12 +487,13 @@ impl Seeker {
         };
         let span = view.scale * side;
         let center = view.center.clone();
+        let formula = self.formula;
         let slot = Arc::new(Slot::default());
         self.phase = SeekPhase::Searching;
         self.since = now;
         self.found = None;
         if self.synchronous {
-            let r = seek(&center, span, &slot.cancel, BUDGET);
+            let r = seek_for(formula, &center, span, &slot.cancel, BUDGET);
             if let Ok(mut g) = slot.result.lock() {
                 *g = Some(r);
             }
@@ -431,7 +502,7 @@ impl Seeker {
         }
         let s = slot.clone();
         let spawned = std::thread::Builder::new().name("seek-minibrot".into()).spawn(move || {
-            let r = seek(&center, span, &s.cancel, BUDGET);
+            let r = seek_for(formula, &center, span, &s.cancel, BUDGET);
             if let Ok(mut g) = s.result.lock() {
                 *g = Some(r);
             }
@@ -552,7 +623,8 @@ mod tests {
             deadline: Instant::now() + Duration::from_secs(10),
         };
         let mk = |re: f64, im: f64, p: usize| {
-            let n = find_nucleus(
+            let n = find_nucleus_for(
+                Formula::Mandelbrot,
                 &BigComplex::from_f64(re, im, 128),
                 p,
                 &NewtonOptions::default(),
@@ -561,9 +633,10 @@ mod tests {
             .expect("nucleus")
             .nucleus;
             Minibrot {
-                size: minibrot_size_complex(&n, p),
+                size: minibrot_size_complex_for(Formula::Mandelbrot, &n, p),
                 nucleus: Center::from_big(n),
                 period: p,
+                formula: Formula::Mandelbrot,
             }
         };
         assert!(is_cardioid(&mk(0.0, 0.0, 1), &stop));
