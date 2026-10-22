@@ -721,7 +721,7 @@ struct OverlaySectionRows: View {
         }
         if model.has(\.juliaPanel) {
             Toggle("Julia set of that point", isOn: $model.juliaPanelToggle)
-                .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside. Click it to open that Julia set (U)")
+                .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside. Click it to open that Julia set, or ⌘-click a point of the picture to open its Julia set (U)")
         } else if model.isJulia {
             // In a Julia view the same switch shows the Mandelbrot panel (the way back).
             Toggle("Mandelbrot panel", isOn: $model.juliaPanelToggle)
@@ -1743,6 +1743,7 @@ struct ControlsHelp: View {
         row("point.topleft.down.to.point.bottomright.curvepath", "O", "Orbit overlay")
         row("map", "M · click a map · ⌥-click", "Mini-map · jump there · fly there")
         row("seal", "U", "Julia set of the orbit's point; click it to open that set")
+        row("seal", "⌘-click a point", "Open that point's Julia set")
         row("seal", "⇧U", "Julia twin of the view (its centre's Julia set) / back")
         row("airplane", "Z", "Autopilot; steering hands over to cruise, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
@@ -1767,6 +1768,10 @@ struct ControlsHelp: View {
         row("gauge.with.dots.needle.33percent", "Keyboard: E / Q, L, N, G", "Cruise in / out, lane assist, seek minibrot, continue")
         row("map", "Keyboard: O / M / U", "Orbit overlay / mini-map / Julia set")
         row("seal", "Tap the Julia panel · ⇧U", "Open that Julia set · Julia twin / back")
+        // (iPad only: a ⌘-click needs a keyboard and a pointer; no ⌘ hint on phones.)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            row("seal", "Keyboard: ⌘-click a point", "Open that point's Julia set (trackpad or mouse)")
+        }
         row("gauge.with.dots.needle.33percent", "Throttle (screen edge)", "The knob is the gear: up in, down out, middle stops; tap a notch or a chevron; double tap stops")
         row("steeringwheel", "Cockpit icons", "Tap: manual, cruise, autopilot, journey, lane assist")
         row("hand.point.up.left", "Long press (nothing flying)", "Seek minibrot, orbit, fly here, copy; drag moves the orbit")

@@ -103,6 +103,9 @@ pub struct Host<B: GpuBackend> {
     pub julia_return: Option<(Viewport, almondbread_core::Formula)>,
     /// The Julia set the overlay's way back was made for.
     overlay_way_back_k: Option<almondbread_core::formula::JuliaK>,
+    /// The last click was a ⌘-click that opened a Julia set: the rest of its click stream (⌘
+    /// double clicks) does not zoom the new view.
+    command_click_opened: bool,
 }
 
 impl<B: GpuBackend + Clone> Host<B> {
@@ -123,6 +126,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             tour: None,
             julia_return: None,
             overlay_way_back_k: None,
+            command_click_opened: false,
         }
     }
 
@@ -201,6 +205,27 @@ impl<B: GpuBackend + Clone> Host<B> {
             },
             e => e,
         };
+        // ⌘-click (kb: decisions/controls "⌘-click: open a point's Julia set"): the clicked
+        // point's Julia set, where the formula offers the Julia panel; the navigator never sees
+        // that click (no autopilot pause), and the further clicks of its stream do not zoom.
+        match event {
+            InputEvent::Click { x, y, command } => {
+                self.command_click_opened = command && self.open_julia_at(x, y);
+                if self.command_click_opened {
+                    return InputOutcome {
+                        handled: true,
+                        redraw: true,
+                    };
+                }
+            }
+            InputEvent::DoubleTap { command: true, .. } if self.command_click_opened => {
+                return InputOutcome {
+                    handled: true,
+                    redraw: false,
+                };
+            }
+            _ => {}
+        }
         let before = self.renderer.viewport.clone();
         let interaction = self.renderer.navigator.last_interaction;
         let mode = self.renderer.navigator.mode();
@@ -260,6 +285,26 @@ impl<B: GpuBackend + Clone> Host<B> {
             self.open_julia(formula, almondbread_core::julia::home_view(w, h));
         }
         hit
+    }
+
+    /// ⌘-click (kb: decisions/controls "⌘-click: open a point's Julia set"): opens the Julia set
+    /// of the point at (x, y) view points from the centre, y up, whole, as a click on the Julia
+    /// panel does: k is that point's c exactly (the view's centre precision), the view is kept
+    /// as the way back. False (nothing done) where the formula has no Julia panel (a Multibrot or
+    /// Mandelbar view, a Julia view) or before the first resize.
+    pub fn open_julia_at(&mut self, x: f64, y: f64) -> bool {
+        let f = self.renderer.settings.formula;
+        if f.is_julia() || !almondbread_core::FormulaCapabilities::of(f).julia_panel {
+            return false;
+        }
+        let (w, h) = self.view_points;
+        if !(x.is_finite() && y.is_finite() && w > 0.0 && h > 0.0) {
+            return false;
+        }
+        let k = self.renderer.viewport.point_at_offset(x, y);
+        let formula = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
+        self.open_julia(formula, almondbread_core::julia::home_view(w, h));
+        true
     }
 
     /// Shows `formula` (a Julia set) at `view` (kb: plans/f4-deep-julia), remembering the view
@@ -932,5 +977,171 @@ mod tests {
         assert_eq!(pct(&v, 0.5), 2.0);
         assert_eq!(pct(&v, 1.0), 4.0);
         assert!(pct(&[], 0.5).is_nan());
+    }
+}
+
+/// ⌘-click (kb: decisions/controls "⌘-click: open a point's Julia set") through a real host on
+/// Metal: the clicked point's Julia set opens with k bit for bit that point's c, the way back is
+/// the view as it was, and plain clicks, ⌥ double clicks and other formulas are unchanged.
+#[cfg(all(test, target_vendor = "apple"))]
+mod command_click_tests {
+    use super::*;
+    use crate::metal::MetalBackend;
+    use almondbread_core::input::NavKey;
+    use almondbread_core::viewport::{Center, Scale};
+    use almondbread_core::{Formula, julia};
+
+    const W: f64 = 400.0;
+    const H: f64 = 250.0;
+
+    fn host() -> Host<MetalBackend> {
+        let backend = MetalBackend::new().expect("metal");
+        let mut host = Host::new(Renderer::new(backend).expect("renderer"));
+        host.resize(W, H, 2.0, 0.0);
+        host
+    }
+
+    /// The view point (from the centre, y up) of pixel (px, py)'s centre on the 2x drawable.
+    fn pixel_point(px: f64, py: f64) -> (f64, f64) {
+        ((px + 0.5) / 2.0 - W / 2.0, H / 2.0 - (py + 0.5) / 2.0)
+    }
+
+    fn click(host: &mut Host<MetalBackend>, (x, y): (f64, f64), command: bool, now: f64) -> InputOutcome {
+        host.input(InputEvent::Click { x, y, command }, now)
+    }
+
+    /// Shallow, turned, and turned at 1e-30 per point.
+    fn views() -> Vec<Viewport> {
+        let deep = Center::parse(
+            "-0.743643887037158704752191506114774",
+            "0.131825904205311970493132056385139",
+        )
+        .expect("centre");
+        vec![
+            Viewport::new(-0.7453, 0.1127, 6e-5),
+            Viewport::new(-0.7453, 0.1127, 6e-5).with_angle(0.7),
+            Viewport::with_center(deep, Scale::from_f64(1e-30)).with_angle(-1.1),
+        ]
+    }
+
+    #[test]
+    fn command_click_opens_exactly_the_clicked_point() {
+        for (i, view) in views().into_iter().enumerate() {
+            let mut h = host();
+            h.renderer.viewport = view.clone();
+            let p = pixel_point(517.0, 123.0);
+            // The point's c computed here, independently of the host: the centre plus the
+            // turned offset times the scale, at the centre's precision.
+            let (rx, ry) = view.rotate(p.0, p.1);
+            let expected = view.center.offset_scaled(rx, ry, view.scale);
+            let o = click(&mut h, p, true, 1.0);
+            assert!(o.handled && o.redraw, "view {i}");
+            let k = h.renderer.settings.formula.julia_k().expect("a Julia view");
+            let kv = k.value();
+            assert_eq!(kv.re, expected.big().re, "view {i}: re bit for bit");
+            assert_eq!(kv.im, expected.big().im, "view {i}: im bit for bit");
+            assert_eq!(kv.re.precision_bits(), view.center.precision_bits(), "view {i}");
+            // Not rounded to f64 at depth: k sits at the clicked offset to 1e-9 point.
+            let (dx, dy) = Center::from_big((*kv).clone()).delta_in(&view.center, view.scale);
+            assert!(
+                (dx - rx).abs() < 1e-9 && (dy - ry).abs() < 1e-9,
+                "view {i}: ({dx}, {dy})"
+            );
+            // The whole Julia set, and the way back is the view as it was (nothing moved
+            // first).
+            assert_eq!(h.renderer.viewport, julia::home_view(W, H), "view {i}");
+            assert_eq!(h.julia_return, Some((view.clone(), Formula::Mandelbrot)), "view {i}");
+            assert!(h.mandelbrot_panel_on(), "view {i}: the way back shows");
+            assert!(h.back_from_julia());
+            assert_eq!(h.renderer.viewport, view, "view {i}: back bit for bit");
+            assert_eq!(h.renderer.settings.formula, Formula::Mandelbrot);
+        }
+    }
+
+    #[test]
+    fn plain_click_is_unchanged_and_command_click_stops_the_autopilot() {
+        let mut h = host();
+        let view = views()[1].clone();
+        h.renderer.viewport = view.clone();
+        h.input(InputEvent::KeyDown(NavKey::Autopilot), 0.0);
+        h.input(InputEvent::KeyUp(NavKey::Autopilot), 0.0);
+        assert!(h.renderer.navigator.autopilot().is_active());
+        // A plain click pauses the autopilot; the view and the formula stay.
+        let p = pixel_point(100.0, 400.0);
+        click(&mut h, p, false, 1.0);
+        assert!(h.renderer.navigator.autopilot().is_paused());
+        assert_eq!(h.renderer.settings.formula, Formula::Mandelbrot);
+        assert_eq!(h.renderer.viewport, view);
+        click(&mut h, p, false, 2.0);
+        assert!(!h.renderer.navigator.autopilot().is_paused());
+        // A ⌘-click is no pause: it opens the Julia set, a jump that stops the autopilot.
+        click(&mut h, p, true, 3.0);
+        assert!(h.renderer.settings.formula.is_julia());
+        assert!(!h.renderer.navigator.autopilot().is_active());
+    }
+
+    /// The zoom (old scale over new) after a double click at `p` and a second of glide.
+    fn double_click(h: &mut Host<MetalBackend>, p: (f64, f64), out: bool, command: bool, now: f64) -> f64 {
+        let before = h.renderer.viewport.scale;
+        h.input(
+            InputEvent::DoubleTap {
+                x: p.0,
+                y: p.1,
+                out,
+                command,
+            },
+            now,
+        );
+        let mut v = h.renderer.viewport.clone();
+        h.renderer.navigator.advance(&mut v, now + 1.0 / 60.0);
+        h.renderer.navigator.advance(&mut v, now + 1.0);
+        h.renderer.viewport = v;
+        before.ratio(h.renderer.viewport.scale)
+    }
+
+    #[test]
+    fn command_double_click_opens_once_and_does_not_zoom_the_julia_set() {
+        let mut h = host();
+        h.renderer.viewport = views()[0].clone();
+        let p = pixel_point(300.0, 200.0);
+        click(&mut h, p, true, 1.0);
+        let k = h.renderer.settings.formula;
+        assert!(k.is_julia());
+        // The second click of the ⌘ stream: nothing.
+        let r = double_click(&mut h, p, false, true, 1.2);
+        assert_eq!(r, 1.0);
+        assert_eq!(h.renderer.viewport, julia::home_view(W, H));
+        assert_eq!(h.renderer.settings.formula, k);
+        // In the Julia view a ⌘-click opens nothing new (no Julia panel there): a ⌘ double
+        // click zooms it like a double click.
+        click(&mut h, p, true, 3.0);
+        assert_eq!(h.renderer.settings.formula, k);
+        let r = double_click(&mut h, p, false, true, 3.2);
+        assert!((r - 2.0).abs() < 1e-9, "zoomed ×{r}");
+    }
+
+    #[test]
+    fn option_double_click_and_other_formulas_are_unchanged() {
+        // ⌥ double click (out) after a plain click: ×0.5, as before.
+        let mut h = host();
+        h.renderer.viewport = views()[0].clone();
+        let p = pixel_point(300.0, 200.0);
+        click(&mut h, p, false, 1.0);
+        let r = double_click(&mut h, p, true, false, 1.2);
+        assert!((r - 0.5).abs() < 1e-9, "zoomed ×{r}");
+        assert_eq!(h.renderer.settings.formula, Formula::Mandelbrot);
+        // Formulas without the Julia panel: a ⌘-click is a click, a ⌘ double click zooms.
+        for f in [Formula::multibrot(5).expect("z^5"), Formula::Mandelbar] {
+            let mut h = host();
+            h.renderer.settings.formula = f;
+            let view = Viewport::new(0.1, 0.2, 1e-4);
+            h.renderer.viewport = view.clone();
+            click(&mut h, p, true, 1.0);
+            assert_eq!(h.renderer.settings.formula, f);
+            assert_eq!(h.renderer.viewport, view);
+            assert!(h.julia_return.is_none());
+            let r = double_click(&mut h, p, false, true, 1.2);
+            assert!((r - 2.0).abs() < 1e-9, "{f:?} zoomed ×{r}");
+        }
     }
 }

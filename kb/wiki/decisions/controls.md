@@ -26,6 +26,7 @@ while navigating.
 | Two-finger scroll, drag | pan (Mac) |
 | Pinch, Cmd/Option-scroll, wheel | zoom at the zoom target (Mac) |
 | Double-click / Option+double-click / right double-click, two-finger double tap (Smart zoom) | zoom in / out ×2 at the click, a 0.35 s glide; every further click of the stream (click count 3, 4, …) adds ×2 (Mac; switches to pointer mode; Smart zoom always zooms in) |
+| ⌘-click (Mac; iPad with a keyboard and a trackpad or mouse) | opens the clicked point's Julia set (Mandelbrot views; see "⌘-click: open a point's Julia set") |
 | Pointer in the edge band while Space is held | pan towards that edge (setting: off / while zooming / always) |
 | Drag, pinch, double tap (and each further tap of the stream), two-finger tap | pan, zoom, zoom in ×2 per tap, zoom out (iPhone/iPad) |
 | iPad hardware keyboard | the same keys as the Mac |
@@ -3036,6 +3037,7 @@ probe, tour probe) as the last panel of the map row, drawn by its own kernel lib
 | control center Overlays "Julia set of that point" | the same |
 | tour step `julia: on` / `off` | the same during a tour |
 | click / tap on the panel | opens that Julia set as the main view (F4, below) |
+| ⌘-click a point of the picture | opens that point's Julia set without going to the panel ("⌘-click", below) |
 
 Layout: one more slot in `fit_maps`; map levels go first (`row_map_levels`): iPhone portrait the
 whole-set map and the panel, iPhone on its side the panel alone, iPad mini and Mac three levels and
@@ -3054,6 +3056,7 @@ the iPhone 17e and the iPad mini, screenshots `layout-julia-*`).
 | Input | Action |
 | --- | --- |
 | click / tap on the Julia panel | the panel's Julia set, whole (centre 0, the panel's 4.2 × 3.0 framing); the panel's k is kept while the pointer is over the panel, so moving onto it does not change it |
+| ⌘-click on the picture (Mac; iPad with a keyboard and a pointer) | the clicked point's Julia set, whole, the same way in and back as the panel click ("⌘-click", below) |
 | **⇧U** (Mac; iPad hardware keyboard), View ▸ "Julia Twin of This View" (⇧⌘U), control center Overlays "Julia twin of this view" | the Julia twin: the Julia set of the view's centre (k = the centre at full precision) at the same centre, zoom and angle |
 | **⇧U** again, View ▸ "Back to the Mandelbrot Set", control center "Back to the Mandelbrot set", the HUD's back button (↺ next to "Julia set, k = …") | back to the view the Julia set was opened from (the whole Mandelbrot set when there is none: a pasted Julia link, a restored setting) |
 | R / ⌘0 in a Julia view | the whole Julia set |
@@ -3103,6 +3106,49 @@ set came from**, and a click there goes back.
   opened from, marked at k; click to return"; activation is the click).
 - **Kept:** ⇧U, the HUD's back button, View ▸ Back to the Mandelbrot Set, control center "Back to
   the Mandelbrot set". Esc does not go back. Not built: steering k by hovering the panel.
+
+### ⌘-click: open a point's Julia set (as built 2026-10-23, awaiting review)
+
+The user's problem: the Julia panel shows the Julia set of the point under the pointer and a click
+on the panel opens it, but the way to the panel crosses other points, so the panel changes on the
+way and the click opens a different set from the one wanted. Decided (user, 2026-10-23: "cmd-click
+is good"): **⌘-click** on any point of the picture opens the deep Julia set of exactly that point.
+
+| Input | Action |
+| --- | --- |
+| ⌘-click on the picture, Mandelbrot view (Mac; iPad with a keyboard and a trackpad or mouse) | the clicked point's Julia set, whole (`julia::home_view`), as a click on the Julia panel opens one: `Host::open_julia`, the view clicked in kept as the way back (Mandelbrot panel, ⇧U, the HUD's back button return to it bit for bit) |
+| the further clicks of that click stream (⌘ double click) | nothing: the new Julia view is not zoomed by the second click |
+| ⌘-click where the formula has no Julia panel (Multibrot, Mandelbar, a Julia view) | what it did before: a plain click (the autopilot's pause), and a ⌘ double click zooms ×2 |
+| ⌘-click on a mini-map, the Julia or Mandelbrot panel, a help badge, the cockpit, the compass | what a plain click there does (the panels take the click first) |
+| ⌘-drag | pans, as before (a drag is never a click) |
+
+- **k is the clicked point's c exactly**: `Viewport::point_at_offset` of the click (view points from
+  the centre), at the view's centre precision, interned by value (`JuliaK`), in a turned view and at
+  any depth; the view does not move first (no pan, no zoom, no flight before the jump).
+- **Policy in Rust.** The event carries the modifier (`InputEvent::Click { command }`,
+  `DoubleTap { command }`); `Host::input` decides: where `FormulaCapabilities::julia_panel` holds
+  (the Mandelbrot formula) a ⌘-click calls `Host::open_julia_at` and the navigator never sees the
+  click (so it neither pauses nor resumes the autopilot; the jump stops the autopilot, a cruise, a
+  flight or a journey like every jump); a ⌘ `DoubleTap` right after it is swallowed (any `Click`
+  resets that). FFI `InputResult::settings_changed` tells the platform to pull the settings (the
+  formula changed); Swift only forwards `NSEvent.modifierFlags` / `UIGestureRecognizer.modifierFlags`.
+- **Preview while ⌘ is held: nothing new.** With the Julia panel on, it already shows the Julia set
+  of the point under the pointer, i.e. what a ⌘-click there opens; with the panel off, holding ⌘
+  does not force it on (no hidden mode switch on a modifier, which is also held for every menu
+  shortcut). In keyboard mode and while the autopilot flies the panel follows the crosshair, not
+  the pointer; a ⌘-click still opens the clicked point.
+- **No conflict with other ⌘ uses**: menu shortcuts are keys (the key monitor passes every ⌘ key
+  through), ⌘-scroll zooms (scroll events, not clicks), ⌘-drag pans; nothing used ⌘-click before.
+- **Hints**: the Julia panel's help popover and the Help page "Overlays", the Mac toolbar's Julia
+  Set tooltip, the control center switch's tooltip, the keys list (Mac; iPad: "Keyboard: ⌘-click a
+  point", not on iPhone). Not on the panel itself: it can be 80 points wide and already carries
+  its title and `c = …`.
+- **Tests**: render `host::command_click_tests` (Metal): k bit for bit the clicked pixel's c in a
+  plain, a turned and a turned 1e-30 view, way back bit for bit, the view not moved; ⌘-click stops
+  the autopilot instead of pausing it while a plain click pauses it; the ⌘ stream's double click
+  does not zoom, a ⌘ double click in the Julia view does; ⌥ double click ×0.5 and Multibrot /
+  Mandelbar ⌘-clicks unchanged. FFI `command_click_reports_the_new_settings`. Interaction test
+  scenario "cmd-click julia" (real ⌘ mouse events through `FractalNSView`).
 
 ### Fractal picker and Julia views (F3 + F4, 2026-10-22)
 
