@@ -340,6 +340,17 @@ impl Options {
         if let Some(v) = self.f64("further-budget") {
             r.config.further_budget = v;
         }
+        // The Buddhabrot look's offscreen accumulation (kb: plans/buddhabrot): hits per pixel of
+        // the faintest channel, wall seconds at most; `--buddha-live 0`: motion falls back.
+        if let Some(v) = self.f64("buddha-hits") {
+            r.config.buddha_export_hits = v;
+        }
+        if let Some(v) = self.f64("buddha-seconds") {
+            r.config.buddha_export_seconds = v;
+        }
+        if let Some(v) = self.usize("buddha-live") {
+            r.config.buddha_live = v != 0;
+        }
         // Local series approximation tunables (kb: techniques/local-series-approximation).
         let sa = &mut r.config.local_sa;
         if let Some(e) = self.f64("sa-eps") {

@@ -66,6 +66,9 @@ pub struct FormulaCapabilities {
     /// The Julia companion panel (F1, kb: plans/f1-julia-view): the Julia set of `z^2 + k` for
     /// the orbit's point k, a Mandelbrot parameter; other formulas need their own (`z^p + k`).
     pub julia_panel: bool,
+    /// The Buddhabrot and Nebulabrot looks (BB, kb: plans/buddhabrot): orbit histograms of
+    /// `z^2 + c` with the closed-form cardioid and bulb rejection.
+    pub buddhabrot: bool,
 }
 
 impl FormulaCapabilities {
@@ -86,6 +89,7 @@ impl FormulaCapabilities {
         orbit_overlay: true,
         content: true,
         julia_panel: true,
+        buddhabrot: true,
     };
 
     /// The generic polynomial path `z^p + c` (seek since F3).
@@ -96,6 +100,7 @@ impl FormulaCapabilities {
         external_rays: false,
         content: false,
         julia_panel: false,
+        buddhabrot: false,
         ..Self::MANDELBROT
     };
 
@@ -122,6 +127,7 @@ impl FormulaCapabilities {
         orbit_overlay: false,
         content: false,
         julia_panel: false,
+        buddhabrot: false,
     };
 
     pub fn of(formula: Formula) -> Self {
@@ -188,6 +194,7 @@ mod tests {
         assert!(g.perturbation && g.sa_seeds && g.interior_probe && g.de && g.orbit_overlay);
         assert!(!g.la && !g.pi_meter && !g.content && !g.closed_form_components && !g.julia_panel && c.julia_panel);
         assert!(g.seek && c.seek);
+        assert!(c.buddhabrot && !g.buddhabrot && !FormulaCapabilities::JULIA.buddhabrot);
         let all = selectable();
         assert_eq!(all[0], Formula::Mandelbrot);
         assert_eq!(&all[1..], &(3..=8).map(Formula::Multibrot).collect::<Vec<_>>()[..]);

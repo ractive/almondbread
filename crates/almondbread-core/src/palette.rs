@@ -267,6 +267,9 @@ pub struct Look {
     pub outline_width: f64,
     pub edge_color: u32,
     pub interior: u32,
+    /// The orbit-density looks (BB): Buddhabrot or Nebulabrot instead of the escape-time
+    /// colouring; off for every other look.
+    pub buddha: crate::buddha::BuddhaMode,
 }
 
 impl Look {
@@ -289,6 +292,7 @@ impl Look {
             outline_width: 1.6,
             edge_color: 0x02040A,
             interior: 0x02040C,
+            buddha: crate::buddha::BuddhaMode::Off,
         };
         vec![
             base.clone(),
@@ -390,6 +394,33 @@ impl Look {
                 specular: 0.3,
                 edge_color: 0x000000,
                 interior: 0x000000,
+                ..base.clone()
+            },
+            // The orbit-density looks (BB, kb: plans/buddhabrot): Mandelbrot only (the pickers
+            // hide them for other formulas, `FormulaCapabilities::buddhabrot`). The Buddhabrot
+            // runs its tone curve through the palette's rising half; the Nebulabrot's channels
+            // are red, green and blue (its own colour map, the palette is not used). The rest of
+            // the look is the escape-time colouring shown while moving and past the depth limit.
+            Look {
+                id: "buddhabrot",
+                name: "Buddhabrot",
+                palette: "ice",
+                density: 0.02,
+                specular: 0.5,
+                shininess: 48.0,
+                edge_color: 0x01030A,
+                interior: 0x01030B,
+                buddha: crate::buddha::BuddhaMode::Buddhabrot,
+                ..base.clone()
+            },
+            Look {
+                id: "nebulabrot",
+                name: "Nebulabrot",
+                palette: "nebula",
+                density: 0.03,
+                edge_color: 0x05000D,
+                interior: 0x060012,
+                buddha: crate::buddha::BuddhaMode::Nebulabrot,
                 ..base
             },
         ]
@@ -426,6 +457,7 @@ impl Look {
         s.palette_filter = true;
         s.dense_calm = true;
         s.palette_stops = None;
+        s.buddha = self.buddha;
     }
 }
 
@@ -563,7 +595,8 @@ mod tests {
     fn looks_name_existing_palettes() {
         let ids: Vec<&str> = Palette::all().iter().map(|p| p.id).collect();
         let looks = Look::all();
-        assert!((6..=10).contains(&looks.len()));
+        assert!((6..=12).contains(&looks.len()));
+        assert_eq!(looks.iter().filter(|l| l.buddha.is_on()).count(), 2);
         for l in &looks {
             assert!(ids.contains(&l.palette), "{}", l.id);
         }

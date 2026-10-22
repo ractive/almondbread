@@ -69,7 +69,9 @@ check(cancelled.cancelled() && cancelled.count() < 100_000_001 && token.progress
 let pals = palettes()
 check(pals.first?.id == "aurora" && pals.count >= 10 && pals.allSatisfy { !$0.stops.isEmpty }, "palettes: \(pals.map(\.id))")
 let lks = looks()
-check(lks.first?.id == "aurora" && (6...10).contains(lks.count)
+// (BB: two orbit-density looks, Buddhabrot and Nebulabrot, after the escape-time ones.)
+check(lks.first?.id == "aurora" && (6...10).contains(lks.filter { !$0.orbitDensity }.count)
+      && lks.filter(\.orbitDensity).map(\.id) == ["buddhabrot", "nebulabrot"]
       && lks.allSatisfy { l in pals.contains { $0.id == l.paletteId } }, "looks: \(lks.map(\.id))")
 
 // 5. The Explorer on a windowless layer (the app's path minus the window).

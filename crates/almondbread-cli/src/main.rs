@@ -19,7 +19,13 @@
 //! almondbread journey --seed 4711 [--legs 12] [--daily 2026-10-15] [--center re,im --span s] [--thumbs dir]
 //!                     [--describe 1] [--save views.txt] [--views views.txt] [--look-size 96]
 //! almondbread autopilot --center re,im --scale s [--speed 4] [--seconds 90]
+//! almondbread buddha --center re,im --scale s --size WxH --look buddhabrot|nebulabrot [--seconds 20]
+//!                    [--snap 1,4,16] [--out dir/name] [--sampler uniform|mh] [--deposit 0]
+//! almondbread buddha --live pan|zoom ... [--frames 240] [--rate 120] [--snap 60,240]
 //! ```
+//!
+//! `render --look buddhabrot|nebulabrot` renders the orbit-density looks (`--buddha-hits n`,
+//! `--buddha-seconds s`: how long the export accumulates).
 //!
 //! `render`, `verify` and `fly` views take `--place id` (the places catalogue).
 
@@ -28,6 +34,7 @@
 
 mod autopilot;
 mod benchmark;
+mod buddha;
 mod commands;
 mod fly;
 mod options;
@@ -38,7 +45,7 @@ mod progress;
 
 use options::Options;
 
-const USAGE: &str = "usage: almondbread render|verify|precision|progress|bench|regress|fly|benchmark|places|locate|seek|journey|autopilot|palettes [--key value ...]";
+const USAGE: &str = "usage: almondbread render|verify|precision|progress|bench|regress|fly|benchmark|places|locate|seek|journey|autopilot|palettes|buddha [--key value ...]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -81,6 +88,7 @@ fn run(command: &str, o: &Options) -> options::Result<i32> {
         "places" => places::places_command(&backend, o),
         "precision" => precision::precision_command(&backend, o),
         "progress" => progress::progress_command(&backend, o),
+        "buddha" => buddha::buddha_command(&backend, o),
         _ => options::err(USAGE),
     })
 }

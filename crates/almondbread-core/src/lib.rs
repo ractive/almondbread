@@ -14,6 +14,7 @@ pub use almondbread_math as math;
 pub mod autoiter;
 pub mod autopilot;
 pub mod bla;
+pub mod buddha;
 pub mod cfmt;
 pub mod cinematic;
 pub mod compass;

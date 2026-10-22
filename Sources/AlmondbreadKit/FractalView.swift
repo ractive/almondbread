@@ -1134,7 +1134,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
                 + "level \(level) gear \(s.cruise.gear) orbit \(base.model.orbitEnabled ? "on" : "off") "
                 + "seek \(s.seek.phase.isEmpty ? "idle" : s.seek.phase.replacingOccurrences(of: " ", with: "-")) assist \(s.cruise.assist ? "on" : "off") "
                 + "wish \(explorer.wishLineShown() ? "on" : "off") settled \(s.settled ? "yes" : "no") "
-                + "formula \(base.model.formula)"
+                + "formula \(base.model.formula) buddha \(base.model.buddha)"
                 + uiTestTargets(explorer)
         }
     }

@@ -613,6 +613,8 @@ pub struct FormulaCapabilities {
     pub content: bool,
     /// The Julia companion panel (F1; `z^2 + k`).
     pub julia_panel: bool,
+    /// The Buddhabrot and Nebulabrot looks (BB).
+    pub buddhabrot: bool,
 }
 
 impl FormulaCapabilities {
@@ -646,6 +648,7 @@ impl FormulaCapabilities {
             orbit_overlay: c.orbit_overlay,
             content: c.content,
             julia_panel: c.julia_panel,
+            buddhabrot: c.buddhabrot,
         }
     }
 }
@@ -748,6 +751,10 @@ pub struct ExplorerSettings {
     pub cinematic_hue_drift: f64,
     pub cinematic_phase_drift: f64,
     pub cinematic_fly_cycle: f64,
+    /// The orbit-density look (BB, kb: plans/buddhabrot): "off", "buddhabrot" or "nebulabrot"
+    /// (set by the looks of that name; shown for the Mandelbrot set only,
+    /// `FormulaCapabilities::buddhabrot`).
+    pub buddha: String,
 }
 
 /// How the inside of the set is coloured.
@@ -948,6 +955,7 @@ impl From<&RenderSettings> for ExplorerSettings {
             cinematic_hue_drift: s.cinematic.hue_drift,
             cinematic_phase_drift: s.cinematic.phase_drift,
             cinematic_fly_cycle: s.cinematic.fly_cycle,
+            buddha: s.buddha.name().into(),
         }
     }
 }
@@ -1063,6 +1071,7 @@ impl ExplorerSettings {
             8.0
         };
         s.dense_calm = self.dense_calm;
+        s.buddha = almondbread_core::buddha::BuddhaMode::parse(&self.buddha).unwrap_or_default();
         s.cinematic = almondbread_core::cinematic::Cinematic {
             enabled: self.cinematic,
             spin: self.cinematic_spin,

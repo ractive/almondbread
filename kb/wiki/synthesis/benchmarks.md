@@ -1943,6 +1943,55 @@ capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 
 ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
 Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.
 
+## BB: Buddhabrot and Nebulabrot, 2026-10-22
+
+Measured 2026-10-22, M1 Pro, release, macOS; load average 6–11 (other sessions, Spotify on the
+GPU). Design and reasoning: [Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md) "As built"
+and "Live mode".
+
+**Mandelbrot fast path, look off.** `bench --no-verify 1 --out DIR`, main (fb4fb56, a scratch
+worktree) vs the BB branch, three interleaved rounds: all 84 files (42 `.iter` fields and PNGs)
+byte-identical in every round; GPU ms geomean BB / main 1.004, 0.960, 1.013 (all 126 pairs
+0.992; load 7.6–10.9).
+
+**Sampler throughput** (whole set, 1200 × 1000, Buddhabrot, uniform): first kernel (proposals per
+thread) 2.45e8 proposals/s, 2.7e9 iterations/s; persistent walkers 5.28e8 proposals/s
+(6.4e9 walker steps/s); count only (`--deposit 0`) 5.29e8 (atomic adds cost nothing measurable at
+1.1e9 adds/s; the first kernel: 12 %); 4× the walkers 5.43e8 (+2.8 %, not kept).
+
+| View (Buddhabrot unless noted) | Size | Sampler | Result |
+|---|---|---|---|
+| whole set | 1200 × 1000 | uniform | 1500 hits/px (clean) at 1.6 s |
+| whole set, Nebulabrot | 1200 × 1000 | uniform | 1500 hits/px in the 50-step channel at 3.3 s |
+| whole set, Nebulabrot, 1.9 wide | 2420 × 1668 | uniform | 44 hits/px/s, clean ~34 s |
+| 0.4 wide at −0.1 + 0.75i | 400 × 400, 2 s | uniform / MH | run-to-run L1 0.046 / 0.023 (ρ 2.2 %) |
+| 1e-3 wide at −0.7435 + 0.1314i | 400 × 400, 2 s | uniform | ρ 7.5e-7, 0 hits/px |
+| same | same | MH / + warm-up / + recheck and resampling | 6.5 / 29 / 1142 hits/px (accept 37 %) |
+
+**Export stills** (`render --look`, 1600 × 1000, to 6000 hits/px or 120 s): whole set
+Buddhabrot 8.6 s, Nebulabrot 22.4 s; seahorse valley 0.16 wide Buddhabrot 55.7 s, Nebulabrot
+120 s (cap); 1e-3 wide 120 s (cap), a nearly flat field with MH speckle.
+
+**GPU vs CPU oracle** (64 × 64, 4 × 4 blocks, 16 M uniform samples): L1 GPU-CPU vs CPU-CPU
+Buddhabrot 0.0076 / 0.0074 (χ²/dof 10.9 / 10.1), Nebulabrot channels 0.0112 / 0.0093,
+0.0049 / 0.0059, 0.0032 / 0.0032; MH (0.4 wide, 1e10 samples) 0.0166 against an expected 0.014
+from the two noise levels (GPU-GPU 0.0031, CPU-CPU 0.0193); MH transient bias vs 4e8 CPU samples
+0.052 / 0.022 / 0.008 after 0.25 / 1 / 4 s.
+
+**Live mode** (interaction test, 2560 × 1640 px at 120 Hz through `ALMONDBREAD_TEST_LINK=cv`):
+
+| Scenario | fps | interval p50 / p95 / max ms | GPU ms/frame (sample + tone) | draw CPU p50 ms |
+|---|---:|---|---|---:|
+| home pan (escape time) | 111.6–113.7 | 8.3 / 8.3–16.7 / 25 | 4.1 + 2.5 | 0.22 |
+| home zoom (escape time) | 100.4–102.4 | 8.3 / 8.3–16.7 / 25 | 4.2 + 2.3 | 0.23 |
+| buddha pan | 116.7–118.0 | 8.3 / 8.3 / 8.3–16.7 | 3.4 + 1.7 | 0.14 |
+| buddha zoom | 115.7–118.0 | 8.3 / 8.3 / 8.3–25 | 3.4–3.7 + 1.6 | 0.14 |
+| nebula zoom (0.16 wide: falls back) | 117.0–117.3 | 8.3 / 8.3 / 16.7–33 | 3.5–4.2 + 1.7 | 0.15–0.21 |
+
+The background window's own link runs at 60 Hz (granted 120): 59 fps for all five then.
+Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
+hits per live bin at the whole set, 6 at the seahorse view.
+
 ## F3+F4 merge: Mandelbrot, Julia and Multibrot unchanged, 2026-10-22
 
 Main (F4) merged with F3 ([F3: Multibrot z^p + c](../plans/f3-multibrot.md), [F4: Deep Julia sets](../plans/f4-deep-julia.md) "F3+F4 integration"), M1 Pro, release, load
@@ -2160,3 +2209,4 @@ iOS simulator and other agents' builds), so timings are noisy.
 - [Chéritat: Mandelbrot set (wiki-draw rendering techniques)](../sources/cheritat-mandelbrot-rendering.md)
 - [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
 - [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
+- [Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md)

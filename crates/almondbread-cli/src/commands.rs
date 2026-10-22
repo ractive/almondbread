@@ -74,8 +74,10 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     // `--compass 1` (the compass, shown even at north; kb: decisions/controls "Compass") with
     // `--insets top,right` (view points kept clear, e.g. a toolbar).
     let _overlay = overlay_for_still(&mut r, o, width, height)?;
+    // (No warm-up render for the Buddhabrot look: its export accumulates for seconds.)
+    let warmup = !r.buddha_mode().is_on();
     for i in 0..repeats {
-        let res = render(&mut r, width, height, usize::from(i == 0), analyse)?;
+        let res = render(&mut r, width, height, usize::from(i == 0 && warmup), analyse)?;
         // (Seed passes included; their own time is in the "local SA" line.)
         times.push(res.iterate_gpu_time);
         walls.push(res.wall_time);
@@ -102,6 +104,12 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         g(out.steps_done as f64, 3),
         out.colorize_gpu_time * 1000.0
     );
+    if let Some((hits, samples)) = out.orbits {
+        println!(
+            "orbits: {hits:.0} hits per pixel (faintest channel), {samples:.3e} uniform-equivalent samples, {:.1} s",
+            out.wall_time
+        );
+    }
     if let Some(s) = &out.seeds {
         print_seeds(s, out.iterations_done, out.steps_done, out.iterate_gpu_time);
     }

@@ -337,6 +337,83 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(control.value as? String, "hidden", "the control center stayed open")
     }
 
+    /// The orbit-density looks (BB, kb: plans/buddhabrot): the Look picker offers Buddhabrot and
+    /// Nebulabrot for the Mandelbrot set and applies them (the canvas value names the look);
+    /// for a Multibrot set the entries are hidden. Back to Aurora at the end.
+    func testBuddhabrotLook() throws {
+        try launchSettled()
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        // (The pane's open state outlives a launch, and the button can read "shown" while the
+        // pane is not up yet: toggle until its ✕ is there.)
+        for _ in 0..<3 where !app.buttons["control-center-close"].waitForExistence(timeout: 3) {
+            control.tap()
+            settle(2)
+        }
+        if !app.buttons["control-center-close"].exists { dumpTree("control-center") }
+        XCTAssertTrue(app.buttons["control-center-close"].exists, "control center not open")
+        let search = app.textFields["Search settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        func openLookPicker() {
+            search.tap()
+            search.clearAndType("look")
+            settle(1.5)
+            let picker = app.buttons["look-picker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 5), "no Look picker")
+            picker.tap()
+            settle(1)
+        }
+        func entry(_ name: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+        }
+        openLookPicker()
+        if !entry("Nebulabrot").waitForExistence(timeout: 5) { dumpTree("look-picker") }
+        XCTAssertTrue(entry("Nebulabrot").exists, "no Nebulabrot entry")
+        let buddha = entry("Buddhabrot")
+        XCTAssertTrue(buddha.exists, "no Buddhabrot entry")
+        buddha.tap()
+        settle(4)
+        shot("look-buddhabrot")
+        XCTAssertEqual(fields()["buddha"], "buddhabrot")
+        // Another formula: the orbit-density looks are not offered.
+        search.tap()
+        search.clearAndType("fractal")
+        settle(1.5)
+        let family = app.buttons["formula-family"]
+        XCTAssertTrue(family.waitForExistence(timeout: 5), "no Fractal picker")
+        family.tap()
+        settle(1)
+        app.buttons["Multibrot"].firstMatch.tap()
+        settle(2.5)
+        openLookPicker()
+        XCTAssertFalse(entry("Buddhabrot").exists, "Buddhabrot offered for a Multibrot set")
+        let aurora = entry("Aurora")
+        XCTAssertTrue(aurora.waitForExistence(timeout: 5), "no Aurora entry")
+        aurora.tap()
+        settle(1.5)
+        XCTAssertEqual(fields()["buddha"], "off")
+        search.tap()
+        search.clearAndType("fractal")
+        settle(1.5)
+        family.tap()
+        settle(1)
+        app.buttons["Mandelbrot"].firstMatch.tap()
+        settle(2.5)
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        for _ in 0..<3 where control.value as? String == "shown" {
+            app.buttons["control-center-close"].tap()
+            settle(1)
+        }
+    }
+
+    /// The accessibility tree as an attachment (a failing UI query's evidence).
+    private func dumpTree(_ name: String) {
+        let a = XCTAttachment(string: app.debugDescription)
+        a.name = "tree-" + name
+        a.lifetime = .keepAlways
+        add(a)
+    }
+
     /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
     /// cruise in that gear, zooming in); the chevrons step one gear; one drag crosses the middle
     /// into reverse; a tap on a tick goes there; a double tap goes to manual (M). In the autopilot
@@ -887,5 +964,15 @@ final class TouchControlsUITests: XCTestCase {
             shot("surface-journey-no-stop")
             XCTFail("no journey stop within 90 s")
         }
+    }
+}
+
+private extension XCUIElement {
+    /// Replaces a text field's text (the search field keeps its last query).
+    func clearAndType(_ text: String) {
+        if let v = value as? String, !v.isEmpty, v != placeholderValue {
+            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: v.count))
+        }
+        typeText(text)
     }
 }
