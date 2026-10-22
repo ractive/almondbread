@@ -1582,3 +1582,7 @@ pub const MANDELBAR_PLACES: &[Place] = &[
         ..BASE
     },
 ];
+
+/// F6 (kb: plans/f6-burning-ship): the Burning Ship's places, from automated seek / locate runs
+/// (coordinates in our orientation: the literature's with the imaginary part negated).
+pub const BURNING_SHIP_PLACES: &[Place] = &[];

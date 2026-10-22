@@ -507,6 +507,11 @@ impl Viewport {
             // im ±sqrt 3.
             return Self::new(-0.5, 0.0, (3.4 / width).max(3.75 / height));
         }
+        if formula == crate::formula::Formula::BurningShip {
+            // F6: the ship spans re -2 .. 1.15 and im -0.45 .. 1.75 (ours: the imaginary axis
+            // flipped against the literature, the ships upright; kb: formulas/burning-ship).
+            return Self::new(-0.45, 0.62, (3.6 / width).max(2.6 / height));
+        }
         Self::new(0.0, 0.0, (2.9 / width).max(2.9 / height))
     }
 

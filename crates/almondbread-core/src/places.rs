@@ -147,6 +147,7 @@ pub fn place_named(id: &str) -> Option<&'static Place> {
         .iter()
         .chain(MULTIBROT_PLACES)
         .chain(MANDELBAR_PLACES)
+        .chain(BURNING_SHIP_PLACES)
         .find(|p| p.id == id)
 }
 
@@ -159,13 +160,18 @@ pub fn places_for(formula: Formula) -> Vec<&'static Place> {
     MULTIBROT_PLACES
         .iter()
         .chain(MANDELBAR_PLACES)
+        .chain(BURNING_SHIP_PLACES)
         .filter(|p| p.formula == formula)
         .collect()
 }
 
 /// Every place of every formula (thumbnails, tests).
 pub fn all_places() -> impl Iterator<Item = &'static Place> {
-    PLACES.iter().chain(MULTIBROT_PLACES).chain(MANDELBAR_PLACES)
+    PLACES
+        .iter()
+        .chain(MULTIBROT_PLACES)
+        .chain(MANDELBAR_PLACES)
+        .chain(BURNING_SHIP_PLACES)
 }
 
 /// A random place: `seed` picks it (any u64, e.g. a time or a random number), so the caller

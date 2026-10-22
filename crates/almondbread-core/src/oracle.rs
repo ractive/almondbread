@@ -697,7 +697,14 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     };
                     (t0 * w.0 - t1 * w.1 + dd.0, t0 * w.1 + t1 * w.0 + dd.1)
                 } else {
-                    formula.delta_step_scaled((zm[0], zm[1]), sw, w, dd)
+                    // (F6: the Burning Ship's fold compares X Y / s with the scaled perturbation;
+                    // X Y from the extended reference, exact where a part is below f64's range.)
+                    let xy_s = if formula.folds() {
+                        (ext[m].re * ext[m].im).times_power_of_two(-ee).to_f64()
+                    } else {
+                        0.0
+                    };
+                    formula.delta_step_scaled((zm[0], zm[1]), sw, w, dd, xy_s)
                 };
                 m += 1;
                 n += 1;
@@ -1103,6 +1110,94 @@ mod tests {
             for x in 0..80 {
                 assert_eq!(a.n[y * 80 + x], a.n[(49 - y) * 80 + x]);
             }
+        }
+    }
+
+    /// F6: the Burning Ship deep oracle (diffabs in the plain, rescaled and extended-range
+    /// steps, the fold from the extended reference's `X Y`) against direct BigFloat iteration of
+    /// `(|x| - i|y|)^2 + c` per pixel: on the needle (the real axis, where every step folds:
+    /// 1e-30, 1e-100, 1e-320 per pixel), beside it (the axis crossing the view at 1e-100) and at
+    /// shallow views of the ship.
+    #[test]
+    fn burning_ship_oracle_matches_direct_iteration() {
+        use almondbread_math::{BigComplex, ReferenceOrbitComputer, with_no_control};
+        let f = Formula::BurningShip;
+        let mut cases = Vec::new();
+        for (sc, it) in [("1e-30", 3000usize), ("1e-100", 4000), ("1e-320", 6000)] {
+            cases.push((Center::parse("-1.9", "0").unwrap(), sc, it));
+        }
+        cases.push((Center::parse("-1.9", "3e-101").unwrap(), "1e-100", 4000));
+        // (Shallow views of the ship are chaotic: bounded chaotic orbits and long transients
+        // before escape, so 5-20 % of their pixels differ between direct f64 and BigFloat
+        // iteration. There the oracle must agree with BigFloat at least as often as direct f64
+        // does; on the needle, where nothing is chaotic at this resolution, on 98 %.)
+        cases.push((Center::parse("-1.7616", "0.0284").unwrap(), "2e-3", 3000));
+        cases.push((Center::parse("-0.6", "0.7").unwrap(), "3e-3", 3000));
+        for (center, sc, it) in cases {
+            let texel = Scale::parse(sc).unwrap();
+            let (w, h) = (24usize, 16usize);
+            let (field, r) = cpu_render_deep_for(f, &center, texel, w, h, it, 65536.0, 0.0);
+            assert_eq!(r.formula, f);
+            let bits = crate::reference::needed_bits(&center, texel, w, 64) + 64;
+            let (tm, te) = texel.parts();
+            let (mut same, mut worst, mut f64_same) = (0usize, 0.0f64, 0usize);
+            let mut levels = std::collections::BTreeSet::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let k = y * w + x;
+                    let dx = (x as f64 + 0.5 - w as f64 / 2.0) * tm;
+                    let dy = -(y as f64 + 0.5 - h as f64 / 2.0) * tm;
+                    let c = BigComplex::new(
+                        center.big().re.with_precision(bits) + BigFloat::from_f64(dx, 64).times_power_of_two(te),
+                        center.big().im.with_precision(bits) + BigFloat::from_f64(dy, 64).times_power_of_two(te),
+                    );
+                    let comp = ReferenceOrbitComputer::new(&c, bits).with_formula(f);
+                    let o = with_no_control(4096, |ctl| comp.compute(it, 65536.0, None, None, ctl));
+                    let (n, mu) = if o.escaped {
+                        let r2 = o.final_z.magnitude_squared().to_f64();
+                        (o.iterations() as f32, o.iterations() as f64 + f.smooth_offset(r2))
+                    } else {
+                        (ITER_INTERIOR, 0.0)
+                    };
+                    levels.insert(field.n[k] as i64);
+                    // Direct f64 iteration of the same c, the chaos control.
+                    let [cr, ci] = c.to_f64();
+                    let (mut z, mut i) = ((0.0f64, 0.0f64), 0usize);
+                    while i < it && z.0 * z.0 + z.1 * z.1 <= 65536.0f64 * 65536.0 {
+                        z = f.step(z, (cr, ci));
+                        i += 1;
+                    }
+                    let stable = (if i < it { i as f32 } else { ITER_INTERIOR }) == n;
+                    if stable {
+                        f64_same += 1;
+                    }
+                    if n == field.n[k] {
+                        same += 1;
+                        // (|dmu| where direct f64 agrees too, or on the needle where f64 cannot
+                        // resolve the view at all.)
+                        if n >= 0.0 && (stable || sc != "2e-3" && sc != "3e-3") {
+                            worst = worst.max((mu - (field.n[k] as f64 + field.s[k] as f64)).abs());
+                        }
+                    }
+                }
+            }
+            println!(
+                "burning ship oracle @ {} {} {sc}: {same}/{} same n (direct f64 {f64_same}), max |dmu| {worst:.2e}, {} levels",
+                center.re(),
+                center.im(),
+                w * h,
+                levels.len()
+            );
+            assert!(levels.len() > 5, "{sc}: a picture, not a flat view ({levels:?})");
+            assert!(
+                same * 100 >= w * h * 98 || same + w * h / 100 >= f64_same,
+                "{sc}: only {same} of {} agree (direct f64 {f64_same})",
+                w * h
+            );
+            // (Chaotic views: n agrees but the final |z| of a sensitive orbit carries more than
+            // rounding.)
+            let bound = if sc == "2e-3" || sc == "3e-3" { 2e-2 } else { 1e-4 };
+            assert!(worst < bound, "{sc}: |dmu| {worst}");
         }
     }
 

@@ -18,7 +18,7 @@
 
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::{BigComplex, make_float_exp_complex};
-use crate::floatexp::{DoubleExpComplex, FloatExpComplex};
+use crate::floatexp::{DoubleExpComplex, FloatExpComplex, FloatExpSplit};
 use crate::formula::Formula;
 use crate::parallel::{self, HelperStart, PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS, Shared, StepRegs, StopGuard};
 use crate::raw::{self, Raw, Storage};
@@ -226,7 +226,29 @@ impl ReferenceOrbitComputer {
         extended: Option<&mut [FloatExpComplex]>,
         control: &mut Control<'_>,
     ) -> OrbitResult {
-        self.compute_from(None, max_iterations, bailout, points, extended, control)
+        self.compute_from(None, max_iterations, bailout, points, extended, None, control)
+    }
+
+    /// [`ReferenceOrbitComputer::compute`] (`from` None) or [`ReferenceOrbitComputer::resume`]
+    /// that also writes each point with its own exponent per component into `split` (F6, the
+    /// Burning Ship's references: [`FloatExpSplit`]); same buffer rules.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_with_split(
+        &self,
+        from: Option<&OrbitResult>,
+        max_iterations: usize,
+        bailout: f64,
+        points: Option<&mut [[f32; 2]]>,
+        extended: Option<&mut [FloatExpComplex]>,
+        split: &mut [FloatExpSplit],
+        control: &mut Control<'_>,
+    ) -> OrbitResult {
+        if let Some(f) = from
+            && (f.escaped || f.iterations() >= max_iterations)
+        {
+            return f.clone();
+        }
+        self.compute_from(from, max_iterations, bailout, points, extended, Some(split), control)
     }
 
     /// Continues a computation that stopped at `from.count - 1` iterations (a shorter
@@ -248,7 +270,7 @@ impl ReferenceOrbitComputer {
         if from.escaped || from.iterations() >= max_iterations {
             return from.clone();
         }
-        self.compute_from(Some(from), max_iterations, bailout, points, extended, control)
+        self.compute_from(Some(from), max_iterations, bailout, points, extended, None, control)
     }
 
     fn compute_from(
@@ -258,9 +280,16 @@ impl ReferenceOrbitComputer {
         bailout: f64,
         mut points: Option<&mut [[f32; 2]]>,
         mut extended: Option<&mut [FloatExpComplex]>,
+        mut split: Option<&mut [FloatExpSplit]>,
         control: &mut Control<'_>,
     ) -> OrbitResult {
         let need = max_iterations + 1;
+        if let Some(e) = split.as_deref_mut() {
+            assert!(e.len() >= need, "orbit split buffer too small");
+            e[0] = self.start.as_ref().map_or(FloatExpSplit::ZERO, |z| {
+                FloatExpSplit::from_double_exp(DoubleExpComplex::new(z.re.double_exp(), z.im.double_exp()))
+            });
+        }
         if let Some(p) = points.as_deref_mut() {
             assert!(p.len() >= need, "orbit point buffer too small");
             p[0] = self.start.as_ref().map_or([0.0, 0.0], BigComplex::to_f32);
@@ -289,6 +318,7 @@ impl ReferenceOrbitComputer {
             points,
             extended,
             doubles: None,
+            split,
         };
         self.dispatch(job, n, out, control)
     }
@@ -331,6 +361,7 @@ impl ReferenceOrbitComputer {
             points: None,
             extended: None,
             doubles: Some(&mut d),
+            split: None,
         };
         let r = self.dispatch(job, self.limb_count(), out, control);
         d.truncate(r.count);
@@ -358,6 +389,7 @@ struct Outputs<'a> {
     points: Option<&'a mut [[f32; 2]]>,
     extended: Option<&'a mut [FloatExpComplex]>,
     doubles: Option<&'a mut [DoubleExpComplex]>,
+    split: Option<&'a mut [FloatExpSplit]>,
 }
 
 struct Job<'a> {
@@ -395,7 +427,8 @@ impl Job<'_> {
                 c: [&cx, &cy],
                 z: [&zx, &zy],
                 first: self.start.map_or(0, |(_, f)| f),
-                conj: self.formula == Formula::Mandelbar,
+                conj: matches!(self.formula, Formula::Mandelbar | Formula::BurningShip),
+                abs: self.formula == Formula::BurningShip,
             };
             std::thread::scope(|scope| {
                 for role in 1..3 {
@@ -437,7 +470,9 @@ impl Job<'_> {
         with_scratch(n, |s| {
             while done < self.max_iterations {
                 let end = self.max_iterations.min(done + interval);
-                let conj = self.formula == Formula::Mandelbar;
+                // (F6: the Burning Ship is the conjugated step with |XY|.)
+                let conj = matches!(self.formula, Formula::Mandelbar | Formula::BurningShip);
+                let abs = self.formula == Formula::BurningShip;
                 let (reached, esc) = if let Formula::Multibrot(p) = self.formula {
                     orbit_loop_power(
                         &mut x,
@@ -467,9 +502,23 @@ impl Job<'_> {
                         &mut out,
                         sh,
                         conj,
+                        abs,
+                    )
+                } else if self.squarings && abs {
+                    orbit_loop_squarings::<S, true, true>(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
                     )
                 } else if self.squarings && conj {
-                    orbit_loop_squarings::<S, true>(
+                    orbit_loop_squarings::<S, true, false>(
                         &mut x,
                         &mut y,
                         &cx,
@@ -482,7 +531,20 @@ impl Job<'_> {
                         &mut out,
                     )
                 } else if self.squarings {
-                    orbit_loop_squarings::<S, false>(
+                    orbit_loop_squarings::<S, false, false>(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                    )
+                } else if abs {
+                    orbit_loop_multiplications::<S, true, true>(
                         &mut x,
                         &mut y,
                         &cx,
@@ -495,7 +557,7 @@ impl Job<'_> {
                         &mut out,
                     )
                 } else if conj {
-                    orbit_loop_multiplications::<S, true>(
+                    orbit_loop_multiplications::<S, true, false>(
                         &mut x,
                         &mut y,
                         &cx,
@@ -508,7 +570,7 @@ impl Job<'_> {
                         &mut out,
                     )
                 } else {
-                    orbit_loop_multiplications::<S, false>(
+                    orbit_loop_multiplications::<S, false, false>(
                         &mut x,
                         &mut y,
                         &cx,
@@ -556,12 +618,15 @@ fn emit_point<S: AsRef<[u64]>>(x: &Raw<S>, y: &Raw<S>, i: usize, bailout2: f64, 
     if let Some(d) = out.doubles.as_deref_mut() {
         d[i] = DoubleExpComplex::new(raw_double_exp(x.view()), raw_double_exp(y.view()));
     }
+    if let Some(d) = out.split.as_deref_mut() {
+        d[i] = FloatExpSplit::from_double_exp(DoubleExpComplex::new(raw_double_exp(x.view()), raw_double_exp(y.view())));
+    }
     xd * xd + yd * yd > bailout2
 }
 
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn orbit_loop_squarings<S: Storage, const CONJ: bool>(
+fn orbit_loop_squarings<S: Storage, const CONJ: bool, const ABS: bool>(
     x: &mut Raw<S>,
     y: &mut Raw<S>,
     cx: &Raw<S>,
@@ -583,9 +648,13 @@ fn orbit_loop_squarings<S: Storage, const CONJ: bool>(
         raw::add(nrm, x2.view(), y2.view(), false, s);
         raw::add(d, x2.view(), y2.view(), true, s);
         raw::add(x, d.view(), cx.view(), false, s);
-        // Y' = 2XY + Cy; Mandelbar (F5, conj(Z)^2 + C): -2XY + Cy.
+        // Y' = 2XY + Cy; Mandelbar (F5, conj(Z)^2 + C): -2XY + Cy; the Burning Ship (F6,
+        // (|X| - i|Y|)^2 + C): -2|XY| + Cy.
         if CONJ {
             raw::add(d, nrm.view(), s2.view(), true, s);
+            if ABS && !d.zero {
+                d.neg = true;
+            }
         } else {
             raw::add(d, s2.view(), nrm.view(), true, s);
         }
@@ -615,10 +684,11 @@ fn orbit_loop_squarings_shared<S: Storage>(
     out: &mut Outputs<'_>,
     shared: &Shared,
     conj: bool,
+    abs: bool,
 ) -> (usize, bool) {
     let mut i = start;
     while i < end {
-        let ok = parallel::step(shared, 0, i as u64 + 1, x, y, cx, cy, regs, s, conj);
+        let ok = parallel::step(shared, 0, i as u64 + 1, x, y, cx, cy, regs, s, conj, abs);
         debug_assert!(ok, "orbit helpers stopped");
         i += 1;
         if emit_point(x, y, i, bailout2, out) {
@@ -630,7 +700,7 @@ fn orbit_loop_squarings_shared<S: Storage>(
 
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn orbit_loop_multiplications<S: Storage, const CONJ: bool>(
+fn orbit_loop_multiplications<S: Storage, const CONJ: bool, const ABS: bool>(
     x: &mut Raw<S>,
     y: &mut Raw<S>,
     cx: &Raw<S>,
@@ -653,7 +723,10 @@ fn orbit_loop_multiplications<S: Storage, const CONJ: bool>(
         if !p2.zero {
             p2.exp += 1;
         }
-        // Mandelbar (F5): Y' = Cy - 2XY.
+        // Mandelbar (F5): Y' = Cy - 2XY; the Burning Ship (F6): Cy - 2|XY|.
+        if ABS {
+            p2.neg = false;
+        }
         if CONJ {
             raw::add(y, cy.view(), p2.view(), true, s);
         } else {
@@ -859,6 +932,55 @@ mod tests {
             for p in &mult.0[1..40] {
                 z = Formula::Mandelbar.step(z, (0.64, 0.86));
                 assert!((f64::from(p[0]) - z.0).abs() < 1e-5 && (f64::from(p[1]) - z.1).abs() < 1e-5);
+            }
+        }
+    }
+
+    /// F6: the Burning Ship's orbit `(|X| - i|Y|)^2 + C` is the same in every loop (squarings on
+    /// one and on three threads, multiplications), agrees with f64 iteration, and the split
+    /// output keeps a component far below the other (an orbit along the needle).
+    #[test]
+    fn burning_ship_orbit_in_every_loop() {
+        let f = Formula::BurningShip;
+        for bits in [128usize, 1088] {
+            for (re, im) in [("-1.62", "0.03"), ("0.3", "0.6"), ("-1.8", "1e-200")] {
+                let c = BigComplex::parse(re, im, bits).unwrap();
+                let base = ReferenceOrbitComputer::new(&c, bits).with_formula(f);
+                let mult = base
+                    .clone()
+                    .with_variant(Variant::Multiplications)
+                    .compute_vec(3000, 1e10);
+                let one = base.clone().with_variant(Variant::Squarings).compute_vec(3000, 1e10);
+                let three = base
+                    .clone()
+                    .with_variant(Variant::Squarings)
+                    .with_threads(Threads::Three)
+                    .compute_vec(3000, 1e10);
+                same(&one, &three);
+                let short = |v: Variant| base.clone().with_variant(v).compute_vec(20, 1e10).2.final_z;
+                let d = &short(Variant::Multiplications) - &short(Variant::Squarings);
+                assert!(
+                    d.re.is_zero() || d.re.log2_magnitude() < -(bits as f64) + 60.0,
+                    "{bits} {re}"
+                );
+                let cf = (re.parse::<f64>().unwrap(), im.parse::<f64>().unwrap());
+                let mut z = (0.0f64, 0.0f64);
+                for p in &mult.0[1..20] {
+                    z = f.step(z, cf);
+                    assert!((f64::from(p[0]) - z.0).abs() < 1e-5 && (f64::from(p[1]) - z.1).abs() < 1e-5);
+                }
+                if im == "1e-200" && bits > 128 {
+                    // Y stays ~1e-200 for a while: flushed in the shared form, kept in the split.
+                    let mut split = vec![FloatExpSplit::ZERO; 41];
+                    let mut ext = vec![FloatExpComplex::ZERO; 41];
+                    let r = with_no_control(64, |ctl| {
+                        base.compute_with_split(None, 40, 1e10, None, Some(&mut ext), &mut split, ctl)
+                    });
+                    assert_eq!(r.count, 41);
+                    assert_eq!(ext[3].mantissa[1], 0.0);
+                    let y = split[3].to_double_exp().im;
+                    assert!(y.mantissa < 0.0 && (y.log2_magnitude() + 660.0).abs() < 20.0, "{y:?}");
+                }
             }
         }
     }

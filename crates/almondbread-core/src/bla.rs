@@ -88,10 +88,18 @@ pub type BlaEntry = [f32; 6];
 pub type BlaEntryM = [f32; 10];
 
 /// The single-step validity radius of a non-conformal formula at `Z` (F5): `eps inf|A|`, the
-/// dropped quadratic term (`conj(z)^2` for Mandelbar) against the linear one. F6 adds its fold
-/// caps here.
+/// dropped quadratic term (`conj(z)^2` for Mandelbar) against the linear one. F6, the folding
+/// formulas (Burning Ship): also at most `min(|X|, |Y|) / 2`, so `X + x` and `Y + y` keep the
+/// signs of `X` and `Y` and the step is the linear map its Jacobian says (the fold caps of
+/// mathr's deep-zoom page §4.2, halved as Fraktaler 3 does; kb: formulas/burning-ship "BLA
+/// form"). A component that is 0 (or flushed in the reference's float form) allows no block.
 pub fn single_radius(formula: Formula, z: (f64, f64), eps: f64) -> f64 {
-    eps * formula.jacobian(z).inf()
+    let r = eps * formula.jacobian(z).inf();
+    if formula.folds() {
+        r.min(0.5 * z.0.abs().min(z.1.abs()))
+    } else {
+        r
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -884,10 +892,16 @@ impl MergedMX {
             p: Xc::from_double_exp(j.p),
             q: Xc::from_double_exp(j.q),
         };
+        let mut r = Xr::from_f64(eps).mul(a.inf());
+        if formula.folds() {
+            // F6: the fold cap min(|X|, |Y|) / 2 ([`single_radius`]).
+            let small = if zd.re.abs() < zd.im.abs() { zd.re } else { zd.im };
+            r = r.min(Xr::new(0.5 * small.mantissa.abs(), small.exponent));
+        }
         MergedMX {
             a,
             b: Xl::IDENTITY,
-            r: Xr::from_f64(eps).mul(a.inf()),
+            r,
             k: Xr::ZERO,
         }
     }

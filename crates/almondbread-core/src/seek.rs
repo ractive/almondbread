@@ -438,7 +438,9 @@ fn smaller_than(m: &Minibrot, stop: &Stop) -> Option<Minibrot> {
         .filter(|c| smaller(c) && is_cardioid(c, stop));
     // (Multibrot, F3: its decorations end near |w| = 1.3, so the ring is half as wide; the
     // Mandelbar set, F5, reaches |w| = 2 with its antennas, as Mandelbrot.)
-    let k = if m.formula.is_mandelbrot() || m.formula == Formula::Mandelbar {
+    // (F6: the Burning Ship's minibrots are skewed Mandelbrot copies with their antennas: the
+    // same width.)
+    let k = if m.formula.is_mandelbrot() || !m.formula.is_conformal() {
         1.0
     } else {
         0.5

@@ -46,7 +46,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// What the renderer holds now, by kind.
     pub fn memory_report(&self) -> MemoryReport {
         let reference_bytes =
-            |r: &almondbread_core::reference::Reference| (r.points.len() * 8 + r.extended.len() * 16) as u64;
+            |r: &almondbread_core::reference::Reference| (r.points.len() * 8 + r.extended.len() * 16 + r.split.len() * 16) as u64;
         let mut tables = 0u64;
         if self.bla.is_some() {
             tables += self.bla_info.2 as u64;

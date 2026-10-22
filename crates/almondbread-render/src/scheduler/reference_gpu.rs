@@ -31,7 +31,30 @@ pub(super) fn gpu_reference<Buf>(
     let extended = if r.extended.is_empty() {
         None
     } else {
-        // FloatExpComplex has a padding word: copy into the padded GPU form.
+        // FloatExpComplex has a padding word: copy into the padded GPU form. (F6: a folding
+        // formula's points with each part its own exponent, the second in the padding word:
+        // MSL `RefXS`.)
+        if r.formula.folds() {
+            let gpu: Vec<[u32; 4]> = if r.split.len() == r.extended.len() {
+                r.split
+                    .iter()
+                    .map(|z| [z.mantissa[0].to_bits(), z.mantissa[1].to_bits(), z.exponent[0] as u32, z.exponent[1] as u32])
+                    .collect()
+            } else {
+                r.extended
+                    .iter()
+                    .map(|z| {
+                        let s = almondbread_core::formula::FloatExpSplit::from_double_exp(shared_to_double(z));
+                        [s.mantissa[0].to_bits(), s.mantissa[1].to_bits(), s.exponent[0] as u32, s.exponent[1] as u32]
+                    })
+                    .collect()
+            };
+            return Ok(GpuReference {
+                points,
+                extended: Some(upload(bytemuck::cast_slice(&gpu))?),
+                bla_reach_log2: bla_reach_log2(r),
+            });
+        }
         let gpu: Vec<[u32; 4]> = r
             .extended
             .iter()
@@ -44,6 +67,13 @@ pub(super) fn gpu_reference<Buf>(
         extended,
         bla_reach_log2: bla_reach_log2(r),
     })
+}
+
+/// A shared-exponent point in extended range (each part exact).
+fn shared_to_double(z: &almondbread_core::formula::FloatExpComplex) -> almondbread_core::formula::DoubleExpComplex {
+    use almondbread_core::formula::DoubleExp;
+    let part = |m: f32| DoubleExp::from_f64(f64::from(m)).times_power_of_two(i64::from(z.exponent));
+    almondbread_core::formula::DoubleExpComplex::new(part(z.mantissa[0]), part(z.mantissa[1]))
 }
 
 /// `log2(eps max |2 Z|)` of the reference the kernel iterates against.

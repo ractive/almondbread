@@ -214,6 +214,7 @@ pub(crate) fn step<S: Storage>(
     r: &mut StepRegs<S>,
     s: &mut [u64],
     conj: bool,
+    abs: bool,
 ) -> bool {
     let slots = &shared.products[(seq & 1) as usize];
     match role {
@@ -250,8 +251,12 @@ pub(crate) fn step<S: Storage>(
     raw::add(&mut r.d, r.x2.view(), r.y2.view(), true, s);
     raw::add(x, r.d.view(), cx.view(), false, s);
     // (F5 Mandelbar, conj(Z)^2 + C: Y' = -2XY + Cy.)
+    // (F6 Burning Ship, (|X| - i|Y|)^2 + C: Y' = -2|XY| + Cy.)
     if conj {
         raw::add(&mut r.d, r.nrm.view(), r.s2.view(), true, s);
+        if abs && !r.d.zero {
+            r.d.neg = true;
+        }
     } else {
         raw::add(&mut r.d, r.s2.view(), r.nrm.view(), true, s);
     }
@@ -266,6 +271,8 @@ pub(crate) struct HelperStart<'a> {
     pub(crate) first: usize,
     /// Mandelbar (F5): the conjugated square.
     pub(crate) conj: bool,
+    /// The Burning Ship (F6): `-2|XY|` (with `conj`).
+    pub(crate) abs: bool,
 }
 
 /// A helper thread: iterates as `role` from `start` until the caller stops.
@@ -292,6 +299,7 @@ pub(crate) fn helper<S: Storage>(shared: &Shared, role: usize, n: usize, start: 
             &mut regs,
             &mut scratch,
             start.conj,
+            start.abs,
         ) {
             return;
         }
