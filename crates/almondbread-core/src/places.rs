@@ -143,7 +143,11 @@ pub fn places() -> &'static [Place] {
 }
 
 pub fn place_named(id: &str) -> Option<&'static Place> {
-    PLACES.iter().chain(MULTIBROT_PLACES).find(|p| p.id == id)
+    PLACES
+        .iter()
+        .chain(MULTIBROT_PLACES)
+        .chain(MANDELBAR_PLACES)
+        .find(|p| p.id == id)
 }
 
 /// The places of one fractal (F3): the Mandelbrot catalogue ([`places`]) or a Multibrot power's
@@ -152,12 +156,16 @@ pub fn places_for(formula: Formula) -> Vec<&'static Place> {
     if formula.is_mandelbrot() {
         return PLACES.iter().collect();
     }
-    MULTIBROT_PLACES.iter().filter(|p| p.formula == formula).collect()
+    MULTIBROT_PLACES
+        .iter()
+        .chain(MANDELBAR_PLACES)
+        .filter(|p| p.formula == formula)
+        .collect()
 }
 
 /// Every place of every formula (thumbnails, tests).
 pub fn all_places() -> impl Iterator<Item = &'static Place> {
-    PLACES.iter().chain(MULTIBROT_PLACES)
+    PLACES.iter().chain(MULTIBROT_PLACES).chain(MANDELBAR_PLACES)
 }
 
 /// A random place: `seed` picks it (any u64, e.g. a time or a random number), so the caller
@@ -280,6 +288,25 @@ mod tests {
             }
         }
         assert!(places_for(Formula::Multibrot(2)).is_empty());
+    }
+
+    /// F5: the Mandelbar set's places, from seek runs: the whole set first, by category, each
+    /// found again by id.
+    #[test]
+    fn mandelbar_places() {
+        let list = places_for(Formula::Mandelbar);
+        assert_eq!(list.len(), 6);
+        assert_eq!(list[0].id, "mandelbar-whole-set");
+        let order: Vec<usize> = list
+            .iter()
+            .map(|p| PlaceCategory::ALL.iter().position(|&c| c == p.category).unwrap())
+            .collect();
+        assert!(order.windows(2).all(|w| w[0] <= w[1]));
+        for p in list {
+            assert!(p.generated && p.formula == Formula::Mandelbar);
+            assert_eq!(place_named(p.id).map(|q| q.formula), Some(Formula::Mandelbar));
+            let _ = p.viewport(800, 500);
+        }
     }
 
     #[test]

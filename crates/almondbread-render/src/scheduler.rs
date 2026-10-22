@@ -195,6 +195,9 @@ pub struct SchedulerConfig {
     /// BLA lookups only at reference indices m = 1 (mod this): a lookup costs several exact
     /// steps on the GPU, and a rule on m keeps results independent of chunking.
     pub bla_lookup_every: u32,
+    /// Tests and diagnostics (F5's skip-off diff): false builds no BLA table, so every view
+    /// iterates without blocks. True in every app and tool.
+    pub bla: bool,
     /// M5: local series approximation (kb: techniques/local-series-approximation).
     pub local_sa: LocalSa,
     /// "Compute further" (kb: techniques/auto-iterations "Compute further"): once a refined
@@ -298,6 +301,7 @@ impl SchedulerConfig {
             aa_budget: 1.5,
             bla_async_from: 16_384,
             bla_lookup_every: 8,
+            bla: true,
             local_sa: LocalSa::default(),
             further: true,
             further_budget: 60.0,
@@ -3171,7 +3175,7 @@ impl<B: GpuBackend> Renderer<B> {
         if !building {
             // Built on demand: no block is valid for a pixel at |dc| >= eps max|2 Z| (a block's
             // R is at most a single step's eps |2 Z|), so shallow views never build one.
-            if job.max_dc_log2 >= self.bla_reach_log2 {
+            if job.max_dc_log2 >= self.bla_reach_log2 || !self.config.bla {
                 self.job.as_mut().expect("job").bla_forecast = Some(BlaForecast::default());
                 return BlaReady::Without;
             }
@@ -3291,6 +3295,9 @@ impl<B: GpuBackend> Renderer<B> {
     /// Big references get the extended-range table (M3b).
     fn start_bla_build(&mut self) {
         let Some(r) = &self.reference else { return };
+        if !self.config.bla {
+            return;
+        }
         let serial = self.reference_serial;
         let eps = BLA_EPSILON;
         let formula = r.formula;

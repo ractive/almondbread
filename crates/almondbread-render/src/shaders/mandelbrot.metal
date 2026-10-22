@@ -2276,8 +2276,65 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             // BLA phase (kBLA): the longest valid block starting at m (levels lev <= ctz(m - 1)
             // have an entry here); |dz| + K |dc| < R is tested squared. Blocks are taken while
             // valid and aligned; then exact steps to the next lookup index follow.
+            if (kBLA && kConformal && m != 0 && ((m - 1) & alignMask) == 0) {
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                const float zn2 = dot(dz, dz);
+                float2 A = 0.0f, B = 0.0f;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > LAST(m) || n + l > p.maxIter) break;
+                    const BlaEntry e = table[bla.offset[lev] + ((m - 1) >> lev)];
+                    const float t = e.r - e.k * cn;
+                    if (!(t > 0.0f && zn2 < t * t)) break;
+                    A = e.a;
+                    B = e.b;
+                    len = l;
+                }
+                if (len != 0) {
+                    budget--;
+                    if (kDE) d = cmul(A, d) + B * p.texelScale;
+                    if (kInterior) {
+                        // |A| <= 2^40 (table build): rescale first so |w A| stays in range,
+                        // then the usual test.
+                        float a = max(abs(w.x), abs(w.y));
+                        if (a > 0x1p60f) {
+                            w *= 0x1p-60f;
+                            wExp += 60;
+                        }
+                        w = cmul(A, w);
+                        a = max(abs(w.x), abs(w.y));
+                        if (a > 0x1p60f) {
+                            w *= 0x1p-60f;
+                            wExp += 60;
+                        } else if (wExp > 0 && a < 0x1p-60f) {
+                            w *= 0x1p60f;
+                            wExp -= 60;
+                        } else if (wExp == 0 && a * (float(n + len) * float(n + len)) < p.interiorEps) {
+                            // (w is now dz_{n+len}/dz_1: the n^2 guard against parabolic
+                            // exteriors must use n + len.)
+                            interior = true;
+                            break;
+                        }
+                    }
+                    dz = cmul(A, dz) + cmul(B, dc);
+                    m += len;
+                    n += len;
+                    z = ref[m] + dz;
+                    r2 = dot(z, z);
+                    IC_TRACK(r2, n)
+                    if (r2 > p.bailout2) { escaped = true; break; }
+                    if (r2 < dot(dz, dz) || m == LAST(m)) {
+                        dz = z;
+                        m = 0;
+                    }
+                    continue;
+                }
+            }
             if (kBLA && kNonConformal && m != 0 && ((m - 1) & alignMask) == 0) {
-                // F5: real-linear A and B (Wirtinger pairs), the same validity test.
+                // F5: real-linear A and B (Wirtinger pairs), the same validity test. (Here, after
+                // the conformal block: placed before it, the plain Mandelbrot pipelines ran 5-17 %
+                // slower although it folds away; measured 2026-10-22, M1 Pro.)
                 device const BlaEntryM* tableM = (device const BlaEntryM*)table;
                 const uint top = min(ctz(m - 1), bla.maxLevel);
                 const float zn2 = dot(dz, dz);
@@ -2326,61 +2383,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     n += len;
                     z = ref[m] + dz;
                     r2 = dot(z, z);
-                    if (r2 > p.bailout2) { escaped = true; break; }
-                    if (r2 < dot(dz, dz) || m == LAST(m)) {
-                        dz = z;
-                        m = 0;
-                    }
-                    continue;
-                }
-            }
-            if (kBLA && kConformal && m != 0 && ((m - 1) & alignMask) == 0) {
-                const uint top = min(ctz(m - 1), bla.maxLevel);
-                const float zn2 = dot(dz, dz);
-                float2 A = 0.0f, B = 0.0f;
-                uint len = 0;
-                for (uint lev = bla.minLevel; lev <= top; lev++) {
-                    const uint l = 1u << lev;
-                    if (m + l > LAST(m) || n + l > p.maxIter) break;
-                    const BlaEntry e = table[bla.offset[lev] + ((m - 1) >> lev)];
-                    const float t = e.r - e.k * cn;
-                    if (!(t > 0.0f && zn2 < t * t)) break;
-                    A = e.a;
-                    B = e.b;
-                    len = l;
-                }
-                if (len != 0) {
-                    budget--;
-                    if (kDE) d = cmul(A, d) + B * p.texelScale;
-                    if (kInterior) {
-                        // |A| <= 2^40 (table build): rescale first so |w A| stays in range,
-                        // then the usual test.
-                        float a = max(abs(w.x), abs(w.y));
-                        if (a > 0x1p60f) {
-                            w *= 0x1p-60f;
-                            wExp += 60;
-                        }
-                        w = cmul(A, w);
-                        a = max(abs(w.x), abs(w.y));
-                        if (a > 0x1p60f) {
-                            w *= 0x1p-60f;
-                            wExp += 60;
-                        } else if (wExp > 0 && a < 0x1p-60f) {
-                            w *= 0x1p60f;
-                            wExp -= 60;
-                        } else if (wExp == 0 && a * (float(n + len) * float(n + len)) < p.interiorEps) {
-                            // (w is now dz_{n+len}/dz_1: the n^2 guard against parabolic
-                            // exteriors must use n + len.)
-                            interior = true;
-                            break;
-                        }
-                    }
-                    dz = cmul(A, dz) + cmul(B, dc);
-                    m += len;
-                    n += len;
-                    z = ref[m] + dz;
-                    r2 = dot(z, z);
-                    IC_TRACK(r2, n)
                     if (r2 > p.bailout2) { escaped = true; break; }
                     if (r2 < dot(dz, dz) || m == LAST(m)) {
                         dz = z;
