@@ -273,6 +273,7 @@ impl ReferenceOrbitComputer {
         self.compute_from(Some(from), max_iterations, bailout, points, extended, None, control)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compute_from(
         &self,
         from: Option<&OrbitResult>,
@@ -619,7 +620,10 @@ fn emit_point<S: AsRef<[u64]>>(x: &Raw<S>, y: &Raw<S>, i: usize, bailout2: f64, 
         d[i] = DoubleExpComplex::new(raw_double_exp(x.view()), raw_double_exp(y.view()));
     }
     if let Some(d) = out.split.as_deref_mut() {
-        d[i] = FloatExpSplit::from_double_exp(DoubleExpComplex::new(raw_double_exp(x.view()), raw_double_exp(y.view())));
+        d[i] = FloatExpSplit::from_double_exp(DoubleExpComplex::new(
+            raw_double_exp(x.view()),
+            raw_double_exp(y.view()),
+        ));
     }
     xd * xd + yd * yd > bailout2
 }

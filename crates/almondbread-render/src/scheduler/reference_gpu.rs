@@ -38,14 +38,26 @@ pub(super) fn gpu_reference<Buf>(
             let gpu: Vec<[u32; 4]> = if r.split.len() == r.extended.len() {
                 r.split
                     .iter()
-                    .map(|z| [z.mantissa[0].to_bits(), z.mantissa[1].to_bits(), z.exponent[0] as u32, z.exponent[1] as u32])
+                    .map(|z| {
+                        [
+                            z.mantissa[0].to_bits(),
+                            z.mantissa[1].to_bits(),
+                            z.exponent[0] as u32,
+                            z.exponent[1] as u32,
+                        ]
+                    })
                     .collect()
             } else {
                 r.extended
                     .iter()
                     .map(|z| {
                         let s = almondbread_core::formula::FloatExpSplit::from_double_exp(shared_to_double(z));
-                        [s.mantissa[0].to_bits(), s.mantissa[1].to_bits(), s.exponent[0] as u32, s.exponent[1] as u32]
+                        [
+                            s.mantissa[0].to_bits(),
+                            s.mantissa[1].to_bits(),
+                            s.exponent[0] as u32,
+                            s.exponent[1] as u32,
+                        ]
                     })
                     .collect()
             };

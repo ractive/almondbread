@@ -68,7 +68,11 @@ pub fn diffabs(a: f64, d: f64) -> f64 {
 pub fn diffabs_x(a: DoubleExp, d: DoubleExp) -> DoubleExp {
     let s = a + d;
     if a.mantissa >= 0.0 {
-        if s.mantissa >= 0.0 { d } else { -(a.times_power_of_two(1) + d) }
+        if s.mantissa >= 0.0 {
+            d
+        } else {
+            -(a.times_power_of_two(1) + d)
+        }
     } else if s.mantissa > 0.0 {
         a.times_power_of_two(1) + d
     } else {
@@ -226,9 +230,7 @@ impl Formula {
     /// `1 - log2(ln|z|)` exactly as before).
     pub fn smooth_offset(self, r2: f64) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip => {
-                1.0 - (0.5 * r2.ln()).log2()
-            }
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip => 1.0 - (0.5 * r2.ln()).log2(),
             Self::Multibrot(p) => 1.0 - (0.5 * r2.ln()).log2() / f64::from(p).log2(),
         }
     }
@@ -293,7 +295,9 @@ impl Formula {
                 p: DoubleExpComplex::ZERO,
                 q: z.conj().times_two(),
             },
-            Self::BurningShip if (z.re.mantissa >= 0.0) == (z.im.mantissa >= 0.0) || z.re.is_zero() || z.im.is_zero() => {
+            Self::BurningShip
+                if (z.re.mantissa >= 0.0) == (z.im.mantissa >= 0.0) || z.re.is_zero() || z.im.is_zero() =>
+            {
                 LinearX {
                     p: DoubleExpComplex::ZERO,
                     q: z.conj().times_two(),
@@ -436,7 +440,8 @@ mod tests {
         }
         assert_eq!(Formula::parse("multibrot1"), None);
         assert_eq!(Formula::parse("multibrot9"), None);
-        assert_eq!(Formula::parse("burningship"), None);
+        assert_eq!(Formula::parse("burningship"), Some(Formula::BurningShip));
+        assert_eq!(Formula::parse("celtic"), None);
         assert_eq!(Formula::default(), Formula::Mandelbrot);
     }
 

@@ -222,7 +222,11 @@ fn burning_ship_matches_its_oracle_with_and_without_bla() {
     views.push((
         "period-3224".into(),
         Viewport::with_center(
-            Center::parse("-1.7621497225498208521697460048491", "0.028770289802978131787848363068104").unwrap(),
+            Center::parse(
+                "-1.7621497225498208521697460048491",
+                "0.028770289802978131787848363068104",
+            )
+            .unwrap(),
             Scale::parse("1.6e-26").unwrap(),
         ),
     ));
@@ -249,7 +253,11 @@ fn burning_ship_matches_its_oracle_with_and_without_bla() {
         println!("burning ship {id} vs oracle (BLA table {bla_used}): {}", rep.summary());
         assert!(rep.false_interior_pct() < 0.1, "{}", rep.summary());
         if id == "burningship-needle-1e100" {
-            assert!(rep.escape_differs_pct() < 0.1 && rep.mismatch_pct() < 0.05, "{}", rep.summary());
+            assert!(
+                rep.escape_differs_pct() < 0.1 && rep.mismatch_pct() < 0.05,
+                "{}",
+                rep.summary()
+            );
         }
         let mut off = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
         off.settings = r.settings.clone();

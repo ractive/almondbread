@@ -645,7 +645,12 @@ mod tests {
         // Bare numbers keep the view's formula; unknown or test-only formulas are ignored.
         assert_eq!(parse_formula("0.1 0.2 1e-5"), None);
         assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula multibrot2"), None);
-        assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula burningship"), None);
+        assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula celtic"), None);
+        // F6: the Burning Ship is a picker formula.
+        assert_eq!(
+            parse_formula("re 0\nim 0\nscale 1\nformula burningship"),
+            Some(Formula::BurningShip)
+        );
     }
 
     fn sea8007() -> Viewport {

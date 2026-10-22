@@ -1673,7 +1673,7 @@ pub const BURNING_SHIP_PLACES: &[Place] = &[
         category: PlaceCategory::Deep,
         description: "The needle at 1e-100 per pixel: every step of every orbit folds, and float32 still resolves it.",
         feature: "The real axis near -1.9 with its spikes of tiny minibrots.",
-        re: "-1.9",
+        re: "-1.900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
         im: "3e-101",
         span: "2.6e-98",
         look: "aurora",

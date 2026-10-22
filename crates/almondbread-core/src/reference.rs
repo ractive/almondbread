@@ -26,7 +26,8 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use almondbread_math::{
-    BigFloat, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, PeriodMethod, ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
+    BigFloat, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, PeriodMethod, ReferenceOrbitComputer, Threads,
+    recommended_precision_bits_with,
 };
 
 use crate::julia_reference::{self, JuliaLayout};
@@ -193,7 +194,7 @@ impl Reference {
                 max_iter,
                 points: Arc::new(julia_reference::assemble(&crit, &center, [0.0; 2])),
                 extended: Arc::default(),
-            split: Arc::default(),
+                split: Arc::default(),
                 period: None,
                 detected_period: None,
                 escaped,
@@ -375,15 +376,15 @@ impl Reference {
                 )
             } else {
                 match &r {
-                None => comp.compute(stage, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl),
-                Some(prev) => comp.resume(
-                    prev,
-                    stage,
-                    request.bailout,
-                    Some(&mut points),
-                    Some(&mut extended),
-                    &mut ctl,
-                ),
+                    None => comp.compute(stage, request.bailout, Some(&mut points), Some(&mut extended), &mut ctl),
+                    Some(prev) => comp.resume(
+                        prev,
+                        stage,
+                        request.bailout,
+                        Some(&mut points),
+                        Some(&mut extended),
+                        &mut ctl,
+                    ),
                 }
             };
             if next.cancelled {

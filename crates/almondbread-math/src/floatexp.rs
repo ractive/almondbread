@@ -104,7 +104,10 @@ impl FloatExpSplit {
 
     pub fn to_double_exp(self) -> DoubleExpComplex {
         let part = |m: f32, e: i32| DoubleExp::from_f64(f64::from(m)).times_power_of_two(i64::from(e));
-        DoubleExpComplex::new(part(self.mantissa[0], self.exponent[0]), part(self.mantissa[1], self.exponent[1]))
+        DoubleExpComplex::new(
+            part(self.mantissa[0], self.exponent[0]),
+            part(self.mantissa[1], self.exponent[1]),
+        )
     }
 }
 

@@ -2684,8 +2684,12 @@ mod formula_integration_tests {
         assert_eq!(s.formula, "burningship");
         assert_eq!(view(&e), Viewport::fitting_for(Formula::BurningShip, W, H));
         assert!(!e.julia_twin(), "no Julia twin outside Mandelbrot");
-        e.set_viewport("-1.7621497225501782136".into(), "0.028770289802635700575".into(), 4.5e-15)
-            .unwrap();
+        e.set_viewport(
+            "-1.7621497225501782136".into(),
+            "0.028770289802635700575".into(),
+            4.5e-15,
+        )
+        .unwrap();
         let (mv, text) = (view(&e), e.coordinates_text());
         assert!(text.ends_with("\nformula burningship"), "{text}");
         e.set_formula("mandelbar".into()).unwrap();
