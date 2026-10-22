@@ -110,6 +110,15 @@ const PROBE_MIN_STEPS: usize = 64;
 /// that keeps the probe on.
 const PROBE_TRIAL: usize = 4096;
 const PROBE_MIN_SUCCESS: f64 = 0.05;
+/// GPU seconds a gesture frame's preview may cost to run in one K = maxIter chunk (default of
+/// the temporary A/B switch `set_preview_one_chunk_max`).
+pub const PREVIEW_ONE_CHUNK_MAX: f64 = 0.05;
+
+/// A gesture frame's preview in one K = maxIter chunk (true) or in budgeted progressive
+/// chunks (false): its estimated cost against `max` GPU seconds.
+fn preview_in_one_chunk(cost_per_texel: f64, texels: usize, max: f64) -> bool {
+    cost_per_texel * texels as f64 <= max
+}
 
 /// Probe steps per pixel at limit `max_iter` (`IterateParams::probe`; 0 off).
 fn probe_limit(max_iter: usize, div: u32) -> u32 {
@@ -1327,6 +1336,11 @@ pub struct Renderer<B: GpuBackend> {
     rate: f64,
     /// GPU seconds per texel of the last completed level.
     cost_per_texel: f64,
+    /// A/B test switch, temporary (kb: synthesis/benchmarks "z⁸ deep zoom frame-rate
+    /// swings"): a gesture frame's preview runs in one K = maxIter chunk while its estimated
+    /// cost is at most this many GPU seconds, else progressively. 0.05 (default, current) or
+    /// 0.012; once decided, the switch and the losing value go.
+    preview_one_chunk_max: f64,
     /// `cost_per_texel` was measured at this view (or a continuous move from it): false at
     /// start and after a jump, when the last view's cost says nothing about this one. A gesture
     /// frame then starts at 1/8 resolution (its measured cost sizes the next): a cheap view's
@@ -1568,6 +1582,7 @@ impl<B: GpuBackend> Renderer<B> {
             in_flight: VecDeque::new(),
             rate: 3e10,
             cost_per_texel: 0.0,
+            preview_one_chunk_max: PREVIEW_ONE_CHUNK_MAX,
             cost_known: false,
             probe_ratio: 0.0,
             probe_until: f64::NEG_INFINITY,
@@ -3766,8 +3781,7 @@ impl<B: GpuBackend> Renderer<B> {
             }
             return;
         }
-        let estimate = self.cost_per_texel * level.total as f64;
-        if estimate > 0.05 {
+        if !preview_in_one_chunk(self.cost_per_texel, level.total, self.preview_one_chunk_max) {
             let b = self.config.interactive_chunk_target;
             self.encode_chunks(b);
             return;
@@ -4750,6 +4764,21 @@ impl<B: GpuBackend> Renderer<B> {
         }
         self.further_next_pass();
         false
+    }
+
+    /// A/B test switch, temporary: the most GPU seconds a gesture frame's preview may cost to
+    /// run in one K = maxIter chunk (0.05 default; 0.012 the candidate; kb: synthesis/benchmarks
+    /// "z⁸ deep zoom frame-rate swings"). Non-finite or negative values keep the default.
+    pub fn set_preview_one_chunk_max(&mut self, seconds: f64) {
+        self.preview_one_chunk_max = if seconds.is_finite() && seconds >= 0.0 {
+            seconds
+        } else {
+            PREVIEW_ONE_CHUNK_MAX
+        };
+    }
+
+    pub fn preview_one_chunk_max(&self) -> f64 {
+        self.preview_one_chunk_max
     }
 
     /// "Continue" at the time limit (kb: techniques/auto-iterations "Compute further"): another
@@ -6933,5 +6962,24 @@ impl<B: GpuBackend + Clone> Renderer<B> {
             width: set.width,
             height: set.height,
         })
+    }
+}
+
+#[cfg(test)]
+mod preview_threshold_tests {
+    use super::*;
+
+    /// The A/B switch changes the decision for a preview costing between 12 and 50 ms: the
+    /// z⁸ deep zoom's smallest preview (320 x 205 texels) at the knife edge's 2.6e-7 s/texel
+    /// (17 ms; kb: synthesis/benchmarks "z⁸ deep zoom frame-rate swings").
+    #[test]
+    fn threshold_switches_one_chunk_vs_progressive() {
+        let texels = 320 * 205;
+        let cost = 2.6e-7;
+        assert!(preview_in_one_chunk(cost, texels, PREVIEW_ONE_CHUNK_MAX));
+        assert!(!preview_in_one_chunk(cost, texels, 0.012));
+        // Below 12 ms both run in one chunk, above 50 ms neither.
+        assert!(preview_in_one_chunk(1.0e-7, texels, 0.012));
+        assert!(!preview_in_one_chunk(1.0e-6, texels, PREVIEW_ONE_CHUNK_MAX));
     }
 }

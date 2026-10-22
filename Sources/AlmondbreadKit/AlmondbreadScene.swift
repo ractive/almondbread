@@ -198,6 +198,14 @@ struct FractalCommands: Commands {
             Toggle("Developer Details in Status", isOn: Binding(get: { model?.hudDetails ?? false },
                                                                 set: { model?.hudDetails = $0 }))
                 .disabled(model == nil || model?.showHUD == false)
+            // Temporary A/B switch (kb: synthesis/benchmarks "z⁸ deep zoom frame-rate swings"):
+            // goes once the user has decided. ⌃⌥P is free on the canvas and in the menus.
+            Button(model?.previewThresholdMs == ExplorerModel.previewThresholdTest
+                   ? "Preview threshold: 12 ms → 50 ms (test)" : "Preview threshold: 50 ms → 12 ms (test)") {
+                model?.togglePreviewThreshold()
+            }
+            .keyboardShortcut("p", modifiers: [.control, .option])
+            .disabled(model == nil)
             Divider()
         }
         CommandGroup(replacing: .help) {

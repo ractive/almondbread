@@ -2148,6 +2148,21 @@ stay opt-in until checked there). (F3's 25.0 fps run is another thing: 334 frame
 3.9 ms GPU, 75 presented, a presentation stall of the background window.) Hysteresis alone (keep the mode for a gesture) would make the slow mode
 the stable one, the opposite of what is wanted.
 
+**A/B in progress (2026-10-23): a temporary test switch** for the user's foreground comparison:
+⌃⌥P, View ▸ "Preview threshold: 50 ms → 12 ms (test)", or the control center's "Test: preview
+threshold 12 ms (A/B)" row (Mac and iPad); the HUD's speed line shows "preview 12 ms" while it is
+on ([Controls](../decisions/controls.md#test-switches-temporary)). Default 50 ms, not saved. Once
+the user decides, the switch and the losing value go. Interaction-test variants "multibrot8 deep
+zoom preview12" and "sea-1e20 zoom preview12" run at 12 ms. Measured 2026-10-23, M1 Pro, release,
+load average 18–60, 7 runs, each running the four scenarios in turn (50, 12, 50, 12). The window
+was occluded (display asleep), so no presentation fps: the table gives frames encoded per second of
+input (361 refreshes in 3 s) and GPU ms per frame. Shown vs fresh render 0 px in all 28.
+
+| scenario | 50 ms: frames encoded / s (each run) | GPU ms / frame | 12 ms: frames encoded / s | GPU ms / frame |
+|---|---|---|---|---|
+| multibrot8 deep zoom | 40, 110, 47, 108, 80, 49, 111 | 4.2–21.4 | 118, 115, 109, 118, 118, 118, 117 | 3.7–3.9 |
+| sea-1e20 zoom | 89, 85, 80, 81, 86, 86, 87 | 9.8–10.5 | 94, 96, 92, 95, 96, 96, 92 | 8.8–9.0 |
+
 ## F4: deep Julia sets, gate, verify and Mandelbrot A/B, 2026-10-22
 
 [F4: Deep Julia sets](../plans/f4-deep-julia.md) (measured 2026-10-21/22, M1 Pro, release, a shared machine: load average 11–340

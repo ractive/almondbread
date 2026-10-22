@@ -754,6 +754,12 @@ struct OverlaySectionRows: View {
         Toggle("Developer details in the HUD", isOn: $model.hudDetails)
             .disabled(!model.showHUD)
             .help("Iterations, GPU time, render size, reference orbit, kernel and render state")
+        // Temporary A/B switch (kb: synthesis/benchmarks "z⁸ deep zoom frame-rate swings").
+        Toggle("Test: preview threshold 12 ms (A/B)", isOn: Binding(
+            get: { model.previewThresholdMs == ExplorerModel.previewThresholdTest },
+            set: { model.previewThresholdMs = $0 ? ExplorerModel.previewThresholdTest : ExplorerModel.previewThresholdDefault }))
+            .help("Test switch (⌃⌥P): gesture previews that would cost over 12 ms run progressively instead of in one chunk (default 50 ms). Not saved")
+            .accessibilityIdentifier("preview-threshold-test")
     }
 }
 

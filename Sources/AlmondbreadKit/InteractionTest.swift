@@ -51,6 +51,9 @@ final class InteractionTest: NSObject {
         /// A Julia view's Mandelbrot panel (kb: decisions/controls "Mandelbrot panel"): on at
         /// every entry; false turns it off before the settling phase.
         var mandelbrotPanel = true
+        /// The temporary A/B switch (⌃⌥P; kb: synthesis/benchmarks "z⁸ deep zoom frame-rate
+        /// swings"): the gesture preview's one-chunk threshold in GPU ms.
+        var previewMs = ExplorerModel.previewThresholdDefault
     }
     private let settleSeconds = 1.0
     private var startLook: String?
@@ -795,6 +798,8 @@ final class InteractionTest: NSObject {
                 Scenario(name: "neck2e5 pan", viewport: neck2e5, input: pan),
                 Scenario(name: "sea-1e20 pan", viewport: seaDeep20, input: pan),
                 Scenario(name: "sea-1e20 zoom", viewport: seaDeep20, input: zoom),
+                Scenario(name: "sea-1e20 zoom preview12", viewport: seaDeep20, input: zoom,
+                         previewMs: ExplorerModel.previewThresholdTest),
                 Scenario(name: "spiral pan", viewport: spiral, input: pan),
                 Scenario(name: "spiral zoom", viewport: spiral, input: zoom),
                 Scenario(name: "julia twin deep zoom", viewport: seaDeep, input: deepZoom, julia: (re: "twin", im: "")),
@@ -809,6 +814,9 @@ final class InteractionTest: NSObject {
                 // z^8 + c at its period-19 minibrot beside a Misiurewicz point (1e-24 per point).
                 Scenario(name: "multibrot5 pan", viewport: multibrot5, input: pan),
                 Scenario(name: "multibrot8 deep zoom", viewport: multibrot8, input: zoom),
+                // The A/B switch's candidate (12 ms; the test switch, temporary).
+                Scenario(name: "multibrot8 deep zoom preview12", viewport: multibrot8, input: zoom,
+                         previewMs: ExplorerModel.previewThresholdTest),
                 // BB (kb: plans/buddhabrot "Live mode"): the orbit-density looks stay on while
                 // the view moves (a coarse live accumulation within the gesture budget).
                 Scenario(name: "buddha pan", viewport: buddhaHome, input: pan),
@@ -933,6 +941,7 @@ final class InteractionTest: NSObject {
         if scenarios[scenario].julia != nil, !scenarios[scenario].mandelbrotPanel {
             _ = explorer.toggleMandelbrotPanel()
         }
+        view.model.previewThresholdMs = scenarios[scenario].previewMs
         view.model.refreshStats()
         // Every scenario starts in pointer mode with the pointer off the canvas (the real
         // pointer is ignored during the test): zooms go to the centre unless a scenario
