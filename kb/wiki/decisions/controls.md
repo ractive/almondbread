@@ -3077,7 +3077,9 @@ autopilot's way out go to `Viewport::fitting_for(formula)`: Mandelbrot's home, a
 Julia view and `formula multibrotP` for a Multibrot view (never both); pasting text with neither
 line in a Julia view leaves it for the Mandelbrot set. A place (all places are Mandelbrot or
 Multibrot) from a Julia view is a jump that drops the way back. The mini-map's whole level is the
-current set's home view (Multibrot: centred on 0).
+current set's home view (Multibrot: centred on 0). F5 adds the Mandelbar set (the Tricorn,
+`z̄² + c`) as a family of one: no power picker, home view centred on -1/2, links carry
+`formula mandelbar`, no twin or Julia panel ([F5: Mandelbar (Tricorn) and the non-conformal path](../plans/f5-mandelbar.md)).
 
 ### Mini-map on small screens (as built, 2026-10-19)
 
