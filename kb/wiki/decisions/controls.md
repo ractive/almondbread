@@ -3148,7 +3148,12 @@ is good"): **⌘-click** on any point of the picture opens the deep Julia set of
   the autopilot instead of pausing it while a plain click pauses it; the ⌘ stream's double click
   does not zoom, a ⌘ double click in the Julia view does; ⌥ double click ×0.5 and Multibrot /
   Mandelbar ⌘-clicks unchanged. FFI `command_click_reports_the_new_settings`. Interaction test
-  scenario "cmd-click julia" (real ⌘ mouse events through `FractalNSView`).
+  scenario "cmd-click julia" (real ⌘ mouse events through `FractalNSView`): formula julia in Rust
+  and the Swift mirror, k 0 pt off the clicked point, the second ⌘ click did not zoom (scale
+  ×1.000000 of the whole set), shown frame vs fresh render 0 % (2026-10-23; the window was
+  occluded, so no frame-pacing figures). Mandelbrot `bench --no-verify 1 --out` 84 of 84 files
+  byte-identical to main (f89885d). Not tried: a ⌘-click on a real iPad with a keyboard (no
+  simulator test sends modifier clicks).
 
 ### Fractal picker and Julia views (F3 + F4, 2026-10-22)
 
