@@ -590,16 +590,12 @@ struct LookSectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.look")
-        #if os(macOS)
+        // (A menu on iOS too: the navigation-link picker had no navigation stack in the pane and
+        // was disabled on the iPad, found by the BB UI test.)
         ControlRows.picker("Look", selection: Binding(get: { model.lookID }, set: { model.applyLook($0) })) {
             looks
         }
-        #else
-        Picker("Look", selection: Binding(get: { model.lookID }, set: { model.applyLook($0) })) {
-            looks
-        }
-        .pickerStyle(.navigationLink)
-        #endif
+        .accessibilityIdentifier("look-picker")
         PalettePicker(model: model)
         // A user edit pivots on the view's median escape count (kb: techniques/coloring-methods,
         // "Density pivot"): the offset slider moves along.

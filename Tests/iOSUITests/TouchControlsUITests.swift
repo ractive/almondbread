@@ -344,16 +344,21 @@ final class TouchControlsUITests: XCTestCase {
         try launchSettled()
         let control = app.buttons["Control center"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
-        if control.value as? String != "shown" { control.tap() }
-        settle(2)
-        XCTAssertTrue(app.buttons["control-center-close"].waitForExistence(timeout: 5), "control center not open")
+        // (The pane's open state outlives a launch, and the button can read "shown" while the
+        // pane is not up yet: toggle until its ✕ is there.)
+        for _ in 0..<3 where !app.buttons["control-center-close"].waitForExistence(timeout: 3) {
+            control.tap()
+            settle(2)
+        }
+        if !app.buttons["control-center-close"].exists { dumpTree("control-center") }
+        XCTAssertTrue(app.buttons["control-center-close"].exists, "control center not open")
         let search = app.textFields["Search settings"]
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         func openLookPicker() {
             search.tap()
             search.clearAndType("look")
             settle(1.5)
-            let picker = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Look'")).firstMatch
+            let picker = app.buttons["look-picker"]
             XCTAssertTrue(picker.waitForExistence(timeout: 5), "no Look picker")
             picker.tap()
             settle(1)
@@ -362,7 +367,8 @@ final class TouchControlsUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
         }
         openLookPicker()
-        XCTAssertTrue(entry("Nebulabrot").waitForExistence(timeout: 5), "no Nebulabrot entry")
+        if !entry("Nebulabrot").waitForExistence(timeout: 5) { dumpTree("look-picker") }
+        XCTAssertTrue(entry("Nebulabrot").exists, "no Nebulabrot entry")
         let buddha = entry("Buddhabrot")
         XCTAssertTrue(buddha.exists, "no Buddhabrot entry")
         buddha.tap()
@@ -398,6 +404,14 @@ final class TouchControlsUITests: XCTestCase {
             app.buttons["control-center-close"].tap()
             settle(1)
         }
+    }
+
+    /// The accessibility tree as an attachment (a failing UI query's evidence).
+    private func dumpTree(_ name: String) {
+        let a = XCTAttachment(string: app.debugDescription)
+        a.name = "tree-" + name
+        a.lifetime = .keepAlways
+        add(a)
     }
 
     /// The throttle, a position lever: a drag to a tick puts the knob there and it stays (the
