@@ -494,13 +494,18 @@ impl Viewport {
 
     /// The home view of a formula's whole set (F3): [`Viewport::fitting`] for Mandelbrot; a
     /// Multibrot set is centred on 0 and spans about 2.9 in both directions; a Julia set (F4) gets
-    /// [`crate::julia::home_view`].
+    /// [`crate::julia::home_view`]; the Mandelbar set (F5) is centred on -1/2.
     pub fn fitting_for(formula: crate::formula::Formula, width: f64, height: f64) -> Self {
         if formula.is_julia() {
             return crate::julia::home_view(width, height);
         }
         if formula.is_mandelbrot() || width <= 0.0 || height <= 0.0 {
             return Self::fitting(width, height);
+        }
+        if formula == crate::formula::Formula::Mandelbar {
+            // F5: the Tricorn spans re -2 .. 1 (its antenna tips -2 and 1 ± i sqrt 3) and
+            // im ±sqrt 3.
+            return Self::new(-0.5, 0.0, (3.4 / width).max(3.75 / height));
         }
         Self::new(0.0, 0.0, (2.9 / width).max(2.9 / height))
     }

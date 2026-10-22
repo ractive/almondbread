@@ -1480,3 +1480,105 @@ pub const MULTIBROT_PLACES: &[Place] = &[
         ..BASE
     },
 ];
+
+/// The Mandelbar set's places (F5, kb: plans/f5-mandelbar): the whole set and minibrots found by
+/// automated seek runs from it (and one `locate` found beside the antenna tip 1 + i sqrt 3 at
+/// 1e-50). Odd periods are small Tricorns, even ones skewed Mandelbrot sets.
+pub const MANDELBAR_PLACES: &[Place] = &[
+    Place {
+        formula: Formula::Mandelbar,
+        id: "mandelbar-whole-set",
+        name: "Tricorn",
+        category: PlaceCategory::Landmark,
+        description: "The whole Mandelbar set (the Tricorn) of conj(z)² + c: three-fold symmetric, with antennas to -2 and 1 ± i√3.",
+        feature: "All points c whose orbit under conj(z)² + c stays bounded.",
+        re: "-0.5",
+        im: "0",
+        span: "3.75",
+        look: "aurora",
+        source: "The definition of the Mandelbar set (Tricorn)",
+        source_url: "https://en.wikipedia.org/wiki/Tricorn_(mathematics)",
+        generated: true,
+        ..BASE
+    },
+    Place {
+        formula: Formula::Mandelbar,
+        id: "mandelbar-tricorn-3",
+        name: "Little Tricorn 3",
+        category: PlaceCategory::Minibrot,
+        description: "On the antenna to -2: a small Tricorn, as the airship sits on the Mandelbrot set's.",
+        feature: "Period-3 minibrot (a baby Tricorn), size 1e-1.9.",
+        re: "-1.7548776662466928",
+        im: "0",
+        span: "0.03829",
+        look: "lagoon",
+        source: "Found by seek (almondbread seek --formula mandelbar), F5",
+        source_url: "",
+        generated: true,
+        ..BASE
+    },
+    Place {
+        formula: Formula::Mandelbar,
+        id: "mandelbar-tricorn-7",
+        name: "Little Tricorn 7",
+        category: PlaceCategory::Minibrot,
+        description: "Further along the antenna to -2, the next small Tricorn seek finds.",
+        feature: "Period-7 minibrot (a baby Tricorn), size 1e-3.4.",
+        re: "-1.674066091474788",
+        im: "0",
+        span: "0.001009",
+        look: "ember",
+        source: "Found by seek (almondbread seek --formula mandelbar), F5",
+        source_url: "",
+        generated: true,
+        ..BASE
+    },
+    Place {
+        formula: Formula::Mandelbar,
+        id: "mandelbar-mandelbrot-20",
+        name: "Skewed Mandelbrot 20",
+        category: PlaceCategory::Minibrot,
+        description: "Near the tip 1 + i√3: a copy of the Mandelbrot set inside the Tricorn, sheared by the conjugation.",
+        feature: "Period-20 minibrot (a skewed Mandelbrot set), size 1e-8.9.",
+        re: "0.90314932019453019",
+        im: "1.4984558966474309",
+        span: "3.898e-9",
+        look: "nebula",
+        source: "Found by seek (almondbread seek --formula mandelbar), F5",
+        source_url: "",
+        generated: true,
+        ..BASE
+    },
+    Place {
+        formula: Formula::Mandelbar,
+        id: "mandelbar-mandelbrot-620",
+        name: "Skewed Mandelbrot 620",
+        category: PlaceCategory::Deep,
+        description: "Seek's sixth step down from the whole set: a sheared Mandelbrot copy at 1e-22.",
+        feature: "Period-620 minibrot (a skewed Mandelbrot set), size 1e-22.1.",
+        re: "0.903149322150161032238953132749",
+        im: "1.4984558964696706694156891274",
+        span: "2.016e-22",
+        look: "dusk",
+        source: "Found by seek (almondbread seek --formula mandelbar), F5",
+        source_url: "",
+        generated: true,
+        ..BASE
+    },
+    Place {
+        formula: Formula::Mandelbar,
+        id: "mandelbar-mandelbrot-86",
+        name: "Skewed Mandelbrot 86",
+        category: PlaceCategory::Deep,
+        description: "Beside the antenna tip 1 + i√3 at 1e-100: a sheared Mandelbrot copy ringed by the tip's bands.",
+        feature: "Period-86 minibrot (a skewed Mandelbrot set), size 1e-101.0.",
+        re: "0.999999999999999999999999999999999999999999999999988871304385364672478869417378863624198093296094684261637091",
+        im: "1.7320508075688772935274463415058723669428052538103613525895804621096475888675286566308984955565200935661365",
+        span: "6.6e-101",
+        look: "aurora",
+        source: "Found by locate (almondbread locate --formula mandelbar) in a disc of 1e-50 beside the tip, F5",
+        source_url: "",
+        generated: true,
+        ..BASE
+    },
+];

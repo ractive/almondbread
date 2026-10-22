@@ -519,6 +519,8 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
     let last = pts.len() - 1;
     let formula = r.formula;
     let generic = !formula.is_mandelbrot();
+    // F5: a non-conformal formula (Mandelbar) steps through its own delta hooks.
+    let conformal = formula.is_conformal();
     let c64 = (cm.0 * pow2(ce), cm.1 * pow2(ce));
     let cx = dx(cm.0, cm.1, ce);
     let c_exp = dx_exponent(cx);
@@ -600,7 +602,11 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                         // the step in extended range from the reference's extended value.
                         let zrx = if m == 0 { DoubleExpComplex::ZERO } else { ext[m] };
                         let zx0 = dx(z.0, z.1, 0);
-                        let zx = zx0 * formula.delta_factor_x(zrx, zrx + zx0) + cx;
+                        let zx = if conformal {
+                            zx0 * formula.delta_factor_x(zrx, zrx + zx0) + cx
+                        } else {
+                            formula.delta_step_x(zrx, zx0, cx)
+                        };
                         m += 1;
                         n += 1;
                         let k = dx_exponent(zx);
@@ -613,6 +619,12 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                         (sc, dd) = rescale(&mut w, &mut ee);
                         e = Some(ee);
                         break;
+                    }
+                    if !conformal {
+                        z = formula.delta_step((zr[0], zr[1]), z, c64);
+                        m += 1;
+                        n += 1;
+                        continue;
                     }
                     let (t0, t1) = if generic {
                         formula.delta_factor((zr[0], zr[1]), (zr[0] + z.0, zr[1] + z.1))
@@ -652,7 +664,9 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     if n >= max_iter {
                         return (ITER_INTERIOR, 0.0);
                     }
-                    zx = if generic {
+                    zx = if !conformal {
+                        formula.delta_step_x(zrx, zx, cx)
+                    } else if generic {
                         zx * formula.delta_factor_x(zrx, zrx + zx) + cx
                     } else {
                         (zrx.times_two() + zx) * zx + cx
@@ -675,12 +689,16 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     return (ITER_INTERIOR, 0.0);
                 }
                 let sw = (sc * w.0, sc * w.1);
-                let (t0, t1) = if generic {
-                    formula.delta_factor((zm[0], zm[1]), (zm[0] + sw.0, zm[1] + sw.1))
+                w = if conformal {
+                    let (t0, t1) = if generic {
+                        formula.delta_factor((zm[0], zm[1]), (zm[0] + sw.0, zm[1] + sw.1))
+                    } else {
+                        (2.0 * zm[0] + sw.0, 2.0 * zm[1] + sw.1)
+                    };
+                    (t0 * w.0 - t1 * w.1 + dd.0, t0 * w.1 + t1 * w.0 + dd.1)
                 } else {
-                    (2.0 * zm[0] + sw.0, 2.0 * zm[1] + sw.1)
+                    formula.delta_step_scaled((zm[0], zm[1]), sw, w, dd)
                 };
-                w = (t0 * w.0 - t1 * w.1 + dd.0, t0 * w.1 + t1 * w.0 + dd.1);
                 m += 1;
                 n += 1;
                 let a = w.0.abs().max(w.1.abs());
@@ -1014,6 +1032,77 @@ mod tests {
             assert!(levels.len() > 10, "{sc}: a picture, not a flat view ({levels:?})");
             assert!(same * 100 >= w * h * 98, "{sc}: only {same} of {} agree", w * h);
             assert!(worst < 1e-4, "{sc}: |dmu| {worst}");
+        }
+    }
+
+    const SQRT3: &str = "1.732050807568877293527446341505872366942805253810380628055806979451933016908800037081146186757248575675626141415406703029969945094998952478811655512094373648528093231902305582067974820101084674923265015312343266903322886650672254668921837971227047131660367861588019049986537379859389467650347506576050756618348129606100947602187190325083145829523959832997789824508288714463832917347224163984587855397667958063";
+
+    /// F5: the Mandelbar deep oracle (its conjugated perturbation step, rescaled regimes and
+    /// extended-range steps) against direct BigFloat iteration of `conj(z)^2 + c` per pixel, at
+    /// a Misiurewicz point off the real axis (1e-30, 1e-100, 1e-320 per pixel) and on it.
+    #[test]
+    fn mandelbar_oracle_matches_direct_iteration() {
+        use almondbread_math::{BigComplex, ReferenceOrbitComputer, with_no_control};
+        let f = Formula::Mandelbar;
+        // The antenna tip 1 + i sqrt(3) = -2 e^{2 pi i / 3}: the image of the tip -2 under the
+        // Tricorn's three-fold symmetry (c -> e^{2 pi i/3} c), a Misiurewicz point off the axis.
+        let tip = Center::parse("1", SQRT3).unwrap();
+        let mut cases = Vec::new();
+        for (sc, it) in [("1e-30", 3000usize), ("1e-100", 4000), ("1e-320", 5000)] {
+            cases.push((tip.clone(), sc, it));
+        }
+        // A real minibrot (period 3; real orbits are Mandelbrot's) with its off-axis pixels.
+        cases.push((Center::parse("-1.7548776662466927600495", "0").unwrap(), "2e-3", 3000));
+        for (center, sc, it) in cases {
+            let texel = Scale::parse(sc).unwrap();
+            let (w, h) = (24usize, 16usize);
+            let (field, r) = cpu_render_deep_for(f, &center, texel, w, h, it, 65536.0, 0.0);
+            assert_eq!(r.formula, f);
+            let bits = crate::reference::needed_bits(&center, texel, w, 64) + 64;
+            let (tm, te) = texel.parts();
+            let (mut same, mut worst) = (0usize, 0.0f64);
+            let mut levels = std::collections::BTreeSet::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let k = y * w + x;
+                    let dx = (x as f64 + 0.5 - w as f64 / 2.0) * tm;
+                    let dy = -(y as f64 + 0.5 - h as f64 / 2.0) * tm;
+                    let c = BigComplex::new(
+                        center.big().re.with_precision(bits) + BigFloat::from_f64(dx, 64).times_power_of_two(te),
+                        center.big().im.with_precision(bits) + BigFloat::from_f64(dy, 64).times_power_of_two(te),
+                    );
+                    let comp = ReferenceOrbitComputer::new(&c, bits).with_formula(f);
+                    let o = with_no_control(4096, |ctl| comp.compute(it, 65536.0, None, None, ctl));
+                    let (n, mu) = if o.escaped {
+                        let r2 = o.final_z.magnitude_squared().to_f64();
+                        (o.iterations() as f32, o.iterations() as f64 + f.smooth_offset(r2))
+                    } else {
+                        (ITER_INTERIOR, 0.0)
+                    };
+                    levels.insert(field.n[k] as i64);
+                    if n == field.n[k] {
+                        same += 1;
+                        if n >= 0.0 {
+                            worst = worst.max((mu - (field.n[k] as f64 + field.s[k] as f64)).abs());
+                        }
+                    }
+                }
+            }
+            println!(
+                "mandelbar oracle @ {sc}: {same}/{} same n, max |dmu| {worst:.2e}, {} levels",
+                w * h,
+                levels.len()
+            );
+            assert!(levels.len() > 5, "{sc}: a picture, not a flat view ({levels:?})");
+            assert!(same * 100 >= w * h * 98, "{sc}: only {same} of {} agree", w * h);
+            assert!(worst < 1e-4, "{sc}: |dmu| {worst}");
+        }
+        // The shallow oracle steps conj(z)^2 + c too: symmetric about the real axis.
+        let a = cpu_render_for(f, -0.3, 0.0, 3.0 / 80.0, 80, 50, 500, 65536.0, 0.0);
+        for y in 0..25 {
+            for x in 0..80 {
+                assert_eq!(a.n[y * 80 + x], a.n[(49 - y) * 80 + x]);
+            }
         }
     }
 

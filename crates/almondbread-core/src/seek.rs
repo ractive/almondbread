@@ -21,6 +21,10 @@
 //! `|w| = (d+1)/d d^(-1/(d-1))` in the directions `e^(i pi (2k+1)/(d-1))`; the test point is 0.8 of
 //! the way there (`-0.6` for d = 2). The set is centred on 0, so the framing is too; there is no
 //! antenna airship to tune to (the ring search alone finds the next smaller one).
+//!
+//! **Mandelbar (F5, kb: plans/f5-mandelbar).** Jacobian Newton and a size from the geometric mean
+//! of `dz_p/dc`'s singular values (no rotation); no shape test (every component found counts) and
+//! no airship; framed on the nucleus, the ring at Mandelbrot's width.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -269,6 +273,13 @@ fn is_cardioid(m: &Minibrot, stop: &Stop) -> bool {
     if r.escaped || z.len() < p + 1 {
         return false;
     }
+    if !f.is_conformal() {
+        // F5 (Mandelbar): a minibrot is a skewed copy (a Tricorn or Mandelbrot shape) whose
+        // orientation the size estimate does not give, so there is no test point: every
+        // component Newton reached counts (satellite bulbs are not told apart; kb:
+        // plans/f5-mandelbar "As built").
+        return true;
+    }
     let (tr, ti) = test_w(f);
     let dc = m.size * DoubleExpComplex::new(DoubleExp::from_f64(tr), DoubleExp::from_f64(ti));
     let four = DoubleExp::from_f64(4.0);
@@ -366,7 +377,25 @@ pub fn seek_for(
             return Some(m);
         }
         if let Some(h) = here {
-            return smaller_than(&h, &stop);
+            let mut r = smaller_than(&h, &stop);
+            // F5: a non-conformal set's components are not told apart from satellites (no shape
+            // test), so the one "in view" may be a larger neighbour of the minibrot framed now,
+            // and the next smaller one around it the framed one again: go on from that.
+            if !formula.is_conformal() {
+                for _ in 0..4 {
+                    match &r {
+                        Some(m)
+                            if (m.sigma() * FRAME_SPAN).ratio(span) > HERE_SHARE
+                                && m.nucleus.distance_in(center, span) < 2.0 =>
+                        {
+                            let m = m.clone();
+                            r = smaller_than(&m, &stop);
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            return r;
         }
     }
     None
@@ -407,8 +436,13 @@ fn smaller_than(m: &Minibrot, stop: &Stop) -> Option<Minibrot> {
         .filter(|&p| p <= MAX_PERIOD && m.formula.is_mandelbrot())
         .and_then(|p| nucleus_near(m.formula, &start.with_min_precision(bits), p, sigma * 0.1, stop))
         .filter(|c| smaller(c) && is_cardioid(c, stop));
-    // (Multibrot, F3: its decorations end near |w| = 1.3, so the ring is half as wide.)
-    let k = if m.formula.is_mandelbrot() { 1.0 } else { 0.5 };
+    // (Multibrot, F3: its decorations end near |w| = 1.3, so the ring is half as wide; the
+    // Mandelbar set, F5, reaches |w| = 2 with its antennas, as Mandelbrot.)
+    let k = if m.formula.is_mandelbrot() || m.formula == Formula::Mandelbar {
+        1.0
+    } else {
+        0.5
+    };
     for w in RING {
         if stop.now() {
             break;

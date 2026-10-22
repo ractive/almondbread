@@ -52,8 +52,8 @@ public enum SelfTest {
                                 m.width, m.height, m.pixels, m.percent))
         }
         // The places thumbnails ship as package resources in both the swift-run and the
-        // Xcode-built app (kb: synthesis/places).
-        let catalogue = places()
+        // Xcode-built app (kb: synthesis/places); every formula's places (F3, F5).
+        let catalogue = ExplorerModel.allPlaces
         let missing = catalogue.filter {
             PlaceThumbnails.url(id: $0.id) == nil || PlaceThumbnails.url(id: $0.id, retina: false) == nil
         }

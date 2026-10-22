@@ -734,6 +734,9 @@ final class InteractionTest: NSObject {
         let multibrot5 = View(re: "0.84733531576585034", im: "0.58201571377117265", scale: 1.1e-8, formula: "multibrot5")
         let multibrot8 = View(re: "-0.578757811778842465396026167", im: "0.890676734071857679572348838",
                               scale: 5.2e-24, formula: "multibrot8")
+        let mandelbar20 = View(re: "0.90314932019453019", im: "1.4984558966474309", scale: 4.75e-12, formula: "mandelbar")
+        let mandelbar620 = View(re: "0.903149322150161032238953132749", im: "1.4984558964696706694156891274",
+                                scale: 2.5e-25, formula: "mandelbar")
         return [Scenario(name: "orbit pointer", viewport: sea, input: orbitPointer),
                 Scenario(name: "sweep", viewport: home, input: sweep(false)),
                 Scenario(name: "julia sweep", viewport: home, input: sweep(true)),
@@ -793,7 +796,11 @@ final class InteractionTest: NSObject {
                 // the view moves (a coarse live accumulation within the gesture budget).
                 Scenario(name: "buddha pan", viewport: buddhaHome, input: pan),
                 Scenario(name: "buddha zoom", viewport: buddhaHome, input: zoom),
-                Scenario(name: "nebula zoom", viewport: nebulaSea, input: zoom)]
+                Scenario(name: "nebula zoom", viewport: nebulaSea, input: zoom),
+                // F5 (kb: plans/f5-mandelbar): the Mandelbar set at its seek-found period-20
+                // minibrot (5e-12 per point) and the period-620 one below it (2.5e-25 per point).
+                Scenario(name: "mandelbar pan", viewport: mandelbar20, input: pan),
+                Scenario(name: "mandelbar deep zoom", viewport: mandelbar620, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.

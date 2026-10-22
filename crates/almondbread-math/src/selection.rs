@@ -8,6 +8,7 @@ use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::BigComplex;
 use crate::floatexp::{DoubleExp, DoubleExpComplex};
 use crate::formula::Formula;
+use crate::linear::LinearX;
 use crate::orbit::{Control, ReferenceOrbitComputer, Threads, load};
 use crate::raw::{self, Raw};
 
@@ -46,6 +47,21 @@ fn complex_square_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg
     raw::add(y, t3.view(), cy.view(), false, s);
 }
 
+/// (x, y) <- conj(x + iy)^2 + (cx + i cy) (F5 Mandelbar): [`complex_square_add`] with the
+/// imaginary part of the square negated.
+fn conj_square_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg; 4], s: &mut [u64]) {
+    let [t0, t1, t2, t3] = t;
+    raw::add(t0, x.view(), y.view(), false, s);
+    raw::add(t1, x.view(), y.view(), true, s);
+    raw::mul(t2, t0.view(), t1.view(), s);
+    raw::mul(t3, x.view(), y.view(), s);
+    if !t3.zero {
+        t3.exp += 1;
+    }
+    raw::add(x, t2.view(), cx.view(), false, s);
+    raw::add(y, cy.view(), t3.view(), true, s);
+}
+
 fn temps(n: usize) -> [Reg; 4] {
     [reg(n), reg(n), reg(n), reg(n)]
 }
@@ -81,7 +97,7 @@ impl Stepper {
         Stepper {
             formula,
             t: temps(n),
-            g: (!formula.is_mandelbrot()).then(|| core::array::from_fn(|_| reg(n))),
+            g: matches!(formula, Formula::Multibrot(_)).then(|| core::array::from_fn(|_| reg(n))),
         }
     }
 
@@ -89,6 +105,7 @@ impl Stepper {
     fn step(&mut self, x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, s: &mut [u64]) {
         match &mut self.g {
             Some(g) => complex_power_add(x, y, cx, cy, g, self.formula.power(), s),
+            None if self.formula == Formula::Mandelbar => conj_square_add(x, y, cx, cy, &mut self.t, s),
             None => complex_square_add(x, y, cx, cy, &mut self.t, s),
         }
     }
@@ -243,9 +260,17 @@ fn ball_period(
     with_scratch(n, |s| {
         let mut radius_acc = DoubleExp::ZERO; // R_n
         let mut dz = DoubleExpComplex::ZERO; // dz_n/dc
+        let mut jac = LinearX::ZERO; // dz_n/dc of a non-conformal formula (F5)
+        let conformal = formula.is_conformal();
         let mut z_abs = DoubleExp::ZERO; // |z_{n-1}|
         for p in 1..=max_period.max(1) {
-            if formula.is_mandelbrot() {
+            if !conformal && first_order {
+                // (|z| + R)^2 - |z|^2 bounds Mandelbar's step too (its conjugation keeps
+                // moduli); the first-order radius is |J| r with J's largest singular value.
+                jac = jac
+                    .then(formula.jacobian_x(complex_value(&x, &y)))
+                    .plus(LinearX::IDENTITY);
+            } else if formula.is_mandelbrot() {
                 if first_order {
                     // dz_p = 2 z_{p-1} dz_{p-1} + 1
                     dz = (complex_value(&x, &y) * dz).times_two() + DoubleExpComplex::ONE;
@@ -259,7 +284,11 @@ fn ball_period(
             }
             t.step(&mut x, &mut y, &cx, &cy, s);
             z_abs = complex_magnitude(&x, &y);
-            let bound = if first_order { dz.magnitude() * r } else { radius_acc };
+            let bound = if first_order {
+                if conformal { dz.magnitude() * r } else { jac.sup() * r }
+            } else {
+                radius_acc
+            };
             if z_abs < bound && p >= min_period {
                 return Some(p);
             }
@@ -454,6 +483,7 @@ pub fn find_nucleus_for(
     // already very close to the nucleus), exact Newton finishes quadratically.
     let mut exact = false;
     let mut generic: Option<GenericNewton> = None;
+    let mut jacobian: Option<JacobianNewton> = None;
     for step in 1..=options.max_steps {
         if is_cancelled() {
             return None;
@@ -463,7 +493,17 @@ pub fn find_nucleus_for(
         raw::set_zero(&mut zx);
         raw::set_zero(&mut zy);
         let step_log2;
-        if exact && !formula.is_mandelbrot() {
+        if exact && !formula.is_conformal() {
+            // F5: the exact finish with the 2x2 Jacobian on registers (Mandelbar).
+            let g = jacobian.get_or_insert_with(|| JacobianNewton::new(formula, n));
+            let delta = g.newton_step(period, &cx, &cy, &mut zx, &mut zy, &one, s, is_cancelled)?;
+            c = &c - &delta;
+            step_log2 = if delta.re.is_zero() && delta.im.is_zero() {
+                f64::NEG_INFINITY
+            } else {
+                delta.re.log2_magnitude().max(delta.im.log2_magnitude())
+            };
+        } else if exact && !formula.is_mandelbrot() {
             // F3: the exact finish for z^p + c, dz <- p z^(p-1) dz + 1 on registers.
             raw::set_zero(&mut dx);
             raw::set_zero(&mut dy);
@@ -546,21 +586,33 @@ pub fn find_nucleus_for(
                 return None;
             }
             let mut dz = DoubleExpComplex::ZERO;
-            if formula.is_mandelbrot() {
-                for z in &orbit[..period] {
-                    dz = (*z * dz).times_two() + DoubleExpComplex::ONE;
-                }
-            } else {
-                for z in &orbit[..period] {
-                    dz = formula.prime_x(*z) * dz + DoubleExpComplex::ONE;
-                }
-            }
             let finite = |v: DoubleExpComplex| v.re.mantissa.is_finite() && v.im.mantissa.is_finite();
-            if dz.re.is_zero() && dz.im.is_zero() || !finite(dz) {
-                return None;
-            }
             let zp = DoubleExpComplex::new(r.final_z.re.double_exp(), r.final_z.im.double_exp());
-            let d = zp / dz;
+            let d = if !formula.is_conformal() {
+                // F5: Jacobian Newton, J = dz_p/dc a real-linear map, c <- c - J^-1 z_p.
+                let mut j = LinearX::ZERO;
+                for z in &orbit[..period] {
+                    j = j.then(formula.jacobian_x(*z)).plus(LinearX::IDENTITY);
+                }
+                if !finite(j.p) || !finite(j.q) {
+                    return None;
+                }
+                j.solve(zp)?
+            } else {
+                if formula.is_mandelbrot() {
+                    for z in &orbit[..period] {
+                        dz = (*z * dz).times_two() + DoubleExpComplex::ONE;
+                    }
+                } else {
+                    for z in &orbit[..period] {
+                        dz = formula.prime_x(*z) * dz + DoubleExpComplex::ONE;
+                    }
+                }
+                if dz.re.is_zero() && dz.im.is_zero() || !finite(dz) {
+                    return None;
+                }
+                zp / dz
+            };
             if !finite(d) {
                 return None;
             }
@@ -648,6 +700,99 @@ impl GenericNewton {
     }
 }
 
+/// The exact Newton finish for a non-conformal formula (F5, Mandelbar): `z_p` and its Jacobian
+/// `J = dz_p/dc` in Wirtinger form (`J δ = P δ + Q conj(δ)`, kb: plans/f5-mandelbar) on
+/// registers, `J' = conj(2 z J) + I`: `P' = conj(2 z Q) + 1`, `Q' = conj(2 z P)` (the old z).
+/// The step solves `J δ = z_p`: `δ = (conj(P) z_p - Q conj(z_p)) / (|P|^2 - |Q|^2)`.
+struct JacobianNewton {
+    stepper: Stepper,
+    /// px, py, qx, qy, then products and their sums.
+    j: [Reg; 4],
+    t: [Reg; 8],
+}
+
+impl JacobianNewton {
+    fn new(formula: Formula, n: usize) -> Self {
+        assert_eq!(formula, Formula::Mandelbar, "the register Jacobian is Mandelbar's");
+        JacobianNewton {
+            stepper: Stepper::new(formula, n),
+            j: core::array::from_fn(|_| reg(n)),
+            t: core::array::from_fn(|_| reg(n)),
+        }
+    }
+
+    /// One Newton step from `c` (registers `cx`, `cy` hold it): the correction δ, or None
+    /// (cancelled, singular).
+    #[allow(clippy::too_many_arguments)]
+    fn newton_step(
+        &mut self,
+        period: usize,
+        cx: &Reg,
+        cy: &Reg,
+        zx: &mut Reg,
+        zy: &mut Reg,
+        one: &Reg,
+        s: &mut [u64],
+        is_cancelled: &mut dyn FnMut() -> bool,
+    ) -> Option<BigComplex> {
+        for r in &mut self.j {
+            raw::set_zero(r);
+        }
+        for i in 0..period {
+            if i % CANCEL_POLL == CANCEL_POLL - 1 && is_cancelled() {
+                return None;
+            }
+            {
+                let [px, py, qx, qy] = &mut self.j;
+                let [a, b, zq_re, zq_im, zp_re, zp_im, _, _] = &mut self.t;
+                // z Q and z P with the old z.
+                raw::mul(a, zx.view(), qx.view(), s);
+                raw::mul(b, zy.view(), qy.view(), s);
+                raw::add(zq_re, a.view(), b.view(), true, s);
+                raw::mul(a, zx.view(), qy.view(), s);
+                raw::mul(b, zy.view(), qx.view(), s);
+                raw::add(zq_im, a.view(), b.view(), false, s);
+                raw::mul(a, zx.view(), px.view(), s);
+                raw::mul(b, zy.view(), py.view(), s);
+                raw::add(zp_re, a.view(), b.view(), true, s);
+                raw::mul(a, zx.view(), py.view(), s);
+                raw::mul(b, zy.view(), px.view(), s);
+                raw::add(zp_im, a.view(), b.view(), false, s);
+                for r in [&mut *zq_re, &mut *zq_im, &mut *zp_re, &mut *zp_im] {
+                    if !r.zero {
+                        r.exp += 1;
+                    }
+                }
+                // P = conj(2 z Q) + 1, Q = conj(2 z P).
+                raw::add(px, zq_re.view(), one.view(), false, s);
+                raw::copy(py, zq_im.view());
+                if !py.zero {
+                    py.neg = !py.neg;
+                }
+                raw::copy(qx, zp_re.view());
+                raw::copy(qy, zp_im.view());
+                if !qy.zero {
+                    qy.neg = !qy.neg;
+                }
+            }
+            self.stepper.step(zx, zy, cx, cy, s);
+        }
+        let [px, py, qx, qy] = &self.j;
+        let big = |r: &Reg| BigFloat::from_raw(r);
+        let p = BigComplex::new(big(px), big(py));
+        let q = BigComplex::new(big(qx), big(qy));
+        let z = BigComplex::new(big(zx), big(zy));
+        let det = &p.magnitude_squared() - &q.magnitude_squared();
+        if det.is_zero() {
+            return None;
+        }
+        let pc = BigComplex::new(p.re.clone(), -&p.im);
+        let zc = BigComplex::new(z.re.clone(), -&z.im);
+        let num = &(&pc * &z) - &(&q * &zc);
+        Some(BigComplex::new(num.re.div_ref(&det), num.im.div_ref(&det)))
+    }
+}
+
 /// Size estimate of the minibrot with nucleus c and period p (relative to the main
 /// cardioid's size 1): |1 / (b l^2)| with l = prod 2 z_i, b = 1 + sum 1/l_i over
 /// i = 1 .. p-1 (mathr's estimate; kb: techniques/reference-selection). Mandelbrot only (F2:
@@ -722,6 +867,9 @@ pub fn minibrot_size_cancellable_for(
     if formula.is_mandelbrot() {
         return minibrot_size_cancellable(nucleus, period, is_cancelled);
     }
+    if !formula.is_conformal() {
+        return minibrot_size_nonconformal(formula, nucleus, period, is_cancelled);
+    }
     let n = BigFloat::limb_count_for_bits(nucleus.precision_bits());
     let (mut x, mut y, mut cx, mut cy) = (reg(n), reg(n), reg(n), reg(n));
     let mut t = Stepper::new(formula, n);
@@ -753,6 +901,53 @@ pub fn minibrot_size_cancellable_for(
     }
     let d = formula.power();
     Some(DoubleExpComplex::ONE / (b * l * complex_root(l, d - 1)))
+}
+
+/// [`minibrot_size_cancellable_for`] of a non-conformal formula (F5, Mandelbar). For
+/// Mandelbrot `1 / (b l^2) = 1 / (dz_p/dc · l)` at the nucleus (`l = dz_p/dz_1`); here `dz_p/dc`
+/// is a real-linear map, and a minibrot is a skewed copy: its scale is taken as
+/// `1 / (|l| sqrt|det dz_p/dc|)` (the geometric mean of the two singular values; `|l| =
+/// prod |2 z_i|` exactly, each step a scaled reflection), its rotation as 0 (our estimate;
+/// kb: plans/f5-mandelbar "As built").
+fn minibrot_size_nonconformal(
+    formula: Formula,
+    nucleus: &BigComplex,
+    period: usize,
+    is_cancelled: &mut dyn FnMut() -> bool,
+) -> Option<DoubleExpComplex> {
+    let n = BigFloat::limb_count_for_bits(nucleus.precision_bits());
+    let (mut x, mut y, mut cx, mut cy) = (reg(n), reg(n), reg(n), reg(n));
+    let mut t = Stepper::new(formula, n);
+    load(&mut cx, &nucleus.re);
+    load(&mut cy, &nucleus.im);
+    let mut l = DoubleExp::ONE;
+    let mut j = LinearX::ZERO;
+    let mut cancelled = false;
+    with_scratch(n, |s| {
+        for i in 0..period {
+            if i % CANCEL_POLL == CANCEL_POLL - 1 && is_cancelled() {
+                cancelled = true;
+                return;
+            }
+            let z = complex_value(&x, &y);
+            j = j.then(formula.jacobian_x(z)).plus(LinearX::IDENTITY);
+            if i >= 1 {
+                l = l * z.magnitude().times_power_of_two(1);
+            }
+            t.step(&mut x, &mut y, &cx, &cy, s);
+        }
+    });
+    if cancelled {
+        return None;
+    }
+    let det = j.det().abs();
+    if l.is_zero() || det.is_zero() {
+        return Some(DoubleExpComplex::ZERO);
+    }
+    Some(DoubleExpComplex::new(
+        DoubleExp::ONE / (l * det.sqrt()),
+        DoubleExp::ZERO,
+    ))
 }
 
 /// The principal k-th root of z in extended range (k >= 1).
@@ -1049,6 +1244,79 @@ mod formula_tests {
             &mut never,
         );
         assert!(choice.is_nucleus && choice.period == Some(2) && choice.minibrot_size.is_some());
+    }
+}
+
+#[cfg(test)]
+mod mandelbar_tests {
+    use super::*;
+
+    /// `z_p(c)` by direct BigFloat iteration of `conj(z)^2 + c`.
+    fn z_after(c: &BigComplex, p: usize) -> BigComplex {
+        let mut z = BigComplex::zero(c.precision_bits());
+        for _ in 0..p {
+            let w = z.square();
+            z = &BigComplex::new(w.re, -&w.im) + c;
+        }
+        z
+    }
+
+    /// F5: Mandelbar's nuclei by Jacobian Newton (period 2 at -1 and e^{±iπ/3}, solutions of
+    /// conj(c)^2 + c = 0), periods by the ball and box methods, and a deep nucleus whose exact
+    /// finish (register Jacobian) lands on z_p = 0 to the working precision.
+    #[test]
+    fn mandelbar_nuclei_and_periods() {
+        let f = Formula::Mandelbar;
+        let mut never = || false;
+        let opts = NewtonOptions {
+            precision_bits: Some(256),
+            ..NewtonOptions::default()
+        };
+        let r = find_nucleus_for(f, &BigComplex::from_f64(-0.9, 0.05, 64), 2, &opts, &mut never).unwrap();
+        assert!((r.nucleus.re.to_f64() + 1.0).abs() < 1e-60 && r.nucleus.im.log2_magnitude() < -200.0);
+        let r = find_nucleus_for(f, &BigComplex::from_f64(0.45, 0.8, 64), 2, &opts, &mut never).unwrap();
+        let [x, y] = r.nucleus.to_f64();
+        assert!((x - 0.5).abs() < 1e-15 && (y - 0.75f64.sqrt()).abs() < 1e-15, "{x} {y}");
+        for method in [PeriodMethod::Ball, PeriodMethod::BallFirstOrder, PeriodMethod::Box] {
+            let p = find_period_for(
+                f,
+                &BigComplex::from_f64(-1.0, 0.0, 128),
+                &BigFloat::from_f64(1e-3, 128),
+                100,
+                method,
+                64,
+                &mut never,
+            );
+            assert_eq!(p, Some(2), "{method:?}");
+        }
+        // A deep minibrot: period search near a boundary point, Newton at 1024 bits, then the
+        // nucleus's z_p is ~0 at that precision (the exact finish converged).
+        let start = BigComplex::from_f64(0.32, 0.44, 1024);
+        let p = find_period_for(
+            f,
+            &start,
+            &BigFloat::from_f64(1e-3, 1024),
+            1000,
+            PeriodMethod::Ball,
+            64,
+            &mut never,
+        )
+        .expect("a period");
+        let opts = NewtonOptions {
+            precision_bits: Some(1024),
+            max_steps: 200,
+            ..NewtonOptions::default()
+        };
+        let r = find_nucleus_for(f, &start, p, &opts, &mut never).expect("nucleus");
+        let z = z_after(&r.nucleus, p);
+        assert!(
+            z.re.log2_magnitude() < -900.0 && z.im.log2_magnitude() < -900.0,
+            "period {p}: {z}"
+        );
+        let size = minibrot_size_complex_for(f, &r.nucleus, p).magnitude().to_f64();
+        assert!(size > 0.0 && size < 1.0, "{size}");
+        // atom domains and the selection run through the conjugated step too.
+        assert!(atom_domain_period_for(f, &r.nucleus, 10 * p).is_multiple_of(p));
     }
 }
 

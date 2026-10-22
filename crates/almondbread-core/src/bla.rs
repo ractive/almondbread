@@ -36,6 +36,24 @@
 //! concatenated reference of [`crate::julia_reference`], whose zeros between the two orbits
 //! invalidate every block that would straddle them.
 //!
+//! **Non-conformal formulas (F5, Mandelbar; kb: plans/f5-mandelbar, formulas/mandelbar).** The
+//! step's Jacobian is a real-linear map, so `A` and `B` are too ([`Linear`]: `δ ↦ p δ +
+//! q conj(δ)`, a real 2x2 matrix in Wirtinger form). With `sup|M|`, `inf|M|` its singular values:
+//!
+//! ```text
+//! single step:   A = J_f(Z_m), B = I, R = eps inf|A|, K = 0
+//! x then y:      A = A_y A_x, B = A_y B_x + B_y,
+//!                R = min(R_x, R_y / sup|A_x|),  K = max(K_x, (K_y + sup|B_x|) / sup|A_x|)
+//! ```
+//!
+//! (the conformal rule with `|.|` read as the operator norm, the inner bound `|A_k z + B_k c| <=
+//! sup|A_k| |z| + sup|B_k| |c|`; the single step drops `conj(z)^2` against `inf|A| |z|`, src:
+//! mathr's deep-zoom page §4.1, kb: sources/mathr-deep-zoom-page). Mandelbar's `A = (0,
+//! conj(2Z))` is a scaled reflection, `inf = sup = 2|Z|`, so its radii equal Mandelbrot's. The
+//! tables store these entries in `matrix` ([`BlaEntryM`], [`BlaEntryMX`]) instead of `entries`;
+//! levels, offsets and lookup are shared. F6's fold caps (`|X|`, `|Y|`) go into the single-step
+//! radius ([`single_radius`]).
+//!
 //! Derivatives compose through a block: `dz/dc -> A dz/dc + B` (distance estimate) and
 //! `dz/dz_1 -> A dz/dz_1` (interior test), each to the same relative error `eps` per step.
 //!
@@ -49,7 +67,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use almondbread_math::{FloatExpComplex, Formula};
+use almondbread_math::{FloatExpComplex, Formula, Linear};
 
 /// float32 hardware precision: dropped terms stay at the rounding level of the step.
 pub const BLA_EPSILON: f64 = 1.0 / 16_777_216.0;
@@ -63,6 +81,88 @@ pub const MAX_LEVELS: usize = 32;
 
 /// One table entry as the GPU reads it: `A` (complex), `B` (complex), `R`, `K` (float32).
 pub type BlaEntry = [f32; 6];
+
+/// One entry of a non-conformal table (F5, `BlaEntryM` in MSL): `A = (ap, aq)`, `B = (bp, bq)`
+/// in Wirtinger form ([`Linear`]), `R`, `K`: `[ap.re, ap.im, aq.re, aq.im, bp.re, bp.im, bq.re,
+/// bq.im, r, k]`.
+pub type BlaEntryM = [f32; 10];
+
+/// The single-step validity radius of a non-conformal formula at `Z` (F5): `eps inf|A|`, the
+/// dropped quadratic term (`conj(z)^2` for Mandelbar) against the linear one. F6 adds its fold
+/// caps here.
+pub fn single_radius(formula: Formula, z: (f64, f64), eps: f64) -> f64 {
+    eps * formula.jacobian(z).inf()
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MergedM {
+    a: Linear,
+    b: Linear,
+    r: f64,
+    k: f64,
+}
+
+const INVALID_M: MergedM = MergedM {
+    a: Linear::ZERO,
+    b: Linear::ZERO,
+    r: 0.0,
+    k: 0.0,
+};
+
+impl MergedM {
+    fn single(z: [f32; 2], eps: f64, formula: Formula) -> Self {
+        let zd = (f64::from(z[0]), f64::from(z[1]));
+        MergedM {
+            a: formula.jacobian(zd),
+            b: Linear::IDENTITY,
+            r: single_radius(formula, zd, eps),
+            k: 0.0,
+        }
+    }
+
+    fn then(&self, y: &MergedM) -> MergedM {
+        let ax = self.a.sup();
+        if self.r <= 0.0 || y.r <= 0.0 || ax <= 0.0 {
+            return INVALID_M;
+        }
+        let a = self.a.then(y.a);
+        let b = self.b.then(y.a).plus(y.b);
+        let r = self.r.min(y.r / ax);
+        let k = self.k.max((y.k + self.b.sup()) / ax);
+        if !(a.sup() <= MAX_COEFFICIENT && b.sup().is_finite() && k.is_finite() && r.is_finite()) {
+            return INVALID_M;
+        }
+        MergedM { a, b, r, k }
+    }
+
+    fn entry(&self) -> BlaEntryM {
+        let r = self.r as f32;
+        let k = self.k as f32;
+        if !(r >= f32::MIN_POSITIVE && k.is_finite()) {
+            return [0.0; 10];
+        }
+        let f = |v: f64| v as f32;
+        let (a, b) = (self.a, self.b);
+        [
+            f(a.p.0),
+            f(a.p.1),
+            f(a.q.0),
+            f(a.q.1),
+            f(b.p.0),
+            f(b.p.1),
+            f(b.q.0),
+            f(b.q.1),
+            r,
+            k,
+        ]
+    }
+}
+
+/// The `A` and `B` of a matrix entry.
+fn entry_maps(e: &BlaEntryM) -> (Linear, Linear) {
+    let d = |i: usize| (f64::from(e[i]), f64::from(e[i + 1]));
+    (Linear { p: d(0), q: d(2) }, Linear { p: d(4), q: d(6) })
+}
 
 #[derive(Clone, Copy, Debug)]
 struct Merged {
@@ -153,6 +253,8 @@ pub struct BlaTable {
     /// Index of each level's first entry in `entries` (levels below `min_level`: 0).
     pub offsets: [u32; MAX_LEVELS],
     pub entries: Vec<BlaEntry>,
+    /// A non-conformal formula's entries (F5; then `entries` is empty), same layout.
+    pub matrix: Vec<BlaEntryM>,
     /// Seconds the build took.
     pub build_time: f64,
 }
@@ -188,6 +290,32 @@ impl BlaTable {
         }
         if cancel.load(Ordering::Relaxed) {
             return None;
+        }
+        if !formula.is_conformal() {
+            let mut level: Vec<MergedM> = points[1..1 + singles]
+                .iter()
+                .map(|&z| MergedM::single(z, epsilon, formula))
+                .collect();
+            let mut lev = 0u32;
+            let mut matrix: Vec<BlaEntryM> = Vec::with_capacity(singles);
+            loop {
+                if cancel.load(Ordering::Relaxed) {
+                    return None;
+                }
+                if lev >= MIN_LEVEL {
+                    t.offsets[lev as usize] = matrix.len() as u32;
+                    matrix.extend(level.iter().map(MergedM::entry));
+                    t.max_level = lev;
+                }
+                if level.len() < 2 || lev as usize + 1 >= MAX_LEVELS {
+                    break;
+                }
+                level = level.as_chunks::<2>().0.iter().map(|p| p[0].then(&p[1])).collect();
+                lev += 1;
+            }
+            t.matrix = matrix;
+            t.build_time = start.elapsed().as_secs_f64();
+            return Some(t);
         }
         let steps = points[1..1 + singles].iter();
         let mut level: Vec<Merged> = if formula.is_mandelbrot() {
@@ -230,8 +358,64 @@ impl BlaTable {
             .get(self.offsets[level as usize] as usize + ((m - 1) >> level))
     }
 
+    /// The matrix entry of `level` at `m` (F5, non-conformal tables), if one exists.
+    pub fn lookup_m(&self, m: usize, level: u32) -> Option<&BlaEntryM> {
+        if level < self.min_level || level > self.max_level || m == 0 {
+            return None;
+        }
+        let len = 1usize << level;
+        if !(m - 1).is_multiple_of(len) || m + len > self.ref_len - 1 {
+            return None;
+        }
+        self.matrix
+            .get(self.offsets[level as usize] as usize + ((m - 1) >> level))
+    }
+
+    /// Whether the table holds matrix entries (a non-conformal formula, F5).
+    pub fn is_matrix(&self) -> bool {
+        !self.matrix.is_empty()
+    }
+
+    /// Entries (either kind).
+    pub fn len(&self) -> usize {
+        self.entries.len() + self.matrix.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The GPU's bytes (either kind).
+    pub fn data(&self) -> &[u8] {
+        if self.is_matrix() {
+            bytemuck::cast_slice(&self.matrix)
+        } else {
+            bytemuck::cast_slice(&self.entries)
+        }
+    }
+
     pub fn bytes(&self) -> usize {
-        self.entries.len() * std::mem::size_of::<BlaEntry>()
+        self.entries.len() * std::mem::size_of::<BlaEntry>() + self.matrix.len() * std::mem::size_of::<BlaEntryM>()
+    }
+
+    /// [`BlaTable::longest`] of a matrix table (F5): the entry and its length.
+    pub fn longest_m(&self, m: usize, n: usize, max_iter: usize, zn: f64, cn: f64) -> Option<(&BlaEntryM, usize)> {
+        if m == 0 {
+            return None;
+        }
+        let mut best = None;
+        for lev in self.min_level..=self.max_level {
+            let len = 1usize << lev;
+            if n + len > max_iter {
+                break;
+            }
+            let Some(e) = self.lookup_m(m, lev) else { break };
+            if zn + f64::from(e[9]) * cn >= f64::from(e[8]) {
+                break;
+            }
+            best = Some((e, len));
+        }
+        best
     }
 
     /// The longest valid block at reference index `m` for a pixel at iteration `n` with
@@ -263,6 +447,16 @@ impl BlaTable {
     /// long runs (kb: techniques/bla "As built").
     pub fn forecast(&self, c_abs: f64, max_iter: usize) -> BlaForecast {
         let (mut m, mut zn, mut covered, mut blocks) = (1usize, c_abs, 0usize, 0usize);
+        if self.is_matrix() {
+            while let Some((e, len)) = self.longest_m(m, 1 + covered, max_iter, zn, c_abs) {
+                let (a, b) = entry_maps(e);
+                zn = a.sup() * zn + b.sup() * c_abs;
+                m += len;
+                covered += len;
+                blocks += 1;
+            }
+            return BlaForecast { covered, blocks };
+        }
         while let Some((e, len)) = self.longest(m, 1 + covered, max_iter, zn, c_abs) {
             zn = f64::from(e[0]).hypot(f64::from(e[1])) * zn + f64::from(e[2]).hypot(f64::from(e[3])) * c_abs;
             m += len;
@@ -378,6 +572,18 @@ impl Xr {
     pub(crate) fn max(self, b: Xr) -> Xr {
         if self.lt(b) { b } else { self }
     }
+    /// `|self - b|`.
+    pub(crate) fn abs_diff(self, b: Xr) -> Xr {
+        let (x, y) = if self.lt(b) { (b, self) } else { (self, b) };
+        if y.is_zero() {
+            return x;
+        }
+        let d = x.e - y.e;
+        if d > 64 {
+            return x;
+        }
+        Xr::new(x.m - y.m * pow2(-d), x.e)
+    }
     pub(crate) fn gpu(self) -> (f32, i32) {
         if self.is_zero() {
             return (0.0, XZERO_EXP);
@@ -443,6 +649,28 @@ impl Xc {
     }
     pub(crate) fn abs(self) -> Xr {
         Xr::new(self.re.hypot(self.im), self.e)
+    }
+    pub(crate) fn conj(self) -> Xc {
+        Xc { im: -self.im, ..self }
+    }
+    /// From a [`DoubleExpComplex`] (separate exponents per part).
+    pub(crate) fn from_double_exp(z: almondbread_math::DoubleExpComplex) -> Xc {
+        let part = |v: almondbread_math::DoubleExp| {
+            if v.is_zero() {
+                None
+            } else {
+                Some((v.mantissa, v.exponent))
+            }
+        };
+        match (part(z.re), part(z.im)) {
+            (None, None) => Xc::ZERO,
+            (Some((m, e)), None) => Xc::new(m, 0.0, e),
+            (None, Some((m, e))) => Xc::new(0.0, m, e),
+            (Some((a, ea)), Some((b, eb))) => {
+                let e = ea.max(eb);
+                Xc::new(a * pow2(ea - e), b * pow2(eb - e), e)
+            }
+        }
     }
     pub(crate) fn gpu(self) -> ([f32; 2], i32) {
         if self.is_zero() {
@@ -554,6 +782,162 @@ impl MergedX {
     }
 }
 
+/// A real-linear map `δ ↦ p δ + q conj(δ)` in extended range (F5; [`Linear`] with [`Xc`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Xl {
+    pub(crate) p: Xc,
+    pub(crate) q: Xc,
+}
+
+impl Xl {
+    pub(crate) const ZERO: Xl = Xl {
+        p: Xc::ZERO,
+        q: Xc::ZERO,
+    };
+    pub(crate) const IDENTITY: Xl = Xl {
+        p: Xc::ONE,
+        q: Xc::ZERO,
+    };
+    /// `self` first, then `y`.
+    pub(crate) fn then(self, y: Xl) -> Xl {
+        Xl {
+            p: y.p.mul(self.p).add(y.q.mul(self.q.conj())),
+            q: y.p.mul(self.q).add(y.q.mul(self.p.conj())),
+        }
+    }
+    pub(crate) fn add(self, y: Xl) -> Xl {
+        Xl {
+            p: self.p.add(y.p),
+            q: self.q.add(y.q),
+        }
+    }
+    pub(crate) fn sup(self) -> Xr {
+        self.p.abs().add(self.q.abs())
+    }
+    pub(crate) fn inf(self) -> Xr {
+        self.p.abs().abs_diff(self.q.abs())
+    }
+    /// Mantissas of p and q with one shared exponent (max-abs in [0.5, 1)), as the GPU reads.
+    pub(crate) fn gpu(self) -> ([f32; 2], [f32; 2], i32) {
+        if self.p.is_zero() && self.q.is_zero() {
+            return ([0.0; 2], [0.0; 2], XZERO_EXP);
+        }
+        let e = match (self.p.is_zero(), self.q.is_zero()) {
+            (true, _) => self.q.e,
+            (_, true) => self.p.e,
+            _ => self.p.e.max(self.q.e),
+        };
+        let at = |c: Xc| {
+            if c.is_zero() {
+                [0.0f32; 2]
+            } else {
+                let f = pow2(c.e - e);
+                [(c.re * f) as f32, (c.im * f) as f32]
+            }
+        };
+        (at(self.p), at(self.q), e.clamp(-(1 << 27), 1 << 27) as i32)
+    }
+}
+
+/// One deep entry of a non-conformal table (F5, `BlaEntryMX` in MSL, 56 bytes): `A = (ap, aq)
+/// 2^ae`, `B = (bp, bq) 2^be` (Wirtinger mantissas, max-abs in [0.5, 1)), `R = r 2^re`,
+/// `K = k 2^ke` as [`BlaEntryX`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BlaEntryMX {
+    pub ap: [f32; 2],
+    pub aq: [f32; 2],
+    pub bp: [f32; 2],
+    pub bq: [f32; 2],
+    pub ae: i32,
+    pub be: i32,
+    pub r: f32,
+    pub re: i32,
+    pub k: f32,
+    pub ke: i32,
+}
+
+const _: () = assert!(std::mem::size_of::<BlaEntryMX>() == 56);
+
+#[derive(Clone, Copy, Debug)]
+struct MergedMX {
+    a: Xl,
+    b: Xl,
+    r: Xr,
+    k: Xr,
+}
+
+const INVALID_MX: MergedMX = MergedMX {
+    a: Xl::ZERO,
+    b: Xl::ZERO,
+    r: Xr::ZERO,
+    k: Xr::ZERO,
+};
+
+impl MergedMX {
+    fn single(z: &FloatExpComplex, eps: f64, formula: Formula) -> Self {
+        use almondbread_math::{DoubleExp, DoubleExpComplex};
+        let part = |m: f32| DoubleExp::from_f64(f64::from(m)).times_power_of_two(i64::from(z.exponent));
+        let zd = DoubleExpComplex::new(part(z.mantissa[0]), part(z.mantissa[1]));
+        let j = formula.jacobian_x(zd);
+        let a = Xl {
+            p: Xc::from_double_exp(j.p),
+            q: Xc::from_double_exp(j.q),
+        };
+        MergedMX {
+            a,
+            b: Xl::IDENTITY,
+            r: Xr::from_f64(eps).mul(a.inf()),
+            k: Xr::ZERO,
+        }
+    }
+
+    fn then(&self, y: &MergedMX) -> MergedMX {
+        let ax = self.a.sup();
+        if self.r.is_zero() || y.r.is_zero() || ax.is_zero() {
+            return INVALID_MX;
+        }
+        MergedMX {
+            a: self.a.then(y.a),
+            b: self.b.then(y.a).add(y.b),
+            r: self.r.min(y.r.div(ax)),
+            k: self.k.max(y.k.add(self.b.sup()).div(ax)),
+        }
+    }
+
+    fn entry(&self) -> BlaEntryMX {
+        let big = 1i64 << 27;
+        let out = [self.a.p.e, self.a.q.e, self.b.p.e, self.b.q.e, self.r.e, self.k.e]
+            .iter()
+            .any(|e| e.abs() > big);
+        if self.r.is_zero() || out {
+            return BlaEntryMX {
+                ae: XZERO_EXP,
+                be: XZERO_EXP,
+                re: XZERO_EXP,
+                ke: XZERO_EXP,
+                ..BlaEntryMX::default()
+            };
+        }
+        let (ap, aq, ae) = self.a.gpu();
+        let (bp, bq, be) = self.b.gpu();
+        let (r, re) = self.r.gpu();
+        let (k, ke) = self.k.gpu();
+        BlaEntryMX {
+            ap,
+            aq,
+            bp,
+            bq,
+            ae,
+            be,
+            r,
+            re,
+            k,
+            ke,
+        }
+    }
+}
+
 /// The BLA table of a big reference in extended range (the deep kernel's table). Same layout
 /// and validity as [`BlaTable`], built from the floatexp reference points with f64 mantissas
 /// and i64 exponents, so radii of 1e-1000 and coefficients of 1e+100000 are exact to f64.
@@ -565,6 +949,8 @@ pub struct BlaTableX {
     pub max_level: u32,
     pub offsets: [u32; MAX_LEVELS],
     pub entries: Vec<BlaEntryX>,
+    /// A non-conformal formula's entries (F5; then `entries` is empty).
+    pub matrix: Vec<BlaEntryMX>,
     pub build_time: f64,
 }
 
@@ -601,6 +987,32 @@ impl BlaTableX {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
+        if !formula.is_conformal() {
+            let mut level: Vec<MergedMX> = points[1..1 + singles]
+                .iter()
+                .map(|z| MergedMX::single(z, epsilon, formula))
+                .collect();
+            let mut lev = 0u32;
+            let mut matrix: Vec<BlaEntryMX> = Vec::with_capacity(singles);
+            loop {
+                if cancel.load(Ordering::Relaxed) {
+                    return None;
+                }
+                if lev >= MIN_LEVEL {
+                    t.offsets[lev as usize] = matrix.len() as u32;
+                    matrix.extend(level.iter().map(MergedMX::entry));
+                    t.max_level = lev;
+                }
+                if level.len() < 2 || lev as usize + 1 >= MAX_LEVELS {
+                    break;
+                }
+                level = level.as_chunks::<2>().0.iter().map(|p| p[0].then(&p[1])).collect();
+                lev += 1;
+            }
+            t.matrix = matrix;
+            t.build_time = start.elapsed().as_secs_f64();
+            return Some(t);
+        }
         let steps = points[1..1 + singles].iter();
         let mut level: Vec<MergedX> = if formula.is_mandelbrot() {
             steps.map(|z| MergedX::single(z, epsilon)).collect()
@@ -630,7 +1042,67 @@ impl BlaTableX {
     }
 
     pub fn bytes(&self) -> usize {
-        self.entries.len() * std::mem::size_of::<BlaEntryX>()
+        self.entries.len() * std::mem::size_of::<BlaEntryX>() + self.matrix.len() * std::mem::size_of::<BlaEntryMX>()
+    }
+
+    /// Whether the table holds matrix entries (a non-conformal formula, F5).
+    pub fn is_matrix(&self) -> bool {
+        !self.matrix.is_empty()
+    }
+
+    /// Entries (either kind).
+    pub fn len(&self) -> usize {
+        self.entries.len() + self.matrix.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The GPU's bytes (either kind).
+    pub fn data(&self) -> &[u8] {
+        if self.is_matrix() {
+            bytemuck::cast_slice(&self.matrix)
+        } else {
+            bytemuck::cast_slice(&self.entries)
+        }
+    }
+
+    /// The matrix entry of `level` at `m` (F5), if one exists.
+    pub fn lookup_m(&self, m: usize, level: u32) -> Option<&BlaEntryMX> {
+        if level < self.min_level || level > self.max_level || m == 0 {
+            return None;
+        }
+        let len = 1usize << level;
+        if !(m - 1).is_multiple_of(len) || m + len > self.ref_len - 1 {
+            return None;
+        }
+        self.matrix
+            .get(self.offsets[level as usize] as usize + ((m - 1) >> level))
+    }
+
+    fn longest_m(&self, m: usize, n: usize, max_iter: usize, zn: Xr, cn: Xr) -> Option<(&BlaEntryMX, usize)> {
+        if m == 0 {
+            return None;
+        }
+        let mut best = None;
+        for lev in self.min_level..=self.max_level {
+            let len = 1usize << lev;
+            if n + len > max_iter {
+                break;
+            }
+            let Some(e) = self.lookup_m(m, lev) else { break };
+            if e.r.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+                break;
+            }
+            let r = Xr::new(f64::from(e.r), i64::from(e.re));
+            let k = Xr::new(f64::from(e.k), i64::from(e.ke));
+            if !zn.add(k.mul(cn)).lt(r) {
+                break;
+            }
+            best = Some((e, len));
+        }
+        best
     }
 
     pub fn lookup(&self, m: usize, level: u32) -> Option<&BlaEntryX> {
@@ -693,6 +1165,21 @@ impl BlaTableX {
         let whole = c_abs_log2.floor();
         let cn = Xr::new(2f64.powf(c_abs_log2 - whole), whole as i64);
         let (mut m, mut zn, mut covered, mut blocks) = (1usize, cn, 0usize, 0usize);
+        if self.is_matrix() {
+            let sup = |p: [f32; 2], q: [f32; 2], e: i32| {
+                Xr::new(
+                    f64::from(p[0]).hypot(f64::from(p[1])) + f64::from(q[0]).hypot(f64::from(q[1])),
+                    i64::from(e),
+                )
+            };
+            while let Some((e, len)) = self.longest_m(m, 1 + covered, max_iter, zn, cn) {
+                zn = sup(e.ap, e.aq, e.ae).mul(zn).add(sup(e.bp, e.bq, e.be).mul(cn));
+                m += len;
+                covered += len;
+                blocks += 1;
+            }
+            return BlaForecast { covered, blocks };
+        }
         while let Some((e, len)) = self.longest(m, 1 + covered, max_iter, zn, cn) {
             let a = Xr::new(f64::from(e.a[0]).hypot(f64::from(e.a[1])), i64::from(e.ae));
             let b = Xr::new(f64::from(e.b[0]).hypot(f64::from(e.b[1])), i64::from(e.be));
@@ -1063,6 +1550,147 @@ mod tests {
         assert!(deep.pays());
         let (_, _, _, ratio, _) = compare(SLOW.0, SLOW.1, 1e-20, 12000);
         assert!(ratio > 4.0, "step ratio at 1e-20: {ratio}");
+    }
+
+    /// F5: the CPU model of the kernel loop for a non-conformal formula: matrix blocks
+    /// (`z <- A z + B c`), exact steps through [`Formula::delta_step`], the same rebasing.
+    fn iterate_delta_m(
+        formula: Formula,
+        points: &[[f32; 2]],
+        table: Option<&BlaTable>,
+        dc: (f64, f64),
+        max_iter: usize,
+        round32: bool,
+    ) -> DeltaOutcome {
+        let last = points.len() - 1;
+        let zr = |m: usize| (f64::from(points[m][0]), f64::from(points[m][1]));
+        let norm2 = |x: (f64, f64)| x.0 * x.0 + x.1 * x.1;
+        let cn = abs(dc);
+        let mut out = DeltaOutcome {
+            n: 1,
+            escaped: false,
+            steps: 1,
+            blocks: 0,
+            r2: 0.0,
+        };
+        let (mut dz, mut m) = (dc, 1usize);
+        let finish = |dz: &mut (f64, f64), m: &mut usize, out: &mut DeltaOutcome| {
+            let zm = zr(*m);
+            let z = (zm.0 + dz.0, zm.1 + dz.1);
+            out.r2 = norm2(z);
+            if out.r2 > BAILOUT2 {
+                out.escaped = true;
+                return true;
+            }
+            if out.r2 < norm2(*dz) || *m == last {
+                *dz = z;
+                *m = 0;
+            }
+            false
+        };
+        if finish(&mut dz, &mut m, &mut out) {
+            return out;
+        }
+        while out.n < max_iter {
+            out.steps += 1;
+            let block = match table {
+                Some(t) if m != 0 && (m - 1).is_multiple_of(8) => {
+                    t.longest_m(m, out.n, max_iter, abs(dz), cn).map(|(e, l)| (*e, l))
+                }
+                _ => None,
+            };
+            if let Some((e, len)) = block {
+                let (a, b) = entry_maps(&e);
+                let (u, v) = (a.apply(dz), b.apply(dc));
+                dz = (u.0 + v.0, u.1 + v.1);
+                m += len;
+                out.n += len;
+                out.blocks += 1;
+            } else {
+                dz = formula.delta_step(zr(m), dz, dc);
+                if round32 {
+                    dz = (f64::from(dz.0 as f32), f64::from(dz.1 as f32));
+                }
+                m += 1;
+                out.n += 1;
+            }
+            if finish(&mut dz, &mut m, &mut out) {
+                return out;
+            }
+        }
+        out
+    }
+
+    /// F5 step-1 gate (CPU model): Mandelbar's matrix BLA changes escape counts no more than
+    /// float32 rounding of plain perturbation does, at the antenna tip `1 + i sqrt 3` (a
+    /// Misiurewicz point) from 1e-13 to 1e-40 per pixel, and skips most of the orbit at depth;
+    /// a block's `A` and `B` equal the composed single-step maps.
+    #[test]
+    fn mandelbar_matrix_bla_agrees_with_perturbation() {
+        let f = Formula::Mandelbar;
+        let tip = (1.0, 3f64.sqrt());
+        let pts = Reference::compute_f64_with(&Viewport::new(tip.0, tip.1, 1e-10), f, 8000, 65536.0)
+            .points
+            .to_vec();
+        let t = BlaTable::build_for(&pts, BLA_EPSILON, f);
+        assert!(t.is_matrix() && t.entries.is_empty());
+        // Composition: the level-3 block at m = 9 is the product of its steps.
+        let e = t.lookup_m(9, 3).expect("entry");
+        let (a, b) = entry_maps(e);
+        let (mut aw, mut bw) = (Linear::IDENTITY, Linear::ZERO);
+        for j in 9..17 {
+            let s = f.jacobian((f64::from(pts[j][0]), f64::from(pts[j][1])));
+            aw = aw.then(s);
+            bw = bw.then(s).plus(Linear::IDENTITY);
+        }
+        let close = |x: Linear, y: Linear| {
+            let d = x.plus(y.scale(-1.0)).sup();
+            d <= 1e-5 * y.sup().max(1.0)
+        };
+        assert!(close(a, aw) && close(b, bw), "{a:?} {aw:?} / {b:?} {bw:?}");
+        for (scale, it, skips) in [(1e-13, 6000usize, false), (1e-20, 8000, true), (1e-40, 8000, true)] {
+            let (mut class, mut dmu, mut noise, mut plain, mut bla) = (0, Vec::new(), Vec::new(), 0, 0);
+            let mut blocks = 0;
+            for j in 0..40 {
+                for i in 0..64 {
+                    let dc = (
+                        (i as f64 - 32.0 + 0.37) * scale * 25.0,
+                        (j as f64 - 20.0 + 0.61) * scale * 25.0,
+                    );
+                    let p = iterate_delta_m(f, &pts, None, dc, it, false);
+                    let q = iterate_delta_m(f, &pts, None, dc, it, true);
+                    let b = iterate_delta_m(f, &pts, Some(&t), dc, it, false);
+                    if p.escaped && q.escaped {
+                        noise.push((p.mu() - q.mu()).abs());
+                    }
+                    plain += p.steps;
+                    bla += b.steps;
+                    blocks += b.blocks;
+                    if p.escaped != b.escaped {
+                        class += 1;
+                    } else if p.escaped {
+                        dmu.push((p.mu() - b.mu()).abs());
+                    }
+                }
+            }
+            let median = |v: &mut Vec<f64>| {
+                v.sort_by(f64::total_cmp);
+                v.get(v.len() / 2).copied().unwrap_or(0.0)
+            };
+            let (md, mn) = (median(&mut dmu), median(&mut noise));
+            let ratio = plain as f64 / bla as f64;
+            println!(
+                "mandelbar BLA @ {scale:e}: class {class}, median |dmu| {md:.2e} (float32 control {mn:.2e}), step ratio {ratio:.2}, {blocks} blocks"
+            );
+            assert!(class <= 2, "{class} pixels changed class");
+            assert!(md <= 2.0 * mn.max(1e-9), "median |dmu| {md} vs float32 control {mn}");
+            if skips {
+                assert!(ratio > 1.5, "step ratio {ratio}");
+            }
+        }
+        // The forecast follows the matrix entries.
+        let fc = t.forecast(1e-20 * 1600f64.hypot(1000.0) / 2.0, 8000);
+        assert!(fc.covered > 0, "{fc:?}");
     }
 
     /// Diagnostic, not a gate: step ratio and agreement against epsilon at the slow view

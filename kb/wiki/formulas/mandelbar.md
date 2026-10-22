@@ -53,6 +53,35 @@ rule in [Rebasing (Zhuoran, 2021)](../techniques/rebasing.md)).
 Cheapest way to build and test the 2x2 matrix BLA path that Burning Ship and
 hybrids need. Do it before [Burning Ship and abs variations](burning-ship.md).
 
+## As built in almondbread (F5)
+
+Built 2026-10-22 ([F5: Mandelbar (Tricorn) and the non-conformal path](../plans/f5-mandelbar.md) "As built"; measurements in
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F5"). Our derivations, checked against direct BigFloat
+iteration:
+
+- **Real-linear maps in Wirtinger form.** Every derivative is `L d = p d + q conj(d)` (two
+  complex numbers: a real 2x2 matrix `[[a, b], [c, d]]` is `p = ((a+d) + i(c-b))/2`,
+  `q = ((a-d) + i(c+b))/2`). Singular values `|p| + |q|` and `||p| - |q||`, determinant
+  `|p|^2 - |q|^2`, composition `y∘x = (p_y p_x + q_y conj(q_x), p_y q_x + q_y conj(p_x))`. The step's
+  Jacobian is `p = 0, q = conj(2z)` (a scaled reflection), so `dz/dc` evolves as
+  `p' = conj(2 z q) + 1`, `q' = conj(2 z p)`.
+- **Reference orbit.** The three-product step with the imaginary part negated:
+  `Y' = (X^2 + Y^2) - (X+Y)^2 + Cy` (the three-thread split carries over unchanged).
+- **Perturbation.** `z' = conj((2Z + z) z) + c`, in every regime (float32, rescaled, floatexp).
+- **BLA.** `A`, `B` real-linear; the radius rule with sup/inf singular values. The per-step
+  radius equals Mandelbrot's (`inf|A| = 2|Z|`); merged blocks use `sup|A_x|`.
+- **Distance estimate.** The gradient of `ln|z|` over `c` is `J^T z / |z|^2`, as a complex number
+  `z conj(p) + conj(z) q`; the conformal formula `|z| ln|z| / |d|` with
+  `d = p + conj(q) z / conj(z)` gives the same distance and normal direction.
+- **Interior.** The derivative test on `max|p| + max|q|`; the attracting-cycle probe on even
+  periods only, where `f^k` is holomorphic in `z`: `λ' = conj(2zλ)`, `F''' = conj(2λ^2 + 2zF'')`.
+- **Newton.** `c ← c - J^{-1} z_p` with `J^{-1} w = (conj(p) w - q conj(w)) / (|p|^2 - |q|^2)`;
+  the exact finish on registers. Minibrot size `1 / (|l| sqrt|det dz_p/dc|)`, no rotation.
+- **Shapes.** Odd-period minibrots are small Tricorns, even-period ones skewed Mandelbrot sets
+  (seen in every seek run, e.g. periods 3, 7, 833 against 20, 86, 620; measured 2026-10-22).
+- **Symmetry.** `c ↦ e^{2πi/3} c` maps the set to itself, so `1 ± i√3` are images of the tip `-2`
+  (Misiurewicz points off the axis; the oracle tests use them).
+
 # Citations
 
 - [mathr: Deep zoom (reference page)](../sources/mathr-deep-zoom-page.md)

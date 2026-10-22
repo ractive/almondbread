@@ -120,3 +120,83 @@ fn multibrot_powers_match_their_oracle() {
         assert!(g.s.iter().all(|s| s.is_finite()), "p = {p}: non-finite smooth offset");
     }
 }
+
+/// F5 (kb: plans/f5-mandelbar): the Mandelbar set through the non-conformal path agrees with its
+/// oracle at the whole set and at its places (plain kernel, deep kernel with the matrix BLA), and
+/// the BLA changes the field no more than float32 noise: the same view with BLA off (no table)
+/// against with BLA on (the skip-off diff).
+#[test]
+fn mandelbar_matches_its_oracle_with_and_without_bla() {
+    let f = Formula::Mandelbar;
+    let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+    r.settings = almondbread_core::settings::RenderSettings::plain();
+    r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+    let whole = Viewport::fitting_for(f, W as f64, H as f64);
+    let g = field(&mut r, f, &whole, 1000);
+    let cpu = cpu_render_for(
+        f,
+        whole.center.re(),
+        0.0,
+        whole.scale.to_f64(),
+        W,
+        H,
+        1000,
+        f.bailout(),
+        0.0,
+    );
+    let (rep, _) = compare(&g, &cpu);
+    println!("mandelbar whole set vs oracle: {}", rep.summary());
+    assert!(
+        rep.false_interior_pct() < 0.05 && rep.mismatch_pct() < 0.5,
+        "{}",
+        rep.summary()
+    );
+    for place in almondbread_core::places::places_for(f).into_iter().skip(1) {
+        let view = place.viewport(W, H);
+        let it = 20_000;
+        let g = field(&mut r, f, &view, it);
+        let bla_used = r.bla_info().1 > 0;
+        let cpu = if view.scale.to_f64() >= 1e-13 {
+            cpu_render_for(
+                f,
+                view.center.re(),
+                view.center.im(),
+                view.scale.to_f64(),
+                W,
+                H,
+                it,
+                f.bailout(),
+                0.0,
+            )
+        } else {
+            cpu_render_deep_for(f, &view.center, view.scale, W, H, it, f.bailout(), 0.0).0
+        };
+        let (rep, _) = compare(&g, &cpu);
+        println!(
+            "mandelbar {} vs oracle (BLA table {bla_used}): {}",
+            place.id,
+            rep.summary()
+        );
+        assert!(
+            rep.false_interior_pct() < 0.1 && rep.mismatch_pct() < 0.5,
+            "{}",
+            rep.summary()
+        );
+        // Skip-off: no BLA table at all.
+        let mut off = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+        off.settings = r.settings.clone();
+        off.config.bla = false;
+        let h = field(&mut off, f, &view, it);
+        assert_eq!(off.bla_info().1, 0);
+        let (d, _) = compare(&g, &h);
+        println!("  BLA on vs off: {}", d.summary());
+        // (Where the view is chaotic at this sampling, as at the period-620 minibrot, BLA
+        // changes escape counts as float32 rounding does: no more than the GPU differs from
+        // the oracle.)
+        assert!(
+            d.mismatch_pct() < 0.1 && d.median_error <= 2.0 * rep.median_error.max(1e-6),
+            "{}",
+            d.summary()
+        );
+    }
+}

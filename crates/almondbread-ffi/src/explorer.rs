@@ -2638,6 +2638,36 @@ mod formula_integration_tests {
         assert_eq!(view(&e).center, Center::parse("-0.75", "0.1").unwrap());
     }
 
+    /// F5: Mandelbar is a picker entry of its own family; its views copy `formula mandelbar`,
+    /// which pastes back into it from another formula; its places are its own.
+    #[test]
+    fn mandelbar_picker_text_and_places() {
+        let (e, _layer) = explorer();
+        let opts = crate::formula_options();
+        let o = opts.iter().find(|o| o.formula == "mandelbar").expect("picker entry");
+        assert_eq!(
+            (o.family.as_str(), o.family_title.as_str(), o.power),
+            ("mandelbar", "Mandelbar", 2)
+        );
+        let s = e.set_formula("mandelbar".into()).unwrap();
+        assert_eq!(s.formula, "mandelbar");
+        assert_eq!(view(&e), Viewport::fitting_for(Formula::Mandelbar, W, H));
+        assert!(!e.julia_twin(), "no Julia twin outside Mandelbrot");
+        e.set_viewport("0.90314932019453019".into(), "1.4984558966474309".into(), 5e-12)
+            .unwrap();
+        let (mv, text) = (view(&e), e.coordinates_text());
+        assert!(text.ends_with("\nformula mandelbar"), "{text}");
+        e.set_formula("multibrot3".into()).unwrap();
+        assert!(e.paste_coordinates(text));
+        assert_eq!(formula(&e), Formula::Mandelbar);
+        assert_eq!(view(&e).center, mv.center);
+        let places = crate::places_for("mandelbar".into());
+        assert_eq!(places.len(), 6);
+        assert!(places.iter().all(|p| p.formula == "mandelbar"));
+        let c = e.capabilities();
+        assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
+    }
+
     /// The picker from a Julia view leaves it first: another formula goes to that set's whole
     /// view, the parent's formula back to where the Julia set was opened from. The twin is
     /// Mandelbrot's alone.
@@ -2679,7 +2709,7 @@ mod formula_integration_tests {
     #[test]
     fn reset_in_each_formula() {
         let (e, _layer) = explorer();
-        for f in ["mandelbrot", "multibrot3", "multibrot8"] {
+        for f in ["mandelbrot", "multibrot3", "multibrot8", "mandelbar"] {
             e.set_formula(f.into()).unwrap();
             e.set_viewport("0.3".into(), "0.01".into(), 1e-9).unwrap();
             e.reset_viewport();

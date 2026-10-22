@@ -2093,6 +2093,35 @@ fn resolve_click(
         max_distance: Some(map_scale.big_times(4.0, 64)),
     };
     match find_nucleus_for(formula, big.big(), p, &opts, &mut || false) {
+        Some(n) if !formula.is_conformal() => {
+            // F5: a non-conformal minibrot is a skewed copy with no closed-form cusp: the boundary
+            // point along +re from the nucleus, by bisection on escape (within 64 periods) to
+            // 2^-40 of its size.
+            let size = almondbread_core::math::minibrot_size_complex_for(formula, &n.nucleus, p)
+                .magnitude()
+                .to_f64();
+            let nucleus = Center::from_big(n.nucleus);
+            let escapes = |t: f64| {
+                let c = nucleus.offset(t * size, 0.0).with_min_precision(bits);
+                let comp = almondbread_core::math::ReferenceOrbitComputer::new(c.big(), bits).with_formula(formula);
+                let r = almondbread_core::math::with_no_control(4096, |ctl| {
+                    comp.compute(64 * p, formula.bailout(), None, None, ctl)
+                });
+                r.escaped
+            };
+            let (mut lo, mut hi) = (0.0f64, 4.0f64);
+            if size > 0.0 && size.is_finite() && escapes(hi) {
+                for _ in 0..42 {
+                    let mid = 0.5 * (lo + hi);
+                    if escapes(mid) { hi = mid } else { lo = mid }
+                }
+            }
+            MapJump {
+                center: nucleus.offset(hi * size, 0.0),
+                note: format!("snapped to the edge of the period-{p} minibrot near the click"),
+                fly,
+            }
+        }
         Some(n) => {
             let size = almondbread_core::math::minibrot_size_complex_for(formula, &n.nucleus, p);
             let d = f64::from(formula.power());

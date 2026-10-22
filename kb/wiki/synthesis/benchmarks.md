@@ -1991,6 +1991,102 @@ from the two noise levels (GPU-GPU 0.0031, CPU-CPU 0.0193); MH transient bias vs
 The background window's own link runs at 60 Hz (granted 120): 59 fps for all five then.
 Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
 hits per live bin at the whole set, 6 at the seahorse view.
+## F5: Mandelbar (Tricorn), the non-conformal path, 2026-10-22
+
+Measured 2026-10-22, M1 Pro, release, on a machine shared with other agents (load average 6–60
+during the runs; noted per run); plan and changes in [F5: Mandelbar (Tricorn) and the non-conformal path](../plans/f5-mandelbar.md).
+
+**Step-1 gate (CPU model, `bla::tests::mandelbar_matrix_bla_agrees_with_perturbation`).** f64
+perturbation of `conj(z)^2 + c` with the matrix BLA table against the same loop without it, and a
+control that rounds the delta to float32 every step, 64 × 40 pixels at the antenna tip
+`1 + i sqrt 3` (a Misiurewicz point), f64 reference:
+
+| scale per pixel | class mismatch (px) | median \|Δμ\| BLA | median \|Δμ\| float32 control | step ratio | blocks |
+|---|---:|---:|---:|---:|---:|
+| 1e-13 | 0 | 4.1e-9 | 5.7e-8 | 1.16 | 2560 |
+| 1e-20 | 0 | 1.4e-9 | 6.1e-9 | 1.95 | 5120 |
+| 1e-40 | 0 | 0 | 0 | 8.25 | 7680 |
+
+The deep oracle against direct BigFloat iteration of every pixel (`oracle::tests::
+mandelbar_oracle_matches_direct_iteration`, 24 × 16): 384 / 384 escape counts equal at the tip
+at 1e-30, 1e-100 and 1e-320 per pixel and at the real period-3 minibrot, max |Δμ| 2.4e-7.
+
+**GPU vs CPU oracle** (`verify --formula mandelbar`, 200 × 125 unless noted, auto iterations).
+Minibrots `locate` found in discs beside the tip (sizes ~ radius²) and seek's chain:
+
+| view | per pixel | escape-n differs % | class mismatch % | GPU-int/CPU-ext % | median \|Δμ\| | CPU interior / GPU detected / unresolved % |
+|---|---|---:|---:|---:|---:|---|
+| whole set (800 × 720) | 4e-3 | 0.135 | 0.005 | 0.000 | 2.4e-7 | 8.0 / 7.6 / 0.416 |
+| whole set | 1.9e-2 | 0.104 | 0.008 | 0.000 | 2.4e-7 | 8.6 / 8.3 / 0.292 |
+| tip (400 × 250) | 1e-20 | 0.000 | 0.000 | 0.000 | 4.8e-7 | 0 / 0 / 0 |
+| tip (400 × 250) | 1e-100 | 0.000 | 0.000 | 0.000 | 1.9e-6 | 0 / 0 / 0 |
+| tip (400 × 250) | 1e-300 | 0.000 | 0.000 | 0.000 | 5.0e-6 | 0 / 0 / 0 |
+| period 19 | 1.6e-22 | 0.216 | 0.004 | 0.000 | 4.5e-6 | 3.3 / 3.2 / 0.044 |
+| period 20 (seek) | 1.9e-11 | 1.344 | 0.012 | 0.000 | 3.7e-5 | 30.0 / 29.1 / 0.852 |
+| period 86 | 3.3e-103 | 1.056 | 0.000 | 0.000 | 2.6e-4 | 6.9 / 6.8 / 0.056 |
+| period 252 | 4.3e-303 | 2.536 | 0.004 | 0.000 | 2.6e-3 | 6.7 / 5.9 / 0.880 |
+| period 620 (seek) | 1.0e-24 | 9.684 | 0.032 | 0.000 | 1.1e-2 | 30.3 / 13.4 / 16.900 |
+| period 833 | 1.1e-1002 | 9.860 | 0.020 | 0.000 | 3.1e-2 | 3.3 / 2.3 / 1.016 |
+
+No false interior anywhere (GPU-int/CPU-ext 0.000 %); class mismatch ≤ 0.032 %, all of it
+GPU-exterior where the oracle reached its limit, within Mandelbrot's range. Where escape counts
+differ most, `precision` puts the GPU's error at a grid shift of ≤ 0.001 px (periods 252 and
+620) and ≤ 0.01 px (period 833, 1e-1002), where a 0.001 px shift of the oracle alone changes
+5–24 % of the counts: chaos at this sampling, not error. The period-620 minibrot leaves 17 %
+unresolved at the auto limit (66 576 = 107 periods): the probe proves part of its body (13.4 % of
+30.3 %); the rest is near-parabolic interior the probe's budget does not reach (open).
+
+**BLA.** The matrix table pays where blocks are long: 15.5× fewer loop steps than iterations at
+the period-86 minibrot (1e-101), 28× at period 620, 162× at period 833 (1e-1000; 800 × 500 renders
+in 24 ms GPU). Skip-off diff (`scheduler::formula_tests::mandelbar_matches_its_oracle_with_and_without_bla`,
+240 × 160, 20 000 iterations, every place): BLA on vs no table at all, identical fields where the
+blocks do not pay; at the period-86 place escape-n differs 0.39 %, median |Δμ| 1.5e-4 (GPU vs
+oracle 0.44 %, 1.7e-4); at period 620 5.8 % / 3.9e-3 (GPU vs oracle 6.5 % / 5.5e-3): BLA changes
+the field no more than float32 rounding does. Class mismatch 0 in every pair.
+
+**History** (`verify --history`, 1280 × 820, auto iterations): zoom and pan at the period-20
+minibrot (3e-12) and the period-86 one (5e-104): all OK; class mismatch vs the oracle 0.003–0.010
+%, vs a fresh render 0.000 %; escape-n vs fresh 0 % (zoom) and 1.5–2.4 % (pan: a different
+reference, chaotic pixels).
+
+**Mandelbrot unchanged.** `bench --no-verify 1 --out`, main (fb4fb56) against F5: 84 of 84 fields
+and PNGs byte-identical (twice, before and after the change below). Julia (rabbit 1e-100, `k = i`
+1e-300) and Multibrot (z⁵ 3.5e-8, z⁸ 1.7e-23) renders, 800 × 500: PNGs byte-identical to main.
+GPU ms A/B, three interleaved rounds, per-case minimum: first **1.024** and, order swapped,
+**1.051**, the plain kernel's interior-heavy views 5–17 % slower (minibrot-p4 64.8 → 77.4 ms,
+feigenbaum 3456 13.0 → 14.9 s) while the deep kernel's were 1.00. Bisection by shader variants (a
+4-location quick A/B): the main shader with F5's Rust 1.000; F5's shader 1.112; without the
+non-conformal BLA block in the plain loop 0.932–0.975; the same block placed **after** the
+conformal BLA block instead of before it 0.999. It folds away in every Mandelbrot pipeline, yet its
+position changed the compiled loop. With it moved: **GPU ms geomean F5 / main 1.003** over 42
+cases (spread 0.83–1.11, load average 9–63).
+
+**Interaction test** (`make interaction-test`, background window 1280 × 820 pt at 2x, 120 Hz
+panel, load average 7–16; Mandelbar's two new scenarios with four others in the same run):
+
+| scenario | fps | interval p50 / p95 / max ms | draw CPU p50 ms | GPU ms/frame (iter + colorize) | shown vs fresh (class) |
+|---|---:|---|---:|---|---:|
+| mandelbar pan (period 20, 5e-12 per point) | 102.2 | 8.3 / 16.7 / 20.8 | 0.13 | 4.30 + 2.75 | 0 % |
+| mandelbar deep zoom (period 620, 2.5e-25) | 63.3 | 8.3 / 16.7 / 58.3 | 0.12 | 14.48 + 2.00 | 0 % |
+| sea-1e20 pan | 72.5 | 16.7 / 16.7 / 33.3 | 0.15 | 10.57 + 1.97 | 0 % |
+| sea-1e20 zoom | 67.7 | 8.3 / 33.3 / 41.7 | 0.13 | 11.61 + 1.84 | 0 % |
+| multibrot5 pan | 86.9 | 8.3 / 25.0 / 50.0 | 0.14 | 4.63 + 3.14 | 0.001 % |
+| multibrot8 deep zoom | 75.4 | 8.3 / 16.7 / 91.7 | 0.16 | 5.99 + 2.48 | 0 % |
+
+The Mandelbar deep zoom's full-resolution frame came 1.2 s after input stopped; it did not settle
+(AA) within 3 s, as sea-1e20 zoom in the same run. The plain kernel with the derivative state:
+on the whole sets at a fixed 20 000 iterations (1600 × 1000, interior test on) 4.2 G iterations/s
+for Mandelbar against 5.7 for Mandelbrot (whose closed-form cardioid test skips its deepest
+interior), 37.6 against 17.3 with the test off (no derivative): the 2×2 state costs about a quarter
+of the rate where it is kept (measured 2026-10-22, M1 Pro, release, load average 6–14).
+
+**Checks.** `make rust-check` (417 tests, clippy, fmt), `make rust-check-debug` (417; a first run at
+load average 137 failed the timing test `huge_manual_limit_does_not_block_the_frame` at 69.5 ms,
+which passes alone and in the rerun), `make regress` OK, `make build`, `app`, `ios-sim`,
+`ios-device-check`, `swift-test` (14), `core-check` OK, `make selftest` (both apps: renderer OK,
+shown = fresh 0 %, 104 places of every formula with thumbnails), iOS UI test
+`testFormulaPicker` on the iPad mini simulator (with its new Mandelbar step) passed (a first run
+failed opening the control center, before the new step; the rerun passed).
 
 ## F3+F4 merge: Mandelbrot, Julia and Multibrot unchanged, 2026-10-22
 
