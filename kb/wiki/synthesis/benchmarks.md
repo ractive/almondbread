@@ -1943,6 +1943,114 @@ capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 
 ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
 Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.
 
+## F3: Multibrot z^p + c, 2026-10-22
+
+Measured 2026-10-21/22, M1 Pro, release, on a machine shared with other agents (load average
+20–160 during the runs, so every timing is noisy); plan and changes in [F3: Multibrot z^p + c](../plans/f3-multibrot.md).
+
+**Mandelbrot unchanged.** `bench --out`, main (7f5ec27) against the F3 branch, alternating, two
+rounds: all 63 `.iter` fields and 63 PNGs **bit-identical** in both rounds (and in an earlier
+round against 7f44cc4). GPU ms geomean of the per-case minimum, F3 / main, **0.986** over 54
+cases (spread 0.45–1.10 per case: the load). `regress`: every session OK. The driver re-runs the
+timing A/B on a quiet machine.
+
+**GPU vs CPU oracle, Misiurewicz views** (`verify`, 400 × 260, auto iterations; centre an
+M(3,1) point of each power found by Newton in mpmath at 3600 bits; no interior in view):
+
+| power | view (per pixel) | escape-n differs % | class mismatch % | GPU-int/CPU-ext % | median \|Δμ\| | >0.05 % |
+|---|---|---:|---:|---:|---:|---:|
+| 3 | 1e-5 | 0.018 | 0.000 | 0.000 | 2.38e-07 | 0.040 |
+| 3 | 1e-20 | 0.024 | 0.000 | 0.000 | 1.07e-06 | 0.062 |
+| 3 | 1e-100 | 0.088 | 0.000 | 0.000 | 5.48e-06 | 0.221 |
+| 3 | 1e-300 | 0.178 | 0.000 | 0.000 | 1.63e-05 | 0.438 |
+| 3 | 1e-1000 | 0.353 | 0.000 | 0.000 | 5.46e-05 | 0.885 |
+| 4 | 1e-5 | 0.967 | 0.001 | 0.000 | 5.25e-06 | 1.829 |
+| 4 | 1e-20 | 1.913 | 0.000 | 0.000 | 5.04e-05 | 3.682 |
+| 4 | 1e-100 | 1.796 | 0.000 | 0.000 | 6.88e-05 | 3.353 |
+| 4 | 1e-300 | 3.086 | 0.000 | 0.000 | 0.000214 | 5.903 |
+| 4 | 1e-1000 | 4.519 | 0.000 | 0.000 | 0.000711 | 8.726 |
+| 5 | 1e-5 | 0.801 | 0.006 | 0.001 | 1.1e-06 | 1.382 |
+| 5 | 1e-20 | 1.336 | 0.000 | 0.000 | 8.64e-06 | 2.383 |
+| 5 | 1e-100 | 3.399 | 0.000 | 0.000 | 8.46e-05 | 6.062 |
+| 5 | 1e-300 | 3.277 | 0.000 | 0.000 | 0.00016 | 5.863 |
+| 5 | 1e-1000 | 9.218 | 0.000 | 0.000 | 0.00186 | 16.416 |
+| 6 | 1e-5 | 0.652 | 0.007 | 0.001 | 1.01e-06 | 1.134 |
+| 6 | 1e-20 | 1.336 | 0.000 | 0.000 | 1.24e-05 | 2.445 |
+| 6 | 1e-100 | 2.107 | 0.000 | 0.000 | 3.41e-05 | 3.811 |
+| 6 | 1e-300 | 3.051 | 0.000 | 0.000 | 0.000103 | 5.566 |
+| 6 | 1e-1000 | 4.405 | 0.000 | 0.000 | 0.000333 | 8.241 |
+| 7 | 1e-5 | 0.994 | 0.015 | 0.003 | 1.25e-06 | 1.658 |
+| 7 | 1e-20 | 3.882 | 0.000 | 0.000 | 7.35e-05 | 6.752 |
+| 7 | 1e-100 | 6.766 | 0.000 | 0.000 | 0.000458 | 11.777 |
+| 7 | 1e-300 | 5.571 | 0.000 | 0.000 | 0.000313 | 9.618 |
+| 7 | 1e-1000 | 14.156 | 0.000 | 0.000 | 0.00487 | 24.709 |
+| 8 | 1e-5 | 0.198 | 0.005 | 0.000 | 1.49e-07 | 0.367 |
+| 8 | 1e-20 | 0.129 | 0.000 | 0.000 | 8.34e-07 | 0.287 |
+| 8 | 1e-100 | 0.291 | 0.000 | 0.000 | 7.71e-06 | 0.628 |
+| 8 | 1e-300 | 0.821 | 0.000 | 0.000 | 2.49e-05 | 1.840 |
+| 8 | 1e-1000 | 0.637 | 0.000 | 0.000 | 0.000102 | 1.364 |
+
+**GPU vs CPU oracle, minibrots** (`verify` at the framing `almondbread seek` found from each view
+above; deeper than the view because seek frames the minibrot itself):
+
+| power | minibrot (period, scale per pixel) | escape-n differs % | class mismatch % | GPU-int/CPU-ext % | median \|Δμ\| | CPU interior / GPU detected / unresolved % |
+|---|---|---:|---:|---:|---:|---|
+| 3 | 6, 1.79273e-06 | 0.530 | 0.018 | 0.000 | 4.53e-06 | 15.1 / 14.9 / 0.162 |
+| 3 | 34, 7.96734e-29 | 1.597 | 0.010 | 0.000 | 0.000111 | 14.9 / 14.8 / 0.074 |
+| 3 | 184, 1.2524e-148 | 6.335 | 0.008 | 0.000 | 0.0039 | 14.9 / 14.6 / 0.245 |
+| 3 | 560, 6.16774e-449 | 18.179 | 0.026 | 0.000 | 0.0476 | 15.0 / 12.5 / 2.402 |
+| 3 | 1875, 3.25205e-1499 | 45.825 | 0.062 | 0.000 | 0.472 | 15.1 / 8.9 / 6.189 |
+| 4 | 13, 1.7681e-08 | 1.406 | 0.019 | 0.000 | 1.42e-05 | 16.6 / 16.4 / 0.204 |
+| 4 | 68, 1.99084e-25 | 8.587 | 0.017 | 0.000 | 0.00211 | 16.5 / 16.3 / 0.230 |
+| 4 | 395, 2.77036e-132 | 27.923 | 0.031 | 0.003 | 0.0843 | 16.5 / 15.8 / 0.698 |
+| 4 | 1211, 6.18665e-399 | 54.551 | 0.064 | 0.003 | 0.875 | 16.5 / 12.7 / 3.801 |
+| 4 | 4067, 3.25591e-1332 | 80.411 | 0.137 | 0.000 | 4.54 | 16.7 / 8.0 / 8.705 |
+| 5 | 11, 3.48194e-08 | 1.466 | 0.012 | 0.000 | 1.05e-05 | 17.7 / 17.6 / 0.153 |
+| 5 | 69, 2.2797e-24 | 6.042 | 0.011 | 0.000 | 0.000477 | 17.6 / 17.4 / 0.180 |
+| 5 | 397, 3.83049e-124 | 22.901 | 0.027 | 0.004 | 0.0416 | 17.5 / 17.0 / 0.518 |
+| 5 | 1219, 3.45392e-374 | 44.202 | 0.067 | 0.004 | 0.456 | 17.6 / 14.3 / 3.300 |
+| 5 | 4096, 2.40446e-1249 | 75.800 | 0.129 | 0.000 | 5.49 | 17.8 / 9.9 / 7.915 |
+| 6 | 8, 2.12469e-07 | 1.409 | 0.017 | 0.000 | 5.07e-06 | 18.8 / 18.7 / 0.124 |
+| 6 | 49, 2.8868e-23 | 6.709 | 0.022 | 0.003 | 0.00096 | 18.4 / 18.3 / 0.106 |
+| 6 | 284, 2.34284e-119 | 19.401 | 0.032 | 0.010 | 0.0279 | 18.4 / 18.0 / 0.341 |
+| 6 | 871, 2.2259e-359 | 38.237 | 0.049 | 0.002 | 0.262 | 18.4 / 16.2 / 2.241 |
+| 6 | 2925, 2.97937e-1199 | 64.209 | 0.089 | 0.001 | 2.43 | 18.5 / 12.8 / 5.695 |
+| 7 | 7, 1.41166e-06 | 2.033 | 0.031 | 0.005 | 1.4e-05 | 20.9 / 20.8 / 0.128 |
+| 7 | 52, 4.80591e-23 | 8.093 | 0.030 | 0.004 | 0.00108 | 19.1 / 18.9 / 0.149 |
+| 7 | 299, 2.11508e-116 | 29.363 | 0.063 | 0.013 | 0.0956 | 19.1 / 18.7 / 0.344 |
+| 7 | 916, 1.32796e-349 | 49.265 | 0.091 | 0.020 | 0.783 | 19.1 / 17.0 / 2.111 |
+| 7 | 3077, 2.23226e-1166 | 76.864 | 0.141 | 0.002 | 5.23 | 19.2 / 13.8 / 5.422 |
+| 8 | 4, 3.82495e-06 | 0.604 | 0.013 | 0.001 | 1.37e-06 | 22.0 / 21.9 / 0.083 |
+| 8 | 19, 1.65448e-23 | 1.030 | 0.012 | 0.003 | 2.88e-05 | 19.6 / 19.6 / 0.032 |
+| 8 | 98, 6.1746e-115 | 5.764 | 0.046 | 0.018 | 0.00247 | 19.6 / 19.6 / 0.058 |
+| 8 | 295, 6.29705e-343 | 14.199 | 0.045 | 0.011 | 0.0224 | 19.6 / 18.9 / 0.731 |
+| 8 | 986, 1.23883e-1142 | 38.018 | 0.097 | 0.015 | 0.337 | 19.7 / 17.6 / 2.102 |
+
+Class mismatch stays within Mandelbrot's range (feigenbaum 0.15 %, elephant 0.09 % above); the
+false-interior share is ≤ 0.020 %. Escape-n differences grow to 80 % at the deepest minibrots:
+`precision` shows them as chaos plus float32 noise, not glitches. At p = 8, 1e-343 (and 1e-1142)
+a 0.001-pixel grid shift of the oracle alone changes 7.8 % (12.7 %) of escape counts and
+0.058 % (0.071 %) of classes; the GPU's error equals a grid shift of ≤ 0.01 (≤ 0.1) pixel; the
+signed error map is fine grain, no bands (p = 4, 1e-399: ≤ 0.1 pixel, 22.9 % from a 0.001 px
+shift). Unresolved pixels (3–9 % at the deepest minibrots) are the auto limit, never false
+exterior.
+
+**F2's generic path at the same views** (main binary, its own oracle): z⁵ at the period-397
+minibrot (3.8e-124/px) 6.59 % class mismatch, 6.57 % GPU-int/CPU-ext, infinite |Δμ| (dark
+bands and blobs); z⁸ at the period-19 minibrot (1.7e-23) 0.18 % false interior, infinite |Δμ|;
+z⁸ at 6.3e-343 gave no result. F3 at those views: 0.027 %, 0.012 %, 0.045 % class mismatch.
+
+**Sessions and interaction.** `verify --history`: z⁵ at 3.5e-8/pt zoom and pan, z⁸ at 1.7e-23
+zoom and pan, z³ at 8e-29 zoom: class mismatch ≤ 0.002 % vs the oracle, ≤ 0.002 % vs a fresh
+render (escape-n 0.2–1.2 % vs fresh: the session keeps another reference). `make
+interaction-test` (1280 × 820, 120 Hz, background window): "multibrot5 pan" 77–91 fps, latency
+p50 33–41 ms, draw CPU p50 0.14–0.16 ms; "multibrot8 deep zoom" 72–94 fps, 41 ms, 0.16 ms; shown
+frame vs fresh render 19 and 0 pixels in class (the check rendered Mandelbrot before F3).
+
+**Seek.** From each power's whole set it finds a period-3/4 minibrot in < 0.01 s; from the
+1e-1000 Misiurewicz views periods 986–4096 in 0.1–0.9 s at ~3400 bits (with the corrected ball
+bound; before, period detection failed below ~1e-16 for p > 2).
+
 ## Review fixes M1–X1: Mandelbrot A/B and orbit threads, 2026-10-20
 
 Measured 2026-10-20, M1 Pro, release, on a heavily loaded machine (load average 22–220: an

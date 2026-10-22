@@ -2,7 +2,7 @@
 title: "F3: Multibrot z^p + c"
 type: plan
 milestone: F3
-status: planned
+status: in-progress
 priority: 3
 effort: M
 appeal: medium
@@ -18,12 +18,14 @@ risks:
 sources: ["synthesis/other-fractal-types", "formulas/multibrot", "sources/kf-page", "sources/fraktaler-3-site", "techniques/bla"]
 tags: [formulas, multibrot, perturbation, bla]
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-10-22
 ---
 
 # F3: Multibrot z^p + c
 
-Status: planned, after [F2: Pluggable-formula refactor](f2-pluggable-formulas.md).
+Status: built (2026-10-22, branch `worktree-agent-a1fc8ed548ebe2577`), awaiting the review gate
+below (the user decides whether Multibrot ships visible); "As built" below. After
+[F2: Pluggable-formula refactor](f2-pluggable-formulas.md).
 
 ## Goal
 
@@ -102,6 +104,61 @@ Multibrot ships visible or stays as a hidden test formula, and whether to contin
 - Which powers to offer (all of 3..8, or 3, 4, 5, 8)?
 - Does BLA still pay at p = 8, or should the table be off for high powers?
 
+## As built (2026-10-22, awaiting review)
+
+Measured 2026-10-21/22, M1 Pro, release, on a machine shared with other agents (load average
+30–85); tables in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F3: Multibrot".
+Formula facts in [Multibrot (integer power p)](../formulas/multibrot.md) "As built in almondbread (F3)".
+
+- **Already there from F2.** `Formula::Multibrot(p)` (p ≤ 8) through every hook: the BigFloat
+  reference (one thread), the generic kernel step `z' = zS + c` with `kFormula`/`kPower`, the
+  floatexp step, derivatives, seeds, probe, BLA with `A = pZ^{p-1}` and radius
+  `eps 2|Z|/(p-1)`, the CPU oracles, the f64 reference, the orbit overlay, capabilities and the
+  Swift `has(\.x)` hiding. The BLA radius held up unchanged at every power and depth tested.
+- **Fixed (glitches F2's generic path had).** (1) The 2^16 escape radius overflowed float32 from
+  p = 4 (`|z|^2` up to `2^{32p}`): infinite smooth counts, black bands; now
+  `R = 2^min(16, 60/p)` everywhere (kernel, references, oracle, probe). (2) The smooth count
+  is `1 - log_p ln|z|`. (3) Underflow of `S ~ |Z|^{p-1}` near small `|Z|` (the plan's "band
+  glitch" risk): those steps run in floatexp in both deep regimes (GPU threshold
+  `2^(-70/(p-1))`, oracle `2^(-500/(p-1))`); F2 showed false-interior blobs (6.6 % class
+  mismatch at a p = 5 minibrot at 1e-124) and dark bands. (4) DE / interior derivative
+  renormalised every step once `|z| > 1`. (5) Ball period detection for p > 2 cancelled to
+  zero in f64 below ~1e-16 (`(|z|+R)^p - |z|^p`): now a binomial sum. (6) The interaction
+  test's shown-vs-fresh check always rendered Mandelbrot.
+- **Added.** Exact Newton finish for z^p + c; minibrot size `1/(b l^{d/(d-1)})` (our
+  derivation); seek for every formula (test point 0.8 of the way to the period-2 bulb,
+  centred framing, half-width ring, no airship); `almondbread seek`, `locate --formula`;
+  Multibrot oracle fixtures (bit-exact orbits p = 3..8 at 128–1024 bits, mpmath nuclei incl.
+  three at 1024 bits); formulas 3..8 selectable; FFI `formula_options()`, `set_formula`
+  (goes to the set's home: Reset and the autopilot's way out use it too), `places_for`;
+  copied coordinates carry `formula multibrotP` (none for Mandelbrot; labelled text without
+  it pastes as Mandelbrot); map clicks snap to the formula's minibrot cusp; the orbit probe key
+  includes the formula; the target lock (Mandelbrot's journey finder) is off outside
+  Mandelbrot and comes back with it.
+- **UI.** View section: "Fractal" (Mandelbrot / Multibrot, from `formula_options()`, so Julia
+  is one more Rust entry) and "Power" (z³ … z⁸ + c). Places lists the current formula's places;
+  tours, journeys, π meter, Julia panel and the target lock are hidden for Multibrot; seek and
+  the orbit overlay stay.
+- **Places.** 18, all from automated seek runs (no hand search): per power the whole set, a
+  minibrot seek found from it, and one it found beside a Misiurewicz point at 1e-20.
+- **Verification.** `verify` at 5 Misiurewicz-centred views per power (1e-5, 1e-20, 1e-100,
+  1e-300, 1e-1000 per pixel): class mismatch 0.000–0.015 % (no interior in view); at the 30
+  minibrots seek found from them (down to 1e-1499): class mismatch 0.008–0.141 %, false interior
+  ≤ 0.020 %, within Mandelbrot's range (feigenbaum 0.15 %). Escape-n differs reaches 80 % at
+  the deepest minibrots, but a 0.001-pixel grid shift of the oracle alone changes 8–23 % of them
+  and `precision` puts the GPU's error at a ≤ 0.01–0.1 pixel shift (p = 8 at 1e-343 and
+  1e-1142; p = 4, 1e-399): float32 noise in chaotic views, no band glitches. `verify --history
+  zoom|pan` at z⁵ (3.5e-8) and z⁸ (1.7e-23), and zoom at z³ (8e-29): class mismatch ≤ 0.002 %
+  vs the oracle and vs fresh. Interaction test "multibrot5 pan" 77–91 fps, "multibrot8 deep
+  zoom" 72–94 fps (Mandelbrot "1e5 zoom" 86 fps in the same run), shown frame = fresh render.
+- **Mandelbrot unchanged.** `bench --out` fields and PNGs byte-identical to main (63/63 each);
+  GPU ms geomean F3 / main 0.986 over 54 cases (load average 20–160: noise; the driver
+  re-runs the A/B on a quiet machine); `regress` OK.
+- **Not done / open.** Unsupervised LA for p > 2 stays off (non-goal); journeys, tours and the
+  π meter stay Mandelbrot; the Julia panel waits for F4's `z^p + k`; the deepest minibrot
+  views leave 3–9 % unresolved at the auto limit (GPU-ext/CPU-int is 0: limit, not error).
+  Not verified: a foreground session on the Mac and the iPad (the review gate).
+
 ## Effort breakdown
 
 M overall (1–2 weeks).
@@ -118,3 +175,5 @@ M overall (1–2 weeks).
 - [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
 - [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
 - [Bivariate linear approximation (BLA)](../techniques/bla.md)
+- [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
+- [F2: Pluggable-formula refactor](f2-pluggable-formulas.md)

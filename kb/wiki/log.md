@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-22
+
+- **Decision:** F3 Multibrot built: Multibrot z^3..z^8 + c selectable with a Fractal/Power picker, seek and 18 seek-found places; fixed F2's float32 escape overflow (bailout 2^min(16,60/p)), smooth count (log_p), small-|Z| underflow (floatexp steps), and the ball period bound's cancellation; class mismatch <= 0.14 % to 1e-1499, Mandelbrot fields byte-identical (A/B 0.986, noisy). Awaiting the user's review gate.
+
 ## 2026-10-21
 
 - **Update:** Density pivot checked by the user in a real Mac window: the density slider now behaves as expected ([Coloring methods](techniques/coloring-methods.md), "Density pivot (as built)").
