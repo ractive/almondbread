@@ -1954,6 +1954,13 @@ main binary. 800 × 500 renders byte-identical to each parent's CLI: Julia rabbi
 1e-100 ≤ 0.005 %, z⁵ ≤ 0.002 %, z⁸ ≤ 0.004 % vs the oracle, all OK. `regress`: 21 sessions OK.
 Interaction numbers in the plan pages.
 
+Mandelbrot speed A/B, merged main 69ee4b3 vs pre-F4 main 7f5ec27 (measured 2026-10-22, M1 Pro,
+release, load average 4–7): `bench --no-verify 1`, three interleaved rounds, best GPU ms per
+case. Geomean new/main **0.977** over 42 cases (≥ 0.5 ms); worst case home 1600 at 1.04
+(2.4 vs 2.5 ms). The dendrite 1e-300 1600 px case that F4 saw at 6.7 vs 2.8 ms under load is
+2.1 vs 3.4 ms here: noise. All three rounds' fields and PNGs byte-identical. The F3 and F4
+fast-path criterion (A/B ≈ 1.0) holds.
+
 ## F4: deep Julia sets, gate, verify and Mandelbrot A/B, 2026-10-22
 
 [F4: Deep Julia sets](../plans/f4-deep-julia.md) (measured 2026-10-21/22, M1 Pro, release, a shared machine: load average 11–340
