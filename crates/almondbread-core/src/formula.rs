@@ -155,6 +155,7 @@ impl FormulaCapabilities {
         orbit_overlay: true,
         content: false,
         julia_panel: false,
+        buddhabrot: false,
     };
 
     pub fn of(formula: Formula) -> Self {

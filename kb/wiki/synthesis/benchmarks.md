@@ -1991,6 +1991,7 @@ from the two noise levels (GPU-GPU 0.0031, CPU-CPU 0.0193); MH transient bias vs
 The background window's own link runs at 60 Hz (granted 120): 59 fps for all five then.
 Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
 hits per live bin at the whole set, 6 at the seahorse view.
+
 ## F5: Mandelbar (Tricorn), the non-conformal path, 2026-10-22
 
 Measured 2026-10-22, M1 Pro, release, on a machine shared with other agents (load average 6–60
