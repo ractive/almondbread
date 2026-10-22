@@ -276,6 +276,40 @@ final class InteractionTest: NSObject {
                 pan(v, i, t)
             }
         }
+        // ⌘-click (kb: decisions/controls "⌘-click: open a point's Julia set"): the Julia panel
+        // on at the home view, the pointer resting on a point, then a real ⌘ mouse-down / up
+        // there and the stream's second ⌘ click through FractalNSView's handlers. The Julia set
+        // of exactly that point opens whole (the Swift mirror pulls the formula), the second
+        // click does not zoom it; then the Julia view pans (pacing is measured on it).
+        let cmdAt = (x: 150.0, y: 80.0)
+        var cmdPoint: (re: Double, im: Double)?
+        var cmdScale = Double.nan
+        let commandClick: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                sent.removeAll()
+                overlays(v, false, false, true)
+                v.send(.pointer(x: cmdAt.x, y: cmdAt.y))
+                cmdPoint = InteractionTest.point(v, cmdAt.x, cmdAt.y)
+                cmdScale = v.explorer?.viewport().scale ?? .nan
+            }
+            once("cmd1", t >= 0.2) { InteractionTest.click(v, cmdAt.x, cmdAt.y, count: 1, flags: .command) }
+            once("cmd2", t >= 0.35) { InteractionTest.click(v, cmdAt.x, cmdAt.y, count: 2, flags: .command) }
+            once("check", t >= 0.9) {
+                guard let explorer = v.explorer else { return }
+                let s = explorer.settings()
+                let vp = explorer.viewport()
+                let kRe = Double(s.juliaRe) ?? .nan, kIm = Double(s.juliaIm) ?? .nan
+                let dk = cmdPoint.map { hypot(kRe - $0.re, kIm - $0.im) / cmdScale } ?? .nan
+                // The whole Julia set (julia::home_view: 4.2 × 3.0 fitted to 1280 × 820 points).
+                let homeScale = max(4.2 / 1280, 3.0 / 820)
+                let ok = s.formula == "julia" && v.model.formula == "julia" && dk < 1e-6
+                    && abs(vp.scale / homeScale - 1) < 1e-9
+                if !ok { self.failures += 1 }
+                self.refineLines.append(String(format: "cmd-click julia: formula %@ (Swift %@), k off the clicked point by %.1e pt, scale ×%.6f of the whole set %@",
+                                               s.formula, v.model.formula, dk, vp.scale / homeScale, ok ? "OK" : "FAILED"))
+            }
+            if t >= 1.0 { pan(v, i, t) }
+        }
         let orbitPointer: (FractalNSView, Int, Double) -> Void = { v, i, _ in
             if i == 0 { overlayOn(v, true, false) }
             let a = Double(i) * 0.06
@@ -802,6 +836,7 @@ final class InteractionTest: NSObject {
                          previewMs: ExplorerModel.previewThresholdTest),
                 Scenario(name: "spiral pan", viewport: spiral, input: pan),
                 Scenario(name: "spiral zoom", viewport: spiral, input: zoom),
+                Scenario(name: "cmd-click julia", viewport: home, input: commandClick),
                 Scenario(name: "julia twin deep zoom", viewport: seaDeep, input: deepZoom, julia: (re: "twin", im: "")),
                 Scenario(name: "julia 1e-100 pan", viewport: rabbit100, input: pan, julia: rabbitK),
                 Scenario(name: "julia 1e-300 zoom", viewport: dendrite300j, input: zoom, julia: (re: "0", im: "1")),
@@ -1094,10 +1129,10 @@ final class InteractionTest: NSObject {
 
     /// A left click (mouse down and up, click count `count`) at (x, y) view points from the
     /// centre, through the view's own handlers.
-    static func click(_ view: FractalNSView, _ x: Double, _ y: Double, count: Int) {
+    static func click(_ view: FractalNSView, _ x: Double, _ y: Double, count: Int, flags: NSEvent.ModifierFlags = []) {
         let p = view.convert(NSPoint(x: view.bounds.midX + x, y: view.bounds.midY + y), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [],
+            guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: flags,
                                              timestamp: ProcessInfo.processInfo.systemUptime,
                                              windowNumber: view.window?.windowNumber ?? 0, context: nil,
                                              eventNumber: 0, clickCount: count, pressure: type == .leftMouseDown ? 1 : 0)

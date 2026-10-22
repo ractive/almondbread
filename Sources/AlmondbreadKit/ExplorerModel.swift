@@ -1476,6 +1476,14 @@ public final class ExplorerModel {
         return taken
     }
 
+    /// An input event changed settings Rust owns (a ⌘-click opened a Julia set, kb:
+    /// decisions/controls "⌘-click"): take them over at once, so the next push does not send the
+    /// old formula back.
+    func pullFromRust() {
+        guard let explorer else { return }
+        pull(explorer.settings())
+    }
+
     /// A press on the canvas at (x, y) points from the centre, y up, in a canvas of `size`
     /// points: true if it hit a help badge Rust drew (the press then goes nowhere else);
     /// `show`: open its popover (a first click or a tap; not the second click of a double click).

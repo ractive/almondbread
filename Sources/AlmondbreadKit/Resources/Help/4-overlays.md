@@ -41,7 +41,7 @@ The Julia panel sits next to the mini-map and shows the Julia set of the orbit's
 - Outside it falls apart into **dust**: specks with no two joined.
 - On the edge it is a thin tree of branches, like the set's own filaments.
 
-That is what the black of the Mandelbrot set means: it is exactly the points whose Julia sets are in one piece. The panel shows the whole Julia set; click or tap it to open that set as the main view and zoom into it. On a small screen it may take the place of the deeper map levels.
+That is what the black of the Mandelbrot set means: it is exactly the points whose Julia sets are in one piece. The panel shows the whole Julia set; click or tap it to open that set as the main view and zoom into it. On the way to the panel the pointer crosses other points; to open the Julia set of the point you are pointing at, **⌘-click** it instead (on a Mac, or an iPad with a keyboard and a trackpad or mouse): exactly that point, also with the panel off. On a small screen it may take the place of the deeper map levels.
 
 In a Julia view the panel turns into the **Mandelbrot panel**: the Mandelbrot view you came from, with a crosshair at the point c whose Julia set you are looking at. Click or tap it to go back there (or press **⇧U**). It shows in every Julia view, also when the Julia panel was off; **U** hides it.
 

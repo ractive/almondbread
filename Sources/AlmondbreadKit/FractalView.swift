@@ -151,10 +151,12 @@ class FractalHostBase {
 
     @discardableResult
     func send(_ event: InputEvent, host: ExplorerHost) -> InputResult {
-        guard let explorer else { return InputResult(handled: false, redraw: false, mode: mode) }
+        guard let explorer else { return InputResult(handled: false, redraw: false, mode: mode, settingsChanged: false) }
         HangWatchdog.note("input", "\(event)")
         let r = explorer.input(event: event)
         if r.redraw { host.requestFrames() }
+        // A ⌘-click opened a Julia set (Rust's choice): take the settings over at once.
+        if r.settingsChanged { model.pullFromRust() }
         setMode(r.mode)
         return r
     }
@@ -849,7 +851,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
     override func smartMagnify(with event: NSEvent) {
         // A two-finger double tap (Smart zoom) zooms in like a double click / double tap.
         let o = offset(event.locationInWindow)
-        send(.doubleTap(x: o.x, y: o.y, out: false))
+        send(.doubleTap(x: o.x, y: o.y, out: false, command: event.modifierFlags.contains(.command)))
     }
 
     override func magnify(with event: NSEvent) {
@@ -875,9 +877,10 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
             send(.gestureEnd)
         } else if event.clickCount == 1 && !mapClicked {
             // A plain click pauses / resumes the autopilot (unused otherwise; a click on a
-            // mini-map jumps instead).
+            // mini-map jumps instead). ⌘ goes along: Rust opens the point's Julia set then (kb:
+            // decisions/controls "⌘-click").
             let o = offset(event.locationInWindow)
-            send(.click(x: o.x, y: o.y))
+            send(.click(x: o.x, y: o.y, command: event.modifierFlags.contains(.command)))
         }
         dragging = false
         mapClicked = false
@@ -933,14 +936,15 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
         // pause (mouseUp), and the second undoes that.
         if event.clickCount >= 2 {
             let o = offset(event.locationInWindow)
-            send(.doubleTap(x: o.x, y: o.y, out: event.modifierFlags.contains(.option)))
+            send(.doubleTap(x: o.x, y: o.y, out: event.modifierFlags.contains(.option),
+                            command: event.modifierFlags.contains(.command)))
         }
     }
 
     override func rightMouseDown(with event: NSEvent) {
         if event.clickCount >= 2 {
             let o = offset(event.locationInWindow)
-            send(.doubleTap(x: o.x, y: o.y, out: true))
+            send(.doubleTap(x: o.x, y: o.y, out: true, command: event.modifierFlags.contains(.command)))
         }
     }
 }
@@ -1461,7 +1465,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
         if base.model.helpPress(x: o.x, y: o.y, size: bounds.size, show: false) { return }
         if base.model.explorer?.cockpitHit(x: o.x, y: o.y) != nil { return }
         if base.model.compassTap(x: o.x, y: o.y) { return }
-        send(.doubleTap(x: o.x, y: o.y, out: false))
+        send(.doubleTap(x: o.x, y: o.y, out: false, command: g.modifierFlags.contains(.command)))
         lastZoomTap = (ProcessInfo.processInfo.systemUptime, g.location(in: self))
     }
 
@@ -1469,7 +1473,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
     @objc private func handleChainTap(_ g: UITapGestureRecognizer) {
         let p = g.location(in: self)
         let o = offset(p)
-        send(.doubleTap(x: o.x, y: o.y, out: false))
+        send(.doubleTap(x: o.x, y: o.y, out: false, command: g.modifierFlags.contains(.command)))
         lastZoomTap = (ProcessInfo.processInfo.systemUptime, p)
     }
 
@@ -1498,7 +1502,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
         }
         if base.model.compassTap(x: o.x, y: o.y) { return }
         if base.model.mapClick(x: o.x, y: o.y, fly: false) { return }
-        send(.click(x: o.x, y: o.y))
+        // ⌘ with an iPad keyboard goes along: Rust opens the point's Julia set then.
+        send(.click(x: o.x, y: o.y, command: g.modifierFlags.contains(.command)))
     }
 
     /// A press on a control Rust draws (help badge, cockpit, compass): no double-tap zoom, no
@@ -1556,7 +1561,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
 
     @objc private func handleTwoFingerTap(_ g: UITapGestureRecognizer) {
         let o = offset(g.location(in: self))
-        send(.doubleTap(x: o.x, y: o.y, out: true))
+        send(.doubleTap(x: o.x, y: o.y, out: true, command: false))
     }
 }
 

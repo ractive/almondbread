@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-22
 
+- **Decision:** ⌘-click opens a point's Julia set: on any point of a Mandelbrot view (Mac; iPad with keyboard and pointer) a ⌘-click opens exactly that point's deep Julia set with the way back kept, so the panel no longer changes on the way to it; the event carries ⌘, Host decides (decisions/controls "⌘-click").
 - **Decision:** Preview threshold A/B switch: temporary test switch (⌃⌥P, View menu, control center test row) between the 50 ms (default) and 12 ms one-chunk threshold of gesture previews, for the user's foreground comparison; interaction-test variants and proxy numbers in synthesis/benchmarks (z⁸ deep zoom frame-rate swings), key in decisions/controls (Test switches)
 - **Decision:** Mandelbrot panel: in a Julia view the Julia panel's place shows the Mandelbrot view the set was opened from with a crosshair at k; a click or tap goes back (back_from_julia). On at every entry into a Julia view, also with the Julia panel off; U hides it. Own small renderer, the way-back reference reused at depth; 1e-32 twin: panel call at most 3.6 ms, frame pacing unchanged (decisions/controls, plans/f4-deep-julia addendum).
 - **Decision:** Restored control center: iOS scene restoration wrote true into the inspector binding at launch and the pane sometimes never came up while the round button read shown (testFormulaPicker failing on iPad); the iOS binding now takes only false, the pane starts closed; regression test testControlCenterAfterRelaunch (platform/ios-simulator)

@@ -191,10 +191,13 @@ pub enum InputEvent {
         dy: f64,
         momentum: bool,
     },
-    /// A single click / tap on the canvas: pauses or resumes the autopilot.
+    /// A single click / tap on the canvas: pauses or resumes the autopilot. `command`: ⌘ was
+    /// held: opens the point's Julia set where the formula has the Julia panel (Rust decides;
+    /// `InputResult::settings_changed` then says to pull the settings).
     Click {
         x: f64,
         y: f64,
+        command: bool,
     },
     /// Mouse wheel notch or zoom scroll: zoom by 1.15^delta at the zoom target ((x, y) in
     /// pointer mode).
@@ -217,11 +220,13 @@ pub enum InputEvent {
         dx: f64,
         dy: f64,
     },
-    /// Double click / tap: zoom x2 (out: x0.5) at (x, y); switches to pointer mode.
+    /// Double click / tap: zoom x2 (out: x0.5) at (x, y); switches to pointer mode. `command`:
+    /// ⌘ was held (the rest of a ⌘-click's click stream does not zoom).
     DoubleTap {
         x: f64,
         y: f64,
         out: bool,
+        command: bool,
     },
     /// Zoom by `factor` at the zoom target (menu commands), animated.
     ZoomBy {
@@ -341,7 +346,7 @@ impl InputEvent {
             Self::PointerExited => E::Pointer(None),
             Self::Pan { dx, dy } if ok(&[dx, dy]) => E::Pan { dx, dy },
             Self::Scroll { dx, dy, momentum } if ok(&[dx, dy]) => E::Scroll { dx, dy, momentum },
-            Self::Click { x, y } if ok(&[x, y]) => E::Click { x, y },
+            Self::Click { x, y, command } if ok(&[x, y]) => E::Click { x, y, command },
             Self::WheelZoom { delta, x, y } if ok(&[delta, x, y]) => E::WheelZoom { delta, x, y },
             Self::Magnify { magnification, x, y } if ok(&[magnification, x, y]) && magnification > -1.0 => {
                 E::Magnify { magnification, x, y }
@@ -349,7 +354,7 @@ impl InputEvent {
             Self::Pinch { ratio, x, y, dx, dy } if ok(&[ratio, x, y, dx, dy]) && ratio > 0.0 => {
                 E::Pinch { ratio, x, y, dx, dy }
             }
-            Self::DoubleTap { x, y, out } if ok(&[x, y]) => E::DoubleTap { x, y, out },
+            Self::DoubleTap { x, y, out, command } if ok(&[x, y]) => E::DoubleTap { x, y, out, command },
             Self::ZoomBy { factor } if ok(&[factor]) && factor > 0.0 => E::ZoomBy { factor },
             Self::WheelNotch { delta, x, y } if ok(&[delta, x, y]) => E::WheelNotch { delta, x, y },
             Self::GestureEnd => E::GestureEnd,
@@ -405,6 +410,9 @@ pub struct InputResult {
     /// The input mode after the event (pointer moves below the switch threshold keep
     /// keyboard mode: the platform keeps the cursor hidden).
     pub mode: InputMode,
+    /// The event changed settings the platform mirrors (a ⌘-click opened a Julia set): pull
+    /// them (`settings()`) before the next push.
+    pub settings_changed: bool,
 }
 
 /// Bits of `Explorer::frame`'s result: keep the display link running (when clear, pause it
@@ -1690,8 +1698,10 @@ impl Explorer {
                 handled: false,
                 redraw: false,
                 mode: g.host.renderer.navigator.mode().into(),
+                settings_changed: false,
             };
         };
+        let before = g.host.renderer.settings.formula;
         let host = &mut g.host;
         let o = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.input(e, media_time()))).unwrap_or(
             almondbread_render::host::InputOutcome {
@@ -1699,10 +1709,17 @@ impl Explorer {
                 redraw: true,
             },
         );
+        // A ⌘-click opened a Julia set (kb: decisions/controls "⌘-click"): what the formula
+        // lacks goes off, and the platform pulls the settings.
+        let settings_changed = g.host.renderer.settings.formula != before;
+        if settings_changed {
+            g.sync_formula();
+        }
         InputResult {
             handled: o.handled,
             redraw: o.redraw,
             mode: g.host.renderer.navigator.mode().into(),
+            settings_changed,
         }
     }
 
@@ -2604,6 +2621,40 @@ mod formula_integration_tests {
 
     fn view(e: &Explorer) -> Viewport {
         e.lock().host.renderer.viewport.clone()
+    }
+
+    /// ⌘-click through the FFI (kb: decisions/controls "⌘-click"): the result says to pull the
+    /// settings, which then name the Julia set of the clicked point; a plain click does not.
+    #[test]
+    fn command_click_reports_the_new_settings() {
+        let (e, _layer) = explorer();
+        e.set_viewport("-0.7453".into(), "0.1127".into(), 6e-5).unwrap();
+        let k = view(&e).point_at_offset(40.0, -25.0);
+        let r = e.input(InputEvent::Click {
+            x: 40.0,
+            y: -25.0,
+            command: false,
+        });
+        assert!(!r.settings_changed);
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        let r = e.input(InputEvent::Click {
+            x: 40.0,
+            y: -25.0,
+            command: true,
+        });
+        assert!(r.settings_changed && r.handled && r.redraw);
+        let s = e.settings();
+        assert_eq!(s.formula, "julia");
+        let got = formula(&e).julia_k().expect("julia").value();
+        assert_eq!(got.re, k.big().re);
+        assert_eq!(got.im, k.big().im);
+        // In the Julia view a ⌘-click changes nothing.
+        let r = e.input(InputEvent::Click {
+            x: 40.0,
+            y: -25.0,
+            command: true,
+        });
+        assert!(!r.settings_changed);
     }
 
     /// A Julia view's text carries its k (`julia re im`), a Multibrot view's its `formula` line;

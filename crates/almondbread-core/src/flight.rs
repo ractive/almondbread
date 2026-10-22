@@ -22,10 +22,10 @@
 //! | `{"from": a, "to": b, "magnify": rate, "point": [x, y], "release": true}` | trackpad pinch at `rate` e-folds/s |
 //! | `{"from": a, "to": b, "pinch": rate, "point": [x, y], "release": true}` | touch pinch |
 //! | `{"at": t, "wheel": notches, "point": [x, y]}` | mouse wheel notches |
-//! | `{"at": t, "double_click": [x, y], "out": false}` | double click |
+//! | `{"at": t, "double_click": [x, y], "out": false, "command": false}` | double click (`command`: ⌘ held) |
 //! | `{"from": a, "to": b, "gamepad": {"lx": .., "ly": .., "ry": .., "lt": .., "rt": .., "boost": ..}}` | controller state held over the interval |
 //! | `{"at": t, "settings": {...}}` | settings change mid-flight |
-//! | `{"at": t, "click": [x, y]}` | single click (autopilot: pause / resume) |
+//! | `{"at": t, "click": [x, y], "command": false}` | single click (autopilot: pause / resume; `command`: a ⌘-click, which a host opens as the point's Julia set) |
 //! | `{"from": a, "to": b, "scroll": [vx, vy]}` | trackpad scroll at vx, vy points/s (autopilot: speed) |
 //! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
 //! | `{"at": t, "lock": false}` | autopilot target lock on / off (on by default); `"lock_synchronous": true` searches on the calling thread (reproducible, slower frames) |
@@ -479,13 +479,16 @@ impl FlightPlayer {
         }
         if let Some((x, y)) = self.pt(e.get("double_click")) {
             let out = e.get("out").and_then(Value::as_bool).unwrap_or(false);
-            r.input(InputEvent::DoubleTap { x, y, out }, now);
+            let command = e.get("command").and_then(Value::as_bool).unwrap_or(false);
+            r.input(InputEvent::DoubleTap { x, y, out, command }, now);
         }
         if let Some(s) = e.get("settings") {
             apply_json_settings(s, r.settings());
         }
         if let Some((x, y)) = self.pt(e.get("click")) {
-            r.input(InputEvent::Click { x, y }, now);
+            // `"command": true`: a ⌘-click (opens the point's Julia set where a host does that).
+            let command = e.get("command").and_then(Value::as_bool).unwrap_or(false);
+            r.input(InputEvent::Click { x, y, command }, now);
         }
         if let Some(a) = e.get("lock").and_then(Value::as_bool) {
             r.navigator().autopilot_mut().set_lock(a);

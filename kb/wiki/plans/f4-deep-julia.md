@@ -218,6 +218,10 @@ Built on branch `worktree-agent-aad72e725c0292486` after the step-1 gate passed;
   the view's centre at the same framing; ⇧U again, the HUD's back button, the control center or
   the View menu go back to the view it came from. `Host::open_julia`, `julia_twin`,
   `back_from_julia` hold the policy. R frames the whole Julia set. The HUD shows `k`.
+  Added 2026-10-23: **⌘-click** on any point of a Mandelbrot view opens that point's Julia set
+  the same way (`Host::open_julia_at`), so the pointer need not cross other points on its way to
+  the panel ([Controls: keyboard, pointer and touch](../decisions/controls.md) "⌘-click: open a
+  point's Julia set").
 - **Links and state.** Coordinates text gains `julia re im` (k to the centre's digits + 2: the set
   moves with `k` by about the change in `k`); pasting it opens that Julia view, a text without it
   leaves one. FFI `ExplorerSettings` carries `julia_re`/`julia_im` (round-trip digits; a round

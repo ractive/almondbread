@@ -279,7 +279,7 @@ struct ContentView: View {
                             .tourTarget("julia", model: model, cornerRadius: 6)
                             .tourTarget("toolbar", model: model, cornerRadius: 6)
                     }
-                    .help("The Julia set of the point under the pointer, next to the mini-map (U)")
+                    .help("The Julia set of the point under the pointer, next to the mini-map (U); ⌘-click a point to open its Julia set")
                 }
                 // The π meter is not in the toolbar: the tour "π in the Mandelbrot set" drives it
                 // (user, 2026-10-18).

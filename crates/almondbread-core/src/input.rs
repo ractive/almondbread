@@ -145,10 +145,13 @@ pub enum InputEvent {
         momentum: bool,
     },
     /// A single click / tap on the canvas: pauses or resumes the autopilot (unused while it
-    /// is off).
+    /// is off). `command`: ⌘ was held (Mac; iPad with a keyboard): where the formula offers the
+    /// Julia panel the host opens the clicked point's Julia set instead and the navigator never
+    /// sees the click (kb: decisions/controls "⌘-click: open a point's Julia set").
     Click {
         x: f64,
         y: f64,
+        command: bool,
     },
     /// A mouse wheel notch or precise zoom scroll: zoom by 1.15^delta at the zoom target
     /// ((x, y), the pointer, in pointer mode).
@@ -172,11 +175,13 @@ pub enum InputEvent {
         dx: f64,
         dy: f64,
     },
-    /// Double click / tap: zoom x2 (or out x0.5) at (x, y); a click is pointer use.
+    /// Double click / tap: zoom x2 (or out x0.5) at (x, y); a click is pointer use. `command`:
+    /// ⌘ was held (the further clicks of a ⌘-click that opened a Julia set do not zoom it).
     DoubleTap {
         x: f64,
         y: f64,
         out: bool,
+        command: bool,
     },
     /// Zoom by `factor` at the zoom target (menu commands), animated.
     ZoomBy {
@@ -338,7 +343,7 @@ impl InputEvent {
             } => f(&[top, left, bottom, right]),
             Self::Pointer(p) => p.is_none_or(|(x, y)| f(&[x, y])),
             Self::Pan { dx, dy } | Self::Scroll { dx, dy, .. } => f(&[dx, dy]),
-            Self::Click { x, y } | Self::DoubleTap { x, y, .. } => f(&[x, y]),
+            Self::Click { x, y, .. } | Self::DoubleTap { x, y, .. } => f(&[x, y]),
             Self::WheelZoom { delta, x, y } | Self::WheelNotch { delta, x, y } => f(&[delta, x, y]),
             Self::Magnify { magnification, x, y } => f(&[magnification, x, y]),
             Self::Pinch { ratio, x, y, dx, dy } => f(&[ratio, x, y, dx, dy]),
@@ -2164,7 +2169,7 @@ impl Navigator {
                 self.fly_to(&target, viewport, now);
                 true
             }
-            InputEvent::DoubleTap { x, y, out } => {
+            InputEvent::DoubleTap { x, y, out, .. } => {
                 self.manual_zoom_ends_cruise();
                 // Its first click toggled the autopilot's pause: undone.
                 self.autopilot.double_click(now);
@@ -3236,6 +3241,7 @@ mod tests {
                 x: 10.0,
                 y: 10.0,
                 out: false,
+                command: false,
             },
             &mut v,
             0.5,
@@ -3415,7 +3421,16 @@ mod tests {
     }
 
     fn double_tap(n: &mut Navigator, v: &mut Viewport, x: f64, y: f64, out: bool, t: f64) {
-        assert!(n.handle(InputEvent::DoubleTap { x, y, out }, v, t));
+        assert!(n.handle(
+            InputEvent::DoubleTap {
+                x,
+                y,
+                out,
+                command: false
+            },
+            v,
+            t
+        ));
     }
 
     #[test]
@@ -3520,7 +3535,15 @@ mod tests {
         n.advance(&mut v, 0.0);
         tap(&mut n, &mut v, NavKey::Autopilot, 0.0);
         assert!(n.autopilot().is_active() && !n.autopilot().is_paused());
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 1.0));
+        assert!(n.handle(
+            InputEvent::Click {
+                x: 5.0,
+                y: 5.0,
+                command: false
+            },
+            &mut v,
+            1.0
+        ));
         assert!(n.autopilot().is_paused());
         for (k, t) in [1.2, 1.4, 1.6].into_iter().enumerate() {
             double_tap(&mut n, &mut v, 5.0, 5.0, false, t);
@@ -3528,9 +3551,25 @@ mod tests {
         }
         // Paused before a stream: its first click resumes, the second undoes that, the rest
         // leave it paused.
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 3.0));
+        assert!(n.handle(
+            InputEvent::Click {
+                x: 5.0,
+                y: 5.0,
+                command: false
+            },
+            &mut v,
+            3.0
+        ));
         assert!(n.autopilot().is_paused());
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 5.0));
+        assert!(n.handle(
+            InputEvent::Click {
+                x: 5.0,
+                y: 5.0,
+                command: false
+            },
+            &mut v,
+            5.0
+        ));
         assert!(!n.autopilot().is_paused());
         for t in [5.2, 5.4, 5.6, 5.8] {
             double_tap(&mut n, &mut v, 5.0, 5.0, false, t);
@@ -4669,7 +4708,15 @@ mod tests {
             0.0,
         );
         assert_ne!(v.center, c0);
-        assert!(!n.handle(InputEvent::Click { x: 0.0, y: 0.0 }, &mut v, 0.0));
+        assert!(!n.handle(
+            InputEvent::Click {
+                x: 0.0,
+                y: 0.0,
+                command: false
+            },
+            &mut v,
+            0.0
+        ));
         // On: E / Q step its speed on the ladder; scrolling sets it and does not pan.
         tap(&mut n, &mut v, NavKey::Autopilot, 0.1);
         let s0 = n.autopilot().speed();
@@ -4714,11 +4761,27 @@ mod tests {
         // A click pauses (eased to rest: the display link may stop), another resumes.
         n.advance(&mut v, 0.3);
         run(&mut n, &mut v, 0.3, 2.0, 60.0);
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, 2.0));
+        assert!(n.handle(
+            InputEvent::Click {
+                x: 5.0,
+                y: 5.0,
+                command: false
+            },
+            &mut v,
+            2.0
+        ));
         assert!(n.autopilot().is_paused());
         let t = run(&mut n, &mut v, 2.0, 5.0, 60.0);
         assert!(!n.is_moving() && !n.advance(&mut v, t + 0.01));
-        assert!(n.handle(InputEvent::Click { x: 5.0, y: 5.0 }, &mut v, t));
+        assert!(n.handle(
+            InputEvent::Click {
+                x: 5.0,
+                y: 5.0,
+                command: false
+            },
+            &mut v,
+            t
+        ));
         assert!(n.is_moving());
         // Reset stops it dead.
         n.handle(InputEvent::KeyDown(NavKey::Reset), &mut v, t);
@@ -4806,7 +4869,15 @@ mod tests {
                 &mut v,
                 t + 1.0,
             );
-            n.handle(InputEvent::Click { x: 0.0, y: 0.0 }, &mut v, t + 1.1);
+            n.handle(
+                InputEvent::Click {
+                    x: 0.0,
+                    y: 0.0,
+                    command: false,
+                },
+                &mut v,
+                t + 1.1,
+            );
             let t = run(&mut n, &mut v, t + 1.0, t + 2.0, hz);
             assert!(
                 n.journey().at_stop() && !n.journey().is_suspended(),
