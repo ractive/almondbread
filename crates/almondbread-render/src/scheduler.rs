@@ -43,8 +43,10 @@ use crate::gpu_types::{
 use crate::la_gpu::LaGpu;
 use crate::memory::{MemoryBudget, Thermal};
 
+mod buddha_frame;
 mod device;
 mod reference_gpu;
+pub use buddha_frame::{BuddhaShown, LIVE_DIV, OrbitProgress, REST_TARGET_HITS};
 use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
 mod formula_tests;
@@ -86,7 +88,7 @@ const PROBE_WAIT: (f64, f64) = (0.5, 4.0);
 /// scenario), which alone dropped 1/4 back to 1/8.
 const RATIO_HOLD: f64 = 0.85;
 const FIT_WINDOW: usize = 5;
-const PALETTE_SIZE: usize = 1024;
+pub(crate) const PALETTE_SIZE: usize = 1024;
 /// Derivative test threshold on |w| n² (kb: techniques/interior-detection, Pitfalls).
 const INTERIOR_EPS: f32 = 1e-3;
 /// Loop steps per interior-probe step (`PROBE_COST_PLAIN` / `PROBE_COST_DEEP` in MSL): a probe
@@ -207,6 +209,13 @@ pub struct SchedulerConfig {
     /// Unresolved share of the view's texels below which it counts as finished (no further
     /// passes, no "not finished" in the HUD).
     pub further_min_share: f64,
+    /// BB (kb: plans/buddhabrot "Live mode"): the Buddhabrot look stays on while the view
+    /// moves (a coarse live accumulation); off: motion shows the escape-time colouring.
+    pub buddha_live: bool,
+    /// BB: an offscreen render (export, CLI) of the look accumulates to this many hits per
+    /// pixel of the faintest channel, or for this many seconds, whichever comes first.
+    pub buddha_export_hits: f64,
+    pub buddha_export_seconds: f64,
 }
 
 /// Quadtree seeds of the local series approximation (M5).
@@ -302,6 +311,9 @@ impl SchedulerConfig {
             further: true,
             further_budget: 60.0,
             further_min_share: 0.001,
+            buddha_live: true,
+            buddha_export_hits: 4.0 * buddha_frame::REST_TARGET_HITS,
+            buddha_export_seconds: 120.0,
         }
     }
 }
@@ -1355,6 +1367,8 @@ pub struct Renderer<B: GpuBackend> {
     thermal: Thermal,
     thermal_base: Option<device::ThermalBase>,
     suspended: bool,
+    /// BB: the Buddhabrot / Nebulabrot look (`buddha_frame.rs`).
+    buddha: buddha_frame::BuddhaState<B>,
 }
 
 /// Pipelines compiling on the warm-up threads: their keys and where they arrive.
@@ -1567,6 +1581,7 @@ impl<B: GpuBackend> Renderer<B> {
             thermal: Thermal::Nominal,
             thermal_base: None,
             suspended: false,
+            buddha: buddha_frame::BuddhaState::default(),
         })
     }
 
@@ -2407,6 +2422,10 @@ impl<B: GpuBackend> Renderer<B> {
         self.poll_pivot();
         self.poll_longer_reference();
         self.poll_further();
+        // BB: the Buddhabrot look replaces the escape-time frame while it can show the view.
+        if let Some(o) = self.buddha_frame(now, width, height, points_per_pixel, interacting, keep_going, acquire) {
+            return o;
+        }
         let key = self.make_key(width, height, points_per_pixel, false);
         if self.job.as_ref().is_some_and(|j| j.failed) {
             self.job = None;
@@ -6365,6 +6384,9 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     pub fn is_settled(&self) -> bool {
+        if self.buddha.active {
+            return self.buddha.settled;
+        }
         self.job
             .as_ref()
             .is_some_and(|j| j.final_presented && !j.interactive && j.key.viewport == self.viewport)
@@ -6515,6 +6537,29 @@ impl<B: GpuBackend> Renderer<B> {
         readback: bool,
     ) -> Result<OffscreenResult, GpuError> {
         let start = Instant::now();
+        // BB: the Buddhabrot look's image (shallow views; deeper ones are coloured by escape time).
+        if self.buddha_mode().is_on()
+            && almondbread_core::buddha::BinMap::new(&self.viewport, width, height, 1.0).supported()
+        {
+            let (seconds, hits) = (self.config.buddha_export_seconds, self.config.buddha_export_hits);
+            let (pixels, c) = self.render_buddha_offscreen(width, height, seconds, hits)?;
+            return Ok(OffscreenResult {
+                pixels,
+                width,
+                height,
+                iterate_gpu_time: c.gpu_time,
+                colorize_gpu_time: 0.0,
+                wall_time: start.elapsed().as_secs_f64(),
+                chunks: 0,
+                iterations_done: c.iterations,
+                steps_done: c.iterations,
+                bla_forecast: None,
+                bla_used: false,
+                la_used: false,
+                iterations: None,
+                seeds: None,
+            });
+        }
         let target = self
             .backend
             .create_texture(width, height, TextureFormat::Bgra8Unorm, Storage::Shared)?;

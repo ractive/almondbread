@@ -114,6 +114,9 @@ pub struct RenderSettings {
     pub interior_color: [f32; 3],
     /// Interior colouring (flat: `interior_color`).
     pub interior_mode: InteriorMode,
+    /// Buddhabrot or Nebulabrot instead of the escape-time colouring (BB, kb: plans/buddhabrot;
+    /// Mandelbrot only, [`crate::formula::FormulaCapabilities::buddhabrot`]; set by the looks).
+    pub buddha: crate::buddha::BuddhaMode,
     /// Palette cycles of the interior modes (per halving of |z*| for bubbles, per doubling of
     /// the distance for the distance mode, per turn for the angle mode).
     pub interior_density: f64,
@@ -184,6 +187,7 @@ impl RenderSettings {
             smooth_coloring: true,
             interior_color: [0.0, 0.0, 0.0],
             interior_mode: InteriorMode::Flat,
+            buddha: crate::buddha::BuddhaMode::Off,
             interior_density: 0.25,
             interior_stripes: 8.0,
             shading: 0.0,
