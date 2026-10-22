@@ -206,8 +206,10 @@ struct ContentView: View {
                     RoundToggle("Mini-map", symbol: InlineIcons.symbol("mini-map"), isOn: $model.mapEnabled)
                         .tourTarget("mini-map", model: model, cornerRadius: 22)
                     // The Julia panel: only in the iPad's top row (the phone's column and row
-                    // have no room for a sixth button; kb: decisions/controls "Julia panel").
-                    if touchLayout.buttonCorner == .topTrailing {
+                    // have no room for a sixth button; kb: decisions/controls "Julia panel"), and
+                    // not in Multibrot views (`hasJuliaPanelSwitch`: Rust's capabilities; a Julia
+                    // view keeps it).
+                    if touchLayout.buttonCorner == .topTrailing && model.hasJuliaPanelSwitch {
                         RoundToggle("Julia set", symbol: InlineIcons.symbol("julia"), isOn: $model.juliaEnabled)
                             .tourTarget("julia", model: model, cornerRadius: 22)
                     }
@@ -269,12 +271,16 @@ struct ContentView: View {
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
-                Toggle(isOn: $model.juliaEnabled) {
-                    Label("Julia Set", systemImage: InlineIcons.symbol("julia"))
-                        .tourTarget("julia", model: model, cornerRadius: 6)
-                        .tourTarget("toolbar", model: model, cornerRadius: 6)
+                // (Not in Multibrot views, `hasJuliaPanelSwitch`: Rust's capabilities; a Julia
+                // view keeps it; kb: decisions/controls "Fractal picker and Julia views".)
+                if model.hasJuliaPanelSwitch {
+                    Toggle(isOn: $model.juliaEnabled) {
+                        Label("Julia Set", systemImage: InlineIcons.symbol("julia"))
+                            .tourTarget("julia", model: model, cornerRadius: 6)
+                            .tourTarget("toolbar", model: model, cornerRadius: 6)
+                    }
+                    .help("The Julia set of the point under the pointer, next to the mini-map (U)")
                 }
-                .help("The Julia set of the point under the pointer, next to the mini-map (U)")
                 // The π meter is not in the toolbar: the tour "π in the Mandelbrot set" drives it
                 // (user, 2026-10-18).
                 Toggle(isOn: $model.cosmicScale) {
