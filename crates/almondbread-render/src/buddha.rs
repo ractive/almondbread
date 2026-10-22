@@ -1367,9 +1367,9 @@ mod tests {
                 map: close,
                 mode: BuddhaMode::Buddhabrot,
             };
-            let start = std::time::Instant::now();
-            g.accumulate(&b, &key, 0.01, |_| start.elapsed().as_secs_f64() >= 1.0)
-                .unwrap();
+            // (By samples, not time: a loaded GPU must not end it early. MH chains carry a
+            // transient bias that decays as they mix: L1 0.05 at 1e9 samples, 0.008 at 1e10.)
+            g.accumulate(&b, &key, 0.01, |r| r.samples() >= 1e10).unwrap();
             g.read_rest(&b).unwrap()
         };
         let (g1, g2) = (mh(7), mh(8));
@@ -1378,9 +1378,39 @@ mod tests {
         let (_, lcc) = compare(&c2, &c1, 0, 4);
         let rms = ((lgg * lgg + lcc * lcc) / 2.0).sqrt();
         println!(
-            "MH close-up ({:.1e} uniform-equivalent samples in 1 s): GPU-CPU L1 {l1:.4}; GPU-GPU {lgg:.4}, CPU-CPU {lcc:.4} (rms {rms:.4})",
+            "MH close-up ({:.1e} uniform-equivalent samples): GPU-CPU L1 {l1:.4}; GPU-GPU {lgg:.4}, CPU-CPU {lcc:.4} (rms {rms:.4})",
             g1.samples
         );
         assert!(l1 < 1.5 * rms + 0.005, "L1 {l1} vs noise {rms}");
+    }
+
+    /// MH bias against a long CPU run, by GPU time and jump probability (a measurement:
+    /// `cargo test --release -p almondbread-render mh_bias -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn mh_bias_scan() {
+        let b = MetalBackend::new().expect("metal");
+        let close = BinMap::new(&Viewport::new(-0.1, 0.75, 0.4 / 64.0), 64, 64, 1.0);
+        let c1 = cpu_histogram(&close, BuddhaMode::Buddhabrot, 400_000_000, 31);
+        for p_jump in [0.05f32, 0.5, 1.0] {
+            for secs in [0.25, 1.0, 4.0] {
+                let mut g = Buddha::new(&b).expect("kernels");
+                g.force_sampler = Some(Sampler::Metropolis);
+                g.p_jump = p_jump;
+                let key = HistKey {
+                    map: close,
+                    mode: BuddhaMode::Buddhabrot,
+                };
+                let start = std::time::Instant::now();
+                g.accumulate(&b, &key, 0.01, |_| start.elapsed().as_secs_f64() >= secs)
+                    .unwrap();
+                let h = g.read_rest(&b).unwrap();
+                let (_, l1) = compare(&h, &c1, 0, 4);
+                println!(
+                    "pJump {p_jump} {secs} s: {:.2e} samples, L1 vs CPU 4e8 {l1:.4}",
+                    h.samples
+                );
+            }
+        }
     }
 }

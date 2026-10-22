@@ -92,6 +92,11 @@ release, 18 s flights: jump to the place, then 5 s of Space zoom):
   three BGRA8 drawables of the layer (not in `currentAllocatedSize`): budgeted as 80 B.
   Fixed about **108 MB** with the iOS defaults (live-list state, unresolved lists, kernels,
   survey, overlays), ~200 MB with the Mac's.
+- The Buddhabrot / Nebulabrot look (BB) adds 4 / 12 B per output pixel of histogram, 7.9 MB of
+  walkers and, while moving, 44 B per live bin (one per 3 × 3 pixels): 56 MB for a Nebulabrot at
+  2420 × 1668 measured on the Mac, plus 20 MB live; an export allocates its own
+  ([Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md) "As built"; on a device
+  unverified).
 - Deep places do not cost more than shallow ones: nucleus references are a period long
   (834 points at the 1e1000 needle) and the auto limit is capped at 200 k.
 - A manual 10 M limit is the hazard: the whole process grew by 408 MB over a 1 M limit (CPU
@@ -190,3 +195,4 @@ suspended renderer commits nothing and settles after resume.
 
 - [Apple device tooling and iOS process APIs (devicectl, xcodebuild provisioning, os/proc.h)](../sources/apple-device-tooling.md)
 - [Apple simulator and UI-test tooling (simctl, xcodebuild, XCTest)](../sources/apple-simulator-tooling.md)
+- [Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md)

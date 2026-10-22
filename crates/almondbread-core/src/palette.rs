@@ -459,12 +459,6 @@ impl Look {
         s.palette_stops = None;
         s.buddha = self.buddha;
     }
-
-    /// The escape-time looks (every look but the orbit-density ones): what tours, journeys
-    /// and other automatic look changes choose from.
-    pub fn escape_time() -> Vec<Look> {
-        Self::all().into_iter().filter(|l| !l.buddha.is_on()).collect()
-    }
 }
 
 /// The palette as a cyclic mip chain for filtered lookups (palette anti-aliasing, FL): level 0
@@ -602,7 +596,7 @@ mod tests {
         let ids: Vec<&str> = Palette::all().iter().map(|p| p.id).collect();
         let looks = Look::all();
         assert!((6..=12).contains(&looks.len()));
-        assert_eq!(Look::escape_time().len(), looks.len() - 2);
+        assert_eq!(looks.iter().filter(|l| l.buddha.is_on()).count(), 2);
         for l in &looks {
             assert!(ids.contains(&l.palette), "{}", l.id);
         }
