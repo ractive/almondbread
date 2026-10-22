@@ -226,6 +226,15 @@ pixels 44 B per live bin. At 2420 × 1668: Nebulabrot buffers 56.3 MB measured (
 plus 19.7 MB live when moving; an export allocates its own histogram and walkers on top. Within
 the device budget (the renderer's 80 B per texel are 323 MB there).
 
+**Checks** (2026-10-22): `make rust-check` and `make rust-check-debug` 412 tests passed each
+(2 ignored, one of them `mh_bias_scan`), `make regress` OK, `make build`, `make app`,
+`make ios-sim`, `make ios-device-check`, `make swift-test` (14), `make core-check`, `make
+selftest` (both apps `renderer OK (Rust)`, shown frame vs fresh render 0 pixels) all OK; the
+targeted iOS UI test `TouchControlsUITests/testBuddhabrotLook` on the iPad mini simulator passed
+(the look applies, the HUD shows "orbits · 1.7 k of 1.5 k per pixel · 2.2 G samples", the entries
+are hidden for a Multibrot set). It found that the iOS Look picker (a navigation-link picker)
+was disabled in the iPad pane, which has no navigation stack; it is a menu now, as on the Mac.
+
 ## Live mode (measured 2026-10-22)
 
 The user asked whether the look can stay on while moving (the iPad Pro 11", M5, is faster than

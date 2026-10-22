@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-22
 
+- **Decision:** BB Buddhabrot and Nebulabrot built: GPU walkers (uniform and Metropolis–Hastings with recheck/resampling and warm-up), measured tone levels, Nebulabrot RGB; live mode measured on M1 Pro (116–118 fps at 120 Hz at the whole set, falls back where the live accumulation is noise), realtime-ipad likely; whole set clean in 1.6 s, seahorse valley ~1 min, 1e-3 flat; Mandelbrot fields byte-identical, A/B 0.992; plan in-progress awaiting review
 - **Research:** F3+F4 Mandelbrot A/B: quiet-machine bench of merged main vs pre-F4 main, geomean 0.977, byte-identical; see synthesis/benchmarks
 - **Decision:** F3+F4 integration: Multibrot merged onto deep Julia sets; per-formula hooks handle Julia (power 2, bailout 65536, julia home view, julia line in coordinates), the picker is disabled in a Julia view, set_formula leaves Julia first; Mandelbrot, Julia and Multibrot renders byte-identical to their parents
 - **Decision:** F3 Multibrot built: Multibrot z^3..z^8 + c selectable with a Fractal/Power picker, seek and 18 seek-found places; fixed F2's float32 escape overflow (bailout 2^min(16,60/p)), smooth count (log_p), small-|Z| underflow (floatexp steps), and the ball period bound's cancellation; class mismatch <= 0.14 % to 1e-1499, Mandelbrot fields byte-identical (A/B 0.986, noisy). Awaiting the user's review gate.
