@@ -192,6 +192,8 @@ struct SavedSettings: Codable {
     var formula: String?
     var juliaRe: String?
     var juliaIm: String?
+    /// The orbit-density look (BB): "off", "buddhabrot", "nebulabrot".
+    var buddha: String?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -316,6 +318,14 @@ public final class ExplorerModel {
     public var denseCalm = true { didSet { push() } }
     /// The look last applied (the control center's picker); edits keep it selected.
     public var lookID = "aurora" { didSet { save() } }
+    /// The orbit-density look (BB, kb: plans/buddhabrot): "off", "buddhabrot" or "nebulabrot";
+    /// set by the looks of that name (Rust shows it for the Mandelbrot set only).
+    public var buddha = "off" { didSet { push() } }
+    /// The look picker's entries for the current formula (the orbit-density looks only where
+    /// the formula has them).
+    public var availableLooks: [LookInfo] {
+        Self.looks.filter { !$0.orbitDensity || has(\.buddhabrot) }
+    }
 
     // Interior
     public var interiorColoring = InteriorColoring.flat { didSet { push() } }
@@ -614,6 +624,7 @@ public final class ExplorerModel {
         interiorDensity = s.interiorDensity
         interiorStripes = s.interiorStripes
         denseCalm = s.denseCalm
+        buddha = s.buddha
     }
 
     private var settings: ExplorerSettings {
@@ -633,7 +644,7 @@ public final class ExplorerModel {
             interiorMode: interiorColoring.ffi, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, cinematic: cinematic, cinematicSpin: cinematicSpin,
             cinematicHueDrift: cinematicHueDrift, cinematicPhaseDrift: cinematicPhaseDrift,
-            cinematicFlyCycle: cinematicFlyCycle)
+            cinematicFlyCycle: cinematicFlyCycle, buddha: buddha)
     }
 
     private var overlaySettings: OverlaySettings {
@@ -779,7 +790,7 @@ public final class ExplorerModel {
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker,
-            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm)
+            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm, buddha: buddha)
     }
 
     private func writeSaved() {
@@ -836,6 +847,7 @@ public final class ExplorerModel {
         interiorDensity = s.interiorDensity ?? interiorDensity
         interiorStripes = s.interiorStripes ?? interiorStripes
         denseCalm = s.denseCalm ?? denseCalm
+        buddha = s.buddha ?? buddha
         juliaRe = s.juliaRe ?? juliaRe
         juliaIm = s.juliaIm ?? juliaIm
         formula = s.formula ?? formula
@@ -885,6 +897,7 @@ public final class ExplorerModel {
             denseCalm = d.denseCalm
             cycleSpeed = d.cycleSpeed
             depthTint = d.depthTint
+            buddha = d.buddha
             lookID = Self.looks.first?.id ?? lookID
         }
         if light {

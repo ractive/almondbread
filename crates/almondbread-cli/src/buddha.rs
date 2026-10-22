@@ -253,7 +253,10 @@ fn live<B: GpuBackend + Clone>(
     let mut acquire = |_: bool| -> Option<FrameTarget<B>> { Some((target.clone(), None)) };
     // Rest first (the motion starts from a rested image, as in the app).
     let t0 = Instant::now();
-    while t0.elapsed().as_secs_f64() < rest_first {
+    loop {
+        if t0.elapsed().as_secs_f64() >= rest_first {
+            break;
+        }
         r.render_frame(now, width, height, ppp, &mut acquire);
         now += dt;
         std::thread::sleep(std::time::Duration::from_secs_f64(dt));
@@ -318,6 +321,13 @@ fn live<B: GpuBackend + Clone>(
         }
     }
     println!("settled again after {:.2} s", tr.elapsed().as_secs_f64());
+    // Memory (kb: platform/ios-device "Memory"): the look's buffers and the device's total.
+    let look = r.buddha_sampler().map_or(0, |b| b.bytes());
+    println!(
+        "memory: Buddhabrot buffers {:.1} MB, GPU allocated in all {:.1} MB",
+        look as f64 / 1e6,
+        r.backend().allocated_bytes().unwrap_or(0) as f64 / 1e6
+    );
     save(r, &format!("{out}-{motion}-settled.png"))?;
     Ok(0)
 }

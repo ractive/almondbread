@@ -194,6 +194,9 @@ pub struct LookInfo {
     pub id: String,
     pub name: String,
     pub palette_id: String,
+    /// An orbit-density look (Buddhabrot, Nebulabrot): offered only where the formula has it
+    /// (`FormulaCapabilities::buddhabrot`).
+    pub orbit_density: bool,
 }
 
 /// The looks, in menu order (the first is the default; `Explorer::apply_look` applies one).
@@ -215,6 +218,7 @@ pub fn looks() -> Vec<LookInfo> {
             id: l.id.to_string(),
             name: l.name.to_string(),
             palette_id: l.palette.to_string(),
+            orbit_density: l.buddha.is_on(),
         })
         .collect()
 }

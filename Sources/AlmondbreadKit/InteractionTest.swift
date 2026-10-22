@@ -35,6 +35,9 @@ final class InteractionTest: NSObject {
         let re: String, im: String, scale: Double
         /// The fractal (F3): Multibrot scenarios switch to theirs, every other one is Mandelbrot.
         var formula = "mandelbrot"
+        /// BB (kb: plans/buddhabrot): a look for the scenario ("buddhabrot", "nebulabrot");
+        /// nil: the look the test started with.
+        var look: String? = nil
     }
     private struct Scenario {
         let name: String
@@ -47,6 +50,7 @@ final class InteractionTest: NSObject {
         var julia: (re: String, im: String)? = nil
     }
     private let settleSeconds = 1.0
+    private var startLook: String?
 
     private lazy var scenarios: [Scenario] = {
         // The home view fitted to 1280x820 points (Viewport::fitting).
@@ -363,7 +367,7 @@ final class InteractionTest: NSObject {
         // Every look (the inspector's Look picker: `applyLook`) and every palette (the Palette
         // picker: `paletteID`), one every 0.1 s, idle (progressive AA running) or during a
         // pan, at home and deep. Regression for "selected Lagoon and almondbread died".
-        let switches: [(ExplorerModel) -> Void] = ExplorerModel.looks.map { l in { $0.applyLook(l.id) } }
+        let switches: [(ExplorerModel) -> Void] = ExplorerModel.looks.filter { !$0.orbitDensity }.map { l in { $0.applyLook(l.id) } }
             + ExplorerModel.palettes.map { p in { $0.paletteID = p.id } }
         var switched = 0
         @MainActor func switcher(gesture: Bool) -> (FractalNSView, Int, Double) -> Void {
@@ -725,6 +729,8 @@ final class InteractionTest: NSObject {
                                 im: "0.6785478674150520237952461553430622991323380058277815194421221054868252650933002485440546541350165849932149350420951796822304685241394963385899335024961001636274825482729138595485370773903166706946136063947425419828687390342905631095799823421179334798563580045190217945069289191899700554854070505266217696214286174348262202054",
                                 scale: 2e-300)
         let rabbitK = (re: "-0.1225611668766536", im: "0.7448617666197442")
+        let buddhaHome = View(re: "-0.75", im: "0", scale: max(3.2 / 1280, 2.6 / 820), look: "buddhabrot")
+        let nebulaSea = View(re: "-0.75", im: "0.1", scale: 3.75e-3 / 30, look: "nebulabrot")
         let multibrot5 = View(re: "0.84733531576585034", im: "0.58201571377117265", scale: 1.1e-8, formula: "multibrot5")
         let multibrot8 = View(re: "-0.578757811778842465396026167", im: "0.890676734071857679572348838",
                               scale: 5.2e-24, formula: "multibrot8")
@@ -782,7 +788,12 @@ final class InteractionTest: NSObject {
                 // F3 (kb: plans/f3-multibrot): z^5 + c at its seek-found period-11 minibrot, and
                 // z^8 + c at its period-19 minibrot beside a Misiurewicz point (1e-24 per point).
                 Scenario(name: "multibrot5 pan", viewport: multibrot5, input: pan),
-                Scenario(name: "multibrot8 deep zoom", viewport: multibrot8, input: zoom)]
+                Scenario(name: "multibrot8 deep zoom", viewport: multibrot8, input: zoom),
+                // BB (kb: plans/buddhabrot "Live mode"): the orbit-density looks stay on while
+                // the view moves (a coarse live accumulation within the gesture budget).
+                Scenario(name: "buddha pan", viewport: buddhaHome, input: pan),
+                Scenario(name: "buddha zoom", viewport: buddhaHome, input: zoom),
+                Scenario(name: "nebula zoom", viewport: nebulaSea, input: zoom)]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -859,6 +870,8 @@ final class InteractionTest: NSObject {
     private func next() {
         scenario += 1
         guard scenario < scenarios.count, let view, let explorer = view.explorer else {
+            // (The look the test started with, also in the saved settings.)
+            if let look = startLook, let view, look != view.model.lookID { view.model.applyLook(look) }
             link?.invalidate()
             if let cvLink { CVDisplayLinkStop(cvLink) }
             refineLines.forEach { print($0) }
@@ -872,6 +885,9 @@ final class InteractionTest: NSObject {
         // its whole set), its view, then open the Julia set where the scenario names one (its k
         // at the view, or the twin of the view).
         if explorer.settings().formula == "julia" { _ = explorer.backFromJulia() }
+        // The scenario's look (BB), else the one the test started with.
+        if startLook == nil { startLook = view.model.lookID }
+        if let look = v.look ?? startLook, look != view.model.lookID { view.model.applyLook(look) }
         do {
             _ = try explorer.setFormula(formula: v.formula)
             try explorer.setViewport(re: v.re, im: v.im, scale: v.scale)

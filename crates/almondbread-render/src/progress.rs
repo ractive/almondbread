@@ -30,6 +30,8 @@ pub enum Stage {
     Further,
     /// Idle anti-aliasing samples (and the fade-in before them).
     AntiAlias,
+    /// The Buddhabrot / Nebulabrot look accumulates orbits (BB, kb: plans/buddhabrot).
+    Orbits,
 }
 
 impl Stage {
@@ -43,6 +45,7 @@ impl Stage {
             Stage::Extension => "extension",
             Stage::Further => "further",
             Stage::AntiAlias => "anti-aliasing",
+            Stage::Orbits => "orbits",
         }
     }
 }
@@ -110,6 +113,8 @@ pub struct ProgressSample {
     pub further: Option<FurtherInfo>,
     pub full_texels: usize,
     pub finished_share: f64,
+    /// The Buddhabrot look's accumulation (stage `Orbits`).
+    pub orbits: Option<crate::scheduler::OrbitProgress>,
 }
 
 /// The line appears once the settled view has computed this long (seconds).
@@ -166,6 +171,9 @@ pub struct RenderProgress {
     /// Compute further: the share of the view's texels not finished and the limit they have
     /// reached; while it runs, the pass's limit (else 0) and why it stopped.
     pub not_finished: Option<NotFinished>,
+    /// The Buddhabrot look: the faintest channel's hits per pixel, the target, and the
+    /// uniform-equivalent samples so far.
+    pub orbits: Option<(f64, f64, f64)>,
 }
 
 /// A settled (or still computing) view with unresolved pixels (kb: techniques/auto-iterations
@@ -231,6 +239,15 @@ impl RenderProgress {
             }
             return parts.join(" · ");
         }
+        if let Some((hits, target, samples)) = self.orbits {
+            // "orbits · 340 of 1.5 k per pixel · 120 M samples · ~10 s"
+            parts.push(format!("{} of {} per pixel", count_text(hits), count_text(target)));
+            parts.push(format!("{} samples", count_text(samples)));
+            if let Some(e) = self.eta {
+                parts.push(eta_text(e));
+            }
+            return parts.join(" · ");
+        }
         if let Some((n, of)) = self.aa_sample {
             parts.push(format!("sample {n} of {of}"));
         }
@@ -261,6 +278,7 @@ impl RenderProgress {
             Stage::Extension => "resolving",
             Stage::Further => "computing further",
             Stage::AntiAlias => "anti-aliasing",
+            Stage::Orbits => "orbits",
         }
     }
 }
@@ -578,6 +596,14 @@ impl ProgressTracker {
                 let full = self.full.unwrap_or(1.0);
                 Some(f.remaining_gpu * wall_per_gpu + self.aa_remaining(s, full, wall_per_gpu))
             }
+            // Hits per pixel grow linearly with time.
+            Stage::Orbits => {
+                let o = s.orbits?;
+                if o.mean_hits >= o.target {
+                    return Some(0.0);
+                }
+                (o.seconds > 0.3 && o.mean_hits > 0.0).then(|| (o.target - o.mean_hits) * o.seconds / o.mean_hits)
+            }
             Stage::AntiAlias => {
                 let full = self.full.unwrap_or_else(|| self.level_age(now));
                 if s.level_aa.is_none() || pixels_left(s) == 0 {
@@ -761,6 +787,7 @@ impl ProgressTracker {
                 .map(|f| (f - self.last_now).max(1.0)),
             unresolved: s.unresolved.map(|u| (u, s.full_total)),
             not_finished: not_finished(s),
+            orbits: s.orbits.map(|o| (o.mean_hits, o.target, o.samples)),
         }
     }
 }

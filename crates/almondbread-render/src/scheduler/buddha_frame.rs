@@ -22,6 +22,12 @@ use crate::buddha::{Buddha, HistKey};
 pub const LIVE_DIV: usize = 3;
 /// Live mode: time constant (s) of the accumulation's decay while moving.
 pub const LIVE_TAU: f64 = 0.12;
+/// Live mode: the accumulation's expected hits per live bin (faintest channel) below which
+/// motion falls back to the escape-time colouring, and above which it comes back (measured: the
+/// whole set ~110 on M1 Pro, a seahorse-valley view 0.15 wide ~18; kb: plans/buddhabrot
+/// "Live mode").
+pub const LIVE_MIN_HITS: f64 = 25.0;
+pub const LIVE_RESUME_HITS: f64 = 35.0;
 /// Rest: the faintest channel's mean hits per output pixel at which the view is clean and
 /// sampling stops (kb: plans/buddhabrot "As built": time to a clean image).
 pub const REST_TARGET_HITS: f64 = 1500.0;
@@ -56,6 +62,8 @@ pub(super) struct BuddhaState<B: GpuBackend> {
     pub was_live: bool,
     /// Whether the look is active for the current view (the progress sample and `is_settled`).
     pub active: bool,
+    /// Motion keeps the look (the live accumulation is clean enough, see [`LIVE_MIN_HITS`]).
+    pub live_ok: bool,
     /// The levels the shown frame was toned with, and when levels were last asked for.
     pub shown_levels: u64,
     pub levels_at: f64,
@@ -73,6 +81,7 @@ impl<B: GpuBackend> Default for BuddhaState<B> {
             settled: false,
             was_live: false,
             active: false,
+            live_ok: true,
             shown_levels: 0,
             levels_at: f64::NEG_INFINITY,
         }
@@ -122,6 +131,27 @@ impl<B: GpuBackend> Renderer<B> {
             samples: r.samples(),
             seconds: self.buddha.rest_done_at.unwrap_or(now) - self.buddha.rest_start,
             metropolis: r.done.steps != r.done.uniform,
+        })
+    }
+
+    /// The live accumulation's expected hits per live bin at equilibrium (faintest channel): from
+    /// the last live frames while moving, else from the rest histogram's rate (None: unknown).
+    fn live_hits_estimate(&self) -> Option<f64> {
+        let b = self.buddha.sampler.as_ref()?;
+        let decay = (-self.refresh_interval.max(0.004) / LIVE_TAU).exp();
+        if self.buddha.was_live
+            && let Some(l) = &b.live
+            && l.frames > 2
+        {
+            let ch = l.mode.channels().max(1);
+            let per_frame =
+                (0..ch).map(|k| b.last_live.hits[k]).min().unwrap_or(0) as f64 / (l.width * l.height) as f64;
+            return Some(per_frame / (1.0 - decay));
+        }
+        let r = b.rest.as_ref()?;
+        (r.done.gpu_time > 0.05).then(|| {
+            let per_second = r.mean_hits() / r.done.gpu_time;
+            per_second * 0.8 * self.gesture_budget() * (LIVE_DIV * LIVE_DIV) as f64 / (1.0 - decay)
         })
     }
 
@@ -180,8 +210,33 @@ impl<B: GpuBackend> Renderer<B> {
                 }
             }
         }
+        // Motion keeps the look only where the live accumulation is more than noise: its
+        // expected hits per live bin (with hysteresis), else the escape-time colouring.
+        if interacting {
+            if let Some(e) = self.live_hits_estimate() {
+                let need = if self.buddha.live_ok {
+                    LIVE_MIN_HITS
+                } else {
+                    LIVE_RESUME_HITS
+                };
+                self.buddha.live_ok = e >= need;
+            }
+            if !self.buddha.live_ok {
+                self.leave_buddha(false);
+                return None;
+            }
+        }
         let mut b = self.buddha.sampler.take().expect("sampler");
+        let gpu_before = b.harvested_gpu;
         let result = self.buddha_frame_with(&mut b, now, map, mode, interacting, keep_going, acquire);
+        // The sample dispatches' GPU time in the frame statistics (as iterate chunks).
+        let gpu = b.harvested_gpu - gpu_before;
+        if let Some(fs) = &mut self.frame_stats {
+            fs.chunk_gpu += gpu;
+            if interacting {
+                fs.preview_chunk_gpu += gpu;
+            }
+        }
         self.buddha.sampler = Some(b);
         match result {
             Ok(o) => {
@@ -341,6 +396,10 @@ impl<B: GpuBackend> Renderer<B> {
                     b.encode_tone_rest(&mut enc, &target, &hist_out, out);
                 }
                 self.present_buddha(enc, &target, drawable.as_ref(), &hist_out, &key, now, false)?;
+                // The view's first full-resolution image (the interaction test's "final frame").
+                if matches!(show, BuddhaShown::Rest(_)) && !matches!(self.buddha.shown, BuddhaShown::Rest(_)) {
+                    self.last_final_frame = (now, format!("{}x{}", out.0, out.1));
+                }
                 self.buddha.shown = show;
                 self.buddha.shown_palette = palette_key;
                 self.buddha.shown_levels = b.levels_serial;

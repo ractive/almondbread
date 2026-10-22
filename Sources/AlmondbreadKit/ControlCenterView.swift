@@ -628,7 +628,7 @@ struct LookSectionRows: View {
 
 extension LookSectionRows {
     private var looks: some View {
-        ForEach(ExplorerModel.looks, id: \.id) { l in
+        ForEach(model.availableLooks, id: \.id) { l in
             HStack {
                 if let p = ExplorerModel.palettes.first(where: { $0.id == l.paletteId }) {
                     PaletteSwatch(palette: p).frame(width: 64, height: 12)

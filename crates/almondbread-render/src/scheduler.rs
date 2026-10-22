@@ -1102,6 +1102,9 @@ pub struct OffscreenResult {
     pub iterations: Option<Vec<[f32; 2]>>,
     /// M5: the seed passes of the last seeded level (None: not seeded).
     pub seeds: Option<SeedReport>,
+    /// BB: the Buddhabrot look's accumulation (hits per pixel of the faintest channel and
+    /// uniform-equivalent samples); None for the escape-time colouring.
+    pub orbits: Option<(f64, f64)>,
 }
 
 /// A scripted headless session through the interactive scheduler.
@@ -6285,6 +6288,17 @@ impl<B: GpuBackend> Renderer<B> {
                 .running_for()
                 .map(|(secs, done)| (secs, done, req.max_iter))
         });
+        if self.buddha.active {
+            // BB: the look's accumulation (a new view starts a new busy period).
+            return ProgressSample {
+                generation: (self.buddha.rest_start * 1000.0) as u64 + 1,
+                interacting,
+                stage: Stage::Orbits,
+                settled: self.buddha.settled,
+                orbits: self.orbit_progress(now),
+                ..ProgressSample::default()
+            };
+        }
         let Some(job) = &self.job else {
             return ProgressSample {
                 interacting,
@@ -6380,6 +6394,7 @@ impl<B: GpuBackend> Renderer<B> {
             further,
             full_texels: full.map_or(0, |l| l.set.width * l.set.height),
             finished_share: self.config.further_min_share,
+            orbits: None,
         }
     }
 
@@ -6543,6 +6558,8 @@ impl<B: GpuBackend> Renderer<B> {
         {
             let (seconds, hits) = (self.config.buddha_export_seconds, self.config.buddha_export_hits);
             let (pixels, c) = self.render_buddha_offscreen(width, height, seconds, hits)?;
+            let ch = self.buddha_mode().channels().max(1);
+            let mean_hits = (0..ch).map(|k| c.hits[k]).min().unwrap_or(0) as f64 / (width * height) as f64;
             return Ok(OffscreenResult {
                 pixels,
                 width,
@@ -6558,6 +6575,7 @@ impl<B: GpuBackend> Renderer<B> {
                 la_used: false,
                 iterations: None,
                 seeds: None,
+                orbits: Some((mean_hits, crate::buddha::uniform_equivalent(&c))),
             });
         }
         let target = self
@@ -6675,6 +6693,7 @@ impl<B: GpuBackend> Renderer<B> {
             } else {
                 None
             },
+            orbits: None,
         })
     }
 
@@ -6825,6 +6844,10 @@ impl<B: GpuBackend + Clone> Renderer<B> {
     /// pixels of the live pipeline show up here (kb: techniques/interior-detection, Pitfalls).
     /// None while a gesture or preview frame is shown.
     pub fn displayed_frame_mismatch(&mut self) -> Option<FrameMismatch> {
+        // (The Buddhabrot look shows a histogram of random samples: nothing to compare.)
+        if self.buddha.active {
+            return None;
+        }
         let job = self.job.as_ref()?;
         if job.interactive {
             return None;

@@ -104,6 +104,12 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         g(out.steps_done as f64, 3),
         out.colorize_gpu_time * 1000.0
     );
+    if let Some((hits, samples)) = out.orbits {
+        println!(
+            "orbits: {hits:.0} hits per pixel (faintest channel), {samples:.3e} uniform-equivalent samples, {:.1} s",
+            out.wall_time
+        );
+    }
     if let Some(s) = &out.seeds {
         print_seeds(s, out.iterations_done, out.steps_done, out.iterate_gpu_time);
     }

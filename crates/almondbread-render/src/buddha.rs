@@ -5,7 +5,9 @@
 //! Two accumulations:
 //!
 //! - **Rest**: a `u32` histogram per channel at the output size for the resting view. Sample
-//!   dispatches (uniform, or Metropolis–Hastings when few uniform samples hit the view) add to
+//!   dispatches (uniform, or Metropolis–Hastings when few uniform samples hit the view, with
+//!   chains carried between views by recheck and resampling, and warmed up through larger views
+//!   when they come from elsewhere) add to
 //!   it in command buffers of about `chunk_target` GPU time until the view is clean; any change
 //!   of the view, size or mode clears it. The tone pass normalises by the epoch's hit totals,
 //!   which the GPU sums itself (`buddhaTotals`), so the shown image never waits for a readback.
@@ -383,8 +385,7 @@ pub struct Buddha<B: GpuBackend> {
     pub p_jump: f32,
     pub r_span: f32,
     pub r_max: f32,
-    /// The look the walkers last sampled a rest histogram of, and whether the next rest
-    /// dispatch restarts them.
+    /// The look the walkers last sampled a rest histogram of.
     rest_look: Option<BuddhaMode>,
     /// The last rest view (does it enclose the next one?).
     last_rest_map: Option<BinMap>,
@@ -397,6 +398,8 @@ pub struct Buddha<B: GpuBackend> {
     levels_pending: Option<(B::Submission, BuddhaMode, usize)>,
     /// Counts measured levels (a new measurement re-tones the shown image).
     pub levels_serial: u64,
+    /// GPU seconds of all harvested sample dispatches (frame statistics).
+    pub harvested_gpu: f64,
 }
 
 impl<B: GpuBackend> Buddha<B> {
@@ -451,6 +454,7 @@ impl<B: GpuBackend> Buddha<B> {
             levels_buf: backend.create_buffer(LEVELS_WORDS * 4, Storage::Shared)?,
             levels_pending: None,
             levels_serial: 0,
+            harvested_gpu: 0.0,
         })
     }
 
@@ -501,6 +505,7 @@ impl<B: GpuBackend> Buddha<B> {
             let v: [u32; COUNTERS] = bytemuck::cast(raw);
             let mut c = Counters::from_slot(&v);
             c.gpu_time = p.sub.gpu_time();
+            self.harvested_gpu += c.gpu_time;
             if p.iterations > 0 && c.gpu_time > 0.0 {
                 let per = c.gpu_time / p.iterations as f64;
                 let e = &mut self.cost[p.sampler as usize];
@@ -660,8 +665,6 @@ impl<B: GpuBackend> Buddha<B> {
     /// The chains judge their states in `p`'s view again; those out of its S copy a random
     /// chain that is in (sequential Monte Carlo; `buddhabrot.metal`).
     fn encode_rechain(&self, enc: &mut B::Encoder, p: &BuddhaParams) {
-        let longest = p.limits[3] as usize;
-        let _ = longest;
         for k in [&self.k.recheck, &self.k.resample] {
             enc.set_pipeline(k);
             enc.set_bytes(0, bytes_of(p));
@@ -695,8 +698,8 @@ impl<B: GpuBackend> Buddha<B> {
         let mut enc = backend.begin("buddha clear")?;
         self.clear(&mut enc, &hist, 0, words);
         self.clear(&mut enc, &self.totals, 0, COUNTERS * 2);
-        // Another look: fresh walkers. Another view: the next dispatch restarts them (orbits
-        // in progress dropped, chains judged again in the new view, kept where they still hit).
+        // Another look: fresh walkers. Another view: the next dispatch rechecks and resamples
+        // them (`encode_rechain`: orbits in progress dropped, chains kept where they still hit).
         let same_look = self.rest_look == Some(key.mode);
         if !same_look {
             self.clear(&mut enc, &self.chains, 0, THREADS * CHAIN_BYTES / 4);
@@ -1187,7 +1190,7 @@ impl<B: GpuBackend> Buddha<B> {
             .as_ref()
             .map_or(0, |r| r.key.mode.channels() * r.key.map.width * r.key.map.height * 4);
         let live = self.live.as_ref().map_or(0, |l| l.width * l.height * (12 + 32));
-        (rest + live + THREADS * CHAIN_BYTES + SLOTS * COUNTERS * 4) as u64
+        (rest + live + THREADS * (CHAIN_BYTES + 16) + SLOTS * COUNTERS * 4 + LEVELS_WORDS * 4) as u64
     }
 }
 
