@@ -508,7 +508,7 @@ struct HUDView: View {
                         .accessibilityIdentifier("julia-back-hud")
                     }
                 }
-                Text(speedLine(s))
+                Text(speedLine(s) + previewThresholdNote)
                     .padding(.horizontal, speedHighlight ? 5 : 0)
                     .background(speedHighlight ? Color.orange.opacity(0.35) : .clear, in: Capsule())
                     .foregroundStyle(speedHighlight ? .primary : .secondary)
@@ -635,6 +635,14 @@ struct HUDDeveloperDetails: View {
 }
 
 extension HUDView {
+    /// The temporary A/B switch (⌃⌥P): its value while it is not the default, and either value
+    /// during the highlight right after a switch.
+    var previewThresholdNote: String {
+        let ms = model.previewThresholdMs
+        guard ms != ExplorerModel.previewThresholdDefault || speedHighlight else { return "" }
+        return String(format: "  ·  preview %.0f ms", ms)
+    }
+
     /// The speed Q / E change right now: the flight's, the autopilot's or Space's.
     func speedLine(_ s: ExplorerStats) -> String {
         if s.journey.active && !s.journey.suspended && !s.journey.atStop {
