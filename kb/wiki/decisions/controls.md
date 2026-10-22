@@ -2411,8 +2411,16 @@ between hairs: the count changes over 10⁻⁷ (0.30381 + 0.0292i: 594 in f64, 3
 `Overlay::update_probe` rounds the target; 1/64 pt is 2.4·10⁻⁵ here), so where a slowing path
 stops, the shown orbit is of a point up to 1/64 pt short of the end: the app showed 959 and
 2 158 steps at the end in two runs. The text therefore names only the robust counts (12, 17, 31,
-55) and says "hundreds or thousands" at the end. A tour probe could key on the exact point
-instead (not done; renderer change).
+55) and says "hundreds or thousands" at the end.
+
+*Fixed 2026-10-22:* the key now holds the exact target, a tour's point as given (`Center`) and
+the pointer's offset bit for bit, so the orbit shown where the path stops is the end point's.
+The rounding saved no work: the view is part of the key (pans and zooms recompute every frame
+anyway) and a moving pointer moves more than 1/64 point per frame. Test
+`overlay::tour_probe_tests::tour_probe_path_ends_on_the_exact_point` plays the step's path at
+60 Hz through the overlay (1280 × 820 points, 1/64 point = 2.7·10⁻⁵ there): the old key showed
+3 749 steps, the exact key shows 594, f64's count at the end point. The tour text keeps its
+wording: the end count is still chaotic within a hair of the end.
 
 The inside steps (view −0.4 + 0.3i, span 1.5, keeping the period-4 loop's top point and z = 0 in
 frame above the card): *Bubbles* defines loop and period at first use and bounces the probe
@@ -3078,6 +3086,18 @@ Julia view and `formula multibrotP` for a Multibrot view (never both); pasting t
 line in a Julia view leaves it for the Mandelbrot set. A place (all places are Mandelbrot or
 Multibrot) from a Julia view is a jump that drops the way back. The mini-map's whole level is the
 current set's home view (Multibrot: centred on 0).
+
+**Julia switches by formula (2026-10-22).** The rule comes from Rust's capabilities, never from
+a formula name in Swift (`ExplorerModel.hasJuliaPanelSwitch` = a Julia view or
+`capabilities.juliaPanel`): in a Multibrot view the Julia panel's switches are hidden (the Mac
+toolbar's "Julia Set", the iPad's round button, the control center's switch), its View menu
+item is disabled and U does nothing; the twin (control center button, View menu item, ⇧U) is
+hidden or disabled there too (`Host::julia_twin` refuses it). In a Julia view the panel's
+switch stays (toolbar, round button, U, menu: the same switch is to show the panel of the
+Mandelbrot view the set came from) and ⇧U, the menu item and the control center's button go
+back. Menus disable rather than hide, as for tours and journeys. iOS UI test
+`TouchControlsUITests/testJuliaControlsFollowFormula` (iPad: round button and twin in
+Mandelbrot, neither in a Multibrot view, the round button and Back in a Julia view).
 
 ### Mini-map on small screens (as built, 2026-10-19)
 
