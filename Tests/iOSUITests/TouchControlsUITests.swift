@@ -287,6 +287,44 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertFalse(app.textFields["Search settings"].exists, "the pane is still there after the ✕")
     }
 
+    /// The round button's state matches the pane after a relaunch: the app is killed with the
+    /// control center open (as iOS ends a backgrounded app) and launched again. iOS restores the
+    /// open inspector, which sometimes never came up while the button read "shown"; the control
+    /// center starts closed (button "hidden", no pane) and one tap opens it.
+    func testControlCenterAfterRelaunch() throws {
+        try launchSettled()
+        let control = app.buttons["Control center"]
+        let close = app.buttons["control-center-close"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        if control.value as? String != "shown" { control.tap() }
+        settle(2)
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "control center not open")
+        XCUIDevice.shared.press(.home)
+        settle(2)
+        app.terminate()
+        try launchSettled()
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        let shown = control.value as? String == "shown"
+        let paneThere = close.waitForExistence(timeout: 3)
+        shot("cc-relaunch")
+        if shown || paneThere { dumpTree("cc-relaunch") }
+        XCTAssertEqual(shown, paneThere, "the round button reads \(shown ? "shown" : "hidden") but the pane is \(paneThere ? "up" : "not up") after a relaunch")
+        // The control center starts closed (iOS's restore of the open pane is not taken).
+        XCTAssertFalse(shown, "the round button reads shown after a relaunch")
+        XCTAssertFalse(control.isSelected, "the round button reads selected after a relaunch")
+        XCTAssertFalse(paneThere, "the pane is up after a relaunch")
+        // One tap opens it.
+        control.tap()
+        settle(2)
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "the first tap did not open the control center")
+        XCTAssertEqual(control.value as? String, "shown")
+        XCTAssertTrue(app.textFields["Search settings"].waitForExistence(timeout: 5), "no search field")
+        for _ in 0..<3 where control.value as? String == "shown" {
+            close.tap()
+            settle(1)
+        }
+    }
+
     /// The Fractal picker (F3, kb: plans/f3-multibrot): Multibrot goes to its whole set (centred on
     /// 0) as z³ + c, the power picker switches to z⁵ + c, and Mandelbrot comes back to its home
     /// (centre -0.75). The canvas value names the formula.
@@ -294,8 +332,9 @@ final class TouchControlsUITests: XCTestCase {
         try launchSettled()
         let control = app.buttons["Control center"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
-        // (The pane's open state outlives a launch: open it only if it is closed.)
-        if control.value as? String != "shown" { control.tap() }
+        // (The control center starts closed, whatever the last launch left.)
+        XCTAssertEqual(control.value as? String, "hidden", "the control center reads open at launch")
+        control.tap()
         settle(2)
         XCTAssertTrue(app.buttons["control-center-close"].waitForExistence(timeout: 5), "control center not open")
         shot("formula-cc-open")
@@ -337,8 +376,7 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(fields()["formula"], "mandelbrot")
         XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, -0.75, accuracy: 1e-9, "not at the Mandelbrot home")
         XCTAssertFalse(app.buttons["formula-power"].exists, "the power picker stays for Mandelbrot")
-        // Leave the pane closed, as the other tests expect it at launch (its open state outlives
-        // the launch; the first tap on ✕ may only end the search field's editing).
+        // The ✕ closes the pane (the first tap may only end the search field's editing).
         for _ in 0..<3 where control.value as? String == "shown" {
             app.buttons["control-center-close"].tap()
             settle(1)
@@ -353,13 +391,11 @@ final class TouchControlsUITests: XCTestCase {
         try launchSettled()
         let control = app.buttons["Control center"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
-        // (The pane's open state outlives a launch, and the button can read "shown" while the
-        // pane is not up yet: toggle until its ✕ is there.)
-        for _ in 0..<3 where !app.buttons["control-center-close"].waitForExistence(timeout: 3) {
-            control.tap()
-            settle(2)
-        }
-        if !app.buttons["control-center-close"].exists { dumpTree("control-center") }
+        // (The control center starts closed, whatever the last launch left.)
+        XCTAssertEqual(control.value as? String, "hidden", "the control center reads open at launch")
+        control.tap()
+        settle(2)
+        if !app.buttons["control-center-close"].waitForExistence(timeout: 5) { dumpTree("control-center") }
         XCTAssertTrue(app.buttons["control-center-close"].exists, "control center not open")
         let search = app.textFields["Search settings"]
         XCTAssertTrue(search.waitForExistence(timeout: 5))
