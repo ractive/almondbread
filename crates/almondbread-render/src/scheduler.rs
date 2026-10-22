@@ -1195,6 +1195,9 @@ pub struct Renderer<B: GpuBackend> {
     /// Interior probe state (two halves parallel to `state_buffers`, allocated on first use;
     /// kb: techniques/interior-detection "Attracting-cycle probe").
     probe_buffer: Option<B::Buffer>,
+    /// F5: the q parts of a non-conformal formula's derivatives (`float4` per live slot, two
+    /// halves like the probe state; kb: plans/f5-mandelbar "As built"), allocated on first need.
+    nc_buffer: Option<B::Buffer>,
     /// A level of this job probed and found almost nothing to prove (`PROBE_MIN_SUCCESS`): its
     /// later levels (extension passes, AA samples) start without the probe.
     probe_low_success: bool,
@@ -1484,6 +1487,7 @@ impl<B: GpuBackend> Renderer<B> {
             iterate_pipelines: std::array::from_fn(|_| None),
             ic_buffers: None,
             probe_buffer: None,
+            nc_buffer: None,
             probe_low_success: false,
             component_cache: None,
             period_cache: None,
@@ -3236,23 +3240,24 @@ impl<B: GpuBackend> Renderer<B> {
             [u32; 32],
             &[u8],
         ) = match &table {
+            // (F5: a non-conformal formula's tables hold matrix entries, `data()` either kind.)
             BlaCpu::Plain(t) => (
                 t.build_time,
-                t.entries.len(),
+                t.len(),
                 t.bytes(),
                 t.min_level,
                 t.max_level,
                 t.offsets,
-                bytemuck::cast_slice(&t.entries),
+                t.data(),
             ),
             BlaCpu::Deep(t) => (
                 t.build_time,
-                t.entries.len(),
+                t.len(),
                 t.bytes(),
                 t.min_level,
                 t.max_level,
                 t.offsets,
-                bytemuck::cast_slice(&t.entries),
+                t.data(),
             ),
         };
         self.bla_info = (build_time, entries, bytes);
@@ -3910,6 +3915,16 @@ impl<B: GpuBackend> Renderer<B> {
             let j = self.job.as_ref().expect("job");
             j.levels[level_index].use_la && j.la.is_some()
         };
+        if !self.job_formula().is_conformal() && self.nc_buffer.is_none() {
+            let bytes = 2 * self.config.live_capacity * 16;
+            match self.backend.create_buffer(bytes, Storage::Private) {
+                Ok(b) => self.nc_buffer = Some(b),
+                Err(e) => {
+                    eprintln!("almondbread: derivative buffer: {e}");
+                    return false;
+                }
+            }
+        }
         if use_interior && self.probe_buffer.is_none() {
             let bytes = 2 * self.config.live_capacity * std::mem::size_of::<PixelStateProbe>();
             self.probe_buffer = self.backend.create_buffer(bytes, Storage::Private).ok();
@@ -4021,6 +4036,13 @@ impl<B: GpuBackend> Renderer<B> {
         }
         enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
         enc.set_buffer(30, self.probe_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        // (Binding 8 is prepareChunk's threadgroup size, set above; iterate's is the q parts of a
+        // non-conformal formula's derivatives, halves by probeHalf as the probe state.)
+        if !job.key.formula.is_conformal()
+            && let Some(nc) = &self.nc_buffer
+        {
+            enc.set_buffer(8, nc, 0);
+        }
         // (Binding 7 is prepareChunk's argument buffer, set above; iterate's is the test.)
         enc.set_bytes(7, bytes_of(&comp));
         if use_la && let Some(t) = job.la.as_ref() {
@@ -4112,6 +4134,11 @@ impl<B: GpuBackend> Renderer<B> {
         };
         let p = job.levels[level_index].params;
         let formula = job.key.formula;
+        // (F5: Component Newton starts from z = 0 for a candidate period; a non-conformal
+        // formula's probe proves even periods only, from its own scan.)
+        if !formula.is_conformal() {
+            return (Vec::new(), 0);
+        }
         let serial = job.reference_serial;
         let key = [
             serial as u32,

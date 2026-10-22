@@ -44,12 +44,16 @@ constant bool kLA       [[function_constant(8)]];   // M6: period-aligned linear
 // F2: the formula (kb: plans/f2-pluggable-formulas; see "Formula hooks"). Unset (every
 // Mandelbrot pipeline): formula 0, power 2, conformal; so formula 0 compiles to the pre-F2
 // kernels. 16.. leaves room for more feature flags below.
-constant uint kFormulaFC   [[function_constant(16)]];   // 0 Mandelbrot, 1 z^p + c (generic), 2 Julia
+constant uint kFormulaFC   [[function_constant(16)]];   // 0 Mandelbrot, 1 z^p + c (generic), 2 Julia,
+                                                        // 3 Mandelbar (F5)
 constant uint kPowerFC     [[function_constant(17)]];   // p of formula 1
-constant bool kConformalFC [[function_constant(18)]];   // false: 2x2 derivatives (F5, unused yet)
 constant uint kFormula = is_function_constant_defined(kFormulaFC) ? kFormulaFC : 0u;
 constant uint kPower = is_function_constant_defined(kPowerFC) ? kPowerFC : 2u;
-constant bool kConformal = is_function_constant_defined(kConformalFC) ? kConformalFC : true;
+// F5 (kb: plans/f5-mandelbar): formulas whose step is not complex-analytic carry their
+// derivatives as real-linear maps (see "Non-conformal derivatives"). Derived from kFormula, so
+// every conformal pipeline (and every pre-F5 one) folds the non-conformal code away.
+constant bool kConformal = kFormula != 3u;
+constant bool kNonConformal = !kConformal;
 
 // Iteration-texture codes in .x besides n >= 0.
 constant float ITER_INTERIOR   = -1.0f;   // .y = 1: derivative test, 0: reached maxIter without the test
@@ -654,10 +658,20 @@ static inline float2 fMulPrime(float2 z, float2 d) {
     return cmul(fPrime(z), d);
 }
 
+static inline float2 conjf(float2 a) {
+    return float2(a.x, -a.y);
+}
+
+static inline FE feConj(FE a) {
+    return FE{float2(a.m.x, -a.m.y), a.e};
+}
+
 // The perturbation step: z' = S w + dd for the delta z = s w (s = 1: w = sw = z), W = Z + sw.
+// F5 Mandelbar (formula 3): conj(Z + z)^2 - conj(Z)^2 = conj((2Z + z) z), conjugated before +c.
 static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
     if (kFormula == 0u) return cmul(2.0f * Z + sw, w) + dd;
     if (kFormula == 2u) return cmul(2.0f * Z + sw, w);   // F4 Julia: no +c
+    if (kFormula == 3u) return conjf(cmul(2.0f * Z + sw, w)) + dd;
     const float2 W = Z + sw;
     float2 S = float2(1.0f, 0.0f), Zk = float2(1.0f, 0.0f);
     for (uint i = 1; i < kPower; i++) {
@@ -689,6 +703,7 @@ static inline FE fPrime2X(FE z) {
 static inline FE fStepX(FE Zx, FE zx, FE C) {
     if (kFormula == 0u) return feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
     if (kFormula == 2u) return feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx);   // F4 Julia: no +c
+    if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx)), C);
     const FE W = feAdd(Zx, zx);
     FE S = FE{float2(0.5f, 0.0f), 1}, Zk = S;
     for (uint i = 1; i < kPower; i++) {
@@ -702,6 +717,7 @@ static inline FE fStepX(FE Zx, FE zx, FE C) {
 static inline FE fStepXT(FE Zx, FE zx, FE C) {
     if (kFormula == 0u) return feAdd(feMul(feAdd(feTwice(Zx), zx), zx), C);
     if (kFormula == 2u) return feMul(feAdd(feTwice(Zx), zx), zx);
+    if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(feTwice(Zx), zx), zx)), C);
     return fStepX(Zx, zx, C);
 }
 
@@ -753,6 +769,112 @@ static inline FE fIcZZ(FE zf, FE z2, FE zz, FE lam) {
     return feAdd(feMul(feMul(fPrime2X(zf), lam), lam), feMul(z2, zz));
 }
 
+// ---- Non-conformal derivatives (F5, kb: plans/f5-mandelbar "As built", formulas/mandelbar).
+// A non-conformal formula's derivative (dz/dc for DE, dz/dz1 for the interior test, a BLA
+// block's A and B) is a real-linear map, kept in Wirtinger form J d = p d + q conj(d): two
+// complex numbers (the conformal p plus q), so the complex and floatexp operations serve as
+// they are, and the singular values are |p| + |q| and ||p| - |q||. The second parts live in the
+// ncBuf buffer (binding 8, two halves like the probe state), never in PixelState, so the
+// conformal pipelines keep their state and code. A formula supplies its step's Jacobian here
+// (ncMul / ncMulX: (p, q) <- J_f(z) o (p, q)); Mandelbar's is d -> conj(2 z d), so
+// p' = conj(2 z q), q' = conj(2 z p). F6 adds its own cases (the Burning Ship family's
+// Jacobian is z -> 2z or the Mandelbar one, by the signs of x y).
+static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
+    const float2 z2 = 2.0f * z;
+    const float2 np = conjf(cmul(z2, q));
+    q = conjf(cmul(z2, p));
+    p = np;
+}
+
+static inline void ncMulX(FE z, thread FE& p, thread FE& q) {
+    const FE z2 = feTwice(z);
+    const FE np = feConj(feMul(z2, q));
+    q = feConj(feMul(z2, p));
+    p = np;
+}
+
+// (p, q) <- (ap, aq) o (p, q): a real-linear map A after the map (p, q).
+static inline void linMul(float2 ap, float2 aq, thread float2& p, thread float2& q) {
+    const float2 np = cmul(ap, p) + cmul(aq, conjf(q));
+    q = cmul(ap, q) + cmul(aq, conjf(p));
+    p = np;
+}
+
+static inline void linMulX(FE ap, FE aq, thread FE& p, thread FE& q) {
+    const FE np = feAdd(feMul(ap, p), feMul(aq, feConj(q)));
+    q = feAdd(feMul(ap, q), feMul(aq, feConj(p)));
+    p = np;
+}
+
+static inline float2 linApply(float2 ap, float2 aq, float2 v) {
+    return cmul(ap, v) + cmul(aq, conjf(v));
+}
+
+static inline FE linApplyX(FE ap, FE aq, FE v) {
+    return feAdd(feMul(ap, v), feMul(aq, feConj(v)));
+}
+
+static inline float maxAbs2(float2 a) {
+    return max(abs(a.x), abs(a.y));
+}
+
+// The interior test's size of dz/dz1 = (p, q): max-abs of p for a conformal formula (as
+// always), max-abs(p) + max-abs(q) (at most the largest singular value) otherwise.
+static inline float jNorm(float2 p, float2 q) {
+    return kNonConformal ? maxAbs2(p) + maxAbs2(q) : max(abs(p.x), abs(p.y));
+}
+
+// The two parts as mantissas with one exponent (the state's dExp / wExp).
+static inline void feJoin(FE p, FE q, thread float2& pm, thread float2& qm, thread int& e) {
+    e = max(p.e, q.e);
+    pm = p.e == FE_ZERO ? float2(0.0f) : scale2(p.m, max(p.e - e, -250));
+    qm = q.e == FE_ZERO ? float2(0.0f) : scale2(q.m, max(q.e - e, -250));
+}
+
+// Renormalises both parts by their larger max-abs (exponent e).
+static inline void ncNorm(thread float2& p, thread float2& q, thread int& e) {
+    const float a = max(maxAbs2(p), maxAbs2(q));
+    if (a > 0.0f && isfinite(a)) {
+        const int k = expOf(a);
+        p = scale2(p, -k);
+        q = scale2(q, -k);
+        e += k;
+    }
+}
+
+// The complex derivative a distance estimate uses at the escaped z for dz/dc = (p, q): the
+// gradient of ln|z| over c is J^T z / |z|^2, as a complex number z conj(p) + conj(z) q; the
+// d with |z| |d| equal to its length and z / d along it is p + conj(q) z / conj(z) (our
+// derivation; z / conj(z) = z^2 / |z|^2). q = 0 gives p.
+static inline float2 ncDeDerivative(float2 p, float2 q, float2 z) {
+    const float n = dot(z, z);
+    return n > 0.0f ? p + cmul(conjf(q), cmul(z, z) / n) : p;
+}
+
+// The BLA tables of a non-conformal formula (bindings 15 and 17 reinterpreted): A = (ap, aq),
+// B = (bp, bq), Wirtinger form; R, K as in BlaEntry (almondbread_core::bla "Non-conformal").
+struct BlaEntryM {
+    float2 ap;
+    float2 aq;
+    float2 bp;
+    float2 bq;
+    float  r;
+    float  k;
+};
+
+struct BlaEntryMX {
+    float2 ap;
+    float2 aq;
+    float2 bp;
+    float2 bq;
+    int    ae;
+    int    be;
+    float  r;
+    int    re;
+    float  k;
+    int    ke;
+};
+
 // F4: deep Julia sets (kFormula 2; kb: plans/f4-deep-julia, formulas/julia). The pixel is the
 // start z_0 = centre + delta with k fixed: its delta starts at the pixel's offset (at the centre
 // orbit's start p.centerStart, n = 0) and steps without +c (fStep and fStepX ignore it, the DE
@@ -770,6 +892,15 @@ static inline uint segLast(uint m, uint last, uint critLast, uint centerStart) {
 // pass the test at once).
 static inline float nSquared(uint n) {
     return kJulia && n == 0u ? 1e30f : float(n) * float(n);
+}
+
+// F5: the attracting-cycle probe of a non-conformal formula (Mandelbar). Its step z -> conj(z)^2
+// + c is antiholomorphic in z, so f^k is holomorphic for even k: the probe evaluates only even
+// candidate periods (an odd cycle is proven as f^(2P)), where its lambda = (f^k)'(z_B) and F'' are
+// complex. Both follow Mandelbrot's recursions, conjugated after every step: lambda' =
+// conj(2 z lambda), F''' = conj(2 lambda^2 + 2 z F'') (our derivation, kb: plans/f5-mandelbar).
+static inline bool probePeriodOk(uint k) {
+    return kConformal || (k & 1u) == 0u;
 }
 
 // The DE's per-step texel term in the deep loop's scaled units (none for Julia).
@@ -1386,6 +1517,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     device const uint* laNext               [[buffer(28), function_constant(kLA)]],
                     constant LaParams& la                   [[buffer(29), function_constant(kLA)]],
                     device PixelStateProbe* probeBuf        [[buffer(30)]],
+                    device float4* ncBuf                    [[buffer(8), function_constant(kNonConformal)]],
                     constant ComponentParams& comp          [[buffer(7)]],
                     uint tid                                [[thread_position_in_grid]],
                     uint tidInGroup                         [[thread_index_in_threadgroup]],
@@ -1406,8 +1538,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     PixelState st;
     bool active = true;     // this thread has a pixel
     bool fresh = false;
+    // F5 (non-conformal formulas): the q parts of dz/dc and dz/dz1 (see "Non-conformal
+    // derivatives"), moving with the state's slot in ncBuf's halves (probeHalf: in).
+    float2 ncD = 0.0f, ncW = 0.0f;
     if (tid < liveIn) {
         st = stateIn[tid];
+        if (kNonConformal) {
+            const float4 v = ncBuf[p.probeHalf * p.capacity + tid];
+            ncD = v.xy;
+            ncW = v.zw;
+        }
     } else if (tid - liveIn < freshCount) {
         fresh = true;
         uint a = freshStart + (tid - liveIn);
@@ -1574,6 +1714,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             w = st.dz; e = st.e; dm = st.d; dExp = st.dExp; zw = st.w; wExp = st.wExp;
             m = st.m; n = st.n;
         }
+        float2 dmQ = ncD, zwQ = ncW;   // F5: the q parts (exponents dExp, wExp)
         float s;
         float2 dd;
         deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
@@ -1638,9 +1779,55 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 FE zx = feNorm(w, e);
                 const float zn = length(zx.m);
                 const uint top = min(ctz(m - 1), bla.maxLevel);
+                if (kNonConformal) {
+                    // F5: real-linear A and B (Wirtinger pairs), the same validity test.
+                    device const BlaEntryMX* tableM = (device const BlaEntryMX*)tableX;
+                    BlaEntryMX best;
+                    uint len = 0;
+                    for (uint lev = bla.minLevel; lev <= top; lev++) {
+                        const uint l = 1u << lev;
+                        if (m + l > LAST(m) || n + l > p.maxIter) break;
+                        const BlaEntryMX x = tableM[bla.offset[lev] + ((m - 1) >> lev)];
+                        if (!(x.r > 0.0f)) break;
+                        const int kce = x.ke + C.e - x.re;
+                        const float t = x.r - (kce < -150 ? 0.0f : x.k * cAbsM * pow2f(min(kce, 64)));
+                        if (!(t > 0.0f && zn * pow2f(clamp(zx.e - x.re, -127, 64)) < t)) break;
+                        best = x;
+                        len = l;
+                    }
+                    if (len != 0) {
+                        const FE Ap = FE{best.ap, best.ae}, Aq = FE{best.aq, best.ae};
+                        const FE Bp = FE{best.bp, best.be}, Bq = FE{best.bq, best.be};
+                        zx = feAdd(linApplyX(Ap, Aq, zx), linApplyX(Bp, Bq, C));
+                        if (kDE) {
+                            FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
+                            linMulX(Ap, Aq, dp, dq);
+                            dp = feAdd(dp, feMul(Bp, TS));
+                            dq = feAdd(dq, feMul(Bq, TS));
+                            feJoin(dp, dq, dm, dmQ, dExp);
+                            tsd = tsdOf(TS, dExp);
+                        }
+                        if (kInterior) {
+                            FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
+                            linMulX(Ap, Aq, wp, wq);
+                            feJoin(wp, wq, zw, zwQ, wExp);
+                            float nn = float(n + len);
+                            if (jNorm(zw, zwQ) * nn * nn * pow2f(max(wExp, -126)) < p.interiorEps) {
+                                interior = true;
+                                n += len;
+                                break;
+                            }
+                        }
+                        m += len;
+                        n += len;
+                        budget--;
+                        if (zx.e >= DEEP_PLAIN_EXP) { w = feFloat(zx); e = 0; } else { w = zx.m; e = zx.e; }
+                        deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
+                    }
+                }
                 BlaEntryX best;
                 uint len = 0;
-                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                for (uint lev = bla.minLevel; lev <= top && kConformal; lev++) {
                     const uint l = 1u << lev;
                     if (m + l > LAST(m) || n + l > p.maxIter) break;
                     const BlaEntryX x = tableX[bla.offset[lev] + ((m - 1) >> lev)];
@@ -1733,7 +1920,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             deepRescale(w, e, s, dd, dc, p.scaleExp, C.e);
                         }
                         if (kInterior
-                            && max(abs(zw.x), abs(zw.y)) * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            && jNorm(zw, zwQ) * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
                             interior = true;
                             done = true;
                             break;
@@ -1741,8 +1928,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         if (e != 0) break;
                         continue;
                     }
-                    if (kDE) dm = fMulPrime(z, dm) + tsd;
-                    if (kInterior) zw = fMulPrime(z, zw);
+                    if (kDE) {
+                        if (kNonConformal) { ncMul(z, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
+                    }
+                    if (kInterior) {
+                        if (kNonConformal) ncMul(z, zw, zwQ); else zw = fMulPrime(z, zw);
+                    }
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
                     // would overflow the DE mantissa within 8 steps; R5. F3: for z^p every step
                     // once |z| > 1, as |f'| = p|z|^(p-1) reaches 2^52 per step.)
@@ -1750,20 +1941,28 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         || (kDE && max(abs(z.x), abs(z.y)) > 16.0f)
                         || (kFormula == 1u && max(abs(z.x), abs(z.y)) > 1.0f)) {
                         if (kDE) {
-                            float a = max(abs(dm.x), abs(dm.y));
+                            float a = kNonConformal ? max(maxAbs2(dm), maxAbs2(dmQ)) : max(abs(dm.x), abs(dm.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
-                                FE t = feNorm(dm, dExp);
-                                dm = t.m; dExp = t.e;
+                                if (kNonConformal) {
+                                    ncNorm(dm, dmQ, dExp);
+                                } else {
+                                    FE t = feNorm(dm, dExp);
+                                    dm = t.m; dExp = t.e;
+                                }
                                 tsd = tsdOf(TS, dExp);
                             }
                         }
                         if (kInterior) {
-                            float a = max(abs(zw.x), abs(zw.y));
+                            float a = kNonConformal ? max(maxAbs2(zw), maxAbs2(zwQ)) : max(abs(zw.x), abs(zw.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
-                                FE t = feNorm(zw, wExp);
-                                zw = t.m; wExp = t.e;
-                                a = max(abs(zw.x), abs(zw.y));
+                                if (kNonConformal) {
+                                    ncNorm(zw, zwQ, wExp);
+                                } else {
+                                    FE t = feNorm(zw, wExp);
+                                    zw = t.m; wExp = t.e;
+                                }
                             }
+                            a = jNorm(zw, zwQ);
                             if (a * nSquared(n) * pow2f(max(wExp, -126)) < p.interiorEps) {
                                 interior = true;
                                 done = true;
@@ -1817,6 +2016,19 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             break;
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
+                        if (kNonConformal) {
+                            if (kDE) {
+                                FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
+                                ncMulX(zf, dp, dq);
+                                feJoin(feAdd(dp, TS), dq, dm, dmQ, dExp);
+                                tsd = tsdOf(TS, dExp);
+                            }
+                            if (kInterior) {
+                                FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
+                                ncMulX(zf, wp, wq);
+                                feJoin(wp, wq, zw, zwQ, wExp);
+                            }
+                        } else {
                         if (kDE) {
                             FE dx = kJulia ? feMul(fPrimeX(zf), feNorm(dm, dExp)) : feAdd(feMul(fPrimeX(zf), feNorm(dm, dExp)), TS);
                             dm = dx.m; dExp = dx.e;
@@ -1826,6 +2038,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             FE wx = feMul(fPrimeX(zf), feNorm(zw, wExp));
                             zw = wx.m; wExp = wx.e;
                         }
+                        }
                         // z <- (2Z + z) z + c in floatexp (the formula's step).
                         zx = fStepX(Zx, zx, C);
                         m++;
@@ -1834,7 +2047,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         // (Tested after every full step: they happen where the orbit passes
                         // closest to 0, the one place an interior pixel's |w| is small.)
                         if (kInterior
-                            && max(abs(zw.x), abs(zw.y)) * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
+                            && jNorm(zw, zwQ) * (float(n) * float(n)) * pow2f(max(wExp, -126)) < p.interiorEps) {
                             interior = true;
                             done = true;
                             w = zx.m; e = zx.e;
@@ -1856,25 +2069,37 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     const float2 sw = s * w;
                     const float2 zf = Z + sw;
                     IC_TRACK(dot(zf, zf), n)
-                    if (kDE) dm = fMulPrime(zf, dm) + tsd;
-                    if (kInterior) zw = fMulPrime(zf, zw);
+                    if (kDE) {
+                        if (kNonConformal) { ncMul(zf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
+                    }
+                    if (kInterior) {
+                        if (kNonConformal) ncMul(zf, zw, zwQ); else zw = fMulPrime(zf, zw);
+                    }
                     if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f
                         || (kFormula == 1u && max(abs(zf.x), abs(zf.y)) > 1.0f)) {
                         if (kDE) {
-                            float a = max(abs(dm.x), abs(dm.y));
+                            float a = kNonConformal ? max(maxAbs2(dm), maxAbs2(dmQ)) : max(abs(dm.x), abs(dm.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
-                                FE t = feNorm(dm, dExp);
-                                dm = t.m; dExp = t.e;
+                                if (kNonConformal) {
+                                    ncNorm(dm, dmQ, dExp);
+                                } else {
+                                    FE t = feNorm(dm, dExp);
+                                    dm = t.m; dExp = t.e;
+                                }
                                 tsd = tsdOf(TS, dExp);
                             }
                         }
                         if (kInterior) {
-                            float a = max(abs(zw.x), abs(zw.y));
+                            float a = kNonConformal ? max(maxAbs2(zw), maxAbs2(zwQ)) : max(abs(zw.x), abs(zw.y));
                             if (a > 0x1p40f || (a < 0x1p-40f && a > 0.0f)) {
-                                FE t = feNorm(zw, wExp);
-                                zw = t.m; wExp = t.e;
-                                a = max(abs(zw.x), abs(zw.y));
+                                if (kNonConformal) {
+                                    ncNorm(zw, zwQ, wExp);
+                                } else {
+                                    FE t = feNorm(zw, wExp);
+                                    zw = t.m; wExp = t.e;
+                                }
                             }
+                            a = jNorm(zw, zwQ);
                             if (a * nSquared(n) * pow2f(max(wExp, -126)) < p.interiorEps) {
                                 interior = true;
                                 done = true;
@@ -1906,6 +2131,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = w; st.e = e; st.d = dm; st.dExp = dExp; st.w = zw; st.wExp = wExp; st.m = m; st.n = n;
+        ncD = dmQ; ncW = zwQ;
     } else if (active && !inB && !parked && !filled) {
         if (fromSeed) {
             // M5: start from the leaf's expansion (iterations counted from its n).
@@ -1979,6 +2205,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
 
         // Locals for the hot loop (the compiler keeps them in registers).
         float2 dz = st.dz, d = st.d, w = st.w;
+        float2 dQ = ncD, wQ = ncW;   // F5: the q parts
         uint m = st.m, n = st.n;
         int wExp = st.wExp;
         const float cn = (kBLA || kLA) ? length(dc) : 0.0f;
@@ -2049,7 +2276,65 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             // BLA phase (kBLA): the longest valid block starting at m (levels lev <= ctz(m - 1)
             // have an entry here); |dz| + K |dc| < R is tested squared. Blocks are taken while
             // valid and aligned; then exact steps to the next lookup index follow.
-            if (kBLA && m != 0 && ((m - 1) & alignMask) == 0) {
+            if (kBLA && kNonConformal && m != 0 && ((m - 1) & alignMask) == 0) {
+                // F5: real-linear A and B (Wirtinger pairs), the same validity test.
+                device const BlaEntryM* tableM = (device const BlaEntryM*)table;
+                const uint top = min(ctz(m - 1), bla.maxLevel);
+                const float zn2 = dot(dz, dz);
+                BlaEntryM e;
+                uint len = 0;
+                for (uint lev = bla.minLevel; lev <= top; lev++) {
+                    const uint l = 1u << lev;
+                    if (m + l > LAST(m) || n + l > p.maxIter) break;
+                    const BlaEntryM x = tableM[bla.offset[lev] + ((m - 1) >> lev)];
+                    const float t = x.r - x.k * cn;
+                    if (!(t > 0.0f && zn2 < t * t)) break;
+                    e = x;
+                    len = l;
+                }
+                if (len != 0) {
+                    budget--;
+                    if (kDE) {
+                        linMul(e.ap, e.aq, d, dQ);
+                        d += e.bp * p.texelScale;
+                        dQ += e.bq * p.texelScale;
+                    }
+                    if (kInterior) {
+                        float a = max(maxAbs2(w), maxAbs2(wQ));
+                        if (a > 0x1p60f) {
+                            w *= 0x1p-60f;
+                            wQ *= 0x1p-60f;
+                            wExp += 60;
+                        }
+                        linMul(e.ap, e.aq, w, wQ);
+                        a = max(maxAbs2(w), maxAbs2(wQ));
+                        if (a > 0x1p60f) {
+                            w *= 0x1p-60f;
+                            wQ *= 0x1p-60f;
+                            wExp += 60;
+                        } else if (wExp > 0 && a < 0x1p-60f) {
+                            w *= 0x1p60f;
+                            wQ *= 0x1p60f;
+                            wExp -= 60;
+                        } else if (wExp == 0 && jNorm(w, wQ) * (float(n + len) * float(n + len)) < p.interiorEps) {
+                            interior = true;
+                            break;
+                        }
+                    }
+                    dz = linApply(e.ap, e.aq, dz) + linApply(e.bp, e.bq, dc);
+                    m += len;
+                    n += len;
+                    z = ref[m] + dz;
+                    r2 = dot(z, z);
+                    if (r2 > p.bailout2) { escaped = true; break; }
+                    if (r2 < dot(dz, dz) || m == LAST(m)) {
+                        dz = z;
+                        m = 0;
+                    }
+                    continue;
+                }
+            }
+            if (kBLA && kConformal && m != 0 && ((m - 1) & alignMask) == 0) {
                 const uint top = min(ctz(m - 1), bla.maxLevel);
                 const float zn2 = dot(dz, dz);
                 float2 A = 0.0f, B = 0.0f;
@@ -2110,9 +2395,11 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
-                if (kDE) d = fMulPrime(z, d) + tsAddP;
+                if (kDE) {
+                    if (kNonConformal) { ncMul(z, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
+                }
                 if (kInterior) {
-                    w = fMulPrime(z, w);
+                    if (kNonConformal) ncMul(z, w, wQ); else w = fMulPrime(z, w);
                 }
                 // Test and rescale only every 8th iteration: half the extra cost of the
                 // derivative test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4
@@ -2120,14 +2407,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 // 8 steps grow it by at most ~2^42 (float32 max 2^128). Detection is at most 7
                 // iterations late.
                 if (kInterior && (kFormula == 1u || (n & 7u) == 0u)) {   // (F3: z^p grows w up to 2^52 a step)
-                    float a = max(abs(w.x), abs(w.y));
+                    float a = kNonConformal ? max(maxAbs2(w), maxAbs2(wQ)) : max(abs(w.x), abs(w.y));
                     if (a > 0x1p60f) {
                         w *= 0x1p-60f;
+                        if (kNonConformal) wQ *= 0x1p-60f;
                         wExp += 60;
                     } else if (wExp > 0 && a < 0x1p-60f) {
                         w *= 0x1p60f;
+                        if (kNonConformal) wQ *= 0x1p60f;
                         wExp -= 60;
-                    } else if (wExp == 0 && a * nSquared(n) < p.interiorEps) {
+                    } else if (wExp == 0 && jNorm(w, wQ) * nSquared(n) < p.interiorEps) {
                         interior = true;
                         break;
                     }
@@ -2152,6 +2441,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iters += n - st.n;
         steps += p.chunkIters - min(budget, p.chunkIters);
         st.dz = dz; st.d = d; st.w = w; st.m = m; st.n = n; st.wExp = wExp;
+        ncD = dQ; ncW = wQ;
     }
 
 #undef LAST
@@ -2276,7 +2566,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     act = k == low ? PA_EVAL : PA_SCAN;
                 } else if (k > 0) {
                     const FE dv = feSub(zf, zB);
-                    if (k > ps.pRej && feLess(FE{dv.m, dv.e + 2}, zB)) act = low >= k ? PA_EVAL : PA_RESET;
+                    if (k > ps.pRej && probePeriodOk(k) && feLess(FE{dv.m, dv.e + 2}, zB)) act = low >= k ? PA_EVAL : PA_RESET;
                     else if (feLess(zf, zB)) act = PA_RESET;
                 }
                 if (!seedNext && act == PA_EVAL) {
@@ -2376,6 +2666,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 const FE z2 = fPrimeXT(zf);
                 fzz = fProbeF2X(zf, z2, fzz, lam);
                 lam = feMul(z2, lam);
+                if (kNonConformal) { fzz = feConj(fzz); lam = feConj(lam); }
                 dzx = fStepXT(Zx, dzx, C);
                 m++;
                 k++;
@@ -2421,7 +2712,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     act = k == low ? PA_EVAL : PA_SCAN;
                 } else if (k > 0) {
                     const float2 dv = z - zB;
-                    if (k > ps.pRej && 16.0f * dot(dv, dv) < zB2) act = low >= k ? PA_EVAL : PA_RESET;
+                    if (k > ps.pRej && probePeriodOk(k) && 16.0f * dot(dv, dv) < zB2) act = low >= k ? PA_EVAL : PA_RESET;
                     else if (r2 < zB2) act = PA_RESET;
                 }
                 if (!seedNext && act == PA_EVAL) {
@@ -2519,6 +2810,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 if (sh > 100) { f = 0.0f; fe = 2 * le; sh = 0; }
                 f = fProbeF2(z, z2, f, l, pow2f(max(sh, -127)));
                 l = cmul(z2, l);
+                if (kNonConformal) { f = conjf(f); l = conjf(l); }
                 const float al = max(abs(l.x), abs(l.y));
                 if (al > 0x1p30f || (al < 0x1p-30f && al > 0.0f)) { const int t = expOf(al); l = scale2(l, -t); le += t; }
                 const float af = max(abs(f.x), abs(f.y));
@@ -2698,17 +2990,21 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             if (kDE) {
                 float zr = sqrt(r2);
                 float2 dd = st.d;
+                float2 dq = ncD;
                 int dShift = 0;
                 if (kDeep) {
                     // The deep DE mantissa is renormalised every 8 steps only, and grows by up to
                     // |2z| ~ 2^17 per step just before escape: |d|^2 can overflow (de = 0, dotted
                     // outline arcs in smooth exterior; found in R5). Normalise it here.
-                    const float a = max(abs(dd.x), abs(dd.y));
+                    const float a = kNonConformal ? max(maxAbs2(dd), maxAbs2(dq)) : max(abs(dd.x), abs(dd.y));
                     if (a > 0.0f && isfinite(a)) {
                         dShift = expOf(a);
                         dd = scale2(dd, -dShift);
+                        if (kNonConformal) dq = scale2(dq, -dShift);
                     }
                 }
+                // F5: a Jacobian's equivalent complex derivative at the escaped z.
+                if (kNonConformal) dd = ncDeDerivative(dd, dq, z);
                 float dl = length(dd);
                 float de = dl > 0.0f ? 2.0f * zr * log(zr) / dl : 0.0f;   // in texels
                 // (Clamp after scaling: the mantissa alone can pass 65000 while the distance does
@@ -2836,6 +3132,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (alive) {
         stateOut[tgBase + sgLive[sg] + offset] = st;
+        if (kNonConformal) ncBuf[(1u - p.probeHalf) * p.capacity + tgBase + sgLive[sg] + offset] = float4(ncD, ncW);
         if (kInteriorColor) icOut[tgBase + sgLive[sg] + offset] = ic;
         const uint pOut = (1u - p.probeHalf) * p.capacity + tgBase + sgLive[sg] + offset;
         if (kProbe && probing) probeBuf[pOut] = ps;

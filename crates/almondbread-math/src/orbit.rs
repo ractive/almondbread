@@ -395,6 +395,7 @@ impl Job<'_> {
                 c: [&cx, &cy],
                 z: [&zx, &zy],
                 first: self.start.map_or(0, |(_, f)| f),
+                conj: self.formula == Formula::Mandelbar,
             };
             std::thread::scope(|scope| {
                 for role in 1..3 {
@@ -436,6 +437,7 @@ impl Job<'_> {
         with_scratch(n, |s| {
             while done < self.max_iterations {
                 let end = self.max_iterations.min(done + interval);
+                let conj = self.formula == Formula::Mandelbar;
                 let (reached, esc) = if let Formula::Multibrot(p) = self.formula {
                     orbit_loop_power(
                         &mut x,
@@ -451,6 +453,7 @@ impl Job<'_> {
                         p,
                     )
                 } else if let Some(sh) = shared {
+                    // (F5 Mandelbar: the helpers know from `HelperStart::conj`.)
                     orbit_loop_squarings_shared(
                         &mut x,
                         &mut y,
@@ -463,11 +466,60 @@ impl Job<'_> {
                         self.bailout2,
                         &mut out,
                         sh,
+                        conj,
+                    )
+                } else if self.squarings && conj {
+                    orbit_loop_squarings::<S, true>(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
                     )
                 } else if self.squarings {
-                    orbit_loop_squarings(&mut x, &mut y, &cx, &cy, &mut t, s, done, end, self.bailout2, &mut out)
+                    orbit_loop_squarings::<S, false>(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                    )
+                } else if conj {
+                    orbit_loop_multiplications::<S, true>(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                    )
                 } else {
-                    orbit_loop_multiplications(&mut x, &mut y, &cx, &cy, &mut t, s, done, end, self.bailout2, &mut out)
+                    orbit_loop_multiplications::<S, false>(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                    )
                 };
                 done = reached;
                 if esc {
@@ -509,7 +561,7 @@ fn emit_point<S: AsRef<[u64]>>(x: &Raw<S>, y: &Raw<S>, i: usize, bailout2: f64, 
 
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn orbit_loop_squarings<S: Storage>(
+fn orbit_loop_squarings<S: Storage, const CONJ: bool>(
     x: &mut Raw<S>,
     y: &mut Raw<S>,
     cx: &Raw<S>,
@@ -531,7 +583,12 @@ fn orbit_loop_squarings<S: Storage>(
         raw::add(nrm, x2.view(), y2.view(), false, s);
         raw::add(d, x2.view(), y2.view(), true, s);
         raw::add(x, d.view(), cx.view(), false, s);
-        raw::add(d, s2.view(), nrm.view(), true, s);
+        // Y' = 2XY + Cy; Mandelbar (F5, conj(Z)^2 + C): -2XY + Cy.
+        if CONJ {
+            raw::add(d, nrm.view(), s2.view(), true, s);
+        } else {
+            raw::add(d, s2.view(), nrm.view(), true, s);
+        }
         raw::add(y, d.view(), cy.view(), false, s);
         i += 1;
         if emit_point(x, y, i, bailout2, out) {
@@ -557,10 +614,11 @@ fn orbit_loop_squarings_shared<S: Storage>(
     bailout2: f64,
     out: &mut Outputs<'_>,
     shared: &Shared,
+    conj: bool,
 ) -> (usize, bool) {
     let mut i = start;
     while i < end {
-        let ok = parallel::step(shared, 0, i as u64 + 1, x, y, cx, cy, regs, s);
+        let ok = parallel::step(shared, 0, i as u64 + 1, x, y, cx, cy, regs, s, conj);
         debug_assert!(ok, "orbit helpers stopped");
         i += 1;
         if emit_point(x, y, i, bailout2, out) {
@@ -572,7 +630,7 @@ fn orbit_loop_squarings_shared<S: Storage>(
 
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn orbit_loop_multiplications<S: Storage>(
+fn orbit_loop_multiplications<S: Storage, const CONJ: bool>(
     x: &mut Raw<S>,
     y: &mut Raw<S>,
     cx: &Raw<S>,
@@ -595,7 +653,12 @@ fn orbit_loop_multiplications<S: Storage>(
         if !p2.zero {
             p2.exp += 1;
         }
-        raw::add(y, p2.view(), cy.view(), false, s);
+        // Mandelbar (F5): Y' = Cy - 2XY.
+        if CONJ {
+            raw::add(y, cy.view(), p2.view(), true, s);
+        } else {
+            raw::add(y, p2.view(), cy.view(), false, s);
+        }
         i += 1;
         if emit_point(x, y, i, bailout2, out) {
             return (i, true);
@@ -766,6 +829,37 @@ mod tests {
         for p in &pts[1..] {
             z = Formula::Multibrot(3).step(z, (-0.1, 0.8));
             assert!((p[0] as f64 - z.0).abs() < 1e-6 && (p[1] as f64 - z.1).abs() < 1e-6);
+        }
+    }
+
+    /// F5: Mandelbar's orbit `conj(Z)^2 + C` is the same in every loop (squarings on one and on
+    /// three threads, multiplications) and agrees with f64 iteration.
+    #[test]
+    fn mandelbar_orbit_in_every_loop() {
+        for bits in [128usize, 1088] {
+            let c = BigComplex::parse("0.64", "0.86", bits).unwrap();
+            let base = ReferenceOrbitComputer::new(&c, bits).with_formula(Formula::Mandelbar);
+            let mult = base
+                .clone()
+                .with_variant(Variant::Multiplications)
+                .compute_vec(3000, 1e10);
+            let one = base.clone().with_variant(Variant::Squarings).compute_vec(3000, 1e10);
+            let three = base
+                .clone()
+                .with_variant(Variant::Squarings)
+                .with_threads(Threads::Three)
+                .compute_vec(3000, 1e10);
+            same(&one, &three);
+            assert_eq!(mult.2.count, one.2.count);
+            // (The two forms round differently; compared after 30 steps, before chaos grows it.)
+            let short = |v: Variant| base.clone().with_variant(v).compute_vec(30, 1e10).2.final_z;
+            let d = &short(Variant::Multiplications) - &short(Variant::Squarings);
+            assert!(d.re.log2_magnitude() < -(bits as f64) + 60.0, "{bits}");
+            let mut z = (0.0f64, 0.0f64);
+            for p in &mult.0[1..40] {
+                z = Formula::Mandelbar.step(z, (0.64, 0.86));
+                assert!((f64::from(p[0]) - z.0).abs() < 1e-5 && (f64::from(p[1]) - z.1).abs() < 1e-5);
+            }
         }
     }
 

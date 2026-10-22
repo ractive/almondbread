@@ -362,6 +362,28 @@ impl DoubleExpComplex {
             im: self.im.times_power_of_two(1),
         }
     }
+
+    /// The complex conjugate (F5: the non-conformal formulas, kb: formulas/mandelbar).
+    pub fn conj(self) -> Self {
+        DoubleExpComplex {
+            re: self.re,
+            im: -self.im,
+        }
+    }
+
+    pub fn is_zero(self) -> bool {
+        self.re.is_zero() && self.im.is_zero()
+    }
+}
+
+impl Sub for DoubleExpComplex {
+    type Output = Self;
+    fn sub(self, b: Self) -> Self {
+        DoubleExpComplex {
+            re: self.re - b.re,
+            im: self.im - b.im,
+        }
+    }
 }
 
 impl Add for DoubleExpComplex {

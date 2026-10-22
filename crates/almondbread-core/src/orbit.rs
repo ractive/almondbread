@@ -370,7 +370,9 @@ impl OrbitProbe {
         }
     }
 
-    /// `f'(z)`: the multiplier of the derivatives.
+    /// `f'(z)`: the multiplier of the derivatives. (F5 Mandelbar: its conformal stand-in `2z`;
+    /// every step's Jacobian is a scaled reflection, so the product's modulus, all the interior
+    /// test and the cycle's |λ| read, is exact; its argument is not.)
     fn prime(&self, z: DoubleExpComplex) -> DoubleExpComplex {
         match self.point.formula {
             Formula::Mandelbrot => z.times_two(),
@@ -383,7 +385,7 @@ impl OrbitProbe {
         self.delta = match (self.point.reference.is_some(), f) {
             (true, Formula::Mandelbrot) => (zm.times_two() + self.delta) * self.delta + self.point.dc,
             (false, Formula::Mandelbrot) => self.delta * self.delta + self.point.dc,
-            (true, _) => self.delta * f.delta_factor_x(zm, zm + self.delta) + self.point.dc,
+            (true, _) => f.delta_step_x(zm, self.delta, self.point.dc),
             (false, _) => f.step_x(self.delta, self.point.dc),
         };
         self.m += 1;

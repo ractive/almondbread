@@ -7,7 +7,8 @@
 //!   types; `FloatExpComplex` has the MSL layout `{float2 m; int e;}`.
 //! - [`ReferenceOrbitComputer`]: allocation-free reference orbit into caller buffers,
 //!   specialised for 1...16 limbs.
-//! - [`Formula`]: the iteration (F2: Mandelbrot plus the generic polynomial path).
+//! - [`Formula`]: the iteration (F2: Mandelbrot plus the generic polynomial path; F5: the
+//!   non-conformal Mandelbar, whose derivatives are [`Linear`] maps).
 //! - [`selection`]: period detection, Newton nuclei, minibrot size, reference choice.
 //!
 //! Pure Rust, no platform code, no GMP/MPFR (LGPL): builds for every target.
@@ -22,6 +23,7 @@ mod floatexp;
 mod formula;
 #[doc(hidden)]
 pub mod limbs;
+pub mod linear;
 mod orbit;
 mod parallel;
 #[doc(hidden)]
@@ -36,6 +38,7 @@ pub use bigfloat::BigFloat;
 pub use complex::BigComplex;
 pub use floatexp::{DoubleExp, DoubleExpComplex, FloatExp, FloatExpComplex};
 pub use formula::{Formula, JuliaK, MULTIBROT_MAX_POWER};
+pub use linear::{Linear, LinearX};
 pub use orbit::{
     AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Threads, Variant,
     recommended_precision_bits, recommended_precision_bits_with, with_no_control,

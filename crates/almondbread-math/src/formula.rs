@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::complex::BigComplex;
 use crate::floatexp::DoubleExpComplex;
+use crate::linear::{Linear, LinearX};
 
 /// Largest Multibrot power the generic paths accept (KF supports 2..10; kb: formulas/multibrot).
 pub const MULTIBROT_MAX_POWER: u32 = 8;
@@ -34,6 +35,11 @@ pub enum Formula {
     /// ([`crate::ReferenceOrbitComputer::with_start`]) and the critical orbit (from 0) is the
     /// Mandelbrot orbit of `k`.
     Julia(JuliaK),
+    /// The Mandelbar set (Tricorn) `conj(z)^2 + c` (F5, kb: plans/f5-mandelbar,
+    /// formulas/mandelbar; kernel formula 3): the first non-conformal formula. Its step is
+    /// Mandelbrot's followed by a conjugation (before `+c`); its derivative is a real 2x2
+    /// Jacobian ([`Formula::jacobian`], [`Linear`]), not a complex multiplier.
+    Mandelbar,
 }
 
 /// The parameter `k` of a Julia set, in high precision, as a small `Copy` handle: values are
@@ -95,9 +101,17 @@ impl Formula {
     /// The degree of the polynomial `f`.
     pub fn power(self) -> u32 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) => 2,
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar => 2,
             Self::Multibrot(p) => p,
         }
+    }
+
+    /// Whether the step is complex-analytic (its derivative one complex multiplier). False for
+    /// Mandelbar (F5) and the Burning Ship family (F6): their derivatives, BLA coefficients and
+    /// Newton steps are real-linear maps ([`Formula::jacobian`]); the kernels keep a second
+    /// complex part per derivative (kb: plans/f5-mandelbar "As built").
+    pub fn is_conformal(self) -> bool {
+        !matches!(self, Self::Mandelbar)
     }
 
     /// The Julia set's `k` (None for the parameter-plane formulas).
@@ -122,6 +136,7 @@ impl Formula {
             Self::Mandelbrot => 0,
             Self::Multibrot(_) => 1,
             Self::Julia(_) => 2,
+            Self::Mandelbar => 3,
         }
     }
 
@@ -132,6 +147,7 @@ impl Formula {
             Self::Mandelbrot => "mandelbrot".into(),
             Self::Multibrot(p) => format!("multibrot{p}"),
             Self::Julia(_) => "julia".into(),
+            Self::Mandelbar => "mandelbar".into(),
         }
     }
 
@@ -139,6 +155,9 @@ impl Formula {
     pub fn parse(v: &str) -> Option<Self> {
         if v == "mandelbrot" {
             return Some(Self::Mandelbrot);
+        }
+        if v == "mandelbar" {
+            return Some(Self::Mandelbar);
         }
         v.strip_prefix("multibrot")?.parse().ok().and_then(Self::multibrot)
     }
@@ -151,7 +170,7 @@ impl Formula {
     /// (kb: formulas/multibrot "As built").
     pub fn bailout(self) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) => 65536.0,
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar => 65536.0,
             Self::Multibrot(p) => 2f64.powi((60 / p.max(1)).min(16) as i32),
         }
     }
@@ -161,7 +180,7 @@ impl Formula {
     /// `1 - log2(ln|z|)` exactly as before).
     pub fn smooth_offset(self, r2: f64) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) => 1.0 - (0.5 * r2.ln()).log2(),
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar => 1.0 - (0.5 * r2.ln()).log2(),
             Self::Multibrot(p) => 1.0 - (0.5 * r2.ln()).log2() / f64::from(p).log2(),
         }
     }
@@ -186,11 +205,72 @@ impl Formula {
         let w = match self {
             Self::Mandelbrot | Self::Julia(_) => cmul(z, z),
             Self::Multibrot(p) => Self::cpow(z, p),
+            // conj(z)^2 = conj(z^2).
+            Self::Mandelbar => {
+                let w = cmul(z, z);
+                (w.0, -w.1)
+            }
         };
         (w.0 + c.0, w.1 + c.1)
     }
 
+    /// The step's Jacobian at `z` as a real-linear map (F5): `f'(z)` for the conformal formulas,
+    /// `δ ↦ conj(2 z δ)` (`p = 0, q = conj(2z)`) for Mandelbar. What the non-conformal paths
+    /// (BLA matrices, DE and interior derivatives, Newton) compose.
+    #[inline]
+    pub fn jacobian(self, z: C64) -> Linear {
+        match self {
+            Self::Mandelbar => Linear {
+                p: (0.0, 0.0),
+                q: (2.0 * z.0, -2.0 * z.1),
+            },
+            _ => Linear::conformal(self.prime(z)),
+        }
+    }
+
+    /// [`Formula::jacobian`] in extended range.
+    pub fn jacobian_x(self, z: DoubleExpComplex) -> LinearX {
+        match self {
+            Self::Mandelbar => LinearX {
+                p: DoubleExpComplex::ZERO,
+                q: z.conj().times_two(),
+            },
+            _ => LinearX::conformal(self.prime_x(z)),
+        }
+    }
+
+    /// The perturbation step `z' = f(Z + z) - f(Z) + c` (F5: every formula; the conformal ones
+    /// are `z S + c` with [`Formula::delta_factor`], Mandelbar `conj((2Z + z) z) + c`).
+    #[inline]
+    pub fn delta_step(self, big_z: C64, z: C64, c: C64) -> C64 {
+        self.delta_step_scaled(big_z, z, z, c)
+    }
+
+    /// The rescaled perturbation step (the deep loops' `z = w 2^e`, as the kernels' `fStep`):
+    /// `w' = (f(Z + sw) - f(Z)) / s + dd` with `sw = s w`, `dd = c / s`.
+    #[inline]
+    pub fn delta_step_scaled(self, big_z: C64, sw: C64, w: C64, dd: C64) -> C64 {
+        let s = self.delta_factor(big_z, (big_z.0 + sw.0, big_z.1 + sw.1));
+        let t = (s.0 * w.0 - s.1 * w.1, s.0 * w.1 + s.1 * w.0);
+        match self {
+            Self::Mandelbar => (t.0 + dd.0, -t.1 + dd.1),
+            _ => (t.0 + dd.0, t.1 + dd.1),
+        }
+    }
+
+    /// [`Formula::delta_step`] in extended range.
+    pub fn delta_step_x(self, big_z: DoubleExpComplex, z: DoubleExpComplex, c: DoubleExpComplex) -> DoubleExpComplex {
+        let t = z * self.delta_factor_x(big_z, big_z + z);
+        match self {
+            Self::Mandelbar => t.conj() + c,
+            _ => t + c,
+        }
+    }
+
     /// `f'(z)` (`2z` for Mandelbrot): the multiplier of `dz/dc`, `dz/dz1` and the BLA's `A`.
+    /// For a non-conformal formula (Mandelbar) a conformal stand-in with the same singular values
+    /// (`|f'| = 2|z|`), for bounds and magnitudes only; its derivatives are
+    /// [`Formula::jacobian`].
     #[inline]
     pub fn prime(self, z: C64) -> C64 {
         let p = self.power();
@@ -236,7 +316,10 @@ impl Formula {
 
     /// `f(z) + c` in extended range.
     pub fn step_x(self, z: DoubleExpComplex, c: DoubleExpComplex) -> DoubleExpComplex {
-        Self::cpow_x(z, self.power()) + c
+        match self {
+            Self::Mandelbar => (z * z).conj() + c,
+            _ => Self::cpow_x(z, self.power()) + c,
+        }
     }
 
     /// [`Formula::prime`] in extended range.
