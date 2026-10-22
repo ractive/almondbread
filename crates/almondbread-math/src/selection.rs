@@ -269,7 +269,7 @@ fn ball_period(
                 // moduli); the first-order radius is |J| r with J's largest singular value.
                 jac = jac
                     .then(formula.jacobian_x(complex_value(&x, &y)))
-                    .add(LinearX::IDENTITY);
+                    .plus(LinearX::IDENTITY);
             } else if formula.is_mandelbrot() {
                 if first_order {
                     // dz_p = 2 z_{p-1} dz_{p-1} + 1
@@ -496,9 +496,7 @@ pub fn find_nucleus_for(
         if exact && !formula.is_conformal() {
             // F5: the exact finish with the 2x2 Jacobian on registers (Mandelbar).
             let g = jacobian.get_or_insert_with(|| JacobianNewton::new(formula, n));
-            let Some(delta) = g.newton_step(period, &cx, &cy, &mut zx, &mut zy, &one, s, is_cancelled) else {
-                return None;
-            };
+            let delta = g.newton_step(period, &cx, &cy, &mut zx, &mut zy, &one, s, is_cancelled)?;
             c = &c - &delta;
             step_log2 = if delta.re.is_zero() && delta.im.is_zero() {
                 f64::NEG_INFINITY
@@ -594,7 +592,7 @@ pub fn find_nucleus_for(
                 // F5: Jacobian Newton, J = dz_p/dc a real-linear map, c <- c - J^-1 z_p.
                 let mut j = LinearX::ZERO;
                 for z in &orbit[..period] {
-                    j = j.then(formula.jacobian_x(*z)).add(LinearX::IDENTITY);
+                    j = j.then(formula.jacobian_x(*z)).plus(LinearX::IDENTITY);
                 }
                 if !finite(j.p) || !finite(j.q) {
                     return None;
@@ -932,7 +930,7 @@ fn minibrot_size_nonconformal(
                 return;
             }
             let z = complex_value(&x, &y);
-            j = j.then(formula.jacobian_x(z)).add(LinearX::IDENTITY);
+            j = j.then(formula.jacobian_x(z)).plus(LinearX::IDENTITY);
             if i >= 1 {
                 l = l * z.magnitude().times_power_of_two(1);
             }
@@ -1318,7 +1316,7 @@ mod mandelbar_tests {
         let size = minibrot_size_complex_for(f, &r.nucleus, p).magnitude().to_f64();
         assert!(size > 0.0 && size < 1.0, "{size}");
         // atom domains and the selection run through the conjugated step too.
-        assert!(atom_domain_period_for(f, &r.nucleus, 10 * p) % p == 0);
+        assert!(atom_domain_period_for(f, &r.nucleus, 10 * p).is_multiple_of(p));
     }
 }
 

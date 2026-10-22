@@ -126,7 +126,7 @@ impl MergedM {
             return INVALID_M;
         }
         let a = self.a.then(y.a);
-        let b = self.b.then(y.a).add(y.b);
+        let b = self.b.then(y.a).plus(y.b);
         let r = self.r.min(y.r / ax);
         let k = self.k.max((y.k + self.b.sup()) / ax);
         if !(a.sup() <= MAX_COEFFICIENT && b.sup().is_finite() && k.is_finite() && r.is_finite()) {
@@ -1641,10 +1641,10 @@ mod tests {
         for j in 9..17 {
             let s = f.jacobian((f64::from(pts[j][0]), f64::from(pts[j][1])));
             aw = aw.then(s);
-            bw = bw.then(s).add(Linear::IDENTITY);
+            bw = bw.then(s).plus(Linear::IDENTITY);
         }
         let close = |x: Linear, y: Linear| {
-            let d = x.add(y.scale(-1.0)).sup();
+            let d = x.plus(y.scale(-1.0)).sup();
             d <= 1e-5 * y.sup().max(1.0)
         };
         assert!(close(a, aw) && close(b, bw), "{a:?} {aw:?} / {b:?} {bw:?}");

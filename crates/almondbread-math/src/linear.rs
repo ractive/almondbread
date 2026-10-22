@@ -94,7 +94,7 @@ impl Linear {
         }
     }
 
-    pub fn add(self, y: Linear) -> Linear {
+    pub fn plus(self, y: Linear) -> Linear {
         Linear {
             p: (self.p.0 + y.p.0, self.p.1 + y.p.1),
             q: (self.q.0 + y.q.0, self.q.1 + y.q.1),
@@ -187,7 +187,7 @@ impl LinearX {
         }
     }
 
-    pub fn add(self, y: LinearX) -> LinearX {
+    pub fn plus(self, y: LinearX) -> LinearX {
         LinearX {
             p: self.p + y.p,
             q: self.q + y.q,
