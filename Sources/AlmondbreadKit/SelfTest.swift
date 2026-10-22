@@ -402,6 +402,32 @@ public enum UIDemo {
             model.mapEnabled = true
             model.mapLevels = 3
             model.juliaEnabled = true
+        case "mandelbrot-panel":
+            // The Mandelbrot panel of a Julia view (kb: decisions/controls "Mandelbrot panel"):
+            // the `julia` scene, then the Douady rabbit's Julia set opened as a click on the Julia
+            // panel opens it (whole, the way back the view at 0.0035): the panel in the Julia
+            // panel's place, the view it came from with a marker at k.
+            try? explorer.setViewport(re: "-0.5", im: "0.1", scale: 0.0035)
+            _ = explorer.input(event: .pointer(x: (-0.122561166876654 + 0.5) / 0.0035,
+                                               y: (0.744861766619744 - 0.1) / 0.0035))
+            model.orbitEnabled = true
+            model.orbitLength = 60
+            model.mapEnabled = true
+            model.mapLevels = 3
+            model.juliaEnabled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                model.openJulia(re: "-0.122561166876654", im: "0.744861766619744")
+            }
+        case "mandelbrot-panel-twin":
+            // The Julia twin of a deep view (seahorse valley, 1e-32 per point) with every overlay
+            // off: the Mandelbrot panel shows anyway (on at every entry), the deep view it came
+            // from with the marker at its centre (k).
+            try? explorer.setViewportText(re: "-0.743643887037158704752191506114774",
+                                          im: "0.131825904205311970493132056385139", scale: "1e-32")
+            model.orbitEnabled = false
+            model.mapEnabled = false
+            model.juliaEnabled = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { model.juliaTwin() }
         case "cosmic-deep":
             try? explorer.setViewportText(
                 re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",

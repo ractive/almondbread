@@ -830,6 +830,20 @@ pub struct Overlay<B: GpuBackend> {
     /// A click on the panel asked to open its Julia set as the main view (the host applies it,
     /// kb: plans/f4-deep-julia).
     pub open_julia: Option<Center>,
+    /// The Mandelbrot panel of a Julia view (kb: decisions/controls "Mandelbrot panel"): in the
+    /// Julia panel's place, the view the Julia set was opened from, with a marker at k.
+    pub mandelbrot: crate::mandelbrot_panel::MandelbrotPanel<B>,
+    /// The Mandelbrot panel is on (U in a Julia view; on again at every entry into one, also
+    /// when the Julia panel is off: there is always a visible way back).
+    pub mandelbrot_panel: bool,
+    /// The way back while a Julia view shows (the host sets it every frame; None otherwise).
+    pub way_back: Option<crate::mandelbrot_panel::WayBack>,
+    /// The way-back view's reference when the main renderer had one (offered to the panel).
+    pub way_back_reference: Option<almondbread_core::reference::Reference>,
+    /// A click on the Mandelbrot panel asked to go back (the host applies it).
+    pub go_back: bool,
+    /// The row's companion panel as drawn: `julia` or `mandelbrot-panel`.
+    drawn_companion: Cell<&'static str>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -867,6 +881,12 @@ impl<B: GpuBackend> Default for Overlay<B> {
             julia_at: None,
             julia_k: None,
             open_julia: None,
+            mandelbrot: Default::default(),
+            mandelbrot_panel: true,
+            way_back: None,
+            way_back_reference: None,
+            go_back: false,
+            drawn_companion: Cell::new("julia"),
         }
     }
 }
@@ -971,7 +991,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     /// Anything to draw (the host skips all overlay work otherwise): the overlay settings,
     /// the cosmic scale or the π meter.
     pub fn active(&self) -> bool {
-        self.settings.any() || self.cosmic.enabled() || self.pi.enabled || self.cockpit.enabled
+        self.settings.any() || self.cosmic.enabled() || self.pi.enabled || self.cockpit.enabled || self.back_shown()
+    }
+
+    /// The Mandelbrot panel shows: a Julia view with a way back, and the panel on.
+    pub fn back_shown(&self) -> bool {
+        self.mandelbrot_panel && self.way_back.is_some()
     }
 
     /// Work left (probe analysing, maps rendering, a click resolving, a π count): keep
@@ -979,6 +1004,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
     pub fn busy(&self) -> bool {
         self.pi.busy()
             || (self.julia_at.is_some() && self.julia.busy())
+            || (self.julia_at.is_some() && self.mandelbrot.busy())
             || self.probe.as_ref().is_some_and(|p| !p.done())
             || self.snap.is_some()
             || self
@@ -996,7 +1022,14 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // the Julia panel; the settings stay for the way back).
         let caps = almondbread_core::FormulaCapabilities::of(renderer.settings.formula);
         s.orbit &= caps.orbit_overlay;
-        s.julia &= caps.julia_panel;
+        // In a Julia view the Julia panel's place shows the Mandelbrot panel instead (the way
+        // back, kb: decisions/controls "Mandelbrot panel"), by its own toggle.
+        let julia_view = renderer.settings.formula.is_julia();
+        s.julia = if julia_view {
+            self.back_shown()
+        } else {
+            s.julia && caps.julia_panel
+        };
         if size.0 > 0 && size.1 > 0 && ppp > 0.0 {
             let short = size.0.min(size.1) as f64 * ppp;
             let rate = renderer.navigator.zoom_speed();
@@ -1022,10 +1055,15 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             None => self.trail = None,
         }
         let empty = size.0 == 0 || size.1 == 0 || ppp <= 0.0;
-        if !s.julia || empty {
+        if !s.julia || empty || julia_view {
             self.julia.clear();
-            self.julia_at = None;
             self.julia_k = None;
+        }
+        if !s.julia || empty {
+            self.julia_at = None;
+        }
+        if !(s.julia && julia_view) || empty {
+            self.mandelbrot.clear();
         }
         if !s.any() || empty {
             self.maps = None;
@@ -1043,6 +1081,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             {
                 renderer.overlay = None;
                 self.help.clear();
+                // Nothing drawn: no panel (a11y elements, UI tests; the Mandelbrot panel hidden
+                // with U left its rect here).
+                self.panels.clear();
                 return;
             }
         }
@@ -1105,6 +1146,20 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 px_per_pt,
             )[n];
             self.julia_at = Some((origin, panel));
+        }
+        if s.julia
+            && !empty
+            && julia_view
+            && let Some(back) = self.way_back.clone()
+        {
+            // The Mandelbrot panel: the way-back view, rendered once by its own renderer.
+            if let Err(e) = self
+                .mandelbrot
+                .update(renderer, &back, panel, self.way_back_reference.as_ref())
+            {
+                eprintln!("almondbread: mandelbrot panel: {e}");
+            }
+        } else if s.julia && !empty {
             // The pointer over the panel itself keeps the panel's k (F4: the click there opens
             // the set the panel shows).
             let (px, py) = renderer.navigator.probe_point();
@@ -1153,9 +1208,15 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 .as_ref()
                 .map(|m| m.levels.iter().map(|l| l.target.clone()).collect())
                 .unwrap_or_default();
-            // The Julia panel's picture in the slot after the maps.
+            // The Julia panel's picture (in a Julia view the Mandelbrot panel's) in the slot after
+            // the maps.
+            let companion = if renderer.settings.formula.is_julia() {
+                self.mandelbrot.texture()
+            } else {
+                self.julia.texture()
+            };
             if self.julia_at.is_some()
-                && let Some(t) = self.julia.texture()
+                && let Some(t) = companion
             {
                 maps.push(t.clone());
             }
@@ -1460,7 +1521,12 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // A click on the Julia panel opens its Julia set as the main view (F4, kb:
         // plans/f4-deep-julia; the host applies it). It never zooms the view under it.
         if self.julia_hit(x, y) {
-            self.open_julia = self.julia_k.clone();
+            // In a Julia view the place is the Mandelbrot panel's: back to the view it shows.
+            if renderer.settings.formula.is_julia() {
+                self.go_back = true;
+            } else {
+                self.open_julia = self.julia_k.clone();
+            }
             return true;
         }
         let Some(stack) = &self.maps else { return false };
@@ -1568,6 +1634,77 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         key.push_str(&format!("julia {} {} {:?} ", self.julia.serial, slot, o));
     }
 
+    /// The Mandelbrot panel at `o` (top-left pixel, `size` pixels; `px` pixels per point): a
+    /// frame like the Julia panel's, the way-back view, a marker at k, its title and what a
+    /// click does (kb: decisions/controls "Mandelbrot panel").
+    fn draw_mandelbrot(&self, scene: &mut Scene, o: [f32; 2], size: (f32, f32), px: f32, key: &mut String) {
+        let r = [o[0], o[1], o[0] + size.0, o[1] + size.1];
+        let radius = 8.0 * px;
+        let pad = 3.0 * px;
+        scene.set_clip(None);
+        scene.rect(
+            [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad],
+            radius + pad,
+            rgba(0.02, 0.02, 0.03, 1.0),
+            rgba(1.0, 1.0, 1.0, 0.22),
+            px,
+        );
+        let slot = self.maps.as_ref().map_or(0, |m| m.levels.len()) as u32;
+        let shown = self.mandelbrot.shown() && self.mandelbrot.texture().is_some();
+        if shown {
+            scene.image(r, slot, 1.0, radius);
+        }
+        scene.set_clip(Some(r));
+        // The marker at k: a crosshair (dark under light, readable on any palette).
+        if let Some(m) = self.mandelbrot.marker() {
+            let c = [f64::from(o[0]) + m[0], f64::from(o[1]) + m[1]];
+            let (ring, gap, arm) = (f64::from(5.0 * px), f64::from(3.0 * px), f64::from(6.0 * px));
+            let dark = rgba(0.0, 0.0, 0.0, 0.75);
+            let light = rgba(1.0, 0.86, 0.45, 1.0);
+            for (w, col) in [(1.6 * px, dark), (0.7 * px, light)] {
+                scene.ring(c, ring as f32, w * 1.4, col);
+                for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                    let a = [c[0] + dx * (ring + gap), c[1] + dy * (ring + gap)];
+                    let b = [c[0] + dx * (ring + gap + arm), c[1] + dy * (ring + gap + arm)];
+                    scene.segment(a, b, w, col, col);
+                }
+            }
+            scene.disc(c, 1.3 * px, light);
+            key.push_str(&format!("m {:.1} {:.1} ", c[0], c[1]));
+        }
+        let text = (11.0 * px).max(9.0);
+        scene.label(
+            [o[0] + 0.7 * text, o[1] + 0.7 * text],
+            text,
+            "Mandelbrot set",
+            rgba(1.0, 1.0, 1.0, 0.85),
+        );
+        let small = (10.0 * px).max(8.5);
+        let cap = crate::font::cap_height() * small;
+        let action = self.mandelbrot_action();
+        scene.label(
+            [o[0] + 0.7 * text, r[3] - 0.7 * text - cap],
+            small,
+            action,
+            rgba(1.0, 1.0, 1.0, 0.8),
+        );
+        scene.set_clip(None);
+        key.push_str(&format!(
+            "mandel {} {} {} {:?} {action} ",
+            self.mandelbrot.serial, shown, slot, o
+        ));
+    }
+
+    /// What a click on the Mandelbrot panel does, in the panel's words ("click to return", on
+    /// touch screens "tap to return").
+    pub fn mandelbrot_action(&self) -> &'static str {
+        if self.cockpit.touch {
+            "tap to return"
+        } else {
+            "click to return"
+        }
+    }
+
     /// The mini-map panels as drawn in the last scene: each panel's rect (pixels: x0, y0, x1,
     /// y1) and its level's depth in decades below the whole set (0: the whole set). Empty while
     /// no map shows (accessibility elements, kb: plans/a11y-canvas-controls).
@@ -1591,7 +1728,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             ("cosmic", self.drawn_cosmic.get()),
             ("cockpit", self.drawn_cockpit.get()),
             ("maps", self.drawn_maps.get()),
-            ("julia", self.drawn_julia.get()),
+            (self.drawn_companion.get(), self.drawn_julia.get()),
             ("pi", pi),
             ("pi-trail", trail),
         ]
@@ -1814,9 +1951,15 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 crate::help::draw(scene, help, topic, c, px as f32, &mut key);
             }
         }
-        // ---- The Julia panel at the end of the row.
+        // ---- The Julia panel at the end of the row (in a Julia view the Mandelbrot panel).
         if let Some((o, (jw, jh))) = self.julia_at {
-            self.draw_julia(scene, help, o, (jw as f32, jh as f32), px as f32, &mut key);
+            if renderer.settings.formula.is_julia() {
+                self.drawn_companion.set("mandelbrot-panel");
+                self.draw_mandelbrot(scene, o, (jw as f32, jh as f32), px as f32, &mut key);
+            } else {
+                self.drawn_companion.set("julia");
+                self.draw_julia(scene, help, o, (jw as f32, jh as f32), px as f32, &mut key);
+            }
         }
         // ---- Info under (or above) the row's first panel: the orbit's fate and a click note.
         let first = self
@@ -2033,7 +2176,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
 
 /// The map renderers' settings: the main look without anti-aliasing passes beyond 4 samples,
 /// no interior analysis (cheap), no colour cycling.
-fn map_settings(main: &RenderSettings) -> RenderSettings {
+pub(crate) fn map_settings(main: &RenderSettings) -> RenderSettings {
     let mut s = main.clone();
     s.supersampling = Supersampling::X4;
     s.interior_mode = InteriorMode::Flat;

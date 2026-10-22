@@ -3059,6 +3059,43 @@ digits) and the back button. Settings carry the formula `julia` with k (`julia_r
 so a restored session opens it whole. iOS UI tests: `OverlayLayoutUITests.testJuliaPanelTapOpensTheSet`,
 `TouchControlsUITests.testJuliaTwinAndBack`.
 
+### Mandelbrot panel: the way back on the canvas (as built 2026-10-22, awaiting review)
+
+The user found no way back from a Julia view except menus and the control center (⇧U and the
+HUD's small back button are easy to miss; on an iPad without a keyboard ⇧U does not exist). Decided
+(user, 2026-10-22): in a Julia view the Julia panel's place shows the **Mandelbrot view the Julia
+set came from**, and a click there goes back.
+
+| Input | Action |
+| --- | --- |
+| click / tap on the Mandelbrot panel | back to the view the Julia set was opened from (`back_from_julia`, the same as ⇧U and the HUD button): centre, scale and angle bit for bit |
+| **U** in a Julia view, View ▸ Julia Set, the Mac toolbar's and iPad's Julia toggle, control center "Julia set of that point" | the Mandelbrot panel off / on (the Julia panel's setting is not touched) |
+| any entry into a Julia view (panel click, twin, a pasted Julia link, a restored session) | the Mandelbrot panel on again, also when the Julia panel was off: there is always a visible way back |
+
+- **What it shows.** The way-back view (`Host::julia_return`; the whole Mandelbrot set where there is
+  none) at its centre and angle, zoomed out so the whole view fits the panel, with a gold crosshair
+  at k: after a panel click a shallow view with k where the pointer was, after a twin the deep view
+  with k at its centre. Labels "Mandelbrot set" (top) and "click to return" (bottom; "tap to
+  return" on touch screens). No help badge. Same place, size and fitting rules as the Julia panel
+  (`fit_maps`, `row_wants`, the last slot of the map row, the fourth map texture); Mandelbrot views
+  are unchanged.
+- **How it renders.** A small renderer of its own at the panel's pixel size
+  (`render/src/mandelbrot_panel.rs`), like a mini-map level: the maps' settings (flat interior,
+  2×2), 2 ms chunks, stepped with the maps (every refresh when idle, every 8th during a gesture),
+  rendered once per way back and then settled. At depth it starts from the way-back view's own
+  reference, kept from `open_julia` and offered as the panel renderer's spare
+  (`Renderer::offer_reference`; taken only when it fits), else the normal background reference
+  path; the panel shows its dark frame and labels until the first picture is presented. U frees the
+  renderer; leaving the Julia view frees it and the kept reference.
+- **Policy in Rust.** `Overlay::click` on the panel sets `go_back`, `Host::map_click` applies it;
+  `Host::toggle_mandelbrot_panel` (FFI `Explorer::toggle_mandelbrot_panel`, false outside a Julia
+  view) and `ExplorerStats::mandelbrot_panel` (the Swift mirror for the toggles,
+  `ExplorerModel.juliaPanelToggle`). `overlay_panels` and the accessibility element use the id
+  `mandelbrot-panel` (button "Mandelbrot set panel", value "zoom …, the view this Julia set was
+  opened from, marked at k; click to return"; activation is the click).
+- **Kept:** ⇧U, the HUD's back button, View ▸ Back to the Mandelbrot Set, control center "Back to
+  the Mandelbrot set". Esc does not go back. Not built: steering k by hovering the panel.
+
 ### Fractal picker and Julia views (F3 + F4, 2026-10-22)
 
 The control center's "Fractal" picker ([F3: Multibrot z^p + c](../plans/f3-multibrot.md)) lists

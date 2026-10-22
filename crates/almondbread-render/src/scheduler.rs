@@ -6247,6 +6247,16 @@ impl<B: GpuBackend> Renderer<B> {
         self.reference.as_ref()
     }
 
+    /// Offers `r` (made by another renderer) as the spare reference: the next frame takes it if
+    /// it serves the view well (`Fit::Good`), else computes its own as usual. One of another
+    /// formula is ignored. The orbit is shared (`Arc`), not copied. (The Mandelbrot panel of a
+    /// Julia view, kb: decisions/controls "Mandelbrot panel": the view it came from had it.)
+    pub fn offer_reference(&mut self, r: Reference) {
+        if r.formula == self.settings.formula {
+            self.spare_reference = Some(r);
+        }
+    }
+
     /// Waits for the colorize passes in flight and returns how many frames failed on the
     /// GPU so far (self-tests: a committed frame is not yet a drawn one).
     pub fn finish_frames(&mut self) -> usize {

@@ -720,7 +720,7 @@ struct OverlaySectionRows: View {
             }
         }
         if model.has(\.juliaPanel) {
-            Toggle("Julia set of that point", isOn: $model.juliaEnabled)
+            Toggle("Julia set of that point", isOn: $model.juliaPanelToggle)
                 .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside. Click it to open that Julia set (U)")
         }
         // F4 (kb: plans/f4-deep-julia): the deep Julia set of the view's centre, and back.

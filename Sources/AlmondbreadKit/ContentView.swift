@@ -208,7 +208,7 @@ struct ContentView: View {
                     // The Julia panel: only in the iPad's top row (the phone's column and row
                     // have no room for a sixth button; kb: decisions/controls "Julia panel").
                     if touchLayout.buttonCorner == .topTrailing {
-                        RoundToggle("Julia set", symbol: InlineIcons.symbol("julia"), isOn: $model.juliaEnabled)
+                        RoundToggle("Julia set", symbol: InlineIcons.symbol("julia"), isOn: $model.juliaPanelToggle)
                             .tourTarget("julia", model: model, cornerRadius: 22)
                     }
                     RoundToggle("Size scale", symbol: InlineIcons.symbol("size-scale"), isOn: $model.cosmicScale)
@@ -269,7 +269,7 @@ struct ContentView: View {
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Mini-map with nested levels; click it to jump there (M)")
-                Toggle(isOn: $model.juliaEnabled) {
+                Toggle(isOn: $model.juliaPanelToggle) {
                     Label("Julia Set", systemImage: InlineIcons.symbol("julia"))
                         .tourTarget("julia", model: model, cornerRadius: 6)
                         .tourTarget("toolbar", model: model, cornerRadius: 6)

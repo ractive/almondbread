@@ -36,6 +36,7 @@ pub mod help;
 pub mod host;
 pub mod julia;
 pub mod la_gpu;
+pub mod mandelbrot_panel;
 pub mod marker;
 pub mod memory;
 pub mod overlay;
