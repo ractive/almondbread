@@ -296,14 +296,21 @@ mod tests {
         assert!(places_for(Formula::Multibrot(2)).is_empty());
     }
 
-    /// F6: the Burning Ship's places: the whole set first, all generated, all its own.
+    /// F6: the Burning Ship's places: the whole set first, all its own, by category; each from
+    /// the literature has its link, each of ours none.
     #[test]
     fn burning_ship_places() {
         let list = places_for(Formula::BurningShip);
-        assert_eq!(list.len(), 6);
+        assert_eq!(list.len(), 15);
         assert_eq!(list[0].id, "burningship-whole-set");
+        let order: Vec<usize> = list
+            .iter()
+            .map(|p| PlaceCategory::ALL.iter().position(|&c| c == p.category).unwrap())
+            .collect();
+        assert!(order.windows(2).all(|w| w[0] <= w[1]));
         for p in &list {
-            assert!(p.generated && p.formula == Formula::BurningShip);
+            assert!(p.formula == Formula::BurningShip);
+            assert_eq!(p.generated, p.source_url.is_empty(), "{}", p.id);
             assert_eq!(place_named(p.id).map(|q| q.formula), Some(Formula::BurningShip));
             assert!(p.id.starts_with("burningship-"));
         }
