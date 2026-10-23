@@ -463,7 +463,8 @@ struct ViewSectionRows: View {
     }
 }
 
-/// The fractal (F3, kb: plans/f3-multibrot): its family (Mandelbrot, Multibrot, Mandelbar (F5);
+/// The fractal (F3, kb: plans/f3-multibrot): its family (Mandelbrot, Multibrot, Mandelbar (F5),
+/// Burning Ship (F6);
 /// a later family is one more entry of Rust's `formula_options()`) and, for a family of several formulas, which
 /// one (Multibrot's power 3 ... 8). A switch goes to the new set's whole view. In a Julia view
 /// (F4) it shows the Mandelbrot set the Julia set belongs to and is disabled: Julia sets are
@@ -480,7 +481,7 @@ struct FormulaPicker: View {
         }
         .help(model.isJulia
               ? "A Julia set of the Mandelbrot set is shown: go back to pick another fractal (⇧U)"
-              : "The set to explore: the Mandelbrot set (z² + c), a Multibrot set (zᵖ + c) or the Mandelbar set (the Tricorn, z̄² + c)")
+              : "The set to explore: the Mandelbrot set (z² + c), a Multibrot set (zᵖ + c), the Mandelbar set (the Tricorn, z̄² + c) or the Burning Ship ((|x| − i|y|)² + c, shown upright)")
         .disabled(model.isJulia)
         .accessibilityIdentifier("formula-family")
         if options.count > 1 {
@@ -1150,7 +1151,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp", "fog", "limit", "bulb", "valley", "julia", "misiurewicz", "colour", "color"]
-        case .view: ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn", "power", "coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
+        case .view: ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn", "burning", "ship", "power", "coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]

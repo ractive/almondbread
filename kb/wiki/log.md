@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-23
+
+- **Decision:** F6 Burning Ship built (awaiting review): shown upright as (|x| - i|y|)^2 + c; diffabs perturbation with the fold decided at the delta's scale and a split floatexp reference, so the needle matches the oracle to 1e-1000 in float32 with no needle heuristic; fold-capped matrix BLA; Jacobian Newton; no probe (chaotic bounded interiors stay unresolved); six places; Celtic/Buffalo/Perpendicular, journeys and tour not built; others byte-identical, A/B 1.006
+
 ## 2026-10-22
 
 - **Decision:** ⌘-click opens a point's Julia set: on any point of a Mandelbrot view (Mac; iPad with keyboard and pointer) a ⌘-click opens exactly that point's deep Julia set with the way back kept, so the panel no longer changes on the way to it; the event carries ⌘, Host decides (decisions/controls "⌘-click").

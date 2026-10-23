@@ -147,6 +147,7 @@ pub fn place_named(id: &str) -> Option<&'static Place> {
         .iter()
         .chain(MULTIBROT_PLACES)
         .chain(MANDELBAR_PLACES)
+        .chain(BURNING_SHIP_PLACES)
         .find(|p| p.id == id)
 }
 
@@ -159,13 +160,18 @@ pub fn places_for(formula: Formula) -> Vec<&'static Place> {
     MULTIBROT_PLACES
         .iter()
         .chain(MANDELBAR_PLACES)
+        .chain(BURNING_SHIP_PLACES)
         .filter(|p| p.formula == formula)
         .collect()
 }
 
 /// Every place of every formula (thumbnails, tests).
 pub fn all_places() -> impl Iterator<Item = &'static Place> {
-    PLACES.iter().chain(MULTIBROT_PLACES).chain(MANDELBAR_PLACES)
+    PLACES
+        .iter()
+        .chain(MULTIBROT_PLACES)
+        .chain(MANDELBAR_PLACES)
+        .chain(BURNING_SHIP_PLACES)
 }
 
 /// A random place: `seed` picks it (any u64, e.g. a time or a random number), so the caller
@@ -288,6 +294,19 @@ mod tests {
             }
         }
         assert!(places_for(Formula::Multibrot(2)).is_empty());
+    }
+
+    /// F6: the Burning Ship's places: the whole set first, all generated, all its own.
+    #[test]
+    fn burning_ship_places() {
+        let list = places_for(Formula::BurningShip);
+        assert_eq!(list.len(), 6);
+        assert_eq!(list[0].id, "burningship-whole-set");
+        for p in &list {
+            assert!(p.generated && p.formula == Formula::BurningShip);
+            assert_eq!(place_named(p.id).map(|q| q.formula), Some(Formula::BurningShip));
+            assert!(p.id.starts_with("burningship-"));
+        }
     }
 
     /// F5: the Mandelbar set's places, from seek runs: the whole set first, by category, each

@@ -15,7 +15,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::complex::BigComplex;
-use crate::floatexp::DoubleExpComplex;
+use crate::floatexp::{DoubleExp, DoubleExpComplex};
 use crate::linear::{Linear, LinearX};
 
 /// Largest Multibrot power the generic paths accept (KF supports 2..10; kb: formulas/multibrot).
@@ -40,6 +40,44 @@ pub enum Formula {
     /// Mandelbrot's followed by a conjugation (before `+c`); its derivative is a real 2x2
     /// Jacobian ([`Formula::jacobian`], [`Linear`]), not a complex multiplier.
     Mandelbar,
+    /// The Burning Ship (F6, kb: plans/f6-burning-ship, formulas/burning-ship; kernel formula 4)
+    /// the way up it is conventionally shown: `z <- (|x| - i|y|)^2 + c`, i.e. `x' = x^2 - y^2 +
+    /// cx`, `y' = cy - 2|x y|`. That is the literature's `(|x| + i|y|)^2 + c` with the imaginary
+    /// axis flipped (our `c` and `z` are the conjugates of the literature's), so the ships stand
+    /// upright with the imaginary axis pointing up, as the other formulas are shown. Its
+    /// perturbation step needs `diffabs` ([`diffabs`]); its Jacobian is `2z` or Mandelbar's
+    /// reflection `δ ↦ conj(2 z δ)` by the sign of `x y` ([`Formula::jacobian`]).
+    BurningShip,
+}
+
+/// `|a + d| - |a|` without cancellation (the Burning Ship's perturbed `|XY|`, kb:
+/// formulas/burning-ship "Perturbed form"): `±d` while `a + d` keeps the sign of `a`, `±(2a + d)`
+/// across the fold. `a` may be infinite (then no fold: `±d`).
+#[inline(always)]
+pub fn diffabs(a: f64, d: f64) -> f64 {
+    if a >= 0.0 {
+        if a + d >= 0.0 { d } else { -(2.0 * a + d) }
+    } else if a + d > 0.0 {
+        2.0 * a + d
+    } else {
+        -d
+    }
+}
+
+/// [`diffabs`] in extended range.
+pub fn diffabs_x(a: DoubleExp, d: DoubleExp) -> DoubleExp {
+    let s = a + d;
+    if a.mantissa >= 0.0 {
+        if s.mantissa >= 0.0 {
+            d
+        } else {
+            -(a.times_power_of_two(1) + d)
+        }
+    } else if s.mantissa > 0.0 {
+        a.times_power_of_two(1) + d
+    } else {
+        -d
+    }
 }
 
 /// The parameter `k` of a Julia set, in high precision, as a small `Copy` handle: values are
@@ -101,7 +139,7 @@ impl Formula {
     /// The degree of the polynomial `f`.
     pub fn power(self) -> u32 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar => 2,
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip => 2,
             Self::Multibrot(p) => p,
         }
     }
@@ -111,7 +149,14 @@ impl Formula {
     /// Newton steps are real-linear maps ([`Formula::jacobian`]); the kernels keep a second
     /// complex part per derivative (kb: plans/f5-mandelbar "As built").
     pub fn is_conformal(self) -> bool {
-        !matches!(self, Self::Mandelbar)
+        !matches!(self, Self::Mandelbar | Self::BurningShip)
+    }
+
+    /// Whether the step folds the plane (`|x|`, `|y|`; F6, the Burning Ship family): its
+    /// perturbation step needs the reference's `X Y` in extended range, its BLA blocks stop at
+    /// the fold lines (kb: plans/f6-burning-ship "As built").
+    pub fn folds(self) -> bool {
+        matches!(self, Self::BurningShip)
     }
 
     /// The Julia set's `k` (None for the parameter-plane formulas).
@@ -137,6 +182,7 @@ impl Formula {
             Self::Multibrot(_) => 1,
             Self::Julia(_) => 2,
             Self::Mandelbar => 3,
+            Self::BurningShip => 4,
         }
     }
 
@@ -148,6 +194,7 @@ impl Formula {
             Self::Multibrot(p) => format!("multibrot{p}"),
             Self::Julia(_) => "julia".into(),
             Self::Mandelbar => "mandelbar".into(),
+            Self::BurningShip => "burningship".into(),
         }
     }
 
@@ -158,6 +205,9 @@ impl Formula {
         }
         if v == "mandelbar" {
             return Some(Self::Mandelbar);
+        }
+        if v == "burningship" {
+            return Some(Self::BurningShip);
         }
         v.strip_prefix("multibrot")?.parse().ok().and_then(Self::multibrot)
     }
@@ -170,7 +220,7 @@ impl Formula {
     /// (kb: formulas/multibrot "As built").
     pub fn bailout(self) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar => 65536.0,
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip => 65536.0,
             Self::Multibrot(p) => 2f64.powi((60 / p.max(1)).min(16) as i32),
         }
     }
@@ -180,7 +230,7 @@ impl Formula {
     /// `1 - log2(ln|z|)` exactly as before).
     pub fn smooth_offset(self, r2: f64) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar => 1.0 - (0.5 * r2.ln()).log2(),
+            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip => 1.0 - (0.5 * r2.ln()).log2(),
             Self::Multibrot(p) => 1.0 - (0.5 * r2.ln()).log2() / f64::from(p).log2(),
         }
     }
@@ -210,6 +260,8 @@ impl Formula {
                 let w = cmul(z, z);
                 (w.0, -w.1)
             }
+            // (|x| - i|y|)^2 = x^2 - y^2 - 2i|xy|.
+            Self::BurningShip => (z.0 * z.0 - z.1 * z.1, -2.0 * (z.0 * z.1).abs()),
         };
         (w.0 + c.0, w.1 + c.1)
     }
@@ -224,6 +276,14 @@ impl Formula {
                 p: (0.0, 0.0),
                 q: (2.0 * z.0, -2.0 * z.1),
             },
+            // F6: y' = cy - 2 s (x y) with s = sign(x y) away from the folds: the matrix
+            // [[2x, -2y], [-2sy, -2sx]], Mandelbar's reflection for s = +1 (also on a fold,
+            // x y = 0, the one-sided derivative the kernels take), multiplication by 2z for
+            // s = -1.
+            Self::BurningShip if z.0 * z.1 >= 0.0 => Linear {
+                p: (0.0, 0.0),
+                q: (2.0 * z.0, -2.0 * z.1),
+            },
             _ => Linear::conformal(self.prime(z)),
         }
     }
@@ -235,6 +295,14 @@ impl Formula {
                 p: DoubleExpComplex::ZERO,
                 q: z.conj().times_two(),
             },
+            Self::BurningShip
+                if (z.re.mantissa >= 0.0) == (z.im.mantissa >= 0.0) || z.re.is_zero() || z.im.is_zero() =>
+            {
+                LinearX {
+                    p: DoubleExpComplex::ZERO,
+                    q: z.conj().times_two(),
+                }
+            }
             _ => LinearX::conformal(self.prime_x(z)),
         }
     }
@@ -243,13 +311,21 @@ impl Formula {
     /// are `z S + c` with [`Formula::delta_factor`], Mandelbar `conj((2Z + z) z) + c`).
     #[inline]
     pub fn delta_step(self, big_z: C64, z: C64, c: C64) -> C64 {
-        self.delta_step_scaled(big_z, z, z, c)
+        self.delta_step_scaled(big_z, z, z, c, big_z.0 * big_z.1)
     }
 
     /// The rescaled perturbation step (the deep loops' `z = w 2^e`, as the kernels' `fStep`):
-    /// `w' = (f(Z + sw) - f(Z)) / s + dd` with `sw = s w`, `dd = c / s`.
+    /// `w' = (f(Z + sw) - f(Z)) / s + dd` with `sw = s w`, `dd = c / s`. `xy_s` is `X Y / s`
+    /// (exact in extended range: it can overflow to inf, which reads as "no fold"), read by the
+    /// Burning Ship only (F6): its imaginary part is `-2 diffabs(X Y, d) / s + dd.y` with the
+    /// perturbation `d = X y + x Y + x y`, i.e. `-2 diffabs(xy_s, X w.y + w.x Y + sw.x w.y)`.
     #[inline]
-    pub fn delta_step_scaled(self, big_z: C64, sw: C64, w: C64, dd: C64) -> C64 {
+    pub fn delta_step_scaled(self, big_z: C64, sw: C64, w: C64, dd: C64, xy_s: f64) -> C64 {
+        if self == Self::BurningShip {
+            let re = (2.0 * big_z.0 + sw.0) * w.0 - (2.0 * big_z.1 + sw.1) * w.1 + dd.0;
+            let d = big_z.0 * w.1 + w.0 * big_z.1 + sw.0 * w.1;
+            return (re, -2.0 * diffabs(xy_s, d) + dd.1);
+        }
         let s = self.delta_factor(big_z, (big_z.0 + sw.0, big_z.1 + sw.1));
         let t = (s.0 * w.0 - s.1 * w.1, s.0 * w.1 + s.1 * w.0);
         match self {
@@ -260,6 +336,13 @@ impl Formula {
 
     /// [`Formula::delta_step`] in extended range.
     pub fn delta_step_x(self, big_z: DoubleExpComplex, z: DoubleExpComplex, c: DoubleExpComplex) -> DoubleExpComplex {
+        if self == Self::BurningShip {
+            // Re((2Z + z) z) and -2 diffabs(XY, Xy + xY + xy), each part its own exponent.
+            let re = ((big_z.times_two() + z) * z).re;
+            let d = big_z.re * z.im + z.re * big_z.im + z.re * z.im;
+            let im = -diffabs_x(big_z.re * big_z.im, d).times_power_of_two(1);
+            return DoubleExpComplex::new(re, im) + c;
+        }
         let t = z * self.delta_factor_x(big_z, big_z + z);
         match self {
             Self::Mandelbar => t.conj() + c,
@@ -318,6 +401,11 @@ impl Formula {
     pub fn step_x(self, z: DoubleExpComplex, c: DoubleExpComplex) -> DoubleExpComplex {
         match self {
             Self::Mandelbar => (z * z).conj() + c,
+            Self::BurningShip => {
+                let re = z.re * z.re - z.im * z.im;
+                let im = -(z.re * z.im).abs().times_power_of_two(1);
+                DoubleExpComplex::new(re, im) + c
+            }
             _ => Self::cpow_x(z, self.power()) + c,
         }
     }
@@ -352,7 +440,8 @@ mod tests {
         }
         assert_eq!(Formula::parse("multibrot1"), None);
         assert_eq!(Formula::parse("multibrot9"), None);
-        assert_eq!(Formula::parse("burningship"), None);
+        assert_eq!(Formula::parse("burningship"), Some(Formula::BurningShip));
+        assert_eq!(Formula::parse("celtic"), None);
         assert_eq!(Formula::default(), Formula::Mandelbrot);
     }
 

@@ -50,6 +50,12 @@ fn complex_square_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg
 /// (x, y) <- conj(x + iy)^2 + (cx + i cy) (F5 Mandelbar): [`complex_square_add`] with the
 /// imaginary part of the square negated.
 fn conj_square_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg; 4], s: &mut [u64]) {
+    conj_square_add_abs(x, y, cx, cy, t, s, false);
+}
+
+/// [`conj_square_add`], with `abs` (F6, the Burning Ship `(|x| - i|y|)^2 + c`) the product's
+/// sign dropped: `y <- cy - 2|xy|`.
+fn conj_square_add_abs(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg; 4], s: &mut [u64], abs: bool) {
     let [t0, t1, t2, t3] = t;
     raw::add(t0, x.view(), y.view(), false, s);
     raw::add(t1, x.view(), y.view(), true, s);
@@ -57,6 +63,9 @@ fn conj_square_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg; 4
     raw::mul(t3, x.view(), y.view(), s);
     if !t3.zero {
         t3.exp += 1;
+    }
+    if abs {
+        t3.neg = false;
     }
     raw::add(x, t2.view(), cx.view(), false, s);
     raw::add(y, cy.view(), t3.view(), true, s);
@@ -106,6 +115,7 @@ impl Stepper {
         match &mut self.g {
             Some(g) => complex_power_add(x, y, cx, cy, g, self.formula.power(), s),
             None if self.formula == Formula::Mandelbar => conj_square_add(x, y, cx, cy, &mut self.t, s),
+            None if self.formula == Formula::BurningShip => conj_square_add_abs(x, y, cx, cy, &mut self.t, s, true),
             None => complex_square_add(x, y, cx, cy, &mut self.t, s),
         }
     }
@@ -713,7 +723,10 @@ struct JacobianNewton {
 
 impl JacobianNewton {
     fn new(formula: Formula, n: usize) -> Self {
-        assert_eq!(formula, Formula::Mandelbar, "the register Jacobian is Mandelbar's");
+        assert!(
+            matches!(formula, Formula::Mandelbar | Formula::BurningShip),
+            "the register Jacobian is Mandelbar's and the Burning Ship's"
+        );
         JacobianNewton {
             stepper: Stepper::new(formula, n),
             j: core::array::from_fn(|_| reg(n)),
@@ -762,6 +775,16 @@ impl JacobianNewton {
                     if !r.zero {
                         r.exp += 1;
                     }
+                }
+                // F6 Burning Ship: where x y < 0 the step's Jacobian is 2z (conformal):
+                // P = 2 z P + 1, Q = 2 z Q.
+                if self.stepper.formula == Formula::BurningShip && !zx.zero && !zy.zero && zx.neg != zy.neg {
+                    raw::add(px, zp_re.view(), one.view(), false, s);
+                    raw::copy(py, zp_im.view());
+                    raw::copy(qx, zq_re.view());
+                    raw::copy(qy, zq_im.view());
+                    self.stepper.step(zx, zy, cx, cy, s);
+                    continue;
                 }
                 // P = conj(2 z Q) + 1, Q = conj(2 z P).
                 raw::add(px, zq_re.view(), one.view(), false, s);
@@ -1317,6 +1340,93 @@ mod mandelbar_tests {
         assert!(size > 0.0 && size < 1.0, "{size}");
         // atom domains and the selection run through the conjugated step too.
         assert!(atom_domain_period_for(f, &r.nucleus, 10 * p).is_multiple_of(p));
+    }
+}
+
+#[cfg(test)]
+mod burning_ship_tests {
+    use super::*;
+
+    /// `z_p(c)` by direct BigFloat iteration of `(|x| - i|y|)^2 + c`.
+    fn z_after(c: &BigComplex, p: usize) -> BigComplex {
+        let mut z = BigComplex::zero(c.precision_bits());
+        for _ in 0..p {
+            let re = &(&z.re * &z.re) - &(&z.im * &z.im);
+            let xy = (&z.re * &z.im).abs();
+            let im = -&(&xy + &xy);
+            z = &BigComplex::new(re, im) + c;
+        }
+        z
+    }
+
+    /// F6: Burning Ship nuclei by Jacobian Newton (period 2 at -1 and at 1/2 + i sqrt(3)/2, the
+    /// solutions of z_2 = 0), periods by the ball and box methods, and a deep nucleus whose
+    /// exact finish (register Jacobian, both step forms) lands on z_p = 0.
+    #[test]
+    fn burning_ship_nuclei_and_periods() {
+        let f = Formula::BurningShip;
+        let mut never = || false;
+        let opts = NewtonOptions {
+            precision_bits: Some(256),
+            ..NewtonOptions::default()
+        };
+        let r = find_nucleus_for(f, &BigComplex::from_f64(-0.9, 0.05, 64), 2, &opts, &mut never).unwrap();
+        assert!((r.nucleus.re.to_f64() + 1.0).abs() < 1e-60 && r.nucleus.im.log2_magnitude() < -200.0);
+        let r = find_nucleus_for(f, &BigComplex::from_f64(0.45, 0.8, 64), 2, &opts, &mut never).unwrap();
+        let [x, y] = r.nucleus.to_f64();
+        assert!((x - 0.5).abs() < 1e-15 && (y - 0.75f64.sqrt()).abs() < 1e-15, "{x} {y}");
+        // (Not the box method: the fold maps the box's corners onto one side of the real
+        // axis, so their quadrilateral need not wind around 0; the ball bound holds.)
+        for method in [PeriodMethod::Ball, PeriodMethod::BallFirstOrder] {
+            let p = find_period_for(
+                f,
+                &BigComplex::from_f64(-1.0, 0.0, 128),
+                &BigFloat::from_f64(1e-3, 128),
+                100,
+                method,
+                64,
+                &mut never,
+            );
+            assert_eq!(p, Some(2), "{method:?}");
+        }
+        // Deep minibrots near the ship's stern and in the armada: a period search, Newton at
+        // 1024 bits, then z_p ~ 0 at that precision.
+        let mut found = 0;
+        for (re, im) in [(-1.762, 0.028), (-1.7487, 0.0335), (-0.53, 0.66)] {
+            let start = BigComplex::from_f64(re, im, 1024);
+            let Some(p) = find_period_for(
+                f,
+                &start,
+                &BigFloat::from_f64(1e-3, 1024),
+                2000,
+                PeriodMethod::Ball,
+                64,
+                &mut never,
+            ) else {
+                panic!("no period at {re} {im}");
+            };
+            let opts = NewtonOptions {
+                precision_bits: Some(1024),
+                max_steps: 200,
+                ..NewtonOptions::default()
+            };
+            // (Newton on a folding map converges from inside the nucleus's smooth piece only;
+            // a start farther than that may fail, which seek handles by trying others.)
+            let Some(r) = find_nucleus_for(f, &start, p, &opts, &mut never) else {
+                println!("burning ship: no nucleus from {re} {im} (period {p})");
+                continue;
+            };
+            found += 1;
+            let z = z_after(&r.nucleus, p);
+            assert!(
+                z.re.log2_magnitude() < -900.0 && z.im.log2_magnitude() < -900.0,
+                "period {p} at {re} {im}: {z}"
+            );
+            let size = minibrot_size_complex_for(f, &r.nucleus, p).magnitude().to_f64();
+            assert!(size > 0.0 && size < 1.0, "{size}");
+            println!("burning ship nucleus near {re} {im}: period {p}, size {size:.3e}");
+        }
+        assert!(found >= 2, "{found} nuclei");
     }
 }
 

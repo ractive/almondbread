@@ -12,7 +12,9 @@
 //! `places::places_for`) and the Julia panel (`z^2 + k`) do not. `Mandelbar` (F5,
 //! kb: plans/f5-mandelbar) is the first non-conformal formula: BLA with 2x2 coefficients.
 
-pub use almondbread_math::{Formula, JuliaK, MULTIBROT_MAX_POWER};
+pub use almondbread_math::{
+    DoubleExp, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, JuliaK, MULTIBROT_MAX_POWER,
+};
 
 /// How a formula's references rebase (kb: techniques/rebasing).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,23 +160,35 @@ impl FormulaCapabilities {
         buddhabrot: false,
     };
 
+    /// The Burning Ship (F6, kb: plans/f6-burning-ship): Mandelbar's non-conformal path plus the
+    /// fold (`diffabs` in every perturbation step, BLA blocks capped at the fold lines). Not
+    /// built besides Mandelbar's gaps: the attracting-cycle probe (its step mixes holomorphic and
+    /// antiholomorphic Jacobians, so neither Mandelbrot's nor Mandelbar's even-period rule holds;
+    /// the derivative test proves interior pixels).
+    pub const BURNING_SHIP: Self = Self {
+        interior_probe: false,
+        ..Self::MANDELBAR
+    };
+
     pub fn of(formula: Formula) -> Self {
         match formula {
             Formula::Mandelbrot => Self::MANDELBROT,
             Formula::Multibrot(_) => Self::MULTIBROT,
             Formula::Julia(_) => Self::JULIA,
             Formula::Mandelbar => Self::MANDELBAR,
+            Formula::BurningShip => Self::BURNING_SHIP,
         }
     }
 }
 
 /// The formulas a user can pick, in menu order: Mandelbrot, then Multibrot `z^3 + c` ...
 /// `z^8 + c` (F3; `Multibrot(2)` is the tests' generic Mandelbrot and not offered), then
-/// Mandelbar (F5).
+/// Mandelbar (F5) and the Burning Ship (F6).
 pub fn selectable() -> Vec<Formula> {
     let mut v = vec![Formula::Mandelbrot];
     v.extend((3..=MULTIBROT_MAX_POWER).map(Formula::Multibrot));
     v.push(Formula::Mandelbar);
+    v.push(Formula::BurningShip);
     v
 }
 
@@ -187,6 +201,7 @@ pub fn family(formula: Formula) -> &'static str {
         Formula::Mandelbrot | Formula::Julia(_) => "mandelbrot",
         Formula::Multibrot(_) => "multibrot",
         Formula::Mandelbar => "mandelbar",
+        Formula::BurningShip => "burningship",
     }
 }
 
@@ -196,6 +211,7 @@ pub fn family_title(formula: Formula) -> &'static str {
         Formula::Mandelbrot | Formula::Julia(_) => "Mandelbrot",
         Formula::Multibrot(_) => "Multibrot",
         Formula::Mandelbar => "Mandelbar",
+        Formula::BurningShip => "Burning Ship",
     }
 }
 
@@ -208,6 +224,11 @@ pub fn title(formula: Formula) -> String {
     if formula == Formula::Mandelbar {
         // (z with a combining macron: the conjugate.)
         return "z\u{304}² + c".into();
+    }
+    if formula == Formula::BurningShip {
+        // F6: the literature's (|x| + i|y|)² + c shown with the imaginary axis flipped (ships
+        // upright), which as a formula in our coordinates is this one.
+        return "(|x| − i|y|)² + c".into();
     }
     const SUPERSCRIPTS: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
     let p = formula.power();
@@ -235,7 +256,12 @@ mod tests {
         let all = selectable();
         assert_eq!(all[0], Formula::Mandelbrot);
         assert_eq!(&all[1..7], &(3..=8).map(Formula::Multibrot).collect::<Vec<_>>()[..]);
-        assert_eq!(all[7..], [Formula::Mandelbar]);
+        assert_eq!(all[7..], [Formula::Mandelbar, Formula::BurningShip]);
+        // F6: Mandelbar's path without the probe.
+        let s = FormulaCapabilities::of(Formula::BurningShip);
+        assert_eq!(s.bla, BlaForm::Matrix);
+        assert!(s.perturbation && s.de && s.interior_derivative && s.seek && s.orbit_overlay);
+        assert!(!s.interior_probe && !s.la && !s.sa_seeds && !s.atom_domain && !s.content && !s.buddhabrot);
         // F5: the non-conformal path.
         let b = FormulaCapabilities::of(Formula::Mandelbar);
         assert_eq!(b.bla, BlaForm::Matrix);
@@ -253,6 +279,8 @@ mod tests {
         assert_eq!(family_title(Formula::Mandelbrot), "Mandelbrot");
         assert_eq!(family(Formula::Mandelbar), "mandelbar");
         assert_eq!(title(Formula::Mandelbar), "z\u{304}² + c");
+        assert_eq!(family(Formula::BurningShip), "burningship");
+        assert_eq!(family_title(Formula::BurningShip), "Burning Ship");
         // F4: a Julia set is no picker entry; it belongs to the Mandelbrot family.
         let j = Formula::Julia(almondbread_math::JuliaK::new(
             &almondbread_math::BigComplex::parse("-0.12", "0.74", 128).unwrap(),

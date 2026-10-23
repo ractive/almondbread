@@ -288,7 +288,9 @@ impl Options {
         if let Some(v) = self.get("formula") {
             match almondbread_core::formula::Formula::parse(v) {
                 Some(f) => s.formula = f,
-                None => eprintln!("almondbread: --formula {v}: expected mandelbrot, multibrot2..8 or mandelbar"),
+                None => eprintln!(
+                    "almondbread: --formula {v}: expected mandelbrot, multibrot2..8, mandelbar or burningship"
+                ),
             }
         }
         // F4: the Julia set of `z^2 + k` as the main view (`--julia-k re,im`, any number of

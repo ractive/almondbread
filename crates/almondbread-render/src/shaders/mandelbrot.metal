@@ -52,7 +52,7 @@ constant uint kPower = is_function_constant_defined(kPowerFC) ? kPowerFC : 2u;
 // F5 (kb: plans/f5-mandelbar): formulas whose step is not complex-analytic carry their
 // derivatives as real-linear maps (see "Non-conformal derivatives"). Derived from kFormula, so
 // every conformal pipeline (and every pre-F5 one) folds the non-conformal code away.
-constant bool kConformal = kFormula != 3u;
+constant bool kConformal = kFormula != 3u && kFormula != 4u;
 constant bool kNonConformal = !kConformal;
 
 // Iteration-texture codes in .x besides n >= 0.
@@ -666,12 +666,42 @@ static inline FE feConj(FE a) {
     return FE{float2(a.m.x, -a.m.y), a.e};
 }
 
+// F6 Burning Ship (kFormula 4; kb: plans/f6-burning-ship "As built", formulas/burning-ship):
+// z <- (|x| - i|y|)^2 + c (the literature's ship with the imaginary axis flipped). Its
+// perturbation step: x' = Re((2Z + z) z) + cx, y' = cy - 2 diffabs(XY, Xy + xY + xy) with
+// diffabs(a, d) = |a + d| - |a| by sign cases (no cancellation).
+static inline float diffabsf(float a, float d) {
+    return a >= 0.0f ? (a + d >= 0.0f ? d : -(2.0f * a + d)) : (a + d > 0.0f ? 2.0f * a + d : -d);
+}
+
+// The rescaled fold step: w' = (f(Z + sw) - f(Z)) / s + dd with xys = X Y / s (clamped to
+// +-2^100, where no fold is possible). The fold is decided at the scale of the delta: a sign
+// change of X + x or Y + y needs |X Y| / s comparable to |X w.y + w.x Y|, which float32 holds
+// at any depth, so no step needs floatexp because one part of Z is small (the "deep needle"
+// of mathr's notes) as long as X Y / s is known: from the float32 reference while both parts
+// are above 2^-60, else from the split floatexp reference (foldXY).
+static inline float2 fStepFold(float2 Z, float2 sw, float2 w, float2 dd, float xys) {
+    const float re = (2.0f * Z.x + sw.x) * w.x - (2.0f * Z.y + sw.y) * w.y;
+    const float d = Z.x * w.y + w.x * Z.y + sw.x * w.y;
+    return float2(re + dd.x, dd.y - 2.0f * diffabsf(xys, d));
+}
+
+// m 2^k / 2^e as float32, saturated to +-2^100 (no fold possible) and flushed below 2^-150.
+static inline float foldScaled(float m, int k, int e) {
+    if (m == 0.0f) return 0.0f;
+    const int t = expOf(abs(m)) + k - e;
+    if (t > 100) return m > 0.0f ? 0x1p100f : -0x1p100f;
+    if (t < -150) return 0.0f;
+    return scale2(float2(m, 0.0f), k - e).x;
+}
+
 // The perturbation step: z' = S w + dd for the delta z = s w (s = 1: w = sw = z), W = Z + sw.
 // F5 Mandelbar (formula 3): conj(Z + z)^2 - conj(Z)^2 = conj((2Z + z) z), conjugated before +c.
 static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
     if (kFormula == 0u) return cmul(2.0f * Z + sw, w) + dd;
     if (kFormula == 2u) return cmul(2.0f * Z + sw, w);   // F4 Julia: no +c
     if (kFormula == 3u) return conjf(cmul(2.0f * Z + sw, w)) + dd;
+    if (kFormula == 4u) return fStepFold(Z, sw, w, dd, Z.x * Z.y);   // (s = 1 callers only)
     const float2 W = Z + sw;
     float2 S = float2(1.0f, 0.0f), Zk = float2(1.0f, 0.0f);
     for (uint i = 1; i < kPower; i++) {
@@ -698,12 +728,22 @@ static inline FE fPrime2X(FE z) {
     return kPower == 2u ? feNorm(float2(k, 0.0f), 0) : feMul(feNorm(float2(k, 0.0f), 0), fPowX(z, kPower - 2u));
 }
 
+// F6: the floatexp fold step with X Y given (xy.m.x 2^xy.e; from the split reference where one
+// part of Z is far below the other). P = (2Z + z) z = (x' - cx, 2d); y' = cy - diffabs(2XY, 2d).
+static inline FE fStepXFold(FE Zx, FE zx, FE C, FE xy) {
+    const FE P = feMul(feAdd(feTwice(Zx), zx), zx);
+    if (P.e == FE_ZERO) return C;
+    const float u = foldScaled(xy.m.x, xy.e + 1, P.e);
+    return feAdd(feNorm(float2(P.m.x, -diffabsf(u, P.m.y)), P.e), C);
+}
+
 // The floatexp perturbation step z' = S z + C, S from W = Z + z ((2Z + z) for Mandelbrot,
 // with 2Z as FE{Z.m, Z.e + 1}).
 static inline FE fStepX(FE Zx, FE zx, FE C) {
     if (kFormula == 0u) return feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
     if (kFormula == 2u) return feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx);   // F4 Julia: no +c
     if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx)), C);
+    if (kFormula == 4u) return fStepXFold(Zx, zx, C, feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e));
     const FE W = feAdd(Zx, zx);
     FE S = FE{float2(0.5f, 0.0f), 1}, Zk = S;
     for (uint i = 1; i < kPower; i++) {
@@ -718,6 +758,7 @@ static inline FE fStepXT(FE Zx, FE zx, FE C) {
     if (kFormula == 0u) return feAdd(feMul(feAdd(feTwice(Zx), zx), zx), C);
     if (kFormula == 2u) return feMul(feAdd(feTwice(Zx), zx), zx);
     if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(feTwice(Zx), zx), zx)), C);
+    if (kFormula == 4u) return fStepXFold(Zx, zx, C, feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e));
     return fStepX(Zx, zx, C);
 }
 
@@ -779,8 +820,18 @@ static inline FE fIcZZ(FE zf, FE z2, FE zz, FE lam) {
 // (ncMul / ncMulX: (p, q) <- J_f(z) o (p, q)); Mandelbar's is d -> conj(2 z d), so
 // p' = conj(2 z q), q' = conj(2 z p). F6 adds its own cases (the Burning Ship family's
 // Jacobian is z -> 2z or the Mandelbar one, by the signs of x y).
+// F6 Burning Ship: where x y < 0 its Jacobian is 2z (conformal), else Mandelbar's reflection.
+static inline bool foldConformal(float2 z) {
+    return (z.x > 0.0f && z.y < 0.0f) || (z.x < 0.0f && z.y > 0.0f);
+}
+
 static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
     const float2 z2 = 2.0f * z;
+    if (kFormula == 4u && foldConformal(z)) {
+        p = cmul(z2, p);
+        q = cmul(z2, q);
+        return;
+    }
     const float2 np = conjf(cmul(z2, q));
     q = conjf(cmul(z2, p));
     p = np;
@@ -788,6 +839,11 @@ static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
 
 static inline void ncMulX(FE z, thread FE& p, thread FE& q) {
     const FE z2 = feTwice(z);
+    if (kFormula == 4u && foldConformal(z.m)) {
+        p = feMul(z2, p);
+        q = feMul(z2, q);
+        return;
+    }
     const FE np = feConj(feMul(z2, q));
     q = feConj(feMul(z2, p));
     p = np;
@@ -920,7 +976,31 @@ static inline void deepRescale(thread float2& w, thread int& e, thread float& s,
     dd = dc * pow2f(min(scaleExp - e, 100));
 }
 
+// F6: a folding formula's floatexp reference keeps each part with its own exponent
+// (almondbread_math::FloatExpSplit in the same 16-byte slots: the second exponent in RefX's
+// padding word), so X Y stays exact where one part is far below the other (the needle).
+struct RefXS {
+    float2 m;
+    int    e;
+    int    e2;
+};
+
+// X Y of a folding formula's reference point m as (mantissa, exponent) in .m.x, .e.
+static inline FE foldXY(device const RefX* refx, uint m) {
+    const RefXS r = ((device const RefXS*)refx)[m];
+    const float xy = r.m.x * r.m.y;
+    return xy == 0.0f ? FE{float2(0.0f), FE_ZERO} : feNorm(float2(xy, 0.0f), r.e + r.e2);
+}
+
 static inline FE refAt(device const RefX* refx, uint m) {
+    if (kFormula == 4u) {
+        const RefXS r = ((device const RefXS*)refx)[m];
+        const bool zx = r.m.x == 0.0f, zy = r.m.y == 0.0f;
+        if (zx && zy) return FE{float2(0.0f), FE_ZERO};
+        const int e = zx ? r.e2 : (zy ? r.e : max(r.e, r.e2));
+        return FE{float2(zx ? 0.0f : scale2(float2(r.m.x, 0.0f), r.e - e).x,
+                         zy ? 0.0f : scale2(float2(r.m.y, 0.0f), r.e2 - e).x), e};
+    }
     RefX r = refx[m];
     return FE{r.m, (r.m.x == 0.0f && r.m.y == 0.0f) ? FE_ZERO : r.e};
 }
@@ -2039,8 +2119,13 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             zw = wx.m; wExp = wx.e;
                         }
                         }
-                        // z <- (2Z + z) z + c in floatexp (the formula's step).
-                        zx = fStepX(Zx, zx, C);
+                        // z <- (2Z + z) z + c in floatexp (the formula's step; F6: the fold with
+                        // the split reference's exact X Y).
+                        if (kFormula == 4u) {
+                            zx = fStepXFold(Zx, zx, C, m == 0 ? FE{float2(0.0f), FE_ZERO} : foldXY(refx, m));
+                        } else {
+                            zx = fStepX(Zx, zx, C);
+                        }
                         m++;
                         n++;
                         budget--;
@@ -2107,7 +2192,20 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             }
                         }
                     }
-                    w = fStep(Z, sw, w, dd);
+                    if (kFormula == 4u) {
+                        // F6: X Y / s for the fold: the float32 product while both parts are
+                        // normal and well above 2^-126, else the split reference's.
+                        float xys;
+                        if (min(abs(Z.x), abs(Z.y)) >= 0x1p-60f) {
+                            xys = foldScaled(Z.x * Z.y, 0, e);
+                        } else {
+                            const FE xy = foldXY(refx, m);
+                            xys = foldScaled(xy.m.x, xy.e, e);
+                        }
+                        w = fStepFold(Z, sw, w, dd, xys);
+                    } else {
+                        w = fStep(Z, sw, w, dd);
+                    }
                     m++;
                     n++;
                     budget--;

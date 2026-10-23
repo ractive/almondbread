@@ -59,6 +59,58 @@ impl FloatExpComplex {
     }
 }
 
+/// A complex value whose components carry their own exponents (F6, kb: plans/f6-burning-ship
+/// "As built"): `(m[0] 2^e[0], m[1] 2^e[1])`, each mantissa magnitude in [0.5, 1) or 0 (with
+/// exponent 0). Unlike [`FloatExpComplex`] the smaller component is never flushed: the Burning
+/// Ship's fold needs the sign and size of `X Y` when one part is far below the other (a reference
+/// along the needle, `Y ~ 1e-100`). Same 16 bytes as [`FloatExpComplex`]; MSL reads it from the
+/// same buffer as `{float2 m; int e; int e2}` (the second exponent in the padding word).
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FloatExpSplit {
+    pub mantissa: [f32; 2],
+    pub exponent: [i32; 2],
+}
+
+const _: () = assert!(core::mem::size_of::<FloatExpSplit>() == 16);
+
+impl FloatExpSplit {
+    pub const ZERO: FloatExpSplit = FloatExpSplit {
+        mantissa: [0.0, 0.0],
+        exponent: [0, 0],
+    };
+
+    /// From extended-range components (each rounded to f32 once).
+    pub fn from_double_exp(z: DoubleExpComplex) -> Self {
+        let part = |d: DoubleExp| -> (f32, i32) {
+            if d.is_zero() {
+                return (0.0, 0);
+            }
+            let mut m = d.mantissa as f32;
+            let mut e = d.exponent;
+            if m.abs() >= 1.0 {
+                m *= 0.5;
+                e += 1;
+            }
+            (m, e.clamp(i32::MIN as i64 / 2, i32::MAX as i64 / 2) as i32)
+        };
+        let (a, ea) = part(z.re);
+        let (b, eb) = part(z.im);
+        FloatExpSplit {
+            mantissa: [a, b],
+            exponent: [ea, eb],
+        }
+    }
+
+    pub fn to_double_exp(self) -> DoubleExpComplex {
+        let part = |m: f32, e: i32| DoubleExp::from_f64(f64::from(m)).times_power_of_two(i64::from(e));
+        DoubleExpComplex::new(
+            part(self.mantissa[0], self.exponent[0]),
+            part(self.mantissa[1], self.exponent[1]),
+        )
+    }
+}
+
 /// |d| = significand * 2^exponent with significand in [1, 2) (also for subnormals).
 /// `d` must be finite and non-zero.
 pub(crate) fn exponent_significand(d: f64) -> (i64, f64) {

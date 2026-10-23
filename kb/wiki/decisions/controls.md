@@ -3175,7 +3175,10 @@ line in a Julia view leaves it for the Mandelbrot set. A place (all places are M
 Multibrot) from a Julia view is a jump that drops the way back. The mini-map's whole level is the
 current set's home view (Multibrot: centred on 0). F5 adds the Mandelbar set (the Tricorn,
 `z̄² + c`) as a family of one: no power picker, home view centred on -1/2, links carry
-`formula mandelbar`, no twin or Julia panel ([F5: Mandelbar (Tricorn) and the non-conformal path](../plans/f5-mandelbar.md)).
+`formula mandelbar`, no twin or Julia panel ([F5: Mandelbar (Tricorn) and the non-conformal path](../plans/f5-mandelbar.md)). F6 adds the
+Burning Ship ("Burning Ship", `(|x| − i|y|)² + c`), also a family of one: shown upright (the
+literature's set mirrored in the real axis, so our `im` is the literature's negated), home view
+centred on -0.45 + 0.62i, links carry `formula burningship` ([F6: Burning Ship family](../plans/f6-burning-ship.md)).
 
 **Julia switches by formula (2026-10-22).** The rule comes from Rust's capabilities, never from
 a formula name in Swift (`ExplorerModel.hasJuliaPanelSwitch` = a Julia view or
