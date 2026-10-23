@@ -315,7 +315,10 @@ against the last checkpoint's image. With independent noise of s / sqrt(n) per p
 between n1 and n2 hits is s·sqrt(1/n1 − 1/n2), so the noise left at n2 is
 `d · sqrt(n1 / (n2 − n1))` (mean levels). The image counts as clean at **2 levels**
 (`CLEAN_NOISE`; the whole set at 1500 hits, judged clean by looking, measures 1.7). Sampling also
-stops at a **budget of 60 GPU seconds** per view (`REST_BUDGET`, as compute further's); the HUD
+stops at a **budget of 60 GPU seconds** per view (`REST_BUDGET`, as compute further's) or at
+**1500 hits per pixel** (`REST_HITS_BUDGET`, the first build's target, so no view samples longer
+than it did before; a first time-only budget made a 640 × 400 view 0.002 wide sample 60 s instead
+of ~6 s, caught by `colour_change_during_progressive_aa`); the HUD
 then offers "Continue" (button, G) for another 60. The progress is the share of the hits the
 noise law predicts (`(CLEAN_NOISE / noise)²`), or of the budget, whichever is further; before the
 first estimate, of 1500 hits. Levels stop with sampling (one last measurement), so a settled view
@@ -323,9 +326,13 @@ does no GPU work and the display link stops.
 
 | View (2560 × 1600) | before: GPU at rest | before: stops | after: stops | after: GPU over 75 s |
 |---|---|---|---|---|
-| home, 3.2 wide | ~85 % until done | 11.5 s (1500 hits) | 6.7 s, converged (1510 hits, noise 1.8) | 8.7 % |
-| −0.75 + 0.1i, 0.1 wide | ~99 % | ~90 s (1500 hits) | 62 s, budget (1850 hits, noise 14.8) | 82 % (0 after 62 s) |
-| −0.7435 + 0.1314i, 1e-3 wide | ~99 % | ~85 s | 23 s, converged (560 hits, noise 1.8) | 30 % |
+| home, 3.2 wide | ~85 % until done | 11.5 s (1500 hits) | 6.4 s, hits cap (1508 hits, noise 2.1) | 8.2 % |
+| −0.75 + 0.1i, 0.1 wide | ~99 % | ~90 s (1500 hits) | 52 s, hits cap (noise 17.5) | 66 % (0 after 52 s) |
+| −0.7435 + 0.1314i, 1e-3 wide | ~99 % | ~85 s | 23 s, converged (562 hits, noise 1.8) | 30 % |
+
+(Without the hits cap, same runs: home 6.7 s converged at noise 1.8; 0.1 wide 62 s at the time
+budget, 1850 hits, noise 14.8. The before numbers are from a load average near 30, the after ones
+10–50; the share of a 4 M pixel view's GPU time is what compares.)
 
 The 1e-3 view converges early because its image is nearly black: the 99.8th-percentile white
 point sits on bright MH speckle, the flat field lies under the black point, and a dark image
@@ -334,7 +341,7 @@ iPad runs the same code: the same criterion and budget, and the thermal policy s
 sampling at serious state (unverified on a device).
 
 **HUD.** While sampling: "Buddhabrot · sharpening · 40 % · ~20 s", narrower than 0.1:
-"… · deep: takes minutes here"; stopped at the budget: "Buddhabrot · paused at 12 % after 1 min"
+"… · deep: takes minutes here"; stopped at a budget: "Buddhabrot · paused at 12 % after 52 s"
 with "Continue". The canvas line follows the same progress.
 
 # Citations

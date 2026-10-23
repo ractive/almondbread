@@ -360,8 +360,11 @@ pub fn eta_text(seconds: f64) -> String {
     }
 }
 
-/// "1 min", "3 min" (whole minutes, at least one).
+/// "6 s", "1 min", "3 min" (seconds below a minute, else whole minutes).
 fn minutes_text(seconds: f64) -> String {
+    if seconds < 59.5 {
+        return format!("{:.0} s", seconds.max(1.0));
+    }
     format!("{:.0} min", (seconds / 60.0).round().max(1.0))
 }
 
@@ -1174,5 +1177,15 @@ mod tests {
             ..RenderProgress::default()
         };
         assert_eq!(paused.text(), "Buddhabrot · paused at 12 % after 1 min");
+        let early = RenderProgress {
+            orbits_paused: Some(OrbitProgress {
+                stopped: true,
+                sharp: 0.91,
+                seconds: 6.4,
+                ..o
+            }),
+            ..RenderProgress::default()
+        };
+        assert_eq!(early.text(), "Buddhabrot · paused at 91 % after 6 s");
     }
 }

@@ -2030,9 +2030,13 @@ display link stopping when the renderer is settled; GPU = sample dispatches + fr
 
 | View, 2560 × 1600 | before: stops | before: GPU first 40 s | after: stops | after: GPU over 75 s |
 |---|---|---|---|---|
-| home (3.2 wide) | 11.5 s at 1500 hits, then a re-toned frame every 0.33 s forever | 24 % (85 % until done) | 6.7 s, converged (noise 1.8 levels, 1510 hits) | 8.7 %, 0 after |
-| −0.75 + 0.1i, 0.1 wide | ~90 s (1500 hits at 17/s) | 98 % | 62 s, GPU budget (noise 14.8, 1850 hits) | 82 %, 0 after |
-| −0.7435 + 0.1314i, 1e-3 wide | ~85 s | 95 % | 23 s, converged (noise 1.8, 560 hits; nearly black image) | 30 %, 0 after |
+| home (3.2 wide) | 11.5 s at 1500 hits, then a re-toned frame every 0.33 s forever | 24 % (85 % until done) | 6.4 s, hits cap (noise 2.1 levels, 1508 hits) | 8.2 %, 0 after |
+| −0.75 + 0.1i, 0.1 wide | ~90 s (1500 hits at 17/s) | 98 % | 52 s, hits cap (noise 17.5, 1501 hits) | 66 %, 0 after |
+| −0.7435 + 0.1314i, 1e-3 wide | ~85 s | 95 % | 23 s, converged (noise 1.8, 562 hits; nearly black image) | 30 %, 0 after |
+
+Stop rule: converged (noise ≤ 2 levels), 60 GPU s, or 1500 hits per pixel, whichever first.
+Without the hits cap: home 6.7 s converged (noise 1.8), 0.1 wide 62 s at the time budget (1850
+hits, noise 14.8, 82 % over 75 s).
 
 **Noise vs hits** (`buddha --snap`, 1280 × 800, mean largest-channel difference to the final
 image in 8-bit levels): whole set 5.96 / 4.36 / 3.03 / 2.05 / 1.47 / 1.05 at 140 / 277 / 521 / 1081 /
