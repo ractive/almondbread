@@ -234,8 +234,10 @@ fn compare_runs<B: GpuBackend>(
 /// levels) and the share of pixels that differ by more than one level.
 fn image_change(a: &[u8], b: &[u8]) -> String {
     let mut d: Vec<u8> = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .map(|(p, q)| (0..3).map(|k| p[k].abs_diff(q[k])).max().unwrap_or(0))
         .collect();
     let n = d.len().max(1);
@@ -366,7 +368,7 @@ fn live<B: GpuBackend + Clone>(
             let mut px = vec![0u8; width * height * 4];
             backend.read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut px)?;
             let mut m = [0f64; 3];
-            for p in px.chunks_exact(4) {
+            for p in px.as_chunks::<4>().0 {
                 m[0] += f64::from(p[2]);
                 m[1] += f64::from(p[1]);
                 m[2] += f64::from(p[0]);
@@ -533,7 +535,7 @@ fn idle<B: GpuBackend + Clone>(
     );
     let mut px = vec![0u8; width * height * 4];
     backend.read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut px)?;
-    write_png_bgra(&format!("{out}-idle.png"), &px, width, height)?;
+    write_png_bgra(format!("{out}-idle.png"), &px, width, height)?;
     println!("  {out}-idle.png");
     Ok(0)
 }
