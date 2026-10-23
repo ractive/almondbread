@@ -25,9 +25,11 @@ pub fn progress_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Resu
     o.apply_settings(&mut r.settings);
     o.apply_renderer(&mut r);
     if o.get("settings") != Some("plain") {
-        // The app's look and progressive anti-aliasing, with the asked iteration settings.
+        // The app's look and progressive anti-aliasing, with the asked iteration settings and
+        // fractal (a place's formula, `--formula`).
         let s = r.settings.clone();
         r.settings = app_settings;
+        r.settings.formula = s.formula;
         r.settings.auto_iterations = s.auto_iterations;
         r.settings.manual_iterations = s.manual_iterations;
         r.settings.max_iterations_cap = s.max_iterations_cap;

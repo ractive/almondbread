@@ -107,7 +107,10 @@ and quit by themselves):
 - Ground truth for slow-escape views: `cargo run --release -p almondbread-core --example neck_truth
   -- --center re,im --scale s --size 160x100 --limit 1e7 [--dd k]` (direct f64, escape histogram,
   interior proof; `--paint a.iter [--cycle p]` paints any `verify --dump`; kb:
-  synthesis/neck-escape-statistics). `verify --history ... --cap n --timeout s` with
+  synthesis/neck-escape-statistics). Any formula, any depth, by direct BigFloat per pixel:
+  `cargo run --release -p almondbread-core --example fold_truth -- --formula burningship --center
+  re,im --scale s --size 64x40 --limit 1000000 [--out x]` (precision and 0.001 px shift agreement:
+  rounding vs chaos; `x.iter` for `verify --fields`). `verify --history ... --cap n --timeout s` with
   `ALMONDBREAD_SNAPSHOT=x.png` saves the frame shown at the timeout (a render in progress).
 - Stills of features: `almondbread render out.png --inside flat|bubbles|period|angle|distance`
   (interior colourings; prints the period histogram), `--orbit x,y --map 1` (orbit overlay and

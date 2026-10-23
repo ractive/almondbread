@@ -110,7 +110,8 @@ review of the content, as for Mandelbrot.
   almondbread by "As built": none is needed once the fold is decided at the delta's scale with
   an exact `X Y` (measured to 1e-1000).
 - How should the chaotic bounded regions (unresolved, never provable) be coloured, and should the
-  auto-iteration limit stop chasing them? (The ship's deep zoom settles 9.6 s after input.)
+  auto-iteration limit stop chasing them? Colouring answered after the first review (2026-10-23,
+  "Review fixes" below): as the set. Chasing still open (numbers there).
 - Which abs variants are worth a picker entry?
 
 ## As built (2026-10-23, awaiting review)
@@ -142,8 +143,9 @@ almondbread (F6)". Differences from the sketch above:
 - **Kernel** (`mandelbrot.metal`, formula 4; `kConformal = kFormula != 3u && kFormula != 4u`,
   so formulas 0–3 compile as before). `fStepFold` (float32, plain and rescaled), `fStepXFold`
   (floatexp, `XY` given), `foldScaled`, `foldXY` and `refAt` reading the split reference;
-  `ncMul` / `ncMulX` take `2z` where `x y < 0`, Mandelbar's reflection elsewhere; everything else
-  (matrix BLA walk, ncBuf state, DE, interior test) is F5's.
+  `ncMulFold` / `ncMulFoldX` take `2z` where `x y < 0`, Mandelbar's reflection (`ncMul`)
+  elsewhere, the sign from the step's own test (review fix below); everything else (matrix BLA
+  walk, ncBuf state, DE, interior test) is F5's.
 - **BLA.** `single_radius` and the deep table's single step gain the fold cap
   `min(|X|, |Y|) / 2`; a part flushed in the shared floatexp form caps to 0 (no block).
 - **Newton and seek.** `JacobianNewton` takes the conformal step where `x y < 0`; the ball
@@ -153,9 +155,10 @@ almondbread (F6)". Differences from the sketch above:
 - **No probe.** The attracting-cycle probe is off (`FormulaCapabilities::BURNING_SHIP`): the step
   mixes holomorphic and antiholomorphic Jacobians, so neither Mandelbrot's nor Mandelbar's
   even-period rule holds. Large regions are bounded chaotic orbits anyway (no cycle to prove):
-  they stay unresolved, as in every other renderer.
+  they stay unresolved, and since the first review draw as the set (below).
 - **Places.** Six, with thumbnails: the whole ship, the ship by the needle, a period-18 needle
-  minibrot, little ships of periods 31 (1e-12) and 403 (1e-19), the needle at 1e-100. Journeys,
+  minibrot, little ships of periods 20 (1e-10) and 60 (1e-19) (they replaced 31 and 403 after the
+  first review), the needle at 1e-100. Journeys,
   the tour and autopilot tuning were not built: they are the second review gate's content work
   (`content: false`); the autopilot already flies Burning Ship views (90 s simulation: target
   lock, 0 % uniform frames).
@@ -164,13 +167,31 @@ almondbread (F6)". Differences from the sketch above:
 
 **What F7 hybrids would reuse.** `Formula::folds()` and the fold step (`diffabs` at the delta's
 scale, `fStepFold` / `fStepXFold`), the split floatexp reference for any formula whose step reads
-a product of the parts, the per-step Jacobian switch (`ncMul` by sign), the fold cap in
+a product of the parts, the per-step Jacobian switch (`ncMulFold` by the step's sign), the fold cap in
 `single_radius`, and the reference loops' `ABS` const generic (an abs is a sign drop on a product
 register). A hybrid's per-phase step would pick among these per opcode.
 
+**Review fixes (2026-10-23, after the user's first look).** Numbers in
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F6 review fixes", maths on the formula page.
+
+- **The ship place** takes the user's framing: `-1.7446738163860224 + 0.038088366410778681i`,
+  span 0.11704 (0.000108068 per point across 1083 points).
+- **Rectangles on the needle** (8e94x): a bug. The lighting / DE Jacobian took the fold sign from
+  the float32 sum `Z + s w`, where `Y + y` flushes to 0 on the needle. Now the step's own sign
+  test (`foldConformalAt`, `foldConformalX`); 28 % of the normals pointed the wrong way, 0 after.
+- **Unresolved draws as the set** (capability `bounded_interior`, Burning Ship only): the hull's
+  grey fog smear becomes the solid hull.
+- **Little ships.** 31 and 403 sit in the hull's chaotic sea (noise at any sampling, the ship a
+  skewed blob); 20 and 60, found by seek from the left mast, read as ships.
+- **Chasing (proposal, not built).** Extension passes and compute further still chase the
+  unresolved pixels. At the old period-403 view (1600 × 1000, `progress`) the view settles after
+  10.4 s: the extension to 56 k resolves 6.3 % of the pixels in 2.2 s, compute further to 200 k
+  another 2.4 % in 4.7 s (escape-time noise in the sea, from interior colour to colour); the
+  period-60 place settles in 3.2 s, the whole ship in 1.9 s, the ship in 1.0 s. Skipping compute
+  further for `bounded_interior` formulas would halve the worst case; the user decides.
+
 **Unverified.** A foreground session on the Mac, the iPad and a device (the review gate); the
-other abs variants; how the chaotic unresolved regions should be coloured (they show the
-unresolved shading today).
+other abs variants; the review fixes in a foreground window (headless renders and tests only).
 
 ## Effort breakdown
 
