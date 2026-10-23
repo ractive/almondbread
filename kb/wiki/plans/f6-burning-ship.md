@@ -158,7 +158,8 @@ almondbread (F6)". Differences from the sketch above:
   they stay unresolved, and since the first review draw as the set (below).
 - **Places.** Six, with thumbnails: the whole ship, the ship by the needle, a period-18 needle
   minibrot, little ships of periods 20 (1e-10) and 60 (1e-19) (they replaced 31 and 403 after the
-  first review), the needle at 1e-100. Journeys,
+  first review; the second review replaced 18, 20 and 60 by twelve places from the literature,
+  fifteen in all, listed on the formula page), the needle at 1e-100. Journeys,
   the tour and autopilot tuning were not built: they are the second review gate's content work
   (`content: false`); the autopilot already flies Burning Ship views (90 s simulation: target
   lock, 0 % uniform frames).
@@ -189,6 +190,13 @@ register). A hybrid's per-phase step would pick among these per opcode.
   another 2.4 % in 4.7 s (escape-time noise in the sea, from interior colour to colour); the
   period-60 place settles in 3.2 s, the whole ship in 1.9 s, the ship in 1.0 s. Skipping compute
   further for `bounded_interior` formulas would halve the worst case; the user decides.
+
+**Second review (2026-10-23).** Places: twelve from the literature (Paul Bourke, Wikimedia,
+robotmoon's presets, mathr's 2018 zoom at 1e-150, Maths Town's "Industrial" at 1e-300) replace
+"Needle minibrot 18", "Little ship 20" and "Little ship 60"; ids and sources in
+`places_data.rs`, the list on the formula page. Straight lighting seams (four-ship armada,
+cathedral ship): genuine creases at fold preimages, not a normal bug (evidence and a softening
+proposal on the formula page, "Seams are creases").
 
 **Unverified.** A foreground session on the Mac, the iPad and a device (the review gate); the
 other abs variants; the review fixes in a foreground window (headless renders and tests only).
