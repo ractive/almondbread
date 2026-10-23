@@ -187,6 +187,7 @@ impl<B: GpuBackend> Renderer<B> {
             return false;
         }
         r.budget = r.done.gpu_time + crate::buddha::REST_BUDGET;
+        r.hits_budget = f64::INFINITY;
         self.buddha.rest_done_at = None;
         self.buddha.settled = false;
         true
@@ -734,7 +735,8 @@ mod tests {
             r.viewport.zoom_by(2f64.powf(2.0 * dt), 0.0, 0.0);
             r.note_interaction(now);
             r.render_frame(now, w, h, 1.0, &mut acquire);
-            let live = r.buddha_shown().0 == BuddhaShown::Live;
+            // (The look: live, or the rest image still shown when a refresh was skipped.)
+            let live = r.buddha_shown().0 != BuddhaShown::None;
             if shown.last() != Some(&live) {
                 shown.push(live);
             }

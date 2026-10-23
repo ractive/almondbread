@@ -290,8 +290,10 @@ pub struct Rest<B: GpuBackend> {
     /// estimated from the change since the check before (mean 8-bit levels).
     pub check_hits: f64,
     pub noise: Option<f64>,
-    /// GPU seconds of sampling this view may take ("Continue" adds more).
+    /// GPU seconds of sampling this view may take, and its hits per pixel at most ("Continue"
+    /// adds time and lifts the hits cap).
     pub budget: f64,
+    pub hits_budget: f64,
 }
 
 /// Convergence (kb: plans/buddhabrot "Convergence"): the rest image counts as clean when its
@@ -308,6 +310,10 @@ pub const PRIOR_HITS: f64 = 1500.0;
 /// GPU seconds of sampling a resting view gets (each "Continue" as many again), as compute
 /// further's budget: views narrower than about 0.1 do not converge in minutes.
 pub const REST_BUDGET: f64 = 60.0;
+/// ... and at most this many hits per pixel (the faintest channel's mean), the clean target of
+/// the first build: a view that has not converged by then (narrower than about 0.5) never
+/// samples longer than it did before convergence was measured.
+pub const REST_HITS_BUDGET: f64 = 1500.0;
 
 /// The rest image shows from this many hits per pixel on (measured levels of its own, see
 /// [`Buddha::levels_ready`]); until then the previous image stays.
@@ -334,9 +340,9 @@ impl<B: GpuBackend> Rest<B> {
         self.noise.is_some_and(|n| n <= CLEAN_NOISE)
     }
 
-    /// Sampling has used the view's GPU budget.
+    /// Sampling has used the view's GPU budget or reached its hits cap.
     pub fn out_of_budget(&self) -> bool {
-        self.done.gpu_time >= self.budget
+        self.done.gpu_time >= self.budget || self.mean_hits() >= self.hits_budget
     }
 
     /// Progress to the end of sampling, 0..1: the share of the hits convergence needs (noise
@@ -346,7 +352,10 @@ impl<B: GpuBackend> Rest<B> {
         if self.converged() || self.out_of_budget() {
             return 1.0;
         }
-        self.sharpness().max(self.done.gpu_time / self.budget).clamp(0.0, 1.0)
+        self.sharpness()
+            .max(self.done.gpu_time / self.budget)
+            .max(self.mean_hits() / self.hits_budget)
+            .clamp(0.0, 1.0)
     }
 
     /// The share of the hits convergence needs, 0..1.
@@ -900,6 +909,7 @@ impl<B: GpuBackend> Buddha<B> {
             check_hits: 0.0,
             noise: None,
             budget: REST_BUDGET,
+            hits_budget: REST_HITS_BUDGET,
         });
         Ok(true)
     }
