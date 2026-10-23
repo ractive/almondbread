@@ -3305,7 +3305,8 @@ struct ColorParams {
     uint   fogLevels;     // fog over unresolved pixels: levels of the fog pyramid (0: none, the
                           // plain deep fog; kb: techniques/unresolved-fog)
     float  fogPoints;     // display points per iteration texel (fog widths in points)
-    uint   pad3;
+    uint   boundedInterior; // 1: unresolved pixels draw as the interior colour, not the fog (F6:
+                            // the Burning Ship's bounded chaotic orbits, never provable)
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -3450,11 +3451,17 @@ static inline float3 fogDeep() {
     return FOG_DEEP;
 }
 
+// An unresolved pixel without the fog pyramid: the deep fog, or the interior colour for a
+// formula whose unresolved pixels are bounded orbits (boundedInterior, the Burning Ship).
+static inline float3 unresolvedColor(constant ColorParams& c) {
+    return c.boundedInterior != 0u ? c.interior.rgb : fogDeep();
+}
+
 static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel, float sampleWidth = 1.0f) {
     // Unresolved: the deep fog. The callers that have the fog pyramid draw fogAt() instead
     // (light at resolved neighbours); previews and gesture frames draw this.
-    if (it.x == ITER_UNRESOLVED) return fogDeep();
+    if (it.x == ITER_UNRESOLVED) return unresolvedColor(c);
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense, calm;
     float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm, sampleWidth);
@@ -3676,7 +3683,7 @@ kernel void fogResolve(texture2d<float, access::sample> fa  [[texture(0)]],
 
 // The fog at unresolved texel s: the resolved fog texture (bilinear), or the deep fog without it.
 static inline float3 fogAt(uint2 s, constant ColorParams& c, texture2d<float, access::sample> fog) {
-    if (c.fogLevels == 0u) return fogDeep();
+    if (c.fogLevels == 0u || c.boundedInterior != 0u) return unresolvedColor(c);
     constexpr sampler bl(coord::normalized, filter::linear, address::clamp_to_edge);
     const float2 p = (float2(s) + 0.5f) / float(2u << FOG_RES) / float2(fog.get_width(), fog.get_height());
     return fog.sample(bl, p, level(0)).rgb;
@@ -3884,9 +3891,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         float2 it;
         bool done = finished(iters, gid, c, rank, admitted, it);
         if (q.mode == 2) {
-            // An AA sample: unresolved samples do not count (they would grey the mean), and
-            // pixels off the adaptive list (ITER_SKIP) keep their mean.
-            bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
+            // An AA sample: unresolved samples do not count (they would grey the mean; unless
+            // they draw as interior, boundedInterior), and pixels off the adaptive list
+            // (ITER_SKIP) keep their mean.
+            bool use = done && (it.x != ITER_UNRESOLVED || c.boundedInterior != 0u) && it.x != ITER_SKIP;
             col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f, q.sampleWidth), q.blend) : hist;
             conf = q.confCap;
         } else if (q.mode == 4) {

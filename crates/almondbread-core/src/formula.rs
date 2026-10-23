@@ -72,6 +72,12 @@ pub struct FormulaCapabilities {
     /// The Buddhabrot and Nebulabrot looks (BB, kb: plans/buddhabrot): orbit histograms of
     /// `z^2 + c` with the closed-form cardioid and bulb rejection.
     pub buddhabrot: bool,
+    /// Pixels unresolved at the limit draw as the interior colour, not the fog (kb:
+    /// techniques/unresolved-fog, formulas/burning-ship "Bounded orbits"): the formula has
+    /// large regions of bounded orbits that no test proves (the Burning Ship's chaotic hull),
+    /// so "not escaped" means "in the set" for almost all of them. Off where unresolved pixels
+    /// are mostly slow escape or slow convergence that compute further resolves (Mandelbrot).
+    pub bounded_interior: bool,
 }
 
 impl FormulaCapabilities {
@@ -93,6 +99,7 @@ impl FormulaCapabilities {
         content: true,
         julia_panel: true,
         buddhabrot: true,
+        bounded_interior: false,
     };
 
     /// The generic polynomial path `z^p + c` (seek since F3).
@@ -131,6 +138,7 @@ impl FormulaCapabilities {
         content: false,
         julia_panel: false,
         buddhabrot: false,
+        bounded_interior: false,
     };
 
     /// The Mandelbar set (Tricorn, F5, kb: plans/f5-mandelbar): the non-conformal path.
@@ -158,6 +166,7 @@ impl FormulaCapabilities {
         content: false,
         julia_panel: false,
         buddhabrot: false,
+        bounded_interior: false,
     };
 
     /// The Burning Ship (F6, kb: plans/f6-burning-ship): Mandelbar's non-conformal path plus the
@@ -167,6 +176,7 @@ impl FormulaCapabilities {
     /// the derivative test proves interior pixels).
     pub const BURNING_SHIP: Self = Self {
         interior_probe: false,
+        bounded_interior: true,
         ..Self::MANDELBAR
     };
 
