@@ -821,13 +821,24 @@ static inline FE fIcZZ(FE zf, FE z2, FE zz, FE lam) {
 // p' = conj(2 z q), q' = conj(2 z p). F6 adds its own cases (the Burning Ship family's
 // Jacobian is z -> 2z or the Mandelbar one, by the signs of x y).
 // F6 Burning Ship: where x y < 0 its Jacobian is 2z (conformal), else Mandelbar's reflection.
-static inline bool foldConformal(float2 z) {
-    return (z.x > 0.0f && z.y < 0.0f) || (z.x < 0.0f && z.y > 0.0f);
+// The caller decides x y < 0 (conf) as the fold step does, at the delta's scale: the sign of
+// X Y / s + d, d = (X y + x Y + x y) / s (foldConformalAt). The float32 sum Z + s w cannot: on
+// the needle Y + y is far below 2^-126 and flushes to 0, which took the reflection at every
+// step and lit regions bounded by fold lines (axis-aligned rectangles) from the wrong side.
+static inline bool foldConformalAt(float2 Z, float2 sw, float2 w, float xys) {
+    return xys + (Z.x * w.y + w.x * Z.y + sw.x * w.y) < 0.0f;
 }
 
-static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
+// The same in floatexp, X Y given (as fStepXFold: Im((2Z + z) z) = 2d).
+static inline bool foldConformalX(FE Zx, FE zx, FE xy) {
+    const FE P = feMul(feAdd(feTwice(Zx), zx), zx);
+    if (P.e == FE_ZERO) return xy.m.x < 0.0f;
+    return foldScaled(xy.m.x, xy.e + 1, P.e) + P.m.y < 0.0f;
+}
+
+static inline void ncMul(float2 z, bool conf, thread float2& p, thread float2& q) {
     const float2 z2 = 2.0f * z;
-    if (kFormula == 4u && foldConformal(z)) {
+    if (kFormula == 4u && conf) {
         p = cmul(z2, p);
         q = cmul(z2, q);
         return;
@@ -837,9 +848,9 @@ static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
     p = np;
 }
 
-static inline void ncMulX(FE z, thread FE& p, thread FE& q) {
+static inline void ncMulX(FE z, bool conf, thread FE& p, thread FE& q) {
     const FE z2 = feTwice(z);
-    if (kFormula == 4u && foldConformal(z.m)) {
+    if (kFormula == 4u && conf) {
         p = feMul(z2, p);
         q = feMul(z2, q);
         return;
@@ -2008,11 +2019,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         if (e != 0) break;
                         continue;
                     }
+                    const bool conf = kFormula == 4u && foldConformalAt(Z, w, w, Z.x * Z.y);
                     if (kDE) {
-                        if (kNonConformal) { ncMul(z, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
+                        if (kNonConformal) { ncMul(z, conf, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
                     }
                     if (kInterior) {
-                        if (kNonConformal) ncMul(z, zw, zwQ); else zw = fMulPrime(z, zw);
+                        if (kNonConformal) ncMul(z, conf, zw, zwQ); else zw = fMulPrime(z, zw);
                     }
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
                     // would overflow the DE mantissa within 8 steps; R5. F3: for z^p every step
@@ -2097,15 +2109,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
                         if (kNonConformal) {
+                            const FE fxy = (kFormula == 4u && m != 0) ? foldXY(refx, m) : FE{float2(0.0f), FE_ZERO};
+                            const bool conf = kFormula == 4u && foldConformalX(Zx, zx, fxy);
                             if (kDE) {
                                 FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
-                                ncMulX(zf, dp, dq);
+                                ncMulX(zf, conf, dp, dq);
                                 feJoin(feAdd(dp, TS), dq, dm, dmQ, dExp);
                                 tsd = tsdOf(TS, dExp);
                             }
                             if (kInterior) {
                                 FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
-                                ncMulX(zf, wp, wq);
+                                ncMulX(zf, conf, wp, wq);
                                 feJoin(wp, wq, zw, zwQ, wExp);
                             }
                         } else {
@@ -2154,11 +2168,24 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     const float2 sw = s * w;
                     const float2 zf = Z + sw;
                     IC_TRACK(dot(zf, zf), n)
+                    // F6: X Y / s for the fold: the float32 product while both parts are
+                    // normal and well above 2^-126, else the split reference's. (Before the
+                    // derivatives: their Jacobian takes the step's fold sign.)
+                    float xys = 0.0f;
+                    if (kFormula == 4u) {
+                        if (min(abs(Z.x), abs(Z.y)) >= 0x1p-60f) {
+                            xys = foldScaled(Z.x * Z.y, 0, e);
+                        } else {
+                            const FE xy = foldXY(refx, m);
+                            xys = foldScaled(xy.m.x, xy.e, e);
+                        }
+                    }
+                    const bool conf = kFormula == 4u && foldConformalAt(Z, sw, w, xys);
                     if (kDE) {
-                        if (kNonConformal) { ncMul(zf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
+                        if (kNonConformal) { ncMul(zf, conf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
                     }
                     if (kInterior) {
-                        if (kNonConformal) ncMul(zf, zw, zwQ); else zw = fMulPrime(zf, zw);
+                        if (kNonConformal) ncMul(zf, conf, zw, zwQ); else zw = fMulPrime(zf, zw);
                     }
                     if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f
                         || (kFormula == 1u && max(abs(zf.x), abs(zf.y)) > 1.0f)) {
@@ -2193,15 +2220,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         }
                     }
                     if (kFormula == 4u) {
-                        // F6: X Y / s for the fold: the float32 product while both parts are
-                        // normal and well above 2^-126, else the split reference's.
-                        float xys;
-                        if (min(abs(Z.x), abs(Z.y)) >= 0x1p-60f) {
-                            xys = foldScaled(Z.x * Z.y, 0, e);
-                        } else {
-                            const FE xy = foldXY(refx, m);
-                            xys = foldScaled(xy.m.x, xy.e, e);
-                        }
                         w = fStepFold(Z, sw, w, dd, xys);
                     } else {
                         w = fStep(Z, sw, w, dd);
@@ -2495,11 +2513,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
+                const bool conf = kFormula == 4u && foldConformalAt(ref[m], dz, dz, ref[m].x * ref[m].y);
                 if (kDE) {
-                    if (kNonConformal) { ncMul(z, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
+                    if (kNonConformal) { ncMul(z, conf, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
                 }
                 if (kInterior) {
-                    if (kNonConformal) ncMul(z, w, wQ); else w = fMulPrime(z, w);
+                    if (kNonConformal) ncMul(z, conf, w, wQ); else w = fMulPrime(z, w);
                 }
                 // Test and rescale only every 8th iteration: half the extra cost of the
                 // derivative test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4

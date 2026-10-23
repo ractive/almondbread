@@ -273,3 +273,69 @@ fn burning_ship_matches_its_oracle_with_and_without_bla() {
         );
     }
 }
+
+/// IEEE half float bits to f32 (DE texels are Rg16Float).
+fn half(h: u16) -> f32 {
+    let s = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let e = i32::from((h >> 10) & 0x1f);
+    let m = f32::from(h & 0x3ff);
+    s * match e {
+        0 => m * 2f32.powi(-24),
+        31 => f32::INFINITY,
+        _ => (1.0 + m / 1024.0) * 2f32.powi(e - 15),
+    }
+}
+
+/// The Burning Ship's lighting normal follows its smooth count (user report 2026-10-23: nested
+/// axis-aligned rectangles with sharp steps at 8e94x on the needle). The normal's direction
+/// (the DE texel's angle, z / dz/dc) must point along -grad mu, measured by finite differences
+/// of the iteration field. The Jacobian's fold sign was taken from the float32 sum Z + s w,
+/// which flushes Y + y (~1e-97) to 0 on the needle: the reflection at every step, so the
+/// derivative was wrong wherever the orbit's sign pattern differed from that (rectangles
+/// bounded by fold lines); 9382 of 33238 smooth pixels (28 %) pointed the wrong way.
+#[test]
+fn burning_ship_needle_normal_follows_the_smooth_count() {
+    let f = Formula::BurningShip;
+    let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+    r.settings = almondbread_core::settings::RenderSettings::plain();
+    r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+    r.settings.shading = 0.5; // distance estimate (and its normal) on
+    let view = Viewport::with_center(
+        Center::parse(
+            "-1.900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "-5.7536583899403481757905856401e-97",
+        )
+        .unwrap(),
+        Scale::parse("1.5e-97").unwrap(),
+    );
+    let g = field(&mut r, f, &view, 180_000);
+    let de = r.read_distance_estimates().expect("de");
+    let mu = |x: usize, y: usize| {
+        let k = y * W + x;
+        (g.n[k] >= 0.0).then(|| f64::from(g.n[k]) + f64::from(g.s[k]))
+    };
+    let (mut smooth, mut wrong) = (0, 0);
+    for y in 1..H - 1 {
+        for x in 1..W - 1 {
+            let k = y * W + x;
+            let [Some(l), Some(rt), Some(up), Some(dn)] = [mu(x - 1, y), mu(x + 1, y), mu(x, y - 1), mu(x, y + 1)] else {
+                continue;
+            };
+            // (Rows run down, the imaginary axis up.)
+            let (gx, gy) = (0.5 * (rt - l), -0.5 * (dn - up));
+            let d = half(de[k][0]);
+            // Away from the boundary (DE > 8 texels) and where mu has a measurable slope.
+            if !(d > 8.0 && gx.hypot(gy) > 1e-5) {
+                continue;
+            }
+            let a = f64::from(half(de[k][1]));
+            let c = -(gx * a.cos() + gy * a.sin()) / gx.hypot(gy);
+            smooth += 1;
+            if c < 0.7 {
+                wrong += 1;
+            }
+        }
+    }
+    println!("burning ship needle normal: {wrong} of {smooth} smooth pixels point away from -grad mu");
+    assert!(smooth > 10_000 && wrong * 200 < smooth, "{wrong} of {smooth}");
+}
