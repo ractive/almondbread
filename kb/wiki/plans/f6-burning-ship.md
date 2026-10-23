@@ -2,7 +2,7 @@
 title: "F6: Burning Ship family"
 type: plan
 milestone: F6
-status: planned
+status: in-progress
 priority: 6
 effort: L
 appeal: high
@@ -19,12 +19,12 @@ risks:
 sources: ["synthesis/other-fractal-types", "formulas/burning-ship", "sources/mathr-deep-zoom-page", "sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/fractalshades-readme", "sources/hpdz-animations", "sources/fraktaler-3-site"]
 tags: [formulas, burning-ship, non-conformal, bla, needle]
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-10-23
 ---
 
 # F6: Burning Ship family
 
-Status: planned, after [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md). The payoff of the formula track.
+Status: built, awaiting the user's review (in-progress); see "As built". After [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md). The payoff of the formula track.
 
 ## Goal
 
@@ -106,8 +106,71 @@ review of the content, as for Mandelbrot.
 ## Open questions
 
 - Needle detection heuristic in float32 (open in [Burning Ship and abs variations](../formulas/burning-ship.md) and
-  [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)).
+  [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md)). Answered for
+  almondbread by "As built": none is needed once the fold is decided at the delta's scale with
+  an exact `X Y` (measured to 1e-1000).
+- How should the chaotic bounded regions (unresolved, never provable) be coloured, and should the
+  auto-iteration limit stop chasing them? (The ship's deep zoom settles 9.6 s after input.)
 - Which abs variants are worth a picker entry?
+
+## As built (2026-10-23, awaiting review)
+
+Built on branch `worktree-agent-a54eb563d94fc642b` from main 3e30f8c (F5 + BB). Measurements in
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F6"; the maths in [Burning Ship and abs variations](../formulas/burning-ship.md) "As built in
+almondbread (F6)". Differences from the sketch above:
+
+- **Members.** The Burning Ship alone (`Formula::BurningShip`, kernel formula 4, picker family
+  "Burning Ship", name `burningship`). Celtic, Buffalo and Perpendicular were not built: each
+  needs its own fold cases (Celtic folds the real part `|x^2 - y^2|`, Buffalo both parts),
+  Jacobian rule, places and checks; the code below makes them mostly mechanical, so they are a
+  follow-up once the user has seen the ship.
+- **Orientation.** `z <- (|x| - i|y|)^2 + c`: the literature's ship mirrored in the real axis, so
+  it stands upright with the imaginary axis pointing up (the usual pictures flip the axis
+  instead; we cannot flip a view). Coordinates are the literature's with `im` negated;
+  documented on the formula page and in the picker's help.
+- **Gate.** The plan named none; run first as one: the deep oracle (f64 deltas with the fold)
+  against direct BigFloat iteration per pixel, on the needle at 1e-30, 1e-100 and 1e-320 per
+  pixel and across the axis at 1e-100: 384 / 384 escape counts equal, max |Δμ| 1.2e-7. Passed,
+  then the GPU path: `verify` on the needle at 1e-30, 1e-100, 1e-300 and 1e-1000 per pixel,
+  class mismatch 0.000 %, escape-n differs ≤ 0.005 %.
+- **No needle heuristic.** The fold is decided at the delta's scale (`diffabs(XY/s, d/s)`,
+  `XY/s` saturated at `±2^100`), which float32 holds at any depth, and `XY` comes from a split
+  floatexp reference (`FloatExpSplit`: each part its own exponent, the second in the GPU
+  struct's padding word) where one part of `Z` is far below the other. So no step needs
+  floatexp because `X` or `Y` is small, and no pipeline choice was needed. The needle is slow
+  only because a reference on the axis (`Y = 0`) allows no BLA block.
+- **Kernel** (`mandelbrot.metal`, formula 4; `kConformal = kFormula != 3u && kFormula != 4u`,
+  so formulas 0–3 compile as before). `fStepFold` (float32, plain and rescaled), `fStepXFold`
+  (floatexp, `XY` given), `foldScaled`, `foldXY` and `refAt` reading the split reference;
+  `ncMul` / `ncMulX` take `2z` where `x y < 0`, Mandelbar's reflection elsewhere; everything else
+  (matrix BLA walk, ncBuf state, DE, interior test) is F5's.
+- **BLA.** `single_radius` and the deep table's single step gain the fold cap
+  `min(|X|, |Y|) / 2`; a part flushed in the shared floatexp form caps to 0 (no block).
+- **Newton and seek.** `JacobianNewton` takes the conformal step where `x y < 0`; the ball
+  period methods hold, the box method does not (documented in the test). Seek finds chains of
+  minibrots (from the ship: periods 31, 93, 124, 217, 403, 1209, 2015, 3224 down to 1e-24); it
+  stops where Newton leaves the nucleus's smooth piece.
+- **No probe.** The attracting-cycle probe is off (`FormulaCapabilities::BURNING_SHIP`): the step
+  mixes holomorphic and antiholomorphic Jacobians, so neither Mandelbrot's nor Mandelbar's
+  even-period rule holds. Large regions are bounded chaotic orbits anyway (no cycle to prove):
+  they stay unresolved, as in every other renderer.
+- **Places.** Six, with thumbnails: the whole ship, the ship by the needle, a period-18 needle
+  minibrot, little ships of periods 31 (1e-12) and 403 (1e-19), the needle at 1e-100. Journeys,
+  the tour and autopilot tuning were not built: they are the second review gate's content work
+  (`content: false`); the autopilot already flies Burning Ship views (90 s simulation: target
+  lock, 0 % uniform frames).
+- **Home view** (`Viewport::fitting_for`): centre `-0.45 + 0.62i`, 3.6 × 2.6 (Reset, the
+  autopilot's way out, the mini-map's whole level).
+
+**What F7 hybrids would reuse.** `Formula::folds()` and the fold step (`diffabs` at the delta's
+scale, `fStepFold` / `fStepXFold`), the split floatexp reference for any formula whose step reads
+a product of the parts, the per-step Jacobian switch (`ncMul` by sign), the fold cap in
+`single_radius`, and the reference loops' `ABS` const generic (an abs is a sign drop on a product
+register). A hybrid's per-phase step would pick among these per opcode.
+
+**Unverified.** A foreground session on the Mac, the iPad and a device (the review gate); the
+other abs variants; how the chaotic unresolved regions should be coloured (they show the
+unresolved shading today).
 
 ## Effort breakdown
 

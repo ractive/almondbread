@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-23
+
+- **Decision:** F6 Burning Ship built (awaiting review): shown upright as (|x| - i|y|)^2 + c; diffabs perturbation with the fold decided at the delta's scale and a split floatexp reference, so the needle matches the oracle to 1e-1000 in float32 with no needle heuristic; fold-capped matrix BLA; Jacobian Newton; no probe (chaotic bounded interiors stay unresolved); six places; Celtic/Buffalo/Perpendicular, journeys and tour not built; others byte-identical, A/B 1.006
+
 ## 2026-10-22
 
 - **Decision:** BB Buddhabrot and Nebulabrot built: GPU walkers (uniform and Metropolis–Hastings with recheck/resampling and warm-up), measured tone levels, Nebulabrot RGB; live mode measured on M1 Pro (116–118 fps at 120 Hz at the whole set, falls back where the live accumulation is noise), realtime-ipad likely; whole set clean in 1.6 s, seahorse valley ~1 min, 1e-3 flat; Mandelbrot fields byte-identical, A/B 0.992; plan in-progress awaiting review

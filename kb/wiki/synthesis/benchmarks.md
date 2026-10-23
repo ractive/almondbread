@@ -1992,6 +1992,99 @@ The background window's own link runs at 60 Hz (granted 120): 59 fps for all fiv
 Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
 hits per live bin at the whole set, 6 at the seahorse view.
 
+## F6: the Burning Ship, 2026-10-23
+
+Measured 2026-10-22/23, M1 Pro, release, on a machine shared with other agents (load average
+noted per run, 4–165); plan and changes in [F6: Burning Ship family](../plans/f6-burning-ship.md), maths in [Burning Ship and abs variations](../formulas/burning-ship.md).
+Coordinates are ours (the literature's with `im` negated: the ship upright).
+
+**Gate (CPU oracle against BigFloat, `oracle::tests::burning_ship_oracle_matches_direct_iteration`,
+24 × 16).** The deep oracle (f64 deltas, the fold from the extended reference's `X Y`) against
+direct BigFloat iteration of every pixel:
+
+| view | per pixel | same n | direct f64 same n | max \|Δμ\| |
+|---|---|---:|---:|---:|
+| needle, centre -1.9 on the axis | 1e-30 | 384 / 384 | 0 | 1.2e-7 |
+| needle | 1e-100 | 384 / 384 | 61 | 1.2e-7 |
+| needle | 1e-320 | 384 / 384 | 0 | 1.2e-7 |
+| across the axis, centre -1.9 + 3e-101 i | 1e-100 | 384 / 384 | 87 | 1.2e-7 |
+| the ship, -1.7616 + 0.0284 i | 2e-3 | 358 / 384 | 356 | 4.1e-3 |
+| the hull, -0.6 + 0.7 i | 3e-3 | 306 / 384 | 309 | 9.5e-3 |
+
+The shallow views are chaotic, not wrong: BigFloat at the view's precision and 256 bits more
+agree, while direct f64 iteration disagrees with both as often as the oracle does (at 2e-5 per
+pixel near the ship 362 / 384 for f64, 372 for the oracle). Large parts of the set are bounded
+orbits with no attracting cycle, and long transients before escape.
+
+**GPU vs CPU oracle** (`verify --formula burningship`, 320 × 200, fixed iterations):
+
+| view | per pixel | iterations | escape-n differs % | class mismatch % | GPU-int/CPU-ext % | median \|Δμ\| |
+|---|---|---:|---:|---:|---:|---:|
+| needle (-1.9 on the axis) | 1e-30 | 3 000 | 0.000 | 0.000 | 0.000 | 7.2e-7 |
+| across the axis | 1e-100 | 4 000 | 0.000 | 0.000 | 0.000 | 7.2e-7 |
+| across the axis | 1e-300 | 8 000 | 0.002 | 0.000 | 0.000 | 1.2e-6 |
+| across the axis | 1e-1000 | 20 000 | 0.005 | 0.000 | 0.000 | 2.4e-6 |
+| period-18 needle minibrot | 1.4e-10 | 4 000 | 1.261 | 0.000 | 0.000 | 2.2e-5 |
+| the ship (-1.77 + 0.03 i) | 8e-5 | 3 000 | 24.1 | 0.000 | 0.000 | 1.2e-4 |
+| whole set | 3.6e-3 | 2 000 | 15.2 | 0.795 | 0.000 | 16.6 |
+| period 72 (seek, off the needle) | 7.3e-13 | 20 000 | 16.7 | 1.578 | 0.000 | 1.7e3 |
+| period 31 (seek, below the ship) | 4.5e-15 | 7 000 | 35.1 | 0.231 | 0.000 | 9.5e-2 |
+| period 3224 (seek, 240 × 160) | 6.1e-27 | 20 000 | 23.1 | 0.573 | 0.000 | 45.6 |
+
+No false interior anywhere. The needle, where every step of every orbit folds, matches the
+oracle to 1e-1000 with no needle heuristic and no floatexp-only pipeline (GPU 9.5 ms at 1e-100,
+38 ms at 1e-1000 for 320 × 200). The class mismatches are GPU-exterior where the oracle reached
+its limit. `precision` puts the GPU's error at a grid shift of ≤ 0.001 px at the ship, period 72
+and period 3224, where a 0.001 px shift of the oracle alone changes 37 % (ship) and 22 %
+(period 3224) of the escape counts: chaos at this sampling. A BigFloat check at period 3224 (12 × 8
+samples, view precision and 256 bits more, and a 0.001 px shift) confirms it: the two precisions
+agree everywhere, the shift moves escape counts by tens to hundreds of iterations (16 000–19 000)
+and turns some interior samples exterior. 76 % of that view never escapes within 20 000 iterations
+(bounded, not periodic): it shows as unresolved.
+
+**BLA.** The fold-capped matrix table pays at deep minibrots: 9.2× fewer loop steps than
+iterations at period 3224 (6e-27, 600 × 390 in 373 ms GPU); at period 403 (4e-22) its blocks are
+too short (forecast: does not pay), and on the needle no block exists (`Y = 0` caps every
+radius to 0). Skip-off diff (`scheduler::formula_tests::burning_ship_matches_its_oracle_with_and_without_bla`,
+240 × 160, every place and period 3224): identical fields where blocks are not taken; at period
+3224 escape-n differs 73 % between BLA on and off (GPU vs oracle 78 %, the same chaos) with class
+mismatch 0.
+
+**History** (`verify --history`, 1280 × 820, auto iterations): zoom and pan at period 31
+(4.5e-15), period 1209 (5.4e-24) and the needle (1e-100): all OK; vs a fresh render class
+mismatch 0.000 % in all six, escape-n 0 % for zooms, for pans 37.5 % and 92.4 % (chaotic views on a
+different reference) and 0.003 % on the needle; vs the oracle class mismatch ≤ 0.037 %, all
+GPU-exterior.
+
+**Others unchanged.** `bench --no-verify 1 --out`, main (3e30f8c) against F6: 84 of 84 fields and
+PNGs byte-identical (load average 165). Julia (rabbit 1e-100, `k = i` shallow), Multibrot (z⁵
+3.5e-8, z⁸ 1.7e-23) and Mandelbar (whole set, period 20, period 620) renders, 800 × 500: PNGs
+byte-identical to main. GPU ms A/B, three interleaved rounds, per-case medians: **geomean F6 / main
+1.006** over 42 cases (load average 4–20; spread 0.95–1.14, the high end the 2 ms dendrite cases at
+1600 px). The formula-4 code sits after formula 3's in every hook and in the T loop's step site.
+
+**Interaction test** (`make interaction-test`, background window 1280 × 820 pt at 2x; the display
+link was granted 60 Hz in this run, load average 4–8):
+
+| scenario | fps | interval p50 / p95 / max ms | draw CPU p50 ms | GPU ms/frame (iter + colorize) | full-res after input | shown vs fresh (class) |
+|---|---:|---|---:|---|---:|---:|
+| ship pan (8e-5 per point) | 59.0 | 16.7 / 25.0 / 50.0 | 0.17 | 8.81 + 1.62 | 233 ms | 0.000 % (10 px) |
+| ship deep zoom (period 1209, 5.4e-24) | 50.0 | 16.7 / 25.0 / 233.3 | 0.15 | 12.05 + 1.10 | 9600 ms | 0 % |
+| needle zoom (1e-100) | 58.3 | 16.7 / 25.0 / 75.0 | 0.15 | 10.12 + 1.32 | 350 ms | 0 % |
+| mandelbar pan | 59.0 | 16.7 / 25.0 / 25.0 | 0.14 | 8.74 + 1.42 | 317 ms | 0 % |
+| mandelbar deep zoom | 36.5 | 25.0 / 33.3 / 45.8 | 0.14 | 25.17 + 1.08 | 1767 ms | 0 % |
+| sea-1e20 zoom | 59.3 | 16.7 / 25.0 / 25.0 | 0.16 | 9.11 + 1.25 | 250 ms | 0 % |
+
+The ship's deep zoom keeps its frame rate while moving, but the full-resolution frame takes 9.6 s
+after the input stops: most of that view is bounded chaotic orbits, which run to the iteration
+limit (no interior proof exists for them).
+
+**Checks.** `make rust-check` (429 tests, clippy, fmt), `make rust-check-debug` (429), `make
+regress` OK, `make build`, `app`, `ios-sim`, `ios-device-check`, `swift-test` (14), `core-check`
+OK, `make selftest` (both apps: renderer OK, shown = fresh 0 %, 110 places of every formula with
+thumbnails), iOS UI test `testFormulaPicker` on the iPad mini simulator with its new Burning Ship
+step passed.
+
 ## F5: Mandelbar (Tricorn), the non-conformal path, 2026-10-22
 
 Measured 2026-10-22, M1 Pro, release, on a machine shared with other agents (load average 6–60
