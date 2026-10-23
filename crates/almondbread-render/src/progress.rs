@@ -171,9 +171,25 @@ pub struct RenderProgress {
     /// Compute further: the share of the view's texels not finished and the limit they have
     /// reached; while it runs, the pass's limit (else 0) and why it stopped.
     pub not_finished: Option<NotFinished>,
-    /// The Buddhabrot look: the faintest channel's hits per pixel, the target, and the
-    /// uniform-equivalent samples so far.
-    pub orbits: Option<(f64, f64, f64)>,
+    /// The Buddhabrot look's accumulation while it shows (kb: plans/buddhabrot "Convergence").
+    pub orbits: Option<crate::scheduler::OrbitProgress>,
+    /// The resting view's Buddhabrot stopped at its GPU budget before converging (the settled
+    /// line; "Continue" resumes it).
+    pub orbits_paused: Option<crate::scheduler::OrbitProgress>,
+}
+
+/// "Buddhabrot" or "Nebulabrot".
+fn look_name(o: &crate::scheduler::OrbitProgress) -> &'static str {
+    if o.mode == almondbread_core::buddha::BuddhaMode::Nebulabrot {
+        "Nebulabrot"
+    } else {
+        "Buddhabrot"
+    }
+}
+
+/// "40 %" (never 100 before the end).
+fn percent_text(p: f64) -> String {
+    format!("{:.0} %", (100.0 * p).clamp(0.0, 99.0).floor())
 }
 
 /// A settled (or still computing) view with unresolved pixels (kb: techniques/auto-iterations
@@ -216,6 +232,15 @@ impl RenderProgress {
     /// empty while hidden.
     pub fn text(&self) -> String {
         if !self.visible {
+            // The Buddhabrot stopped at its budget: "Buddhabrot · paused at 60 % after 1 min".
+            if let Some(o) = self.orbits_paused {
+                return format!(
+                    "{} · paused at {} after {}",
+                    look_name(&o),
+                    percent_text(o.sharp),
+                    minutes_text(o.seconds)
+                );
+            }
             // Settled with pixels left unresolved: say so (compute further stopped).
             return self.not_finished.map_or_else(String::new, |n| n.text());
         }
@@ -239,12 +264,18 @@ impl RenderProgress {
             }
             return parts.join(" · ");
         }
-        if let Some((hits, target, samples)) = self.orbits {
-            // "orbits · 340 of 1.5 k per pixel · 120 M samples · ~10 s"
-            parts.push(format!("{} of {} per pixel", count_text(hits), count_text(target)));
-            parts.push(format!("{} samples", count_text(samples)));
+        if let Some(o) = self.orbits {
+            // "Buddhabrot · sharpening · 40 % · ~20 s", deep: "... · deep: takes minutes here"
+            let mut parts = vec![
+                look_name(&o).to_string(),
+                "sharpening".to_string(),
+                percent_text(o.progress),
+            ];
             if let Some(e) = self.eta {
                 parts.push(eta_text(e));
+            }
+            if o.deep {
+                parts.push("deep: takes minutes here".to_string());
             }
             return parts.join(" · ");
         }
@@ -329,6 +360,14 @@ pub fn eta_text(seconds: f64) -> String {
     }
 }
 
+/// "6 s", "1 min", "3 min" (seconds below a minute, else whole minutes).
+fn minutes_text(seconds: f64) -> String {
+    if seconds < 59.5 {
+        return format!("{:.0} s", seconds.max(1.0));
+    }
+    format!("{:.0} min", (seconds / 60.0).round().max(1.0))
+}
+
 /// One level being followed: its counters over the last seconds.
 #[derive(Clone, Debug)]
 struct LevelTrack {
@@ -395,6 +434,7 @@ impl ProgressTracker {
         // (Kept while idle too: what the settled view left unresolved.)
         self.shown.unresolved = s.unresolved.map(|u| (u, s.full_total));
         self.shown.not_finished = not_finished(s);
+        self.shown.orbits_paused = s.orbits.filter(|o| o.stopped && !s.interacting);
     }
 
     fn step(&mut self, s: &ProgressSample, now: f64) {
@@ -596,13 +636,13 @@ impl ProgressTracker {
                 let full = self.full.unwrap_or(1.0);
                 Some(f.remaining_gpu * wall_per_gpu + self.aa_remaining(s, full, wall_per_gpu))
             }
-            // Hits per pixel grow linearly with time.
+            // The progress (hits towards convergence, or the budget) grows linearly with time.
             Stage::Orbits => {
                 let o = s.orbits?;
-                if o.mean_hits >= o.target {
+                if o.progress >= 1.0 {
                     return Some(0.0);
                 }
-                (o.seconds > 0.3 && o.mean_hits > 0.0).then(|| (o.target - o.mean_hits) * o.seconds / o.mean_hits)
+                (o.seconds > 0.3 && o.progress > 0.0).then(|| (1.0 - o.progress) * o.seconds / o.progress)
             }
             Stage::AntiAlias => {
                 let full = self.full.unwrap_or_else(|| self.level_age(now));
@@ -787,7 +827,8 @@ impl ProgressTracker {
                 .map(|f| (f - self.last_now).max(1.0)),
             unresolved: s.unresolved.map(|u| (u, s.full_total)),
             not_finished: not_finished(s),
-            orbits: s.orbits.map(|o| (o.mean_hits, o.target, o.samples)),
+            orbits: s.orbits,
+            orbits_paused: None,
         }
     }
 }
@@ -1090,5 +1131,61 @@ mod tests {
             &mut key,
         );
         assert!(empty.prims.is_empty());
+    }
+
+    /// BB (kb: plans/buddhabrot "Convergence"): the Buddhabrot's HUD lines while it sharpens,
+    /// at a deep view, and paused at its budget.
+    #[test]
+    fn orbit_lines() {
+        use crate::scheduler::OrbitProgress;
+        use almondbread_core::buddha::BuddhaMode;
+        let o = OrbitProgress {
+            mode: BuddhaMode::Buddhabrot,
+            progress: 0.404,
+            sharp: 0.404,
+            seconds: 4.0,
+            ..OrbitProgress::default()
+        };
+        let mut p = RenderProgress {
+            visible: true,
+            stage: Stage::Orbits,
+            orbits: Some(o),
+            ..RenderProgress::default()
+        };
+        assert_eq!(p.text(), "Buddhabrot · sharpening · 40 %");
+        p.orbits = Some(OrbitProgress {
+            mode: BuddhaMode::Nebulabrot,
+            deep: true,
+            ..o
+        });
+        p.eta = Some(20.0);
+        assert_eq!(
+            p.text(),
+            "Nebulabrot · sharpening · 40 % · ~20 s · deep: takes minutes here"
+        );
+        // Never 100 % before the end.
+        p.orbits = Some(OrbitProgress { progress: 0.999, ..o });
+        p.eta = None;
+        assert_eq!(p.text(), "Buddhabrot · sharpening · 99 %");
+        let paused = RenderProgress {
+            orbits_paused: Some(OrbitProgress {
+                stopped: true,
+                sharp: 0.12,
+                seconds: 64.0,
+                ..o
+            }),
+            ..RenderProgress::default()
+        };
+        assert_eq!(paused.text(), "Buddhabrot · paused at 12 % after 1 min");
+        let early = RenderProgress {
+            orbits_paused: Some(OrbitProgress {
+                stopped: true,
+                sharp: 0.91,
+                seconds: 6.4,
+                ..o
+            }),
+            ..RenderProgress::default()
+        };
+        assert_eq!(early.text(), "Buddhabrot · paused at 91 % after 6 s");
     }
 }

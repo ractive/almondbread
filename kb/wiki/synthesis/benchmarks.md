@@ -1992,6 +1992,63 @@ The background window's own link runs at 60 Hz (granted 120): 59 fps for all fiv
 Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
 hits per live bin at the whole set, 6 at the seahorse view.
 
+## BB flicker and convergence, 2026-10-23
+
+M1 Pro, release, load average 10–40 from other sessions (GPU shared); details and the design in
+[Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md) "Live mode" (the flicker) and
+"Convergence".
+
+**Mode switches** (headless, `almondbread buddha --live zoom|bursts --trace 1`, 2560 × 1600 at
+120 Hz from the whole set, 1200 refreshes; a switch: the shown image changes between the live
+look, the rest look and the escape-time colouring):
+
+| Motion | before | after |
+|---|---:|---:|
+| steady zoom, 1 octave/s (3.2 to 0.003 wide) | 1000 switches (every refresh from 1.06 wide) | 1 (live to escape-time at 1.9 wide) |
+| bursts: 0.25 s zoom, 0.1 s hold, every fourth a 0.4 s rest | not run | 0 inside gestures; 9 at gesture ends / starts |
+| Nebulabrot, steady zoom | not run | 0 (escape-time throughout: never 35 hits per live bin at this size) |
+
+Frames whose mean colour jumped by more than 8 levels: 1000 before, 1 after (zoom). Interaction
+test (background window, 2560 × 1640 px, `ALMONDBREAD_TEST_LINK=cv`; switches counted during the
+3–5 s of input):
+
+| Scenario | fps | interval p50 / p95 / max ms | GPU ms/frame | switches |
+|---|---:|---|---|---:|
+| home zoom (escape time, reference) | 104.3 | 8.3 / 8.3 / 16.7 | 3.87 + 2.24 | – |
+| buddha pan | 117.3 | 8.3 / 8.3 / 16.7 | 3.52 + 1.61 | 1 |
+| buddha zoom (to 0.5 wide and back) | 104.7 | 8.3 / 8.3 / 16.7 | 4.12 + 2.03 | 1 |
+| buddha deep zoom (whole set to ~0.02 wide, pinch) | 116.5 | 8.3 / 8.3 / 25.0 | 3.63 + 2.05 | 1 |
+| buddha bursts (pinch bursts with rests) | 68.9 | 8.3 / 16.7 / 475 | 6.02 + 1.90 | 7 |
+| buddha wheel (a notch every 0.2 s) | 117.8 | 8.3 / 8.3 / 16.7 | 3.50 + 2.04 | 1 |
+| nebula zoom | 117.4 | 8.3 / 8.3 / 16.7 | 4.27 + 1.72 | 1 |
+
+(Final build; an earlier run of the same scenarios under heavier load: 92–113 fps, buddha pan 0
+switches. A pan switching once is a fallback when the smoothed live estimate dropped below 25;
+the before build was not run in this test, its flips are measured headlessly above.)
+(Bursts: the 475 ms interval is a rest that keeps the escape-time image until the new view has
+16 hits per pixel; nothing new is presented then. Its 7 switches are the gesture boundaries.)
+
+**GPU at rest** (headless `almondbread buddha --idle 75`, the frame loop at 120 Hz with the
+display link stopping when the renderer is settled; GPU = sample dispatches + frames):
+
+| View, 2560 × 1600 | before: stops | before: GPU first 40 s | after: stops | after: GPU over 75 s |
+|---|---|---|---|---|
+| home (3.2 wide) | 11.5 s at 1500 hits, then a re-toned frame every 0.33 s forever | 24 % (85 % until done) | 6.4 s, hits cap (noise 2.1 levels, 1508 hits) | 8.2 %, 0 after |
+| −0.75 + 0.1i, 0.1 wide | ~90 s (1500 hits at 17/s) | 98 % | 52 s, hits cap (noise 17.5, 1501 hits) | 66 %, 0 after |
+| −0.7435 + 0.1314i, 1e-3 wide | ~85 s | 95 % | 23 s, converged (noise 1.8, 562 hits; nearly black image) | 30 %, 0 after |
+
+Stop rule: converged (noise ≤ 2 levels), 60 GPU s, or 1500 hits per pixel, whichever first.
+Without the hits cap: home 6.7 s converged (noise 1.8), 0.1 wide 62 s at the time budget (1850
+hits, noise 14.8, 82 % over 75 s).
+
+**Noise vs hits** (`buddha --snap`, 1280 × 800, mean largest-channel difference to the final
+image in 8-bit levels): whole set 5.96 / 4.36 / 3.03 / 2.05 / 1.47 / 1.05 at 140 / 277 / 521 / 1081 /
+2076 / 4158 hits per pixel (≈ 70 / sqrt(hits)); 0.1 wide 46.6 / 37.9 / 26.6 / 17.4 / 13.8 at 144 /
+341 / 817 / 1543 / 3030. The criterion's estimate agreed: 1.55 at 2076 at the whole set against
+1.47 measured.
+
+**A/B**: `bench --no-verify 1 --out` of a main build and this branch: 84/84 PNGs byte-identical.
+
 ## F6 review fixes: needle rectangles, bounded orbits, little ships, 2026-10-23
 
 Measured 2026-10-23, M1 Pro, release, machine shared with other agents. Plan:

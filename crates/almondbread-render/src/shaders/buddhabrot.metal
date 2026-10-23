@@ -22,6 +22,7 @@
 // - buddhaFold (live mode): accum = decay * reprojected(accum) + this frame's counts, per bin.
 // - buddhaTone: histogram (rest) or accum (live) -> tone curve -> colour; the shown image and the
 //   history image (linear) the overlay pass composites from.
+// - buddhaChange: how much the shown rest image changed since the last check (convergence).
 //
 // The structs below must match `buddha.rs` byte for byte (the layout kernel and test).
 
@@ -564,6 +565,35 @@ static inline float3 densityAt(constant ToneParams& t, device const uint* hist, 
     return a.w > 0.0f ? a.xyz / a.w : float3(0.0f);
 }
 
+// A bin's colour (linear): its density in view means through the tone curve, then the
+// palette's rising half (Buddhabrot) or red / green / blue (Nebulabrot).
+static inline float3 toneColour(constant ToneParams& t, float3 v, device const float4* pal,
+                                device const uint* totals) {
+    float3 scale = t.scale.xyz;
+    if (t.source == 0) {
+        // The rest epoch's hit totals (64-bit): 1 / mean = bins / hits.
+        const float bins = float(t.srcWidth) * float(t.srcHeight);
+        for (uint k = 0; k < 3; k++) {
+            const uint i = 2u * (C_HITS + k);
+            const float hits = float(totals[i]) + 4294967296.0f * float(totals[i + 1]);
+            scale[k] = hits > 0.0f ? bins / hits : 0.0f;
+        }
+    }
+    // In view means, from the black point (the haze of short orbits) to the white point.
+    const float3 x = pow(saturate((v * scale - t.black.xyz) / max(t.white.xyz - t.black.xyz, 1e-3f)),
+                         float3(t.gamma));
+    if (t.channels > 1) {
+        return x;
+    }
+    // The palette's rising half: dark at 0, its brightest entry at 1, fading in from black.
+    const float pos = x.x * t.palettePeak;
+    const float fi = pos * float(t.paletteSize);
+    const uint i0 = min(uint(fi), t.paletteSize - 1);
+    const uint i1 = min(i0 + 1, t.paletteSize - 1);
+    const float3 c = mix(pal[i0].rgb, pal[i1].rgb, fi - float(i0));
+    return c * smoothstep(0.0f, 0.25f, x.x);
+}
+
 kernel void buddhaTone(constant ToneParams& t          [[buffer(0)]],
                        device const uint* hist         [[buffer(1)]],
                        device const float4* acc        [[buffer(2)]],
@@ -587,33 +617,32 @@ kernel void buddhaTone(constant ToneParams& t          [[buffer(0)]],
         v = mix(mix(densityAt(t, hist, acc, a), densityAt(t, hist, acc, uint2(b2.x, a.y)), f.x),
                 mix(densityAt(t, hist, acc, uint2(a.x, b2.y)), densityAt(t, hist, acc, b2), f.x), f.y);
     }
-    float3 scale = t.scale.xyz;
-    if (t.source == 0) {
-        // The rest epoch's hit totals (64-bit): 1 / mean = bins / hits.
-        const float bins = float(t.srcWidth) * float(t.srcHeight);
-        for (uint k = 0; k < 3; k++) {
-            const uint i = 2u * (C_HITS + k);
-            const float hits = float(totals[i]) + 4294967296.0f * float(totals[i + 1]);
-            scale[k] = hits > 0.0f ? bins / hits : 0.0f;
-        }
-    }
-    // In view means, from the black point (the haze of short orbits) to the white point.
-    const float3 x = pow(saturate((v * scale - t.black.xyz) / max(t.white.xyz - t.black.xyz, 1e-3f)),
-                         float3(t.gamma));
-    float3 col;
-    if (t.channels > 1) {
-        col = x;
-    } else {
-        // The palette's rising half: dark at 0, its brightest entry at 1, fading in from black.
-        const float pos = x.x * t.palettePeak;
-        const float fi = pos * float(t.paletteSize);
-        const uint i0 = min(uint(fi), t.paletteSize - 1);
-        const uint i1 = min(i0 + 1, t.paletteSize - 1);
-        const float3 c = mix(pal[i0].rgb, pal[i1].rgb, fi - float(i0));
-        col = c * smoothstep(0.0f, 0.25f, x.x);
-    }
+    const float3 col = toneColour(t, v, pal, totals);
     out.write(float4(dithered(col, gid), 1.0f), gid);
     history.write(float4(col, 1.0f), gid);
+}
+
+// How much the shown rest image changed since the last call (the convergence measure, kb:
+// plans/buddhabrot "Convergence"): each bin toned as buddhaTone does (undithered sRGB, 8 bits),
+// the largest channel's difference to `snap` summed into change[0], the new value stored in
+// `snap`.
+kernel void buddhaChange(constant ToneParams& t       [[buffer(0)]],
+                         device const uint* hist      [[buffer(1)]],
+                         device const float4* pal     [[buffer(3)]],
+                         device const uint* totals    [[buffer(4)]],
+                         device uint* snap            [[buffer(5)]],
+                         device atomic_uint* change   [[buffer(6)]],
+                         uint2 gid                    [[thread_position_in_grid]])
+{
+    if (gid.x >= t.srcWidth || gid.y >= t.srcHeight) return;
+    const uint i = gid.y * t.srcWidth + gid.x;
+    const float3 col = toneColour(t, densityAt(t, hist, (device const float4*)hist, gid), pal, totals);
+    const uint3 q = uint3(round(linearToSRGB(col) * 255.0f));
+    const uint old = snap[i];
+    const int3 o = int3(old & 0xffu, (old >> 8) & 0xffu, (old >> 16) & 0xffu);
+    const uint3 d = uint3(abs(int3(q) - o));
+    atomic_fetch_add_explicit(&change[0], max(d.x, max(d.y, d.z)), memory_order_relaxed);
+    snap[i] = q.x | (q.y << 8) | (q.z << 16);
 }
 
 // The rest histogram's levels: per channel, how many bins hold a count in each 1/16 octave

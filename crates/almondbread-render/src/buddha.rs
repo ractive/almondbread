@@ -26,7 +26,7 @@ use bytemuck::{Pod, Zeroable, bytes_of};
 use crate::backend::{ComputeEncoder, GpuBackend, GpuError, MathMode, Storage, Submission, SubmissionStatus};
 
 pub const BUDDHA_SOURCE: &str = include_str!("shaders/buddhabrot.metal");
-const FUNCTIONS: [&str; 10] = [
+const FUNCTIONS: [&str; 11] = [
     "buddhaLevels",
     "buddhaSample",
     "buddhaRecheck",
@@ -37,6 +37,7 @@ const FUNCTIONS: [&str; 10] = [
     "buddhaSeedLive",
     "buddhaTone",
     "buddhaLayout",
+    "buddhaChange",
 ];
 
 /// u32 counters per dispatch slot (the kernel's `COUNTERS`), and slots in the ring.
@@ -216,6 +217,7 @@ pub struct BuddhaKernels<B: GpuBackend> {
     seed_live: B::Pipeline,
     tone: B::Pipeline,
     layout: B::Pipeline,
+    change: B::Pipeline,
 }
 
 impl<B: GpuBackend> Clone for BuddhaKernels<B> {
@@ -231,6 +233,7 @@ impl<B: GpuBackend> Clone for BuddhaKernels<B> {
             seed_live: self.seed_live.clone(),
             tone: self.tone.clone(),
             layout: self.layout.clone(),
+            change: self.change.clone(),
         }
     }
 }
@@ -252,6 +255,7 @@ impl<B: GpuBackend> BuddhaKernels<B> {
             seed_live: next(),
             tone: next(),
             layout: next(),
+            change: next(),
         })
     }
 }
@@ -281,7 +285,39 @@ pub struct Rest<B: GpuBackend> {
     /// contains it) instead of by uniform search.
     pub warm: Vec<BinMap>,
     warm_done: u32,
+    /// Convergence (kb: plans/buddhabrot "Convergence"): the faintest channel's mean hits per
+    /// pixel at the last change check (0: none yet), and the shown image's remaining noise
+    /// estimated from the change since the check before (mean 8-bit levels).
+    pub check_hits: f64,
+    pub noise: Option<f64>,
+    /// GPU seconds of sampling this view may take, and its hits per pixel at most ("Continue"
+    /// adds time and lifts the hits cap).
+    pub budget: f64,
+    pub hits_budget: f64,
 }
+
+/// Convergence (kb: plans/buddhabrot "Convergence"): the rest image counts as clean when its
+/// estimated noise, the mean deviation of a pixel from the converged image in 8-bit levels, is at
+/// most this (measured at the whole set: 1.7 levels at 1500 hits per pixel, where the image was
+/// judged clean by looking).
+pub const CLEAN_NOISE: f64 = 2.0;
+/// Change checks: the first at this many hits per pixel, then each at `CHECK_RATIO` times the
+/// hits of the one before.
+pub const CHECK_FIRST: f64 = 32.0;
+pub const CHECK_RATIO: f64 = std::f64::consts::SQRT_2;
+/// Hits per pixel assumed to be needed before the first noise estimate (progress only).
+pub const PRIOR_HITS: f64 = 1500.0;
+/// GPU seconds of sampling a resting view gets (each "Continue" as many again), as compute
+/// further's budget: views narrower than about 0.1 do not converge in minutes.
+pub const REST_BUDGET: f64 = 60.0;
+/// ... and at most this many hits per pixel (the faintest channel's mean), the clean target of
+/// the first build: a view that has not converged by then (narrower than about 0.5) never
+/// samples longer than it did before convergence was measured.
+pub const REST_HITS_BUDGET: f64 = 1500.0;
+
+/// The rest image shows from this many hits per pixel on (measured levels of its own, see
+/// [`Buddha::levels_ready`]); until then the previous image stays.
+pub const REST_SHOW_HITS: f64 = 16.0;
 
 /// Dispatches per warm-up stage.
 pub const WARM_DISPATCHES: u32 = 2;
@@ -297,6 +333,41 @@ impl<B: GpuBackend> Rest<B> {
     /// Uniform-equivalent samples behind the completed part.
     pub fn samples(&self) -> f64 {
         uniform_equivalent(&self.done)
+    }
+
+    /// The image no longer changes visibly: its estimated noise is at most [`CLEAN_NOISE`].
+    pub fn converged(&self) -> bool {
+        self.noise.is_some_and(|n| n <= CLEAN_NOISE)
+    }
+
+    /// Sampling has used the view's GPU budget or reached its hits cap.
+    pub fn out_of_budget(&self) -> bool {
+        self.done.gpu_time >= self.budget || self.mean_hits() >= self.hits_budget
+    }
+
+    /// Progress to the end of sampling, 0..1: the share of the hits convergence needs (noise
+    /// falls as 1 / sqrt(hits); before the first estimate, of [`PRIOR_HITS`]) or of the budget,
+    /// whichever is further.
+    pub fn progress(&self) -> f64 {
+        if self.converged() || self.out_of_budget() {
+            return 1.0;
+        }
+        self.sharpness()
+            .max(self.done.gpu_time / self.budget)
+            .max(self.mean_hits() / self.hits_budget)
+            .clamp(0.0, 1.0)
+    }
+
+    /// The share of the hits convergence needs, 0..1.
+    pub fn sharpness(&self) -> f64 {
+        if self.converged() {
+            return 1.0;
+        }
+        let share = match self.noise {
+            Some(n) if n > 0.0 => (CLEAN_NOISE / n).powi(2),
+            _ => self.mean_hits() / PRIOR_HITS,
+        };
+        share.clamp(0.0, 1.0)
     }
 
     /// Mean hits per bin of the faintest channel (the progress measure).
@@ -395,9 +466,17 @@ pub struct Buddha<B: GpuBackend> {
     /// ([`Buddha::request_levels`]); the live mode uses them too.
     pub levels: Option<Levels>,
     levels_buf: B::Buffer,
-    levels_pending: Option<(B::Submission, BuddhaMode, usize)>,
+    levels_pending: Option<(B::Submission, BuddhaMode, usize, u64, f64)>,
+    /// The rest epoch the current levels were measured on, and its hits per pixel then.
+    levels_epoch: u64,
+    levels_hits: f64,
     /// Counts measured levels (a new measurement re-tones the shown image).
     pub levels_serial: u64,
+    /// Convergence checks: the last toned image (8-bit RGB per bin) and the counters a check
+    /// writes; the check on the GPU with its rest epoch and hits per pixel.
+    change_snap: Option<(B::Buffer, usize)>,
+    change_buf: B::Buffer,
+    change_pending: Option<(B::Submission, u64, f64)>,
     /// GPU seconds of all harvested sample dispatches (frame statistics).
     pub harvested_gpu: f64,
 }
@@ -453,6 +532,11 @@ impl<B: GpuBackend> Buddha<B> {
             levels: None,
             levels_buf: backend.create_buffer(LEVELS_WORDS * 4, Storage::Shared)?,
             levels_pending: None,
+            levels_epoch: 0,
+            levels_hits: 0.0,
+            change_snap: None,
+            change_buf: backend.create_buffer(16, Storage::Shared)?,
+            change_pending: None,
             levels_serial: 0,
             harvested_gpu: 0.0,
         })
@@ -488,6 +572,7 @@ impl<B: GpuBackend> Buddha<B> {
     /// cost model.
     pub fn harvest(&mut self, backend: &B) {
         self.poll_levels(backend, false);
+        self.poll_change(backend);
         while let Some(p) = self.in_flight.front() {
             match p.sub.status() {
                 SubmissionStatus::Pending => break,
@@ -580,7 +665,7 @@ impl<B: GpuBackend> Buddha<B> {
         enc.set_buffer(5, &self.levels_buf, 0);
         enc.dispatch_threads([bins, 1, 1], [256, 1, 1]);
         let sub = enc.commit();
-        self.levels_pending = Some((sub, r.key.mode, bins));
+        self.levels_pending = Some((sub, r.key.mode, bins, r.epoch, r.mean_hits()));
         Ok(())
     }
 
@@ -589,9 +674,76 @@ impl<B: GpuBackend> Buddha<B> {
         self.levels_pending.is_some()
     }
 
+    /// The rest histogram is due for a convergence check: past [`CHECK_FIRST`] hits per pixel,
+    /// then each [`CHECK_RATIO`] times more, one at a time.
+    pub fn change_due(&self) -> bool {
+        let Some(r) = &self.rest else { return false };
+        self.change_pending.is_none()
+            && self.palette.is_some()
+            && r.mean_hits() >= CHECK_FIRST.max(r.check_hits * CHECK_RATIO)
+    }
+
+    /// Tones the rest histogram as the shown image is (current levels and palette) and measures
+    /// how much it changed since the last check (`buddhaChange`; read in [`Buddha::harvest`]).
+    pub fn request_change(&mut self, backend: &B) -> Result<(), GpuError> {
+        let (Some(r), Some((_, pal, _))) = (&self.rest, &self.palette) else {
+            return Ok(());
+        };
+        let m = r.key.map;
+        let bins = m.width * m.height;
+        if self.change_snap.as_ref().is_none_or(|(_, n)| *n != bins) {
+            self.change_snap = Some((backend.create_buffer(bins * 4, Storage::Private)?, bins));
+        }
+        let snap = self.change_snap.as_ref().expect("snap").0.clone();
+        let t = self.tone_params(r.key.mode, (m.width, m.height), (m.width, m.height), 0, [0.0; 3]);
+        // (The histogram holds every encoded dispatch by the time this runs, the harvested
+        // counters fewer: the hits count of the check is the encoded share's.)
+        let hits = r.mean_hits() * r.encoded as f64 / r.done.iterations.max(1) as f64;
+        let mut enc = backend.begin("buddha change")?;
+        self.clear(&mut enc, &self.change_buf, 0, 4);
+        enc.set_pipeline(&self.k.change);
+        enc.set_bytes(0, bytes_of(&t));
+        enc.set_buffer(1, &r.hist, 0);
+        enc.set_buffer(3, pal, 0);
+        enc.set_buffer(4, &self.totals, 0);
+        enc.set_buffer(5, &snap, 0);
+        enc.set_buffer(6, &self.change_buf, 0);
+        enc.dispatch_threads([m.width, m.height, 1], [16, 16, 1]);
+        let sub = enc.commit();
+        self.change_pending = Some((sub, r.epoch, hits));
+        Ok(())
+    }
+
+    /// Reads a finished convergence check: the mean change since the last check `d` (8-bit
+    /// levels) between `n1` and `n2` hits per pixel. With independent sampling noise of
+    /// standard deviation s / sqrt(n), the change has s * sqrt(1 / n1 - 1 / n2), so the noise
+    /// left at `n2` is d * sqrt(n1 / (n2 - n1)).
+    fn poll_change(&mut self, backend: &B) {
+        let Some((sub, epoch, hits)) = &self.change_pending else {
+            return;
+        };
+        if sub.status() == SubmissionStatus::Pending {
+            return;
+        }
+        let (epoch, hits) = (*epoch, *hits);
+        self.change_pending = None;
+        let mut raw = [0u8; 4];
+        backend.read_buffer(&self.change_buf, 0, &mut raw);
+        let sum = f64::from(u32::from_le_bytes(raw));
+        let Some(r) = self.rest.as_mut().filter(|r| r.epoch == epoch) else {
+            return;
+        };
+        let bins = (r.key.map.width * r.key.map.height).max(1) as f64;
+        if r.check_hits > 0.0 && hits > r.check_hits {
+            let d = sum / bins;
+            r.noise = Some(d * (r.check_hits / (hits - r.check_hits)).sqrt());
+        }
+        r.check_hits = hits;
+    }
+
     /// Reads finished levels (blocking with `wait`).
     pub fn poll_levels(&mut self, backend: &B, wait: bool) {
-        let Some((sub, mode, bins)) = &self.levels_pending else {
+        let Some((sub, mode, bins, epoch, hits)) = &self.levels_pending else {
             return;
         };
         if wait {
@@ -600,7 +752,7 @@ impl<B: GpuBackend> Buddha<B> {
         if sub.status() == SubmissionStatus::Pending {
             return;
         }
-        let (mode, bins) = (*mode, *bins);
+        let (mode, bins, epoch, hits) = (*mode, *bins, *epoch, *hits);
         self.levels_pending = None;
         let mut raw = vec![0u8; LEVELS_WORDS * 4];
         backend.read_buffer(&self.levels_buf, 0, &mut raw);
@@ -608,7 +760,19 @@ impl<B: GpuBackend> Buddha<B> {
         if let Some(l) = Levels::from_buckets(mode, words, bins) {
             self.levels = Some(l);
             self.levels_serial += 1;
+            self.levels_epoch = epoch;
+            self.levels_hits = hits;
         }
+    }
+
+    /// The levels were measured on the current rest histogram with at least `hits` per pixel.
+    /// A new view's first image waits for levels of its own from [`REST_SHOW_HITS`] on: the
+    /// last view's levels show a young histogram as white speckle, levels of a few hits per
+    /// pixel (noise) far too dark, then it brightens with each measurement.
+    pub fn levels_ready(&self, hits: f64) -> bool {
+        self.rest
+            .as_ref()
+            .is_some_and(|r| r.epoch == self.levels_epoch && self.levels_hits >= hits)
     }
 
     /// GPU seconds per proposal of `sampler` for `mode` (None: not measured yet).
@@ -742,6 +906,10 @@ impl<B: GpuBackend> Buddha<B> {
             encoded: 0,
             warm,
             warm_done: 0,
+            check_hits: 0.0,
+            noise: None,
+            budget: REST_BUDGET,
+            hits_budget: REST_HITS_BUDGET,
         });
         Ok(true)
     }

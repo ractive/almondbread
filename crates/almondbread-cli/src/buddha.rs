@@ -31,6 +31,9 @@ pub fn buddha_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         r.settings.buddha = BuddhaMode::Buddhabrot;
     }
     let out = o.get("out").unwrap_or("buddha").to_string();
+    if let Some(seconds) = o.f64("idle") {
+        return idle(&mut r, width, height, seconds, o.f64("ppp").unwrap_or(1.0), &out);
+    }
     if let Some(motion) = o.get("live") {
         return live(backend, &mut r, o, width, height, motion, &out);
     }
@@ -70,6 +73,7 @@ pub fn buddha_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let mut next_print = 0.0;
     let mut snap = 0;
     let mut clean_at = None;
+    let mut snap_px: Vec<(f64, Vec<u8>)> = Vec::new();
     loop {
         b.harvest(backend);
         let t = start.elapsed().as_secs_f64();
@@ -103,8 +107,13 @@ pub fn buddha_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         if snap < snaps.len() && t >= snaps[snap] {
             let path = format!("{out}-{}s.png", snaps[snap]);
             b.wait_all(backend);
-            write_rest(backend, &mut b, width, height, &path)?;
-            println!("  {path} (hits/px {:.1})", b.rest.as_ref().expect("rest").mean_hits());
+            let px = write_rest(backend, &mut b, width, height, &path)?;
+            let hits = b.rest.as_ref().expect("rest").mean_hits();
+            let d = snap_px
+                .last()
+                .map_or(String::new(), |(_, q)| format!(", {}", image_change(q, &px)));
+            println!("  {path} (hits/px {hits:.1}{d} vs the previous snap)");
+            snap_px.push((hits, px));
             snap += 1;
         }
         if t >= seconds {
@@ -116,7 +125,14 @@ pub fn buddha_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
     b.wait_all(backend);
-    write_rest(backend, &mut b, width, height, &format!("{out}.png"))?;
+    let last = write_rest(backend, &mut b, width, height, &format!("{out}.png"))?;
+    // How far each snap still is from the final image (the remaining visible change).
+    for (hits, px) in &snap_px {
+        println!(
+            "  snap at {hits:.0} hits/px vs the final image: {}",
+            image_change(px, &last)
+        );
+    }
     // Tone curve variants of the final histogram: `--variants white:gamma,white:gamma`.
     if let Some(v) = o.get("variants") {
         for t in v.split(',') {
@@ -214,7 +230,34 @@ fn compare_runs<B: GpuBackend>(
     Ok(0)
 }
 
-fn write_rest<B: GpuBackend>(backend: &B, b: &mut Buddha<B>, width: usize, height: usize, path: &str) -> Result<()> {
+/// Mean and 99th-percentile absolute difference of two BGRA8 images (largest channel, 8-bit
+/// levels) and the share of pixels that differ by more than one level.
+fn image_change(a: &[u8], b: &[u8]) -> String {
+    let mut d: Vec<u8> = a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .map(|(p, q)| (0..3).map(|k| p[k].abs_diff(q[k])).max().unwrap_or(0))
+        .collect();
+    let n = d.len().max(1);
+    let mean = d.iter().map(|&x| f64::from(x)).sum::<f64>() / n as f64;
+    let over = d.iter().filter(|&&x| x > 1).count() as f64 / n as f64;
+    d.sort_unstable();
+    format!(
+        "mean |d| {mean:.2} levels, p99 {}, {:.1} % of pixels > 1 level",
+        d[(n - 1) * 99 / 100],
+        100.0 * over
+    )
+}
+
+fn write_rest<B: GpuBackend>(
+    backend: &B,
+    b: &mut Buddha<B>,
+    width: usize,
+    height: usize,
+    path: &str,
+) -> Result<Vec<u8>> {
     b.request_levels(backend)?;
     b.poll_levels(backend, true);
     let target = backend.create_texture(width, height, TextureFormat::Bgra8Unorm, Storage::Shared)?;
@@ -225,7 +268,7 @@ fn write_rest<B: GpuBackend>(backend: &B, b: &mut Buddha<B>, width: usize, heigh
     let mut px = vec![0u8; width * height * 4];
     backend.read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut px)?;
     write_png_bgra(path, &px, width, height)?;
-    Ok(())
+    Ok(px)
 }
 
 /// The live mode through the renderer's frame loop: `frames` refreshes at `rate` Hz of a pan or
@@ -272,19 +315,88 @@ fn live<B: GpuBackend + Clone>(
     };
     save(r, &format!("{out}-rest.png"))?;
     let mut gpu = Vec::new();
+    // `--zoom-rate`: octaves per second of the zoom motions. `bursts`: zoom 0.25 s, hold 0.1 s
+    // (the gesture goes on), every fourth burst a 0.4 s rest (the view settles in between).
+    let zoom_rate = o.f64("zoom-rate").unwrap_or(1.0);
+    // `--trace 1`: per frame what was shown (the look's live / rest image or the escape-time
+    // colouring), the live estimate and the shown frame's mean colour (reads every frame back).
+    let trace = o.usize("trace").unwrap_or(0) != 0;
+    let mut switches = 0usize;
+    let mut colour_jumps = 0usize;
+    let mut last_shown: Option<(String, [f64; 3])> = None;
+    let mut segments: Vec<(usize, String)> = Vec::new();
     for f in 1..=frames {
-        // A steady motion: a pan of 1/4 of the view width per second, or a zoom of 2x per second.
-        match motion {
-            "pan" => r.viewport.pan_by_points(-0.25 * width as f64 * ppp * dt, 0.0),
-            "zoom" => r.viewport.zoom_by(2f64.powf(dt), 0.0, 0.0),
-            _ => return err("--live pan|zoom"),
+        let t = f as f64 * dt;
+        let moving = match motion {
+            "pan" => {
+                r.viewport.pan_by_points(-0.25 * width as f64 * ppp * dt, 0.0);
+                true
+            }
+            "zoom" => {
+                r.viewport.zoom_by(2f64.powf(zoom_rate * dt), 0.0, 0.0);
+                true
+            }
+            "bursts" => {
+                let k = (t / 0.35) as usize;
+                let phase = t - k as f64 * 0.35;
+                let rest = k % 4 == 3;
+                let on = phase < 0.25 && !rest;
+                if on {
+                    r.viewport.zoom_by(2f64.powf(2.0 * zoom_rate * dt), 0.0, 0.0);
+                }
+                on
+            }
+            _ => return err("--live pan|zoom|bursts"),
+        };
+        if moving {
+            r.note_interaction(now);
         }
-        r.note_interaction(now);
         let tf = Instant::now();
         r.render_frame(now, width, height, ppp, &mut acquire);
         let busy = tf.elapsed().as_secs_f64();
         if let Some(b) = r.buddha_sampler() {
             gpu.push(b.last_live.gpu_time * 1000.0);
+        }
+        if trace {
+            let (shown, est) = r.buddha_shown();
+            let name = match shown {
+                almondbread_render::BuddhaShown::None => "escape".to_string(),
+                almondbread_render::BuddhaShown::Live => "live".to_string(),
+                almondbread_render::BuddhaShown::Rest(_) => "rest".to_string(),
+            };
+            r.finish_frames();
+            let mut px = vec![0u8; width * height * 4];
+            backend.read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut px)?;
+            let mut m = [0f64; 3];
+            for p in px.as_chunks::<4>().0 {
+                m[0] += f64::from(p[2]);
+                m[1] += f64::from(p[1]);
+                m[2] += f64::from(p[0]);
+            }
+            let n = (width * height) as f64;
+            let m = m.map(|x| x / n);
+            if let Some((prev, pm)) = &last_shown {
+                if *prev != name {
+                    switches += 1;
+                }
+                let d = (0..3).map(|k| (m[k] - pm[k]).abs()).fold(0.0, f64::max);
+                if d > 8.0 {
+                    colour_jumps += 1;
+                }
+            }
+            if segments.last().is_none_or(|s| s.1 != name) {
+                segments.push((f, name.clone()));
+            }
+            println!(
+                "frame {f:4} t {t:6.3} {} width {:.3e} shown {name:6} estimate {} mean rgb {:5.1} {:5.1} {:5.1}",
+                if moving { "move" } else { "hold" },
+                r.viewport.scale.to_f64() * width as f64 * ppp,
+                est.map_or("-".to_string(), |e| format!("{e:7.1}")),
+                m[0],
+                m[1],
+                m[2]
+            );
+            last_shown = Some((name, m));
         }
         if snaps.contains(&f) {
             save(r, &format!("{out}-{motion}-f{f}.png"))?;
@@ -293,6 +405,17 @@ fn live<B: GpuBackend + Clone>(
         std::thread::sleep(std::time::Duration::from_secs_f64((dt - busy).max(0.0)));
     }
     r.finish_frames();
+    if trace {
+        println!(
+            "live-trace: {switches} mode switches, {colour_jumps} frames whose mean colour jumped > 8 levels, {} segments: {}",
+            segments.len(),
+            segments
+                .iter()
+                .map(|(f, n)| format!("{f}:{n}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
     gpu.sort_by(f64::total_cmp);
     if !gpu.is_empty() {
         println!(
@@ -329,5 +452,90 @@ fn live<B: GpuBackend + Clone>(
         r.backend().allocated_bytes().unwrap_or(0) as f64 / 1e6
     );
     save(r, &format!("{out}-{motion}-settled.png"))?;
+    Ok(0)
+}
+
+/// The resting view through the renderer's frame loop for `seconds` (a display link at 120 Hz
+/// that stops when the renderer says the view is settled): GPU seconds per second of the
+/// look's dispatches and frames, the progress readout, and when sampling stopped.
+fn idle<B: GpuBackend + Clone>(
+    r: &mut Renderer<B>,
+    width: usize,
+    height: usize,
+    seconds: f64,
+    ppp: f64,
+    out: &str,
+) -> Result<i32> {
+    let backend = r.backend().clone();
+    let target = backend.create_texture(width, height, TextureFormat::Bgra8Unorm, Storage::Shared)?;
+    let mut acquire = |_: bool| -> Option<FrameTarget<B>> { Some((target.clone(), None)) };
+    let dt = 1.0 / 120.0;
+    let t0 = Instant::now();
+    let mut now = 1.0;
+    let mut last_print = 0.0;
+    let mut gpu_at_print = 0.0;
+    let mut settled_at: Option<f64> = None;
+    let mut refreshes = 0usize;
+    let mut presented = 0usize;
+    r.frame_stats = Some(Default::default());
+    let gpu_total = |r: &mut Renderer<B>| {
+        let s = r.buddha_sampler().map_or(0.0, |b| b.harvested_gpu);
+        s + r.frame_stats.as_ref().map_or(0.0, |f| f.colorize_gpu)
+    };
+    loop {
+        let t = t0.elapsed().as_secs_f64();
+        if t >= seconds {
+            break;
+        }
+        let o = r.render_frame(now, width, height, ppp, &mut acquire);
+        refreshes += 1;
+        presented += usize::from(o.presented);
+        if !o.animating && settled_at.is_none() {
+            settled_at = Some(t);
+        }
+        if o.animating {
+            settled_at = None;
+        }
+        if t - last_print >= 1.0 || (settled_at == Some(t)) {
+            let g = gpu_total(r);
+            let p = r.orbit_progress(now);
+            println!(
+                "t {t:6.2} GPU {:5.1} % of the last {:.2} s, refreshes {refreshes}, presented {presented}, {}{}",
+                100.0 * (g - gpu_at_print) / (t - last_print).max(1e-3),
+                t - last_print,
+                p.map_or("no progress".to_string(), |p| format!(
+                    "hits/px {:.0} of {:.0}, noise {} levels, progress {:.0} %, {:.2e} samples, {}",
+                    p.mean_hits,
+                    p.target,
+                    p.noise.map_or("-".to_string(), |n| format!("{n:.2}")),
+                    100.0 * p.progress,
+                    p.samples,
+                    if p.metropolis { "MH" } else { "uniform" }
+                )),
+                if settled_at.is_some() { ", settled" } else { "" }
+            );
+            last_print = t;
+            gpu_at_print = g;
+        }
+        if !o.animating {
+            // The display link stopped: nothing runs until the next input.
+            std::thread::sleep(std::time::Duration::from_secs_f64(0.1));
+            now += 0.1;
+            continue;
+        }
+        now += dt;
+        std::thread::sleep(std::time::Duration::from_secs_f64(dt));
+    }
+    r.finish_frames();
+    let g = gpu_total(r);
+    println!(
+        "idle-metrics: {seconds:.0} s, GPU {:.1} % average, settled at {}",
+        100.0 * g / seconds,
+        settled_at.map_or("never".to_string(), |s| format!("{s:.2} s"))
+    );
+    let mut px = vec![0u8; width * height * 4];
+    backend.read_texture(&target, width, height, TextureFormat::Bgra8Unorm, &mut px)?;
+    write_png_bgra(format!("{out}-idle.png"), &px, width, height)?;
+    println!("  {out}-idle.png");
     Ok(0)
 }

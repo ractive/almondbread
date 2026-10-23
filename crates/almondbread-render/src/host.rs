@@ -59,6 +59,8 @@ pub struct InteractionReport {
     /// `frame` calls and frames encoded.
     pub draws: usize,
     pub encoded: usize,
+    /// Switches between the Buddhabrot look and the escape-time colouring.
+    pub look_switches: usize,
 }
 
 struct Measurement {
@@ -882,6 +884,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             skipped_no_target: fs.skipped_no_target,
             draws: m.draw_cpu.len(),
             encoded: fs.frames,
+            look_switches: fs.look_switches,
         }
     }
 
