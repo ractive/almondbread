@@ -2014,15 +2014,18 @@ test (background window, 2560 × 1640 px, `ALMONDBREAD_TEST_LINK=cv`; switches c
 
 | Scenario | fps | interval p50 / p95 / max ms | GPU ms/frame | switches |
 |---|---:|---|---|---:|
-| home zoom (escape time, reference) | 94.8 | 8.3 / 16.7 / 33.3 | 3.92 + 2.29 | – |
-| buddha pan | 101.4 | 8.3 / 16.7 / 41.7 | 3.50 + 1.57 | 0 |
-| buddha zoom (to 0.5 wide and back) | 92.1 | 8.3 / 16.7 / 50.0 | 3.97 + 2.10 | 1 |
-| buddha deep zoom (whole set to ~0.02 wide, pinch) | 107.4 | 8.3 / 16.7 / 54.2 | 3.68 + 2.08 | 1 |
-| buddha bursts (pinch bursts with rests) | 64.0 | 8.3 / 16.7 / 479 | 6.36 + 1.76 | 7 |
-| buddha wheel (a notch every 0.2 s) | 113.4 | 8.3 / 8.3 / 33.3 | 3.61 + 1.99 | 1 |
-| nebula zoom | 102.1 | 8.3 / 16.7 / 50.0 | 4.47 + 1.77 | 1 |
+| home zoom (escape time, reference) | 104.3 | 8.3 / 8.3 / 16.7 | 3.87 + 2.24 | – |
+| buddha pan | 117.3 | 8.3 / 8.3 / 16.7 | 3.52 + 1.61 | 1 |
+| buddha zoom (to 0.5 wide and back) | 104.7 | 8.3 / 8.3 / 16.7 | 4.12 + 2.03 | 1 |
+| buddha deep zoom (whole set to ~0.02 wide, pinch) | 116.5 | 8.3 / 8.3 / 25.0 | 3.63 + 2.05 | 1 |
+| buddha bursts (pinch bursts with rests) | 68.9 | 8.3 / 16.7 / 475 | 6.02 + 1.90 | 7 |
+| buddha wheel (a notch every 0.2 s) | 117.8 | 8.3 / 8.3 / 16.7 | 3.50 + 2.04 | 1 |
+| nebula zoom | 117.4 | 8.3 / 8.3 / 16.7 | 4.27 + 1.72 | 1 |
 
-(Bursts: the 479 ms interval is a rest that keeps the escape-time image until the new view has
+(Final build; an earlier run of the same scenarios under heavier load: 92–113 fps, buddha pan 0
+switches. A pan switching once is a fallback when the smoothed live estimate dropped below 25;
+the before build was not run in this test, its flips are measured headlessly above.)
+(Bursts: the 475 ms interval is a rest that keeps the escape-time image until the new view has
 16 hits per pixel; nothing new is presented then. Its 7 switches are the gesture boundaries.)
 
 **GPU at rest** (headless `almondbread buddha --idle 75`, the frame loop at 120 Hz with the
