@@ -836,28 +836,39 @@ static inline bool foldConformalX(FE Zx, FE zx, FE xy) {
     return foldScaled(xy.m.x, xy.e + 1, P.e) + P.m.y < 0.0f;
 }
 
-static inline void ncMul(float2 z, bool conf, thread float2& p, thread float2& q) {
+static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
     const float2 z2 = 2.0f * z;
-    if (kFormula == 4u && conf) {
-        p = cmul(z2, p);
-        q = cmul(z2, q);
-        return;
-    }
     const float2 np = conjf(cmul(z2, q));
     q = conjf(cmul(z2, p));
     p = np;
 }
 
-static inline void ncMulX(FE z, bool conf, thread FE& p, thread FE& q) {
+static inline void ncMulX(FE z, thread FE& p, thread FE& q) {
     const FE z2 = feTwice(z);
-    if (kFormula == 4u && conf) {
+    const FE np = feConj(feMul(z2, q));
+    q = feConj(feMul(z2, p));
+    p = np;
+}
+
+// F6: the Burning Ship's Jacobian, 2z where conf (x y < 0), else Mandelbar's reflection.
+static inline void ncMulFold(float2 z, bool conf, thread float2& p, thread float2& q) {
+    if (conf) {
+        const float2 z2 = 2.0f * z;
+        p = cmul(z2, p);
+        q = cmul(z2, q);
+        return;
+    }
+    ncMul(z, p, q);
+}
+
+static inline void ncMulFoldX(FE z, bool conf, thread FE& p, thread FE& q) {
+    if (conf) {
+        const FE z2 = feTwice(z);
         p = feMul(z2, p);
         q = feMul(z2, q);
         return;
     }
-    const FE np = feConj(feMul(z2, q));
-    q = feConj(feMul(z2, p));
-    p = np;
+    ncMulX(z, p, q);
 }
 
 // (p, q) <- (ap, aq) o (p, q): a real-linear map A after the map (p, q).
@@ -2019,12 +2030,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         if (e != 0) break;
                         continue;
                     }
-                    const bool conf = kFormula == 4u && foldConformalAt(Z, w, w, Z.x * Z.y);
+                    if (kFormula == 4u) {
+                        const bool conf = foldConformalAt(Z, w, w, Z.x * Z.y);
+                        if (kDE) { ncMulFold(z, conf, dm, dmQ); dm += tsd; }
+                        if (kInterior) ncMulFold(z, conf, zw, zwQ);
+                    } else {
                     if (kDE) {
-                        if (kNonConformal) { ncMul(z, conf, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
+                        if (kNonConformal) { ncMul(z, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
                     }
                     if (kInterior) {
-                        if (kNonConformal) ncMul(z, conf, zw, zwQ); else zw = fMulPrime(z, zw);
+                        if (kNonConformal) ncMul(z, zw, zwQ); else zw = fMulPrime(z, zw);
+                    }
                     }
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
                     // would overflow the DE mantissa within 8 steps; R5. F3: for z^p every step
@@ -2108,18 +2124,30 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             break;
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
-                        if (kNonConformal) {
-                            const FE fxy = (kFormula == 4u && m != 0) ? foldXY(refx, m) : FE{float2(0.0f), FE_ZERO};
-                            const bool conf = kFormula == 4u && foldConformalX(Zx, zx, fxy);
+                        if (kFormula == 4u) {
+                            const FE fxy = m != 0 ? foldXY(refx, m) : FE{float2(0.0f), FE_ZERO};
+                            const bool conf = foldConformalX(Zx, zx, fxy);
                             if (kDE) {
                                 FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
-                                ncMulX(zf, conf, dp, dq);
+                                ncMulFoldX(zf, conf, dp, dq);
                                 feJoin(feAdd(dp, TS), dq, dm, dmQ, dExp);
                                 tsd = tsdOf(TS, dExp);
                             }
                             if (kInterior) {
                                 FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
-                                ncMulX(zf, conf, wp, wq);
+                                ncMulFoldX(zf, conf, wp, wq);
+                                feJoin(wp, wq, zw, zwQ, wExp);
+                            }
+                        } else if (kNonConformal) {
+                            if (kDE) {
+                                FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
+                                ncMulX(zf, dp, dq);
+                                feJoin(feAdd(dp, TS), dq, dm, dmQ, dExp);
+                                tsd = tsdOf(TS, dExp);
+                            }
+                            if (kInterior) {
+                                FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
+                                ncMulX(zf, wp, wq);
                                 feJoin(wp, wq, zw, zwQ, wExp);
                             }
                         } else {
@@ -2179,13 +2207,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             const FE xy = foldXY(refx, m);
                             xys = foldScaled(xy.m.x, xy.e, e);
                         }
-                    }
-                    const bool conf = kFormula == 4u && foldConformalAt(Z, sw, w, xys);
+                        const bool conf = foldConformalAt(Z, sw, w, xys);
+                        if (kDE) { ncMulFold(zf, conf, dm, dmQ); dm += tsd; }
+                        if (kInterior) ncMulFold(zf, conf, zw, zwQ);
+                    } else {
                     if (kDE) {
-                        if (kNonConformal) { ncMul(zf, conf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
+                        if (kNonConformal) { ncMul(zf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
                     }
                     if (kInterior) {
-                        if (kNonConformal) ncMul(zf, conf, zw, zwQ); else zw = fMulPrime(zf, zw);
+                        if (kNonConformal) ncMul(zf, zw, zwQ); else zw = fMulPrime(zf, zw);
+                    }
                     }
                     if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f
                         || (kFormula == 1u && max(abs(zf.x), abs(zf.y)) > 1.0f)) {
@@ -2513,12 +2544,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
-                const bool conf = kFormula == 4u && foldConformalAt(ref[m], dz, dz, ref[m].x * ref[m].y);
+                if (kFormula == 4u) {
+                    const bool conf = foldConformalAt(ref[m], dz, dz, ref[m].x * ref[m].y);
+                    if (kDE) { ncMulFold(z, conf, d, dQ); d += tsAddP; }
+                    if (kInterior) ncMulFold(z, conf, w, wQ);
+                } else {
                 if (kDE) {
-                    if (kNonConformal) { ncMul(z, conf, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
+                    if (kNonConformal) { ncMul(z, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
                 }
                 if (kInterior) {
-                    if (kNonConformal) ncMul(z, conf, w, wQ); else w = fMulPrime(z, w);
+                    if (kNonConformal) ncMul(z, w, wQ); else w = fMulPrime(z, w);
+                }
                 }
                 // Test and rescale only every 8th iteration: half the extra cost of the
                 // derivative test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4
