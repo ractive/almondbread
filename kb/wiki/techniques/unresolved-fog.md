@@ -84,6 +84,18 @@ region count (any coverage at a scale stops the walk), unlike a mean-coverage di
   full fog into gesture frames by reprojection.
 - The off switch for before/after checks (`ALMONDBREAD_FOG=0`) was removed 2026-10-17; fog is always on.
 
+## Exception: bounded orbits (Burning Ship, 2026-10-23)
+
+A formula with the capability `bounded_interior` (the Burning Ship only) draws unresolved
+pixels in the interior colour instead (`ColorParams.boundedInterior`: `shade()`, `fogAt()`
+and AA samples; no pyramid is built). Its unresolved pixels are mostly bounded chaotic orbits
+that no test can prove and no extra iterations resolve: at the whole ship 86 % of them never
+escape within 1e6 iterations (direct BigFloat, measured 2026-10-23, M1 Pro;
+[Burning Ship and abs variations](../formulas/burning-ship.md) "Bounded orbits drawn as the set"), so fog there read as a
+grey smear in the hull. Mandelbrot's unresolved pixels are slow escape or slow convergence
+that compute further resolves, so they keep the fog. Extension passes and compute further
+still run; a pixel they resolve changes from the interior colour to its own.
+
 ## Cost
 
 Measured 2026-10-17, M1 Pro, release, 3456 × 2234 (`ALMONDBREAD_COLORIZE_BENCH=50
@@ -143,3 +155,4 @@ Not committed (scratch).
 # Citations
 
 - [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
+- [Burning Ship and abs variations](../formulas/burning-ship.md)

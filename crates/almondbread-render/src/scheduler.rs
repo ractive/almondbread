@@ -5330,22 +5330,24 @@ impl<B: GpuBackend> Renderer<B> {
         let palette = self.palette_buffer.as_ref().expect("palette");
         // Fog over unresolved pixels (kb: techniques/unresolved-fog): its pyramid first.
         let fog = match level {
-            Some(l) if job.has_unresolved() => crate::fog::build(
-                &mut self.fog,
-                &self.backend,
-                &mut enc,
-                &crate::fog::FogSource {
-                    iter: &src.iter,
-                    de: &src.de,
-                    aux,
-                    palette,
-                    level_counters: &self.level_buffer,
-                    rank,
-                    size: (src.width, src.height),
-                },
-                &mut c,
-                job.key.points_per_pixel / l.ratio,
-            ),
+            Some(l) if job.has_unresolved() && !FormulaCapabilities::of(job.key.formula).bounded_interior => {
+                crate::fog::build(
+                    &mut self.fog,
+                    &self.backend,
+                    &mut enc,
+                    &crate::fog::FogSource {
+                        iter: &src.iter,
+                        de: &src.de,
+                        aux,
+                        palette,
+                        level_counters: &self.level_buffer,
+                        rank,
+                        size: (src.width, src.height),
+                    },
+                    &mut c,
+                    job.key.points_per_pixel / l.ratio,
+                )
+            }
             _ => None,
         };
         enc.set_pipeline(&self.colorize_pipeline);
@@ -5497,7 +5499,11 @@ impl<B: GpuBackend> Renderer<B> {
         // Fog over unresolved pixels (kb: techniques/unresolved-fog): the pyramid of the exact
         // level (texel = output pixel) for the passes that draw its unresolved texels.
         let fog = match exact {
-            Some(l) if matches!(mode, COMPOSE_REFINE | COMPOSE_EXACT | COMPOSE_FURTHER) && job.has_unresolved() => {
+            Some(l)
+                if matches!(mode, COMPOSE_REFINE | COMPOSE_EXACT | COMPOSE_FURTHER)
+                    && job.has_unresolved()
+                    && !FormulaCapabilities::of(job.key.formula).bounded_interior =>
+            {
                 crate::fog::build(
                     &mut self.fog,
                     &self.backend,
@@ -5867,6 +5873,7 @@ impl<B: GpuBackend> Renderer<B> {
             },
             deep: [deep[0], deep[1], deep[2], if s.dense_calm { 1.0 } else { 0.0 }],
             filament: [filament[0], filament[1], filament[2], 1.0],
+            bounded_interior: u32::from(FormulaCapabilities::of(self.job_formula()).bounded_interior),
             ..ColorParams::default()
         }
     }

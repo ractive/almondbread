@@ -821,17 +821,23 @@ static inline FE fIcZZ(FE zf, FE z2, FE zz, FE lam) {
 // p' = conj(2 z q), q' = conj(2 z p). F6 adds its own cases (the Burning Ship family's
 // Jacobian is z -> 2z or the Mandelbar one, by the signs of x y).
 // F6 Burning Ship: where x y < 0 its Jacobian is 2z (conformal), else Mandelbar's reflection.
-static inline bool foldConformal(float2 z) {
-    return (z.x > 0.0f && z.y < 0.0f) || (z.x < 0.0f && z.y > 0.0f);
+// The caller decides x y < 0 (conf) as the fold step does, at the delta's scale: the sign of
+// X Y / s + d, d = (X y + x Y + x y) / s (foldConformalAt). The float32 sum Z + s w cannot: on
+// the needle Y + y is far below 2^-126 and flushes to 0, which took the reflection at every
+// step and lit regions bounded by fold lines (axis-aligned rectangles) from the wrong side.
+static inline bool foldConformalAt(float2 Z, float2 sw, float2 w, float xys) {
+    return xys + (Z.x * w.y + w.x * Z.y + sw.x * w.y) < 0.0f;
+}
+
+// The same in floatexp, X Y given (as fStepXFold: Im((2Z + z) z) = 2d).
+static inline bool foldConformalX(FE Zx, FE zx, FE xy) {
+    const FE P = feMul(feAdd(feTwice(Zx), zx), zx);
+    if (P.e == FE_ZERO) return xy.m.x < 0.0f;
+    return foldScaled(xy.m.x, xy.e + 1, P.e) + P.m.y < 0.0f;
 }
 
 static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
     const float2 z2 = 2.0f * z;
-    if (kFormula == 4u && foldConformal(z)) {
-        p = cmul(z2, p);
-        q = cmul(z2, q);
-        return;
-    }
     const float2 np = conjf(cmul(z2, q));
     q = conjf(cmul(z2, p));
     p = np;
@@ -839,14 +845,30 @@ static inline void ncMul(float2 z, thread float2& p, thread float2& q) {
 
 static inline void ncMulX(FE z, thread FE& p, thread FE& q) {
     const FE z2 = feTwice(z);
-    if (kFormula == 4u && foldConformal(z.m)) {
+    const FE np = feConj(feMul(z2, q));
+    q = feConj(feMul(z2, p));
+    p = np;
+}
+
+// F6: the Burning Ship's Jacobian, 2z where conf (x y < 0), else Mandelbar's reflection.
+static inline void ncMulFold(float2 z, bool conf, thread float2& p, thread float2& q) {
+    if (conf) {
+        const float2 z2 = 2.0f * z;
+        p = cmul(z2, p);
+        q = cmul(z2, q);
+        return;
+    }
+    ncMul(z, p, q);
+}
+
+static inline void ncMulFoldX(FE z, bool conf, thread FE& p, thread FE& q) {
+    if (conf) {
+        const FE z2 = feTwice(z);
         p = feMul(z2, p);
         q = feMul(z2, q);
         return;
     }
-    const FE np = feConj(feMul(z2, q));
-    q = feConj(feMul(z2, p));
-    p = np;
+    ncMulX(z, p, q);
 }
 
 // (p, q) <- (ap, aq) o (p, q): a real-linear map A after the map (p, q).
@@ -2008,11 +2030,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         if (e != 0) break;
                         continue;
                     }
+                    if (kFormula == 4u) {
+                        const bool conf = foldConformalAt(Z, w, w, Z.x * Z.y);
+                        if (kDE) { ncMulFold(z, conf, dm, dmQ); dm += tsd; }
+                        if (kInterior) ncMulFold(z, conf, zw, zwQ);
+                    } else {
                     if (kDE) {
                         if (kNonConformal) { ncMul(z, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
                     }
                     if (kInterior) {
                         if (kNonConformal) ncMul(z, zw, zwQ); else zw = fMulPrime(z, zw);
+                    }
                     }
                     // (Also every step once |z| > 16: escape is near and |2z| up to 2^17 per step
                     // would overflow the DE mantissa within 8 steps; R5. F3: for z^p every step
@@ -2096,7 +2124,21 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             break;
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
-                        if (kNonConformal) {
+                        if (kFormula == 4u) {
+                            const FE fxy = m != 0 ? foldXY(refx, m) : FE{float2(0.0f), FE_ZERO};
+                            const bool conf = foldConformalX(Zx, zx, fxy);
+                            if (kDE) {
+                                FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
+                                ncMulFoldX(zf, conf, dp, dq);
+                                feJoin(feAdd(dp, TS), dq, dm, dmQ, dExp);
+                                tsd = tsdOf(TS, dExp);
+                            }
+                            if (kInterior) {
+                                FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
+                                ncMulFoldX(zf, conf, wp, wq);
+                                feJoin(wp, wq, zw, zwQ, wExp);
+                            }
+                        } else if (kNonConformal) {
                             if (kDE) {
                                 FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
                                 ncMulX(zf, dp, dq);
@@ -2154,11 +2196,27 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     const float2 sw = s * w;
                     const float2 zf = Z + sw;
                     IC_TRACK(dot(zf, zf), n)
+                    // F6: X Y / s for the fold: the float32 product while both parts are
+                    // normal and well above 2^-126, else the split reference's. (Before the
+                    // derivatives: their Jacobian takes the step's fold sign.)
+                    float xys = 0.0f;
+                    if (kFormula == 4u) {
+                        if (min(abs(Z.x), abs(Z.y)) >= 0x1p-60f) {
+                            xys = foldScaled(Z.x * Z.y, 0, e);
+                        } else {
+                            const FE xy = foldXY(refx, m);
+                            xys = foldScaled(xy.m.x, xy.e, e);
+                        }
+                        const bool conf = foldConformalAt(Z, sw, w, xys);
+                        if (kDE) { ncMulFold(zf, conf, dm, dmQ); dm += tsd; }
+                        if (kInterior) ncMulFold(zf, conf, zw, zwQ);
+                    } else {
                     if (kDE) {
                         if (kNonConformal) { ncMul(zf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
                     }
                     if (kInterior) {
                         if (kNonConformal) ncMul(zf, zw, zwQ); else zw = fMulPrime(zf, zw);
+                    }
                     }
                     if ((n & 7u) == 0u || max(abs(zf.x), abs(zf.y)) < 0x1p-16f
                         || (kFormula == 1u && max(abs(zf.x), abs(zf.y)) > 1.0f)) {
@@ -2193,15 +2251,6 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         }
                     }
                     if (kFormula == 4u) {
-                        // F6: X Y / s for the fold: the float32 product while both parts are
-                        // normal and well above 2^-126, else the split reference's.
-                        float xys;
-                        if (min(abs(Z.x), abs(Z.y)) >= 0x1p-60f) {
-                            xys = foldScaled(Z.x * Z.y, 0, e);
-                        } else {
-                            const FE xy = foldXY(refx, m);
-                            xys = foldScaled(xy.m.x, xy.e, e);
-                        }
                         w = fStepFold(Z, sw, w, dd, xys);
                     } else {
                         w = fStep(Z, sw, w, dd);
@@ -2495,11 +2544,17 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
+                if (kFormula == 4u) {
+                    const bool conf = foldConformalAt(ref[m], dz, dz, ref[m].x * ref[m].y);
+                    if (kDE) { ncMulFold(z, conf, d, dQ); d += tsAddP; }
+                    if (kInterior) ncMulFold(z, conf, w, wQ);
+                } else {
                 if (kDE) {
                     if (kNonConformal) { ncMul(z, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
                 }
                 if (kInterior) {
                     if (kNonConformal) ncMul(z, w, wQ); else w = fMulPrime(z, w);
+                }
                 }
                 // Test and rescale only every 8th iteration: half the extra cost of the
                 // derivative test. Safe from overflow: |w| <= 2^60 after a check, and |2z| > 4
@@ -3286,7 +3341,8 @@ struct ColorParams {
     uint   fogLevels;     // fog over unresolved pixels: levels of the fog pyramid (0: none, the
                           // plain deep fog; kb: techniques/unresolved-fog)
     float  fogPoints;     // display points per iteration texel (fog widths in points)
-    uint   pad3;
+    uint   boundedInterior; // 1: unresolved pixels draw as the interior colour, not the fog (F6:
+                            // the Burning Ship's bounded chaotic orbits, never provable)
 };
 
 // Palette lookup filtered by the pixel's footprint in palette space (kb: techniques/coloring-methods,
@@ -3431,11 +3487,17 @@ static inline float3 fogDeep() {
     return FOG_DEEP;
 }
 
+// An unresolved pixel without the fog pyramid: the deep fog, or the interior colour for a
+// formula whose unresolved pixels are bounded orbits (boundedInterior, the Burning Ship).
+static inline float3 unresolvedColor(constant ColorParams& c) {
+    return c.boundedInterior != 0u ? c.interior.rgb : fogDeep();
+}
+
 static inline float3 shade(float2 it, float2 de, float2 ax, constant ColorParams& c, device const float4* pal,
                            float pixelsPerTexel, float sampleWidth = 1.0f) {
     // Unresolved: the deep fog. The callers that have the fog pyramid draw fogAt() instead
     // (light at resolved neighbours); previews and gesture frames draw this.
-    if (it.x == ITER_UNRESOLVED) return fogDeep();
+    if (it.x == ITER_UNRESOLVED) return unresolvedColor(c);
     if (it.x < 0.0f) return interiorShade(it, de, ax, c, pal, pixelsPerTexel);
     float dense, calm;
     float3 col = paletteColor(it, de.x, c, pal, pixelsPerTexel, dense, calm, sampleWidth);
@@ -3657,7 +3719,7 @@ kernel void fogResolve(texture2d<float, access::sample> fa  [[texture(0)]],
 
 // The fog at unresolved texel s: the resolved fog texture (bilinear), or the deep fog without it.
 static inline float3 fogAt(uint2 s, constant ColorParams& c, texture2d<float, access::sample> fog) {
-    if (c.fogLevels == 0u) return fogDeep();
+    if (c.fogLevels == 0u || c.boundedInterior != 0u) return unresolvedColor(c);
     constexpr sampler bl(coord::normalized, filter::linear, address::clamp_to_edge);
     const float2 p = (float2(s) + 0.5f) / float(2u << FOG_RES) / float2(fog.get_width(), fog.get_height());
     return fog.sample(bl, p, level(0)).rgb;
@@ -3865,9 +3927,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         float2 it;
         bool done = finished(iters, gid, c, rank, admitted, it);
         if (q.mode == 2) {
-            // An AA sample: unresolved samples do not count (they would grey the mean), and
-            // pixels off the adaptive list (ITER_SKIP) keep their mean.
-            bool use = done && it.x != ITER_UNRESOLVED && it.x != ITER_SKIP;
+            // An AA sample: unresolved samples do not count (they would grey the mean; unless
+            // they draw as interior, boundedInterior), and pixels off the adaptive list
+            // (ITER_SKIP) keep their mean.
+            bool use = done && (it.x != ITER_UNRESOLVED || c.boundedInterior != 0u) && it.x != ITER_SKIP;
             col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f, q.sampleWidth), q.blend) : hist;
             conf = q.confCap;
         } else if (q.mode == 4) {

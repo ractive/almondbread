@@ -263,7 +263,9 @@ pub struct ColorParams {
     /// texel.
     pub fog_levels: u32,
     pub fog_points: f32,
-    pub pad3: u32,
+    /// 1: unresolved pixels draw as the interior colour, not the fog
+    /// (`FormulaCapabilities::bounded_interior`, the Burning Ship).
+    pub bounded_interior: u32,
 }
 
 /// Parameters of the `fogDown` kernel (fog pyramid), 16 bytes.
