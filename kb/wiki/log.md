@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-23
 
+- **Decision:** BB flicker and convergence: the Buddhabrot's live/fallback decision flipped every refresh while zooming (two estimators defeated the hysteresis; 1000 flips in a 10 s zoom); now decided per gesture and revised only towards the fallback (1 switch). The rest view stops at a measured noise of 2 levels or 60 GPU s (Continue for more); HUD 'Buddhabrot · sharpening · 40 %'. plans/buddhabrot, synthesis/benchmarks
 - **Decision:** F6 review fixes: needle rectangles were the lighting Jacobian's fold sign (float32 Z + s w flushes Y + y; now the step's own sign test, 28 % of normals wrong before, 0 after); unresolved pixels draw as the set for the Burning Ship (86 % never escape in 1e6, BigFloat); little ships 20 and 60 from the masts replace 31 and 403 (chaotic sea); the ship place takes the user's framing; chasing bounded orbits left as a proposal (old 403 view settles 10.4 s)
 - **Decision:** F6 Burning Ship built (awaiting review): shown upright as (|x| - i|y|)^2 + c; diffabs perturbation with the fold decided at the delta's scale and a split floatexp reference, so the needle matches the oracle to 1e-1000 in float32 with no needle heuristic; fold-capped matrix BLA; Jacobian Newton; no probe (chaotic bounded interiors stay unresolved); six places; Celtic/Buffalo/Perpendicular, journeys and tour not built; others byte-identical, A/B 1.006
 

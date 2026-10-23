@@ -18,7 +18,7 @@ risks:
 sources: ["synthesis/other-fractal-types", "sources/superliminal-buddhabrot", "decisions/controls", "techniques/frame-reuse-and-progressive"]
 tags: [buddhabrot, nebulabrot, look, accumulation, optional]
 created: 2026-10-19
-updated: 2026-10-22
+updated: 2026-10-23
 ---
 
 # Buddhabrot and Nebulabrot as a look
