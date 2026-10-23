@@ -1592,7 +1592,7 @@ public final class ExplorerModel {
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }
         if canContinue != new.progress.canContinue { canContinue = new.progress.canContinue }
-        let unfinished = !new.progress.visible && !new.progress.text.isEmpty
+        let unfinished = new.progress.fog
         if progressUnfinished != unfinished { progressUnfinished = unfinished }
     }
 

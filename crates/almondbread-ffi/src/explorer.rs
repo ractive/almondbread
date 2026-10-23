@@ -1204,9 +1204,11 @@ pub struct RenderProgressInfo {
     /// pixels (both 0 before one finished).
     pub unresolved: u64,
     pub unresolved_of: u64,
-    /// Compute further stopped at its time limit: the HUD offers "Continue"
-    /// (`Explorer::continue_computing`).
+    /// Compute further, or the Buddhabrot's sharpening, stopped at its time limit: the HUD
+    /// offers "Continue" (`Explorer::continue_computing`).
     pub can_continue: bool,
+    /// The settled text is about unresolved pixels (the HUD links the tour on fog).
+    pub fog: bool,
 }
 
 impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo {
@@ -1226,7 +1228,8 @@ impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo 
             pixels_left: p.pixels_left.map_or(-1.0, |l| l.0),
             unresolved: p.unresolved.map_or(0, |u| u.0 as u64),
             unresolved_of: p.unresolved.map_or(0, |u| u.1 as u64),
-            can_continue: p.not_finished.is_some_and(|n| n.why == Some("time limit")),
+            can_continue: p.not_finished.is_some_and(|n| n.why == Some("time limit")) || p.orbits_paused.is_some(),
+            fog: !p.visible && p.orbits_paused.is_none() && p.not_finished.is_some(),
         }
     }
 }
@@ -1265,6 +1268,8 @@ pub struct InteractionReport {
     pub skipped_no_target: u64,
     pub draws: u64,
     pub encoded: u64,
+    /// Switches between the Buddhabrot look and the escape-time colouring (BB).
+    pub look_switches: u64,
 }
 
 impl From<almondbread_render::InteractionReport> for InteractionReport {
@@ -1291,6 +1296,7 @@ impl From<almondbread_render::InteractionReport> for InteractionReport {
             skipped_no_target: r.skipped_no_target as u64,
             draws: r.draws as u64,
             encoded: r.encoded as u64,
+            look_switches: r.look_switches as u64,
         }
     }
 }
@@ -1632,10 +1638,12 @@ impl Explorer {
         self.lock().host.renderer.navigator.set_assist(on);
     }
 
-    /// "Continue" (HUD button, key G): compute further gets another time budget for this view
-    /// after stopping at its time limit. Returns whether it resumed.
+    /// "Continue" (HUD button, key G): compute further, or the Buddhabrot's sharpening, gets
+    /// another time budget for this view after stopping at its time limit. Returns whether it
+    /// resumed.
     pub fn continue_computing(&self) -> bool {
-        self.lock().host.renderer.continue_further()
+        let r = &mut self.lock().host.renderer;
+        r.continue_further() || r.continue_buddha()
     }
 
     /// A/B test switch, temporary (hidden key ⌃⌥P, View menu): the most GPU milliseconds a

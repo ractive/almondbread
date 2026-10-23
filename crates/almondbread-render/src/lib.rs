@@ -56,6 +56,6 @@ pub use backend::{
 };
 pub use host::{Host, InputOutcome, InteractionReport};
 pub use scheduler::{
-    FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig, ShownStats,
-    SimulationResult,
+    BuddhaShown, FrameMismatch, FrameOutcome, FrameStats, FrameTarget, OffscreenResult, Renderer, SchedulerConfig,
+    ShownStats, SimulationResult,
 };

@@ -1067,6 +1067,9 @@ pub struct FrameStats {
     pub iterations: f64,
     pub preview_iterations: f64,
     pub preview_chunk_gpu: f64,
+    /// BB (kb: plans/buddhabrot "Live mode"): refreshes whose image switched between the
+    /// Buddhabrot look and the escape-time colouring.
+    pub look_switches: usize,
 }
 
 /// The shown frame against a fresh offscreen render of the same texel grid

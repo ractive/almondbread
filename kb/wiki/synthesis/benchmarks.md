@@ -1992,6 +1992,56 @@ The background window's own link runs at 60 Hz (granted 120): 59 fps for all fiv
 Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
 hits per live bin at the whole set, 6 at the seahorse view.
 
+## BB flicker and convergence, 2026-10-23
+
+M1 Pro, release, load average 10–40 from other sessions (GPU shared); details and the design in
+[Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md) "Live mode" (the flicker) and
+"Convergence".
+
+**Mode switches** (headless, `almondbread buddha --live zoom|bursts --trace 1`, 2560 × 1600 at
+120 Hz from the whole set, 1200 refreshes; a switch: the shown image changes between the live
+look, the rest look and the escape-time colouring):
+
+| Motion | before | after |
+|---|---:|---:|
+| steady zoom, 1 octave/s (3.2 to 0.003 wide) | 1000 switches (every refresh from 1.06 wide) | 1 (live to escape-time at 1.9 wide) |
+| bursts: 0.25 s zoom, 0.1 s hold, every fourth a 0.4 s rest | not run | 0 inside gestures; 9 at gesture ends / starts |
+| Nebulabrot, steady zoom | not run | 0 (escape-time throughout: never 35 hits per live bin at this size) |
+
+Frames whose mean colour jumped by more than 8 levels: 1000 before, 1 after (zoom). Interaction
+test (background window, 2560 × 1640 px, `ALMONDBREAD_TEST_LINK=cv`; switches counted during the
+3–5 s of input):
+
+| Scenario | fps | interval p50 / p95 / max ms | GPU ms/frame | switches |
+|---|---:|---|---|---:|
+| home zoom (escape time, reference) | 94.8 | 8.3 / 16.7 / 33.3 | 3.92 + 2.29 | – |
+| buddha pan | 101.4 | 8.3 / 16.7 / 41.7 | 3.50 + 1.57 | 0 |
+| buddha zoom (to 0.5 wide and back) | 92.1 | 8.3 / 16.7 / 50.0 | 3.97 + 2.10 | 1 |
+| buddha deep zoom (whole set to ~0.02 wide, pinch) | 107.4 | 8.3 / 16.7 / 54.2 | 3.68 + 2.08 | 1 |
+| buddha bursts (pinch bursts with rests) | 64.0 | 8.3 / 16.7 / 479 | 6.36 + 1.76 | 7 |
+| buddha wheel (a notch every 0.2 s) | 113.4 | 8.3 / 8.3 / 33.3 | 3.61 + 1.99 | 1 |
+| nebula zoom | 102.1 | 8.3 / 16.7 / 50.0 | 4.47 + 1.77 | 1 |
+
+(Bursts: the 479 ms interval is a rest that keeps the escape-time image until the new view has
+16 hits per pixel; nothing new is presented then. Its 7 switches are the gesture boundaries.)
+
+**GPU at rest** (headless `almondbread buddha --idle 75`, the frame loop at 120 Hz with the
+display link stopping when the renderer is settled; GPU = sample dispatches + frames):
+
+| View, 2560 × 1600 | before: stops | before: GPU first 40 s | after: stops | after: GPU over 75 s |
+|---|---|---|---|---|
+| home (3.2 wide) | 11.5 s at 1500 hits, then a re-toned frame every 0.33 s forever | 24 % (85 % until done) | 6.7 s, converged (noise 1.8 levels, 1510 hits) | 8.7 %, 0 after |
+| −0.75 + 0.1i, 0.1 wide | ~90 s (1500 hits at 17/s) | 98 % | 62 s, GPU budget (noise 14.8, 1850 hits) | 82 %, 0 after |
+| −0.7435 + 0.1314i, 1e-3 wide | ~85 s | 95 % | 23 s, converged (noise 1.8, 560 hits; nearly black image) | 30 %, 0 after |
+
+**Noise vs hits** (`buddha --snap`, 1280 × 800, mean largest-channel difference to the final
+image in 8-bit levels): whole set 5.96 / 4.36 / 3.03 / 2.05 / 1.47 / 1.05 at 140 / 277 / 521 / 1081 /
+2076 / 4158 hits per pixel (≈ 70 / sqrt(hits)); 0.1 wide 46.6 / 37.9 / 26.6 / 17.4 / 13.8 at 144 /
+341 / 817 / 1543 / 3030. The criterion's estimate agreed: 1.55 at 2076 at the whole set against
+1.47 measured.
+
+**A/B**: `bench --no-verify 1 --out` of a main build and this branch: 84/84 PNGs byte-identical.
+
 ## F6: the Burning Ship, 2026-10-23
 
 Measured 2026-10-22/23, M1 Pro, release, on a machine shared with other agents (load average

@@ -779,6 +779,24 @@ final class InteractionTest: NSObject {
             zoom(v, i, t)
         }
         let buddhaHome = View(re: "-0.75", im: "0", scale: max(3.2 / 1280, 2.6 / 820), look: "buddhabrot")
+        let buddhaDeepZoom: (FractalNSView, Int, Double) -> Void = { v, _, _ in
+            v.send(.magnify(magnification: 0.012, x: 120, y: -60))
+        }
+        let buddhaBursts: (FractalNSView, Int, Double) -> Void = { v, _, t in
+            let k = Int(t / 0.35)
+            if k % 4 != 3 && t - Double(k) * 0.35 < 0.25 {
+                v.send(.magnify(magnification: 0.02, x: 120, y: -60))
+            }
+        }
+        var lastNotch = -1
+        let buddhaWheel: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 { lastNotch = -1 }
+            let n = Int(t / 0.2)
+            if n != lastNotch {
+                lastNotch = n
+                v.send(.wheelNotch(delta: 1.5, x: 120, y: -60))
+            }
+        }
         let nebulaSea = View(re: "-0.75", im: "0.1", scale: 3.75e-3 / 30, look: "nebulabrot")
         let multibrot5 = View(re: "0.84733531576585034", im: "0.58201571377117265", scale: 1.1e-8, formula: "multibrot5")
         let multibrot8 = View(re: "-0.578757811778842465396026167", im: "0.890676734071857679572348838",
@@ -861,6 +879,12 @@ final class InteractionTest: NSObject {
                 Scenario(name: "buddha pan", viewport: buddhaHome, input: pan),
                 Scenario(name: "buddha zoom", viewport: buddhaHome, input: zoom),
                 Scenario(name: "nebula zoom", viewport: nebulaSea, input: zoom),
+                // The flicker (kb: plans/buddhabrot "Live mode"): from the whole set past 0.1 wide
+                // in one pinch, in pinch bursts (0.25 s on, 0.1 s off, every fourth a 0.4 s rest),
+                // and by wheel notches (one every 0.2 s).
+                Scenario(name: "buddha deep zoom", viewport: buddhaHome, input: buddhaDeepZoom, seconds: 4.0),
+                Scenario(name: "buddha bursts", viewport: buddhaHome, input: buddhaBursts, seconds: 5.0),
+                Scenario(name: "buddha wheel", viewport: buddhaHome, input: buddhaWheel, seconds: 5.0),
                 // F5 (kb: plans/f5-mandelbar): the Mandelbar set at its seek-found period-20
                 // minibrot (5e-12 per point) and the period-620 one below it (2.5e-25 per point).
                 Scenario(name: "mandelbar pan", viewport: mandelbar20, input: pan),
@@ -1161,6 +1185,10 @@ final class InteractionTest: NSObject {
                      r.latencyP50, r.latencyP95, r.inputToDrawP50, r.drawToPresentP50,
                      r.drawCpuP50, r.drawCpuP95, r.iterateGpuPerFrame, r.colorizeGpuPerFrame,
                      r.previewPct, r.previewScale, r.skipped, r.draws, r.encoded))
+        if r.lookSwitches > 0 || name.hasPrefix("buddha") || name.hasPrefix("nebula") {
+            // BB (kb: plans/buddhabrot "Live mode"): the look and its escape-time fallback.
+            refineLines.append("\(name): \(r.lookSwitches) switches between the look and the escape-time colouring")
+        }
         if r.presented == 0 {
             let visible = view?.window?.occlusionState.contains(.visible) ?? false
             refineLines.append("\(name): no presentation times (window \(visible ? "visible" : "occluded")): frame rate and latency not measurable")
