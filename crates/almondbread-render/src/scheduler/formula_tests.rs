@@ -340,3 +340,127 @@ fn burning_ship_needle_normal_follows_the_smooth_count() {
     println!("burning ship needle normal: {wrong} of {smooth} smooth pixels point away from -grad mu");
     assert!(smooth > 10_000 && wrong * 200 < smooth, "{wrong} of {smooth}");
 }
+
+/// The straight seams in the Burning Ship's lighting are creases of the smooth count, not a
+/// normal bug (user report 2026-10-23: vertical seams at the four-ship armada). Across a seam
+/// (horizontal neighbours whose normals turn by more than 37 degrees) the smooth count mu is
+/// continuous, its one-sided finite differences turn as the normals do, and the two orbits'
+/// sign patterns (x_k, y_k) differ before the escape: the pixels lie on either side of a fold
+/// preimage, where the derivative of |x| (and so of z_n) jumps. Away from seams every normal
+/// follows -grad mu.
+#[test]
+fn burning_ship_lighting_seams_are_creases_of_the_smooth_count() {
+    let f = Formula::BurningShip;
+    let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+    r.settings = almondbread_core::settings::RenderSettings::plain();
+    r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+    r.settings.shading = 0.5;
+    let span = 2.1e-5;
+    let scale = span / H as f64;
+    let view = Viewport::with_center(
+        Center::parse("-1.9072159778486", "0.0021516405340").unwrap(),
+        Scale::from_f64(scale),
+    );
+    let it = 4000;
+    let g = field(&mut r, f, &view, it);
+    let de = r.read_distance_estimates().expect("de");
+    let mu = |x: usize, y: usize| {
+        let k = y * W + x;
+        (g.n[k] >= 0.0).then(|| f64::from(g.n[k]) + f64::from(g.s[k]))
+    };
+    let ang = |x: usize, y: usize| f64::from(half(de[y * W + x][1]));
+    let dist = |x: usize, y: usize| half(de[y * W + x][0]);
+    let (cr, ci) = (view.center.re(), view.center.im());
+    let cpx = |x: usize, y: usize| {
+        (
+            cr + (x as f64 + 0.5 - W as f64 / 2.0) * scale,
+            ci - (y as f64 + 0.5 - H as f64 / 2.0) * scale,
+        )
+    };
+    // Direct f64 orbit (shallow view): the sign pattern of (x_k, y_k) per step until escape.
+    let signs = |c: (f64, f64)| {
+        let (mut x, mut y) = (0.0f64, 0.0f64);
+        let mut v = Vec::new();
+        for _ in 0..it {
+            (x, y) = (x * x - y * y + c.0, c.1 - 2.0 * (x * y).abs());
+            if x * x + y * y > 1e6 {
+                break;
+            }
+            v.push((x >= 0.0, y >= 0.0));
+        }
+        v
+    };
+    let folds_apart = |a: (f64, f64), b: (f64, f64)| {
+        let (s, t) = (signs(a), signs(b));
+        let k = s.iter().zip(&t).position(|(p, q)| p != q).unwrap_or(usize::MAX);
+        k.saturating_add(3) < s.len().min(t.len())
+    };
+    let (mut smooth, mut wrong_calm, mut seams, mut continuous, mut turn, mut follow, mut apart) =
+        (0, 0, 0, 0, 0, 0, 0);
+    let (mut others, mut others_apart) = (0, 0);
+    for y in 1..H - 1 {
+        for x in 1..W - 2 {
+            let (Some(m0), Some(m1), Some(ml), Some(mr)) = (mu(x, y), mu(x + 1, y), mu(x - 1, y), mu(x + 2, y)) else {
+                continue;
+            };
+            let (Some(u0), Some(d0), Some(u1), Some(d1)) =
+                (mu(x, y - 1), mu(x, y + 1), mu(x + 1, y - 1), mu(x + 1, y + 1))
+            else {
+                continue;
+            };
+            if !(dist(x, y) > 8.0 && dist(x + 1, y) > 8.0) {
+                continue;
+            }
+            let (a0, a1) = (ang(x, y), ang(x + 1, y));
+            // Every normal whose neighbours agree with it follows -grad mu (central differences).
+            let (gx, gy) = (0.5 * (m1 - ml), -0.5 * (d0 - u0));
+            if gx.hypot(gy) > 1e-5 {
+                smooth += 1;
+                let calm = [ang(x - 1, y), a1, ang(x, y - 1), ang(x, y + 1)]
+                    .iter()
+                    .all(|b| (a0 - b).cos() > 0.8);
+                if calm && -(gx * a0.cos() + gy * a0.sin()) / gx.hypot(gy) < 0.7 {
+                    wrong_calm += 1;
+                }
+            }
+            if (a0 - a1).cos() > 0.8 {
+                if smooth % 37 == 0 {
+                    others += 1;
+                    others_apart += usize::from(folds_apart(cpx(x, y), cpx(x + 1, y)));
+                }
+                continue;
+            }
+            seams += 1;
+            continuous += usize::from((m1 - m0).abs() <= 3.0 * (m0 - ml).abs().max((mr - m1).abs()) + 1e-4);
+            // One-sided differences on each side, not straddling the seam.
+            let gl = (m0 - ml, -0.5 * (d0 - u0));
+            let gr = (mr - m1, -0.5 * (d1 - u1));
+            let (nl, nr) = (gl.0.hypot(gl.1), gr.0.hypot(gr.1));
+            turn += usize::from((gl.0 * gr.0 + gl.1 * gr.1) / (nl * nr) < 0.8);
+            let fl = -(gl.0 * a0.cos() + gl.1 * a0.sin()) / nl;
+            let fr = -(gr.0 * a1.cos() + gr.1 * a1.sin()) / nr;
+            follow += usize::from(fl > 0.7 && fr > 0.7);
+            apart += usize::from(folds_apart(cpx(x, y), cpx(x + 1, y)));
+        }
+    }
+    println!(
+        "burning ship armada seams: {seams} seam pairs of {smooth} smooth pixels: mu continuous {continuous}, \
+         one-sided grad mu turns {turn}, normals follow it {follow}, orbits fold apart {apart} \
+         (other pairs: {others_apart} of {others}); calm normals away from -grad mu {wrong_calm}"
+    );
+    assert!(seams > 500, "{seams} seam pairs");
+    assert!(
+        continuous * 100 >= seams * 99,
+        "mu jumps at {} of {seams} seams",
+        seams - continuous
+    );
+    assert!(
+        turn * 10 >= seams * 8 && follow * 10 >= seams * 8,
+        "{turn} / {follow} of {seams}"
+    );
+    assert!(
+        apart == seams && others_apart * 10 < others,
+        "{apart} of {seams}, {others_apart} of {others}"
+    );
+    assert!(wrong_calm * 200 < smooth, "{wrong_calm} of {smooth}");
+}
