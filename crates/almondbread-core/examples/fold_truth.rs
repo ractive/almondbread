@@ -24,13 +24,19 @@ use almondbread_math::{BigComplex, BigFloat, ReferenceOrbitComputer, with_no_con
 use rayon::prelude::*;
 
 fn arg<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
-    args.iter().position(|a| a == key).and_then(|i| args.get(i + 1)).map(String::as_str)
+    args.iter()
+        .position(|a| a == key)
+        .and_then(|i| args.get(i + 1))
+        .map(String::as_str)
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let f = Formula::parse(arg(&args, "--formula").unwrap_or("burningship")).expect("--formula");
-    let (re, im) = arg(&args, "--center").expect("--center re,im").split_once(',').expect("re,im");
+    let (re, im) = arg(&args, "--center")
+        .expect("--center re,im")
+        .split_once(',')
+        .expect("re,im");
     let center = Center::parse(re, im).expect("center");
     let texel = Scale::parse(arg(&args, "--scale").expect("--scale")).expect("scale");
     let (w, h) = arg(&args, "--size")
@@ -68,7 +74,7 @@ fn main() {
             let (x, y) = ((k % w) as f64, (k / w) as f64);
             let r = [run(x, y, bits), run(x, y, bits + extra), run(x + shift, y, bits)];
             let d = done.fetch_add(1, Ordering::Relaxed) + 1;
-            if d % (w * h / 10).max(1) == 0 {
+            if d.is_multiple_of((w * h / 10).max(1)) {
                 eprintln!("{d}/{} pixels, {:.0} s", w * h, t0.elapsed().as_secs_f64());
             }
             r
@@ -97,6 +103,8 @@ fn main() {
     println!("escape n histogram: {}", line.join(", "));
     if let Some(out) = arg(&args, "--out") {
         let texels: Vec<[f32; 2]> = res.iter().map(|r| [r[0].0, r[0].1]).collect();
-        IterationField::from_texels(w, h, &texels).write(format!("{out}.iter")).expect("write");
+        IterationField::from_texels(w, h, &texels)
+            .write(format!("{out}.iter"))
+            .expect("write");
     }
 }

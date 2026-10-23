@@ -318,7 +318,8 @@ fn burning_ship_needle_normal_follows_the_smooth_count() {
     for y in 1..H - 1 {
         for x in 1..W - 1 {
             let k = y * W + x;
-            let [Some(l), Some(rt), Some(up), Some(dn)] = [mu(x - 1, y), mu(x + 1, y), mu(x, y - 1), mu(x, y + 1)] else {
+            let [Some(l), Some(rt), Some(up), Some(dn)] = [mu(x - 1, y), mu(x + 1, y), mu(x, y - 1), mu(x, y + 1)]
+            else {
                 continue;
             };
             // (Rows run down, the imaginary axis up.)
