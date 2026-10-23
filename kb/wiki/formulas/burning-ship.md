@@ -111,12 +111,39 @@ unless cited.
 - **Newton.** Jacobian Newton converges from inside the nucleus's smooth piece; the ball
   period bound `(|z| + R)^2 - |z|^2` holds (the fold keeps moduli); the box method does not
   (the fold maps the corners' quadrilateral onto one side of the axis).
-- **Chaotic interiors.** Large parts of the set (the grey regions of the hull, the seas around
-  deep minibrots) are bounded orbits that are not attracted to a cycle: direct f64 and BigFloat
-  iteration disagree on 5–20 % of the pixels of shallow views, and a 0.001 px grid shift changes
-  as many escape counts as float32 does. They stay unresolved (no derivative or probe proof
-  exists); the attracting-cycle probe is off (its step mixes holomorphic and antiholomorphic
-  Jacobians).
+- **Chaotic interiors.** Large parts of the set (the hull, the seas around deep minibrots in it)
+  are bounded orbits that are not attracted to a cycle: direct f64 and BigFloat iteration
+  disagree on 5–20 % of the pixels of shallow views, and a 0.001 px grid shift changes as many
+  escape counts as float32 does. No derivative or probe proof exists for them; the
+  attracting-cycle probe is off (its step mixes holomorphic and antiholomorphic Jacobians).
+- **Derivative fold sign (review fix, 2026-10-23).** The DE and lighting Jacobian must take the
+  fold sign `s = sign((X + x)(Y + y))` from the same test the step uses, `X Y / s + d` at the
+  delta's scale. Taken from the float32 sum `Z + s w`, it is wrong on the needle: `Y + y`
+  (~1e-97) flushes to 0, the reflection is taken at every step, and the normal points the wrong
+  way wherever the true sign pattern differs. That drew nested axis-aligned rectangles with
+  sharp colour steps at 8e94x (the regions between fold lines are rectangles near the axis,
+  where the Jacobian is diagonal). The smooth count itself was right (GPU vs oracle 0.002 %),
+  and finite differences of it showed no rectangles; 9 382 of 33 238 smooth pixels' normals
+  pointed away from `-grad mu`, 0 of 34 430 after the fix (test
+  `burning_ship_needle_normal_follows_the_smooth_count`). The derivative is still legitimately
+  discontinuous across fold preimages, so lighting shows genuine creases there (the vertical seam
+  below a needle minibrot, the arcs above the ship); finite differences of `mu` show the same.
+- **Bounded orbits drawn as the set (2026-10-23).** Pixels unresolved at the limit draw as the
+  interior colour, not the fog ([Fog over unresolved pixels](../techniques/unresolved-fog.md) "Exception: bounded
+  orbits"): at the whole ship, of the pixels unresolved at the auto limit 306, 86 % never escape
+  within 1e6 iterations (direct BigFloat, 160 × 100, `fold_truth` example), and no proven-interior
+  pixel escapes. The grey smear in the hull becomes the solid hull of the usual pictures.
+- **Little ships.** Minibrots seek finds inside the hull (periods 31, 403, 3224 below the deck)
+  sit in a chaotic sea: at period 403 (1e-22 per pixel) BigFloat at the view's precision and 256
+  bits more agree on 2 546 of 2 560 escape counts, but a 0.001 px shift changes 83 % of them
+  (counts 2^10–2^12 next to each other). The sea is noise at any sampling, so it shows as the
+  calm dense colour, and the ship is the skewed set of never-escaping pixels (12.5 % of the view,
+  the same shape at 14 000, 100 000 and 1e6 iterations). More iterations do not help: 97 % of
+  the escaping pixels escape before the auto limit 14 000. Log colouring (`--log 1 --density 0.5`)
+  gives the sea a gradient towards the ship and outlines it. Ships found by seek from the
+  big ship's masts (outside the hull) are recognisable ships with hull and mast in bands of
+  their own shape: periods 7 (1e-4.5), 20 (1e-10.4), 60 (1e-18.6); at period 60 a 0.001 px
+  shift changes 41 % of the counts and they are mostly 2^8–2^9. The places use those.
 
 # Citations
 

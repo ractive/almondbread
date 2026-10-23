@@ -1992,6 +1992,48 @@ The background window's own link runs at 60 Hz (granted 120): 59 fps for all fiv
 Headless (`buddha --live pan`, 1440 × 900): sampling GPU p50 3.44 ms, p95 4.54 ms; about 110
 hits per live bin at the whole set, 6 at the seahorse view.
 
+## F6 review fixes: needle rectangles, bounded orbits, little ships, 2026-10-23
+
+Measured 2026-10-23, M1 Pro, release, machine shared with other agents. Plan:
+[F6: Burning Ship family](../plans/f6-burning-ship.md) "Review fixes"; maths: [Burning Ship and abs variations](../formulas/burning-ship.md).
+
+**Needle rectangles (user report, 8.0e94x, period-415 reference, 175 218 iterations).**
+Reproduced at centre `-1.9 - 5.7536583899403481757905856401e-97 i` (the needle place's digits),
+3e-98 per pixel, look aurora: auto limit 175 788, reference 415 points. Components separately:
+plain smooth count, palette alone and outline alone show no rectangles; lighting alone shows them.
+GPU vs CPU oracle (300 × 188): escape-n differs 0.002 %, class mismatch 0. Finite differences
+of the GPU's own `mu` lit as a direction-only normal: no rectangles. Cause: the derivative's
+fold sign from the float32 `Z + s w` (`Y + y` ~1e-97 flushes to 0). Test
+`burning_ship_needle_normal_follows_the_smooth_count` (240 × 160, 180 000 iterations): normals
+more than 45° off `-grad mu` in 9 382 of 33 238 smooth pixels before, 0 of 34 430 after.
+
+**Bounded orbits** (`fold_truth`, direct BigFloat at the view's precision and 256 bits more,
+limit 1e6, against the GPU at its auto limit):
+
+| view | grid | GPU unresolved | of those never escaping (1e6) | proven interior that escapes | precision agree | 0.001 px shift agree |
+|---|---|---:|---:|---:|---:|---:|
+| whole ship (2.6e-2 per px) | 160 × 100 | 1 255 | 1 079 (86 %) | 0 of 1 342 | 15 854 / 16 000 | 15 320 / 16 000 |
+| old little ship 403 (2.7e-21) | 64 × 40 | 366 | 289 (79 %) | 0 of 32 | 2 546 / 2 560 | 432 / 2 560 |
+| little ship 60 (1.9e-20) | 64 × 40 | 120 | 108 (90 %) | 0 of 124 | 2 551 / 2 560 | 1 048 / 2 560 |
+
+At 403, the escape counts are 2^10–2^12 and change in 83 % of the pixels under a 0.001 px shift:
+noise at any sampling (precision-stable, so not error). 14 000 vs 100 000 iterations (400 × 250):
+every pixel escaped at 14 000 escapes at the same n at 100 000; of 13 853 unresolved, 2 230 escape,
+5 097 become proven interior, 6 526 stay unresolved.
+
+**Settle times** (`progress`, 1600 × 1000 at 0.5 points per pixel, the app's settings): old 403
+view 10.35 s (full level 1.0 s, extension to 56 k 2.2 s: 13.7 % → 7.4 % unresolved; AA; compute
+further to 200 k 4.7 s: → 5.0 %); little ship 60 3.18 s; whole ship 1.88 s; the ship 1.02 s.
+
+**Others unchanged.** `bench --no-verify 1 --out` main (2bfa189) vs this branch: 84 / 84 PNGs
+byte-identical. Mandelbar (6 places), Julia (2) and Multibrot (z^3, z^4, z^5, z^8) renders at
+800 × 500: 12 / 12 byte-identical (a first version with one shared `ncMul(z, sign)` differed in
+1–4 pixels by 1 LSB of one channel through DE codegen; the fold now has its own `ncMulFold`).
+
+**Checks.** `make rust-check` (439 tests, clippy, fmt), `make build`, `app`, `ios-sim`,
+`ios-device-check`, `swift-test` (14), `make selftest` (both apps: renderer OK, shown = fresh
+0 %, 110 places, no thumbnail missing; PNGs looked at). No foreground or simulator run.
+
 ## F6: the Burning Ship, 2026-10-23
 
 Measured 2026-10-22/23, M1 Pro, release, on a machine shared with other agents (load average
