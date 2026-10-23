@@ -143,7 +143,35 @@ unless cited.
   gives the sea a gradient towards the ship and outlines it. Ships found by seek from the
   big ship's masts (outside the hull) are recognisable ships with hull and mast in bands of
   their own shape: periods 7 (1e-4.5), 20 (1e-10.4), 60 (1e-18.6); at period 60 a 0.001 px
-  shift changes 41 % of the counts and they are mostly 2^8–2^9. The places use those.
+  shift changes 41 % of the counts and they are mostly 2^8–2^9. The first places used ships 20 and
+  60; the second review replaced them with ships from the literature (below).
+- **Seams are creases, not a bug (2026-10-23, second review).** The straight seams where the
+  lighting brightness jumps (vertical at the four-ship armada, at the centre column of the
+  cathedral ship and above the little ship at -1.861) are fold preimages: at the armada
+  (240 × 160, 4 000 iterations; measured 2026-10-23, M1 Pro, release) 1 689 neighbour pairs
+  whose normals turn by more than 37°; across them the GPU's smooth count is continuous (1 688),
+  its one-sided finite differences turn as the normals do (1 492; the normals follow them in
+  1 439), and direct f64 orbits of the two pixels have different sign patterns `(x_k, y_k)` before
+  the escape in all 1 689 (other neighbour pairs: 5 of 192), first at step 7–19 of ~33. No calm
+  normal points away from `-grad mu` (test
+  `burning_ship_lighting_seams_are_creases_of_the_smooth_count`). The kink is in `mu` itself, so
+  any normal derived from it shows the seam. A softening (proposal, not built): give the
+  derivative recurrence a smoothed fold, blending the two Jacobians (`2Z` and the reflection)
+  with a weight `t = smoothstep` of the folded coordinate's signed distance in pixels,
+  `x_k / (k_px · |dz_k/dc| · pixel)`, so the crease becomes a gradient a few pixels wide; the
+  smooth count and the step stay exact. A cheaper screen-space alternative blurs the normal over
+  3–5 texels where neighbouring normals disagree.
+- **Places (second review, 2026-10-23).** Fifteen: the whole set, the ship, the needle spire,
+  four little ships (cathedral at -1.625 and -1.861, tail ship at -1.941 from
+  [Paul Bourke's Burning Ship page](https://paulbourke.net/fractals/burnship/), the four-ship
+  armada at 1e-4.7), the hourglass pagoda, glowing grid and star vault (1e-9 to 1e-14), the falcon
+  sun (1e-24), needle minarets (1e-38), the needle at 1e-100, the supernova (1e-150, the centre of
+  [mathr's 2018 zoom](https://mathr.co.uk/web/a-burning-ship-fractal-zoom.html)) and a spiderweb
+  at 1e-300 (on the path of Maths Town's "Industrial" zoom, its published 365-digit centre).
+  Frames from the [robotmoon Burning Ship page](https://robotmoon.com/burning-ship-fractal/)
+  presets (its imaginary parts negated for our orientation, as are Maths Town's and mathr's B).
+  At the supernova the GPU differs from the oracle in 31 % of escape counts and a 0.001 px grid
+  shift of the oracle in 40 %: chaos, not error; at the spiderweb 4.5 % and 6.8 %.
 
 # Citations
 
@@ -153,3 +181,8 @@ unless cited.
 - [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
 - [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
 - [Fractalshades README](../sources/fractalshades-readme.md)
+- <https://paulbourke.net/fractals/burnship/>
+- <https://robotmoon.com/burning-ship-fractal/>
+- <https://mathr.co.uk/web/a-burning-ship-fractal-zoom.html>
+- <https://archive.org/details/youtube-svxQ7CPcdPk>
+- <https://commons.wikimedia.org/wiki/File:Burning_Ship_Fractal_Zoom_2.png>
