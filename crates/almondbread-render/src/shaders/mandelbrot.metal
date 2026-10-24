@@ -110,7 +110,11 @@ struct IterateParams {
     uint   probeHalf;     // probe state buffer: this chunk reads half probeHalf (capacity
                           // entries each) and writes the other
     uint   centerStart;   // F4 Julia: the centre orbit's first index (fresh pixels start there)
-    uint   pad1;
+    uint   icLimit;       // kInteriorColor previews and gesture frames: a pixel unresolved at
+                          // maxIter runs the cycle analysis for at most this many steps (a
+                          // provisional interior when it finds an attracting cycle, else
+                          // unresolved), and the analysis may run this many steps past the
+                          // chunk's K, so the frame completes (0: off)
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -242,6 +246,9 @@ constant uint IC_TRY_UNIT = 0x01000000u;   // tries (bits 24..30): restarts afte
 constant uint IC_CAP_MASK = 0x00ffffffu;   // q, the atom-domain index (bits 0..23)
 // Cycle closure: |z_{s+k} - z_s| <= 1e-3 |z_s|.
 constant float IC_TAU2    = 1e-6f;
+// ic.k bit 31 while analysing: a provisional analysis (p.icLimit) of a pixel unresolved at
+// maxIter, not proven interior: unresolved unless it finds the attracting cycle.
+constant uint IC_PROVISIONAL = 0x80000000u;
 
 struct ChunkStats {       // per-chunk counters, read back by the CPU
     uint        liveIn;
@@ -3023,13 +3030,21 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         ic.minLog2 = icMinLog2;
         ic.k = icQ;
     }
+    // Previews and gesture frames (p.icLimit, no probe, no extension): a pixel unresolved at
+    // the limit runs the analysis too, provisionally (kb: techniques/coloring-methods
+    // "Gesture frames"). Without it, the near-boundary rings of every bulb the closed-form test
+    // does not cover were fog in gesture frames and bubbles at rest: rings that came and went
+    // while panning.
+    const bool icEnter = kInteriorColor && kInterior && p.icLimit != 0u && active && !inB && !escaped
+        && !interior && compPeriod == 0u && st.n >= p.maxIter;
+    bool icProv = false;
     if (kInteriorColor && active && !inB && !escaped && compPeriod == 0u
-        && (interior || (!kInterior && st.n >= p.maxIter))) {
+        && (interior || (!kInterior && st.n >= p.maxIter) || icEnter)) {
         FE dzx = feNorm(st.dz, kDeep ? st.e : 0);
         st.dz = dzx.m; st.e = dzx.e;               // the delta as floatexp from here on
         st.w = float2(1.0f, 0.0f); st.wExp = 0;     // lambda
         st.d = 0.0f; st.dExp = FE_ZERO;            // dc
-        ic.k = 0;
+        ic.k = icEnter ? IC_PROVISIONAL : 0u;
         ic.capFlags = IC_ACTIVE | uint(clamp(icQ, 1u, IC_CAP_MASK));
         inB = true;
     }
@@ -3043,9 +3058,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         FE cz = feNorm(ic.dcdz, ic.dcdzExp);
         FE zs = feNorm(ic.zs, ic.zsExp);
         float minLog2 = ic.minLog2;
-        uint m = st.m, n = st.n, k = ic.k;
+        icProv = (ic.k & IC_PROVISIONAL) != 0u;
+        uint m = st.m, n = st.n, k = ic.k & ~IC_PROVISIONAL;
         const uint cap = ic.capFlags & IC_CAP_MASK;
-        const uint budget = p.chunkIters > steps ? p.chunkIters - steps : 0u;
+        const uint budget = max(p.chunkIters > steps ? p.chunkIters - steps : 0u, p.icLimit);
         uint used = 0;
         while (used < budget) {
             FE Zx = kDeep ? refAt(refx, m) : feNorm(ref[m], 0);
@@ -3082,6 +3098,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             n++;
             k++;
             used++;
+            // A provisional analysis gives up after p.icLimit steps (unresolved).
+            if (icProv && ((ic.capFlags >> 24) & 0x7fu) * cap + k >= p.icLimit) { bDone = true; break; }
             if (k > cap) {
                 // Not closed (or not yet settled: slow convergence near a component's boundary):
                 // start again from here, up to max(2q, q + 4096) steps in all.
@@ -3099,7 +3117,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         steps += used;
         st.dz = dzx.m; st.e = dzx.e; st.w = lam.m; st.wExp = lam.e; st.d = dcx.m; st.dExp = dcx.e;
         st.m = m; st.n = n;
-        ic.zs = zs.m; ic.zsExp = zs.e; ic.k = k;
+        ic.zs = zs.m; ic.zsExp = zs.e; ic.k = k | (icProv ? IC_PROVISIONAL : 0u);
         ic.dzdz = zz.m; ic.dzdzExp = zz.e; ic.dcdz = cz.m; ic.dcdzExp = cz.e; ic.minLog2 = minLog2;
         if (bPeriod != 0) {
             bLambda = feFloat(lam);
@@ -3119,7 +3137,9 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         : (!escaped && !interior && (st.n < p.maxIter || (kInterior && p.probe != 0))));
     // Reached the limit neither escaped nor proven interior: unresolved, never drawn as
     // interior (with the test on), and collected for an extension pass.
-    bool crossed = active && !inB && !alive && !escaped && !interior;
+    // (A provisional analysis counts as crossed when it starts and never as interior: the
+    // statistics the iteration learner reads stay those of the limit.)
+    bool crossed = active && !escaped && !interior && ((!inB && !alive) || icEnter);
     if (kInteriorColor && compPeriod != 0u) {
         // Proven by the component test: its period, multiplier and distance in closed form.
         float2 lam;
@@ -3128,6 +3148,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         iterOut.write(float4(ITER_INTERIOR, float(compPeriod), 0.0f, 0.0f), gid);
         deOut.write(float4(length(lam), atan2(lam.y, lam.x) * 0.15915494f, 0.0f, 0.0f), gid);
         auxOut.write(float4(dist, minLog2, 0.0f, 0.0f), gid);
+    } else if (kInteriorColor && active && !alive && inB && icProv && bPeriod == 0u) {
+        // Provisional, no attracting cycle found: unresolved, as without the analysis.
+        iterOut.write(float4(ITER_UNRESOLVED, float(p.softIter), 0.0f, 0.0f), gid);
+        deOut.write(float4(0.0f), gid);
     } else if (kInteriorColor && active && !alive && inB) {
         // Interior with its cycle analysed: .y = period (0: none found), de = (|lambda|,
         // arg lambda in turns), aux = (interior distance in texels, log2 min |z| over the cycle).
@@ -3219,7 +3243,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     uint total = simd_sum(live);
     uint simdIters = simd_sum(iters);
     uint simdSteps = simd_sum(steps);
-    uint simdInterior = simd_sum((active && !alive && !escaped) ? 1u : 0u);
+    uint simdInterior = simd_sum((active && !alive && !escaped && !icProv) ? 1u : 0u);
     uint simdCrossed = simd_sum(crossed ? 1u : 0u);
     uint collectOffset = simd_prefix_exclusive_sum(collect ? 1u : 0u);
     uint simdCollect = simd_sum(collect ? 1u : 0u);
