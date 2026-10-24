@@ -102,7 +102,8 @@ public enum SelfTest {
 /// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A); `places-top` /
 /// `places-bottom` (only Places open, a place selected, the grid at its top or its end: the
 /// pinned place details bar); `tile-focus` (keyboard focus in the places and palette grids, see
-/// `tileFocusCheck`). `--ui-demo-search=text` starts any scene with that search;
+/// `tileFocusCheck`); `place-details` (a click on a place tile shows its details, also after Go
+/// and Fly; with `--ui-demo-search=` on a search result, see `placeDetailsCheck`). `--ui-demo-search=text` starts any scene with that search;
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -211,10 +212,13 @@ public enum UIDemo {
     }
     public static var enabled: Bool { scene != nil }
 
-    /// `tile-focus`: the control center's tiles record their frames (`DemoTileFrame`).
-    static let recordsTileFrames = scene == "tile-focus"
-    /// The recorded tile frames by "place:<id>" / "palette:<id>".
+    /// `tile-focus`, `place-details`: the control center's tiles record their frames
+    /// (`DemoTileFrame`), and the pinned details bar the place it shows (`shownDetails`).
+    static let recordsTileFrames = scene == "tile-focus" || scene == "place-details"
+    /// The recorded tile frames by "place:<id>" / "palette:<id>"; "card:places": the Places card.
     @MainActor static var tileFrames: [String: CGRect] = [:]
+    /// The place the pinned `PlaceDetailsBar` shows now (nil: the bar shows none).
+    @MainActor static var shownDetails: String?
 
     /// `--ui-demo-size=WxH`: the demo window's size in points, title bar included, so a capture
     /// maps 1:1 to an App Store size (1440x900 → 2880x1800 on a Retina screen). Nil: the default.
@@ -240,7 +244,7 @@ public enum UIDemo {
         } else if scene == "tile-focus" {
             // Places and Look (the palette grid) open.
             d.set("controls,interior,journey,lighting,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
-        } else if scene == "places-top" || scene == "places-bottom" {
+        } else if scene == "places-top" || scene == "places-bottom" || scene == "place-details" {
             // Only Places open: the grid alone fills the sidebar.
             d.set("controls,interior,journey,lighting,look,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
         } else if scene == "sidebar" || scene == "sidebar-2" {
@@ -583,6 +587,7 @@ public enum UIDemo {
                     capture(window: w, explorer: explorer, scene: scene)
                     if scene == "accessibility" { accessibilityCheck(window: w, model: model) }
                     if scene == "tile-focus" { tileFocusCheck(window: w, model: model) }
+                    if scene == "place-details" { placeDetailsCheck(window: w, model: model, explorer: explorer) }
                     if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
                     if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
@@ -609,6 +614,73 @@ public enum UIDemo {
 
 #if os(macOS)
 extension UIDemo {
+    /// A real click (down, up) on a recorded tile (`DemoTileFrame`) of the background window: its
+    /// frame as SwiftUI laid it out (global = the window's content, top-left origin) → window
+    /// coordinates (bottom-left origin). False: no such tile.
+    @MainActor
+    static func clickTile(_ tile: String, in window: NSWindow) -> Bool {
+        guard let f = tileFrames[tile], let content = window.contentView else { return false }
+        let p = NSPoint(x: f.midX, y: content.bounds.height - f.midY)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let ev = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                NSApp.sendEvent(ev)
+            }
+        }
+        return true
+    }
+
+    /// The recorded tiles of a kind ("place:", "palette:") laid out inside the window, in reading order.
+    @MainActor
+    static func shownTiles(_ kind: String, in window: NSWindow) -> [String] {
+        let height = window.contentView?.bounds.height ?? 0
+        return tileFrames.filter { $0.key.hasPrefix(kind) && $0.value.midY > 0 && $0.value.midY < height }
+            .sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }.map(\.key)
+    }
+
+    /// `--ui-demo=place-details` (with `--ui-demo-search=text`: on the search results): a real
+    /// click on the first place tile must show that place in the pinned details bar; then Go
+    /// (the bar's action; another fractal's place switches the fractal) and, after a click on the
+    /// last of the first five tiles, Fly must leave the selected place's details shown. Captures
+    /// `window-place-details-<step>.png`; ends with "ui-demo: place details OK" or "... FAILED: reasons".
+    @MainActor
+    static func placeDetailsCheck(window: NSWindow, model: ExplorerModel, explorer: Explorer) {
+        let places = shownTiles("place:", in: window)
+        var failures: [String] = []
+        func card() -> String {
+            guard let f = tileFrames["card:places"] else { return "card none" }
+            return "card \(Int(f.minY))..\(Int(f.maxY)) (\(Int(f.height)) pt)"
+        }
+        func expect(_ step: String, _ tile: String) {
+            let want = String(tile.dropFirst("place:".count))
+            let got = shownDetails
+            print("ui-demo: details \(step) → \(got ?? "none") [fractal \(model.formula), \(card())]")
+            if got != want { failures.append("\(step): details \(got ?? "none") != \(want)") }
+            capture(window: window, explorer: explorer, scene: "place-details-" + step)
+        }
+        print("ui-demo: details on screen: \(places.count) place tiles: \(places.prefix(6).joined(separator: " "))")
+        // (A later tile: the last of the first five; further down a tile can be under the
+        // pinned bar itself, and a click there hits the bar.)
+        guard let first = places.first, let last = places.prefix(5).last else {
+            print("ui-demo: place details FAILED: no place tiles on screen")
+            fflush(stdout)
+            return
+        }
+        let id = { (t: String) in String(t.dropFirst("place:".count)) }
+        let steps: [(Double, () -> Void)] = [
+            (0, { _ = clickTile(first, in: window) }),
+            (1, { expect("click", first); model.goToPlace(id(first)) }),
+            (3, { expect("go", first); _ = clickTile(last, in: window) }),
+            (4, { expect("click-last", last); model.flyToPlace(id(last)) }),
+            (7, {
+                expect("fly", last)
+                print(failures.isEmpty ? "ui-demo: place details OK" : "ui-demo: place details FAILED: " + failures.joined(separator: "; "))
+                fflush(stdout)
+            }),
+        ]
+        for (t, f) in steps { DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: f) }
+    }
+
     /// `--ui-demo=tile-focus`: keyboard focus in the control center's tile grids, through real
     /// events sent to the background window (no focus taken, the real mouse never moves): a
     /// click on a place tile, then Tab, →, ⇧Tab; a click on a palette swatch, then Tab. Each
@@ -616,19 +688,7 @@ extension UIDemo {
     /// "... FAILED: reasons".
     @MainActor
     static func tileFocusCheck(window: NSWindow, model: ExplorerModel) {
-        // A tile's frame as SwiftUI laid it out (`DemoTileFrame`; global = the window's content,
-        // top-left origin) → window coordinates (bottom-left origin).
-        func click(_ tile: String) -> Bool {
-            guard let f = tileFrames[tile], let content = window.contentView else { return false }
-            let p = NSPoint(x: f.midX, y: content.bounds.height - f.midY)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                if let ev = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
-                    NSApp.sendEvent(ev)
-                }
-            }
-            return true
-        }
+        func click(_ tile: String) -> Bool { clickTile(tile, in: window) }
         func key(_ chars: String, _ code: UInt16, shift: Bool = false) {
             for type in [NSEvent.EventType.keyDown, .keyUp] {
                 if let ev = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: shift ? [.shift] : [],
@@ -641,11 +701,7 @@ extension UIDemo {
         }
         // The tiles laid out inside the window, in reading order (with `--ui-demo-search=` the
         // grids hold the search results).
-        let height = window.contentView?.bounds.height ?? 0
-        func shown(_ kind: String) -> [String] {
-            tileFrames.filter { $0.key.hasPrefix(kind) && $0.value.midY > 0 && $0.value.midY < height }
-                .sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }.map(\.key)
-        }
+        func shown(_ kind: String) -> [String] { shownTiles(kind, in: window) }
         let places = shown("place:"), palettes = shown("palette:")
         var failures: [String] = []
         var log: [String] = []
