@@ -1646,13 +1646,6 @@ impl Explorer {
         r.continue_further() || r.continue_buddha()
     }
 
-    /// A/B test switch, temporary (hidden key ⌃⌥P, View menu): the most GPU milliseconds a
-    /// gesture frame's preview may cost to run in one chunk (50 default, 12 the candidate; kb:
-    /// synthesis/benchmarks "z⁸ deep zoom frame-rate swings"). Not persisted.
-    pub fn set_preview_threshold_ms(&self, ms: f64) {
-        self.lock().host.renderer.set_preview_one_chunk_max(ms / 1000.0);
-    }
-
     /// Two-finger scroll zooms instead of panning (macOS setting; default off: pan).
     pub fn set_scroll_zooms(&self, on: bool) {
         self.lock().host.renderer.navigator.set_scroll_zooms(on);

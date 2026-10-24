@@ -3461,12 +3461,10 @@ move. **Hit testing:** the Mac's `accessibilityHitTest` takes the smallest contr
 A/B switches for the user's foreground comparison. Each goes, with its losing path, once the
 user has decided; until then the default is the current behaviour, and none is saved.
 
-| Key | Menu / control center | Switches | Shown |
-| --- | --- | --- | --- |
-| ⌃⌥P (Mac; iPad with a keyboard) | View ▸ "Preview threshold: 50 ms → 12 ms (test)"; control center, Overlays: "Test: preview threshold 12 ms (A/B)" (Mac and iPad) | a gesture frame's preview runs in one K = maxIter chunk up to 50 ms (default) or 12 ms of estimated GPU time, else progressively ([Benchmarks](../synthesis/benchmarks.md#z⁸-deep-zoom-frame-rate-swings-the-gesture-frame-mode-decision-2026-10-22)) | the HUD's speed line flashes "preview 50 ms" / "preview 12 ms"; keeps "preview 12 ms" while 12 ms is on |
-
-⌃⌥P was free: the canvas handles no ⌃ or ⌥ letter keys except ⌥ with clicks and scrolls, and
-the menus use ⌥⌘O / M / U / P and ⌃⌘F. Every launch starts at 50 ms (not persisted).
+None at present. The last one, the gesture preview's one-chunk threshold (⌃⌥P, View menu and a
+control center row: 50 ms or 12 ms of estimated GPU time), was decided on 2026-10-24: the user
+kept 50 ms after comparing both in a real window, and the switch and the 12 ms path were removed
+([Benchmarks](../synthesis/benchmarks.md#z⁸-deep-zoom-frame-rate-swings-the-gesture-frame-mode-decision-2026-10-22)).
 
 # Citations
 
