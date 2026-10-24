@@ -406,10 +406,20 @@ final class FirstUseUITests: XCTestCase {
         let tile = app.buttons["Supernova"].firstMatch
         XCTAssertTrue(tile.waitForExistence(timeout: 5), "no Supernova tile")
         let v0 = fields()
-        tile.tap()
+        // (A lone tile: its button's accessibility frame is the whole form row, the picture the
+        // first third of it.)
+        print("QA keyboards before the tap: \(app.keyboards.count), tile frame \(tile.frame)")
+        tile.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
         settle(1.5)
+        shot("search-supernova-selected")
         XCTAssertEqual(fields()["re"], v0["re"], "the first tap moved the view")
-        tile.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        let go = app.buttons["placeTileGo"]
+        if !go.waitForExistence(timeout: 5) {
+            print("QA tree: \(app.debugDescription)")
+            XCTFail("no Go on the selected result")
+        }
+        print("QA search result Go: \(go.label) frame \(go.frame) tile \(tile.frame)")
+        go.tap()
         settle(3)
         shot("search-supernova-went")
         let v1 = fields()

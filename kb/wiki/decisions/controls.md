@@ -3373,8 +3373,12 @@ equal inputs and skip their bodies on a new query.
 **Keyboard focus in the tile grids** (same day, user: after clicking a place, Tab went on from
 some other control). A click on a SwiftUI button never moves the keyboard focus on macOS, so the
 focus stayed where it was (the canvas, or the search field) and Tab started from there. Each
-place tile and palette swatch is now `focusable` and bound to a `@FocusState`; a click sets the
-focus to that tile. Places: the focused tile is the selection (its details in the bar), Tab /
+place tile and palette swatch is now one keyboard stop bound to a `@FocusState`, and a click sets
+the focus to that tile. On the Mac the stop is a `focusable` wrapper (whether or not keyboard
+navigation is on in System Settings) and the tile's button is not a second stop (with it, Tab
+went from the tile to its own button); on iOS it is the tile's button, which iPadOS keyboard
+navigation reaches (a `focusable` wrapper there is not used; the iPad with a keyboard is
+(unverified): no simulator test drives a hardware keyboard). Places: the focused tile is the selection (its details in the bar), Tab /
 ⇧Tab and the arrows (a row up and down) step through the places, Return goes there. Palettes: the
 clicked swatch has the focus, Tab and the arrows move it, Space or Return applies. While a tile
 has the focus, the window's key monitor leaves the arrows and Space to it

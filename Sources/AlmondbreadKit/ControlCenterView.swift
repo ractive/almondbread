@@ -1253,7 +1253,7 @@ struct PlacesSection: View {
             let label = searching
                 ? ControlSearch.formulaLabel(p.formula, current: formula, options: ExplorerModel.formulaOptions) : nil
             tile(p, zoomLog10: p.zoomLog10 + zoomOffset, formulaLabel: label)
-                .focusable()
+                .modifier(TileKeyStop())
                 .focused($focus, equals: p.id)
                 // (The selection border is the focus ring: a focused tile is the selected one.)
                 .focusEffectDisabled()
@@ -1353,6 +1353,20 @@ struct PlacesSection: View {
         .help(formulaLabel.map { "\(p.name) · \($0)" } ?? p.name)
         .accessibilityLabel(p.name)
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
+        #endif
+    }
+}
+
+/// A grid tile as one keyboard stop. Mac: `focusable` (a stop whether or not keyboard navigation
+/// is on in System Settings; the tile's button is no stop of its own). iOS: the tile's button
+/// itself, which iPadOS keyboard navigation reaches (no wrapper around the touch tile, whose
+/// taps and Go / Fly buttons stay exactly as they were).
+struct TileKeyStop: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.focusable()
+        #else
+        content
         #endif
     }
 }
@@ -1839,12 +1853,14 @@ struct PalettePicker: View {
                         }
                 }
                 .buttonStyle(.plain)
-                // One keyboard stop per swatch (the `.focusable()` below), not the button too.
+                // Mac: one keyboard stop per swatch (`TileKeyStop` below), not the button too.
+                #if os(macOS)
                 .focusable(false)
+                #endif
                 .help("\(p.name) · \(p.categoryLabel)\(p.attribution.isEmpty ? "" : " · \(p.attribution)")")
                 .accessibilityLabel(p.name)
                 .accessibilityAddTraits(model.paletteID == p.id ? .isSelected : [])
-                .focusable()
+                .modifier(TileKeyStop())
                 .focused($focus, equals: p.id)
                 .onKeyPress(phases: .down) { press in key(press, at: i, ids: ids) }
                 .onDisappear { model.tileLostKeyFocus("palette:" + p.id) }
