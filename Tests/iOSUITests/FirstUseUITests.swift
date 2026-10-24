@@ -413,6 +413,11 @@ final class FirstUseUITests: XCTestCase {
         settle(1.5)
         shot("search-supernova-selected")
         XCTAssertEqual(fields()["re"], v0["re"], "the first tap moved the view")
+        // The selected result's details (description) in the pinned bar (Mac: a one-row result
+        // card once hid it; kb: decisions/controls "Control center search").
+        let details = app.descendants(matching: .any)["placeDetails"]
+        XCTAssertTrue(details.waitForExistence(timeout: 5), "no details bar for the selected result")
+        XCTAssertTrue(details.staticTexts["Supernova"].exists, "the details bar does not show Supernova")
         let go = app.buttons["placeTileGo"]
         if !go.waitForExistence(timeout: 5) {
             print("QA tree: \(app.debugDescription)")

@@ -3386,6 +3386,17 @@ has the focus, the window's key monitor leaves the arrows and Space to it
 on the canvas takes the focus back. Checked by `--ui-demo=tile-focus` (real click and key events
 sent to the background window, the focused tile printed after each).
 
+**Details of a search result** (same day, user: a place found by search showed no
+description). The pinned details bar shows only while the Places card is on screen (Mac,
+`PlacesOnScreen`), and that was "more than 90 pt of the card in view", meant as about two tile
+rows of the full grid. A search with one row of results (Supernova, the three octic places) makes
+the whole card about 70 pt, so it never counted as on screen and the bar stayed hidden for every
+place selected there; two rows (139 pt, "ship") worked. Pitfall: a visibility threshold in points
+must not exceed the smallest the element itself can be; the card now counts as on screen with
+min(90 pt, half its height) in view. iOS has no such test (the open section alone decides).
+Checked by `--ui-demo=place-details` with `--ui-demo-search=` (a real click on a result tile,
+then Go and Fly, which switch the fractal; the bar's place printed after each).
+
 ## Held input (as built, 2026-10-19)
 
 A press whose release never arrives must not hold the Navigator forever: a held key kept

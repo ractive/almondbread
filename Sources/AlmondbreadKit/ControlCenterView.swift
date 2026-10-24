@@ -1385,6 +1385,22 @@ struct DemoTileFrame: ViewModifier {
     }
 }
 
+/// `--ui-demo=place-details` only: records the place the pinned details bar shows
+/// (`UIDemo.shownDetails`). Nothing in any other run.
+struct DemoShownDetails: ViewModifier {
+    let id: String
+
+    func body(content: Content) -> some View {
+        if UIDemo.recordsTileFrames {
+            content
+                .task(id: id) { UIDemo.shownDetails = id }
+                .onDisappear { UIDemo.shownDetails = nil }
+        } else {
+            content
+        }
+    }
+}
+
 /// The fractal of a search result from another fractal than the current one ("Burning Ship",
 /// "z⁸"), top right on its tile.
 struct PlaceFormulaLabel: View {
@@ -1432,11 +1448,15 @@ struct PlacesOnScreen: ViewModifier {
         if active {
             content
                 .onGeometryChange(for: Bool.self) { proxy in
-                    // At least ~two tile rows of the section in view.
+                    // At least ~two tile rows of the section in view, or half of a shorter card:
+                    // a search with one row of results makes the whole card ~70 pt, and a fixed
+                    // 90 pt hid the bar for every place selected there.
                     guard let visible = proxy.bounds(of: .scrollView) else { return true }
-                    return CGRect(origin: .zero, size: proxy.size).intersection(visible).height > 90
+                    let need = min(90, proxy.size.height / 2)
+                    return CGRect(origin: .zero, size: proxy.size).intersection(visible).height > need
                 } action: { selection.onScreen = $0 }
                 .onDisappear { selection.onScreen = true }
+                .modifier(DemoTileFrame(id: "card:places"))
         } else {
             content
         }
@@ -1480,7 +1500,7 @@ struct PlaceDetailsBar<Footer: View>: View {
         let place = sectionOpen && selection.onScreen
             ? selection.id.flatMap { id in ExplorerModel.allPlaces.first { $0.id == id } } : nil
         VStack(spacing: 0) {
-            if let place { details(place) }
+            if let place { details(place).modifier(DemoShownDetails(id: place.id)) }
             #if os(iOS)
             if place == nil { footer }
             #else
