@@ -1259,6 +1259,7 @@ struct PlacesSection: View {
                 .focusEffectDisabled()
                 .onKeyPress(phases: .down) { press in key(press, at: i, ids: ids) }
                 .onDisappear { model.tileLostKeyFocus("place:" + p.id) }
+                .modifier(DemoTileFrame(id: "place:" + p.id))
         }
         .onChange(of: focus) {
             // A focused tile is the selection (Tab, arrows); the canvas leaves it the keys.
@@ -1345,11 +1346,28 @@ struct PlacesSection: View {
                 }
         }
         .buttonStyle(.plain)
+        // The tile (`.focusable()` around it) is the one keyboard stop, not the button too
+        // (with full keyboard access a button is a stop of its own: Tab stayed on the tile).
+        .focusable(false)
         // The name on hover (the tile shows only the zoom).
         .help(formulaLabel.map { "\(p.name) · \($0)" } ?? p.name)
         .accessibilityLabel(p.name)
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
         #endif
+    }
+}
+
+/// `--ui-demo=tile-focus` only: records a tile's frame in the window (`UIDemo.tileFrames`), so
+/// the check clicks it with a real event. Nothing in any other run.
+struct DemoTileFrame: ViewModifier {
+    let id: String
+
+    func body(content: Content) -> some View {
+        if UIDemo.recordsTileFrames {
+            content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { UIDemo.tileFrames[id] = $0 }
+        } else {
+            content
+        }
     }
 }
 
@@ -1821,6 +1839,8 @@ struct PalettePicker: View {
                         }
                 }
                 .buttonStyle(.plain)
+                // One keyboard stop per swatch (the `.focusable()` below), not the button too.
+                .focusable(false)
                 .help("\(p.name) · \(p.categoryLabel)\(p.attribution.isEmpty ? "" : " · \(p.attribution)")")
                 .accessibilityLabel(p.name)
                 .accessibilityAddTraits(model.paletteID == p.id ? .isSelected : [])
@@ -1828,6 +1848,7 @@ struct PalettePicker: View {
                 .focused($focus, equals: p.id)
                 .onKeyPress(phases: .down) { press in key(press, at: i, ids: ids) }
                 .onDisappear { model.tileLostKeyFocus("palette:" + p.id) }
+                .modifier(DemoTileFrame(id: "palette:" + p.id))
             }
             .onChange(of: focus) { model.tileKeyFocus(focus.map { "palette:" + $0 }, kind: "palette:") }
             HStack {

@@ -210,6 +210,11 @@ public enum UIDemo {
     }
     public static var enabled: Bool { scene != nil }
 
+    /// `tile-focus`: the control center's tiles record their frames (`DemoTileFrame`).
+    static let recordsTileFrames = scene == "tile-focus"
+    /// The recorded tile frames by "place:<id>" / "palette:<id>".
+    @MainActor static var tileFrames: [String: CGRect] = [:]
+
     /// `--ui-demo-size=WxH`: the demo window's size in points, title bar included, so a capture
     /// maps 1:1 to an App Store size (1440x900 → 2880x1800 on a Retina screen). Nil: the default.
     static var windowSize: CGSize? {
@@ -610,18 +615,11 @@ extension UIDemo {
     /// "... FAILED: reasons".
     @MainActor
     static func tileFocusCheck(window: NSWindow, model: ExplorerModel) {
-        func find(_ label: String, in node: Any, depth: Int = 0) -> NSAccessibilityProtocol? {
-            guard depth < 40, let e = node as? NSAccessibilityProtocol else { return nil }
-            if e.accessibilityLabel() == label, !e.accessibilityFrame().isEmpty { return e }
-            for c in e.accessibilityChildren() ?? [] {
-                if let hit = find(label, in: c, depth: depth + 1) { return hit }
-            }
-            return nil
-        }
-        func click(_ label: String) -> Bool {
-            guard let root = window.contentView, let e = find(label, in: root) else { return false }
-            let f = e.accessibilityFrame()
-            let p = window.convertPoint(fromScreen: NSPoint(x: f.midX, y: f.midY))
+        // A tile's frame as SwiftUI laid it out (`DemoTileFrame`; global = the window's content,
+        // top-left origin) → window coordinates (bottom-left origin).
+        func click(_ tile: String) -> Bool {
+            guard let f = tileFrames[tile], let content = window.contentView else { return false }
+            let p = NSPoint(x: f.midX, y: content.bounds.height - f.midY)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 if let ev = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
@@ -640,9 +638,14 @@ extension UIDemo {
                 }
             }
         }
-        let places = ExplorerModel.places
-        let library = model.library
-        guard places.count > 4, library.count > 3 else { print("ui-demo: tile focus FAILED: no places"); return }
+        // The tiles laid out inside the window, in reading order (with `--ui-demo-search=` the
+        // grids hold the search results).
+        let height = window.contentView?.bounds.height ?? 0
+        func shown(_ kind: String) -> [String] {
+            tileFrames.filter { $0.key.hasPrefix(kind) && $0.value.midY > 0 && $0.value.midY < height }
+                .sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }.map(\.key)
+        }
+        let places = shown("place:"), palettes = shown("palette:")
         var failures: [String] = []
         var log: [String] = []
         func expect(_ step: String, _ want: String?) {
@@ -650,20 +653,33 @@ extension UIDemo {
             log.append("\(step) → \(got ?? "none") (\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "-"))")
             if got != want { failures.append("\(step): \(got ?? "none") != \(want ?? "none")") }
         }
-        let steps: [(Double, () -> Void)] = [
-            (0.0, { if !click(places[1].name) { failures.append("no tile \(places[1].name)") } }),
-            (0.6, { expect("click \(places[1].id)", "place:" + places[1].id); key("\t", 48) }),
-            (1.2, { expect("tab", "place:" + places[2].id); key("\u{F703}", 124) }),
-            (1.8, { expect("right", "place:" + places[3].id); key("\u{19}", 48, shift: true) }),
-            (2.4, { expect("shift-tab", "place:" + places[2].id)
-                    if !click(library[1].name) { failures.append("no swatch \(library[1].name)") } }),
-            (3.0, { expect("click palette", "palette:" + library[1].id); key("\t", 48) }),
-            (3.6, { expect("tab", "palette:" + library[2].id)
-                    for l in log { print("ui-demo: focus \(l)") }
-                    print(failures.isEmpty ? "ui-demo: tile focus OK" : "ui-demo: tile focus FAILED: " + failures.joined(separator: "; "))
-                    fflush(stdout) }),
-        ]
-        for (t, f) in steps { DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: f) }
+        var steps: [() -> Void] = []
+        // A click on the second tile, Tab, → and ⇧Tab (places); a click and Tab (palettes).
+        if places.count >= 4 {
+            steps += [
+                { if !click(places[1]) { failures.append("no tile \(places[1])") } },
+                { expect("click \(places[1])", places[1]); key("\t", 48) },
+                { expect("tab", places[2]); key("\u{F703}", 124) },
+                { expect("right", places[3]); key("\u{19}", 48, shift: true) },
+                { expect("shift-tab", places[2]) },
+            ]
+        }
+        if palettes.count >= 2 {
+            steps += [
+                { if !click(palettes[0]) { failures.append("no swatch \(palettes[0])") } },
+                { expect("click \(palettes[0])", palettes[0]); key("\t", 48) },
+                { expect("tab", palettes[1]); key("\u{F702}", 123) },
+                { expect("left", palettes[0]) },
+            ]
+        }
+        if steps.isEmpty { failures.append("no tiles on screen") }
+        steps.append {
+            log.insert("on screen: \(places.count) places, \(palettes.count) palettes", at: 0)
+            for l in log { print("ui-demo: focus \(l)") }
+            print(failures.isEmpty ? "ui-demo: tile focus OK" : "ui-demo: tile focus FAILED: " + failures.joined(separator: "; "))
+            fflush(stdout)
+        }
+        for (i, f) in steps.enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 * Double(i), execute: f) }
     }
 
     /// `--ui-demo=accessibility` (kb: plans/a11y-canvas-controls): prints the fractal view's
