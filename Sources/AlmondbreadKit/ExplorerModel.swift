@@ -1257,6 +1257,27 @@ public final class ExplorerModel {
         host?.requestFrames()
     }
 
+    /// The control center tile with the keyboard focus ("place:<id>", "palette:<id>"), nil: none.
+    /// While one has it, the canvas leaves the arrows, Space and Return to the grid (Mac: the
+    /// window's key monitor would pan and zoom with them). Not observed: read per key event.
+    @ObservationIgnored public private(set) var keyFocusTile: String?
+
+    /// A grid's keyboard focus changed: `tile` has it now, or (nil) none of the grid's `kind`
+    /// ("place:", "palette:") has it any more.
+    func tileKeyFocus(_ tile: String?, kind: String) {
+        if let tile {
+            keyFocusTile = tile
+        } else if keyFocusTile?.hasPrefix(kind) == true {
+            keyFocusTile = nil
+        }
+    }
+
+    /// A tile left the screen: if it had the keyboard focus, nothing has it now (the control
+    /// center closed, the search changed).
+    func tileLostKeyFocus(_ tile: String) {
+        if keyFocusTile == tile { keyFocusTile = nil }
+    }
+
     /// The place thumbnails show the interior in the bubbles colouring (a flat black interior
     /// hid most of the landmarks): a place visited with the flat interior switches to it, so
     /// the view looks like its thumbnail. Any other interior colouring the user chose stays.

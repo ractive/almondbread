@@ -385,6 +385,38 @@ final class FirstUseUITests: XCTestCase {
         alive("the tour")
     }
 
+    /// The control center's search finds a place of another fractal by name (Supernova, a
+    /// Burning Ship place, from the Mandelbrot set): its tile is labelled, the first tap selects,
+    /// the second goes there and switches the fractal.
+    func testSearchPlaceOfAnotherFractal() throws {
+        app.launch()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30))
+        settle(3)
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        app.buttons["Control center"].tap()
+        settle(2)
+        let search = app.textFields["Search settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("supernova\n")
+        settle(1.5)
+        shot("search-supernova")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'No setting matches'")).firstMatch.exists,
+                       "no match for a place name")
+        let tile = app.buttons["Supernova"].firstMatch
+        XCTAssertTrue(tile.waitForExistence(timeout: 5), "no Supernova tile")
+        let v0 = fields()
+        tile.tap()
+        settle(1.5)
+        XCTAssertEqual(fields()["re"], v0["re"], "the first tap moved the view")
+        tile.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        settle(3)
+        shot("search-supernova-went")
+        let v1 = fields()
+        XCTAssertEqual(v1["formula"], "burningship", "going to a Burning Ship place did not switch the fractal")
+        XCTAssertNotEqual(v1["re"], v0["re"], "the second tap did not go there")
+    }
+
     /// The places grid on touch: a tap selects without moving the view and puts Go and Fly on
     /// the picture (one tile at a time); Go jumps; Fly flies (the view moves over several frames);
     /// either one deselects, so the buttons leave the picture.

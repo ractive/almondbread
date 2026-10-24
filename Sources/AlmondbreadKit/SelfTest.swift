@@ -231,6 +231,9 @@ public enum UIDemo {
         d.removePersistentDomain(forName: name)
         if scene == "perf" {
             d.set("controls,interior,journey,lighting,overlays,places", forKey: "controlCenter.collapsed")
+        } else if scene == "tile-focus" {
+            // Places and Look (the palette grid) open.
+            d.set("controls,interior,journey,lighting,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
         } else if scene == "places-top" || scene == "places-bottom" {
             // Only Places open: the grid alone fills the sidebar.
             d.set("controls,interior,journey,lighting,look,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
@@ -259,7 +262,10 @@ public enum UIDemo {
 
     /// The control center's search text the scene starts with (shows that section on top).
     static var search: String? {
-        switch scene {
+        // `--ui-demo-search=text`: any scene with that search (place and palette names).
+        let prefix = "--ui-demo-search="
+        if let a = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }) { return String(a.dropFirst(prefix.count)) }
+        return switch scene {
         case "palettes": "palette"
         case "autopilot": "autopilot"
         case "pi", "pi-flight": "π"
@@ -570,6 +576,7 @@ public enum UIDemo {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
                     if scene == "accessibility" { accessibilityCheck(window: w, model: model) }
+                    if scene == "tile-focus" { tileFocusCheck(window: w, model: model) }
                     if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
                     if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
@@ -596,6 +603,69 @@ public enum UIDemo {
 
 #if os(macOS)
 extension UIDemo {
+    /// `--ui-demo=tile-focus`: keyboard focus in the control center's tile grids, through real
+    /// events sent to the background window (no focus taken, the real mouse never moves): a
+    /// click on a place tile, then Tab, →, ⇧Tab; a click on a palette swatch, then Tab. Each
+    /// step prints the tile with the keyboard focus; ends with "ui-demo: tile focus OK" or
+    /// "... FAILED: reasons".
+    @MainActor
+    static func tileFocusCheck(window: NSWindow, model: ExplorerModel) {
+        func find(_ label: String, in node: Any, depth: Int = 0) -> NSAccessibilityProtocol? {
+            guard depth < 40, let e = node as? NSAccessibilityProtocol else { return nil }
+            if e.accessibilityLabel() == label, !e.accessibilityFrame().isEmpty { return e }
+            for c in e.accessibilityChildren() ?? [] {
+                if let hit = find(label, in: c, depth: depth + 1) { return hit }
+            }
+            return nil
+        }
+        func click(_ label: String) -> Bool {
+            guard let root = window.contentView, let e = find(label, in: root) else { return false }
+            let f = e.accessibilityFrame()
+            let p = window.convertPoint(fromScreen: NSPoint(x: f.midX, y: f.midY))
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let ev = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.sendEvent(ev)
+                }
+            }
+            return true
+        }
+        func key(_ chars: String, _ code: UInt16, shift: Bool = false) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let ev = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: shift ? [.shift] : [],
+                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                             context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                             isARepeat: false, keyCode: code) {
+                    NSApp.sendEvent(ev)
+                }
+            }
+        }
+        let places = ExplorerModel.places
+        let library = model.library
+        guard places.count > 4, library.count > 3 else { print("ui-demo: tile focus FAILED: no places"); return }
+        var failures: [String] = []
+        var log: [String] = []
+        func expect(_ step: String, _ want: String?) {
+            let got = model.keyFocusTile
+            log.append("\(step) → \(got ?? "none") (\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "-"))")
+            if got != want { failures.append("\(step): \(got ?? "none") != \(want ?? "none")") }
+        }
+        let steps: [(Double, () -> Void)] = [
+            (0.0, { if !click(places[1].name) { failures.append("no tile \(places[1].name)") } }),
+            (0.6, { expect("click \(places[1].id)", "place:" + places[1].id); key("\t", 48) }),
+            (1.2, { expect("tab", "place:" + places[2].id); key("\u{F703}", 124) }),
+            (1.8, { expect("right", "place:" + places[3].id); key("\u{19}", 48, shift: true) }),
+            (2.4, { expect("shift-tab", "place:" + places[2].id)
+                    if !click(library[1].name) { failures.append("no swatch \(library[1].name)") } }),
+            (3.0, { expect("click palette", "palette:" + library[1].id); key("\t", 48) }),
+            (3.6, { expect("tab", "palette:" + library[2].id)
+                    for l in log { print("ui-demo: focus \(l)") }
+                    print(failures.isEmpty ? "ui-demo: tile focus OK" : "ui-demo: tile focus FAILED: " + failures.joined(separator: "; "))
+                    fflush(stdout) }),
+        ]
+        for (t, f) in steps { DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: f) }
+    }
+
     /// `--ui-demo=accessibility` (kb: plans/a11y-canvas-controls): prints the fractal view's
     /// accessibility tree as AppKit serves it (role, identifier, label, value, frame), checks the
     /// expected elements, the hit test at the cruise icon, AXPress on the cruise icon (the level

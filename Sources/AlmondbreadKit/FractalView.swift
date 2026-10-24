@@ -697,7 +697,12 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
         // Menu shortcuts and text fields keep their keys. A navigation key's release still
         // reaches Rust (not swallowed): E or W released while ⌘ is down, or after a click moved
         // the focus to a text field, was a key held forever (kb: decisions/controls "Held input").
-        if event.modifierFlags.contains(.command) || window?.firstResponder is NSText {
+        // A tile of the control center's places or palette grid with the keyboard focus keeps
+        // the arrows and Space (they step through the grid and choose; kb: decisions/controls
+        // "Control center").
+        let gridKeys = model.keyFocusTile != nil && window?.firstResponder !== self
+            && (event.keyCode == 49 || [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(event.specialKey))
+        if event.modifierFlags.contains(.command) || window?.firstResponder is NSText || gridKeys {
             if event.type == .keyUp, let key = Self.navKey(event) { send(.keyUp(key: key)) }
             return false
         }

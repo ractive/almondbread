@@ -2780,6 +2780,29 @@ mod formula_integration_tests {
         assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
     }
 
+    /// The control center's search lists every fractal's places (kb: decisions/controls
+    /// "Control center search"): going or flying to a place of another fractal switches to
+    /// it, and the settings returned (what the UI pulls) name it; from a Julia view too.
+    #[test]
+    fn a_place_of_another_formula_switches_it() {
+        let (e, _layer) = explorer();
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        let s = e.go_to_place("burningship-supernova".into()).unwrap();
+        assert_eq!(s.formula, "burningship");
+        assert_eq!(formula(&e), Formula::BurningShip);
+        assert!(!e.capabilities().content);
+        let s = e.fly_to_place("multibrot3-whole-set".into()).unwrap();
+        assert_eq!(s.formula, "multibrot3");
+        assert_eq!(formula(&e), Formula::Multibrot(3));
+        let s = e.go_to_place("seahorse-valley".into()).unwrap();
+        assert_eq!(s.formula, "mandelbrot");
+        assert!(e.capabilities().content);
+        assert!(e.open_julia("-0.1225611668766536".into(), "0.7448617666197442".into()));
+        let s = e.fly_to_place("burningship-supernova".into()).unwrap();
+        assert_eq!(s.formula, "burningship");
+        assert_eq!(formula(&e), Formula::BurningShip);
+    }
+
     /// The picker from a Julia view leaves it first: another formula goes to that set's whole
     /// view, the parent's formula back to where the Julia set was opened from. The twin is
     /// Mandelbrot's alone.
