@@ -3,6 +3,11 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-24
+
+- **Decision:** Control center search finds places and palettes by name: places of every fractal (name only, case and diacritics ignored), shown as the Places grid's tiles with the other fractal labelled; Go / Fly switch the fractal (Rust go_to_place / fly_to_place set it, tested); palettes in the Look section's grid. Tile grids take the keyboard focus on a click (one stop per tile; Tab, arrows, Return / Space), checked by --ui-demo=tile-focus. See decisions/controls (Control center search)
+- **Decision:** Preview threshold decided: 50 ms stays, 12 ms removed. The user compared both in a real window (2026-10-24): with 12 ms panning flickered more, sometimes between dark and light (the partly iterated preview); 50 ms felt more pleasing. The A/B switch (⌃⌥P, View menu, control center row, HUD note), Explorer::set_preview_threshold_ms, Renderer::set_preview_one_chunk_max and the preview12 interaction-test variants are gone; see synthesis/benchmarks (z⁸ deep zoom frame-rate swings) and decisions/controls (Test switches)
+
 ## 2026-10-23
 
 - **Decision:** Burning Ship places, second review: twelve places from the literature (Bourke, Wikimedia, robotmoon, mathr's 1e-150 zoom, Maths Town's 1e-300 Industrial) replace needle 18 and little ships 20 / 60; the straight lighting seams are creases at fold preimages (smooth count continuous, its one-sided differences turn, orbits fold apart), not a normal bug

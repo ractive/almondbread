@@ -45,7 +45,13 @@ struct ControlCenterView: View {
         let collapsed = Set(collapsedStorage.split(separator: ",").map(String.init))
         let searching = !query.isEmpty
         // (Sections a formula has nothing for are hidden, F2: places and tours are Mandelbrot.)
-        let shown = ControlSection.allCases.filter { $0.matches(query) && $0.offered(by: model) }
+        // A place or palette whose name matches shows its section whatever its title (the
+        // search covers every fractal's places; `ControlSearch`).
+        let placeHit = searching && !ControlSearch.places(ExplorerModel.allPlaces, query: query).isEmpty
+        let paletteHit = searching && !ControlSearch.palettes(model.library, query: query).isEmpty
+        let shown = ControlSection.allCases.filter {
+            ($0.matches(query) && $0.offered(by: model)) || ($0 == .places && placeHit) || ($0 == .look && paletteHit)
+        }
         let closed: Set<String> = searching ? [] : collapsed
         let placesOpen = shown.contains(.places) && !closed.contains(ControlSection.places.rawValue)
         sections(shown: shown, collapsed: closed)
@@ -103,7 +109,8 @@ struct ControlCenterView: View {
                     .padding(.bottom, open ? 6 : 8)
                     if open {
                         ControlCardRows {
-                            ControlSectionRows(section: section, model: model, places: places)
+                            ControlSectionRows(section: section, model: model, places: places,
+                                               query: section.searchesNames ? query : "")
                         }
                         .modifier(PlacesOnScreen(selection: places, active: section == .places))
                         if let f = section.footer {
@@ -144,7 +151,8 @@ struct ControlCenterView: View {
                     let open = !collapsed.contains(section.rawValue)
                     Section {
                         if open {
-                            ControlSectionRows(section: section, model: model, places: places)
+                            ControlSectionRows(section: section, model: model, places: places,
+                                               query: section.searchesNames ? query : "")
                         }
                     } header: {
                         ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
@@ -329,15 +337,18 @@ struct ControlSectionRows: View {
     let model: ExplorerModel
     /// The Places selection (one object for the control center's life, so the inputs stay equal).
     let places: PlaceSelection
+    /// The search query for a section that searches names (Places, Look's palettes; empty for
+    /// the others, so a new query leaves their inputs equal).
+    var query = ""
 
     var body: some View {
         let _ = UIPerf.body("rows.\(section.rawValue)")
         switch section {
-        case .places: PlacesSection(model: model, selection: places)
+        case .places: PlacesSection(model: model, selection: places, query: query)
         case .tours: ToursSectionRows(model: model)
         case .view: ViewSectionRows(model: model)
         case .journey: JourneySectionRows(model: model)
-        case .look: LookSectionRows(model: model)
+        case .look: LookSectionRows(model: model, query: query)
         case .lighting: LightingSectionRows(model: model)
         case .interior: InteriorSectionRows(model: model)
         case .overlays: OverlaySectionRows(model: model)
@@ -588,6 +599,8 @@ struct JourneyControls: View {
 
 struct LookSectionRows: View {
     @Bindable var model: ExplorerModel
+    /// The search query (the palette grid then shows the palettes whose name matches).
+    var query = ""
 
     var body: some View {
         let _ = UIPerf.body("section.look")
@@ -597,7 +610,7 @@ struct LookSectionRows: View {
             looks
         }
         .accessibilityIdentifier("look-picker")
-        PalettePicker(model: model)
+        PalettePicker(model: model, query: query)
         // A user edit pivots on the view's median escape count (kb: techniques/coloring-methods,
         // "Density pivot"): the offset slider moves along.
         ControlRows.slider("Density",
@@ -755,12 +768,6 @@ struct OverlaySectionRows: View {
         Toggle("Developer details in the HUD", isOn: $model.hudDetails)
             .disabled(!model.showHUD)
             .help("Iterations, GPU time, render size, reference orbit, kernel and render state")
-        // Temporary A/B switch (kb: synthesis/benchmarks "z⁸ deep zoom frame-rate swings").
-        Toggle("Test: preview threshold 12 ms (A/B)", isOn: Binding(
-            get: { model.previewThresholdMs == ExplorerModel.previewThresholdTest },
-            set: { model.previewThresholdMs = $0 ? ExplorerModel.previewThresholdTest : ExplorerModel.previewThresholdDefault }))
-            .help("Test switch (⌃⌥P): gesture previews that would cost over 12 ms run progressively instead of in one chunk (default 50 ms). Not saved")
-            .accessibilityIdentifier("preview-threshold-test")
     }
 }
 
@@ -918,7 +925,7 @@ struct TileRows<Tile: View>: View {
 
     var body: some View {
         #if os(macOS)
-        let columns = max(1, Int((width + spacing) / (minWidth + spacing)))
+        let columns = TileGrid.columns(width: width, minWidth: minWidth, spacing: spacing)
         ForEach(Array(stride(from: 0, to: ids.count, by: columns)), id: \.self) { start in
             let row = start..<min(ids.count, start + columns)
             TileGrid(minWidth: minWidth, spacing: spacing, aspect: aspect, height: height, columns: columns) {
@@ -1133,6 +1140,9 @@ enum ControlSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Whether the section's rows search names too (Places: places; Look: palettes).
+    var searchesNames: Bool { self == .places || self == .look }
+
     /// Whether the section matches a search query (title or keywords, case-insensitive).
     func matches(_ query: String) -> Bool {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -1183,9 +1193,20 @@ enum ControlSection: String, CaseIterable, Identifiable {
 /// Places: the catalogue of famous views (Rust core `places()`, kb: synthesis/places) as a
 /// thumbnail grid by category. Selecting one shows what it is in the pinned `PlaceDetailsBar`
 /// (Go jumps there, Fly flies there: the fly-to path); Random picks one (of the shown category).
+/// While the control center searches and place names match, the grid shows those places of
+/// every fractal instead (no category picker; another fractal's tile is labelled with it, and
+/// going there switches the fractal: Rust's `go_to_place` takes the place's formula).
+///
+/// Keyboard (Mac, iPad with a keyboard): selecting a tile puts the keyboard focus on it, and a
+/// focused tile is the selection, so Tab / ⇧Tab and the arrow keys step through the places
+/// with their details in the bar; Return goes there.
 struct PlacesSection: View {
     let model: ExplorerModel
     @Bindable var selection: PlaceSelection
+    /// The control center's search query ("": not searching).
+    var query = ""
+    @FocusState private var focus: String?
+    @Environment(\.controlRowWidth) private var rowWidth
 
     private var category: PlaceCategory? { selection.category }
     private var selected: String? { selection.id }
@@ -1202,67 +1223,183 @@ struct PlacesSection: View {
         model.currentPlaces.filter { category == nil || $0.category == category }
     }
 
+    private static let minWidth: CGFloat = 88
+    private static let spacing: CGFloat = 6
 
     var body: some View {
         let _ = UIPerf.body("PlacesSection")
         let _ = UIPerf.placesAppeared()
-        ControlRows.picker("Category", selection: $selection.category) {
-            Text("All (\(model.currentPlaces.count))").tag(PlaceCategory?.none)
-            ForEach(categories, id: \.1) { c in
-                Text(c.1).tag(PlaceCategory?.some(c.0))
+        // Name matches of every fractal while searching; none: the usual grid (the section
+        // matched by its title or keywords).
+        let results = query.isEmpty ? [] : ControlSearch.places(ExplorerModel.allPlaces, query: query)
+        let searching = !results.isEmpty
+        if !searching {
+            ControlRows.picker("Category", selection: $selection.category) {
+                Text("All (\(model.currentPlaces.count))").tag(PlaceCategory?.none)
+                ForEach(categories, id: \.1) { c in
+                    Text(c.1).tag(PlaceCategory?.some(c.0))
+                }
             }
         }
         // The HUD's zoom at each place in this window (place zooms count from the whole set).
         let zoomOffset = model.placeZoomOffset
+        let formula = model.formula
         // (One snapshot for the ids and the tiles: `shown` follows the model, and a tile updated
         // after a formula change must not index the new, shorter list with an old index.)
-        let list = shown
-        TileRows(ids: list.map(\.id), minWidth: 88, spacing: 6, aspect: 1.6) { i in
+        let list = searching ? results : shown
+        let ids = list.map(\.id)
+        TileRows(ids: ids, minWidth: Self.minWidth, spacing: Self.spacing, aspect: 1.6) { i in
             let p = list[i]
-            #if os(iOS)
-            // Touch: the first tap selects and puts the name, Go and Fly on the picture itself
-            // (the pinned details bar has the description); a second tap goes there. Going or
-            // flying deselects it, so the buttons leave the picture.
-            PlaceTouchTile(place: p, zoomLog10: p.zoomLog10 + zoomOffset, isSelected: selected == p.id,
-                           select: { selection.id = p.id },
-                           go: { selection.id = nil; model.goToPlace(p.id) },
-                           fly: { selection.id = nil; model.flyToPlace(p.id) },
-                           tour: ExplorerModel.tour(forPlace: p.id).map { t in { selection.id = nil; model.startTour(t.id) } })
-            #else
-            Button {
-                selection.id = p.id
-            } label: {
-                PlaceThumbnail(id: p.id)
-                    .aspectRatio(1.6, contentMode: .fit)
-                    .overlay(alignment: .bottomTrailing) { PlaceZoomPill(zoomLog10: p.zoomLog10 + zoomOffset) }
-                    .overlay(alignment: .topLeading) {
-                        if ExplorerModel.tour(forPlace: p.id) != nil { PlaceTourBadge() }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    // Only the selected tile has a border (every shape is one more layer to
-                    // build when the section opens).
-                    .overlay {
-                        if selected == p.id {
-                            RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 2)
-                        }
-                    }
-            }
-            .buttonStyle(.plain)
-            // The name on hover (the tile shows only the zoom).
-            .help(p.name)
-            .accessibilityLabel(p.name)
-            .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
-            #endif
+            let label = searching
+                ? ControlSearch.formulaLabel(p.formula, current: formula, options: ExplorerModel.formulaOptions) : nil
+            tile(p, zoomLog10: p.zoomLog10 + zoomOffset, formulaLabel: label)
+                .modifier(TileKeyStop())
+                .focused($focus, equals: p.id)
+                // (The selection border is the focus ring: a focused tile is the selected one.)
+                .focusEffectDisabled()
+                .onKeyPress(phases: .down) { press in key(press, at: i, ids: ids) }
+                .onDisappear { model.tileLostKeyFocus("place:" + p.id) }
+                .modifier(DemoTileFrame(id: "place:" + p.id))
+        }
+        .onChange(of: focus) {
+            // A focused tile is the selection (Tab, arrows); the canvas leaves it the keys.
+            if let focus, focus != selection.id { selection.id = focus }
+            model.tileKeyFocus(focus.map { "place:" + $0 }, kind: "place:")
         }
         // The selected place's name, description and Go / Fly / Tour are in the pinned
         // `PlaceDetailsBar` (under the grid they were off screen for every tile near the top).
-        HStack {
-            Spacer()
-            PlaceRandomButton(model: model, selection: selection)
+        if !searching {
+            HStack {
+                Spacer()
+                PlaceRandomButton(model: model, selection: selection)
+            }
+            #if os(iOS)
+            .buttonStyle(.borderless)
+            #endif
         }
+    }
+
+    /// Selects a place and puts the keyboard focus on its tile (Tab goes on from there; a click
+    /// on a button does not move the focus by itself).
+    private func choose(_ id: String) {
+        selection.id = id
+        focus = id
+    }
+
+    /// Return goes to the focused place; the arrows move the focus (a row up or down).
+    private func key(_ press: KeyPress, at i: Int, ids: [String]) -> KeyPress.Result {
+        guard i < ids.count else { return .ignored }
+        let (dx, dy): (Int, Int)
+        switch press.key {
+        case .return:
+            selection.id = nil
+            model.goToPlace(ids[i])
+            return .handled
+        case .space:
+            choose(ids[i])
+            return .handled
+        case .leftArrow: (dx, dy) = (-1, 0)
+        case .rightArrow: (dx, dy) = (1, 0)
+        case .upArrow: (dx, dy) = (0, -1)
+        case .downArrow: (dx, dy) = (0, 1)
+        default: return .ignored
+        }
+        let columns = TileGrid.columns(width: rowWidth, minWidth: Self.minWidth, spacing: Self.spacing)
+        if let n = ControlSearch.move(from: i, count: ids.count, columns: columns, dx: dx, dy: dy) {
+            choose(ids[n])
+        }
+        return .handled
+    }
+
+    @ViewBuilder
+    private func tile(_ p: PlaceInfo, zoomLog10: Double, formulaLabel: String?) -> some View {
         #if os(iOS)
-        .buttonStyle(.borderless)
+        // Touch: the first tap selects and puts the name, Go and Fly on the picture itself
+        // (the pinned details bar has the description); a second tap goes there. Going or
+        // flying deselects it, so the buttons leave the picture.
+        PlaceTouchTile(place: p, zoomLog10: zoomLog10, isSelected: selected == p.id,
+                       formulaLabel: formulaLabel,
+                       select: { choose(p.id) },
+                       go: { selection.id = nil; model.goToPlace(p.id) },
+                       fly: { selection.id = nil; model.flyToPlace(p.id) },
+                       tour: ExplorerModel.tour(forPlace: p.id).map { t in { selection.id = nil; model.startTour(t.id) } })
+        #else
+        Button {
+            choose(p.id)
+        } label: {
+            PlaceThumbnail(id: p.id)
+                .aspectRatio(1.6, contentMode: .fit)
+                .overlay(alignment: .bottomTrailing) { PlaceZoomPill(zoomLog10: zoomLog10) }
+                .overlay(alignment: .topLeading) {
+                    if ExplorerModel.tour(forPlace: p.id) != nil { PlaceTourBadge() }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if let formulaLabel { PlaceFormulaLabel(text: formulaLabel) }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                // Only the selected tile has a border (every shape is one more layer to
+                // build when the section opens).
+                .overlay {
+                    if selected == p.id {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        // The tile (`.focusable()` around it) is the one keyboard stop, not the button too
+        // (with full keyboard access a button is a stop of its own: Tab stayed on the tile).
+        .focusable(false)
+        // The name on hover (the tile shows only the zoom).
+        .help(formulaLabel.map { "\(p.name) · \($0)" } ?? p.name)
+        .accessibilityLabel(p.name)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { model.goToPlace(p.id) })
         #endif
+    }
+}
+
+/// A grid tile as one keyboard stop. Mac: `focusable` (a stop whether or not keyboard navigation
+/// is on in System Settings; the tile's button is no stop of its own). iOS: the tile's button
+/// itself, which iPadOS keyboard navigation reaches (no wrapper around the touch tile, whose
+/// taps and Go / Fly buttons stay exactly as they were).
+struct TileKeyStop: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.focusable()
+        #else
+        content
+        #endif
+    }
+}
+
+/// `--ui-demo=tile-focus` only: records a tile's frame in the window (`UIDemo.tileFrames`), so
+/// the check clicks it with a real event. Nothing in any other run.
+struct DemoTileFrame: ViewModifier {
+    let id: String
+
+    func body(content: Content) -> some View {
+        if UIDemo.recordsTileFrames {
+            content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { UIDemo.tileFrames[id] = $0 }
+        } else {
+            content
+        }
+    }
+}
+
+/// The fractal of a search result from another fractal than the current one ("Burning Ship",
+/// "z⁸"), top right on its tile.
+struct PlaceFormulaLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .lineLimit(1)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1.5)
+            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+            .padding(3)
+            .accessibilityHidden(true)
     }
 }
 
@@ -1461,6 +1598,8 @@ struct PlaceTouchTile: View {
     let place: PlaceInfo
     let zoomLog10: Double
     let isSelected: Bool
+    /// A search result's fractal when it is not the current one ("Burning Ship", "z⁸").
+    var formulaLabel: String? = nil
     let select: () -> Void
     let go: () -> Void
     let fly: () -> Void
@@ -1482,6 +1621,9 @@ struct PlaceTouchTile: View {
                 // A place with a tour says so (kb: decisions/controls "Finding the tours").
                 .overlay(alignment: .topLeading) {
                     if tour != nil && !isSelected { PlaceTourBadge() }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if let formulaLabel, !isSelected { PlaceFormulaLabel(text: formulaLabel) }
                 }
                 .overlay(alignment: .bottom) {
                     if isSelected {
@@ -1643,12 +1785,22 @@ struct PlaceThumbnail: View {
 /// The palette picker: the palette library's swatches in a grid by category (separate from
 /// the look, which is a colouring preset). Choosing one applies its recommended density,
 /// offset and deep colour; "Import palette…" reads .ugr / .map / JSON files into "My
-/// palettes" (kept across launches).
+/// palettes" (kept across launches). While the control center searches and palette names
+/// match, the grid shows those palettes (no category picker). Keyboard: a chosen swatch takes
+/// the keyboard focus, so Tab / ⇧Tab and the arrows go on from it; Space or Return applies the
+/// focused one.
 struct PalettePicker: View {
     @Bindable var model: ExplorerModel
+    /// The control center's search query ("": not searching).
+    var query = ""
     @AppStorage("palettes.category") private var category = ""
     @State private var importing = false
     @State private var importNote: String?
+    @FocusState private var focus: String?
+    @Environment(\.controlRowWidth) private var rowWidth
+
+    private static let minWidth: CGFloat = 64
+    private static let spacing: CGFloat = 6
 
 
     private var categories: [(key: String, label: String)] {
@@ -1676,16 +1828,21 @@ struct PalettePicker: View {
                 Spacer()
                 Text(model.palette.name).foregroundStyle(.secondary)
             }
-            Picker("Category", selection: $category) {
-                Text("All (\(model.library.count))").tag("")
-                ForEach(categories, id: \.key) { c in Text(c.label).tag(c.key) }
+            let results = query.isEmpty ? [] : ControlSearch.palettes(model.library, query: query)
+            let searching = !results.isEmpty
+            if !searching {
+                Picker("Category", selection: $category) {
+                    Text("All (\(model.library.count))").tag("")
+                    ForEach(categories, id: \.key) { c in Text(c.label).tag(c.key) }
+                }
+                .labelsHidden()
             }
-            .labelsHidden()
-            let shown = model.library.filter { category.isEmpty || $0.category == category }
-            TileRows(ids: shown.map(\.id), minWidth: 64, spacing: 6, height: 16) { i in
+            let shown = searching ? results : model.library.filter { category.isEmpty || $0.category == category }
+            let ids = shown.map(\.id)
+            TileRows(ids: ids, minWidth: Self.minWidth, spacing: Self.spacing, height: 16) { i in
                 let p = shown[i]
                 Button {
-                    model.applyPalette(p.id)
+                    choose(p.id)
                 } label: {
                     PaletteSwatch(palette: PaletteInfo(id: p.id, name: p.name, stops: p.stops))
                         .frame(height: 16)
@@ -1696,10 +1853,20 @@ struct PalettePicker: View {
                         }
                 }
                 .buttonStyle(.plain)
+                // Mac: one keyboard stop per swatch (`TileKeyStop` below), not the button too.
+                #if os(macOS)
+                .focusable(false)
+                #endif
                 .help("\(p.name) · \(p.categoryLabel)\(p.attribution.isEmpty ? "" : " · \(p.attribution)")")
                 .accessibilityLabel(p.name)
                 .accessibilityAddTraits(model.paletteID == p.id ? .isSelected : [])
+                .modifier(TileKeyStop())
+                .focused($focus, equals: p.id)
+                .onKeyPress(phases: .down) { press in key(press, at: i, ids: ids) }
+                .onDisappear { model.tileLostKeyFocus("palette:" + p.id) }
+                .modifier(DemoTileFrame(id: "palette:" + p.id))
             }
+            .onChange(of: focus) { model.tileKeyFocus(focus.map { "palette:" + $0 }, kind: "palette:") }
             HStack {
                 Button {
                     importing = true
@@ -1727,6 +1894,33 @@ struct PalettePicker: View {
                     importNote = "\(e.localizedDescription)"
                 }
             }
+    }
+
+    /// Applies a palette and puts the keyboard focus on its swatch (Tab goes on from there).
+    private func choose(_ id: String) {
+        model.applyPalette(id)
+        focus = id
+    }
+
+    /// Space or Return applies the focused swatch; the arrows move the focus (a row up or down).
+    private func key(_ press: KeyPress, at i: Int, ids: [String]) -> KeyPress.Result {
+        guard i < ids.count else { return .ignored }
+        let (dx, dy): (Int, Int)
+        switch press.key {
+        case .return, .space:
+            model.applyPalette(ids[i])
+            return .handled
+        case .leftArrow: (dx, dy) = (-1, 0)
+        case .rightArrow: (dx, dy) = (1, 0)
+        case .upArrow: (dx, dy) = (0, -1)
+        case .downArrow: (dx, dy) = (0, 1)
+        default: return .ignored
+        }
+        let columns = TileGrid.columns(width: rowWidth, minWidth: Self.minWidth, spacing: Self.spacing)
+        if let n = ControlSearch.move(from: i, count: ids.count, columns: columns, dx: dx, dy: dy) {
+            focus = ids[n]
+        }
+        return .handled
     }
 }
 
@@ -1904,8 +2098,13 @@ struct TileGrid: Layout {
     /// A fixed column count (a row of `TileRows`); nil: as many as fit.
     var columns: Int?
 
+    /// How many tiles of `minWidth` fit in `width` (the arrow keys' row length too).
+    static func columns(width: CGFloat, minWidth: CGFloat, spacing: CGFloat) -> Int {
+        max(1, Int((width + spacing) / (minWidth + spacing)))
+    }
+
     private func geometry(width: CGFloat) -> (columns: Int, tile: CGSize) {
-        let n = columns ?? max(1, Int((width + spacing) / (minWidth + spacing)))
+        let n = columns ?? Self.columns(width: width, minWidth: minWidth, spacing: spacing)
         let w = max(0, (width - spacing * CGFloat(n - 1)) / CGFloat(n))
         return (n, CGSize(width: w, height: height ?? w / aspect))
     }

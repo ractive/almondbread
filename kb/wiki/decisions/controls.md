@@ -218,7 +218,8 @@ grouped form; Places thumbnails show only their zoom, in a small dark pill at th
 with the name as the tooltip (user, 2026-10-16: the caption strip cut names to "The Wh…"); iOS
 has no hover, so a tap selects the picture and puts the name, Go and Fly on it, a second tap
 goes there, and a long press opens a menu titled with the name (Go, Fly; "Touch", places grid) ([SwiftUI performance: the control center sidebar](../platform/swiftui-performance.md)). A search field at the top
-filters sections by title and keywords ("dense", "orbit", "aa", ...); headers collapse
+filters sections by title and keywords ("dense", "orbit", "aa", ...), and since 2026-10-24 finds
+places of every fractal and palettes by name ([Control center search](#control-center-search-as-built-2026-10-24)); headers collapse
 (remembered). A trailing sidebar on the Mac and iPad, so nothing covers the image; a sheet on
 iPhone (medium/large detents, translucent material). Toggled by the toolbar button and ⌘I
 ("Show Control Center"); the toolbar also has Orbit and Mini-map toggles. App-wide preferences
@@ -3344,6 +3345,47 @@ them). Passed on the iPhone 17e simulator (portrait and landscape layout).
 snaps, but a finger lifting off can roll one tick); whether the 0.3 s wait for a tap on a tick
 feels slow.
 
+## Control center search (as built, 2026-10-24)
+
+User request: typing a place name ("Supernova", "Seahorse") said "No setting matches". The
+search field now matches three things (`ControlSearch` in `ControlSearch.swift`, unit tests in
+`ControlSearchTests`):
+
+- **Sections** by title and keywords, as before.
+- **Places by name**, every fractal's (`ExplorerModel.allPlaces`: Mandelbrot catalogue,
+  Multibrot powers, Mandelbar, Burning Ship), case- and diacritic-insensitive substring of the
+  name only (not descriptions). Any hit shows the Places section, whatever its title matches,
+  even in a fractal with no places of its own; the grid then holds just the hits as the usual
+  tiles (no category picker, no Random). A tile of another fractal than the current one carries
+  a small label with that fractal ("Burning Ship", "Mandelbar"; a Multibrot power as "z⁸").
+  Selecting and going work as on any tile; Go and Fly switch the fractal, because Rust's
+  `go_to_place` / `fly_to_place` set the place's formula and the UI pulls the returned
+  settings (FFI test `a_place_of_another_formula_switches_it`, iOS UI test
+  `FirstUseUITests.testSearchPlaceOfAnotherFractal`).
+- **Palettes by name** in the library: any hit shows Look & colour, and its palette grid holds
+  just the hits (no category picker); a click applies as always.
+
+When a section matches only by title or keywords and no name matches ("places", "palette"), its
+grid is the usual one. "No setting matches" appears only when nothing matches at all. The query
+is the debounced one (120 ms); only the Places and Look rows get it, so the other sections keep
+equal inputs and skip their bodies on a new query.
+
+**Keyboard focus in the tile grids** (same day, user: after clicking a place, Tab went on from
+some other control). A click on a SwiftUI button never moves the keyboard focus on macOS, so the
+focus stayed where it was (the canvas, or the search field) and Tab started from there. Each
+place tile and palette swatch is now one keyboard stop bound to a `@FocusState`, and a click sets
+the focus to that tile. On the Mac the stop is a `focusable` wrapper (whether or not keyboard
+navigation is on in System Settings) and the tile's button is not a second stop (with it, Tab
+went from the tile to its own button); on iOS it is the tile's button, which iPadOS keyboard
+navigation reaches (a `focusable` wrapper there is not used; the iPad with a keyboard is
+(unverified): no simulator test drives a hardware keyboard). Places: the focused tile is the selection (its details in the bar), Tab /
+⇧Tab and the arrows (a row up and down) step through the places, Return goes there. Palettes: the
+clicked swatch has the focus, Tab and the arrows move it, Space or Return applies. While a tile
+has the focus, the window's key monitor leaves the arrows and Space to it
+(`ExplorerModel.keyFocusTile`; otherwise they pan and zoom the canvas as everywhere else); a click
+on the canvas takes the focus back. Checked by `--ui-demo=tile-focus` (real click and key events
+sent to the background window, the focused tile printed after each).
+
 ## Held input (as built, 2026-10-19)
 
 A press whose release never arrives must not hold the Navigator forever: a held key kept
@@ -3423,12 +3465,10 @@ move. **Hit testing:** the Mac's `accessibilityHitTest` takes the smallest contr
 A/B switches for the user's foreground comparison. Each goes, with its losing path, once the
 user has decided; until then the default is the current behaviour, and none is saved.
 
-| Key | Menu / control center | Switches | Shown |
-| --- | --- | --- | --- |
-| ⌃⌥P (Mac; iPad with a keyboard) | View ▸ "Preview threshold: 50 ms → 12 ms (test)"; control center, Overlays: "Test: preview threshold 12 ms (A/B)" (Mac and iPad) | a gesture frame's preview runs in one K = maxIter chunk up to 50 ms (default) or 12 ms of estimated GPU time, else progressively ([Benchmarks](../synthesis/benchmarks.md#z⁸-deep-zoom-frame-rate-swings-the-gesture-frame-mode-decision-2026-10-22)) | the HUD's speed line flashes "preview 50 ms" / "preview 12 ms"; keeps "preview 12 ms" while 12 ms is on |
-
-⌃⌥P was free: the canvas handles no ⌃ or ⌥ letter keys except ⌥ with clicks and scrolls, and
-the menus use ⌥⌘O / M / U / P and ⌃⌘F. Every launch starts at 50 ms (not persisted).
+None at present. The last one, the gesture preview's one-chunk threshold (⌃⌥P, View menu and a
+control center row: 50 ms or 12 ms of estimated GPU time), was decided on 2026-10-24: the user
+kept 50 ms after comparing both in a real window, and the switch and the 12 ms path were removed
+([Benchmarks](../synthesis/benchmarks.md#z⁸-deep-zoom-frame-rate-swings-the-gesture-frame-mode-decision-2026-10-22)).
 
 # Citations
 

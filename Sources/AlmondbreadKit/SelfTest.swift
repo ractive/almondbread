@@ -101,7 +101,8 @@ public enum SelfTest {
 /// look, e.g. `place-spiral-galaxy`), `tours` (one tour done), `cruise-reverse`
 /// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A); `places-top` /
 /// `places-bottom` (only Places open, a place selected, the grid at its top or its end: the
-/// pinned place details bar);
+/// pinned place details bar); `tile-focus` (keyboard focus in the places and palette grids, see
+/// `tileFocusCheck`). `--ui-demo-search=text` starts any scene with that search;
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -210,6 +211,11 @@ public enum UIDemo {
     }
     public static var enabled: Bool { scene != nil }
 
+    /// `tile-focus`: the control center's tiles record their frames (`DemoTileFrame`).
+    static let recordsTileFrames = scene == "tile-focus"
+    /// The recorded tile frames by "place:<id>" / "palette:<id>".
+    @MainActor static var tileFrames: [String: CGRect] = [:]
+
     /// `--ui-demo-size=WxH`: the demo window's size in points, title bar included, so a capture
     /// maps 1:1 to an App Store size (1440x900 → 2880x1800 on a Retina screen). Nil: the default.
     static var windowSize: CGSize? {
@@ -231,6 +237,9 @@ public enum UIDemo {
         d.removePersistentDomain(forName: name)
         if scene == "perf" {
             d.set("controls,interior,journey,lighting,overlays,places", forKey: "controlCenter.collapsed")
+        } else if scene == "tile-focus" {
+            // Places and Look (the palette grid) open.
+            d.set("controls,interior,journey,lighting,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
         } else if scene == "places-top" || scene == "places-bottom" {
             // Only Places open: the grid alone fills the sidebar.
             d.set("controls,interior,journey,lighting,look,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
@@ -259,7 +268,10 @@ public enum UIDemo {
 
     /// The control center's search text the scene starts with (shows that section on top).
     static var search: String? {
-        switch scene {
+        // `--ui-demo-search=text`: any scene with that search (place and palette names).
+        let prefix = "--ui-demo-search="
+        if let a = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }) { return String(a.dropFirst(prefix.count)) }
+        return switch scene {
         case "palettes": "palette"
         case "autopilot": "autopilot"
         case "pi", "pi-flight": "π"
@@ -570,6 +582,7 @@ public enum UIDemo {
                     timer.invalidate()
                     capture(window: w, explorer: explorer, scene: scene)
                     if scene == "accessibility" { accessibilityCheck(window: w, model: model) }
+                    if scene == "tile-focus" { tileFocusCheck(window: w, model: model) }
                     if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
                     if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
@@ -596,6 +609,80 @@ public enum UIDemo {
 
 #if os(macOS)
 extension UIDemo {
+    /// `--ui-demo=tile-focus`: keyboard focus in the control center's tile grids, through real
+    /// events sent to the background window (no focus taken, the real mouse never moves): a
+    /// click on a place tile, then Tab, →, ⇧Tab; a click on a palette swatch, then Tab. Each
+    /// step prints the tile with the keyboard focus; ends with "ui-demo: tile focus OK" or
+    /// "... FAILED: reasons".
+    @MainActor
+    static func tileFocusCheck(window: NSWindow, model: ExplorerModel) {
+        // A tile's frame as SwiftUI laid it out (`DemoTileFrame`; global = the window's content,
+        // top-left origin) → window coordinates (bottom-left origin).
+        func click(_ tile: String) -> Bool {
+            guard let f = tileFrames[tile], let content = window.contentView else { return false }
+            let p = NSPoint(x: f.midX, y: content.bounds.height - f.midY)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let ev = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.sendEvent(ev)
+                }
+            }
+            return true
+        }
+        func key(_ chars: String, _ code: UInt16, shift: Bool = false) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let ev = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: shift ? [.shift] : [],
+                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                             context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                             isARepeat: false, keyCode: code) {
+                    NSApp.sendEvent(ev)
+                }
+            }
+        }
+        // The tiles laid out inside the window, in reading order (with `--ui-demo-search=` the
+        // grids hold the search results).
+        let height = window.contentView?.bounds.height ?? 0
+        func shown(_ kind: String) -> [String] {
+            tileFrames.filter { $0.key.hasPrefix(kind) && $0.value.midY > 0 && $0.value.midY < height }
+                .sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }.map(\.key)
+        }
+        let places = shown("place:"), palettes = shown("palette:")
+        var failures: [String] = []
+        var log: [String] = []
+        func expect(_ step: String, _ want: String?) {
+            let got = model.keyFocusTile
+            log.append("\(step) → \(got ?? "none") (\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "-"))")
+            if got != want { failures.append("\(step): \(got ?? "none") != \(want ?? "none")") }
+        }
+        var steps: [() -> Void] = []
+        // A click on the second tile, Tab, → and ⇧Tab (places); a click and Tab (palettes).
+        if places.count >= 4 {
+            steps += [
+                { if !click(places[1]) { failures.append("no tile \(places[1])") } },
+                { expect("click \(places[1])", places[1]); key("\t", 48) },
+                { expect("tab", places[2]); key("\u{F703}", 124) },
+                { expect("right", places[3]); key("\u{19}", 48, shift: true) },
+                { expect("shift-tab", places[2]) },
+            ]
+        }
+        if palettes.count >= 2 {
+            steps += [
+                { if !click(palettes[0]) { failures.append("no swatch \(palettes[0])") } },
+                { expect("click \(palettes[0])", palettes[0]); key("\t", 48) },
+                { expect("tab", palettes[1]); key("\u{F702}", 123) },
+                { expect("left", palettes[0]) },
+            ]
+        }
+        if steps.isEmpty { failures.append("no tiles on screen") }
+        steps.append {
+            log.insert("on screen: \(places.count) places, \(palettes.count) palettes", at: 0)
+            for l in log { print("ui-demo: focus \(l)") }
+            print(failures.isEmpty ? "ui-demo: tile focus OK" : "ui-demo: tile focus FAILED: " + failures.joined(separator: "; "))
+            fflush(stdout)
+        }
+        for (i, f) in steps.enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 * Double(i), execute: f) }
+    }
+
     /// `--ui-demo=accessibility` (kb: plans/a11y-canvas-controls): prints the fractal view's
     /// accessibility tree as AppKit serves it (role, identifier, label, value, frame), checks the
     /// expected elements, the hit test at the cruise icon, AXPress on the cruise icon (the level

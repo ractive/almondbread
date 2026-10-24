@@ -1646,13 +1646,6 @@ impl Explorer {
         r.continue_further() || r.continue_buddha()
     }
 
-    /// A/B test switch, temporary (hidden key ⌃⌥P, View menu): the most GPU milliseconds a
-    /// gesture frame's preview may cost to run in one chunk (50 default, 12 the candidate; kb:
-    /// synthesis/benchmarks "z⁸ deep zoom frame-rate swings"). Not persisted.
-    pub fn set_preview_threshold_ms(&self, ms: f64) {
-        self.lock().host.renderer.set_preview_one_chunk_max(ms / 1000.0);
-    }
-
     /// Two-finger scroll zooms instead of panning (macOS setting; default off: pan).
     pub fn set_scroll_zooms(&self, on: bool) {
         self.lock().host.renderer.navigator.set_scroll_zooms(on);
@@ -2778,6 +2771,29 @@ mod formula_integration_tests {
         assert!(places.iter().all(|p| p.formula == "burningship"));
         let c = e.capabilities();
         assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
+    }
+
+    /// The control center's search lists every fractal's places (kb: decisions/controls
+    /// "Control center search"): going or flying to a place of another fractal switches to
+    /// it, and the settings returned (what the UI pulls) name it; from a Julia view too.
+    #[test]
+    fn a_place_of_another_formula_switches_it() {
+        let (e, _layer) = explorer();
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        let s = e.go_to_place("burningship-supernova".into()).unwrap();
+        assert_eq!(s.formula, "burningship");
+        assert_eq!(formula(&e), Formula::BurningShip);
+        assert!(!e.capabilities().content);
+        let s = e.fly_to_place("multibrot3-whole-set".into()).unwrap();
+        assert_eq!(s.formula, "multibrot3");
+        assert_eq!(formula(&e), Formula::Multibrot(3));
+        let s = e.go_to_place("seahorse-valley".into()).unwrap();
+        assert_eq!(s.formula, "mandelbrot");
+        assert!(e.capabilities().content);
+        assert!(e.open_julia("-0.1225611668766536".into(), "0.7448617666197442".into()));
+        let s = e.fly_to_place("burningship-supernova".into()).unwrap();
+        assert_eq!(s.formula, "burningship");
+        assert_eq!(formula(&e), Formula::BurningShip);
     }
 
     /// The picker from a Julia view leaves it first: another formula goes to that set's whole

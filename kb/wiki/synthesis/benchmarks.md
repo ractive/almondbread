@@ -2340,12 +2340,18 @@ stay opt-in until checked there). (F3's 25.0 fps run is another thing: 334 frame
 3.9 ms GPU, 75 presented, a presentation stall of the background window.) Hysteresis alone (keep the mode for a gesture) would make the slow mode
 the stable one, the opposite of what is wanted.
 
-**A/B in progress (2026-10-23): a temporary test switch** for the user's foreground comparison:
+**Decided (2026-10-24): 50 ms stays.** The user compared both thresholds in a real window with
+the test switch below and kept 50 ms: with 12 ms, panning flickered more, sometimes between dark
+and light (the partly iterated preview), and 50 ms felt more pleasing. The switch, the 12 ms path
+and the "preview12" interaction-test variants were removed; `PREVIEW_ONE_CHUNK_MAX` (0.05 s) is
+the only threshold.
+
+**A/B (2026-10-23, removed 2026-10-24): a temporary test switch** for the user's foreground comparison:
 ⌃⌥P, View ▸ "Preview threshold: 50 ms → 12 ms (test)", or the control center's "Test: preview
 threshold 12 ms (A/B)" row (Mac and iPad); the HUD's speed line shows "preview 12 ms" while it is
-on ([Controls](../decisions/controls.md#test-switches-temporary)). Default 50 ms, not saved. Once
-the user decides, the switch and the losing value go. Interaction-test variants "multibrot8 deep
-zoom preview12" and "sea-1e20 zoom preview12" run at 12 ms. Measured 2026-10-23, M1 Pro, release,
+on ([Controls](../decisions/controls.md#test-switches-temporary)). Default 50 ms, not saved.
+Interaction-test variants "multibrot8 deep
+zoom preview12" and "sea-1e20 zoom preview12" ran at 12 ms. Measured 2026-10-23, M1 Pro, release,
 load average 18–60, 7 runs, each running the four scenarios in turn (50, 12, 50, 12). The window
 was occluded (display asleep), so no presentation fps: the table gives frames encoded per second of
 input (361 refreshes in 3 s) and GPU ms per frame. Shown vs fresh render 0 px in all 28.

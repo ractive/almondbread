@@ -535,23 +535,6 @@ public final class ExplorerModel {
     public private(set) var progressUnfinished = false
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
-    /// A/B test switch, temporary (⌃⌥P, View menu, control center test row; kb:
-    /// synthesis/benchmarks "z⁸ deep zoom frame-rate swings"): the most GPU ms a gesture frame's
-    /// preview may cost to run in one chunk, 50 (default, current) or 12. Not persisted. The HUD
-    /// flashes the new value in the speed line and keeps "preview 12 ms" there while it is on.
-    public var previewThresholdMs: Double = ExplorerModel.previewThresholdDefault {
-        didSet {
-            guard previewThresholdMs != oldValue else { return }
-            explorer?.setPreviewThresholdMs(ms: previewThresholdMs)
-            zoomSpeedChanged = Date()
-        }
-    }
-    nonisolated public static let previewThresholdDefault = 50.0
-    nonisolated public static let previewThresholdTest = 12.0
-    public func togglePreviewThreshold() {
-        previewThresholdMs = previewThresholdMs == Self.previewThresholdDefault
-            ? Self.previewThresholdTest : Self.previewThresholdDefault
-    }
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
     /// showing it (control center, controls help) do not depend on the 10 Hz `stats`.
     public private(set) var zoomSpeed = 1.6
@@ -1255,6 +1238,27 @@ public final class ExplorerModel {
         pull(s)
         showPlaceInterior()
         host?.requestFrames()
+    }
+
+    /// The control center tile with the keyboard focus ("place:<id>", "palette:<id>"), nil: none.
+    /// While one has it, the canvas leaves the arrows, Space and Return to the grid (Mac: the
+    /// window's key monitor would pan and zoom with them). Not observed: read per key event.
+    @ObservationIgnored public private(set) var keyFocusTile: String?
+
+    /// A grid's keyboard focus changed: `tile` has it now, or (nil) none of the grid's `kind`
+    /// ("place:", "palette:") has it any more.
+    func tileKeyFocus(_ tile: String?, kind: String) {
+        if let tile {
+            keyFocusTile = tile
+        } else if keyFocusTile?.hasPrefix(kind) == true {
+            keyFocusTile = nil
+        }
+    }
+
+    /// A tile left the screen: if it had the keyboard focus, nothing has it now (the control
+    /// center closed, the search changed).
+    func tileLostKeyFocus(_ tile: String) {
+        if keyFocusTile == tile { keyFocusTile = nil }
     }
 
     /// The place thumbnails show the interior in the bubbles colouring (a flat black interior
