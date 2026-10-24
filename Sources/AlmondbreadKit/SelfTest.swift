@@ -101,7 +101,8 @@ public enum SelfTest {
 /// look, e.g. `place-spiral-galaxy`), `tours` (one tour done), `cruise-reverse`
 /// (the cockpit in reverse cruise from 1e-20, 8 s in; `autopilot` shows it in A); `places-top` /
 /// `places-bottom` (only Places open, a place selected, the grid at its top or its end: the
-/// pinned place details bar);
+/// pinned place details bar); `tile-focus` (keyboard focus in the places and palette grids, see
+/// `tileFocusCheck`). `--ui-demo-search=text` starts any scene with that search;
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
