@@ -100,6 +100,17 @@ final class TouchUITests: XCTestCase {
         let s5 = try XCTUnwrap(state())
         XCTAssertGreaterThan(s5.scale, s4.scale * 1.2, "two-finger tap did not zoom out")
 
+        // Pinching out far stops at the zoom-out limit, half the home view's zoom (kb:
+        // decisions/controls "View limits"); the start view is the fitted home.
+        for _ in 0..<3 {
+            canvas.pinch(withScale: 0.1, velocity: -2)
+            settle()
+        }
+        let sOut = try XCTUnwrap(state())
+        XCTAssertLessThanOrEqual(sOut.scale, s0.scale * 2 * (1 + 1e-6), "zoomed out past the limit: \(s0.scale) -> \(sOut.scale)")
+        XCTAssertGreaterThan(sOut.scale, s0.scale * 1.8, "pinch out did not reach the limit: \(s0.scale) -> \(sOut.scale)")
+        shot("zoom-out-limit")
+
         // The cockpit's plane (the autopilot): on, zooming; again: off.
         let autopilot = try XCTUnwrap(cockpit("autopilot"), "no cockpit plane")
         autopilot.tap()
