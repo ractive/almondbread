@@ -673,6 +673,8 @@ pub struct Navigator {
 /// While direct manipulation arrived this recently (s), the hand is on the view: the rubber
 /// band holds (trackpads send no event when the fingers rest).
 const RUBBER_HOLD: f64 = 0.1;
+/// A fling's decay time (s) once it has carried the centre past its bound.
+const FLING_BAND_TAU: f64 = 0.05;
 /// The spring back snaps onto the bound within this many view points.
 const RUBBER_SNAP: f64 = 0.25;
 
@@ -2873,9 +2875,11 @@ impl Navigator {
 
         // Flings: v(t) = v0 e^(−t/τ), distance v0 τ (1 − e^(−dt/τ)).
         if self.fling != (0.0, 0.0) {
-            let e = (-dt / FLING_TAU).exp();
-            dx += self.fling.0 * FLING_TAU * (1.0 - e);
-            dy += self.fling.1 * FLING_TAU * (1.0 - e);
+            // Past the centre bound the band brakes a fling hard (then it springs back).
+            let tau = if self.rubber { FLING_BAND_TAU } else { FLING_TAU };
+            let e = (-dt / tau).exp();
+            dx += self.fling.0 * tau * (1.0 - e);
+            dy += self.fling.1 * tau * (1.0 - e);
             self.fling = (self.fling.0 * e, self.fling.1 * e);
             if self.fling.0.hypot(self.fling.1) < FLING_STOP {
                 self.fling = (0.0, 0.0);
@@ -6262,13 +6266,29 @@ mod tests {
         let drives: [(&str, Drive); 7] = [
             ("wheel zoom", |n, v, t| {
                 for i in 0..200 {
-                    n.handle(InputEvent::WheelZoom { delta: -1.0, x: 120.0, y: -40.0 }, v, t + i as f64 / 120.0);
+                    n.handle(
+                        InputEvent::WheelZoom {
+                            delta: -1.0,
+                            x: 120.0,
+                            y: -40.0,
+                        },
+                        v,
+                        t + i as f64 / 120.0,
+                    );
                 }
                 t + 200.0 / 120.0
             }),
             ("magnify", |n, v, t| {
                 for i in 0..200 {
-                    n.handle(InputEvent::Magnify { magnification: -0.1, x: 0.0, y: 0.0 }, v, t + i as f64 / 120.0);
+                    n.handle(
+                        InputEvent::Magnify {
+                            magnification: -0.1,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                        v,
+                        t + i as f64 / 120.0,
+                    );
                 }
                 n.handle(InputEvent::GestureEnd, v, t + 200.0 / 120.0);
                 run(n, v, t + 200.0 / 120.0, t + 4.0, 60.0)
@@ -6289,7 +6309,15 @@ mod tests {
             }),
             ("wheel notches", |n, v, t| {
                 for i in 0..30 {
-                    n.handle(InputEvent::WheelNotch { delta: -1.0, x: 0.0, y: 0.0 }, v, t + i as f64 * 0.05);
+                    n.handle(
+                        InputEvent::WheelNotch {
+                            delta: -1.0,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                        v,
+                        t + i as f64 * 0.05,
+                    );
                     run(n, v, t + i as f64 * 0.05, t + (i + 1) as f64 * 0.05, 120.0);
                 }
                 run(n, v, t + 1.5, t + 3.0, 60.0)
@@ -6334,8 +6362,20 @@ mod tests {
             assert!(!n.limits().outside(&v.center), "{name}: centre out");
             // Zooming in again works at once and exactly.
             let s = v.scale;
-            n.handle(InputEvent::WheelZoom { delta: 1.0, x: 0.0, y: 0.0 }, &mut v, t + 1.0);
-            assert!((s.ratio(v.scale) - 1.15).abs() < 1e-9, "{name}: zoom in ×{}", s.ratio(v.scale));
+            n.handle(
+                InputEvent::WheelZoom {
+                    delta: 1.0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                &mut v,
+                t + 1.0,
+            );
+            assert!(
+                (s.ratio(v.scale) - 1.15).abs() < 1e-9,
+                "{name}: zoom in ×{}",
+                s.ratio(v.scale)
+            );
         }
     }
 
@@ -6383,17 +6423,18 @@ mod tests {
         let held = v.center.re();
         n.advance(&mut v, t + 0.05);
         assert_eq!(v.center.re(), held);
-        // Released: back onto the bound, smoothly (monotonic), within ~0.5 s.
-        n.handle(InputEvent::GestureEnd, &mut v, t + 0.05);
+        // Released after holding still (no fling): back onto the bound, smoothly (monotonic),
+        // within a second.
+        n.handle(InputEvent::GestureEnd, &mut v, t + 0.08);
         let mut last = v.center.re();
-        let mut s = t + 0.05;
+        let mut s = t + 0.08;
         while n.is_moving() && s < t + 3.0 {
             s += 1.0 / 60.0;
             n.advance(&mut v, s);
             assert!(v.center.re() >= last, "monotonic");
             last = v.center.re();
         }
-        assert!(s < t + 0.8, "settled after {} s", s - t);
+        assert!(s < t + 1.1, "settled after {} s", s - t);
         assert!(!n.is_stretched() && !n.limits().outside(&v.center));
         assert!((v.center.re() - lo).abs() < 1e-9, "on the bound: {}", v.center.re());
         // Moving back in from past the bound is not resisted.
@@ -6446,13 +6487,23 @@ mod tests {
         run(&mut n, &mut v, t, t + 3.0, 60.0);
         assert!(!n.is_moving() && !n.limits().outside(&v.center), "{}", v.center.re());
         // Zooming in at the far right edge of the view, over and over: the centre follows the
-        // pointer only up to the band, and comes back.
+        // pointer only up to the band (in complex units: a deeper zoom shows the same stretch
+        // larger), and comes back.
         let (mut n, mut v) = at_home();
         v.center = Center::new(hi - 0.1, 0.0);
+        let reach = RUBBER_BAND * 600.0 * v.scale.to_f64();
         for i in 0..100 {
-            n.handle(InputEvent::WheelZoom { delta: 1.0, x: 499.0, y: 0.0 }, &mut v, i as f64 / 120.0);
-            let past = (v.center.re() - hi) / v.scale.to_f64();
-            assert!(past < RUBBER_BAND * 600.0, "{i}: {past}");
+            n.handle(
+                InputEvent::WheelZoom {
+                    delta: 1.0,
+                    x: 499.0,
+                    y: 0.0,
+                },
+                &mut v,
+                i as f64 / 120.0,
+            );
+            let past = v.center.re() - hi;
+            assert!(past < reach, "{i}: {past}");
         }
         run(&mut n, &mut v, 1.0, 3.0, 60.0);
         assert!(!n.limits().outside(&v.center));

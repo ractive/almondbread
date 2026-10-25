@@ -1151,7 +1151,11 @@ mod command_click_tests {
             assert!(h.keep_in_limits(), "{f:?}");
             let home = Viewport::fitting_for(f, W, H);
             let v = &h.renderer.viewport;
-            assert_eq!(v.scale, home.scale / almondbread_core::viewport::ZOOM_OUT_LIMIT, "{f:?}");
+            assert_eq!(
+                v.scale,
+                home.scale / almondbread_core::viewport::ZOOM_OUT_LIMIT,
+                "{f:?}"
+            );
             let lim = almondbread_core::viewport::CENTER_LIMIT;
             let (dx, dy) = (v.center.re() - home.center.re(), v.center.im() - home.center.im());
             assert!(dx.abs() <= lim + 1e-9 && dy.abs() <= lim + 1e-9 && dx.abs().max(dy.abs()) > lim - 1e-9);

@@ -744,7 +744,13 @@ mod tests {
         use crate::formula::Formula;
         let julia = Formula::Julia(crate::formula::JuliaK::new(Center::new(-0.12256, 0.74486).big()));
         for f in crate::formula::selectable().into_iter().chain([julia]) {
-            for (w, h) in [(1000.0, 600.0), (390.0, 844.0), (1440.0, 900.0), (2000.0, 400.0), (300.0, 300.0)] {
+            for (w, h) in [
+                (1000.0, 600.0),
+                (390.0, 844.0),
+                (1440.0, 900.0),
+                (2000.0, 400.0),
+                (300.0, 300.0),
+            ] {
                 let l = ViewLimits::new(f, w, h);
                 let home = Viewport::fitting_for(f, w, h);
                 assert!((l.max_scale.ratio(home.scale) - 1.0 / ZOOM_OUT_LIMIT).abs() < 1e-12);

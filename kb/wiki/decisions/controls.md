@@ -3434,8 +3434,10 @@ Nothing is out there. The user approved limits (2026-10-25); one place defines t
   any depth. While the hand is on (direct manipulation within the last 0.1 s, or a swiping
   finger) it holds; once off (`GestureEnd`, a lift, or 0.1 s without events for a trackpad
   that rests) it springs back onto the bound: the excess decays with τ = 0.1 s
-  (`RUBBER_RETURN_TAU`, exact for any frame time) and snaps on within 0.25 pt. A fling into
-  the bound decelerates on the band and comes back the same way; held keys push a little past
+  (`RUBBER_RETURN_TAU`, exact for any frame time) and snaps on within 0.25 pt. A fling that
+  carries the centre past the bound decays with 0.05 s instead of 0.33 s from there (without
+  that, a 1200 pt/s fling held the view ~80 pt out against the spring for 1.7 s), then comes
+  back the same way; held keys push a little past
   it (their speed against the spring) and return when released. This is the iOS scroll-view
   behaviour, chosen because the navigator is already spring-and-decay based and a hard wall
   would eat input and stop flings dead.
