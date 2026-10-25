@@ -729,6 +729,15 @@ impl<B: GpuBackend + Clone> Host<B> {
         true
     }
 
+    /// Clamps the view into the view limits of the current formula and size (kb:
+    /// decisions/controls "View limits"): a view set from outside the navigator, at once; the
+    /// navigator's own rubber band is left to spring back. True if the view changed.
+    pub fn keep_in_limits(&mut self) -> bool {
+        let r = &mut self.renderer;
+        r.navigator.set_formula(r.settings.formula);
+        r.navigator.keep_in_limits(&mut r.viewport)
+    }
+
     /// The home view fitted to the view (a Julia set's whole view in a Julia view, F4).
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
@@ -768,6 +777,9 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         let mut tag = 0;
         self.overlay_before(now);
+        // Views set from outside (restored, pasted, places, tours, map jumps, a formula or
+        // window change) come into the view limits (kb: decisions/controls "View limits").
+        self.keep_in_limits();
         let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
         let mut outcome = self
             .renderer

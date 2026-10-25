@@ -27,6 +27,27 @@ fn gpu(e: GpuError) -> CoreError {
     CoreError::Gpu { message: e.0 }
 }
 
+/// A view from decimal text (the scale may be beyond f64, "2.5e-1000"), within the sanity
+/// bounds of the scale (the view limits are the host's: `Host::keep_in_limits`).
+fn view_from_strings(re: &str, im: &str, scale: &str) -> Result<Viewport, CoreError> {
+    let center = Center::parse(re, im).ok_or_else(|| CoreError::Malformed {
+        text: format!("{re}, {im}"),
+    })?;
+    let scale = Scale::parse(scale).ok_or_else(|| CoreError::Malformed {
+        text: scale.to_string(),
+    })?;
+    if !center.re().is_finite() || !center.im().is_finite() {
+        return Err(invalid("viewport must be finite"));
+    }
+    let mut v = Viewport::with_center(center, scale);
+    v.scale = v
+        .scale
+        .max(v.min_scale())
+        .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
+    v.ensure_precision();
+    Ok(v)
+}
+
 /// Keys with a navigation meaning; Swift decodes its key events into these
 /// (kb: decisions/controls).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -1365,6 +1386,8 @@ impl Inner {
         if autopilot.lock_enabled() != (wanted && caps.content) {
             autopilot.set_lock(wanted && caps.content);
         }
+        // The formula's own view limits (kb: decisions/controls "View limits").
+        self.host.keep_in_limits();
     }
 }
 
@@ -2150,22 +2173,13 @@ impl Explorer {
 
     /// Jumps to a view given entirely as text: `scale` may be beyond f64 ("2.5e-1000").
     pub fn set_viewport_text(&self, re: String, im: String, scale: String) -> Result<(), CoreError> {
-        let center = Center::parse(&re, &im).ok_or_else(|| CoreError::Malformed {
-            text: format!("{re}, {im}"),
-        })?;
-        let scale = Scale::parse(&scale).ok_or_else(|| CoreError::Malformed { text: scale.clone() })?;
-        if !center.re().is_finite() || !center.im().is_finite() {
-            return Err(invalid("viewport must be finite"));
-        }
-        let mut v = Viewport::with_center(center, scale);
-        v.scale = v
-            .scale
-            .max(v.min_scale())
-            .min(Scale::from_f64(almondbread_core::viewport::MAX_SCALE));
-        v.ensure_precision();
+        let v = view_from_strings(&re, &im, &scale)?;
         let mut g = self.lock();
         g.host.renderer.navigator.jumped();
         g.host.renderer.viewport = v;
+        // A restored or set view outside the view limits is clamped, not rejected (kb:
+        // decisions/controls "View limits").
+        g.host.keep_in_limits();
         Ok(())
     }
 
@@ -2185,7 +2199,16 @@ impl Explorer {
             }
         }
         let ok = match (re, im, scale) {
-            (Some(re), Some(im), Some(scale)) => self.set_viewport_text(re, im, scale).is_ok(),
+            // The view limits are the pasted fractal's: clamped below once it is set.
+            (Some(re), Some(im), Some(scale)) => match view_from_strings(&re, &im, &scale) {
+                Ok(v) => {
+                    let mut g = self.lock();
+                    g.host.renderer.navigator.jumped();
+                    g.host.renderer.viewport = v;
+                    true
+                }
+                Err(_) => false,
+            },
             _ => false,
         };
         // The optional `angle` line (degrees); without it the view comes upright. The fractal

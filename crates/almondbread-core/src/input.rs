@@ -24,6 +24,13 @@
 //! on screen. In pointer mode it is the pointer (or the event's own position for gestures);
 //! in keyboard mode the overlay crosshair, which glides to the view centre on a critically
 //! damped spring.
+//!
+//! **View limits** (kb: decisions/controls "View limits", [`ViewLimits`]). Every zoom out
+//! eases into the zoom-out limit ([`ViewLimits::zoom_factor`]: no bounce, a continuing pinch or
+//! wheel just stops there). Every centre move (pans, flings, keys, zoom about an off-centre
+//! point, the autopilot's and cruise's steering) goes through a rubber band past the centre
+//! bound ([`ViewLimits::rubber_move`]); once the hand is off, the centre springs back onto
+//! the bound. Flights, journeys and places fly to targets clamped into the limits.
 
 use crate::autopilot::{self, Autopilot};
 use crate::cinematic::Cinematic;
@@ -31,7 +38,7 @@ use crate::cruise::{self, Cruise, Level};
 use crate::flyto::{self, Flight, FlyPath};
 use crate::journey::{self, Choice, Journey};
 use crate::seek::{SeekPhase, Seeker};
-use crate::viewport::{Scale, Viewport, wrap_angle};
+use crate::viewport::{RUBBER_BAND, RUBBER_RETURN_TAU, Scale, ViewLimits, Viewport, wrap_angle};
 
 /// Keys with a navigation meaning. The platform layer decodes its key events into these
 /// (WASD and the arrows to the four directions, Space to `Zoom`, ...).
@@ -652,7 +659,22 @@ pub struct Navigator {
     /// turns the view (until `TouchRotateEnd`).
     twist: Option<f64>,
     probe: Option<(f64, f64)>,
+    /// The navigator's own motion left the centre past its bound (the rubber band): it springs
+    /// back once the hand is off. A centre out of bounds without it came from a jump and is
+    /// clamped ([`Navigator::keep_in_limits`]).
+    rubber: bool,
+    /// When direct manipulation (drag, scroll, pinch, magnify, twist) last moved the view: the
+    /// rubber band holds while the hand is on.
+    hand_at: f64,
+    /// The largest scale the current flight may show (its start's, if that was beyond the limit).
+    flight_cap: Scale,
 }
+
+/// While direct manipulation arrived this recently (s), the hand is on the view: the rubber
+/// band holds (trackpads send no event when the fingers rest).
+const RUBBER_HOLD: f64 = 0.1;
+/// The spring back snaps onto the bound within this many view points.
+const RUBBER_SNAP: f64 = 0.25;
 
 /// A velocity following a target on a critically damped spring.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -760,6 +782,9 @@ impl Default for Navigator {
             throttle_rest: None,
             twist: Some(0.0),
             probe: None,
+            rubber: false,
+            hand_at: f64::NEG_INFINITY,
+            flight_cap: Scale::from_f64(crate::viewport::MAX_SCALE),
         }
     }
 }
@@ -959,7 +984,8 @@ impl Navigator {
             self.manual_at = now;
             self.stop_flings();
             self.note_interaction(now);
-            viewport.pan_by_points(dx, dy);
+            self.hand_at = now;
+            self.pan_view(viewport, dx, dy);
             self.sample_gesture(now, dx, dy, 0.0, (0.0, 0.0));
         } else {
             self.apply(InputEvent::Pan { dx, dy }, viewport, now);
@@ -1445,7 +1471,13 @@ impl Navigator {
     }
 
     fn begin_flight(&mut self, target: &Viewport, viewport: &Viewport) {
-        let path = FlyPath::new(viewport, target, self.view_size.0);
+        // The target within the limits; on the way a long flight may zoom out past the limit
+        // by its path: capped (kb: decisions/controls "View limits").
+        let l = self.limits();
+        let mut target = target.clone();
+        l.clamp(&mut target);
+        self.flight_cap = l.max_scale.max(viewport.scale);
+        let path = FlyPath::new(viewport, &target, self.view_size.0);
         self.flight = Some(Flight::turning(path, viewport.angle, self.cinematic.spin_per_efold()));
     }
 
@@ -1530,6 +1562,144 @@ impl Navigator {
     /// The home view fitted to the window (the current formula's whole set).
     fn home(&self) -> Viewport {
         Viewport::fitting_for(self.seek.formula, self.view_size.0, self.view_size.1)
+    }
+
+    // MARK: View limits (kb: decisions/controls "View limits")
+
+    /// Where navigation may take the view: the current formula's home at the current size.
+    pub fn limits(&self) -> ViewLimits {
+        ViewLimits::new(self.seek.formula, self.view_size.0, self.view_size.1)
+    }
+
+    /// The centre is past its bound on the rubber band (springing back or held by the hand).
+    pub fn is_stretched(&self) -> bool {
+        self.rubber
+    }
+
+    /// Clamps a view set from outside the navigator (a jump, a restored or pasted view, a
+    /// formula or window change) into the limits at once; the navigator's own rubber band is
+    /// left to spring back. Hosts call it before each frame. True if the view changed.
+    pub fn keep_in_limits(&mut self, viewport: &mut Viewport) -> bool {
+        // Not before the view has a size (a view restored before the first layout).
+        if !(self.view_size.0 > 0.0 && self.view_size.1 > 0.0) {
+            return false;
+        }
+        let l = self.limits();
+        let mut changed = false;
+        let cap = if self.flight.is_some() {
+            l.max_scale.max(self.flight_cap)
+        } else {
+            l.max_scale
+        };
+        if viewport.scale > cap {
+            viewport.scale = cap;
+            viewport.ensure_precision();
+            changed = true;
+        }
+        if !self.rubber && l.outside(&viewport.center) {
+            changed |= l.clamp(viewport);
+        }
+        changed
+    }
+
+    /// The hand is on the view: direct manipulation just moved it, or a finger pans.
+    fn hand_on(&self, now: f64) -> bool {
+        now - self.hand_at < RUBBER_HOLD || self.finger.is_some_and(|f| f.kind == FingerKind::Pan)
+    }
+
+    /// Moves the centre by (x, y) points along the complex axes through the rubber band.
+    fn move_center(&mut self, viewport: &mut Viewport, x: f64, y: f64) {
+        if !(x.is_finite() && y.is_finite()) || (x == 0.0 && y == 0.0) {
+            return;
+        }
+        let l = self.limits();
+        let past = l.edge_distances(&viewport.center, viewport.scale);
+        let band = RUBBER_BAND * self.min_side();
+        let mx = ViewLimits::rubber_move(past[0], x, band);
+        let my = ViewLimits::rubber_move(past[1], y, band);
+        viewport.center = viewport.center.offset_scaled(mx, my, viewport.scale);
+        if l.outside(&viewport.center) {
+            self.rubber = true;
+        }
+    }
+
+    /// Moves the content by (dx, dy) view points ([`Viewport::pan_by_points`]) through the
+    /// rubber band.
+    fn pan_view(&mut self, viewport: &mut Viewport, dx: f64, dy: f64) {
+        let (x, y) = viewport.rotate(dx, dy);
+        self.move_center(viewport, -x, -y);
+    }
+
+    /// Zooms by `factor` at (x, y) ([`Viewport::zoom_by`]) within the limits: a zoom out eases
+    /// into the zoom-out limit, and the centre's move (a zoom about an off-centre point moves
+    /// it) goes through the rubber band (near the bound the point under the pointer then
+    /// slides).
+    fn zoom_view(&mut self, viewport: &mut Viewport, factor: f64, x: f64, y: f64) {
+        let l = self.limits();
+        let f = l.zoom_factor(viewport.scale, factor);
+        if !(f.is_finite() && f > 0.0) || f == 1.0 {
+            return;
+        }
+        let before = viewport.center.clone();
+        let s0 = viewport.scale;
+        viewport.zoom_by(f, x, y);
+        // The centre moved by at most |(x, y)|·|s0 − s1| complex units: far inside the box that
+        // cannot reach the bound.
+        let reach = x.hypot(y) * (s0.to_f64() - viewport.scale.to_f64()).abs() + 1e-9;
+        let (re, im) = (before.re() - l.center.0, before.im() - l.center.1);
+        let room = crate::viewport::CENTER_LIMIT - re.abs().max(im.abs());
+        if room > reach && !self.rubber {
+            return;
+        }
+        let (mx, my) = viewport.center.delta_in(&before, viewport.scale);
+        viewport.center = before.with_min_precision(viewport.needed_center_bits());
+        self.move_center(viewport, mx, my);
+    }
+
+    /// Turns by `delta` about (x, y) ([`Viewport::rotate_by`]); a turn about an off-centre
+    /// point moves the centre, which may leave it past the bound (it springs back).
+    fn rotate_view(&mut self, viewport: &mut Viewport, delta: f64, x: f64, y: f64) {
+        viewport.rotate_by(delta, x, y);
+        if self.limits().outside(&viewport.center) {
+            self.rubber = true;
+        }
+    }
+
+    /// The spring back onto the centre bound once the hand is off: the excess decays with
+    /// [`RUBBER_RETURN_TAU`] (exact for any frame time) and snaps onto the bound at the end.
+    fn spring_back(&mut self, viewport: &mut Viewport, dt: f64, now: f64) {
+        if !self.rubber {
+            return;
+        }
+        let l = self.limits();
+        if !l.outside(&viewport.center) {
+            self.rubber = false;
+            return;
+        }
+        if self.hand_on(now) {
+            return;
+        }
+        let past = l.edge_distances(&viewport.center, viewport.scale);
+        let excess = |(hi, lo): (f64, f64)| {
+            if hi > 0.0 {
+                hi
+            } else if lo > 0.0 {
+                -lo
+            } else {
+                0.0
+            }
+        };
+        let (ex, ey) = (excess(past[0]), excess(past[1]));
+        let keep = (-dt / RUBBER_RETURN_TAU).exp();
+        if ex.hypot(ey) * keep < RUBBER_SNAP || !(ex.is_finite() && ey.is_finite()) {
+            l.clamp(viewport);
+            self.rubber = false;
+        } else {
+            viewport.center = viewport
+                .center
+                .offset_scaled(-ex * (1.0 - keep), -ey * (1.0 - keep), viewport.scale);
+        }
+        self.note_interaction(now);
     }
 
     pub fn seek_mut(&mut self) -> &mut Seeker {
@@ -1671,6 +1841,7 @@ impl Navigator {
             || self.rot_step_left != 0.0
             || self.journey.wants_frames()
             || self.north.is_some()
+            || self.rubber
     }
 
     /// Current pan velocity (points/s) and zoom rate (e-folds/s), springs plus flings.
@@ -1756,6 +1927,7 @@ impl Navigator {
     /// down moves again on its next press. Settings (speeds, lane assist) stay.
     pub fn jumped(&mut self) {
         self.stop_motion();
+        self.rubber = false;
         self.journey.stop();
         self.release_holds();
     }
@@ -2074,9 +2246,10 @@ impl Navigator {
             InputEvent::Rotate { radians, x, y } => {
                 if radians.is_finite() {
                     self.note_interaction(now);
+                    self.hand_at = now;
                     let (tx, ty) = self.gesture_target(x, y);
                     // The image follows the fingers: counter-clockwise fingers, the camera turns clockwise.
-                    viewport.rotate_by(-radians, tx, ty);
+                    self.rotate_view(viewport, -radians, tx, ty);
                 }
                 true
             }
@@ -2086,7 +2259,8 @@ impl Navigator {
                 // The hand has the view: flings stop; motion is 1:1.
                 self.stop_flings();
                 self.note_interaction(now);
-                viewport.pan_by_points(dx, dy);
+                self.hand_at = now;
+                self.pan_view(viewport, dx, dy);
                 self.sample_gesture(now, dx, dy, 0.0, (0.0, 0.0));
                 true
             }
@@ -2123,13 +2297,15 @@ impl Navigator {
                 self.enter_pointer_mode();
                 self.stop_flings();
                 self.note_interaction(now);
+                self.hand_at = now;
                 // Two-finger drag pans while pinching.
-                viewport.pan_by_points(dx, dy);
-                viewport.zoom_by(ratio, x, y);
+                self.pan_view(viewport, dx, dy);
+                self.zoom_view(viewport, ratio, x, y);
                 self.sample_gesture(now, dx, dy, ratio.ln(), (x, y));
                 true
             }
             InputEvent::GestureEnd => {
+                self.hand_at = f64::NEG_INFINITY;
                 self.release_gesture(now);
                 true
             }
@@ -2257,7 +2433,8 @@ impl Navigator {
 
     fn zoom_at(&mut self, viewport: &mut Viewport, factor: f64, x: f64, y: f64, now: f64) {
         self.note_interaction(now);
-        viewport.zoom_by(factor, x, y);
+        self.hand_at = now;
+        self.zoom_view(viewport, factor, x, y);
     }
 
     fn key(&mut self, k: NavKey, down: bool, viewport: &mut Viewport, now: f64) -> bool {
@@ -2567,11 +2744,15 @@ impl Navigator {
         // A flight sets the view from its path parameter (exact, nothing integrates).
         if self.flight.is_some() {
             let speed = self.flight_speed();
+            let cap = self.limits().max_scale.max(self.flight_cap);
             let f = self.flight.as_mut().expect("flight");
             self.last_interaction = now;
             self.autopilot.update_throttle(dt);
             let done = f.step(dt, speed, self.autopilot.throttle());
             *viewport = f.viewport();
+            if viewport.scale > cap {
+                viewport.scale = cap;
+            }
             let stopped = f.stopping;
             self.step_north(dt, viewport);
             if done {
@@ -2589,6 +2770,7 @@ impl Navigator {
         if self.journey.wants_frames() && !self.cruise.is_moving() {
             // Resting at a target (it refines) or waiting for the plan (a released cruise
             // glides out first, below).
+            self.spring_back(viewport, dt, now);
             self.step_north(dt, viewport);
             return true;
         }
@@ -2705,28 +2887,28 @@ impl Navigator {
             // Pan and zoom run together: pan at the step's midpoint scale, so a frame's
             // order of operations does not show as a frame-rate dependence.
             let mid = (-0.5 * (ln_zoom + ap.ln_zoom + cm.ln_zoom)).exp();
-            viewport.pan_by_points(dx * mid, dy * mid);
+            self.pan_view(viewport, dx * mid, dy * mid);
         }
         if ln_zoom != 0.0 {
             let (x, y) = self.zoom_target();
-            viewport.zoom_by(ln_zoom.exp(), x, y);
+            self.zoom_view(viewport, ln_zoom.exp(), x, y);
             ln_zoom = 0.0;
         }
         if ap.ln_zoom != 0.0 {
-            viewport.zoom_by(ap.ln_zoom.exp(), ap.at.0, ap.at.1);
+            self.zoom_view(viewport, ap.ln_zoom.exp(), ap.at.0, ap.at.1);
             // Cinematic spin: the view turns with the autopilot's zoom, about its dive point.
             let spin = self.cinematic.spin_per_efold();
             if spin != 0.0 {
-                viewport.rotate_by(spin * ap.ln_zoom, ap.at.0, ap.at.1);
+                self.rotate_view(viewport, spin * ap.ln_zoom, ap.at.0, ap.at.1);
             }
         }
         if cm.ln_zoom != 0.0 {
-            viewport.zoom_by(cm.ln_zoom.exp(), cm.at.0, cm.at.1);
+            self.zoom_view(viewport, cm.ln_zoom.exp(), cm.at.0, cm.at.1);
         }
         self.cruise_landing(viewport);
         if turn != 0.0 {
             let (x, y) = self.zoom_target();
-            viewport.rotate_by(turn, x, y);
+            self.rotate_view(viewport, turn, x, y);
             if self.rot_step_left == 0.0 && viewport.angle.abs() < 1e-12 && !self.rot_ccw && !self.rot_cw {
                 viewport.angle = 0.0;
             }
@@ -2739,7 +2921,7 @@ impl Navigator {
                 self.zoom_fling = 0.0;
             }
             let (x, y) = self.gesture_target(self.zoom_fling_at.0, self.zoom_fling_at.1);
-            viewport.zoom_by(ln_zoom.exp(), x, y);
+            self.zoom_view(viewport, ln_zoom.exp(), x, y);
         }
         // Animated zoom steps: exponential ease-out of what is left.
         if self.step_left != 0.0 {
@@ -2749,7 +2931,7 @@ impl Navigator {
             }
             self.step_left -= part;
             let (x, y) = self.step_at.unwrap_or((0.0, 0.0));
-            viewport.zoom_by(part.exp(), x, y);
+            self.zoom_view(viewport, part.exp(), x, y);
             if self.step_left == 0.0 {
                 self.step_at = None;
             }
@@ -2765,9 +2947,11 @@ impl Navigator {
                 self.tap_zoom = None;
             }
             if part != 0.0 {
-                viewport.zoom_by(part.exp(), x, y);
+                self.zoom_view(viewport, part.exp(), x, y);
             }
         }
+        // Past the centre bound with the hand off: back onto it.
+        self.spring_back(viewport, dt, now);
         // Last, so it absorbs this frame's spin and ends at exactly north.
         self.step_north(dt, viewport);
         true
