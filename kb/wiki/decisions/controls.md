@@ -3417,10 +3417,13 @@ Nothing is out there. The user approved limits (2026-10-25); one place defines t
 **How each path keeps to them (all in the `Navigator`; Swift only forwards events).**
 
 - *Zooming out eases into the limit* (`ViewLimits::zoom_factor`). With u the e-folds left to the
-  limit and B = `ZOOM_LIMIT_SOFTNESS` = 0.3, a zoom out moves a raw coordinate r with u = r for
-  r ≥ B (exactly the plain zoom) and u = B·e^((r − B)/B) below (continuous in value and slope).
-  In the last 0.3 e-folds (1.35×) every zoom-out drive slows exponentially and stops at the
-  limit: a continuing pinch, magnify, ⌘-scroll or wheel just stops changing the zoom (the
+  limit and B = `ZOOM_LIMIT_SOFTNESS` = 0.8 (first built as 0.3, see the correction below), a
+  zoom out moves a raw coordinate r with u = r for r ≥ B (exactly the plain zoom) and
+  u = B·e^((r − B)/B) below (continuous in value and slope). The zoom rate is the plain rate
+  times u/B, so in the last 0.8 e-folds (2.2×) every zoom-out drive slows exponentially and
+  stops at the limit. At Space's default ×4.95/s (1.6 e-folds/s) it slows from 90 % to a quarter
+  of the rate over 0.64 s and is within 2 % of the limit 1.8 s after entering the band (0.3: 0.24 s
+  and 0.5 s): a continuing pinch, magnify, ⌘-scroll or wheel just stops changing the zoom (the
   fingers keep moving, the picture does not), held ⇧Space and the gamepad glide to rest there,
   a double-click out from home lands at about 0.56×. No overshoot, so nothing bounces back.
   Steps compose exactly (frame-rate independent). Zooming in is never touched: it works at
@@ -3429,9 +3432,12 @@ Nothing is out there. The user approved limits (2026-10-25); one place defines t
   and their momentum, flings, keys, the gamepad, the autopilot's and cruise's steering, and the
   centre shift of a zoom about an off-centre point. Inside the box a move is whole; past the
   edge the raw travel r stretches the band to e = D·r/(D + r), D = `RUBBER_BAND` × the shorter
-  view side (half a view), so the centre is never more than half a view past the bound
-  (dragging a whole view past it shows a third). It is in view points, so it feels the same at
-  any depth. While the hand is on (direct manipulation within the last 0.1 s, or a swiping
+  view side (0.15 of it; first built as 0.5, see below), so the centre is never more than 0.15
+  of the shorter side past the bound (dragging a whole view past it shows about 0.13). It is in
+  view points, so it feels the same at any depth; since the scale never exceeds the zoom limit,
+  it is at most 0.15 × the shorter side × the limit's scale in complex units (0.78 at the
+  Mandelbrot limit in a 16:10 window, 0.96 in a square one). A turn about an off-centre point
+  (trackpad rotate, the cinematic spin) moves the centre through the same band. While the hand is on (direct manipulation within the last 0.1 s, or a swiping
   finger) it holds; once off (`GestureEnd`, a lift, or 0.1 s without events for a trackpad
   that rests) it springs back onto the bound: the excess decays with τ = 0.1 s
   (`RUBBER_RETURN_TAU`, exact for any frame time) and snaps on within 0.25 pt. A fling that
@@ -3449,8 +3455,43 @@ Nothing is out there. The user approved limits (2026-10-25); one place defines t
   `Host::keep_in_limits`) clamps the scale to the limit and the centre onto the box at once.
   `Host::frame` calls it before every frame, `set_viewport_text` (restore, the FFI setters)
   right away, and the formula sync after a paste or place (so a pasted view gets its own
-  fractal's limits). A centre outside on the navigator's own rubber band is left to spring.
-  Not before the view has a size.
+  fractal's limits). A centre outside on the navigator's own rubber band is left to spring, but
+  capped at the band (`ViewLimits::clamp_stretch`), and clamped onto the bound if the spring
+  back has not tended it for 0.5 s with the hand off (`RUBBER_STUCK`). Not before the view has
+  a size. Whether the centre is past the bound is decided in view points (`ViewLimits::past`,
+  more than 0.001 pt), exact at any depth.
+
+**Correction (2026-10-25, user report on 6084ad7).** The user, full screen on a 16" MacBook
+Pro (1728 × 1081 pt), reported "I can keep panning" and "zooming out does not slow down", the HUD
+at 0.78× (HUD zoom is relative to `HOME_SCALE`; 0.78× there is exactly the 0.5× limit of the
+home fitted to that window) with the centre at re 3.41, im −5.09: 1.66 and 2.59 past the bound.
+A headless matrix (Space out at ×4.95/s and faster, out then in, with held keys, drags, trackpad
+scroll and momentum, flings, the stick, off-centre wheel, pinch and twist, the autopilot with
+keys) found no path that skipped `move_center` for pans or `zoom_view` for zooms: the state was
+the design. Half the shorter side at the limit is 0.5 · 1081 · 0.00481 = 2.6 complex units, more
+than the box's own half-width, and the user was at 0.996 of it; the curve e = D·r/(D + r)
+keeps creeping (90 % of the band takes 4.5 view heights of travel), so it never felt like a wall;
+at that corner the set had left the screen entirely. The ease over 0.3 e-folds lasted 0.19 s
+at ×4.95/s, which reads as a hard stop. What was missed: the numbers were only checked in a
+1000 × 600 test view at default speeds, never against a large window at the limit or the
+user's Space speed, and nobody asked whether the set stays on screen at the band's end.
+Fixed: `RUBBER_BAND` 0.5 → 0.15 and `ZOOM_LIMIT_SOFTNESS` 0.3 → 0.8 (the user approved both).
+The same matrix found three real bypasses, also fixed: a turn about an off-centre point moved
+the centre with no band (up to 2.4 bands past); zooming in while stretched with the hand on grew
+the stretch in view points without bound (fixed in complex units while the band shrinks with the
+scale); and `keep_in_limits` skipped every clamp while the band flag was set (a map jump while
+stretched stayed out). Now every centre move (pan, zoom shift, turn) ends in
+`Navigator::stretched`, which sets the band and caps the stretch at the band. A deep view could
+also sit up to 2.5e-12 complex units (hundreds of points at 1e-14 per point) past the bound
+unnoticed, because `outside` has a relative rounding margin; the navigator now uses `past`.
+Tests: `space_zoom_with_panning_keeps_to_the_limits` (the user's window, Space out at ×4.95/s
+and faster, out then in, twelve pan inputs, every host frame: the stretch within the band at the
+current scale and at the limit, under 0.8 units, back inside within 1.5 s of letting go; before:
+2.52 units past for a drag), `space_zoom_out_slows_visibly_into_the_limit` (90 % → 25 % of the
+rate ≥ 0.5 s; before: 0.24 s), `a_stuck_rubber_band_is_still_kept_in_limits` (before: 6.5 units
+past with a 2.6 band), `the_set_stays_in_view_at_the_band` (four window shapes, every corner of
+the box plus the band at the zoom limit shows part of the Mandelbrot set; before: none at the
+user's window).
 
 The headless CLI (`render`, `verify`, `bench`) is not limited: it renders any view asked for;
 only navigation is.
@@ -3467,7 +3508,7 @@ shape: home inside, the autopilot's `RESCUE_MAX_SPAN` ends before the limit),
 `TouchUITests/testGesturesAndButtons` (three pinches out on the iPhone simulator land exactly on
 twice the home scale, 0.00820513 → 0.0164103).
 
-Measured 2026-10-25 (our own runs, the development Mac, release):
+Measured 2026-10-25 as first built (band 0.5, softness 0.3; our own runs, the development Mac, release):
 - Headless session (`fly --script` with ⇧Space held 2.8 s from home, a magnify out, wheel
   notches out, a 2.5 s drag left released while moving, a fast fling down, ← held 2 s;
   800 × 500, log with the new `center_re` / `center_im` columns): the zoom never passes the
