@@ -3923,17 +3923,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
     const float2 g = pc - q.outCentre;
     const float2 v = g * q.newRatio + q.newCentre;
 
-    // The bilinear preview: the fallback where nothing better exists.
-    float3 base = c.interior.rgb;
-    if (c.hasUnder > 0.0f) {
-        float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
-        base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
-    }
-
     // Reprojected history; `known`: its pixel holds a result of this class epoch.
-    float3 hist = base;
+    float3 hist = 0.0f;
     float wh = 0.0f;
-    bool known = false;
+    bool inHist = false, known = false;
     if (q.histDecay > 0.0f) {
         float2 g = float2(gid);
         float2 hp = q.histOrigin + float2(g.x * q.histRot.x - g.y * q.histRot.y,
@@ -3943,16 +3936,25 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 ? histIn.read(uint2(hp)) : catmullRom(histIn, bilinear, hp, q.histSize);
             hist = max(h.rgb, 0.0f);
             wh = clamp(h.a, 0.0f, q.confCap) * q.histDecay;
+            inHist = true;
             const uint2 hc = min(uint2(hp), uint2(q.histSize) - 1u);
             known = q.classEpoch != 0u && classIn.read(hc).x == q.classEpoch;
         }
     }
     // Known history: which preview texels count (alpha: 1 escaped, 0.5 interior, 0 none).
     const float minResult = q.histStep < 1.0f ? 0.25f : 0.75f;
-    // The bilinear preview from those texels only (`baseCover`: their share of the bilinear
-    // weight; 1 without a preview).
+    const bool filtered = known && c.hasUnder > 0.0f;
+
+    // The bilinear preview: the fallback where nothing better exists. Over a known history
+    // only from the texels that count (`baseCover`: their share of the bilinear weight, 1
+    // otherwise); gesture frames gather it in the point-sample loop below (the same 2 x 2
+    // texels).
+    float3 base = c.interior.rgb;
     float baseCover = 1.0f;
-    if (known && c.hasUnder > 0.0f) {
+    if (c.hasUnder > 0.0f && !filtered) {
+        float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f);
+        base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
+    } else if (filtered && q.mode != 0) {
         const float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f) - 0.5f;
         const float2 b0 = floor(p), f = p - b0;
         const uint2 hi = uint2(c.underSize) - 1u;
@@ -3970,6 +3972,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         }
         base = baseCover > 0.0f ? sumB / baseCover : base;
     }
+    if (!inHist) hist = base;
 
     float3 col;
     float conf;
@@ -3978,14 +3981,22 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         // Point samples of the jittered preview within the 2 x 2 texels around this pixel.
         float3 sum = 0.0f;
         float wn = 0.0f;
+        float3 sumB = 0.0f;
+        if (filtered) baseCover = 0.0f;
         if (q.newRatio > 0.0f) {
-            int2 t0 = int2(floor(v - q.jitter));
+            const float2 tf = floor(v - q.jitter), f = v - q.jitter - tf;
+            int2 t0 = int2(tf);
             for (int j = 0; j < 2; j++) {
                 for (int i = 0; i < 2; i++) {
                     int2 t = t0 + int2(i, j);
                     if (any(t < 0) || any(float2(t) >= c.underSize)) continue;
                     const float4 s = preview.read(uint2(t));
-                    if (known && s.a <= minResult) continue;   // the known history stands
+                    if (filtered) {
+                        if (s.a <= minResult) continue;   // the known history stands
+                        const float bw = (i == 0 ? 1.0f - f.x : f.x) * (j == 0 ? 1.0f - f.y : f.y);
+                        sumB += s.rgb * bw;
+                        baseCover += bw;
+                    }
                     float2 d = (float2(t) + q.jitter - v) / q.newRatio;
                     float w = exp(-dot(d, d) * q.invTwoSigma2);
                     sum += s.rgb * w;
@@ -3993,6 +4004,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 }
             }
         }
+        if (filtered && baseCover > 0.0f) base = sumB / baseCover;
         float wb = (wh + wn < 1e-3f ? 1.0f : q.baseWeight) * baseCover;
         const float wsum = wh + wn + wb;
         col = wsum > 1e-6f ? (hist * wh + sum + base * wb) / wsum : hist;
