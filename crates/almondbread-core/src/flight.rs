@@ -18,7 +18,7 @@
 //! | `{"at": t, "shift": true}` | Shift state (Shift+Space zooms out) |
 //! | `{"at": t, "pointer": [x, y]}` / `null` | pointer position in points from the centre (y up), or off the canvas |
 //! | `{"from": a, "to": b, "pointer_to": [x, y]}` | pointer moves linearly to (x, y) |
-//! | `{"from": a, "to": b, "pan": [vx, vy], "momentum": true, "release": true}` | 1:1 pan at vx, vy points/s; then trackpad-like OS momentum (τ 0.35 s) or a release (fling) |
+//! | `{"from": a, "to": b, "pan": [vx, vy], "momentum": true, "release": true}` | 1:1 pan at vx, vy points/s; `momentum`: a trackpad two-finger scroll instead (fingers on, lifted at `to`, then the OS's momentum, τ 0.35 s), `release`: a drag released (fling) |
 //! | `{"from": a, "to": b, "magnify": rate, "point": [x, y], "release": true}` | trackpad pinch at `rate` e-folds/s |
 //! | `{"from": a, "to": b, "pinch": rate, "point": [x, y], "release": true}` | touch pinch |
 //! | `{"at": t, "wheel": notches, "point": [x, y]}` | mouse wheel notches |
@@ -26,7 +26,7 @@
 //! | `{"from": a, "to": b, "gamepad": {"lx": .., "ly": .., "ry": .., "lt": .., "rt": .., "boost": ..}}` | controller state held over the interval |
 //! | `{"at": t, "settings": {...}}` | settings change mid-flight |
 //! | `{"at": t, "click": [x, y], "command": false}` | single click (autopilot: pause / resume; `command`: a ⌘-click, which a host opens as the point's Julia set) |
-//! | `{"from": a, "to": b, "scroll": [vx, vy]}` | trackpad scroll at vx, vy points/s (autopilot: speed) |
+//! | `{"from": a, "to": b, "scroll": [vx, vy], "momentum": true}` | trackpad scroll at vx, vy points/s (autopilot: speed); `momentum` as for `pan` |
 //! | `{"from": a, "to": b, "aim": {"re": "..", "im": ".."}, "gain": 2.5, "lag": 0.25}` | a scripted pilot: the pointer follows `gain` × the target's screen offset with a first-order lag (s), like a hand keeping the target in view |
 //! | `{"at": t, "lock": false}` | autopilot target lock on / off (on by default); `"lock_synchronous": true` searches on the calling thread (reproducible, slower frames) |
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per script unit) |
@@ -39,7 +39,7 @@
 
 use serde_json::{Value, json};
 
-use crate::input::{InputEvent, NavKey, Navigator};
+use crate::input::{InputEvent, NavKey, Navigator, ScrollPhase};
 use crate::settings::{RenderSettings, Supersampling};
 use crate::viewport::{Center, Scale, Viewport};
 
@@ -387,16 +387,36 @@ impl FlightPlayer {
             if during {
                 self.feed_during(r, e, t0, t1, from.unwrap_or(0.0), to.unwrap_or(0.0), now);
             }
-            // Trackpad-like momentum after a pan: the OS keeps sending decaying scrolls.
-            if let (Some(b), Some((vx, vy))) = (to, self.pt(e.get("pan")))
-                && e.get("momentum").and_then(Value::as_bool) == Some(true)
+            // A trackpad scroll: the fingers lift at the end, then the OS keeps sending decaying
+            // momentum scrolls.
+            let trackpad = e.get("momentum").and_then(Value::as_bool) == Some(true);
+            let velocity = self.pt(e.get("pan")).or(self.pt(e.get("scroll")));
+            if trackpad && ends && velocity.is_some() {
+                r.input(
+                    InputEvent::Scroll {
+                        dx: 0.0,
+                        dy: 0.0,
+                        phase: ScrollPhase::Lifted,
+                    },
+                    now,
+                );
+            }
+            if let (Some(b), Some((vx, vy))) = (to, velocity)
+                && trackpad
                 && t1 > b
             {
                 let (s0, s1) = ((t0 - b).max(0.0), t1 - b);
                 let tau = 0.35;
                 let k = tau * ((-s0 / tau).exp() - (-s1 / tau).exp());
                 if vx.hypot(vy) * (-s1 / tau).exp() > 5.0 * self.unit {
-                    r.input(InputEvent::Pan { dx: vx * k, dy: vy * k }, now);
+                    r.input(
+                        InputEvent::Scroll {
+                            dx: vx * k,
+                            dy: vy * k,
+                            phase: ScrollPhase::Momentum,
+                        },
+                        now,
+                    );
                 }
             }
             if ends {
@@ -542,13 +562,20 @@ impl FlightPlayer {
         // The part of this refresh inside the interval.
         let span = t1.min(b) - t0.max(a);
         if let Some((vx, vy)) = self.pt(e.get("pan")) {
-            r.input(
-                InputEvent::Pan {
-                    dx: vx * span,
-                    dy: vy * span,
-                },
-                now,
-            );
+            let (dx, dy) = (vx * span, vy * span);
+            if e.get("momentum").and_then(Value::as_bool) == Some(true) {
+                // A trackpad two-finger scroll with the fingers on.
+                r.input(
+                    InputEvent::Scroll {
+                        dx,
+                        dy,
+                        phase: ScrollPhase::Fingers,
+                    },
+                    now,
+                );
+            } else {
+                r.input(InputEvent::Pan { dx, dy }, now);
+            }
         }
         if let Some(rate) = num(e, "magnify") {
             let (x, y) = self.pt(e.get("point")).unwrap_or(self.pointer);
@@ -591,7 +618,7 @@ impl FlightPlayer {
                 InputEvent::Scroll {
                     dx: vx * span,
                     dy: vy * span,
-                    momentum: false,
+                    phase: ScrollPhase::Fingers,
                 },
                 now,
             );

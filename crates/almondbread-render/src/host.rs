@@ -1147,7 +1147,7 @@ mod command_click_tests {
             let mut h = host();
             h.renderer.settings.formula = f;
             h.renderer.navigator.jumped();
-            h.renderer.viewport = view;
+            h.renderer.viewport = view.clone();
             assert!(h.keep_in_limits(), "{f:?}");
             let home = Viewport::fitting_for(f, W, H);
             let v = &h.renderer.viewport;
@@ -1156,9 +1156,10 @@ mod command_click_tests {
                 home.scale / almondbread_core::viewport::ZOOM_OUT_LIMIT,
                 "{f:?}"
             );
-            let lim = almondbread_core::viewport::CENTER_LIMIT;
-            let (dx, dy) = (v.center.re() - home.center.re(), v.center.im() - home.center.im());
-            assert!(dx.abs() <= lim + 1e-9 && dy.abs() <= lim + 1e-9 && dx.abs().max(dy.abs()) > lim - 1e-9);
+            // Onto the set's own box (its nearest point).
+            let b = almondbread_core::viewport::set_box(f);
+            let (re, im) = b.clamp(view.center.re(), view.center.im());
+            assert!((v.center.re() - re).abs() < 1e-9 && (v.center.im() - im).abs() < 1e-9, "{f:?}");
             // Inside: unchanged.
             assert!(!h.keep_in_limits());
         }

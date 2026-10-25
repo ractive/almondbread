@@ -835,9 +835,21 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
         if event.hasPreciseScrollingDeltas && !zoomModifier {
             // Trackpad: two-finger scroll pans 1:1; content follows the fingers. After the
             // fingers lift, the OS keeps sending momentum-phase scrolls: that is the fling.
-            // (While the autopilot or a flight runs, Rust takes scrolling as its speed.)
+            // (While the autopilot or a flight runs, Rust takes scrolling as its speed.) The
+            // phase says whether the fingers are on: they hold the rubber band at the view
+            // limits, lifting them springs it back at once (kb: decisions/controls "View limits").
+            let phase: ScrollPhase
+            if !event.momentumPhase.isEmpty {
+                phase = .momentum
+            } else if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+                phase = .lifted
+            } else if event.phase.isEmpty {
+                phase = .unphased
+            } else {
+                phase = .fingers
+            }
             send(.scroll(dx: Double(event.scrollingDeltaX), dy: -Double(event.scrollingDeltaY),
-                         momentum: !event.momentumPhase.isEmpty))
+                         phase: phase))
         } else if event.hasPreciseScrollingDeltas {
             // Precise scroll zoom (trackpad or Magic Mouse with a modifier): 1:1.
             send(.wheelZoom(delta: Double(event.scrollingDeltaY) / 40, x: o.x, y: o.y))
@@ -1389,7 +1401,7 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
                         dx: Double(center.x - lastPinchCenter.x), dy: -Double(center.y - lastPinchCenter.y)))
             lastPinchScale = g.scale
             lastPinchCenter = center
-        case .ended:
+        case .ended, .cancelled:
             if !pinchHalfLifted { send(.gestureEnd) }
             pinchHalfLifted = false
         default:
@@ -1459,8 +1471,9 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
         let t = g.translation(in: self)
         send(.pan(dx: Double(t.x), dy: -Double(t.y)))
         g.setTranslation(.zero, in: self)
-        // Lifted while moving: the view flings on (Rust measures the velocity).
-        if g.state == .ended { send(.gestureEnd) }
+        // Lifted while moving: the view flings on (Rust measures the velocity). Lifted or
+        // cancelled, the hand lets go (a rubber band at the view limits springs back).
+        if g.state == .ended || g.state == .cancelled { send(.gestureEnd) }
     }
 
     @objc private func handleDoubleTap(_ g: UITapGestureRecognizer) {
