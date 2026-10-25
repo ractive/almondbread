@@ -53,6 +53,8 @@ mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod gesture_interior_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod history_reuse_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod julia_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod long_reference_tests;

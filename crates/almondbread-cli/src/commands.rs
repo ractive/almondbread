@@ -834,8 +834,8 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
 /// and in sum, the share of all pixels that are interior at rest but drawn otherwise (the fog
 /// rings of a pan), the share differing by more than 24 levels in any channel, and the mean
 /// difference. Pans also against the session's own rest frame before the gesture, shifted
-/// by the pan (whole pixels): the share of the pixels both show that differ by more than 24
-/// levels where that rest frame is smooth (its 3 x 3 neighbourhood within 8 levels: the
+/// by the pan (whole pixels): the share of the pixels both show that differ by more than 8
+/// levels (the deep fog is dark) where that rest frame is smooth (its 3 x 3 neighbourhood within 8 levels: the
 /// interiors and fog, not the edges a sub-pixel shift changes). `--gesture-shots dir`: the
 /// worst frame as `shown | rest` PNG.
 fn gesture_check<B: GpuBackend + Clone>(
@@ -909,7 +909,7 @@ fn gesture_check<B: GpuBackend + Clone>(
                         continue;
                     }
                     cmp += 1;
-                    if (0..3).any(|c| px(&f.pixels, x, y, c).abs_diff(px(rp, rx, ry, c)) > 24) {
+                    if (0..3).any(|c| px(&f.pixels, x, y, c).abs_diff(px(rp, rx, ry, c)) > 8) {
                         bad += 1;
                     }
                 }
@@ -949,7 +949,7 @@ fn gesture_check<B: GpuBackend + Clone>(
     );
     if smooth_frames > 0 {
         println!(
-            "gesture check: vs own rest frame, smooth areas differing > 24 levels: mean {:.3}% / max {max_smooth:.3}%",
+            "gesture check: vs own rest frame, smooth areas differing > 8 levels: mean {:.3}% / max {max_smooth:.3}%",
             sum_smooth / smooth_frames as f64
         );
     }
