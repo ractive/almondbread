@@ -2554,6 +2554,32 @@ iOS simulator and other agents' builds), so timings are noisy.
   manage 100–500 it/s against 12 000–120 000 for one thread: the layout the new
   performance-core rule excludes ([Faster deep references: three-thread orbit, progressive delivery, cheap Newton](../techniques/parallel-reference-orbit.md)).
 
+## Interior colourings in gesture frames, 2026-10-24
+
+Fix for bulbs whose rings came and went while panning with an analysed interior colouring
+([Colouring methods](../techniques/coloring-methods.md) "Gesture frames"). M1 Pro, release.
+
+- Flat (default) is unchanged: `bench --no-verify 1` renders 84 files byte-identical to a CLI
+  built from main. `make interaction-test` (flat), main vs branch (two branch runs), fps:
+  home pan 115.3 vs 113.0 / 112.7, home zoom 104.3 vs 100.0 / 103.3, 1e5 pan 112.0 vs
+  111.2 / 114.8, 1e5 zoom 115.3 vs 112.0 / 116.0, neck zoom 107.4 vs 103.3 / 108.4; iterate
+  GPU ms/frame within ±0.4 (run-to-run noise; the flat pipelines do not contain the change).
+- Bubbles, `verify --history pan --size 2400x1500 --seconds 2` (dynamic resolution, so the
+  cost shows as preview scale; gesture-chunk GPU ns per texel from `ALMONDBREAD_TRACE`, noisy
+  ±20 %), before → after:
+
+| view | unresolved gesture texels | preview scale | GPU ns / texel |
+|---|---|---|---|
+| period-3 minibrot −1.7548776662, 1.2e-5/px (limit 721) | 10.8 % → 0.29 % | 0.29 → 0.25 | 12.8–16.8 → 21.7 |
+| satellite (limit 1994; measured at 377 steps, shipped 256) | 2.8 % → 0.24 % | 0.26 → 0.23 | 17.4 → 21.0 |
+| home −0.75, 1.6e-3/px | 0.82 % → 0.11 % | 0.77 → 0.72 | 1.9 → 2.0 |
+| neck-2e5 | 9.8 % → 2.8 % | 0.13 → 0.13 (floor; 115 → 104 fps) | 84.8 → 108.6 |
+| seahorse-minibrot-1e31 | — | 0.12 → 0.12 | 280.6 → 277.7 |
+
+- Step limit `maxIter/8 + 128` uncapped: neck-2e5 164.6 ns/texel (76 fps), seahorse-1e31
+  559.7 (34 fps, half of before): the cap at 256 steps is what keeps deep views at their
+  frame rate; 512 gave neck 122.0.
+
 # Citations
 
 - [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)

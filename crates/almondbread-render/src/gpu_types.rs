@@ -65,7 +65,12 @@ pub struct IterateParams {
     /// F4 Julia references: the index where the centre orbit starts (fresh pixels start
     /// there); 0 otherwise.
     pub center_start: u32,
-    pub pad1: u32,
+    /// Interior colourings in previews and gesture frames (no probe, no extension): a pixel
+    /// unresolved at `max_iter` runs the cycle analysis for at most this many steps, drawn
+    /// with its cycle when it finds an attracting one and unresolved otherwise; the analysis
+    /// may also run this many steps past the chunk's K. 0: off (kb: techniques/coloring-methods
+    /// "Gesture frames").
+    pub ic_limit: u32,
 }
 
 /// Closed-form interior test of the main cardioid and the period-2 bulb for one level

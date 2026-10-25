@@ -51,6 +51,8 @@ use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
 mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod gesture_interior_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod julia_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod long_reference_tests;
@@ -129,6 +131,15 @@ fn probe_limit(max_iter: usize, div: u32) -> u32 {
         (max_iter / div as usize + 256).min(PROBE_MAX_STEPS) as u32
     }
 }
+/// Cycle analysis steps of a preview or gesture-frame pixel unresolved at `max_iter`
+/// (`IterateParams::ic_limit`, interior colourings only; kb: techniques/coloring-methods
+/// "Gesture frames"). Most near-boundary interior pixels close their cycle within a few dozen
+/// steps; the cap bounds what the pixels that never close (exterior, the parabolic neck) cost:
+/// uncapped, `max_iter / 8` doubled the gesture frames' GPU time at seahorse-minibrot-1e31.
+fn ic_preview_limit(max_iter: usize) -> u32 {
+    (max_iter / 8 + 128).min(IC_PREVIEW_MAX_STEPS) as u32
+}
+const IC_PREVIEW_MAX_STEPS: usize = 256;
 /// Probe steps per pixel at most: a probe runs its steps one after another (a few pixels that
 /// fail at the limit make the level's tail; ~1.2 us per step there, M1 Pro: home-100k's 12756
 /// steps added 9 ms for 300 pixels). Proves periods up to ~400 (a few periods to find the cycle
@@ -3111,6 +3122,12 @@ impl<B: GpuBackend> Renderer<B> {
         }
         if levels.is_empty() {
             return;
+        }
+        if key.interior_color {
+            let limit = ic_preview_limit(key.max_iter);
+            for l in levels.iter_mut().filter(|l| l.preview) {
+                l.params.ic_limit = limit;
+            }
         }
         let extension_factor = self.config.extension_factor;
         let mut template_params = params(ss, tex_w, tex_h);

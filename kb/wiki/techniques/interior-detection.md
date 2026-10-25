@@ -272,6 +272,9 @@ float32 and stay unresolved.
   chunks cap steps at `max(128, 2^24 / live)` so long probes are compacted. Off for previews
   and gesture frames, for a nucleus reference with `4 P >` the limit, and for the rest of a
   level (and its extension and AA levels) once 4096 probed pixels show < 5 % success.
+  (Previews and gesture frames with an interior colouring run a capped, unproven cycle
+  analysis instead, so their bulbs match the rest frame: [Colouring methods](coloring-methods.md)
+  "Gesture frames".)
 - Always on, divisor 8 (the switch `ALMONDBREAD_PROBE` was removed 2026-10-17).
 
 **Results** (measured 2026-10-17, M1 Pro, release; `verify`, GPU at the view's limit vs the
