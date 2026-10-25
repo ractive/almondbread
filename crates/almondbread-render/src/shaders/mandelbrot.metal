@@ -3767,7 +3767,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
     uint2 maxSrc = c.srcSize - 1;
     float3 acc = float3(0.0f);
     float count = 0.0f;
-    float escaped = 0.0f;   // finished and escaped (linear output's alpha)
+    float result = 0.0f;   // linear output's alpha: 1 escaped, 0.5 interior, 0 otherwise
     float2 it;
 
     if (c.ratio >= 1.0f) {
@@ -3781,7 +3781,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
                     acc += it.x == ITER_UNRESOLVED ? fogAt(s, c, fog)
                         : shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale, 1.0f / float(ss));
                     count += 1.0f;
-                    escaped += it.x >= 0.0f ? 1.0f : 0.0f;
+                    result += it.x >= 0.0f ? 1.0f : it.x == ITER_INTERIOR ? 0.5f : 0.0f;
                 }
             }
         }
@@ -3791,7 +3791,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
             acc = it.x == ITER_UNRESOLVED ? fogAt(s, c, fog)
                 : shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
             count = 1.0f;
-            escaped = it.x >= 0.0f ? 1.0f : 0.0f;
+            result = it.x >= 0.0f ? 1.0f : it.x == ITER_INTERIOR ? 0.5f : 0.0f;
         }
     }
 
@@ -3813,10 +3813,11 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
         count = 1.0f;
     }
 
-    // Linear output (a preview level's colour): alpha is the share of escaped texels (0 for
-    // interior, unresolved or unfinished ones: compose lets a known history result stand there).
+    // Linear output (a preview level's colour): alpha says what the texel holds, 1 escaped,
+    // 0.5 interior, 0 unresolved or unfinished (compose lets a known history result stand over
+    // the latter two, see "Fog takes history").
     if (c.linearOut != 0) {
-        out.write(float4(acc / count, escaped / count), gid);
+        out.write(float4(acc / count, result / count), gid);
         return;
     }
     out.write(float4(ditheredSRGB(acc / count, gid), 1.0f), gid);
@@ -3849,11 +3850,12 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
 // so near-boundary interior and slow pixels are unresolved there although the rest frame
 // resolved them (or found them too slow even with the extension), and a provisional cycle
 // analysis (icLimit) may find another period than the rest frame's probe: where the history
-// is known for this epoch (same formula, tests and limit settings), preview texels that did
-// not escape (unresolved, interior or unfinished: alpha 0 in the preview colour) are left out
-// of the point samples and of the bilinear preview, so the pixel keeps what the rest frame
-// showed (interior, its analysis, or its fog) instead of turning to fog or another colour.
-// Escaped preview texels blend in as before.
+// is known for this epoch (same formula, tests and limit settings), unresolved and unfinished
+// preview texels (alpha 0 in the preview colour) are left out of the point samples and of the
+// bilinear preview, and so are interior ones (alpha 0.5) unless the history is magnified
+// (zoom-in: there the preview's interior samples bring the detail the stretched history
+// lacks), so the pixel keeps what the rest frame showed (interior, its analysis, or its fog)
+// instead of turning to fog or another colour. Escaped preview texels blend in as before.
 struct ComposeParams {
     float2 histOrigin;    // history texel coordinate (texel centres at i + 0.5) of output pixel 0's centre
     float  histStep;      // history texels per output pixel
@@ -3945,8 +3947,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             known = q.classEpoch != 0u && classIn.read(hc).x == q.classEpoch;
         }
     }
-    // Known history: the bilinear preview from its escaped texels only (`baseCover`: their
-    // share of the bilinear weight; 1 without a preview).
+    // Known history: which preview texels count (alpha: 1 escaped, 0.5 interior, 0 none).
+    const float minResult = q.histStep < 1.0f ? 0.25f : 0.75f;
+    // The bilinear preview from those texels only (`baseCover`: their share of the bilinear
+    // weight; 1 without a preview).
     float baseCover = 1.0f;
     if (known && c.hasUnder > 0.0f) {
         const float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f) - 0.5f;
@@ -3958,7 +3962,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             for (int i = 0; i < 2; i++) {
                 const float w = (i == 0 ? 1.0f - f.x : f.x) * (j == 0 ? 1.0f - f.y : f.y);
                 const float4 t = preview.read(min(uint2(b0) + uint2(i, j), hi));
-                if (t.a > 0.5f) {
+                if (t.a > minResult) {
                     sumB += t.rgb * w;
                     baseCover += w;
                 }
@@ -3981,7 +3985,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     int2 t = t0 + int2(i, j);
                     if (any(t < 0) || any(float2(t) >= c.underSize)) continue;
                     const float4 s = preview.read(uint2(t));
-                    if (known && s.a <= 0.5f) continue;   // not escaped: the known history stands
+                    if (known && s.a <= minResult) continue;   // the known history stands
                     float2 d = (float2(t) + q.jitter - v) / q.newRatio;
                     float w = exp(-dot(d, d) * q.invTwoSigma2);
                     sum += s.rgb * w;
