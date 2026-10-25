@@ -14,7 +14,7 @@
 //! integrates the spring in closed form, including the exact distance travelled, so motion
 //! is identical at 30, 60 and 120 Hz. Direct manipulation stays 1:1 (drag, trackpad scroll,
 //! pinch); a drag or a touch pan or pinch released while moving flings on with exponential
-//! decay (the macOS trackpad's own momentum events arrive as ordinary pans). Discrete zoom
+//! decay (the macOS trackpad's own momentum arrives as momentum-phase scrolls). Discrete zoom
 //! steps (wheel notch, + / −, menu) are animated with a short exponential ease-out at the
 //! zoom target; a double click / tap is a gentler ×2 glide (minimum-jerk, [`TAP_ZOOM_SECONDS`])
 //! that further clicks extend. kb: decisions/controls (motion feel).
@@ -38,7 +38,7 @@ use crate::cruise::{self, Cruise, Level};
 use crate::flyto::{self, Flight, FlyPath};
 use crate::journey::{self, Choice, Journey};
 use crate::seek::{SeekPhase, Seeker};
-use crate::viewport::{RUBBER_BAND, RUBBER_RETURN_TAU, Scale, ViewLimits, Viewport, wrap_angle};
+use crate::viewport::{RUBBER_BAND, RUBBER_RETURN_OMEGA, Scale, ViewLimits, Viewport, wrap_angle};
 
 /// Keys with a navigation meaning. The platform layer decodes its key events into these
 /// (WASD and the arrows to the four directions, Space to `Zoom`, ...).
@@ -114,6 +114,23 @@ pub enum EdgePan {
     Always,
 }
 
+/// The phase of a trackpad two-finger scroll (macOS `NSEvent.phase` / `momentumPhase`; kb:
+/// decisions/controls "View limits"): whether the hand is on the view decides the rubber band.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ScrollPhase {
+    /// Fingers on the trackpad (began, changed): the hand holds the view (and the band) until
+    /// `Lifted`, also while the fingers rest without events.
+    #[default]
+    Fingers,
+    /// The fingers lifted (ended, cancelled): the hand is off at once (the band springs back).
+    Lifted,
+    /// The OS's momentum after the fingers lifted: coasts on, the hand is off. Momentum that runs
+    /// into the centre bound ends there: it brakes hard on the band and springs back.
+    Momentum,
+    /// A precise scroll without phases (some mice): the hand is on while events arrive.
+    Unphased,
+}
+
 /// Decoded input events (what the platform view forwards).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InputEvent {
@@ -144,12 +161,12 @@ pub enum InputEvent {
         dx: f64,
         dy: f64,
     },
-    /// Trackpad two-finger scroll (`momentum`: the OS's momentum phase after the fingers
-    /// lifted): pans like `Pan`, but sets the speed while the autopilot is on.
+    /// Trackpad two-finger scroll (`phase`: fingers on, lifted, or the OS's momentum after
+    /// they lifted): pans like `Pan`, but sets the speed while the autopilot is on.
     Scroll {
         dx: f64,
         dy: f64,
-        momentum: bool,
+        phase: ScrollPhase,
     },
     /// A single click / tap on the canvas: pauses or resumes the autopilot (unused while it
     /// is off). `command`: ⌘ was held (Mac; iPad with a keyboard): where the formula offers the
@@ -203,7 +220,7 @@ pub enum InputEvent {
     },
     /// The finger or button that drove `Pan` / `Pinch` / `Magnify` lifted: if the gesture
     /// was still moving, the view flings on and decays. Not sent for trackpad scrolling,
-    /// whose momentum the OS delivers as further `Pan` events.
+    /// whose phases ([`ScrollPhase`]) say when the fingers lift and the OS momentum runs.
     GestureEnd,
     /// Game controller state (absolute, sent when it changes): left stick pans, right stick
     /// y and the triggers zoom (right in, left out), `boost` speeds both up. Raw values
@@ -669,16 +686,30 @@ pub struct Navigator {
     /// When the spring back last tended the band (or the band was set): a band left alone
     /// longer than [`RUBBER_STUCK`] with the hand off is clamped ([`Navigator::keep_in_limits`]).
     spring_at: f64,
+    /// A gesture with an end event (a drag, touch pan, pinch, magnify, trackpad scroll with the
+    /// fingers on) holds the view since this time until it ends (`GestureEnd`, the scroll's
+    /// `Lifted` or momentum), at most [`HAND_HELD_MAX`]: the band holds while the hand rests.
+    held: Option<f64>,
+    /// The spring back's velocity per complex axis (view points / s past the bound).
+    rubber_v: (f64, f64),
+    /// The OS momentum ran into the centre bound: the rest of it is ignored (until the fingers
+    /// scroll again).
+    momentum_cut: bool,
+    /// When the last trackpad scroll arrived (the momentum's velocity where it meets the bound).
+    scroll_at: f64,
     /// The largest scale the current flight may show (its start's, if that was beyond the limit).
     flight_cap: Scale,
 }
 
-/// While direct manipulation arrived this recently (s), the hand is on the view: the rubber
-/// band holds (trackpads send no event when the fingers rest).
+/// While direct manipulation without an end event (wheel zoom, trackpad rotation) arrived this
+/// recently (s), the hand is on the view: the rubber band holds.
 const RUBBER_HOLD: f64 = 0.1;
+/// A held gesture whose end event never came (a cancelled recogniser, a scripted pan) lets go
+/// after this long (s) without events.
+const HAND_HELD_MAX: f64 = 3.0;
 /// A fling's decay time (s) once it has carried the centre past its bound.
 const FLING_BAND_TAU: f64 = 0.05;
-/// The spring back snaps onto the bound within this many view points.
+/// The spring back snaps onto the bound within this many view points (and this slow, points/s).
 const RUBBER_SNAP: f64 = 0.25;
 /// A rubber band the spring back has not tended for this long (s) with the hand off is stuck:
 /// clamped onto the bound ([`Navigator::keep_in_limits`]).
@@ -793,6 +824,10 @@ impl Default for Navigator {
             rubber: false,
             hand_at: f64::NEG_INFINITY,
             spring_at: f64::NEG_INFINITY,
+            held: None,
+            rubber_v: (0.0, 0.0),
+            momentum_cut: false,
+            scroll_at: f64::NEG_INFINITY,
             flight_cap: Scale::from_f64(crate::viewport::MAX_SCALE),
         }
     }
@@ -1643,9 +1678,18 @@ impl Navigator {
         l.clamp_stretch(viewport, self.band());
     }
 
-    /// The hand is on the view: direct manipulation just moved it, or a finger pans.
+    /// The hand is on the view: a gesture holds it (until its end event), direct manipulation
+    /// without an end event just moved it, or a finger pans.
     fn hand_on(&self, now: f64) -> bool {
-        now - self.hand_at < RUBBER_HOLD || self.finger.is_some_and(|f| f.kind == FingerKind::Pan)
+        now - self.hand_at < RUBBER_HOLD
+            || self.held.is_some_and(|t| now - t < HAND_HELD_MAX)
+            || self.finger.is_some_and(|f| f.kind == FingerKind::Pan)
+    }
+
+    /// The hand lets go (a gesture's end): the band springs back from the next frame.
+    fn hand_off(&mut self) {
+        self.held = None;
+        self.hand_at = f64::NEG_INFINITY;
     }
 
     /// Moves the centre by (x, y) points along the complex axes through the rubber band.
@@ -1685,9 +1729,7 @@ impl Navigator {
         // The centre moved by at most |(x, y)|·|s0 − s1| complex units: far inside the box that
         // cannot reach the bound.
         let reach = x.hypot(y) * (s0.to_f64() - viewport.scale.to_f64()).abs() + 1e-9;
-        let (re, im) = (before.re() - l.center.0, before.im() - l.center.1);
-        let room = crate::viewport::CENTER_LIMIT - re.abs().max(im.abs());
-        if room > reach && !self.rubber {
+        if l.room(&before) > reach && !self.rubber {
             return;
         }
         let (mx, my) = viewport.center.delta_in(&before, viewport.scale);
@@ -1712,8 +1754,9 @@ impl Navigator {
         self.move_center(viewport, mx, my);
     }
 
-    /// The spring back onto the centre bound once the hand is off: the excess decays with
-    /// [`RUBBER_RETURN_TAU`] (exact for any frame time) and snaps onto the bound at the end.
+    /// The spring back onto the centre bound once the hand is off: the excess past each edge
+    /// returns on a critically damped spring ([`RUBBER_RETURN_OMEGA`], exact for any frame time,
+    /// no overshoot) and snaps onto the bound at the end.
     fn spring_back(&mut self, viewport: &mut Viewport, dt: f64, now: f64) {
         if !self.rubber {
             return;
@@ -1722,9 +1765,11 @@ impl Navigator {
         let l = self.limits();
         if !l.past(&viewport.center, viewport.scale) {
             self.rubber = false;
+            self.rubber_v = (0.0, 0.0);
             return;
         }
         if self.hand_on(now) {
+            self.rubber_v = (0.0, 0.0);
             return;
         }
         let past = l.edge_distances(&viewport.center, viewport.scale);
@@ -1738,16 +1783,91 @@ impl Navigator {
             }
         };
         let (ex, ey) = (excess(past[0]), excess(past[1]));
-        let keep = (-dt / RUBBER_RETURN_TAU).exp();
-        if ex.hypot(ey) * keep < RUBBER_SNAP || !(ex.is_finite() && ey.is_finite()) {
+        if !(ex.is_finite() && ey.is_finite()) {
             l.clamp(viewport);
             self.rubber = false;
+            self.rubber_v = (0.0, 0.0);
+            return;
+        }
+        let (x1, vx) = spring_step(ex, self.rubber_v.0, RUBBER_RETURN_OMEGA, dt);
+        let (y1, vy) = spring_step(ey, self.rubber_v.1, RUBBER_RETURN_OMEGA, dt);
+        // Crossing the bound (it only can with an inward push) or within the snap: on it.
+        let land = |e: f64, e1: f64| e1 * e <= 0.0 || e1.abs() < RUBBER_SNAP;
+        let (x1, vx) = if land(ex, x1) { (0.0, 0.0) } else { (x1, vx) };
+        let (y1, vy) = if land(ey, y1) { (0.0, 0.0) } else { (y1, vy) };
+        if x1 == 0.0 && y1 == 0.0 {
+            l.clamp(viewport);
+            self.rubber = false;
+            self.rubber_v = (0.0, 0.0);
         } else {
-            viewport.center = viewport
-                .center
-                .offset_scaled(-ex * (1.0 - keep), -ey * (1.0 - keep), viewport.scale);
+            viewport.center = viewport.center.offset_scaled(x1 - ex, y1 - ey, viewport.scale);
+            self.rubber_v = (vx, vy);
         }
         self.note_interaction(now);
+    }
+
+    /// A pan by the hand (drag, touch pan, trackpad scroll with the fingers on): flings stop,
+    /// motion is 1:1 through the rubber band, and the gesture holds the view until it ends.
+    fn hand_pan(&mut self, viewport: &mut Viewport, dx: f64, dy: f64, now: f64) {
+        self.stop_flings();
+        self.note_interaction(now);
+        self.hand_at = now;
+        self.held = Some(now);
+        self.pan_view(viewport, dx, dy);
+        self.sample_gesture(now, dx, dy, 0.0, (0.0, 0.0));
+    }
+
+    /// A trackpad scroll's pan by its phase (kb: decisions/controls "View limits"): the fingers
+    /// hold the view; lifting them lets go at once; the OS's momentum coasts with the hand off,
+    /// and where it runs into the centre bound it ends: braked hard on the band (a fling with
+    /// [`FLING_BAND_TAU`] at the momentum's speed there), then the spring back.
+    fn scroll_pan(&mut self, viewport: &mut Viewport, dx: f64, dy: f64, phase: ScrollPhase, now: f64) {
+        let since = now - self.scroll_at;
+        self.scroll_at = now;
+        match phase {
+            ScrollPhase::Fingers | ScrollPhase::Unphased => {
+                self.momentum_cut = false;
+                self.hand_pan(viewport, dx, dy, now);
+                if phase == ScrollPhase::Unphased {
+                    self.held = None;
+                }
+            }
+            ScrollPhase::Lifted => {
+                // The OS's momentum is the fling: no velocity samples for `GestureEnd`.
+                self.gesture.clear();
+                self.hand_off();
+                if dx != 0.0 || dy != 0.0 {
+                    self.note_interaction(now);
+                    self.pan_view(viewport, dx, dy);
+                }
+            }
+            ScrollPhase::Momentum => {
+                self.gesture.clear();
+                self.hand_off();
+                if self.momentum_cut || (dx == 0.0 && dy == 0.0) {
+                    return;
+                }
+                self.note_interaction(now);
+                let (x, y) = viewport.rotate(dx, dy);
+                let (mx, my) = (-x, -y);
+                let l = self.limits();
+                let past = l.edge_distances(&viewport.center, viewport.scale);
+                let band = self.band();
+                let into = |p: (f64, f64), m: f64| (ViewLimits::rubber_move(p, m, band) - m).abs() > 1e-9;
+                if into(past[0], mx) || into(past[1], my) {
+                    self.momentum_cut = true;
+                    if !self.rubber {
+                        let dt = if since.is_finite() {
+                            since.clamp(1.0 / 240.0, 1.0 / 30.0)
+                        } else {
+                            1.0 / 60.0
+                        };
+                        self.fling = (dx / dt, dy / dt);
+                    }
+                }
+                self.move_center(viewport, mx, my);
+            }
+        }
     }
 
     pub fn seek_mut(&mut self) -> &mut Seeker {
@@ -1938,6 +2058,7 @@ impl Navigator {
         self.finger = None;
         self.touch = None;
         self.gesture.clear();
+        self.hand_off();
         self.throttle_rest = None;
         self.twist = Some(0.0);
     }
@@ -2254,7 +2375,8 @@ impl Navigator {
                 self.pointer(p, now);
                 true
             }
-            InputEvent::Scroll { dx, dy, momentum } => {
+            InputEvent::Scroll { dx, dy, phase } => {
+                let momentum = phase == ScrollPhase::Momentum;
                 if self.flight.is_some() || self.journey.wants_frames() {
                     if !momentum {
                         self.scale_flight_speed((dy * autopilot::SCROLL_PER_POINT).exp(), now);
@@ -2277,7 +2399,11 @@ impl Navigator {
                     }
                     true
                 } else {
-                    self.apply(InputEvent::Pan { dx, dy }, viewport, now)
+                    if !(dx.is_finite() && dy.is_finite()) {
+                        return true;
+                    }
+                    self.scroll_pan(viewport, dx, dy, phase, now);
+                    true
                 }
             }
             InputEvent::Click { .. } if self.journey.is_active() && !self.journey.at_stop() => {
@@ -2305,11 +2431,7 @@ impl Navigator {
             InputEvent::TouchRotate { .. } | InputEvent::TouchRotateEnd | InputEvent::TouchesLifted => false,
             InputEvent::Pan { dx, dy } => {
                 // The hand has the view: flings stop; motion is 1:1.
-                self.stop_flings();
-                self.note_interaction(now);
-                self.hand_at = now;
-                self.pan_view(viewport, dx, dy);
-                self.sample_gesture(now, dx, dy, 0.0, (0.0, 0.0));
+                self.hand_pan(viewport, dx, dy, now);
                 true
             }
             InputEvent::WheelZoom { delta, x, y } => {
@@ -2335,6 +2457,7 @@ impl Navigator {
             InputEvent::Magnify { magnification, x, y } => {
                 self.manual_zoom_ends_cruise();
                 self.stop_flings();
+                self.held = Some(now);
                 let (tx, ty) = self.gesture_target(x, y);
                 self.zoom_at(viewport, 1.0 + magnification, tx, ty, now);
                 self.sample_gesture(now, 0.0, 0.0, (1.0 + magnification).ln(), (tx, ty));
@@ -2346,6 +2469,7 @@ impl Navigator {
                 self.stop_flings();
                 self.note_interaction(now);
                 self.hand_at = now;
+                self.held = Some(now);
                 // Two-finger drag pans while pinching.
                 self.pan_view(viewport, dx, dy);
                 self.zoom_view(viewport, ratio, x, y);
@@ -2353,7 +2477,7 @@ impl Navigator {
                 true
             }
             InputEvent::GestureEnd => {
-                self.hand_at = f64::NEG_INFINITY;
+                self.hand_off();
                 self.release_gesture(now);
                 true
             }
@@ -3233,7 +3357,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 40.0,
                 dy: 0.0,
-                momentum: false,
+                phase: ScrollPhase::Fingers,
             },
             &mut v,
             0.0,
@@ -3246,7 +3370,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 40.0,
                 dy: 0.0,
-                momentum: false,
+                phase: ScrollPhase::Fingers,
             },
             &mut v2,
             0.0,
@@ -3256,7 +3380,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 0.0,
                 dy: -100.0,
-                momentum: false,
+                phase: ScrollPhase::Fingers,
             },
             &mut v2,
             0.0,
@@ -3267,7 +3391,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 0.0,
                 dy: 100.0,
-                momentum: false,
+                phase: ScrollPhase::Fingers,
             },
             &mut v2,
             0.0,
@@ -4936,7 +5060,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 10.0,
                 dy: 0.0,
-                momentum: false,
+                phase: ScrollPhase::Fingers,
             },
             &mut v,
             0.0,
@@ -4964,7 +5088,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 0.0,
                 dy: 100.0,
-                momentum: false,
+                phase: ScrollPhase::Fingers,
             },
             &mut v,
             0.2,
@@ -4976,7 +5100,7 @@ mod tests {
             InputEvent::Scroll {
                 dx: 0.0,
                 dy: 100.0,
-                momentum: true,
+                phase: ScrollPhase::Momentum,
             },
             &mut v,
             0.2,
@@ -6291,7 +6415,7 @@ mod tests {
 
     // MARK: View limits (kb: decisions/controls "View limits")
 
-    use crate::viewport::{CENTER_LIMIT, Center};
+    use crate::viewport::Center;
 
     /// The home view (1000 x 600) and its navigator.
     fn at_home() -> (Navigator, Viewport) {
@@ -6454,7 +6578,7 @@ mod tests {
         let (mut n, mut v) = at_home();
         // At the zoom limit, dragging the content right (the centre left) by 20 views.
         v.scale = n.limits().max_scale;
-        let lo = n.limits().center.0 - CENTER_LIMIT;
+        let lo = n.limits().bounds.re.0;
         let band = RUBBER_BAND * 600.0;
         let mut t = 0.0;
         let mut worst: f64 = 0.0;
@@ -6470,7 +6594,7 @@ mod tests {
         n.advance(&mut v, t + 0.05);
         assert_eq!(v.center.re(), held);
         // Released after holding still (no fling): back onto the bound, smoothly (monotonic),
-        // within a second.
+        // within 0.4 s.
         n.handle(InputEvent::GestureEnd, &mut v, t + 0.08);
         let mut last = v.center.re();
         let mut s = t + 0.08;
@@ -6480,7 +6604,7 @@ mod tests {
             assert!(v.center.re() >= last, "monotonic");
             last = v.center.re();
         }
-        assert!(s < t + 1.1, "settled after {} s", s - t);
+        assert!(s < t + 0.08 + 0.42, "settled after {} s", s - t - 0.08);
         assert!(!n.is_stretched() && !n.limits().outside(&v.center));
         assert!((v.center.re() - lo).abs() < 1e-9, "on the bound: {}", v.center.re());
         // Moving back in from past the bound is not resisted.
@@ -6501,7 +6625,7 @@ mod tests {
         }
         n.handle(InputEvent::GestureEnd, &mut v, t + 0.005);
         let mut s = t;
-        let hi = n.limits().center.1 + CENTER_LIMIT;
+        let hi = n.limits().bounds.im.1;
         let mut worst: f64 = 0.0;
         while n.is_moving() && s < t + 5.0 {
             s += 1.0 / 120.0;
@@ -6519,7 +6643,7 @@ mod tests {
     fn keys_and_zooms_keep_to_the_bound() {
         let (mut n, mut v) = at_home();
         v.scale = n.limits().max_scale;
-        let hi = n.limits().center.0 + CENTER_LIMIT;
+        let hi = n.limits().bounds.re.1;
         n.handle(InputEvent::KeyDown(NavKey::Right), &mut v, 0.0);
         let mut worst: f64 = 0.0;
         let mut t = 0.0;
@@ -6571,8 +6695,8 @@ mod tests {
         }
         let l = n.limits();
         assert!(v.scale == l.max_scale, "{}", v.scale);
-        assert!((v.center.re() - (l.center.0 + CENTER_LIMIT)).abs() < 1e-9);
-        assert!((v.center.im() - (l.center.1 - CENTER_LIMIT)).abs() < 1e-9);
+        assert!((v.center.re() - l.bounds.re.1).abs() < 1e-9);
+        assert!((v.center.im() - l.bounds.im.0).abs() < 1e-9);
 
         // A restored view far out: clamped at once (centre onto the box, scale to the limit).
         let (mut n, _) = at_home();
@@ -6580,8 +6704,8 @@ mod tests {
         n.jumped();
         assert!(n.keep_in_limits(&mut v));
         assert_eq!(v.scale, n.limits().max_scale);
-        assert!((v.center.re() - (l.center.0 - CENTER_LIMIT)).abs() < 1e-9);
-        assert!((v.center.im() - (l.center.1 + CENTER_LIMIT)).abs() < 1e-9);
+        assert!((v.center.re() - l.bounds.re.0).abs() < 1e-9);
+        assert!((v.center.im() - l.bounds.im.1).abs() < 1e-9);
         assert!(!n.keep_in_limits(&mut v), "inside: unchanged");
         // Deep and far out (beyond f64 in view points): still onto the box.
         let mut deep = Viewport::with_center(Center::new(1e6, 0.1), Scale::pow2(-3000));
@@ -6592,15 +6716,15 @@ mod tests {
         let same = inside.clone();
         assert!(!n.keep_in_limits(&mut inside) && inside == same);
 
-        // Burning Ship: its own home (centre −0.45 + 0.62i) is the box's middle.
+        // Burning Ship: its own box (the ship's extent), its own home's zoom-out limit.
         n.set_formula(crate::formula::Formula::BurningShip);
         let l = n.limits();
         let home = Viewport::fitting_for(crate::formula::Formula::BurningShip, W, 600.0);
-        assert_eq!(l.center, (home.center.re(), home.center.im()));
+        assert_eq!(l.bounds, crate::viewport::set_box(crate::formula::Formula::BurningShip));
         assert_eq!(l.max_scale, home.scale / crate::viewport::ZOOM_OUT_LIMIT);
         let mut v = Viewport::new(-0.45, 3.5, 1.0);
         n.keep_in_limits(&mut v);
-        assert!((v.center.im() - (0.62 + CENTER_LIMIT)).abs() < 1e-9 && v.scale == l.max_scale);
+        assert!((v.center.im() - l.bounds.im.1).abs() < 1e-9 && v.scale == l.max_scale);
     }
 
     // MARK: View limits, user report 2026-10-25 (kb: decisions/controls "View limits")
@@ -6622,10 +6746,7 @@ mod tests {
 
     /// How far the centre is past its box, in complex units (negative: inside).
     fn past_bound(n: &Navigator, v: &Viewport) -> f64 {
-        let l = n.limits();
-        let re = (v.center.re() - l.center.0).abs() - CENTER_LIMIT;
-        let im = (v.center.im() - l.center.1).abs() - CENTER_LIMIT;
-        re.max(im)
+        -n.limits().room(&v.center)
     }
 
     /// One display refresh as the host runs it: views set from outside clamped, then motion.
@@ -6664,7 +6785,7 @@ mod tests {
                 let e = InputEvent::Scroll {
                     dx: -15.0,
                     dy: -15.0,
-                    momentum: false,
+                    phase: ScrollPhase::Fingers,
                 };
                 n.handle(e, v, t);
             }),
@@ -6672,7 +6793,11 @@ mod tests {
                 let e = InputEvent::Scroll {
                     dx: -15.0,
                     dy: -15.0,
-                    momentum: i > 60,
+                    phase: if i > 60 {
+                        ScrollPhase::Momentum
+                    } else {
+                        ScrollPhase::Fingers
+                    },
                 };
                 n.handle(e, v, t);
             }),
@@ -6838,7 +6963,7 @@ mod tests {
         n.advance(&mut v, 10.0);
         v.scale = n.limits().max_scale;
         let l = n.limits();
-        v.center = Center::new(l.center.0 + 9.0, l.center.1 - 7.0);
+        v.center = Center::new(l.bounds.re.1 + 9.0, l.bounds.im.0 - 7.0);
         n.rubber = true;
         n.keep_in_limits(&mut v);
         let band = RUBBER_BAND * 1081.0 * v.scale.to_f64();
@@ -6854,42 +6979,331 @@ mod tests {
         );
     }
 
+    /// Some of `formula`'s set is in a `w` x `h` view of `v` (sampled on a grid).
+    fn set_in_view(formula: crate::formula::Formula, v: &Viewport, w: f64, h: f64) -> bool {
+        let k = formula.julia_k().map(|k| k.approx());
+        let bounded = |re: f64, im: f64| {
+            let (mut z, c) = match k {
+                Some(k) => ((re, im), k),
+                None => ((0.0, 0.0), (re, im)),
+            };
+            for _ in 0..300 {
+                z = match k {
+                    Some(_) => crate::formula::Formula::Mandelbrot.step(z, c),
+                    None => formula.step(z, c),
+                };
+                if z.0 * z.0 + z.1 * z.1 > 16.0 {
+                    return false;
+                }
+            }
+            true
+        };
+        let s = v.scale.to_f64();
+        (0..=300).any(|i| {
+            (0..=300).any(|j| {
+                let p = v.point_at_offset((i as f64 / 300.0 - 0.5) * w, (j as f64 / 300.0 - 0.5) * h);
+                let _ = s;
+                bounded(p.re(), p.im())
+            })
+        })
+    }
+
     /// At the zoom limit, stretched to the band at the worst corner of the box, some of the set
-    /// is still on screen (any window shape): the band never takes the set out of view.
+    /// is still on screen (every formula, any window shape): the band never takes the set out of
+    /// view.
     #[test]
     fn the_set_stays_in_view_at_the_band() {
-        let escapes = |re: f64, im: f64| {
-            let (mut x, mut y) = (0.0f64, 0.0f64);
-            for _ in 0..200 {
-                (x, y) = (x * x - y * y + re, 2.0 * x * y + im);
-                if x * x + y * y > 4.0 {
-                    return true;
+        let julia = crate::formula::Formula::Julia(crate::formula::JuliaK::new(Center::new(-0.12256, 0.74486).big()));
+        for f in crate::formula::selectable().into_iter().chain([julia]) {
+            for (w, h) in [(1728.0, 1081.0), (1000.0, 1000.0), (400.0, 860.0), (2560.0, 600.0)] {
+                let mut n = Navigator::default();
+                n.set_formula(f);
+                let mut v = Viewport::fitting_for(f, w, h);
+                n.handle(InputEvent::Resize { width: w, height: h }, &mut v, 0.0);
+                let l = n.limits();
+                let s = l.max_scale.to_f64();
+                let band = RUBBER_BAND * w.min(h) * s;
+                for (re, im) in [
+                    (l.bounds.re.1 + band, l.bounds.im.1 + band),
+                    (l.bounds.re.1 + band, l.bounds.im.0 - band),
+                    (l.bounds.re.0 - band, l.bounds.im.1 + band),
+                    (l.bounds.re.0 - band, l.bounds.im.0 - band),
+                ] {
+                    let at = Viewport::with_center(Center::new(re, im), l.max_scale);
+                    assert!(
+                        set_in_view(f, &at, w, h),
+                        "{f:?} {w}x{h} corner ({re}, {im}): none of the set in view"
+                    );
                 }
-            }
-            false
-        };
-        for (w, h) in [(1728.0, 1081.0), (1000.0, 1000.0), (400.0, 860.0), (2560.0, 600.0)] {
-            let mut n = Navigator::default();
-            let mut v = Viewport::fitting(w, h);
-            n.handle(InputEvent::Resize { width: w, height: h }, &mut v, 0.0);
-            let l = n.limits();
-            let s = l.max_scale.to_f64();
-            let band = RUBBER_BAND * w.min(h) * s;
-            for (sx, sy) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
-                let c = (
-                    l.center.0 + sx * (CENTER_LIMIT + band),
-                    l.center.1 + sy * (CENTER_LIMIT + band),
-                );
-                let mut inside = 0;
-                for i in 0..=400 {
-                    for j in 0..=400 {
-                        let re = c.0 + (i as f64 / 400.0 - 0.5) * w * s;
-                        let im = c.1 + (j as f64 / 400.0 - 0.5) * h * s;
-                        inside += usize::from(!escapes(re, im));
-                    }
-                }
-                assert!(inside > 0, "{w}x{h} corner ({sx}, {sy}): none of the set in view");
             }
         }
+    }
+
+    // MARK: View limits feel, user report 2026-10-25 (kb: decisions/controls "View limits")
+
+    /// A trackpad scroll event with the fingers on.
+    fn fingers(dx: f64, dy: f64) -> InputEvent {
+        InputEvent::Scroll {
+            dx,
+            dy,
+            phase: ScrollPhase::Fingers,
+        }
+    }
+
+    /// The OS's momentum scroll after the fingers lifted.
+    fn momentum(dx: f64, dy: f64) -> InputEvent {
+        InputEvent::Scroll {
+            dx,
+            dy,
+            phase: ScrollPhase::Momentum,
+        }
+    }
+
+    const LIFT: InputEvent = InputEvent::Scroll {
+        dx: 0.0,
+        dy: 0.0,
+        phase: ScrollPhase::Lifted,
+    };
+
+    /// The user's window at the zoom-out limit (home centre).
+    fn user_window_at_limit() -> (Navigator, Viewport) {
+        let (mut n, mut v) = user_window();
+        v.scale = n.limits().max_scale;
+        n.advance(&mut v, 0.0);
+        (n, v)
+    }
+
+    /// The user's report (2026-10-25: "with two-finger panning I can push it way more outside",
+    /// "it takes like 2 seconds and then it moves back"): at the zoom-out limit in the user's
+    /// window, no pan input in any direction (keys, mouse drag and fling, trackpad scroll with the
+    /// fingers on, lifted, its momentum) takes the set off the screen: the centre is never
+    /// further past the set's box than the band (less than half the shorter side), and the set's
+    /// extreme point is on the box.
+    #[test]
+    fn no_pan_input_takes_the_set_off_screen() {
+        type Drive = fn(&mut Navigator, &mut Viewport, f64, usize, (f64, f64));
+        let drives: [(&str, Drive); 5] = [
+            ("keys", |n, v, t, i, (dx, dy)| {
+                if i == 0 {
+                    let k = |d: f64, pos: NavKey, neg: NavKey| {
+                        if d > 0.0 {
+                            Some(neg)
+                        } else if d < 0.0 {
+                            Some(pos)
+                        } else {
+                            None
+                        }
+                    };
+                    // Content moves by (dx, dy): the camera the other way.
+                    for key in [k(dx, NavKey::Right, NavKey::Left), k(dy, NavKey::Up, NavKey::Down)]
+                        .into_iter()
+                        .flatten()
+                    {
+                        n.handle(InputEvent::KeyDown(key), v, t);
+                    }
+                }
+            }),
+            ("drag", |n, v, t, _, (dx, dy)| {
+                n.handle(
+                    InputEvent::Pan {
+                        dx: 30.0 * dx,
+                        dy: 30.0 * dy,
+                    },
+                    v,
+                    t,
+                );
+            }),
+            ("drag flings", |n, v, t, i, (dx, dy)| {
+                if i % 30 < 6 {
+                    n.handle(
+                        InputEvent::Pan {
+                            dx: 60.0 * dx,
+                            dy: 60.0 * dy,
+                        },
+                        v,
+                        t,
+                    );
+                } else if i % 30 == 6 {
+                    n.handle(InputEvent::GestureEnd, v, t);
+                }
+            }),
+            ("scroll", |n, v, t, _, (dx, dy)| {
+                n.handle(fingers(30.0 * dx, 30.0 * dy), v, t);
+            }),
+            ("scroll, lift, momentum", |n, v, t, i, (dx, dy)| {
+                // Bursts: 0.1 s of fingers, lifted, 0.4 s of momentum (decaying).
+                let k = i % 60;
+                if k < 12 {
+                    n.handle(fingers(60.0 * dx, 60.0 * dy), v, t);
+                } else if k == 12 {
+                    n.handle(LIFT, v, t);
+                } else {
+                    let m = 60.0 * (-((k - 12) as f64) / 40.0).exp();
+                    n.handle(momentum(m * dx, m * dy), v, t);
+                }
+            }),
+        ];
+        let (w, h) = (1728.0, 1081.0);
+        for (name, drive) in drives {
+            for dir in [
+                (1.0, 0.0),
+                (-1.0, 0.0),
+                (0.0, 1.0),
+                (0.0, -1.0),
+                (1.0, 1.0),
+                (-1.0, 1.0),
+                (1.0, -1.0),
+                (-1.0, -1.0),
+            ] {
+                let (mut n, mut v) = user_window_at_limit();
+                let mut t = 0.0;
+                let mut worst: (f64, Option<Viewport>) = (0.0, None);
+                for i in 0..720 {
+                    t += 1.0 / 120.0;
+                    drive(&mut n, &mut v, t, i, dir);
+                    host_frame(&mut n, &mut v, t);
+                    let [(a, b), (c, d)] = n.limits().edge_distances(&v.center, v.scale);
+                    let past = a.max(b).max(c).max(d);
+                    // Points past the box: always below the band, itself well below half the
+                    // shorter side.
+                    assert!(past < RUBBER_BAND * h, "{name} {dir:?} {i}: {past} points past");
+                    if past > worst.0 {
+                        worst = (past, Some(v.clone()));
+                    }
+                }
+                if let (p, Some(at)) = worst {
+                    assert!(p > 1.0, "{name} {dir:?}: reached the bound");
+                    assert!(
+                        set_in_view(crate::formula::Formula::Mandelbrot, &at, w, h),
+                        "{name} {dir:?}: the set left the screen"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Lifting the fingers from the trackpad springs the band back at once: it moves in the
+    /// first frame after the lift and is on the bound within 0.4 s (critically damped:
+    /// monotonic, no overshoot).
+    #[test]
+    fn trackpad_lift_springs_back_at_once() {
+        let (mut n, mut v) = user_window_at_limit();
+        let lo = n.limits().bounds.re.0;
+        let mut t = 0.0;
+        for _ in 0..240 {
+            t += 1.0 / 120.0;
+            n.handle(fingers(20.0, 0.0), &mut v, t);
+            host_frame(&mut n, &mut v, t);
+        }
+        assert!(n.is_stretched());
+        // Fingers resting (no events) hold the band: half a second later it is still there.
+        let held = v.center.re();
+        for _ in 0..60 {
+            t += 1.0 / 120.0;
+            host_frame(&mut n, &mut v, t);
+        }
+        assert_eq!(v.center.re(), held, "the resting fingers hold the band");
+        let stretch0 = (lo - held) / v.scale.to_f64();
+        assert!(stretch0 > 0.3 * RUBBER_BAND * 1081.0, "{stretch0}");
+        n.handle(LIFT, &mut v, t);
+        let lifted = t;
+        t += 1.0 / 120.0;
+        host_frame(&mut n, &mut v, t);
+        assert!(v.center.re() > held, "moves back in the first frame");
+        let mut last = v.center.re();
+        while n.is_stretched() && t < lifted + 2.0 {
+            t += 1.0 / 120.0;
+            host_frame(&mut n, &mut v, t);
+            assert!(
+                v.center.re() >= last && v.center.re() <= lo + 1e-12,
+                "monotonic, no overshoot"
+            );
+            last = v.center.re();
+        }
+        assert!(t - lifted <= 0.4, "settled after {} s", t - lifted);
+        assert!((v.center.re() - lo).abs() < 1e-12);
+    }
+
+    /// The OS momentum that runs into the bound never holds the band: it brakes on the band and
+    /// springs back while the momentum events still arrive (the user: "it stops moving ... then
+    /// it moves back after 2 s").
+    #[test]
+    fn momentum_into_the_bound_never_holds_the_band() {
+        let (mut n, mut v) = user_window_at_limit();
+        let hi = n.limits().bounds.im.1;
+        let px = |v: &Viewport| (v.center.im() - hi) / v.scale.to_f64();
+        let mut t = 0.0;
+        // A quick two-finger flick downwards (content down: the centre up), lifted, then 1.5 s
+        // of the OS's momentum (τ 0.35 s, from 3000 points/s).
+        for _ in 0..12 {
+            t += 1.0 / 120.0;
+            n.handle(fingers(0.0, -25.0), &mut v, t);
+            host_frame(&mut n, &mut v, t);
+        }
+        n.handle(LIFT, &mut v, t);
+        let mut hit = None;
+        let mut worst: f64 = 0.0;
+        let mut since_hit_max = f64::NEG_INFINITY;
+        let mut back = None;
+        for i in 0..180 {
+            t += 1.0 / 120.0;
+            let m = 25.0 * (-(i as f64) / 120.0 / 0.35).exp();
+            n.handle(momentum(0.0, -m), &mut v, t);
+            host_frame(&mut n, &mut v, t);
+            let p = px(&v);
+            if hit.is_none() && p > 0.0 {
+                hit = Some(t);
+            }
+            if p > worst {
+                worst = p;
+                since_hit_max = t;
+            }
+            if hit.is_some() && back.is_none() && !n.is_stretched() {
+                back = Some(t);
+            }
+        }
+        let hit = hit.expect("the momentum reaches the bound");
+        // Braked on the band: the most past it within 0.1 s of hitting it, less than the band.
+        assert!(worst > 1.0 && worst < RUBBER_BAND * 1081.0, "{worst}");
+        assert!(
+            since_hit_max - hit < 0.1,
+            "peak {} s after the hit",
+            since_hit_max - hit
+        );
+        // Back on the bound within half a second of the hit, momentum events still arriving.
+        let back = back.expect("springs back");
+        assert!(back - hit < 0.5, "back on the bound {} s after the hit", back - hit);
+        assert!(
+            !n.is_stretched() && px(&v) <= 1e-6,
+            "still {} points past at the end",
+            px(&v)
+        );
+    }
+
+    /// The band's resistance: the same travel by trackpad (fingers on) or mouse drag ends at the
+    /// same place; the stretch grows monotonically with the travel and never stops dead (each
+    /// further point of travel still moves the view) below the band.
+    #[test]
+    fn the_band_resists_the_same_for_every_input() {
+        let (mut a, mut va) = user_window_at_limit();
+        let (mut b, mut vb) = user_window_at_limit();
+        let mut t = 0.0;
+        let mut last = 0.0;
+        for i in 0..2000 {
+            t += 1.0 / 120.0;
+            a.handle(InputEvent::Pan { dx: 0.0, dy: 7.0 }, &mut va, t);
+            b.handle(fingers(0.0, 7.0), &mut vb, t);
+            assert!((va.center.im() - vb.center.im()).abs() < 1e-12, "{i}");
+            let lo = a.limits().bounds.im.0;
+            let past = (lo - va.center.im()) / va.scale.to_f64();
+            if past > 0.0 {
+                assert!(past > last, "{i}: stopped dead at {past}");
+            }
+            last = past;
+        }
+        assert!(
+            last < RUBBER_BAND * 1081.0 && last > 0.8 * RUBBER_BAND * 1081.0,
+            "{last}"
+        );
     }
 }

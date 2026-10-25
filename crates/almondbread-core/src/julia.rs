@@ -39,6 +39,81 @@ pub fn home_view(w: f64, h: f64) -> Viewport {
     Viewport::new(0.0, 0.0, (SPAN_RE / w).max(SPAN_IM / h))
 }
 
+/// The bounding box of the filled Julia set of `z² + k` (the centre bound of a Julia view, kb:
+/// decisions/controls "View limits"): measured once per `k` (then cached) on a 384² grid over
+/// the escape disc `|z| ≤ (1 + √(1 + 4|k|))/2`. A grid point counts when its orbit stays
+/// bounded for 400 steps or its distance estimate `|z| ln|z| / |dz/dz₀|` is below 1.5 cells
+/// (that finds dendrites and dust a grid misses); the box is the counted points' extent plus
+/// half a cell, symmetric (the set is symmetric under z ↦ −z). Nothing counted (dust too fine):
+/// the escape disc's box.
+pub fn set_box(k: (f64, f64)) -> crate::viewport::SetBox {
+    use crate::viewport::SetBox;
+    use std::sync::Mutex;
+    static CACHE: Mutex<Vec<((f64, f64), SetBox)>> = Mutex::new(Vec::new());
+    if !(k.0.is_finite() && k.1.is_finite()) {
+        return SetBox::new(-2.0, 2.0, -2.0, 2.0);
+    }
+    if let Ok(c) = CACHE.lock()
+        && let Some(&(_, b)) = c.iter().find(|(kk, _)| *kk == k)
+    {
+        return b;
+    }
+    let r = 0.5 * (1.0 + (1.0 + 4.0 * k.0.hypot(k.1)).sqrt());
+    const N: usize = 384;
+    let h = 2.0 * r / N as f64;
+    let (xm, ym) = (0..N)
+        .into_par_iter()
+        .map(|i| {
+            let y = -r + (i as f64 + 0.5) * h;
+            let mut m = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for j in 0..N {
+                let x = -r + (j as f64 + 0.5) * h;
+                if julia_near(k, (x, y), 400, 1.5 * h) {
+                    m = (m.0.max(x.abs()), m.1.max(y.abs()));
+                }
+            }
+            m
+        })
+        .reduce(
+            || (f64::NEG_INFINITY, f64::NEG_INFINITY),
+            |a, b| (a.0.max(b.0), a.1.max(b.1)),
+        );
+    let b = if xm.is_finite() && ym.is_finite() {
+        let (x, y) = (xm + 0.5 * h, ym + 0.5 * h);
+        SetBox::new(-x, x, -y, y)
+    } else {
+        SetBox::new(-r, r, -r, r)
+    };
+    if let Ok(mut c) = CACHE.lock() {
+        if c.len() >= 8 {
+            c.remove(0);
+        }
+        c.push((k, b));
+    }
+    b
+}
+
+/// `z₀` is in the filled Julia set of `z² + k` (bounded for `max_iter` steps) or within `eps` of
+/// it by the distance estimate.
+pub(crate) fn julia_near(k: (f64, f64), z0: (f64, f64), max_iter: usize, eps: f64) -> bool {
+    let (mut x, mut y) = z0;
+    let (mut dx, mut dy) = (1.0, 0.0);
+    for _ in 0..max_iter {
+        // dz ← 2 z dz, z ← z² + k.
+        let (ndx, ndy) = (2.0 * (x * dx - y * dy), 2.0 * (x * dy + y * dx));
+        (dx, dy) = (ndx, ndy);
+        let t = x * x - y * y + k.0;
+        y = 2.0 * x * y + k.1;
+        x = t;
+        let r2 = x * x + y * y;
+        if r2 > 1e12 {
+            let r = r2.sqrt();
+            return r * r.ln() / dx.hypot(dy) < eps;
+        }
+    }
+    true
+}
+
 /// Auto iterations of a Julia view (F4): linear in the depth (measured 2026-10-21 at the step-1
 /// gate views: escape counts to about 3 200 at 1e-300 and 6 000 at 1e-1000, generous margin;
 /// the learner raises it where pixels stay unresolved).

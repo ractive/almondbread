@@ -169,6 +169,29 @@ impl From<CoreEdgePan> for EdgePan {
     }
 }
 
+/// The phase of a trackpad two-finger scroll (macOS `NSEvent.phase` / `momentumPhase`): the
+/// fingers on (began, changed), lifted (ended, cancelled), the OS's momentum after they lifted,
+/// or a precise scroll without phases. Decides the rubber band at the view limits (kb:
+/// decisions/controls "View limits").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ScrollPhase {
+    Fingers,
+    Lifted,
+    Momentum,
+    Unphased,
+}
+
+impl From<ScrollPhase> for input::ScrollPhase {
+    fn from(p: ScrollPhase) -> Self {
+        match p {
+            ScrollPhase::Fingers => Self::Fingers,
+            ScrollPhase::Lifted => Self::Lifted,
+            ScrollPhase::Momentum => Self::Momentum,
+            ScrollPhase::Unphased => Self::Unphased,
+        }
+    }
+}
+
 /// Decoded platform events. Positions are view points from the view centre, y up.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
 pub enum InputEvent {
@@ -205,12 +228,13 @@ pub enum InputEvent {
         dx: f64,
         dy: f64,
     },
-    /// Trackpad two-finger scroll (content follows; `momentum`: the OS's momentum phase). Pans
-    /// like `Pan`; while the autopilot is on it sets the autopilot's speed instead.
+    /// Trackpad two-finger scroll (content follows; `phase`: fingers on, lifted, or the OS's
+    /// momentum). Pans like `Pan`; while the autopilot is on it sets the autopilot's speed
+    /// instead.
     Scroll {
         dx: f64,
         dy: f64,
-        momentum: bool,
+        phase: ScrollPhase,
     },
     /// A single click / tap on the canvas: pauses or resumes the autopilot. `command`: ⌘ was
     /// held: opens the point's Julia set where the formula has the Julia panel (Rust decides;
@@ -261,7 +285,8 @@ pub enum InputEvent {
         y: f64,
     },
     /// The drag, touch pan, pinch or trackpad magnify that drove the view ended: it flings on
-    /// if it was still moving. Not for trackpad scrolling (the OS sends momentum scrolls).
+    /// if it was still moving; the hand lets go (the rubber band springs back). Not for trackpad
+    /// scrolling (its phases say so; the OS sends momentum scrolls).
     GestureEnd,
     /// Game controller state, sent when it changes: sticks −1...1 (y up), triggers 0...1,
     /// `boost` (a face button) speeds motion up. Dead zones and curves are Rust's.
@@ -366,7 +391,11 @@ impl InputEvent {
             Self::Pointer { x, y } if ok(&[x, y]) => E::Pointer(Some((x, y))),
             Self::PointerExited => E::Pointer(None),
             Self::Pan { dx, dy } if ok(&[dx, dy]) => E::Pan { dx, dy },
-            Self::Scroll { dx, dy, momentum } if ok(&[dx, dy]) => E::Scroll { dx, dy, momentum },
+            Self::Scroll { dx, dy, phase } if ok(&[dx, dy]) => E::Scroll {
+                dx,
+                dy,
+                phase: phase.into(),
+            },
             Self::Click { x, y, command } if ok(&[x, y]) => E::Click { x, y, command },
             Self::WheelZoom { delta, x, y } if ok(&[delta, x, y]) => E::WheelZoom { delta, x, y },
             Self::Magnify { magnification, x, y } if ok(&[magnification, x, y]) && magnification > -1.0 => {

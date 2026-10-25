@@ -360,21 +360,22 @@ pub const MAX_SCALE: f64 = 1.0;
 /// decisions/controls "View limits"): the view never shows more than 1 / this times the
 /// home view's extent, so the whole set stays comfortably in view at any window size.
 pub const ZOOM_OUT_LIMIT: f64 = 0.5;
-/// Centre bound: the view centre stays within ± this many complex units of the formula's home
-/// centre, per complex axis (softly while the hand pans: [`ViewLimits::rubber_move`]).
-pub const CENTER_LIMIT: f64 = 2.5;
 /// Softness of the zoom-out limit (e-folds): zooming out eases into the limit over about this
 /// much zoom ([`ViewLimits::zoom_factor`]). 0.8: at Space's default ×4.95/s the zoom slows
 /// from 90 % to a quarter of its rate over 0.64 s (0.3 took 0.24 s and read as a hard stop:
 /// "zooming out does not slow down", user 2026-10-25).
 pub const ZOOM_LIMIT_SOFTNESS: f64 = 0.8;
-/// The rubber band past the centre bound stretches at most this share of the view's shorter
-/// side ([`ViewLimits::rubber_move`]; hard cap [`ViewLimits::clamp_stretch`]). 0.15: at the zoom
-/// limit at most 0.78 complex units in a 16:10 window, and part of the set stays in view at
-/// every corner (0.5 let the set leave the screen: "I can keep panning", user 2026-10-25).
+/// The rubber band past the centre bound (the set's box, [`set_box`]) stretches towards this
+/// share of the view's shorter side and never reaches it ([`ViewLimits::rubber_move`]; hard cap
+/// [`ViewLimits::clamp_stretch`], unreachable by panning). The set's extreme point is on the
+/// bound, so it stays within this share of the screen centre: always in view.
 pub const RUBBER_BAND: f64 = 0.15;
-/// Time constant (s) of the centre's spring back into the bound once nothing pushes it out.
-pub const RUBBER_RETURN_TAU: f64 = 0.1;
+/// Stiffness of the rubber band (Apple's scroll views: 0.55): past the bound the view moves
+/// `offset = (1 − 1/(x·c/d + 1))·d` for a raw travel x, band d ([`ViewLimits::rubber_move`]).
+pub const RUBBER_STIFFNESS: f64 = 0.55;
+/// Frequency (1/s) of the critically damped spring back onto the centre bound once the hand is
+/// off: from rest it settles to 1 % in 0.28 s and to 0.1 % in 0.39 s.
+pub const RUBBER_RETURN_OMEGA: f64 = 24.0;
 /// Deepest scale, log2 (about 1e-3010 per point): reference orbits there take 10 000+ bits;
 /// a practical bound, not a numerical one (kb: synthesis/benchmarks M3b).
 pub const MIN_SCALE_LOG2: i64 = -10_000;
@@ -563,25 +564,85 @@ impl Viewport {
     }
 }
 
+/// The bounding box of a formula's set in the complex plane: the centre bound of
+/// [`ViewLimits`] (kb: decisions/controls "View limits"). With the view centre inside it the set
+/// always reaches the screen centre, in every direction and at every zoom.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SetBox {
+    /// Real axis (lo, hi).
+    pub re: (f64, f64),
+    /// Imaginary axis (lo, hi).
+    pub im: (f64, f64),
+}
+
+impl SetBox {
+    pub const fn new(re0: f64, re1: f64, im0: f64, im1: f64) -> Self {
+        Self {
+            re: (re0, re1),
+            im: (im0, im1),
+        }
+    }
+
+    /// The box's middle.
+    pub fn middle(&self) -> (f64, f64) {
+        (0.5 * (self.re.0 + self.re.1), 0.5 * (self.im.0 + self.im.1))
+    }
+
+    /// `(re, im)` clamped into the box.
+    pub fn clamp(&self, re: f64, im: f64) -> (f64, f64) {
+        (re.clamp(self.re.0, self.re.1), im.clamp(self.im.0, self.im.1))
+    }
+}
+
+/// Each formula's [`SetBox`], one table (next to the home views of
+/// [`Viewport::fitting_for`]): measured 2026-10-25 by escape time plus the distance estimate
+/// (points within 0.0004 of the set count, which finds the antenna and filament tips a grid
+/// misses) on a 0.0002 grid along each edge, rounded outwards to 0.001. The test
+/// `set_boxes_hold_their_sets_tightly` checks every box both ways. Julia sets: measured per `k`
+/// ([`crate::julia::set_box`]).
+pub fn set_box(formula: crate::formula::Formula) -> SetBox {
+    use crate::formula::Formula;
+    match formula {
+        // [-2, 0.4716] x ±1.1230: the antenna tip −2 and the filament tips.
+        Formula::Mandelbrot | Formula::Multibrot(2) => SetBox::new(-2.0, 0.472, -1.123, 1.123),
+        Formula::Multibrot(3) => SetBox::new(-0.718, 0.718, -1.335, 1.335),
+        Formula::Multibrot(4) => SetBox::new(-1.261, 0.807, -1.123, 1.123),
+        Formula::Multibrot(5) => SetBox::new(-0.917, 0.917, -0.917, 0.917),
+        Formula::Multibrot(6) => SetBox::new(-1.150, 0.970, -1.098, 1.098),
+        Formula::Multibrot(7) => SetBox::new(-0.994, 0.994, -1.119, 1.119),
+        Formula::Multibrot(8) => SetBox::new(-1.105, 1.010, -1.079, 1.079),
+        // Powers past the menu's: the set lies in |c| <= 2^(1/(p−1)).
+        Formula::Multibrot(p) => {
+            let r = 2f64.powf(1.0 / f64::from(p.max(2) - 1));
+            SetBox::new(-r, r, -r, r)
+        }
+        // The Tricorn: re −2 .. 1, im ±√3 (its antenna tips).
+        Formula::Mandelbar => SetBox::new(-2.0, 1.001, -1.733, 1.733),
+        // Ours with the imaginary axis flipped (ships upright; kb: formulas/burning-ship).
+        Formula::BurningShip => SetBox::new(-2.0, 1.159, -0.456, 1.733),
+        Formula::Julia(k) => crate::julia::set_box(k.approx()),
+    }
+}
+
 /// Where navigation may take the view (kb: decisions/controls "View limits"): the scale at
-/// most that of [`ZOOM_OUT_LIMIT`] times the home view's zoom, the centre within
-/// [`CENTER_LIMIT`] of the home centre per complex axis. One set of limits for every path: the
-/// navigator's motion (soft), and jumps, flights, places, tours, restored or pasted views
-/// (clamped).
+/// most that of [`ZOOM_OUT_LIMIT`] times the home view's zoom, the centre within the set's own
+/// bounding box ([`set_box`]). One set of limits for every path: the navigator's motion (soft:
+/// the rubber band), and jumps, flights, places, tours, restored or pasted views (clamped).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViewLimits {
-    /// The home view's centre (the middle of the centre's box).
-    pub center: (f64, f64),
+    /// The centre's box: the set's bounding box.
+    pub bounds: SetBox,
     /// The largest scale (most zoomed out).
     pub max_scale: Scale,
 }
 
 impl ViewLimits {
-    /// The limits of `formula`'s home view fitted to a `width` x `height` view (points).
+    /// The limits of `formula`'s set, the zoom-out limit from its home view fitted to a `width`
+    /// x `height` view (points).
     pub fn new(formula: crate::formula::Formula, width: f64, height: f64) -> Self {
         let home = Viewport::fitting_for(formula, width, height);
         Self {
-            center: (home.center.re(), home.center.im()),
+            bounds: set_box(formula),
             max_scale: (home.scale / ZOOM_OUT_LIMIT).min(Scale::from_f64(MAX_SCALE)),
         }
     }
@@ -591,8 +652,7 @@ impl ViewLimits {
     /// inside. Exact at any depth near the edges; far inside f64 is enough.
     pub fn edge_distances(&self, c: &Center, scale: Scale) -> [(f64, f64); 2] {
         let (re, im) = (c.re(), c.im());
-        let axis = |v: f64, mid: f64, k: usize| {
-            let (hi, lo) = (mid + CENTER_LIMIT, mid - CENTER_LIMIT);
+        let axis = |v: f64, (lo, hi): (f64, f64), k: usize| {
             if v < hi - 1e-6 && v > lo + 1e-6 {
                 let s = scale.to_f64();
                 let f = |x: f64| if s > 0.0 { x / s } else { f64::NEG_INFINITY };
@@ -609,15 +669,24 @@ impl ViewLimits {
             };
             (past(hi), -past(lo))
         };
-        [axis(re, self.center.0, 0), axis(im, self.center.1, 1)]
+        [axis(re, self.bounds.re, 0), axis(im, self.bounds.im, 1)]
     }
 
     /// The centre is outside its box (by more than rounding: a centre clamped onto an edge is
     /// inside).
     pub fn outside(&self, c: &Center) -> bool {
-        let (re, im) = (c.re() - self.center.0, c.im() - self.center.1);
-        let edge = CENTER_LIMIT * (1.0 + 1e-12);
-        re.abs() > edge || im.abs() > edge
+        let out = |v: f64, (lo, hi): (f64, f64)| {
+            let eps = 1e-12 * lo.abs().max(hi.abs()).max(1.0);
+            v > hi + eps || v < lo - eps
+        };
+        out(c.re(), self.bounds.re) || out(c.im(), self.bounds.im)
+    }
+
+    /// The room (complex units, f64) from `c` to the box's nearest edge (negative outside).
+    pub fn room(&self, c: &Center) -> f64 {
+        let (re, im) = (c.re(), c.im());
+        let b = &self.bounds;
+        (re - b.re.0).min(b.re.1 - re).min(im - b.im.0).min(b.im.1 - im)
     }
 
     /// The centre is past its box by more than a thousandth of a view point at `scale` (exact
@@ -653,9 +722,8 @@ impl ViewLimits {
                 v.center = v.center.offset_scaled(dx, dy, v.scale);
             } else {
                 // Beyond f64 in view points (deep and far out): nothing out there to keep.
-                let (mx, my) = self.center;
-                let c = |x: f64, m: f64| x.clamp(m - CENTER_LIMIT, m + CENTER_LIMIT);
-                v.center = Center::new(c(v.center.re(), mx), c(v.center.im(), my));
+                let (re, im) = self.bounds.clamp(v.center.re(), v.center.im());
+                v.center = Center::new(re, im);
             }
             changed = true;
         }
@@ -688,9 +756,8 @@ impl ViewLimits {
             v.center = v.center.offset_scaled(dx, dy, v.scale);
         } else {
             // Beyond f64 in view points: onto the box (the band is nothing out there).
-            let (mx, my) = self.center;
-            let c = |x: f64, m: f64| x.clamp(m - CENTER_LIMIT, m + CENTER_LIMIT);
-            v.center = Center::new(c(v.center.re(), mx), c(v.center.im(), my));
+            let (re, im) = self.bounds.clamp(v.center.re(), v.center.im());
+            v.center = Center::new(re, im);
         }
         v.ensure_precision();
         true
@@ -724,10 +791,12 @@ impl ViewLimits {
 
     /// A centre move of `m` view points along one complex axis (+ towards the upper edge), with
     /// the rubber band past the box: `past` is that axis's pair from
-    /// [`ViewLimits::edge_distances`], `band` the most the band stretches (points). Inside the
-    /// box, and moving back, the move is whole; past the edge the raw travel r stretches the
-    /// band to e = D·r / (D + r) (D = `band`), so the centre never gets more than `band` past
-    /// the edge.
+    /// [`ViewLimits::edge_distances`], `band` the band d (points). Inside the box, and moving
+    /// back, the move is whole; past the edge a raw travel x stretches the band to Apple's
+    /// `e = (1 − 1/(x·c/d + 1))·d` (c = [`RUBBER_STIFFNESS`]): resisted from the first point,
+    /// harder the further out, always moving (no dead stop), never reaching d. The stretch is a
+    /// function of the raw travel alone (a stretch e is the raw travel x(e) it came from), so
+    /// any mix of keys, drags or scrolls with the same travel ends at the same place.
     pub fn rubber_move(past: (f64, f64), m: f64, band: f64) -> f64 {
         let along = |dist: f64, m: f64| {
             // m > 0, towards the edge `dist` away (negative: inside).
@@ -739,10 +808,12 @@ impl ViewLimits {
             if band.is_nan() || band <= 0.0 {
                 return free;
             }
-            let e0 = dist.max(0.0).min(band * 0.999);
-            let raw0 = band * e0 / (band - e0);
-            let raw1 = raw0 + r;
-            let e1 = band * raw1 / (band + raw1);
+            let e0 = dist.max(0.0);
+            if e0 >= band {
+                // At or beyond the band (a zoom in showed the stretch larger): no further out.
+                return free;
+            }
+            let e1 = Self::rubber_stretch(Self::rubber_travel(e0, band) + r, band);
             free + (e1 - e0).max(0.0)
         };
         if m > 0.0 {
@@ -752,6 +823,22 @@ impl ViewLimits {
         } else {
             0.0
         }
+    }
+
+    /// The band's stretch for a raw travel `x` past the bound: `(1 − 1/(x·c/d + 1))·d`.
+    pub fn rubber_stretch(x: f64, band: f64) -> f64 {
+        let k = x.max(0.0) * RUBBER_STIFFNESS / band;
+        (1.0 - 1.0 / (k + 1.0)) * band
+    }
+
+    /// The raw travel a stretch `e` (< band) came from: the inverse of
+    /// [`ViewLimits::rubber_stretch`].
+    pub fn rubber_travel(e: f64, band: f64) -> f64 {
+        let e = e.clamp(0.0, band);
+        if e >= band {
+            return f64::INFINITY;
+        }
+        band * e / (RUBBER_STIFFNESS * (band - e))
     }
 }
 
@@ -803,6 +890,143 @@ mod tests {
                 let span = l.max_scale.to_f64() * w.min(h);
                 assert!(span > crate::autopilot::RESCUE_MAX_SPAN * 1.2, "{f:?} {w}x{h}: {span}");
             }
+        }
+    }
+
+    /// Escape of `c` (or of `z0 = c` for a Julia set) within `n` steps of `formula`.
+    fn escapes(formula: crate::formula::Formula, c: (f64, f64), n: usize) -> bool {
+        let k = formula.julia_k().map(|k| k.approx());
+        let (mut z, add) = match k {
+            Some(k) => (c, k),
+            None => ((0.0, 0.0), c),
+        };
+        let f = if k.is_some() {
+            crate::formula::Formula::Mandelbrot
+        } else {
+            formula
+        };
+        for _ in 0..n {
+            z = f.step(z, add);
+            if z.0 * z.0 + z.1 * z.1 > 16.0 {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `c` is in the set or within `eps` of it (escape time plus the distance estimate with the
+    /// step's Jacobian: finds the antenna and filament tips).
+    fn near_set(formula: crate::formula::Formula, c: (f64, f64), eps: f64) -> bool {
+        if let Some(k) = formula.julia_k() {
+            return crate::julia::julia_near(k.approx(), c, 2000, eps);
+        }
+        let (mut z, mut j) = ((0.0, 0.0), [[0.0f64; 2]; 2]);
+        for _ in 0..2000 {
+            let m = formula.jacobian(z).matrix();
+            j = [
+                [
+                    m[0][0] * j[0][0] + m[0][1] * j[1][0] + 1.0,
+                    m[0][0] * j[0][1] + m[0][1] * j[1][1],
+                ],
+                [
+                    m[1][0] * j[0][0] + m[1][1] * j[1][0],
+                    m[1][0] * j[0][1] + m[1][1] * j[1][1] + 1.0,
+                ],
+            ];
+            z = formula.step(z, c);
+            let r2 = z.0 * z.0 + z.1 * z.1;
+            if r2 > 1e12 {
+                let norm = j.iter().flatten().map(|x| x * x).sum::<f64>().sqrt();
+                return r2.sqrt() * 0.5 * r2.ln() / norm < eps;
+            }
+        }
+        true
+    }
+
+    /// Each formula's box holds its whole set (every point a little outside escapes) and is
+    /// tight (the set comes within 0.005 of every edge).
+    #[test]
+    fn set_boxes_hold_their_sets_tightly() {
+        use crate::formula::{Formula, JuliaK};
+        let julias = [(-0.12256, 0.74486), (-1.0, 0.0), (0.285, 0.01), (-0.8, 0.156)]
+            .map(|(re, im)| Formula::Julia(JuliaK::new(Center::new(re, im).big())));
+        for f in crate::formula::selectable().into_iter().chain(julias) {
+            let b = set_box(f);
+            let (w, h) = (b.re.1 - b.re.0, b.im.1 - b.im.0);
+            // Outside: a ring 0.002 out, and a coarse grid out to 0.5 beyond the box.
+            let m = 0.002;
+            let mut outside = Vec::new();
+            for i in 0..=4000 {
+                let t = i as f64 / 4000.0;
+                let (x, y) = (b.re.0 - m + t * (w + 2.0 * m), b.im.0 - m + t * (h + 2.0 * m));
+                outside.extend([(x, b.im.0 - m), (x, b.im.1 + m), (b.re.0 - m, y), (b.re.1 + m, y)]);
+            }
+            for i in 0..=120 {
+                for j in 0..=120 {
+                    let (x, y) = (
+                        b.re.0 - 0.5 + i as f64 / 120.0 * (w + 1.0),
+                        b.im.0 - 0.5 + j as f64 / 120.0 * (h + 1.0),
+                    );
+                    if x < b.re.0 - m || x > b.re.1 + m || y < b.im.0 - m || y > b.im.1 + m {
+                        outside.push((x, y));
+                    }
+                }
+            }
+            for c in outside {
+                assert!(escapes(f, c, 50_000), "{f:?}: {c:?} outside {b:?} does not escape");
+            }
+            // Tight: near each edge (within 0.005; a Julia set's measured box within 0.02) the
+            // set comes within 0.0005.
+            let tol = if f.is_julia() { 0.02 } else { 0.005 };
+            let n = 5000;
+            let along = |lo: f64, hi: f64, i: usize| lo + (hi - lo) * i as f64 / n as f64;
+            let strip = |edge: usize| {
+                (0..=n)
+                    .flat_map(|i| {
+                        (0..=5).map(move |k| {
+                            let d = tol * k as f64 / 5.0;
+                            match edge {
+                                0 => (b.re.0 + d, along(b.im.0, b.im.1, i)),
+                                1 => (b.re.1 - d, along(b.im.0, b.im.1, i)),
+                                2 => (along(b.re.0, b.re.1, i), b.im.0 + d),
+                                _ => (along(b.re.0, b.re.1, i), b.im.1 - d),
+                            }
+                        })
+                    })
+                    .any(|c| near_set(f, c, 0.0005))
+            };
+            for edge in 0..4 {
+                assert!(strip(edge), "{f:?}: {b:?} not tight at edge {edge}");
+            }
+        }
+    }
+
+    /// The rubber band's curve: monotone in the travel, resisted from the start (slope c), never
+    /// a dead stop (every further point of travel moves it), never reaching the band; its
+    /// inverse is exact.
+    #[test]
+    fn rubber_curve_is_apples_and_never_stops_dead() {
+        let d = 160.0;
+        assert_eq!(ViewLimits::rubber_stretch(0.0, d), 0.0);
+        let slope0 = ViewLimits::rubber_stretch(1e-6, d) / 1e-6;
+        assert!((slope0 - RUBBER_STIFFNESS).abs() < 1e-4, "{slope0}");
+        // Half the band at x = d/c.
+        assert!((ViewLimits::rubber_stretch(d / RUBBER_STIFFNESS, d) - 0.5 * d).abs() < 1e-9);
+        let mut last = 0.0;
+        for i in 1..=100_000 {
+            let x = f64::from(i);
+            let e = ViewLimits::rubber_stretch(x, d);
+            assert!(e > last && e < d, "{x}: {e}");
+            assert!((ViewLimits::rubber_travel(e, d) - x).abs() < 1e-6 * x.max(1.0), "{x}");
+            last = e;
+        }
+        // Step by step through `rubber_move` (one point at a time) is the same curve.
+        let mut e = 0.0;
+        for i in 1..=5000 {
+            let m = ViewLimits::rubber_move((e, -1e9), 1.0, d);
+            assert!(m > 0.0, "{i}: dead stop at {e}");
+            e += m;
+            assert!((e - ViewLimits::rubber_stretch(i as f64, d)).abs() < 1e-6, "{i}");
         }
     }
 

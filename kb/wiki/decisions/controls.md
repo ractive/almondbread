@@ -3409,10 +3409,10 @@ Nothing is out there. The user approved limits (2026-10-25); one place defines t
   for every window, screen and fractal (Mandelbrot, Multibrot, Mandelbar, Burning Ship, Julia
   each have their own home). `MAX_SCALE` stays only as a numeric sanity bound, raised to 1.0
   per point so it can never compete with the limit.
-- **Centre bound** `CENTER_LIMIT = 2.5`: the centre stays within ±2.5 complex units of the
-  formula's home centre per complex axis (Mandelbrot: re −3.25 … 1.75, im ±2.5; Burning Ship
-  around −0.45 + 0.62i; Julia and Multibrot around 0). Home-relative rather than absolute, so a
-  formula whose set is off the origin (Burning Ship, our ships upright) gets a box around it.
+- **Centre bound** = the set's own bounding box (`viewport::set_box`, since the second
+  correction below; first built as ±2.5 around the home centre, `CENTER_LIMIT`, now gone): the
+  centre never leaves the box of the formula's set, so the set always reaches the screen centre,
+  in every direction and at every zoom. One table beside the home views; see "Correction 2".
 
 **How each path keeps to them (all in the `Navigator`; Swift only forwards events).**
 
@@ -3428,7 +3428,8 @@ Nothing is out there. The user approved limits (2026-10-25); one place defines t
   a double-click out from home lands at about 0.56×. No overshoot, so nothing bounces back.
   Steps compose exactly (frame-rate independent). Zooming in is never touched: it works at
   once from the limit. Far from the limit the result is bit-identical to before.
-- *Centre moves go through a rubber band* (`ViewLimits::rubber_move`): drags, trackpad scrolls
+- *Centre moves go through a rubber band* (`ViewLimits::rubber_move`; curve, spring and hold as
+  first built, superseded by Correction 2 below): drags, trackpad scrolls
   and their momentum, flings, keys, the gamepad, the autopilot's and cruise's steering, and the
   centre shift of a zoom about an off-centre point. Inside the box a move is whole; past the
   edge the raw travel r stretches the band to e = D·r/(D + r), D = `RUBBER_BAND` × the shorter
@@ -3492,6 +3493,88 @@ rate ≥ 0.5 s; before: 0.24 s), `a_stuck_rubber_band_is_still_kept_in_limits` (
 past with a 2.6 band), `the_set_stays_in_view_at_the_band` (four window shapes, every corner of
 the box plus the band at the zoom limit shows part of the Mandelbrot set; before: none at the
 user's window).
+
+**Correction 2: bound and feel (2026-10-25, user report on 8f922bf).** Same window (1728 × 1081
+pt, at the zoom-out limit). (1) "On the top and bottom I can still pan half of the Mandelbrot
+outside the screen; left and right you cannot": the ±2.5 box was close to the set horizontally
+(re −3.25 … 1.75 against −2 … 0.47) but more than twice its height (±2.5 against ±1.12).
+(2) "With the keyboard or mouse drag I cannot get it out of the screen, but with two-finger
+panning I can push it way more outside" (a screenshot: a sliver of the set in a corner).
+(3) "Then it takes like 2 seconds and then it moves back. This doesn't feel like a rubber band":
+the trackpad's momentum events arrived as plain `Pan`s, so each one renewed the 0.1 s hand hold
+and pushed the band out again; the band held until the OS momentum died out (~1.5–2 s). Decided
+(the user's expectation) and built:
+
+- *Bound = the set's extent.* `set_box(formula)`, measured 2026-10-25 (escape time plus the
+  distance estimate with the step's Jacobian, points within 0.0004 of the set counted, which
+  finds the antenna and filament tips a plain grid misses; 0.0002 grid along each edge; rounded
+  outwards to 0.001):
+
+  | Formula | re | im |
+  | --- | --- | --- |
+  | Mandelbrot | −2 … 0.472 | ±1.123 |
+  | z³ + c | ±0.718 | ±1.335 |
+  | z⁴ + c | −1.261 … 0.807 | ±1.123 |
+  | z⁵ + c | ±0.917 | ±0.917 |
+  | z⁶ + c | −1.150 … 0.970 | ±1.098 |
+  | z⁷ + c | ±0.994 | ±1.119 |
+  | z⁸ + c | −1.105 … 1.010 | ±1.079 |
+  | Mandelbar | −2 … 1.001 | ±1.733 (√3) |
+  | Burning Ship (ours, flipped) | −2 … 1.159 | −0.456 … 1.733 |
+
+  A Julia set's box is measured once per k (`julia::set_box`, cached): a 384² grid over the
+  escape disc, a point counts if bounded for 400 steps or its distance estimate is under 1.5
+  cells, extent plus half a cell, symmetric under z ↦ −z (the rabbit: ±1.303 × ±1.103). Test
+  `set_boxes_hold_their_sets_tightly`: every point 0.002 outside the box (a ring) and on a grid
+  out to 0.5 beyond escapes within 50 000 steps, and the set comes within 0.0005 of a point
+  within 0.005 of every edge (Julia: 0.02).
+- *Rubber band curve (all inputs).* Past the bound a raw travel x stretches the band to
+  Apple's `e = (1 − 1/(x·c/d + 1))·d`, c = `RUBBER_STIFFNESS` = 0.55, d = the band (still
+  `RUBBER_BAND` = 0.15 of the shorter side, 162 pt in the user's window): resisted from the first
+  point (slope 0.55), half the band after d/c = 295 pt of travel, never a dead stop, never
+  reaching d (the `clamp_stretch` cap is only an unreachable safety net, reachable by a zoom in
+  while stretched). The stretch is a function of the raw travel alone, so keys, drags, trackpad
+  scrolls, flings, the stick and zoom or turn shifts all go through the same curve; the same
+  travel by trackpad and by mouse drag ends at the same point (test
+  `the_band_resists_the_same_for_every_input`). The set's extreme point is on the bound and the
+  band is under half the shorter side, so the set never leaves the screen.
+- *Spring back:* critically damped, ω = `RUBBER_RETURN_OMEGA` = 24/s (was exponential, τ 0.1 s):
+  from rest 1 % left after 0.28 s, 0.1 % after 0.39 s, no overshoot, snaps on within 0.25 pt.
+- *Who holds the band.* A gesture with an end event holds it from its first event until its
+  end, also while the hand rests without events (`held`, safety timeout 3 s): mouse drag (until
+  `GestureEnd` on mouse-up), touch pan and pinch (iOS sends `GestureEnd` on `.ended` and now
+  also `.cancelled`), magnify, and a trackpad scroll with the fingers on. Input without an end
+  (wheel zoom, trackpad rotate) holds for 0.1 s after each event as before. Trackpad scrolls now
+  carry their phase (`ScrollPhase`, from `NSEvent.phase` / `momentumPhase` in
+  `FractalView.swift`): `Fingers` (began, changed) hold; `Lifted` (ended, cancelled) lets go at
+  once, the spring starts in the next frame; `Momentum` is hand-off coasting, and momentum that
+  runs into the bound is cut there: it becomes a fling at the momentum's speed which brakes on the
+  band (`FLING_BAND_TAU` 0.05 s), every further momentum event of that sequence is ignored, and
+  the spring brings it back while the OS still sends momentum (NSScrollView elasticity);
+  `Unphased` (precise scrolls without phases) holds 0.1 s per event. Fly scripts: a `pan` or
+  `scroll` with `"momentum": true` plays fingers, lift and OS momentum (τ 0.35 s).
+
+Tests (all at the user's window at the zoom-out limit): `no_pan_input_takes_the_set_off_screen`
+(keys, drag, drag flings, scroll, scroll-lift-momentum bursts, eight directions, 6 s each, every
+host frame under the band; at the deepest stretch part of the set is sampled in view),
+`trackpad_lift_springs_back_at_once` (resting fingers hold the band 0.5 s unchanged; after the lift
+it moves in the first frame and is on the bound within 0.4 s, monotonic),
+`momentum_into_the_bound_never_holds_the_band` (a flick whose momentum runs into the bound: peak
+within 0.1 s of the hit and under the band, back on the bound within 0.5 s of the hit while
+momentum still arrives), `rubber_curve_is_apples_and_never_stops_dead`,
+`the_set_stays_in_view_at_the_band` (now every formula and the rabbit Julia set).
+
+Headless (`fly --script scripts/flights/limits-feel.json --log`, measured 2026-10-25, development
+Mac, release; 1728 × 1081 at the limit, band 162 pt): a two-finger scroll up at 1200 pt/s for 1 s
+crossed the bound after 233 pt and stretched to 124 pt (raw travel 967 pt); lifted at 1.50 s, the
+centre moved back in the same refresh (122 → 117 pt), 5 pt at 1.70, on the bound at 1.85 s
+(0.35 s) while the cut momentum kept arriving. A flick down (1500 pt/s for 0.2 s) whose momentum
+reached the lower bound at 3.33 s peaked at 24 pt at 3.40 s and was back on the bound at 3.74 s.
+A mouse drag right (1500 pt/s for 1 s) peaked at 131 pt and settled 0.38 s after the release.
+On 8f922bf the momentum renewed the hand hold, so the band stayed out until it died away (the
+user's "about 2 seconds"). `make interaction-test` (65 scenarios): mean 102.9 fps (the first
+build's run: 104.3, within run-to-run noise; only the navigator's limit arithmetic changed), every
+compared shown frame equal to a fresh render.
 
 The headless CLI (`render`, `verify`, `bench`) is not limited: it renders any view asked for;
 only navigation is.
