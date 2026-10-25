@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-25
+
+- **Research:** Gesture-frame interior colourings: bubbles rings flickered while panning because gesture levels (no probe, no extension) left near-boundary interior pixels unresolved; fixed by a capped provisional cycle analysis (coloring-methods Gesture frames, benchmarks)
+
 ## 2026-10-24
 
 - **Decision:** Search result details: a place selected among one row of search results showed no details bar (Mac): the Places card counted as on screen only with more than 90 pt in view, and a one-row card is ~70 pt; now min(90 pt, half the card). Checked by --ui-demo=place-details (supernova, octic, ship, minibrot, none). See decisions/controls (Control center search)

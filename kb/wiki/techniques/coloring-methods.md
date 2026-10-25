@@ -211,6 +211,48 @@ by `log2(1 + d_px)`, dark within ~6 px of the boundary.
 [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Interior colourings, overlays, control center". Under 1 % more
 iterations at home, about 3 % more loop steps at sea-8007 and needle-1e305 (one period of floatexp steps per interior pixel).
 
+### Gesture frames
+
+Reported by the user (2026-10-24, macOS, bubbles): while panning, the small bulbs' interiors
+"recalculated": a few coarse rings in a dark disc in some frames, many fine rings in others;
+the big cardioid stayed calm.
+
+**Cause** (measured 2026-10-24, M1 Pro, release, `verify --history pan` with the shown frames
+dumped). Near a component's boundary the derivative test `|w| n² < 1e-3` cannot prove a pixel
+within the limit ([Interior detection](interior-detection.md) "Attracting-cycle probe"). At
+rest the interior probe and the extension passes resolve those pixels, and the cycle analysis
+colours them. Gesture and preview levels have neither (they must complete within the frame),
+so the pixels stayed unresolved: deep fog, almost black, blended with the reprojected history.
+Under the flat colouring the fog looks like the black interior and nobody saw it; under every
+analysed mode (bubbles, period, angle, distance) the outer rings of each bulb were fog in
+gesture frames and rings at rest. The main cardioid and the period-2 bulb are proven by the
+closed-form component test in every frame, which is why they stayed calm. Measured shares of
+gesture-frame texels unresolved: period-3 minibrot (−1.7548776662, 1.2e-5/px, limit 721)
+10.8 % (rest 0.03 %); satellite 2.8 %; neck-2e5 9.8 %. A test view on the period-3 bulb of
+the main cardioid had 37 % analysed interior in gesture frames vs 52 % at rest.
+
+**Fix** (`IterateParams::ic_limit`, kInteriorColor pipelines only, preview and gesture levels
+only). A pixel that reaches the limit unproven runs the cycle analysis anyway, marked
+*provisional* (bit 31 of the analysis step counter): with an attracting cycle found (closure
+at a divisor of q and `|λ| < 1`, the same rule as for proven pixels) it is drawn with its
+cycle; otherwise it gives up after `min(maxIter/8 + 128, 256)` steps and stays unresolved. The
+analysis may also run that many steps past the chunk's K, so a gesture frame completes. The
+statistics the iteration learner reads are unchanged: a provisional pixel counts as crossed
+when it starts, never as interior. Full levels, the extension, AA and every flat pipeline are
+untouched (the bench set renders byte-identical to the previous build).
+
+**Results** (measured 2026-10-24, M1 Pro, release): unresolved gesture texels 10.8 → 0.29 %
+(period-3 minibrot), 2.8 → 0.24 % (satellite), 0.82 → 0.11 % (home), 9.8 → 2.8 % (neck-2e5,
+near-parabolic pixels cannot close); the bulb test view 51.2 % analysed vs 52.4 % at rest
+(the rest: rim texels a coarser grid sees differently, or that need more steps). False interior: the provisional rule
+forced onto full offscreen levels (probe and extension off) gave 0.000 % GPU-interior /
+CPU-exterior at neck-2e5, satellite and home against the CPU oracle. Cost: see
+[almondbread benchmarks and verification record](../synthesis/benchmarks.md) "Interior
+colourings in gesture frames". Uncapped (`maxIter/8 + 128`) it doubled the gesture GPU time
+per texel at seahorse-minibrot-1e31 and neck-2e5 (pixels that never close spend the whole
+limit in floatexp steps), hence the cap. Regression test:
+`scheduler/gesture_interior_tests.rs`.
+
 ## Dense regions (as built)
 
 Reported by the user: the default look filled the near-boundary band with grey noise where
