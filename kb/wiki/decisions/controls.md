@@ -3462,8 +3462,24 @@ double tap out, held ⇧Space: within 0.02 e-folds of the limit, never past, mon
 `targets_and_outside_views_are_clamped` (fly-to, restored far-out and deep-far-out views,
 Burning Ship's own box), `view_limits_hold_home_and_the_rescue_span` (every formula and window
 shape: home inside, the autopilot's `RESCUE_MAX_SPAN` ends before the limit),
-`rubber_band_resists_past_the_edge_only`, and the Metal host test
-`views_set_from_outside_come_into_the_limits`.
+`rubber_band_resists_past_the_edge_only`, the Metal host test
+`views_set_from_outside_come_into_the_limits`, and the iOS UI test
+`TouchUITests/testGesturesAndButtons` (three pinches out on the iPhone simulator land exactly on
+twice the home scale, 0.00820513 → 0.0164103).
+
+Measured 2026-10-25 (our own runs, the development Mac, release):
+- Headless session (`fly --script` with ⇧Space held 2.8 s from home, a magnify out, wheel
+  notches out, a 2.5 s drag left released while moving, a fast fling down, ← held 2 s;
+  800 × 500, log with the new `center_re` / `center_im` columns): the zoom never passes the
+  limit (closest 2e-6 decades); held ⇧Space approaches it smoothly (1.0 s: 0.0103 decades left,
+  1.2 s: 0.0035, 1.5 s: 0.0007, 2.0 s: 0.00005, monotonic); magnify and wheel at the limit
+  change nothing. The drag stretched the band to 222 pt past re = −3.25 (band 250 pt) and the
+  centre was back on the bound 0.75 s after the release; the fling peaked 196 pt past
+  im = 2.5 and settled in 0.7 s; ← held went 50 pt past and returned after the release.
+- `make interaction-test` (65 scenarios, base commit 4f985b4 vs this branch): mean 103.1 vs
+  104.3 fps, every shown frame equal to a fresh render in both; an interleaved re-run of eight
+  scenarios twice each: fps and draw CPU p50 / p95 within run-to-run noise ("home zoom" rose
+  from 105 to 117 fps: it now stops at the limit instead of zooming the set to a speck).
 
 ## Held input (as built, 2026-10-19)
 

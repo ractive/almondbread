@@ -107,7 +107,8 @@ final class TouchUITests: XCTestCase {
             settle()
         }
         let sOut = try XCTUnwrap(state())
-        XCTAssertLessThanOrEqual(sOut.scale, s0.scale * 2 * (1 + 1e-6), "zoomed out past the limit: \(s0.scale) -> \(sOut.scale)")
+        // (The state's scale has 6 significant digits.)
+        XCTAssertLessThanOrEqual(sOut.scale, s0.scale * 2 * (1 + 1e-4), "zoomed out past the limit: \(s0.scale) -> \(sOut.scale)")
         XCTAssertGreaterThan(sOut.scale, s0.scale * 1.8, "pinch out did not reach the limit: \(s0.scale) -> \(sOut.scale)")
         shot("zoom-out-limit")
 
