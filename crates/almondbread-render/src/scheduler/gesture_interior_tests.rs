@@ -15,14 +15,17 @@ use crate::metal::MetalBackend;
 const W: usize = 480;
 const H: usize = 300;
 
-/// The texels of the level the view shows, and whether it is a gesture frame's.
-fn shown(r: &mut Renderer<MetalBackend>) -> (Vec<[f32; 2]>, bool) {
+/// The texels of the level the view shows, whether it is a gesture frame's, and whether
+/// every pixel of it reached the limit (under GPU load a gesture preview runs in budgeted
+/// chunks and is shown before its last pixels get there; those are not analysed yet).
+fn shown(r: &mut Renderer<MetalBackend>) -> (Vec<[f32; 2]>, bool, bool) {
     r.wait_frames();
     r.drain_in_flight();
     let job = r.job.as_ref().expect("job");
     let level = &job.levels[job.display()];
+    let at_limit = level.live_min_n == u32::MAX || level.live_min_n >= level.params.max_iter;
     let (set, gesture) = (level.set.clone(), job.interactive);
-    (r.read_iterations(&set).expect("read"), gesture)
+    (r.read_iterations(&set).expect("read"), gesture, at_limit)
 }
 
 /// (unresolved, interior with a period) shares of the texels.
@@ -52,7 +55,7 @@ fn gesture_frames_analyse_the_interior_like_the_rest_frame() {
         assert!(r.clock() < end, "did not settle");
         std::thread::sleep(std::time::Duration::from_millis(8));
     }
-    let (rest, gesture) = shown(&mut r);
+    let (rest, gesture, _) = shown(&mut r);
     assert!(!gesture);
     let (rest_unresolved, rest_analysed) = shares(&rest);
     // A slow pan: every refresh is a gesture frame.
@@ -62,13 +65,9 @@ fn gesture_frames_analyse_the_interior_like_the_rest_frame() {
         let now = r.clock();
         r.navigator.note_interaction(now);
         r.viewport.pan_by_points(0.5, 0.0);
-        // The one-chunk preview (every pixel to the limit) whatever the GPU load: under
-        // contention (the parallel test run) the measured cost picks budgeted chunks, whose
-        // frames show pixels not yet at the limit, by design.
-        r.cost_per_texel = 0.0;
         frame(&mut r);
-        let (t, gesture) = shown(&mut r);
-        if !gesture {
+        let (t, gesture, at_limit) = shown(&mut r);
+        if !gesture || !at_limit {
             continue;
         }
         seen += 1;
@@ -84,7 +83,7 @@ fn gesture_frames_analyse_the_interior_like_the_rest_frame() {
         worst = worst.max(unresolved);
         std::thread::sleep(std::time::Duration::from_millis(8));
     }
-    assert!(seen >= 10, "only {seen} gesture frames");
+    assert!(seen >= 10, "only {seen} gesture frames at the limit");
     assert!(
         worst < rest_unresolved + 0.03,
         "gesture frames up to {:.2} % unresolved vs {:.2} % at rest",
