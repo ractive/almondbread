@@ -6238,4 +6238,271 @@ mod tests {
             assert!(!n.is_moving(), "{k:?}");
         }
     }
+
+    // MARK: View limits (kb: decisions/controls "View limits")
+
+    use crate::viewport::{CENTER_LIMIT, Center};
+
+    /// The home view (1000 x 600) and its navigator.
+    fn at_home() -> (Navigator, Viewport) {
+        let (n, _) = setup();
+        (n, Viewport::fitting(W, 600.0))
+    }
+
+    /// Zoom (e-folds left to the limit) of a view.
+    fn to_limit(n: &Navigator, v: &Viewport) -> f64 {
+        n.limits().max_scale.ln() - v.scale.ln()
+    }
+
+    /// Every zoom-out path stops at the limit, eased in (the per-step zoom never grows
+    /// near the limit, nothing passes it), and zooming in works at once from there.
+    #[test]
+    fn every_zoom_out_stops_at_the_limit() {
+        type Drive = fn(&mut Navigator, &mut Viewport, f64) -> f64;
+        let drives: [(&str, Drive); 7] = [
+            ("wheel zoom", |n, v, t| {
+                for i in 0..200 {
+                    n.handle(InputEvent::WheelZoom { delta: -1.0, x: 120.0, y: -40.0 }, v, t + i as f64 / 120.0);
+                }
+                t + 200.0 / 120.0
+            }),
+            ("magnify", |n, v, t| {
+                for i in 0..200 {
+                    n.handle(InputEvent::Magnify { magnification: -0.1, x: 0.0, y: 0.0 }, v, t + i as f64 / 120.0);
+                }
+                n.handle(InputEvent::GestureEnd, v, t + 200.0 / 120.0);
+                run(n, v, t + 200.0 / 120.0, t + 4.0, 60.0)
+            }),
+            ("pinch", |n, v, t| {
+                for i in 0..200 {
+                    let e = InputEvent::Pinch {
+                        ratio: 0.9,
+                        x: -50.0,
+                        y: 30.0,
+                        dx: 0.0,
+                        dy: 0.0,
+                    };
+                    n.handle(e, v, t + i as f64 / 120.0);
+                }
+                n.handle(InputEvent::GestureEnd, v, t + 200.0 / 120.0);
+                run(n, v, t + 200.0 / 120.0, t + 4.0, 60.0)
+            }),
+            ("wheel notches", |n, v, t| {
+                for i in 0..30 {
+                    n.handle(InputEvent::WheelNotch { delta: -1.0, x: 0.0, y: 0.0 }, v, t + i as f64 * 0.05);
+                    run(n, v, t + i as f64 * 0.05, t + (i + 1) as f64 * 0.05, 120.0);
+                }
+                run(n, v, t + 1.5, t + 3.0, 60.0)
+            }),
+            ("step-out key", |n, v, t| {
+                for i in 0..10 {
+                    tap(n, v, NavKey::StepOut, t + i as f64 * 0.1);
+                }
+                run(n, v, t + 1.0, t + 3.0, 60.0)
+            }),
+            ("double tap out", |n, v, t| {
+                for i in 0..6 {
+                    double_tap(n, v, 200.0, 100.0, true, t + i as f64 * 0.4);
+                    run(n, v, t + i as f64 * 0.4, t + (i + 1) as f64 * 0.4, 60.0);
+                }
+                run(n, v, t + 2.4, t + 3.0, 60.0)
+            }),
+            ("held ⇧ Space", |n, v, t| {
+                n.handle(InputEvent::Shift(true), v, t);
+                n.handle(InputEvent::KeyDown(NavKey::Zoom), v, t);
+                let mut last = f64::INFINITY;
+                let mut s = t;
+                for _ in 0..600 {
+                    s += 1.0 / 120.0;
+                    n.advance(v, s);
+                    let left = to_limit(n, v);
+                    // Eased in: frame steps only shrink once the softness band is reached.
+                    assert!(left >= 0.0 && left <= last + 1e-12, "{left} after {last}");
+                    last = left;
+                }
+                n.handle(InputEvent::KeyUp(NavKey::Zoom), v, s);
+                run(n, v, s, s + 2.0, 60.0)
+            }),
+        ];
+        for (name, drive) in drives {
+            let (mut n, mut v) = at_home();
+            let t = drive(&mut n, &mut v, 0.0);
+            let max = n.limits().max_scale;
+            assert!(v.scale <= max, "{name}: {} past {}", v.scale, max);
+            let left = to_limit(&n, &v);
+            assert!((0.0..0.02).contains(&left), "{name}: {left} e-folds from the limit");
+            assert!(!n.limits().outside(&v.center), "{name}: centre out");
+            // Zooming in again works at once and exactly.
+            let s = v.scale;
+            n.handle(InputEvent::WheelZoom { delta: 1.0, x: 0.0, y: 0.0 }, &mut v, t + 1.0);
+            assert!((s.ratio(v.scale) - 1.15).abs() < 1e-9, "{name}: zoom in ×{}", s.ratio(v.scale));
+        }
+    }
+
+    /// The soft stop is the same at any frame rate and any step split.
+    #[test]
+    fn the_zoom_limit_is_frame_rate_independent() {
+        let l = ViewLimits::new(crate::formula::Formula::Mandelbrot, W, 600.0);
+        let start = l.max_scale / 1.5;
+        let mut one = start;
+        one = one / l.zoom_factor(one, 0.25);
+        let mut many = start;
+        for _ in 0..64 {
+            many = many / l.zoom_factor(many, 0.25f64.powf(1.0 / 64.0));
+        }
+        assert!((one.ratio(many) - 1.0).abs() < 1e-12, "{}", one.ratio(many));
+        assert!(one < l.max_scale && one.ratio(l.max_scale) > 0.9);
+        // Outside the softness band a zoom out is exactly the plain one.
+        let far = l.max_scale / 10.0;
+        assert_eq!(l.zoom_factor(far, 0.5), 0.5);
+        // At or past the limit: nothing; zooming in: untouched.
+        assert_eq!(l.zoom_factor(l.max_scale, 0.5), 1.0);
+        assert_eq!(l.zoom_factor(l.max_scale * 2.0, 0.5), 1.0);
+        assert_eq!(l.zoom_factor(l.max_scale, 2.0), 2.0);
+    }
+
+    /// A drag past the centre bound is resisted (never more than the band past it) and
+    /// springs back onto the bound once released; a fling into it the same.
+    #[test]
+    fn a_drag_past_the_bound_is_resisted_and_springs_back() {
+        let (mut n, mut v) = at_home();
+        // At the zoom limit, dragging the content right (the centre left) by 20 views.
+        v.scale = n.limits().max_scale;
+        let lo = n.limits().center.0 - CENTER_LIMIT;
+        let band = RUBBER_BAND * 600.0;
+        let mut t = 0.0;
+        let mut worst: f64 = 0.0;
+        for _ in 0..2000 {
+            t += 1.0 / 120.0;
+            n.handle(InputEvent::Pan { dx: 10.0, dy: 0.0 }, &mut v, t);
+            worst = worst.max((lo - v.center.re()) / v.scale.to_f64());
+        }
+        assert!(worst > 0.5 * band && worst < band, "{worst} points past (band {band})");
+        assert!(n.is_stretched());
+        // Held (no GestureEnd yet, events still arriving): no spring back within the hold.
+        let held = v.center.re();
+        n.advance(&mut v, t + 0.05);
+        assert_eq!(v.center.re(), held);
+        // Released: back onto the bound, smoothly (monotonic), within ~0.5 s.
+        n.handle(InputEvent::GestureEnd, &mut v, t + 0.05);
+        let mut last = v.center.re();
+        let mut s = t + 0.05;
+        while n.is_moving() && s < t + 3.0 {
+            s += 1.0 / 60.0;
+            n.advance(&mut v, s);
+            assert!(v.center.re() >= last, "monotonic");
+            last = v.center.re();
+        }
+        assert!(s < t + 0.8, "settled after {} s", s - t);
+        assert!(!n.is_stretched() && !n.limits().outside(&v.center));
+        assert!((v.center.re() - lo).abs() < 1e-9, "on the bound: {}", v.center.re());
+        // Moving back in from past the bound is not resisted.
+        let mut w = v.clone();
+        w.center = w.center.offset(-0.5, 0.0);
+        n.rubber = true;
+        let before = w.center.re();
+        n.handle(InputEvent::Pan { dx: -10.0, dy: 0.0 }, &mut w, s + 1.0);
+        assert!(((w.center.re() - before) / w.scale.to_f64() - 10.0).abs() < 1e-6);
+
+        // A fast fling into the bound stops there and comes back.
+        let (mut n, mut v) = at_home();
+        v.scale = n.limits().max_scale;
+        let mut t = 0.0;
+        for _ in 0..10 {
+            t += 1.0 / 120.0;
+            n.handle(InputEvent::Pan { dx: 0.0, dy: -40.0 }, &mut v, t);
+        }
+        n.handle(InputEvent::GestureEnd, &mut v, t + 0.005);
+        let mut s = t;
+        let hi = n.limits().center.1 + CENTER_LIMIT;
+        let mut worst: f64 = 0.0;
+        while n.is_moving() && s < t + 5.0 {
+            s += 1.0 / 120.0;
+            n.advance(&mut v, s);
+            worst = worst.max((v.center.im() - hi) / v.scale.to_f64());
+        }
+        assert!(worst < band, "{worst}");
+        assert!(!n.limits().outside(&v.center) && !n.is_stretched());
+    }
+
+    /// Held keys push against the bound softly (a few points past it, not the band) and the
+    /// view returns when they let go; zooming about a point far off does not drag the centre
+    /// out either.
+    #[test]
+    fn keys_and_zooms_keep_to_the_bound() {
+        let (mut n, mut v) = at_home();
+        v.scale = n.limits().max_scale;
+        let hi = n.limits().center.0 + CENTER_LIMIT;
+        n.handle(InputEvent::KeyDown(NavKey::Right), &mut v, 0.0);
+        let mut worst: f64 = 0.0;
+        let mut t = 0.0;
+        for _ in 0..1200 {
+            t += 1.0 / 120.0;
+            n.advance(&mut v, t);
+            worst = worst.max((v.center.re() - hi) / v.scale.to_f64());
+        }
+        assert!(worst > 0.0 && worst < RUBBER_BAND * 600.0, "{worst}");
+        n.handle(InputEvent::KeyUp(NavKey::Right), &mut v, t);
+        run(&mut n, &mut v, t, t + 3.0, 60.0);
+        assert!(!n.is_moving() && !n.limits().outside(&v.center), "{}", v.center.re());
+        // Zooming in at the far right edge of the view, over and over: the centre follows the
+        // pointer only up to the band, and comes back.
+        let (mut n, mut v) = at_home();
+        v.center = Center::new(hi - 0.1, 0.0);
+        for i in 0..100 {
+            n.handle(InputEvent::WheelZoom { delta: 1.0, x: 499.0, y: 0.0 }, &mut v, i as f64 / 120.0);
+            let past = (v.center.re() - hi) / v.scale.to_f64();
+            assert!(past < RUBBER_BAND * 600.0, "{i}: {past}");
+        }
+        run(&mut n, &mut v, 1.0, 3.0, 60.0);
+        assert!(!n.limits().outside(&v.center));
+    }
+
+    /// Flights, journeys, places and tours fly to targets clamped into the limits; a view set
+    /// from outside (restored, pasted) is clamped at once by `keep_in_limits`, a rubber band
+    /// of the navigator's own is not.
+    #[test]
+    fn targets_and_outside_views_are_clamped() {
+        let (mut n, mut v) = at_home();
+        let target = Viewport::new(8.0, -6.0, 0.05);
+        n.fly_to(&target, &v.clone(), 0.0);
+        let mut t = 0.0;
+        while n.flight().is_some() && t < 30.0 {
+            t += 1.0 / 60.0;
+            n.advance(&mut v, t);
+            assert!(v.scale <= n.limits().max_scale, "{t}: {}", v.scale);
+        }
+        let l = n.limits();
+        assert!(v.scale == l.max_scale, "{}", v.scale);
+        assert!((v.center.re() - (l.center.0 + CENTER_LIMIT)).abs() < 1e-9);
+        assert!((v.center.im() - (l.center.1 - CENTER_LIMIT)).abs() < 1e-9);
+
+        // A restored view far out: clamped at once (centre onto the box, scale to the limit).
+        let (mut n, _) = at_home();
+        let mut v = Viewport::new(-40.0, 3.0, 0.04);
+        n.jumped();
+        assert!(n.keep_in_limits(&mut v));
+        assert_eq!(v.scale, n.limits().max_scale);
+        assert!((v.center.re() - (l.center.0 - CENTER_LIMIT)).abs() < 1e-9);
+        assert!((v.center.im() - (l.center.1 + CENTER_LIMIT)).abs() < 1e-9);
+        assert!(!n.keep_in_limits(&mut v), "inside: unchanged");
+        // Deep and far out (beyond f64 in view points): still onto the box.
+        let mut deep = Viewport::with_center(Center::new(1e6, 0.1), Scale::pow2(-3000));
+        assert!(n.keep_in_limits(&mut deep));
+        assert!(!n.limits().outside(&deep.center) && deep.center.im() == 0.1);
+        // A view inside is untouched bit for bit.
+        let mut inside = Viewport::new(-0.743, 0.131, 1e-9).with_angle(0.4);
+        let same = inside.clone();
+        assert!(!n.keep_in_limits(&mut inside) && inside == same);
+
+        // Burning Ship: its own home (centre −0.45 + 0.62i) is the box's middle.
+        n.set_formula(crate::formula::Formula::BurningShip);
+        let l = n.limits();
+        let home = Viewport::fitting_for(crate::formula::Formula::BurningShip, W, 600.0);
+        assert_eq!(l.center, (home.center.re(), home.center.im()));
+        assert_eq!(l.max_scale, home.scale / crate::viewport::ZOOM_OUT_LIMIT);
+        let mut v = Viewport::new(-0.45, 3.5, 1.0);
+        n.keep_in_limits(&mut v);
+        assert!((v.center.im() - (0.62 + CENTER_LIMIT)).abs() < 1e-9 && v.scale == l.max_scale);
+    }
 }

@@ -1135,6 +1135,31 @@ mod command_click_tests {
         assert!((r - 2.0).abs() < 1e-9, "zoomed ×{r}");
     }
 
+    /// View limits (kb: decisions/controls "View limits"): a view restored or set from outside
+    /// beyond them is clamped (not rejected) to the formula's own limits (`Host::frame` does
+    /// this before every frame).
+    #[test]
+    fn views_set_from_outside_come_into_the_limits() {
+        for (f, view) in [
+            (Formula::Mandelbrot, Viewport::new(-30.0, 9.0, 0.05)),
+            (Formula::BurningShip, Viewport::new(-0.45, -4.0, 0.2)),
+        ] {
+            let mut h = host();
+            h.renderer.settings.formula = f;
+            h.renderer.navigator.jumped();
+            h.renderer.viewport = view;
+            assert!(h.keep_in_limits(), "{f:?}");
+            let home = Viewport::fitting_for(f, W, H);
+            let v = &h.renderer.viewport;
+            assert_eq!(v.scale, home.scale / almondbread_core::viewport::ZOOM_OUT_LIMIT, "{f:?}");
+            let lim = almondbread_core::viewport::CENTER_LIMIT;
+            let (dx, dy) = (v.center.re() - home.center.re(), v.center.im() - home.center.im());
+            assert!(dx.abs() <= lim + 1e-9 && dy.abs() <= lim + 1e-9 && dx.abs().max(dy.abs()) > lim - 1e-9);
+            // Inside: unchanged.
+            assert!(!h.keep_in_limits());
+        }
+    }
+
     #[test]
     fn option_double_click_and_other_formulas_are_unchanged() {
         // ⌥ double click (out) after a plain click: ×0.5, as before.

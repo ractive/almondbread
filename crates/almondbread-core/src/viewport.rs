@@ -737,6 +737,47 @@ mod tests {
         assert!(d.at_precision_limit());
     }
 
+    /// The view limits per formula and window shape: the home view fits well inside them,
+    /// and the autopilot's rescue ends (at its span) before the zoom-out limit.
+    #[test]
+    fn view_limits_hold_home_and_the_rescue_span() {
+        use crate::formula::Formula;
+        let julia = Formula::Julia(crate::formula::JuliaK::new(Center::new(-0.12256, 0.74486).big()));
+        for f in crate::formula::selectable().into_iter().chain([julia]) {
+            for (w, h) in [(1000.0, 600.0), (390.0, 844.0), (1440.0, 900.0), (2000.0, 400.0), (300.0, 300.0)] {
+                let l = ViewLimits::new(f, w, h);
+                let home = Viewport::fitting_for(f, w, h);
+                assert!((l.max_scale.ratio(home.scale) - 1.0 / ZOOM_OUT_LIMIT).abs() < 1e-12);
+                assert!(!l.outside(&home.center));
+                let mut v = home.clone();
+                assert!(!l.clamp(&mut v) && v == home, "{f:?} {w}x{h}: home moved");
+                let span = l.max_scale.to_f64() * w.min(h);
+                assert!(span > crate::autopilot::RESCUE_MAX_SPAN * 1.2, "{f:?} {w}x{h}: {span}");
+            }
+        }
+    }
+
+    #[test]
+    fn rubber_band_resists_past_the_edge_only() {
+        let band = 300.0;
+        // Inside: whole; crossing: whole up to the edge, then resisted.
+        assert_eq!(ViewLimits::rubber_move((-50.0, -4000.0), 40.0, band), 40.0);
+        let m = ViewLimits::rubber_move((-50.0, -4000.0), 80.0, band);
+        assert!(m > 50.0 && m < 80.0, "{m}");
+        // Past the edge: never beyond the band however far it is pulled.
+        let mut e = 0.0;
+        for _ in 0..10_000 {
+            e += ViewLimits::rubber_move((e, -4000.0 - e), 10.0, band);
+            assert!(e < band);
+        }
+        assert!(e > 0.9 * band, "{e}");
+        // Back in: whole. Downwards the same, mirrored.
+        assert_eq!(ViewLimits::rubber_move((120.0, -6000.0), -30.0, band), -30.0);
+        assert_eq!(ViewLimits::rubber_move((-6000.0, 120.0), 30.0, band), 30.0);
+        let d = ViewLimits::rubber_move((-6000.0, 0.0), -100.0, band);
+        assert!(d < 0.0 && d > -100.0 && -d < band, "{d}");
+    }
+
     #[test]
     fn scale_arithmetic_is_f64_exact_in_range() {
         let s = 3.0 / 800.0;

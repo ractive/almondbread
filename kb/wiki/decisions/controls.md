@@ -3397,6 +3397,72 @@ min(90 pt, half its height) in view. iOS has no such test (the open section alon
 Checked by `--ui-demo=place-details` with `--ui-demo-search=` (a real click on a result tile,
 then Go and Fly, which switch the fractal; the bar's place printed after each).
 
+## View limits (as built, 2026-10-25)
+
+You could zoom out to about 0.08× (the set a speck in a sea of blue; the old `MAX_SCALE`
+0.05 per point was an M3b sanity bound, not a design) and pan arbitrarily far from the set.
+Nothing is out there. The user approved limits (2026-10-25); one place defines them:
+`viewport::ViewLimits` with the constants beside it.
+
+- **Zoom-out limit** `ZOOM_OUT_LIMIT = 0.5`: the scale never exceeds twice the scale of the
+  formula's own home view fitted to the window (`Viewport::fitting_for`), so it is 0.5× of home
+  for every window, screen and fractal (Mandelbrot, Multibrot, Mandelbar, Burning Ship, Julia
+  each have their own home). `MAX_SCALE` stays only as a numeric sanity bound, raised to 1.0
+  per point so it can never compete with the limit.
+- **Centre bound** `CENTER_LIMIT = 2.5`: the centre stays within ±2.5 complex units of the
+  formula's home centre per complex axis (Mandelbrot: re −3.25 … 1.75, im ±2.5; Burning Ship
+  around −0.45 + 0.62i; Julia and Multibrot around 0). Home-relative rather than absolute, so a
+  formula whose set is off the origin (Burning Ship, our ships upright) gets a box around it.
+
+**How each path keeps to them (all in the `Navigator`; Swift only forwards events).**
+
+- *Zooming out eases into the limit* (`ViewLimits::zoom_factor`). With u the e-folds left to the
+  limit and B = `ZOOM_LIMIT_SOFTNESS` = 0.3, a zoom out moves a raw coordinate r with u = r for
+  r ≥ B (exactly the plain zoom) and u = B·e^((r − B)/B) below (continuous in value and slope).
+  In the last 0.3 e-folds (1.35×) every zoom-out drive slows exponentially and stops at the
+  limit: a continuing pinch, magnify, ⌘-scroll or wheel just stops changing the zoom (the
+  fingers keep moving, the picture does not), held ⇧Space and the gamepad glide to rest there,
+  a double-click out from home lands at about 0.56×. No overshoot, so nothing bounces back.
+  Steps compose exactly (frame-rate independent). Zooming in is never touched: it works at
+  once from the limit. Far from the limit the result is bit-identical to before.
+- *Centre moves go through a rubber band* (`ViewLimits::rubber_move`): drags, trackpad scrolls
+  and their momentum, flings, keys, the gamepad, the autopilot's and cruise's steering, and the
+  centre shift of a zoom about an off-centre point. Inside the box a move is whole; past the
+  edge the raw travel r stretches the band to e = D·r/(D + r), D = `RUBBER_BAND` × the shorter
+  view side (half a view), so the centre is never more than half a view past the bound
+  (dragging a whole view past it shows a third). It is in view points, so it feels the same at
+  any depth. While the hand is on (direct manipulation within the last 0.1 s, or a swiping
+  finger) it holds; once off (`GestureEnd`, a lift, or 0.1 s without events for a trackpad
+  that rests) it springs back onto the bound: the excess decays with τ = 0.1 s
+  (`RUBBER_RETURN_TAU`, exact for any frame time) and snaps on within 0.25 pt. A fling into
+  the bound decelerates on the band and comes back the same way; held keys push a little past
+  it (their speed against the spring) and return when released. This is the iOS scroll-view
+  behaviour, chosen because the navigator is already spring-and-decay based and a hard wall
+  would eat input and stop flings dead.
+- *Targets are clamped*: `begin_flight` clamps every flight's target (fly-to, places, tours,
+  map option-click, journeys' legs, seek, cruise landing on home). A flight whose path would
+  zoom out past the limit on the way is capped there (van Wijk paths peak at a view about as
+  wide as the distance flown, so only corner-to-corner flights reach it).
+- *Views set from outside are clamped, not rejected*: `Navigator::keep_in_limits` (via
+  `Host::keep_in_limits`) clamps the scale to the limit and the centre onto the box at once.
+  `Host::frame` calls it before every frame, `set_viewport_text` (restore, the FFI setters)
+  right away, and the formula sync after a paste or place (so a pasted view gets its own
+  fractal's limits). A centre outside on the navigator's own rubber band is left to spring.
+  Not before the view has a size.
+
+The headless CLI (`render`, `verify`, `bench`) is not limited: it renders any view asked for;
+only navigation is.
+
+Tests: `every_zoom_out_stops_at_the_limit` (wheel zoom, magnify, pinch, wheel notches, − key,
+double tap out, held ⇧Space: within 0.02 e-folds of the limit, never past, monotonic, zoom in
+×1.15 exact at once), `the_zoom_limit_is_frame_rate_independent`,
+`a_drag_past_the_bound_is_resisted_and_springs_back`, `keys_and_zooms_keep_to_the_bound`,
+`targets_and_outside_views_are_clamped` (fly-to, restored far-out and deep-far-out views,
+Burning Ship's own box), `view_limits_hold_home_and_the_rescue_span` (every formula and window
+shape: home inside, the autopilot's `RESCUE_MAX_SPAN` ends before the limit),
+`rubber_band_resists_past_the_edge_only`, and the Metal host test
+`views_set_from_outside_come_into_the_limits`.
+
 ## Held input (as built, 2026-10-19)
 
 A press whose release never arrives must not hold the Navigator forever: a held key kept
