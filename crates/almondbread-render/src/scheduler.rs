@@ -6872,12 +6872,6 @@ impl<B: GpuBackend> Renderer<B> {
 
     // MARK: Scripted sessions (headless checks of the interactive pipeline)
 
-    /// Drives the interactive scheduler headlessly through [`Renderer::render_frame`], the
-    /// code the app runs per display refresh: `input(frame, dt, viewport)` runs before each
-    /// of the first `input_frames` refreshes (counted as a gesture), then the renderer idles
-    /// until the refined final frame is presented. Paced in real time, since the gesture/idle
-    /// logic is time based.
-    #[allow(clippy::too_many_arguments)]
     /// Reads the shown frame back into `gesture_captures` (blocks for the GPU).
     fn capture_gesture_frame(&mut self, points_per_pixel: f64) {
         self.wait_frames();
@@ -6886,13 +6880,21 @@ impl<B: GpuBackend> Renderer<B> {
         let level = &job.levels[job.display()];
         let at_limit = level.live_min_n == u32::MAX || level.live_min_n >= level.params.max_iter;
         let (gesture, max_iter, viewport) = (job.interactive, job.key.max_iter, job.key.viewport.clone());
-        let Some((pixels, width, height)) = self.capture_shown() else { return };
+        let Some((pixels, width, height)) = self.capture_shown() else {
+            return;
+        };
         let mut classes = vec![0u8; width * height];
         let known = match &self.history_class {
             Some(class)
                 if self
                     .backend
-                    .read_texture(&class[self.history_ping], width, height, TextureFormat::R8Uint, &mut classes)
+                    .read_texture(
+                        &class[self.history_ping],
+                        width,
+                        height,
+                        TextureFormat::R8Uint,
+                        &mut classes,
+                    )
                     .is_ok() =>
             {
                 let e = self.class_epoch as u8;
@@ -6915,6 +6917,12 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
+    /// Drives the interactive scheduler headlessly through [`Renderer::render_frame`], the
+    /// code the app runs per display refresh: `input(frame, dt, viewport)` runs before each
+    /// of the first `input_frames` refreshes (counted as a gesture), then the renderer idles
+    /// until the refined final frame is presented. Paced in real time, since the gesture/idle
+    /// logic is time based.
+    #[allow(clippy::too_many_arguments)]
     pub fn simulate(
         &mut self,
         width: usize,

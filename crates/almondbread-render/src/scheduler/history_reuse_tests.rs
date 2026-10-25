@@ -38,7 +38,9 @@ impl Session {
     fn frame(&mut self) -> bool {
         let now = self.r.clock();
         let t = self.target.clone();
-        self.r.render_frame(now, W, H, 1.0, &mut |_| Some((t.clone(), None))).animating
+        self.r
+            .render_frame(now, W, H, 1.0, &mut |_| Some((t.clone(), None)))
+            .animating
     }
 
     fn settle(&mut self) {
@@ -158,7 +160,11 @@ fn gesture_frames_keep_the_rest_frames_flat_interior() {
     let (worst, seen) = worst_interior_change(InteriorMode::Flat);
     assert!(seen >= 10, "only {seen} gesture frames at the limit");
     // (Before: up to 25 % of the deep interior drawn as fog rings; with it 0.001 %.)
-    assert!(worst < 0.005, "gesture frames change up to {:.2} % of the rest frame's interior", 100.0 * worst);
+    assert!(
+        worst < 0.005,
+        "gesture frames change up to {:.2} % of the rest frame's interior",
+        100.0 * worst
+    );
 }
 
 /// The analysed interiors: the preview's provisional cycle analysis fails on some rim texels
@@ -205,7 +211,11 @@ fn settings_changes_forget_the_history_results() {
         assert!(rest == W * H, "{name}: rest frame marks {rest} of {} pixels", W * H);
         s.pan();
         let kept = known(&s.classes(), epoch);
-        assert!(kept > W * H * 9 / 10, "{name}: a pan kept {kept} of {} pixels known", W * H);
+        assert!(
+            kept > W * H * 9 / 10,
+            "{name}: a pan kept {kept} of {} pixels known",
+            W * H
+        );
         s.settle();
         change(&mut s.r);
         for k in 0..4 {
@@ -213,7 +223,10 @@ fn settings_changes_forget_the_history_results() {
             let classes = s.classes();
             let stale = classes.iter().filter(|&&v| v != 0).count();
             assert!(s.r.class_epoch != epoch, "{name}: same class epoch after the change");
-            assert_eq!(stale, 0, "{name}: gesture frame {k} after the change keeps {stale} pixels known");
+            assert_eq!(
+                stale, 0,
+                "{name}: gesture frame {k} after the change keeps {stale} pixels known"
+            );
         }
     }
 }
@@ -228,7 +241,10 @@ fn unresolved_at_rest_counts_as_known() {
     let classes = s.classes();
     let epoch = s.r.class_epoch;
     let unresolved: Vec<usize> = (0..W * H).filter(|&i| t[i][0] == ITER_UNRESOLVED).collect();
-    assert!(!unresolved.is_empty(), "no unresolved texels at rest: pick another view");
+    assert!(
+        !unresolved.is_empty(),
+        "no unresolved texels at rest: pick another view"
+    );
     assert!(
         unresolved.iter().all(|&i| u32::from(classes[i]) == epoch),
         "unresolved rest texels not marked known"

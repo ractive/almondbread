@@ -889,7 +889,10 @@ fn gesture_check<B: GpuBackend + Clone>(
             && rv.angle == f.viewport.angle
             && rv.angle == 0.0
         {
-            let (dx, dy) = f.viewport.center.delta_in(&rv.center, f.viewport.scale * f.points_per_pixel);
+            let (dx, dy) = f
+                .viewport
+                .center
+                .delta_in(&rv.center, f.viewport.scale * f.points_per_pixel);
             let (sx, sy) = (dx.round() as i64, -dy.round() as i64);
             let px = |p: &[u8], x: i64, y: i64, c: usize| p[4 * (y as usize * w + x as usize) + c];
             let (mut cmp, mut bad) = (0usize, 0usize);
