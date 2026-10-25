@@ -838,7 +838,7 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
             // (While the autopilot or a flight runs, Rust takes scrolling as its speed.) The
             // phase says whether the fingers are on: they hold the rubber band at the view
             // limits, lifting them springs it back at once (kb: decisions/controls "View limits").
-            let phase: ScrollPhase
+            let phase: AlmondbreadCore.ScrollPhase
             if !event.momentumPhase.isEmpty {
                 phase = .momentum
             } else if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
