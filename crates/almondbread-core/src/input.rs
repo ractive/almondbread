@@ -666,6 +666,9 @@ pub struct Navigator {
     /// When direct manipulation (drag, scroll, pinch, magnify, twist) last moved the view: the
     /// rubber band holds while the hand is on.
     hand_at: f64,
+    /// When the spring back last tended the band (or the band was set): a band left alone
+    /// longer than [`RUBBER_STUCK`] with the hand off is clamped ([`Navigator::keep_in_limits`]).
+    spring_at: f64,
     /// The largest scale the current flight may show (its start's, if that was beyond the limit).
     flight_cap: Scale,
 }
@@ -677,6 +680,9 @@ const RUBBER_HOLD: f64 = 0.1;
 const FLING_BAND_TAU: f64 = 0.05;
 /// The spring back snaps onto the bound within this many view points.
 const RUBBER_SNAP: f64 = 0.25;
+/// A rubber band the spring back has not tended for this long (s) with the hand off is stuck:
+/// clamped onto the bound ([`Navigator::keep_in_limits`]).
+const RUBBER_STUCK: f64 = 0.5;
 
 /// A velocity following a target on a critically damped spring.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -786,6 +792,7 @@ impl Default for Navigator {
             probe: None,
             rubber: false,
             hand_at: f64::NEG_INFINITY,
+            spring_at: f64::NEG_INFINITY,
             flight_cap: Scale::from_f64(crate::viewport::MAX_SCALE),
         }
     }
@@ -1598,10 +1605,42 @@ impl Navigator {
             viewport.ensure_precision();
             changed = true;
         }
-        if !self.rubber && l.outside(&viewport.center) {
-            changed |= l.clamp(viewport);
+        if l.past(&viewport.center, viewport.scale) {
+            if !self.rubber {
+                changed |= l.clamp(viewport);
+            } else {
+                // The navigator's own band: never further out than the band, whatever moved
+                // the centre there; onto the bound if the spring back stopped tending it.
+                changed |= l.clamp_stretch(viewport, self.band());
+                if let Some(now) = self.last_tick
+                    && !self.hand_on(now)
+                    && now - self.spring_at > RUBBER_STUCK
+                {
+                    changed |= l.clamp(viewport);
+                    self.rubber = false;
+                }
+            }
         }
         changed
+    }
+
+    /// The most the rubber band stretches past the centre bound (view points).
+    fn band(&self) -> f64 {
+        RUBBER_BAND * self.min_side()
+    }
+
+    /// The centre's move left it past its bound: the band is set (it springs back), capped at
+    /// its most.
+    fn stretched(&mut self, viewport: &mut Viewport) {
+        let l = self.limits();
+        if !l.past(&viewport.center, viewport.scale) {
+            return;
+        }
+        if !self.rubber {
+            self.rubber = true;
+            self.spring_at = self.last_tick.unwrap_or(f64::NEG_INFINITY);
+        }
+        l.clamp_stretch(viewport, self.band());
     }
 
     /// The hand is on the view: direct manipulation just moved it, or a finger pans.
@@ -1616,13 +1655,11 @@ impl Navigator {
         }
         let l = self.limits();
         let past = l.edge_distances(&viewport.center, viewport.scale);
-        let band = RUBBER_BAND * self.min_side();
+        let band = self.band();
         let mx = ViewLimits::rubber_move(past[0], x, band);
         let my = ViewLimits::rubber_move(past[1], y, band);
         viewport.center = viewport.center.offset_scaled(mx, my, viewport.scale);
-        if l.outside(&viewport.center) {
-            self.rubber = true;
-        }
+        self.stretched(viewport);
     }
 
     /// Moves the content by (dx, dy) view points ([`Viewport::pan_by_points`]) through the
@@ -1656,15 +1693,23 @@ impl Navigator {
         let (mx, my) = viewport.center.delta_in(&before, viewport.scale);
         viewport.center = before.with_min_precision(viewport.needed_center_bits());
         self.move_center(viewport, mx, my);
+        // A zoom in while stretched shows the stretch larger: capped at the band (the centre
+        // slides towards the bound).
+        self.stretched(viewport);
     }
 
     /// Turns by `delta` about (x, y) ([`Viewport::rotate_by`]); a turn about an off-centre
-    /// point moves the centre, which may leave it past the bound (it springs back).
+    /// point moves the centre, through the rubber band like any other move (it springs back).
     fn rotate_view(&mut self, viewport: &mut Viewport, delta: f64, x: f64, y: f64) {
+        let before = viewport.center.clone();
         viewport.rotate_by(delta, x, y);
-        if self.limits().outside(&viewport.center) {
-            self.rubber = true;
+        let (mx, my) = viewport.center.delta_in(&before, viewport.scale);
+        if !(mx.is_finite() && my.is_finite()) {
+            self.stretched(viewport);
+            return;
         }
+        viewport.center = before;
+        self.move_center(viewport, mx, my);
     }
 
     /// The spring back onto the centre bound once the hand is off: the excess decays with
@@ -1673,8 +1718,9 @@ impl Navigator {
         if !self.rubber {
             return;
         }
+        self.spring_at = now;
         let l = self.limits();
-        if !l.outside(&viewport.center) {
+        if !l.past(&viewport.center, viewport.scale) {
             self.rubber = false;
             return;
         }
@@ -6555,5 +6601,295 @@ mod tests {
         let mut v = Viewport::new(-0.45, 3.5, 1.0);
         n.keep_in_limits(&mut v);
         assert!((v.center.im() - (0.62 + CENTER_LIMIT)).abs() < 1e-9 && v.scale == l.max_scale);
+    }
+
+    // MARK: View limits, user report 2026-10-25 (kb: decisions/controls "View limits")
+
+    /// The user's window (a full-screen 16" MacBook Pro: 1728 x 1081 points) at home.
+    fn user_window() -> (Navigator, Viewport) {
+        let mut n = Navigator::default();
+        let mut v = Viewport::fitting(1728.0, 1081.0);
+        n.handle(
+            InputEvent::Resize {
+                width: 1728.0,
+                height: 1081.0,
+            },
+            &mut v,
+            0.0,
+        );
+        (n, v)
+    }
+
+    /// How far the centre is past its box, in complex units (negative: inside).
+    fn past_bound(n: &Navigator, v: &Viewport) -> f64 {
+        let l = n.limits();
+        let re = (v.center.re() - l.center.0).abs() - CENTER_LIMIT;
+        let im = (v.center.im() - l.center.1).abs() - CENTER_LIMIT;
+        re.max(im)
+    }
+
+    /// One display refresh as the host runs it: views set from outside clamped, then motion.
+    fn host_frame(n: &mut Navigator, v: &mut Viewport, t: f64) {
+        n.keep_in_limits(v);
+        n.advance(v, t);
+    }
+
+    /// The user's report (2026-10-25, "I can keep panning", HUD at the zoom limit 0.78×, the
+    /// centre 2.59 past the im bound): Space held to zoom out at ×4.95/s (and faster after
+    /// E), or out and then in, with every kind of pan at once (keys, drag, trackpad scroll and
+    /// its momentum, flings, the stick, a pinch or wheel zoom or twist about an off-centre
+    /// point, the autopilot with keys): the centre is never further past its bound than the
+    /// band (RUBBER_BAND of the shorter side at the current scale; at most RUBBER_BAND of
+    /// the shorter side at the zoom limit in complex units), and it is back inside soon after
+    /// the hand lets go.
+    #[test]
+    fn space_zoom_with_panning_keeps_to_the_limits() {
+        type Drive = fn(&mut Navigator, &mut Viewport, f64, usize);
+        let drives: [(&str, Drive); 12] = [
+            ("arrow key", |n, v, t, i| {
+                if i == 0 {
+                    n.handle(InputEvent::KeyDown(NavKey::Right), v, t);
+                }
+            }),
+            ("two keys", |n, v, t, i| {
+                if i == 0 {
+                    n.handle(InputEvent::KeyDown(NavKey::Right), v, t);
+                    n.handle(InputEvent::KeyDown(NavKey::Down), v, t);
+                }
+            }),
+            ("drag", |n, v, t, _| {
+                n.handle(InputEvent::Pan { dx: -15.0, dy: -15.0 }, v, t);
+            }),
+            ("scroll", |n, v, t, _| {
+                let e = InputEvent::Scroll {
+                    dx: -15.0,
+                    dy: -15.0,
+                    momentum: false,
+                };
+                n.handle(e, v, t);
+            }),
+            ("scroll momentum", |n, v, t, i| {
+                let e = InputEvent::Scroll {
+                    dx: -15.0,
+                    dy: -15.0,
+                    momentum: i > 60,
+                };
+                n.handle(e, v, t);
+            }),
+            ("flings", |n, v, t, i| {
+                if i % 20 < 5 {
+                    n.handle(InputEvent::Pan { dx: -40.0, dy: -40.0 }, v, t);
+                } else if i % 20 == 5 {
+                    n.handle(InputEvent::GestureEnd, v, t);
+                }
+            }),
+            ("stick", |n, v, t, i| {
+                if i == 0 {
+                    let e = InputEvent::Gamepad {
+                        lx: 1.0,
+                        ly: -1.0,
+                        rx: 0.0,
+                        ry: 0.0,
+                        lt: 0.0,
+                        rt: 0.0,
+                        boost: true,
+                    };
+                    n.handle(e, v, t);
+                }
+            }),
+            ("pinch off centre", |n, v, t, _| {
+                let e = InputEvent::Pinch {
+                    ratio: 1.01,
+                    x: 800.0,
+                    y: 500.0,
+                    dx: -10.0,
+                    dy: -10.0,
+                };
+                n.handle(e, v, t);
+            }),
+            ("wheel in off centre", |n, v, t, _| {
+                let e = InputEvent::WheelZoom {
+                    delta: 0.2,
+                    x: 850.0,
+                    y: -520.0,
+                };
+                n.handle(e, v, t);
+            }),
+            ("twist off centre", |n, v, t, _| {
+                let e = InputEvent::Rotate {
+                    radians: 0.05,
+                    x: 850.0,
+                    y: 520.0,
+                };
+                n.handle(e, v, t);
+            }),
+            ("drag and twist", |n, v, t, _| {
+                n.handle(InputEvent::Pan { dx: -15.0, dy: -15.0 }, v, t);
+                let e = InputEvent::Rotate {
+                    radians: 0.03,
+                    x: -850.0,
+                    y: 520.0,
+                };
+                n.handle(e, v, t);
+            }),
+            ("autopilot and key", |n, v, t, i| {
+                if i == 0 {
+                    tap(n, v, NavKey::Autopilot, t);
+                    n.handle(InputEvent::KeyDown(NavKey::Right), v, t);
+                }
+            }),
+        ];
+        let min_side = 1081.0;
+        for zoom in ["space out", "space out faster", "space out then in"] {
+            for (name, drive) in drives {
+                let (mut n, mut v) = user_window();
+                let max_band = RUBBER_BAND * min_side * n.limits().max_scale.to_f64();
+                let mut t = 0.0;
+                n.handle(InputEvent::Shift(true), &mut v, t);
+                n.handle(InputEvent::KeyDown(NavKey::Zoom), &mut v, t);
+                if zoom == "space out faster" {
+                    tap(&mut n, &mut v, NavKey::FasterZoom, t);
+                    tap(&mut n, &mut v, NavKey::FasterZoom, t);
+                }
+                let mut worst: f64 = 0.0;
+                for i in 0..1200 {
+                    t += 1.0 / 120.0;
+                    if zoom == "space out then in" && i == 600 {
+                        n.handle(InputEvent::Shift(false), &mut v, t);
+                    }
+                    drive(&mut n, &mut v, t, i);
+                    host_frame(&mut n, &mut v, t);
+                    let past = past_bound(&n, &v);
+                    let band = RUBBER_BAND * min_side * v.scale.to_f64();
+                    assert!(
+                        past <= band * (1.0 + 1e-6) + 1e-12,
+                        "{zoom}, {name}, {i}: {past} past, band {band}"
+                    );
+                    assert!(past <= max_band * (1.0 + 1e-6), "{zoom}, {name}, {i}: {past}");
+                    assert!(v.scale <= n.limits().max_scale, "{zoom}, {name}, {i}: {}", v.scale);
+                    worst = worst.max(past);
+                }
+                // The user's state: 2.59 past the bound at the zoom limit; the band now allows
+                // well under one unit there.
+                assert!(worst < 0.8, "{zoom}, {name}: {worst}");
+                // The hand lets go: back inside within a second and a half.
+                n.handle(InputEvent::KeyUp(NavKey::Zoom), &mut v, t);
+                n.handle(InputEvent::Shift(false), &mut v, t);
+                n.handle(InputEvent::FocusLost, &mut v, t);
+                n.handle(InputEvent::GestureEnd, &mut v, t);
+                for _ in 0..180 {
+                    t += 1.0 / 120.0;
+                    host_frame(&mut n, &mut v, t);
+                }
+                assert!(
+                    past_bound(&n, &v) <= 1e-9,
+                    "{zoom}, {name}: {} past",
+                    past_bound(&n, &v)
+                );
+                assert!(!n.is_stretched(), "{zoom}, {name}: stretched");
+            }
+        }
+    }
+
+    /// Zooming out with Space at the default ×4.95/s slows visibly into the limit (the user:
+    /// "zooming out does not slow down"): from 90 % of the held rate down to a quarter takes
+    /// at least half a second, and it never passes the limit.
+    #[test]
+    fn space_zoom_out_slows_visibly_into_the_limit() {
+        let (mut n, mut v) = user_window();
+        let max = n.limits().max_scale;
+        // From 20 times deeper than the limit (3 e-folds: Space reaches its full rate first).
+        v.scale = max / 20.0;
+        let mut t = 0.0;
+        n.handle(InputEvent::Shift(true), &mut v, t);
+        n.handle(InputEvent::KeyDown(NavKey::Zoom), &mut v, t);
+        let full = n.zoom_speed();
+        let dt = 1.0 / 120.0;
+        let (mut slowing, mut slow) = (None, None);
+        let mut was_full = false;
+        for _ in 0..1200 {
+            let s0 = v.scale;
+            t += dt;
+            host_frame(&mut n, &mut v, t);
+            let rate = v.scale.ratio(s0).ln() / dt;
+            assert!(v.scale <= max);
+            if rate > 0.95 * full {
+                was_full = true;
+            }
+            if was_full && slowing.is_none() && rate < 0.9 * full {
+                slowing = Some(t);
+            }
+            if was_full && slow.is_none() && rate < 0.25 * full {
+                slow = Some(t);
+            }
+        }
+        let (a, b) = (slowing.expect("slows"), slow.expect("stops"));
+        assert!(b - a >= 0.5, "slows from 90 % to 25 % in {} s", b - a);
+        assert!(to_limit(&n, &v) < 0.02, "{}", to_limit(&n, &v));
+    }
+
+    /// The safety net: whatever left the centre past its bound with the band set (a jump while
+    /// stretched, a band that never springs back), `keep_in_limits` caps it at the band at
+    /// once, and clamps it onto the bound once the spring back has not run for a while with
+    /// the hand off.
+    #[test]
+    fn a_stuck_rubber_band_is_still_kept_in_limits() {
+        let (mut n, mut v) = user_window();
+        n.advance(&mut v, 10.0);
+        v.scale = n.limits().max_scale;
+        let l = n.limits();
+        v.center = Center::new(l.center.0 + 9.0, l.center.1 - 7.0);
+        n.rubber = true;
+        n.keep_in_limits(&mut v);
+        let band = RUBBER_BAND * 1081.0 * v.scale.to_f64();
+        let past = past_bound(&n, &v);
+        assert!(past <= band * (1.0 + 1e-9), "{past} past, band {band}");
+        // The spring back never runs (no frames advance the motion): clamped all the same.
+        n.last_tick = Some(11.0);
+        n.keep_in_limits(&mut v);
+        assert!(
+            past_bound(&n, &v) <= 1e-9 && !n.is_stretched(),
+            "{}",
+            past_bound(&n, &v)
+        );
+    }
+
+    /// At the zoom limit, stretched to the band at the worst corner of the box, some of the set
+    /// is still on screen (any window shape): the band never takes the set out of view.
+    #[test]
+    fn the_set_stays_in_view_at_the_band() {
+        let escapes = |re: f64, im: f64| {
+            let (mut x, mut y) = (0.0f64, 0.0f64);
+            for _ in 0..200 {
+                (x, y) = (x * x - y * y + re, 2.0 * x * y + im);
+                if x * x + y * y > 4.0 {
+                    return true;
+                }
+            }
+            false
+        };
+        for (w, h) in [(1728.0, 1081.0), (1000.0, 1000.0), (400.0, 860.0), (2560.0, 600.0)] {
+            let mut n = Navigator::default();
+            let mut v = Viewport::fitting(w, h);
+            n.handle(InputEvent::Resize { width: w, height: h }, &mut v, 0.0);
+            let l = n.limits();
+            let s = l.max_scale.to_f64();
+            let band = RUBBER_BAND * w.min(h) * s;
+            for (sx, sy) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+                let c = (
+                    l.center.0 + sx * (CENTER_LIMIT + band),
+                    l.center.1 + sy * (CENTER_LIMIT + band),
+                );
+                let mut inside = 0;
+                for i in 0..=400 {
+                    for j in 0..=400 {
+                        let re = c.0 + (i as f64 / 400.0 - 0.5) * w * s;
+                        let im = c.1 + (j as f64 / 400.0 - 0.5) * h * s;
+                        inside += usize::from(!escapes(re, im));
+                    }
+                }
+                assert!(inside > 0, "{w}x{h} corner ({sx}, {sy}): none of the set in view");
+            }
+        }
     }
 }

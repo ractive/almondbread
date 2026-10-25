@@ -364,11 +364,15 @@ pub const ZOOM_OUT_LIMIT: f64 = 0.5;
 /// centre, per complex axis (softly while the hand pans: [`ViewLimits::rubber_move`]).
 pub const CENTER_LIMIT: f64 = 2.5;
 /// Softness of the zoom-out limit (e-folds): zooming out eases into the limit over about this
-/// much zoom ([`ViewLimits::zoom_factor`]).
-pub const ZOOM_LIMIT_SOFTNESS: f64 = 0.3;
+/// much zoom ([`ViewLimits::zoom_factor`]). 0.8: at Space's default ×4.95/s the zoom slows
+/// from 90 % to a quarter of its rate over 0.64 s (0.3 took 0.24 s and read as a hard stop:
+/// "zooming out does not slow down", user 2026-10-25).
+pub const ZOOM_LIMIT_SOFTNESS: f64 = 0.8;
 /// The rubber band past the centre bound stretches at most this share of the view's shorter
-/// side ([`ViewLimits::rubber_move`]).
-pub const RUBBER_BAND: f64 = 0.5;
+/// side ([`ViewLimits::rubber_move`]; hard cap [`ViewLimits::clamp_stretch`]). 0.15: at the zoom
+/// limit at most 0.78 complex units in a 16:10 window, and part of the set stays in view at
+/// every corner (0.5 let the set leave the screen: "I can keep panning", user 2026-10-25).
+pub const RUBBER_BAND: f64 = 0.15;
 /// Time constant (s) of the centre's spring back into the bound once nothing pushes it out.
 pub const RUBBER_RETURN_TAU: f64 = 0.1;
 /// Deepest scale, log2 (about 1e-3010 per point): reference orbits there take 10 000+ bits;
@@ -616,6 +620,14 @@ impl ViewLimits {
         re.abs() > edge || im.abs() > edge
     }
 
+    /// The centre is past its box by more than a thousandth of a view point at `scale` (exact
+    /// at any depth, where [`ViewLimits::outside`]'s relative rounding margin would let a deep
+    /// view sit hundreds of points out; a centre clamped onto an edge is inside).
+    pub fn past(&self, c: &Center, scale: Scale) -> bool {
+        let [(a, b), (c, d)] = self.edge_distances(c, scale);
+        a.max(b).max(c).max(d) > 1e-3
+    }
+
     /// Clamps `v` into the limits at once (a jump, a restored or pasted view, a flight's
     /// target): the scale to the zoom-out limit (the centre stays), the centre onto its box.
     /// True if it changed.
@@ -625,7 +637,7 @@ impl ViewLimits {
             v.scale = self.max_scale;
             changed = true;
         }
-        if self.outside(&v.center) {
+        if self.past(&v.center, v.scale) {
             let [(re_hi, re_lo), (im_hi, im_lo)] = self.edge_distances(&v.center, v.scale);
             let back = |hi: f64, lo: f64| {
                 if hi > 0.0 {
@@ -651,6 +663,37 @@ impl ViewLimits {
             v.ensure_precision();
         }
         changed
+    }
+
+    /// Caps the centre at `band` view points past its box (the rubber band's most; the box
+    /// itself if `band` is 0): the safety net whatever moved it there (a zoom in or a turn
+    /// while stretched, a jump while stretched). True if it changed.
+    pub fn clamp_stretch(&self, v: &mut Viewport, band: f64) -> bool {
+        let band = if band.is_finite() { band.max(0.0) } else { 0.0 };
+        let [(re_hi, re_lo), (im_hi, im_lo)] = self.edge_distances(&v.center, v.scale);
+        let back = |hi: f64, lo: f64| {
+            if hi > band {
+                band - hi
+            } else if lo > band {
+                lo - band
+            } else {
+                0.0
+            }
+        };
+        let (dx, dy) = (back(re_hi, re_lo), back(im_hi, im_lo));
+        if dx == 0.0 && dy == 0.0 {
+            return false;
+        }
+        if dx.is_finite() && dy.is_finite() {
+            v.center = v.center.offset_scaled(dx, dy, v.scale);
+        } else {
+            // Beyond f64 in view points: onto the box (the band is nothing out there).
+            let (mx, my) = self.center;
+            let c = |x: f64, m: f64| x.clamp(m - CENTER_LIMIT, m + CENTER_LIMIT);
+            v.center = Center::new(c(v.center.re(), mx), c(v.center.im(), my));
+        }
+        v.ensure_precision();
+        true
     }
 
     /// The zoom factor (> 1 zooms in) that a zoom by `factor` at `scale` becomes: zooming in is
