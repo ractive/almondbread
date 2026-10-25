@@ -164,6 +164,24 @@ test instances. Only the driver session launches the app for the user.
 Simulator jobs are serialized by the simulator lock: never work around it (no own
 simulators, no `xcodebuild test` outside the scripts); keep simulator runs targeted.
 
+Which checks when (decided 2026-10-25). Iterate with targeted commands; run the final
+set once at the end, not after every edit. `make ios-sim` and `make ios-device-check` only
+compile (no simulator boots); `make rust` builds all three Rust targets, so during core work
+use `cargo test` and the CLI and leave the iOS builds for the end. The simulator runs the
+Rust code and shaders on the Mac's GPU: it adds nothing for core correctness, and only a
+device run sees iPhone/iPad GPU differences.
+
+| Change | While working | Final, once | Simulator runs | Device |
+|---|---|---|---|---|
+| Rust core, maths, scheduler | targeted `cargo test`, CLI `render`/`verify` | rust-check, build, app, selftest, ios-sim, ios-device-check | none | none |
+| Metal shaders | same | same | none | `ios-device-selftest` before a release, or when using new GPU features |
+| FFI API visible to Swift | same | same | `ios-selftest`, one device | none |
+| Swift UI, touch, layout, iPhone/iPad differences | swift-test, `--ui-demo` screens | all of the above | targeted `ios-uitest TESTS=…`, one device | none |
+| Release (driver only) | | all of the above | full suite, both devices | `ios-device-selftest` |
+
+`make interaction-test` while working: `ALMONDBREAD_SCENARIOS=` with the relevant scenarios;
+the full run once at the end when motion or rendering changed.
+
 ## Knowledge base
 
 `kb/` is an LLM-maintained wiki of the maths and engineering behind the
