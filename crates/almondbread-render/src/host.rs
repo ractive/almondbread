@@ -1159,7 +1159,10 @@ mod command_click_tests {
             // Onto the set's own box (its nearest point).
             let b = almondbread_core::viewport::set_box(f);
             let (re, im) = b.clamp(view.center.re(), view.center.im());
-            assert!((v.center.re() - re).abs() < 1e-9 && (v.center.im() - im).abs() < 1e-9, "{f:?}");
+            assert!(
+                (v.center.re() - re).abs() < 1e-9 && (v.center.im() - im).abs() < 1e-9,
+                "{f:?}"
+            );
             // Inside: unchanged.
             assert!(!h.keep_in_limits());
         }

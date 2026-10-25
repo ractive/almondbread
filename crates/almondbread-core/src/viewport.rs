@@ -1013,9 +1013,8 @@ mod tests {
         // Half the band at x = d/c.
         assert!((ViewLimits::rubber_stretch(d / RUBBER_STIFFNESS, d) - 0.5 * d).abs() < 1e-9);
         let mut last = 0.0;
-        let mut x = 0.0;
-        while x < 1e5 {
-            x += 1.0;
+        for i in 1..=100_000 {
+            let x = f64::from(i);
             let e = ViewLimits::rubber_stretch(x, d);
             assert!(e > last && e < d, "{x}: {e}");
             assert!((ViewLimits::rubber_travel(e, d) - x).abs() < 1e-6 * x.max(1.0), "{x}");
