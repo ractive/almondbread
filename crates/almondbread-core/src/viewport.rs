@@ -693,7 +693,7 @@ impl ViewLimits {
             if r <= 0.0 {
                 return m;
             }
-            if !(band > 0.0) {
+            if band.is_nan() || band <= 0.0 {
                 return free;
             }
             let e0 = dist.max(0.0).min(band * 0.999);
