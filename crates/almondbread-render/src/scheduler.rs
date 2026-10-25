@@ -1170,6 +1170,9 @@ pub struct GestureCapture {
     /// A gesture (preview) frame whose level reached the limit everywhere.
     pub gesture: bool,
     pub at_limit: bool,
+    /// Share of the pixels whose history holds a known result of the current settings ("fog
+    /// takes history"): what a gesture frame could take from the history instead of computing.
+    pub known: f64,
 }
 
 /// Which gesture frames [`Renderer::simulate`] reads back: every `stride`-th input frame.
@@ -5904,9 +5907,6 @@ impl<B: GpuBackend> Renderer<B> {
             self.class_epoch = self.class_epoch % 255 + 1;
             self.class_key = Some(k);
         }
-        if std::env::var("TMP_AB_NO_FOG_HISTORY").is_ok() {
-            return 0;
-        }
         self.class_epoch
     }
 
@@ -6887,6 +6887,19 @@ impl<B: GpuBackend> Renderer<B> {
         let at_limit = level.live_min_n == u32::MAX || level.live_min_n >= level.params.max_iter;
         let (gesture, max_iter, viewport) = (job.interactive, job.key.max_iter, job.key.viewport.clone());
         let Some((pixels, width, height)) = self.capture_shown() else { return };
+        let mut classes = vec![0u8; width * height];
+        let known = match &self.history_class {
+            Some(class)
+                if self
+                    .backend
+                    .read_texture(&class[self.history_ping], width, height, TextureFormat::R8Uint, &mut classes)
+                    .is_ok() =>
+            {
+                let e = self.class_epoch as u8;
+                classes.iter().filter(|&&c| c == e).count() as f64 / classes.len().max(1) as f64
+            }
+            _ => 0.0,
+        };
         if let Some(c) = self.gesture_captures.as_mut() {
             c.frames.push(GestureCapture {
                 viewport,
@@ -6897,6 +6910,7 @@ impl<B: GpuBackend> Renderer<B> {
                 height,
                 gesture,
                 at_limit,
+                known,
             });
         }
     }

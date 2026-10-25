@@ -89,7 +89,9 @@ release, 18 s flights: jump to the place, then 5 s of Space zoom):
 
 - Per output texel about **67 B** on the GPU heap (full level rg32f + rg16f + rg32f interior
   aux, the preview allocation with its rgba16f colour, two rgba16f history images, fog), plus
-  three BGRA8 drawables of the layer (not in `currentAllocatedSize`): budgeted as 80 B.
+  three BGRA8 drawables of the layer (not in `currentAllocatedSize`): budgeted as 80 B; since
+  2026-10-25 two R8 history class images more (2 B, [Frame reuse and progressive
+  refinement](../techniques/frame-reuse-and-progressive.md) "Fog takes history"): 82 B.
   Fixed about **108 MB** with the iOS defaults (live-list state, unresolved lists, kernels,
   survey, overlays), ~200 MB with the Mac's.
 - The Buddhabrot / Nebulabrot look (BB) adds 4 / 12 B per output pixel of histogram, 7.9 MB of
@@ -117,7 +119,7 @@ warning (`Explorer.setMemoryAvailable(available, warning)`). Rust sets a ceiling
 holds + what is available (re-read only when it moves by more than ×1.25, a warning only ever
 lowers it) and derives:
 
-- **texel cap** 40 % of the ceiling at 80 B/texel (≥ 0.5 Mpx): a larger view renders at a
+- **texel cap** 40 % of the ceiling at 82 B/texel (≥ 0.5 Mpx): a larger view renders at a
   lower scale and the layer stretches it (`Host::set_max_texels`, same aspect; checked on the
   simulator with `--memory-available-mb=250`: the iPad mini drew 928×1413 instead of
   1488×2266, filled the screen, shown frame = fresh render);

@@ -847,6 +847,7 @@ fn gesture_check<B: GpuBackend + Clone>(
 ) -> Result<()> {
     let (mut judged, mut sum_fog, mut max_fog, mut sum_diff, mut sum_mean) = (0usize, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
     let (mut sum_smooth, mut max_smooth, mut smooth_frames) = (0.0f64, 0.0f64, 0usize);
+    let mut sum_known = 0.0f64;
     let mut worst: Option<(f64, usize, Vec<u8>)> = None;
     let skipped = frames.iter().filter(|f| !(f.gesture && f.at_limit)).count();
     for (k, f) in frames.iter().enumerate() {
@@ -923,9 +924,12 @@ fn gesture_check<B: GpuBackend + Clone>(
             }
         }
         println!(
-            "gesture frame {:>3}: interior at rest drawn otherwise {fog:6.3}%, differing > 24 levels {diff:6.3}%, mean difference {mean:5.2} levels{smooth_text}",
-            (k + 1) * r.gesture_captures.as_ref().map_or(1, |c| c.stride)
+            "gesture frame {:>3}: maxIter {}, history known {:5.1}%, interior at rest drawn otherwise {fog:6.3}%, differing > 24 levels {diff:6.3}%, mean difference {mean:5.2} levels{smooth_text}",
+            (k + 1) * o.usize("gesture-check").unwrap_or(1),
+            f.max_iter,
+            100.0 * f.known
         );
+        sum_known += f.known;
         judged += 1;
         sum_fog += fog;
         max_fog = max_fog.max(fog);
@@ -942,7 +946,8 @@ fn gesture_check<B: GpuBackend + Clone>(
     }
     let m = judged.max(1) as f64;
     println!(
-        "gesture check: {judged} frames judged ({skipped} not at the limit or not gesture frames): interior drawn otherwise mean {:.3}% / max {max_fog:.3}%, differing mean {:.3}%, mean difference {:.2} levels",
+        "gesture check: {judged} frames judged ({skipped} not at the limit or not gesture frames): history known mean {:.1}%, interior drawn otherwise mean {:.3}% / max {max_fog:.3}%, differing mean {:.3}%, mean difference {:.2} levels",
+        100.0 * sum_known / m,
         sum_fog / m,
         sum_diff / m,
         sum_mean / m

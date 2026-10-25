@@ -7,8 +7,9 @@
 //! --ios 1` prints the peak by kind, kb: platform/ios-device "Measured"):
 //!
 //! - per output texel: the full level (rg32f + rg16f, rg32f interior aux), the preview
-//!   allocation (the same plus rgba16f colour), two rgba16f history images, the fog pyramid:
-//!   67 B on the device's GPU heap, plus three BGRA8 drawables of the layer: [`TEXEL_BYTES`];
+//!   allocation (the same plus rgba16f colour), two rgba16f history images and their two R8
+//!   class images ("fog takes history", 2 B, 2026-10-25), the fog pyramid: 69 B on the
+//!   device's GPU heap, plus three BGRA8 drawables of the layer: [`TEXEL_BYTES`];
 //! - per reference point (deep references): float32 and floatexp points on the CPU and again
 //!   on the GPU, and while it is computed the progressive prefixes and vector growth: about
 //!   130 B per point of process footprint (manual 10 M limit at spiral-1e1000: +408 MB over
@@ -20,7 +21,7 @@
 
 /// Bytes the renderer holds per output texel at the most (all per-pixel textures and buffers
 /// allocated: interior colouring, previews, history, lists, fog).
-pub const TEXEL_BYTES: u64 = 80;
+pub const TEXEL_BYTES: u64 = 82;
 
 /// Bytes per point of a deep reference with its tables, CPU and GPU copies together.
 pub const REFERENCE_POINT_BYTES: u64 = 130;
