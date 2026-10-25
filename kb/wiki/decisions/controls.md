@@ -3572,7 +3572,9 @@ centre moved back in the same refresh (122 → 117 pt), 5 pt at 1.70, on the bou
 reached the lower bound at 3.33 s peaked at 24 pt at 3.40 s and was back on the bound at 3.74 s.
 A mouse drag right (1500 pt/s for 1 s) peaked at 131 pt and settled 0.38 s after the release.
 On 8f922bf the momentum renewed the hand hold, so the band stayed out until it died away (the
-user's "about 2 seconds").
+user's "about 2 seconds"). `make interaction-test` (65 scenarios): mean 102.9 fps (the first
+build's run: 104.3, within run-to-run noise; only the navigator's limit arithmetic changed), every
+compared shown frame equal to a fresh render.
 
 The headless CLI (`render`, `verify`, `bench`) is not limited: it renders any view asked for;
 only navigation is.
