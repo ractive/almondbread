@@ -352,8 +352,25 @@ pub fn wrap_angle(a: f64) -> f64 {
 
 /// Scale of the home view.
 pub const HOME_SCALE: f64 = 3.0 / 800.0;
-/// Largest scale (most zoomed out).
-pub const MAX_SCALE: f64 = 0.05;
+/// Largest scale any view may have: a sanity bound on numbers (extreme inputs, degenerate
+/// view sizes), far beyond what navigation reaches. The user's zoom-out limit is
+/// [`ZOOM_OUT_LIMIT`] of the formula's home view ([`ViewLimits`]).
+pub const MAX_SCALE: f64 = 1.0;
+/// Zoom-out limit, relative to the formula's home view fitted to the window (kb:
+/// decisions/controls "View limits"): the view never shows more than 1 / this times the
+/// home view's extent, so the whole set stays comfortably in view at any window size.
+pub const ZOOM_OUT_LIMIT: f64 = 0.5;
+/// Centre bound: the view centre stays within ± this many complex units of the formula's home
+/// centre, per complex axis (softly while the hand pans: [`ViewLimits::rubber_move`]).
+pub const CENTER_LIMIT: f64 = 2.5;
+/// Softness of the zoom-out limit (e-folds): zooming out eases into the limit over about this
+/// much zoom ([`ViewLimits::zoom_factor`]).
+pub const ZOOM_LIMIT_SOFTNESS: f64 = 0.3;
+/// The rubber band past the centre bound stretches at most this share of the view's shorter
+/// side ([`ViewLimits::rubber_move`]).
+pub const RUBBER_BAND: f64 = 0.5;
+/// Time constant (s) of the centre's spring back into the bound once nothing pushes it out.
+pub const RUBBER_RETURN_TAU: f64 = 0.1;
 /// Deepest scale, log2 (about 1e-3010 per point): reference orbits there take 10 000+ bits;
 /// a practical bound, not a numerical one (kb: synthesis/benchmarks M3b).
 pub const MIN_SCALE_LOG2: i64 = -10_000;
@@ -542,6 +559,159 @@ impl Viewport {
     }
 }
 
+/// Where navigation may take the view (kb: decisions/controls "View limits"): the scale at
+/// most that of [`ZOOM_OUT_LIMIT`] times the home view's zoom, the centre within
+/// [`CENTER_LIMIT`] of the home centre per complex axis. One set of limits for every path: the
+/// navigator's motion (soft), and jumps, flights, places, tours, restored or pasted views
+/// (clamped).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewLimits {
+    /// The home view's centre (the middle of the centre's box).
+    pub center: (f64, f64),
+    /// The largest scale (most zoomed out).
+    pub max_scale: Scale,
+}
+
+impl ViewLimits {
+    /// The limits of `formula`'s home view fitted to a `width` x `height` view (points).
+    pub fn new(formula: crate::formula::Formula, width: f64, height: f64) -> Self {
+        let home = Viewport::fitting_for(formula, width, height);
+        Self {
+            center: (home.center.re(), home.center.im()),
+            max_scale: (home.scale / ZOOM_OUT_LIMIT).min(Scale::from_f64(MAX_SCALE)),
+        }
+    }
+
+    /// Signed distances of `c` past the box's edges in units of `scale` (view points), per
+    /// complex axis: `[re, im]`, each `(past the upper edge, past the lower edge)`; negative
+    /// inside. Exact at any depth near the edges; far inside f64 is enough.
+    pub fn edge_distances(&self, c: &Center, scale: Scale) -> [(f64, f64); 2] {
+        let (re, im) = (c.re(), c.im());
+        let axis = |v: f64, mid: f64, k: usize| {
+            let (hi, lo) = (mid + CENTER_LIMIT, mid - CENTER_LIMIT);
+            if v < hi - 1e-6 && v > lo + 1e-6 {
+                let s = scale.to_f64();
+                let f = |x: f64| if s > 0.0 { x / s } else { f64::NEG_INFINITY };
+                return (f(v - hi), f(lo - v));
+            }
+            let past = |edge: f64| {
+                let e = if k == 0 {
+                    Center::new(edge, im)
+                } else {
+                    Center::new(re, edge)
+                };
+                let (x, y) = c.delta_in(&e, scale);
+                if k == 0 { x } else { y }
+            };
+            (past(hi), -past(lo))
+        };
+        [axis(re, self.center.0, 0), axis(im, self.center.1, 1)]
+    }
+
+    /// The centre is outside its box (by more than rounding: a centre clamped onto an edge is
+    /// inside).
+    pub fn outside(&self, c: &Center) -> bool {
+        let (re, im) = (c.re() - self.center.0, c.im() - self.center.1);
+        let edge = CENTER_LIMIT * (1.0 + 1e-12);
+        re.abs() > edge || im.abs() > edge
+    }
+
+    /// Clamps `v` into the limits at once (a jump, a restored or pasted view, a flight's
+    /// target): the scale to the zoom-out limit (the centre stays), the centre onto its box.
+    /// True if it changed.
+    pub fn clamp(&self, v: &mut Viewport) -> bool {
+        let mut changed = false;
+        if v.scale > self.max_scale {
+            v.scale = self.max_scale;
+            changed = true;
+        }
+        if self.outside(&v.center) {
+            let [(re_hi, re_lo), (im_hi, im_lo)] = self.edge_distances(&v.center, v.scale);
+            let back = |hi: f64, lo: f64| {
+                if hi > 0.0 {
+                    -hi
+                } else if lo > 0.0 {
+                    lo
+                } else {
+                    0.0
+                }
+            };
+            let (dx, dy) = (back(re_hi, re_lo), back(im_hi, im_lo));
+            if dx.is_finite() && dy.is_finite() {
+                v.center = v.center.offset_scaled(dx, dy, v.scale);
+            } else {
+                // Beyond f64 in view points (deep and far out): nothing out there to keep.
+                let (mx, my) = self.center;
+                let c = |x: f64, m: f64| x.clamp(m - CENTER_LIMIT, m + CENTER_LIMIT);
+                v.center = Center::new(c(v.center.re(), mx), c(v.center.im(), my));
+            }
+            changed = true;
+        }
+        if changed {
+            v.ensure_precision();
+        }
+        changed
+    }
+
+    /// The zoom factor (> 1 zooms in) that a zoom by `factor` at `scale` becomes: zooming in is
+    /// untouched; zooming out eases into the limit without reaching or passing it. With
+    /// u = ln(max_scale / scale) the e-folds left to the limit and B = [`ZOOM_LIMIT_SOFTNESS`],
+    /// a zoom out by Δ moves a raw coordinate r by −Δ, where u = r for r ≥ B (exactly the plain
+    /// zoom) and u = B·e^((r − B)/B) below (continuous with its slope): in the last B e-folds
+    /// the zoom slows exponentially to a stop at the limit, no overshoot, no bounce. Steps
+    /// compose exactly (frame-rate independent). At or past the limit a zoom out does nothing.
+    pub fn zoom_factor(&self, scale: Scale, factor: f64) -> f64 {
+        if !(factor.is_finite() && factor > 0.0) || factor >= 1.0 {
+            return factor;
+        }
+        let u = self.max_scale.ln() - scale.ln();
+        let b = ZOOM_LIMIT_SOFTNESS;
+        let delta = -factor.ln();
+        if u - delta >= b {
+            return factor;
+        }
+        if u <= 0.0 {
+            return 1.0;
+        }
+        let r = if u >= b { u } else { b + b * (u / b).ln() };
+        let r1 = r - delta;
+        let u1 = if r1 >= b { r1 } else { b * ((r1 - b) / b).exp() };
+        (u1 - u).exp()
+    }
+
+    /// A centre move of `m` view points along one complex axis (+ towards the upper edge), with
+    /// the rubber band past the box: `past` is that axis's pair from
+    /// [`ViewLimits::edge_distances`], `band` the most the band stretches (points). Inside the
+    /// box, and moving back, the move is whole; past the edge the raw travel r stretches the
+    /// band to e = D·r / (D + r) (D = `band`), so the centre never gets more than `band` past
+    /// the edge.
+    pub fn rubber_move(past: (f64, f64), m: f64, band: f64) -> f64 {
+        let along = |dist: f64, m: f64| {
+            // m > 0, towards the edge `dist` away (negative: inside).
+            let free = if dist < 0.0 { m.min(-dist) } else { 0.0 };
+            let r = m - free;
+            if r <= 0.0 {
+                return m;
+            }
+            if band.is_nan() || band <= 0.0 {
+                return free;
+            }
+            let e0 = dist.max(0.0).min(band * 0.999);
+            let raw0 = band * e0 / (band - e0);
+            let raw1 = raw0 + r;
+            let e1 = band * raw1 / (band + raw1);
+            free + (e1 - e0).max(0.0)
+        };
+        if m > 0.0 {
+            along(past.0, m)
+        } else if m < 0.0 {
+            -along(past.1, -m)
+        } else {
+            0.0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,6 +735,53 @@ mod tests {
         let mut d = Viewport::with_center(Center::new(-0.75, 0.0), Scale::pow2(MIN_SCALE_LOG2 + 3));
         d.zoom_by(100.0, 0.0, 0.0);
         assert!(d.at_precision_limit());
+    }
+
+    /// The view limits per formula and window shape: the home view fits well inside them,
+    /// and the autopilot's rescue ends (at its span) before the zoom-out limit.
+    #[test]
+    fn view_limits_hold_home_and_the_rescue_span() {
+        use crate::formula::Formula;
+        let julia = Formula::Julia(crate::formula::JuliaK::new(Center::new(-0.12256, 0.74486).big()));
+        for f in crate::formula::selectable().into_iter().chain([julia]) {
+            for (w, h) in [
+                (1000.0, 600.0),
+                (390.0, 844.0),
+                (1440.0, 900.0),
+                (2000.0, 400.0),
+                (300.0, 300.0),
+            ] {
+                let l = ViewLimits::new(f, w, h);
+                let home = Viewport::fitting_for(f, w, h);
+                assert!((l.max_scale.ratio(home.scale) - 1.0 / ZOOM_OUT_LIMIT).abs() < 1e-12);
+                assert!(!l.outside(&home.center));
+                let mut v = home.clone();
+                assert!(!l.clamp(&mut v) && v == home, "{f:?} {w}x{h}: home moved");
+                let span = l.max_scale.to_f64() * w.min(h);
+                assert!(span > crate::autopilot::RESCUE_MAX_SPAN * 1.2, "{f:?} {w}x{h}: {span}");
+            }
+        }
+    }
+
+    #[test]
+    fn rubber_band_resists_past_the_edge_only() {
+        let band = 300.0;
+        // Inside: whole; crossing: whole up to the edge, then resisted.
+        assert_eq!(ViewLimits::rubber_move((-50.0, -4000.0), 40.0, band), 40.0);
+        let m = ViewLimits::rubber_move((-50.0, -4000.0), 80.0, band);
+        assert!(m > 50.0 && m < 80.0, "{m}");
+        // Past the edge: never beyond the band however far it is pulled.
+        let mut e = 0.0;
+        for _ in 0..10_000 {
+            e += ViewLimits::rubber_move((e, -4000.0 - e), 10.0, band);
+            assert!(e < band);
+        }
+        assert!(e > 0.9 * band, "{e}");
+        // Back in: whole. Downwards the same, mirrored.
+        assert_eq!(ViewLimits::rubber_move((120.0, -6000.0), -30.0, band), -30.0);
+        assert_eq!(ViewLimits::rubber_move((-6000.0, 120.0), 30.0, band), 30.0);
+        let d = ViewLimits::rubber_move((-6000.0, 0.0), -100.0, band);
+        assert!(d < 0.0 && d > -100.0 && -d < band, "{d}");
     }
 
     #[test]

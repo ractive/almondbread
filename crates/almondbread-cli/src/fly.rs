@@ -221,7 +221,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let null = out == "null";
     let (tx, writer) = spawn_writer(open_sink(&out, size, fps, o)?, size);
     let mut log = String::from(
-        "refresh,t,presented,preview,render_w,render_h,zoom_log10,late_ms,frame_cpu_ms,ap_rate,ap_throttle,ap_safety,ap_hint,pointer_x,pointer_y,fly_progress,ap_detail,ap_uniform,ap_rescue,lock,ap_fit,ap_capture,ap_waiting_ref,ap_survey_steer\n",
+        "refresh,t,presented,preview,render_w,render_h,zoom_log10,late_ms,frame_cpu_ms,ap_rate,ap_throttle,ap_safety,ap_hint,pointer_x,pointer_y,fly_progress,ap_detail,ap_uniform,ap_rescue,lock,ap_fit,ap_capture,ap_waiting_ref,ap_survey_steer,center_re,center_im\n",
     );
     let mut hints: std::collections::BTreeMap<String, usize> = Default::default();
     let mut ap_frames = 0usize;
@@ -430,7 +430,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             apm.wish_frames += usize::from(ap.wish().is_some());
         }
         log.push_str(&format!(
-            "{k},{t:.4},{},{},{},{},{:.4},{:.2},{:.3},{:.4},{:.3},{:.3},{:?},{:.1},{:.1},{:.4},{:.2},{},{},\"{}\",{:.4},{:.3},{},{}\n",
+            "{k},{t:.4},{},{},{},{},{:.4},{:.2},{:.3},{:.4},{:.3},{:.3},{:?},{:.1},{:.1},{:.4},{:.2},{},{},\"{}\",{:.4},{:.3},{},{},{:.6},{:.6}\n",
             u8::from(outcome.presented),
             u8::from(st.is_preview),
             st.render_size.0,
@@ -453,6 +453,8 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             ap.capture(),
             u8::from(ap.feedback().waiting_reference),
             u8::from(ap.is_survey_steering()),
+            r.viewport.center.re(),
+            r.viewport.center.im(),
         ));
         flush(&r, &mut queue, &mut last_image, false)?;
     }

@@ -729,6 +729,15 @@ impl<B: GpuBackend + Clone> Host<B> {
         true
     }
 
+    /// Clamps the view into the view limits of the current formula and size (kb:
+    /// decisions/controls "View limits"): a view set from outside the navigator, at once; the
+    /// navigator's own rubber band is left to spring back. True if the view changed.
+    pub fn keep_in_limits(&mut self) -> bool {
+        let r = &mut self.renderer;
+        r.navigator.set_formula(r.settings.formula);
+        r.navigator.keep_in_limits(&mut r.viewport)
+    }
+
     /// The home view fitted to the view (a Julia set's whole view in a Julia view, F4).
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
@@ -768,6 +777,9 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         let mut tag = 0;
         self.overlay_before(now);
+        // Views set from outside (restored, pasted, places, tours, map jumps, a formula or
+        // window change) come into the view limits (kb: decisions/controls "View limits").
+        self.keep_in_limits();
         let (w, h, ppp) = (self.width, self.height, self.points_per_pixel);
         let mut outcome = self
             .renderer
@@ -1121,6 +1133,35 @@ mod command_click_tests {
         assert_eq!(h.renderer.settings.formula, k);
         let r = double_click(&mut h, p, false, true, 3.2);
         assert!((r - 2.0).abs() < 1e-9, "zoomed ×{r}");
+    }
+
+    /// View limits (kb: decisions/controls "View limits"): a view restored or set from outside
+    /// beyond them is clamped (not rejected) to the formula's own limits (`Host::frame` does
+    /// this before every frame).
+    #[test]
+    fn views_set_from_outside_come_into_the_limits() {
+        for (f, view) in [
+            (Formula::Mandelbrot, Viewport::new(-30.0, 9.0, 0.05)),
+            (Formula::BurningShip, Viewport::new(-0.45, -4.0, 0.2)),
+        ] {
+            let mut h = host();
+            h.renderer.settings.formula = f;
+            h.renderer.navigator.jumped();
+            h.renderer.viewport = view;
+            assert!(h.keep_in_limits(), "{f:?}");
+            let home = Viewport::fitting_for(f, W, H);
+            let v = &h.renderer.viewport;
+            assert_eq!(
+                v.scale,
+                home.scale / almondbread_core::viewport::ZOOM_OUT_LIMIT,
+                "{f:?}"
+            );
+            let lim = almondbread_core::viewport::CENTER_LIMIT;
+            let (dx, dy) = (v.center.re() - home.center.re(), v.center.im() - home.center.im());
+            assert!(dx.abs() <= lim + 1e-9 && dy.abs() <= lim + 1e-9 && dx.abs().max(dy.abs()) > lim - 1e-9);
+            // Inside: unchanged.
+            assert!(!h.keep_in_limits());
+        }
     }
 
     #[test]

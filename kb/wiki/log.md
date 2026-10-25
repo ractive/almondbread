@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-25
 
+- **Decision:** View limits: zoom-out limit 0.5x of each formula's home, centre within home ±2.5 per axis; soft zoom stop, rubber band with spring back, clamped targets and restored views (decisions/controls)
 - **Research:** Gesture-frame interior colourings: bubbles rings flickered while panning because gesture levels (no probe, no extension) left near-boundary interior pixels unresolved; fixed by a capped provisional cycle analysis (coloring-methods Gesture frames, benchmarks)
 
 ## 2026-10-24
