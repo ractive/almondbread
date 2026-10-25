@@ -31,6 +31,8 @@ pub enum TextureFormat {
     Rgba16Float,
     /// sRGB-encoded output (drawables, offscreen targets).
     Bgra8Unorm,
+    /// One unsigned byte (the history's class epoch per pixel).
+    R8Uint,
 }
 
 impl TextureFormat {
@@ -38,6 +40,7 @@ impl TextureFormat {
         match self {
             Self::Rg32Float | Self::Rgba16Float => 8,
             Self::Rg16Float | Self::Bgra8Unorm => 4,
+            Self::R8Uint => 1,
         }
     }
 }

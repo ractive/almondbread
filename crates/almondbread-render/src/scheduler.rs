@@ -977,6 +977,23 @@ struct PreviewColor<B: GpuBackend> {
     jitter: [f32; 2],
 }
 
+/// What makes a history pixel's result (escaped, interior, unresolved at rest) valid for
+/// the current job besides the view ("fog takes history", kb:
+/// techniques/frame-reuse-and-progressive): the formula and its parameters, the kernels'
+/// tests and the user's iteration-limit settings. The per-view limit (depth heuristic,
+/// learned limit) is not in it: the history only stands in for preview texels unresolved at
+/// the preview's limit, and there a result at any limit of the same settings is what the
+/// rest frame showed or will show (proven interior is a proof, unresolved stays fog).
+#[derive(Clone, Debug, PartialEq)]
+struct ClassKey {
+    formula: Formula,
+    de: bool,
+    interior: bool,
+    interior_color: bool,
+    retry: u32,
+    limits: (bool, usize, usize),
+}
+
 /// The last composed image (FL): which view it shows, at what scale, with which colours.
 #[derive(Clone, Debug)]
 struct HistoryView {
@@ -1135,6 +1152,31 @@ pub struct OffscreenResult {
     pub orbits: Option<(f64, f64)>,
 }
 
+/// A gesture frame as shown, read back by [`Renderer::simulate`] when
+/// [`Renderer::gesture_captures`] asks for it (`verify --history ... --gesture-check n`: the
+/// shown frame against a rest render of the same view).
+#[derive(Clone, Debug)]
+pub struct GestureCapture {
+    /// The view (points), the points per pixel and the job's iteration limit.
+    pub viewport: Viewport,
+    pub points_per_pixel: f64,
+    pub max_iter: usize,
+    /// BGRA8 sRGB pixels of the shown frame.
+    pub pixels: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
+    /// A gesture (preview) frame whose level reached the limit everywhere.
+    pub gesture: bool,
+    pub at_limit: bool,
+}
+
+/// Which gesture frames [`Renderer::simulate`] reads back: every `stride`-th input frame.
+#[derive(Clone, Debug, Default)]
+pub struct GestureCaptures {
+    pub stride: usize,
+    pub frames: Vec<GestureCapture>,
+}
+
 /// A scripted headless session through the interactive scheduler.
 #[derive(Clone, Debug)]
 pub struct SimulationResult {
@@ -1180,6 +1222,8 @@ pub struct Renderer<B: GpuBackend> {
     pub config: SchedulerConfig,
     pub stats: ShownStats,
     pub frame_stats: Option<FrameStats>,
+    /// Gesture frames to read back during [`Renderer::simulate`] (None: no cost).
+    pub gesture_captures: Option<GestureCaptures>,
     /// Render progress of the current view (kb: decisions/controls "Render progress").
     pub progress: crate::progress::ProgressTracker,
 
@@ -1218,6 +1262,12 @@ pub struct Renderer<B: GpuBackend> {
     aa_list_buffer: Option<(B::Buffer, usize)>,
     /// Ping-pong history images (linear colour + confidence) at the output size (FL).
     history: Option<[B::Texture; 2]>,
+    /// Per history pixel (same ping): the class epoch its result belongs to (0: none, a
+    /// gesture blend). R8Uint, 2 B per pixel for both.
+    history_class: Option<[B::Texture; 2]>,
+    /// The current class epoch (1..=255) and the settings it stands for.
+    class_epoch: u32,
+    class_key: Option<ClassKey>,
     history_ping: usize,
     history_view: Option<HistoryView>,
     /// When the last frame was composed (fade and AA timing).
@@ -1497,6 +1547,7 @@ impl<B: GpuBackend> Renderer<B> {
             config,
             stats: ShownStats::default(),
             frame_stats: None,
+            gesture_captures: None,
             progress: Default::default(),
             prepare_pipeline,
             finish_pipeline,
@@ -1520,6 +1571,9 @@ impl<B: GpuBackend> Renderer<B> {
             escape_pivot: None,
             aa_list_buffer: None,
             history: None,
+            history_class: None,
+            class_epoch: 1,
+            class_key: None,
             history_ping: 0,
             history_view: None,
             last_compose: 0.0,
@@ -5428,6 +5482,8 @@ impl<B: GpuBackend> Renderer<B> {
         self.ensure_history(out_w, out_h)?;
         let history = self.history.clone().expect("history");
         let full = self.full_set.clone().expect("full level textures");
+        let class_key = self.job.as_ref().expect("job").key.clone();
+        let class_epoch = self.class_epoch_for(&class_key);
         let job = self.job.as_ref().expect("job");
         let key = job.key.clone();
         let mut enc = self.backend.begin("compose")?;
@@ -5525,6 +5581,7 @@ impl<B: GpuBackend> Renderer<B> {
         };
         // Reprojection of the history into this view: scale, rotation and translation.
         let s = key.viewport.scale * key.points_per_pixel;
+        q.class_epoch = class_epoch;
         q.hist_rot = [1.0, 0.0];
         if let Some(h) = &self.history_view
             && self.same_colors(h, colors)
@@ -5565,6 +5622,9 @@ impl<B: GpuBackend> Renderer<B> {
             .map_or(&self.dummy_buffer, |m| &m.0);
         enc.set_buffer(5, mask, 0);
         enc.set_texture(7, fog.as_ref().unwrap_or(&iter_tex));
+        let class = self.history_class.clone().expect("history class");
+        enc.set_texture(8, &class[self.history_ping]);
+        enc.set_texture(9, &class[1 - self.history_ping]);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5648,6 +5708,7 @@ impl<B: GpuBackend> Renderer<B> {
             ..ComposeParams::default()
         };
         let s = key.viewport.scale * key.points_per_pixel;
+        q.class_epoch = self.class_epoch_for(key);
         q.hist_rot = [1.0, 0.0];
         if let Some(h) = &self.history_view
             && self.same_colors(h, colors)
@@ -5670,6 +5731,9 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_bytes(4, bytes_of(&q));
         enc.set_buffer(5, &self.dummy_buffer, 0);
         enc.set_texture(7, hist_in);
+        let class = self.history_class.clone().expect("history class");
+        enc.set_texture(8, &class[self.history_ping]);
+        enc.set_texture(9, &class[1 - self.history_ping]);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5813,8 +5877,35 @@ impl<B: GpuBackend> Renderer<B> {
             b.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?,
             b.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?,
         ]);
+        self.history_class = Some([
+            b.create_texture(width, height, TextureFormat::R8Uint, Storage::Private)?,
+            b.create_texture(width, height, TextureFormat::R8Uint, Storage::Private)?,
+        ]);
         self.history_view = None;
         Ok(())
+    }
+
+    /// The class epoch of `key`'s results: a new one when the settings that decide them
+    /// changed (formula, tests, limit settings), so no history pixel of the old ones is taken
+    /// for a known result ("fog takes history", kb: techniques/frame-reuse-and-progressive).
+    fn class_epoch_for(&mut self, key: &ComputeKey) -> u32 {
+        let s = &self.settings;
+        let k = ClassKey {
+            formula: key.formula,
+            de: key.de,
+            interior: key.interior,
+            interior_color: key.interior_color,
+            retry: key.retry,
+            limits: (s.auto_iterations, s.manual_iterations, s.max_iterations_cap),
+        };
+        if self.class_key.as_ref() != Some(&k) {
+            self.class_epoch = self.class_epoch % 255 + 1;
+            self.class_key = Some(k);
+        }
+        if std::env::var("TMP_AB_NO_FOG_HISTORY").is_ok() {
+            return 0;
+        }
+        self.class_epoch
     }
 
     /// Colour parameters of the current settings; the palette phase includes colour cycling
@@ -6785,6 +6876,29 @@ impl<B: GpuBackend> Renderer<B> {
     /// until the refined final frame is presented. Paced in real time, since the gesture/idle
     /// logic is time based.
     #[allow(clippy::too_many_arguments)]
+    /// Reads the shown frame back into `gesture_captures` (blocks for the GPU).
+    fn capture_gesture_frame(&mut self, points_per_pixel: f64) {
+        self.wait_frames();
+        self.drain_in_flight();
+        let Some(job) = self.job.as_ref() else { return };
+        let level = &job.levels[job.display()];
+        let at_limit = level.live_min_n == u32::MAX || level.live_min_n >= level.params.max_iter;
+        let (gesture, max_iter, viewport) = (job.interactive, job.key.max_iter, job.key.viewport.clone());
+        let Some((pixels, width, height)) = self.capture_shown() else { return };
+        if let Some(c) = self.gesture_captures.as_mut() {
+            c.frames.push(GestureCapture {
+                viewport,
+                points_per_pixel,
+                max_iter,
+                pixels,
+                width,
+                height,
+                gesture,
+                at_limit,
+            });
+        }
+    }
+
     pub fn simulate(
         &mut self,
         width: usize,
@@ -6822,6 +6936,11 @@ impl<B: GpuBackend> Renderer<B> {
             input(i, dt, &mut self.viewport);
             prev = now;
             refresh(self, &mut tick, &mut frames);
+            if let Some(stride) = self.gesture_captures.as_ref().map(|c| c.stride.max(1))
+                && i % stride == stride - 1
+            {
+                self.capture_gesture_frame(points_per_pixel);
+            }
         }
         // A jump (no input frames) counts from the start.
         let input_end = if input_frames == 0 {

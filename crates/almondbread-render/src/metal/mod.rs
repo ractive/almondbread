@@ -161,6 +161,7 @@ impl MetalBackend {
             TextureFormat::Rg16Float => MTLPixelFormat::RG16Float,
             TextureFormat::Rgba16Float => MTLPixelFormat::RGBA16Float,
             TextureFormat::Bgra8Unorm => MTLPixelFormat::BGRA8Unorm,
+            TextureFormat::R8Uint => MTLPixelFormat::R8Uint,
         }
     }
 }

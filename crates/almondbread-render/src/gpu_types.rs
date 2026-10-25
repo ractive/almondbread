@@ -306,7 +306,11 @@ pub struct ComposeParams {
     /// Mode 2 (AA): the palette filter's width of a sample in output pixels, `1/sqrt(samples)`
     /// (its share of the pixel; filtering each over the whole pixel greyed fine rings).
     pub sample_width: f32,
-    pub pad: u32,
+    /// Class epoch of the current results ("fog takes history", kb:
+    /// techniques/frame-reuse-and-progressive): history pixels marked with it hold a known
+    /// result (exact level of a compatible job) that a gesture frame's unresolved preview
+    /// texels do not override. 0: none.
+    pub class_epoch: u32,
 }
 
 /// Parameters of the `aaList` kernel (adaptive anti-aliasing), 32 bytes.

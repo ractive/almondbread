@@ -3767,6 +3767,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
     uint2 maxSrc = c.srcSize - 1;
     float3 acc = float3(0.0f);
     float count = 0.0f;
+    float resolved = 0.0f;   // finished and not unresolved (linear output's alpha)
     float2 it;
 
     if (c.ratio >= 1.0f) {
@@ -3780,6 +3781,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
                     acc += it.x == ITER_UNRESOLVED ? fogAt(s, c, fog)
                         : shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale, 1.0f / float(ss));
                     count += 1.0f;
+                    resolved += it.x == ITER_UNRESOLVED ? 0.0f : 1.0f;
                 }
             }
         }
@@ -3789,6 +3791,7 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
             acc = it.x == ITER_UNRESOLVED ? fogAt(s, c, fog)
                 : shade(it, des.read(s).xy, auxAt(auxs, s, c, it), c, pal, c.deScale);
             count = 1.0f;
+            resolved = it.x == ITER_UNRESOLVED ? 0.0f : 1.0f;
         }
     }
 
@@ -3810,8 +3813,10 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
         count = 1.0f;
     }
 
+    // Linear output (a preview level's colour): alpha is the share of resolved texels, 0 for
+    // unresolved or not yet finished ones (compose lets a known history result stand there).
     if (c.linearOut != 0) {
-        out.write(float4(acc / count, 1.0f), gid);
+        out.write(float4(acc / count, resolved / count), gid);
         return;
     }
     out.write(float4(ditheredSRGB(acc / count, gid), 1.0f), gid);
@@ -3836,6 +3841,17 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
 // mode 2 (anti-aliasing): a finished jittered full-resolution sample joins the running mean
 //   (`blend` = 1 / samples).
 // mode 3 (exact): exact pixels replace the history (colour changes while idle).
+//
+// Fog takes history (kb: techniques/frame-reuse-and-progressive "Fog takes history"): a
+// second history image holds per pixel the class epoch of its result: set where an exact
+// level's texel (refine, exact, AA, compute further) was composed, kept while the pixel's
+// reprojected history had it, 0 otherwise. Previews have no interior probe and no extension,
+// so near-boundary interior and slow pixels are unresolved there although the rest frame
+// resolved them (or found them too slow even with the extension): where the history is
+// known for this epoch (same formula, tests and limit settings), unresolved or unfinished
+// preview texels (alpha 0 in the preview colour) are left out of the point samples and of the
+// bilinear preview, so the pixel keeps what the rest frame showed instead of turning to fog.
+// Escaped and interior preview texels blend in as before.
 struct ComposeParams {
     float2 histOrigin;    // history texel coordinate (texel centres at i + 0.5) of output pixel 0's centre
     float  histStep;      // history texels per output pixel
@@ -3853,7 +3869,7 @@ struct ComposeParams {
     float2 histRot;       // (cos, sin): output pixel offsets turned into history axes (view rotation)
     float  sampleWidth;   // mode 2: the palette filter's width of an AA sample, output pixels
                           // (1 / sqrt(samples): its share of the pixel); else unused
-    uint   pad;
+    uint   classEpoch;    // class epoch of this job's results (0: none); see "Fog takes history"
 };
 
 // Catmull-Rom from five bilinear taps (the four corner taps of the 4x4 kernel dropped, their
@@ -3892,6 +3908,8 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     constant ComposeParams& q                 [[buffer(4)]],
                     device const uint* furtherMask            [[buffer(5)]],   // mode 4
                     texture2d<float, access::sample> fog      [[texture(7)]],   // fogResolve's
+                    texture2d<uint, access::read>    classIn  [[texture(8)]],   // history class epoch
+                    texture2d<uint, access::write>   classOut [[texture(9)]],
                     uint2 gid                                 [[thread_position_in_grid]])
 {
     if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
@@ -3908,9 +3926,10 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         base = preview.sample(bilinear, p / float2(preview.get_width(), preview.get_height())).rgb;
     }
 
-    // Reprojected history.
+    // Reprojected history; `known`: its pixel holds a result of this class epoch.
     float3 hist = base;
     float wh = 0.0f;
+    bool known = false;
     if (q.histDecay > 0.0f) {
         float2 g = float2(gid);
         float2 hp = q.histOrigin + float2(g.x * q.histRot.x - g.y * q.histRot.y,
@@ -3920,11 +3939,35 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 ? histIn.read(uint2(hp)) : catmullRom(histIn, bilinear, hp, q.histSize);
             hist = max(h.rgb, 0.0f);
             wh = clamp(h.a, 0.0f, q.confCap) * q.histDecay;
+            const uint2 hc = min(uint2(hp), uint2(q.histSize) - 1u);
+            known = q.classEpoch != 0u && classIn.read(hc).x == q.classEpoch;
         }
+    }
+    // Known history: the bilinear preview from its resolved texels only (`baseCover`: their
+    // share of the bilinear weight; 1 without a preview).
+    float baseCover = 1.0f;
+    if (known && c.hasUnder > 0.0f) {
+        const float2 p = clamp(v - q.jitter + 0.5f, float2(0.5f), c.underSize - 0.5f) - 0.5f;
+        const float2 b0 = floor(p), f = p - b0;
+        const uint2 hi = uint2(c.underSize) - 1u;
+        float3 sumB = 0.0f;
+        baseCover = 0.0f;
+        for (int j = 0; j < 2; j++) {
+            for (int i = 0; i < 2; i++) {
+                const float w = (i == 0 ? 1.0f - f.x : f.x) * (j == 0 ? 1.0f - f.y : f.y);
+                const float4 t = preview.read(min(uint2(b0) + uint2(i, j), hi));
+                if (t.a > 0.5f) {
+                    sumB += t.rgb * w;
+                    baseCover += w;
+                }
+            }
+        }
+        base = baseCover > 0.0f ? sumB / baseCover : base;
     }
 
     float3 col;
     float conf;
+    uint cls = 0u;
     if (q.mode == 0) {
         // Point samples of the jittered preview within the 2 x 2 texels around this pixel.
         float3 sum = 0.0f;
@@ -3935,18 +3978,23 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                 for (int i = 0; i < 2; i++) {
                     int2 t = t0 + int2(i, j);
                     if (any(t < 0) || any(float2(t) >= c.underSize)) continue;
+                    const float4 s = preview.read(uint2(t));
+                    if (known && s.a <= 0.5f) continue;   // unresolved: the known history stands
                     float2 d = (float2(t) + q.jitter - v) / q.newRatio;
                     float w = exp(-dot(d, d) * q.invTwoSigma2);
-                    sum += preview.read(uint2(t)).rgb * w;
+                    sum += s.rgb * w;
                     wn += w;
                 }
             }
         }
-        float wb = wh + wn < 1e-3f ? 1.0f : q.baseWeight;
-        col = (hist * wh + sum + base * wb) / (wh + wn + wb);
+        float wb = (wh + wn < 1e-3f ? 1.0f : q.baseWeight) * baseCover;
+        const float wsum = wh + wn + wb;
+        col = wsum > 1e-6f ? (hist * wh + sum + base * wb) / wsum : hist;
         conf = min(q.confCap, wh + wn);
+        cls = known ? q.classEpoch : 0u;
     } else {
-        float3 prior = wh > 0.0f ? (hist * wh + base * q.baseWeight) / (wh + q.baseWeight) : base;
+        const float wb = q.baseWeight * baseCover;
+        float3 prior = wh > 0.0f ? (hist * wh + base * wb) / (wh + wb) : base;
         const uint admitted = c.admittedOnGPU != 0 ? level.admitted : c.admitted;
         float2 it;
         bool done = finished(iters, gid, c, rank, admitted, it);
@@ -3957,6 +4005,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             bool use = done && (it.x != ITER_UNRESOLVED || c.boundedInterior != 0u) && it.x != ITER_SKIP;
             col = use ? mix(hist, shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f, q.sampleWidth), q.blend) : hist;
             conf = q.confCap;
+            cls = known || done ? q.classEpoch : 0u;
         } else if (q.mode == 4) {
             // Compute further after AA: a texel unresolved when its passes started fades to its
             // new colour once resolved, or to the fog as it is now (the region shrinks, so its
@@ -3968,17 +4017,21 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                       : shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f), q.blend)
                 : hist;
             conf = q.confCap;
+            cls = known || done ? q.classEpoch : 0u;
         } else if (done) {
             float3 exact = it.x == ITER_UNRESOLVED ? fogAt(gid, c, fog)
                 : shade(it, des.read(gid).xy, auxAt(auxs, gid, c, it), c, pal, 1.0f);
             col = q.mode == 1 ? mix(prior, exact, q.blend) : exact;
             conf = q.confCap;
+            cls = q.classEpoch;
         } else {
             col = prior;
             conf = wh;
+            cls = known ? q.classEpoch : 0u;
         }
     }
     histOut.write(float4(col, conf), gid);
+    classOut.write(uint4(cls), gid);
     out.write(float4(ditheredSRGB(col, gid), 1.0f), gid);
 }
 
