@@ -275,7 +275,11 @@ impl Journal {
         match step {
             Step::Back => {
                 let cur = &self.entries[self.at];
-                let away = if self.pending {
+                // A step's own travel under way: the view is on its way to the current entry,
+                // not a place of its own (⌘Z pressed again mid-flight goes on back).
+                let away = if self.stepping {
+                    false
+                } else if self.pending {
                     !same_place(here, cur, width)
                 } else {
                     far(here, cur, width)
@@ -676,6 +680,31 @@ mod tests {
         let e = j.step(Step::Back, &mid, m(), W, 1.1).unwrap();
         assert_eq!(e.view, a);
         assert_eq!(j.entries().len(), 1);
+    }
+
+    #[test]
+    fn back_again_during_a_steps_flight_goes_on_back_and_records_nothing() {
+        let mut j = Journal::default();
+        let a = v(-0.5, 0.0, 0.004);
+        let b = v(-0.75, 0.1, 1e-6);
+        let c = v(-1.75, 0.0, 1e-9);
+        rest(&mut j, &a, 0.0);
+        jump(&mut j, 1.0, &b);
+        jump(&mut j, 2.0, &c);
+        let e = j.step(Step::Back, &c, m(), W, 3.0).unwrap();
+        assert_eq!(e.view, b);
+        j.travel_started();
+        j.stepped();
+        // Far from both b and c, still flying.
+        let mid = v(-1.2, 0.05, 1e-3);
+        j.observe(&mid, m(), MOVING, 3.2);
+        let e = j.step(Step::Back, &mid, m(), W, 3.3).unwrap();
+        assert_eq!(e.view, a, "on back, not to b");
+        j.stepped();
+        rest(&mut j, &a, 3.4);
+        assert_eq!(j.position(), (0, 3), "the mid-flight view is no entry");
+        let e = j.step(Step::Forward, &a, m(), W, 4.0).unwrap();
+        assert_eq!(e.view, b);
     }
 
     #[test]
