@@ -45,6 +45,11 @@ everywhere below): optimised, no LTO, incremental, so a one-line core change reb
 `flight-bench` (`target/dist/almondbread`). Never put LTO back on `release`. Agents run their
 final set with `PROFILE=release` (e.g. `PROFILE=release make build app selftest ios-sim`): a cold
 fat-LTO `make rust` of the three targets takes ~20 min; the driver's merge check and releases build dist.
+Performance numbers that are recorded or compared with earlier records come from dist (`make bench`,
+`flight-bench`, and `make rust` without PROFILE before `interaction-test` / `flight-bench-live`): GPU
+times match across profiles, but CPU reference orbits run up to 25 % slower in release, and the app's
+static libs are whatever the last `make rust` built. An A/B may use either profile if both sides use
+the same one and the report says which (kb: synthesis/benchmarks "Throughput model: level tails").
 `make rust` builds the dist static libs (macOS arm64, iOS arm64, iOS simulator), the
 UniFFI Swift bindings and `build/rust/AlmondbreadCoreFFI.xcframework` (incremental; `run`,
 `build`, `app`, `ios-sim` and `core-check` depend on it). `make run` (swift run),
