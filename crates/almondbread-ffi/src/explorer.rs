@@ -598,6 +598,23 @@ pub struct SeekStatus {
     pub target_zoom_log10: f64,
 }
 
+/// The travel journal (kb: decisions/controls "Travel journal") for the menu items, buttons
+/// and the HUD note.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct JournalStatus {
+    /// Back (⌘Z) / forward (⇧⌘Z, ⌘Y) would go somewhere.
+    pub can_back: bool,
+    pub can_forward: bool,
+    /// The current entry (1-based; 0: none) and the entry count.
+    pub position: u32,
+    pub count: u32,
+    /// "Back · 3 of 7" for 2 s after a step, else "".
+    pub note: String,
+    /// Changes whenever the entries or the current one change: persist then
+    /// (`Explorer::journal_export`).
+    pub revision: u64,
+}
+
 /// A journey for the HUD and the control center (kb: decisions/controls, "Journey").
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct JourneyStatus {
@@ -1226,6 +1243,8 @@ pub struct ExplorerStats {
     pub julia_k: String,
     /// A Julia view's Mandelbrot panel is on (U toggles it there; false outside a Julia view).
     pub mandelbrot_panel: bool,
+    /// The travel journal.
+    pub journal: JournalStatus,
 }
 
 /// Render progress for the HUD (kb: decisions/controls "Render progress"): shown once a
@@ -1469,6 +1488,16 @@ fn install_panic_log() {
 }
 
 impl Explorer {
+    fn journal_step(&self, step: almondbread_core::journal::Step) -> bool {
+        let mut g = self.lock();
+        let before = g.host.renderer.settings.formula;
+        let ok = g.host.journal_step(step, media_time());
+        if g.host.renderer.settings.formula != before {
+            g.sync_formula();
+        }
+        ok
+    }
+
     fn lock(&self) -> MutexGuard<'_, Inner> {
         // A panic inside a call (caught by UniFFI) must not brick the view.
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
@@ -1868,7 +1897,7 @@ impl Explorer {
             .filter(|f| almondbread_core::formula::selectable().contains(f))
             .ok_or_else(|| invalid(format!("unknown formula {formula}")))?;
         let mut g = self.lock();
-        if g.host.back_from_julia() {
+        if g.host.leave_julia() {
             let back = g.host.renderer.settings.formula;
             g.host.renderer.navigator.set_formula(back);
             g.sync_formula();
@@ -2184,7 +2213,49 @@ impl Explorer {
                 .map(|k| almondbread_core::julia::k_text(k, 9))
                 .unwrap_or_default(),
             mandelbrot_panel: g.host.mandelbrot_panel_on(),
+            journal: {
+                use almondbread_core::journal::Step;
+                let j = r.navigator.journal();
+                let (at, n) = j.position();
+                JournalStatus {
+                    can_back: g.host.journal_can(Step::Back),
+                    can_forward: g.host.journal_can(Step::Forward),
+                    position: if n == 0 { 0 } else { at as u32 + 1 },
+                    count: n as u32,
+                    note: j.note(media_time()).unwrap_or("").to_string(),
+                    revision: j.revision(),
+                }
+            },
         }
+    }
+
+    /// The travel journal (kb: decisions/controls "Travel journal"): back to the previous place
+    /// (⌘Z), flying when that takes at most 5 s, else jumping; a jump into another fractal.
+    /// Records nothing. False when there is nothing to go back to. The fractal may change:
+    /// pull the settings when it did (`stats().formula`). Resume the display link after this.
+    pub fn journal_back(&self) -> bool {
+        self.journal_step(almondbread_core::journal::Step::Back)
+    }
+
+    /// The travel journal: forward again (⇧⌘Z, ⌘Y) after going back. As `journal_back`.
+    pub fn journal_forward(&self) -> bool {
+        self.journal_step(almondbread_core::journal::Step::Forward)
+    }
+
+    /// The journal's entries (the last 100 places, locations only: no settings) as text for the
+    /// platform to persist (user defaults); a view at rest long enough is recorded first.
+    pub fn journal_export(&self) -> String {
+        let mut g = self.lock();
+        g.host.renderer.navigator.journal_flush(media_time());
+        g.host.renderer.navigator.journal().export()
+    }
+
+    /// Restores a persisted journal (`journal_export`'s text) before the entries recorded since
+    /// launch. Returns the entries restored (0: not a journal).
+    pub fn journal_import(&self, text: String) -> u32 {
+        let mut g = self.lock();
+        let (w, _) = g.host.view_points();
+        g.host.renderer.navigator.journal_mut().import(&text, w) as u32
     }
 
     /// The current view (it may be ahead of the shown frame).
@@ -2257,7 +2328,7 @@ impl Explorer {
                 }
                 None => {
                     if g.host.renderer.settings.formula.is_julia() {
-                        g.host.back_from_julia();
+                        g.host.leave_julia();
                         g.host.renderer.viewport = view;
                     }
                     if let Some(f) = almondbread_core::flyto::parse_formula(&text) {

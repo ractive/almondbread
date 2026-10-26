@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use almondbread_core::cfmt::g;
 use almondbread_core::input::InputEvent;
+use almondbread_core::journal::Step;
 use almondbread_core::tour::{Snapshot, StepPlan, Tour, TourPlayer};
 use almondbread_core::viewport::Viewport;
 
@@ -346,6 +347,44 @@ impl<B: GpuBackend + Clone> Host<B> {
         if !self.renderer.settings.formula.is_julia() {
             return false;
         }
+        // The way back is the journal's previous entry (it was recorded on the way in): an
+        // ordinary step back, so ⇧⌘Z / ⌘Y returns to the Julia set; the view is the way back's,
+        // bit for bit (kb: decisions/controls "Travel journal").
+        if let Some((view, formula)) = self.julia_return.clone() {
+            let r = &self.renderer;
+            let (w, _) = self.view_points;
+            let back = Step::Back;
+            let same = r
+                .navigator
+                .journal()
+                .peek(back, &r.viewport, r.settings.formula, w)
+                .is_some_and(|e| {
+                    almondbread_core::journal::same_place(
+                        e,
+                        &almondbread_core::journal::Entry::new(view.clone(), formula),
+                        w,
+                    )
+                });
+            if same && self.journal_step(back, self.renderer.navigator.clock()) {
+                self.overlay.way_back_reference = None;
+                self.julia_return = None;
+                let r = &mut self.renderer;
+                r.settings.formula = formula;
+                r.navigator.set_formula(formula);
+                r.viewport = view;
+                return true;
+            }
+        }
+        self.leave_julia()
+    }
+
+    /// Leaves a Julia view for the view it was opened from (the whole Mandelbrot set without
+    /// one), a plain jump the journal records like any other: for callers that go on somewhere
+    /// else at once (a pasted view, the formula picker). False when not in a Julia view.
+    pub fn leave_julia(&mut self) -> bool {
+        if !self.renderer.settings.formula.is_julia() {
+            return false;
+        }
         let (w, h) = self.view_points;
         let (view, formula) = self
             .julia_return
@@ -546,6 +585,7 @@ impl<B: GpuBackend + Clone> Host<B> {
                 let start = self.renderer.viewport.clone();
                 self.renderer.navigator.fly_to(&v, &start, now);
             } else {
+                self.renderer.navigator.note_travel();
                 self.renderer.viewport = v;
                 self.renderer.note_interaction(now);
             }
@@ -742,7 +782,47 @@ impl<B: GpuBackend + Clone> Host<B> {
     pub fn reset_viewport(&mut self) {
         let (w, h) = self.view_points;
         self.renderer.navigator.cancel_flight();
+        self.renderer.navigator.note_travel();
         self.renderer.viewport = Viewport::fitting_for(self.renderer.settings.formula, w, h);
+    }
+
+    /// The travel journal (kb: decisions/controls "Travel journal"): back (⌘Z) or forward (⇧⌘Z,
+    /// ⌘Y) to the entry, flying when that takes at most `TRAVEL_FLY_MAX_SECONDS`, else jumping;
+    /// into another fractal a jump (into a Julia set from a Mandelbrot view, that view becomes its
+    /// way back, as `open_julia` keeps it). False when there is nothing to go to. The settings'
+    /// formula may change: the platform pulls the settings.
+    pub fn journal_step(&mut self, step: almondbread_core::journal::Step, now: f64) -> bool {
+        let r = &mut self.renderer;
+        r.navigator.set_formula(r.settings.formula);
+        let before = (r.viewport.clone(), r.settings.formula);
+        let reference = r.reference().filter(|x| x.formula == before.1).cloned();
+        let Some(changed) = r
+            .navigator
+            .journal_go(step, &mut r.viewport, &mut r.settings.formula, now)
+        else {
+            return false;
+        };
+        r.note_interaction(now);
+        if changed {
+            let f = self.renderer.settings.formula;
+            if f.is_julia() {
+                if !before.1.is_julia() {
+                    self.julia_return = Some(before);
+                    self.overlay.way_back_reference = reference;
+                }
+                self.overlay.mandelbrot_panel = true;
+            } else {
+                self.julia_return = None;
+                self.overlay.way_back_reference = None;
+            }
+        }
+        true
+    }
+
+    /// The journal can step from the current view (menu items and buttons).
+    pub fn journal_can(&self, step: almondbread_core::journal::Step) -> bool {
+        let r = &self.renderer;
+        r.navigator.journal_can(step, &r.viewport, r.settings.formula)
     }
 
     /// One display refresh. `now` is the refresh's timestamp, `clock` reads the same clock
@@ -1191,5 +1271,233 @@ mod command_click_tests {
             let r = double_click(&mut h, p, false, true, 1.2);
             assert!((r - 2.0).abs() < 1e-9, "{f:?} zoomed ×{r}");
         }
+    }
+}
+
+/// The travel journal through the host (kb: decisions/controls "Travel journal"): real frames
+/// (`Host::frame` without a drawable), real flows: a place, seek minibrot, ⌘-click into a Julia
+/// set and the way back, a tour step, a paused scroll. State-based: each waits for the motion to
+/// end (bounded by wall clock), not for a number of frames.
+#[cfg(all(test, target_vendor = "apple"))]
+mod journal_tests {
+    use super::*;
+    use crate::metal::MetalBackend;
+    use almondbread_core::Formula;
+    use almondbread_core::input::{NavKey, ScrollPhase};
+    use almondbread_core::journal::{Entry, Step, far, same_place};
+
+    const W: f64 = 400.0;
+    const H: f64 = 250.0;
+
+    struct Rig {
+        h: Host<MetalBackend>,
+        now: f64,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            let backend = MetalBackend::new().expect("metal");
+            let mut h = Host::new(Renderer::new(backend).expect("renderer"));
+            h.resize(W, H, 1.0, 0.0);
+            let mut r = Self { h, now: 0.0 };
+            // The start view at rest past the dwell: the journal's first entry.
+            r.frames(2.5);
+            r
+        }
+
+        fn frame(&mut self) {
+            self.now += 1.0 / 60.0;
+            let now = self.now;
+            self.h.frame(now, &|| now, false, &mut |_| None);
+        }
+
+        fn frames(&mut self, seconds: f64) {
+            let end = self.now + seconds;
+            while self.now < end {
+                self.frame();
+            }
+        }
+
+        /// Frames until nothing moves and no search runs (at most `limit` s of wall clock; a
+        /// minibrot search is a thread).
+        fn settle(&mut self, limit: f64) {
+            let start = std::time::Instant::now();
+            loop {
+                self.frame();
+                let n = &self.h.renderer.navigator;
+                if !n.is_moving() && !n.wants_frames() {
+                    break;
+                }
+                assert!(start.elapsed().as_secs_f64() < limit, "did not settle");
+                if n.seek_status(self.now).0 == almondbread_core::seek::SeekPhase::Searching {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            }
+            self.frame();
+        }
+
+        fn count(&self) -> (usize, usize) {
+            self.h.renderer.navigator.journal().position()
+        }
+
+        fn view(&self) -> Viewport {
+            self.h.renderer.viewport.clone()
+        }
+
+        fn entry(&self, i: usize) -> Entry {
+            self.h.renderer.navigator.journal().entries()[i].clone()
+        }
+
+        /// As the FFI's `go_to_place`: a jump to the place in its fractal.
+        fn go_to_place(&mut self, id: &str) -> Viewport {
+            let place = almondbread_core::places::place_named(id).expect("place");
+            let mut v = place.viewport(W as usize, H as usize);
+            v.ensure_precision();
+            let r = &mut self.h.renderer;
+            r.navigator.jumped();
+            r.viewport = v;
+            r.settings.formula = place.formula;
+            self.frame();
+            self.view()
+        }
+
+        fn step(&mut self, step: Step) -> bool {
+            let ok = self.h.journal_step(step, self.now);
+            self.settle(20.0);
+            ok
+        }
+
+        fn scroll(&mut self, dy: f64, phase: ScrollPhase) {
+            self.h.input(InputEvent::Scroll { dx: 0.0, dy, phase }, self.now);
+        }
+    }
+
+    #[test]
+    fn a_place_back_and_forward() {
+        let mut r = Rig::new();
+        let home = r.view();
+        assert_eq!(r.count(), (0, 1), "the start view after its dwell");
+        let place = r.go_to_place("seahorse-valley");
+        r.frames(0.2);
+        assert_eq!(r.count(), (1, 2));
+        assert!(r.h.journal_can(Step::Back) && !r.h.journal_can(Step::Forward));
+        assert!(r.step(Step::Back));
+        assert_eq!(r.view(), home, "lands exactly on the entry");
+        assert_eq!(r.count(), (0, 2), "going back records nothing");
+        assert!(!r.h.journal_can(Step::Back) && r.h.journal_can(Step::Forward));
+        assert!(r.step(Step::Forward));
+        assert_eq!(r.view(), place);
+        assert_eq!(r.count(), (1, 2));
+        assert!(!r.step(Step::Forward), "nothing ahead");
+    }
+
+    #[test]
+    fn seek_minibrot_records_its_landing() {
+        let mut r = Rig::new();
+        r.h.input(InputEvent::KeyDown(NavKey::SeekMinibrot), r.now);
+        r.h.input(InputEvent::KeyUp(NavKey::SeekMinibrot), r.now);
+        r.settle(30.0);
+        let landed = r.view();
+        assert!(landed.zoom_log10() > 0.5, "flew to a minibrot: {}", landed.zoom_log10());
+        assert_eq!(r.count(), (1, 2));
+        assert_eq!(r.entry(1).view, landed);
+        // Back flies (a short path) or jumps, and lands on the start view.
+        let home = r.entry(0).view;
+        assert!(r.step(Step::Back));
+        assert_eq!(r.view(), home);
+        assert_eq!(r.count(), (0, 2));
+    }
+
+    #[test]
+    fn command_click_julia_and_the_way_back_are_journal_steps() {
+        let mut r = Rig::new();
+        r.h.renderer.viewport = Viewport::new(-0.7453, 0.1127, 6e-5);
+        r.h.renderer.navigator.note_travel();
+        r.frames(0.1);
+        let view = r.view();
+        assert_eq!(r.count(), (1, 2));
+        r.h.input(
+            InputEvent::Click {
+                x: 30.0,
+                y: -20.0,
+                command: true,
+            },
+            r.now,
+        );
+        let k = r.h.renderer.settings.formula;
+        assert!(k.is_julia());
+        r.frames(0.1);
+        assert_eq!(r.count(), (2, 3));
+        assert_eq!(r.entry(2).formula, k);
+        // ⇧U / the Mandelbrot panel: a step back, bit for bit.
+        assert!(r.h.back_from_julia());
+        assert_eq!(r.view(), view);
+        assert_eq!(r.h.renderer.settings.formula, Formula::Mandelbrot);
+        r.frames(0.1);
+        assert_eq!(r.count(), (1, 3), "no new entry: the journal stepped back");
+        // Forward opens the same Julia set again, with this view as its way back.
+        assert!(r.step(Step::Forward));
+        assert_eq!(r.h.renderer.settings.formula, k);
+        assert_eq!(r.h.julia_return, Some((view.clone(), Formula::Mandelbrot)));
+        assert!(r.h.mandelbrot_panel_on());
+        // ⌘Z from the Julia set goes the same way.
+        assert!(r.step(Step::Back));
+        assert_eq!(r.view(), view);
+        assert_eq!(r.h.renderer.settings.formula, Formula::Mandelbrot);
+        assert!(r.h.julia_return.is_none());
+        assert_eq!(r.count(), (1, 3));
+    }
+
+    #[test]
+    fn a_tour_step_is_an_entry() {
+        let mut r = Rig::new();
+        let tour = almondbread_core::tour::named("feigenbaum").expect("the Feigenbaum tour");
+        let steps = tour.steps.len();
+        r.h.start_tour(tour, r.now);
+        r.settle(60.0);
+        // (Its first step frames the whole set: the same place as the start view, merged.)
+        let mut moved = 0;
+        for i in 1..steps {
+            let (_, before) = r.count();
+            let from = Entry::new(r.view(), r.h.renderer.settings.formula);
+            r.h.tour_go(i, r.now);
+            r.settle(120.0);
+            let here = Entry::new(r.view(), r.h.renderer.settings.formula);
+            if !same_place(&here, &from, W) {
+                moved += 1;
+                assert_eq!(r.count(), (before, before + 1), "step {i}");
+                assert_eq!(r.entry(before), here, "step {i}");
+            }
+        }
+        assert!(moved >= 2, "the tour moved {moved} times");
+        assert!(r.h.journal_can(Step::Back));
+    }
+
+    #[test]
+    fn a_scroll_paused_with_the_fingers_on_records_nothing() {
+        let mut r = Rig::new();
+        // Zoomed in (at the home view the view limits hold a pan back).
+        r.h.renderer.viewport = Viewport::new(-0.7453, 0.1127, 1e-6);
+        r.h.renderer.navigator.note_travel();
+        r.frames(0.1);
+        assert_eq!(r.count(), (1, 2));
+        for _ in 0..20 {
+            r.scroll(60.0, ScrollPhase::Fingers);
+            r.frame();
+        }
+        // The fingers rest 4 s on the trackpad (mid-gesture), then go on.
+        r.frames(4.0);
+        assert_eq!(r.count(), (1, 2), "a pause with the fingers on is no rest");
+        for _ in 0..5 {
+            r.scroll(60.0, ScrollPhase::Fingers);
+            r.frame();
+        }
+        r.scroll(0.0, ScrollPhase::Lifted);
+        r.settle(10.0);
+        r.frames(2.5);
+        // Lifted and at rest for the dwell: an entry if the scroll went far.
+        let away = far(&Entry::new(r.view(), Formula::Mandelbrot), &r.entry(1), W);
+        assert!(away, "the scroll panned 1500 points");
+        assert_eq!(r.count(), (2, 3));
     }
 }

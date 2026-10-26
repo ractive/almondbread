@@ -29,6 +29,7 @@ pub mod formula;
 pub mod icon;
 pub mod image;
 pub mod input;
+pub mod journal;
 pub mod journey;
 pub mod julia;
 pub mod julia_reference;

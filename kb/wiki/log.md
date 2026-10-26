@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-26
 
+- **Decision:** Travel journal: every place the user comes to rest at after travel (jumps, flights, places, N, tour steps, Julia sets, autopilot/journey/cruise stops) or after a manual move that rests 2 s far away (zoom x4 or 1.5 view widths) is an entry (location only, no settings); ⌘Z back, ⇧⌘Z / ⌘Y forward with undo semantics, fly when <= 5 s else jump, the Julia way back as a journal step, 100 entries persisted; text fields keep their undo (decisions/controls 'Travel journal')
 - **Decision:** Fog takes history: gesture frames keep the rest frame's interior, analysis and fog where the history holds a result of the same settings (class epoch byte per history pixel); flat bulb pans 23.5 % -> 0.7 % changed smooth pixels, +0.2 ms GPU per 4 Mpx gesture frame
 
 ## 2026-10-25

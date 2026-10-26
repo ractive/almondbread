@@ -89,12 +89,38 @@ enum Clipboard {
     }
 }
 
+enum JournalMenu {
+    /// A text field of the key window is being edited (its field editor is the first responder).
+    @MainActor static var textEditing: Bool {
+        #if os(macOS)
+        NSApp.keyWindow?.firstResponder is NSText
+        #else
+        false
+        #endif
+    }
+
+    #if os(macOS)
+    /// Sends an action (`undo:`, `redo:`) to the key window's first responder and up its chain.
+    @MainActor static func send(_ action: String) {
+        NSApp.sendAction(Selector((action)), to: nil, from: nil)
+    }
+    #endif
+}
+
 struct FractalCommands: Commands {
     @FocusedValue(\.explorerModel) private var model
     @FocusedValue(\.inspectorVisible) private var inspectorVisible
     @FocusedValue(\.flyToVisible) private var flyToVisible
 
     var body: some Commands {
+        #if os(macOS)
+        // Edit ▸ Undo / Redo without keys (⌘Z is View ▸ Back; a text field still gets its undo from
+        // the canvas's key monitor, and these items by click, e.g. the resets' undo).
+        CommandGroup(replacing: .undoRedo) {
+            Button("Undo") { JournalMenu.send("undo:") }
+            Button("Redo") { JournalMenu.send("redo:") }
+        }
+        #endif
         CommandGroup(after: .pasteboard) {
             Divider()
             Button("Copy Coordinates") { model.map { Clipboard.copy($0.coordinatesText) } }
@@ -112,6 +138,26 @@ struct FractalCommands: Commands {
                 .disabled(flyToVisible == nil)
         }
         CommandGroup(before: .toolbar) {
+            // The travel journal (kb: decisions/controls "Travel journal"): back to the places
+            // visited, like undo for travel. The canvas's key monitor takes ⌘Z / ⇧⌘Z / ⌘Y first;
+            // while a text field edits it sends them to the field as undo / redo, so typing keeps
+            // its undo. The Edit menu's Undo / Redo carry no key: SwiftUI drops a shortcut that
+            // another menu item already has, and these show ⌘Z / ⇧⌘Z.
+            #if os(macOS)
+            Button("Back") { if JournalMenu.textEditing { JournalMenu.send("undo:") } else { model?.journalBack() } }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(model?.canGoBack != true)
+            Button("Forward") { if JournalMenu.textEditing { JournalMenu.send("redo:") } else { model?.journalForward() } }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(model?.canGoForward != true)
+            #else
+            // iPad: the canvas's key commands carry ⌘Z / ⇧⌘Z / ⌘Y (a text field keeps its own).
+            Button("Back") { model?.journalBack() }
+                .disabled(model?.canGoBack != true)
+            Button("Forward") { model?.journalForward() }
+                .disabled(model?.canGoForward != true)
+            #endif
+            Divider()
             Button("Zoom In") { model?.zoomIn() }
                 .keyboardShortcut("=", modifiers: .command)
                 .disabled(model == nil)

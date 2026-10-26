@@ -679,6 +679,9 @@ extension HUDView {
     }
 
     func motionHint(_ s: ExplorerStats) -> String? {
+        // The travel journal's step (kb: decisions/controls "Travel journal"): "Back · 3 of 7"
+        // for 2 s, over whatever the motion says.
+        if !s.journal.note.isEmpty { return s.journal.note }
         if let seek = Self.seekLine(s) { return seek }
         if s.journey.active {
             // The journey line says it all; only a back-off is worth a second line.

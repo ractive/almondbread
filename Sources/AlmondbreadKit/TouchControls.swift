@@ -117,6 +117,15 @@ struct CanvasMenuContent: View {
                 Divider()
                 goToCopied
             }
+            // The travel journal (kb: decisions/controls "Travel journal").
+            if model.canGoBack {
+                Divider()
+                item("Back", "arrow.uturn.backward") { model.journalBack() }
+            }
+            if model.canGoForward {
+                Divider()
+                item("Forward", "arrow.uturn.forward") { model.journalForward() }
+            }
         }
         .frame(width: 250)
     }

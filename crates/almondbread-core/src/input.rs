@@ -36,6 +36,7 @@ use crate::autopilot::{self, Autopilot};
 use crate::cinematic::Cinematic;
 use crate::cruise::{self, Cruise, Level};
 use crate::flyto::{self, Flight, FlyPath};
+use crate::journal::{self, Journal};
 use crate::journey::{self, Choice, Journey};
 use crate::seek::{SeekPhase, Seeker};
 use crate::viewport::{RUBBER_BAND, RUBBER_RETURN_OMEGA, Scale, ViewLimits, Viewport, wrap_angle};
@@ -699,11 +700,21 @@ pub struct Navigator {
     scroll_at: f64,
     /// The largest scale the current flight may show (its start's, if that was beyond the limit).
     flight_cap: Scale,
+    /// The travel journal (kb: decisions/controls "Travel journal"): fed once per frame from
+    /// [`Navigator::advance`], travel marked by `jumped`, `fly_to` and `note_travel`.
+    journal: Journal,
 }
+
+/// Going back or forward in the journal (and the tour's way back) flies when the flight takes at
+/// most this long (s) at the fly-to speed, else jumps ([`Navigator::travel_to`]).
+pub const TRAVEL_FLY_MAX_SECONDS: f64 = 5.0;
 
 /// While direct manipulation without an end event (wheel zoom, trackpad rotation) arrived this
 /// recently (s), the hand is on the view: the rubber band holds.
 const RUBBER_HOLD: f64 = 0.1;
+/// A gesture holding the view this recently (s) is no rest for the travel journal, even past
+/// [`HAND_HELD_MAX`]: trackpad fingers resting mid-scroll are not a stop.
+const JOURNAL_HAND_MAX: f64 = 10.0;
 /// A held gesture whose end event never came (a cancelled recogniser, a scripted pan) lets go
 /// after this long (s) without events.
 const HAND_HELD_MAX: f64 = 3.0;
@@ -829,6 +840,7 @@ impl Default for Navigator {
             momentum_cut: false,
             scroll_at: f64::NEG_INFINITY,
             flight_cap: Scale::from_f64(crate::viewport::MAX_SCALE),
+            journal: Journal::default(),
         }
     }
 }
@@ -1503,6 +1515,7 @@ impl Navigator {
     /// on, the view turns with the zoom on the way (the target's angle is then where the
     /// spin ends); otherwise it turns to the target's angle the short way round.
     pub fn fly_to(&mut self, target: &Viewport, viewport: &Viewport, now: f64) {
+        self.journal.travel_started();
         self.seek.clear();
         let was = self.is_animating();
         self.stop_motion();
@@ -1606,6 +1619,111 @@ impl Navigator {
     /// The home view fitted to the window (the current formula's whole set).
     fn home(&self) -> Viewport {
         Viewport::fitting_for(self.seek.formula, self.view_size.0, self.view_size.1)
+    }
+
+    // MARK: Travel journal (kb: decisions/controls "Travel journal")
+
+    /// Moves to `target` from `start`: a flight ([`Navigator::fly_to`]) when it takes at most
+    /// [`TRAVEL_FLY_MAX_SECONDS`] at the fly-to speed (returns true), else a jump: motion stops
+    /// ([`Navigator::jumped`]) and the caller sets the view to `target` (returns false).
+    pub fn travel_to(&mut self, target: &Viewport, start: &Viewport, now: f64) -> bool {
+        let path = FlyPath::new(start, target, self.view_size.0.max(1.0));
+        let speed = self.fly_speed.max(flyto::SPEED_RANGE.0);
+        // The path parameter runs at speed / ρ; braking adds about one brake time.
+        let seconds = path.length() * flyto::RHO / speed + flyto::brake_time(speed);
+        if seconds.is_finite() && seconds <= TRAVEL_FLY_MAX_SECONDS {
+            self.fly_to(target, start, now);
+            true
+        } else {
+            self.cancel_flight();
+            self.jumped();
+            self.note_interaction(now);
+            false
+        }
+    }
+
+    /// A view set from outside without [`Navigator::jumped`] (home, a map jump): travel for the
+    /// journal.
+    pub fn note_travel(&mut self) {
+        self.journal.travel_started();
+    }
+
+    /// The time of the last frame (0 before one): for calls that come without a timestamp.
+    pub fn clock(&self) -> f64 {
+        self.last_tick.unwrap_or(0.0)
+    }
+
+    pub fn journal(&self) -> &Journal {
+        &self.journal
+    }
+
+    pub fn journal_mut(&mut self) -> &mut Journal {
+        &mut self.journal
+    }
+
+    /// The autopilot (not paused), a journey between stops or a cruise drives the view.
+    fn autonomous(&self) -> bool {
+        (self.autopilot.is_active() && !self.autopilot.is_paused())
+            || (self.journey.is_running() && !self.journey.at_stop())
+            || self.cruise.is_moving()
+    }
+
+    /// Nothing moves the view and no hand is on it (a gesture held still, trackpad fingers
+    /// resting mid-scroll, a finger panning).
+    fn journal_rest(&self, now: f64) -> bool {
+        // (A gesture whose end never came lets go after `JOURNAL_HAND_MAX`, as the rubber band
+        // does after `HAND_HELD_MAX`: else no entry would ever be recorded again.)
+        !self.is_moving() && !self.hand_on(now) && !self.held.is_some_and(|t| now - t < JOURNAL_HAND_MAX)
+    }
+
+    fn observe_journal(&mut self, viewport: &Viewport, now: f64) {
+        let f = journal::Frame {
+            at_rest: self.journal_rest(now),
+            autonomous: self.autonomous(),
+            width: self.view_size.0,
+        };
+        self.journal.observe(viewport, self.seek.formula, f, now);
+    }
+
+    /// The journal could step from here (menu items, buttons). `formula`: the view's fractal.
+    pub fn journal_can(&self, step: journal::Step, viewport: &Viewport, formula: crate::formula::Formula) -> bool {
+        self.journal.can_step(step, viewport, formula, self.view_size.0)
+    }
+
+    /// Records a due dwell now (before persisting: frames stop at rest).
+    pub fn journal_flush(&mut self, now: f64) {
+        self.journal.flush(now, self.view_size.0);
+    }
+
+    /// Back or forward in the journal: travels to the entry ([`Navigator::travel_to`] in the same
+    /// fractal; a jump into another fractal, which sets `formula`). Records nothing. None when
+    /// there is nothing to go to; else whether the fractal changed.
+    pub fn journal_go(
+        &mut self,
+        step: journal::Step,
+        viewport: &mut Viewport,
+        formula: &mut crate::formula::Formula,
+        now: f64,
+    ) -> Option<bool> {
+        let e = self.journal.step(step, viewport, *formula, self.view_size.0, now)?;
+        let mut target = e.view;
+        target.ensure_precision();
+        let changed = e.formula != *formula;
+        if changed {
+            self.cancel_flight();
+            self.jumped();
+            self.note_interaction(now);
+            *formula = e.formula;
+            self.set_formula(e.formula);
+            *viewport = target;
+        } else {
+            let start = viewport.clone();
+            if !self.travel_to(&target, &start, now) {
+                *viewport = target;
+            }
+        }
+        self.journal.stepped();
+        Some(changed)
     }
 
     // MARK: View limits (kb: decisions/controls "View limits")
@@ -2095,6 +2213,7 @@ impl Navigator {
     /// otherwise start a new cruise at once; kb: decisions/controls "Held input"): a key still
     /// down moves again on its next press. Settings (speeds, lane assist) stay.
     pub fn jumped(&mut self) {
+        self.journal.travel_started();
         self.stop_motion();
         self.rubber = false;
         self.journey.stop();
@@ -2715,6 +2834,7 @@ impl Navigator {
             NavKey::Reset if down => {
                 self.stop_motion();
                 self.journey.stop();
+                self.note_travel();
                 *viewport = self.home();
             }
             _ => {}
@@ -2844,6 +2964,12 @@ impl Navigator {
     /// (at most 0.1 s, 1/60 s on the first) and moves `viewport`. Returns true while frames
     /// are needed (the host keeps its display link running).
     pub fn advance(&mut self, viewport: &mut Viewport, now: f64) -> bool {
+        let more = self.advance_motion(viewport, now);
+        self.observe_journal(viewport, now);
+        more
+    }
+
+    fn advance_motion(&mut self, viewport: &mut Viewport, now: f64) -> bool {
         let dt = match self.last_tick {
             // A frame may report a time before the event that started the motion.
             // NaN (a bad timestamp) counts as no time (clamp keeps NaN).

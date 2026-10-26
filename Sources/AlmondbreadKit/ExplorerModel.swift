@@ -1,5 +1,10 @@
 import AlmondbreadCore
 import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import Observation
 import simd
 
@@ -520,6 +525,11 @@ public final class ExplorerModel {
     /// The set speed's gear (1–26, negative in reverse, 0: none), change-only: the iOS throttle.
     public private(set) var cruiseGear = 0
     public private(set) var viewTurned = false
+    /// The travel journal (change-only): back / forward would go somewhere; the HUD's note
+    /// ("Back · 3 of 7") for 2 s after a step.
+    public private(set) var canGoBack = false
+    public private(set) var canGoForward = false
+    public private(set) var journalNote = ""
     /// The orbit overlay's point: its fate (refreshed with the stats while the overlay is on).
     public private(set) var orbit: OrbitInfo?
     /// The π meter's reading (refreshed with the stats while it is on).
@@ -551,6 +561,9 @@ public final class ExplorerModel {
     @ObservationIgnored private weak var host: ExplorerHost?
     @ObservationIgnored private var pulling = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var journalSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var journalRevision: UInt64?
+    @ObservationIgnored private var journalObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
 
     public init() {}
@@ -568,6 +581,20 @@ public final class ExplorerModel {
         if !TestLaunch.ephemeral { restoreUserPalettes() }
         pull(explorer.settings())
         if Preferences.restoreSettings && !TestLaunch.ephemeral { restore() }
+        if !TestLaunch.ephemeral {
+            restoreJournal()
+            let nc = NotificationCenter.default
+            #if os(macOS)
+            let leaving: [Notification.Name] = [NSApplication.willTerminateNotification, NSApplication.didResignActiveNotification]
+            #else
+            let leaving: [Notification.Name] = [UIApplication.didEnterBackgroundNotification, UIApplication.willTerminateNotification]
+            #endif
+            journalObservers = leaving.map { name in
+                nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.saveJournal(now: true) }
+                }
+            }
+        }
         pushOverlay()
         pushPiMeter()
         pushCosmic()
@@ -892,7 +919,7 @@ public final class ExplorerModel {
     }
 
     /// Resets `scope` to the defaults (`withView`: also the view, for "all"). Undoable: the
-    /// previous settings (and view) go on `undo` (⌘Z).
+    /// previous settings (and view) go on `undo` (Edit ▸ Undo; ⌘Z itself is the travel journal's back).
     public func reset(_ scope: ResetScope, withView: Bool = false, undo: UndoManager? = nil) {
         guard let explorer else { return }
         let before = snapshot()
@@ -1198,6 +1225,50 @@ public final class ExplorerModel {
     public func reset() {
         explorer?.resetViewport()
         host?.requestFrames()
+    }
+
+    // MARK: Travel journal (kb: decisions/controls "Travel journal")
+
+    /// Back to the previous place (⌘Z; control center, long-press menu). Travel only: settings
+    /// stay. Rust decides everything (what was recorded, fly or jump).
+    public func journalBack() { journalStep(back: true) }
+
+    /// Forward again after going back (⇧⌘Z, ⌘Y).
+    public func journalForward() { journalStep(back: false) }
+
+    private func journalStep(back: Bool) {
+        guard let explorer else { return }
+        let moved = back ? explorer.journalBack() : explorer.journalForward()
+        guard moved else { return }
+        // A step may change the fractal (a Julia set and back): the mirror takes it over.
+        pull(explorer.settings())
+        host?.requestFrames()
+        refreshStats()
+    }
+
+    static let journalKey = "almondbread.journal.v1"
+
+    /// The persisted journal (the last 100 places, locations only) back into Rust, before the
+    /// places of this session.
+    private func restoreJournal() {
+        guard let explorer, let text = UserDefaults.standard.string(forKey: Self.journalKey) else { return }
+        _ = explorer.journalImport(text: text)
+    }
+
+    /// Writes the journal (coalesced like the settings); also at quit and when the app goes to
+    /// the background, where a view at rest long enough is recorded first.
+    func saveJournal(now: Bool = false) {
+        guard explorer != nil, !TestLaunch.ephemeral else { return }
+        journalSaveTask?.cancel()
+        if now {
+            if let text = explorer?.journalExport() { UserDefaults.standard.set(text, forKey: Self.journalKey) }
+            return
+        }
+        journalSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, let self, let text = self.explorer?.journalExport() else { return }
+            UserDefaults.standard.set(text, forKey: Self.journalKey)
+        }
     }
 
     // MARK: Places (the catalogue in the Rust core; kb: synthesis/places)
@@ -1595,6 +1666,23 @@ public final class ExplorerModel {
         let turned = new.shown.angleDegrees != 0
         if viewTurned != turned { viewTurned = turned }
         if progressText != new.progress.text { progressText = new.progress.text }
+        let j = new.journal
+        if canGoBack != j.canBack { canGoBack = j.canBack }
+        if canGoForward != j.canForward { canGoForward = j.canForward }
+        if journalNote != j.note {
+            journalNote = j.note
+            // The note times out in Rust; the stats stop refreshing once the view rests.
+            if !j.note.isEmpty {
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(2.1))
+                    self?.refreshStats()
+                }
+            }
+        }
+        if journalRevision != j.revision {
+            if journalRevision != nil { saveJournal() }
+            journalRevision = j.revision
+        }
         if canContinue != new.progress.canContinue { canContinue = new.progress.canContinue }
         let unfinished = new.progress.fog
         if progressUnfinished != unfinished { progressUnfinished = unfinished }

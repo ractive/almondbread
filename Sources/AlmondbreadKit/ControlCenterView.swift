@@ -191,13 +191,13 @@ struct ControlCenterView: View {
             } label: {
                 Label("Reset all…", systemImage: "arrow.counterclockwise.circle")
             }
-            .help("Every setting of this window back to the defaults (⌘Z undoes)")
+            .help("Every setting of this window back to the defaults (Edit ▸ Undo undoes; ⌘Z is travel back)")
             .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Reset settings") { model.reset(.all, undo: undoManager) }
                 Button("Reset settings and view") { model.reset(.all, withView: true, undo: undoManager) }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Look, palette, lighting, interior, overlays, iterations and quality go back to the defaults. Edit ▸ Undo (⌘Z) brings them back. App-wide preferences stay (Settings, ⌘,).")
+                Text("Look, palette, lighting, interior, overlays, iterations and quality go back to the defaults. Edit ▸ Undo brings them back (⌘Z goes back to the previous place instead). App-wide preferences stay (Settings, ⌘,).")
             }
             Spacer()
         }
@@ -311,7 +311,7 @@ struct ControlSectionHeader: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Reset \(section.title.lowercased()) to the defaults (⌘Z undoes)")
+                .help("Reset \(section.title.lowercased()) to the defaults (Edit ▸ Undo undoes)")
                 .accessibilityLabel("Reset \(section.title)")
             }
             // The chevron at the far right (user, 2026-10-17); it toggles like the title.
@@ -437,6 +437,29 @@ struct ViewSectionRows: View {
         .buttonStyle(.borderless)
         #endif
         .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
+        // The travel journal (kb: decisions/controls "Travel journal"): the places visited, back
+        // and forward like undo (⌘Z, ⇧⌘Z / ⌘Y). Travel only: settings stay.
+        FitRow {
+            Button {
+                model.journalBack()
+            } label: {
+                Label("Back", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.canGoBack)
+            .help("Back to the previous place you visited (⌘Z); settings stay as they are")
+            .accessibilityIdentifier("journal-back")
+            Button {
+                model.journalForward()
+            } label: {
+                Label("Forward", systemImage: "arrow.uturn.forward")
+            }
+            .disabled(!model.canGoForward)
+            .help("Forward again to where you went back from (⇧⌘Z or ⌘Y)")
+            .accessibilityIdentifier("journal-forward")
+        }
+        #if os(iOS)
+        .buttonStyle(.borderless)
+        #endif
         // (The target lock's finder is the Mandelbrot journey's: hidden without that content, F3.)
         if model.has(\.content) {
             Toggle("Autopilot target lock", isOn: $model.autopilotLock)
@@ -1968,6 +1991,7 @@ struct ControlsHelp: View {
         row("seal", "⇧U", "Julia twin of the view (its centre's Julia set) / back")
         row("airplane", "Z", "Autopilot; steering hands over to cruise, click pauses")
         row("location.north.line", "⌘G / ⇧⌘G", "Fly to coordinates / copied ones")
+        row("arrow.uturn.backward", "⌘Z / ⇧⌘Z or ⌘Y", "Back to the places you visited / forward again")
         row("sparkles", "J  /  ⇧J", "Journey: on · resume · off  /  in the other mode")
         row("forward", "At a journey stop", "J next · Z deeper here · X somewhere else")
         row("signpost.right", "In a tour  → / ← / Esc", "Next step / back / end the tour")
@@ -2003,6 +2027,7 @@ struct ControlsHelp: View {
         row("sparkles", "Cockpit sparkles or J", "Landmark to landmark; a tap pauses")
         row("forward", "At a journey stop", "Buttons under the status: next · deeper here · elsewhere")
         row("scope", "Seek minibrot", "Long press (here) or the control center")
+        row("arrow.uturn.backward", "Back / Forward", "The places you visited: control center or long press (keyboard: ⌘Z / ⇧⌘Z)")
         row("rotate.left", "Two-finger rotate", "Turn the view")
         #endif
     }
