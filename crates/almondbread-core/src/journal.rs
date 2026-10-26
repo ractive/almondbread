@@ -156,6 +156,11 @@ impl Journal {
             .map(|(t, _)| t.as_str())
     }
 
+    /// A travel or a step is under way: its arrival has not been seen at rest yet.
+    pub fn travelling(&self) -> bool {
+        self.departing || self.pending || self.stepping
+    }
+
     /// Travel starts (a jump or a flight): the view it leaves is a departure.
     pub fn travel_started(&mut self) {
         self.departing = true;

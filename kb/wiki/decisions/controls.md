@@ -3744,7 +3744,9 @@ settings undo, and stepping to an entry leaves the settings alone.
   (|ln s₁/s₀| ≥ ln 4), or the centre moved **1.5 view widths** or more (measured in the wider of
   the two views): log-scale and view-size units, the same at every depth. The hand on a gesture is
   not rest: trackpad fingers resting mid-scroll (the scroll's `held` until `Lifted`), a drag held
-  still, a finger down. A rest whose frames stopped (the display link pauses when the picture is
+  still, a finger down. A gesture whose end never comes lets go after 10 s, and a jump drops it.
+  The interaction test's scripted pans send no end, and the next scenario's place was never
+  recorded until a jump cleared the hold. A rest whose frames stopped (the display link pauses when the picture is
   done) is recorded when the view moves on, and before persisting (`journal_flush`).
 - Consecutive entries at the *same place* merge, the newer replacing the older: same fractal, zoom
   within ×1.25, centre within 0.1 view widths, angle within 0.1 rad.

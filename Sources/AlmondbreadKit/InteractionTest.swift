@@ -327,25 +327,34 @@ final class InteractionTest: NSObject {
                 journal.log.append("\(what) \(ok ? "ok" : "FAILED")")
                 if !ok { journal.ok = false }
             }
-            if i == 0 { journal = (0, [], true) }
+            if i == 0 {
+                sent.removeAll()
+                journal = (0, [], true)
+            }
+            once("late", t >= 4.6 && !sent.contains("text")) {
+                self.failures += 1
+                self.refineLines.append("journal keys: did not get through (\(journal.log.joined(separator: ", "))) FAILED")
+            }
             once("place", t >= 0.1) { v.model.goToPlace("elephants") }
-            once("back", t >= 0.5) {
+            // (State, not time: the place's entry is recorded at the first frame at rest.)
+            let arrived = t >= 0.2 && !explorer.stats().journal.travelling
+            once("back", arrived) {
                 // The place is the newest entry.
                 let s = explorer.stats().journal
                 journal.start = Int(s.position) - 1
                 expect("place \(s.position) of \(s.count)", s.position == s.count && s.count >= 2)
                 expect("⌘Z taken", cmd("z"))
             }
-            once("forward", t >= 0.9) {
+            once("forward", sent.contains("back") && t >= 0.9) {
                 expect("back to \(position())", position() == journal.start)
                 expect("⇧⌘Z taken", cmd("Z", [.command, .shift]))
             }
-            once("back2", t >= 1.3) {
+            once("back2", sent.contains("forward") && t >= 1.3) {
                 expect("forward to \(position())", position() == journal.start + 1)
                 _ = cmd("z")
             }
-            once("y", t >= 1.7) { expect("⌘Y taken", cmd("y")) }
-            once("text", t >= 2.1) {
+            once("y", sent.contains("back2") && t >= 1.7) { expect("⌘Y taken", cmd("y")) }
+            once("text", sent.contains("y") && t >= 2.1) {
                 expect("forward again to \(position())", position() == journal.start + 1)
                 // A text field editing: ⌘Z goes on (not taken) and the journal stays.
                 let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
@@ -379,7 +388,7 @@ final class InteractionTest: NSObject {
                 if !journal.ok { self.failures += 1 }
                 self.refineLines.append("journal keys: " + journal.log.joined(separator: ", ") + (journal.ok ? " OK" : " FAILED"))
             }
-            if t >= 2.3 { pan(v, i, t) }
+            if sent.contains("text") { pan(v, i, t) }
         }
         let orbitPointer: (FractalNSView, Int, Double) -> Void = { v, i, _ in
             if i == 0 { overlayOn(v, true, false) }
@@ -928,7 +937,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "spiral pan", viewport: spiral, input: pan),
                 Scenario(name: "spiral zoom", viewport: spiral, input: zoom),
                 Scenario(name: "cmd-click julia", viewport: home, input: commandClick),
-                Scenario(name: "journal keys", viewport: home, input: journalKeys, seconds: 3.5),
+                Scenario(name: "journal keys", viewport: home, input: journalKeys, seconds: 5.0),
                 Scenario(name: "julia twin deep zoom", viewport: seaDeep, input: deepZoom, julia: (re: "twin", im: "")),
                 Scenario(name: "julia 1e-100 pan", viewport: rabbit100, input: pan, julia: rabbitK),
                 Scenario(name: "julia 1e-300 zoom", viewport: dendrite300j, input: zoom, julia: (re: "0", im: "1")),

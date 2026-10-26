@@ -2224,6 +2224,9 @@ impl Navigator {
         self.journal.travel_started();
         self.stop_motion();
         self.rubber = false;
+        // A gesture held before the jump holds nothing now (its end may never come: the
+        // journal would wait for it before recording where the jump came to rest).
+        self.held = None;
         self.journey.stop();
         self.release_holds();
     }

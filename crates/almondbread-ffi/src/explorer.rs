@@ -613,6 +613,8 @@ pub struct JournalStatus {
     /// Changes whenever the entries or the current one change: persist then
     /// (`Explorer::journal_export`).
     pub revision: u64,
+    /// A travel or a step has not come to rest yet (its entry is still to be recorded).
+    pub travelling: bool,
 }
 
 /// A journey for the HUD and the control center (kb: decisions/controls, "Journey").
@@ -2224,6 +2226,7 @@ impl Explorer {
                     count: n as u32,
                     note: j.note(media_time()).unwrap_or("").to_string(),
                     revision: j.revision(),
+                    travelling: j.travelling(),
                 }
             },
         }
