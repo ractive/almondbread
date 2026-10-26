@@ -3706,6 +3706,112 @@ move. **Hit testing:** the Mac's `accessibilityHitTest` takes the smallest contr
 (the UI test checks the cockpit, compass and help elements are hittable). With
 `ALMONDBREAD_UITEST=1` the iOS canvas element's value stays the UI tests' state string.
 
+## Travel journal (as built, 2026-10-26)
+
+Requested by the user (2026-10-26): "When I'm somewhere and I click somewhere that brings me away,
+I may want to return, like flying back. Every place that has been visited is recorded and you
+could go back. Like the undo shortcut: ⌘Z jumps back, ⌘Y / ⇧⌘Z forward." Core:
+`crates/almondbread-core/src/journal.rs` (recording rules, steps, persistence text), owned and fed
+by the `Navigator` (`input.rs`: `advance` observes once per frame, `jumped` / `fly_to` /
+`note_travel` mark travel, `travel_to`, `journal_go`); render: `Host::journal_step`,
+`journal_can`, the way back from a Julia set (`host.rs`); FFI: `Explorer.journal_back`,
+`journal_forward`, `journal_export`, `journal_import`, `ExplorerStats.journal` (`JournalStatus`);
+Swift: `ExplorerModel.journalBack/Forward`, `JournalKeys.swift`, the menus, the control center,
+the long-press menu, the HUD note.
+
+| Input | Action |
+| --- | --- |
+| ⌘Z, View ▸ Back (Mac; iPad with a keyboard: the canvas's key command) | back to the previous place |
+| ⇧⌘Z or ⌘Y, View ▸ Forward | forward again after going back |
+| control center View & navigation "Back" / "Forward"; the long-press menu's "Back" / "Forward" (touch, shown when there is somewhere to go) | the same |
+| ⇧U, the Mandelbrot panel, the HUD's back button in a Julia view | back to the view it was opened from: when that is the journal's previous entry (the usual case), an ordinary step back (⇧⌘Z returns to the Julia set), the view bit for bit as before; otherwise the old way back, which records the Mandelbrot view as a new entry |
+
+**An entry is a location only:** centre (full precision), scale, angle, formula with its parameters
+(a Julia set's k). Not the look, palette, interior, iterations or overlays: ⌘Z is travel, never a
+settings undo, and stepping to an entry leaves the settings alone.
+
+**Recording rules** (`journal.rs` module docs):
+
+- *Travel* records where it leaves (if far from the current entry, or the journal is empty) and
+  where it comes to rest: a jump (a place's Go, typed or pasted coordinates, home / R / ⌘0, a
+  mini-map click, the formula picker, a tour start or step, the tour's end), a flight (fly to
+  coordinates, Fly to copied, a place's Fly, seek minibrot N, ⌥-click on a map, the π hunt), opening
+  a Julia set (⌘-click, the panel, the twin, a Julia link) and leaving it.
+- *Autonomous motion*: the start of the autopilot, a journey or a cruise records where it leaves;
+  its stop (or the autopilot's pause, a journey's stop at a find) records where it rests.
+- *Manual motion* (pan, zoom, pinch, keys, wheel): a view at rest **2 s** with the hand off that is
+  **far** from the current entry. Far = another fractal, or the zoom changed by **×4** or more
+  (|ln s₁/s₀| ≥ ln 4), or the centre moved **1.5 view widths** or more (measured in the wider of
+  the two views): log-scale and view-size units, the same at every depth. The hand on a gesture is
+  not rest: trackpad fingers resting mid-scroll (the scroll's `held` until `Lifted`), a drag held
+  still, a finger down. A gesture whose end never comes lets go after 10 s, and a jump drops it.
+  The interaction test's scripted pans send no end, and the next scenario's place was never
+  recorded until a jump cleared the hold. A rest whose frames stopped (the display link pauses when the picture is
+  done) is recorded when the view moves on, and before persisting (`journal_flush`).
+- Consecutive entries at the *same place* merge, the newer replacing the older: same fractal, zoom
+  within ×1.25, centre within 0.1 view widths, angle within 0.1 rad.
+- A new entry after going back drops the forward entries (undo semantics). Going back or forward
+  records nothing (the step's own fly or jump is marked as the step's).
+- Back from a view that has left the current entry (an unrecorded far move, or a flight that has
+  not landed) goes to the current entry first; an unrecorded far view is recorded on the way, so
+  forward comes back to it.
+- **100** entries; the oldest go first.
+
+**Moving to an entry:** `Navigator::travel_to` flies when the flight would take at most
+`TRAVEL_FLY_MAX_SECONDS` = 5 s at the fly-to speed, else jumps (the tour fix shares the function).
+An entry in another fractal is a jump (as the old way back); into a Julia set from a Mandelbrot
+view, that view becomes its way back (Mandelbrot panel).
+
+**HUD:** "Back · 3 of 7" / "Forward · 4 of 7" for 2 s after a step, in the motion line (over the
+flight's own line); the stats refresh once more after 2.1 s so the note goes even when the view
+rests.
+
+**⌘Z and text undo.** First try: leave the system Edit ▸ Undo on ⌘Z and add View ▸ Back with
+⌘Z too. SwiftUI drops a shortcut another menu item already has (View ▸ Back showed no key at all,
+measured in the interaction test), so the Mac now does it this way:
+
+- The canvas's window-local key monitor sees key events before the menu bar. Unless a text field
+  edits it takes ⌘Z / ⇧⌘Z / ⌘Y as back / forward. While the window's first responder is an
+  `NSText` (the field editor of the control center search or a coordinate field) it takes ⌘Z / ⇧⌘Z
+  too, but sends them as `undo:` / `redo:` up that field editor's responder chain
+  (`tryToPerform`), which is the field's own undo; ⌘Y goes on.
+- Edit ▸ Undo / Redo stay as menu items without keys (`CommandGroup(replacing: .undoRedo)`,
+  sending `undo:` / `redo:` to the first responder). View ▸ Back ⌘Z / Forward ⇧⌘Z carry the keys.
+  Their actions send `undo:` / `redo:` instead when the key window's first responder is an
+  `NSText`. That covers windows without the canvas monitor, such as the Fly to sheet.
+- iOS: the journal keys are `UIKeyCommand`s of the canvas view (they show in the ⌘-hold overlay).
+  A focused text field is not in the canvas's responder chain, so it keeps its own undo.
+- The resets' undo (the control center's "Reset all…" and section ↺) stays on the window's undo
+  manager. It is reached by Edit ▸ Undo, by menu only.
+
+Checked by the interaction test scenario "journal keys" (2026-10-26): real key events go through
+the monitor. A place, then ⌘Z, ⇧⌘Z, ⌘Z, ⌘Y: positions 2 → 1 → 2 → 1 → 2. Then a text field is
+made first responder and "abc" typed: ⌘Z empties it, ⇧⌘Z brings "abc" back, and the journal does
+not move. The menu bar's only ⌘Z items are View ▸ Back ⌘Z and Forward ⇧⌘Z. Also checked by
+`JournalKeysTests` (swift-test). Gap: a text field in the Settings window has no ⌘Z undo, because
+View ▸ Back is disabled there (no explorer model is focused).
+
+**Persistence:** `journal_export` text in user defaults (`almondbread.journal.v1`), written
+(coalesced 0.5 s) when the journal's revision changes, and at quit / resign active (macOS) or
+background (iOS); restored at launch before the places of the session (`journal_import`). Format
+`almondbread-journal 1`, `at i`, then one line per entry `re im scale angle formula [k_re k_im
+k_bits]` (centre to ~1/1000 point, k exactly at its precision). One journal per window; with
+several Mac windows the last one written wins. Not in UI-test or window-test launches.
+
+**Per-frame cost:** a comparison of the view and formula with the last frame's (a clone when it
+changed); distance tests only at transitions and once per rest.
+
+**Tests.** `journal::tests` (15: each trigger records, flights record on arrival only, the dwell
+and the far rule in widths, a paused scroll with the fingers on records nothing, a rest without
+frames, back / forward / truncation, back mid-flight, merge, autonomous start and stop, formula and
+Julia entries, capacity, export / import), `journal::navigator_tests` (4: `travel_to` flies ×20,
+jumps to 1e-30 and lands within 5 s; fly-to and back; autopilot stop and R; a step into another
+fractal), render `host::journal_tests` (5, Metal, real `Host::frame`s: a place and back / forward
+landing exactly, N records its landing and back lands on the start, ⌘-click Julia then ⇧U as a
+journal step and forward / ⌘Z through the Julia set with the way back kept, every Feigenbaum tour
+step that moves is an entry, a 4 s finger pause mid-scroll is no entry). Headless:
+`scripts/flights/journal.json` (whole set, the place elephants, N, back, back, forward).
+
 ## Test switches (temporary)
 
 A/B switches for the user's foreground comparison. Each goes, with its losing path, once the

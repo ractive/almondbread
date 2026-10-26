@@ -702,6 +702,24 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
         // "Control center").
         let gridKeys = model.keyFocusTile != nil && window?.firstResponder !== self
             && (event.keyCode == 49 || [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(event.specialKey))
+        // The travel journal (kb: decisions/controls "Travel journal"): ⌘Z back, ⇧⌘Z / ⌘Y forward,
+        // taken here before the menu bar sees them; while a text field edits, ⌘Z / ⇧⌘Z are its
+        // undo / redo, sent up its field editor's responder chain (the menu bar's ⌘Z is Back).
+        if event.type == .keyDown {
+            let m = event.modifierFlags
+            if let step = JournalKeys.step(key: event.charactersIgnoringModifiers ?? "", command: m.contains(.command),
+                                           shift: m.contains(.shift), option: m.contains(.option),
+                                           control: m.contains(.control), textEditing: window?.firstResponder is NSText) {
+                switch step {
+                case .back: if !event.isARepeat { model.journalBack() }
+                case .forward: if !event.isARepeat { model.journalForward() }
+                // (Repeats too, as AppKit's own ⌘Z repeats in a text field.)
+                case .textUndo: _ = window?.firstResponder?.tryToPerform(Selector(("undo:")), with: nil)
+                case .textRedo: _ = window?.firstResponder?.tryToPerform(Selector(("redo:")), with: nil)
+                }
+                return true
+            }
+        }
         if event.modifierFlags.contains(.command) || window?.firstResponder is NSText || gridKeys {
             if event.type == .keyUp, let key = Self.navKey(event) { send(.keyUp(key: key)) }
             return false
@@ -1272,6 +1290,21 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
     // MARK: Hardware keyboard (iPad): the same keys as on the Mac
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// The travel journal (kb: decisions/controls "Travel journal"): ⌘Z back, ⇧⌘Z / ⌘Y forward.
+    /// Key commands of the canvas, so a focused text field (not in this responder chain) keeps
+    /// its own undo; they show in the ⌘-hold overlay.
+    override var keyCommands: [UIKeyCommand]? {
+        let back = UIKeyCommand(title: "Back", action: #selector(journalBack), input: "z", modifierFlags: .command)
+        let forward = UIKeyCommand(title: "Forward", action: #selector(journalForward), input: "z",
+                                   modifierFlags: [.command, .shift])
+        let forwardY = UIKeyCommand(action: #selector(journalForward), input: "y", modifierFlags: .command)
+        for c in [back, forward, forwardY] { c.wantsPriorityOverSystemBehavior = true }
+        return [back, forward, forwardY]
+    }
+
+    @objc private func journalBack() { base.model.journalBack() }
+    @objc private func journalForward() { base.model.journalForward() }
 
     override func resignFirstResponder() -> Bool {
         send(.focusLost)

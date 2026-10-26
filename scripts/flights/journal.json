@@ -1,0 +1,30 @@
+{
+ "_about": "The travel journal (kb: decisions/controls \"Travel journal\"): the whole set at rest (entry 1 after the 2 s dwell), the place elephants (a jump: entry 2), N (seek minibrot: a flight, entry 3), then back (⌘Z) to the place, back to the whole set, forward (⇧⌘Z) to the place again. `fly` prints each journal change and the entries at the end; the final view is the place's.",
+ "size": "1280x800",
+ "fps": 30,
+ "duration": 40,
+ "events": [
+  {
+   "at": 3.0,
+   "jump": {
+    "place": "elephants"
+   }
+  },
+  {
+   "at": 5.0,
+   "key": "n"
+  },
+  {
+   "at": 22.0,
+   "journal": "back"
+  },
+  {
+   "at": 29.0,
+   "journal": "back"
+  },
+  {
+   "at": 35.0,
+   "journal": "forward"
+  }
+ ]
+}

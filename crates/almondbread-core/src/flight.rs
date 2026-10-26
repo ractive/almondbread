@@ -32,6 +32,7 @@
 //! | `{"at": t, "fly_to": {"re": "..", "im": "..", "scale": "1e-34"}}` | fly to coordinates (scale per script unit) |
 //! | `{"at": t, "jump": {"re": "..", "im": "..", "scale": "1e-1000"}}` | go to coordinates (no animation, like pasting coordinates); `{"location": "spiral-32412-1e19", "pixels": 1920}` takes a benchmark location framed as at that width (also for `fly_to`); `{"place": "spiral-1e1000"}` a place from the catalogue framed as at `pixels` × `rows` (1920 × 1080) |
 //! | `{"at": t, "journey": 4711}` / `{"at": t, "journey": "daily", "date": "2026-10-15"}` | start a journey with that seed (kb: decisions/controls, journey); `"stops": true` stops at each find; keys `j` (resume / stop; at a stop: next), `J` (`journey_alt`), `x` (`elsewhere`, at a stop), `n` (`seek`: seek minibrot, kb: decisions/controls "Seek minibrot"), `q` / `e` (the pedals: cruise out / in, kb: decisions/controls "Driving levels"), `rotate_ccw` `,`, `rotate_cw` `.`, `straighten` `/` |
+//! | `{"at": t, "journal": "back"}` / `"forward"` | the travel journal's ⌘Z / ⇧⌘Z (kb: decisions/controls "Travel journal") |
 //! | `{"from": a, "to": b, "rotate": rate}` | trackpad rotation at `rate` radians/s (counter-clockwise image) about `point` |
 //!
 //! Settings also take `"cinematic": true` or `{"spin": 4, "hue_drift": 2.5, "phase_drift": 0.01, "fly_cycle": 0.02}`
@@ -544,12 +545,30 @@ impl FlightPlayer {
                 None => eprintln!("flight: bad fly_to target {f}"),
             }
         }
+        if let Some(step) = e.get("journal").and_then(Value::as_str) {
+            // The travel journal (kb: decisions/controls "Travel journal"): ⌘Z / ⇧⌘Z.
+            let step = match step {
+                "back" => Some(crate::journal::Step::Back),
+                "forward" => Some(crate::journal::Step::Forward),
+                _ => None,
+            };
+            if let Some(step) = step {
+                let mut v = r.viewport().clone();
+                let mut f = r.settings().formula;
+                if r.navigator().journal_go(step, &mut v, &mut f, now).is_none() {
+                    eprintln!("flight: nothing to go {step:?} to in the journal");
+                }
+                *r.viewport() = v;
+                r.settings().formula = f;
+            }
+        }
         if let Some(f) = e.get("jump") {
             // "Go to coordinates": the view is replaced, like the app's coordinate paste.
             match self.view_text(f) {
                 Some(mut target) => {
                     target.angle = num(f, "angle").map_or(0.0, f64::to_radians);
                     r.navigator().cancel_flight();
+                    r.navigator().note_travel();
                     *r.viewport() = target;
                 }
                 None => eprintln!("flight: bad jump target {f}"),

@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-26
 
+- **Decision:** Travel journal: every place the user comes to rest at after travel (jumps, flights, places, N, tour steps, Julia sets, autopilot/journey/cruise stops) or after a manual move that rests 2 s far away (zoom x4 or 1.5 view widths) is an entry (location only, no settings); ⌘Z back, ⇧⌘Z / ⌘Y forward with undo semantics, fly when <= 5 s else jump, the Julia way back as a journal step, 100 entries persisted; text fields keep their undo (decisions/controls 'Travel journal')
 - **Decision:** Tours fly only when short: a tour step's view and the tour's end fly only when the flight lands within 5 s (Navigator::travel_to, TRAVEL_FLY_MAX_SECONDS), else jump; fixed the orbit overlay's panic on a tour probe 10^336 view widths from a deep view (What's the fog? at 1e334 froze the view)
 - **Update:** Compute further: measured time limit: Continue at the time limit did nothing (the worst-case estimate blocked every pass); the budget is now GPU seconds spent, checked between segments sized by the pass's own cost; Continue resumes a paused pass (techniques/auto-iterations)
 - **Decision:** Fog takes history: gesture frames keep the rest frame's interior, analysis and fog where the history holds a result of the same settings (class epoch byte per history pixel); flat bulb pans 23.5 % -> 0.7 % changed smooth pixels, +0.2 ms GPU per 4 Mpx gesture frame

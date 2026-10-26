@@ -284,6 +284,7 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
     let mut last_input_t = 0.0f64;
     let mut final_after: Option<f64> = None;
     let mut presented_frames = 0usize;
+    let mut journal_rev = r.navigator.journal().revision();
     // Peak memory by kind (`memory_report`), and the iteration limit at the peak.
     let ring_bytes = (RING * size.0 * size.1 * 4) as u64;
     let mut mem_peak = almondbread_render::memory::MemoryReport::default();
@@ -352,6 +353,17 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         }
         let outcome = r.render_frame(now, size.0, size.1, 1.0, &mut |_| Some((target.clone(), None)));
         let frame_cpu = r.clock() - cpu0;
+        // The travel journal (kb: decisions/controls "Travel journal"): each change.
+        let j = r.navigator.journal();
+        if j.revision() != journal_rev {
+            journal_rev = j.revision();
+            let (at, n) = j.position();
+            println!(
+                "  journal at {t:.2} s: {} of {n}{}",
+                at + 1,
+                j.note(now).map_or(String::new(), |s| format!(" ({s})"))
+            );
+        }
         {
             let mut m = r.memory_report();
             m.gpu = m.gpu.map(|g| g.saturating_sub(ring_bytes));
@@ -490,6 +502,22 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
             r.viewport.scale.to_text(6),
             almondbread_render::host::zoom_text(r.viewport.zoom_log10()),
         );
+        let j = r.navigator.journal();
+        if !j.entries().is_empty() {
+            let (at, n) = j.position();
+            println!("  journal: {n} entries, at {}", at + 1);
+            for (i, e) in j.entries().iter().enumerate() {
+                let (re, im) = e.view.center.to_strings_digits(12);
+                println!(
+                    "    {}{} {} {re},{im} scale {} (zoom {})",
+                    if i == at { "> " } else { "  " },
+                    i + 1,
+                    e.formula.name(),
+                    e.view.scale.to_text(4),
+                    almondbread_render::host::zoom_text(e.view.zoom_log10()),
+                );
+            }
+        }
     }
     {
         // Gesture work.

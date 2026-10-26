@@ -65,6 +65,10 @@ A tour walks you through one piece of the maths, step by step. Start one from **
 - The last step offers the **Next tour**: one tap or click starts it. The tours form a series, from what the colours mean to π.
 - Where a question comes up, a small link answers it with a tour: *What's a period?* under "Minibrot, period 34" in the status overlay, *What's the fog?* when some points are not finished, and a link in **Iterations & quality**. Places with a tour show a small signpost on their picture.
 
+## Back to where you were
+
+Every place you come to rest at is remembered: where a jump, a flight, a place, a minibrot search, a tour step or a Julia set took you, where the autopilot or a journey stopped, and where you stayed a couple of seconds after zooming or panning far. **⌘Z** goes back to the previous place, **⇧⌘Z** or **⌘Y** forward again, like undo and redo; on a touch screen **Back** and **Forward** are in the control center (View & navigation) and in the long-press menu. Short ways fly, long ones jump. Only the place comes back, not the colours or other settings. The last 100 places are kept when you quit.
+
 ## Fly to coordinates
 
 Every view has an address: its centre and its zoom. **⌘C** copies it, **⌘V** jumps to a copied one (also **⇧⌘C** / **⇧⌘V** while a text field has focus), **⇧⌘G** flies to it, and **⌘G** flies to an address you type.
