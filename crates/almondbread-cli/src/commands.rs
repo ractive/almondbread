@@ -797,6 +797,53 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         );
     }
     sessions.push(first);
+    // `--continue n` (with `--further-budget s`): "Continue" (the HUD button at compute further's
+    // time limit) n times once settled, each run until settled again; prints compute further's
+    // state before and after (kb: techniques/auto-iterations "Compute further"). The last
+    // settled frame is the one checked.
+    for k in 0..o.usize("continue").unwrap_or(0) {
+        let state = |r: &almondbread_render::Renderer<B>| {
+            r.further_info().map_or("none".to_string(), |f| {
+                format!(
+                    "{} reached {} unresolved {} passes {} gpu {:.2} s budget {:.2} s{}",
+                    if f.running { "running" } else { "stopped" },
+                    f.reached,
+                    f.unresolved,
+                    f.passes,
+                    f.gpu,
+                    f.budget,
+                    f.stop.map_or(String::new(), |w| format!(" ({})", w.name()))
+                )
+            })
+        };
+        println!("continue {}: before: {}", k + 1, state(&r));
+        let resumed = r.continue_further();
+        let progress = r.progress_sample(r.clock());
+        println!(
+            "continue {}: resumed {resumed}, settled {}, stage {:?}",
+            k + 1,
+            progress.settled,
+            progress.stage
+        );
+        let step = r
+            .simulate(
+                width,
+                height,
+                ppp,
+                120.0,
+                0,
+                o.f64("timeout").unwrap_or(30.0),
+                &mut |_, _, _| {},
+            )
+            .map_err(|_| crate::options::CommandError("continued session did not finish".into()))?;
+        println!("continue {}: after: {}", k + 1, state(&r));
+        *sessions.last_mut().expect("session") = step;
+    }
+    // `--check 0`: the session only (deep views with a high cap: the CPU oracle at the hard limit
+    // takes hours).
+    if o.get("check") == Some("0") {
+        return Ok(0);
+    }
     if let Some(c) = r.gesture_captures.take() {
         gesture_check(backend, o, &r, &c.frames, rest_shown.as_ref())?;
     }

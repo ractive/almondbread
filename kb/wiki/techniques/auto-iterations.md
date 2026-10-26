@@ -234,10 +234,12 @@ loop:
     if next > exact_reach of the reference:
         f64 orbit cut at its limit -> recompute it to next (<= 16 M points) on a thread, retry
         else next = exact_reach, or stop "orbit length"
-    next = 2 reached if 4x does not fit the GPU budget; stop "time limit" if 2x does not
-    for each segment of <= list capacity admission slots (tiles in priority order):
+    stop "time limit" if the extension passes' GPU seconds >= budget   # measured
+    next = 2 reached if the worst-case estimate of 4x exceeds the budget (never stops)
+    for each segment (tiles in priority order, sized to cost <= min(budget left, budget / 8)):
         GPU scan lists the segment's ITER_UNRESOLVED texels (`unresolvedList` kernel)
         an extension level (list mode 2) iterates them from the start to next
+        pause "time limit" if GPU seconds >= budget and segments are left  # Continue resumes here
     reached = next, u = what the segments left
 ```
 
@@ -245,10 +247,36 @@ loop:
   all-or-nothing (4 M entries): at 4000 × 2500 the neck's 10 M unresolved texels got no
   extension pass at all. A scan of the iteration texture per segment of at most the list
   capacity always fits; the segments follow the tile priority order, so the centre fills first.
-- **Budget**: all extension passes of a view at most `further_budget` = 60 GPU s, estimated
-  as `u × next / rate` per pass (pessimistic: every pixel to the limit), with the passes' own
-  measured iterations per GPU second. The throughput model's rate read 10–30x too high after
-  levels whose pixels are proven early (1e7 neck pixels to 65 k looked like 0.3 s).
+- **Budget**: all extension passes of a view at most `further_budget` = 60 GPU s, measured
+  (2026-10-26; before, estimated, see "Continue" below): checked before each pass and between
+  the segments of a pass, which then pauses and keeps what its segments resolved. The worst-case
+  estimate `u × next / rate` (every pixel to the limit, with the passes' own measured
+  iterations per GPU second; the throughput model's rate read 10–30x too high after levels
+  whose pixels are proven early) now only picks x2 over x4, and sizes segments: a segment's
+  estimated cost is at most what is left of the budget and `further_budget / 8`, by the pass's
+  own measured GPU seconds per texel once it has some (worst case before), so the overrun is
+  about one segment. A segment costs at least the serial time of its slowest pixel (~0.2 GPU s
+  for 10 M steps at 1e-336), so very small budgets give small, inefficient segments; at 60 s
+  they are large.
+- **Continue** (HUD button, key G, at "time limit"): another `further_budget` from what the view
+  has spent; a paused pass resumes at its next segment, else the next pass starts. User report
+  2026-10-26: "14 % not finished at 5.2 M steps (time limit) [Continue]" and Continue did
+  nothing. With the estimated budget the pass 5.2 M → 10 M of 65 k unresolved texels (808 × 595
+  of the view: 1e-336, period 198 154 minibrot nucleus reference) was estimated above 60 s, so
+  it never ran, and Continue's extra 60 s did not "fit" either: it stopped again at once while
+  the HUD kept offering the button. Measured (2026-10-26, M1 Pro, release, machine under heavy
+  load from other agents, `verify --history zoom --extension-budget 2 --further-budget 60
+  --continue 1 --check 0`): the pass actually took 0.54 GPU s, now runs without Continue and
+  settles at 11.1 % "upper limit" (53 k of 481 k; before: 13.6 % "time limit" for good). With
+  `--further-budget 0.2` each Continue resumed the paused pass (unresolved 64 560 → 64 503 →
+  61 927 → 57 232). The neck at 1600 × 1000, cap 10 M, budget 1 s: before, Continue returned
+  false at 65 k steps; after, two Continues reached 130 k, then 260 k (unresolved 243 842 →
+  85 231 → 26 102). Continue also clears the settled state, so the HUD line shows "computing
+  further" while it runs (before, the job stayed `final_presented`). The HUD offers Continue
+  exactly when compute further stopped at "time limit", and with a measured limit that stop
+  always leaves budget to resume. The Buddhabrot's Continue (`continue_buddha`) already used a
+  measured budget (GPU seconds sampled) and did not have this bug. Regression test:
+  `scheduler/further_continue_tests.rs` (state, not timing).
 - **Smoothness**: compute further's chunks are as small as AA samples' (8 ms, two in flight),
   so input waits at most ~16 ms of GPU; any input starts a new job and drops all of it. Gesture
   frames that start while it runs (4000 × 2500 neck, cap 10 M): 27–36 fps against 28 fps with
@@ -282,7 +310,9 @@ loop:
   `verify --history` (which runs it only when given, so `make regress` stays as fast: 302.8 s against
   300.2 s on main, the 2.4 s being its one compute further session, the neck at 400 × 250 with
   AA and a 4 s budget) and `progress`; `ALMONDBREAD_UNRESOLVED_AT=1,5,20,60` prints the shown
-  frame's unresolved texels at those seconds.
+  frame's unresolved texels at those seconds. `verify --history ... --continue n` presses
+  Continue n times once settled and prints compute further's state before and after;
+  `--check 0` skips the oracle and fresh-render diffs (hours at 1e-336 with a 10 M cap).
 
 **The 4x depth cap stays.** With compute further it is not what limits a still view any more;
 lifting it would make the *base* limit of every neck view, and every frame of a pan, slower:
