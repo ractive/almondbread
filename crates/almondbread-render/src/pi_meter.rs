@@ -349,7 +349,8 @@ impl PiMeter {
             // probe is put away and a view centred on a line counts its centre.
             if let Some(p) = self.probe {
                 let [x, y] = base_offset(p.point, view);
-                if self.view_pts[0] > 0.0 && (x.abs() > 0.5 * self.view_pts[0] || y.abs() > 0.5 * self.view_pts[1]) {
+                // (Negated <=: a pinch point beyond f64 view units is NaN in a turned view.)
+                if self.view_pts[0] > 0.0 && !(x.abs() <= 0.5 * self.view_pts[0] && y.abs() <= 0.5 * self.view_pts[1]) {
                     self.probe = None;
                 }
             }

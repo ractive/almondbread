@@ -166,9 +166,19 @@ impl DoubleExp {
         DoubleExp { mantissa, exponent }
     }
 
-    /// From an f64, normalised. Panics on a non-finite value.
+    /// From an f64, normalised. A non-finite value is carried as it is (mantissa ±inf or NaN,
+    /// exponent 0), the form an overflow in `*`, `/` or `times_power_of_two` already gives, so
+    /// it propagates like f64 and callers' finite checks see it. This used to panic: in the app
+    /// a panic here only ever dropped the frame and fired again on the next one (2026-10-26:
+    /// the orbit probe of a point 10^336 view widths away, every refresh; kb:
+    /// techniques/hang-prevention).
     pub fn from_f64(d: f64) -> Self {
-        assert!(d.is_finite(), "DoubleExp from a non-finite f64");
+        if !d.is_finite() {
+            return DoubleExp {
+                mantissa: d,
+                exponent: 0,
+            };
+        }
         if d == 0.0 {
             return Self::ZERO;
         }

@@ -1470,40 +1470,18 @@ pub struct Explorer {
     inner: Mutex<Inner>,
 }
 
-/// Logs every Rust panic (message, location, backtrace) to
-/// `~/Library/Logs/Almondbread/panic.log` before the default hook runs. A panic inside an FFI
-/// call becomes a Swift trap; an app started from Finder has no stderr, so without this the
-/// cause is lost when a crash report is not written.
+/// Logs every Rust panic to `~/Library/Logs/Almondbread/panic.log` before the default hook
+/// runs (an app started from Finder has no stderr): the first of a kind in full, repeats only
+/// counted, the file rotated at 5 MB (`crate::panic_log`).
 fn install_panic_log() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            if let Some(home) = std::env::var_os("HOME") {
-                let dir = std::path::Path::new(&home).join("Library/Logs/Almondbread");
-                let _ = std::fs::create_dir_all(&dir);
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(dir.join("panic.log"))
-                {
-                    use std::io::Write;
-                    let when = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map_or(0, |d| d.as_secs());
-                    let bt = std::backtrace::Backtrace::force_capture();
-                    let _ = writeln!(
-                        f,
-                        "=== {} (unix {when}) pid {} thread {:?}\n{info}\n{bt}",
-                        env!("CARGO_PKG_VERSION"),
-                        std::process::id(),
-                        std::thread::current().name()
-                    );
-                }
-            }
-            previous(info);
-        }));
-    });
+    crate::panic_log::install();
+}
+
+impl Drop for Explorer {
+    fn drop(&mut self) {
+        // A panic loop's last repeat count.
+        crate::panic_log::flush();
+    }
 }
 
 impl Explorer {
@@ -1662,7 +1640,7 @@ impl Explorer {
         } = &mut *g;
         // A panic must not cross the FFI (UniFFI turns it into a Swift trap: the app dies, as
         // in "selected Lagoon and almondbread died"). The panic hook has logged it to
-        // ~/Library/Logs/Almondbread/panic.log; the renderer drops its job and goes on.
+        // ~/Library/Logs/Almondbread/panic.log (repeats counted); the renderer drops its job and goes on.
         let frame = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             MetalBackend::pool(|| {
                 if let Some(log) = log {
@@ -1696,10 +1674,17 @@ impl Explorer {
                 }
             })
         }));
-        let animating = frame.unwrap_or_else(|_| {
-            host.renderer.recover_after_panic();
-            true
-        });
+        let animating = match frame {
+            Ok(animating) => {
+                // A panic loop ended: its count goes to the log.
+                crate::panic_log::frame_completed();
+                animating
+            }
+            Err(_) => {
+                host.renderer.recover_after_panic();
+                true
+            }
+        };
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
         (u8::from(animating) * FRAME_ANIMATING) | (u8::from(keyboard) * FRAME_KEYBOARD)
     }

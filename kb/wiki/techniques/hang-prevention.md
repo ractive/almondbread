@@ -64,6 +64,9 @@ they are.
 | `frexp` / `exponent_of` / `exponent_significand` | recursion on 0 | zero returns first |
 | CLI `pi_counts`, `nucleus` refine | `(1..)` with eps 0; bits loop | `1..=64`; 8 rounds, bits ≤ 2^17 |
 | Swift `ContentView` flight percent | `Int(NaN)` traps | `String(format:)` |
+| `floatexp.rs` `DoubleExp::from_f64` | a point 10^336 view widths away is inf in f64 view units; the orbit probe's conversion asserted, a panic on every refresh (2026-10-26) | non-finite carried as is (mantissa ±inf / NaN, exponent 0), like an overflow in `*`; no assert, not even a debug one (see [Panic log](#panic-log-and-the-offset-overflow-class-as-built-2026-10-26)) |
+| `viewport.rs` `Center::new`, `Center::offset` | non-finite f64 into `BigFloat::from_f64` (asserts) | saturate like `big_times`: NaN is 0, ±inf is ±f64::MAX |
+| `scheduler.rs` `reproject` | a jump between two deep views of similar scale: history offset inf (NaN when turned) went to the GPU as f32 | offsets past 1e30 history pixels: no history |
 
 Lints (workspace `[lints.clippy]` in `Cargo.toml`, enforced by `make rust-check`'s
 `-D warnings`): `infinite_iter` (deny), `maybe_infinite_iter`, `while_float`, `infinite_loop`
@@ -77,7 +80,75 @@ functions with zoom 1e-3010 and 2^±(2^62), ±inf, NaN, size 0 and negative span
 cosmic scale and panel, compass maths and layout, π meter layout and flight views, navigator,
 viewport clamps, pasted view text, decimal parse, precision bits, tile binning, Halton) and
 assert a quick, sane answer. `cargo test extreme_` runs them in a few milliseconds per crate.
-No property tests or fuzzing (a project rule: CI stays fast).
+No property tests or fuzzing (a project rule: CI stays fast). Since 2026-10-26 also
+`extreme_double_exp_from_non_finite_f64` (math) and `extreme_offsets_far_past_f64_view_units`
+(core: a 1e-337 view with a far point and a shallow view with a point 1e-337 off its centre,
+straight and turned, through `offset_of`, `distance_in`, `delta_double_exp`, `FlyPath` both
+ways and deep to deep, the autopilot's `snapped`, and non-finite centres).
+
+## Panic log and the offset overflow class (as built, 2026-10-26)
+
+**The incident.** A tour step's probe point 10^336 view widths away (the "What's the fog?"
+tour started at 1e334) went through f64 view units to `DoubleExp::from_f64(inf)`, which
+asserted. `Explorer::frame` catches panics (`catch_unwind`, then `recover_after_panic`), so the
+app lived, but the panic fired on every display refresh, the view froze, and the panic hook
+appended a full entry with a backtrace each time: 143 000 entries, 1.2 GB of
+`~/Library/Logs/Almondbread/panic.log` in about an hour. The probe itself was fixed first
+(overlay `update_probe` takes `Center::delta_double_exp`, exact BigFloat to DoubleExp).
+
+**The log** (`crates/almondbread-ffi/src/panic_log.rs`, hook installed by `Explorer::new`):
+
+- Two panics are the same when message and location are. The first of a kind gets the full
+  entry (version, time, pid, thread, message, backtrace) and the previous hook (stderr).
+- A repeat is only counted: no backtrace capture, nothing on stderr, no write. A line
+  `--- repeated N more times (T in all): <message at location>` is written at most once a
+  minute while the loop lasts, when a different panic comes, when a frame completes without a
+  panic (`... (then a frame completed)`), and when the `Explorer` is dropped. The dedupe
+  survives good frames: a panic that alternates with them (or fires in `input` between frames)
+  stays one entry and counts. An app killed in a loop loses at most a minute of count.
+- Before each write the file rotates at 5 MB to `panic.log.1` (one old file). A file over twice
+  the cap (an old runaway log) is cut to its first 5 MB before the rename: the head holds the
+  first entries, the rest of such a log is the same entry again.
+- Per frame without a panic: one relaxed atomic swap.
+- Tests: `panic_log::tests` (dedupe counts and the minute line, loop end, rotation in a temp
+  dir, a runaway file cut to its head).
+
+**What the user sees** of a panic loop: the view stops changing, and the HUD's developer
+details show "failed frames N" in red (`ExplorerStats.failed_frames`, counted by
+`recover_after_panic`). Nothing in the normal HUD. Proposed, not built: when frames panic
+several refreshes in a row, the Rust progress line says "Rendering failed (internal error);
+details in ~/Library/Logs/Almondbread/panic.log" (unverified as to wording; it touches the
+progress line, which other work was changing at the time).
+
+**The audit** of BigFloat/Center offsets turned into f64 view units (`delta_in`, `distance_in`,
+`offset_of`, `delta_from`) and then into DoubleExp or float maths. `delta_in` returns ±inf past
+f64's range, `offset_of` ±inf or NaN (inf·cos − inf·sin in a turned view). The panic sinks are
+`DoubleExp::from_f64` and `BigFloat::from_f64` (both asserted finite); a cast index of an
+infinite offset would be another, none was found on these paths.
+
+| Site | Far offset reachable? | Outcome |
+| --- | --- | --- |
+| Orbit overlay probe (`overlay.rs` `update_probe`) | yes (tour probe far from a deep view) | fixed before: `delta_double_exp`; now also no panic in `from_f64` |
+| Tour marker (`render/tour.rs`), autopilot marker (`marker.rs`) | yes | already checked `is_finite`, not drawn |
+| Mini-map levels and marker (`overlay.rs`) | no: a level is kept only while the view is within 0.3 panel of its centre | none needed |
+| Mandelbrot panel marker (`mandelbrot_panel::marker_at`) | no: the panel is zoomed out to contain the way-back view, which contains k | none needed |
+| Julia panel k | no offset (k is the pointer's point) | none needed |
+| Cosmic scale, compass | scales and angles only | existing extreme tests |
+| π meter `base_offset` | yes (a probe's pinch point, a deep turned view elsewhere: NaN) | fixed: the "pinch point left the view" test is a negated `<=`, so NaN drops the probe; no own test (unverified beyond reading) |
+| `FlyPath::new` (fly_to, tours, places) | yes | grows its unit until the offset is finite; tested both ways |
+| Journey, autopilot lock, seek | distances in comparisons (inf compares false/true correctly), `atan2` of inf is finite | none needed; `snapped` tested |
+| Scheduler reference offsets (`delta_in(&reference.point, ...)`) | no: a reference whose point is not near the view is not usable (`reference.rs` distance check) | none needed |
+| Scheduler history reprojection (`reproject`) | yes: a jump between two deep views of similar scale | fixed: no history past 1e30 px; `extreme_history_reprojection_far_past_f64` (render, Metal) |
+| Scheduler history tile footprint (`to_history`) | yes | inf/NaN compare false: tiles count as outside, correct |
+| `Center::new`, `Center::offset` with non-finite f64 | via computed tour paths and callers | fixed: saturate |
+
+**Decision on `DoubleExp::from_f64`.** It no longer asserts, in any build. Its type already
+carries ±inf from overflow in `*`, `/` and `times_power_of_two`, and every caller that cares
+checks finiteness; in the app a panic there could only drop a frame and fire again on the next.
+A debug-only assert was rejected: debug and release would then behave differently on exactly
+the inputs the extreme tests feed. `BigFloat::from_f64` keeps its assert (BigFloat has no
+infinity); its app-side entry points (`Center::new`, `Center::offset`, `Scale::big_times`)
+saturate instead.
 
 ## The main-thread watchdog
 

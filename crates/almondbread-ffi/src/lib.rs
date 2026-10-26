@@ -30,6 +30,7 @@ mod cosmic;
 mod explorer;
 mod flight_bench;
 mod help;
+mod panic_log;
 mod tour;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]

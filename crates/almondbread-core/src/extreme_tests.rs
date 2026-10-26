@@ -188,3 +188,73 @@ fn extreme_compass_maths() {
         assert!(done, "{angle} {dt}");
     }
 }
+
+/// A view 1e-337 wide per point.
+fn deep_scale() -> Scale {
+    Scale::from_log2(-337.0 * std::f64::consts::LOG2_10)
+}
+
+#[test]
+fn extreme_offsets_far_past_f64_view_units() {
+    // A point 10^337 view widths away is inf in f64 view units: the orbit probe turned that
+    // into a DoubleExp and panicked on every refresh (2026-10-26). Every way of measuring
+    // offsets answers without a panic, and the DoubleExp difference stays exact.
+    let t0 = std::time::Instant::now();
+    let here = Center::new(-0.75, 0.1).with_min_precision(1400);
+    let far = Center::new(0.3, -0.5);
+    let near = here.offset_scaled(3.0, -2.0, deep_scale());
+    for angle in [0.0, 0.7] {
+        // A 1e-337 view with a far point.
+        let deep = Viewport::with_center(here.clone(), deep_scale()).with_angle(angle);
+        let (x, y) = deep.offset_of(&far);
+        assert!(!(x.is_finite() && y.is_finite()), "({x}, {y})");
+        assert!(!far.distance_in(&deep.center, deep.scale).is_finite());
+        let (dx, dy) = far.delta_double_exp(&deep.center);
+        assert!((dx.to_f64() - 1.05).abs() < 1e-12 && (dy.to_f64() + 0.6).abs() < 1e-12);
+        // ... and the same point near: finite, at its offset.
+        let (nx, ny) = deep.offset_of(&near);
+        let (ux, uy) = deep.unrotate(3.0, -2.0);
+        assert!((nx - ux).abs() < 1e-6 && (ny - uy).abs() < 1e-6, "({nx}, {ny})");
+        // A shallow view with a point 1e-337 off its centre: at its centre in f64 view units
+        // (1e-335 points underflows), exact as DoubleExp.
+        let shallow = Viewport::with_center(here.clone(), Scale::from_f64(1e-2)).with_angle(angle);
+        let (sx, sy) = shallow.offset_of(&near);
+        assert!(
+            sx.is_finite() && sy.is_finite() && sx.hypot(sy) < 1e-300,
+            "({sx}, {sy})"
+        );
+        let (ddx, _) = near.delta_double_exp(&shallow.center);
+        assert!((ddx.log2_magnitude() - deep_scale().log2() - 3f64.log2()).abs() < 1e-9);
+        // Flights between them both ways, and from deep to deep far away: a finite path whose
+        // views are all sane (no panic converting the far end through f64 units).
+        for (a, b) in [
+            (&deep, &shallow),
+            (&shallow, &deep),
+            (&deep, &Viewport::with_center(far.clone(), deep_scale())),
+        ] {
+            let path = crate::flyto::FlyPath::new(a, b, 1600.0);
+            assert!(path.length().is_finite(), "{}", path.length());
+            for s in [0.0, 0.25, 0.5, 1.0] {
+                let v = path.viewport_at(path.length() * s);
+                assert!(scale_ok(&v));
+                let _ = path.target_on_screen(path.length() * s);
+            }
+        }
+        // The autopilot's pickup grid at either depth.
+        let (c, s) = crate::autopilot::lock::snapped(&far, deep_scale());
+        assert!(s.log2().is_finite());
+        let _ = c.delta_double_exp(&far);
+        let _ = crate::autopilot::lock::snapped(&near, Scale::from_f64(1e-2));
+    }
+    // Non-finite f64 into a centre saturates instead of panicking in BigFloat::from_f64.
+    for a in BAD {
+        // (±f64::MAX held exactly; rounding it back to f64 may give ±inf, never NaN.)
+        let c = Center::new(a, -a);
+        assert!(!c.re().is_nan() && !c.im().is_nan(), "{a}");
+        assert_eq!(c.big().re.log2_magnitude().is_finite(), a != 0.0 && !a.is_nan(), "{a}");
+        let o = here.offset(a, a);
+        assert!(!o.re().is_nan(), "{a}");
+        let _ = Viewport::with_center(here.clone(), deep_scale()).point_at_offset(a, -a);
+    }
+    assert!(t0.elapsed().as_secs_f64() < 2.0, "{:?}", t0.elapsed());
+}
