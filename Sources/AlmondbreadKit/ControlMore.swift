@@ -172,7 +172,7 @@ struct MoreRows<Content: View>: View {
     }
 }
 
-/// "› More…  · 2 changed  ↺": the disclosure (accent colour, a chevron that turns down when open,
+/// "› More…  · 2 changed  ↺": the disclosure (an accent chevron that turns down when open,
 /// the whole row its hit target, a little air above it) and, when hidden settings differ from
 /// their reference, how many with a reset of just those. A leaf: it alone follows the hidden
 /// values (kb: decisions/controls "Essential rows and More").
@@ -188,17 +188,20 @@ struct MoreLine: View {
         HStack(spacing: 6) {
             Button(action: toggle) {
                 HStack(spacing: 6) {
+                    // Only the chevron in the accent colour: the label in the rows' own colour
+                    // reads on every look's tint and is not taken for a link (the tour link).
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.bold))
                         .rotationEffect(.degrees(open ? 90 : 0))
                         .frame(width: 12)
-                    Text("More…").fontWeight(.medium)
+                        .foregroundStyle(Color.accentColor)
+                    Text("More…").fontWeight(.semibold)
                     if !changed.isEmpty {
                         Text("· \(changed.count) changed").foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
                 }
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
