@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-26
 
+- **Update:** Compute further: measured time limit: Continue at the time limit did nothing (the worst-case estimate blocked every pass); the budget is now GPU seconds spent, checked between segments sized by the pass's own cost; Continue resumes a paused pass (techniques/auto-iterations)
 - **Decision:** Fog takes history: gesture frames keep the rest frame's interior, analysis and fog where the history holds a result of the same settings (class epoch byte per history pixel); flat bulb pans 23.5 % -> 0.7 % changed smooth pixels, +0.2 ms GPU per 4 Mpx gesture frame
 
 ## 2026-10-25
