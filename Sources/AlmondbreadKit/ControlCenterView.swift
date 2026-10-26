@@ -53,10 +53,17 @@ struct ControlCenterView: View {
         }
         let closed: Set<String> = searching ? [] : collapsed
         let placesOpen = shown.contains(.places) && !closed.contains(ControlSection.places.rawValue)
-        sections(shown: shown, collapsed: closed)
+        // The fractal row is pinned, so a search for it ("multibrot", "power") marks it instead
+        // of showing a section.
+        let fractalHit = searching && ControlSearch.fractalMatches(query)
+        sections(shown: shown, collapsed: closed, fractalHit: fractalHit)
         .controlSize(.small)
         .safeAreaInset(edge: .top, spacing: 0) {
-            ControlSearchField(model: model, query: $query, close: close)
+            VStack(spacing: 0) {
+                ControlSearchField(model: model, query: $query, close: close)
+                FractalRow(model: model, highlighted: fractalHit)
+                Divider()
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // The selected place stays readable however the grid is scrolled (user,
@@ -92,7 +99,7 @@ struct ControlCenterView: View {
     }
 
     #if os(macOS)
-    private func sections(shown: [ControlSection], collapsed: Set<String>) -> some View {
+    private func sections(shown: [ControlSection], collapsed: Set<String>, fractalHit: Bool) -> some View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -123,7 +130,7 @@ struct ControlCenterView: View {
                         Color.clear.frame(height: 16)
                     }
                 }
-                if shown.isEmpty {
+                if shown.isEmpty && !fractalHit {
                     Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
                 }
             }
@@ -143,7 +150,7 @@ struct ControlCenterView: View {
         .environment(\.controlRowWidth, max(100, layoutWidth - 48))
     }
     #else
-    private func sections(shown: [ControlSection], collapsed: Set<String>) -> some View {
+    private func sections(shown: [ControlSection], collapsed: Set<String>, fractalHit: Bool) -> some View {
         ScrollViewReader { proxy in
             Form {
                 ForEach(shown) { section in
@@ -165,7 +172,7 @@ struct ControlCenterView: View {
                     }
                     .id(section.tourID)
                 }
-                if shown.isEmpty {
+                if shown.isEmpty && !fractalHit {
                     Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
                 }
             }
@@ -364,7 +371,6 @@ struct ViewSectionRows: View {
 
     var body: some View {
         let _ = UIPerf.body("section.view")
-        FormulaPicker(model: model)
         FitRow {
             Button {
                 Clipboard.copy(model.coordinatesText)
@@ -495,33 +501,102 @@ struct ViewSectionRows: View {
     }
 }
 
-/// The fractal (F3, kb: plans/f3-multibrot): its family (Mandelbrot, Multibrot, Mandelbar (F5),
-/// Burning Ship (F6);
-/// a later family is one more entry of Rust's `formula_options()`) and, for a family of several formulas, which
-/// one (Multibrot's power 3 ... 8). A switch goes to the new set's whole view. In a Julia view
-/// (F4) it shows the Mandelbrot set the Julia set belongs to and is disabled: Julia sets are
-/// opened and left through the twin / Julia panel, not picked (kb: decisions/controls).
-struct FormulaPicker: View {
+/// The fractal row, pinned under the search field (kb: decisions/controls "Control center",
+/// Fractal row): the fractal decides which places, tours and settings exist, so it is no row of
+/// a section. Its family (Mandelbrot, Multibrot (F3, kb: plans/f3-multibrot), Mandelbar (F5),
+/// Burning Ship (F6); a later family is one more entry of Rust's `formula_options()`) and, for a
+/// family of several formulas, which one (Multibrot's power 3 ... 8). A switch goes to the new
+/// set's whole view. In a Julia view (F4) it names the set the Julia set belongs to and offers
+/// the way back instead of the pickers (as before: no fractal is picked in a Julia view; Julia
+/// sets are opened and left through the twin / Julia panel).
+struct FractalRow: View {
     let model: ExplorerModel
+    /// The search matches the row (`ControlSearch.fractalMatches`).
+    var highlighted = false
 
     var body: some View {
+        let _ = UIPerf.body("FractalRow")
+        Group {
+            if model.isJulia { julia } else { pickers }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(highlighted ? Color.accentColor.opacity(0.18) : Color.clear)
+        .background(.bar)
+    }
+
+    /// The current family's name ("Mandelbrot"; a Julia view's family is the Mandelbrot set's).
+    private var familyTitle: String {
+        ExplorerModel.formulaFamilies.first { $0.id == model.formulaFamily }?.title ?? "Mandelbrot"
+    }
+
+    private var title: some View {
+        // Never hyphenated ("Frac-tal" in a narrow pane): the row drops or wraps around it.
+        Text("Fractal").font(.headline).fixedSize()
+    }
+
+    private var pickers: some View {
         let family = Binding(get: { model.formulaFamily }, set: { model.selectFormulaFamily($0) })
         let formula = Binding(get: { model.formula }, set: { model.selectFormula($0) })
         let options = ExplorerModel.formulaOptions(family: model.formulaFamily)
-        ControlRows.picker("Fractal", selection: family) {
+        // One line; where "Fractal" and both menus do not fit (an iPad mini's portrait pane with
+        // Multibrot's power menu), the menus alone: the family's name says what it is.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                title
+                Spacer(minLength: 4)
+                menus(family: family, formula: formula, options: options)
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                menus(family: family, formula: formula, options: options)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func menus(family: Binding<String>, formula: Binding<String>, options: [FormulaOption]) -> some View {
+        Picker("Fractal", selection: family) {
             ForEach(ExplorerModel.formulaFamilies, id: \.id) { Text($0.title).tag($0.id) }
         }
-        .help(model.isJulia
-              ? "A Julia set of the Mandelbrot set is shown: go back to pick another fractal (⇧U)"
-              : "The set to explore: the Mandelbrot set (z² + c), a Multibrot set (zᵖ + c), the Mandelbar set (the Tricorn, z̄² + c) or the Burning Ship ((|x| − i|y|)² + c, shown upright)")
-        .disabled(model.isJulia)
+        .labelsHidden()
+        .fixedSize()
+        .help("The set to explore: the Mandelbrot set (z² + c), a Multibrot set (zᵖ + c), the Mandelbar set (the Tricorn, z̄² + c) or the Burning Ship ((|x| − i|y|)² + c, shown upright)")
         .accessibilityIdentifier("formula-family")
         if options.count > 1 {
-            ControlRows.picker("Power", selection: formula) {
+            Picker("Power", selection: formula) {
                 ForEach(options, id: \.formula) { o in Text(o.title).tag(o.formula) }
             }
+            .labelsHidden()
+            .fixedSize()
             .help("The power p of zᵖ + c: a (p − 1)-fold symmetric set")
             .accessibilityIdentifier("formula-power")
+        }
+    }
+
+    private var julia: some View {
+        let name = Text("Julia set of \(familyTitle)").foregroundStyle(.secondary).lineLimit(1)
+        let back = Button {
+            model.backFromJulia()
+        } label: {
+            Label("Back to \(familyTitle)", systemImage: "arrow.uturn.backward")
+        }
+        .fixedSize()
+        .help("Where this Julia set was opened from; another fractal is picked from there (⇧U)")
+        .accessibilityIdentifier("fractal-julia-back")
+        // One line where it fits, else the button under the name.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                title
+                name.fixedSize()
+                Spacer(minLength: 4)
+                back
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) { title; name }
+                back
+            }
         }
     }
 }
@@ -1184,7 +1259,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: ["location", "bookmark", "famous", "random", "fly", "go", "catalog"]
         case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp", "fog", "limit", "bulb", "valley", "julia", "misiurewicz", "colour", "color"]
-        case .view: ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn", "burning", "ship", "power", "coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
+        case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]

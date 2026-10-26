@@ -209,7 +209,8 @@ actually are", with nested levels and click-to-jump). Measured in [almondbread b
 
 **Control center** (`Sources/AlmondbreadKit/ControlCenterView.swift`, replaces the inspector).
 Sections in order: Places, View & navigation, Journey & cinematic effects, Look & colour,
-Lighting & outline, Interior, Overlays, Iterations & quality, Controls. The sidebar holds only
+Lighting & outline, Interior, Overlays, Iterations & quality, Controls (later Tours after Places;
+the fractal choice is a pinned row above them since 2026-10-26, [Fractal row](#fractal-row-as-built-2026-10-26)). The sidebar holds only
 what can be set (user, 2026-10-16): no live values. The HUD shows zoom, centre and speed; the
 renderer statistics (iterations, GPU, render size, reference, kernel, state; the former
 "Performance & diagnostics" section) are the HUD's developer details, off by default
@@ -3199,7 +3200,9 @@ what Rust's `formula_options()` lists: Mandelbrot and Multibrot (z³ … z⁸ + 
 ([F4: Deep Julia sets](../plans/f4-deep-julia.md)) is no picker entry: it is entered through the
 Julia panel or the twin and left through the way back. While a Julia view is shown the picker
 shows its parent, "Mandelbrot", and is disabled (the simplest consistent state: Julia sets are
-`z² + k`, Mandelbrot's, and a choice there would have to mean "leave the Julia set" anyway).
+`z² + k`, Mandelbrot's, and a choice there would have to mean "leave the Julia set" anyway;
+since 2026-10-26 the pinned [Fractal row](#fractal-row-as-built-2026-10-26) shows "Julia set of
+Mandelbrot" and a Back button there instead).
 Rust keeps the same rules for every caller: `Explorer::set_formula` from a Julia view first goes
 back to the view the set was opened from, then switches (another formula: its whole set; the
 same one: nothing more); the twin, the panel and the `julia` settings entry exist for the
@@ -3432,6 +3435,29 @@ must not exceed the smallest the element itself can be; the card now counts as o
 min(90 pt, half its height) in view. iOS has no such test (the open section alone decides).
 Checked by `--ui-demo=place-details` with `--ui-demo-search=` (a real click on a result tile,
 then Go and Fly, which switch the fractal; the bar's place printed after each).
+
+### Fractal row (as built, 2026-10-26)
+
+User request: the fractal choice was the first row of View & navigation, the third section after
+Places and Tours, although it decides which places, tours and settings exist. It is now a fixed
+row (`FractalRow` in `ControlCenterView.swift`) pinned under the search field, above the
+scrolling sections, on the Mac, the iPad and the iPhone sheet alike (one `safeAreaInset`): not
+collapsible, not scrolling. Under the field rather than above it, so the field and the touch ✕
+stay the top line of the pane (the ✕ is where a sheet's close is expected) and the row reads as
+the head of what the field filters. One line: "Fractal", the family menu and, for a family of
+several formulas (Multibrot), the power menu (accessibility ids `formula-family` /
+`formula-power` unchanged). Where the three do not fit on one line (iPad mini portrait pane with
+Multibrot: "Fractal" broke as "Frac-tal") the row shows the two menus alone, trailing. In a Julia view the row names the set ("Julia set of Mandelbrot")
+and offers "Back to Mandelbrot" (`backFromJulia`, the way back the Overlays row and ⇧U take; id
+`fractal-julia-back`), on one line where it fits, else the button under the name. The behaviour
+in a Julia view is the old one: no fractal is picked there (the picker used to be shown
+disabled); another fractal is picked after going back. Search: the row is in no section, so its
+words left View & navigation's keywords and `ControlSearch.fractalMatches` (fractal, formula,
+the family names, power) tints the row instead; "No setting matches" stays away while the row
+matches. No tour step highlighted the picker, so no tour changed. Checked by
+`--ui-demo=multibrot` (new scene: z⁴ + c), `mandelbrot-panel` (a Julia view) and the default
+scene, `ControlSearchTests.testFractalRowSearch`, and the iOS UI test
+`TouchControlsUITests.testFormulaPicker`.
 
 ## View limits (as built, 2026-10-25)
 

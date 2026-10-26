@@ -14,6 +14,18 @@ enum ControlSearch {
         return name.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
+    /// What finds the pinned fractal row (`FractalRow`): it is in no section, so the search marks
+    /// it when the query is part of one of these (as a section's keywords match).
+    static let fractalKeywords = ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn",
+                                  "burning", "ship", "power", "exponent"]
+
+    /// Whether the query finds the fractal row (trimmed, case-insensitive; empty: no).
+    static func fractalMatches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return false }
+        return fractalKeywords.contains { $0.contains(q) }
+    }
+
     /// The places whose name matches, in catalogue order (every formula's: `ExplorerModel.allPlaces`).
     static func places(_ all: [PlaceInfo], query: String) -> [PlaceInfo] {
         all.filter { nameMatches($0.name, query: query) }
