@@ -549,6 +549,9 @@ public final class ExplorerModel {
     public private(set) var raiseTo = 0
     /// The offer's button title ("Raise to 1 M").
     public private(set) var raiseText = ""
+    /// Frames keep panicking (an internal error caught every refresh; the view stays frozen):
+    /// the HUD's warning line, empty otherwise (kb: techniques/hang-prevention "Panic log").
+    public private(set) var renderFailure = ""
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
@@ -1684,6 +1687,14 @@ public final class ExplorerModel {
         let raise = Int(new.progress.raiseTo)
         if raiseTo != raise { raiseTo = raise }
         if raiseText != new.progress.raiseText { raiseText = new.progress.raiseText }
+        if renderFailure != new.failing { renderFailure = new.failing }
+    }
+
+    /// Test hook (`--ui-demo=failing`): the next `frames` refreshes panic in Rust, as a
+    /// per-frame bug would; the HUD's "Rendering failed" line shows from the third on.
+    func simulateRenderFailure(frames: UInt32) {
+        explorer?.simulateFramePanics(count: frames)
+        host?.requestFrames()
     }
 
     /// "Raise to …" (HUD button): the Upper limit setting becomes the offered choice (stored and

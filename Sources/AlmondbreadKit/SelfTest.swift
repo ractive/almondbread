@@ -103,7 +103,8 @@ public enum SelfTest {
 /// `places-bottom` (only Places open, a place selected, the grid at its top or its end: the
 /// pinned place details bar); `tile-focus` (keyboard focus in the places and palette grids, see
 /// `tileFocusCheck`); `place-details` (a click on a place tile shows its details, also after Go
-/// and Fly; with `--ui-demo-search=` on a search result, see `placeDetailsCheck`). `--ui-demo-search=text` starts any scene with that search;
+/// and Fly; with `--ui-demo-search=` on a search result, see `placeDetailsCheck`); `failing` (the
+/// default scene, then every refresh panics: the HUD's "Rendering failed" line). `--ui-demo-search=text` starts any scene with that search;
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -482,6 +483,11 @@ public enum UIDemo {
             model.maxIterationsCap = 2_000_000
             model.manualIterations = 2_000_000
             try? explorer.setViewport(re: "-0.74999996120361811", im: "0.00036918279150454967", scale: 1e-11)
+        case "failing":
+            // The HUD's "Rendering failed here" (kb: techniques/hang-prevention "Panic log"): the
+            // default view, then every refresh panics through the test hook (the view stays).
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { model.simulateRenderFailure(frames: 1_000_000) }
         case "raise":
             // "Raise to 10 M" (kb: techniques/auto-iterations "Raise the upper limit"): N's
             // period-30 957 landing at 1e-166 is all fog at the default 200 k Upper limit.
@@ -564,8 +570,11 @@ public enum UIDemo {
                     && (progress?.etaSeconds ?? -1) > 0
                     && (!scene.hasSuffix("-late") || (progress?.stepsReached ?? 0) > 0)
                     && t > 6
-                if progressReady || !scene.hasPrefix("progress") && t > (moving ? movingAt : 8) && stopReady,
-                   progressReady || model.stats?.settled == true || moving,
+                // failing: once the HUD says so (frames panic from 4 s on; the view never settles).
+                let failingReady = scene == "failing" && !model.renderFailure.isEmpty && t > 6
+                let early = progressReady || failingReady
+                if early || !scene.hasPrefix("progress") && scene != "failing" && t > (moving ? movingAt : 8) && stopReady,
+                   early || model.stats?.settled == true || moving,
                    let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil && $0 !== helpWindow
                        && !String(describing: type(of: $0)).contains("Popover") }) {
                     // help-canvas: press the cosmic scale's badge, capture once its popover is up.

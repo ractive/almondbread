@@ -579,7 +579,11 @@ struct HUDProgressLine: View {
     var body: some View {
         let _ = UIPerf.body("HUDProgress")
         let text = model.progressText
-        if !text.isEmpty {
+        // Every refresh panics (caught; the view stays as it was): say so instead of a frozen
+        // progress line (kb: techniques/hang-prevention "Panic log").
+        if !model.renderFailure.isEmpty {
+            HUDRenderFailure(text: model.renderFailure)
+        } else if !text.isEmpty {
             HStack(spacing: 8) {
                 Label(text, systemImage: "hourglass")
                     .font(.caption)
@@ -618,6 +622,38 @@ struct HUDProgressLine: View {
                 TourTopicLink(model: model, topic: "fog", label: "What's the fog?")
             }
         }
+    }
+}
+
+/// "Rendering failed here (an internal error). Details in panic.log": a warning, with
+/// "Reveal Log" (Finder) on macOS.
+struct HUDRenderFailure: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(text, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(.yellow, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Warning: " + text)
+            #if os(macOS)
+            let path = panicLogPath()
+            if !path.isEmpty, FileManager.default.fileExists(atPath: path) {
+                Button("Reveal Log") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+                .font(.caption)
+                .controlSize(.small)
+                .help("Show panic.log in the Finder")
+            }
+            #endif
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("render-failure")
     }
 }
 

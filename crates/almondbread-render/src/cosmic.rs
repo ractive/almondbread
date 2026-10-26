@@ -386,42 +386,46 @@ mod tests {
 
     #[test]
     fn panel_costs_little_and_tracks_the_zoom() {
-        let mut o = CosmicOverlay::default();
-        o.settings.enabled = true;
-        let mut scene = Scene::default();
-        let mut key = String::new();
-        let t0 = std::time::Instant::now();
-        let n = 200;
-        let mut flashes = 0;
-        for k in 0..n {
-            // Zoom in steadily from home to 1e100 (big steps: most frames cross something).
-            let z = 100.0 * k as f64 / n as f64;
-            let view = Viewport::new(-0.75, 0.1, 3.0 / 1000.0 / 10f64.powf(z));
-            o.update(&view, (2000, 1200), 0.5, k as f64 * 0.016);
-            scene.prims.clear();
-            key.clear();
-            o.draw(
-                &mut scene,
-                &mut Vec::new(),
-                (2000, 1200),
-                0.5,
-                [24.0, 1176.0],
-                k as f64 * 0.016,
-                &mut key,
+        // One run is the whole zoom with a fresh panel; repeated only while over the bound
+        // (200 frames at 0.3 ms are 60 ms: one descheduling would fail a single run).
+        let bound = if cfg!(debug_assertions) { f64::INFINITY } else { 3e-4 };
+        let per = crate::test_timing::least_within(bound, 3, || {
+            let mut o = CosmicOverlay::default();
+            o.settings.enabled = true;
+            let mut scene = Scene::default();
+            let mut key = String::new();
+            let t0 = std::time::Instant::now();
+            let n = 200;
+            let mut flashes = 0;
+            for k in 0..n {
+                // Zoom in steadily from home to 1e100 (big steps: most frames cross something).
+                let z = 100.0 * k as f64 / n as f64;
+                let view = Viewport::new(-0.75, 0.1, 3.0 / 1000.0 / 10f64.powf(z));
+                o.update(&view, (2000, 1200), 0.5, k as f64 * 0.016);
+                scene.prims.clear();
+                key.clear();
+                o.draw(
+                    &mut scene,
+                    &mut Vec::new(),
+                    (2000, 1200),
+                    0.5,
+                    [24.0, 1176.0],
+                    k as f64 * 0.016,
+                    &mut key,
+                );
+                flashes += usize::from(o.flash.is_some_and(|(_, t)| t == k as f64 * 0.016));
+                assert!(!scene.prims.is_empty());
+            }
+            let per = t0.elapsed().as_secs_f64() / n as f64;
+            eprintln!(
+                "cosmic panel: {:.3} ms per frame, {} prims",
+                per * 1e3,
+                scene.prims.len()
             );
-            flashes += usize::from(o.flash.is_some_and(|(_, t)| t == k as f64 * 0.016));
-            assert!(!scene.prims.is_empty());
-        }
-        let per = t0.elapsed().as_secs_f64() / n as f64;
-        eprintln!(
-            "cosmic panel: {:.3} ms per frame, {} prims",
-            per * 1e3,
-            scene.prims.len()
-        );
-        assert!(flashes > 15, "{flashes}");
-        if !cfg!(debug_assertions) {
-            assert!(per < 3e-4, "{per}");
-        }
+            assert!(flashes > 15, "{flashes}");
+            per
+        });
+        assert!(per < bound, "{per}");
     }
 
     #[test]

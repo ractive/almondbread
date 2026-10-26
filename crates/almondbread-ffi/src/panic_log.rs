@@ -141,7 +141,13 @@ fn state() -> std::sync::MutexGuard<'static, PanicDedupe> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn log_path() -> Option<PathBuf> {
+/// `$HOME/Library/Logs/Almondbread/panic.log` (on iOS `$HOME` is the app's container). Unit
+/// tests write to the temporary directory instead: their simulated panics stay out of the
+/// user's log.
+pub(crate) fn log_path() -> Option<PathBuf> {
+    if cfg!(test) {
+        return Some(std::env::temp_dir().join("almondbread-test-panic.log"));
+    }
     let home = std::env::var_os("HOME")?;
     Some(Path::new(&home).join("Library/Logs/Almondbread/panic.log"))
 }
