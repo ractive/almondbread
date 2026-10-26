@@ -599,6 +599,19 @@ struct HUDProgressLine: View {
                         #endif
                         .help("Compute another minute on this view (G)")
                 }
+                // At the Upper limit with much of the view as fog: the next Upper limit choice
+                // (kb: techniques/auto-iterations "Raise the upper limit").
+                if model.raiseTo > 0 {
+                    Button(model.raiseText) { model.raiseUpperLimit() }
+                        .font(.caption)
+                        #if os(iOS)
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        #else
+                        .controlSize(.small)
+                        #endif
+                        .help("Set the Upper limit to \(model.raiseTo.formatted()) and compute further on this view")
+                }
             }
             // Settled with fog left: the tour that explains it (topic `fog`), if bundled.
             if model.progressUnfinished, ExplorerModel.tour(forTopic: "fog") != nil {

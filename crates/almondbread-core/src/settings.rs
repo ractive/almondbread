@@ -86,6 +86,21 @@ impl InteriorMode {
 /// cap is 200 000; the deepest benchmark needs 100 000).
 pub const MAX_ITERATION_LIMIT: usize = 1 << 24;
 
+/// The choices of the "Upper limit" setting (the automatic limit's cap; the control center's
+/// picker lists these, and the HUD's "Raise to …" offer steps through them, kb:
+/// techniques/auto-iterations "Raise the upper limit"). Ascending.
+pub const UPPER_LIMIT_CHOICES: [usize; 5] = [10_000, 50_000, 200_000, 1_000_000, 10_000_000];
+
+/// The Upper limit choice to offer above `cap` (kb: techniques/auto-iterations "Raise the upper
+/// limit"): of the choices above `cap` and within `ceiling` (the memory budget's), the smallest
+/// one at least `at_least`, else the largest. None: `cap` is at the top choice, or no larger
+/// choice fits.
+pub fn next_upper_limit(cap: usize, at_least: usize, ceiling: usize) -> Option<usize> {
+    let mut fits = UPPER_LIMIT_CHOICES.iter().copied().filter(|&c| c > cap && c <= ceiling);
+    let first = fits.clone().find(|&c| c >= at_least);
+    first.or_else(|| fits.next_back())
+}
+
 /// Everything that affects the image except the viewport.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderSettings {
@@ -328,6 +343,22 @@ pub fn depth_iterations(viewport: &Viewport) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn next_upper_limit_steps_through_the_choices() {
+        let any = usize::MAX;
+        assert_eq!(next_upper_limit(200_000, 0, any), Some(1_000_000));
+        assert_eq!(next_upper_limit(1_000_000, 0, any), Some(10_000_000));
+        assert_eq!(next_upper_limit(10_000_000, 0, any), None);
+        // A cap between choices (an older setting, a test): the next choice above it.
+        assert_eq!(next_upper_limit(300_000, 0, any), Some(1_000_000));
+        // A period wants more: skip steps; beyond the top choice, the top choice.
+        assert_eq!(next_upper_limit(200_000, 1_547_850, any), Some(10_000_000));
+        assert_eq!(next_upper_limit(200_000, 50_000_000, any), Some(10_000_000));
+        // The memory budget: the largest choice that fits, or none.
+        assert_eq!(next_upper_limit(200_000, 1_547_850, 2_621_440), Some(1_000_000));
+        assert_eq!(next_upper_limit(200_000, 0, 524_288), None);
+    }
 
     #[test]
     fn auto_iterations() {

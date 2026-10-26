@@ -482,6 +482,15 @@ public enum UIDemo {
             model.maxIterationsCap = 2_000_000
             model.manualIterations = 2_000_000
             try? explorer.setViewport(re: "-0.74999996120361811", im: "0.00036918279150454967", scale: 1e-11)
+        case "raise":
+            // "Raise to 10 M" (kb: techniques/auto-iterations "Raise the upper limit"): N's
+            // period-30 957 landing at 1e-166 is all fog at the default 200 k Upper limit.
+            model.autoIterations = true
+            model.maxIterationsCap = 200_000
+            try? explorer.setViewportText(
+                re: "-1.25356534474835587527493183735940999452038946488377636763638567580192395042423734111416289926432818195925721840346476271763350256350820210346221813715651311190681110426723575567067949455901507413607124893670181271",
+                im: "0.343076237238640216296082924363370657183074268923787958856435417090662626375457223830906518729830214630275591508889966174381411005560784997998363748427943042064661098977896576691498886101353087867833483948599347664",
+                scale: "2.04384e-166")
         case "seek":
             // Seek minibrot (N) at the Airplane: the HUD's "Minibrot, period N" and its
             // "What's a period?" tour link (kb: decisions/controls "Finding the tours"; the iOS UI

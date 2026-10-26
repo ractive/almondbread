@@ -839,6 +839,56 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         println!("continue {}: after: {}", k + 1, state(&r));
         *sessions.last_mut().expect("session") = step;
     }
+    // `--raise n`: "Raise to …" (the HUD's offer when compute further stopped at the Upper limit
+    // with much of the view unresolved, kb: techniques/auto-iterations "Raise the upper limit")
+    // up to n times once settled, each run until settled again; prints the offer, compute
+    // further's state and whether the job (no new render) was kept.
+    for k in 0..o.usize("raise").unwrap_or(0) {
+        let state = |r: &almondbread_render::Renderer<B>| {
+            r.further_info().map_or("none".to_string(), |f| {
+                format!(
+                    "{} reached {} unresolved {} ({:.2} %) passes {} gpu {:.2} s{}",
+                    if f.running { "running" } else { "stopped" },
+                    f.reached,
+                    f.unresolved,
+                    100.0 * f.unresolved as f64 / (width * height).max(1) as f64,
+                    f.passes,
+                    f.gpu,
+                    f.stop.map_or(String::new(), |w| format!(" ({})", w.name()))
+                )
+            })
+        };
+        let offer = r.raise_offer();
+        println!(
+            "raise {}: before: cap {} offer {} {}",
+            k + 1,
+            r.settings.max_iterations_cap,
+            offer.map_or("none".to_string(), |n| n.to_string()),
+            state(&r)
+        );
+        let job = r.job_started();
+        let Some(to) = r.raise_upper_limit() else { break };
+        let t0 = r.clock();
+        let step = r
+            .simulate(
+                width,
+                height,
+                ppp,
+                120.0,
+                0,
+                o.f64("timeout").unwrap_or(30.0),
+                &mut |_, _, _| {},
+            )
+            .map_err(|_| crate::options::CommandError("raised session did not finish".into()))?;
+        println!(
+            "raise {}: after: cap {to}, same job {}, {:.1} s, {}",
+            k + 1,
+            r.job_started() == job,
+            r.clock() - t0,
+            state(&r)
+        );
+        *sessions.last_mut().expect("session") = step;
+    }
     // `--check 0`: the session only (deep views with a high cap: the CPU oracle at the hard limit
     // takes hours).
     if o.get("check") == Some("0") {

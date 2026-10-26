@@ -53,6 +53,8 @@ mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod further_continue_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod further_raise_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod gesture_interior_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod history_reuse_tests;
@@ -559,6 +561,20 @@ const FURTHER_SEGMENTS_PER_BUDGET: f64 = 8.0;
 /// Iterations per GPU second compute further assumes before its passes have measured their own
 /// (the plain kernel near the -3/4 neck: 2–3e10 on M1 Pro, 2026-10-17).
 const FURTHER_RATE_GUESS: f64 = 3e10;
+
+/// The HUD offers "Raise to …" (the next Upper limit choice) when compute further stopped at
+/// the upper limit with at least this share of the view unresolved (kb:
+/// techniques/auto-iterations "Raise the upper limit"): below it the fog is specks and thin
+/// threads, above it a region the eye looks for.
+pub const RAISE_MIN_SHARE: f64 = 0.02;
+
+/// A view whose reference is the nucleus of a period-P minibrot (after seek minibrot, N) is
+/// offered the smallest choice of at least this many times P. Measured at seek framings of
+/// periods 998, 4640, 13 920 and 30 957 (1280 x 800, 2026-10-26): the unresolved share follows
+/// one curve in k = limit / P: 100 % at 4 P, ~15 % at 16 P (the outside resolves, the body is
+/// grey fog), ~12 % at 32 P, ~9.5 % at 64 P (half the body proven interior), ~6.6 % at 128 P
+/// (most of it; fog only a rim), ~4 % at 256 P. 100 P shows the minibrot.
+pub const RAISE_PERIOD_FACTOR: usize = 100;
 
 /// "Compute further" (kb: techniques/auto-iterations "Compute further"): when a refined view's
 /// levels and extension passes are done and pixels are still unresolved, those pixels are
@@ -1456,6 +1472,9 @@ pub struct Renderer<B: GpuBackend> {
     pub failed_frames: usize,
     interior_stats: Option<InteriorStats>,
     pinned_iterations: Option<(Viewport, usize)>,
+    /// "Raise to …" accepted at this view: its job keeps this limit (the raised cap would
+    /// otherwise change the key and render the view again; compute further continues instead).
+    raised_key: Option<(Viewport, usize, usize)>,
     /// The learner raised the limit for a view it left unresolved: the view renders again
     /// (cleared when a job starts).
     retry_pending: bool,
@@ -1679,6 +1698,7 @@ impl<B: GpuBackend> Renderer<B> {
             failed_frames: 0,
             interior_stats: None,
             pinned_iterations: None,
+            raised_key: None,
             retry_pending: false,
             epoch: Instant::now(),
             memory_budget: MemoryBudget::NONE,
@@ -1706,6 +1726,13 @@ impl<B: GpuBackend> Renderer<B> {
     #[doc(hidden)]
     pub fn aa_chunks_in_flight(&self) -> bool {
         self.in_flight.iter().any(|r| r.aa_epoch.is_some())
+    }
+
+    /// When the current job started (renderer clock; tests and `verify --raise`: a raised
+    /// Upper limit keeps the job).
+    #[doc(hidden)]
+    pub fn job_started(&self) -> Option<f64> {
+        self.job.as_ref().map(|j| j.start)
     }
 
     /// The view waits for a deep reference (frames show the history only).
@@ -2888,6 +2915,16 @@ impl<B: GpuBackend> Renderer<B> {
         max_iter = max_iter.max(self.period_floor(&viewport, texel, width.max(height) * ss, max_iter));
         // The reference (twice the limit) and its tables must fit the device's memory.
         max_iter = max_iter.min(self.memory_iteration_cap());
+        // A raised Upper limit keeps the view's job (its passes go on to the new ceiling).
+        // (Only while the cap is the raised one: the control center's reset or another pick
+        // renders the view again as any cap change does.)
+        if let Some((vp, n, cap)) = &self.raised_key {
+            if *vp == self.viewport && self.settings.auto_iterations && *cap == self.settings.max_iterations_cap {
+                max_iter = *n;
+            } else {
+                self.raised_key = None;
+            }
+        }
         ComputeKey {
             formula: self.settings.formula,
             viewport: self.viewport.clone(),
@@ -4849,6 +4886,63 @@ impl<B: GpuBackend> Renderer<B> {
         }
         self.further_next_pass();
         false
+    }
+
+    /// The Upper limit the HUD offers to raise to (kb: techniques/auto-iterations "Raise the
+    /// upper limit"): compute further stopped at the upper limit with automatic iterations and
+    /// at least `RAISE_MIN_SHARE` of the view unresolved. The value is the next choice of
+    /// `UPPER_LIMIT_CHOICES` above the cap, or for a view whose reference is a period-P nucleus
+    /// the smallest choice of at least `RAISE_PERIOD_FACTOR` x P; within the memory budget.
+    /// None at the top choice (more is never promised there) or with a manual limit.
+    pub fn raise_offer(&self) -> Option<usize> {
+        if !self.settings.auto_iterations {
+            return None;
+        }
+        let job = self.job.as_ref()?;
+        let f = job.further.as_ref()?;
+        if f.stop != Some(FurtherStop::Limit) || job.interactive {
+            return None;
+        }
+        let full = job.levels.iter().find(|l| !l.preview && l.aa.is_none())?;
+        let texels = full.set.width * full.set.height;
+        if texels == 0 || (f.unresolved as f64) < RAISE_MIN_SHARE * texels as f64 {
+            return None;
+        }
+        let period = self
+            .reference
+            .as_ref()
+            .filter(|_| self.reference_serial == job.reference_serial)
+            .and_then(|r| r.period)
+            .unwrap_or(0);
+        almondbread_core::settings::next_upper_limit(
+            self.settings.max_iterations_cap,
+            period.saturating_mul(RAISE_PERIOD_FACTOR),
+            self.memory_iteration_cap(),
+        )
+    }
+
+    /// "Raise to …" accepted: the Upper limit setting becomes the offered value and compute
+    /// further continues from where it stopped to the new ceiling, with a fresh time budget;
+    /// the view keeps its job (no new render). Returns the new Upper limit (None: nothing was
+    /// offered).
+    pub fn raise_upper_limit(&mut self) -> Option<usize> {
+        let to = self.raise_offer()?;
+        let base = self.config.further_budget;
+        self.settings.max_iterations_cap = to;
+        let job = self.job.as_mut()?;
+        self.raised_key = Some((job.key.viewport.clone(), job.key.max_iter, to));
+        let spent = Self::extension_gpu(job);
+        let f = job.further.as_mut()?;
+        f.extra_budget = f.extra_budget.max(spent - base) + base;
+        f.stop = None;
+        // (Not settled any more, as after Continue: the HUD shows "computing further".)
+        job.final_presented = false;
+        job.further_done_at = None;
+        if self.config.trace {
+            println!("further: upper limit raised to {to}");
+        }
+        self.further_next_pass();
+        Some(to)
     }
 
     /// "Continue" at the time limit (kb: techniques/auto-iterations "Compute further"): another
