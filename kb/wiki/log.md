@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-26
 
+- **Decision:** Tours fly only when short: a tour step's view and the tour's end fly only when the flight lands within 5 s (Navigator::travel_to, TRAVEL_FLY_MAX_SECONDS), else jump; fixed the orbit overlay's panic on a tour probe 10^336 view widths from a deep view (What's the fog? at 1e334 froze the view)
 - **Decision:** Fog takes history: gesture frames keep the rest frame's interior, analysis and fog where the history holds a result of the same settings (class epoch byte per history pixel); flat bulb pans 23.5 % -> 0.7 % changed smooth pixels, +0.2 ms GPU per 4 Mpx gesture frame
 
 ## 2026-10-25

@@ -472,6 +472,10 @@ pub const STEP_TAU: f64 = 0.06;
 /// (kb: decisions/controls "Animated zoom steps").
 pub const TAP_ZOOM_SECONDS: f64 = 0.35;
 /// Gamepad: radial stick dead zone, trigger dead zone, and the boost button's speed factor.
+/// [`Navigator::travel_to`] flies only when the flight lands within this many seconds at the
+/// fly-to speed; longer, it jumps (decided 2026-10-26: a tour step from 1e-334 flew for over
+/// 20 minutes at the default speed).
+pub const TRAVEL_FLY_MAX_SECONDS: f64 = 5.0;
 pub const STICK_DEAD_ZONE: f64 = 0.15;
 pub const TRIGGER_DEAD_ZONE: f64 = 0.06;
 pub const BOOST: f64 = 2.5;
@@ -1514,15 +1518,42 @@ impl Navigator {
         }
     }
 
-    fn begin_flight(&mut self, target: &Viewport, viewport: &Viewport) {
+    /// Goes from `start` (the current view) to `target` the way a tour step, a tour's end or
+    /// the travel journal does: a flight ([`Navigator::fly_to`], returns true) when it lands
+    /// within [`TRAVEL_FLY_MAX_SECONDS`] at the fly-to speed, else a jump (returns false): the
+    /// navigator then stops all motion as for any jump ([`Navigator::jumped`]) and notes the
+    /// interaction, and **the caller sets the viewport to `target`** (the host clamps a view
+    /// set from outside into the limits before the next frame). Duration: the same path and
+    /// motion stepped on a copy ([`Flight::seconds_within`]; kb: decisions/controls "Guided
+    /// tours").
+    pub fn travel_to(&mut self, target: &Viewport, start: &Viewport, now: f64) -> bool {
+        if self
+            .new_flight(target, start)
+            .seconds_within(self.fly_speed, TRAVEL_FLY_MAX_SECONDS)
+            .is_some()
+        {
+            self.fly_to(target, start, now);
+            return true;
+        }
+        self.cancel_flight();
+        self.jumped();
+        self.note_interaction(now);
+        false
+    }
+
+    /// The flight from `viewport` to `target` (within the view limits), not started.
+    fn new_flight(&self, target: &Viewport, viewport: &Viewport) -> Flight {
         // The target within the limits; on the way a long flight may zoom out past the limit
         // by its path: capped (kb: decisions/controls "View limits").
-        let l = self.limits();
         let mut target = target.clone();
-        l.clamp(&mut target);
-        self.flight_cap = l.max_scale.max(viewport.scale);
+        self.limits().clamp(&mut target);
         let path = FlyPath::new(viewport, &target, self.view_size.0);
-        self.flight = Some(Flight::turning(path, viewport.angle, self.cinematic.spin_per_efold()));
+        Flight::turning(path, viewport.angle, self.cinematic.spin_per_efold())
+    }
+
+    fn begin_flight(&mut self, target: &Viewport, viewport: &Viewport) {
+        self.flight_cap = self.limits().max_scale.max(viewport.scale);
+        self.flight = Some(self.new_flight(target, viewport));
     }
 
     /// The speed the flight runs at: the journey's during a journey, the cruise's at its soft
@@ -4331,6 +4362,50 @@ mod tests {
         assert!(step > 0.0 && step < 0.1, "continues smoothly: {step}");
         run(&mut n, &mut v, t + 1.0 / 60.0, t + 2.0, 60.0);
         assert!(!n.is_moving());
+    }
+
+    /// A tour step, a tour's end, the travel journal: a flight when it lands within
+    /// TRAVEL_FLY_MAX_SECONDS, else a jump; the estimate is the flight's real duration.
+    #[test]
+    fn travel_to_flies_short_trips_and_jumps_long_ones() {
+        // Short: a few e-folds across the set. The estimate is the flight as flown.
+        let (mut n, mut v) = setup();
+        n.advance(&mut v, 0.0);
+        let near = Viewport::new(-0.75, 0.05, 0.3 / 600.0);
+        assert!(n.travel_to(&near, &v.clone(), 0.0));
+        let est = n
+            .flight()
+            .expect("a flight")
+            .seconds_within(n.fly_speed(), TRAVEL_FLY_MAX_SECONDS)
+            .expect("within the limit");
+        let mut t = 0.0;
+        while n.advance(&mut v, t + 1.0 / 60.0) {
+            t += 1.0 / 60.0;
+            assert!(t < 60.0, "never landed");
+        }
+        assert_eq!(v, near);
+        assert!(t <= TRAVEL_FLY_MAX_SECONDS, "flew {t} s");
+        assert!((t - est).abs() <= 2.0 / 60.0, "flew {t} s, estimated {est} s");
+        // Long: from 1e-334 (the user's "What's the fog?" view, 2026-10-26) a flight takes
+        // minutes: a jump. Motion stops; the caller sets the view.
+        let (mut n, _) = setup();
+        let deep = Viewport::with_center(
+            crate::viewport::Center::parse(
+                "-1.2535653447483558752749318373594099945",
+                "0.3430762372386402162960829243633706571",
+            )
+            .expect("centre"),
+            Scale::parse("3.59344e-337").expect("scale"),
+        );
+        let mut v = deep.clone();
+        n.handle(InputEvent::Pan { dx: 3.0, dy: 0.0 }, &mut v, 0.0);
+        let path = n.new_flight(&near, &deep);
+        assert!(path.seconds_within(n.fly_speed(), 600.0).is_none_or(|s| s > 60.0));
+        assert!(!n.travel_to(&near, &deep, 1.0));
+        assert!(n.flight().is_none() && !n.is_moving());
+        // And back down again: a jump too (a tour's end from its shallow last step).
+        assert!(!n.travel_to(&deep, &near, 2.0));
+        assert!(n.flight().is_none());
     }
 
     #[test]

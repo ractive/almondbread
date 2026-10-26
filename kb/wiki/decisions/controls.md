@@ -1906,7 +1906,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `zoom` | number (`1e5`, any depth) | magnification of the whole set: span = 3 / zoom |
 | `angle` | degrees | the view's turn (with a view) |
 | `place` | place id | the place's view and look (no `center`, `span`, `zoom` with it) |
-| `move` | `fly` (default) or `jump` | how the step's view is reached (with a view) |
+| `move` | `fly` (default) or `jump` | how the step's view is reached (with a view); `fly` jumps anyway when the flight would take over 5 s |
 | `look` | look id | the look (palette, lighting, outline) |
 | `palette` | palette id (built-in or library) | the palette with its mapping, after the look |
 | `interior` | `flat`, `bubbles`, `period`, `angle`, `distance` | interior colouring |
@@ -1988,6 +1988,33 @@ While a tour runs, the settings persisted to user defaults are the saved ones, s
 mid-tour keeps the user's look. The end restores the saved settings and flies back to the saved
 view; changes made during the tour are dropped with them. Manual exploring during a step is
 allowed; Next continues from the next step's definition.
+
+**Fly only when it is short** (decided 2026-10-26). A step's view without `move: jump`, and the
+end's way back, fly only when the flight lands within `TRAVEL_FLY_MAX_SECONDS` = 5 s at the
+fly-to speed; longer, they jump (no crossfade: none exists). `Navigator::travel_to(target, start,
+now) -> bool` (core `input.rs`) decides: it builds the path exactly as `fly_to` would and steps a
+copy of the flight (`Flight::seconds_within(speed, limit)`, `flyto.rs`: the real springs, turn
+and landing curves at 60 Hz, no renderer throttle, at most 300 steps); true = the flight started,
+false = it called `jumped()` and the caller sets the view (the host's `keep_in_limits` clamps it
+before the next frame). The travel journal (⌘Z / ⌘⇧Z) uses the same call. Why: from 1e-334 the
+limits tour's first step (span 0.3) was ~770 e-folds away, over 20 minutes at the default 2
+e-folds/s (measured 2026-10-26: 0.27 decades per second).
+
+*The bug behind it* (user, 2026-10-26: "What's the fog?" at 1e334 opened the tour, the view did not
+move). Not the flight: the tour's fixed probe (−0.75 + 0.001i) was 10^336 view widths from the
+deep view, and the orbit overlay converted its offset from the deep reference through f64 view
+units (`Center::delta_in`), which overflowed to inf; `DoubleExp::from_f64(inf)` panicked in
+`Overlay::update_probe`, before the navigator advanced, on every refresh. The FFI's
+`catch_unwind` kept the app alive and the view frozen (42 202 entries in `panic.log` over 27
+minutes, all at `overlay.rs` `update_probe`). The offsets now go from BigFloat straight to
+DoubleExp (`Center::delta_double_exp`), so a probe any distance from any view is fine (also
+when the user zooms deep during a step with `probe:`). Tests: core
+`travel_to_flies_short_trips_and_jumps_long_ones` (a short trip flies and lands within the
+estimate ± 2 frames; from 1e-337 there and back jump), `delta_double_exp_holds_any_offset`;
+render (Metal host) `fog_link_tour_from_far_below_jumps_there_and_back` (the user's view, limits
+tour: no flight, the step's view at once, frames drawn, the end jumps back to the exact view) and
+`tour_probe_far_outside_a_deep_view_does_not_stop_the_frames` (fails with the panic before the
+fix).
 
 **Probe point.** The orbit overlay's c normally follows the pointer (`Navigator::zoom_target`).
 A tour's `probe` replaces it: `Overlay::tour.probe`, filled by the host every refresh from
