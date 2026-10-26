@@ -977,6 +977,19 @@ pub struct OrbitInfo {
     pub map_note: String,
 }
 
+/// The settings a look gives: the defaults with the look applied (unknown ids: the defaults).
+/// The control center's "· N changed" on a section's More compares its hidden settings with
+/// these: a field the look sets against the look's value, any other against its default (kb:
+/// decisions/controls "Control center").
+#[uniffi::export]
+pub fn look_settings(id: String) -> ExplorerSettings {
+    let mut s = RenderSettings::default();
+    if let Some(look) = almondbread_core::palette::Look::named(&id) {
+        look.apply(&mut s);
+    }
+    ExplorerSettings::from(&s)
+}
+
 impl From<&RenderSettings> for ExplorerSettings {
     fn from(s: &RenderSettings) -> Self {
         Self {
@@ -2743,6 +2756,26 @@ impl Explorer {
             width: m.width as u32,
             height: m.height as u32,
         })
+    }
+}
+
+#[cfg(test)]
+mod look_settings_tests {
+    use super::*;
+
+    /// The reference of the control center's "N changed": the defaults with the look applied.
+    #[test]
+    fn look_settings_apply_the_look_over_the_defaults() {
+        let d = ExplorerSettings::from(&RenderSettings::default());
+        assert_eq!(look_settings("aurora".into()), d, "the default look is the defaults");
+        assert_eq!(look_settings("no-such-look".into()), d);
+        let ember = look_settings("ember".into());
+        assert_eq!(ember.palette_id, "ember");
+        assert_ne!(ember.glow, d.glow, "Ember glows");
+        // Fields no look sets keep their defaults.
+        assert_eq!(ember.cinematic_spin, d.cinematic_spin);
+        assert_eq!(ember.interior_stripes, d.interior_stripes);
+        assert_eq!(ember.supersampling, d.supersampling);
     }
 }
 

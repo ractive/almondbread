@@ -128,7 +128,7 @@ That's it. Explore, get lost, find something no one has seen before.
 Want some maths first? **Next tour** below starts the first tour, and each tour ends by offering the next.
 
 ::: touch
-Lost? Open the control center and tap **Reset** under *View & navigation* to see the whole set again.
+Lost? Open the control center and tap **Reset** under *Navigation* to see the whole set again.
 :::
 ::: mac
 Lost? Press **R** to see the whole set again. **⌘?** opens the help.

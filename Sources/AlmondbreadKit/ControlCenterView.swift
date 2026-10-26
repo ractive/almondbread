@@ -36,8 +36,10 @@ struct ControlCenterView: View {
     /// The inspector column's minimum width (ContentView) and the narrowest width the content
     /// is laid out at.
     static let minimumWidth: CGFloat = 290
+    /// The collapsed sections. A new user starts with Controls (the key reference) and
+    /// Iterations & quality collapsed; a saved state wins (kb: decisions/controls "Control center").
     @AppStorage("controlCenter.collapsed", store: TestLaunch.ephemeral ? UIDemo.defaults : .standard)
-    private var collapsedStorage = ""
+    private var collapsedStorage = ControlSection.collapsedByDefault
 
     var body: some View {
         let _ = UIPerf.body("ControlCenterView")
@@ -116,7 +118,8 @@ struct ControlCenterView: View {
                     if open {
                         ControlCardRows {
                             ControlSectionRows(section: section, model: model, places: places,
-                                               query: section.searchesNames ? query : "")
+                                               query: section.searchesNames ? query : "",
+                                               moreForced: section.moreMatches(query))
                         }
                         .modifier(PlacesOnScreen(selection: places, active: section == .places))
                         if let f = section.footer {
@@ -158,7 +161,8 @@ struct ControlCenterView: View {
                     Section {
                         if open {
                             ControlSectionRows(section: section, model: model, places: places,
-                                               query: section.searchesNames ? query : "")
+                                               query: section.searchesNames ? query : "",
+                                               moreForced: section.moreMatches(query))
                         }
                     } header: {
                         ControlSectionHeader(section: section, model: model, open: open) {
@@ -345,28 +349,34 @@ struct ControlSectionRows: View {
     /// The search query for a section that searches names (Places, Look's palettes; empty for
     /// the others, so a new query leaves their inputs equal).
     var query = ""
+    /// A search matches a row behind the section's More: it shows open.
+    var moreForced = false
 
     var body: some View {
         let _ = UIPerf.body("rows.\(section.rawValue)")
         switch section {
         case .places: PlacesSection(model: model, selection: places, query: query)
         case .tours: ToursSectionRows(model: model)
-        case .view: ViewSectionRows(model: model)
-        case .journey: JourneySectionRows(model: model)
-        case .look: LookSectionRows(model: model, query: query)
-        case .lighting: LightingSectionRows(model: model)
-        case .interior: InteriorSectionRows(model: model)
-        case .overlays: OverlaySectionRows(model: model)
-        case .quality: QualitySectionRows(model: model)
+        case .view: ViewSectionRows(model: model, moreForced: moreForced)
+        case .journey: JourneySectionRows(model: model, moreForced: moreForced)
+        case .look: LookSectionRows(model: model, query: query, moreForced: moreForced)
+        case .lighting: LightingSectionRows(model: model, moreForced: moreForced)
+        case .interior: InteriorSectionRows(model: model, moreForced: moreForced)
+        case .overlays: OverlaySectionRows(model: model, moreForced: moreForced)
+        case .quality: QualitySectionRows(model: model, moreForced: moreForced)
         case .controls: ControlsHelp(model: model)
         }
     }
 }
 
-// MARK: View & navigation
+// MARK: Navigation
 
+/// Essential: Copy / Paste / Reset, Back / Forward and (Mac) Two-finger scroll; the rest behind
+/// More (kb: decisions/controls "Essential rows and More"). Reset stays visible: the
+/// walkthrough points touch users at it.
 struct ViewSectionRows: View {
     @Bindable var model: ExplorerModel
+    var moreForced = false
     @State private var showFlyTo = false
 
     var body: some View {
@@ -403,44 +413,6 @@ struct ViewSectionRows: View {
         #if os(iOS)
         .buttonStyle(.borderless)
         #endif
-        ControlRows.picker("Edge panning", selection: $model.edgePanning) {
-            ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
-        }
-        // Autopilot and fly-to (kb: decisions/controls, autopilot).
-        FitRow {
-            Button {
-                model.toggleAutopilot()
-            } label: {
-                Label(model.autopilotActive ? "Stop" : "Autopilot",
-                      systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
-            }
-            .help("Zoom on continuously towards interesting places; click pauses, Esc stops, steering hands over to cruise (Z)")
-            if model.flightActive {
-                Button {
-                    model.stopMotion()
-                } label: {
-                    Label("Stop flight", systemImage: "stop.circle")
-                }
-                .help("Stop the flight (Esc)")
-            } else {
-                Button {
-                    showFlyTo = true
-                } label: {
-                    Label("Fly to…", systemImage: "location.north.line")
-                }
-                .help("Fly to coordinates (⌘G)")
-                Button {
-                    model.flyToCopiedCoordinates()
-                } label: {
-                    Label("Copied", systemImage: "doc.on.clipboard")
-                }
-                .help("Fly to coordinates on the clipboard (⇧⌘G)")
-            }
-        }
-        #if os(iOS)
-        .buttonStyle(.borderless)
-        #endif
-        .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
         // The travel journal (kb: decisions/controls "Travel journal"): the places visited, back
         // and forward like undo (⌘Z, ⇧⌘Z / ⌘Y). Travel only: settings stay.
         FitRow {
@@ -464,39 +436,80 @@ struct ViewSectionRows: View {
         #if os(iOS)
         .buttonStyle(.borderless)
         #endif
-        // (The target lock's finder is the Mandelbrot journey's: hidden without that content, F3.)
-        if model.has(\.content) {
-            Toggle("Autopilot target lock", isOn: $model.autopilotLock)
-                .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
-        }
-        // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
-        Toggle("Lane assist", isOn: $model.laneAssist)
-            .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
-        #if os(iOS)
-        // Seek minibrot about the view (N; kb: decisions/controls "Seek minibrot"): the long-press
-        // menu's "Seek Minibrot Here" needs a still picture, this works while flying too (it was
-        // the round autopilot button's menu until 2026-10-18).
-        if model.has(\.seek) {
-            Button {
-                model.seekMinibrot()
-            } label: {
-                Label("Seek minibrot", systemImage: "scope")
-            }
-            .buttonStyle(.borderless)
-        }
-        #endif
         #if os(macOS)
+        // Essential on the Mac: a trackpad user who expects zoom has no other place to find it.
         Picker("Two-finger scroll", selection: $model.scrollZooms) {
             Text("Pan").tag(false)
             Text("Zoom").tag(true)
         }
         .help("On a trackpad: two fingers pan the view, or zoom (up and down; then click and drag pans). Pinching always zooms")
         #endif
-        // View rotation (kb: decisions/controls, "View rotation"); the compass shows the angle.
-        LabeledContent("Rotation") {
-            Button("Straighten") { model.straighten() }
-                .disabled(!model.viewTurned)
-                .help("Turn the view upright (/); , and . turn it, so does a trackpad rotation")
+        MoreRows(section: .view, model: model, forced: moreForced) {
+            ControlRows.picker("Edge panning", selection: $model.edgePanning) {
+                ForEach(EdgePanning.allCases) { Text($0.label).tag($0) }
+            }
+            // Autopilot and fly-to (kb: decisions/controls, autopilot).
+            FitRow {
+                Button {
+                    model.toggleAutopilot()
+                } label: {
+                    Label(model.autopilotActive ? "Stop" : "Autopilot",
+                          systemImage: model.autopilotActive ? "airplane.circle.fill" : "airplane")
+                }
+                .help("Zoom on continuously towards interesting places; click pauses, Esc stops, steering hands over to cruise (Z)")
+                if model.flightActive {
+                    Button {
+                        model.stopMotion()
+                    } label: {
+                        Label("Stop flight", systemImage: "stop.circle")
+                    }
+                    .help("Stop the flight (Esc)")
+                } else {
+                    Button {
+                        showFlyTo = true
+                    } label: {
+                        Label("Fly to…", systemImage: "location.north.line")
+                    }
+                    .help("Fly to coordinates (⌘G)")
+                    Button {
+                        model.flyToCopiedCoordinates()
+                    } label: {
+                        Label("Copied", systemImage: "doc.on.clipboard")
+                    }
+                    .help("Fly to coordinates on the clipboard (⇧⌘G)")
+                }
+            }
+            #if os(iOS)
+            .buttonStyle(.borderless)
+            #endif
+            .sheet(isPresented: $showFlyTo) { FlyToSheet(model: model, isPresented: $showFlyTo) }
+            // (The target lock's finder is the Mandelbrot journey's: hidden without that content, F3.)
+            if model.has(\.content) {
+                Toggle("Autopilot target lock", isOn: $model.autopilotLock)
+                    .help("The autopilot aims at spirals, branch points and minibrots, and backs out of featureless regions. Off: it flies straight. Steering yourself hands over to cruise")
+            }
+            // Lane assist (kb: decisions/controls "Driving levels"): cruise only, key L.
+            Toggle("Lane assist", isOn: $model.laneAssist)
+                .help("While you cruise (E / Q), keeps you out of featureless areas with a gentle nudge; your steering always wins (L)")
+            #if os(iOS)
+            // Seek minibrot about the view (N; kb: decisions/controls "Seek minibrot"): the long-press
+            // menu's "Seek Minibrot Here" needs a still picture, this works while flying too (it was
+            // the round autopilot button's menu until 2026-10-18).
+            if model.has(\.seek) {
+                Button {
+                    model.seekMinibrot()
+                } label: {
+                    Label("Seek minibrot", systemImage: "scope")
+                }
+                .buttonStyle(.borderless)
+            }
+            #endif
+            // View rotation (kb: decisions/controls, "View rotation"); the compass shows the angle.
+            LabeledContent("Rotation") {
+                Button("Straighten") { model.straighten() }
+                    .disabled(!model.viewTurned)
+                    .help("Turn the view upright (/); , and . turn it, so does a trackpad rotation")
+            }
         }
     }
 }
@@ -603,44 +616,49 @@ struct FractalRow: View {
 
 // MARK: Journey & cinematic effects
 
+/// Essential: the seed (above the button that reads it), Journey / Daily, the mode and the
+/// Cinematic effects switch; the effects' four strengths behind More.
 struct JourneySectionRows: View {
     @Bindable var model: ExplorerModel
+    var moreForced = false
     @State private var journeySeed = ""
 
     var body: some View {
         let _ = UIPerf.body("section.journey")
         // (Journeys are Mandelbrot content: hidden for a formula without it, F2.)
         if model.has(\.content) {
+            TextField("Seed (empty: random)", text: $journeySeed)
+                .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
             JourneyControls(model: model, journeySeed: journeySeed)
             Picker("Journey", selection: $model.journeyStops) {
                 Text("Continuous").tag(false)
                 Text("Stop at each find").tag(true)
             }
             .help("Continuous: rest a moment at each landmark and fly on. Stop at each find: stay until you choose: J next, Z deeper here, X somewhere else. J starts this mode, ⇧J the other.")
-            TextField("Seed (empty: random)", text: $journeySeed)
-                .help("A journey number, e.g. 4711; started from the whole set it is the same journey everywhere")
         }
         Toggle("Cinematic effects", isOn: $model.cinematic)
             .help("Spin with the zoom, palette drift with depth and slow cycling while flying (autopilot, journeys, fly-to)")
-        Group {
-            LabeledContent("Spin") {
-                Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }.labelsHidden()
-                    .help(String(format: "%.1f° per e-fold of zoom (×2.7)", model.cinematicSpin))
+        MoreRows(section: .journey, model: model, forced: moreForced) {
+            Group {
+                LabeledContent("Spin") {
+                    Slider(value: $model.cinematicSpin, in: -15...15) { Text("Spin") }.labelsHidden()
+                        .help(String(format: "%.1f° per e-fold of zoom (×2.7)", model.cinematicSpin))
+                }
+                LabeledContent("Hue drift") {
+                    Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }.labelsHidden()
+                        .help(String(format: "%.1f° of hue per e-fold of depth", model.cinematicHueDrift))
+                }
+                LabeledContent("Phase drift") {
+                    Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }.labelsHidden()
+                        .help(String(format: "%.3f palette cycles per e-fold of depth", model.cinematicPhaseDrift))
+                }
+                LabeledContent("Cycling in flight") {
+                    Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }.labelsHidden()
+                        .help(String(format: "%.3f palette cycles per second while flying", model.cinematicFlyCycle))
+                }
             }
-            LabeledContent("Hue drift") {
-                Slider(value: $model.cinematicHueDrift, in: 0...15) { Text("Hue drift") }.labelsHidden()
-                    .help(String(format: "%.1f° of hue per e-fold of depth", model.cinematicHueDrift))
-            }
-            LabeledContent("Phase drift") {
-                Slider(value: $model.cinematicPhaseDrift, in: 0...0.1) { Text("Phase drift") }.labelsHidden()
-                    .help(String(format: "%.3f palette cycles per e-fold of depth", model.cinematicPhaseDrift))
-            }
-            LabeledContent("Cycling in flight") {
-                Slider(value: $model.cinematicFlyCycle, in: 0...0.1) { Text("Cycling in flight") }.labelsHidden()
-                    .help(String(format: "%.3f palette cycles per second while flying", model.cinematicFlyCycle))
-            }
+            .disabled(!model.cinematic)
         }
-        .disabled(!model.cinematic)
     }
 }
 
@@ -669,7 +687,7 @@ struct JourneyControls: View {
                 Label(active ? (suspended ? "Resume" : "Stop") : "Journey",
                       systemImage: active ? "sparkles.rectangle.stack.fill" : "sparkles")
             }
-            .help("An endless planned flight from landmark to landmark (J); a seed below replays that journey")
+            .help("An endless planned flight from landmark to landmark (J); a seed above replays that journey")
             Button {
                 model.startDailyJourney()
             } label: {
@@ -693,10 +711,13 @@ struct JourneyControls: View {
 
 // MARK: Look & colour
 
+/// Essential: the Look, the palette (name, category, grid) and the density; the mapping's
+/// fine points, colour cycling, depth tint and the import behind More.
 struct LookSectionRows: View {
     @Bindable var model: ExplorerModel
     /// The search query (the palette grid then shows the palettes whose name matches).
     var query = ""
+    var moreForced = false
 
     var body: some View {
         let _ = UIPerf.body("section.look")
@@ -715,20 +736,23 @@ struct LookSectionRows: View {
                                                   range: 0.001...1),
                            in: 0...1, text: String(format: "%.4g", model.colorDensity),
                            onEditingChanged: { model.densityEditing($0) })
-        ControlRows.slider("Offset", value: $model.colorOffset, in: 0...1, text: String(format: "%.2f", model.colorOffset))
-        Toggle("Logarithmic", isOn: $model.logColoring)
-        Toggle("Smooth", isOn: $model.smoothColoring)
-        Toggle("Palette anti-aliasing", isOn: $model.paletteFilter)
-        Toggle("Calm dense regions", isOn: $model.denseCalm)
-            .help("Where the palette cycles faster than a pixel, show a dark calm colour with thin filaments instead of grey noise")
-        Toggle("Colour cycling", isOn: Binding(get: { model.cycleSpeed != 0 },
-                                               set: { model.cycleSpeed = $0 ? 0.05 : 0 }))
-        if model.cycleSpeed != 0 {
-            ControlRows.slider("Cycle speed", value: ControlRows.log($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
-                               text: String(format: "%.3g /s", model.cycleSpeed))
+        MoreRows(section: .look, model: model, forced: moreForced) {
+            ControlRows.slider("Offset", value: $model.colorOffset, in: 0...1, text: String(format: "%.2f", model.colorOffset))
+            Toggle("Logarithmic", isOn: $model.logColoring)
+            Toggle("Smooth", isOn: $model.smoothColoring)
+            Toggle("Palette anti-aliasing", isOn: $model.paletteFilter)
+            Toggle("Calm dense regions", isOn: $model.denseCalm)
+                .help("Where the palette cycles faster than a pixel, show a dark calm colour with thin filaments instead of grey noise")
+            Toggle("Colour cycling", isOn: Binding(get: { model.cycleSpeed != 0 },
+                                                   set: { model.cycleSpeed = $0 ? 0.05 : 0 }))
+            if model.cycleSpeed != 0 {
+                ControlRows.slider("Cycle speed", value: ControlRows.log($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
+                                   text: String(format: "%.3g /s", model.cycleSpeed))
+            }
+            ControlRows.slider("Depth tint", value: $model.depthTint, in: 0...0.2,
+                               text: model.depthTint == 0 ? "off" : String(format: "%.3f / decade", model.depthTint))
+            PaletteImportRow(model: model)
         }
-        ControlRows.slider("Depth tint", value: $model.depthTint, in: 0...0.2,
-                           text: model.depthTint == 0 ? "off" : String(format: "%.3f / decade", model.depthTint))
     }
 }
 
@@ -748,35 +772,42 @@ extension LookSectionRows {
 
 // MARK: Lighting
 
+/// Essential: the three strengths (Shading, Outline, Glow); their sub-knobs behind More.
 struct LightingSectionRows: View {
     @Bindable var model: ExplorerModel
+    var moreForced = false
 
     var body: some View {
         let _ = UIPerf.body("section.lighting")
         ControlRows.slider("Shading", value: $model.shading, in: 0...1, text: String(format: "%.2f", model.shading))
-        ControlRows.slider("Light angle", value: $model.lightAngle, in: 0...360, text: String(format: "%.0f°", model.lightAngle))
-            .disabled(model.shading == 0)
-        ControlRows.slider("Light height", value: $model.lightHeight, in: 0.2...4, text: String(format: "%.2f", model.lightHeight))
-            .disabled(model.shading == 0)
-        ControlRows.slider("Highlight", value: $model.specular, in: 0...1, text: String(format: "%.2f", model.specular))
-            .disabled(model.shading == 0)
         ControlRows.slider("Outline", value: $model.outline, in: 0...1, text: String(format: "%.2f", model.outline))
-        ControlRows.slider("Outline width", value: $model.outlineWidth, in: 0.5...6, text: String(format: "%.1f px", model.outlineWidth))
-            .disabled(model.outline == 0)
-        ControlRows.color("Outline colour", ControlRows.linearColor(model, \.edgeColor))
-            .disabled(model.outline == 0)
         ControlRows.slider("Glow", value: $model.glow, in: 0...0.5, text: String(format: "%.2f", model.glow))
-        ControlRows.slider("Glow width", value: $model.glowWidth, in: 1...40, text: String(format: "%.0f px", model.glowWidth))
-            .disabled(model.glow == 0)
-        ControlRows.color("Glow colour", ControlRows.linearColor(model, \.glowColor))
-            .disabled(model.glow == 0)
+        MoreRows(section: .lighting, model: model, forced: moreForced) {
+            ControlRows.slider("Light angle", value: $model.lightAngle, in: 0...360, text: String(format: "%.0f°", model.lightAngle))
+                .disabled(model.shading == 0)
+            ControlRows.slider("Light height", value: $model.lightHeight, in: 0.2...4, text: String(format: "%.2f", model.lightHeight))
+                .disabled(model.shading == 0)
+            ControlRows.slider("Highlight", value: $model.specular, in: 0...1, text: String(format: "%.2f", model.specular))
+                .disabled(model.shading == 0)
+            ControlRows.slider("Outline width", value: $model.outlineWidth, in: 0.5...6, text: String(format: "%.1f px", model.outlineWidth))
+                .disabled(model.outline == 0)
+            ControlRows.color("Outline colour", ControlRows.linearColor(model, \.edgeColor))
+                .disabled(model.outline == 0)
+            ControlRows.slider("Glow width", value: $model.glowWidth, in: 1...40, text: String(format: "%.0f px", model.glowWidth))
+                .disabled(model.glow == 0)
+            ControlRows.color("Glow colour", ControlRows.linearColor(model, \.glowColor))
+                .disabled(model.glow == 0)
+        }
     }
 }
 
 // MARK: Interior
 
+/// Essential: the colouring with its one knob (Colour for flat, Pattern density otherwise);
+/// Stripes (angle) and interior detection behind More.
 struct InteriorSectionRows: View {
     @Bindable var model: ExplorerModel
+    var moreForced = false
 
     var body: some View {
         let _ = UIPerf.body("section.interior")
@@ -790,63 +821,40 @@ struct InteriorSectionRows: View {
         if model.interiorColoring == .flat {
             ControlRows.color("Colour", ControlRows.linearColor(model, \.interiorColor))
         } else {
-            ControlRows.slider("Density", value: ControlRows.log($model.interiorDensity, range: 0.02...4), in: 0...1,
+            // (Not "Density": that is the palette's, in Look & colour.) How tightly the interior
+            // colouring's rings and bands repeat.
+            ControlRows.slider("Pattern density", value: ControlRows.log($model.interiorDensity, range: 0.02...4), in: 0...1,
                                text: String(format: "%.3g", model.interiorDensity))
+                .help("How closely the interior colouring's rings and bands repeat")
         }
-        if model.interiorColoring == .angle {
-            ControlRows.slider("Stripes", value: $model.interiorStripes, in: 0...32,
-                               text: String(format: "%.0f", model.interiorStripes))
+        MoreRows(section: .interior, model: model, forced: moreForced) {
+            if model.interiorColoring == .angle {
+                ControlRows.slider("Stripes", value: $model.interiorStripes, in: 0...32,
+                                   text: String(format: "%.0f", model.interiorStripes))
+            }
+            Toggle("Interior detection", isOn: $model.interiorDetection)
         }
-        Toggle("Interior detection", isOn: $model.interiorDetection)
     }
 }
 
 // MARK: Overlays
 
+/// Essential: Orbit, Mini-map, the Julia panel and the Julia twin; their tuning and the display
+/// preferences behind More. (In a Julia view the way back is the pinned fractal row's Back.)
 struct OverlaySectionRows: View {
     @Bindable var model: ExplorerModel
+    var moreForced = false
 
     var body: some View {
         let _ = UIPerf.body("section.overlays")
         if model.has(\.orbitOverlay) {
             Toggle("Orbit of the point under the pointer", isOn: $model.orbitEnabled)
         }
-        if model.orbitEnabled && model.has(\.orbitOverlay) {
-            ControlRows.slider("Iterates", value: ControlRows.log(ControlRows.int($model.orbitLength), range: 1...1000), in: 0...1,
-                               text: "\(model.orbitLength)")
-        }
         Toggle("Mini-map", isOn: $model.mapEnabled)
-        if model.mapEnabled {
-            LabeledContent("Levels") {
-                HStack(spacing: 4) {
-                    Text("\(model.mapLevels)").monospacedDigit()
-                    Stepper("Levels", value: $model.mapLevels, in: 1...4).labelsHidden()
-                }
-            }
-            .help("The whole set plus up to three deeper maps at thousands of times the zoom")
-            ControlRows.slider("Size", value: $model.mapSize, in: 100...320, text: String(format: "%.0f pt", model.mapSize))
-            ControlRows.picker("Corner", selection: $model.mapPlacement) {
-                ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
-            }
-        }
         if model.has(\.juliaPanel) {
             Toggle("Julia set of that point", isOn: $model.juliaPanelToggle)
                 .help("A panel next to the mini-map with the Julia set of the orbit's point: start the rule from every z with that c fixed. Connected inside the set, dust outside. Click it to open that Julia set, or ⌘-click a point of the picture to open its Julia set (U)")
-        } else if model.isJulia {
-            // In a Julia view the same switch shows the Mandelbrot panel (the way back).
-            Toggle("Mandelbrot panel", isOn: $model.juliaPanelToggle)
-                .help("In the Julia panel's place: the Mandelbrot view this Julia set was opened from, marked at k. Click it to return (U)")
-        }
-        // F4 (kb: plans/f4-deep-julia): the deep Julia set of the view's centre, and back.
-        if model.isJulia {
-            Button {
-                model.backFromJulia()
-            } label: {
-                Label("Back to the Mandelbrot set", systemImage: "arrow.uturn.backward")
-            }
-            .help("Where this Julia set was opened from (⇧U)")
-            .accessibilityIdentifier("julia-back")
-        } else if model.has(\.juliaPanel) {
+            // F4 (kb: plans/f4-deep-julia): the deep Julia set of the view's centre.
             Button {
                 model.juliaTwin()
             } label: {
@@ -854,16 +862,39 @@ struct OverlaySectionRows: View {
             }
             .help("The Julia set of the view's centre, framed like the view: near a Misiurewicz point the two look alike. Zoom it as deep as you like (⇧U)")
             .accessibilityIdentifier("julia-twin")
+        } else if model.isJulia {
+            // In a Julia view the same switch shows the Mandelbrot panel (the way back).
+            Toggle("Mandelbrot panel", isOn: $model.juliaPanelToggle)
+                .help("In the Julia panel's place: the Mandelbrot view this Julia set was opened from, marked at k. Click it to return (U)")
         }
-        CosmicScaleRows(model: model)
-        Toggle("Always show compass", isOn: $model.compassAlways)
-            .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
-        Toggle("Autopilot target marker", isOn: $model.targetMarker)
-            .help("A small ring where the autopilot or a journey is heading, with the pointer's wished direction as a faint line")
-        Toggle("Status (HUD)", isOn: $model.showHUD)
-        Toggle("Developer details in the HUD", isOn: $model.hudDetails)
-            .disabled(!model.showHUD)
-            .help("Iterations, GPU time, render size, reference orbit, kernel and render state")
+        MoreRows(section: .overlays, model: model, forced: moreForced) {
+            if model.orbitEnabled && model.has(\.orbitOverlay) {
+                ControlRows.slider("Iterates", value: ControlRows.log(ControlRows.int($model.orbitLength), range: 1...1000), in: 0...1,
+                                   text: "\(model.orbitLength)")
+            }
+            if model.mapEnabled {
+                LabeledContent("Mini-map levels") {
+                    HStack(spacing: 4) {
+                        Text("\(model.mapLevels)").monospacedDigit()
+                        Stepper("Mini-map levels", value: $model.mapLevels, in: 1...4).labelsHidden()
+                    }
+                }
+                .help("The whole set plus up to three deeper maps at thousands of times the zoom")
+                ControlRows.slider("Mini-map size", value: $model.mapSize, in: 100...320, text: String(format: "%.0f pt", model.mapSize))
+                ControlRows.picker("Mini-map corner", selection: $model.mapPlacement) {
+                    ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
+                }
+            }
+            CosmicScaleRows(model: model)
+            Toggle("Always show compass", isOn: $model.compassAlways)
+                .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
+            Toggle("Autopilot target marker", isOn: $model.targetMarker)
+                .help("A small ring where the autopilot or a journey is heading, with the pointer's wished direction as a faint line")
+            Toggle("Status (HUD)", isOn: $model.showHUD)
+            Toggle("Developer details in the HUD", isOn: $model.hudDetails)
+                .disabled(!model.showHUD)
+                .help("Iterations, GPU time, render size, reference orbit, kernel and render state")
+        }
     }
 }
 
@@ -871,6 +902,7 @@ struct OverlaySectionRows: View {
 
 struct QualitySectionRows: View {
     @Bindable var model: ExplorerModel
+    var moreForced = false
 
     /// The Upper limit choices (Rust's `UPPER_LIMIT_CHOICES`, which the HUD's "Raise to" offer
     /// steps through).
@@ -880,34 +912,49 @@ struct QualitySectionRows: View {
         let _ = UIPerf.body("section.quality")
         Toggle("Automatic iterations", isOn: $model.autoIterations)
         if !model.autoIterations {
-            Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000,
-                                          snap: ControlRows.twoDigits), in: 0...1) {
-                Text("Maximum")
-            }
-            TextField("Maximum", value: $model.manualIterations, format: .number)
-                .multilineTextAlignment(.trailing)
-                .monospacedDigit()
-            if model.manualIterations > Int(maxIterationLimit()) {
-                // The renderer clamps (crates/almondbread-core MAX_ITERATION_LIMIT).
-                Text("Renders with \(Int(maxIterationLimit()).formatted()): the most the GPU counts exactly.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // One row for the one value: the number (typed) over its log slider.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Maximum")
+                    Spacer()
+                    TextField("Maximum", value: $model.manualIterations, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .monospacedDigit()
+                        .frame(maxWidth: 110)
+                        .accessibilityIdentifier("manual-iterations")
+                }
+                Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000,
+                                              snap: ControlRows.twoDigits), in: 0...1) {
+                    Text("Maximum")
+                }
+                .labelsHidden()
+                .accessibilityLabel("Maximum iterations")
+                .accessibilityValue(model.manualIterations.formatted())
+                if model.manualIterations > Int(maxIterationLimit()) {
+                    // The renderer clamps (crates/almondbread-core MAX_ITERATION_LIMIT).
+                    Text("Renders with \(Int(maxIterationLimit()).formatted()): the most the GPU counts exactly.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        if model.autoIterations {
-            // Bounds only the automatic limit (a manual limit is used as set).
-            ControlRows.picker("Upper limit", selection: $model.maxIterationsCap) {
-                ForEach(Self.iterationCaps, id: \.self) { Text($0.formatted()).tag($0) }
-            }
-            .help("The most iterations automatic mode may use. It raises the limit only as far as the view needs.")
-        }
-        ControlRows.picker("Anti-aliasing", selection: $model.supersampling) {
-            ForEach(Supersampling.allCases) { Text($0.label).tag($0) }
-        }
-        Toggle("Interactive preview", isOn: $model.interactivePreview)
         // The tour on iterations and the fog (topic `iterations`), once one is bundled.
         if ExplorerModel.tour(forTopic: "iterations") != nil {
             TourTopicLink(model: model, topic: "iterations", label: nil)
+        }
+        MoreRows(section: .quality, model: model, forced: moreForced) {
+            if model.autoIterations {
+                // Bounds only the automatic limit (a manual limit is used as set).
+                ControlRows.picker("Upper limit", selection: $model.maxIterationsCap) {
+                    ForEach(Self.iterationCaps, id: \.self) { Text($0.formatted()).tag($0) }
+                }
+                .help("The most iterations automatic mode may use. It raises the limit only as far as the view needs.")
+            }
+            ControlRows.picker("Anti-aliasing", selection: $model.supersampling) {
+                ForEach(Supersampling.allCases) { Text($0.label).tag($0) }
+            }
+            Toggle("Interactive preview", isOn: $model.interactivePreview)
         }
     }
 }
@@ -1186,7 +1233,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         switch self {
         case .places: "Places"
         case .tours: "Tours"
-        case .view: "View & navigation"
+        case .view: "Navigation"
         case .journey: "Journey & cinematic effects"
         case .look: "Look & colour"
         case .lighting: "Lighting & outline"
@@ -1241,6 +1288,33 @@ enum ControlSection: String, CaseIterable, Identifiable {
     /// Whether the section's rows search names too (Places: places; Look: palettes).
     var searchesNames: Bool { self == .places || self == .look }
 
+    /// The sections a new user starts with collapsed (kb: decisions/controls "Essential rows and
+    /// More"): the key reference and Iterations & quality (its one essential row, automatic
+    /// iterations, is already on). Only the default: a saved open / closed state wins.
+    static let collapsedByDefault = "controls,quality"
+
+    /// What the rows behind the section's More are found by (empty: the section has no More).
+    /// A search matching one of these shows the More open.
+    var moreKeywords: [String] {
+        switch self {
+        case .places, .tours, .controls: []
+        case .view: ["edge", "pan", "autopilot", "fly", "copied", "lock", "assist", "lane", "cruise", "rotation", "straighten"] + Self.touchViewKeywords
+        case .journey: ["cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "phase", "cycling"]
+        case .look: ["offset", "smooth", "log", "logarithmic", "cycling", "cycle", "tint", "dense", "calm", "grey", "filter", "anti-aliasing", "import"]
+        case .lighting: ["light", "angle", "height", "highlight", "specular", "width", "colour", "color", "edge"]
+        case .interior: ["stripes", "angle", "detection", "atom"]
+        case .overlays: ["iterates", "levels", "size", "corner", "cosmic", "scale", "universe", "planck", "compass", "target", "marker", "hud", "status", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "cockpit", "gear", "speed"]
+        case .quality: ["upper limit", "cap", "anti-aliasing", "aa", "samples", "preview"]
+        }
+    }
+
+    /// Whether a search query matches a row behind the section's More (so it shows open).
+    func moreMatches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return false }
+        return moreKeywords.contains { $0.contains(q) }
+    }
+
     /// Whether the section matches a search query (title or keywords, case-insensitive).
     func matches(_ query: String) -> Bool {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -1261,10 +1335,10 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .tours: ["tour", "guided", "learn", "maths", "math", "feigenbaum", "period", "doubling", "chaos", "orbit", "explain", "minibrot", "pi", "π", "neck", "cusp", "fog", "limit", "bulb", "valley", "julia", "misiurewicz", "colour", "color"]
         case .view: ["coordinates", "copy", "paste", "reset", "edge", "pan", "autopilot", "fly", "lock", "assist", "lane", "cruise", "rotation", "straighten", "scroll", "zoom", "trackpad", "two-finger", "gesture", "pinch"] + Self.touchViewKeywords
         case .journey: ["journey", "seed", "daily", "share", "stop", "stops", "find", "continuous", "cinematic", "effects", "rotation", "rotate", "spin", "turn", "hue", "drift", "cycling", "landmark", "minibrot", "spiral", "julia"]
-        case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter"]
-        case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow"]
-        case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom"]
-        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "julia", "twin", "fatou", "connected", "dust", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed"]
+        case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter", "import", "calm", "anti-aliasing"]
+        case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow", "width"]
+        case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom", "stripes", "pattern"]
+        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "julia", "twin", "fatou", "connected", "dust", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed", "compass", "levels", "corner"]
         case .quality: ["iterations", "auto", "maximum", "cap", "upper limit", "anti-aliasing", "aa", "samples", "preview", "quality"]
         case .controls: ["keys", "keyboard", "shortcuts", "mouse", "trackpad", "help", "gamepad"]
         }
@@ -1900,11 +1974,50 @@ struct PlaceThumbnail: View {
     }
 }
 
+/// "Import palette…": .ugr / .map / JSON files into "My palettes" (kept across launches); the
+/// grid then shows My palettes. Behind Look & colour's More.
+struct PaletteImportRow: View {
+    let model: ExplorerModel
+    @AppStorage("palettes.category") private var category = ""
+    @State private var importing = false
+    @State private var importNote: String?
+
+    var body: some View {
+        HStack {
+            Button {
+                importing = true
+            } label: {
+                Label("Import palette…", systemImage: "square.and.arrow.down")
+            }
+            .help("Ultra Fractal .ugr, Fractint .map or almondbread JSON")
+            if let importNote {
+                Text(importNote).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .json, .plainText],
+                      allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls):
+                var n = 0
+                var failures: [String] = []
+                for url in urls {
+                    do { n += try model.importPalettes(from: url) } catch { failures.append("\(error)") }
+                }
+                importNote = failures.isEmpty ? "Imported \(n) palette\(n == 1 ? "" : "s") into My palettes"
+                    : "Imported \(n); failed: \(failures.joined(separator: "; "))"
+                if n > 0 { category = "user" }
+            case .failure(let e):
+                importNote = "\(e.localizedDescription)"
+            }
+        }
+    }
+}
+
 /// The palette picker: the palette library's swatches in a grid by category (separate from
 /// the look, which is a colouring preset). Choosing one applies its recommended density,
 /// offset and deep colour; "Import palette…" reads .ugr / .map / JSON files into "My
 /// palettes" (kept across launches). While the control center searches and palette names
-/// match, the grid shows those palettes (no category picker). Keyboard: a chosen swatch takes
+/// match, the grid shows those palettes (no category picker). Import: `PaletteImportRow`. Keyboard: a chosen swatch takes
 /// the keyboard focus, so Tab / ⇧Tab and the arrows go on from it; Space or Return applies the
 /// focused one.
 struct PalettePicker: View {
@@ -1912,8 +2025,6 @@ struct PalettePicker: View {
     /// The control center's search query ("": not searching).
     var query = ""
     @AppStorage("palettes.category") private var category = ""
-    @State private var importing = false
-    @State private var importNote: String?
     @FocusState private var focus: String?
     @Environment(\.controlRowWidth) private var rowWidth
 
@@ -1985,33 +2096,6 @@ struct PalettePicker: View {
                 .modifier(DemoTileFrame(id: "palette:" + p.id))
             }
             .onChange(of: focus) { model.tileKeyFocus(focus.map { "palette:" + $0 }, kind: "palette:") }
-            HStack {
-                Button {
-                    importing = true
-                } label: {
-                    Label("Import palette…", systemImage: "square.and.arrow.down")
-                }
-                .help("Ultra Fractal .ugr, Fractint .map or almondbread JSON")
-                if let importNote {
-                    Text(importNote).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
-            }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .json, .plainText],
-                          allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls):
-                    var n = 0
-                    var failures: [String] = []
-                    for url in urls {
-                        do { n += try model.importPalettes(from: url) } catch { failures.append("\(error)") }
-                    }
-                    importNote = failures.isEmpty ? "Imported \(n) palette\(n == 1 ? "" : "s") into My palettes"
-                        : "Imported \(n); failed: \(failures.joined(separator: "; "))"
-                    if n > 0 { category = "user" }
-                case .failure(let e):
-                    importNote = "\(e.localizedDescription)"
-                }
-            }
     }
 
     /// Applies a palette and puts the keyboard focus on its swatch (Tab goes on from there).

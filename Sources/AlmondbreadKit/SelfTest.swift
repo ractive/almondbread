@@ -248,6 +248,10 @@ public enum UIDemo {
         } else if scene == "places-top" || scene == "places-bottom" || scene == "place-details" {
             // Only Places open: the grid alone fills the sidebar.
             d.set("controls,interior,journey,lighting,look,overlays,quality,tours,view", forKey: "controlCenter.collapsed")
+        } else if scene == "more" || scene == "more-open" {
+            // Navigation, Look and Lighting open; `more-open`: their Mores open too.
+            d.set("controls,interior,journey,overlays,places,quality,tours", forKey: "controlCenter.collapsed")
+            if scene == "more-open" { d.set("lighting,look,view", forKey: ControlMore.openKey) }
         } else if scene == "sidebar" || scene == "sidebar-2" {
             // The settings rows: View, Look (or, scrolled past it, Overlays and Quality) open.
             d.set(scene == "sidebar" ? "controls,interior,journey,lighting,places,overlays,quality"
@@ -321,6 +325,11 @@ public enum UIDemo {
             return
         }
         switch scene {
+        case "more", "more-open":
+            // Hidden settings changed: Lighting's More shows "· 2 changed", Look's "· 1 changed".
+            model.lightAngle = 60
+            model.glowWidth = 20
+            model.depthTint = 0.05
         case "interior":
             try? explorer.setViewport(re: "-0.1225", im: "0.7445", scale: 0.0004)
             model.interiorColoring = .bubbles

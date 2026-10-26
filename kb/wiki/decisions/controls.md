@@ -208,7 +208,7 @@ actually are", with nested levels and click-to-jump). Measured in [almondbread b
 ("Overlays").
 
 **Control center** (`Sources/AlmondbreadKit/ControlCenterView.swift`, replaces the inspector).
-Sections in order: Places, View & navigation, Journey & cinematic effects, Look & colour,
+Sections in order: Places, View & navigation (Navigation since 2026-10-26), Journey & cinematic effects, Look & colour,
 Lighting & outline, Interior, Overlays, Iterations & quality, Controls (later Tours after Places;
 the fractal choice is a pinned row above them since 2026-10-26, [Fractal row](#fractal-row-as-built-2026-10-26)). The sidebar holds only
 what can be set (user, 2026-10-16): no live values. The HUD shows zoom, centre and speed; the
@@ -767,7 +767,7 @@ processes kept 83–100 % busy (our own chunks were ≤ 32 ms): load, not the ap
 palette and mapping, lighting and outline, interior, overlays, iterations and quality, edge
 panning, autopilot target lock; with the view: the whole set) back to the defaults
 (`Explorer.defaultSettings()`). Each section header has a small ↺ that resets that section
-alone. Both were undoable at first (the window's undo manager); since 2026-10-26 they are not:
+alone (exactly the rows that section shows, since 2026-10-26: [Essential rows and More](#essential-rows-and-more-as-built-2026-10-26)). Both were undoable at first (the window's undo manager); since 2026-10-26 they are not:
 Edit ▸ Undo / Redo are the travel journal's Back / Forward ("Travel journal" below). The Settings window's reset of app-wide preferences stays separate.
 Places, autopilot and fly-to are in the control center since the integration (Places: grid by
 category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, target lock).
@@ -3448,7 +3448,7 @@ the head of what the field filters. One line: "Fractal", the family menu and, fo
 several formulas (Multibrot), the power menu (accessibility ids `formula-family` /
 `formula-power` unchanged). Where the three do not fit on one line (iPad mini portrait pane with
 Multibrot: "Fractal" broke as "Frac-tal") the row shows the two menus alone, trailing. In a Julia view the row names the set ("Julia set of Mandelbrot")
-and offers "Back to Mandelbrot" (`backFromJulia`, the way back the Overlays row and ⇧U take; id
+and offers "Back to Mandelbrot" (`backFromJulia`, the way back ⇧U takes; since [Essential rows and More](#essential-rows-and-more-as-built-2026-10-26) the only one in the control center; id
 `fractal-julia-back`), on one line where it fits, else the button under the name. The behaviour
 in a Julia view is the old one: no fractal is picked there (the picker used to be shown
 disabled); another fractal is picked after going back. Search: the row is in no section, so its
@@ -3458,6 +3458,82 @@ matches. No tour step highlighted the picker, so no tour changed. Checked by
 `--ui-demo=multibrot` (new scene: z⁴ + c), `mandelbrot-panel` (a Julia view) and the default
 scene, `ControlSearchTests.testFractalRowSearch`, and the iOS UI test
 `TouchControlsUITests.testFormulaPicker`.
+
+### Essential rows and More (as built, 2026-10-26)
+
+User decision: the control center had about 70 controls in its settings sections and overwhelmed
+new users. Each section now shows its essential rows; the rest sit behind a per-section
+"More…" line at the end of the section, closed by default, its open state remembered per
+section (`controlCenter.moreOpen` in user defaults; window tests use the volatile demo suite like
+the section state). No global Basic / Advanced mode. Places and Tours are unchanged (their rows
+are the content); Controls has no More. Code: `MoreRows` / `MoreLine` and the table of hidden
+settings `ControlMore.settings` in `Sources/AlmondbreadKit/ControlMore.swift`; unit tests
+`ControlMoreTests`.
+
+| Section | Essential (visible) | More |
+|---|---|---|
+| Navigation (was "View & navigation") | Copy / Go to copied (iOS: Paste) / Reset; Back / Forward; Mac: Two-finger scroll | Edge panning, Autopilot / Fly to… / Copied, Autopilot target lock, Lane assist, iOS: Seek minibrot, Rotation: Straighten |
+| Journey & cinematic effects | Seed, Journey / Daily (/ Copy #seed), Continuous / Stop at each find, Cinematic effects | Spin, Hue drift, Phase drift, Cycling in flight |
+| Look & colour | Look, Palette (name, category, grid), Density | Offset, Logarithmic, Smooth, Palette anti-aliasing, Calm dense regions, Colour cycling (+ Cycle speed), Depth tint, Import palette… |
+| Lighting & outline | Shading, Outline, Glow | Light angle, Light height, Highlight, Outline width, Outline colour, Glow width, Glow colour |
+| Interior | Colouring with its caption; Colour (flat) or Pattern density (the others) | Stripes (angle), Interior detection |
+| Overlays | Orbit, Mini-map, Julia set of that point (Julia view: Mandelbrot panel), Julia twin of this view | Iterates, Mini-map levels / size / corner, Cosmic size scale, Always show compass, Autopilot target marker, Status (HUD), Developer details |
+| Iterations & quality | Automatic iterations; manual: Maximum (number and slider in one row); the "Limits…" tour link | Upper limit (automatic), Anti-aliasing, Interactive preview |
+
+Reasons: Reset stays visible in Navigation because the walkthrough tells touch users to tap it;
+Two-finger scroll is essential on the Mac because a trackpad user who expects zoom has nowhere
+else to find it. The rest of Navigation has cockpit icons, keys, toolbar and menu items. Look
+keeps the Look, the palette and the density (five visible rows with the category picker and the
+grid; colour cycling would have made six). Lighting keeps the three strengths; every sub-knob is
+disabled while its strength is 0 anyway. Overlays keeps what tours, keys and the toolbar name.
+The way out of a Julia view is the pinned fractal row's Back ([Fractal row](#fractal-row-as-built-2026-10-26)), so
+the Overlays section no longer has its own "Back to the Mandelbrot set". The journey seed moved
+above the Journey button that reads it (it was below). The mini-map's tuning rows are named
+"Mini-map levels / size / corner", since they no longer sit under the switch.
+
+**"· N changed".** The More line counts the hidden settings whose row is there now (a
+conditional row that is hidden, such as Stripes outside the angle colouring or the mini-map
+rows with the map off, does not count) and that differ from a reference: for a field a look sets
+(palette mapping offset, logarithmic, smooth, palette filter, calm dense regions, lighting,
+outline, glow, interior colour) the current look's value, for any other field its default.
+Rust's `look_settings(id)` (FFI, `explorer.rs`) gives both at once: `RenderSettings::default()`
+with the look applied (a field no look sets keeps its default). Navigation and Overlays rows are
+Swift-side preferences counted against the defaults `reset(.overlays)` / the preference
+fallbacks use. Counting look fields against the global defaults would have shown "· 5 changed"
+in Lighting right after picking any look but Aurora. Next to the count a small ↺ puts back just
+the counted settings (to the same reference), so the count goes to zero. The section header's ↺
+was not reused for this: it resets the visible rows too (a user's Shading) and to the global
+defaults, not to the look, so it would not match the number shown. Two consequences to know: a
+palette chosen from the grid applies its recommended offset, and a density edit pivots the
+offset ([Density pivot](../techniques/coloring-methods.md#density-pivot-as-built)), so Look's More can show "· 1 changed"
+(Offset) after either; that is true (the hidden offset differs from the look) and the ↺ undoes it.
+
+**Search.** A search shows matching sections open, as before; when the query also matches a row
+behind a section's More (`ControlSection.moreKeywords`), that More shows open too (for the
+search only; the stored state stays). **Tours.** No tour step rings a row inside a section
+(`highlight:` targets inside the control center are whole sections, and only the walkthrough
+uses them, for Places and Tours), so no tour opens a More.
+
+**Collapsed by default.** A new user starts with Controls (the key reference) and Iterations &
+quality collapsed (`ControlSection.collapsedByDefault`): only the default of the stored state, so
+a user's saved open / closed state wins.
+
+**Fixes found on the way.** (1) Each section's ↺ resets exactly that section's rows, as "Reset"
+above says: Navigation's ↺ resets its four preferences only; before it also reset the cinematic
+effects (Journey's) and jumped to the whole set, which no record documented (the Reset button
+in the section does the jump). (2) The Overlays ↺ no longer turns off the π meter (no row
+anywhere; "Reset all" still does) and now turns off the HUD's developer details, which has a row
+there. (3) The interior "Density" slider is now "Pattern density" (how closely the interior
+colouring's rings and bands repeat), no longer the same label as Look's palette density. (4)
+Manual iterations: the slider and the number field are one row. (5) Going to a place still
+switches a flat interior to bubbles (`showPlaceInterior`): intended, so the view matches its
+thumbnail, which is rendered with bubbles ([Places: a catalogue of famous views to visit](../synthesis/places.md)); not
+changed. It does not show in Interior's "N changed", since Colouring is an essential row.
+
+Checked with `swift test` (`ControlMoreTests`), background `--ui-demo=more` / `more-open` windows
+(new scenes: Navigation, Look and Lighting open, hidden settings changed so the counts show; the
+second with the Mores open), an iPad-sized one (`--ui-demo-size`), and the iOS UI test
+`TouchControlsUITests.testMoreOpensAndCounts` on the iPad simulator.
 
 ## View limits (as built, 2026-10-25)
 
