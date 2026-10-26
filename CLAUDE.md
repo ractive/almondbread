@@ -39,7 +39,13 @@ platforms only.
 
 ## Build
 
-`make rust` builds the release static libs (macOS arm64, iOS arm64, iOS simulator), the
+Cargo profiles (decided 2026-10-26): `release` is the working profile (tests, CLI, `--release`
+everywhere below): optimised, no LTO, incremental, so a one-line core change rebuilds in seconds.
+`dist` (fat LTO) is what ships and what benchmarks measure: `make rust`, `make bench`,
+`flight-bench` (`target/dist/almondbread`). Never put LTO back on `release`. Agents run their
+final set with `PROFILE=release` (e.g. `PROFILE=release make build app selftest ios-sim`): a cold
+fat-LTO `make rust` of the three targets takes ~20 min; the driver's merge check and releases build dist.
+`make rust` builds the dist static libs (macOS arm64, iOS arm64, iOS simulator), the
 UniFFI Swift bindings and `build/rust/AlmondbreadCoreFFI.xcframework` (incremental; `run`,
 `build`, `app`, `ios-sim` and `core-check` depend on it). `make run` (swift run),
 `make build`, `make app` (macOS .app via Xcode), `make ios-sim`.
@@ -166,7 +172,7 @@ simulators, no `xcodebuild test` outside the scripts); keep simulator runs targe
 
 Which checks when (decided 2026-10-25). Iterate with targeted commands; run the final
 set once at the end, not after every edit. `make ios-sim` and `make ios-device-check` only
-compile (no simulator boots); `make rust` builds all three Rust targets, so during core work
+compile (no simulator boots); `make rust` builds all three Rust targets with fat LTO, so during core work
 use `cargo test` and the CLI and leave the iOS builds for the end. The simulator runs the
 Rust code and shaders on the Mac's GPU: it adds nothing for core correctness, and only a
 device run sees iPhone/iPad GPU differences.

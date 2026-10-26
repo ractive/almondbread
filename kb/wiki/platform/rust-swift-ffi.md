@@ -58,7 +58,13 @@ project.yml: both app targets depend on the AlmondbreadCore product.
   `Sources/AlmondbreadCore/Generated/`.
 - The release static library is ~30 MB (all of std plus line tables); the linker
   dead-strips it. The macOS app binary was 3.8 MB with the core linked.
-- Release profile: `lto = "fat"`, `codegen-units = 1`. `panic` stays `unwind`:
+- Profiles (2026-10-26): the XCFramework is built with `dist` (`lto = "fat"`,
+  `codegen-units = 1`); `release` is the working profile for tests and the CLI (no LTO,
+  16 codegen units, incremental). Measured with the reuse agent compiling alongside: a
+  one-line change in `scheduler.rs` rebuilt the render tests in 281 s with fat LTO and in
+  1–2 s with `release`, the CLI in 287 s vs 1.3 s; the workspace tests ran 28 s vs 32 s
+  (noise); `bench` reference-orbit time was ~10% higher without LTO (355 vs 390–410 ms),
+  so benchmarks use `target/dist/almondbread`. `panic` stays `unwind`:
   UniFFI catches panics at the boundary; with `abort` any failed assertion would
   kill the app. Throwing exports surface a panic as a Swift error, non-throwing
   ones still crash, so exports validate their arguments and return `CoreError`.

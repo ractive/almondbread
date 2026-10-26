@@ -4,7 +4,8 @@
 # packages build/rust/AlmondbreadCoreFFI.xcframework (static libs + C header + module map).
 # The generated Swift file goes to Sources/AlmondbreadCore/Generated/. kb: platform/rust-swift-ffi
 #
-#   scripts/build-rust-xcframework.sh            # release (default)
+#   scripts/build-rust-xcframework.sh            # dist (default: fat LTO, what ships)
+#   PROFILE=release scripts/build-rust-xcframework.sh   # faster to rebuild, no fat LTO
 #   PROFILE=debug scripts/build-rust-xcframework.sh
 #
 # Incremental: cargo decides what to rebuild; the XCFramework and the bindings are only
@@ -19,9 +20,9 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 export MACOSX_DEPLOYMENT_TARGET=14.0
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
 
-PROFILE="${PROFILE:-release}"
-CARGO_FLAGS=()
-[ "$PROFILE" = release ] && CARGO_FLAGS+=(--release)
+PROFILE="${PROFILE:-dist}"
+# Cargo calls the debug profile "dev" but writes it to target/<triple>/debug.
+CARGO_FLAGS=(--profile "$([ "$PROFILE" = debug ] && echo dev || echo "$PROFILE")")
 
 TARGETS=(aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim)
 LIB=libalmondbread_ffi.a

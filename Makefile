@@ -6,7 +6,7 @@ export DEVELOPER_DIR
 DERIVED := .build/xcode
 APP     := $(DERIVED)/Build/Products/Release/Almondbread.app
 
-.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check rust-check-debug core-check rust-cli rust-bench rust-regress flight-bench flight-bench-live swift-test
+.PHONY: run build project app dmg ios-sim ios-selftest ios-uitest ios-sim-run ios-device ios-device-selftest ios-device-check ios-device-doctor render selftest interaction-test hang-test interaction-test-120 bench regress clean rust rust-check rust-check-debug core-check rust-cli rust-cli-dist rust-bench rust-regress flight-bench flight-bench-live swift-test
 
 ## swift run, release (the macOS app without an Xcode project)
 run: rust
@@ -128,13 +128,13 @@ bench: rust-bench
 ## no display) and mode B's headless approximation (real time at 120 Hz through the scheduler);
 ## warm-up lap, 3 laps, medians, noise check, JSON in build/benchmark/. Quick: ARGS="--repeat 1
 ## --warmup 0". Compare: target/release/almondbread benchmark --compare a.json b.json
-flight-bench: rust-cli
-	$(RUST_CLI) benchmark $(ARGS)
+flight-bench: rust-cli-dist
+	$(DIST_CLI) benchmark $(ARGS)
 
 ## Mode B live: the flight in a background window at the display's rate (never takes focus,
 ## quits by itself; needs an unlocked screen), scored against the live reference
-flight-bench-live: build rust-cli
-	$(RUST_CLI) benchmark --live-app .build/release/AlmondbreadMac $(ARGS)
+flight-bench-live: build rust-cli-dist
+	$(DIST_CLI) benchmark --live-app .build/release/AlmondbreadMac $(ARGS)
 
 ## The -3/4 neck and seahorse history regressions (kb: techniques/interior-detection, Pitfalls)
 regress: rust-regress
@@ -163,9 +163,14 @@ RUST_CLI := target/release/almondbread
 rust-cli:
 	cargo build --release -p almondbread-cli
 
+## The CLI as it ships (fat LTO, profile dist): what benchmark numbers are measured with.
+DIST_CLI := target/dist/almondbread
+rust-cli-dist:
+	cargo build --profile dist -p almondbread-cli
+
 ## Benchmark set through the Rust renderer: make rust-bench [ARGS="--sizes 1600x1000 --out dir"]
-rust-bench: rust-cli
-	$(RUST_CLI) bench $(ARGS)
+rust-bench: rust-cli-dist
+	$(DIST_CLI) bench $(ARGS)
 
 ## Headless sessions through the interactive scheduler (Space zoom, then one wheel step) at the
 ## -3/4 neck views of the wedge report and the seahorse; each fails on exterior painted as

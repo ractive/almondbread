@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-25
 
+- **Decision:** Cargo profiles: release is the working profile (no LTO, 16 codegen units, incremental) so a one-line render-crate change rebuilds in seconds instead of ~5 minutes; dist (fat LTO) builds the app's XCFramework and the benchmark CLI (target/dist/almondbread, ~10% faster CPU reference orbits). Measurements in platform/rust-swift-ffi (Pipeline)
 - **Decision:** View limits correction 2: centre bound = each formula's set box (Julia measured per k), Apple rubber band curve (c 0.55), critically damped spring back (ω 24/s, settles < 0.4 s), trackpad scroll phases (lift lets go at once, momentum into the bound is cut, brakes and springs back); user report 2026-10-25
 - **Decision:** View limits correction: rubber band 0.15 of the shorter side (was 0.5: the set left the screen, user 'I can keep panning'), zoom-out ease 0.8 e-folds (was 0.3: 0.19 s at Space speed read as a hard stop), turns and zooms in while stretched now go through the band, keep_in_limits caps a stuck band; decisions/controls View limits
 - **Decision:** View limits: zoom-out limit 0.5x of each formula's home, centre within home ±2.5 per axis; soft zoom stop, rubber band with spring back, clamped targets and restored views (decisions/controls)

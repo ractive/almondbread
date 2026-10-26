@@ -46,12 +46,24 @@ while_float = "warn"
 infinite_loop = "warn"
 recursive_format_impl = "deny"
 
+# Two optimised profiles (decided 2026-10-26). `release` is for working: tests, the CLI, clippy.
+# Fully optimised code but no whole-program LTO, parallel codegen and incremental, so a one-line
+# change in the render crate rebuilds in seconds instead of ~5 minutes; tests run as fast.
+# `dist` is what ships and what benchmarks measure: `make rust` (the app's static libs),
+# `make bench` / `flight-bench`. Fat LTO is ~10% faster on CPU reference orbits.
 [profile.release]
-lto = "fat"
-codegen-units = 1
+lto = false
+codegen-units = 16
+incremental = true
 # panic stays "unwind": UniFFI catches panics at the boundary and raises them as Swift
 # errors; "abort" would take the app down on any precondition failure.
 debug = "line-tables-only"
 
-[profile.bench]
+[profile.dist]
 inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false
+
+[profile.bench]
+inherits = "dist"
