@@ -436,17 +436,15 @@ impl Flight {
         const DT: f64 = 1.0 / 60.0;
         let mut f = self.clone();
         f.stopping = false;
-        let mut t = 0.0;
-        while t <= limit {
-            if f.s >= f.path.length {
-                return Some(t);
-            }
-            t += DT;
-            if f.step(DT, speed, 1.0) {
-                return (t <= limit).then_some(t);
-            }
+        if f.s >= f.path.length {
+            return Some(0.0);
         }
-        None
+        let steps = if limit.is_finite() {
+            (limit.max(0.0) / DT).floor() as usize
+        } else {
+            0
+        };
+        (1..=steps).find(|_| f.step(DT, speed, 1.0)).map(|k| k as f64 * DT)
     }
 
     /// Advances by `dt` at `speed` e-folds per second times `throttle`; returns true when the
