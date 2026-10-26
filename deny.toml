@@ -17,6 +17,10 @@ ignore = [
     # ttf-parser is unmaintained: only via fontdue, a dev-dependency of almondbread-render used
     # by examples/gen_overlay_font.rs to rasterise Inter once; not in any shipped binary.
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser via fontdue, dev-dependency of the font generator only" },
+    # basic-toml is unmaintained (archived, no fix): only via askama_derive -> uniffi_bindgen
+    # 0.32.2 (the latest uniffi), a proc macro / bindings generator that runs at build time;
+    # not in any shipped binary. Drop when uniffi moves off askama 0.16.
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml via askama_derive in uniffi_bindgen, build-time only; no upgrade available" },
 ]
 
 [licenses]
