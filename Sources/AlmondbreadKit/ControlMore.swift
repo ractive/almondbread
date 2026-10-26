@@ -183,9 +183,18 @@ struct MoreLine: View {
     let toggle: () -> Void
 
     var body: some View {
+        // A lighter band, so the line reads as a control and not as one more setting.
+        line
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .padding(.top, 3)
+    }
+
+    private var line: some View {
         let changed = ControlMore.changed(section, model: model)
         let count = ControlMore.rowCount(section, model: model)
-        HStack(spacing: 6) {
+        return HStack(spacing: 6) {
             Button(action: toggle) {
                 HStack(spacing: 6) {
                     // Only the chevron in the accent colour: the label in the rows' own colour
@@ -226,7 +235,6 @@ struct MoreLine: View {
                 .accessibilityIdentifier("more-\(section.rawValue)-reset")
             }
         }
-        .padding(.top, 3)
         #if os(iOS)
         .frame(minHeight: 36)
         #endif
