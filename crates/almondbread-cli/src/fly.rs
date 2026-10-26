@@ -178,13 +178,6 @@ pub fn fly_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i3
         apply_json_settings(s, &mut r.settings);
     }
     o.apply_renderer(&mut r);
-    // `--memory-limit MB`: the renderer under a device's memory ceiling (kb: platform/ios-device
-    // "Memory"); the iteration limit is capped so the reference and its tables fit.
-    if let Some(mb) = o.f64("memory-limit") {
-        r.set_memory_budget(almondbread_render::memory::MemoryBudget {
-            ceiling: Some((mb * 1048576.0) as u64),
-        });
-    }
     // One view point per pixel: script positions and speeds are in video pixels.
     let (w_pts, h_pts) = (size.0 as f64, size.1 as f64);
     r.handle_input(

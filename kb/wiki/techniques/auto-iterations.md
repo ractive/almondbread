@@ -396,15 +396,33 @@ P = 30 957 the offer is 10 M (100 P = 3.1 M), not 1 M (32 P: grey body); for P =
 - **Neck** (400 × 250, cap 50 k → 200 k): 20.7 % → 3.72 % in the same job; the shown frame is
   identical to a fresh render at 200 k (0 of 100 000 pixels differ) and the CPU-oracle numbers
   equal a session started at 200 k.
-- **iOS memory**: the offer never exceeds `memory_iteration_cap` (25 % of the ceiling at
-  130 B per reference point, the reference twice the limit; [iOS and iPadOS on a device: first run, signing, memory, thermal, background](../platform/ios-device.md)
-  "Memory"). 1 M needs a ceiling of ~1.04 GB, 10 M ~10.4 GB, so on iPhones and iPads 10 M is
-  in practice not offered (the largest fitting choice is, typically 1 M; under an 800 MB
-  ceiling, 786 k, nothing). The picker itself lists all five choices on iOS too; the renderer
-  silently clamps a higher pick to the memory cap. The cap is conservative for nucleus
-  references (a period long: 30 958 points, ~4 MB, at the N view) (proposal, not built: let
-  the memory cap apply only to non-periodic references, so 10 M can be offered after N on a
-  device).
+- **iOS memory**: for a centre (non-periodic) reference the offer never exceeds
+  `memory_iteration_cap` (25 % of the ceiling at 130 B per reference point, the reference twice
+  the limit; [iOS and iPadOS on a device: first run, signing, memory, thermal, background](../platform/ios-device.md)
+  "Memory"): 1 M needs a ceiling of ~1.04 GB, 10 M ~10.4 GB, so 10 M is in practice never
+  offered for one on iPhones and iPads (typically 1 M; under an 800 MB ceiling nothing).
+  **A nucleus reference is exempt** (built 2026-10-26, `Renderer::job_memory_iteration_cap`,
+  `scheduler/device.rs`): its orbit is stored one period long (`points.len() == P + 1`,
+  `Z_P` set to exactly 0, `exact_reach` unbounded) and pixels wrap by rebasing at its end
+  ([Rebasing (Zhuoran, 2021)](rebasing.md)); the LA tables are built over those P + 1 points.
+  Nothing in the reference grows with the limit, so once P fits the reference share
+  (`MemoryBudget::max_reference_points`, P + 1 points at 130 B) the memory does not bound how
+  far compute further iterates it: the offer and the further passes' ceiling
+  (`further_iteration_cap`) go up to `MAX_ITERATION_LIMIT`, so after N the device is offered
+  10 M too. The limit of new views (`make_key`, `max_iterations`, journey prefetches) and the
+  auto-iteration learner's cap stay at `memory_iteration_cap`: the next view may get a centre
+  orbit as long as its limit. Measured (2026-10-26, M1 Pro, release, `verify --history pan
+  --seconds 0 --cap 200000 --further-budget 60 --raise 2 --memory-limit 3072` at the N view,
+  1280 × 800): a 3 GB ceiling caps centre orbits at 2.62 M (offer would be 1 M); offered
+  **10 M**, unresolved 100 % → **3.95 %**, 3 passes, 1.04 GPU s, same job, identical to the
+  run without a ceiling. Reference 30 958 points (period 30 957): 0.7 MB CPU points, 1.8 MB
+  tables, GPU allocation 249 MB, before and after (no growth); whole process peak footprint
+  332 MB. The neck (a centre orbit) under the same ceiling stays capped (offer 1 M at 200 k,
+  none at 1 M). GPU per dispatch does not grow with the limit: further segments are ordinary
+  levels iterated in chunks sized to `chunk_target`; at 10 M the longest chunk was 197 ms (the
+  first chunk of a 764 k-texel segment, K 2941; 204 ms without a ceiling, so not from this
+  change: the chunk estimate overshoots on a segment's first chunk, open), far from a GPU
+  watchdog but a visible hitch on a device.
 - **Manual limit** (proposal, not built): the same offer would mean "set Maximum to the next
   round value": with a manual limit, compute further's ceiling is the limit itself, so a stop
   at it with fog is the same situation. Not built because a manual limit is a deliberate
@@ -417,7 +435,10 @@ P = 30 957 the offer is 10 M (100 P = 3.1 M), not 1 M (32 P: grey body); for P =
   prints the offer, compute further's state and whether the job was kept. Tests:
   `scheduler/further_raise_tests.rs` (state, not timing): the offer and its value at the neck,
   the job kept and unresolved dropping, no offer at the top choice, with a manual limit, at
-  the time limit or above the memory budget, and the N view's period-based 10 M.
+  the time limit or above the memory budget, the N view's period-based 10 M, and that 10 M
+  under a 3 GB ceiling (nucleus reference, no growth). `--memory-limit MB` works for
+  `verify --history` as for `fly`, and `--raise` prints the reference's length, period and
+  memory.
 
 ## For almondbread
 

@@ -342,6 +342,14 @@ impl Options {
         if let Some(v) = self.f64("further-budget") {
             r.config.further_budget = v;
         }
+        // `--memory-limit MB`: the renderer under a device's memory ceiling (kb:
+        // platform/ios-device "Memory"); the iteration limit is capped so the reference and its
+        // tables fit (`fly`, `verify --history`).
+        if let Some(mb) = self.f64("memory-limit") {
+            r.set_memory_budget(almondbread_render::memory::MemoryBudget {
+                ceiling: Some((mb * 1048576.0) as u64),
+            });
+        }
         // The Buddhabrot look's offscreen accumulation (kb: plans/buddhabrot): hits per pixel of
         // the faintest channel, wall seconds at most; `--buddha-live 0`: motion falls back.
         if let Some(v) = self.f64("buddha-hits") {

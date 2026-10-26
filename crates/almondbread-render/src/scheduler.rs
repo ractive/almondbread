@@ -4894,7 +4894,9 @@ impl<B: GpuBackend> Renderer<B> {
     /// upper limit"): compute further stopped at the upper limit with automatic iterations and
     /// at least `RAISE_MIN_SHARE` of the view unresolved. The value is the next choice of
     /// `UPPER_LIMIT_CHOICES` above the cap, or for a view whose reference is a period-P nucleus
-    /// the smallest choice of at least `RAISE_PERIOD_FACTOR` x P; within the memory budget.
+    /// the smallest choice of at least `RAISE_PERIOD_FACTOR` x P; within the memory budget (for
+    /// a nucleus reference that of its period, which does not grow with the limit:
+    /// `job_memory_iteration_cap`).
     /// None at the top choice (more is never promised there) or with a manual limit.
     pub fn raise_offer(&self) -> Option<usize> {
         if !self.settings.auto_iterations {
@@ -4916,10 +4918,11 @@ impl<B: GpuBackend> Renderer<B> {
             .filter(|_| self.reference_serial == job.reference_serial)
             .and_then(|r| r.period)
             .unwrap_or(0);
+        // (A nucleus reference's memory is one period's at any limit: 10 M on iOS too.)
         almondbread_core::settings::next_upper_limit(
             self.settings.max_iterations_cap,
             period.saturating_mul(RAISE_PERIOD_FACTOR),
-            self.memory_iteration_cap(),
+            self.job_memory_iteration_cap(),
         )
     }
 
@@ -5041,7 +5044,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// Decides the next pass: its limit (x4, else x2 the last, within the cap, the reference's
     /// reach and the budget) or why there is none; starts its first segment scan.
     fn further_next_pass(&mut self) {
-        let cap = self.iteration_cap();
+        let cap = self.further_iteration_cap();
         let budget = self.further_budget_now();
         let min_share = self.config.further_min_share;
         let probe_div = INTERIOR_PROBE;
@@ -5403,7 +5406,11 @@ impl<B: GpuBackend> Renderer<B> {
         // pixel running to each limit (bounded by the budget left).
         let mut remaining_gpu = 0.0;
         if f.running() {
-            let ceiling = job.key.max_iter.max(self.iteration_cap()).min(MAX_ITERATION_LIMIT);
+            let ceiling = job
+                .key
+                .max_iter
+                .max(self.further_iteration_cap())
+                .min(MAX_ITERATION_LIMIT);
             let rate = Self::further_rate(job, self.rate).max(1.0);
             let mut n = f.limit.max(f.reached);
             let pass_left = f.unresolved.saturating_sub(f.resolved + f.left + finished);
