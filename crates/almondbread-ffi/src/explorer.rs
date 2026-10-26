@@ -1048,6 +1048,16 @@ pub fn max_iteration_limit() -> u64 {
     almondbread_core::settings::MAX_ITERATION_LIMIT as u64
 }
 
+/// The Upper limit setting's choices, ascending (the control center's picker; the HUD's
+/// "Raise to …" steps through them).
+#[uniffi::export]
+pub fn upper_limit_choices() -> Vec<u64> {
+    almondbread_core::settings::UPPER_LIMIT_CHOICES
+        .iter()
+        .map(|&n| n as u64)
+        .collect()
+}
+
 impl ExplorerSettings {
     /// Applies onto `s` (keeping what the renderer learned), validating every value.
     fn apply(&self, s: &mut RenderSettings) -> Result<(), CoreError> {
@@ -1280,6 +1290,11 @@ pub struct RenderProgressInfo {
     pub can_continue: bool,
     /// The settled text is about unresolved pixels (the HUD links the tour on fog).
     pub fog: bool,
+    /// Compute further stopped at the Upper limit with much of the view unresolved: the HUD
+    /// offers "Raise to" this value (`Explorer::raise_upper_limit`; 0: no offer).
+    pub raise_to: u64,
+    /// The button's title for `raise_to`: "Raise to 1 M" (empty: no offer).
+    pub raise_text: String,
 }
 
 impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo {
@@ -1301,6 +1316,8 @@ impl From<&almondbread_render::progress::RenderProgress> for RenderProgressInfo 
             unresolved_of: p.unresolved.map_or(0, |u| u.1 as u64),
             can_continue: p.not_finished.is_some_and(|n| n.why == Some("time limit")) || p.orbits_paused.is_some(),
             fog: !p.visible && p.orbits_paused.is_none() && p.not_finished.is_some(),
+            raise_to: 0,
+            raise_text: String::new(),
         }
     }
 }
@@ -1727,6 +1744,14 @@ impl Explorer {
     pub fn continue_computing(&self) -> bool {
         let r = &mut self.lock().host.renderer;
         r.continue_further() || r.continue_buddha()
+    }
+
+    /// "Raise to …" (HUD button beside "… not finished at 200 k steps (upper limit)"): the
+    /// Upper limit setting becomes the offered value (`RenderProgressInfo::raise_to`) and compute
+    /// further continues to it from where it stopped. Returns the new Upper limit for the
+    /// settings mirror to store (0: nothing was offered, nothing changed).
+    pub fn raise_upper_limit(&self) -> u64 {
+        self.lock().host.renderer.raise_upper_limit().map_or(0, |n| n as u64)
     }
 
     /// Two-finger scroll zooms instead of panning (macOS setting; default off: pan).
@@ -2206,7 +2231,17 @@ impl Explorer {
             held_keys: r.navigator.held_count() as u32,
             settled: r.is_settled(),
             failed_frames: r.failed_frames as u64,
-            progress: r.progress.current().into(),
+            progress: {
+                let mut p = RenderProgressInfo::from(r.progress.current());
+                // "Raise to …" only beside the settled "not finished … (upper limit)" line.
+                if p.fog
+                    && let Some(n) = r.raise_offer()
+                {
+                    p.raise_to = n as u64;
+                    p.raise_text = format!("Raise to {}", almondbread_render::progress::count_text(n as f64));
+                }
+                p
+            },
             formula: r.settings.formula.name(),
             julia_k: r
                 .settings

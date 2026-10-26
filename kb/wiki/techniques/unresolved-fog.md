@@ -83,6 +83,10 @@ region count (any coverage at a scale stops the walk), unlike a mean-coverage di
   they draw the plain deep fog (`fogDeep()` in `shade()`), at no cost. The history carries the
   full fog into gesture frames by reprojection.
 - The off switch for before/after checks (`ALMONDBREAD_FOG=0`) was removed 2026-10-17; fog is always on.
+- When fog is left because compute further reached the Upper limit (2 % of the view or more),
+  the HUD offers to raise it ("Raise to 10 M"); at a minibrot framing the fog thins along one
+  curve in limit / period: ~15 % at 16 P (a grey silhouette), ~6.6 % at 128 P (a rim)
+  ([Automatic maximum-iteration control](auto-iterations.md) "Raise the upper limit").
 
 ## Exception: bounded orbits (Burning Ship, 2026-10-23)
 

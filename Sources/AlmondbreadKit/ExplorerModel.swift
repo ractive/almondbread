@@ -543,6 +543,12 @@ public final class ExplorerModel {
     /// The progress line is the settled "12 % not finished" one: points left as fog (the HUD
     /// links the tour of topic `fog` there).
     public private(set) var progressUnfinished = false
+    /// Compute further stopped at the Upper limit with much of the view as fog: the HUD offers
+    /// "Raise to" this Upper limit choice (0: no offer; kb: techniques/auto-iterations "Raise the
+    /// upper limit").
+    public private(set) var raiseTo = 0
+    /// The offer's button title ("Raise to 1 M").
+    public private(set) var raiseText = ""
     /// When the zoom speed (Q / E, handled in Rust) last changed, for the HUD highlight.
     public private(set) var zoomSpeedChanged = Date.distantPast
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
@@ -1686,6 +1692,23 @@ public final class ExplorerModel {
         if canContinue != new.progress.canContinue { canContinue = new.progress.canContinue }
         let unfinished = new.progress.fog
         if progressUnfinished != unfinished { progressUnfinished = unfinished }
+        let raise = Int(new.progress.raiseTo)
+        if raiseTo != raise { raiseTo = raise }
+        if raiseText != new.progress.raiseText { raiseText = new.progress.raiseText }
+    }
+
+    /// "Raise to …" (HUD button): the Upper limit setting becomes the offered choice (stored and
+    /// shown in the control center like a pick there) and compute further continues to it in
+    /// the same view, without rendering it again.
+    public func raiseUpperLimit() {
+        guard raiseTo > 0, let explorer else { return }
+        let to = Int(explorer.raiseUpperLimit())
+        guard to > 0 else { return }
+        raiseTo = 0
+        raiseText = ""
+        // (Rust already has the new cap: the push sends the same value and stores it.)
+        maxIterationsCap = to
+        host?.requestFrames()
     }
 
     /// "Continue" (HUD button, G): another time budget for compute further on this view.

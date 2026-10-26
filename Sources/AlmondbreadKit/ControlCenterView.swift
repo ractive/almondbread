@@ -799,7 +799,9 @@ struct OverlaySectionRows: View {
 struct QualitySectionRows: View {
     @Bindable var model: ExplorerModel
 
-    private static let iterationCaps = [10_000, 50_000, 200_000, 1_000_000, 10_000_000]
+    /// The Upper limit choices (Rust's `UPPER_LIMIT_CHOICES`, which the HUD's "Raise to" offer
+    /// steps through).
+    private static let iterationCaps = upperLimitChoices().map { Int($0) }
 
     var body: some View {
         let _ = UIPerf.body("section.quality")

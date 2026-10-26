@@ -1764,7 +1764,16 @@ it is, honestly.
 - **FFI.** `ExplorerStats.progress: RenderProgressInfo` (visible, fraction, stage, text, ETA,
   steps reached / limit, pixels left, and `unresolved` / `unresolved_of`: what the last full or
   extension level left unresolved, kept after the view settled, for a later "raise the limit?"
-  hint).
+  hint; built 2026-10-26 as `raise_to` / `raise_text`, below).
+- **"Raise to 1 M"** (2026-10-26): when compute further stopped at the Upper limit with at least
+  2 % of the view as fog, the settled line offers a button beside it, e.g. "14 % not finished at
+  200 k steps (upper limit)  [Raise to 1 M]": the next Upper limit choice, or after N the
+  smallest one of at least 100 × the minibrot's period ("Raise to 10 M" at the period-30 957
+  landing), within the iOS memory budget. Clicking it sets the Upper limit setting (persisted,
+  shown in the control center) and compute further continues in the same view. Not at the top
+  choice, not with a manual limit, no key (G proposed, not bound). Details and measurements:
+  [Automatic maximum-iteration control](../techniques/auto-iterations.md) "Raise the upper
+  limit".
 - **Measuring.** `almondbread progress --location L | --place P | --center re,im --scale s
   [--iterations N] [--zoom-seconds s]` jumps (or zooms, then stops) through the real
   per-refresh scheduler headless and prints the line, the ETA and the counters against t / T

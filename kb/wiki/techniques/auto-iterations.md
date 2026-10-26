@@ -343,6 +343,82 @@ stop at once ("finished"), junction-1e100 has none, seahorse goes 0.35 → 0.10 
 A view whose f64 orbit is cut (`−0.74999996120361811 + 0.00036918279150454967 i`, 1e−11/px,
 cap 10 M): five orbit extensions to 3.97 M (escape), 98.7 → 1.2 % unresolved at 60 s.
 
+## Raise the upper limit (2026-10-26)
+
+User request: after seek minibrot (N) landed on a period-30 957 minibrot at ~1e-166, the whole
+view was fog at the default 200 k Upper limit, and the HUD only said "… not finished at 200 k
+steps (upper limit)". More time does not help there (Continue is offered only at the time
+limit); a higher limit does. The HUD now offers it.
+
+- **When** (`Renderer::raise_offer`, `scheduler.rs`): compute further stopped at "upper limit",
+  automatic iterations on, and at least `RAISE_MIN_SHARE` = **2 %** of the full level
+  unresolved. Below 2 % the fog is specks and thin threads: seahorse 0.10–0.35 %, home
+  0.015 %, needle-minibrot-1e91 0.007 %, where nobody would trade minutes for it; the neck at
+  200 k (3.7–3.8 %, a fog band) and a minibrot framing at 16–512 periods (2.4–16 %) are above.
+- **Value**: the next choice of `UPPER_LIMIT_CHOICES` (`almondbread-core` `settings.rs`, the
+  one list the control center's picker also reads, FFI `upper_limit_choices()`) above the
+  current cap, by `next_upper_limit(cap, at_least, ceiling)`. For a view whose reference is the
+  nucleus of a period-P minibrot (after N, a tour stop, any view whose reference selection
+  found one), the smallest choice of at least `RAISE_PERIOD_FACTOR` = **100 P**. All within the
+  memory budget's iteration cap (iOS, below): of the choices that fit, the smallest of at
+  least 100 P, else the largest. Nothing at the top choice (10 M) or with a manual limit.
+- **Accepting** (`Renderer::raise_upper_limit`, FFI `Explorer::raise_upper_limit`, HUD button
+  "Raise to 10 M" beside the settled line): the Upper limit setting becomes the value (Swift
+  stores it in the settings mirror like a pick in the control center, so it persists and the
+  control center's reset resets it), compute further gets a fresh `further_budget` (as
+  Continue) and its passes go on from the limit they reached to the new ceiling. **The job is
+  kept**: a raised cap can change `make_key`'s automatic limit (it is clamped by the cap), which
+  would start a new job and render the view from scratch; `raised_key` pins the job's limit for
+  that viewport (cleared on the next view), as `pinned_iterations` does for the learner.
+- **The period factor, measured** (2026-10-26, M1 Pro, release, machine loaded by other agents,
+  `verify --history jump --cap k·P --raise 1 --check 0` at the seek framing, 1280 × 800):
+  unresolved share of the view against k = limit / P.
+
+| k = limit / P | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P = 998 (1e-18) | 100 % | 32.5 % | 15.4 % | 12.1 % | 9.3 % | 6.4 % | 4.0 % | 2.4 % |
+| P = 4640 (1e-70) | 100 % | 61.8 % | 16.3 % | 12.4 % | 9.7 % | 6.8 % | 4.3 % | 2.6 % |
+| P = 13 920 (1e-72) | 100 % | 27.0 % | 14.3 % | 11.6 % | 9.4 %* | | | |
+| P = 30 957 (1e-166) | 100 % (6.5 P) | 51 % (9.7 P) | 17.2 % (16 P) | 12.6 % | 10.0 % (65 P) | 6.3 % (162 P) | 3.95 % (323 P) | |
+
+(* stopped at "reference length", 832 k: that view's reference is a non-periodic big orbit,
+not extendable.) One curve in k, whatever the period or depth: by 16 P the outside resolves and
+the minibrot shows as a grey (fog) silhouette, its body is proven interior gradually after
+that: half of it black at ~64 P, most of it (fog only a rim along the boundary) at ~128 P
+(offscreen stills at 1 M, 2 M, 4 M, 10 M of the 30 957 framing). 100 P lands between. For
+P = 30 957 the offer is 10 M (100 P = 3.1 M), not 1 M (32 P: grey body); for P = 4640 it is 1 M
+(464 k).
+- **The N view** (the user's: 2.04384e-166 per point, 1280 × 800, cap 200 k): offered 10 M;
+  unresolved 100 % (1 023 999 of 1 024 000) → **3.95 %** after accepting, 3 passes (800 k,
+  3.2 M, 10 M), 1.03 GPU s, 1.2 s wall, same job. Then nothing is offered (top choice); the
+  3.95 % rim stays. At extreme depths (the user's 1e-334 minibrot, period 198 154: 100 P is
+  20 M, above the top) the offer is 10 M once and then stops; it never loops.
+- **Neck** (400 × 250, cap 50 k → 200 k): 20.7 % → 3.72 % in the same job; the shown frame is
+  identical to a fresh render at 200 k (0 of 100 000 pixels differ) and the CPU-oracle numbers
+  equal a session started at 200 k.
+- **iOS memory**: the offer never exceeds `memory_iteration_cap` (25 % of the ceiling at
+  130 B per reference point, the reference twice the limit; [iOS and iPadOS on a device: first run, signing, memory, thermal, background](../platform/ios-device.md)
+  "Memory"). 1 M needs a ceiling of ~1.04 GB, 10 M ~10.4 GB, so on iPhones and iPads 10 M is
+  in practice not offered (the largest fitting choice is, typically 1 M; under an 800 MB
+  ceiling, 786 k, nothing). The picker itself lists all five choices on iOS too; the renderer
+  silently clamps a higher pick to the memory cap. The cap is conservative for nucleus
+  references (a period long: 30 958 points, ~4 MB, at the N view) (proposal, not built: let
+  the memory cap apply only to non-periodic references, so 10 M can be offered after N on a
+  device).
+- **Manual limit** (proposal, not built): the same offer would mean "set Maximum to the next
+  round value": with a manual limit, compute further's ceiling is the limit itself, so a stop
+  at it with fog is the same situation. Not built because a manual limit is a deliberate
+  choice and the slider/field already sits in the control center.
+- **Key** (proposal, not bound): G, the Continue key, when the raise is offered (the two offers
+  never show together: one is the time limit, the other the upper limit), so G means "compute
+  more on this view" in both. Not bound: a key that changes a stored setting deserves the
+  user's say.
+- Headless: `verify --history ... --raise n` accepts the offer up to n times once settled and
+  prints the offer, compute further's state and whether the job was kept. Tests:
+  `scheduler/further_raise_tests.rs` (state, not timing): the offer and its value at the neck,
+  the job kept and unresolved dropping, no offer at the top choice, with a manual limit, at
+  the time limit or above the memory budget, and the N view's period-based 10 M.
+
 ## For almondbread
 
 High default maxIter, derivative interior detection always available,
