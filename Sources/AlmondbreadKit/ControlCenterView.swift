@@ -28,6 +28,8 @@ struct ControlCenterView: View {
     /// The Places grid's selection, shared with the pinned details bar. It lives as long as
     /// the control center does: closing the control center clears it.
     @State private var places = PlaceSelection(id: UIDemo.selectedPlace)
+    /// The headers and Mores flipped during the current search (the stored state stays).
+    @State private var searchToggles = SearchToggles()
     /// The width the content is laid out at (the tile grids' columns follow it): the sidebar's
     /// width once it has settled for 150 ms.
     @State private var layoutWidth: CGFloat = 330
@@ -53,12 +55,24 @@ struct ControlCenterView: View {
         let shown = ControlSection.allCases.filter {
             ($0.matches(query) && $0.offered(by: model)) || ($0 == .places && placeHit) || ($0 == .look && paletteHit)
         }
-        let closed: Set<String> = searching ? [] : collapsed
+        // A search opens every matching section; a header click during it flips just that one
+        // for this search (`SearchToggles`), so the stored state comes back when it is cleared.
+        let closed = Set(shown.map(\.rawValue).filter { raw in
+            !SearchToggles.isOpen(stored: !collapsed.contains(raw), searchDefault: true,
+                                  searching: searching, flipped: searchToggles.isFlipped(raw))
+        })
+        let matchKey = SearchToggles.matchKey(searching: searching, shown: shown,
+                                              forcedMores: shown.filter { $0.moreMatches(query) })
         let placesOpen = shown.contains(.places) && !closed.contains(ControlSection.places.rawValue)
         // The fractal row is pinned, so a search for it ("multibrot", "power") marks it instead
         // of showing a section.
         let fractalHit = searching && ControlSearch.fractalMatches(query)
         sections(shown: shown, collapsed: closed, fractalHit: fractalHit)
+        .environment(searchToggles)
+        .onChange(of: matchKey, initial: true) {
+            searchToggles.searching = searching
+            searchToggles.reset()
+        }
         .controlSize(.small)
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
@@ -187,6 +201,10 @@ struct ControlCenterView: View {
     #endif
 
     private func toggle(_ s: ControlSection) {
+        if searchToggles.searching {
+            searchToggles.toggle(s.rawValue)
+            return
+        }
         var c = Set(collapsedStorage.split(separator: ",").map(String.init))
         if c.contains(s.rawValue) { c.remove(s.rawValue) } else { c.insert(s.rawValue) }
         collapsedStorage = c.sorted().joined(separator: ",")
@@ -237,6 +255,13 @@ struct ControlSearchField: View {
                 TextField("Search settings", text: $text)
                     .textFieldStyle(.plain)
                     .focused($focused)
+                    #if os(iOS)
+                    // A hardware keyboard's Esc (iPad): clear and end editing, as on the Mac.
+                    .onKeyPress(.escape) {
+                        model.escapeSearch()
+                        return .handled
+                    }
+                    #endif
                 if !text.isEmpty {
                     Button {
                         text = ""
@@ -277,6 +302,18 @@ struct ControlSearchField: View {
         }
         // ⌘F (Edit menu): also when the sidebar has only just opened for it.
         .onChange(of: model.searchFocusRequest) { takeFocus() }
+        // Esc (Mac: the canvas's key monitor, which also gives the canvas the keys; iPad with a
+        // keyboard: `onKeyPress`) clears the text and ends editing.
+        .onChange(of: focused) { model.searchFieldFocused = focused }
+        .onChange(of: model.searchEscapeRequest) {
+            text = ""
+            #if os(iOS)
+            focused = false
+            #endif
+            // (Mac: the canvas is first responder already; `focused = false` here would make
+            // SwiftUI resign it again, to the window.)
+        }
+        .onDisappear { model.searchFieldFocused = false }
         .onAppear { if model.searchFocusPending { takeFocus() } }
     }
 

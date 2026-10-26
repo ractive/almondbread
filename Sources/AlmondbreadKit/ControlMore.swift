@@ -116,13 +116,33 @@ enum ControlMore {
         for s in settings where s.section == section && s.shown(model) && s.differs(model, r) { s.reset(model, r) }
     }
 
+    /// How many rows the section's More holds now (the accessibility label's "More, 6 settings"):
+    /// its settings whose row is there plus the rows that are no setting of their own (buttons,
+    /// the cycle speed under its switch, the palette import).
+    @MainActor static func rowCount(_ section: ControlSection, model: ExplorerModel) -> Int {
+        let extra: Int = switch section {
+        // Autopilot / fly-to buttons, Rotation's Straighten; iOS: Seek minibrot.
+        case .view: 2 + (isIOS && model.has(\.seek) ? 1 : 0)
+        case .look: (model.cycleSpeed != 0 ? 1 : 0) + 1
+        default: 0
+        }
+        return settings.filter { $0.section == section && $0.shown(model) }.count + extra
+    }
+
+    #if os(iOS)
+    private static let isIOS = true
+    #else
+    private static let isIOS = false
+    #endif
+
     /// Whether a section has a More at all (Places, Tours and Controls have none).
     static func hasMore(_ section: ControlSection) -> Bool { !section.moreKeywords.isEmpty }
 }
 
 /// A section's "More…" line at the end of its essential rows and, when open, the rows behind it.
 /// Closed by default; the open state is remembered per section. A search whose query matches a
-/// hidden row opens it (`forced`), as the search opens collapsed sections.
+/// hidden row opens it (`forced`), as the search opens collapsed sections; a click during a
+/// search flips it for that search only (`SearchToggles`), the remembered state stays.
 struct MoreRows<Content: View>: View {
     let section: ControlSection
     let model: ExplorerModel
@@ -130,11 +150,20 @@ struct MoreRows<Content: View>: View {
     @ViewBuilder var content: Content
     @AppStorage(ControlMore.openKey, store: TestLaunch.ephemeral ? UIDemo.defaults : .standard)
     private var openStorage = ""
+    @Environment(SearchToggles.self) private var searchToggles: SearchToggles?
 
     var body: some View {
         let stored = Set(openStorage.split(separator: ",").map(String.init))
-        let open = forced || stored.contains(section.rawValue)
+        let storedOpen = stored.contains(section.rawValue)
+        let id = SearchToggles.moreID(section)
+        let searching = searchToggles?.searching ?? false
+        let open = SearchToggles.isOpen(stored: storedOpen, searchDefault: forced || storedOpen,
+                                        searching: searching, flipped: searchToggles?.isFlipped(id) ?? false)
         MoreLine(section: section, model: model, open: open) {
+            if let searchToggles, searchToggles.searching {
+                withAnimation(.snappy(duration: 0.2)) { searchToggles.toggle(id) }
+                return
+            }
             var s = stored
             if s.contains(section.rawValue) { s.remove(section.rawValue) } else { s.insert(section.rawValue) }
             withAnimation(.snappy(duration: 0.2)) { openStorage = s.sorted().joined(separator: ",") }
@@ -143,8 +172,10 @@ struct MoreRows<Content: View>: View {
     }
 }
 
-/// "More…  · 2 changed ↺": the disclosure and, when hidden settings differ from their
-/// reference, how many with a reset of just those. A leaf: it alone follows the hidden values.
+/// "› More…  · 2 changed  ↺": the disclosure (accent colour, a chevron that turns down when open,
+/// the whole row its hit target, a little air above it) and, when hidden settings differ from
+/// their reference, how many with a reset of just those. A leaf: it alone follows the hidden
+/// values (kb: decisions/controls "Essential rows and More").
 struct MoreLine: View {
     let section: ControlSection
     let model: ExplorerModel
@@ -153,28 +184,37 @@ struct MoreLine: View {
 
     var body: some View {
         let changed = ControlMore.changed(section, model: model)
+        let count = ControlMore.rowCount(section, model: model)
         HStack(spacing: 6) {
             Button(action: toggle) {
                 HStack(spacing: 6) {
-                    Text("More…").foregroundStyle(.primary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .frame(width: 12)
+                    Text("More…").fontWeight(.medium)
                     if !changed.isEmpty {
                         Text("· \(changed.count) changed").foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
                 }
+                .foregroundStyle(Color.accentColor)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(open ? "Fewer \(section.title.lowercased()) settings" : "More \(section.title.lowercased()) settings")
-            .accessibilityValue(changed.isEmpty ? "" : "\(changed.count) changed: \(changed.joined(separator: ", "))")
+            .accessibilityLabel("More, \(count) \(section.title.lowercased()) setting\(count == 1 ? "" : "s")")
+            .accessibilityValue((open ? "expanded" : "collapsed")
+                                + (changed.isEmpty ? "" : ", \(changed.count) changed: \(changed.joined(separator: ", "))"))
             .accessibilityIdentifier("more-\(section.rawValue)")
-            .help(changed.isEmpty ? "The section's other settings"
-                  : "The section's other settings; changed: \(changed.joined(separator: ", "))")
+            .help((open ? "Hide" : "Show") + " the section's \(count) other settings"
+                  + (changed.isEmpty ? "" : "; changed: \(changed.joined(separator: ", "))"))
             if !changed.isEmpty {
                 Button {
                     ControlMore.reset(section, model: model)
                 } label: {
                     Image(systemName: "arrow.counterclockwise").font(.caption)
+                        .frame(minWidth: 20, minHeight: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -182,19 +222,10 @@ struct MoreLine: View {
                 .accessibilityLabel("Reset the changed hidden settings")
                 .accessibilityIdentifier("more-\(section.rawValue)-reset")
             }
-            Button(action: toggle) {
-                Image(systemName: "chevron.right")
-                    .rotationEffect(.degrees(open ? 90 : 0))
-                    .foregroundStyle(.secondary)
-                    .font(.caption.weight(.semibold))
-                    .frame(width: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHidden(true)
         }
+        .padding(.top, 3)
         #if os(iOS)
-        .frame(minHeight: 32)
+        .frame(minHeight: 36)
         #endif
     }
 }

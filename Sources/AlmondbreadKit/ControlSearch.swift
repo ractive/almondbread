@@ -1,5 +1,6 @@
 import AlmondbreadCore
 import Foundation
+import Observation
 
 /// What the control center's search finds besides sections (kb: decisions/controls "Control
 /// center", Search): places of every fractal and palettes of the library, by name only
@@ -52,5 +53,46 @@ enum ControlSearch {
     static func move(from index: Int, count: Int, columns: Int, dx: Int, dy: Int) -> Int? {
         let n = index + dx + dy * max(1, columns)
         return n >= 0 && n < count && n != index ? n : nil
+    }
+}
+
+/// The section headers and Mores the user opened or closed during the current search (kb:
+/// decisions/controls "Control center", Search). A search shows every matching section open and
+/// every More that has a matching row open; a click during the search flips that here, so the
+/// stored open / closed state stays untouched and comes back when the search is cleared. Starts
+/// empty whenever the matches change (another set of sections or forced Mores) and when the
+/// search ends. Shared by the control center (headers) and its `MoreRows` (environment).
+@Observable @MainActor
+final class SearchToggles {
+    /// Whether the control center is searching now (a click flips here, else the stored state).
+    var searching = false
+    private(set) var flipped: Set<String> = []
+
+    /// The id of a section's More ("more.<section>"; a section's header is its raw value).
+    nonisolated static func moreID(_ section: ControlSection) -> String { "more." + section.rawValue }
+
+    func isFlipped(_ id: String) -> Bool { flipped.contains(id) }
+
+    func toggle(_ id: String) {
+        if flipped.contains(id) { flipped.remove(id) } else { flipped.insert(id) }
+    }
+
+    /// The matches changed or the search ended: every disclosure shows its search default again.
+    func reset() {
+        if !flipped.isEmpty { flipped = [] }
+    }
+
+    /// Whether a disclosure shows open: outside a search its stored state; during one its search
+    /// default (a section: open; a More: open when a row behind it matches, else as stored)
+    /// unless the user flipped it during this search.
+    nonisolated static func isOpen(stored: Bool, searchDefault: Bool, searching: Bool, flipped: Bool) -> Bool {
+        searching ? searchDefault != flipped : stored
+    }
+
+    /// What identifies the current matches (empty: not searching): the shown sections and the
+    /// sections whose More a matching row forces open. A change starts the toggles over.
+    nonisolated static func matchKey(searching: Bool, shown: [ControlSection], forcedMores: [ControlSection]) -> String {
+        guard searching else { return "" }
+        return shown.map(\.rawValue).joined(separator: ",") + "|" + forcedMores.map(\.rawValue).joined(separator: ",")
     }
 }
