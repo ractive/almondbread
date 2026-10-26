@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-26
+
+- **Decision:** Fog takes history: gesture frames keep the rest frame's interior, analysis and fog where the history holds a result of the same settings (class epoch byte per history pixel); flat bulb pans 23.5 % -> 0.7 % changed smooth pixels, +0.2 ms GPU per 4 Mpx gesture frame
+
 ## 2026-10-25
 
 - **Decision:** View limits correction 2: centre bound = each formula's set box (Julia measured per k), Apple rubber band curve (c 0.55), critically damped spring back (ω 24/s, settles < 0.4 s), trackpad scroll phases (lift lets go at once, momentum into the bound is cut, brakes and springs back); user report 2026-10-25

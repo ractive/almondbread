@@ -2580,6 +2580,45 @@ Fix for bulbs whose rings came and went while panning with an analysed interior 
   559.7 (34 fps, half of before): the cap at 256 steps is what keeps deep views at their
   frame rate; 512 gave neck 122.0.
 
+## Fog takes history, 2026-10-25
+
+Gesture frames keep the rest frame's result where the history holds one for the same settings
+and the preview has no escaped texel ([Frame reuse and progressive
+refinement](../techniques/frame-reuse-and-progressive.md) "Fog takes history"). M1 Pro,
+release, machine shared with other jobs (interaction numbers noisy).
+
+- Image, `verify --history pan|zoom --size 480x300 --seconds 0.3 --gesture-check 4`, period-3
+  bulb −0.1226+0.7449i at 6.25e-4/px, before → after. *Smooth* = pixels of smooth areas (3×3
+  within 8 levels) of the session's own rest frame, shifted by the pan, drawn more than 8
+  levels differently; *interior* = pixels interior in a rest render of the frame's view drawn
+  more than 24 levels differently (includes escaped edges the temporal upsampling blurs):
+
+| view, colouring | pan smooth | pan interior | zoom interior |
+|---|---|---|---|
+| bulb, flat | 23.5 % → 0.7 % | 14.2 % → 1.8 % | 7.4 % → 2.6 % |
+| bulb, period | 6.9 % → 0.5 % | 5.4 % → 1.6 % | 3.6 % → 3.7 % (zoom-in keeps preview interior samples) |
+| bulb, bubbles | 3.0 % → 0.8 % (24 levels) | 3.0 % → 2.0 % | 2.3 % → 2.0 % |
+| deep neck −0.7500016386523336−0.0021073424656852589i, 3.4e-8/px, flat | 0.16 % → 0.02 % (24 levels) | 1.70 % → 1.55 % | 1.56 % → 1.48 % |
+
+- Bubbles zoom-in 1.5 s from 1e-4/px into the bulb: leaving the preview's interior samples out
+  over a known history stretched the analysed interior (changed pixels rising to 4.6 % by the
+  end, before 0.02 %); keeping them where the history is magnified: 0.02 %, as before.
+- Known-history share of the shown pixels (`--gesture-check 12`, `--seconds 1`): pan at the
+  default speed (0.4 widths/s) 95 % after 0.1 s to 54 % at 1 s (mean 75 %; deep neck 76 %);
+  zoom-in 100 % (magnified); zoom-out 2.2× in 1 s 71 % → 4 % (mean 25 %).
+- Cost, `verify --history pan|zoom --size 2560x1640 --seconds 2`, colour + compose GPU per
+  gesture frame, three alternating runs each: main pan 1.53 / 1.58 / 1.61 ms, branch 1.78 /
+  1.78 / 1.78; main zoom 1.75 / 1.72 / 1.73, branch 1.93 / 1.94 / 1.95 (+0.2 ms: the class
+  read; class write alone +0.00, an R8Uint texture +0.26, R8Unorm sampled +0.30, a byte
+  buffer +0.21). Preview scale and iterate GPU unchanged.
+- `make interaction-test` (home pan, home zoom, 1e5 pan, 1e5 zoom, neck zoom), main vs branch,
+  two rounds, fps: home pan 108.0 / 114.3 vs 116.0 / 116.3, home zoom 109.0 / 114.0 vs 112.7 /
+  111.3, 1e5 pan 115.7 / 116.3 vs 115.3 / 117.7, 1e5 zoom 116.0 / 114.7 vs 116.0 / 116.0, neck
+  zoom 107.9 / 109.0 vs 104.5 / 109.0 (texture build; within run-to-run noise); fresh-render
+  class mismatch 0–0.002 % in both.
+- `bench --no-verify 1`: 84 files byte-identical to a CLI built from main (still renders do not
+  compose).
+
 # Citations
 
 - [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)

@@ -210,8 +210,9 @@ smooth areas of the session's own rest frame (shifted by the pan) that a gesture
 more than 8 levels differently: flat 23.5 % → 0.8 %, period 6.9 % → 0.6 %; pixels interior
 in a rest render of the gesture frame's view drawn otherwise: flat pan 14.2 % → 1.9 %, flat
 zoom 7.5 % → 2.6 %, period pan 5.4 % → 1.7 % (the rest: escaped edges the temporal upsampling
-blurs). Deep neck (−0.7500016386523336−0.0021073424656852589i, 3.4e-8/px) smooth areas 0.16 %
-→ 0.02 %. Details and costs: [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
+blurs). Deep neck (−0.7500016386523336−0.0021073424656852589i, 3.4e-8/px) smooth areas
+(more than 24 levels) 0.16 % → 0.02 %. Cost: +0.2 ms GPU per gesture frame at 2560×1640 (the
+class read; colour and compose 1.57 → 1.78 ms), frame rate unchanged. Details and costs: [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
 "Fog takes history". Tool: `verify --history ... --gesture-check n [--gesture-shots dir]`.
 Tests: `scheduler/history_reuse_tests.rs`.
 
