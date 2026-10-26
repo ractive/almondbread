@@ -1,8 +1,8 @@
 //! The throughput model (`Renderer::rate`, `learned_rate`) through a deep view with long level
 //! tails: the N view (a period-30 957 minibrot at ~1e-166) at a 10 M cap runs three levels whose
 //! tails park ~110 k pixels for the interior probe. Learned from lanes x K, the tails' nearly
-//! empty chunks drove the rate x4 per chunk to ~20x the job's mean throughput (7.7e10 vs ~4e9
-//! on an M1 Pro), and the next level's first chunks ran 200-300 ms instead of 16. The check
+//! empty chunks drove the rate x4 per chunk to ~50x the job's mean throughput (2e11 vs ~4e9
+//! on an M1 Pro; now ~2x), and the next level's first chunks ran 150-470 ms instead of 16. The check
 //! compares the highest rate of the session with the job's own measured loop steps per GPU
 //! second (a ratio, not a time: the machine may be loaded).
 
@@ -24,6 +24,9 @@ fn the_rate_stays_near_the_measured_throughput_through_level_tails() {
         .expect("target");
     let mut r = Renderer::new(backend).expect("renderer");
     r.config.further = false;
+    // (The CLI's extension budget: the passes x4 and x4 again always fit, whatever else the GPU
+    // runs, so the session has level starts after tails.)
+    r.config.extension_budget = 120.0;
     r.settings.max_iterations_cap = 10_000_000;
     r.viewport = Viewport::with_center(
         Center::parse(
@@ -54,9 +57,12 @@ fn the_rate_stays_near_the_measured_throughput_through_level_tails() {
     assert!(job.deep, "the N view runs the deep kernel");
     let levels = job.levels.iter().filter(|l| !l.preview && l.aa.is_none()).count();
     assert!(levels >= 3, "levels: {levels}");
+    // (Alone ~2x the mean, before ~50x. A GPU shared with other tests stretches every chunk's
+    // time and reads the mean as low as 1e9, so the bound is on the larger of the mean and the
+    // cold deep rate.)
     let mean = job.steps / job.gpu_time;
     assert!(
-        peak <= 4.0 * mean,
+        peak <= 8.0 * mean.max(RATE_COLD[1]),
         "peak rate {peak:.3e} vs the job's mean {mean:.3e} loop steps per GPU second ({levels} levels)"
     );
     // (A deep job leaves the plain kernel's rate alone.)
