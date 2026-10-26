@@ -62,19 +62,24 @@ fn settle(r: &mut Renderer<MetalBackend>, t: &Texture, timeout: f64) -> f64 {
 /// by the last refresh, so only the refresh times are asserted.
 #[test]
 fn huge_manual_limit_does_not_block_the_frame() {
-    let (mut r, t) = renderer();
-    // Warm up at the default limit (pipelines, buffers).
-    settle(&mut r, &t, 20.0);
-    r.settings.auto_iterations = false;
-    r.settings.manual_iterations = 1_000_000_000;
-    let mut worst: f64 = 0.0;
-    for _ in 0..20 {
-        worst = worst.max(refresh(&mut r, &t));
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    println!("1e9 manual limit: longest refresh {worst:.2} ms while the orbit computes");
+    // A fresh renderer per run, repeated only while over the bound (crate::test_timing): the
+    // old blocking refresh happened in every run, a descheduling of the test thread does not.
+    let worst = crate::test_timing::least_within(20.0, 3, || {
+        let (mut r, t) = renderer();
+        // Warm up at the default limit (pipelines, buffers).
+        settle(&mut r, &t, 20.0);
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = 1_000_000_000;
+        let mut worst: f64 = 0.0;
+        for _ in 0..20 {
+            worst = worst.max(refresh(&mut r, &t));
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        println!("1e9 manual limit: longest refresh {worst:.2} ms while the orbit computes");
+        worst
+        // (Dropping the renderer cancels the orbit: `ReferenceWorker`'s Drop.)
+    });
     assert!(worst < 20.0, "longest refresh {worst:.1} ms");
-    // (Dropping the renderer cancels the orbit: `ReferenceWorker`'s Drop.)
 }
 
 /// E2: the bound the scheduler's comment states for the f64 orbit it still computes on the
@@ -99,22 +104,26 @@ fn f64_orbit_on_the_frame_thread_is_short() {
 /// settles on it.
 #[test]
 fn long_f64_orbit_arrives_from_the_worker() {
-    let (mut r, t) = renderer();
-    settle(&mut r, &t, 20.0);
-    r.settings.auto_iterations = false;
-    r.settings.manual_iterations = MAX_ITERATION_LIMIT;
-    let serial = r.reference_serial();
-    // Until the reference is in: refreshes only show the history.
-    let mut waiting: f64 = 0.0;
-    let end = Instant::now() + std::time::Duration::from_secs(30);
-    while r.reference_serial() == serial {
-        assert!(Instant::now() < end, "the orbit did not arrive");
-        waiting = waiting.max(refresh(&mut r, &t));
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
-    let reference = r.reference().expect("reference");
-    assert!(!reference.big && reference.points.len() == MAX_ITERATION_LIMIT + 1);
-    println!("2^24 manual limit: longest refresh {waiting:.2} ms until the orbit arrived");
+    // A fresh renderer per run, repeated only while over the bound (crate::test_timing).
+    let waiting = crate::test_timing::least_within(20.0, 3, || {
+        let (mut r, t) = renderer();
+        settle(&mut r, &t, 20.0);
+        r.settings.auto_iterations = false;
+        r.settings.manual_iterations = MAX_ITERATION_LIMIT;
+        let serial = r.reference_serial();
+        // Until the reference is in: refreshes only show the history.
+        let mut waiting: f64 = 0.0;
+        let end = Instant::now() + std::time::Duration::from_secs(30);
+        while r.reference_serial() == serial {
+            assert!(Instant::now() < end, "the orbit did not arrive");
+            waiting = waiting.max(refresh(&mut r, &t));
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let reference = r.reference().expect("reference");
+        assert!(!reference.big && reference.points.len() == MAX_ITERATION_LIMIT + 1);
+        println!("2^24 manual limit: longest refresh {waiting:.2} ms until the orbit arrived");
+        waiting
+    });
     assert!(waiting < 20.0, "longest refresh {waiting:.1} ms");
 }
 
@@ -132,12 +141,21 @@ fn worker_reference_is_uploaded_off_the_frame_thread() {
     let mut plain = worker.clone();
     plain.prepared = None;
     let t0 = Instant::now();
-    assert!(r.set_reference(worker));
-    let taken = t0.elapsed().as_secs_f64() * 1e3;
+    assert!(r.set_reference(worker.clone()));
+    let mut taken = t0.elapsed().as_secs_f64() * 1e3;
     let t0 = Instant::now();
     assert!(r.set_reference(plain));
     let uploaded = t0.elapsed().as_secs_f64() * 1e3;
     println!("4M-point reference: {taken:.3} ms taken from the worker, {uploaded:.3} ms uploaded here");
+    // One sample: taken again only while over the bound (crate::test_timing).
+    if taken >= 1.0 {
+        taken = crate::test_timing::least_within(1.0, 2, || {
+            let t0 = Instant::now();
+            assert!(r.set_reference(worker.clone()));
+            t0.elapsed().as_secs_f64() * 1e3
+        })
+        .min(taken);
+    }
     assert!(taken < 1.0, "{taken:.3} ms");
 }
 

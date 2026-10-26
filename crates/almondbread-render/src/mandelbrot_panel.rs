@@ -409,34 +409,39 @@ mod tests {
         assert!(rig.host.toggle_mandelbrot_panel());
         rig.frames(2);
         assert!(rig.panel("mandelbrot-panel").is_none());
-        assert!(rig.host.back_from_julia());
-        rig.frames(2);
-        assert!(rig.host.julia_twin());
         // The frames while the panel renders (and the Julia view's first ones): the longest
-        // `Host::frame` call (CPU) stays far from a stall.
-        let mut longest: f64 = 0.0;
-        let mut settled = false;
-        let mut n = 0;
-        for _ in 0..3000 {
-            longest = longest.max(rig.frames(1));
-            n += 1;
-            if rig.host.overlay.mandelbrot.shown() && !rig.host.overlay.mandelbrot.busy() {
-                settled = true;
-                break;
-            }
-        }
-        assert!(settled, "the panel's deep picture settles");
-        let call = rig.host.overlay.mandelbrot.longest_call;
-        eprintln!(
-            "mandelbrot panel at 1e-32: settled after {n} refreshes; longest panel call {:.2} ms, longest frame {:.2} ms",
-            call * 1000.0,
-            longest * 1000.0
-        );
-        // (The panel's own work per refresh; the whole frame also waits for a loaded machine.)
+        // `Host::frame` call (CPU) stays far from a stall. One measurement is a fresh entry
+        // into the Julia view; it is repeated (at most twice more) only while over the bound,
+        // so a stall that happens at every entry fails and one descheduling of the test thread
+        // (57 ms seen during the parallel workspace run) does not.
         // Timing bounds in optimised builds only.
-        if !cfg!(debug_assertions) {
-            assert!(call < 0.008, "a panel call took {:.1} ms", call * 1000.0);
-        }
+        let bound = if cfg!(debug_assertions) { f64::INFINITY } else { 0.008 };
+        let call = crate::test_timing::least_within(bound, 3, || {
+            assert!(rig.host.back_from_julia());
+            rig.frames(2);
+            assert!(rig.host.julia_twin());
+            let mut longest: f64 = 0.0;
+            let mut settled = false;
+            let mut n = 0;
+            for _ in 0..3000 {
+                longest = longest.max(rig.frames(1));
+                n += 1;
+                if rig.host.overlay.mandelbrot.shown() && !rig.host.overlay.mandelbrot.busy() {
+                    settled = true;
+                    break;
+                }
+            }
+            assert!(settled, "the panel's deep picture settles");
+            let call = rig.host.overlay.mandelbrot.longest_call;
+            eprintln!(
+                "mandelbrot panel at 1e-32: settled after {n} refreshes; longest panel call {:.2} ms, longest frame {:.2} ms",
+                call * 1000.0,
+                longest * 1000.0
+            );
+            call
+        });
+        // (The panel's own work per refresh; the whole frame also waits for a loaded machine.)
+        assert!(call < bound, "a panel call took {:.1} ms", call * 1000.0);
         let r = rig.host.overlay.mandelbrot.renderer().expect("renderer");
         let used = r.reference().expect("panel reference");
         assert!(used.big, "a deep reference");
