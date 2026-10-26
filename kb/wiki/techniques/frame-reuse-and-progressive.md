@@ -165,6 +165,70 @@ sample. (3) Unresolved pixels (past the nominal limit) form large halos around m
 gesture frames, which get no extension passes; M2's 3 % grey made them flat grey slabs, so
 they now take the outline colour.
 
+### Fog takes history (as built 2026-10-25)
+
+Reported by the user (video, 2026-10-25, flat black interior): while panning, the bulbs
+showed dark-grey concentric rings that turned black again at rest, over an area that was
+already fully rendered. Cause: preview levels have no interior probe and no extension, so
+near-boundary interior texels stay unresolved there (deep fog, blended with the history) even
+where the rest frame proved them interior; the 2026-10-24 fix ([Colouring methods](coloring-methods.md)
+"Gesture frames") covers only the analysed interior modes, and under them a provisional
+analysis still found another period on a 2–4 px rim (period mode: a ring of another colour).
+
+The user's observation is the design: if only the position changed, everything the finished
+frame computed is still valid, including pixels proven interior and pixels too slow even at
+rest. The history stored only colour, so it gained a **class channel**: a byte per pixel
+beside each history ping-pong image (two buffers, 2 B per output pixel, +2.5 % of the per-texel
+memory; the history colour's alpha holds the interpolated confidence and could not carry a
+flag through Catmull-Rom sampling). Each pixel holds the **class epoch** of its result:
+
+- the epoch (1..255) belongs to the settings that decide results: formula and parameters,
+  DE, interior test, interior analysis, the retry epoch, and the user's limit settings (auto
+  on/off, manual limit, cap). It changes with any of them, so no pixel of the old results is
+  taken for a new one. The per-view limit (depth heuristic, learned limit, period floor) is
+  not part of it: it moves every frame of a zoom (300 → 336 in a 1 s zoom at the test view),
+  and the history only stands in for preview texels unresolved at the preview's limit, where
+  a result at any limit of the same settings is what rest showed or will show;
+- compose writes the epoch where an exact level's texel was composed (refine, exact, AA,
+  compute further), keeps it while the reprojected history pixel (nearest texel) had it, and
+  writes 0 otherwise;
+- the preview colour pass writes what each texel holds into its alpha (1 escaped, 0.5
+  interior, 0 unresolved or unfinished). Where the history pixel is known, compose leaves
+  unresolved and unfinished preview texels out of the point samples and of the bilinear
+  preview (the bilinear preview is rebuilt from its four texels without them), and interior
+  ones too unless the history is magnified (zoom-in: there the preview's interior samples
+  bring the analysed interior's detail the stretched history lacks; leaving them out blurred
+  a 1.5 s bubbles zoom to 4.6 % changed pixels). Escaped preview texels blend as before;
+  where the history is absent (newly exposed by a pan or a zoom-out) nothing changes.
+
+Unresolved-at-rest pixels are known results too: a gesture frame shows the rest frame's fog
+there (its fog pyramid colours), not the preview's deep fog.
+
+Measured 2026-10-25 (M1 Pro, release, 480×300, `verify --history pan|zoom --seconds 0.3
+--gesture-check 4`, period-3 bulb −0.1226+0.7449i at 6.25e-4/px), before → after: pixels of
+smooth areas of the session's own rest frame (shifted by the pan) that a gesture frame draws
+more than 8 levels differently: flat 23.5 % → 0.8 %, period 6.9 % → 0.6 %; pixels interior
+in a rest render of the gesture frame's view drawn otherwise: flat pan 14.2 % → 1.9 %, flat
+zoom 7.5 % → 2.6 %, period pan 5.4 % → 1.7 % (the rest: escaped edges the temporal upsampling
+blurs). Deep neck (−0.7500016386523336−0.0021073424656852589i, 3.4e-8/px) smooth areas
+(more than 24 levels) 0.16 % → 0.02 %. Cost: +0.2 ms GPU per gesture frame at 2560×1640 (the
+class read; colour and compose 1.57 → 1.78 ms), frame rate unchanged. Details and costs: [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
+"Fog takes history". Tool: `verify --history ... --gesture-check n [--gesture-shots dir]`.
+Tests: `scheduler/history_reuse_tests.rs`.
+
+What else a pan could reuse (audit 2026-10-25): the colour parameters have no per-view
+normalisation (density and phase are settings; depth tint follows the zoom by design; colour
+cycling advances only at rest), so colours do not drift during a gesture; the reference and
+its BLA/LA tables are kept while they fit the view (`Reference::fit`); gesture levels never run
+the interior probe, so there is no probe decision to carry over, and compute further's results
+reach gesture frames through the class channel (its compose marks them). Not reused: the
+next rest frame recomputes every texel, and gesture previews compute texels the known history
+already holds. Known-history share of the shown pixels during a 1 s pan at the default speed
+(0.4 widths/s): 95 % after 0.1 s falling to 54 % at 1 s (mean 75 %); zoom-in 100 % (but
+magnified); zoom-out 2.2× in 1 s: 71 % → 4 % (mean 25 %). A preview that skipped those texels
+would save that share of the pan's iterate work; R4 below measured the general form of that
+(a sample cache: 2–50 % of FL's iterations) and it was not adopted.
+
 ## For almondbread
 
 Reproject the stored previous frame as an immediate placeholder, copy exact

@@ -750,6 +750,18 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let m = mode.clone();
     // Gesture frames (M5 reports): previews shown, their resolution, refreshes skipped.
     r.frame_stats = Some(almondbread_render::scheduler::FrameStats::default());
+    // `--gesture-check n`: every n-th gesture frame as shown, against a rest render of its view.
+    let rest_shown = if o.has("gesture-check") {
+        r.capture_shown().map(|(px, _, _)| (r.viewport.clone(), px))
+    } else {
+        None
+    };
+    if let Some(stride) = o.usize("gesture-check") {
+        r.gesture_captures = Some(almondbread_render::scheduler::GestureCaptures {
+            stride: stride.max(1),
+            frames: Vec::new(),
+        });
+    }
     let first = r
         .simulate(
             width,
@@ -773,17 +785,21 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         && frames > 0
     {
         println!(
-            "gesture: {} refreshes of input at 120 Hz, {} frames in all: {} previews ({:.0} fps) at mean scale {:.2} (texels per pixel), {} refreshes skipped, iterate GPU {:.2} ms/frame",
+            "gesture: {} refreshes of input at 120 Hz, {} frames in all: {} previews ({:.0} fps) at mean scale {:.2} (texels per pixel), {} refreshes skipped, iterate GPU {:.2} ms/frame, colour + compose GPU {:.3} ms/frame",
             frames,
             fs.frames,
             fs.preview_frames,
             120.0 * fs.preview_frames.min(frames) as f64 / frames as f64,
             fs.preview_scale_sum / fs.preview_frames.max(1) as f64,
             fs.skipped,
-            1000.0 * fs.chunk_gpu / fs.frames.max(1) as f64
+            1000.0 * fs.chunk_gpu / fs.frames.max(1) as f64,
+            1000.0 * fs.colorize_gpu / fs.frames.max(1) as f64
         );
     }
     sessions.push(first);
+    if let Some(c) = r.gesture_captures.take() {
+        gesture_check(backend, o, &r, &c.frames, rest_shown.as_ref())?;
+    }
     // `--then f[,f2,...]`: one-step zooms by each factor in turn (> 1 in), each settled and
     // checked like the gesture's final frame.
     if let Some(list) = o.get("then") {
@@ -811,6 +827,149 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         max_false_interior,
         max_unresolved,
     )
+}
+
+/// `verify --history ... --gesture-check n [--gesture-shots dir]` (kb:
+/// techniques/frame-reuse-and-progressive "Fog takes history"): each captured gesture frame
+/// against an offscreen rest render of the same view at the job's limit. Prints, per frame
+/// and in sum, the share of all pixels that are interior at rest but drawn otherwise (the fog
+/// rings of a pan), the share differing by more than 24 levels in any channel, and the mean
+/// difference. Pans also against the session's own rest frame before the gesture, shifted
+/// by the pan (whole pixels): the share of the pixels both show that differ by more than 8
+/// levels (the deep fog is dark) where that rest frame is smooth (its 3 x 3 neighbourhood within 8 levels: the
+/// interiors and fog, not the edges a sub-pixel shift changes). `--gesture-shots dir`: the
+/// worst frame as `shown | rest` PNG.
+fn gesture_check<B: GpuBackend + Clone>(
+    backend: &B,
+    o: &Options,
+    r: &Renderer<B>,
+    frames: &[almondbread_render::scheduler::GestureCapture],
+    rest_shown: Option<&(Viewport, Vec<u8>)>,
+) -> Result<()> {
+    let (mut judged, mut sum_fog, mut max_fog, mut sum_diff, mut sum_mean) = (0usize, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    let (mut sum_smooth, mut max_smooth, mut smooth_frames) = (0.0f64, 0.0f64, 0usize);
+    let mut sum_known = 0.0f64;
+    let mut worst: Option<(f64, usize, Vec<u8>)> = None;
+    let skipped = frames.iter().filter(|f| !(f.gesture && f.at_limit)).count();
+    for (k, f) in frames.iter().enumerate() {
+        if !(f.gesture && f.at_limit) {
+            continue;
+        }
+        let (w, h) = (f.width, f.height);
+        let mut fresh = new_renderer(backend, o)?;
+        fresh.viewport = Viewport::with_center(f.viewport.center.clone(), f.viewport.scale * f.points_per_pixel)
+            .with_angle(f.viewport.angle);
+        fresh.settings.supersampling = Supersampling::Off;
+        fresh.settings.auto_iterations = false;
+        fresh.settings.manual_iterations = f.max_iter;
+        fresh.settings.max_iterations_cap = r.settings.max_iterations_cap.max(f.max_iter);
+        fresh.config.offscreen_extension = r.config.extension_factor;
+        fresh.config.extension_budget = r.config.extension_budget;
+        let res = render(&mut fresh, w, h, 0, true)?;
+        let it = res.iterations.as_deref().unwrap_or(&[]);
+        let n = (w * h) as f64;
+        let (mut fog, mut diff, mut total) = (0usize, 0usize, 0u64);
+        for i in 0..w * h {
+            let d = (0..3)
+                .map(|c| f.pixels[4 * i + c].abs_diff(res.pixels[4 * i + c]))
+                .max()
+                .unwrap_or(0);
+            total += u64::from(d);
+            if d > 24 {
+                diff += 1;
+                if it.get(i).is_some_and(|t| t[0] == ITER_INTERIOR) {
+                    fog += 1;
+                }
+            }
+        }
+        let (fog, diff, mean) = (100.0 * fog as f64 / n, 100.0 * diff as f64 / n, total as f64 / n);
+        // Against the session's rest frame, shifted (pans: same scale and angle).
+        let mut smooth_text = String::new();
+        if let Some((rv, rp)) = rest_shown
+            && rv.scale == f.viewport.scale
+            && rv.angle == f.viewport.angle
+            && rv.angle == 0.0
+        {
+            let (dx, dy) = f
+                .viewport
+                .center
+                .delta_in(&rv.center, f.viewport.scale * f.points_per_pixel);
+            let (sx, sy) = (dx.round() as i64, -dy.round() as i64);
+            let px = |p: &[u8], x: i64, y: i64, c: usize| p[4 * (y as usize * w + x as usize) + c];
+            let (mut cmp, mut bad) = (0usize, 0usize);
+            for y in 1..h as i64 - 1 {
+                for x in 1..w as i64 - 1 {
+                    let (rx, ry) = (x + sx, y + sy);
+                    if rx < 1 || ry < 1 || rx >= w as i64 - 1 || ry >= h as i64 - 1 {
+                        continue;
+                    }
+                    let smooth = (0..3).all(|c| {
+                        let v: Vec<u8> = (-1..=1)
+                            .flat_map(|j| (-1..=1).map(move |i| (i, j)))
+                            .map(|(i, j)| px(rp, rx + i, ry + j, c))
+                            .collect();
+                        v.iter().max().unwrap_or(&0) - v.iter().min().unwrap_or(&0) <= 8
+                    });
+                    if !smooth {
+                        continue;
+                    }
+                    cmp += 1;
+                    if (0..3).any(|c| px(&f.pixels, x, y, c).abs_diff(px(rp, rx, ry, c)) > 8) {
+                        bad += 1;
+                    }
+                }
+            }
+            if cmp > 0 {
+                let pct = 100.0 * bad as f64 / cmp as f64;
+                sum_smooth += pct;
+                max_smooth = max_smooth.max(pct);
+                smooth_frames += 1;
+                smooth_text = format!(", vs own rest frame (smooth areas, {cmp} px) {pct:6.3}%");
+            }
+        }
+        println!(
+            "gesture frame {:>3}: maxIter {}, history known {:5.1}%, interior at rest drawn otherwise {fog:6.3}%, differing > 24 levels {diff:6.3}%, mean difference {mean:5.2} levels{smooth_text}",
+            (k + 1) * o.usize("gesture-check").unwrap_or(1),
+            f.max_iter,
+            100.0 * f.known
+        );
+        sum_known += f.known;
+        judged += 1;
+        sum_fog += fog;
+        max_fog = max_fog.max(fog);
+        sum_diff += diff;
+        sum_mean += mean;
+        if worst.as_ref().is_none_or(|(wf, _, _)| fog > *wf) {
+            let mut side = vec![0u8; 2 * w * h * 4];
+            for y in 0..h {
+                side[(2 * y * w) * 4..(2 * y * w + w) * 4].copy_from_slice(&f.pixels[y * w * 4..(y + 1) * w * 4]);
+                side[(2 * y * w + w) * 4..(2 * y + 2) * w * 4].copy_from_slice(&res.pixels[y * w * 4..(y + 1) * w * 4]);
+            }
+            worst = Some((fog, k, side));
+        }
+    }
+    let m = judged.max(1) as f64;
+    println!(
+        "gesture check: {judged} frames judged ({skipped} not at the limit or not gesture frames): history known mean {:.1}%, interior drawn otherwise mean {:.3}% / max {max_fog:.3}%, differing mean {:.3}%, mean difference {:.2} levels",
+        100.0 * sum_known / m,
+        sum_fog / m,
+        sum_diff / m,
+        sum_mean / m
+    );
+    if smooth_frames > 0 {
+        println!(
+            "gesture check: vs own rest frame, smooth areas differing > 8 levels: mean {:.3}% / max {max_smooth:.3}%",
+            sum_smooth / smooth_frames as f64
+        );
+    }
+    if let (Some(dir), Some((_, k, side))) = (o.get("gesture-shots"), worst) {
+        fs::create_dir_all(dir)?;
+        let f = &frames[k];
+        let path = format!("{dir}/gesture-worst.png");
+        write_png_bgra(&path, &side, 2 * f.width, f.height)?;
+        println!("gesture check: worst frame (shown | rest) in {path}");
+    }
+    Ok(())
 }
 
 /// Compute further after AA: of the texels its passes recolour (unresolved when they started,

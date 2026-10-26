@@ -253,6 +253,13 @@ per texel at seahorse-minibrot-1e31 and neck-2e5 (pixels that never close spend 
 limit in floatexp steps), hence the cap. Regression test:
 `scheduler/gesture_interior_tests.rs`.
 
+**Follow-up: fog takes history** (2026-10-25). The flat interior had the same rings (deep fog
+over black is dark grey, not invisible: the user saw them in a video), and under the period
+colouring the provisional analysis found another period on a 2–4 px rim of the period-3 bulb.
+Gesture frames now keep the rest frame's result wherever the history holds one for the same
+settings and the preview has no escaped texel: [Frame reuse and progressive
+refinement](frame-reuse-and-progressive.md) "Fog takes history".
+
 ## Dense regions (as built)
 
 Reported by the user: the default look filled the near-boundary band with grey noise where
