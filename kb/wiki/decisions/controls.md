@@ -766,8 +766,8 @@ processes kept 83–100 % busy (our own chunks were ≤ 32 ms): load, not the ap
 palette and mapping, lighting and outline, interior, overlays, iterations and quality, edge
 panning, autopilot target lock; with the view: the whole set) back to the defaults
 (`Explorer.defaultSettings()`). Each section header has a small ↺ that resets that section
-alone. Both are undoable (Edit ▸ Undo, ⌘Z: the previous settings record and view go on the
-window's undo manager). The Settings window's reset of app-wide preferences stays separate.
+alone. Both were undoable at first (the window's undo manager); since 2026-10-26 they are not:
+Edit ▸ Undo / Redo are the travel journal's Back / Forward ("Travel journal" below). The Settings window's reset of app-wide preferences stays separate.
 Places, autopilot and fly-to are in the control center since the integration (Places: grid by
 category, Go / Fly / Random; View & navigation: Autopilot, Fly to…, Copied, target lock).
 
@@ -3730,8 +3730,8 @@ the long-press menu, the HUD note.
 
 | Input | Action |
 | --- | --- |
-| ⌘Z, View ▸ Back (Mac; iPad with a keyboard: the canvas's key command) | back to the previous place |
-| ⇧⌘Z or ⌘Y, View ▸ Forward | forward again after going back |
+| ⌘Z, Edit ▸ Back (Mac: the Edit menu's Undo item, titled Back when no text field edits); iPad with a keyboard: the canvas's key command, View ▸ Back | back to the previous place |
+| ⇧⌘Z, Edit ▸ Forward (the Redo item); ⌘Y (the canvas); iPad: View ▸ Forward | forward again after going back |
 | control center View & navigation "Back" / "Forward"; the long-press menu's "Back" / "Forward" (touch, shown when there is somewhere to go) | the same |
 | ⇧U, the Mandelbrot panel, the HUD's back button in a Julia view | back to the view it was opened from: when that is the journal's previous entry (the usual case), an ordinary step back (⇧⌘Z returns to the Julia set), the view bit for bit as before; otherwise the old way back, which records the Mandelbrot view as a new entry |
 
@@ -3777,28 +3777,46 @@ rests.
 
 **⌘Z and text undo.** First try: leave the system Edit ▸ Undo on ⌘Z and add View ▸ Back with
 ⌘Z too. SwiftUI drops a shortcut another menu item already has (View ▸ Back showed no key at all,
-measured in the interaction test), so the Mac now does it this way:
+measured in the interaction test). Second version (2026-10-26, morning): the canvas's key monitor
+took ⌘Z / ⇧⌘Z first and View ▸ Back / Forward carried the keys, Edit ▸ Undo / Redo had none. That
+lost ⌘Z in the Settings window's text fields: the canvas monitor only sees the main window, and
+View ▸ Back is disabled there (no explorer model is focused), so ⌘Z did nothing.
 
-- The canvas's window-local key monitor sees key events before the menu bar. Unless a text field
-  edits it takes ⌘Z / ⇧⌘Z / ⌘Y as back / forward. While the window's first responder is an
-  `NSText` (the field editor of the control center search or a coordinate field) it takes ⌘Z / ⇧⌘Z
-  too, but sends them as `undo:` / `redo:` up that field editor's responder chain
-  (`tryToPerform`), which is the field's own undo; ⌘Y goes on.
-- Edit ▸ Undo / Redo stay as menu items without keys (`CommandGroup(replacing: .undoRedo)`,
-  sending `undo:` / `redo:` to the first responder). View ▸ Back ⌘Z / Forward ⇧⌘Z carry the keys.
-  Their actions send `undo:` / `redo:` instead when the key window's first responder is an
-  `NSText`. That covers windows without the canvas monitor, such as the Fly to sheet.
-- iOS: the journal keys are `UIKeyCommand`s of the canvas view (they show in the ⌘-hold overlay).
-  A focused text field is not in the canvas's responder chain, so it keeps its own undo.
-- The resets' undo (the control center's "Reset all…" and section ↺) stays on the window's undo
-  manager. It is reached by Edit ▸ Undo, by menu only.
+As built (2026-10-26, user request "like a normal Mac app"): **one Undo / Redo pair in the Edit
+menu** (`CommandGroup(replacing: .undoRedo)` in `AlmondbreadScene.swift`), the only items with ⌘Z
+and ⇧⌘Z. Title, action and enabled state follow the context:
 
-Checked by the interaction test scenario "journal keys" (2026-10-26): real key events go through
-the monitor. A place, then ⌘Z, ⇧⌘Z, ⌘Z, ⌘Y: positions 2 → 1 → 2 → 1 → 2. Then a text field is
-made first responder and "abc" typed: ⌘Z empties it, ⇧⌘Z brings "abc" back, and the journal does
-not move. The menu bar's only ⌘Z items are View ▸ Back ⌘Z and Forward ⇧⌘Z. Also checked by
-`JournalKeysTests` (swift-test). Gap: a text field in the Settings window has no ⌘Z undo, because
-View ▸ Back is disabled there (no explorer model is focused).
+- *A text field edits* (the key window's first responder is an `NSText`: a field editor or text
+  view, in any window: the main window, the Settings window, the Fly to sheet): titles from the
+  field's undo manager (`undoMenuItemTitle` / `redoMenuItemTitle`, e.g. "Undo Typing"; "Undo" /
+  "Redo" when it gives none), enabled per its `canUndo` / `canRedo`, action `undo:` / `redo:` up the
+  field's responder chain (`tryToPerform`).
+- *Otherwise*: "Back" / "Forward", enabled per the focused model's `canGoBack` / `canGoForward`,
+  action the journal step. A key repeat does not step again (one place per press).
+- How the title stays current: `EditUndoContext` (macOS, `@Observable`) reads the key window's
+  first responder and its undo manager after every event (`NSApplication.didUpdateNotification`,
+  posted once per event cycle) and changes its state only when it differs, so the Commands body
+  re-renders only on a real change (focus into or out of a field, typing, an undo). `@FocusedValue`
+  alone does not see text focus. The actions decide again when they run, so a stale title can never
+  make ⌘Z travel while a field edits.
+- The canvas's key monitor no longer takes ⌘Z / ⇧⌘Z (it would act a second time for one press); it
+  keeps only ⌘Y as an extra forward key (not while a text field edits; no menu item has ⌘Y).
+- The View menu lost Back / Forward on the Mac (the Edit menu carries them). iPad: unchanged, the
+  journal keys are `UIKeyCommand`s of the canvas view (they show in the ⌘-hold overlay) and View ▸
+  Back / Forward stay without keys; a focused text field is not in the canvas's responder chain, so
+  it keeps its own undo.
+- The control center's resets ("Reset all…", section ↺) are no longer undoable: they registered on
+  the window's undo manager, reachable only by the Edit menu, which is now the journal's.
+
+Checked by the interaction test scenario "journal keys": a place, then the Edit menu's actions on
+the (never key) test window: back, forward, back, then ⌘Y through the canvas monitor: positions
+2 → 1 → 2 → 1 → 2; ⌘Z and ⇧⌘Z sent to the canvas monitor are not taken (no double step). Then a
+text field is made first responder and "abc" typed: the Undo item reads its undo manager's title
+and is enabled, Undo empties the field, Redo brings "abc" back, the journal does not move. The
+menu bar's only ⌘Z / ⌘Y items are Edit ▸ Back ⌘Z and Edit ▸ Forward ⇧⌘Z. The title and enabled
+logic is pure (`JournalKeys.menuItem`) and covered by `JournalKeysTests` (swift-test). Not checked
+automatically: the real menu's key dispatch into a key window's text field (window tests must never
+take key); the action path is the same `EditUndoContext.perform` the test calls.
 
 **Persistence:** `journal_export` text in user defaults (`almondbread.journal.v1`), written
 (coalesced 0.5 s) when the journal's revision changes, and at quit / resign active (macOS) or

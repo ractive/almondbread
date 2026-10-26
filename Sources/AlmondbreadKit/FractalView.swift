@@ -702,21 +702,15 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
         // "Control center").
         let gridKeys = model.keyFocusTile != nil && window?.firstResponder !== self
             && (event.keyCode == 49 || [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(event.specialKey))
-        // The travel journal (kb: decisions/controls "Travel journal"): ⌘Z back, ⇧⌘Z / ⌘Y forward,
-        // taken here before the menu bar sees them; while a text field edits, ⌘Z / ⇧⌘Z are its
-        // undo / redo, sent up its field editor's responder chain (the menu bar's ⌘Z is Back).
+        // The travel journal (kb: decisions/controls "Travel journal"): ⌘Y is an extra forward key.
+        // ⌘Z / ⇧⌘Z go on to the Edit menu's Undo / Redo (Back / Forward, or a text field's own
+        // undo while one edits): taking them here too would act twice for one press.
         if event.type == .keyDown {
             let m = event.modifierFlags
-            if let step = JournalKeys.step(key: event.charactersIgnoringModifiers ?? "", command: m.contains(.command),
-                                           shift: m.contains(.shift), option: m.contains(.option),
-                                           control: m.contains(.control), textEditing: window?.firstResponder is NSText) {
-                switch step {
-                case .back: if !event.isARepeat { model.journalBack() }
-                case .forward: if !event.isARepeat { model.journalForward() }
-                // (Repeats too, as AppKit's own ⌘Z repeats in a text field.)
-                case .textUndo: _ = window?.firstResponder?.tryToPerform(Selector(("undo:")), with: nil)
-                case .textRedo: _ = window?.firstResponder?.tryToPerform(Selector(("redo:")), with: nil)
-                }
+            if JournalKeys.isForwardY(key: event.charactersIgnoringModifiers ?? "", command: m.contains(.command),
+                                      shift: m.contains(.shift), option: m.contains(.option),
+                                      control: m.contains(.control), textEditing: window?.firstResponder is NSText) {
+                if !event.isARepeat { model.journalForward() }
                 return true
             }
         }

@@ -1,32 +1,47 @@
 import XCTest
 @testable import AlmondbreadKit
 
-/// The travel journal's keys (kb: decisions/controls "Travel journal"): ⌘Z back, ⇧⌘Z and ⌘Y
-/// forward on the canvas; a text field being edited keeps its undo.
+/// The travel journal's keys (kb: decisions/controls "Travel journal"): the Edit menu's one
+/// Undo / Redo pair is the text field's undo while one edits, otherwise Back / Forward; ⌘Y is
+/// an extra forward key on the canvas.
 final class JournalKeysTests: XCTestCase {
-    private func step(_ key: String, shift: Bool = false, option: Bool = false, control: Bool = false,
-                      command: Bool = true, text: Bool = false) -> JournalKeys.Step? {
-        JournalKeys.step(key: key, command: command, shift: shift, option: option, control: control, textEditing: text)
+    private typealias Item = JournalKeys.MenuItem
+
+    func testNoTextEditingIsBackAndForward() {
+        XCTAssertEqual(JournalKeys.menuItem(redo: false, text: nil, canTravel: true),
+                       Item(title: "Back", enabled: true, action: .journal))
+        XCTAssertEqual(JournalKeys.menuItem(redo: true, text: nil, canTravel: false),
+                       Item(title: "Forward", enabled: false, action: .journal))
     }
 
-    func testCommandZBackShiftCommandZAndCommandYForward() {
-        XCTAssertEqual(step("z"), .back)
-        XCTAssertEqual(step("Z", shift: true), .forward)
-        XCTAssertEqual(step("z", shift: true), .forward)
-        XCTAssertEqual(step("y"), .forward)
+    func testTextEditingIsItsUndo() {
+        let text = JournalKeys.TextUndo(undoTitle: "Undo Typing", redoTitle: "Redo", canUndo: true, canRedo: false)
+        XCTAssertEqual(JournalKeys.menuItem(redo: false, text: text, canTravel: false),
+                       Item(title: "Undo Typing", enabled: true, action: .text),
+                       "the field's undo, whether or not the journal can go back")
+        XCTAssertEqual(JournalKeys.menuItem(redo: true, text: text, canTravel: true),
+                       Item(title: "Redo", enabled: false, action: .text),
+                       "nothing to redo: disabled, not the journal's forward")
     }
 
-    func testTextEditingKeepsItsUndo() {
-        XCTAssertEqual(step("z", text: true), .textUndo)
-        XCTAssertEqual(step("Z", shift: true, text: true), .textRedo)
-        XCTAssertNil(step("y", text: true), "⌘Y is no text redo on the Mac: it goes on")
+    func testEmptyUndoManagerTitlesFallBack() {
+        let text = JournalKeys.TextUndo(undoTitle: "", redoTitle: "", canUndo: false, canRedo: false)
+        XCTAssertEqual(JournalKeys.menuItem(redo: false, text: text, canTravel: true).title, "Undo")
+        XCTAssertEqual(JournalKeys.menuItem(redo: true, text: text, canTravel: true).title, "Redo")
     }
 
-    func testOtherKeysAndModifiersGoOn() {
-        XCTAssertNil(step("z", command: false), "plain Z is the autopilot")
-        XCTAssertNil(step("z", option: true))
-        XCTAssertNil(step("z", control: true))
-        XCTAssertNil(step("Y", shift: true))
-        XCTAssertNil(step("c"))
+    func testCommandYForward() {
+        func y(_ key: String, shift: Bool = false, option: Bool = false, control: Bool = false,
+               command: Bool = true, text: Bool = false) -> Bool {
+            JournalKeys.isForwardY(key: key, command: command, shift: shift, option: option, control: control,
+                                   textEditing: text)
+        }
+        XCTAssertTrue(y("y"))
+        XCTAssertFalse(y("y", text: true), "⌘Y is no text redo on the Mac: it goes on")
+        XCTAssertFalse(y("y", command: false))
+        XCTAssertFalse(y("Y", shift: true))
+        XCTAssertFalse(y("y", option: true))
+        XCTAssertFalse(y("y", control: true))
+        XCTAssertFalse(y("z"), "⌘Z belongs to the Edit menu")
     }
 }

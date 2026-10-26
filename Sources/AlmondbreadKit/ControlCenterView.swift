@@ -36,7 +36,6 @@ struct ControlCenterView: View {
     /// The inspector column's minimum width (ContentView) and the narrowest width the content
     /// is laid out at.
     static let minimumWidth: CGFloat = 290
-    @Environment(\.undoManager) private var undoManager
     @AppStorage("controlCenter.collapsed", store: TestLaunch.ephemeral ? UIDemo.defaults : .standard)
     private var collapsedStorage = ""
 
@@ -100,7 +99,7 @@ struct ControlCenterView: View {
                 // Not lazy: see the type's comment (kb: platform/swiftui-performance).
                 ForEach(shown) { section in
                     let open = !collapsed.contains(section.rawValue)
-                    ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
+                    ControlSectionHeader(section: section, model: model, open: open) {
                         withAnimation(.snappy(duration: 0.2)) { toggle(section) }
                     }
                     .tourTarget(section.tourID, model: model, cornerRadius: 6)
@@ -155,7 +154,7 @@ struct ControlCenterView: View {
                                                query: section.searchesNames ? query : "")
                         }
                     } header: {
-                        ControlSectionHeader(section: section, model: model, open: open, undoManager: undoManager) {
+                        ControlSectionHeader(section: section, model: model, open: open) {
                             withAnimation(.snappy(duration: 0.2)) { toggle(section) }
                         }
                         .tourTarget(section.tourID, model: model, cornerRadius: 8)
@@ -191,13 +190,13 @@ struct ControlCenterView: View {
             } label: {
                 Label("Reset all…", systemImage: "arrow.counterclockwise.circle")
             }
-            .help("Every setting of this window back to the defaults (Edit ▸ Undo undoes; ⌘Z is travel back)")
+            .help("Every setting of this window back to the defaults")
             .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
-                Button("Reset settings") { model.reset(.all, undo: undoManager) }
-                Button("Reset settings and view") { model.reset(.all, withView: true, undo: undoManager) }
+                Button("Reset settings") { model.reset(.all) }
+                Button("Reset settings and view") { model.reset(.all, withView: true) }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Look, palette, lighting, interior, overlays, iterations and quality go back to the defaults. Edit ▸ Undo brings them back (⌘Z goes back to the previous place instead). App-wide preferences stay (Settings, ⌘,).")
+                Text("Look, palette, lighting, interior, overlays, iterations and quality go back to the defaults. App-wide preferences stay (Settings, ⌘,).")
             }
             Spacer()
         }
@@ -281,7 +280,6 @@ struct ControlSectionHeader: View {
     let section: ControlSection
     let model: ExplorerModel
     let open: Bool
-    let undoManager: UndoManager?
     let toggle: () -> Void
 
     var body: some View {
@@ -305,13 +303,13 @@ struct ControlSectionHeader: View {
             }
             if let scope = section.resetScope {
                 Button {
-                    model.reset(scope, undo: undoManager)
+                    model.reset(scope)
                 } label: {
                     Image(systemName: "arrow.counterclockwise").font(.caption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Reset \(section.title.lowercased()) to the defaults (Edit ▸ Undo undoes)")
+                .help("Reset \(section.title.lowercased()) to the defaults")
                 .accessibilityLabel("Reset \(section.title)")
             }
             // The chevron at the far right (user, 2026-10-17); it toggles like the title.
