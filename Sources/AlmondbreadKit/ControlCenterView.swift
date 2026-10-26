@@ -25,10 +25,11 @@ struct ControlCenterView: View {
     /// The applied query (the field's text, debounced).
     @State private var query = UIDemo.search ?? ""
     @State private var confirmReset = false
-    /// Empty space after the last section, as a share of the pane's height (scroll past the end).
-    static let scrollPastEnd: CGFloat = 0.7
-    #if os(iOS)
-    @State private var scrollPastEndHeight: CGFloat = 0
+    #if os(macOS)
+    /// Empty space at the end left by a collapse (see `sections`) and the sections' height before it.
+    @State private var slack: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    private static let scrollSpace = "controlCenterScroll"
     #endif
     /// The Places grid's selection, shared with the pinned details bar. It lives as long as
     /// the control center does: closing the control center clears it.
@@ -124,6 +125,7 @@ struct ControlCenterView: View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 // Not lazy: see the type's comment (kb: platform/swiftui-performance).
                 ForEach(shown) { section in
                     let open = !collapsed.contains(section.rawValue)
@@ -155,14 +157,25 @@ struct ControlCenterView: View {
                 if shown.isEmpty && !fractalHit {
                     Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
                 }
-                // Room to scroll past the end: collapsing a section or a More near the bottom
-                // then pulls the rows below up instead of scrolling everything above down.
-                Color.clear.containerRelativeFrame(.vertical) { h, _ in h * Self.scrollPastEnd }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeightChanged($0) }
+            // Slack after a collapse: the height a section or a More gave up stays as empty space
+            // at the end, so the scroll view need not move (the rows below come up, nothing above
+            // moves down). It goes once it is scrolled out of view, as content grows back, or
+            // with a new search.
+            Color.clear.frame(height: slack)
+                .onGeometryChange(for: Bool.self) { g in
+                    g.frame(in: .named(Self.scrollSpace)).minY > g.bounds(of: .named(Self.scrollSpace))?.height ?? .infinity
+                } action: { below in
+                    if below { slack = 0 }
+                }
             }
             .padding(.horizontal, 14)
             .padding(.top, 10)
             .background(TourSectionScroller(model: model, proxy: proxy))
         }
+        .coordinateSpace(.named(Self.scrollSpace))
+        .onChange(of: query) { slack = 0 }
         .task {
             // UI demo scenes that show the end of a section (`places-bottom`).
             guard let target = UIDemo.scrollTarget else { return }
@@ -203,11 +216,17 @@ struct ControlCenterView: View {
                 }
             }
             .formStyle(.grouped)
-            // Room to scroll past the end (as on the Mac).
-            .contentMargins(.bottom, scrollPastEndHeight, for: .scrollContent)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scrollPastEndHeight = $0 * Self.scrollPastEnd }
             .background(TourSectionScroller(model: model, proxy: proxy))
         }
+    }
+    #endif
+
+    #if os(macOS)
+    /// The sections got shorter (a collapse): the difference becomes slack; taller: slack shrinks.
+    private func contentHeightChanged(_ h: CGFloat) {
+        defer { contentHeight = h }
+        guard contentHeight > 0 else { return }
+        slack = h < contentHeight ? slack + contentHeight - h : max(0, slack - (h - contentHeight))
     }
     #endif
 
