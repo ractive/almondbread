@@ -63,6 +63,22 @@ final class ControlSearchTests: XCTestCase {
         XCTAssertTrue(ControlSearch.palettes(library, query: "").isEmpty)
     }
 
+    /// The pinned fractal row is found by its words and by every family's name; no section
+    /// keeps the words (they would open a section without the picker).
+    func testFractalRowSearch() {
+        for q in ["multibrot", "Fractal", " power ", "burning", "tricorn"] {
+            XCTAssertTrue(ControlSearch.fractalMatches(q), q)
+        }
+        for f in ExplorerModel.formulaFamilies {
+            XCTAssertTrue(ControlSearch.fractalMatches(f.title.components(separatedBy: " ")[0]), f.title)
+        }
+        XCTAssertFalse(ControlSearch.fractalMatches(""))
+        XCTAssertFalse(ControlSearch.fractalMatches("palette"))
+        for s in ControlSection.allCases {
+            XCTAssertFalse(s.matches("multibrot"), "\(s) still claims the fractal picker")
+        }
+    }
+
     func testArrowMoves() {
         // 10 tiles in 3 columns.
         XCTAssertEqual(ControlSearch.move(from: 0, count: 10, columns: 3, dx: 1, dy: 0), 1)

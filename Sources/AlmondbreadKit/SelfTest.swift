@@ -395,6 +395,9 @@ public enum UIDemo {
             w.orderBack(nil)
             helpWindow = w
             #endif
+        case "multibrot":
+            // The pinned fractal row with its power picker (z⁴ + c).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.selectFormula("multibrot4") }
         case "cosmic":
             // The size scale stacked above the mini-map (both bottom left).
             try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-9)
