@@ -181,7 +181,7 @@ final class TouchControlsUITests: XCTestCase {
 
     /// F4 (kb: plans/f4-deep-julia): the control center's "Julia twin of this view" opens the
     /// Julia set of the view's centre at the same zoom (the HUD names its k, the zoom stays), and
-    /// "Back to the Mandelbrot set" there, or the HUD's back button, returns.
+    /// the fractal row's "Back to Mandelbrot" there, or the HUD's back button, returns.
     func testJuliaTwinAndBack() throws {
         try launchSettled()
         let scale0 = scale()
@@ -213,7 +213,7 @@ final class TouchControlsUITests: XCTestCase {
         let backHUD = app.buttons["julia-back-hud"]
         XCTAssertTrue(backHUD.waitForExistence(timeout: 5), "the twin did not open (no back button in the HUD)")
         XCTAssertEqual(scale(), scale0, accuracy: scale0 * 1e-9, "the twin changed the zoom")
-        let back = app.buttons["julia-back"]
+        let back = app.buttons["fractal-julia-back"]
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button in the control center")
         shot("julia-twin-cc")
         back.tap()
@@ -239,6 +239,54 @@ final class TouchControlsUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no fractal view")
         settle(3)
+    }
+
+    /// A section's "More…" (kb: decisions/controls "Essential rows and More"): closed by default
+    /// (Lighting shows its three strengths, not Light angle); a tap opens it; a hidden setting
+    /// moved shows "1 changed" on the More line, whose ↺ puts it back; a second tap closes it.
+    func testMoreOpensAndCounts() throws {
+        try launchSettled()
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        if control.value as? String != "shown" { control.tap() }
+        settle(2)
+        let search = app.textFields["Search settings"]
+        if !search.waitForExistence(timeout: 10) {
+            control.tap()
+            settle(1.5)
+            control.tap()
+        }
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "no search field")
+        search.tap()
+        search.typeText("shading\n")  // Lighting alone; an essential row, so its More stays closed
+        settle(1.5)
+        let more = app.buttons["more-lighting"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "no More line in Lighting")
+        XCTAssertTrue(app.sliders["Shading"].exists, "Shading is not visible")
+        XCTAssertFalse(app.sliders["Light angle"].exists, "Light angle shown with More closed")
+        XCTAssertFalse((more.value as? String ?? "").contains("changed"), "changed before any change")
+        shot("more-closed")
+        more.tap()
+        settle(1)
+        let angle = app.sliders["Light angle"]
+        XCTAssertTrue(angle.waitForExistence(timeout: 5), "More did not open")
+        angle.adjust(toNormalizedSliderPosition: 0.1)
+        settle(1)
+        XCTAssertTrue((more.value as? String ?? "").contains("1 changed"), "no count: \(String(describing: more.value))")
+        shot("more-open-changed")
+        let reset = app.buttons["more-lighting-reset"]
+        XCTAssertTrue(reset.exists, "no reset next to the count")
+        reset.tap()
+        settle(1)
+        XCTAssertFalse((more.value as? String ?? "").contains("changed"), "the ↺ left a change")
+        more.tap()
+        settle(1)
+        XCTAssertFalse(app.sliders["Light angle"].exists, "More did not close")
+        // A search for a hidden row opens its More.
+        search.tap()
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7) + "highlight\n")
+        settle(1.5)
+        XCTAssertTrue(app.sliders["Highlight"].waitForExistence(timeout: 5), "the search did not open More")
     }
 
     /// The control center's ✕ and the round button's open state: open, the round button reads
@@ -537,7 +585,7 @@ final class TouchControlsUITests: XCTestCase {
         // Back takes the twin's place.
         twin.tap()
         settle(2)
-        XCTAssertTrue(app.buttons["julia-back"].waitForExistence(timeout: 5), "the twin did not open")
+        XCTAssertTrue(app.buttons["fractal-julia-back"].waitForExistence(timeout: 5), "the twin did not open")
         XCTAssertFalse(app.buttons["julia-twin"].exists, "Julia twin shown in a Julia view")
         closePane()
         shot("julia-controls-julia")

@@ -927,7 +927,11 @@ public final class ExplorerModel {
         case all, view, look, lighting, interior, overlays, quality, cinematic
     }
 
-    /// Resets `scope` to the defaults (`withView`: also the view, for "all"). Not undoable: the
+    /// Resets `scope` to the defaults (`withView`: also the view, for "all"). A section's ↺ resets
+    /// exactly the settings that section's rows show (kb: decisions/controls "Reset"): Navigation
+    /// its four preferences (not the view: its Reset button does that; not the cinematic effects:
+    /// Journey's), Overlays its rows (the HUD's developer details too; the π meter, which has no
+    /// row, only with "all"). Not undoable: the
     /// Edit menu's Undo / Redo are the travel journal's Back / Forward (kb: decisions/controls
     /// "Travel journal").
     public func reset(_ scope: ResetScope, withView: Bool = false) {
@@ -985,13 +989,16 @@ public final class ExplorerModel {
             mapSize = 180
             mapPlacement = .bottomLeft
             juliaEnabled = false
-            piMeterEnabled = false
+            if scope == .all { piMeterEnabled = false }
             cosmicScale = false
             compassAlways = false
             targetMarker = true
         }
         pulling = false
-        if scope == .all || scope == .overlays { showHUD = true }
+        if scope == .all || scope == .overlays {
+            showHUD = true
+            hudDetails = false
+        }
         if scope == .all || scope == .view {
             edgePanning = .whileZooming
             autopilotLock = true
@@ -999,7 +1006,7 @@ public final class ExplorerModel {
             scrollZooms = false
         }
         if scope == .all || scope == .cinematic { journeyStops = false }
-        if scope == .all || scope == .view || scope == .cinematic {
+        if scope == .all || scope == .cinematic {
             pulling = true
             cinematic = d.cinematic
             cinematicSpin = d.cinematicSpin
@@ -1013,7 +1020,7 @@ public final class ExplorerModel {
         pushPiMeter()
         pushCosmic()
         pushCompass()
-        if scope == .view || (scope == .all && withView) { reset() }
+        if scope == .all && withView { reset() }
     }
 
     /// Back to the defaults (the default look, overlays off) and forgets the saved settings.
