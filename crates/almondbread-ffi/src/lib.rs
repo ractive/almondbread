@@ -82,6 +82,13 @@ pub struct PaletteInfo {
     pub stops: Vec<PaletteStop>,
 }
 
+/// Where Rust panics are logged (kb: techniques/hang-prevention "Panic log"): the HUD's
+/// "Reveal log" when rendering keeps failing. Empty when `HOME` is not set.
+#[uniffi::export]
+pub fn panic_log_path() -> String {
+    crate::panic_log::log_path().map_or(String::new(), |p| p.to_string_lossy().into_owned())
+}
+
 /// The palettes, in menu order. `stops` are 24 even samples of the GPU table (OKLab spline,
 /// sRGB), so a swatch drawn from them matches what the renderer shows.
 #[uniffi::export]

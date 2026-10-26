@@ -1246,6 +1246,10 @@ pub struct ExplorerStats {
     pub settled: bool,
     /// Frames the GPU failed to draw.
     pub failed_frames: u64,
+    /// Frames keep panicking (an internal error caught each refresh; the view stays as it
+    /// was): the HUD's warning line, "Rendering failed here (an internal error). Details in
+    /// panic.log". Empty once a frame completes (and before the third panicking frame in a row).
+    pub failing: String,
     /// Render progress of the settled view (the line at the top is drawn by Rust).
     pub progress: RenderProgressInfo,
     /// The fractal (as `ExplorerSettings::formula`): the UI takes the settings over when Rust
@@ -1438,6 +1442,27 @@ struct Inner {
     /// The autopilot target lock as the user set it; it is on only in a formula with the
     /// Mandelbrot content (F3: its finder is Mandelbrot's journey finder), see `sync_formula`.
     lock_wanted: Option<bool>,
+    /// Consecutive `frame` calls that panicked (0 after a frame completed): the HUD's
+    /// "Rendering failed" line from [`FAILING_AFTER`] on.
+    panicked_frames: u32,
+    /// Test hook (`simulate_frame_panics`): this many coming frames panic.
+    simulated_panics: u32,
+}
+
+/// Consecutive panicking frames after which the HUD says rendering failed (one or two can be a
+/// transient state the next frame recovers from; a loop repeats every refresh).
+pub(crate) const FAILING_AFTER: u32 = 3;
+
+/// The HUD line while frames keep panicking (kb: techniques/hang-prevention "Panic log").
+/// macOS has the log where Console and Finder find it; on iOS it sits in the app's container.
+pub(crate) fn failing_text(panicked_frames: u32) -> String {
+    if panicked_frames < FAILING_AFTER {
+        String::new()
+    } else if cfg!(target_os = "macos") {
+        "Rendering failed here (an internal error). Details in panic.log".to_string()
+    } else {
+        "Rendering failed here (an internal error, logged)".to_string()
+    }
 }
 
 impl Inner {
@@ -1538,6 +1563,8 @@ impl Explorer {
                 log: None,
                 bench: None,
                 lock_wanted: None,
+                panicked_frames: 0,
+                simulated_panics: 0,
             }),
         }))
     }
@@ -1636,12 +1663,18 @@ impl Explorer {
             surface,
             log,
             bench,
+            panicked_frames,
+            simulated_panics,
             ..
         } = &mut *g;
         // A panic must not cross the FFI (UniFFI turns it into a Swift trap: the app dies, as
         // in "selected Lagoon and almondbread died"). The panic hook has logged it to
         // ~/Library/Logs/Almondbread/panic.log (repeats counted); the renderer drops its job and goes on.
         let frame = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if *simulated_panics > 0 {
+                *simulated_panics -= 1;
+                panic!("simulated frame panic (test hook Explorer::simulate_frame_panics)");
+            }
             MetalBackend::pool(|| {
                 if let Some(log) = log {
                     let shown: Vec<(u64, f64)> = log.lock().map(|mut l| std::mem::take(&mut *l)).unwrap_or_default();
@@ -1678,15 +1711,24 @@ impl Explorer {
             Ok(animating) => {
                 // A panic loop ended: its count goes to the log.
                 crate::panic_log::frame_completed();
+                *panicked_frames = 0;
                 animating
             }
             Err(_) => {
                 host.renderer.recover_after_panic();
+                *panicked_frames = panicked_frames.saturating_add(1);
                 true
             }
         };
         let keyboard = host.renderer.navigator.mode() == CoreInputMode::Keyboard;
         (u8::from(animating) * FRAME_ANIMATING) | (u8::from(keyboard) * FRAME_KEYBOARD)
+    }
+
+    /// Test hook (`--ui-demo=failing`, unit tests): the next `count` calls of `frame` panic inside
+    /// the frame's guard, as a per-frame bug would (logged to panic.log like a real one, under
+    /// a message naming this hook). 0 stops it.
+    pub fn simulate_frame_panics(&self, count: u32) {
+        self.lock().simulated_panics = count;
     }
 
     /// The keyboard crosshair's position as of the last `frame`, view points from the centre
@@ -2216,6 +2258,7 @@ impl Explorer {
             held_keys: r.navigator.held_count() as u32,
             settled: r.is_settled(),
             failed_frames: r.failed_frames as u64,
+            failing: failing_text(g.panicked_frames),
             progress: {
                 let mut p = RenderProgressInfo::from(r.progress.current());
                 // "Raise to …" only beside the settled "not finished … (upper limit)" line.
@@ -3001,5 +3044,45 @@ mod formula_integration_tests {
             Viewport::fitting_for(formula(&e), W, H),
             almondbread_core::julia::home_view(W, H)
         );
+    }
+}
+
+/// The HUD's "Rendering failed" line (kb: techniques/hang-prevention "Panic log"): frames that
+/// panic one after another set `ExplorerStats::failing`, a frame that completes clears it.
+#[cfg(all(test, target_vendor = "apple"))]
+mod failing_frame_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_frame_panics_set_failing_and_a_good_frame_clears_it() {
+        let layer = objc2_quartz_core::CAMetalLayer::new();
+        let ptr = objc2::rc::Retained::as_ptr(&layer) as usize as u64;
+        let e = Explorer::new(ptr, 2.0).expect("explorer");
+        e.resize(400.0, 250.0, 2.0);
+        assert!(e.stats().failing.is_empty());
+        e.simulate_frame_panics(5);
+        let mut t = 1.0;
+        let mut frame = |e: &Explorer| {
+            t += 1.0 / 60.0;
+            e.frame(t)
+        };
+        // One or two panicking frames are not yet a failure; the third in a row is.
+        for k in 1..FAILING_AFTER {
+            assert_eq!(
+                frame(&e) & FRAME_ANIMATING,
+                FRAME_ANIMATING,
+                "a panicking frame asks for the next"
+            );
+            assert!(e.stats().failing.is_empty(), "after {k} panicking frames");
+        }
+        frame(&e);
+        let text = e.stats().failing;
+        assert!(text.starts_with("Rendering failed here"), "{text}");
+        frame(&e);
+        frame(&e);
+        assert!(!e.stats().failing.is_empty());
+        // The hook is used up: the next frame completes and the line goes.
+        frame(&e);
+        assert!(e.stats().failing.is_empty());
     }
 }

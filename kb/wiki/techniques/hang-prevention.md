@@ -111,14 +111,23 @@ appended a full entry with a backtrace each time: 143 000 entries, 1.2 GB of
   first entries, the rest of such a log is the same entry again.
 - Per frame without a panic: one relaxed atomic swap.
 - Tests: `panic_log::tests` (dedupe counts and the minute line, loop end, rotation in a temp
-  dir, a runaway file cut to its head).
+  dir, a runaway file cut to its head). Unit test builds log to the temporary directory
+  (`almondbread-test-panic.log`), never to the user's file.
 
-**What the user sees** of a panic loop: the view stops changing, and the HUD's developer
-details show "failed frames N" in red (`ExplorerStats.failed_frames`, counted by
-`recover_after_panic`). Nothing in the normal HUD. Proposed, not built: when frames panic
-several refreshes in a row, the Rust progress line says "Rendering failed (internal error);
-details in ~/Library/Logs/Almondbread/panic.log" (unverified as to wording; it touches the
-progress line, which other work was changing at the time).
+**What the user sees** of a panic loop (as built, 2026-10-26): the view stops changing, and
+from the third panicking `Explorer::frame` in a row the HUD's progress line becomes a yellow
+warning, "Rendering failed here (an internal error). Details in panic.log", with a "Reveal Log"
+button on macOS (Finder, `NSWorkspace.activateFileViewerSelecting`; the path comes from Rust,
+`panic_log_path()`). On iOS the log is in the app's container, which the user cannot open, so
+the text there is "Rendering failed here (an internal error, logged)". One or two panicking
+frames say nothing (a transient state the next frame recovers from); the first frame that
+completes clears the line. Rust counts consecutive panicking frames per `Explorer`
+(`Inner::panicked_frames`) and hands the text over in `ExplorerStats.failing` (empty: none);
+the developer details still show "failed frames N". Test hook: `Explorer::simulate_frame_panics(n)`
+makes the next n frames panic inside the guard (a real panic, logged under a message naming
+the hook); `--ui-demo=failing` uses it on the default view after 4 s and captures the HUD
+(`build/screens/window-failing.png`); `failing_frame_tests` checks 2 panics: no line, 3: the
+line, a good frame: cleared.
 
 **The audit** of BigFloat/Center offsets turned into f64 view units (`delta_in`, `distance_in`,
 `offset_of`, `delta_from`) and then into DoubleExp or float maths. `delta_in` returns ±inf past
