@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-26
 
+- **Decision:** Bounded panic log, offset overflow audit: panic.log counts repeats of the same panic (a line a minute, on a different panic, a completed frame or drop), rotates at 5 MB keeping panic.log.1 (a runaway file cut to its head); DoubleExp::from_f64 carries non-finite values instead of asserting; Center::new/offset saturate; history reprojection drops infinite offsets; pi meter NaN probe test (techniques/hang-prevention)
 - **Decision:** Tours fly only when short: a tour step's view and the tour's end fly only when the flight lands within 5 s (Navigator::travel_to, TRAVEL_FLY_MAX_SECONDS), else jump; fixed the orbit overlay's panic on a tour probe 10^336 view widths from a deep view (What's the fog? at 1e334 froze the view)
 - **Update:** Compute further: measured time limit: Continue at the time limit did nothing (the worst-case estimate blocked every pass); the budget is now GPU seconds spent, checked between segments sized by the pass's own cost; Continue resumes a paused pass (techniques/auto-iterations)
 - **Decision:** Fog takes history: gesture frames keep the rest frame's interior, analysis and fog where the history holds a result of the same settings (class epoch byte per history pixel); flat bulb pans 23.5 % -> 0.7 % changed smooth pixels, +0.2 ms GPU per 4 Mpx gesture frame
