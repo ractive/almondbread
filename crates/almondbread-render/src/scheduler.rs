@@ -4437,8 +4437,9 @@ impl<B: GpuBackend> Renderer<B> {
                     .map(|l| l.use_interior)
                     .unwrap_or(false);
                 println!(
-                    "chunk gen {} slot {:2}: liveIn {:8} fresh {:8} K {:8} -> liveOut {:8}  iters {}  steps {}  interior {} (test {})  gpu {:.2} ms  rate {}",
+                    "chunk gen {} level {} slot {:2}: liveIn {:8} fresh {:8} K {:8} -> liveOut {:8}  iters {}  steps {}  interior {} (test {})  gpu {:.2} ms  rate {}",
                     rec.generation,
+                    rec.level,
                     rec.slot,
                     stats.live_in,
                     stats.fresh,
