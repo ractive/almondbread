@@ -2619,6 +2619,124 @@ release, machine shared with other jobs (interaction numbers noisy).
 - `bench --no-verify 1`: 84 files byte-identical to a CLI built from main (still renders do not
   compose).
 
+## Throughput model: level tails, 2026-10-26
+
+The chunk-sizing rate climbed ×4 per chunk in a level's tail and sized the next level's first
+chunks 10–30× too large ([GPU watchdog and chunked, resumable kernels](../platform/gpu-watchdog-and-chunking.md)
+Pitfalls, "Level tails"). Fix: a busy rate per kernel learned only from chunks that measure
+throughput, a lanes × K rate per level for its later chunks, a deep-kernel cold rate of 5e9,
+iterations-per-step conversion in the extension and compute-further estimates. Measured
+2026-10-26, M1 Pro, other agents' builds running (load 4–15). Before = main at 536123f plus a
+trace-only change; both sides the same profile; runs alternated before/after.
+
+**Chunk overshoot** (`verify --history`, 1280 × 800, release CLI, 3 rounds; median [min–max];
+GPU ms of the first chunk of level 0, the largest first chunk of any later level, extension
+pass or compute-further segment, the largest chunk; "resolved": ms from input to nothing left).
+N = the seek-minibrot view (period 30 957, 2.04384e-166/pt); `raise` = cap 200 k, compute
+further 60 s, then "Raise to 10 M".
+
+| view | side | level 0 first | later level starts | max chunk | chunks > 50 ms | chunks | GPU ms | complete ms | resolved ms |
+|---|---|---|---|---|---|---|---|---|---|
+| N raise | before | 88 [81–89] | 208 [205–220] | 208 | 3 | 110 | 1169 | – | 1275 [1242–1393] |
+| N raise | after | 22 [17–27] | 15 [15–20] | 22 | 0 | 157 | 1190 | – | 1510 [1327–1618] |
+| N cap 10 M | before | 91 [89–91] | 347 [198–473] | 347 | 4 | 27 | 950 | 360 | 1083 [1017–1185] |
+| N cap 10 M | after | 20 [17–24] | 23 [18–24] | 25 | 0 | 88 | 888 | 377 | 1043 [1017–1043] |
+| N cap 4 M | before | 90 [86–93] | 288 [282–296] | 288 | 4 | 27 | 765 | 360 | 901 [885–917] |
+| N cap 4 M | after | 26 [26–27] | 21 [20–26] | 27 | 0 | 80 | 775 | 377 | 927 [918–935] |
+| N cap 2 M | before | 87 [86–87] | 140 [140–159] | 140 | 4 | 28 | 614 | 359 | 752 [752–768] |
+| N cap 2 M | after | 23 [18–26] | 21 [18–23] | 26 | 0 | 67 | 639 | 377 | 793 [777–793] |
+| home 100 k jump | before | 1.4 | 34 | 34 | 0 | 15 | 64 | 60 | 192 |
+| home 100 k jump | after | 3.5 | 35 | 35 | 0 | 15 | 72 | 68 | 202 |
+| home pan | before | 6.2 | 2.9 | 6.2 | 0 | 259 | 449 | 168 | 301 |
+| home pan | after | 6.2 | 3.0 | 6.2 | 0 | 261 | 493 | 173 | 306 |
+| seahorse 1e5 zoom | before | 11.6 | 6.4 | 11.6 | 0 | 267 | 1181 | 200 | 325 |
+| seahorse 1e5 zoom | after | 11.8 | 5.1 | 11.8 | 0 | 264 | 1091 | 182 | 316 |
+| Feigenbaum 200 k jump | before | 0.0 | 0.0 | 18.6 | 0 | 173 | 1632 | 1751 | 1885 |
+| Feigenbaum 200 k jump | after | 0.0 | 0.0 | 17.9 | 0 | 168 | 1636 | 1767 | 1901 |
+| dense-5e-14 pan | before | 15.4 | 13.2 | 15.4 | 0 | 260 | 991 | 215 | 349 |
+| dense-5e-14 pan | after | 18.6 | 14.1 | 19.8 | 0 | 262 | 1092 | 207 | 341 |
+| minibrot-p4 jump | before | 8.2 | 41 | 41 | 0 | 17 | 76 | 68 | 202 |
+| minibrot-p4 jump | after | 7.0 | 42 | 42 | 0 | 18 | 70 | 67 | 200 |
+
+- The overshoot is gone: no chunk over 27 ms on any view (before: 3–5 chunks of 140–470 ms per N
+  session; the max was 486 ms). The 34–42 ms chunks at home 100 k and minibrot-p4 are a
+  different, unchanged case: 8–400 lanes running K = the whole limit, latency-bound (a lane
+  does ~5e6 steps/s); open.
+- Time to the final frame on the N views is 2–18 % longer (resolved +40 to +235 ms), total GPU
+  equal: the session presents ~2× as many progress frames (draws 35–44 → 61–75 per N session;
+  before, 200–470 ms command buffers blocked them) and pays more round trips. `--chunk-ms 32`
+  gives parity (n2m resolved 752–767 vs 768–793 before), so it is the 16 ms chunk target's
+  price, which the bug had been skipping.
+- Scheduler decisions (level limits, extension passes, compute-further passes, final
+  unresolved count) identical on every jump view; the raise run splits its compute-further
+  segments differently (same passes, same 40 447 unresolved). Before is not deterministic
+  itself: one N round chose ×2/×4/×2 extension passes instead of ×4/×4 (same final count).
+
+**Correctness.** `verify` (checks on) at home 100 k, minibrot-p4, Feigenbaum: vs CPU oracle and
+vs fresh render identical before/after (class mismatch 0.000 / 0.001 / 0.069 %, vs fresh 0 px).
+Gesture histories (seahorse zoom, dense pan, home pan) end at timing-dependent views on both
+sides (learned limit 1522 vs 1523); metrics within that spread, vs fresh class mismatch 0.000 %.
+`make regress`: 21 OK both sides, vs fresh 0.000 % everywhere.
+
+**`make bench`** (dist CLI, 3 rounds alternated, medians): sum of medians GPU 23 355 → 23 709 ms
+(+1.5 %), all verify rows identical. Per location within ±5 % except: sea-8007 1600 × 1000
+400 → 516 ms (+29 %; the measured render follows a warm-up whose tail inflated the rate, so
+before ran it in two chunks of 236 and 145 ms; alone it is 346 vs 343 ms; at `--chunk-ms 50`
+445 vs 407), deep-5e-14 3456 +13 % / 1600 −16 %, sea-1e20 3456 +8 %, elephant 1600 +13 % (1–2 ms
+views; noise level). An intermediate version that also held K at the busy rate inside a level
+cost Feigenbaum 3456 +17 % (2 100 extra ~1 ms chunks with a few lanes running behind a million
+parked pixels); the per-level rate restored it (13.68 → 13.85 s, +1.2 %).
+
+**`make flight-bench`** (dist, warm-up + 3 laps, 2 runs each alternated; every run NOISY, other
+processes 130–520 % CPU): score 1594 / 1607 → 1772 / 1740 (+10 %); mode A total 21.87 / 21.47 →
+19.33 / 19.04 s, heavy segment 6.53 / 6.35 → 4.69 / 4.65 s; mode B sharp in all 11.20 / 11.27 →
+8.60 / 10.04 s, shown 99.4–99.5 % both.
+
+**`make interaction-test`** (full, dist libs, 2 runs each alternated, background window, display
+link 60 Hz): mean fps over 66 scenarios 56.46 → 56.49; no scenario below both before runs by more
+than 3 fps; max intervals and p95 latencies within run-to-run spread. One check fails on every
+run on both sides ("journal keys": ⌘Y "forward again to 56"), unrelated to the scheduler.
+
+### Build profiles: wall times and interference (same day)
+
+Wall times (M1 Pro, fresh worktree, other agents building; `/usr/bin/time`):
+
+| command | time |
+|---|---|
+| `cargo build --release -p almondbread-cli`, cold | 296 s |
+| the same after a one-line change in scheduler.rs | 4–7 s |
+| `cargo test --release -p almondbread-render --lib --no-run`: first / after a scheduler.rs change | 17 s / 6 s |
+| `cargo build --profile dist -p almondbread-cli`, cold / after a scheduler.rs change | 320 s / 226–227 s |
+| `make rust` (dist), cold (3 targets 6m23 + 5m30 + 5m51) | 1 119 s |
+| `make rust` (dist) after a scheduler.rs change | 72 s (30 + 19 + 18) |
+| `PROFILE=release make rust`, cold (5m27 + 5m13 + 5m24) | 970 s |
+| `PROFILE=release make rust` after a scheduler.rs change | 22 s (7 + 6 + 6) |
+| `make build` (swift build -c release, Rust libs ready) | 39–45 s |
+| `make rust-check`: first in the worktree / after a test-file change | 370 s / 94 s |
+| `PROFILE=release make build app selftest ios-sim ios-device-check` (libs nearly ready) | 171 s |
+
+Cold, both profiles cost the same (dependencies dominate, built once per target triple). The
+fat-LTO cost is in the edit loop: the dist CLI relinks in ~4 min after a one-line change,
+release in seconds; `make rust`'s static libs are faster to redo in dist (72 s) than the dist
+CLI binary.
+
+Interference: `make bench` and `make flight-bench` run `target/dist/almondbread`. The same
+code as release CLI vs dist CLI (alternated): bench sum of GPU medians 22 693 vs 22 723 ms
+(1.001), every location within ±7 % (1–4 ms views noise), verify identical; flight-bench score
+1794 (dist) vs 1771 (release), mode A 18.83 vs 19.22 s (both NOISY). CPU reference orbits
+(`math_check bench`, 2 runs each): release/dist iterations per second 0.75–0.84 at 64–128 bits,
+0.90–1.20 at 192–256, 0.94–1.0 from 384 bits up. GPU-time numbers are profile-independent;
+CPU-bound ones (reference orbits, so first-frame and jump times of deep views) are up to 25 %
+slower in release at low precision. Profile-sensitive without saying so: the app's static libs
+(`interaction-test`, `flight-bench-live`, `selftest`, `hang-test`, `core-check`) are whatever
+profile the last `make rust` built (`PROFILE=release make build` in a worktree leaves release
+libs in `build/rust/`, and `.build/release/AlmondbreadMac` links them), and `verify`'s first /
+complete / resolved times come from `target/release/almondbread`. The timing assertions in
+`cargo test --release` are hang guards (0.1–2 s bounds), not tuned to LTO. Rule: performance
+numbers that are recorded or compared with earlier records come from dist (`make bench`,
+`flight-bench`, `make rust` without PROFILE before an interaction test); an A/B may use either
+profile when both sides use the same one; say which.
+
 # Citations
 
 - [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)

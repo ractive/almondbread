@@ -906,6 +906,16 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     // `--check 0`: the session only (deep views with a high cap: the CPU oracle at the hard limit
     // takes hours).
     if o.get("check") == Some("0") {
+        // (The session's times all the same: A/B timing of deep views.)
+        if let Some(s) = sessions.last() {
+            println!(
+                "session: first frame {:.0} ms / complete {:.0} ms / resolved {:.0} ms after input, unresolved {}",
+                s.first_after * 1000.0,
+                s.final_after * 1000.0,
+                s.done_after * 1000.0,
+                s.unresolved
+            );
+        }
         return Ok(0);
     }
     if let Some(c) = r.gesture_captures.take() {

@@ -65,6 +65,8 @@ mod julia_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod long_reference_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod rate_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod recolour_tests;
 use almondbread_core::autopilot::{RenderFeedback, Survey, SurveyCell};
 
@@ -116,6 +118,18 @@ const PROBE_CHUNK_WORK: usize = 1 << 24;
 const PROBE_SHARE: f64 = 0.5;
 /// Probe steps per pixel at least (when the share allows fewer).
 const PROBE_MIN_STEPS: usize = 64;
+/// The throughput model learns only from chunks that ran at least this long (GPU seconds) and
+/// whose loop steps were at least this share of lanes x K: shorter or emptier chunks are bound
+/// by latency (a level's tail: pixels parked at the limit for the interior probe, a few lanes
+/// running the whole limit) and say nothing about throughput (see `learned_rate`).
+const RATE_MIN_GPU: f64 = 1e-3;
+const RATE_MIN_BUSY: f64 = 0.25;
+/// Busy share above which a chunk's lanes x K count in full (`learned_rate`).
+const RATE_BUSY: f64 = 0.5;
+/// The throughput model before any chunk measured it (plain, deep kernel): about an M1 Pro's.
+/// The deep kernel's was the plain one's 3e10 and 6x too high: the first chunk of a deep view
+/// ran 85 ms instead of 16.
+const RATE_COLD: [f64; 2] = [3e10, 5e9];
 /// Probed pixels of a level before its success rate is judged, and the least success rate
 /// that keeps the probe on.
 const PROBE_TRIAL: usize = 4096;
@@ -446,6 +460,13 @@ struct Level<B: GpuBackend> {
     probe_skipped: bool,
     /// Loop steps (BLA + perturbation) the GPU did for this level.
     steps: f64,
+    /// The level's own throughput model (0: no chunk harvested yet; `Renderer::rate` sizes
+    /// its first chunks): lanes x K per GPU second of its chunks, every one, damped x4 per
+    /// chunk. Within a level the busy share only falls (admission fills freed slots), so
+    /// lanes x K is a safe predictor there, and in a tail of parked pixels with a few lanes
+    /// running it lets K grow to the limit: the Feigenbaum view's last pixels took 2 100 more
+    /// ~1 ms chunks (+17 % GPU) with K held at the busy rate's.
+    rate: f64,
     /// Iterates through the BLA table (decided when the level starts).
     use_bla: bool,
     /// M6: iterates through the LA table instead (decided when the level starts).
@@ -774,6 +795,7 @@ impl<B: GpuBackend> Level<B> {
             probe_failed: 0,
             probe_skipped: false,
             steps: 0.0,
+            rate: 0.0,
             use_bla: false,
             use_la: false,
             preview,
@@ -1051,6 +1073,8 @@ struct ChunkRecord<B: GpuBackend> {
     preview: bool,
     /// Ran the interior probe (kProbe pipeline).
     probe: bool,
+    /// Ran the deep kernel (its own throughput: `Renderer::rate`).
+    deep: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1430,8 +1454,10 @@ pub struct Renderer<B: GpuBackend> {
     job: Option<Job<B>>,
     generation: u64,
     in_flight: VecDeque<ChunkRecord<B>>,
-    /// Lane-iterations per GPU second; adapted from every chunk, persists across jobs.
-    rate: f64,
+    /// Loop steps per GPU second (`learned_rate`) of the plain and the deep kernel (index
+    /// `deep as usize`; a deep loop step costs several plain ones): adapted from the chunks that
+    /// measure it, persists across jobs.
+    rate: [f64; 2],
     /// GPU seconds per texel of the last completed level.
     cost_per_texel: f64,
     /// `cost_per_texel` was measured at this view (or a continuous move from it): false at
@@ -1510,6 +1536,36 @@ enum WarmKey {
     Iterate(usize),
     Seed(usize),
     Overlay,
+}
+
+/// The throughput model's rate after a chunk of `lanes x K` = `budget` that ran `steps` loop
+/// steps (the kernel's count) in `gpu` seconds; None: the chunk says nothing about throughput
+/// and the rate stays. The rate predicts the next chunk's time from its lanes x K, so a busy
+/// chunk teaches budget / gpu (its lanes that finish early cost their SIMD group's time all the
+/// same, and steps / gpu would size the body of a level at half its target: 4x the chunks and
+/// +10 % to the final frame at the N view). But in a level's tail almost no lane works
+/// (pixels parked at the limit for the interior probe, a few lanes running the whole limit):
+/// lanes x K read those chunks as nearly free and the rate climbed x4 per chunk to 70x the
+/// real one (2.8e11 at the N view on an M1 Pro, real 4-5e9), so the next level's first chunk
+/// ran 200 ms instead of 8-16. Hence the work counts at most `steps / RATE_BUSY` (a chunk busy
+/// less than that reads at most 1/RATE_BUSY of its measured steps per second), and chunks
+/// shorter than RATE_MIN_GPU or busy less than RATE_MIN_BUSY are latency-bound and teach
+/// nothing either way. Damped: at most x4 per chunk.
+fn learned_rate(rate: f64, steps: f64, budget: f64, gpu: f64) -> Option<f64> {
+    if gpu < RATE_MIN_GPU || steps <= 0.0 || steps < RATE_MIN_BUSY * budget {
+        return None;
+    }
+    Some((budget.min(steps / RATE_BUSY) / gpu).clamp(rate / 4.0, rate * 4.0))
+}
+
+/// Iterations per loop step of the chunks so far (at least 1): a BLA or LA step skips many
+/// iterations, and the throughput model counts loop steps.
+fn iterations_per_step(iterations: f64, steps: f64) -> f64 {
+    if steps > 0.0 && iterations > steps {
+        iterations / steps
+    } else {
+        1.0
+    }
 }
 
 /// Index of an iterate variant in `iterate_pipelines`.
@@ -1680,7 +1736,7 @@ impl<B: GpuBackend> Renderer<B> {
             job: None,
             generation: 0,
             in_flight: VecDeque::new(),
-            rate: 3e10,
+            rate: RATE_COLD,
             cost_per_texel: 0.0,
             cost_known: false,
             probe_ratio: 0.0,
@@ -2289,7 +2345,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         if let SubmissionStatus::Failed(e) = &status {
             eprintln!("almondbread: seed round failed ({e}); retrying with smaller rounds");
-            self.rate /= 8.0;
+            self.rate = self.rate.map(|r| r / 8.0);
         }
         let trace = self.config.trace;
         let Some(job) = &mut self.job else { return };
@@ -3969,9 +4025,14 @@ impl<B: GpuBackend> Renderer<B> {
             }
             let Some(job) = &self.job else { break };
             let level = &job.levels[i];
+            let rate = if level.rate > 0.0 {
+                level.rate
+            } else {
+                self.rate[usize::from(job.deep)]
+            };
             // Upper bound on the threads of this chunk, from the last harvested counts.
             let threads = self.config.live_capacity.min(level.live + level.total - level.admitted);
-            // K from the throughput model: work <= threads x K lane-iterations.
+            // K from the throughput model: work <= threads x K loop steps.
             let mut target = (budget - spent).max(0.002);
             if level.further {
                 target = target.min(self.config.aa_chunk_target);
@@ -3987,11 +4048,11 @@ impl<B: GpuBackend> Renderer<B> {
             } else {
                 level.params.max_iter as usize
             };
-            let k = (cap as f64).min((target * self.rate / threads.max(1) as f64).max(16.0)) as usize;
+            let k = (cap as f64).min((target * rate / threads.max(1) as f64).max(16.0)) as usize;
             if !self.encode_chunk(i, k, true) {
                 break;
             }
-            spent += threads as f64 * k as f64 / self.rate;
+            spent += threads as f64 * k as f64 / rate;
             encoded += 1;
         }
         encoded
@@ -4241,6 +4302,7 @@ impl<B: GpuBackend> Renderer<B> {
             adaptive,
             preview: self.job.as_ref().is_some_and(|j| j.levels[level_index].preview),
             probe: probe_now,
+            deep,
         });
         self.stat_slot = (self.stat_slot + 1) % STAT_SLOTS;
         true
@@ -4404,7 +4466,7 @@ impl<B: GpuBackend> Renderer<B> {
                 // Most likely a watchdog timeout: assume the GPU is much slower than measured
                 // and restart the job with smaller chunks (kb: platform/gpu-watchdog-and-chunking).
                 eprintln!("almondbread: iterate chunk failed ({err}); retrying with smaller chunks");
-                self.rate /= 8.0;
+                self.rate = self.rate.map(|r| r / 8.0);
                 if let Some(j) = &mut self.job
                     && j.generation == rec.generation
                 {
@@ -4413,12 +4475,20 @@ impl<B: GpuBackend> Renderer<B> {
                 continue;
             }
             let stats = self.read_stats(rec.slot);
-            let work = (stats.live_in as f64 + stats.fresh as f64) * rec.iterations as f64;
-            if rec.adaptive && gpu > 2e-4 && work > 0.0 {
-                // Damped: at most x4 per chunk, so one odd chunk cannot swing K wildly.
-                self.rate = (work / gpu).max(self.rate / 4.0).min(self.rate * 4.0);
-            }
             let pixels = stats.live_in as f64 + stats.fresh as f64;
+            // (Probe chunks count a probe step as one loop step but budget PROBE_COST_* for it.)
+            let kernel = usize::from(rec.deep);
+            if rec.adaptive
+                && !rec.probe
+                && let Some(r) = learned_rate(
+                    self.rate[kernel],
+                    stats.steps() as f64,
+                    pixels * rec.iterations as f64,
+                    gpu,
+                )
+            {
+                self.rate[kernel] = r;
+            }
             if !rec.adaptive && gpu > 2e-4 && pixels > 0.0 {
                 // A gesture frame's chunk ran its pixels to the limit: their cost per texel,
                 // also when the job was superseded before it finished (every frame of a
@@ -4437,8 +4507,9 @@ impl<B: GpuBackend> Renderer<B> {
                     .map(|l| l.use_interior)
                     .unwrap_or(false);
                 println!(
-                    "chunk gen {} slot {:2}: liveIn {:8} fresh {:8} K {:8} -> liveOut {:8}  iters {}  steps {}  interior {} (test {})  gpu {:.2} ms  rate {}",
+                    "chunk gen {} level {} slot {:2}: liveIn {:8} fresh {:8} K {:8} -> liveOut {:8}  iters {}  steps {}  interior {} (test {})  gpu {:.2} ms  rate {}",
                     rec.generation,
+                    rec.level,
                     rec.slot,
                     stats.live_in,
                     stats.fresh,
@@ -4449,7 +4520,7 @@ impl<B: GpuBackend> Renderer<B> {
                     stats.interior,
                     if use_interior { "on" } else { "off" },
                     gpu * 1000.0,
-                    almondbread_core::cfmt::g(self.rate, 3)
+                    almondbread_core::cfmt::g(self.rate[kernel], 3)
                 );
             }
             if let Some(fs) = &mut self.frame_stats {
@@ -4479,6 +4550,14 @@ impl<B: GpuBackend> Renderer<B> {
             level.gpu_time += gpu;
             level.iterations += stats.iterations() as f64;
             level.steps += stats.steps() as f64;
+            if rec.adaptive && gpu > 2e-4 && pixels > 0.0 {
+                let base = if level.rate > 0.0 {
+                    level.rate
+                } else {
+                    self.rate[kernel]
+                };
+                level.rate = (pixels * rec.iterations as f64 / gpu).clamp(base / 4.0, base * 4.0);
+            }
             level.interior_pixels += stats.interior as usize;
             level.admitted = stats.admitted as usize;
             level.live = stats.live_out as usize;
@@ -4709,7 +4788,7 @@ impl<B: GpuBackend> Renderer<B> {
             let proven = l.probe_finished.saturating_sub(l.probe_failed);
             self.probe_low_success = (proven as f64) < PROBE_MIN_SUCCESS * l.probe_finished as f64;
         }
-        let rate = self.rate;
+        let rate = self.job_rate();
         let budget = self.config.extension_budget;
         let list_capacity = self.list_capacity;
         let trace = self.config.trace;
@@ -4744,9 +4823,13 @@ impl<B: GpuBackend> Renderer<B> {
             // is never cut short (a scanline-ordered list cut short leaves a straight edge).
             let count = level.crossed;
             // (With the interior probe: plus its steps, in loop steps, for each pixel.)
+            // The rate counts loop steps, the limits iterations: with BLA or LA one loop step
+            // skips many iterations, converted by the level's own iterations per step (lanes x K
+            // read the rate up to 70x high in a level's tail, which hid the difference).
             let probe_cost = if deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
-            let per_pixel = |n: usize| n + probe_limit(n, probe_div) as usize * probe_cost;
-            let fits = |n: usize| spent + count as f64 * per_pixel(n) as f64 / rate <= budget;
+            let per_step = iterations_per_step(level.iterations, level.steps);
+            let per_pixel = |n: usize| n as f64 / per_step + (probe_limit(n, probe_div) as usize * probe_cost) as f64;
+            let fits = |n: usize| spent + count as f64 * per_pixel(n) / rate <= budget;
             let mut next = level.extend_to.min(level.params.max_iter as usize * 4);
             if !fits(next) {
                 next = level.extend_to.min(level.params.max_iter as usize * 2);
@@ -5015,10 +5098,16 @@ impl<B: GpuBackend> Renderer<B> {
         }
     }
 
-    /// Iterations per GPU second for the budget: the throughput model's rate counts
-    /// lane-iterations of every chunk, and levels whose pixels are proven interior early read
-    /// it high (1e7 neck pixels to 65 k looked like 0.3 s); the extension passes' own
-    /// iterations per GPU second once they have run a while.
+    /// The throughput model's rate for the current job's kernel (`rate`).
+    fn job_rate(&self) -> f64 {
+        self.rate[usize::from(self.job.as_ref().is_some_and(|j| j.deep))]
+    }
+
+    /// Iterations per GPU second for the budget: the extension passes' own iterations per GPU
+    /// second once they have run a while. Before that the throughput model's rate (loop steps
+    /// per GPU second) times the job's iterations per step, at most FURTHER_RATE_GUESS: the
+    /// model sizes chunks from lanes x K and is no measure of a pass whose pixels are proven
+    /// interior early (1e7 neck pixels to 65 k looked like 0.3 s).
     fn further_rate(job: &Job<B>, model: f64) -> f64 {
         let (iterations, gpu) = job
             .levels
@@ -5028,7 +5117,8 @@ impl<B: GpuBackend> Renderer<B> {
         if gpu > 0.2 && iterations > 0.0 {
             iterations / gpu
         } else {
-            model.min(FURTHER_RATE_GUESS)
+            // (The model counts loop steps: iterations per step of the job so far.)
+            (model * iterations_per_step(job.iterations, job.steps)).min(FURTHER_RATE_GUESS)
         }
     }
 
@@ -5048,7 +5138,7 @@ impl<B: GpuBackend> Renderer<B> {
         let budget = self.further_budget_now();
         let min_share = self.config.further_min_share;
         let probe_div = INTERIOR_PROBE;
-        let rate = self.rate;
+        let rate = self.job_rate();
         let Some(job) = &self.job else { return };
         let Some(f) = &job.further else { return };
         if !f.running() || f.longer.is_some() {
@@ -5164,7 +5254,7 @@ impl<B: GpuBackend> Renderer<B> {
         let budget = self.further_budget_now();
         let segment_budget = self.config.further_budget / FURTHER_SEGMENTS_PER_BUDGET;
         let probe_div = INTERIOR_PROBE;
-        let rate = self.rate;
+        let rate = self.job_rate();
         let Some(job) = &self.job else { return };
         let Some(f) = &job.further else { return };
         let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
@@ -5411,7 +5501,7 @@ impl<B: GpuBackend> Renderer<B> {
                 .max_iter
                 .max(self.further_iteration_cap())
                 .min(MAX_ITERATION_LIMIT);
-            let rate = Self::further_rate(job, self.rate).max(1.0);
+            let rate = Self::further_rate(job, self.job_rate()).max(1.0);
             let mut n = f.limit.max(f.reached);
             let pass_left = f.unresolved.saturating_sub(f.resolved + f.left + finished);
             remaining_gpu += pass_left as f64 * f.limit as f64 / rate;
@@ -7315,5 +7405,51 @@ mod preview_threshold_tests {
         assert!(!preview_in_one_chunk(1.0e-6, texels));
         // The threshold itself still runs in one chunk.
         assert!(preview_in_one_chunk(PREVIEW_ONE_CHUNK_MAX / texels as f64, texels));
+    }
+}
+
+#[cfg(test)]
+mod learned_rate_tests {
+    use super::*;
+
+    /// Chunks of the N view's trace (M1 Pro): (lanes x K, steps, GPU seconds).
+    #[test]
+    fn busy_chunks_teach_lanes_times_k() {
+        // 1 M fresh pixels, K 468, every lane busy: 4.79e8 / 86.7 ms.
+        let r = learned_rate(5e9, 4.79e8, 1024000.0 * 468.0, 0.0867).expect("busy");
+        assert!((r - 1024000.0 * 468.0 / 0.0867).abs() < 1.0, "{r:e}");
+        // 69 % busy: still lanes x K (early exits cost their SIMD group's time).
+        let r = learned_rate(5e9, 3.6e7, 453235.0 * 107.0, 0.00634).expect("busy");
+        assert!((r - 453235.0 * 107.0 / 0.00634).abs() < 1.0, "{r:e}");
+        // 35 % busy: at most twice the measured steps.
+        let r = learned_rate(5e9, 1.66e8, 122227.0 * 3839.0, 0.04077).expect("half busy");
+        assert!((r - 2.0 * 1.66e8 / 0.04077).abs() < 1.0, "{r:e}");
+    }
+
+    #[test]
+    fn tail_chunks_teach_nothing() {
+        // 110 k pixels parked for the probe: no steps.
+        assert_eq!(learned_rate(5e9, 0.0, 110201.0 * 581.0, 0.00009), None);
+        // 424 lanes running the limit: 3.9e4 of 1.8e8 steps.
+        assert_eq!(learned_rate(5e9, 3.9e4, 424.0 * 415752.0, 0.00047), None);
+        // 22 % busy (69 k lanes, most done early), 3 ms: latency-bound.
+        assert_eq!(learned_rate(5e9, 8.44e6, 69626.0 * 540.0, 0.00296), None);
+        // Busy but too short to time.
+        assert_eq!(learned_rate(5e9, 1.5e6, 80542.0 * 20.0, 0.00032), None);
+    }
+
+    #[test]
+    fn damped_to_four_times_per_chunk() {
+        assert_eq!(learned_rate(1e9, 1e9, 1e9, 0.01), Some(4e9));
+        assert_eq!(learned_rate(1e11, 1e7, 1e7, 0.01), Some(1e11 / 4.0));
+    }
+
+    #[test]
+    fn iterations_per_step_is_at_least_one() {
+        assert_eq!(iterations_per_step(3.24e11, 1.15e9), 3.24e11 / 1.15e9);
+        assert_eq!(iterations_per_step(1e6, 1e6), 1.0);
+        assert_eq!(iterations_per_step(0.0, 0.0), 1.0);
+        // (Probe steps count one each; more steps than iterations cannot speed anything up.)
+        assert_eq!(iterations_per_step(1e5, 2e5), 1.0);
     }
 }

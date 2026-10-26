@@ -120,6 +120,24 @@ Points:
   extension pass on a GPU-time budget showed the resolved top rows above a horizontal
   line. Decide from an estimate *before* a pass (`count × limit / rate`) and always
   finish it. Likewise, never extend a truncated list.
+- **Level tails inflate a lanes × K rate** (found 2026-10-26, M1 Pro). Learned as
+  `(liveIn + fresh) × K / gpu` from every chunk, the rate read a level's tail as nearly
+  free: pixels parked at the limit for the interior probe occupy lanes but do no steps,
+  probe chunks count a probe step as one loop step while K budgets 4 or 16, and a few lanes
+  run the whole limit. Each such chunk raised the rate ×4, to ~50× the job's mean
+  throughput (2e11 vs 4e9 loop steps/s at the N view, period-30 957 minibrot at
+  2e-166/pt, 1280 × 800). The next level's, extension pass's or compute-further segment's
+  first chunks were sized from it: 140–470 ms command buffers instead of 16. Within a level
+  the same rule is right (the busy share only falls, and in a tail of parked pixels it lets
+  K grow so the last few lanes finish in a few cheap chunks; holding K there cost the
+  Feigenbaum bench view 2 100 extra ~1 ms chunks, +17 % GPU). Fix: the busy rate learns
+  only from non-probe chunks of at least 1 ms whose steps are at least 25 % of lanes × K
+  (a chunk under 50 % busy counts at most twice its steps), each level keeps its own
+  lanes × K rate for its later chunks, and the deep kernel has its own busy rate (it
+  inherited the plain kernel's 3e10, 6× too high: 85 ms first chunks). The extension
+  budget check and compute further's fallback rate now convert iterations to loop steps by
+  the level's iterations per step (with LA ~280 at N); the inflated rate had hidden that
+  units mismatch. Numbers: [almondbread benchmarks and verification record](../synthesis/benchmarks.md#throughput-model-level-tails-2026-10-26).
 - **Lesson from the wedge report:** a long straight edge in a fractal image is a
   pipeline or test artefact. But "never written" and "stale" are not the only
   causes: here the culprit was a max-norm test on a nearly linear function of `c`
@@ -146,10 +164,13 @@ Measured 2026-10-14, M1 Pro, release; numbers in [almondbread benchmarks and ver
   iterations; a 1-thread `finishChunk` copies the live count into a 64-slot stats ring
   the CPU reads on completion.
 - **K from a throughput model.** `K = target × rate / threads`, with `threads` an upper
-  bound from the last harvested counts and `rate` (lane-iterations per GPU second)
-  adapted from every chunk, damped to ×4 per update. Target 16 ms idle, 8 ms during
-  gestures. Measured on a 1e7-iteration render: chunk GPU time median 16.0 ms, p99
-  17.6 ms, max 70 ms.
+  bound from the last harvested counts and `rate` in lanes × K (loop steps) per GPU
+  second, damped to ×4 per update. Target 16 ms idle, 8 ms during gestures. Measured on
+  a 1e7-iteration render: chunk GPU time median 16.0 ms, p99 17.6 ms, max 70 ms.
+  Two rates since 2026-10-26 (see Pitfalls, "level tails"): a **busy rate** per kernel
+  (plain, deep; cold 3e10 and 5e9 loop steps/s) learned only from chunks that measure
+  throughput, which sizes a level's first chunks, and a **level rate** learned from every
+  chunk of that level, which sizes its later ones.
 - **Compaction must keep order.** One atomic per SIMD-group appended survivors in a
   scrambled order; after a few chunks SIMD-groups mixed pixels from the whole image
   and `ref[m]` reads stopped coalescing: −31 % throughput at 16 ms chunks (13.9 s vs

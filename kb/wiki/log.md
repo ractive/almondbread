@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-26
 
+- **Research:** Throughput model level tails: busy rate per kernel, per-level lanes x K rate, iterations per step in extension estimates; chunk overshoot A/B, bench, flight-bench, interaction test; build profile timings and interference
 - **Decision:** Raise to 10 M on iOS after N: the memory budget's iteration cap no longer bounds compute further and the raise offer for a period-P nucleus reference (stored one period long, tables over P + 1 points, wraps by rebasing) once P fits the reference share; centre orbits and new views stay capped. N view under a 3 GB ceiling: offered 10 M, 100 % to 3.95 % unresolved, reference 30 958 points / 0.7 MB + 1.8 MB tables before and after (techniques/auto-iterations, platform/ios-device)
 - **Decision:** Rendering failed line: three panicking frames in a row show 'Rendering failed here (an internal error). Details in panic.log' in the HUD progress line (Reveal Log on macOS; iOS wording without the path), cleared by the next completed frame; ExplorerStats.failing, Explorer::simulate_frame_panics test hook, --ui-demo=failing (techniques/hang-prevention). Timing tests in the render crate repeat a measurement only while over the bound (test_timing::least_within): one OS preemption no longer fails them.
 - **Decision:** Travel journal keys in the Edit menu: ⌘Z / ⇧⌘Z are one context-dependent Undo / Redo pair (a text field's undo in any window, else Back / Forward); canvas keeps ⌘Y; resets no longer undoable (decisions/controls)
