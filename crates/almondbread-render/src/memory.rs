@@ -7,8 +7,8 @@
 //! --ios 1` prints the peak by kind, kb: platform/ios-device "Measured"):
 //!
 //! - per output texel: the full level (rg32f + rg16f, rg32f interior aux), the preview
-//!   allocation (the same plus rgba16f colour), two rgba16f history images and their two R8
-//!   class images ("fog takes history", 2 B, 2026-10-25), the fog pyramid: 69 B on the
+//!   allocation (the same plus rgba16f colour), two rgba16f history images and their two class
+//!   buffers (a byte each) ("fog takes history", 2 B, 2026-10-25), the fog pyramid: 69 B on the
 //!   device's GPU heap, plus three BGRA8 drawables of the layer: [`TEXEL_BYTES`];
 //! - per reference point (deep references): float32 and floatexp points on the CPU and again
 //!   on the GPU, and while it is computed the progressive prefixes and vector growth: about

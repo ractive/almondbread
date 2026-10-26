@@ -177,10 +177,10 @@ analysis still found another period on a 2–4 px rim (period mode: a ring of an
 
 The user's observation is the design: if only the position changed, everything the finished
 frame computed is still valid, including pixels proven interior and pixels too slow even at
-rest. The history stored only colour, so it gained a **class channel**: a second R8Uint image
-per history ping-pong buffer (2 B per output pixel for both, +2.5 % of the per-texel memory;
-the history colour's alpha holds the interpolated confidence and could not carry a flag
-through Catmull-Rom sampling). Each pixel holds the **class epoch** of its result:
+rest. The history stored only colour, so it gained a **class channel**: a byte per pixel
+beside each history ping-pong image (two buffers, 2 B per output pixel, +2.5 % of the per-texel
+memory; the history colour's alpha holds the interpolated confidence and could not carry a
+flag through Catmull-Rom sampling). Each pixel holds the **class epoch** of its result:
 
 - the epoch (1..255) belongs to the settings that decide results: formula and parameters,
   DE, interior test, interior analysis, the retry epoch, and the user's limit settings (auto

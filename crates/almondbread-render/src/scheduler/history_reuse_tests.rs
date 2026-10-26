@@ -79,10 +79,7 @@ impl Session {
     fn classes(&mut self) -> Vec<u8> {
         let class = self.r.history_class.clone().expect("history class");
         let mut out = vec![0u8; W * H];
-        self.r
-            .backend
-            .read_texture(&class[self.r.history_ping], W, H, TextureFormat::R8Uint, &mut out)
-            .expect("read classes");
+        self.r.backend.read_buffer(&class[self.r.history_ping], 0, &mut out);
         out
     }
 }

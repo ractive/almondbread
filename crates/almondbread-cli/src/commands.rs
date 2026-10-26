@@ -785,14 +785,15 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
         && frames > 0
     {
         println!(
-            "gesture: {} refreshes of input at 120 Hz, {} frames in all: {} previews ({:.0} fps) at mean scale {:.2} (texels per pixel), {} refreshes skipped, iterate GPU {:.2} ms/frame",
+            "gesture: {} refreshes of input at 120 Hz, {} frames in all: {} previews ({:.0} fps) at mean scale {:.2} (texels per pixel), {} refreshes skipped, iterate GPU {:.2} ms/frame, colour + compose GPU {:.3} ms/frame",
             frames,
             fs.frames,
             fs.preview_frames,
             120.0 * fs.preview_frames.min(frames) as f64 / frames as f64,
             fs.preview_scale_sum / fs.preview_frames.max(1) as f64,
             fs.skipped,
-            1000.0 * fs.chunk_gpu / fs.frames.max(1) as f64
+            1000.0 * fs.chunk_gpu / fs.frames.max(1) as f64,
+            1000.0 * fs.colorize_gpu / fs.frames.max(1) as f64
         );
     }
     sessions.push(first);

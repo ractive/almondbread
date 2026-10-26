@@ -90,7 +90,7 @@ release, 18 s flights: jump to the place, then 5 s of Space zoom):
 - Per output texel about **67 B** on the GPU heap (full level rg32f + rg16f + rg32f interior
   aux, the preview allocation with its rgba16f colour, two rgba16f history images, fog), plus
   three BGRA8 drawables of the layer (not in `currentAllocatedSize`): budgeted as 80 B; since
-  2026-10-25 two R8 history class images more (2 B, [Frame reuse and progressive
+  2026-10-25 two history class buffers more (a byte each, [Frame reuse and progressive
   refinement](../techniques/frame-reuse-and-progressive.md) "Fog takes history"): 82 B.
   Fixed about **108 MB** with the iOS defaults (live-list state, unresolved lists, kernels,
   survey, overlays), ~200 MB with the Mac's.

@@ -3843,10 +3843,10 @@ kernel void colorize(texture2d<float, access::read>  iters      [[texture(0)]],
 //   (`blend` = 1 / samples).
 // mode 3 (exact): exact pixels replace the history (colour changes while idle).
 //
-// Fog takes history (kb: techniques/frame-reuse-and-progressive "Fog takes history"): a
-// second history image holds per pixel the class epoch of its result: set where an exact
-// level's texel (refine, exact, AA, compute further) was composed, kept while the pixel's
-// reprojected history had it, 0 otherwise. Previews have no interior probe and no extension,
+// Fog takes history (kb: techniques/frame-reuse-and-progressive "Fog takes history"): a byte
+// per history pixel (classIn / classOut, ping-pong like the history) holds the class epoch of
+// its result: set where an exact level's texel (refine, exact, AA, compute further) was
+// composed, kept while the pixel's reprojected history (nearest) had it, 0 otherwise. Previews have no interior probe and no extension,
 // so near-boundary interior and slow pixels are unresolved there although the rest frame
 // resolved them (or found them too slow even with the extension), and a provisional cycle
 // analysis (icLimit) may find another period than the rest frame's probe: where the history
@@ -3912,8 +3912,8 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
                     constant ComposeParams& q                 [[buffer(4)]],
                     device const uint* furtherMask            [[buffer(5)]],   // mode 4
                     texture2d<float, access::sample> fog      [[texture(7)]],   // fogResolve's
-                    texture2d<uint, access::read>    classIn  [[texture(8)]],   // history class epoch
-                    texture2d<uint, access::write>   classOut [[texture(9)]],
+                    device const uchar* classIn               [[buffer(6)]],    // history class epochs
+                    device uchar* classOut                    [[buffer(7)]],    // (row-major, a byte each)
                     uint2 gid                                 [[thread_position_in_grid]])
 {
     if (gid.x >= c.outSize.x || gid.y >= c.outSize.y) return;
@@ -3938,7 +3938,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
             wh = clamp(h.a, 0.0f, q.confCap) * q.histDecay;
             inHist = true;
             const uint2 hc = min(uint2(hp), uint2(q.histSize) - 1u);
-            known = q.classEpoch != 0u && classIn.read(hc).x == q.classEpoch;
+            known = q.classEpoch != 0u && uint(classIn[hc.y * uint(q.histSize.x) + hc.x]) == q.classEpoch;
         }
     }
     // Known history: which preview texels count (alpha: 1 escaped, 0.5 interior, 0 none).
@@ -4049,7 +4049,7 @@ kernel void compose(texture2d<float, access::read>   iters    [[texture(0)]],   
         }
     }
     histOut.write(float4(col, conf), gid);
-    classOut.write(uint4(cls), gid);
+    classOut[gid.y * c.outSize.x + gid.x] = uchar(cls);
     out.write(float4(ditheredSRGB(col, gid), 1.0f), gid);
 }
 

@@ -1268,8 +1268,9 @@ pub struct Renderer<B: GpuBackend> {
     /// Ping-pong history images (linear colour + confidence) at the output size (FL).
     history: Option<[B::Texture; 2]>,
     /// Per history pixel (same ping): the class epoch its result belongs to (0: none, a
-    /// gesture blend). R8Uint, 2 B per pixel for both.
-    history_class: Option<[B::Texture; 2]>,
+    /// gesture blend), a byte per pixel row-major: 2 B per pixel for both (a buffer: the
+    /// R8Uint texture cost 0.05 ms more per 4 Mpx compose).
+    history_class: Option<[B::Buffer; 2]>,
     /// The current class epoch (1..=255) and the settings it stands for.
     class_epoch: u32,
     class_key: Option<ClassKey>,
@@ -5628,8 +5629,8 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(5, mask, 0);
         enc.set_texture(7, fog.as_ref().unwrap_or(&iter_tex));
         let class = self.history_class.clone().expect("history class");
-        enc.set_texture(8, &class[self.history_ping]);
-        enc.set_texture(9, &class[1 - self.history_ping]);
+        enc.set_buffer(6, &class[self.history_ping], 0);
+        enc.set_buffer(7, &class[1 - self.history_ping], 0);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5737,8 +5738,8 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_buffer(5, &self.dummy_buffer, 0);
         enc.set_texture(7, hist_in);
         let class = self.history_class.clone().expect("history class");
-        enc.set_texture(8, &class[self.history_ping]);
-        enc.set_texture(9, &class[1 - self.history_ping]);
+        enc.set_buffer(6, &class[self.history_ping], 0);
+        enc.set_buffer(7, &class[1 - self.history_ping], 0);
         let (tw, th) = self.threadgroup();
         enc.dispatch_threads([out_w, out_h, 1], [tw, th, 1]);
         let hist_new = hist_out.clone();
@@ -5883,8 +5884,8 @@ impl<B: GpuBackend> Renderer<B> {
             b.create_texture(width, height, TextureFormat::Rgba16Float, Storage::Private)?,
         ]);
         self.history_class = Some([
-            b.create_texture(width, height, TextureFormat::R8Uint, Storage::Private)?,
-            b.create_texture(width, height, TextureFormat::R8Uint, Storage::Private)?,
+            b.create_buffer(width * height, Storage::Shared)?,
+            b.create_buffer(width * height, Storage::Shared)?,
         ]);
         self.history_view = None;
         Ok(())
@@ -6885,22 +6886,13 @@ impl<B: GpuBackend> Renderer<B> {
         };
         let mut classes = vec![0u8; width * height];
         let known = match &self.history_class {
-            Some(class)
-                if self
-                    .backend
-                    .read_texture(
-                        &class[self.history_ping],
-                        width,
-                        height,
-                        TextureFormat::R8Uint,
-                        &mut classes,
-                    )
-                    .is_ok() =>
-            {
+            Some(class) => {
+                // (The frame was waited for above.)
+                self.backend.read_buffer(&class[self.history_ping], 0, &mut classes);
                 let e = self.class_epoch as u8;
                 classes.iter().filter(|&&c| c == e).count() as f64 / classes.len().max(1) as f64
             }
-            _ => 0.0,
+            None => 0.0,
         };
         if let Some(c) = self.gesture_captures.as_mut() {
             c.frames.push(GestureCapture {
