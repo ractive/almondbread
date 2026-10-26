@@ -300,7 +300,8 @@ impl Explorer {
     }
 
     /// Ends the tour: the saved settings come back (returned, `active` false) and the view
-    /// flies back to where the tour started. None without a running tour.
+    /// flies back to where the tour started (jumps when the flight would take over ~5 s). None
+    /// without a running tour.
     pub fn end_tour(&self) -> Option<TourStepInfo> {
         self.with_host(|h| {
             let ended = h.tour.as_ref().map(|t| (t.tour.id.clone(), t.tour.title.clone()))?;

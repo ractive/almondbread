@@ -429,6 +429,26 @@ impl Flight {
         }
     }
 
+    /// Seconds the flight takes from here to land at `speed` e-folds per second (no renderer
+    /// throttle), or None if it takes longer than `limit`: the real motion (springs, turn and
+    /// landing curves) stepped on a copy at 60 Hz, at most `limit` × 60 steps.
+    pub fn seconds_within(&self, speed: f64, limit: f64) -> Option<f64> {
+        const DT: f64 = 1.0 / 60.0;
+        let mut f = self.clone();
+        f.stopping = false;
+        let mut t = 0.0;
+        while t <= limit {
+            if f.s >= f.path.length {
+                return Some(t);
+            }
+            t += DT;
+            if f.step(DT, speed, 1.0) {
+                return (t <= limit).then_some(t);
+            }
+        }
+        None
+    }
+
     /// Advances by `dt` at `speed` e-folds per second times `throttle`; returns true when the
     /// flight is over (landed, or stopped by Esc).
     pub fn step(&mut self, dt: f64, speed: f64, throttle: f64) -> bool {

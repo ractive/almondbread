@@ -312,6 +312,15 @@ impl Center {
         (f(&self.c.re - &other.c.re), f(&self.c.im - &other.c.im))
     }
 
+    /// `self - other` in complex units as DoubleExp: any offset at any depth (no f64 on the
+    /// way, so a point 10^336 view widths away is no infinity).
+    pub fn delta_double_exp(&self, other: &Center) -> (DoubleExp, DoubleExp) {
+        (
+            (&self.c.re - &other.c.re).double_exp(),
+            (&self.c.im - &other.c.im).double_exp(),
+        )
+    }
+
     /// `|self - other| / unit` (inf if the offset is beyond f64 range in those units).
     pub fn distance_in(&self, other: &Center, unit: Scale) -> f64 {
         let (x, y) = self.delta_in(other, unit);
@@ -845,6 +854,26 @@ impl ViewLimits {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A point 10^336 view widths away (a tour's probe seen from 1e-337): delta_in overflows
+    /// to inf, delta_double_exp stays exact (the orbit overlay's panic, 2026-10-26).
+    #[test]
+    fn delta_double_exp_holds_any_offset() {
+        let deep = Center::parse(
+            "-1.2535653447483558752749318373594099945",
+            "0.34307623723864021629608292436337",
+        )
+        .expect("centre");
+        let probe = Center::parse("-0.75", "0.001").expect("probe");
+        let scale = Scale::parse("3.59344e-337").expect("scale");
+        assert!(!probe.delta_in(&deep, scale).0.is_finite());
+        let (dx, dy) = probe.delta_double_exp(&deep);
+        let (fx, fy) = probe.delta_from(&deep);
+        assert!((dx.to_f64() - fx).abs() < 1e-15 && (dy.to_f64() - fy).abs() < 1e-15);
+        let fine = deep.with_min_precision(1200);
+        let (ex, _) = fine.delta_double_exp(&fine.offset_scaled(1.0, 0.0, scale));
+        assert!((ex / scale.double_exp()).to_f64() + 1.0 < 1e-12, "exact at depth");
+    }
 
     #[test]
     fn zoom_keeps_point_fixed() {
