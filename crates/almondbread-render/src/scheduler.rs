@@ -49,6 +49,8 @@ mod reference_gpu;
 pub use buddha_frame::{BuddhaShown, LIVE_DIV, OrbitProgress, REST_TARGET_HITS};
 use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
+mod extreme_reproject_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod further_continue_tests;
@@ -5747,6 +5749,11 @@ impl<B: GpuBackend> Renderer<B> {
         let (dx, dy) = h
             .viewport
             .unrotate_vec(view.center.delta_in(&h.viewport.center, h.scale));
+        // A jump between two deep views of about the same scale: the offset is beyond f64 (inf,
+        // or NaN when turned) or f32 history pixels; nothing of the history is on screen.
+        if !(dx.abs() < 1e30 && dy.abs() < 1e30) {
+            return;
+        }
         // Output offsets (y up) turn by phi = new angle - history angle; in texture axes
         // (y down) that is a turn by -phi.
         let phi = view.angle - h.viewport.angle;

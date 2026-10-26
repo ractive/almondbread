@@ -42,3 +42,18 @@ fn extreme_float_decomposition_terminates() {
         let _ = log2_unit(x);
     }
 }
+
+#[test]
+fn extreme_double_exp_from_non_finite_f64() {
+    // Panicked: a point 10^336 view widths away became inf in f64 view units and the orbit
+    // probe's conversion fired on every display refresh (2026-10-26). Now carried as f64 would.
+    use crate::floatexp::DoubleExp;
+    let inf = DoubleExp::from_f64(f64::INFINITY);
+    assert_eq!(inf.to_f64(), f64::INFINITY);
+    assert_eq!(DoubleExp::from_f64(f64::NEG_INFINITY).to_f64(), f64::NEG_INFINITY);
+    assert!(DoubleExp::from_f64(f64::NAN).to_f64().is_nan());
+    // It propagates like an overflow does: products stay infinite, finite values unchanged.
+    assert_eq!((inf * DoubleExp::from_f64(0.5)).to_f64(), f64::INFINITY);
+    assert_eq!(DoubleExp::from_f64(1e-300).to_f64(), 1e-300);
+    assert_eq!(DoubleExp::from_f64(-3.0).to_f64(), -3.0);
+}

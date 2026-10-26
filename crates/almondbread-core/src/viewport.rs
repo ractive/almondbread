@@ -29,6 +29,12 @@ fn pow2(k: i64) -> f64 {
     }
 }
 
+/// `x` for `BigFloat::from_f64`, which asserts a finite value: NaN is 0, +-inf is +-f64::MAX.
+/// A panic in a frame only drops it and fires again on the next (kb: techniques/hang-prevention).
+fn finite_or_saturated(x: f64) -> f64 {
+    if x.is_nan() { 0.0 } else { x.clamp(-f64::MAX, f64::MAX) }
+}
+
 /// A positive extended-range number: `mant * 2^exp` with `mant` in [1, 2). Arithmetic with f64
 /// factors rounds exactly like f64 arithmetic on the value would in f64's normal range (only
 /// the power of two is carried separately), so shallow views compute bit-identical texel scales.
@@ -118,8 +124,7 @@ impl Scale {
     /// the product saturates at +-f64::MAX instead of overflowing to inf; NaN is 0 (kb:
     /// techniques/hang-prevention).
     pub fn big_times(self, x: f64, precision_bits: usize) -> BigFloat {
-        let p = x * self.mant;
-        let p = if p.is_nan() { 0.0 } else { p.clamp(-f64::MAX, f64::MAX) };
+        let p = finite_or_saturated(x * self.mant);
         BigFloat::from_f64(p, precision_bits.max(64)).times_power_of_two(self.exp)
     }
 
@@ -206,9 +211,11 @@ pub const MAX_COORDINATE_DIGITS: usize = 20_000;
 
 impl Center {
     /// From f64 coordinates (exact).
+    /// From f64 parts; non-finite parts saturate (NaN is 0, +-inf is +-f64::MAX) instead of
+    /// panicking.
     pub fn new(re: f64, im: f64) -> Self {
         Self {
-            c: BigComplex::from_f64(re, im, MIN_CENTER_BITS),
+            c: BigComplex::from_f64(finite_or_saturated(re), finite_or_saturated(im), MIN_CENTER_BITS),
         }
     }
 
@@ -276,13 +283,14 @@ impl Center {
         )
     }
 
-    /// `self + (dre, dim)`, exact up to the centre's precision.
+    /// `self + (dre, dim)`, exact up to the centre's precision (non-finite offsets saturate as
+    /// in [`Center::new`]).
     pub fn offset(&self, dre: f64, dim: f64) -> Self {
         let bits = self.precision_bits();
         Self {
             c: BigComplex::new(
-                &self.c.re + BigFloat::from_f64(dre, bits),
-                &self.c.im + BigFloat::from_f64(dim, bits),
+                &self.c.re + BigFloat::from_f64(finite_or_saturated(dre), bits),
+                &self.c.im + BigFloat::from_f64(finite_or_saturated(dim), bits),
             ),
         }
     }
