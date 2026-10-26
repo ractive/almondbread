@@ -924,12 +924,11 @@ public final class ExplorerModel {
         case all, view, look, lighting, interior, overlays, quality, cinematic
     }
 
-    /// Resets `scope` to the defaults (`withView`: also the view, for "all"). Undoable: the
-    /// previous settings (and view) go on `undo` (Edit ▸ Undo; ⌘Z itself is the travel journal's back).
-    public func reset(_ scope: ResetScope, withView: Bool = false, undo: UndoManager? = nil) {
+    /// Resets `scope` to the defaults (`withView`: also the view, for "all"). Not undoable: the
+    /// Edit menu's Undo / Redo are the travel journal's Back / Forward (kb: decisions/controls
+    /// "Travel journal").
+    public func reset(_ scope: ResetScope, withView: Bool = false) {
         guard let explorer else { return }
-        let before = snapshot()
-        let view = explorer.viewport()
         let d = explorer.defaultSettings()
         pulling = true
         func rgb(_ r: Float, _ g: Float, _ b: Float) -> SIMD3<Float> { SIMD3(r, g, b) }
@@ -1012,16 +1011,6 @@ public final class ExplorerModel {
         pushCosmic()
         pushCompass()
         if scope == .view || (scope == .all && withView) { reset() }
-        undo?.registerUndo(withTarget: self) { m in
-            MainActor.assumeIsolated {
-                m.apply(before)
-                if scope == .view || (scope == .all && withView) {
-                    try? m.explorer?.setViewportText(re: view.re, im: view.im, scale: view.scaleText)
-                    m.host?.requestFrames()
-                }
-            }
-        }
-        undo?.setActionName(scope == .all ? "Reset All" : "Reset Section")
     }
 
     /// Back to the defaults (the default look, overlays off) and forgets the saved settings.

@@ -307,10 +307,14 @@ final class InteractionTest: NSObject {
             }
             if t >= 1.0 { pan(v, i, t) }
         }
-        // The travel journal's keys (kb: decisions/controls "Travel journal"), real key events
-        // through the canvas's key monitor: a place, ⌘Z back, ⇧⌘Z forward, ⌘Y after another ⌘Z;
-        // with a text field editing, ⌘Z / ⇧⌘Z undo and redo its typing and the journal stays; the
-        // menu bar's ⌘Z items are View ▸ Back / Forward only. Then a pan (pacing is measured on it).
+        // The travel journal's keys (kb: decisions/controls "Travel journal"): a place, then the
+        // Edit menu's Undo / Redo actions on this window (back, forward; the window is never key,
+        // so the menu's own key dispatch cannot reach it: the actions are called as the menu
+        // calls them), ⌘Y after another back through the canvas's key monitor. The monitor must
+        // not take ⌘Z / ⇧⌘Z (the menu owns them: both would act on one press). With a text field
+        // editing, the same actions undo and redo its typing, the item reads its undo manager's
+        // title, and the journal stays. The menu bar: Edit ▸ Undo / Redo are the only ⌘Z / ⇧⌘Z
+        // items, titled Back / Forward with no text editing. Then a pan (pacing is measured on it).
         var journal = (start: Int(0), log: [String](), ok: true)
         let journalKeys: (FractalNSView, Int, Double) -> Void = { v, i, t in
             guard let explorer = v.explorer else { return }
@@ -322,6 +326,9 @@ final class InteractionTest: NSObject {
                                                characters: chars, charactersIgnoringModifiers: chars,
                                                isARepeat: false, keyCode: 6) else { return false }
                 return v.handleKey(e)
+            }
+            @MainActor func menu(redo: Bool) -> JournalKeys.Action {
+                EditUndoContext.perform(redo: redo, window: v.window, model: v.model, isRepeat: false)
             }
             func expect(_ what: String, _ ok: Bool) {
                 journal.log.append("\(what) \(ok ? "ok" : "FAILED")")
@@ -343,20 +350,24 @@ final class InteractionTest: NSObject {
                 let s = explorer.stats().journal
                 journal.start = Int(s.position) - 1
                 expect("place \(s.position) of \(s.count)", s.position == s.count && s.count >= 2)
-                expect("⌘Z taken", cmd("z"))
+                expect("⌘Z not taken by the canvas", !cmd("z") && position() == journal.start + 1)
+                expect("⇧⌘Z not taken by the canvas", !cmd("Z", [.command, .shift]) && position() == journal.start + 1)
+                expect("Edit ▸ Back", menu(redo: false) == .journal)
             }
             once("forward", sent.contains("back") && t >= 0.9) {
                 expect("back to \(position())", position() == journal.start)
-                expect("⇧⌘Z taken", cmd("Z", [.command, .shift]))
+                expect("Edit ▸ Forward", menu(redo: true) == .journal)
             }
             once("back2", sent.contains("forward") && t >= 1.3) {
                 expect("forward to \(position())", position() == journal.start + 1)
-                _ = cmd("z")
+                _ = menu(redo: false)
             }
             once("y", sent.contains("back2") && t >= 1.7) { expect("⌘Y taken", cmd("y")) }
             once("text", sent.contains("y") && t >= 2.1) {
                 expect("forward again to \(position())", position() == journal.start + 1)
-                // A text field editing: ⌘Z goes on (not taken) and the journal stays.
+                expect("no text editing: \(JournalKeys.menuItem(redo: false, text: EditUndoContext.textUndo(in: v.window), canTravel: true).title)",
+                       EditUndoContext.textUndo(in: v.window) == nil)
+                // A text field editing: the Edit menu's pair is its undo / redo; the journal stays.
                 let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
                 v.window?.contentView?.addSubview(field)
                 v.window?.makeFirstResponder(field)
@@ -364,25 +375,34 @@ final class InteractionTest: NSObject {
                 editor?.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))
                 editor?.breakUndoCoalescing()
                 let typed = editor?.string ?? "-"
-                let taken = cmd("z")
+                let state = EditUndoContext.textUndo(in: v.window)
+                let item = JournalKeys.menuItem(redo: false, text: state, canTravel: true)
+                expect("Undo item while editing: '\(item.title)' enabled \(item.enabled)",
+                       item.action == .text && item.enabled && item.title.hasPrefix("Undo"))
+                let canvasTook = cmd("z")
+                let undoAction = menu(redo: false)
                 let undone = editor?.string ?? "-"
-                _ = cmd("Z", [.command, .shift])
+                let redoItem = JournalKeys.menuItem(redo: true, text: EditUndoContext.textUndo(in: v.window), canTravel: false)
+                let redoAction = menu(redo: true)
                 let redone = editor?.string ?? "-"
-                expect("text field: typed '\(typed)', ⌘Z '\(undone)', ⇧⌘Z '\(redone)'",
-                       editor != nil && taken && typed == "abc" && undone.isEmpty && redone == "abc")
+                expect("text field: typed '\(typed)', Undo '\(undone)', Redo '\(redone)' ('\(redoItem.title)')",
+                       editor != nil && !canvasTook && undoAction == .text && redoAction == .text && redoItem.enabled
+                       && typed == "abc" && undone.isEmpty && redone == "abc")
                 expect("journal unchanged \(position())", position() == journal.start + 1)
-                // The menu bar's ⌘Z items in order: the Edit menu's Undo before View ▸ Back.
+                // The menu bar's ⌘Z / ⌘Y items: only Edit ▸ Undo / Redo, as Back / Forward (no key
+                // window edits text while this test runs in the background).
                 var order: [String] = []
                 for top in NSApp.mainMenu?.items ?? [] {
-                    for item in top.submenu?.items ?? [] where item.keyEquivalent.lowercased() == "z"
-                        || ["Back", "Forward", "Zoom In", "Copy Coordinates"].contains(item.title) {
+                    for item in top.submenu?.items ?? [] where ["z", "y"].contains(item.keyEquivalent.lowercased())
+                        || ["Back", "Forward"].contains(item.title) {
                         let m = item.keyEquivalentModifierMask
                         let mods = (m.contains(.shift) ? "⇧" : "") + (m.contains(.command) ? "⌘" : "")
                         order.append("\(top.title) ▸ \(item.title) \(mods)\(item.keyEquivalent)")
                     }
                 }
-                expect("⌘Z menu items \(order)", order.contains("View ▸ Back ⌘z") && order.contains("View ▸ Forward ⇧⌘z")
-                       && !order.contains { $0.lowercased().hasSuffix("z") && !$0.hasPrefix("View") })
+                let keyWindowEdits = EditUndoContext.textUndo(in: NSApp.keyWindow) != nil
+                expect("⌘Z menu items \(order)", order.count == 2 && order.allSatisfy { $0.hasPrefix("Edit ▸ ") }
+                       && (keyWindowEdits || (order.contains("Edit ▸ Back ⌘z") && order.contains("Edit ▸ Forward ⇧⌘z"))))
                 field.removeFromSuperview()
                 v.window?.makeFirstResponder(v)
                 if !journal.ok { self.failures += 1 }
