@@ -460,6 +460,13 @@ struct Level<B: GpuBackend> {
     probe_skipped: bool,
     /// Loop steps (BLA + perturbation) the GPU did for this level.
     steps: f64,
+    /// The level's own throughput model (0: no chunk harvested yet; `Renderer::rate` sizes
+    /// its first chunks): lanes x K per GPU second of its chunks, every one, damped x4 per
+    /// chunk. Within a level the busy share only falls (admission fills freed slots), so
+    /// lanes x K is a safe predictor there, and in a tail of parked pixels with a few lanes
+    /// running it lets K grow to the limit: the Feigenbaum view's last pixels took 2 100 more
+    /// ~1 ms chunks (+17 % GPU) with K held at the busy rate's.
+    rate: f64,
     /// Iterates through the BLA table (decided when the level starts).
     use_bla: bool,
     /// M6: iterates through the LA table instead (decided when the level starts).
@@ -788,6 +795,7 @@ impl<B: GpuBackend> Level<B> {
             probe_failed: 0,
             probe_skipped: false,
             steps: 0.0,
+            rate: 0.0,
             use_bla: false,
             use_la: false,
             preview,
@@ -4017,7 +4025,11 @@ impl<B: GpuBackend> Renderer<B> {
             }
             let Some(job) = &self.job else { break };
             let level = &job.levels[i];
-            let rate = self.rate[usize::from(job.deep)];
+            let rate = if level.rate > 0.0 {
+                level.rate
+            } else {
+                self.rate[usize::from(job.deep)]
+            };
             // Upper bound on the threads of this chunk, from the last harvested counts.
             let threads = self.config.live_capacity.min(level.live + level.total - level.admitted);
             // K from the throughput model: work <= threads x K loop steps.
@@ -4538,6 +4550,14 @@ impl<B: GpuBackend> Renderer<B> {
             level.gpu_time += gpu;
             level.iterations += stats.iterations() as f64;
             level.steps += stats.steps() as f64;
+            if rec.adaptive && gpu > 2e-4 && pixels > 0.0 {
+                let base = if level.rate > 0.0 {
+                    level.rate
+                } else {
+                    self.rate[kernel]
+                };
+                level.rate = (pixels * rec.iterations as f64 / gpu).clamp(base / 4.0, base * 4.0);
+            }
             level.interior_pixels += stats.interior as usize;
             level.admitted = stats.admitted as usize;
             level.live = stats.live_out as usize;
