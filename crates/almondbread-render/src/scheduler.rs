@@ -51,6 +51,8 @@ use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
 mod formula_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod further_continue_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod gesture_interior_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod history_reuse_tests;
@@ -550,6 +552,10 @@ struct FurtherOrbit {
     extends: bool,
 }
 
+/// Compute further's segments cost at most `further_budget` / this (estimated), so the time
+/// limit, checked between segments, overruns by at most that much.
+const FURTHER_SEGMENTS_PER_BUDGET: f64 = 8.0;
+
 /// Iterations per GPU second compute further assumes before its passes have measured their own
 /// (the plain kernel near the -3/4 neck: 2–3e10 on M1 Pro, 2026-10-17).
 const FURTHER_RATE_GUESS: f64 = 3e10;
@@ -592,6 +598,9 @@ struct Further<B: GpuBackend> {
     mask: Option<(B::Buffer, usize)>,
     /// GPU seconds added to `further_budget` by "Continue" (the HUD's offer at the time limit).
     extra_budget: f64,
+    /// GPU seconds of the extension passes when the pass in progress started (its own cost per
+    /// texel sizes its next segment).
+    pass_gpu: f64,
 }
 
 impl<B: GpuBackend> Further<B> {
@@ -4767,6 +4776,7 @@ impl<B: GpuBackend> Renderer<B> {
             deferred: false,
             mask: None,
             extra_budget: 0.0,
+            pass_gpu: 0.0,
         });
         // AA first when the view takes samples and its texels are the output's (live views:
         // no supersampling grid), so a still view is anti-aliased as soon as without compute
@@ -4842,20 +4852,49 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// "Continue" at the time limit (kb: techniques/auto-iterations "Compute further"): another
-    /// `further_budget` GPU seconds for this view, and the passes go on where they stopped.
-    /// Returns whether it resumed (only a view stopped by the time limit does).
+    /// `further_budget` GPU seconds for this view from what it has spent, and the passes go on
+    /// where they stopped (a pass paused between segments resumes at its next segment). The
+    /// time limit is a measured one (GPU seconds spent), so the budget given here always buys
+    /// at least one segment. Returns whether it resumed (only a view stopped by the time limit
+    /// does; the HUD offers "Continue" only then).
     pub fn continue_further(&mut self) -> bool {
-        let budget = self.config.further_budget;
-        let Some(f) = self.job.as_mut().and_then(|j| j.further.as_mut()) else {
-            return false;
-        };
+        let base = self.config.further_budget;
+        let Some(job) = self.job.as_mut() else { return false };
+        let spent = Self::extension_gpu(job);
+        let Some(f) = job.further.as_mut() else { return false };
         if f.stop != Some(FurtherStop::Budget) {
             return false;
         }
-        f.extra_budget += budget;
+        f.extra_budget = f.extra_budget.max(spent - base) + base;
         f.stop = None;
-        self.further_next_pass();
+        let paused = f.limit > 0;
+        // (Not settled any more: the HUD line shows "computing further" at once, and the
+        // marked texels compose and fade in again after the last pass.)
+        job.final_presented = false;
+        job.further_done_at = None;
+        if self.config.trace {
+            println!(
+                "further: continue ({})",
+                if paused { "paused pass" } else { "next pass" }
+            );
+        }
+        if paused {
+            self.further_scan();
+        } else {
+            self.further_next_pass();
+        }
         self.job.as_ref().is_some_and(Job::further_running)
+    }
+
+    /// The GPU seconds all extension passes of the view may take (`further_budget` and what
+    /// "Continue" added).
+    fn further_budget_now(&self) -> f64 {
+        self.config.further_budget
+            + self
+                .job
+                .as_ref()
+                .and_then(|j| j.further.as_ref())
+                .map_or(0.0, |f| f.extra_budget)
     }
 
     fn stop_further(&mut self, why: FurtherStop) {
@@ -4907,12 +4946,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// reach and the budget) or why there is none; starts its first segment scan.
     fn further_next_pass(&mut self) {
         let cap = self.iteration_cap();
-        let extra = self
-            .job
-            .as_ref()
-            .and_then(|j| j.further.as_ref())
-            .map_or(0.0, |f| f.extra_budget);
-        let budget = self.config.further_budget + extra;
+        let budget = self.further_budget_now();
         let min_share = self.config.further_min_share;
         let probe_div = INTERIOR_PROBE;
         let rate = self.rate;
@@ -4987,22 +5021,29 @@ impl<B: GpuBackend> Renderer<B> {
             }
             next = job.exact_reach;
         }
-        // Budget: every pixel left runs to the new limit at worst (and its interior probe),
-        // from the start.
+        // Budget: measured, the GPU seconds the extension passes have taken (a pass is cut
+        // between segments when they reach it, `further_segment_done`). The pessimistic
+        // estimate (every pixel left runs to the new limit, and its interior probe, from the
+        // start) only picks x2 over x4: it read minutes for passes that took seconds (pixels
+        // proven interior early), and stopping on it left "Continue" unable to start any pass.
+        let spent = Self::extension_gpu(job);
+        if spent >= budget {
+            return self.stop_further(FurtherStop::Budget);
+        }
         let count = f.unresolved as f64;
         let probe_cost = if job.deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
         let per_pixel = |n: usize| (n + probe_limit(n, probe_div) as usize * probe_cost) as f64;
-        let spent = Self::extension_gpu(job);
         let rate = Self::further_rate(job, rate);
-        let fits = |n: usize| spent + count * per_pixel(n) / rate <= budget;
-        if !fits(next) {
+        if spent + count * per_pixel(next) / rate > budget {
             next = next.min(f.reached.saturating_mul(2));
         }
-        if !fits(next) || next <= f.reached {
-            return self.stop_further(FurtherStop::Budget);
+        if next <= f.reached {
+            // (Cannot happen: reached < ceiling and the reach; no pass, and nothing to continue.)
+            return self.stop_further(FurtherStop::Limit);
         }
         let trace = self.config.trace;
         let f = self.job.as_mut().expect("job").further.as_mut().expect("further");
+        f.pass_gpu = spent;
         f.limit = next;
         f.next_slot = 0;
         f.resolved = 0;
@@ -5021,6 +5062,10 @@ impl<B: GpuBackend> Renderer<B> {
     /// reads its count).
     fn further_scan(&mut self) {
         let list_capacity = self.list_capacity;
+        let budget = self.further_budget_now();
+        let segment_budget = self.config.further_budget / FURTHER_SEGMENTS_PER_BUDGET;
+        let probe_div = INTERIOR_PROBE;
+        let rate = self.rate;
         let Some(job) = &self.job else { return };
         let Some(f) = &job.further else { return };
         let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
@@ -5032,6 +5077,24 @@ impl<B: GpuBackend> Renderer<B> {
             return self.stop_further(FurtherStop::Failed);
         };
         let start = f.next_slot;
+        // The budget is checked between segments, so a segment's cost bounds the overrun: at
+        // most what is left of the budget, and an eighth of `further_budget`. Its cost per
+        // texel is the pass's own so far (worst case before it has measured any: every texel
+        // to the limit), its texels the unresolved share of the slots left.
+        let spent = Self::extension_gpu(job);
+        let done = f.resolved + f.left;
+        let pass_gpu = spent - f.pass_gpu;
+        let per_texel = if done >= 4096 && pass_gpu > 0.02 {
+            pass_gpu / done as f64
+        } else {
+            let probe_cost = if job.deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
+            (f.limit + probe_limit(f.limit, probe_div) as usize * probe_cost) as f64 / Self::further_rate(job, rate)
+        };
+        let slots_left = f.slots.saturating_sub(start).max(1);
+        let density = f.unresolved.saturating_sub(done).max(1) as f64 / slots_left as f64;
+        let target = (budget - spent).min(segment_budget).max(0.0);
+        let sized = (target / (per_texel * density).max(1e-12)).min(segment as f64) as usize;
+        let segment = (sized / 256 * 256).clamp(256, segment);
         let count = segment.min(f.slots.saturating_sub(start));
         let (w, h) = (full.set.width, full.set.height);
         let iter = full.set.iter.clone();
@@ -5152,9 +5215,31 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         if f.next_slot < f.slots {
+            // The time limit, measured: the pass pauses here, keeping what its segments
+            // resolved; "Continue" resumes it at the next segment.
+            if Self::extension_gpu(job) >= self.further_budget_now() {
+                return self.pause_further();
+            }
             self.further_scan();
         } else {
             self.further_pass_done();
+        }
+    }
+
+    /// The time limit between two segments of a pass: stopped (`Budget`), the pass's limit and
+    /// next segment kept for "Continue".
+    fn pause_further(&mut self) {
+        let trace = self.config.trace;
+        let Some(f) = self.job.as_mut().and_then(|j| j.further.as_mut()) else {
+            return;
+        };
+        f.stop = Some(FurtherStop::Budget);
+        f.scan = None;
+        if trace {
+            println!(
+                "further: stop (time limit) in the pass to {} at slot {} of {}, {} of {} unresolved resolved",
+                f.limit, f.next_slot, f.slots, f.resolved, f.unresolved
+            );
         }
     }
 

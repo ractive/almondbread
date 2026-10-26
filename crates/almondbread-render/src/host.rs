@@ -688,15 +688,16 @@ impl<B: GpuBackend + Clone> Host<B> {
         if let Some((v, jump)) = plan.view {
             let (w, h) = self.view_points;
             let target = v.viewport(w.min(h).max(1.0));
+            // `move: jump`, or a flight longer than ~5 s (from deep down a tour's first step
+            // flew for minutes): a jump.
             let r = &mut self.renderer;
+            let start = r.viewport.clone();
             if jump {
                 r.navigator.jumped();
+            }
+            if jump || !r.navigator.travel_to(&target, &start, now) {
                 r.viewport = target;
                 r.note_interaction(now);
-            } else {
-                let start = r.viewport.clone();
-                r.navigator.cancel_flight();
-                r.navigator.fly_to(&target, &start, now);
             }
         }
     }
@@ -752,8 +753,8 @@ impl<B: GpuBackend + Clone> Host<B> {
             && self.tour.as_ref().is_some_and(|t| t.goal_met(&self.renderer.viewport))
     }
 
-    /// Ends the tour: the saved settings come back and the view flies back to where it was.
-    /// False without a tour.
+    /// Ends the tour: the saved settings come back and the view flies back to where it was
+    /// (jumps when the flight would take over ~5 s). False without a tour.
     pub fn end_tour(&mut self, now: f64) -> bool {
         let Some(t) = self.tour.take() else { return false };
         if self.overlay.pi.flying() {
@@ -765,7 +766,11 @@ impl<B: GpuBackend + Clone> Host<B> {
         let r = &mut self.renderer;
         let start = r.viewport.clone();
         r.navigator.jumped();
-        r.navigator.fly_to(&view, &start, now);
+        // Back by air when that takes at most ~5 s, else a jump.
+        if !r.navigator.travel_to(&view, &start, now) {
+            r.viewport = view;
+            r.note_interaction(now);
+        }
         true
     }
 
@@ -1312,8 +1317,7 @@ mod journal_tests {
         }
 
         fn frames(&mut self, seconds: f64) {
-            let end = self.now + seconds;
-            while self.now < end {
+            for _ in 0..(seconds * 60.0).ceil() as usize {
                 self.frame();
             }
         }
@@ -1501,3 +1505,7 @@ mod journal_tests {
         assert_eq!(r.count(), (2, 3));
     }
 }
+
+#[cfg(all(test, target_vendor = "apple"))]
+#[path = "host_tour_tests.rs"]
+mod tour_tests;

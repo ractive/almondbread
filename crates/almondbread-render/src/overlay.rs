@@ -1296,18 +1296,19 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let scale = view.scale.double_exp();
         let (point, ref_offset, centre) = match reference {
             Some((rp, r)) => {
-                // dc = c - C_ref and C_ref - C_view, in units of the view scale (exact in
-                // BigFloat), back to DoubleExp.
-                let (dx, dy) = c.delta_in(&rp, view.scale);
-                let (ox, oy) = rp.delta_in(&view.center, view.scale);
-                let sc = |v: f64| DoubleExp::from_f64(v) * scale;
+                // dc = c - C_ref and C_ref - C_view, exact in BigFloat, straight to DoubleExp:
+                // not through f64 view units, which overflowed to inf (a panic every frame) for
+                // a tour's probe 10^336 view widths away at the start of its flight (2026-10-26,
+                // "What's the fog?" at 1e334: the view never moved).
+                let (dx, dy) = c.delta_double_exp(&rp);
+                let (ox, oy) = rp.delta_double_exp(&view.center);
                 (
                     ProbePoint {
                         formula: renderer.settings.formula,
                         reference: Some(r),
-                        dc: almondbread_core::math::DoubleExpComplex::new(sc(dx), sc(dy)),
+                        dc: almondbread_core::math::DoubleExpComplex::new(dx, dy),
                     },
-                    almondbread_core::math::DoubleExpComplex::new(sc(ox), sc(oy)),
+                    almondbread_core::math::DoubleExpComplex::new(ox, oy),
                     [view.center.re(), view.center.im()],
                 )
             }

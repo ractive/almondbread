@@ -184,10 +184,12 @@ impl Journal {
             self.autonomous = f.autonomous;
         }
         // Leaving a rest that lasted the dwell (frames may have stopped meanwhile).
-        if (changed || !f.at_rest) && !self.dwell_done && self.rest_since.is_some_and(|t| now - t >= DWELL_SECONDS) {
-            if let Some(l) = self.last.clone() {
-                self.dwell(l, f.width);
-            }
+        if (changed || !f.at_rest)
+            && !self.dwell_done
+            && self.rest_since.is_some_and(|t| now - t >= DWELL_SECONDS)
+            && let Some(l) = self.last.clone()
+        {
+            self.dwell(l, f.width);
         }
         if changed {
             self.last = Some(Entry::new(view.clone(), formula));
@@ -854,9 +856,9 @@ mod navigator_tests {
 
     #[test]
     fn autopilot_stop_and_reset_record() {
-        let (mut n, mut v) = nav();
+        let (mut n, _) = nav();
         let mut t = 0.0;
-        v = Viewport::new(-0.7436, 0.1318, 1e-7);
+        let mut v = Viewport::new(-0.7436, 0.1318, 1e-7);
         n.jumped();
         run(&mut n, &mut v, &mut t, 1.0);
         assert_eq!(n.journal().position(), (0, 1));
