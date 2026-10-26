@@ -25,6 +25,11 @@ struct ControlCenterView: View {
     /// The applied query (the field's text, debounced).
     @State private var query = UIDemo.search ?? ""
     @State private var confirmReset = false
+    /// Empty space after the last section, as a share of the pane's height (scroll past the end).
+    static let scrollPastEnd: CGFloat = 0.7
+    #if os(iOS)
+    @State private var scrollPastEndHeight: CGFloat = 0
+    #endif
     /// The Places grid's selection, shared with the pinned details bar. It lives as long as
     /// the control center does: closing the control center clears it.
     @State private var places = PlaceSelection(id: UIDemo.selectedPlace)
@@ -150,6 +155,9 @@ struct ControlCenterView: View {
                 if shown.isEmpty && !fractalHit {
                     Text("No setting matches “\(query)”.").foregroundStyle(.secondary)
                 }
+                // Room to scroll past the end: collapsing a section or a More near the bottom
+                // then pulls the rows below up instead of scrolling everything above down.
+                Color.clear.containerRelativeFrame(.vertical) { h, _ in h * Self.scrollPastEnd }
             }
             .padding(.horizontal, 14)
             .padding(.top, 10)
@@ -195,6 +203,9 @@ struct ControlCenterView: View {
                 }
             }
             .formStyle(.grouped)
+            // Room to scroll past the end (as on the Mac).
+            .contentMargins(.bottom, scrollPastEndHeight, for: .scrollContent)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { scrollPastEndHeight = $0 * Self.scrollPastEnd }
             .background(TourSectionScroller(model: model, proxy: proxy))
         }
     }
