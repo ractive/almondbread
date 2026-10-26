@@ -219,6 +219,8 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
     var model: ExplorerModel { base.model }
     private var link: CADisplayLink?
     private var keyMonitor: Any?
+    /// The Esc that left the search field: its release is swallowed too.
+    private var swallowEscapeUp = false
     private var resignObservers: [NSObjectProtocol] = []
     private var fullScreenObservers: [NSObjectProtocol] = []
     private var layoutRectObservation: NSKeyValueObservation?
@@ -713,6 +715,21 @@ final class FractalNSView: NSView, ExplorerHost, FractalHostView, CanvasAccessib
                 if !event.isARepeat { model.journalForward() }
                 return true
             }
+        }
+        // Esc in the control center's search field: clears it and hands the keys back to the canvas
+        // (kb: decisions/controls "Control center", Search). Swallowed, with its release: that
+        // press neither stops motion nor arms ending a tour.
+        if event.keyCode == 53, event.type == .keyDown, model.searchFieldFocused, window?.firstResponder is NSText {
+            if !event.isARepeat {
+                model.escapeSearch()
+                window?.makeFirstResponder(self)
+                swallowEscapeUp = true
+            }
+            return true
+        }
+        if event.keyCode == 53, event.type == .keyUp, swallowEscapeUp {
+            swallowEscapeUp = false
+            return true
         }
         if event.modifierFlags.contains(.command) || window?.firstResponder is NSText || gridKeys {
             if event.type == .keyUp, let key = Self.navKey(event) { send(.keyUp(key: key)) }

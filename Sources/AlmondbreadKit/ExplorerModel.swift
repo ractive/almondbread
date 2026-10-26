@@ -467,6 +467,14 @@ public final class ExplorerModel {
         searchFocusPending = true
         searchFocusRequest += 1
     }
+    /// Whether the search field has the keyboard focus (the canvas's key monitor reads it: Esc
+    /// there clears the search and gives the keys back to the canvas).
+    @ObservationIgnored var searchFieldFocused = false
+    /// Esc in the search field (counted): the field clears its text.
+    var searchEscapeRequest = 0
+    func escapeSearch() {
+        searchEscapeRequest += 1
+    }
 
     /// "Journey: continuous / stop at each find" (persisted; off: continuous; kb:
     /// decisions/controls "Journey with stops"): J and the cockpit's journey icon start this mode, ⇧J

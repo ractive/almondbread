@@ -104,7 +104,9 @@ public enum SelfTest {
 /// pinned place details bar); `tile-focus` (keyboard focus in the places and palette grids, see
 /// `tileFocusCheck`); `place-details` (a click on a place tile shows its details, also after Go
 /// and Fly; with `--ui-demo-search=` on a search result, see `placeDetailsCheck`); `failing` (the
-/// default scene, then every refresh panics: the HUD's "Rendering failed" line). `--ui-demo-search=text` starts any scene with that search;
+/// default scene, then every refresh panics: the HUD's "Rendering failed" line); `search-toggle` (search
+/// "limit", Tours closed by a header click during it); `search-esc` (Esc in the search field, see
+/// `searchEscapeCheck`). `--ui-demo-search=text` starts any scene with that search;
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -288,6 +290,7 @@ public enum UIDemo {
         case "help-control": "iterations"
         case "journey-stop": "journey"
         case "tours": "tour"
+        case "search-toggle", "search-esc": "limit"
         default: nil
         }
     }
@@ -325,6 +328,10 @@ public enum UIDemo {
             return
         }
         switch scene {
+        case "search-toggle":
+            // A header click during a search ("limit": Tours, Iterations & quality with its More
+            // forced open): Tours closes for this search only.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { UIPerf.actions.send(.toggle(.tours)) }
         case "more", "more-open":
             // Hidden settings changed: Lighting's More shows "· 2 changed", Look's "· 1 changed".
             model.lightAngle = 60
@@ -618,6 +625,7 @@ public enum UIDemo {
                     if scene == "accessibility" { accessibilityCheck(window: w, model: model) }
                     if scene == "tile-focus" { tileFocusCheck(window: w, model: model) }
                     if scene == "place-details" { placeDetailsCheck(window: w, model: model, explorer: explorer) }
+                    if scene == "search-esc" { searchEscapeCheck(window: w, model: model, explorer: explorer) }
                     if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
                     if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
@@ -658,6 +666,46 @@ extension UIDemo {
             }
         }
         return true
+    }
+
+    /// `--ui-demo=search-esc`: the search field ("limit") takes the focus (⌘F's path), then an Esc
+    /// press and release go through the event queue (the canvas's key monitor) of the background
+    /// window. The canvas must have the keyboard focus afterwards and the field must be empty.
+    /// Captures `window-search-esc-after.png`;
+    /// ends with "ui-demo: search esc OK" or "... FAILED: reasons".
+    @MainActor
+    static func searchEscapeCheck(window: NSWindow, model: ExplorerModel, explorer: Explorer) {
+        func field(_ v: NSView) -> NSTextField? {
+            if let t = v as? NSTextField, t.placeholderString == "Search settings" { return t }
+            for s in v.subviews { if let f = field(s) { return f } }
+            return nil
+        }
+        model.requestSearchFocus()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            var failures: [String] = []
+            let before = String(describing: window.firstResponder.map { type(of: $0) })
+            print("ui-demo: search esc: before: responder \(before), field focused \(model.searchFieldFocused), "
+                  + "text \"\(window.contentView.flatMap(field)?.stringValue ?? "?")\"")
+            if !(window.firstResponder is NSText) || !model.searchFieldFocused { failures.append("the search field did not take the focus") }
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let ev = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                             charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                    NSApp.postEvent(ev, atStart: false)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                let after = String(describing: window.firstResponder.map { type(of: $0) })
+                let text = window.contentView.flatMap(field)?.stringValue ?? "?"
+                print("ui-demo: search esc: after: responder \(after), field focused \(model.searchFieldFocused), text \"\(text)\"")
+                if !(window.firstResponder is FractalNSView) { failures.append("the canvas has not the focus (\(after))") }
+                if !text.isEmpty { failures.append("the field still says \"\(text)\"") }
+                if model.searchFieldFocused { failures.append("the field still counts as focused") }
+                capture(window: window, explorer: explorer, scene: "search-esc-after")
+                print(failures.isEmpty ? "ui-demo: search esc OK" : "ui-demo: search esc FAILED: " + failures.joined(separator: "; "))
+                fflush(stdout)
+            }
+        }
     }
 
     /// The recorded tiles of a kind ("place:", "palette:") laid out inside the window, in reading order.

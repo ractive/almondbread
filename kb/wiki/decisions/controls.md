@@ -3436,6 +3436,19 @@ min(90 pt, half its height) in view. iOS has no such test (the open section alon
 Checked by `--ui-demo=place-details` with `--ui-demo-search=` (a real click on a result tile,
 then Go and Fly, which switch the fractal; the bar's place printed after each).
 
+**Esc in the search field** (2026-10-26, user review). On the Mac one Esc clears the search and
+gives the keyboard focus back to the canvas (`FractalNSView`), so Space, Z and the arrows work at
+once. The canvas's window key monitor does it (it sees the key before the field editor): while
+the field has the focus (`ExplorerModel.searchFieldFocused`, from the field's `@FocusState`) and
+the first responder is the field editor, Esc calls `escapeSearch()` (the field clears its text
+and drops its focus), makes the canvas first responder and swallows the press and its release,
+so that Esc neither stops motion nor arms ending a tour. iPad with a hardware keyboard:
+`onKeyPress(.escape)` on the field does the same minus the canvas focus (the canvas there takes
+no keyboard focus of its own); (unverified): no simulator test drives a hardware keyboard.
+Checked by `--ui-demo=search-esc` (the field takes the focus through ⌘F's path, an Esc press and
+release go through the background window's event queue, then the canvas must be first responder
+and the field empty).
+
 ### Fractal row (as built, 2026-10-26)
 
 User request: the fractal choice was the first row of View & navigation, the third section after
@@ -3510,7 +3523,28 @@ offset ([Density pivot](../techniques/coloring-methods.md#density-pivot-as-built
 
 **Search.** A search shows matching sections open, as before; when the query also matches a row
 behind a section's More (`ControlSection.moreKeywords`), that More shows open too (for the
-search only; the stored state stays). **Tours.** No tour step rings a row inside a section
+search only; the stored state stays). **Toggling during a search** (user review, same day: with
+"limit" typed, the chevron next to Tours did nothing, because the search forced every matching
+section open). A header or More click during a search now flips that one for the current search
+only (`SearchToggles` in `ControlSearch.swift`, unit tests `SearchTogglesTests`): the stored
+open / closed state is untouched and comes back when the search is cleared. The flips start
+empty again whenever the matches change (another set of shown sections or of Mores a hidden row
+forces open), so typing on with the same results keeps them and a query with other results
+shows every match open again. A More's search default is "open when a hidden row matches, else
+as stored", so entering a search never moves a More by itself. Same on the Mac and iOS (the
+headers call one `toggle`; `MoreRows` reads the shared `SearchToggles` from the environment).
+Checked by `--ui-demo=search-toggle` ("limit", then a header click closes Tours).
+
+**The More line as a control** (user review, same day: the plain "More…" text row was easy to
+miss). It keeps the label "More…" (user: no "Show 6 more" / "Show less") but reads as a control:
+accent colour, a leading disclosure chevron that turns down when open, medium weight, a little
+air above it (the card's separator plus 3 pt), the whole row one hit target (the separate
+trailing chevron button went), "· N changed" secondary and the ↺ after it as before. iOS the same
+(min height 36 pt). Accessibility: label "More, 6 lighting settings" (the hidden rows there now,
+`ControlMore.rowCount`: the shown hidden settings plus the rows that are no setting of their own:
+Navigation's autopilot / fly-to buttons, Straighten and iOS Seek minibrot, Look's Cycle speed and
+Import palette), value "collapsed" / "expanded" plus ", N changed: names"; ids `more-<section>`
+and `more-<section>-reset` unchanged. **Tours.** No tour step rings a row inside a section
 (`highlight:` targets inside the control center are whole sections, and only the walkthrough
 uses them, for Places and Tours), so no tour opens a More.
 

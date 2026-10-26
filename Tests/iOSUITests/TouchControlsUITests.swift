@@ -270,6 +270,8 @@ final class TouchControlsUITests: XCTestCase {
         settle(1)
         let angle = app.sliders["Light angle"]
         XCTAssertTrue(angle.waitForExistence(timeout: 5), "More did not open")
+        XCTAssertTrue((more.value as? String ?? "").hasPrefix("expanded"), "value: \(String(describing: more.value))")
+        XCTAssertTrue(more.label.hasPrefix("More, 7 "), "label: \(more.label)")
         angle.adjust(toNormalizedSliderPosition: 0.1)
         settle(1)
         XCTAssertTrue((more.value as? String ?? "").contains("1 changed"), "no count: \(String(describing: more.value))")
@@ -287,6 +289,11 @@ final class TouchControlsUITests: XCTestCase {
         search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7) + "highlight\n")
         settle(1.5)
         XCTAssertTrue(app.sliders["Highlight"].waitForExistence(timeout: 5), "the search did not open More")
+        // A More the search opened closes on a tap during the search (search-local).
+        more.tap()
+        settle(1)
+        XCTAssertFalse(app.sliders["Highlight"].exists, "a tap did not close the More the search opened")
+        XCTAssertTrue((more.value as? String ?? "").hasPrefix("collapsed"), "value: \(String(describing: more.value))")
     }
 
     /// The control center's ✕ and the round button's open state: open, the round button reads
