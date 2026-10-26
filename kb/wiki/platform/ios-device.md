@@ -125,7 +125,11 @@ lowers it) and derives:
   1488×2266, filled the screen, shown frame = fresh render);
 - **iteration cap** 25 % of the ceiling at 130 B per point, the reference twice the limit
   (≥ 200 k, rounded to 2^k × {1, 1.25, 1.5, 1.75} so it does not re-render on every reading);
-  applies to auto and manual limits;
+  applies to auto and manual limits; not to compute further and the "Raise to …" offer on a
+  view whose reference is a period-P nucleus whose P + 1 points fit the reference share: that
+  orbit and its tables are one period long at any limit (wraps by rebasing), so it may go to
+  10 M on a device (2026-10-26, [Automatic maximum-iteration control](../techniques/auto-iterations.md)
+  "Raise the upper limit");
 - on a **memory warning** first `release_caches` (spare reference, period caches, tables of
   older references, the preview allocation outside a gesture) and the thumbnails' bitmaps
   (`PlaceThumbnails.purge`).

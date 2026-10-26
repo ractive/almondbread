@@ -94,6 +94,8 @@ fn raise_offers_the_next_choice_and_continues_in_the_same_job() {
         });
         assert_eq!(s.r.raise_offer(), None, "800 MB ceiling: the limit stays below 1 M");
         s.r.set_memory_budget(crate::memory::MemoryBudget { ceiling: Some(3 << 30) });
+        // (The neck's reference is a centre orbit, no nucleus: its memory grows with the limit.)
+        assert!(s.r.reference.as_ref().is_some_and(|r| r.period.is_none()));
         assert_eq!(s.r.raise_offer(), Some(1_000_000), "3 GB ceiling: 1 M fits, 10 M not");
     }
 }
@@ -160,4 +162,46 @@ fn after_seek_the_offer_follows_the_minibrots_period() {
     assert!(after < 0.2, "unresolved {before} -> {after}");
     // At the top choice nothing more is offered, whatever is left.
     assert_eq!(s.r.raise_offer(), None);
+}
+
+/// The same on iOS: under a 3 GB memory ceiling a centre orbit stops at 1 M (the neck test
+/// above), but N's reference is a period-30 957 nucleus whose orbit and tables hold one period at
+/// any limit (it wraps by rebasing): the offer is still 10 M, compute further reaches it, and
+/// the reference does not grow.
+#[test]
+fn after_seek_the_offer_ignores_the_memory_cap_of_centre_orbits() {
+    let mut s = Session::new(200_000);
+    let budget = crate::memory::MemoryBudget { ceiling: Some(3 << 30) };
+    s.r.set_memory_budget(budget);
+    assert!(budget.max_iterations().expect("cap") < 10_000_000);
+    s.r.viewport = Viewport::with_center(
+        Center::parse(
+            "-1.25356534474835587527493183735940999452038946488377636763638567580192395042423734111416289926432818195925721840346476271763350256350820210346221813715651311190681110426723575567067949455901507413607124893670181271",
+            "0.343076237238640216296082924363370657183074268923787958856435417090662626375457223830906518729830214630275591508889966174381411005560784997998363748427943042064661098977896576691498886101353087867833483948599347664",
+        )
+        .expect("centre"),
+        Scale::parse("6.540288e-166").expect("scale"),
+    );
+    s.settle();
+    let f = s.r.further_info().expect("compute further started");
+    assert_eq!(f.stop, Some(FurtherStop::Limit), "{f:?}");
+    let before = s.share();
+    let period =
+        s.r.reference
+            .as_ref()
+            .and_then(|r| r.period)
+            .expect("nucleus reference");
+    let held = s.r.memory_report().reference;
+    assert_eq!(s.r.raise_offer(), Some(10_000_000));
+    assert_eq!(s.r.raise_upper_limit(), Some(10_000_000));
+    s.settle();
+    let g = s.r.further_info().expect("further");
+    assert!(g.reached > 1_000_000, "past the centre-orbit cap: {g:?}");
+    let after = s.share();
+    assert!(after < 0.2, "unresolved {before} -> {after}");
+    let r = s.r.reference.as_ref().expect("reference");
+    assert_eq!(r.points.len(), period + 1);
+    assert_eq!(s.r.memory_report().reference, held, "the reference grew");
+    // A view's own limit (and the reference it requests) stays within the centre-orbit cap.
+    assert!(s.r.max_iterations() <= budget.max_iterations().expect("cap"));
 }

@@ -114,10 +114,16 @@ impl MemoryBudget {
     /// Rounded down to a power of two times 1, 1.25, 1.5 or 1.75 so small changes of the
     /// ceiling keep the limit (a new limit re-renders the view).
     pub fn max_iterations(&self) -> Option<usize> {
+        Some(quantize(self.max_reference_points()? / 2).max(MIN_ITERATIONS))
+    }
+
+    /// Reference points (with their tables, CPU and GPU copies) that fit (None: no cap). A
+    /// period-P nucleus reference holds P + 1 points whatever the iteration limit (it wraps by
+    /// rebasing, kb: techniques/rebasing): it fits when its period does, and then its limit is
+    /// not bounded by memory.
+    pub fn max_reference_points(&self) -> Option<usize> {
         let c = self.ceiling?;
-        let points = c as f64 * REFERENCE_SHARE / REFERENCE_POINT_BYTES as f64;
-        let raw = (points / 2.0) as usize;
-        Some(quantize(raw).max(MIN_ITERATIONS))
+        Some((c as f64 * REFERENCE_SHARE / REFERENCE_POINT_BYTES as f64) as usize)
     }
 }
 

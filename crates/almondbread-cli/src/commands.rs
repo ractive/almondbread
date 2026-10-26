@@ -845,7 +845,8 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     // further's state and whether the job (no new render) was kept.
     for k in 0..o.usize("raise").unwrap_or(0) {
         let state = |r: &almondbread_render::Renderer<B>| {
-            r.further_info().map_or("none".to_string(), |f| {
+            let m = r.memory_report();
+            let further = r.further_info().map_or("none".to_string(), |f| {
                 format!(
                     "{} reached {} unresolved {} ({:.2} %) passes {} gpu {:.2} s{}",
                     if f.running { "running" } else { "stopped" },
@@ -856,7 +857,20 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
                     f.gpu,
                     f.stop.map_or(String::new(), |w| format!(" ({})", w.name()))
                 )
-            })
+            });
+            // (The reference's length and period, its CPU copies and tables: a nucleus
+            // reference holds one period whatever the limit.)
+            format!(
+                "{further}; reference {} points period {} {:.1} MB tables {:.1} MB gpu {}",
+                r.reference().map_or(0, |x| x.points.len()),
+                r.reference()
+                    .and_then(|x| x.period)
+                    .map_or("-".to_string(), |p| p.to_string()),
+                m.reference as f64 / 1048576.0,
+                m.tables as f64 / 1048576.0,
+                m.gpu
+                    .map_or("?".to_string(), |g| format!("{:.0} MB", g as f64 / 1048576.0))
+            )
         };
         let offer = r.raise_offer();
         println!(

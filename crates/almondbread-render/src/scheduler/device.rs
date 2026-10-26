@@ -116,11 +116,38 @@ impl<B: GpuBackend> Renderer<B> {
             .min(almondbread_core::settings::MAX_ITERATION_LIMIT)
     }
 
-    /// The iteration cap of automatic limits, extension and "compute further" passes, and
-    /// longer references: the settings' cap within the memory budget (and within
-    /// `MAX_ITERATION_LIMIT`, the float32-exact escape count).
+    /// The iteration cap of automatic limits, extension passes and longer references: the
+    /// settings' cap within the memory budget (and within `MAX_ITERATION_LIMIT`, the
+    /// float32-exact escape count).
     pub(super) fn iteration_cap(&self) -> usize {
         self.settings.max_iterations_cap.min(self.memory_iteration_cap())
+    }
+
+    /// The memory ceiling of the current job's limit past its reference: a period-P nucleus
+    /// reference holds P + 1 points (and tables over them) at any limit, since pixels wrap by
+    /// rebasing at `Z_P = 0` (kb: techniques/rebasing), so once its period fits the budget the
+    /// memory does not bound how far compute further iterates it (`MAX_ITERATION_LIMIT` only).
+    /// Any other reference grows with the limit: `memory_iteration_cap`. (The limit of new
+    /// views, and so of the references they request, stays `memory_iteration_cap`: a view
+    /// panned off the minibrot may need a centre orbit as long as its limit.)
+    pub(super) fn job_memory_iteration_cap(&self) -> usize {
+        let period = self
+            .job
+            .as_ref()
+            .filter(|j| j.reference_serial == self.reference_serial)
+            .and(self.reference.as_ref())
+            .and_then(|r| r.period);
+        let points = self.memory_budget.max_reference_points();
+        match period {
+            Some(p) if points.is_none_or(|n| p < n) => almondbread_core::settings::MAX_ITERATION_LIMIT,
+            _ => self.memory_iteration_cap(),
+        }
+    }
+
+    /// The ceiling of compute further's passes and of the "Raise to …" offer: the settings' cap
+    /// within `job_memory_iteration_cap`.
+    pub(super) fn further_iteration_cap(&self) -> usize {
+        self.settings.max_iterations_cap.min(self.job_memory_iteration_cap())
     }
 
     /// The thermal state in force.
