@@ -6439,8 +6439,11 @@ mod tests {
         let (mut n, mut v) = setup();
         assert!(!n.wants_frames());
         assert!(n.handle(InputEvent::SeekAt { x: 40.0, y: 10.0 }, &mut v, 0.0));
-        assert_eq!(n.seek_status(0.0).0, SeekPhase::Searching);
-        assert!(!n.is_animating(), "a search is not motion");
+        // (The search thread may already have found it on a fast machine: then it flies,
+        // which wants frames too.)
+        if n.seek_status(0.0).0 == SeekPhase::Searching {
+            assert!(!n.is_animating(), "a search is not motion");
+        }
         assert!(n.wants_frames(), "but it needs frames to be polled");
     }
 
