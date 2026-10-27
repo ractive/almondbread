@@ -25,7 +25,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "almondbread-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "almondbread-core",
  "almondbread-render",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "almondbread-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "almondbread-math",
  "bytemuck",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "almondbread-ffi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "almondbread-core",
  "almondbread-render",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "almondbread-math"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "criterion",
  "num-bigint",
@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "almondbread-render"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "almondbread-core",
  "block2",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "uniffi-bindgen"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "uniffi",
 ]
