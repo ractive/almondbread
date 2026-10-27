@@ -1,7 +1,7 @@
 ---
 id: pi
 title: π in the Mandelbrot set
-summary: Count the steps of points near two pinch points, multiply by their distance, and π appears.
+summary: Count the steps of points near two narrow places of the set, multiply by their distance, and π appears.
 place: pi-at-the-neck, pi-at-the-cusp
 thumbnail: head-and-shoulders
 ---
@@ -17,44 +17,55 @@ pi-meter: off
 marker: -0.75, 0
 marker-label: the neck
 
-The round bulb on the left touches the big heart at a single point: the **neck** (marked). Points straight above it are outside the set, but only just.
+In this view the set is black. The round bulb on the left touches the heart, the big black shape on the right, at a single point: the **neck**, the labelled point at −0.75. The points straight above the neck, in the narrow coloured gap, are outside the set, but only just.
 
-Every point gets the same test: start at 0, square the number, add the point, repeat. Outside the set the numbers fly off in the end. Above the neck they first crawl for a long time through a narrow gap. Let's count their steps.
+A reminder of the formula: z starts at 0, and at each step z → z² + c. Outside the set, z escapes in the end: it keeps growing. For points just above the neck, this takes a very long time: z first moves slowly through a narrow passage. In this tour we count the steps until z escapes.
 
 ## Count and multiply
 place: pi-at-the-neck
 pi-meter: on
 marker: off
 
-The middle of the view sits **0.02** above the neck; call that distance **ε** (*epsilon*, the Greek letter for a small distance). Its numbers fly off after **158 steps**. Multiply: 158 × 0.02 = **3.16**. Almost **π = 3.14159…**, the way round any circle divided by its width!
+The small circle labelled −3/4 + iε is **0.02** straight above the neck (labelled −3/4). We call this distance **ε** (*epsilon*, a Greek letter for small distances).
 
-The **π meter** (the panel) does the counting for you and lights the digits that already agree with π.
+For this point, z escapes after **158 steps**, and 158 × 0.02 = **3.16**: almost **π = 3.14159…**, the distance round any circle divided by its width!
+
+The **π meter**, the lower panel on the right, counts for you. Digits that agree with π are gold.
 
 ## Closer and closer
 pi-hunt: neck
 
-Now the counted point slides down the line towards the neck. Each time it gets ten times closer, its count gets ten times longer: 315 steps at ε = 0.01, 31 417 at 0.0001, 3 141 593 at 0.000001. And steps × ε gains **one more digit of π** each time.
+Now the counted point, the glowing circle labelled "probe", slides down the vertical ruler towards the neck. Each time it gets ten times closer, it needs ten times more steps: 315 steps at ε = 0.01, 31 417 at 0.0001, 3 141 593 at 0.000001. And each time, steps × ε has **one more correct digit of π**.
 
-At the end, ε = 0.00000001 and the point takes **314 159 266 steps**: a few seconds of counting. **E** and **Q** change the speed of the slide.
+At the end, ε = 0.00000001, and z takes **314 159 266 steps** to escape. The counting takes a few seconds.
+
+::: mac
+**E** and **Q** change the speed of the slide.
+:::
 
 ## Why π?
 
-Near the neck the numbers hop from side to side and slowly **turn**. The circle in the upper panel shows it: from start to escape the numbers go round **once**, by a tiny angle of **2ε** at every step.
+Near the neck, z jumps from one side of −1/2 to the other at every step, and at the same time it slowly **turns**. The circle in the upper panel, on the right, shows this turning. From the start until z escapes, z goes round **once**, by a tiny angle of **2ε** at every step.
 
-Measured in *radians*, the angle mathematicians use, one full turn is **2π**. So steps × 2ε ≈ 2π, which means steps × ε ≈ **π**, and the closer to the neck, the better it fits.
+Mathematicians measure angles in *radians*. In radians, one full turn is **2π**. So steps × 2ε ≈ 2π, and that means steps × ε ≈ **π**. The closer the point is to the neck, the better this fits.
 
 ## The cusp
 pi-hunt: cusp
 
-There is a second spot: the dent at the right of the heart, the **cusp**. For points a distance ε to its right, the steps times **√ε** (the square root) close in on π.
+The **cusp**, the dent on the right of the heart (labelled 1/4), works too. For a point ε to its right, steps × **√ε** (the square root of ε) comes closer and closer to π.
 
-The counted point slides down to ε = 0.0000000000000001, where the count is **314 159 263**. Here a hundred times closer gives one more digit.
+The glowing circle labelled "probe" slides to ε = 0.0000000000000001, where z takes **314 159 263** steps. Each new digit needs a point a hundred times closer.
 
 Holly Krieger counts these steps at the cusp in Numberphile's [Pi and the Mandelbrot Set](https://www.youtube.com/watch?v=d0vY0CKYhPY) (with [extra footage](https://www.youtube.com/watch?v=r8Ksuc7T-VQ)).
 
 ## Your turn
 place: pi-at-the-neck
 
-The π meter stays on to the end of the tour. It counts the middle of the view whenever the view is centred on the line above the neck or right of the cusp: zoom in down the line yourself and watch the digits.
+The π meter stays on until the end of the tour. It counts the point in the middle of the view whenever the view is centred on the vertical line above the neck, or on the horizontal line to the right of the cusp. Zoom in along the line yourself and watch the digits.
 
-**End tour** (or **Esc** twice) switches it off and brings back your view and settings.
+::: mac
+**End tour** (or **Esc** twice) switches the π meter off and brings back your view and settings.
+:::
+::: touch
+**End tour** switches the π meter off and brings back your view and settings.
+:::

@@ -5,7 +5,7 @@ summary: Every bulb on the heart has a period you can read off its antenna, and 
 place: third-bulb
 ---
 
-## How to read the dots
+## One place
 center: -0.45, 0
 span: 2.6
 look: aurora
@@ -15,24 +15,24 @@ orbit-length: 200
 probe: -0.2, 0
 marker: off
 
-Every point of the picture gets the same test, the **rule**: start at 0, square the number, add the point, and do it again and again. The ringed point is the one being tested; each dot is the number one more step makes.
+A reminder of the formula: z starts at 0, and at each step z → z² + c (square z, then add c). The small circle (the marker) is the point c = −0.2. The white dots are the values of z, one per step.
 
-Here the dots hop from side to side and close in on **one spot**, and stay there. Every point in the big **heart** does that: its numbers settle on one spot.
+With c = −0.2, z goes 0, −0.2, −0.16, −0.174, −0.170, … The values come closer and closer to **one place**, −0.171, and then stay there. That is why the white dots make one small group right next to the marker. Every c in the heart, the big heart-shaped part of the set, does the same: its dots end at one place.
 
 ## Bulbs and loops
 probe: -1, 0
 
-Around the heart sit round **bulbs** of every size. The ringed point is now in the big bulb on the left, and its dots hop between **two spots**, 0 and −1, for ever: a **loop** of 2.
+Around the heart there are round **bulbs** of every size. The marker is now at c = −1, in the middle of the big blue-green bulb on the left. With c = −1, z goes 0, −1, 0, −1, … So the dots move between **two places**, 0 and −1, again and again. You can see them at the two ends of the white line. This is a **loop** of 2.
 
-Every point in a bulb ends up in a loop of the same length: the bulb's **period**. Here each period gets its own colour: the heart (period 1) one colour, this bulb (period 2) another.
+For every c in a bulb, the dots end up in a loop of the same length. This length is the bulb's **period**. In this tour, each period has its own colour inside the set: the heart (period 1) is light orange, this bulb (period 2) is blue-green.
 
 ## Round the heart
 probe-path: -1, 0 -> -0.6224, 0.4249 -> -0.5043, 0.5628 -> -0.3591, 0.6174 -> -0.1226, 0.7449 -> 0.1212, 0.6106 -> 0.2823, 0.5301 -> 0.3795, 0.3349 -> 0.3890, 0.2159
 probe-seconds: 48
 
-Now the ringed point travels from bulb to bulb round the top of the heart, through the middle of each. Count the spots the dots hop round (the map shows them best): **2** in the big bulb on the left, then **7, 5, 8, 3, 7, 4, 5, 6**.
+Now the marker moves from bulb to bulb round the top of the heart, through the middle of each bulb, and then back. In each bulb, count the places the white dots move round: **2** in the big bulb on the left, then **7, 5, 8, 3, 7, 4, 5, 6**.
 
-Between the bulbs it passes through the heart (the dots settle on 1 spot) or briefly outside the set, where the dots fly off.
+Between two bulbs the marker crosses the heart, where the dots go to 1 place. Or it is outside the set for a moment: then z keeps growing, and the white lines go far out of the view.
 
 ## Count the branches
 center: 0.32, 0.57
@@ -41,7 +41,9 @@ probe: 0.28227139076691388, 0.5300606175785253
 marker: 0.36636298342276435, 0.59153377326144522
 marker-label: first fork
 
-This bulb has **period 4**: its dots hop round four spots (see the map). Now look at its **antenna**, the thin hair growing out of it, where it first splits: the marked fork. Count the branches there, the one back to the bulb included: **four**.
+The marker is in the middle of the big light green bulb. This bulb has **period 4**: its dots move round four places. Only one of them is in this view; the white lines lead to the others. The mini-map at the bottom left shows all four.
+
+Now look at the thin, branching line that grows from the bulb towards the top right. It is called the bulb's **antenna**. Follow it to the labelled point "first fork", where it splits for the first time. Count the branches that meet there, the one back to the bulb included: **four**.
 
 ## Five
 center: 0.40, 0.355
@@ -50,7 +52,9 @@ probe: 0.37951358801592375, 0.33493230559749759
 marker: 0.43792424135946278, 0.34189208433811611
 marker-label: first fork
 
-The next bulb down: its dots hop round **five** spots, and at the marked fork its antenna splits into **five** branches. It works for every bulb on the heart: count the branches, and you know the period without any sums.
+This is the next bulb down along the edge of the heart: the big dark blue circle with the marker in it. Its dots move round **five** places. At the labelled point "first fork" on the right, its antenna splits into **five** branches.
+
+This works for every bulb on the heart: count the branches at the first fork, and you know the period without any calculation.
 
 ## Halfway round
 center: -0.35, 0.3
@@ -59,25 +63,27 @@ probe: -1, 0
 marker: -0.75, 0
 marker-label: halfway round
 
-Another way to know a bulb's period: where it sits on the heart. Start at the dent on the heart's right and walk along its edge, over the top. **Halfway** round you reach the big bulb on the left (marked).
+There is another way to know the period of a bulb: its place on the edge of the heart. Start at the dent on the right side of the heart. Go along the edge, over the top. **Halfway** round, you reach the labelled point "halfway round". There the big blue-green bulb on the left touches the heart.
 
-Its dots hop between **2** spots: period 2.
+The marker is in this bulb. Its dots move between **2** places: period 2.
 
 ## A third of the way
 probe: -0.12256116687665362, 0.74486176661974424
 marker: -0.125, 0.6495
 marker-label: a third of the way
 
-Only a **third** of the way round from the dent sits the big bulb on top (marked). Its dots hop round **3** spots: period 3.
+Start again at the dent. Only a **third** of the way round, at the labelled point, the big purple bulb on top touches the heart. The marker is in this bulb, and its dots move round **3** places: period 3. The white lines make a triangle.
 
 ## A quarter of the way
 probe: 0.28227139076691388, 0.5300606175785253
 marker: 0.25, 0.5
 marker-label: a quarter of the way
 
-A **quarter** of the way round: the period-4 bulb from before, **4** spots. As fractions, halfway is ½, a third ⅓, a quarter ¼: the **bottom number** is the period. A fifth (⅕) of the way round sits the period-5 bulb.
+A **quarter** of the way round, at the labelled point, sits the light green bulb from before, now small at the top right. The marker is in it, and its dots move round **4** places: period 4.
 
-And the more spots, the smaller the bulb.
+Write these places as fractions: halfway is ½, a third is ⅓, a quarter is ¼. The **bottom number** of the fraction is the period. A fifth (⅕) of the way round sits the period-5 bulb: the dark blue bulb a little further down on the right.
+
+And the higher the period, the smaller the bulb.
 
 ## Two and three
 center: -0.55, 0.35
@@ -86,7 +92,7 @@ probe-path: -1, 0 -> -0.7, 0 -> -0.3, 0.3 -> -0.125, 0.55 -> -0.1225611668766536
 probe-seconds: 16
 marker: off
 
-Now the ring walks from the middle of the period-2 bulb on the left, through the heart, to the middle of the period-3 bulb on top, and back. Count the dots: **2** spots, then 1 in the heart, then **3**.
+Now the marker moves from the middle of the period-2 bulb on the left, through the heart, to the middle of the period-3 bulb on top, and then back. Count the places of the white dots: **2** in the blue-green bulb, then 1 in the heart, then **3** in the purple bulb.
 
 ## Between them
 center: -0.36, 0.6
@@ -95,18 +101,18 @@ probe: -0.504340175446244, 0.56276576145298196
 marker: -0.504340175446244, 0.56276576145298196
 marker-label: 2 + 3 = 5
 
-Which is the biggest bulb **between** those two? This one, with the ring in it: its dots hop round **5** spots. And 2 + 3 = **5**!
+Which is the biggest bulb **between** the period-2 bulb and the period-3 bulb? It is the dark blue bulb with the label "2 + 3 = 5". The purple period-3 bulb is at the top right. The period-2 bulb is outside the view, further down on the left.
 
-Between a period-2 and a period-3 bulb, the biggest bulb has period 2 + 3.
+The marker is in the labelled bulb, and its dots move round **5** places. And 2 + 3 = **5**! Between a period-2 bulb and a period-3 bulb, the biggest bulb has period 2 + 3.
 
 ## And again
 probe: -0.35910239011244916, 0.61735345339882686
 marker: -0.35910239011244916, 0.61735345339882686
 marker-label: 5 + 3 = 8
 
-Again: between the period-5 bulb (left) and the period-3 bulb (top right), the biggest bulb is this one. Count its dots on the map: **8** spots, and 5 + 3 = **8**. It goes on for ever, in every gap.
+Again: between the period-5 bulb (the dark blue circle on the left) and the period-3 bulb (the purple circle at the top right), the biggest bulb is this small one with the label "5 + 3 = 8". Its dots move round **8** places; the text above the mini-map gives the count. And 5 + 3 = **8**. This works again and again, in every gap between two bulbs.
 
-Mathematicians write the places round the heart as fractions: ½ and ⅓ give ⅖ (add the tops, add the bottoms), and ⅖ and ⅓ give ⅜. The bottom number is always the period. Numberphile has more on this way of adding fractions in [Funny Fractions and Ford Circles](https://www.youtube.com/watch?v=0hlvhQZIOQw).
+Mathematicians write the places round the heart as fractions. To find the fraction of the bulb between two others, add the top numbers and add the bottom numbers: ½ and ⅓ give ⅖, and ⅖ and ⅓ give ⅜. The bottom number is always the period. Numberphile has more on this way of adding fractions in [Funny Fractions and Ford Circles](https://www.youtube.com/watch?v=0hlvhQZIOQw).
 
 ## Thirteen
 center: -0.395, 0.592
@@ -115,7 +121,7 @@ probe: -0.4071040830850983, 0.5848528428681022
 marker: -0.4071040830850983, 0.5848528428681022
 marker-label: 8 + 5 = 13
 
-Keep going with the last two: between the period-8 and the period-5 bulb, the biggest bulb hops round **13** spots, and 8 + 5 = **13**.
+Go on with the last two bulbs. The period-8 bulb is now the big dark circle at the top right. The period-5 bulb is outside the view, on the left. The biggest bulb between them has the label "8 + 5 = 13": its dots move round **13** places, and 8 + 5 = **13**.
 
 ## Fibonacci
 center: -0.392, 0.589
@@ -124,9 +130,9 @@ probe: -0.3861604162801374, 0.5914044863955293
 marker: -0.3861604162801374, 0.5914044863955293
 marker-label: 13 + 8 = 21
 
-And next 13 + 8 = **21**. Each period is the sum of the two before it: 2, 3, 5, 8, 13, 21, 34, … These are the **Fibonacci numbers**.
+The period-13 bulb is now the big dark circle on the left. Next to it is the bulb with the label "13 + 8 = 21": period **21**. Each period is the sum of the two before it: 2, 3, 5, 8, 13, 21, 34, … These are the **Fibonacci numbers**.
 
-Their fractions ½, ⅓, ⅖, ⅜, 5⁄13, 8⁄21, … close in on one spot of the heart, 0.382 of the way round. That is 1/φ², where φ = 1.618… is the **golden ratio**. Numberphile shows more in [Fibonacci Numbers hidden in the Mandelbrot Set](https://www.youtube.com/watch?v=4LQvjSf6SSw).
+Their fractions ½, ⅓, ⅖, ⅜, 5⁄13, 8⁄21, … come closer and closer to one place on the edge of the heart, 0.382 of the way round. That number is 1/φ², where φ = 1.618… is the **golden ratio**. Numberphile shows more in [Fibonacci Numbers hidden in the Mandelbrot Set](https://www.youtube.com/watch?v=4LQvjSf6SSw).
 
 ## Your turn
 center: -0.45, 0
@@ -134,6 +140,13 @@ span: 2.6
 probe: pointer
 marker: off
 
-The ring and its dots follow the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Point into any bulb and count the spots its dots hop round, then zoom in on its antenna and count the branches.
+::: mac
+The marker and its dots follow the pointer again. Point into any bulb and count the places its dots move round. Then zoom in on its antenna and count the branches at the first fork.
 
 **End tour** (or **Esc** twice) brings back your view and settings.
+:::
+::: touch
+Now you move the marker: hold a finger on the picture, choose *Orbit Here*, and keep the finger down to drag the marker. Put it into any bulb and count the places its dots move round. Then zoom in on its antenna and count the branches at the first fork.
+
+**End tour** brings back your view and settings.
+:::
