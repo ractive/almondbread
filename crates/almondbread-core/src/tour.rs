@@ -1410,7 +1410,7 @@ mod tests {
             .expect("tours dir")
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.ends_with(".md"))
+            .filter(|n| n.ends_with(".md") && n != "WRITING.md") // the writing guide is not a tour
             .collect();
         files.sort();
         let mut listed: Vec<String> = BUNDLED.iter().map(|(id, _)| format!("{id}.md")).collect();
