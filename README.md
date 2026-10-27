@@ -14,6 +14,7 @@ Applications. Needs a Mac with Apple silicon (M1 or later) and macOS 14 Sonoma o
 
 Or with [Homebrew](https://brew.sh): `brew install --cask ractive/tap/almondbread`.
 Release notes and earlier versions: [releases](https://github.com/ractive/almondbread/releases).
+More about the app, with pictures and how it works: [ractive.ch/almondbread](https://ractive.ch/almondbread/).
 
 ![Almondbread among the elephants, with the control center open at the places](docs/images/app.jpg)
 
