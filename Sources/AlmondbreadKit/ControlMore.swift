@@ -80,6 +80,7 @@ enum ControlMore {
                   shown: { $0.orbitEnabled && $0.has(\.orbitOverlay) }) { _ in 50 },
             entry("Mini-map levels", .overlays, \.mapLevels, same: ==, shown: { $0.mapEnabled }) { _ in 3 },
             entry("Mini-map size", .overlays, \.mapSize, same: near, shown: { $0.mapEnabled }) { _ in 180 },
+            entry("Large mini-map", .overlays, \.mapLarge, same: ==, shown: { $0.mapEnabled }) { _ in false },
             entry("Mini-map corner", .overlays, \.mapPlacement, same: ==, shown: { $0.mapEnabled }) { _ in .bottomLeft },
             entry("Cosmic size scale", .overlays, \.cosmicScale, same: ==) { _ in false },
             entry("Always show compass", .overlays, \.compassAlways, same: ==) { _ in false },

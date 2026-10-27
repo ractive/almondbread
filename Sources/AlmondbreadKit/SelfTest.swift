@@ -93,6 +93,8 @@ public enum SelfTest {
 /// (default: orbit and 3 map levels in the seahorse valley, internal-angle interior),
 /// `orbit-neck` / `orbit-slow` (the orbit's dot cloud for slow escapes by the -3/4 neck),
 /// `interior` (the period-3 bulb, bubbles), `deep` (the needle-1e94 minibrot, 4 map levels),
+/// `deep-map-large` / `map-large` (deep or the default scene, then the map's enlarge button
+/// pressed through the hit test; captured 10 s / 1.5 s later),
 /// `developer` (the default scene with the HUD's developer details), `sidebar` / `sidebar-2`
 /// (the default scene with View and Look, or Lighting, Overlays and Quality open),
 /// `progress` / `progress-late` (render progress mid-render at a 2M limit), `journey-stop`
@@ -344,7 +346,8 @@ public enum UIDemo {
             model.orbitLength = 60
             model.mapEnabled = false
             _ = explorer.input(event: .pointer(x: 40, y: 30))
-        case "deep":
+        case "deep", "deep-map-large":
+            // deep-map-large: then the map's enlarge button, pressed through the real hit test.
             try? explorer.setViewportText(
                 re: "-1.99999999999999999999999999999999999999999999898704139472119329940998074630723121589755867176089901",
                 im: "0", scale: "1.25e-94")
@@ -572,6 +575,9 @@ public enum UIDemo {
         // Report the window once the view settled and the maps had time to render.
         let start = Date()
         var helpShownAt: Date?
+        /// deep-map-large: the view's centre when the map's enlarge button was pressed.
+        var centreAtPress = ""
+        var pressLine = ""
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
             MainActor.assumeIsolated {
                 model.refreshStats()
@@ -609,6 +615,23 @@ public enum UIDemo {
                             helpShownAt = Date()
                         }
                         if Date().timeIntervalSince(helpShownAt ?? Date()) < 2 { return }
+                    }
+                    if scene.hasSuffix("map-large") {
+                        if helpShownAt == nil, let root = w.contentView, let fractal = findFractalView(root) {
+                            centreAtPress = explorer.stats().shown.re + "," + explorer.stats().shown.im
+                            if let b = explorer.helpBadges().first(where: { $0.topic == "map-enlarge" }) {
+                                let hit = model.helpPress(x: b.x, y: b.y, size: fractal.bounds.size)
+                                pressLine = "map-enlarge press hit=\(hit) large=\(model.mapLarge)"
+                            } else {
+                                pressLine = "no map-enlarge badge"
+                            }
+                            helpShownAt = Date()
+                        }
+                        if Date().timeIntervalSince(helpShownAt ?? Date()) < (scene == "map-large" ? 1.5 : 10) { return }
+                        let jumped = explorer.stats().shown.re + "," + explorer.stats().shown.im != centreAtPress
+                        print("ui-demo: \(pressLine); after it jumped=\(jumped), panels " + explorer.overlayPanels().map {
+                            "\($0.id) \(Int($0.x)),\(Int($0.y)) \(Int($0.width))x\(Int($0.height))" }.joined(separator: " · "))
+                        print("ui-demo: badges " + explorer.helpBadges().map { "\($0.topic) \(Int($0.x)),\(Int($0.y))" }.joined(separator: " · "))
                     }
                     if scene == "help-canvas" {
                         if helpShownAt == nil,

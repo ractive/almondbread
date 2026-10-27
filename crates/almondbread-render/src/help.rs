@@ -3,6 +3,10 @@
 //! their badge out while the scene is built; a press is hit-tested here, like the compass, and
 //! the platform shows its own popover with the topic's text at the badge. Only the circle (plus a
 //! small slop) takes presses, so the canvas and the map panels keep every other click.
+//!
+//! The mini-map's enlarge / shrink button is a badge of the same kind (same circle, two diagonal
+//! arrows for the "?"): it is hit-tested with the help badges, so a press on it never jumps the
+//! map, and the platform toggles the large map instead of opening a popover.
 
 use crate::overlay::{Scene, rgba};
 
@@ -26,6 +30,10 @@ pub enum HelpTopic {
     Cockpit,
     /// The Julia companion panel (kb: plans/f1-julia-view).
     Julia,
+    /// Not help: the mini-map's button that makes it large (arrows pointing outwards).
+    MapEnlarge,
+    /// Not help: the large mini-map's button that makes it small again (arrows pointing in).
+    MapShrink,
 }
 
 impl HelpTopic {
@@ -37,7 +45,14 @@ impl HelpTopic {
             Self::Orbit => "orbit",
             Self::Cockpit => "cockpit",
             Self::Julia => "julia",
+            Self::MapEnlarge => "map-enlarge",
+            Self::MapShrink => "map-shrink",
         }
+    }
+
+    /// The mini-map's size button, not a help topic.
+    pub fn is_map_size(self) -> bool {
+        matches!(self, Self::MapEnlarge | Self::MapShrink)
     }
 }
 
@@ -86,15 +101,15 @@ pub fn draw(
     scene.disc(c, r + 0.8 * px, rgba(0.0, 0.0, 0.0, 0.35));
     scene.disc(c, r, rgba(0.10, 0.10, 0.13, 0.92));
     scene.ring(c, r - 0.45 * px, 0.9 * px, rgba(1.0, 1.0, 1.0, 0.55));
-    let size = 10.5 * px;
-    let (_, tw) = crate::font::layout("?", size);
-    let cap = crate::font::cap_height() * size;
-    scene.text(
-        [centre[0] - 0.5 * tw, centre[1] - 0.5 * cap],
-        size,
-        "?",
-        rgba(1.0, 1.0, 1.0, 0.92),
-    );
+    let ink = rgba(1.0, 1.0, 1.0, 0.92);
+    if topic.is_map_size() {
+        arrows(scene, centre, px, topic == HelpTopic::MapEnlarge, ink);
+    } else {
+        let size = 10.5 * px;
+        let (_, tw) = crate::font::layout("?", size);
+        let cap = crate::font::cap_height() * size;
+        scene.text([centre[0] - 0.5 * tw, centre[1] - 0.5 * cap], size, "?", ink);
+    }
     badges.push(HelpBadge {
         topic,
         centre,
@@ -103,21 +118,54 @@ pub fn draw(
     key.push_str(&format!("help {} {:.1} {:.1} ", topic.id(), centre[0], centre[1]));
 }
 
-/// The badge under a press at (x, y) output pixels, if any.
+/// Two diagonal arrows along the top-left to bottom-right diagonal (SF Symbols'
+/// `arrow.up.left.and.arrow.down.right` when `outwards`, `arrow.down.right.and.arrow.up.left`
+/// otherwise), centred at `c` (pixels; `px` pixels per point).
+fn arrows(scene: &mut Scene, c: [f32; 2], px: f32, outwards: bool, ink: [f32; 4]) {
+    // Along the diagonal (x and y offsets, points; inside the 14-point circle): the tips and
+    // tails of the two arrows; the heads are right-angled with their legs on the axes, like
+    // the symbols'.
+    let (tip, tail) = if outwards { (3.3, 0.7) } else { (0.7, 3.4) };
+    let head = 2.4;
+    for d in [-1.0f32, 1.0] {
+        let at = |t: f32| [f64::from(c[0] + d * t * px), f64::from(c[1] + d * t * px)];
+        // The head's legs run back from the tip towards the tail.
+        let back = if outwards { -d } else { d } * head * px;
+        let t = at(tip);
+        let shaft_end = at(if outwards { tip - 0.5 * head } else { tip + 0.5 * head });
+        scene.segment(shaft_end, at(tail), 0.55 * px, ink, ink);
+        scene.triangle(t, [t[0] + f64::from(back), t[1]], [t[0], t[1] + f64::from(back)], ink);
+    }
+}
+
+/// The badge under a press at (x, y) output pixels, if any (the nearest where two are near).
 pub fn hit(badges: &[HelpBadge], x: f64, y: f64, px: f64) -> Option<HelpBadge> {
-    badges.iter().copied().find(|b| b.hit(x, y, px))
+    nearest(badges.iter().filter(|b| b.hit(x, y, px)), x, y)
+}
+
+fn nearest<'a>(badges: impl Iterator<Item = &'a HelpBadge>, x: f64, y: f64) -> Option<HelpBadge> {
+    let d = |b: &HelpBadge| (x - f64::from(b.centre[0])).hypot(y - f64::from(b.centre[1]));
+    badges.min_by(|a, b| d(a).total_cmp(&d(b))).copied()
 }
 
 /// A fingertip's radius for a badge (points; kb: decisions/controls "Touch"): a touch hits a
 /// badge this close to its centre (a 36-point target; the drawn badge stays 14 points).
 pub const TOUCH_RADIUS: f64 = 18.0;
 
-/// The badge under a touch at (x, y) output pixels: within [`TOUCH_RADIUS`] of its centre.
+/// The badge under a touch at (x, y) output pixels: within [`TOUCH_RADIUS`] of its centre (the
+/// nearest where two are near).
 pub fn hit_touch(badges: &[HelpBadge], x: f64, y: f64, px: f64) -> Option<HelpBadge> {
-    badges.iter().copied().find(|b| {
+    let near = badges.iter().filter(|b| {
         let r = (f64::from(b.radius) + HIT_SLOP * px).max(TOUCH_RADIUS * px);
         (x - f64::from(b.centre[0])).hypot(y - f64::from(b.centre[1])) <= r
-    })
+    });
+    nearest(near, x, y)
+}
+
+/// Distance from the "?" badge's centre to the mini-map's size button below it (points): on a
+/// touch screen far enough apart that each keeps its whole fingertip target.
+pub fn map_button_spacing(touch: bool) -> f64 {
+    if touch { 2.0 * TOUCH_RADIUS } else { 2.0 * RADIUS + 4.0 }
 }
 
 #[cfg(test)]
@@ -145,6 +193,51 @@ mod tests {
         assert!(hit(&badges, cx + (RADIUS + HIT_SLOP + 0.5) * px, cy, px).is_none());
         assert!(hit(&badges, cx, cy + 12.0 * px, px).is_none());
         assert!(hit(&badges, 300.0, 300.0, px).is_none());
+    }
+
+    #[test]
+    fn map_size_button_keeps_its_own_target() {
+        for (touch, px) in [(false, 2.0), (true, 3.0)] {
+            let mut scene = Scene::default();
+            let mut badges = Vec::new();
+            let mut key = String::new();
+            let c = top_right([0.0, 0.0, 600.0, 430.0], px as f32);
+            let below = [c[0], c[1] + (map_button_spacing(touch) * px) as f32];
+            draw(&mut scene, &mut badges, HelpTopic::MiniMap, c, px as f32, &mut key);
+            let n = scene.prims.len();
+            draw(
+                &mut scene,
+                &mut badges,
+                HelpTopic::MapEnlarge,
+                below,
+                px as f32,
+                &mut key,
+            );
+            // The arrows are drawn (shafts and heads), no "?" glyph.
+            assert!(scene.prims.len() >= n + 3 + 4, "{}", scene.prims.len() - n);
+            let find = |x: f32, y: f32| {
+                let (x, y) = (f64::from(x), f64::from(y));
+                if touch {
+                    hit_touch(&badges, x, y, px)
+                } else {
+                    hit(&badges, x, y, px)
+                }
+                .map(|b| b.topic)
+            };
+            assert_eq!(find(c[0], c[1]), Some(HelpTopic::MiniMap));
+            assert_eq!(find(below[0], below[1]), Some(HelpTopic::MapEnlarge));
+            // Just above the middle between them: still the "?"; just below: the button.
+            let mid = 0.5 * (c[1] + below[1]);
+            assert_eq!(find(c[0], mid - px as f32), Some(HelpTopic::MiniMap));
+            assert_eq!(find(c[0], mid + px as f32), Some(HelpTopic::MapEnlarge));
+            if touch {
+                // A whole fingertip around each: the targets do not overlap.
+                let r = (TOUCH_RADIUS * px) as f32;
+                assert_eq!(find(below[0], below[1] - r + px as f32), Some(HelpTopic::MapEnlarge));
+                assert_eq!(find(below[0] - r + px as f32, below[1]), Some(HelpTopic::MapEnlarge));
+            }
+            assert!(HelpTopic::MapShrink.is_map_size() && !HelpTopic::MiniMap.is_map_size());
+        }
     }
 
     #[test]

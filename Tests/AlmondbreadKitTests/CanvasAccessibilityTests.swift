@@ -16,6 +16,8 @@ final class CanvasAccessibilityTests: XCTestCase {
         XCTAssertEqual(CanvasAccessibility.action(for: "cockpit-cruise"), .cockpit("cruise"))
         XCTAssertEqual(CanvasAccessibility.action(for: "cockpit-lane"), .cockpit("lane"))
         XCTAssertEqual(CanvasAccessibility.action(for: "help-mini-map"), .help)
+        // The mini-map's size button rides on the badges (helpPress toggles the large map).
+        XCTAssertEqual(CanvasAccessibility.action(for: "help-map-enlarge"), .help)
         XCTAssertEqual(CanvasAccessibility.action(for: "compass"), .compass)
         XCTAssertEqual(CanvasAccessibility.action(for: "map-0"), .map)
         XCTAssertNil(CanvasAccessibility.action(for: "julia"))

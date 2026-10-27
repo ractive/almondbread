@@ -508,7 +508,8 @@ pub(crate) struct MapFit {
 /// How many map levels fit and how wide: the row keeps clear of the platform's trailing
 /// controls (`trailing`: the button column or the throttle; `cockpit.inset_right`: the bottom
 /// button row or column, which a bottom row also keeps left of; `top_controls`: the iPad's
-/// top-trailing row). Panels narrow down to 2/3 of `map_size` before a level is dropped. A
+/// top-trailing row). Panels narrow down to 2/3 of `map_size` before a level is dropped (the
+/// large mini-map, `large`, drops levels first: its panels keep their size). A
 /// bottom-left row also leaves the cockpit a place: beside the row, or lifted above it while
 /// the lifted cockpit stays in the lower half of the canvas (the upper half is the HUD's and
 /// the tour card's); otherwise fewer levels (a phone on its side: one map beside a two-row
@@ -517,6 +518,7 @@ pub(crate) struct MapFit {
 pub(crate) fn fit_maps(
     want: usize,
     map_size: f64,
+    large: bool,
     corner: Corner,
     size: (usize, usize),
     ppp: f64,
@@ -540,7 +542,11 @@ pub(crate) fn fit_maps(
     };
     let left_edge = insets.1.max(0.0) + MAP_MARGIN;
     let avail = w - left_edge - insets.3.max(0.0) - right - MAP_MARGIN;
-    let min_w = (map_size * 2.0 / 3.0).max(80.0).min(map_size);
+    let min_w = if large {
+        map_size
+    } else {
+        (map_size * 2.0 / 3.0).max(80.0).min(map_size)
+    };
     let fit = |levels: usize, width: f64| MapFit {
         levels,
         width,
@@ -569,6 +575,18 @@ pub(crate) fn fit_maps(
     }
     // No room even for one panel at 2/3 size (a tiny canvas): one, as wide as there is room.
     fit(1, map_size.min(avail).max(min_w.min(80.0)))
+}
+
+/// The width a map panel asks for (points): the setting, or for the large mini-map about half
+/// the view's shorter side (never narrower than the setting). `fit_maps` then keeps the row
+/// inside the view and clear of the other overlays.
+pub(crate) fn map_width(s: &OverlaySettings, size: (usize, usize), ppp: f64) -> f64 {
+    if s.map && s.map_large {
+        let short = size.0.min(size.1) as f64 * ppp;
+        (0.5 * short).max(s.map_size)
+    } else {
+        s.map_size
+    }
 }
 
 /// The map row's wishes: map levels (the setting's with the mini-map on, the whole-set map for
@@ -1116,7 +1134,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // and the deepest map levels go first (one panel's room: the Julia panel alone).
         let fit = fit_maps(
             want_levels,
-            s.map_size,
+            map_width(&s, size, ppp),
+            s.map && s.map_large,
             s.map_corner,
             size,
             ppp,
@@ -1961,6 +1980,18 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 };
                 let c = crate::help::top_right([o[0], o[1], o[0] + pw, o[1] + ph], px as f32);
                 crate::help::draw(scene, help, topic, c, px as f32, &mut key);
+                // The mini-map's enlarge / shrink button below the "?" (the panel's right edge
+                // is its emptiest part; the level label sits at the top left).
+                if s.map {
+                    let below = crate::help::map_button_spacing(self.cockpit.touch) * px;
+                    let topic = if s.map_large {
+                        crate::help::HelpTopic::MapShrink
+                    } else {
+                        crate::help::HelpTopic::MapEnlarge
+                    };
+                    let b = [c[0], c[1] + below as f32];
+                    crate::help::draw(scene, help, topic, b, px as f32, &mut key);
+                }
             }
         }
         // ---- The Julia panel at the end of the row (in a Julia view the Mandelbrot panel).
@@ -2510,6 +2541,7 @@ mod tests {
             let f = fit_maps(
                 want,
                 180.0,
+                false,
                 Corner::BottomLeft,
                 size,
                 ppp,
@@ -2539,6 +2571,7 @@ mod tests {
         let f = fit_maps(
             2,
             180.0,
+            false,
             Corner::BottomLeft,
             (2532, 1170),
             1.0 / 3.0,
@@ -2552,6 +2585,7 @@ mod tests {
         let f = fit_maps(
             2,
             180.0,
+            false,
             Corner::TopRight,
             (1488, 2266),
             0.5,
@@ -2561,6 +2595,53 @@ mod tests {
             &off,
         );
         assert_eq!((f.right, f.top), (60.0, 56.0));
+    }
+
+    /// The large mini-map: panels about half the view's shorter side wide, fewer levels rather
+    /// than narrower panels, never past the trailing controls; small keeps `map_size`.
+    #[test]
+    fn large_map_is_half_the_shorter_side_and_still_fits() {
+        let mut s = OverlaySettings {
+            map: true,
+            ..OverlaySettings::default()
+        };
+        let off = crate::cockpit::CockpitOverlay::default();
+        // (view points, ppp, trailing)
+        for (pt, ppp, trailing) in [((1440.0, 900.0), 0.5, 0.0), ((390.0, 844.0), 1.0 / 3.0, 56.0)] {
+            let size = ((pt.0 / ppp) as usize, (pt.1 / ppp) as usize);
+            let short = f64::min(pt.0, pt.1);
+            let fit = |s: &OverlaySettings| {
+                fit_maps(
+                    s.map_levels,
+                    map_width(s, size, ppp),
+                    s.map && s.map_large,
+                    Corner::BottomLeft,
+                    size,
+                    ppp,
+                    (0.0, 0.0, 0.0, 0.0),
+                    trailing,
+                    0.0,
+                    &off,
+                )
+            };
+            s.map_large = false;
+            assert_eq!(map_width(&s, size, ppp), 180.0);
+            let small = fit(&s);
+            s.map_large = true;
+            assert!((map_width(&s, size, ppp) - 0.5 * short).abs() < 1e-9);
+            let large = fit(&s);
+            assert!(large.width > small.width + 10.0, "{pt:?}: {small:?} -> {large:?}");
+            assert!(large.width <= 0.5 * short + 1e-9 && large.levels >= 1);
+            let row_right = 12.0 + large.levels as f64 * (large.width + 8.0) - 8.0;
+            assert!(row_right <= pt.0 - trailing - 12.0 + 1e-9, "{pt:?}: {large:?}");
+            assert!(large.width * MAP_ASPECT + MAP_INFO < pt.1 / 2.0, "{pt:?}: {large:?}");
+        }
+        // Never narrower than the setting; off without the mini-map (the orbit's map alone).
+        s.map_size = 400.0;
+        assert_eq!(map_width(&s, (600, 400), 1.0), 400.0);
+        s.map = false;
+        s.map_size = 180.0;
+        assert_eq!(map_width(&s, (2880, 1800), 0.5), 180.0);
     }
 
     /// The Julia panel takes the last place of the map row (kb: plans/f1-julia-view): the
@@ -2661,6 +2742,7 @@ mod tests {
             let f = fit_maps(
                 want,
                 180.0,
+                false,
                 Corner::BottomLeft,
                 size,
                 ppp,

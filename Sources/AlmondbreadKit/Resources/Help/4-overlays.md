@@ -21,7 +21,7 @@ The π meter counts for you and shows in gold which digits already agree. It bel
 
 ## Mini-map (M)
 
-The mini-map shows the whole set and up to three zoomed-in levels, so you always know where you are. A gold rectangle, or a crosshair once it gets too small, marks where the next level or your view sits. **Click a map** to jump there at your current zoom; **⌥-click** flies there. On iPhone and iPad: **tap** a map to jump, **hold** it to fly there.
+The mini-map shows the whole set and up to three zoomed-in levels, so you always know where you are. A gold rectangle, or a crosshair once it gets too small, marks where the next level or your view sits. **Click a map** to jump there at your current zoom; **⌥-click** flies there. On iPhone and iPad: **tap** a map to jump, **hold** it to fly there. The **arrows button** below the map's **?** makes the maps large, and small again.
 
 ## Orbit (O)
 

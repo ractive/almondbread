@@ -437,6 +437,17 @@ final class InteractionTest: NSObject {
             }
             zoom(v, i, t)
         }
+        // The same zoom with the large mini-map (its arrows button): three levels at about half
+        // the window's shorter side (bigger map textures to render as the view zooms).
+        let largeMapZoom: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 {
+                v.explorer?.setOverlay(settings: OverlaySettings(orbit: true, orbitLength: 200, map: true, mapLevels: 3,
+                                                                 mapSize: 180, mapCorner: .bottomLeft, julia: false,
+                                                                 mapLarge: true))
+                v.send(.pointer(x: 120, y: -60))
+            }
+            zoom(v, i, t)
+        }
         // Autopilot (kb: decisions/controls, autopilot, "Driving levels"): Z, the synthetic
         // pointer circles 220 pt off-centre: steering hands over to cruise (C) at the
         // autopilot's speed, which goes on zooming and steering; Esc at 2.4 s (eased stop).
@@ -915,6 +926,7 @@ final class InteractionTest: NSObject {
                 Scenario(name: "julia pan", viewport: home, input: overlayPan(true)),
                 Scenario(name: "orbit cloud", viewport: siegel, input: orbitCloud),
                 Scenario(name: "overlays zoom", viewport: sea, input: overlayZoom),
+                Scenario(name: "large map zoom", viewport: sea, input: largeMapZoom),
                 Scenario(name: "cosmic zoom", viewport: sea, input: cosmicZoom),
                 Scenario(name: "home pan", viewport: home, input: pan),
                 Scenario(name: "neck zoom", viewport: neck, input: zoom),
