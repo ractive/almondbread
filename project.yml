@@ -3,6 +3,7 @@
 name: Almondbread
 options:
   bundleIdPrefix: ch.ractive
+  minimumXcodeGenVersion: 2.45.1   # the first that compiles .icon (Apps/AppIcon.icon); older ones copy it as a folder
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
