@@ -21,7 +21,9 @@ targets:
   Almondbread:
     type: application
     platform: macOS
-    sources: [Apps/macOS]
+    sources:
+      - Apps/macOS
+      - Apps/AppIcon.icon   # scripts/app-icon.py; Xcode compiles it
     dependencies:
       - package: Almondbread
         product: AlmondbreadKit
@@ -42,12 +44,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread
         PRODUCT_NAME: Almondbread
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: "-"        # ad-hoc: runs locally without a developer account
         ENABLE_HARDENED_RUNTIME: NO
   Almondbread iOS:
     type: application
     platform: iOS
-    sources: [Apps/iOS]
+    sources:
+      - Apps/iOS
+      - Apps/AppIcon.icon
     dependencies:
       - package: Almondbread
         product: AlmondbreadKit
@@ -86,6 +91,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: ch.ractive.almondbread    # one ID for Mac and iOS: Universal Purchase
         PRODUCT_NAME: Almondbread
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO       # simulator builds; set a team to run on a device

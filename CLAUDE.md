@@ -130,6 +130,9 @@ and quit by themselves):
   windows; the app captures its own window (no screen-recording permission, no focus) into
   `build/screens/window-*.png` (`SIZE=1440x900` / `--ui-demo-size=WxH`: the window in points,
   2880x1800 pixels for the App Store; `scripts/appstore-shots.sh` captions them).
+- App icon: `uv run scripts/app-icon.py` writes the Icon Composer document `Apps/AppIcon.icon`
+  (seahorse valley as flat escape-time bands, the ractive.ch card's look; layers set / bands /
+  dots, dark variant) and ictool previews in `build/icon/`; Xcode compiles it for both apps.
 
 ## Environment variables
 

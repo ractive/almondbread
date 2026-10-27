@@ -1,0 +1,63 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.93725,0.89020,0.81176,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.00000,0.21176,0.16471,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "name": "set",
+          "glass": false,
+          "image-name-specializations": [
+            {
+              "value": "set.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "set-dark.svg"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "name": "bands",
+          "glass": false,
+          "image-name": "bands.svg"
+        }
+      ]
+    },
+    {
+      "layers": [
+        {
+          "name": "dots",
+          "glass": false,
+          "image-name-specializations": [
+            {
+              "value": "dots.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "dots-dark.svg"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
