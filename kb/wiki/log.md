@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-27
+
+- **Decision:** Steps tour and bigger orbit dots: new first tour 'z² + c, step by step' (c = 0.2 + 0.5i spirals in, c = 0.2 + 0.65i escapes after 8 steps past 2), written to tours/WRITING.md; orbit dots 3.2 points (was 1.8) with a dark rim, numbered when the orbit length is 12 or less; tour captures draw frames in a covered window (decisions/controls 'The steps tour')
+
 ## 2026-10-26
 
 - **Decision:** Control center search toggles, More line, Esc: during a search a header or More click flips it for that search only (SearchToggles; starts over when the matches change), the More line reads as a control (accent, rotating chevron, full-row target, label still More…), Esc in the Mac search field clears it and gives the canvas the keys (swallowed: no motion stop, no tour arming); decisions/controls

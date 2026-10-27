@@ -348,6 +348,13 @@ extension UIDemo {
                 model.refreshStats()
                 guard let w = NSApplication.shared.windows.first(where: { $0.isVisible && $0.contentView != nil
                     && !String(describing: type(of: $0)).contains("Popover") }) else { return }
+                // A covered background window's display link is paused: draw a frame here, or a
+                // step that changes only the overlay (`orbit-length`) is captured with the
+                // previous step's dots.
+                if !w.occlusionState.contains(.visible), let root = w.contentView?.superview ?? w.contentView,
+                   let canvas = findFractalView(root) as? FractalNSView {
+                    canvas.stepExternal(timestamp: CACurrentMediaTime())
+                }
                 let t = Date().timeIntervalSince(entered)
                 let flying = model.stats?.flight.active ?? true
                 let settled = model.stats?.settled ?? false

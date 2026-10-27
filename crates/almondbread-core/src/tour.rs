@@ -43,7 +43,8 @@ use crate::viewport::{Center, MIN_SCALE_LOG2, Scale, Viewport, wrap_angle};
 /// and the default "Next tour" series (a tour's `next:` overrides it; see [`next_tour`]).
 const BUNDLED: &[(&str, &str)] = &[
     // The series, gentlest first: what the picture shows, its parts, what can be counted on
-    // them, then the deeper maths.
+    // them, then the deeper maths. First the formula itself, one step and one dot at a time.
+    ("steps", include_str!("../tours/steps.md")),
     ("colours", include_str!("../tours/colours.md")),
     ("bulbs", include_str!("../tours/bulbs.md")),
     ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),

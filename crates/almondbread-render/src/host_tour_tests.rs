@@ -143,3 +143,31 @@ fn tour_probe_far_outside_a_deep_view_does_not_stop_the_frames() {
     let before = rig.presented;
     assert!(rig.until(3000, |r| r.presented >= before + 10), "frames go on");
 }
+
+/// "z² + c, step by step": each step shows its dots as soon as it is entered, also where only
+/// `orbit-length` changes and the view stays (a new frame is drawn with the new dots): 1, 2, 4,
+/// then 50 dots of c = 0.2 + 0.5i (in the set), then the 12 dots of c = 0.2 + 0.65i (it escapes).
+#[test]
+fn steps_tour_shows_its_dots_one_step_at_a_time() {
+    let mut rig = Rig::new();
+    let tour = almondbread_core::tour::named("steps")
+        .expect("steps tour")
+        .for_platform(Platform::Mac);
+    let t = rig.now();
+    rig.host.start_tour(tour, t);
+    for (index, dots) in [(2, 1), (3, 2), (4, 4), (5, 50), (6, 12)] {
+        let t = rig.now();
+        assert!(rig.host.tour_go(index, t));
+        assert!(
+            rig.until(20_000, |r| r.host.renderer.navigator.flight().is_none()),
+            "step {index}: the flight lands"
+        );
+        let before = rig.presented;
+        assert!(
+            rig.until(3000, |r| r.presented >= before + 2
+                && r.host.overlay.orbit_points().view.len() == dots),
+            "step {index}: {dots} dots drawn (have {})",
+            rig.host.overlay.orbit_points().view.len()
+        );
+    }
+}

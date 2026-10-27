@@ -201,7 +201,7 @@ public enum UIDemo {
     }
 
     @MainActor
-    private static func findFractalView(_ v: NSView) -> NSView? {
+    static func findFractalView(_ v: NSView) -> NSView? {
         if v is FractalNSView { return v }
         for s in v.subviews { if let f = findFractalView(s) { return f } }
         return nil

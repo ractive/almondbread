@@ -902,6 +902,122 @@ impl<B: GpuBackend> Default for Overlay<B> {
 /// Orbit colours: the point c, then the iterates fading along the orbit.
 const ORBIT_WARM: [f32; 3] = [1.0, 0.86, 0.45];
 const ORBIT_COOL: [f32; 3] = [0.55, 0.85, 1.0];
+/// Up to this orbit length (a tour's `orbit-length`, the Iterates setting) every dot gets its step
+/// number, so a tour card can say "dot 3" (kb: decisions/controls "The steps tour").
+pub(crate) const ORBIT_NUMBERS_MAX: usize = 12;
+/// The step numbers' size, view points.
+const ORBIT_NUMBER_SIZE: f64 = 13.0;
+
+/// Radius of an orbit dot, view points: large enough to see at a glance, a little larger still
+/// when numbered, and smaller for long orbits, whose dots crowd (3.2 points up to 120 dots, 2.2
+/// at 1000; they were 1.8 before 2026-10-27).
+fn orbit_dot_radius(n: usize, numbered: bool) -> f64 {
+    if numbered {
+        return 4.0;
+    }
+    let t = ((n.max(1) as f64 / 120.0).log10() / (1000.0f64 / 120.0).log10()).clamp(0.0, 1.0);
+    3.2 - t
+}
+
+/// Where each orbit dot's step number goes (the top left of its capitals, pixels), None where it
+/// does not fit. Each number takes the first of eight places round its dot (right first) that
+/// covers no other number, dot or line, and stays on screen; failing that, the least covered
+/// one, unless that would cover much of another number (where many dots crowd into one place,
+/// the late ones go without). `clear`: the dots' radius with their rim; `first_clear`: the same for c (its ring,
+/// or a tour marker round it); `blocked`: boxes to keep clear of (a marker's label).
+pub(crate) fn orbit_number_spots(
+    pts: &[[f64; 2]],
+    clear: f64,
+    first_clear: f64,
+    size: f32,
+    screen: (f64, f64),
+    blocked: &[[f32; 4]],
+) -> Vec<Option<[f32; 2]>> {
+    let cap = f64::from(crate::font::cap_height() * size);
+    let gap = 0.25 * f64::from(size);
+    let area = |a: [f64; 4], b: [f64; 4]| {
+        let wx = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
+        let wy = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
+        wx * wy
+    };
+    let mut labels: Vec<[f64; 4]> = blocked.iter().map(|b| b.map(f64::from)).collect();
+    let dots: Vec<[f64; 4]> = pts
+        .iter()
+        .enumerate()
+        .map(|(k, p)| {
+            let r = if k == 0 { first_clear } else { clear };
+            [p[0] - r, p[1] - r, p[0] + r, p[1] + r]
+        })
+        .collect();
+    // Points along the line, to keep the numbers off it.
+    let line: Vec<[f64; 2]> = pts
+        .windows(2)
+        .flat_map(|s| {
+            (1..8).map(move |i| {
+                let t = f64::from(i) / 8.0;
+                [s[0][0] + (s[1][0] - s[0][0]) * t, s[0][1] + (s[1][1] - s[0][1]) * t]
+            })
+        })
+        .collect();
+    let dirs = [
+        (1.0, 0.0),
+        (0.7, -0.7),
+        (0.7, 0.7),
+        (0.0, -1.0),
+        (0.0, 1.0),
+        (-1.0, 0.0),
+        (-0.7, -0.7),
+        (-0.7, 0.7),
+    ];
+    let mut out = Vec::with_capacity(pts.len());
+    for (k, p) in pts.iter().enumerate() {
+        let text = (k + 1).to_string();
+        let w = f64::from(crate::font::layout(&text, size).1);
+        let d = if k == 0 { first_clear } else { clear } + gap;
+        let mut best: Option<(f64, f64, [f64; 4])> = None;
+        for (dx, dy) in dirs {
+            // The box's nearest corner (or edge) at distance d from the dot's centre.
+            let place = |p: f64, u: f64, len: f64| match u {
+                u if u > 0.0 => p + u * d,
+                u if u < 0.0 => p + u * d - len,
+                _ => p - 0.5 * len,
+            };
+            let (x0, y0) = (place(p[0], dx, w), place(p[1], dy, cap));
+            let b = [x0, y0, x0 + w, y0 + cap];
+            let on_labels: f64 = labels.iter().map(|l| area(b, *l)).sum();
+            let on_dots: f64 = dots
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != k)
+                .map(|(_, o)| area(b, *o))
+                .sum();
+            let on_line = line
+                .iter()
+                .filter(|q| q[0] > b[0] && q[0] < b[2] && q[1] > b[1] && q[1] < b[3])
+                .count() as f64;
+            let off = if b[0] < 0.0 || b[1] < 0.0 || b[2] > screen.0 || b[3] > screen.1 {
+                1.0
+            } else {
+                0.0
+            };
+            let score = 4.0 * on_labels + on_dots + on_line * cap * cap * 0.2 + off * w * cap;
+            if best.is_none_or(|(s, _, _)| score < s) {
+                best = Some((score, on_labels, b));
+            }
+            if score == 0.0 {
+                break;
+            }
+        }
+        match best {
+            Some((_, on_labels, b)) if on_labels < 0.3 * w * cap => {
+                labels.push(b);
+                out.push(Some([b[0] as f32, b[1] as f32]));
+            }
+            _ => out.push(None),
+        }
+    }
+    out
+}
 
 impl<B: GpuBackend + Clone> Overlay<B> {
     /// The class of the probed point (overlay text and the FFI).
@@ -1773,13 +1889,35 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if s.orbit && !self.points.view.is_empty() {
             let pts: Vec<[f64; 2]> = self.points.view.iter().map(|&v| to_px(v)).collect();
             let n = pts.len();
+            // A few dots (a tour's `orbit-length`, or the Iterates setting) get their step numbers.
+            let numbered = s.orbit_length <= ORBIT_NUMBERS_MAX;
             let fade = |k: usize| 1.0 - 0.8 * k as f32 / n.max(2) as f32;
-            let col = |k: usize, a: f32| {
+            // The dots fade less than the line, and numbered ones not at all (a card says "dot 7").
+            let dot_fade = |k: usize| {
+                if numbered {
+                    1.0
+                } else {
+                    1.0 - 0.5 * k as f32 / n.max(2) as f32
+                }
+            };
+            let tint = |k: usize| -> [f32; 3] {
                 let t = k as f32 / n.max(2) as f32;
-                let c: Vec<f32> = (0..3).map(|i| ORBIT_WARM[i] * (1.0 - t) + ORBIT_COOL[i] * t).collect();
+                std::array::from_fn(|i| ORBIT_WARM[i] * (1.0 - t) + ORBIT_COOL[i] * t)
+            };
+            let col = |k: usize, a: f32| {
+                let c = tint(k);
                 rgba(c[0], c[1], c[2], a * fade(k))
             };
-            let lw = (0.75 * px) as f32;
+            // Nearly white, tinted warm to cool along the orbit, with a dark rim: visible on bright
+            // and dark palettes alike (2026-10-27: the dots were 1.8 points, hard to see).
+            let dot_col = |k: usize| {
+                let c = tint(k).map(|x| 0.45 * x + 0.55);
+                rgba(c[0], c[1], c[2], dot_fade(k))
+            };
+            let r = orbit_dot_radius(n, numbered);
+            let (r_px, rim_px) = ((r * px) as f32, ((r + 1.4) * px) as f32);
+            // The line stays well thinner than the dots.
+            let lw = (0.8 * px) as f32;
             for k in 0..n.saturating_sub(1) {
                 scene.segment(
                     pts[k],
@@ -1791,17 +1929,45 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 scene.segment(pts[k], pts[k + 1], lw, col(k, 0.9), col(k + 1, 0.9));
             }
             for (k, p) in pts.iter().enumerate().skip(1) {
-                scene.disc(*p, (2.6 * px) as f32, rgba(0.0, 0.0, 0.0, 0.5 * fade(k)));
-                scene.disc(*p, (1.8 * px) as f32, col(k, 1.0));
+                scene.disc(*p, rim_px, rgba(0.0, 0.0, 0.0, 0.8 * dot_fade(k)));
+                scene.disc(*p, r_px, dot_col(k));
             }
-            // c itself: a larger dot with a ring.
-            scene.disc(pts[0], (5.0 * px) as f32, rgba(0.0, 0.0, 0.0, 0.55));
-            scene.disc(
-                pts[0],
-                (3.4 * px) as f32,
-                rgba(ORBIT_WARM[0], ORBIT_WARM[1], ORBIT_WARM[2], 1.0),
-            );
-            scene.ring(pts[0], (6.5 * px) as f32, (1.2 * px) as f32, rgba(1.0, 1.0, 1.0, 0.8));
+            // c itself: a larger dot with a ring (the marker), both with dark rims.
+            let rc = r + 1.2;
+            let ring = rc + 3.6;
+            scene.disc(pts[0], ((rc + 1.5) * px) as f32, rgba(0.0, 0.0, 0.0, 0.8));
+            scene.disc(pts[0], (rc * px) as f32, dot_col(0));
+            scene.ring(pts[0], (ring * px) as f32, (3.0 * px) as f32, rgba(0.0, 0.0, 0.0, 0.5));
+            scene.ring(pts[0], (ring * px) as f32, (1.4 * px) as f32, rgba(1.0, 1.0, 1.0, 0.9));
+            if numbered {
+                // Keep clear of a tour's marker on c: its outer ring (15 points) and its label
+                // above it (as `tour::TourOverlay::draw` places them: 13 points, its left edge
+                // 2.75 points left of c, its capitals' top 34 points above c).
+                let on_c = self.tour.marker.as_ref().filter(|m| {
+                    let (x, y) = view.offset_of(&m.at);
+                    (w / 2.0 + x * px - pts[0][0]).hypot(h / 2.0 - y * px - pts[0][1]) < 4.0 * px
+                });
+                let first_clear = if on_c.is_some() { 16.0 * px } else { (ring + 1.4) * px };
+                let blocked: Vec<[f32; 4]> = on_c
+                    .filter(|m| !m.label.is_empty())
+                    .map(|m| {
+                        let size = (13.0 * px) as f32;
+                        let x0 = (pts[0][0] - 2.75 * px) as f32;
+                        let y0 = (pts[0][1] - 34.0 * px) as f32;
+                        let width = crate::font::layout(&m.label, size).1;
+                        [x0, y0, x0 + width, y0 + crate::font::cap_height() * size]
+                    })
+                    .into_iter()
+                    .collect();
+                let size_px = (ORBIT_NUMBER_SIZE * px) as f32;
+                let spots = orbit_number_spots(&pts, (r + 1.4) * px, first_clear, size_px, (w, h), &blocked);
+                for (k, o) in spots.iter().enumerate() {
+                    if let Some(o) = o {
+                        scene.label(*o, size_px, &(k + 1).to_string(), rgba(1.0, 1.0, 1.0, 1.0));
+                    }
+                }
+                key.push_str("numbered ");
+            }
             key.push_str(&format!("orbit {:?} ", self.points.view.first()));
             key.push_str(&format!("{} {:?} ", n, self.points.view.last()));
         }
@@ -2417,6 +2583,53 @@ mod tests {
         if !cfg!(debug_assertions) {
             assert!(best < 0.005, "{best}");
         }
+    }
+
+    /// Step numbers: one per dot, clear of the other dots, the other numbers and a blocked box;
+    /// where dots crowd into one place, the late ones go without.
+    #[test]
+    fn orbit_numbers_keep_clear_of_dots_and_each_other() {
+        let pts = [[100.0, 100.0], [140.0, 100.0], [180.0, 100.0], [180.0, 140.0]];
+        let size = 26.0;
+        let cap = f64::from(crate::font::cap_height() * size);
+        let blocked = [[90.0f32, 50.0, 200.0, 80.0]];
+        let spots = orbit_number_spots(&pts, 8.0, 20.0, size, (400.0, 300.0), &blocked);
+        assert_eq!(spots.len(), 4);
+        let boxes: Vec<[f64; 4]> = spots
+            .iter()
+            .enumerate()
+            .map(|(k, s)| {
+                let o = s.expect("every dot numbered");
+                let w = f64::from(crate::font::layout(&(k + 1).to_string(), size).1);
+                [
+                    f64::from(o[0]),
+                    f64::from(o[1]),
+                    f64::from(o[0]) + w,
+                    f64::from(o[1]) + cap,
+                ]
+            })
+            .collect();
+        let overlap = |a: [f64; 4], b: [f64; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+        for (i, a) in boxes.iter().enumerate() {
+            for b in &boxes[i + 1..] {
+                assert!(!overlap(*a, *b), "numbers overlap: {a:?} {b:?}");
+            }
+            assert!(!overlap(*a, blocked[0].map(f64::from)), "number on the blocked box");
+            for (j, p) in pts.iter().enumerate() {
+                let r = if j == 0 { 20.0 } else { 8.0 };
+                // The box's nearest point to the dot is outside the dot.
+                let q = [p[0].clamp(a[0], a[2]), p[1].clamp(a[1], a[3])];
+                assert!((q[0] - p[0]).hypot(q[1] - p[1]) >= r, "number {i} on dot {j}");
+            }
+        }
+        // Converged: twelve dots in one place; the first ones are numbered, the late ones not.
+        let mut crowd = vec![[60.0, 60.0]];
+        crowd.extend((0..11).map(|k| [300.0 + 0.1 * f64::from(k), 200.0]));
+        let spots = orbit_number_spots(&crowd, 8.0, 8.0, size, (400.0, 300.0), &[]);
+        assert!(spots[0].is_some() && spots[1].is_some());
+        assert!(spots[11].is_none(), "the twelfth number in a crowd of eleven dots");
+        assert_eq!(orbit_dot_radius(12, true), 4.0);
+        assert!(orbit_dot_radius(50, false) == 3.2 && (orbit_dot_radius(1000, false) - 2.2).abs() < 1e-9);
     }
 
     #[test]
