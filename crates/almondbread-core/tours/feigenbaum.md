@@ -61,7 +61,7 @@ marker-label: Feigenbaum point
 
 All the doublings end here, at **−1.40115518909…**, the *Feigenbaum point*. The bulbs of period 2, 4, 8, 16, … shrink by about 4.669 each and pile up against it.
 
-Here the dots never settle into a loop and never fly off. The same 4.669 turns up in dripping taps, electronic circuits and animal populations: wherever things double their way into chaos.
+Here the dots never settle into a loop and never fly off. The same 4.669 turns up in dripping taps, electronic circuits and animal populations: wherever things double their way into chaos. Ben Sparks finds it in a population model, and shows that its picture is this middle line of the Mandelbrot set, in Numberphile's [The Feigenbaum Constant (4.669)](https://www.youtube.com/watch?v=ETrYE4MdoLQ).
 
 ## Chaos
 center: -0.4, 0
