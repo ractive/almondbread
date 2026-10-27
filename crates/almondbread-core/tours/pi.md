@@ -50,6 +50,8 @@ There is a second spot: the dent at the right of the heart, the **cusp**. For po
 
 The counted point slides down to ε = 0.0000000000000001, where the count is **314 159 263**. Here a hundred times closer gives one more digit.
 
+Holly Krieger counts these steps at the cusp in Numberphile's [Pi and the Mandelbrot Set](https://www.youtube.com/watch?v=d0vY0CKYhPY) (with [extra footage](https://www.youtube.com/watch?v=r8Ksuc7T-VQ)).
+
 ## Your turn
 place: pi-at-the-neck
 

@@ -33,7 +33,7 @@ probe: 0.5, 0.5
 
 Now the ring is outside the set: its dots fly off. Then its Julia set is **dust**, as in the panel: endlessly many separate specks, no two of them joined.
 
-That is the deepest fact about the Mandelbrot set: it is exactly the points whose Julia sets are in **one piece**. Black here means "connected Julia set", colour means "dust".
+That is the deepest fact about the Mandelbrot set: it is exactly the points whose Julia sets are in **one piece**. Black here means "connected Julia set", colour means "dust". Holly Krieger explains it in Numberphile's [Filled Julia Set](https://www.youtube.com/watch?v=oCkQ7WK7vuY).
 
 ## Dust you can see
 place: cantor-island
@@ -71,6 +71,6 @@ orbit: on
 map: on
 julia: on
 
-The ring, its dots and the Julia set follow the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Wherever the dots settle or loop, that point has a Julia set in one piece; where they fly off, dust. Watch the panel change as you move: **U** shows or hides it later.
+The ring, its dots and the Julia set follow the pointer again (on a touch screen: hold a finger and choose *Orbit Here*). Wherever the dots settle or loop, that point has a Julia set in one piece; where they fly off, dust. Watch the panel change as you move: **U** shows or hides it later. Ben Sparks plays with Julia sets the same way in Numberphile's [What's so special about the Mandelbrot Set?](https://www.youtube.com/watch?v=FFftmWSzgmk).
 
 **End tour** (or **Esc** twice) brings back your view and settings.

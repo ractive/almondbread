@@ -106,7 +106,27 @@ marker-label: 5 + 3 = 8
 
 Again: between the period-5 bulb (left) and the period-3 bulb (top right), the biggest bulb is this one. Count its dots on the map: **8** spots, and 5 + 3 = **8**. It goes on for ever, in every gap.
 
-Mathematicians write the places round the heart as fractions: ½ and ⅓ give ⅖ (add the tops, add the bottoms), and ⅖ and ⅓ give ⅜. The bottom number is always the period.
+Mathematicians write the places round the heart as fractions: ½ and ⅓ give ⅖ (add the tops, add the bottoms), and ⅖ and ⅓ give ⅜. The bottom number is always the period. Numberphile has more on this way of adding fractions in [Funny Fractions and Ford Circles](https://www.youtube.com/watch?v=0hlvhQZIOQw).
+
+## Thirteen
+center: -0.395, 0.592
+span: 0.08
+probe: -0.4071040830850983, 0.5848528428681022
+marker: -0.4071040830850983, 0.5848528428681022
+marker-label: 8 + 5 = 13
+
+Keep going with the last two: between the period-8 and the period-5 bulb, the biggest bulb hops round **13** spots, and 8 + 5 = **13**.
+
+## Fibonacci
+center: -0.392, 0.589
+span: 0.03
+probe: -0.3861604162801374, 0.5914044863955293
+marker: -0.3861604162801374, 0.5914044863955293
+marker-label: 13 + 8 = 21
+
+And next 13 + 8 = **21**. Each period is the sum of the two before it: 2, 3, 5, 8, 13, 21, 34, … These are the **Fibonacci numbers**.
+
+Their fractions ½, ⅓, ⅖, ⅜, 5⁄13, 8⁄21, … close in on one spot of the heart, 0.382 of the way round. That is 1/φ², where φ = 1.618… is the **golden ratio**. Numberphile shows more in [Fibonacci Numbers hidden in the Mandelbrot Set](https://www.youtube.com/watch?v=4LQvjSf6SSw).
 
 ## Your turn
 center: -0.45, 0

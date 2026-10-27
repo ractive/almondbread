@@ -72,7 +72,7 @@ marker: off
 
 Past the Feigenbaum point, most points on the **spike**, the thin line to the left, give **chaos**: the dots never repeat but fill a whole band (see the cloud on the map), and two points a hair apart soon go completely different ways.
 
-Now and then a short burst of order flashes by: tiny windows where the dots settle into a loop of 12, 10 or 14 spots.
+Now and then a short burst of order flashes by: tiny windows where the dots settle into a loop of 12, 10 or 14 spots. Some points hide it well: Holly Krieger says nobody knows whether −1.5 settles into a loop, and whether every piece of the inside comes from such a loop is an open question (Numberphile: [The Mystery of Hyperbolicity](https://www.youtube.com/watch?v=eC9-1wY7FvU)).
 
 ## Order returns
 center: -1.768, 0
@@ -82,6 +82,8 @@ probe: -1.7548776662466927, 0
 At **−1.75** order comes back. A **minibrot**, a tiny copy of the whole set, sits on the spike. The ring is in its heart, and the dots hop round **three spots**: −1.755, 0 and 1.325.
 
 And the story repeats: to the left of this copy's heart, its own bulbs double the loop again, 6, 12, 24, …, shrinking by the same 4.669.
+
+−1.75 is −7/4, and number theorists know it too. Start at 0 and apply the rule with c = −7/4: the numerators go 7, 21, 7, … and the third brings no new prime factor. No other fraction is known to do that, and any other would have to lie deep inside the set (Numberphile: [63 and −7/4 are special](https://www.youtube.com/watch?v=09JslnY7W_k&t=570s), from 9:30).
 
 ## Your turn
 center: -1.25, 0
