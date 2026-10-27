@@ -15,7 +15,7 @@ Applications. Needs a Mac with Apple silicon (M1 or later) and macOS 14 Sonoma o
 Or with [Homebrew](https://brew.sh): `brew install --cask ractive/tap/almondbread`.
 Release notes and earlier versions: [releases](https://github.com/ractive/almondbread/releases).
 
-![Almondbread exploring near seahorse valley](docs/images/app.jpg)
+![Almondbread among the elephants, with the control center open at the places](docs/images/app.jpg)
 
 <p align="center">
   <img src="docs/images/spiral.jpg" width="32%" alt="A spiral at a zoom of 10^50">
@@ -35,7 +35,7 @@ Release notes and earlier versions: [releases](https://github.com/ractive/almond
   embedded Julia sets, minibrots at 10^1000, places down to 10^3000) with thumbnails, one click away.
 - **Colour it your way.** Dozens of palettes, from classic gradients to scientific colour
   maps, several interior colourings, and imports of Ultra Fractal and Fractint palettes.
-- **Find π.** Turn on the π meter at the neck of the set and watch the iteration count spell
+- **Find π.** The π tour adds a meter at the neck of the set: watch the iteration count spell
   out 3.14159...
 - **See how deep you are.** A mini-map of the whole set and a scale that compares your view
   with real things, from galaxies to the Planck length.
@@ -51,7 +51,7 @@ Release notes and earlier versions: [releases](https://github.com/ractive/almond
 | **Q** / **E** | slower / faster zoom |
 | **Z** | autopilot (click pauses, **Esc** stops) |
 | **J** | journey from landmark to landmark |
-| **M**, **O**, **P** | mini-map, orbit of the point under the pointer, π meter |
+| **M**, **O**, **U**, **C** | mini-map, orbit of the point under the pointer, its Julia set, size scale |
 | **,** **.** **/** | turn the view, straighten it |
 | **R** or **Cmd-0** | back to the whole set |
 | **Cmd-I** | control center with every setting, the places and the palettes |
