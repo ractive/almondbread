@@ -3260,6 +3260,33 @@ reserve and the reported `maps` rect measured the row from x = 0 rather than fro
 area's left edge (47 points on a phone on its side). Not handled: a bottom-right row and the
 cockpit (the cockpit only knows a left neighbour), a top-left row under the HUD.
 
+### Large mini-map (as built, 2026-10-27)
+
+The user asked for a button on the map that makes it bigger and small again, with double arrows
+pointing out when small and in when large. It is a badge of the help kind (`help.rs`,
+`HelpTopic::MapEnlarge` / `MapShrink`): the same 14-point dark circle as the map's "?", directly
+below it, with two diagonal arrows drawn as segments and right-angled triangle heads (SF Symbols'
+`arrow.up.left.and.arrow.down.right` / `arrow.down.right.and.arrow.up.left`). Being a badge,
+it is hit-tested before the maps on every platform, so a click or tap on it never jumps or flies;
+`ExplorerModel.helpPress` toggles `mapLarge` for these two ids instead of opening a popover.
+Spacing below the "?": 18 points with a pointer, 36 on touch (twice the 18-point fingertip
+radius, so each badge keeps its whole touch target); where two badges' targets meet, the
+nearer centre wins.
+
+Large size (`map_width`, `fit_maps(large)` in `overlay.rs`): panels half the canvas's shorter
+side wide (never narrower than the `mapSize` setting, which stays the small size), and the row
+drops levels rather than narrowing panels, under the same rules as above (trailing controls,
+the cockpit beside the row or lifted into the lower half). On a 1100 × 830-point Mac canvas
+with the control center open: one 450-point whole-set panel, cockpit lifted above it; iPhone
+17e portrait: one panel of about 195 points (small: about 150). `mapLarge` persists with the
+other overlay settings and resets with them; also a control-center row ("Large mini-map") and
+a View menu item. CLI: `render --map 1 --map-large 1`. Tours do not set it (a `map-large`
+directive would be one more flag in `tour.rs`).
+
+Map textures are made anew at the new panel size, so the panels are empty until their maps
+render again (about a second at shallow views; several seconds with a heavy deep view
+rendering at the same time).
+
 ### Tour card on a phone (as built, 2026-10-19)
 
 On an iPhone in portrait the compact card (top, full width, text up to 150 points) reached 330

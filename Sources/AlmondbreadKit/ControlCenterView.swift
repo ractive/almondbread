@@ -948,6 +948,8 @@ struct OverlaySectionRows: View {
                 }
                 .help("The whole set plus up to three deeper maps at thousands of times the zoom")
                 ControlRows.slider("Mini-map size", value: $model.mapSize, in: 100...320, text: String(format: "%.0f pt", model.mapSize))
+                Toggle("Large mini-map", isOn: $model.mapLarge)
+                    .help("About half the window's shorter side; the size above is the small map's. The arrows button below the map's ? does the same")
                 ControlRows.picker("Mini-map corner", selection: $model.mapPlacement) {
                     ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
                 }

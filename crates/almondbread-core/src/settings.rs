@@ -296,6 +296,9 @@ pub struct OverlaySettings {
     pub map_levels: usize,
     /// Width of one map panel, view points.
     pub map_size: f64,
+    /// The mini-map shown large (its corner button): panels about half the view's shorter
+    /// side wide, never narrower than `map_size`.
+    pub map_large: bool,
     pub map_corner: Corner,
     /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
     pub julia: bool,
@@ -309,6 +312,7 @@ impl Default for OverlaySettings {
             map: false,
             map_levels: 3,
             map_size: 180.0,
+            map_large: false,
             map_corner: Corner::BottomLeft,
             julia: false,
         }

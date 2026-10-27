@@ -45,9 +45,11 @@ pub struct Accessible {
 }
 
 /// A help badge's label ("Help: …", never just the panel's name: the round buttons on iOS
-/// carry those).
+/// carry those); the mini-map's size button says what it does.
 pub fn help_label(topic: HelpTopic) -> String {
     let what = match topic {
+        HelpTopic::MapEnlarge => return "Enlarge mini-map".into(),
+        HelpTopic::MapShrink => return "Shrink mini-map".into(),
         HelpTopic::CosmicScale => "cosmic size scale",
         HelpTopic::PiMeter => "π meter",
         HelpTopic::MiniMap => "mini-map",
@@ -239,7 +241,15 @@ impl<B: GpuBackend + Clone> Host<B> {
                 rect: px_rect(*r),
             });
         }
-        push_help(&mut out, &[HelpTopic::MiniMap, HelpTopic::Orbit]);
+        push_help(
+            &mut out,
+            &[
+                HelpTopic::MiniMap,
+                HelpTopic::MapEnlarge,
+                HelpTopic::MapShrink,
+                HelpTopic::Orbit,
+            ],
+        );
         // ---- Julia panel.
         if let Some(r) = panel("julia") {
             out.push(Accessible {
