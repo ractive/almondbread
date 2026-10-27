@@ -5,6 +5,16 @@ for Macs with Apple silicon. Zoom with the mouse, the trackpad or the keyboard, 
 going far past where ordinary explorers turn into blocky noise: down to a zoom of 10^3000,
 at the frame rate of your display.
 
+## Download
+
+**[⬇ Download Almondbread for Mac (.dmg)](https://github.com/ractive/almondbread/releases/latest/download/Almondbread.dmg)**
+
+The latest version, signed and notarised by Apple. Open the .dmg and drag Almondbread to
+Applications. Needs a Mac with Apple silicon (M1 or later) and macOS 14 Sonoma or newer.
+
+Or with [Homebrew](https://brew.sh): `brew install --cask ractive/tap/almondbread`.
+Release notes and earlier versions: [releases](https://github.com/ractive/almondbread/releases).
+
 ![Almondbread exploring near seahorse valley](docs/images/app.jpg)
 
 <p align="center">
@@ -29,19 +39,6 @@ at the frame rate of your display.
   out 3.14159...
 - **See how deep you are.** A mini-map of the whole set and a scale that compares your view
   with real things, from galaxies to the Planck length.
-
-## Install
-
-You need a Mac with Apple silicon (M1 or later) and macOS 14 Sonoma or newer.
-
-- **Download:** get `almondbread_<version>_aarch64.dmg` from the
-  [latest release](https://github.com/ractive/almondbread/releases/latest), open it and drag
-  Almondbread to Applications. The app is signed and notarised by Apple.
-- **Homebrew:**
-
-  ```sh
-  brew install --cask ractive/tap/almondbread
-  ```
 
 ## Controls
 

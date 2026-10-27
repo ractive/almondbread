@@ -199,5 +199,8 @@ jobs:
             gh release create "$TAG" --draft --verify-tag --title "almondbread $VERSION" \
               --generate-notes
           fi
+          # The same .dmg under a fixed name too, so releases/latest/download/Almondbread.dmg is a
+          # download link that outlives releases (README, ractive.ch/almondbread).
+          cp "dist/almondbread_${VERSION}_aarch64.dmg" dist/Almondbread.dmg
           # No --clobber: a release's assets are never replaced; delete them by hand first.
           gh release upload "$TAG" dist/*.dmg dist/almondbread-SHA256SUMS
