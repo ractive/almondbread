@@ -18,7 +18,7 @@ The escape count times the distance from that point gives π, and more digits ag
 
 The whole set, plus zoomed-in levels on the way to your view. The gold rectangle or crosshair shows where the next level sits. Click (tap) a map to jump there; ⌥-click (hold) flies there.
 
-Click a map to jump there at your current zoom; ⌥-click flies there. **M** shows or hides the maps.
+Click a map to jump there at your current zoom; ⌥-click flies there. **M** shows or hides the maps. The arrows button below this **?** makes the maps large, and small again.
 
 ## orbit
 

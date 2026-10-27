@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-27
+
+- **Decision:** Large mini-map: an arrows button below the map's ? toggles panels of half the canvas's shorter side (decisions/controls)
+
 ## 2026-10-26
 
 - **Decision:** Control center search toggles, More line, Esc: during a search a header or More click flips it for that search only (SearchToggles; starts over when the matches change), the More line reads as a control (accent, rotating chevron, full-row target, label still More…), Esc in the Mac search field clears it and gives the canvas the keys (swallowed: no motion stop, no tour arming); decisions/controls

@@ -1031,6 +1031,34 @@ final class TouchControlsUITests: XCTestCase {
         shot("map-long-press-flew")
     }
 
+    /// The mini-map's arrows button below its (?): a tap makes the map large, a fingertip off its
+    /// centre makes it small again; neither moves the view.
+    func testMiniMapSizeButton() throws {
+        try launchSettled()
+        app.typeKey("m", modifierFlags: [])
+        settle(2)
+        let before = fields()
+        let width = { (f: [String: String]) -> Int? in
+            let r = (f["panel-maps"] ?? "").split(separator: ",").compactMap { Int($0) }
+            return r.count == 4 ? r[2] - r[0] : nil
+        }
+        try XCTUnwrap(point("help-map-enlarge"), "no enlarge button: \(before)").tap()
+        settle(2)
+        let large = fields()
+        shot("map-large")
+        XCTAssertNotNil(large["help-map-shrink"], "the tap did not make the map large: \(large)")
+        XCTAssertGreaterThan(width(large) ?? 0, width(before) ?? .max, "the map row did not grow")
+        XCTAssertEqual(before["re"], large["re"], "the button moved the view")
+        XCTAssertEqual(before["im"], large["im"], "the button moved the view")
+        try XCTUnwrap(point("help-map-shrink")).withOffset(CGVector(dx: 10, dy: 10)).tap()
+        settle(2)
+        let small = fields()
+        shot("map-small-again")
+        XCTAssertNotNil(small["help-map-enlarge"], "the second tap did not make the map small: \(small)")
+        XCTAssertEqual(width(small), width(before))
+        XCTAssertEqual(before["re"], small["re"], "the button moved the view")
+    }
+
     /// Tests do not persist settings: "Orbit Here" in a UI test leaves the next normal launch
     /// with the orbit off.
     func testTestsDoNotPersistSettings() throws {

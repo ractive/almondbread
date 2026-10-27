@@ -65,7 +65,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let mut out = None;
     let analyse = r.settings.interior_mode.needs_analysis() || o.has("interior-stats");
     // Overlays (kb: decisions/controls, "Orbit overlay and mini-map"): `--orbit x,y` (view
-    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`,
+    // pixels from the centre, y up) with `--orbit-length n`, `--map 1` with `--map-levels n`
+    // and `--map-large 1` (the large mini-map),
     // `--scale-overlay 1` (cosmic size scale) with
     // `--screen-cm w` (the view's physical width; default 30 cm).
     // `--julia 1` (the Julia panel of the orbit's point, kb: plans/f1-julia-view),
@@ -277,6 +278,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     if let Some(v) = o.f64("map-size") {
         ov.settings.map_size = v;
     }
+    ov.settings.map_large = o.get("map-large").is_some_and(|v| v != "0");
     let now = r.clock();
     r.handle_input(
         InputEvent::Resize {
