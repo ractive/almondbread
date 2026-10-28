@@ -18,7 +18,7 @@ labels: 0.05, 0.35, the heart
 
 A reminder: each point of the picture is one number c. The formula starts with z = 0, and at each step z → z² + c (square z, then add c). The set is made of the numbers c for which z stays small. The blue area around it is outside the set.
 
-The small circle (the marker) is the point c = −0.2. The white dots are the values of z, one per step.
+The marker (the small circle where the dots start) is the point c = −0.2. The white dots are the values of z, one per step.
 
 With c = −0.2, z goes 0, −0.2, −0.16, −0.174, −0.170, … The values come closer and closer to **one place**, −0.171, and then stay there. That is why the white dots make one small group right next to the marker. The text above the mini-map says "settles on a fixed point": one place. Every c in the heart (labelled), the big shape with the notch on the right, does the same: its dots end at one place.
 

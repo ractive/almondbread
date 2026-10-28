@@ -17,7 +17,7 @@ julia: on
 probe: -1, 0
 marker: off
 
-A reminder: each point of the picture is one number c. The formula starts with z = 0, and at each step z → z² + c. The small circle (the marker) is the point c = −1, and the white dots are the values of z. Here z goes 0, −1, 0, −1, … So the dots move between 0 and −1 again and again.
+A reminder: each point of the picture is one number c. The formula starts with z = 0, and at each step z → z² + c. The marker (the small circle where the dots start) is the point c = −1, and the white dots are the values of z. Here z goes 0, −1, 0, −1, … So the dots move between 0 and −1 again and again.
 
 Now use the formula the other way round. Keep c = −1 fixed, but let z **start** at every other number instead of 0. For some starting numbers, z stays small. Together, these starting numbers make a picture of their own: the **Julia set** of c (named after Gaston Julia).
 

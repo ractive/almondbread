@@ -26,7 +26,7 @@ place: pi-at-the-neck
 pi-meter: on
 marker: off
 
-The small circle labelled −3/4 + iε is **0.02** straight above the neck (labelled −3/4). We call this distance **ε** (*epsilon*, a Greek letter for small distances).
+The labelled point −3/4 + iε is **0.02** straight above the neck (the labelled point −3/4). We call this distance **ε** (*epsilon*, a Greek letter for small distances).
 
 For this point, z escapes after **158 steps**, and 158 × 0.02 = **3.16**: almost **π = 3.14159…**, the distance round any circle divided by its width!
 
@@ -35,7 +35,7 @@ The **π meter**, the lower panel on the right, counts for you. Digits that agre
 ## Closer and closer
 pi-hunt: neck
 
-Now the counted point, the glowing circle labelled "probe", slides down the vertical ruler towards the neck. Each time it gets ten times closer, it needs ten times more steps: 315 steps at ε = 0.01, 31 417 at 0.0001, 3 141 593 at 0.000001. And each time, steps × ε has **one more correct digit of π**.
+Now the counted point, the labelled point "probe", slides down the vertical ruler towards the neck. Each time it gets ten times closer, it needs ten times more steps: 315 steps at ε = 0.01, 31 417 at 0.0001, 3 141 593 at 0.000001. And each time, steps × ε has **one more correct digit of π**.
 
 At the end, ε = 0.00000001, and z takes **314 159 266 steps** to escape. The counting takes a few seconds.
 
@@ -54,7 +54,7 @@ pi-hunt: cusp
 
 The **cusp**, the notch on the right of the heart (labelled 1/4), works too. For a point ε to its right, steps × **√ε** (the square root of ε) comes closer and closer to π.
 
-The glowing circle labelled "probe" slides to ε = 0.0000000000000001, where z takes **314 159 263** steps. Each new digit needs a point a hundred times closer.
+The labelled point "probe" slides to ε = 0.0000000000000001, where z takes **314 159 263** steps. Each new digit needs a point a hundred times closer.
 
 Holly Krieger, a mathematician, counts these steps at the cusp in a video on Numberphile, a YouTube channel about maths: [Pi and the Mandelbrot Set](https://www.youtube.com/watch?v=d0vY0CKYhPY) (with [extra footage](https://www.youtube.com/watch?v=r8Ksuc7T-VQ)).
 
