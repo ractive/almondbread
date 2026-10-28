@@ -31,7 +31,7 @@ dots, the mini-map, maybe a panel. They cannot ask what a sentence means.
    says where to see them ("on the mini-map, the small map at the bottom left"). Do not
    describe motion the reader cannot see.
 6. **Numbers worked out, not hinted at.** "With c = −1, z goes 0, −1, 0, −1, …", not "it
-   repeats". Ratios: "each bulb is about 4.7 times shorter than the one before", not "the
+   repeats". Ratios: "each bulb is about 4.7 times as wide as the next one", not "the
    ratio tends to 4.669".
 7. **One new idea per card.** A card introduces at most one new term. Build on earlier
    cards and on the first tour ("z² + c, step by step"); do not re-explain the formula in
@@ -74,7 +74,7 @@ Avoid: "the ring", "test point", "the rule" (say "the formula"), "spot" (say "pl
 | Points on the middle line have a number for a name. | The horizontal line through the middle holds the ordinary numbers: 0 is inside the heart, −2 is the tip on the far left. |
 | The one spot no longer pulls the dots in. | Here the dots no longer come closer to one place. |
 | Each dot shows the number that one more step makes. | Each white dot is the value of z after one more step. |
-| The bulbs shrink by about 4.669 each and pile up against it. | Each bulb is about 4.669 times shorter than the one before. So the bulbs come closer and closer together, and they end at this point. |
+| The bulbs shrink by about 4.669 each and pile up against it. | Each bulb is about 4.669 times as wide as the next one. So the bulbs get smaller and smaller, and they end at this point. |
 
 ## Process
 
