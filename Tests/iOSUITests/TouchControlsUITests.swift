@@ -207,6 +207,7 @@ final class TouchControlsUITests: XCTestCase {
             app.swipeUp()
             settle(0.8)
         }
+        reveal(twin)
         XCTAssertTrue(twin.exists && twin.isHittable, "no Julia twin button in the control center")
         twin.tap()
         settle(2)
@@ -222,6 +223,7 @@ final class TouchControlsUITests: XCTestCase {
         // Again, and back through the HUD this time.
         let twinAgain = app.buttons["julia-twin"]
         XCTAssertTrue(twinAgain.waitForExistence(timeout: 5), "no twin button after Back")
+        reveal(twinAgain)
         twinAgain.tap()
         settle(2)
         let close = app.buttons["control-center-close"]
@@ -233,6 +235,25 @@ final class TouchControlsUITests: XCTestCase {
         hudBack.tap()
         settle(2)
         XCTAssertFalse(app.buttons["julia-back-hud"].exists, "still in the Julia set after the HUD's back")
+    }
+
+    /// Makes sure `element` in the control center is clear of the "Reset all…" bar pinned at its
+    /// bottom. Rows scroll under that bar and the bar takes the touches there, but XCTest still
+    /// calls a row under it hittable: on a phone's half-height sheet the search's last row sits
+    /// there (since "Orbit iterations shown" joined Overlays, the Julia twin; Lighting's More),
+    /// and a tap on it opened "Reset all settings?" or nothing. The sheet goes to full height
+    /// (its grabber), as a user would raise it.
+    private func reveal(_ element: XCUIElement) {
+        let bar = app.buttons["Reset all…"]
+        // (The bar: the button and 8 points of padding above it.)
+        let clear = { element.isHittable && (!bar.exists || element.frame.maxY <= bar.frame.minY - 10) }
+        guard element.exists, !clear() else { return }
+        let grabber = app.buttons["Sheet Grabber"]
+        if grabber.exists, (grabber.value as? String)?.contains("Half") == true {
+            grabber.tap()
+            settle(1)
+        }
+        XCTAssertTrue(clear(), "\(element.identifier) under the Reset all bar: \(element.frame) vs \(bar.frame)")
     }
 
     private func launchSettled() throws {
@@ -265,6 +286,7 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertTrue(app.sliders["Shading"].exists, "Shading is not visible")
         XCTAssertFalse(app.sliders["Light angle"].exists, "Light angle shown with More closed")
         XCTAssertFalse((more.value as? String ?? "").contains("changed"), "changed before any change")
+        reveal(more)
         shot("more-closed")
         more.tap()
         settle(1)
@@ -272,6 +294,7 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertTrue(angle.waitForExistence(timeout: 5), "More did not open")
         XCTAssertTrue((more.value as? String ?? "").hasPrefix("expanded"), "value: \(String(describing: more.value))")
         XCTAssertTrue(more.label.hasPrefix("More, 7 "), "label: \(more.label)")
+        reveal(angle)
         angle.adjust(toNormalizedSliderPosition: 0.1)
         settle(1)
         XCTAssertTrue((more.value as? String ?? "").contains("1 changed"), "no count: \(String(describing: more.value))")
@@ -290,6 +313,7 @@ final class TouchControlsUITests: XCTestCase {
         settle(1.5)
         XCTAssertTrue(app.sliders["Highlight"].waitForExistence(timeout: 5), "the search did not open More")
         // A More the search opened closes on a tap during the search (search-local).
+        reveal(more)
         more.tap()
         settle(1)
         XCTAssertFalse(app.sliders["Highlight"].exists, "a tap did not close the More the search opened")
@@ -324,10 +348,15 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(slider.value as? String, "200 dots")
         XCTAssertFalse(slider.isEnabled, "enabled with the orbit off")
         shot("orbit-dots-disabled")
-        // (The switch's own knob, at the row's trailing end: a tap on the row's middle hits the label.)
-        let toggle = app.switches["Orbit of the point under the pointer"].firstMatch
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        // The switch itself, the row's trailing child: a tap on the row's middle hits the label,
+        // and a fixed fraction of the row's width missed the switch on the iPad's narrower
+        // column (0.95 of a 258-point row lands a point past its trailing edge).
+        let row = app.switches["Orbit of the point under the pointer"].firstMatch
+        let knob = row.switches.firstMatch
+        XCTAssertTrue(knob.exists, "no switch in the Orbit row")
+        knob.tap()
         settle(1.5)
+        shot("orbit-dots-enabled")
         XCTAssertEqual(fields()["orbit"], "on", "the switch did not turn the orbit on")
         XCTAssertTrue(slider.isEnabled, "still disabled with the orbit on")
     }
@@ -623,6 +652,7 @@ final class TouchControlsUITests: XCTestCase {
             app.swipeUp()
             settle(0.8)
         }
+        reveal(twin)
         XCTAssertTrue(twin.exists && twin.isHittable, "no Julia twin back in Mandelbrot")
         // The twin (a Julia view): the round button stays (the Mandelbrot panel's switch there),
         // Back takes the twin's place.
@@ -806,17 +836,26 @@ final class TouchControlsUITests: XCTestCase {
         let next = app.buttons["Next ›"]
         XCTAssertTrue(next.waitForExistence(timeout: 10), "no tour card")
         XCTAssertGreaterThanOrEqual(next.frame.height, 30, "Next is not finger-sized")
+        let steps = try tourStepCount()
         shot("tour-1")
         next.tap()
         settle(2)
-        XCTAssertTrue(app.staticTexts["2 of 9"].waitForExistence(timeout: 5), "Next did not step")
+        XCTAssertTrue(app.staticTexts["2 of \(steps)"].waitForExistence(timeout: 5), "Next did not step")
         app.buttons["‹ Back"].tap()
         settle(2)
-        XCTAssertTrue(app.staticTexts["1 of 9"].waitForExistence(timeout: 5), "Back did not step")
+        XCTAssertTrue(app.staticTexts["1 of \(steps)"].waitForExistence(timeout: 5), "Back did not step")
         shot("tour-back")
         app.buttons["End tour"].tap()
         settle(1)
         XCTAssertFalse(next.exists, "End tour did not end it")
+    }
+
+    /// The open tour's step count, read off the card's "1 of N" (tours change length as they
+    /// are rewritten; these tests step a tour, they do not pin its length).
+    private func tourStepCount() throws -> Int {
+        let first = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '1 of '")).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 5), "the card does not read 1 of N")
+        return try XCTUnwrap(Int(first.label.dropFirst("1 of ".count)), "step counter: \(first.label)")
     }
 
     /// Landscape: the throttle, the buttons and the cockpit still fit and do not overlap.
@@ -1021,6 +1060,7 @@ final class TouchControlsUITests: XCTestCase {
         let next = app.buttons["Next ›"]
         XCTAssertTrue(next.waitForExistence(timeout: 10), "no tour card")
         settle(3)
+        let steps = try tourStepCount()
         guard UIDevice.current.userInterfaceIdiom == .phone else {
             shot("tour-card")
             return
@@ -1039,7 +1079,7 @@ final class TouchControlsUITests: XCTestCase {
         shot("tour-card-folded")
         next.tap()
         settle(2)
-        XCTAssertTrue(app.staticTexts["2 of 9"].waitForExistence(timeout: 5), "Next did not step while folded")
+        XCTAssertTrue(app.staticTexts["2 of \(steps)"].waitForExistence(timeout: 5), "Next did not step while folded")
         fold.tap()
         settle(1)
         XCTAssertTrue(app.descendants(matching: .any)["tour-text"].exists, "the text did not unfold")
