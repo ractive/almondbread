@@ -102,14 +102,29 @@ final class TouchUITests: XCTestCase {
 
         // Pinching out far stops at the zoom-out limit, half the home view's zoom (kb:
         // decisions/controls "View limits"); the start view is the fitted home.
+        // On the iPad mini XCTest's pinch out never zooms: the canvas gets a one-finger pan from
+        // the bottom-right finger alone (any scale, any velocity; also with the 0.2.1 app,
+        // 2026-10-28). By that pan the fingers start near the canvas's corners, the lost one at
+        // about (30, 50) points: on the HUD, whose material background takes touches. On the
+        // phone the pinch must reach the limit by itself; then (on both) two-finger taps,
+        // zooming out further, must stop at it.
         for _ in 0..<3 {
             canvas.pinch(withScale: 0.1, velocity: -2)
             settle()
         }
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            let sPinch = try XCTUnwrap(state())
+            XCTAssertGreaterThan(sPinch.scale, s0.scale * 1.8, "pinch out did not reach the limit: \(s0.scale) -> \(sPinch.scale)")
+        }
+        for _ in 0..<8 {
+            canvas.twoFingerTap()
+            settle(0.8)
+        }
+        settle()
         let sOut = try XCTUnwrap(state())
         // (The state's scale has 6 significant digits.)
         XCTAssertLessThanOrEqual(sOut.scale, s0.scale * 2 * (1 + 1e-4), "zoomed out past the limit: \(s0.scale) -> \(sOut.scale)")
-        XCTAssertGreaterThan(sOut.scale, s0.scale * 1.8, "pinch out did not reach the limit: \(s0.scale) -> \(sOut.scale)")
+        XCTAssertGreaterThan(sOut.scale, s0.scale * 1.8, "zooming out did not reach the limit: \(s0.scale) -> \(sOut.scale)")
         shot("zoom-out-limit")
 
         // The cockpit's plane (the autopilot): on, zooming; again: off.
