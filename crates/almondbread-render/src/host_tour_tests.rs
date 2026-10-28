@@ -157,12 +157,12 @@ fn steps_tour_shows_its_dots_one_step_at_a_time() {
     let t = rig.now();
     rig.host.start_tour(tour, t);
     for (index, dots, circle) in [
-        (2, 1, false),
-        (3, 2, false),
-        (4, 4, false),
-        (5, 50, false),
-        (6, 50, true),
-        (7, 12, true),
+        (3, 1, false),
+        (4, 2, false),
+        (5, 4, false),
+        (6, 50, false),
+        (7, 50, true),
+        (8, 12, true),
     ] {
         let t = rig.now();
         assert!(rig.host.tour_go(index, t));
