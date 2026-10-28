@@ -895,6 +895,10 @@ pub struct OverlaySettings {
     pub map_corner: MapCorner,
     /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
     pub julia: bool,
+    /// The mini-map shown large (the arrows button in its corner): panels about half the
+    /// view's shorter side wide, never narrower than `map_size`.
+    #[uniffi(default = false)]
+    pub map_large: bool,
 }
 
 impl From<&almondbread_core::settings::OverlaySettings> for OverlaySettings {
@@ -913,6 +917,7 @@ impl From<&almondbread_core::settings::OverlaySettings> for OverlaySettings {
                 Corner::TopRight => MapCorner::TopRight,
             },
             julia: s.julia,
+            map_large: s.map_large,
         }
     }
 }
@@ -933,6 +938,7 @@ impl OverlaySettings {
                 MapCorner::TopRight => Corner::TopRight,
             },
             julia: self.julia,
+            map_large: self.map_large,
         }
         .sanitized()
     }

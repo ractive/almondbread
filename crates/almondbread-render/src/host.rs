@@ -605,6 +605,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             Some(t) => {
                 self.overlay.tour.probe = t.probe_at(now);
                 self.overlay.tour.marker = t.marker().cloned();
+                self.overlay.tour.labels = t.labels().to_vec();
             }
             None => self.overlay.tour = Default::default(),
         }
@@ -612,7 +613,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         if self.overlay.active()
             || self.overlay.compass.shown(now)
             || self.overlay.marker.visible()
-            || self.overlay.tour.marker.is_some()
+            || self.overlay.tour.shown()
             || self.renderer.overlay.is_some()
             || self.renderer.progress.current().alpha > 0.0
         {

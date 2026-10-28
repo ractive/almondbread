@@ -6,6 +6,8 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 ## 2026-10-27
 
 - **Decision:** Steps tour and bigger orbit dots: new first tour 'z² + c, step by step' (c = 0.2 + 0.5i spirals in, c = 0.2 + 0.65i escapes after 8 steps past 2), written to tours/WRITING.md; orbit dots 3.2 points (was 1.8) with a dark rim, numbered when the orbit length is 12 or less; tour captures draw frames in a covered window (decisions/controls 'The steps tour')
+- **Decision:** Tour labels: a labels: step key puts several labelled points (gold dot and text) in one step, so tour cards name bulbs and numbers on screen instead of by their repeating interior colours
+- **Decision:** Large mini-map: an arrows button below the map's ? toggles panels of half the canvas's shorter side (decisions/controls)
 
 ## 2026-10-26
 

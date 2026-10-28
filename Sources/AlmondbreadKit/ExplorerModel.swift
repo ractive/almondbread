@@ -188,6 +188,7 @@ struct SavedSettings: Codable {
     var mapEnabled: Bool?
     var mapLevels: Int?
     var mapSize: Double?
+    var mapLarge: Bool?
     var mapPlacement: MapPlacement?
     var juliaEnabled: Bool?
     var cosmicScale: Bool?
@@ -347,6 +348,9 @@ public final class ExplorerModel {
     public var mapEnabled = false { didSet { pushOverlay() } }
     public var mapLevels = 3 { didSet { pushOverlay() } }
     public var mapSize = 180.0 { didSet { pushOverlay() } }
+    /// The mini-map shown large (the arrows button in its corner, below the "?"): panels about
+    /// half the view's shorter side; `mapSize` stays the small size.
+    public var mapLarge = false { didSet { pushOverlay() } }
     public var mapPlacement = MapPlacement.bottomLeft { didSet { pushOverlay() } }
     /// The Julia companion panel: the Julia set of the orbit's point (kb: plans/f1-julia-view).
     public var juliaEnabled = false { didSet { pushOverlay() } }
@@ -709,7 +713,7 @@ public final class ExplorerModel {
     private var overlaySettings: OverlaySettings {
         OverlaySettings(orbit: orbitEnabled, orbitLength: UInt32(min(max(orbitLength, 1), 1000)),
                         map: mapEnabled, mapLevels: UInt32(min(max(mapLevels, 1), 4)),
-                        mapSize: mapSize, mapCorner: mapPlacement.ffi, julia: juliaEnabled)
+                        mapSize: mapSize, mapCorner: mapPlacement.ffi, julia: juliaEnabled, mapLarge: mapLarge)
     }
 
     // MARK: Density edits
@@ -847,7 +851,7 @@ public final class ExplorerModel {
             lookID: lookID, supersampling: supersampling, interactivePreview: interactivePreview,
             interiorColoring: interiorColoring, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
-            mapLevels: mapLevels, mapSize: mapSize, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
+            mapLevels: mapLevels, mapSize: mapSize, mapLarge: mapLarge, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker,
             formula: formula, juliaRe: juliaRe, juliaIm: juliaIm, buddha: buddha)
     }
@@ -915,6 +919,7 @@ public final class ExplorerModel {
         mapEnabled = s.mapEnabled ?? mapEnabled
         mapLevels = s.mapLevels ?? mapLevels
         mapSize = s.mapSize ?? mapSize
+        mapLarge = s.mapLarge ?? mapLarge
         mapPlacement = s.mapPlacement ?? mapPlacement
         juliaEnabled = s.juliaEnabled ?? juliaEnabled
         cosmicScale = s.cosmicScale ?? cosmicScale
@@ -995,6 +1000,7 @@ public final class ExplorerModel {
             mapEnabled = false
             mapLevels = 3
             mapSize = 180
+            mapLarge = false
             mapPlacement = .bottomLeft
             juliaEnabled = false
             if scope == .all { piMeterEnabled = false }
@@ -1056,6 +1062,7 @@ public final class ExplorerModel {
         mapEnabled = false
         mapLevels = 3
         mapSize = 180
+        mapLarge = false
         mapPlacement = .bottomLeft
         juliaEnabled = false
         piMeterEnabled = false
@@ -1575,8 +1582,14 @@ public final class ExplorerModel {
     /// A press on the canvas at (x, y) points from the centre, y up, in a canvas of `size`
     /// points: true if it hit a help badge Rust drew (the press then goes nowhere else);
     /// `show`: open its popover (a first click or a tap; not the second click of a double click).
+    /// The mini-map's enlarge / shrink button is hit-tested with the badges: it toggles
+    /// `mapLarge` instead (never a jump).
     func helpPress(x: Double, y: Double, size: CGSize, show: Bool = true) -> Bool {
         guard let explorer, let hit = explorer.helpHit(x: x, y: y) else { return false }
+        if hit.topic == "map-enlarge" || hit.topic == "map-shrink" {
+            if show { mapLarge = hit.topic == "map-enlarge" }
+            return true
+        }
         if show, let topic = HelpTopic(rawValue: hit.topic) {
             showCanvasHelp(topic, x: hit.x, y: hit.y, radius: hit.radius, size: size)
         }

@@ -255,6 +255,10 @@ struct FractalCommands: Commands {
                                              set: { model?.mapEnabled = $0 }))
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(model == nil)
+            // The mini-map's arrows button (below its "?") as a menu item.
+            Toggle("Large Mini-map", isOn: Binding(get: { model?.mapLarge ?? false },
+                                                   set: { model?.mapLarge = $0 }))
+                .disabled(model == nil || model?.mapEnabled == false)
             // The Julia set of the orbit's point (kb: plans/f1-julia-view); U on the canvas.
             Toggle("Julia Set", isOn: Binding(get: { model?.juliaPanelToggle ?? false },
                                               set: { model?.juliaPanelToggle = $0 }))

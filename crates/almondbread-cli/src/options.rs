@@ -50,6 +50,7 @@ const FLAGS: &[&str] = &[
     "list",
     "log",
     "map",
+    "map-large",
     "noise",
     "pi-overlay",
     "plain",
