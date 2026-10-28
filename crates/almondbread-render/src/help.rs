@@ -118,8 +118,8 @@ pub fn draw(
     key.push_str(&format!("help {} {:.1} {:.1} ", topic.id(), centre[0], centre[1]));
 }
 
-/// Two diagonal arrows along the top-left to bottom-right diagonal (SF Symbols'
-/// `arrow.up.left.and.arrow.down.right` when `outwards`, `arrow.down.right.and.arrow.up.left`
+/// Two diagonal arrows along the bottom-left to top-right diagonal (SF Symbols'
+/// `arrow.up.right.and.arrow.down.left` when `outwards`, `arrow.down.left.and.arrow.up.right`
 /// otherwise), centred at `c` (pixels; `px` pixels per point).
 fn arrows(scene: &mut Scene, c: [f32; 2], px: f32, outwards: bool, ink: [f32; 4]) {
     // Along the diagonal (x and y offsets, points; inside the 14-point circle): the tips and
@@ -128,13 +128,17 @@ fn arrows(scene: &mut Scene, c: [f32; 2], px: f32, outwards: bool, ink: [f32; 4]
     let (tip, tail) = if outwards { (3.3, 0.7) } else { (0.7, 3.4) };
     let head = 2.4;
     for d in [-1.0f32, 1.0] {
-        let at = |t: f32| [f64::from(c[0] + d * t * px), f64::from(c[1] + d * t * px)];
+        // One arrow towards the top right (x up, y down on screen), the other towards the
+        // bottom left.
+        let (ux, uy) = (d, -d);
+        let at = |t: f32| [f64::from(c[0] + ux * t * px), f64::from(c[1] + uy * t * px)];
         // The head's legs run back from the tip towards the tail.
-        let back = if outwards { -d } else { d } * head * px;
+        let sign = if outwards { -1.0 } else { 1.0 };
+        let (back_x, back_y) = (sign * ux * head * px, sign * uy * head * px);
         let t = at(tip);
         let shaft_end = at(if outwards { tip - 0.5 * head } else { tip + 0.5 * head });
         scene.segment(shaft_end, at(tail), 0.55 * px, ink, ink);
-        scene.triangle(t, [t[0] + f64::from(back), t[1]], [t[0], t[1] + f64::from(back)], ink);
+        scene.triangle(t, [t[0] + f64::from(back_x), t[1]], [t[0], t[1] + f64::from(back_y)], ink);
     }
 }
 
