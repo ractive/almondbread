@@ -16,13 +16,11 @@ map: on
 probe: -2, 0
 marker: off
 
-Every point of the picture is a number c, and every c gets the same test: start with z = 0 and use the formula z → z² + c again and again. The small white circle (the **marker**) shows the c we test. The white dots are its values of z, one per step.
+Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The small white circle (the **marker**) is at c = −2: the far left tip of the **spike**, the thin line that sticks out on the left of the set. In this view the spike runs from the marker to the right. The white dots are the values of z, one per step.
 
-The marker is at c = −2. This is the far left tip of the **spike**, the thin line that sticks out on the left of the set. In this view the spike runs from the marker to the right.
+Here z goes 0, −2, **2, 2, 2, …**, because (−2)² − 2 = 2 and 2² − 2 = 2. After two steps z is 2, and it stays at 2. The white line from the marker to the right leads to the dot at 2, outside this view and outside the mini-map.
 
-Here z goes 0, −2, **2, 2, 2, …**, because (−2)² − 2 = 2 and 2² − 2 = 2. After two steps z is 2, and it stays at 2. The white line from the marker to the right leads to the dot at 2. That dot is outside this view and outside the mini-map.
-
-But z stays at 2 only if it is exactly 2: if z is a little away from 2, the next step moves it 4 times further away. So for c = −2, z does not escape, and it does not come closer and closer to a loop either. That is why the line above the mini-map says *still undecided after 100 000 steps*. c = −2 lies exactly on the **edge** of the set.
+But z stays at 2 only if it is exactly 2. If z is a little away from 2, the next step moves it 4 times further away. So z does not escape, and it does not come closer and closer to a loop either: the line above the mini-map says *still undecided*. c = −2 lies exactly on the **edge** of the set.
 
 ## Pre-periodic
 place: dendrite-i
@@ -30,9 +28,7 @@ probe: 0, 1
 
 The marker is now at the tip of a thin branch, at the top right of this view. The mini-map shows where this is: straight above the **heart**, the big heart-shaped part of the set. This point is c = i, one unit straight up from 0.
 
-Here z goes 0, i, −1 + i, −i, −1 + i, −i, … After two steps the dots land on a **loop** of two places, −1 + i and −i, and stay on it. On the mini-map, the white lines go from the marker left to −1 + i, then down to −i below the heart.
-
-The line above the mini-map says *still undecided* again: z does not escape, and it does not come closer and closer to the loop. It lands exactly on it.
+Here z goes 0, i, −1 + i, −i, −1 + i, −i, … After two steps the dots land on a **loop** of two places, −1 + i and −i, and stay on it. On the mini-map, the white lines go from the marker left to −1 + i, then down to −i below the heart. The line above the mini-map says *still undecided* again: z does not escape and does not come closer to the loop. It lands exactly on it.
 
 Points like this, whose z lands **exactly** on a loop after some steps but never comes back to 0, are called **Misiurewicz points** (after Michał Misiurewicz), or *pre-periodic* points. They all lie on the edge of the set: at tips, at forks and at the centres of spirals.
 
@@ -51,7 +47,7 @@ place: antenna-junction
 marker: -1.54368901269207636157085597180174798652520329765098394, 0
 marker-label: −1.5437…
 
-This view is on the spike. Small side branches cross the spike at regular distances. The gold circle in the middle of the view marks the point c = **−1.5437…** on the spike. It is another Misiurewicz point: after **3** steps its z lands on one value and stays there. Here z goes 0, −1.5437, 0.8393, −0.8393, −0.8393, …
+This view is on the spike. Side branches cross the spike in many places. The gold circle in the middle of the view marks the point c = **−1.5437…** on the spike. It is another Misiurewicz point: after **3** steps its z lands on one value and stays there. Here z goes 0, −1.5437, 0.8393, −0.8393, −0.8393, …
 
 ## The same at every zoom
 place: junction-1e300
@@ -69,7 +65,7 @@ Around a Misiurewicz point, the picture **repeats**. The loop that z lands on mo
 place: two-arm-spiral
 move: jump
 
-At some Misiurewicz points, the turn never brings the branches back to where they started. Then they wind round and round the point and form a **spiral**.
+At some Misiurewicz points the branches do not meet in a simple fork. They wind round and round the point and form a **spiral**.
 
 This spiral is in seahorse valley. Its centre is in the middle of this view. The z of the centre lands, after 24 steps, on a loop of two places. So the centre is called M(24,2).
 

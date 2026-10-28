@@ -37,7 +37,7 @@ Try it now: zoom in on the edge of the black shape.
 ## The cockpit
 highlight: cockpit
 
-The bar at the bottom of the screen is the **cockpit**. It shows who moves the view:
+The bar at the bottom of the screen is the **cockpit**. It shows what moves the view:
 
 - {icon:cockpit-manual} **Manual**: you move it yourself
 - {icon:cockpit-cruise} **Cruise**: the view zooms in or out at a steady speed
@@ -48,7 +48,7 @@ The bar at the bottom of the screen is the **cockpit**. It shows who moves the v
 Tap an icon to switch.
 :::
 ::: mac
-Click an icon, or press **Esc**, **E**, **Z** or **J**.
+Click an icon, or press its key: **Esc** for Manual, **E** for Cruise, **Z** for Autopilot and **J** for Journey.
 :::
 
 ## Cruise
@@ -99,7 +99,7 @@ The buttons at the top of the window switch extra displays on and off:
 
 - the **orbit** {icon:orbit}: white dots that show, step by step, what the formula does with one point
 - the **mini-map** {icon:mini-map}: a small map of the whole set that shows where you are
-- the **Julia set** {icon:julia}: a related shape that belongs to the point the orbit shows
+- the **Julia set** {icon:julia}: a second picture, made from the point the orbit shows (a later tour explains it)
 - the **size scale** {icon:size-scale}: how big the view really is
 
 **Fly To** {icon:fly-to} takes you to a place when you type its coordinates. The last button {icon:control-center} opens the **control center** (**⌘I**).
@@ -125,7 +125,7 @@ highlight: section-tours
 
 This walkthrough is in the list of tours too. You can also find it in **Help**.
 
-## Off you go!
+## Now explore
 control-center: closed
 
 That is all. Now explore: zoom in anywhere. You may find a place that no one has seen before.
