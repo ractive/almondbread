@@ -2545,23 +2545,27 @@ the same three-way fork.
 
 ### The steps tour (2026-10-27)
 
-`tours/steps.md` ("z² + c, step by step"), 10 steps, the first listed tour (the walkthrough's
+`tours/steps.md` ("z² + c, step by step"), 11 steps, the first listed tour (the walkthrough's
 "Next tour"; its own `next:` is the colours tour). The first tour written to
-`tours/WRITING.md`; it introduces the glossary: c, the formula, z, step, the marker, the dots, in
-the set, escapes. The marker is a gold labelled point on c in steps 1–9 (steps 1–2 without the
-orbit) and the orbit's white ring in "Your turn". Revised 2026-10-28 after a test read and an
-editor's pass: i explained, every squaring written out with its middle term and reproducible
-from the printed numbers, view changes announced, 0 and −2 labelled (`labels:`) as the scale, and
-the circle of radius 2 round 0 (`circle:`) in "In the set" and "Escaping", so "further than 2
-from 0" is something to see. The orbit overlay always shows the whole-set map (`row_wants`:
-`map: off` cannot hide it), so step 3 names the mini-map and says to ignore its text line.
+`tours/WRITING.md`; it introduces the glossary: c, the formula, z, step, the marker, the dots
+(the *orbit*), in the set, escapes. The marker is a gold labelled point on c from step 2 to the
+colours step (no orbit before "Step 1") and the orbit's white ring in "Your turn". Revised
+2026-10-28 after two test reads and an editor's pass: the map (real and imaginary part) and i
+with the marker on separate cards, i explained, every squaring written out with its middle term
+and reproducible from the printed numbers, view changes announced, 0 and −2 labelled
+(`labels:`) as the scale, the two roles of the picture said once (black or colour is about the
+point as c; the white dots are values of z and land anywhere), "orbit" and "fixed point" named
+for the mini-map's line, the radius-2 fact marked as proved, Pythagoras named for the distance,
+and the circle of radius 2 round 0 (`circle:`) in "In the set" and "Escaping", so "further than
+2 from 0" is something to see. The orbit overlay always shows the whole-set map (`row_wants`:
+`map: off` cannot hide it), so "Step 1" names the mini-map.
 
-- c = 0.2 + 0.5i (steps 1–7): inside the heart near its edge, fixed point −0.0256 + 0.4757i,
+- c = 0.2 + 0.5i (to "In the set"): inside the heart near its edge, fixed point −0.0256 + 0.4757i,
   multiplier |2z*| = 0.953 at 93°, so the dots go round about a quarter turn per step and 50 dots
   visibly spiral in (0.953^50 ≈ 0.09). Its first values are short decimals, worked out exactly in
   the cards: z1 = 0.2 + 0.5i, z2 = −0.01 + 0.7i, z3 = −0.2899 + 0.486i, z4 = 0.04784601 +
   0.2182172i; the dots sit right, top, left and bottom of the fixed point.
-- c = 0.2 + 0.65i (step 8): just above it, outside the set. |z| first exceeds 2 at step 8
+- c = 0.2 + 0.65i ("Escaping"): just above it, outside the set. |z| first exceeds 2 at step 8
   (1.08 + 1.92i, |z| = 2.21: just outside the circle); dot 9 (−2.33 + 4.81i) leaves a span-4.6
   view. The overlay's line says "escapes after 12 steps": the probe counts to the bailout 65 536
   (`Formula::bailout`), not 2; the colours card says the app counts on for smoother colours.
