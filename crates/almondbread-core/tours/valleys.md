@@ -12,9 +12,9 @@ orbit: off
 map: off
 marker: off
 
-The big heart-shaped part of the set is called the **heart**. On its left, it touches a big round part at one point, the **neck**. In this view, magnified 87 times, the black area on the right is the heart, and the black area on the left is the big round part. The neck is below this view. The gap between them, just above the neck, is **seahorse valley**.
+The big heart-shaped part of the set is called the **heart**. On its left, it touches a big **bulb** (a round part attached to the heart) at one point, the **neck**. In this view, magnified 87 times, the black area on the right is the heart, and the black area on the left is the big bulb. The neck is below this view. The gap between them, just above the neck, is **seahorse valley**.
 
-Both walls of the valley are lined with curled shapes that people call seahorses. Each seahorse is a long chain of small **bulbs** (round parts, like the black circles along the walls) and thin branches. Every chain ends in a **spiral**.
+Both walls of the valley are lined with curled shapes that people call seahorses. Each seahorse is a long chain of small bulbs (like the black circles along the walls) and thin branches. Every chain ends in a **spiral**.
 
 ## A seahorse
 place: seahorse
@@ -35,7 +35,7 @@ place: two-arm-spiral
 marker: -0.775683768009053797469483503934741045728, 0.136467368294690124733274409617848765198
 marker-label: M(24,2)
 
-Another spiral in the valley. Its centre, the gold circle labelled M(24,2), is another Misiurewicz point. Its z lands after **24 steps** on a loop of **2** values, so it is called **M(24,2)**.
+Another spiral in the valley. Its centre, the labelled point *M(24,2)*, is another Misiurewicz point. Its z lands after **24 steps** on a loop of **2** values, so it is called **M(24,2)**.
 
 The two arms of the spiral wind into the centre. Each turn is a little smaller than the one before.
 

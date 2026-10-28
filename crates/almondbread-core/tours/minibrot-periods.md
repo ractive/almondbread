@@ -16,7 +16,7 @@ orbit-length: 200
 probe: -0.2, 0
 marker: off
 
-Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The small white circle (the **marker**) is at c = −0.2. Each white dot is the value of z after one more step.
+Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The **marker** (the small circle where the dots start) is at c = −0.2. Each white dot is the value of z after one more step.
 
 Inside the set, the dots end up going round a **loop**: they visit the same few places again and again. The number of places in the loop is the **period** of c.
 
@@ -40,9 +40,9 @@ probe: -0.12256116687665362, 0.74486176661974424
 marker: -0.10109636384562, 0.95628651080914
 marker-label: first fork
 
-The big round bulb in the lower half of this view is the bulb on top of the heart (the edge of the heart is at the very bottom). This bulb has **period 3**. The marker (the small white circle) is at its nucleus. From there, z visits **three places**, one of them 0, and then starts again.
+The big round bulb in the lower half of this view is the bulb on top of the heart (the edge of the heart is at the very bottom). This bulb has **period 3**. The marker (the small circle where the dots start) is at its nucleus. From there, z visits **three places**, one of them 0, and then starts again.
 
-You can also see the period in the shape. The thin line above the bulb is its **antenna**. It first splits at the gold circle labelled *first fork*. Count the branches there, including the one that goes back down to the bulb: there are three. Three branches, period 3. Bulbs further round the heart have 4, 5, 6, … branches at their first fork. A bulb with 4 branches has period 4, with 5 branches period 5, and so on.
+You can also see the period in the shape. The thin line above the bulb is its **antenna**. It first splits at the labelled point *first fork*. Count the branches there, including the one that goes back down to the bulb: there are three. Three branches, period 3. Bulbs further round the heart have 4, 5, 6, … branches at their first fork. A bulb with 4 branches has period 4, with 5 branches period 5, and so on.
 
 ## A copy of the whole set
 center: -1.762, 0
@@ -105,6 +105,6 @@ The marker and its dots follow the pointer again.
 To move the marker and its dots, hold a finger on the picture and choose *Orbit Here*.
 :::
 
-Move the marker into the bulbs and the copies. The line above the mini-map then says *settles into a period-… cycle*: a loop of that length.
+Move the marker into the bulbs and the copies. The line above the mini-map then says *settles into a period-… cycle* (a cycle is a loop) with the period of that place.
 
 **N** always picks the copy with the **lowest period** in or near the view: the biggest and simplest one. Each further press picks a longer loop. **End tour** (or **Esc** twice) brings back your view and settings.

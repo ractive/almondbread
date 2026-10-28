@@ -16,9 +16,9 @@ orbit: on
 map: on
 probe: -0.75, 0.001
 
-Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. If z keeps growing, c **escapes**: it is outside the set. The small white circle (the **marker**) shows the c we test now. The white dots are its values of z, one per step.
+Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. If z keeps growing, c **escapes**: it is outside the set. The **marker** (the small circle where the dots start) shows the c we test now. The white dots are its values of z, one per step.
 
-The marker is just above the **neck**: the narrow place where the big round part of the set (the black area on the left) touches the **heart**, the big heart-shaped part (the black area on the right). The marker is only 0.001 away from the neck.
+The marker is just above the **neck**: the narrow place where the **heart**, the big heart-shaped part of the set (the black area on the right), touches the big **bulb** on its left (the black area on the left; a bulb is a round part attached to the heart). The marker is only 0.001 away from the neck.
 
 Its white dots crowd together on a line to the right of the marker: z changes very slowly. The line above the mini-map, at the bottom left, counts the steps: *escapes after 3 147 steps*. The closer c is to the neck, the more steps z needs.
 
@@ -43,9 +43,9 @@ orbit: off
 map: off
 probe: pointer
 
-Now a whole view of slow points: the narrow gap just above the neck, magnified about 230 million times (the box at the top left says 2.3e8×). The dark grey areas are **fog**. Fog means "not decided yet".
+Now a whole view of slow points: the same narrow gap just above the neck as on the first cards, but magnified about 230 million times (the box at the top left says 2.3e8×, that is 2.3 × 10⁸). The dark grey areas are **fog**. Fog means "not decided yet".
 
-These points are not in the set. Their z does escape, but only after **20 to 70 million** steps. That is far more than the 200 000 steps Almondbread tries by default. The box at the top left says *computing further*: Almondbread is still working on these points. Fog is work that is not finished. It is not part of the shape of the set.
+These points are not in the set. A slower test with many more steps shows that their z does escape, but only after **20 to 70 million** steps. That is far more than the 200 000 steps Almondbread tries by default. The box at the top left says *computing further*: Almondbread is still working on these points. Fog is work that is not finished. It is not part of the shape of the set.
 
 ## Computing further
 
@@ -86,6 +86,6 @@ Almondbread stops a little deeper, at about **10³⁰⁰⁷**. The place called 
 place: seahorse-valley
 move: jump
 
-Back in seahorse valley. The section **Iterations & quality** in the control center has the automatic limit, its **upper limit** for slow views, and a fixed maximum that you set yourself.
+Back in seahorse valley. The section **Iterations & quality** in the control center (the panel that the button {icon:control-center} opens) has the automatic limit, its **upper limit** for slow views, and a fixed maximum that you set yourself.
 
 **End tour** (or **Esc** twice) brings back your view and settings.
