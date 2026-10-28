@@ -1930,6 +1930,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `probe-motion` | `bounce` (default), `once`, `loop` | back and forth (eased at the turns), once and rest, or start over |
 | `marker` | `re, im` or `off` | a gold double ring at a point |
 | `marker-label` | text | its label (with `marker`) |
+| `labels` | `re, im, text; re, im, text; ...` (up to 12, text up to 32 characters, may be empty) | labelled points (2026-10-28): a small gold dot each with its text beside it (above right, else above left, below right, below left: the first place on the canvas clear of the other labels and the marker's label); points outside the view are left out. Names what a card talks about (the neck, a bulb, a number on the real line) instead of a colour, since the interior colours repeat. Not carried over (placed for the step's view) |
 | `platform` | `mac`, `touch`, `phone`, `pad` (comma list) | the step is shown only there (`touch` = phone and pad); elsewhere it is left out and its settings do not carry over |
 | `highlight` | a UI element (below) | a pulsing gold ring around it; the card moves out of its way. Not carried over |
 | `control-center` | `open` or `closed` | opens or closes the control center on entering the step; at the tour's end it is back as before. Not carried over |
