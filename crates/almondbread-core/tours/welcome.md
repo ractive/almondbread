@@ -1,7 +1,7 @@
 ---
 id: welcome
 title: Walkthrough
-summary: How to fly around: moving and zooming, the cockpit, the round buttons, the control center and the tours.
+summary: How to move around: moving and zooming, the cockpit, the round buttons, the control center and the tours.
 hidden: yes
 ---
 
@@ -9,7 +9,9 @@ hidden: yes
 center: -0.6, 0
 span: 2.8
 
-This is the **Mandelbrot set**. It comes from one tiny sum, done again and again. Its edge never ends: zoom in anywhere and you find spirals, sea horses and tiny copies of the whole shape.
+The black shape in the middle of the screen is the **Mandelbrot set**. It comes from one short formula, used again and again.
+
+You can zoom in on its edge as far as you like, and there is always more detail: spirals, shapes like seahorses, and small copies of the whole set.
 
 This walkthrough takes about a minute.
 
@@ -24,23 +26,23 @@ Click **Next ›** (or press **→**) to go on.
 goal: zoom-in
 
 ::: touch
-**Pinch** with two fingers to zoom, **swipe** with one finger to move the picture. A **double tap** zooms in, a **two-finger tap** zooms out.
+**Pinch** with two fingers to zoom. **Swipe** with one finger to move the view. A **double tap** zooms in, and a **two-finger tap** zooms out.
 :::
 ::: mac
-**Point** at a spot and **hold Space** to zoom in there (**Shift + Space** zooms out). Pinching on the trackpad or the mouse wheel zooms too, and **dragging** moves the picture.
+Put the pointer on a place and **hold Space** to zoom in there. **Shift + Space** zooms out. You can also zoom with a pinch on the trackpad or with the mouse wheel. **Drag** to move the view.
 :::
 
-Try it now: zoom in on the edge!
+Try it now: zoom in on the edge of the black shape.
 
 ## The cockpit
 highlight: cockpit
 
-At the bottom is the **cockpit**. It shows who is flying:
+The bar at the bottom of the screen is the **cockpit**. It shows who moves the view:
 
-- {icon:cockpit-manual} **Manual**: you, by hand
-- {icon:cockpit-cruise} **Cruise**: a steady flight in or out
-- {icon:cockpit-autopilot} **Autopilot**: it flies by itself
-- {icon:cockpit-journey} **Journey**: from landmark to landmark
+- {icon:cockpit-manual} **Manual**: you move it yourself
+- {icon:cockpit-cruise} **Cruise**: the view zooms in or out at a steady speed
+- {icon:cockpit-autopilot} **Autopilot**: the app moves and zooms by itself
+- {icon:cockpit-journey} **Journey**: the app travels from one famous place to the next
 
 ::: touch
 Tap an icon to switch.
@@ -53,83 +55,86 @@ Click an icon, or press **Esc**, **E**, **Z** or **J**.
 platform: touch
 highlight: throttle
 
-This lever is your **throttle**. Slide the knob **up** to fly in, **down** to fly out, and to the middle (**M**) to stop. It stays where you leave it.
+The highlighted lever is the **throttle**. Slide its knob **up** to zoom in and **down** to zoom out. In the middle (**M**) the view stops. The knob stays where you leave it.
 
-While you cruise, **rest a finger** on the picture to steer towards it, or **swipe** to move the picture.
+While you cruise, **hold a finger** on the screen: the view moves towards your finger. You can also **swipe** to move the view.
 
 ## Cruise
 platform: mac
 highlight: cockpit-cruise
 
-The speedometer {icon:cockpit-cruise} is **cruise**. Press **E** to cruise in, a little faster each time. **Q** slows down, then flies out. **Esc** stops.
+The speedometer {icon:cockpit-cruise} is **cruise**. Press **E** to zoom in. Each press of **E** makes it a little faster. **Q** makes it slower, and more presses of **Q** zoom out. **Esc** stops.
 
-While you cruise, the picture drifts towards the **pointer**: point where you want to go.
+While you cruise, the view moves slowly towards the **pointer**. Put the pointer where you want to go.
 
 ## Autopilot and journeys
 highlight: cockpit-autopilot
 
-The **plane** {icon:cockpit-autopilot} is the autopilot: it flies by itself and looks for interesting places.
+The **plane** {icon:cockpit-autopilot} is the **autopilot**. With it, the app moves and zooms by itself and looks for interesting places.
 
 ::: touch
-Tap the plane to start it. **Rest a finger** on the picture to suggest where it should go. The **sparkles** {icon:cockpit-journey} next to it start a **journey**, a trip from one landmark to the next. The steering wheel {icon:cockpit-manual} stops everything.
+Tap the plane to start it. **Hold a finger** on the screen to show it where to go. The **sparkles** {icon:cockpit-journey} next to the plane start a **journey**: a trip from one famous place to the next. The steering wheel {icon:cockpit-manual} stops both.
 :::
 ::: mac
-Click it or press **Z** to start it, and point the mouse to suggest where it should go. The **sparkles** {icon:cockpit-journey} (or **J**) start a **journey**, a trip from one landmark to the next. **Esc** (or the steering wheel {icon:cockpit-manual}) stops everything.
+Click the plane or press **Z** to start it. Move the pointer to show it where to go. The **sparkles** {icon:cockpit-journey} (or **J**) start a **journey**: a trip from one famous place to the next. **Esc** or the steering wheel {icon:cockpit-manual} stops both.
 :::
 
 ## The round buttons
 platform: touch
 highlight: toolbar
 
-These buttons switch extras on and off:
+These buttons switch extra displays on and off:
 
-- {icon:orbit} the **orbit**: where one point jumps to, step by step
-- {icon:mini-map} the **mini-map**: where you are
-- {icon:size-scale} the **size scale**: how big the picture really is
-- {icon:fly-to} **fly to** a place by its numbers
-- {icon:control-center} the **control center**, with everything else
+- {icon:orbit} the **orbit**: white dots that show, step by step, what the formula does with one point
+- {icon:mini-map} the **mini-map**: a small map of the whole set that shows where you are
+- {icon:size-scale} the **size scale**: how big the view really is
+- {icon:fly-to} **fly to** a place by typing its coordinates
+- {icon:control-center} the **control center**, with all other settings
 
 ## The toolbar
 platform: mac
 highlight: toolbar
 
-The buttons at the top switch extras on and off: the **orbit** {icon:orbit} (where one point jumps to, step by step), the **mini-map** {icon:mini-map} (where you are), the **Julia set** {icon:julia} of that point and the **size scale** {icon:size-scale} (how big the picture really is). **Fly To** {icon:fly-to} takes you to a place by its numbers.
+The buttons at the top of the window switch extra displays on and off:
 
-The last one {icon:control-center} opens the **control center** (**⌘I**).
+- the **orbit** {icon:orbit}: white dots that show, step by step, what the formula does with one point
+- the **mini-map** {icon:mini-map}: a small map of the whole set that shows where you are
+- the **Julia set** {icon:julia}: a related shape that belongs to the point the orbit shows
+- the **size scale** {icon:size-scale}: how big the view really is
+
+**Fly To** {icon:fly-to} takes you to a place when you type its coordinates. The last button {icon:control-center} opens the **control center** (**⌘I**).
 
 ## The control center
 control-center: open
 highlight: section-places
 
-The control center has everything else. **Places** are famous spots to visit.
-
 ::: touch
-Tap a picture, then **Go** or **Fly**.
+The **control center** is the panel with all other settings. Near its top is **Places**: small pictures of famous places in the set. Tap a picture, then **Go** to jump there, or **Fly** to fly there.
 :::
 ::: mac
-Pick one, then **Go** or **Fly**.
+The **control center** is the panel on the right, with all other settings. Near its top is **Places**: small pictures of famous places in the set. Select a picture, then click **Go** to jump there, or **Fly** to fly there.
 :::
 
-Further down: colours, overlays and settings. The search field at the top finds any setting.
+Further down are colours, overlays and settings. The search field at the top finds any setting.
 
 ## Tours
 control-center: open
 highlight: section-tours
 
-**Tours** show you the maths, step by step: they fly the view and explain what you see. Each one says how long it takes and gets a tick once you have finished it.
+**Tours** explain the maths, step by step. A tour moves the view for you and explains what you see. Each tour shows how long it takes, and it gets a tick (✓) when you have finished it.
 
-You can find this walkthrough here again, and in **Help**.
+This walkthrough is in the list of tours too. You can also find it in **Help**.
 
 ## Off you go!
 control-center: closed
 
-That's it. Explore, get lost, find something no one has seen before.
+That is all. Now explore: zoom in anywhere. You may find a place that no one has seen before.
 
-Want some maths first? **Next tour** below starts the first tour, and each tour ends by offering the next.
+Do you want to learn some of the maths first? **Next tour** below starts the first tour. Each tour ends with a button for the next one.
 
 ::: touch
-Lost? Open the control center and tap **Reset** under *Navigation* to see the whole set again.
+If you get lost, open the control center and tap **Reset** under *Navigation*. Then you see the whole set again.
 :::
 ::: mac
-Lost? Press **R** to see the whole set again. **⌘?** opens the help.
+If you get lost, press **R** to see the whole set again. **⌘?** opens the help.
 :::
