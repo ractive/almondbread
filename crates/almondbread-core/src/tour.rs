@@ -2,8 +2,8 @@
 //! in `crates/almondbread-core/tours/<id>.md`, read and checked here so every UI gets the same
 //! tours. A tour is a list of steps; a step can set the view (flown to or jumped to), the look,
 //! palette, interior colouring and iteration limit, switch overlays, put the orbit probe on a
-//! fixed point or move it along a path, mark a point, label places (`labels:`), and says what
-//! to look at in a short text.
+//! fixed point or move it along a path, mark a point, label places (`labels:`), draw a circle
+//! (`circle:`), and says what to look at in a short text.
 //!
 //! Format (the kb page has the full key list):
 //!
@@ -44,7 +44,8 @@ use crate::viewport::{Center, MIN_SCALE_LOG2, Scale, Viewport, wrap_angle};
 /// and the default "Next tour" series (a tour's `next:` overrides it; see [`next_tour`]).
 const BUNDLED: &[(&str, &str)] = &[
     // The series, gentlest first: what the picture shows, its parts, what can be counted on
-    // them, then the deeper maths.
+    // them, then the deeper maths. First the formula itself, one step and one dot at a time.
+    ("steps", include_str!("../tours/steps.md")),
     ("colours", include_str!("../tours/colours.md")),
     ("bulbs", include_str!("../tours/bulbs.md")),
     ("minibrot-periods", include_str!("../tours/minibrot-periods.md")),
@@ -121,6 +122,9 @@ pub struct Step {
     /// text talks about (a bulb, the neck, a number on the real line). They belong to their
     /// own step: unlike the marker they do not carry over, since they are placed for its view.
     pub labels: Vec<Marker>,
+    /// A circle in the picture (`circle:`), e.g. radius 2 round 0, where z escapes. Its own
+    /// step only, like the labels.
+    pub circle: Option<Circle>,
     // UI steps (the walkthrough; kb: decisions/controls "Guided tours"). None of these carry
     // over: each belongs to its own step.
     /// The platforms the step is shown on (`platform:`); empty: all.
@@ -234,6 +238,16 @@ pub struct Marker {
     pub label: String,
 }
 
+/// A circle drawn in the picture (`circle: re, im, radius[, text]`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Circle {
+    pub center: Center,
+    /// In the plane's units (the same as the centre's).
+    pub radius: f64,
+    /// A short text beside it (may be empty).
+    pub label: String,
+}
+
 /// A parse or validation error with its line (1-based) in the tour file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TourError {
@@ -284,6 +298,7 @@ pub const STEP_KEYS: &[&str] = &[
     "marker",
     "marker-label",
     "labels",
+    "circle",
     "platform",
     "highlight",
     "control-center",
@@ -832,6 +847,9 @@ fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String
     if let Some((n, v)) = get("labels") {
         step.labels = labels(n, v)?;
     }
+    if let Some((n, v)) = get("circle") {
+        step.circle = Some(circle(n, v)?);
+    }
     parse_ui_keys(&mut step, &get)?;
     Ok(step)
 }
@@ -869,6 +887,33 @@ fn labels(line: usize, v: &str) -> Result<Vec<Marker>, TourError> {
         );
     }
     Ok(out)
+}
+
+/// `circle: re, im, radius[, text]`: a circle round a point (the radius positive, in the
+/// plane's units; the text is everything after the third comma, trimmed).
+fn circle(line: usize, v: &str) -> Result<Circle, TourError> {
+    let mut parts = v.splitn(4, ',');
+    let (Some(re), Some(im), Some(r)) = (parts.next(), parts.next(), parts.next()) else {
+        return err(line, format!("`circle` is `re, im, radius[, text]`, not `{v}`"));
+    };
+    let center = point(line, "circle", &format!("{re},{im}"))?;
+    let radius = match number(line, "circle", r.trim())? {
+        r if r > 0.0 => r,
+        _ => {
+            return err(
+                line,
+                format!("`circle`: the radius must be positive, not `{}`", r.trim()),
+            );
+        }
+    };
+    let label = parts.next().unwrap_or("").trim().to_string();
+    if label.chars().count() > MAX_LABEL_CHARS {
+        return err(
+            line,
+            format!("`circle`: `{label}` is longer than {MAX_LABEL_CHARS} characters"),
+        );
+    }
+    Ok(Circle { center, radius, label })
 }
 
 /// The key of a settings line (`key: value`), if it is one.
@@ -1114,6 +1159,11 @@ impl TourPlayer {
     /// The step's labelled points (`labels:`; its own step only).
     pub fn labels(&self) -> &[Marker] {
         &self.current.labels
+    }
+
+    /// The step's circle (`circle:`; its own step only).
+    pub fn circle(&self) -> Option<&Circle> {
+        self.current.circle.as_ref()
     }
 
     /// Ends the tour: the settings and the view to restore.
@@ -1642,6 +1692,27 @@ mod tests {
         assert!(e.message.contains("at most"), "{e}");
     }
 
+    /// `circle:` draws one circle in its own step (radius in the plane's units, an optional
+    /// text after the third comma); it does not carry over.
+    #[test]
+    fn circle_belongs_to_its_step() {
+        let t = parse(
+            "---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\ncircle: 0, 0, 2, distance 2 from 0\n\nA.\n\n\
+             ## B\ncircle: -1, 0.5, 0.25\n\nB.\n\n## C\n\nC.\n",
+        )
+        .expect("tour");
+        let a = t.steps[0].circle.as_ref().expect("circle");
+        assert_eq!((a.center.re(), a.center.im(), a.radius), (0.0, 0.0, 2.0));
+        assert_eq!(a.label, "distance 2 from 0");
+        let b = t.steps[1].circle.as_ref().expect("circle");
+        assert_eq!(
+            (b.center.re(), b.center.im(), b.radius, b.label.as_str()),
+            (-1.0, 0.5, 0.25, "")
+        );
+        assert!(t.effective(2).circle.is_none(), "a circle does not carry over");
+        assert_eq!(t.effective(0).circle.as_ref(), Some(a));
+    }
+
     #[test]
     fn rejects_mistakes_with_their_line() {
         let head = "---\nid: t\ntitle: T\nsummary: S\n---\n\n## One\n";
@@ -1677,6 +1748,9 @@ mod tests {
             ("labels: -1\n\nText.", 8, "not `re, im, text`"),
             ("labels: x, 0, a\n\nText.", 8, "not a point"),
             ("labels: ;\n\nText.", 8, "at least one"),
+            ("circle: 0, 0\n\nText.", 8, "`re, im, radius[, text]`"),
+            ("circle: 0, 0, -2\n\nText.", 8, "must be positive"),
+            ("circle: 0, 0, x\n\nText.", 8, "needs a number"),
             (
                 "labels: -1, 0, a very long label that goes on and on\n\nText.",
                 8,
@@ -1931,6 +2005,7 @@ mod tests {
         assert!(player.animating(6.0));
         assert_eq!(player.marker().map(|m| m.label.as_str()), Some("here"));
         assert!(player.labels().is_empty(), "no labels in this step");
+        assert!(player.circle().is_none(), "no circle in this step");
         // Step three jumps; the probe follows the pointer again, the marker is gone.
         let plan = player.go(2, 9.0);
         assert!(plan.view.as_ref().is_some_and(|(_, j)| *j));

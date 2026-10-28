@@ -606,6 +606,7 @@ impl<B: GpuBackend + Clone> Host<B> {
                 self.overlay.tour.probe = t.probe_at(now);
                 self.overlay.tour.marker = t.marker().cloned();
                 self.overlay.tour.labels = t.labels().to_vec();
+                self.overlay.tour.circle = t.circle().cloned();
             }
             None => self.overlay.tour = Default::default(),
         }

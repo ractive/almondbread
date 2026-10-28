@@ -1931,6 +1931,7 @@ Step keys (all optional; unknown keys, repeated keys and bad values are errors w
 | `marker` | `re, im` or `off` | a gold double ring at a point |
 | `marker-label` | text | its label (with `marker`) |
 | `labels` | `re, im, text; re, im, text; ...` (up to 12, text up to 32 characters, may be empty) | labelled points (2026-10-28): a small gold dot each with its text beside it (above right, else above left, below right, below left: the first place on the canvas clear of the other labels and the marker's label); points outside the view are left out. Names what a card talks about (the neck, a bulb, a number on the real line) instead of a colour, since the interior colours repeat. Not carried over (placed for the step's view) |
+| `circle` | `re, im, radius[, text]` (radius > 0 in the plane's units, text up to 32 characters) | a thin gold circle on a dark one (2026-10-28), drawn where it crosses the canvas (not where the view lies wholly inside or outside it), its text beside the first point of the ring from the top right that is on the canvas and off the tour card; labelled points keep clear of the text. The steps tour draws radius 2 round 0, where z escapes. Not carried over |
 | `platform` | `mac`, `touch`, `phone`, `pad` (comma list) | the step is shown only there (`touch` = phone and pad); elsewhere it is left out and its settings do not carry over |
 | `highlight` | a UI element (below) | a pulsing gold ring around it; the card moves out of its way. Not carried over |
 | `control-center` | `open` or `closed` | opens or closes the control center on entering the step; at the tour's end it is back as before. Not carried over |
@@ -2541,6 +2542,43 @@ tour), so that step turns the orbit off.
 
 Checked in the app (2026-10-19, `--ui-demo=tour-misiurewicz`): fates as above; the 1e300 fork is
 the same three-way fork.
+
+### The steps tour (2026-10-27)
+
+`tours/steps.md` ("z² + c, step by step"), 10 steps, the first listed tour (the walkthrough's
+"Next tour"; its own `next:` is the colours tour). The first tour written to
+`tours/WRITING.md`; it introduces the glossary: c, the formula, z, step, the marker, the dots, in
+the set, escapes. The marker is a gold labelled point on c in steps 1–9 (steps 1–2 without the
+orbit) and the orbit's white ring in "Your turn". Revised 2026-10-28 after a test read and an
+editor's pass: i explained, every squaring written out with its middle term and reproducible
+from the printed numbers, view changes announced, 0 and −2 labelled (`labels:`) as the scale, and
+the circle of radius 2 round 0 (`circle:`) in "In the set" and "Escaping", so "further than 2
+from 0" is something to see. The orbit overlay always shows the whole-set map (`row_wants`:
+`map: off` cannot hide it), so step 3 names the mini-map and says to ignore its text line.
+
+- c = 0.2 + 0.5i (steps 1–7): inside the heart near its edge, fixed point −0.0256 + 0.4757i,
+  multiplier |2z*| = 0.953 at 93°, so the dots go round about a quarter turn per step and 50 dots
+  visibly spiral in (0.953^50 ≈ 0.09). Its first values are short decimals, worked out exactly in
+  the cards: z1 = 0.2 + 0.5i, z2 = −0.01 + 0.7i, z3 = −0.2899 + 0.486i, z4 = 0.04784601 +
+  0.2182172i; the dots sit right, top, left and bottom of the fixed point.
+- c = 0.2 + 0.65i (step 8): just above it, outside the set. |z| first exceeds 2 at step 8
+  (1.08 + 1.92i, |z| = 2.21: just outside the circle); dot 9 (−2.33 + 4.81i) leaves a span-4.6
+  view. The overlay's line says "escapes after 12 steps": the probe counts to the bailout 65 536
+  (`Formula::bailout`), not 2; the colours card says the app counts on for smoother colours.
+  0.3 + 0.6i (the first suggestion) passes 2 only at step 15.
+
+**Orbit dots, as built 2026-10-27**: radius 3.2 points up to 120 dots, down to 2.2 at 1000 (was
+1.8 for all), nearly white tinted warm to cool, a dark rim (1.4 points) for bright palettes, the
+line half-width 0.8 points; c's dot 1.2 points larger with a white ring on a dark one. When the
+orbit length is 12 or less (a tour's `orbit-length`, or the Iterates setting) every dot gets its
+step number (13 points, the overlay's label font with its dark halo) and a 4-point radius; no
+`orbit-numbers` directive: the length already says "few dots". Each number takes the first of
+eight places round its dot that covers no other dot, number or line and stays on screen, clear
+of a tour marker's rings and label on c (`overlay::orbit_number_spots`).
+
+Capture note: a covered background window's display link is paused, so `--ui-demo=tour-<id>`
+captured a step that changes only the overlay (here `orbit-length`) with the previous step's
+dots; the tour runner now draws a frame every 0.5 s while the window is occluded.
 
 ## Touch (as built, 2026-10-18)
 
