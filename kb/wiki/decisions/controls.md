@@ -3322,8 +3322,8 @@ drops levels rather than narrowing panels, under the same rules as above (traili
 the cockpit beside the row or lifted into the lower half). On a 1100 × 830-point Mac canvas
 with the control center open: one 450-point whole-set panel, cockpit lifted above it; iPhone
 17e portrait: one panel of about 195 points (small: about 150). `mapLarge` persists with the
-other overlay settings and resets with them; also a control-center row ("Large mini-map") and
-a View menu item. CLI: `render --map 1 --map-large 1`. Tours do not set it (a `map-large`
+other overlay settings and resets with them; also a View menu item (the control-center row
+"Large mini-map" was removed on 2026-10-28, see [Disabled, not hidden](#disabled-not-hidden-as-built-2026-10-28)). CLI: `render --map 1 --map-large 1`. Tours do not set it (a `map-large`
 directive would be one more flag in `tour.rs`).
 
 Map textures are made anew at the new panel size, so the panels are empty until their maps
@@ -3559,9 +3559,9 @@ settings `ControlMore.settings` in `Sources/AlmondbreadKit/ControlMore.swift`; u
 | Journey & cinematic effects | Seed, Journey / Daily (/ Copy #seed), Continuous / Stop at each find, Cinematic effects | Spin, Hue drift, Phase drift, Cycling in flight |
 | Look & colour | Look, Palette (name, category, grid), Density | Offset, Logarithmic, Smooth, Palette anti-aliasing, Calm dense regions, Colour cycling (+ Cycle speed), Depth tint, Import palette… |
 | Lighting & outline | Shading, Outline, Glow | Light angle, Light height, Highlight, Outline width, Outline colour, Glow width, Glow colour |
-| Interior | Colouring with its caption; Colour (flat) or Pattern density (the others) | Stripes (angle), Interior detection |
-| Overlays | Orbit, Mini-map, Julia set of that point (Julia view: Mandelbrot panel), Julia twin of this view | Iterates, Mini-map levels / size / corner, Cosmic size scale, Always show compass, Autopilot target marker, Status (HUD), Developer details |
-| Iterations & quality | Automatic iterations; manual: Maximum (number and slider in one row); the "Limits…" tour link | Upper limit (automatic), Anti-aliasing, Interactive preview |
+| Interior | Colouring with its caption; Colour (used by flat) and Pattern density (the others; since 2026-10-28 both shown, the unused one disabled) | Stripes (angle; disabled otherwise), Interior detection |
+| Overlays | Orbit, Orbit iterations shown (since 2026-10-28; was "Iterates" in More), Mini-map, Julia set of that point (Julia view: Mandelbrot panel), Julia twin of this view | Mini-map levels / size / corner, Cosmic size scale, Always show compass, Autopilot target marker, Status (HUD), Developer details |
+| Iterations & quality | Automatic iterations; Maximum (number and slider in one row; disabled while automatic); the "Limits…" tour link | Upper limit (disabled with manual iterations), Anti-aliasing, Interactive preview |
 
 Reasons: Reset stays visible in Navigation because the walkthrough tells touch users to tap it;
 Two-finger scroll is essential on the Mac because a trackpad user who expects zoom has nowhere
@@ -3574,9 +3574,11 @@ the Overlays section no longer has its own "Back to the Mandelbrot set". The jou
 above the Journey button that reads it (it was below). The mini-map's tuning rows are named
 "Mini-map levels / size / corner", since they no longer sit under the switch.
 
-**"· N changed".** The More line counts the hidden settings whose row is there now (a
-conditional row that is hidden, such as Stripes outside the angle colouring or the mini-map
-rows with the map off, does not count) and that differ from a reference: for a field a look sets
+**"· N changed".** The More line counts the hidden settings whose row is there now and that
+differ from a reference (since 2026-10-28 a row another setting disables, such as Stripes
+outside the angle colouring or the mini-map rows with the map off, is there and counts; only a
+row the fractal lacks, such as the target lock without Mandelbrot content, does not; see
+[Disabled, not hidden](#disabled-not-hidden-as-built-2026-10-28)): for a field a look sets
 (palette mapping offset, logarithmic, smooth, palette filter, calm dense regions, lighting,
 outline, glow, interior colour) the current look's value, for any other field its default.
 Rust's `look_settings(id)` (FFI, `explorer.rs`) gives both at once: `RenderSettings::default()`
@@ -3638,6 +3640,69 @@ Checked with `swift test` (`ControlMoreTests`), background `--ui-demo=more` / `m
 (new scenes: Navigation, Look and Lighting open, hidden settings changed so the counts show; the
 second with the Mores open), an iPad-sized one (`--ui-demo-size`), and the iOS UI test
 `TouchControlsUITests.testMoreOpensAndCounts` on the iPad simulator.
+
+### Disabled, not hidden (as built, 2026-10-28)
+
+User request: the orbit's dot count ("Iterates", behind Overlays' More and only while the orbit
+was on) could not be found. **Rule:** a row that depends on another setting the user can change
+is shown disabled while that setting is off, never hidden; its help (tooltip, accessibility
+hint) says what turns it on ("Turn on Mini-map to change this."). A row the current fractal or
+view does not have (`has(...)`, `isJulia`, platform) stays hidden, since a disabled row would
+suggest it can be switched on. Code: `View.enabled(_:why:help:)` and `DimmedWhenDisabled` in
+`ControlCenterView.swift` (plain `Text` labels keep their colour when disabled on the Mac, so the
+row styles and `ControlRows.slider` dim their labels by hand).
+
+| Row | Was hidden while | Now |
+|---|---|---|
+| Orbit iterations shown (was "Iterates") | the orbit is off | disabled |
+| Mini-map levels, size (small), corner | the mini-map is off | disabled |
+| Stripes | the colouring is not Angle | disabled |
+| Interior Colour | the colouring is not Flat | disabled |
+| Pattern density | the colouring is Flat | disabled |
+| Cycle speed | colour cycling is off | disabled ("off") |
+| Maximum (iterations) | automatic iterations are on | disabled |
+| Upper limit | manual iterations | disabled |
+
+Kept hidden, with the reason: the orbit switch and its dot count without the orbit overlay
+(`has(\.orbitOverlay)`), Autopilot target lock and the Journey rows without Mandelbrot content
+(`has(\.content)`), iOS Seek minibrot (`has(\.seek)`), the Julia panel and twin
+(`has(\.juliaPanel)`) or the Mandelbrot panel (`isJulia`), Places and Tours (`offered(by:)`),
+Two-finger scroll (Mac only): all capabilities of the fractal or the platform. Not settings, so
+unchanged: Stop flight in place of Fly to… / Copied during a flight, Copy #seed during a
+journey, the cosmic scale's caption while it is on, "Renders with N" under a manual Maximum
+above the GPU's limit, the "Limits…" tour link (only when that tour is bundled).
+
+**"· N changed" with disabled rows.** A disabled row is there, shows its value and counts, like
+Lighting's sub-knobs, which were already disabled at strength 0 and counted. So the count still
+means "the hidden settings whose row is there now and that differ"; the More line's ↺ puts the
+disabled ones back too. Only rows the fractal lacks drop out (`MoreSetting.shown` now tests
+capabilities only).
+
+**Orbit iterations shown.** Name and value "50 dots" (user); help "How many steps of the orbit
+are drawn, one dot per step." An essential row right under the Orbit switch: Overlays keeps
+what tours, keys and the toolbar name, and the toolbar now reaches it. Search words: dots,
+points, orbit length, iterates, iterations, steps (`OrbitDotsRow.keywords`; essential, so no
+More opens for them). The Help page Overlays names it.
+
+**Mini-map size, no Large row** (user, same day). The "Large mini-map" row is gone: the map's
+own arrow button switches it, and View ▸ Large Mini-map stays. The size slider is now "Mini-map
+size (small)", help "The mini-map's size; its arrow button enlarges it.", disabled while the
+map is off; the search finds it by "large", "enlarge", "bigger" and "small" too (they open
+Overlays' More).
+
+**Mac toolbar.** The Orbit toggle still toggles; right after it a small chevron button
+(`OrbitDotsToolbarButton`, only with the orbit overlay) opens a popover below it with the same
+row and a line of help (or what turns it on). Chosen over a click-and-hold or a `Menu` with a
+primary action: a toolbar `Menu` cannot hold a slider and would lose the toggle's on/off look,
+and a long press on a toolbar toggle is neither discoverable nor reliable in an `NSToolbar`
+item. **iOS.** A long press on the round Orbit button opens a context menu with the dot counts
+10, 20, 50, 100, 200, 500 and 1 000 (`OrbitDotsRow.presets`; a menu cannot hold a slider; a tap
+still toggles).
+
+Checked by `swift test` (`ControlMoreTests.testDisabledRowsCount`, `testOrbitDotsRow`),
+background `--ui-demo=overlays` / `overlays-off` / `orbit-dots` windows (new scenes: Interior,
+Overlays and Quality with their Mores open, everything on or off; the toolbar popover open) and
+the iOS UI test `TouchControlsUITests.testOrbitDotsMenu` on the iPhone simulator.
 
 ## View limits (as built, 2026-10-25)
 

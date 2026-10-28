@@ -812,10 +812,9 @@ struct LookSectionRows: View {
                 .help("Where the palette cycles faster than a pixel, show a dark calm colour with thin filaments instead of grey noise")
             Toggle("Colour cycling", isOn: Binding(get: { model.cycleSpeed != 0 },
                                                    set: { model.cycleSpeed = $0 ? 0.05 : 0 }))
-            if model.cycleSpeed != 0 {
-                ControlRows.slider("Cycle speed", value: ControlRows.log($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
-                                   text: String(format: "%.3g /s", model.cycleSpeed))
-            }
+            ControlRows.slider("Cycle speed", value: ControlRows.log($model.cycleSpeed, range: 0.005...0.5), in: 0...1,
+                               text: model.cycleSpeed == 0 ? "off" : String(format: "%.3g /s", model.cycleSpeed))
+                .enabled(model.cycleSpeed != 0, why: "Turn on Colour cycling to change this.")
             ControlRows.slider("Depth tint", value: $model.depthTint, in: 0...0.2,
                                text: model.depthTint == 0 ? "off" : String(format: "%.3f / decade", model.depthTint))
             PaletteImportRow(model: model)
@@ -885,20 +884,22 @@ struct InteriorSectionRows: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-        if model.interiorColoring == .flat {
-            ControlRows.color("Colour", ControlRows.linearColor(model, \.interiorColor))
-        } else {
-            // (Not "Density": that is the palette's, in Look & colour.) How tightly the interior
-            // colouring's rings and bands repeat.
-            ControlRows.slider("Pattern density", value: ControlRows.log($model.interiorDensity, range: 0.02...4), in: 0...1,
-                               text: String(format: "%.3g", model.interiorDensity))
-                .help("How closely the interior colouring's rings and bands repeat")
-        }
+        // Both knobs always shown, the one the colouring does not use disabled (kb:
+        // decisions/controls "Disabled, not hidden").
+        ControlRows.color("Colour", ControlRows.linearColor(model, \.interiorColor))
+            .enabled(model.interiorColoring == .flat, why: "Used by the Flat colouring: pick Flat to change this.",
+                     help: "The colour of the inside of the set")
+        // (Not "Density": that is the palette's, in Look & colour.) How tightly the interior
+        // colouring's rings and bands repeat.
+        ControlRows.slider("Pattern density", value: ControlRows.log($model.interiorDensity, range: 0.02...4), in: 0...1,
+                           text: String(format: "%.3g", model.interiorDensity))
+            .enabled(model.interiorColoring != .flat, why: "Used by every colouring but Flat: pick another colouring to change this.",
+                     help: "How closely the interior colouring's rings and bands repeat")
         MoreRows(section: .interior, model: model, forced: moreForced) {
-            if model.interiorColoring == .angle {
-                ControlRows.slider("Stripes", value: $model.interiorStripes, in: 0...32,
-                                   text: String(format: "%.0f", model.interiorStripes))
-            }
+            ControlRows.slider("Stripes", value: $model.interiorStripes, in: 0...32,
+                               text: String(format: "%.0f", model.interiorStripes))
+                .enabled(model.interiorColoring == .angle, why: "Used by the Angle colouring: pick Angle to change this.",
+                         help: "How many stripes the Angle colouring draws")
             Toggle("Interior detection", isOn: $model.interiorDetection)
         }
     }
@@ -906,8 +907,9 @@ struct InteriorSectionRows: View {
 
 // MARK: Overlays
 
-/// Essential: Orbit, Mini-map, the Julia panel and the Julia twin; their tuning and the display
-/// preferences behind More. (In a Julia view the way back is the pinned fractal row's Back.)
+/// Essential: Orbit with its dot count right under it, Mini-map, the Julia panel and the Julia
+/// twin; the map's tuning and the display preferences behind More. (In a Julia view the way
+/// back is the pinned fractal row's Back.)
 struct OverlaySectionRows: View {
     @Bindable var model: ExplorerModel
     var moreForced = false
@@ -916,6 +918,7 @@ struct OverlaySectionRows: View {
         let _ = UIPerf.body("section.overlays")
         if model.has(\.orbitOverlay) {
             Toggle("Orbit of the point under the pointer", isOn: $model.orbitEnabled)
+            OrbitDotsRow(model: model)
         }
         Toggle("Mini-map", isOn: $model.mapEnabled)
         if model.has(\.juliaPanel) {
@@ -935,25 +938,23 @@ struct OverlaySectionRows: View {
                 .help("In the Julia panel's place: the Mandelbrot view this Julia set was opened from, marked at k. Click it to return (U)")
         }
         MoreRows(section: .overlays, model: model, forced: moreForced) {
-            if model.orbitEnabled && model.has(\.orbitOverlay) {
-                ControlRows.slider("Iterates", value: ControlRows.log(ControlRows.int($model.orbitLength), range: 1...1000), in: 0...1,
-                                   text: "\(model.orbitLength)")
-            }
-            if model.mapEnabled {
-                LabeledContent("Mini-map levels") {
-                    HStack(spacing: 4) {
-                        Text("\(model.mapLevels)").monospacedDigit()
-                        Stepper("Mini-map levels", value: $model.mapLevels, in: 1...4).labelsHidden()
-                    }
-                }
-                .help("The whole set plus up to three deeper maps at thousands of times the zoom")
-                ControlRows.slider("Mini-map size", value: $model.mapSize, in: 100...320, text: String(format: "%.0f pt", model.mapSize))
-                Toggle("Large mini-map", isOn: $model.mapLarge)
-                    .help("About half the window's shorter side; the size above is the small map's. The arrows button below the map's ? does the same")
-                ControlRows.picker("Mini-map corner", selection: $model.mapPlacement) {
-                    ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
+            let mapWhy = "Turn on Mini-map to change this."
+            LabeledContent("Mini-map levels") {
+                HStack(spacing: 4) {
+                    Text("\(model.mapLevels)").monospacedDigit().modifier(DimmedWhenDisabled())
+                    Stepper("Mini-map levels", value: $model.mapLevels, in: 1...4).labelsHidden()
                 }
             }
+            .enabled(model.mapEnabled, why: mapWhy, help: "The whole set plus up to three deeper maps at thousands of times the zoom")
+            // (No "Large mini-map" row: the map's own arrow button and View ▸ Large Mini-map
+            // switch it; user, 2026-10-28.)
+            ControlRows.slider("Mini-map size (small)", value: $model.mapSize, in: 100...320,
+                               text: String(format: "%.0f pt", model.mapSize))
+                .enabled(model.mapEnabled, why: mapWhy, help: "The mini-map's size; its arrow button enlarges it.")
+            ControlRows.picker("Mini-map corner", selection: $model.mapPlacement) {
+                ForEach(MapPlacement.allCases) { Text($0.label).tag($0) }
+            }
+            .enabled(model.mapEnabled, why: mapWhy, help: "The window corner the maps sit in")
             CosmicScaleRows(model: model)
             Toggle("Always show compass", isOn: $model.compassAlways)
                 .help("Otherwise the compass shows while the view is turned. Click it to turn north, drag it to turn")
@@ -966,6 +967,78 @@ struct OverlaySectionRows: View {
         }
     }
 }
+
+/// "Orbit iterations shown": how many steps of the orbit overlay are drawn, one dot per step
+/// (1 ... 1000, Rust's `MAX_ORBIT_POINTS`). Right under the Orbit switch, disabled while the
+/// orbit is off; the same row is the Mac toolbar's Orbit popover and the iOS Orbit button's
+/// long-press menu sets it too (kb: decisions/controls "Disabled, not hidden").
+struct OrbitDotsRow: View {
+    @Bindable var model: ExplorerModel
+
+    static let title = "Orbit iterations shown"
+    static let help = "How many steps of the orbit are drawn, one dot per step."
+    static let why = "Turn on the orbit (O) to change this."
+    /// What the control center's search finds it by (Overlays' keywords).
+    static let keywords = ["orbit iterations shown", "iterates", "iterations", "dots", "points", "orbit length", "steps"]
+    /// The iOS long-press menu's choices.
+    static let presets = [10, 20, 50, 100, 200, 500, 1000]
+
+    static func text(_ n: Int) -> String { n == 1 ? "1 dot" : "\(n) dots" }
+
+    var body: some View {
+        ControlRows.slider(Self.title, value: ControlRows.log(ControlRows.int($model.orbitLength), range: 1...1000), in: 0...1,
+                           text: Self.text(model.orbitLength))
+            .enabled(model.orbitEnabled, why: Self.why, help: Self.help)
+            .accessibilityIdentifier("orbit-dots")
+    }
+}
+
+#if os(macOS)
+/// The Mac toolbar's Orbit item: the toggle as before, and next to it a small chevron that
+/// opens a popover with the "Orbit iterations shown" slider below the button (kb:
+/// decisions/controls "Disabled, not hidden"). The chevron only where the fractal has the
+/// orbit overlay.
+struct OrbitDotsToolbarButton: View {
+    let model: ExplorerModel
+    @State private var shown = false
+
+    var body: some View {
+        Button {
+            shown.toggle()
+        } label: {
+            Label(OrbitDotsRow.title, systemImage: "chevron.down")
+        }
+        .help("Orbit iterations shown: how many steps of the orbit are drawn")
+        .accessibilityIdentifier("orbit-dots-toolbar")
+        .popover(isPresented: $shown, arrowEdge: .bottom) {
+            OrbitDotsPopover(model: model)
+        }
+        .task {
+            // `--ui-demo=orbit-dots`: the popover opens by itself for the screenshot.
+            guard UIDemo.scene == "orbit-dots" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            shown = true
+        }
+    }
+}
+
+/// The popover's content: the slider row and a line of help (what it does, or what turns it on).
+struct OrbitDotsPopover: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            OrbitDotsRow(model: model)
+            Text(model.orbitEnabled ? OrbitDotsRow.help : OrbitDotsRow.why)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 280)
+    }
+}
+#endif
 
 // MARK: Iterations & quality
 
@@ -980,46 +1053,46 @@ struct QualitySectionRows: View {
     var body: some View {
         let _ = UIPerf.body("section.quality")
         Toggle("Automatic iterations", isOn: $model.autoIterations)
-        if !model.autoIterations {
-            // One row for the one value: the number (typed) over its log slider.
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text("Maximum")
-                    Spacer()
-                    TextField("Maximum", value: $model.manualIterations, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        .monospacedDigit()
-                        .frame(maxWidth: 110)
-                        .accessibilityIdentifier("manual-iterations")
-                }
-                Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000,
-                                              snap: ControlRows.twoDigits), in: 0...1) {
-                    Text("Maximum")
-                }
-                .labelsHidden()
-                .accessibilityLabel("Maximum iterations")
-                .accessibilityValue(model.manualIterations.formatted())
-                if model.manualIterations > Int(maxIterationLimit()) {
-                    // The renderer clamps (crates/almondbread-core MAX_ITERATION_LIMIT).
-                    Text("Renders with \(Int(maxIterationLimit()).formatted()): the most the GPU counts exactly.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        // One row for the one value: the number (typed) over its log slider. Disabled (not
+        // hidden) while the limit is automatic (kb: decisions/controls "Disabled, not hidden").
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("Maximum").modifier(DimmedWhenDisabled())
+                Spacer()
+                TextField("Maximum", value: $model.manualIterations, format: .number)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(maxWidth: 110)
+                    .accessibilityIdentifier("manual-iterations")
+            }
+            Slider(value: ControlRows.log(ControlRows.int($model.manualIterations), range: 100...10_000_000,
+                                          snap: ControlRows.twoDigits), in: 0...1) {
+                Text("Maximum")
+            }
+            .labelsHidden()
+            .accessibilityLabel("Maximum iterations")
+            .accessibilityValue(model.manualIterations.formatted())
+            if !model.autoIterations && model.manualIterations > Int(maxIterationLimit()) {
+                // The renderer clamps (crates/almondbread-core MAX_ITERATION_LIMIT).
+                Text("Renders with \(Int(maxIterationLimit()).formatted()): the most the GPU counts exactly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .enabled(!model.autoIterations, why: "Turn off Automatic iterations to set the maximum yourself.",
+                 help: "The most iterations per pixel, used as set")
         // The tour on iterations and the fog (topic `iterations`), once one is bundled.
         if ExplorerModel.tour(forTopic: "iterations") != nil {
             TourTopicLink(model: model, topic: "iterations", label: nil)
         }
         MoreRows(section: .quality, model: model, forced: moreForced) {
-            if model.autoIterations {
-                // Bounds only the automatic limit (a manual limit is used as set).
-                ControlRows.picker("Upper limit", selection: $model.maxIterationsCap) {
-                    ForEach(Self.iterationCaps, id: \.self) { Text($0.formatted()).tag($0) }
-                }
-                .help("The most iterations automatic mode may use. It raises the limit only as far as the view needs.")
+            // Bounds only the automatic limit (a manual limit is used as set).
+            ControlRows.picker("Upper limit", selection: $model.maxIterationsCap) {
+                ForEach(Self.iterationCaps, id: \.self) { Text($0.formatted()).tag($0) }
             }
+            .enabled(model.autoIterations, why: "Bounds the automatic limit only: turn on Automatic iterations to change this.",
+                     help: "The most iterations automatic mode may use. It raises the limit only as far as the view needs.")
             ControlRows.picker("Anti-aliasing", selection: $model.supersampling) {
                 ForEach(Supersampling.allCases) { Text($0.label).tag($0) }
             }
@@ -1078,7 +1151,7 @@ extension ContainerValues {
 struct ControlRowLabeledStyle: LabeledContentStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            configuration.label
+            configuration.label.modifier(DimmedWhenDisabled())
             Spacer(minLength: 8)
             configuration.content
         }
@@ -1089,7 +1162,7 @@ struct ControlRowLabeledStyle: LabeledContentStyle {
 struct ControlRowToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
-            configuration.label
+            configuration.label.modifier(DimmedWhenDisabled())
             Spacer(minLength: 8)
             Toggle(isOn: configuration.$isOn) { configuration.label }
                 .toggleStyle(.switch)
@@ -1192,6 +1265,26 @@ struct FitRow<Content: View>: View {
     }
 }
 
+/// A row's text in a disabled row: plain `Text` keeps its colour when disabled (only the
+/// controls grey out), so the label is dimmed by hand.
+struct DimmedWhenDisabled: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content.opacity(isEnabled ? 1 : 0.45)
+    }
+}
+
+extension View {
+    /// A row that depends on another setting (kb: decisions/controls "Disabled, not hidden"):
+    /// shown disabled while `enabled` is false, its help then saying what turns it on (`why`).
+    /// Rows the current fractal or view does not have at all stay hidden instead.
+    func enabled(_ enabled: Bool, why: String, help: String? = nil) -> some View {
+        disabled(!enabled)
+            .help(enabled ? (help ?? "") : why)
+    }
+}
+
 enum ControlRows {
     /// A menu picker as a labelled row: the label leading, the menu trailing at its own size
     /// (outside a `Form` a picker puts its menu right after the label and stretches it).
@@ -1230,6 +1323,7 @@ enum ControlRows {
                 Spacer()
                 Text(text).monospacedDigit().foregroundStyle(.secondary)
             }
+            .modifier(DimmedWhenDisabled())
             Slider(value: value, in: range, onEditingChanged: onEditingChanged)
                 .labelsHidden()
                 .accessibilityLabel(title)
@@ -1372,7 +1466,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: ["offset", "smooth", "log", "logarithmic", "cycling", "cycle", "tint", "dense", "calm", "grey", "filter", "anti-aliasing", "import"]
         case .lighting: ["light", "angle", "height", "highlight", "specular", "width", "colour", "color", "edge"]
         case .interior: ["stripes", "angle", "detection", "atom"]
-        case .overlays: ["iterates", "levels", "size", "corner", "cosmic", "scale", "universe", "planck", "compass", "target", "marker", "hud", "status", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "cockpit", "gear", "speed"]
+        case .overlays: ["levels", "size", "small", "large", "enlarge", "bigger", "corner", "cosmic", "scale", "universe", "planck", "compass", "target", "marker", "hud", "status", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "cockpit", "gear", "speed"]
         case .quality: ["upper limit", "cap", "anti-aliasing", "aa", "samples", "preview"]
         }
     }
@@ -1407,7 +1501,7 @@ enum ControlSection: String, CaseIterable, Identifiable {
         case .look: ["palette", "look", "colour", "color", "density", "offset", "smooth", "log", "cycling", "tint", "dense", "grey", "filter", "import", "calm", "anti-aliasing"]
         case .lighting: ["shading", "light", "angle", "height", "highlight", "specular", "outline", "edge", "glow", "width"]
         case .interior: ["inside", "bubbles", "period", "angle", "multiplier", "distance", "interior", "detection", "atom", "stripes", "pattern"]
-        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "julia", "twin", "fatou", "connected", "dust", "hud", "status", "iterates", "overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed", "compass", "levels", "corner"]
+        case .overlays: ["orbit", "map", "mini-map", "minimap", "breadcrumb", "julia", "twin", "fatou", "connected", "dust", "hud", "status"] + OrbitDotsRow.keywords + ["overlay", "cosmic", "scale", "size", "universe", "planck", "developer", "details", "diagnostics", "gpu", "performance", "reference", "kernel", "stats", "target", "marker", "cockpit", "gear", "speed", "compass", "levels", "corner", "small", "large", "enlarge", "bigger"]
         case .quality: ["iterations", "auto", "maximum", "cap", "upper limit", "anti-aliasing", "aa", "samples", "preview", "quality"]
         case .controls: ["keys", "keyboard", "shortcuts", "mouse", "trackpad", "help", "gamepad"]
         }

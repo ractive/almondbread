@@ -202,6 +202,16 @@ struct ContentView: View {
                 stack {
                     RoundToggle("Orbit", symbol: InlineIcons.symbol("orbit"),
                                 isOn: $model.orbitEnabled)
+                        // A long press: the dot count ("Orbit iterations shown"; a tap still
+                        // toggles; kb: decisions/controls "Disabled, not hidden").
+                        .contextMenu {
+                            if model.has(\.orbitOverlay) {
+                                Picker(OrbitDotsRow.title, selection: $model.orbitLength) {
+                                    ForEach(OrbitDotsRow.presets, id: \.self) { Text(OrbitDotsRow.text($0)).tag($0) }
+                                }
+                                .pickerStyle(.inline)
+                            }
+                        }
                         .tourTarget("orbit", model: model, cornerRadius: 22)
                     RoundToggle("Mini-map", symbol: InlineIcons.symbol("mini-map"), isOn: $model.mapEnabled)
                         .tourTarget("mini-map", model: model, cornerRadius: 22)
@@ -265,6 +275,10 @@ struct ContentView: View {
                         .tourTarget("toolbar", model: model, cornerRadius: 6)
                 }
                 .help("Orbit of the point under the pointer (O)")
+                // Its dot count in a popover below (kb: decisions/controls "Disabled, not hidden").
+                if model.has(\.orbitOverlay) {
+                    OrbitDotsToolbarButton(model: model)
+                }
                 Toggle(isOn: $model.mapEnabled) {
                     Label("Mini-map", systemImage: InlineIcons.symbol("mini-map"))
                         .tourTarget("mini-map", model: model, cornerRadius: 6)

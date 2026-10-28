@@ -296,6 +296,42 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertTrue((more.value as? String ?? "").hasPrefix("collapsed"), "value: \(String(describing: more.value))")
     }
 
+    /// "Orbit iterations shown" (kb: decisions/controls "Disabled, not hidden"): a long press on
+    /// the round Orbit button offers the dot counts and leaves the orbit off; the control center
+    /// shows the row (found by "dots") disabled with the count picked, enabled once the orbit is on.
+    func testOrbitDotsMenu() throws {
+        try launchSettled()
+        let orbit = round("Orbit")
+        XCTAssertTrue(orbit.waitForExistence(timeout: 5))
+        XCTAssertEqual(orbit.value as? String, "off")
+        orbit.press(forDuration: 1.0)
+        let choice = app.buttons["200 dots"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 5), "no long-press menu on the Orbit button")
+        shot("orbit-dots-menu")
+        choice.tap()
+        settle(1)
+        XCTAssertEqual(orbit.value as? String, "off", "the long press toggled the orbit")
+        let control = app.buttons["Control center"]
+        if control.value as? String != "shown" { control.tap() }
+        settle(2)
+        let search = app.textFields["Search settings"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "no search field")
+        search.tap()
+        search.typeText("dots\n")
+        settle(1.5)
+        let slider = app.sliders["Orbit iterations shown"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5), "the search did not find the orbit's dot count")
+        XCTAssertEqual(slider.value as? String, "200 dots")
+        XCTAssertFalse(slider.isEnabled, "enabled with the orbit off")
+        shot("orbit-dots-disabled")
+        // (The switch's own knob, at the row's trailing end: a tap on the row's middle hits the label.)
+        let toggle = app.switches["Orbit of the point under the pointer"].firstMatch
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        settle(1.5)
+        XCTAssertEqual(fields()["orbit"], "on", "the switch did not turn the orbit on")
+        XCTAssertTrue(slider.isEnabled, "still disabled with the orbit on")
+    }
+
     /// The control center's ✕ and the round button's open state: open, the round button reads
     /// selected ("shown"); the ✕ at the top of the pane is hittable, clear of the search field,
     /// and stays put when the content scrolls (and, on a phone, at the large detent); a tap on it
