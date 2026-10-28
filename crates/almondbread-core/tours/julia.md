@@ -17,7 +17,7 @@ julia: on
 probe: -1, 0
 marker: off
 
-A reminder of the formula: z starts at 0, and at each step z → z² + c. The small circle (the marker) is the point c = −1, and the white dots are the values of z. Here z goes 0, −1, 0, −1, … So the dots move between 0 and −1 again and again.
+A reminder: each point of the picture is one number c. The formula starts with z = 0, and at each step z → z² + c. The small circle (the marker) is the point c = −1, and the white dots are the values of z. Here z goes 0, −1, 0, −1, … So the dots move between 0 and −1 again and again.
 
 Now use the formula the other way round. Keep c = −1 fixed, but let z **start** at every other number instead of 0. For some starting numbers, z stays small. Together, these starting numbers make a picture of their own: the **Julia set** of c (named after Gaston Julia).
 
@@ -35,7 +35,7 @@ probe: 0.5, 0.5
 
 Now the marker is outside the set, at the top right. Its dots escape: z keeps growing, and the white lines go out of the view. Then its Julia set is **dust**, as the panel shows: very many separate specks, and no two of them are joined.
 
-This is the deepest fact about the Mandelbrot set: it is exactly the points c whose Julia sets are in **one piece**. So in this view, black means "the Julia set is one piece", and colour means "the Julia set is dust". Holly Krieger explains it in Numberphile's [Filled Julia Set](https://www.youtube.com/watch?v=oCkQ7WK7vuY).
+This is the deepest fact about the Mandelbrot set: it is exactly the points c whose Julia sets are in **one piece**. So in this view, black means "the Julia set is one piece", and colour means "the Julia set is dust". Holly Krieger, a mathematician, explains it in a video on Numberphile, a YouTube channel about maths: [Filled Julia Set](https://www.youtube.com/watch?v=oCkQ7WK7vuY).
 
 ## Dust you can see
 place: cantor-island
@@ -43,7 +43,7 @@ orbit: off
 map: off
 probe: pointer
 
-This view is on the **spike**, the thin line on the left of the set; here it goes across the middle of the view. On the spike sits an island with a ruff of four lobes around it. It looks like one piece, but if you zoom in, it falls apart into specks. It has the shape of a dust-like Julia set, copied into the Mandelbrot set.
+This view is on the **spike**, the thin line on the left of the set; here it goes across the middle of the view. An island with a ruff of four lobes around it sits on the spike. It looks like one piece, but if you zoom in, it falls apart into specks. It has the shape of a dust-like Julia set, copied into the Mandelbrot set.
 
 ::: mac
 The Julia set panel now follows the pointer. The Julia set of a point here is dust too, laid out along a line.
@@ -79,12 +79,12 @@ map: on
 julia: on
 
 ::: mac
-The marker, its dots and the Julia set panel follow the pointer again. Where the dots settle on one place or move round a loop, the Julia set of that point is in one piece. Where the dots escape, it is dust. Watch the panel change as you move the pointer. Later, **U** shows or hides the panel. Ben Sparks plays with Julia sets in the same way in Numberphile's [What's so special about the Mandelbrot Set?](https://www.youtube.com/watch?v=FFftmWSzgmk).
+Now the marker, its dots and the Julia set panel follow the pointer. Where the dots settle on one place or move round a loop, the Julia set of that point is in one piece. Where the dots escape, it is dust. Watch the panel change as you move the pointer. Later, **U** shows or hides the panel. Ben Sparks plays with Julia sets in the same way in Numberphile's [What's so special about the Mandelbrot Set?](https://www.youtube.com/watch?v=FFftmWSzgmk).
 
-**End tour** (or **Esc** twice) brings back your view and settings.
+**Finish** or **End tour** (or **Esc** twice) ends the tour and brings back your view and settings. **Back** (or **←**) goes back a card.
 :::
 ::: touch
 Now you move the marker: hold a finger on the picture, choose *Orbit Here*, and keep the finger down to drag the marker. Its dots and the Julia set panel follow it. Where the dots settle on one place or move round a loop, the Julia set of that point is in one piece. Where the dots escape, it is dust. Watch the panel change as you move. Ben Sparks plays with Julia sets in the same way in Numberphile's [What's so special about the Mandelbrot Set?](https://www.youtube.com/watch?v=FFftmWSzgmk).
 
-**End tour** brings back your view and settings.
+**Finish** or **End tour** ends the tour and brings back your view and settings. **Back** goes back a card.
 :::

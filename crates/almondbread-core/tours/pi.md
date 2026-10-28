@@ -19,7 +19,7 @@ marker-label: the neck
 
 In this view the set is black. The round bulb on the left touches the heart, the big black shape on the right, at a single point: the **neck**, the labelled point at −0.75. The points straight above the neck, in the narrow coloured gap, are outside the set, but only just.
 
-A reminder of the formula: z starts at 0, and at each step z → z² + c. Outside the set, z escapes in the end: it keeps growing. For points just above the neck, this takes a very long time: z first moves slowly through a narrow passage. In this tour we count the steps until z escapes.
+A reminder: each point of the picture is one number c. The formula starts with z = 0, and at each step z → z² + c. Outside the set, z escapes in the end: it keeps growing. For points just above the neck, this takes a very long time: z first moves slowly through a narrow passage. In this tour we count the steps until z escapes.
 
 ## Count and multiply
 place: pi-at-the-neck
@@ -52,11 +52,11 @@ Mathematicians measure angles in *radians*. In radians, one full turn is **2π**
 ## The cusp
 pi-hunt: cusp
 
-The **cusp**, the dent on the right of the heart (labelled 1/4), works too. For a point ε to its right, steps × **√ε** (the square root of ε) comes closer and closer to π.
+The **cusp**, the notch on the right of the heart (labelled 1/4), works too. For a point ε to its right, steps × **√ε** (the square root of ε) comes closer and closer to π.
 
 The glowing circle labelled "probe" slides to ε = 0.0000000000000001, where z takes **314 159 263** steps. Each new digit needs a point a hundred times closer.
 
-Holly Krieger counts these steps at the cusp in Numberphile's [Pi and the Mandelbrot Set](https://www.youtube.com/watch?v=d0vY0CKYhPY) (with [extra footage](https://www.youtube.com/watch?v=r8Ksuc7T-VQ)).
+Holly Krieger, a mathematician, counts these steps at the cusp in a video on Numberphile, a YouTube channel about maths: [Pi and the Mandelbrot Set](https://www.youtube.com/watch?v=d0vY0CKYhPY) (with [extra footage](https://www.youtube.com/watch?v=r8Ksuc7T-VQ)).
 
 ## Your turn
 place: pi-at-the-neck
@@ -64,8 +64,8 @@ place: pi-at-the-neck
 The π meter stays on until the end of the tour. It counts the point in the middle of the view whenever the view is centred on the vertical line above the neck, or on the horizontal line to the right of the cusp. Zoom in along the line yourself and watch the digits.
 
 ::: mac
-**End tour** (or **Esc** twice) switches the π meter off and brings back your view and settings.
+**Finish** or **End tour** (or **Esc** twice) ends the tour, switches the π meter off and brings back your view and settings. **Back** (or **←**) goes back a card.
 :::
 ::: touch
-**End tour** switches the π meter off and brings back your view and settings.
+**Finish** or **End tour** ends the tour, switches the π meter off and brings back your view and settings. **Back** goes back a card.
 :::

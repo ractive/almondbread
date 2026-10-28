@@ -71,10 +71,10 @@ move: jump
 ::: mac
 We are back at the three-way fork. Choose any place near the edge of the set, keep the pointer on it, and zoom in slowly with **E**. When shapes start to double, a minibrot is near. **N** finds a minibrot for you.
 
-**End tour** (or **Esc** twice) brings back your view and settings.
+**Finish** or **End tour** (or **Esc** twice) ends the tour and brings back your view and settings. **Back** (or **←**) goes back a card.
 :::
 ::: touch
 We are back at the three-way fork. Choose any place near the edge of the set and zoom in slowly towards it. When shapes start to double, a minibrot is near. To find a minibrot, hold a finger on the picture and choose *Seek Minibrot Here*.
 
-**End tour** brings back your view and settings.
+**Finish** or **End tour** ends the tour and brings back your view and settings. **Back** goes back a card.
 :::
