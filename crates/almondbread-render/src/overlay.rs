@@ -1102,7 +1102,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 || line
                 || self.cockpit.enabled
                 || self.marker.visible()
-                || self.tour.marker.is_some())
+                || self.tour.shown())
                 || empty
             {
                 renderer.overlay = None;
@@ -1787,7 +1787,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         let mut cosmic_bottom = (h - 12.0 * px) as f32;
         let to_px = |v: [f64; 2]| [w / 2.0 + v[0] * px, h / 2.0 - v[1] * px];
         // ---- A tour's marker, under the orbit.
-        self.tour.draw(scene, size, ppp, view, &mut key);
+        let card = self
+            .tour_card
+            .map(|[x, y, cw, ch]| [x * px, y * px, (x + cw) * px, (y + ch) * px].map(|v| v as f32));
+        self.tour.draw(scene, size, ppp, view, card, &mut key);
         // ---- Orbit in the view.
         if s.orbit && !self.points.view.is_empty() {
             let pts: Vec<[f64; 2]> = self.points.view.iter().map(|&v| to_px(v)).collect();

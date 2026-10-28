@@ -1,6 +1,7 @@
 //! What a guided tour (kb: decisions/controls "Guided tours"; core `tour`) puts on the overlay:
-//! the orbit probe's point when the tour sets it (instead of the pointer) and a highlighted
-//! point with its label. The host fills both from the tour player every refresh.
+//! the orbit probe's point when the tour sets it (instead of the pointer), a highlighted
+//! point with its label, and the step's labelled points (`labels:`). The host fills them from
+//! the tour player every refresh.
 
 use almondbread_core::tour::Marker;
 use almondbread_core::viewport::{Center, Viewport};
@@ -14,6 +15,11 @@ const RING_WIDTH: f64 = 1.6;
 const LABEL_SIZE: f64 = 13.0;
 /// Gold: apart from the autopilot's white target marker and the orbit's warm dots.
 const GOLD: [f32; 3] = [1.0, 0.78, 0.25];
+/// A labelled point's dot radius and the gap between the dot and its text, view points.
+const DOT: f64 = 3.5;
+const DOT_GAP: f64 = 5.0;
+/// Labels keep this far from the canvas edges, view points.
+const EDGE: f64 = 6.0;
 
 /// The tour's overlay state (empty without a tour).
 #[derive(Clone, Debug, Default)]
@@ -21,22 +27,51 @@ pub struct TourOverlay {
     /// The orbit probe's point (None: the pointer, as usual).
     pub probe: Option<Center>,
     pub marker: Option<Marker>,
+    /// The step's labelled points (`labels:`).
+    pub labels: Vec<Marker>,
 }
 
 impl TourOverlay {
-    /// Draws the marker (a gold double ring and its label) where it is on screen.
-    pub fn draw(&self, scene: &mut Scene, size: (usize, usize), ppp: f64, view: &Viewport, key: &mut String) {
-        let Some(m) = &self.marker else { return };
+    /// Something to draw (the marker or labelled points).
+    pub fn shown(&self) -> bool {
+        self.marker.is_some() || !self.labels.is_empty()
+    }
+
+    /// Draws the marker (a gold double ring and its label) and the labelled points where they
+    /// are on screen; labels keep clear of the tour card `card` (pixels: x0, y0, x1, y1).
+    pub fn draw(
+        &self,
+        scene: &mut Scene,
+        size: (usize, usize),
+        ppp: f64,
+        view: &Viewport,
+        card: Option<[f32; 4]>,
+        key: &mut String,
+    ) {
         if ppp <= 0.0 {
             return;
         }
+        let taken = self.draw_marker(scene, size, ppp, view, key);
+        self.draw_labels(scene, size, ppp, view, taken, card, key);
+    }
+
+    /// The marker; returns the box its label took (pixels), so labelled points keep clear.
+    fn draw_marker(
+        &self,
+        scene: &mut Scene,
+        size: (usize, usize),
+        ppp: f64,
+        view: &Viewport,
+        key: &mut String,
+    ) -> Option<[f32; 4]> {
+        let m = self.marker.as_ref()?;
         let px = 1.0 / ppp;
         let (w, h) = (size.0 as f64, size.1 as f64);
         let (x, y) = view.offset_of(&m.at);
         let c = [w / 2.0 + x * px, h / 2.0 - y * px];
         if !(c[0].is_finite() && c[1].is_finite()) || c[0] < -50.0 || c[1] < -50.0 || c[0] > w + 50.0 || c[1] > h + 50.0
         {
-            return;
+            return None;
         }
         let gold = rgba(GOLD[0], GOLD[1], GOLD[2], 0.95);
         let (r, rw) = ((RING * px) as f32, (RING_WIDTH * px) as f32);
@@ -56,8 +91,173 @@ impl TourOverlay {
                 (c[0] - 0.25 * RING * px) as f32,
                 (c[1] - (RING + 10.0) * px - LABEL_SIZE * px) as f32,
             ];
-            scene.label(origin, size_px, &m.label, rgba(GOLD[0], GOLD[1], GOLD[2], 1.0));
+            let tw = scene.label(origin, size_px, &m.label, rgba(GOLD[0], GOLD[1], GOLD[2], 1.0));
             key.push_str(&m.label);
+            return Some([origin[0], origin[1], origin[0] + tw, origin[1] + size_px]);
         }
+        None
+    }
+
+    /// The labelled points: a small gold dot each, its text beside it (above right by
+    /// preference, else above left, below right, below left: the first place on the canvas
+    /// that no earlier label, the marker's label or the tour card covers). Points outside the
+    /// view or under the card are left out; a text that fits nowhere is pushed onto the canvas.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_labels(
+        &self,
+        scene: &mut Scene,
+        size: (usize, usize),
+        ppp: f64,
+        view: &Viewport,
+        taken: Option<[f32; 4]>,
+        card: Option<[f32; 4]>,
+        key: &mut String,
+    ) {
+        let px = 1.0 / ppp;
+        let (w, h) = (size.0 as f64, size.1 as f64);
+        let mut boxes: Vec<[f32; 4]> = taken.into_iter().chain(card).collect();
+        let size_px = (LABEL_SIZE * px) as f32;
+        let gold = rgba(GOLD[0], GOLD[1], GOLD[2], 1.0);
+        for m in &self.labels {
+            let (x, y) = view.offset_of(&m.at);
+            let c = [w / 2.0 + x * px, h / 2.0 - y * px];
+            if !(c[0].is_finite() && c[1].is_finite()) || c[0] < 0.0 || c[1] < 0.0 || c[0] > w || c[1] > h {
+                continue;
+            }
+            let under_card = card.is_some_and(|k| {
+                (c[0] as f32) >= k[0] && (c[0] as f32) <= k[2] && (c[1] as f32) >= k[1] && (c[1] as f32) <= k[3]
+            });
+            if under_card {
+                continue;
+            }
+            let r = (DOT * px) as f32;
+            scene.disc(c, r + (1.5 * px) as f32, rgba(0.0, 0.0, 0.0, 0.6));
+            scene.disc(c, r, gold);
+            key.push_str(&format!("lab {:.1},{:.1};", c[0], c[1]));
+            if m.label.is_empty() {
+                continue;
+            }
+            let tw = crate::font::layout(&m.label, size_px).1;
+            let b = place_label(c, [tw, size_px], [w as f32, h as f32], px as f32, &boxes);
+            scene.label([b[0], b[1]], size_px, &m.label, gold);
+            key.push_str(&m.label);
+            boxes.push(b);
+        }
+    }
+}
+
+/// Where a label `text` (width, height in pixels) goes next to the dot at `c` on a canvas
+/// `canvas` pixels big (`px` pixels per point): its box (x0, y0, x1, y1). Tries above right,
+/// above left, below right, below left; the first that stays on the canvas and clear of
+/// `taken` wins, else the first that stays on the canvas, else above right pushed onto it.
+pub(crate) fn place_label(c: [f64; 2], text: [f32; 2], canvas: [f32; 2], px: f32, taken: &[[f32; 4]]) -> [f32; 4] {
+    let (cx, cy) = (c[0] as f32, c[1] as f32);
+    let gap = (DOT + DOT_GAP) as f32 * px;
+    let edge = EDGE as f32 * px;
+    // The outline reaches a little past the glyphs; two texts keep a word space apart, so
+    // neighbours never read as one label.
+    let halo = 5.0 * px;
+    let [tw, th] = text;
+    let candidates = [
+        [cx + gap * 0.6, cy - gap - th],
+        [cx - gap * 0.6 - tw, cy - gap - th],
+        [cx + gap * 0.6, cy + gap],
+        [cx - gap * 0.6 - tw, cy + gap],
+    ]
+    .map(|o| [o[0], o[1], o[0] + tw, o[1] + th]);
+    let on_canvas = |b: &[f32; 4]| b[0] >= edge && b[1] >= edge && b[2] <= canvas[0] - edge && b[3] <= canvas[1] - edge;
+    let clear = |b: &[f32; 4]| {
+        !taken.iter().any(|t| {
+            b[0] - halo < t[2] + halo
+                && t[0] - halo < b[2] + halo
+                && b[1] - halo < t[3] + halo
+                && t[1] - halo < b[3] + halo
+        })
+    };
+    if let Some(b) = candidates.iter().find(|b| on_canvas(b) && clear(b)) {
+        return *b;
+    }
+    if let Some(b) = candidates.iter().find(|b| on_canvas(b)) {
+        return *b;
+    }
+    let b = candidates[0];
+    let x0 = b[0].min(canvas[0] - edge - tw).max(edge);
+    let y0 = b[1].min(canvas[1] - edge - th).max(edge);
+    [x0, y0, x0 + tw, y0 + th]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lab(re: f64, im: f64, text: &str) -> Marker {
+        Marker {
+            at: Center::new(re, im),
+            label: text.to_string(),
+        }
+    }
+
+    /// Labels stay on the canvas, keep clear of each other where they can, and points outside
+    /// the view are left out.
+    #[test]
+    fn labels_are_placed_on_the_canvas_and_clear_of_each_other() {
+        let canvas = [800.0, 500.0];
+        // Room above right.
+        let b = place_label([400.0, 250.0], [60.0, 13.0], canvas, 1.0, &[]);
+        assert!(b[0] > 400.0 && b[3] < 250.0, "{b:?}");
+        // At the right edge: above left instead.
+        let b = place_label([790.0, 250.0], [60.0, 13.0], canvas, 1.0, &[]);
+        assert!(b[2] < 790.0 && b[3] < 250.0, "{b:?}");
+        // At the top edge: below.
+        let b = place_label([400.0, 5.0], [60.0, 13.0], canvas, 1.0, &[]);
+        assert!(b[1] > 5.0, "{b:?}");
+        // Taken above right: another place.
+        let first = place_label([400.0, 250.0], [60.0, 13.0], canvas, 1.0, &[]);
+        let second = place_label([405.0, 250.0], [60.0, 13.0], canvas, 1.0, &[first]);
+        assert_ne!(first, second);
+        // A label that would only touch another one end to end moves too.
+        let near = place_label([330.0, 250.0], [60.0, 13.0], canvas, 1.0, &[first]);
+        assert!(near[2] + 8.0 <= first[0] || near[1] >= first[3], "{near:?} {first:?}");
+        // Too wide for any place: pushed onto the canvas.
+        let b = place_label([10.0, 10.0], [790.0, 13.0], canvas, 1.0, &[]);
+        assert!(b[0] >= 0.0 && b[2] <= 800.0, "{b:?}");
+
+        // Drawn through the overlay: two points in view (a dot and a text each), one outside.
+        let view = Viewport::new(-0.6, 0.0, 2.6 / 500.0);
+        let t = TourOverlay {
+            labels: vec![
+                lab(-0.75, 0.0, "neck −0.75"),
+                lab(-1.25, 0.0, "−1.25"),
+                lab(3.0, 0.0, "far"),
+            ],
+            ..Default::default()
+        };
+        assert!(t.shown());
+        let mut scene = Scene::default();
+        let mut key = String::new();
+        t.draw(&mut scene, (800, 500), 1.0, &view, None, &mut key);
+        assert_eq!(key.matches("lab ").count(), 2, "{key}");
+        assert!(key.contains("neck −0.75") && key.contains("−1.25") && !key.contains("far"));
+        assert!(!scene.prims.is_empty());
+        // A point under the tour card is left out; a label next to the card moves off it.
+        let (mut scene, mut key) = (Scene::default(), String::new());
+        let (x, _) = view.offset_of(&Center::new(-1.25, 0.0));
+        let dot = 400.0 + x as f32;
+        t.draw(
+            &mut scene,
+            (800, 500),
+            1.0,
+            &view,
+            Some([dot - 5.0, 240.0, 800.0, 500.0]),
+            &mut key,
+        );
+        assert_eq!(key.matches("lab ").count(), 0, "{key}");
+        let (mut scene, mut key) = (Scene::default(), String::new());
+        let card = [dot + 12.0, 200.0, 800.0, 500.0];
+        t.draw(&mut scene, (800, 500), 1.0, &view, Some(card), &mut key);
+        assert!(key.contains("−1.25"), "{key}");
+        let b = place_label([dot as f64, 250.0], [40.0, 13.0], [800.0, 500.0], 1.0, &[card]);
+        assert!(b[2] <= card[0], "the label keeps clear of the card: {b:?}");
+        assert!(!TourOverlay::default().shown());
     }
 }

@@ -2,7 +2,8 @@
 //! in `crates/almondbread-core/tours/<id>.md`, read and checked here so every UI gets the same
 //! tours. A tour is a list of steps; a step can set the view (flown to or jumped to), the look,
 //! palette, interior colouring and iteration limit, switch overlays, put the orbit probe on a
-//! fixed point or move it along a path, mark a point, and says what to look at in a short text.
+//! fixed point or move it along a path, mark a point, label places (`labels:`), and says what
+//! to look at in a short text.
 //!
 //! Format (the kb page has the full key list):
 //!
@@ -116,6 +117,10 @@ pub struct Step {
     pub probe: Option<Probe>,
     /// `Some(None)`: the marker goes away.
     pub marker: Option<Option<Marker>>,
+    /// Labelled points (`labels:`): a small dot with a short text each, to name places the
+    /// text talks about (a bulb, the neck, a number on the real line). They belong to their
+    /// own step: unlike the marker they do not carry over, since they are placed for its view.
+    pub labels: Vec<Marker>,
     // UI steps (the walkthrough; kb: decisions/controls "Guided tours"). None of these carry
     // over: each belongs to its own step.
     /// The platforms the step is shown on (`platform:`); empty: all.
@@ -278,6 +283,7 @@ pub const STEP_KEYS: &[&str] = &[
     "probe-motion",
     "marker",
     "marker-label",
+    "labels",
     "platform",
     "highlight",
     "control-center",
@@ -823,8 +829,46 @@ fn parse_step(title: &str, line: usize, settings: &[(usize, &str)], text: String
             }
         }
     }
+    if let Some((n, v)) = get("labels") {
+        step.labels = labels(n, v)?;
+    }
     parse_ui_keys(&mut step, &get)?;
     Ok(step)
+}
+
+/// At most this many labelled points in a step, each text at most [`MAX_LABEL_CHARS`] long.
+pub const MAX_LABELS: usize = 12;
+pub const MAX_LABEL_CHARS: usize = 32;
+
+/// `labels: re, im, text; re, im, text; …`: points with a short text each (the text is
+/// everything after the second comma, trimmed; it may be empty: a dot alone).
+fn labels(line: usize, v: &str) -> Result<Vec<Marker>, TourError> {
+    let mut out = Vec::new();
+    for entry in v.split(';').map(str::trim).filter(|e| !e.is_empty()) {
+        let mut parts = entry.splitn(3, ',');
+        let (Some(re), Some(im)) = (parts.next(), parts.next()) else {
+            return err(line, format!("`labels`: `{entry}` is not `re, im, text`"));
+        };
+        let label = parts.next().unwrap_or("").trim().to_string();
+        if label.chars().count() > MAX_LABEL_CHARS {
+            return err(
+                line,
+                format!("`labels`: `{label}` is longer than {MAX_LABEL_CHARS} characters"),
+            );
+        }
+        let at = point(line, "labels", &format!("{re},{im}"))?;
+        out.push(Marker { at, label });
+    }
+    if out.is_empty() {
+        return err(line, "`labels` needs at least one `re, im, text`");
+    }
+    if out.len() > MAX_LABELS {
+        return err(
+            line,
+            format!("`labels`: at most {MAX_LABELS} points, not {}", out.len()),
+        );
+    }
+    Ok(out)
 }
 
 /// The key of a settings line (`key: value`), if it is one.
@@ -1065,6 +1109,11 @@ impl TourPlayer {
 
     pub fn marker(&self) -> Option<&Marker> {
         self.current.marker.as_ref().and_then(|m| m.as_ref())
+    }
+
+    /// The step's labelled points (`labels:`; its own step only).
+    pub fn labels(&self) -> &[Marker] {
+        &self.current.labels
     }
 
     /// Ends the tour: the settings and the view to restore.
@@ -1559,6 +1608,40 @@ mod tests {
         assert!((a.span.log2() - b.span.log2()).abs() < 1e-9);
     }
 
+    /// `labels:` puts several labelled points in one step; they do not carry over (they are
+    /// placed for their step's view), and the player hands them to the overlay.
+    #[test]
+    fn labels_belong_to_their_step() {
+        let t = parse(
+            "---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\ncenter: -0.6, 0\nspan: 2.6\n\
+             labels: -0.75, 0, neck −0.75; -1.25, 0, −1.25 ; -2, 0\n\nA.\n\n## B\n\nB.\n",
+        )
+        .expect("tour");
+        let l = &t.steps[0].labels;
+        assert_eq!(l.len(), 3);
+        assert_eq!(
+            (l[0].at.re(), l[0].at.im(), l[0].label.as_str()),
+            (-0.75, 0.0, "neck −0.75")
+        );
+        assert_eq!((l[1].at.re(), l[1].label.as_str()), (-1.25, "−1.25"));
+        assert_eq!((l[2].at.re(), l[2].label.as_str()), (-2.0, ""), "a dot alone");
+        assert!(t.effective(1).labels.is_empty(), "labels do not carry over");
+        assert_eq!(t.effective(0).labels.len(), 3);
+        // A label text may hold commas after the point.
+        let t =
+            parse("---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\nlabels: 0, 0, 0, the origin\n\nA.\n").expect("tour");
+        assert_eq!(t.steps[0].labels[0].label, "0, the origin");
+        let too_many = (0..=MAX_LABELS)
+            .map(|k| format!("{}, 0, x", -(k as f64) / 10.0))
+            .collect::<Vec<_>>();
+        let e = parse(&format!(
+            "---\nid: t\ntitle: T\nsummary: S\n---\n\n## A\nlabels: {}\n\nA.\n",
+            too_many.join("; ")
+        ))
+        .unwrap_err();
+        assert!(e.message.contains("at most"), "{e}");
+    }
+
     #[test]
     fn rejects_mistakes_with_their_line() {
         let head = "---\nid: t\ntitle: T\nsummary: S\n---\n\n## One\n";
@@ -1591,6 +1674,14 @@ mod tests {
                 "bounce, once or loop",
             ),
             ("marker-label: x\n\nText.", 8, "needs a `marker`"),
+            ("labels: -1\n\nText.", 8, "not `re, im, text`"),
+            ("labels: x, 0, a\n\nText.", 8, "not a point"),
+            ("labels: ;\n\nText.", 8, "at least one"),
+            (
+                "labels: -1, 0, a very long label that goes on and on\n\nText.",
+                8,
+                "longer than",
+            ),
             ("move: jump\n\nText.", 8, "needs a view"),
             ("pi-hunt: tail\n\nText.", 8, "neck or cusp"),
             (
@@ -1839,6 +1930,7 @@ mod tests {
         assert_eq!(plan.snapshot.settings.interior_mode, InteriorMode::Period);
         assert!(player.animating(6.0));
         assert_eq!(player.marker().map(|m| m.label.as_str()), Some("here"));
+        assert!(player.labels().is_empty(), "no labels in this step");
         // Step three jumps; the probe follows the pointer again, the marker is gone.
         let plan = player.go(2, 9.0);
         assert!(plan.view.as_ref().is_some_and(|(_, j)| *j));

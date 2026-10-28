@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-27
 
+- **Decision:** Tour labels: a labels: step key puts several labelled points (gold dot and text) in one step, so tour cards name bulbs and numbers on screen instead of by their repeating interior colours
 - **Decision:** Large mini-map: an arrows button below the map's ? toggles panels of half the canvas's shorter side (decisions/controls)
 
 ## 2026-10-26
