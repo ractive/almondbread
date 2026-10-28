@@ -16,7 +16,7 @@ map: on
 probe: -2, 0
 marker: off
 
-Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The small white circle (the **marker**) is at c = −2: the far left tip of the **spike**, the thin line that sticks out on the left of the set. In this view the spike runs from the marker to the right. The white dots are the values of z, one per step.
+Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The **marker** (the small circle where the dots start) is at c = −2: the far left tip of the **spike**, the thin line that sticks out on the left of the set. In this view the spike runs from the marker to the right. The white dots are the values of z, one per step.
 
 Here z goes 0, −2, **2, 2, 2, …**, because (−2)² − 2 = 2 and 2² − 2 = 2. After two steps z is 2, and it stays at 2. The white line from the marker to the right leads to the dot at 2, outside this view and outside the mini-map.
 
@@ -47,7 +47,7 @@ place: antenna-junction
 marker: -1.54368901269207636157085597180174798652520329765098394, 0
 marker-label: −1.5437…
 
-This view is on the spike. Side branches cross the spike in many places. The gold circle in the middle of the view marks the point c = **−1.5437…** on the spike. It is another Misiurewicz point: after **3** steps its z lands on one value and stays there. Here z goes 0, −1.5437, 0.8393, −0.8393, −0.8393, …
+This view is on the spike. Side branches cross the spike in many places. The labelled point *−1.5437…* in the middle of the view is the point c = **−1.5437…** on the spike. It is another Misiurewicz point: after **3** steps its z lands on one value and stays there. Here z goes 0, −1.5437, 0.8393, −0.8393, −0.8393, …
 
 ## The same at every zoom
 place: junction-1e300
