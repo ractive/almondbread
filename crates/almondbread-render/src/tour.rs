@@ -1,9 +1,9 @@
 //! What a guided tour (kb: decisions/controls "Guided tours"; core `tour`) puts on the overlay:
 //! the orbit probe's point when the tour sets it (instead of the pointer), a highlighted
-//! point with its label, and the step's labelled points (`labels:`). The host fills them from
-//! the tour player every refresh.
+//! point with its label, the step's labelled points (`labels:`) and its circle (`circle:`). The
+//! host fills them from the tour player every refresh.
 
-use almondbread_core::tour::Marker;
+use almondbread_core::tour::{Circle, Marker};
 use almondbread_core::viewport::{Center, Viewport};
 
 use crate::overlay::{Scene, rgba};
@@ -20,6 +20,8 @@ const DOT: f64 = 3.5;
 const DOT_GAP: f64 = 5.0;
 /// Labels keep this far from the canvas edges, view points.
 const EDGE: f64 = 6.0;
+/// A circle's line width, view points: thinner than the orbit's line (1.6) and its dots.
+const CIRCLE_WIDTH: f64 = 1.3;
 
 /// The tour's overlay state (empty without a tour).
 #[derive(Clone, Debug, Default)]
@@ -29,12 +31,14 @@ pub struct TourOverlay {
     pub marker: Option<Marker>,
     /// The step's labelled points (`labels:`).
     pub labels: Vec<Marker>,
+    /// The step's circle (`circle:`).
+    pub circle: Option<Circle>,
 }
 
 impl TourOverlay {
-    /// Something to draw (the marker or labelled points).
+    /// Something to draw (the marker, labelled points or a circle).
     pub fn shown(&self) -> bool {
-        self.marker.is_some() || !self.labels.is_empty()
+        self.marker.is_some() || !self.labels.is_empty() || self.circle.is_some()
     }
 
     /// Draws the marker (a gold double ring and its label) and the labelled points where they
@@ -51,8 +55,71 @@ impl TourOverlay {
         if ppp <= 0.0 {
             return;
         }
-        let taken = self.draw_marker(scene, size, ppp, view, key);
-        self.draw_labels(scene, size, ppp, view, taken, card, key);
+        // The circle under the marker and the labels; its text and the marker's keep the
+        // labelled points' texts clear.
+        let ring_text = self.draw_circle(scene, size, ppp, view, card, key);
+        let marker_text = self.draw_marker(scene, size, ppp, view, key);
+        let taken: Vec<[f32; 4]> = ring_text.into_iter().chain(marker_text).collect();
+        self.draw_labels(scene, size, ppp, view, &taken, card, key);
+    }
+
+    /// The circle: a thin gold ring on a dark one (seen on bright and dark palettes), its text
+    /// beside the first point of the ring, going round from the top right, that is on the
+    /// canvas and not under the tour card. Returns the text's box (pixels).
+    fn draw_circle(
+        &self,
+        scene: &mut Scene,
+        size: (usize, usize),
+        ppp: f64,
+        view: &Viewport,
+        card: Option<[f32; 4]>,
+        key: &mut String,
+    ) -> Option<[f32; 4]> {
+        let ring = self.circle.as_ref()?;
+        let px = 1.0 / ppp;
+        let (w, h) = (size.0 as f64, size.1 as f64);
+        let (x, y) = view.offset_of(&ring.center);
+        let c = [w / 2.0 + x * px, h / 2.0 - y * px];
+        let r = ring.radius / view.scale.to_f64() * px;
+        // Beyond the overlay kernel's float range, or too small to see: nothing.
+        if !(c[0].is_finite() && c[1].is_finite() && r.is_finite()) || r > 1e6 || r < 0.5 {
+            return None;
+        }
+        // The ring crosses the canvas only if the canvas's nearest point is inside it and its
+        // farthest corner outside.
+        let near = (c[0] - c[0].clamp(0.0, w)).hypot(c[1] - c[1].clamp(0.0, h));
+        let far = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
+            .iter()
+            .map(|&(x, y)| (c[0] - x).hypot(c[1] - y))
+            .fold(0.0, f64::max);
+        if r < near || r > far {
+            return None;
+        }
+        let rw = (CIRCLE_WIDTH * px) as f32;
+        scene.ring(c, r as f32, rw + 2.0 * px as f32, rgba(0.0, 0.0, 0.0, 0.45));
+        scene.ring(c, r as f32, rw, rgba(GOLD[0], GOLD[1], GOLD[2], 0.85));
+        key.push_str(&format!("circ {:.1},{:.1},{:.1};", c[0], c[1], r));
+        if ring.label.is_empty() {
+            return None;
+        }
+        let edge = EDGE * px;
+        let under_card = |p: [f64; 2]| {
+            card.is_some_and(|k| {
+                let (x, y) = (p[0] as f32, p[1] as f32);
+                x >= k[0] - 20.0 && x <= k[2] && y >= k[1] - 20.0 && y <= k[3]
+            })
+        };
+        // From the top right round anticlockwise, in steps of 15°.
+        let spot = (0..24)
+            .map(|k| (45.0 + 15.0 * f64::from(k)).to_radians())
+            .map(|a| [c[0] + r * a.cos(), c[1] - r * a.sin()])
+            .find(|p| p[0] > edge && p[1] > edge && p[0] < w - edge && p[1] < h - edge && !under_card(*p))?;
+        let size_px = (LABEL_SIZE * px) as f32;
+        let tw = crate::font::layout(&ring.label, size_px).1;
+        let b = place_label(spot, [tw, size_px], [w as f32, h as f32], px as f32, card.as_slice());
+        scene.label([b[0], b[1]], size_px, &ring.label, rgba(GOLD[0], GOLD[1], GOLD[2], 1.0));
+        key.push_str(&ring.label);
+        Some(b)
     }
 
     /// The marker; returns the box its label took (pixels), so labelled points keep clear.
@@ -100,8 +167,9 @@ impl TourOverlay {
 
     /// The labelled points: a small gold dot each, its text beside it (above right by
     /// preference, else above left, below right, below left: the first place on the canvas
-    /// that no earlier label, the marker's label or the tour card covers). Points outside the
-    /// view or under the card are left out; a text that fits nowhere is pushed onto the canvas.
+    /// that no earlier label, the marker's or the circle's text or the tour card covers). Points
+    /// outside the view or under the card are left out; a text that fits nowhere is pushed onto
+    /// the canvas.
     #[allow(clippy::too_many_arguments)]
     fn draw_labels(
         &self,
@@ -109,13 +177,13 @@ impl TourOverlay {
         size: (usize, usize),
         ppp: f64,
         view: &Viewport,
-        taken: Option<[f32; 4]>,
+        taken: &[[f32; 4]],
         card: Option<[f32; 4]>,
         key: &mut String,
     ) {
         let px = 1.0 / ppp;
         let (w, h) = (size.0 as f64, size.1 as f64);
-        let mut boxes: Vec<[f32; 4]> = taken.into_iter().chain(card).collect();
+        let mut boxes: Vec<[f32; 4]> = taken.iter().copied().chain(card).collect();
         let size_px = (LABEL_SIZE * px) as f32;
         let gold = rgba(GOLD[0], GOLD[1], GOLD[2], 1.0);
         for m in &self.labels {
@@ -259,5 +327,58 @@ mod tests {
         let b = place_label([dot as f64, 250.0], [40.0, 13.0], [800.0, 500.0], 1.0, &[card]);
         assert!(b[2] <= card[0], "the label keeps clear of the card: {b:?}");
         assert!(!TourOverlay::default().shown());
+    }
+
+    /// A circle is drawn where it crosses the canvas (a ring and its text, the text clear of
+    /// the card), and left out where the canvas lies wholly inside or outside it.
+    #[test]
+    fn circle_is_drawn_where_it_crosses_the_canvas() {
+        // 0.005 per point: radius 2 round 0 is 400 pixels, the canvas 800 x 500 round 0.
+        let view = Viewport::new(0.0, 0.0, 0.005);
+        let ring = |r: f64, text: &str| TourOverlay {
+            circle: Some(Circle {
+                center: Center::new(0.0, 0.0),
+                radius: r,
+                label: text.to_string(),
+            }),
+            ..Default::default()
+        };
+        let draw = |t: &TourOverlay, card: Option<[f32; 4]>| {
+            let (mut scene, mut key) = (Scene::default(), String::new());
+            t.draw(&mut scene, (800, 500), 1.0, &view, card, &mut key);
+            (scene, key)
+        };
+        let t = ring(2.0, "2 from 0");
+        assert!(t.shown());
+        let (scene, key) = draw(&t, None);
+        assert!(
+            key.contains("circ 400.0,250.0,400.0;") && key.contains("2 from 0"),
+            "{key}"
+        );
+        // Two rings (dark under gold) and the text's glyphs.
+        assert!(scene.prims.len() > 2);
+        // The text keeps clear of the card in the lower right.
+        let card = [400.0, 150.0, 800.0, 500.0];
+        let (scene, key) = draw(&t, Some(card));
+        assert!(key.contains("2 from 0"));
+        let glyphs: Vec<_> = scene.prims.iter().skip(2).collect();
+        assert!(
+            glyphs.iter().all(|p| p.geom[2] <= card[0] || p.geom[3] <= card[1]),
+            "the circle's text is not on the card"
+        );
+        // The canvas wholly inside the circle (radius 20 = 4000 pixels) or wholly outside it (a
+        // circle far off to the right): nothing.
+        assert!(!draw(&ring(20.0, "far"), None).1.contains("circ"));
+        let off = TourOverlay {
+            circle: Some(Circle {
+                center: Center::new(10.0, 0.0),
+                radius: 1.0,
+                label: String::new(),
+            }),
+            ..Default::default()
+        };
+        assert!(!draw(&off, None).1.contains("circ"));
+        // A small circle inside the canvas is drawn.
+        assert!(draw(&ring(0.1, ""), None).1.contains("circ 400.0,250.0,20.0;"));
     }
 }

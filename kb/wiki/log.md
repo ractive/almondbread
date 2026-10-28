@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-28
+
+- **Decision:** Tour circle: a circle: step key (re, im, radius[, text]) draws a thin gold circle in the picture; the steps tour shows radius 2 round 0 in 'In the set' and 'Escaping', labels 0 and -2 for the scale, and its cards follow the test read and the editor's pass (decisions/controls 'The steps tour')
+
 ## 2026-10-27
 
 - **Decision:** Steps tour and bigger orbit dots: new first tour 'z² + c, step by step' (c = 0.2 + 0.5i spirals in, c = 0.2 + 0.65i escapes after 8 steps past 2), written to tours/WRITING.md; orbit dots 3.2 points (was 1.8) with a dark rim, numbered when the orbit length is 12 or less; tour captures draw frames in a covered window (decisions/controls 'The steps tour')

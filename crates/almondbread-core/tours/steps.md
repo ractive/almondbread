@@ -14,18 +14,20 @@ orbit: off
 map: off
 marker: 0.2, 0.5
 marker-label: c = 0.2 + 0.5i
+labels: 0, 0, 0; -2, 0, −2
 
 This picture is a map of numbers. Every point of the picture is one number. We call that number **c**.
 
-Each c has two parts. Both are distances from the middle of the picture. The middle is the number 0. The first part, the *real part*, says how far to the right (or left) the point is. The second part, the *imaginary part*, says how far up (or down) it is. The imaginary part is written with an i after it, like 0.5i.
+Each c has two parts. Both are distances from the middle of the picture. The middle is the number 0, the gold dot labelled 0. The first part, the *real part*, says how far to the right (or left) the point is. The second part, the *imaginary part*, says how far up (or down) it is. The imaginary part is written with an i after it, like 0.5i.
 
 The letter i stands for a special number: i × i = −1. No ordinary number does that. So i does not fit on the left–right line; it gets its own direction on the picture: up.
 
 The box at the top left shows the middle of the picture as *re 0* and *im 0*; its other lines are about zooming.
 
-The small gold circle is the **marker**. It sits on c = 0.2 + 0.5i: 0.2 to the right of the middle and 0.5 up. For the scale: the thin tip of the black shape at the far left is at −2, two to the left of the middle. So 0.2 is a tenth of that distance.
+The small gold circle is the **marker**. It sits on c = 0.2 + 0.5i: 0.2 to the right of 0 and 0.5 up. For the scale: the thin tip of the black shape at the far left is at −2 (labelled −2), two to the left of 0. So 0.2 is a tenth of that distance.
 
 ## The formula
+labels: 0, 0, 0; -2, 0, −2
 
 The black shape is the **Mandelbrot set**. A set is a group of things; this one is a group of points. To find out if a point c is in the set, we use one formula, again and again:
 
@@ -33,7 +35,7 @@ The black shape is the **Mandelbrot set**. A set is a group of things; this one 
 
 The arrow means "becomes": take the number z, square it and add c. The result is the new z. At the start, z = 0. Each use of the formula is one **step**. In every step, c stays the same; only z changes.
 
-Then we watch z. If z stays small, c is in the set. If z grows bigger and bigger, c is not in the set. We stop when z is far from 0 (card 7 gives the exact rule), or after many steps.
+Then we watch z. If z stays small, c is in the set. If z grows bigger and bigger, c is not in the set. We stop when z is far from 0 (card 8 gives the exact rule), or after many steps.
 
 The app does this for every point of the picture. The next cards do it by hand for the c under the marker.
 
@@ -80,26 +82,39 @@ Step 4 squares this, rounded to −0.29 + 0.486i, the same way and adds c. The r
 
 The dots go round in this order: right, top, left, bottom. That is against the direction of a clock's hands.
 
-## In the set
+## Round and round
 orbit-length: 50
 
 Here are the first 50 dots. They go round and round, and each turn is a little smaller. They come closer and closer to one place, about −0.03 + 0.48i, in the middle of the spiral.
 
-The app follows z for many more steps than these 50, and z never gets further than 2 from 0 (2 is the distance from 0 to the tip at −2 on the first card). So z stays small, and c = 0.2 + 0.5i is **in the set**.
+The app follows z for many more steps than these 50, and z keeps coming closer to that place.
+
+## In the set
+center: 0, 0
+span: 4.6
+orbit-length: 50
+circle: 0, 0, 2, distance 2 from 0
+labels: 0, 0, 0; -2, 0, −2
+
+The view now zooms out. The thin gold circle goes round 0 at a distance of 2: every point on it is 2 from 0. It passes through the tip of the black shape at −2.
+
+All the dots stay well inside the circle: z never gets further than 2 from 0. So z stays small, and c = 0.2 + 0.5i is **in the set**.
 
 Every c whose z stays small is in the set, and we paint it black. That is why the marker sits on a black point, close to the edge of the shape.
 
 ## Escaping
-center: -0.1, 0.65
-span: 3.2
+center: 0, 0.3
+span: 4.6
 orbit-length: 12
 probe: 0.2, 0.65
 marker: 0.2, 0.65
 marker-label: c = 0.2 + 0.65i
+circle: 0, 0, 2, distance 2 from 0
+labels: 0, 0, 0
 
-The view now zooms out. The marker sits on a new c, a little higher up: c = 0.2 + 0.65i. The edge of the black shape runs between the two c's: the first one was just inside it, this one is just outside.
+The view moves up a little. The marker sits on a new c, a little higher up: c = 0.2 + 0.65i. The edge of the black shape runs between the two c's: the first one was just inside it, this one is just outside.
 
-Dots 1 to 5 stay in or near the black shape. Dots 6 and 7 are further out. Dot 8, at the top right, is about 1.08 + 1.92i. Its distance from 0 is √(1.08² + 1.92²) = √(1.17 + 3.69) = √4.86, about 2.2. That is further than 2: more than from 0 to the tip at −2, on the left of the picture. Dot 9, at about −2.33 + 4.81i, is off the picture.
+Dots 1 to 7 stay inside the gold circle. Dot 8, at the top right, is just outside it: z is about 1.08 + 1.92i, and its distance from 0 is √(1.08² + 1.92²) = √(1.17 + 3.69) = √4.86, about 2.2. That is further than 2. Dot 9, at about −2.33 + 4.81i, is off the picture.
 
 Once z is further than 2 from 0, its distance from 0 grows at every step, and it never comes back. We say that z **escapes**, and c is not in the set.
 

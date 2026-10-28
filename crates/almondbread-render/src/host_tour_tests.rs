@@ -146,7 +146,8 @@ fn tour_probe_far_outside_a_deep_view_does_not_stop_the_frames() {
 
 /// "z² + c, step by step": each step shows its dots as soon as it is entered, also where only
 /// `orbit-length` changes and the view stays (a new frame is drawn with the new dots): 1, 2, 4,
-/// then 50 dots of c = 0.2 + 0.5i (in the set), then the 12 dots of c = 0.2 + 0.65i (it escapes).
+/// then 50 dots of c = 0.2 + 0.5i (in the set; then with the circle of radius 2), then the 12
+/// dots of c = 0.2 + 0.65i (it escapes), with the circle.
 #[test]
 fn steps_tour_shows_its_dots_one_step_at_a_time() {
     let mut rig = Rig::new();
@@ -155,7 +156,14 @@ fn steps_tour_shows_its_dots_one_step_at_a_time() {
         .for_platform(Platform::Mac);
     let t = rig.now();
     rig.host.start_tour(tour, t);
-    for (index, dots) in [(2, 1), (3, 2), (4, 4), (5, 50), (6, 12)] {
+    for (index, dots, circle) in [
+        (2, 1, false),
+        (3, 2, false),
+        (4, 4, false),
+        (5, 50, false),
+        (6, 50, true),
+        (7, 12, true),
+    ] {
         let t = rig.now();
         assert!(rig.host.tour_go(index, t));
         assert!(
@@ -169,5 +177,7 @@ fn steps_tour_shows_its_dots_one_step_at_a_time() {
             "step {index}: {dots} dots drawn (have {})",
             rig.host.overlay.orbit_points().view.len()
         );
+        let ring = rig.host.overlay.tour.circle.as_ref().map(|c| c.radius);
+        assert_eq!(ring, circle.then_some(2.0), "step {index}: the circle of radius 2");
     }
 }
