@@ -55,7 +55,7 @@ it (the first tour introduces all of them).
 | **the marker** | the point c the tour is looking at | a small circle |
 | **the dots** | the values of z, one per step (the *orbit*) | white dots joined by lines |
 | **labelled point** | a point the tour names with a short text | a text label at a point |
-| **in the set** | z stays small for ever (it never gets further than 2 from 0) | black inside, or the interior colour |
+| **in the set** | z stays small, however many steps are done (it never gets further than 2 from 0) | black inside, or the interior colour |
 | **escapes** | z keeps growing; once it is further than 2 from 0 it always keeps growing | coloured outside |
 | **the heart** | the main cardioid, the big heart-shaped part of the set | |
 | **bulb** | a round part attached to the heart or to another bulb | |
