@@ -6865,6 +6865,15 @@ impl<B: GpuBackend> Renderer<B> {
             && !self.awaits_longer_reference()
     }
 
+    /// A complete frame of the current view was presented (every pixel at full resolution;
+    /// refinement, extension and anti-aliasing may still follow). Mini-map panels keep their
+    /// previous picture until then (kb: decisions/controls "Large mini-map").
+    pub fn complete_presented(&self) -> bool {
+        self.job
+            .as_ref()
+            .is_some_and(|j| j.complete_presented && !j.interactive && j.key.viewport == self.viewport)
+    }
+
     /// The job iterates against a truncated reference and a longer one is being computed.
     fn awaits_longer_reference(&self) -> bool {
         self.job.as_ref().is_some_and(|j| j.short_reference) && self.reference_worker.pending().is_some()

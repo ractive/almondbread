@@ -140,11 +140,15 @@ impl Scene {
         });
     }
 
-    pub fn image(&mut self, r: [f32; 4], map: u32, opacity: f32, radius: f32) {
+    /// Map texture `map` over `r` with rounded corners. `stretched`: the texture's size when it
+    /// differs from the rect's (a panel's previous picture while the new size renders), drawn
+    /// scaled with bilinear filtering; None: one texel per pixel.
+    pub fn image(&mut self, r: [f32; 4], map: u32, opacity: f32, radius: f32, stretched: Option<(usize, usize)>) {
+        let (tw, th) = stretched.map_or((0, 0), |(w, h)| (w.max(1) as u32, h.max(1) as u32));
         self.push(OverlayPrim {
             geom: r,
             param: [opacity, radius, 0.0, 0.0],
-            info: [KIND_IMAGE, map, 0, 0],
+            info: [KIND_IMAGE, map, tw, th],
             ..OverlayPrim::default()
         });
     }
@@ -760,7 +764,26 @@ struct MapLevel<B: GpuBackend> {
     size: (usize, usize),
     /// A frame is presented (the panel shows something).
     shown: bool,
+    /// Frames presented into `target`: part of the scene key, so the overlay is composited
+    /// again after each one. A level's progress is otherwise invisible to the scene, and with
+    /// the main view settled (nothing else presenting) the screen kept the level's first,
+    /// partial frame: the enlarged mini-map stayed half drawn (2026-10-28).
+    frames: u64,
 }
+
+/// A finished map picture from before a panel size change, shown stretched in its level's
+/// panel until the level has a complete frame at the new size (kb: decisions/controls "Large
+/// mini-map").
+struct OldPicture<B: GpuBackend> {
+    decade: i32,
+    center: Center,
+    target: B::Texture,
+    size: (usize, usize),
+}
+
+/// What a map or companion panel shows: a texture, and its size when it is drawn stretched (a
+/// picture from before a panel size change), None at one texel per pixel.
+pub type PanelPicture<'a, B> = (&'a <B as GpuBackend>::Texture, Option<(usize, usize)>);
 
 /// The current maps and how they are laid out.
 struct MapStack<B: GpuBackend> {
@@ -770,6 +793,36 @@ struct MapStack<B: GpuBackend> {
     panel: (usize, usize),
     /// Renderers of dropped levels, for reuse.
     spare: Vec<MapLevel<B>>,
+    /// Pictures from before the last panel size change, until their levels have new ones.
+    old: Vec<OldPicture<B>>,
+}
+
+impl<B: GpuBackend> MapStack<B> {
+    /// What level `i`'s panel shows: its own picture once complete, before that the old
+    /// picture of the same area (stretched: its size), else its partial frames once there are
+    /// any.
+    fn picture(&self, i: usize) -> Option<PanelPicture<'_, B>> {
+        let l = &self.levels[i];
+        if !l.complete()
+            && let Some(p) = self.old_for(l)
+        {
+            return Some((&p.target, Some(p.size)));
+        }
+        l.shown.then_some((&l.target, None))
+    }
+
+    fn old_for(&self, l: &MapLevel<B>) -> Option<&OldPicture<B>> {
+        self.old
+            .iter()
+            .find(|p| p.decade == l.decade && p.center == l.viewport.center)
+    }
+}
+
+impl<B: GpuBackend> MapLevel<B> {
+    /// The picture at this size is complete.
+    fn complete(&self) -> bool {
+        self.shown && self.renderer.complete_presented()
+    }
 }
 
 /// What a click on a map asks for.
@@ -1349,12 +1402,19 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             let mut maps: Vec<B::Texture> = self
                 .maps
                 .as_ref()
-                .map(|m| m.levels.iter().map(|l| l.target.clone()).collect())
+                .map(|m| {
+                    (0..m.levels.len())
+                        .map(|i| m.picture(i).map_or(&m.levels[i].target, |(t, _)| t).clone())
+                        .collect()
+                })
                 .unwrap_or_default();
             // The Julia panel's picture (in a Julia view the Mandelbrot panel's) in the slot after
             // the maps.
             let companion = if renderer.settings.formula.is_julia() {
-                self.mandelbrot.texture()
+                self.mandelbrot
+                    .picture()
+                    .map(|(t, _)| t)
+                    .or_else(|| self.mandelbrot.texture())
             } else {
                 self.julia.texture()
             };
@@ -1521,12 +1581,8 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             panels: Vec::new(),
             panel,
             spare: Vec::new(),
+            old: Vec::new(),
         });
-        if stack.panel != panel {
-            stack.levels.clear();
-            stack.spare.clear();
-            stack.panel = panel;
-        }
         // A formula change (F4: a Julia set opened or left) makes every level anew.
         if stack
             .levels
@@ -1534,6 +1590,33 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             .any(|l| l.renderer.settings.formula != renderer.settings.formula)
         {
             stack.spare.extend(std::mem::take(&mut stack.levels));
+            stack.old.clear();
+        }
+        if stack.panel != panel {
+            // A new panel size (the large mini-map, the size setting, a window resize) needs new
+            // textures: every level renders again, at the same areas. Until a level has a
+            // complete picture its panel shows the old one stretched (a level resized again
+            // before it finished keeps the older picture), not an empty panel.
+            let mut old = Vec::new();
+            for l in std::mem::take(&mut stack.levels) {
+                if l.complete() {
+                    old.push(OldPicture {
+                        decade: l.decade,
+                        center: l.viewport.center.clone(),
+                        target: l.target,
+                        size: l.size,
+                    });
+                } else if let Some(i) = stack
+                    .old
+                    .iter()
+                    .position(|p| p.decade == l.decade && p.center == l.viewport.center)
+                {
+                    old.push(stack.old.swap_remove(i));
+                }
+            }
+            stack.old = old;
+            stack.spare.clear();
+            stack.panel = panel;
         }
         // Drop levels no longer wanted (or whose area the view left), add new ones.
         let mut kept: Vec<MapLevel<B>> = Vec::new();
@@ -1551,10 +1634,21 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 kept.push(stack.levels.remove(i));
                 continue;
             }
+            // After a panel size change, a level whose old picture's area still holds the view
+            // renders that area again (the old picture, stretched, then shows the same place).
+            let near = |c: &Center| {
+                let (dx, dy) = view.center.delta_in(c, scale);
+                dx.abs() < panel.0 as f64 * 0.3 && dy.abs() < panel.1 as f64 * 0.3
+            };
             let vp = if *d == 0 {
                 full.clone()
             } else {
-                let mut v = Viewport::with_center(view.center.clone(), scale);
+                let center = stack
+                    .old
+                    .iter()
+                    .find(|p| p.decade == *d && near(&p.center))
+                    .map_or_else(|| view.center.clone(), |p| p.center.clone());
+                let mut v = Viewport::with_center(center, scale);
                 v.ensure_precision();
                 v
             };
@@ -1597,11 +1691,19 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 decade: *d,
                 size: panel,
                 shown: false,
+                frames: 0,
             });
         }
         stack.spare.extend(std::mem::take(&mut stack.levels));
         stack.spare.truncate(4);
         stack.levels = kept;
+        // Old pictures go once their level has a complete new one, or left the row.
+        let levels = &stack.levels;
+        stack.old.retain(|p| {
+            levels
+                .iter()
+                .any(|l| l.decade == p.decade && l.viewport.center == p.center && !l.complete())
+        });
         // Layout: a row from the chosen corner, the whole set first.
         let n = stack.levels.len();
         stack.panels = row_origins(
@@ -1637,6 +1739,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 .render_frame(now, l.size.0, l.size.1, 1.0, &mut |_| Some((t.clone(), None)));
             if out.presented {
                 l.shown = true;
+                l.frames += 1;
             }
         }
     }
@@ -1753,7 +1856,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // The picture is the slot after the map levels.
         let slot = self.maps.as_ref().map_or(0, |m| m.levels.len()) as u32;
         if self.julia.shown && self.julia.texture().is_some() {
-            scene.image(r, slot, 1.0, radius);
+            scene.image(r, slot, 1.0, radius, None);
         }
         scene.set_clip(Some(r));
         let text = (11.0 * px).max(9.0);
@@ -1797,9 +1900,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             px,
         );
         let slot = self.maps.as_ref().map_or(0, |m| m.levels.len()) as u32;
-        let shown = self.mandelbrot.shown() && self.mandelbrot.texture().is_some();
-        if shown {
-            scene.image(r, slot, 1.0, radius);
+        let picture = self.mandelbrot.picture();
+        let shown = picture.map(|(_, stretched)| stretched);
+        if let Some((_, stretched)) = picture {
+            scene.image(r, slot, 1.0, radius, stretched);
         }
         scene.set_clip(Some(r));
         // The marker at k: a crosshair (dark under light, readable on any palette).
@@ -1837,7 +1941,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         );
         scene.set_clip(None);
         key.push_str(&format!(
-            "mandel {} {} {} {:?} {action} ",
+            "mandel {} {:?} {} {:?} {action} ",
             self.mandelbrot.serial, shown, slot, o
         ));
     }
@@ -2010,8 +2114,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                     rgba(1.0, 1.0, 1.0, 0.22),
                     (1.0 * px) as f32,
                 );
-                if l.shown {
-                    scene.image(r, i as u32, 1.0, radius);
+                let picture = stack.picture(i);
+                if let Some((_, stretched)) = picture {
+                    scene.image(r, i as u32, 1.0, radius, stretched);
                 }
                 scene.set_clip(Some(r));
                 // The orbit's dot cloud on the whole-set map, under the marker and the line.
@@ -2080,7 +2185,13 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                     }
                     scene.disc([cx, cy], (1.3 * px) as f32, marker);
                 }
-                key.push_str(&format!("map {} {} {cx:.2} {cy:.2} {mw:.2} ", l.decade, l.shown));
+                // Which picture; the level's own with each frame presented into it.
+                let shows = match picture {
+                    Some((_, Some(_))) => "old".to_string(),
+                    Some((_, None)) => format!("frame {}", l.frames),
+                    None => "none".to_string(),
+                };
+                key.push_str(&format!("map {} {shows} {cx:.2} {cy:.2} {mw:.2} ", l.decade));
                 // The orbit at full-set scale on the whole-set map.
                 if i == 0 && s.orbit && !self.points.plane.is_empty() {
                     let to_map = |z: [f64; 2]| {

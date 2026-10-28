@@ -3326,9 +3326,28 @@ other overlay settings and resets with them; also a control-center row ("Large m
 a View menu item. CLI: `render --map 1 --map-large 1`. Tours do not set it (a `map-large`
 directive would be one more flag in `tour.rs`).
 
-Map textures are made anew at the new panel size, so the panels are empty until their maps
-render again (about a second at shallow views; several seconds with a heavy deep view
-rendering at the same time).
+Map textures are made anew at the new panel size, and each level renders its area again
+(a deeper level keeps its centre while the view is still inside it). Until a level has a
+complete frame at the new size, its panel shows the previous finished picture stretched over
+it (bilinear in the overlay kernel: `Scene::image`'s `stretched` size, `MapStack::picture`);
+the Mandelbrot panel of a Julia view does the same. A size change before a level finished
+keeps the older picture.
+
+Bug fixed 2026-10-28 (user's screenshot: the enlarged whole-set panel stuck half drawn,
+blocky where chunks stopped, the rest black). Cause: the overlay is composited again only
+when its scene key changes, and a map level's progress was not in the key (only whether it had
+presented once). While the main view renders, its own frames carry each map frame to the
+screen; after the enlarge button on a settled view nothing presented, so the screen kept the
+level's first partial frame for good (the finished map sat unseen in the level's texture). It
+could happen after any map change on a settled view: a new level after a zoom that stopped,
+the size slider, a window resize. Each level now counts the frames presented into its texture
+and the count is in the key (the Mandelbrot panel's `serial` likewise), so every map frame
+reaches the screen through an overlay-only present (about 0.2 ms GPU). Test:
+`host_map_tests.rs` presents into a texture it reads back and compares the panels with the
+shown image composited afresh, after enlarging, shrinking and a size change, and checks that
+the first refreshes after each show the old picture rather than an empty panel. Before the
+fix, at the 1e-94 needle: the ×1e30 and ×1e60 panels stayed black on screen while their
+finished maps were in their textures (measured 2026-10-28, M1 Pro, release).
 
 ### Tour card on a phone (as built, 2026-10-19)
 

@@ -138,7 +138,12 @@ fn arrows(scene: &mut Scene, c: [f32; 2], px: f32, outwards: bool, ink: [f32; 4]
         let t = at(tip);
         let shaft_end = at(if outwards { tip - 0.5 * head } else { tip + 0.5 * head });
         scene.segment(shaft_end, at(tail), 0.55 * px, ink, ink);
-        scene.triangle(t, [t[0] + f64::from(back_x), t[1]], [t[0], t[1] + f64::from(back_y)], ink);
+        scene.triangle(
+            t,
+            [t[0] + f64::from(back_x), t[1]],
+            [t[0], t[1] + f64::from(back_y)],
+            ink,
+        );
     }
 }
 

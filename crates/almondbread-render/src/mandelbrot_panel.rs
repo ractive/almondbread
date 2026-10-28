@@ -60,12 +60,17 @@ struct Picture<B: GpuBackend> {
     marker: [f64; 2],
     /// A frame is presented (the panel shows a picture).
     shown: bool,
+    /// The finished picture of the same way back at the previous panel size, shown stretched
+    /// until this one is complete (kb: decisions/controls "Large mini-map").
+    previous: Option<(B::Texture, (usize, usize))>,
 }
 
 /// The panel's state: its picture (None while no Julia view shows it).
 pub struct MandelbrotPanel<B: GpuBackend> {
     picture: Option<Picture<B>>,
-    /// Counts new pictures (renderers or textures): the overlay scene's key.
+    /// Counts new pictures (renderers or textures) and every frame presented into the texture:
+    /// the overlay scene's key, so the overlay is composited again after each one (a frame
+    /// nothing composited stayed off screen while the main view was settled).
     pub serial: u64,
     /// The longest time (seconds, CPU) one call took making or stepping the current picture
     /// (tests: the panel never stalls a frame).
@@ -91,6 +96,18 @@ impl<B: GpuBackend + Clone> MandelbrotPanel<B> {
     /// A picture is presented.
     pub fn shown(&self) -> bool {
         self.picture.as_ref().is_some_and(|p| p.shown)
+    }
+
+    /// What the panel shows: the picture once complete, before that the previous size's
+    /// picture (stretched: its size), else its partial frames once there are any.
+    pub fn picture(&self) -> Option<crate::overlay::PanelPicture<'_, B>> {
+        let p = self.picture.as_ref()?;
+        if !(p.shown && p.renderer.complete_presented())
+            && let Some((t, size)) = &p.previous
+        {
+            return Some((t, Some(*size)));
+        }
+        p.shown.then_some((&p.target, None))
     }
 
     /// The marker at k: pixels from the panel's top-left corner.
@@ -143,9 +160,19 @@ impl<B: GpuBackend + Clone> MandelbrotPanel<B> {
         let viewport = panel_view(&back.view, back.view_points, panel);
         let marker = marker_at(&viewport, &back.k, panel);
         let old = self.picture.take();
+        // The same way back at a new size: its finished picture (or, resized again before
+        // it finished, the one before) shows stretched until the new one is complete.
+        let mut previous = None;
         let (mut renderer, target) = match old {
             Some(p) if p.size == panel => (p.renderer, p.target),
-            _ => {
+            old => {
+                if let Some(p) = old.filter(|p| p.back == *back) {
+                    previous = if p.shown && p.renderer.complete_presented() {
+                        Some((p.target, p.size))
+                    } else {
+                        p.previous
+                    };
+                }
                 let config = SchedulerConfig {
                     live_capacity: 1 << 16,
                     max_list_capacity: 1 << 16,
@@ -178,6 +205,7 @@ impl<B: GpuBackend + Clone> MandelbrotPanel<B> {
             viewport,
             marker,
             shown: false,
+            previous,
         });
         self.longest_call = start.elapsed().as_secs_f64();
         Ok(())
@@ -202,9 +230,12 @@ impl<B: GpuBackend + Clone> MandelbrotPanel<B> {
             .renderer
             .render_frame(now, p.size.0, p.size.1, 1.0, &mut |_| Some((t.clone(), None)));
         self.longest_call = self.longest_call.max(start.elapsed().as_secs_f64());
-        if out.presented && !p.shown {
+        if out.presented {
             p.shown = true;
             self.serial += 1;
+        }
+        if p.shown && p.renderer.complete_presented() {
+            p.previous = None;
         }
     }
 }

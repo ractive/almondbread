@@ -4224,6 +4224,15 @@ static inline float roundedBox(float2 p, float4 r, float radius) {
     return length(max(q, 0.0f)) + min(max(q.x, q.y), 0.0f) - radius;
 }
 
+/// Texel `t` of map slot `slot` (sRGB-encoded) in linear light.
+static inline float3 mapTexel(texture2d<float, access::read> map0, texture2d<float, access::read> map1,
+                              texture2d<float, access::read> map2, texture2d<float, access::read> map3,
+                              uint slot, uint2 t) {
+    float3 m = slot == 0 ? map0.read(t).rgb : slot == 1 ? map1.read(t).rgb
+             : slot == 2 ? map2.read(t).rgb : map3.read(t).rgb;
+    return srgbToLinear(m);
+}
+
 kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   // linear colour (history)
                     texture2d<float, access::write> out     [[texture(1)]],
                     texture2d<float, access::read>  map0    [[texture(2)]],
@@ -4286,10 +4295,26 @@ kernel void overlay(texture2d<float, access::read>  src     [[texture(0)]],   //
                 float d = roundedBox(p, pr.geom, pr.param.y);
                 cov = saturate(0.5f - d);
                 if (cov <= 0.0f) continue;
-                uint2 t = uint2(clamp(p - pr.geom.xy, float2(0.0f), pr.geom.zw - pr.geom.xy - 1.0f));
-                float3 m = pr.info.y == 0 ? map0.read(t).rgb : pr.info.y == 1 ? map1.read(t).rgb
-                         : pr.info.y == 2 ? map2.read(t).rgb : map3.read(t).rgb;
-                c = float4(srgbToLinear(m) * pr.param.x, pr.param.x);
+                float3 m;
+                if (pr.info.z == 0) {
+                    uint2 t = uint2(clamp(p - pr.geom.xy, float2(0.0f), pr.geom.zw - pr.geom.xy - 1.0f));
+                    m = mapTexel(map0, map1, map2, map3, pr.info.y, t);
+                } else {
+                    // A panel's previous picture (info.z x info.w texels) stretched over the
+                    // rect while the picture at the new size renders: bilinear in linear light.
+                    float2 ts = float2(pr.info.z, pr.info.w);
+                    float2 u = clamp((p - pr.geom.xy) / (pr.geom.zw - pr.geom.xy) * ts - 0.5f,
+                                     float2(0.0f), ts - 1.0f);
+                    uint2 a = uint2(u);
+                    uint2 b = min(a + 1u, uint2(ts) - 1u);
+                    float2 f = u - float2(a);
+                    float3 m00 = mapTexel(map0, map1, map2, map3, pr.info.y, a);
+                    float3 m10 = mapTexel(map0, map1, map2, map3, pr.info.y, uint2(b.x, a.y));
+                    float3 m01 = mapTexel(map0, map1, map2, map3, pr.info.y, uint2(a.x, b.y));
+                    float3 m11 = mapTexel(map0, map1, map2, map3, pr.info.y, b);
+                    m = mix(mix(m00, m10, f.x), mix(m01, m11, f.x), f.y);
+                }
+                c = float4(m * pr.param.x, pr.param.x);
                 break;
             }
             case 6: {   // glow image (the π meter's orbit trail): sRGB BGRA8 pixels in a buffer,

@@ -1511,3 +1511,7 @@ mod journal_tests {
 #[cfg(all(test, target_vendor = "apple"))]
 #[path = "host_tour_tests.rs"]
 mod tour_tests;
+
+#[cfg(all(test, target_vendor = "apple"))]
+#[path = "host_map_tests.rs"]
+mod map_tests;
