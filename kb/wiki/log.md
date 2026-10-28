@@ -6,6 +6,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 ## 2026-10-28
 
 - **Decision:** Control center: disabled, not hidden: rows that depend on another setting are shown disabled (orbit dot count, mini-map rows, Stripes, interior Colour / Pattern density, Cycle speed, Maximum, Upper limit) and count in More's N changed; 'Orbit iterations shown' moved under the Orbit switch, reachable from the Mac toolbar's chevron popover and the iOS Orbit button's long press; the Large mini-map row removed, 'Mini-map size (small)'
+- **Decision:** Mini-map stuck half drawn: map frames now in the overlay key; old picture stretched while a resized panel renders (decisions/controls, Large mini-map)
 - **Decision:** Tour circle: a circle: step key (re, im, radius[, text]) draws a thin gold circle in the picture; the steps tour shows radius 2 round 0 in 'In the set' and 'Escaping', labels 0 and -2 for the scale, and its cards follow the test read and the editor's pass (decisions/controls 'The steps tour')
 
 ## 2026-10-27
