@@ -16,7 +16,7 @@ orbit-length: 1000
 map: on
 probe: 0.55, 0.2
 
-Every point of the picture is a number c. For each c, Almondbread uses the formula z → z² + c again and again, starting with z = 0. The small white circle is the **marker**: it shows the c we look at. The **orbit** {icon:orbit}, the white dots, shows the values of z, one dot per step.
+Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The small white circle is the **marker**: it shows the c we look at. The **orbit** {icon:orbit}, the white dots, shows the values of z, one dot per step.
 
 A coloured point **escapes**: its z keeps growing. The colour shows **how many steps** z needed to escape. The marker here is far outside the black shape, so its dots leave the picture at once. The line above the mini-map, the small map at the bottom left, says that it escapes after 8 steps.
 
@@ -29,9 +29,9 @@ probe-motion: once
 
 The big black shape on the left is the **heart**, the big heart-shaped part of the set (its proper name is the *main cardioid*). Now the marker moves slowly to the edge of the heart, just above the dent on its right side.
 
-Watch the dots: the closer the marker comes to the edge, the longer the dots go round before they escape. The count above the mini-map grows (12, 17, 31, 55 steps), and the colour at the marker changes.
+Watch the dots: the closer the marker comes to the edge, the longer the dots go round before they escape. The count above the mini-map grows (12, 14, 17, 31, 55 steps), and the colour at the marker changes.
 
-At the end of the path the dots go round for hundreds or thousands of steps, and a very small move of the marker changes the count a lot. Right at the edge, z needs thousands or millions of steps to escape. That is why the colours there are very close together and show fine detail.
+At the end of the path the dots go round for about 600 steps, and a very small move of the marker changes the count a lot. Right at the edge, z needs thousands or millions of steps to escape. That is why the colours there are very close together and show fine detail.
 
 ## Smooth colours
 probe: pointer
@@ -64,7 +64,9 @@ center: -0.74999996120361811, 0.00036918279150454967
 span: 1.5e-8
 look: aurora
 
-The dark grey areas are **fog**. Fog means "not decided yet". This view is a narrow gap near the left side of the heart, very much magnified (the box at the top left shows how much). Within the steps tried so far, the z of these points has not escaped, and Almondbread has not proven that they are in the set. The box at the top left says *computing further*: Almondbread is still working on them.
+The dark grey areas are **fog**. Fog means "not decided yet". This view is the narrow gap between the heart and the big round part on its left, just above the point where they touch, very much magnified (the box at the top left says 2.3e8×).
+
+Almondbread has tried many steps for these points. Their z has not escaped yet. Almondbread has also not proven that they are in the set. The box at the top left says *computing further*: Almondbread is still working on them.
 
 These points do escape, after millions of steps. The tour *Why some points are hard* tells more.
 
@@ -111,7 +113,7 @@ marker: off
 - the bulb at the top: period 3
 - a bulb on the upper right: period 4
 
-When the marker stops, the line above the mini-map names its loop. Bulbs with the same period have the same colour. But different periods can have similar colours, so the line above the mini-map is the safe way to read a period. The tour *What a minibrot's period means* tells more.
+When the marker stops, the line above the mini-map names its loop, for example *settles into a period-3 cycle* in the bulb at the top (a cycle is a loop). Bulbs with the same period have the same colour. But different periods can have similar colours, so the line above the mini-map is the sure way to read a period. The tour *What a minibrot's period means* tells more.
 
 ## Internal angle
 center: -0.4, 0.3
@@ -121,7 +123,9 @@ probe: 0.3, 0.1
 
 **Internal angle** draws spokes and rings in every bulb.
 
-The marker is now inside the heart, near its right edge. Its dots spiral in towards one place: a loop of period 1, like for every point in the heart. The line above the mini-map calls this *settles on a fixed point*. At each step the dots turn by about the same angle. Points whose dots turn by the same angle lie on one spoke. The rings show how fast the dots come closer to their loop. The spokes meet at the centre of each bulb.
+The marker is now inside the heart, near its right edge. Its dots spiral in towards one place, as for every point in the heart. The line above the mini-map calls this *settles on a fixed point*.
+
+At each step the dots turn by about the same angle. Points whose dots turn by the same angle lie on one spoke. The rings show how fast the dots come closer to their place. The spokes meet at the centre of each bulb.
 
 ## Interior distance
 center: -0.4, 0.3

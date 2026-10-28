@@ -116,7 +116,7 @@ final class WalkthroughUITests: XCTestCase {
         XCTAssertEqual(highlight.value as? String, "section-tours")
         shot("tours")
 
-        step(to: "Off you go!")
+        step(to: "Now explore")
         settle(1.5)
         XCTAssertFalse(app.buttons["control-center-close"].exists, "the control center stayed open")
         let finish = app.buttons["Finish"]

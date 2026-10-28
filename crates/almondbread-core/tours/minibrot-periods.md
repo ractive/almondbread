@@ -16,9 +16,11 @@ orbit-length: 200
 probe: -0.2, 0
 marker: off
 
-Every point of the picture is a number c, and every c gets the same test: start with z = 0 and use the formula z → z² + c again and again. The small white circle (the **marker**) is at c = −0.2. Each white dot is the value of z after one more step.
+Remember: every point of the picture is a number c, and z → z² + c is used again and again from z = 0. The small white circle (the **marker**) is at c = −0.2. Each white dot is the value of z after one more step.
 
-Inside the set, the dots end up going round a **loop**: they visit the same few places again and again. The number of places in the loop is the **period** of c. Here z goes 0, −0.2, −0.16, −0.1744, −0.1696, −0.1712, … and comes closer and closer to **one place**, about −0.171, just to the right of the marker. That is a loop of 1 place: period 1. The line above the mini-map calls this *settles on a fixed point*.
+Inside the set, the dots end up going round a **loop**: they visit the same few places again and again. The number of places in the loop is the **period** of c.
+
+Here z goes 0, −0.2, −0.16, −0.1744, −0.1696, −0.1712, … It comes closer and closer to **one place**, about −0.171, just to the right of the marker. That is a loop of 1 place: period 1. The line above the mini-map calls this *settles on a fixed point*.
 
 Every point in the **heart**, the big heart-shaped part of the set, has period 1. So the whole heart has one colour.
 
@@ -40,7 +42,7 @@ marker-label: first fork
 
 The big round bulb in the lower half of this view is the bulb on top of the heart (the edge of the heart is at the very bottom). This bulb has **period 3**. The marker (the small white circle) is at its nucleus. From there, z visits **three places**, one of them 0, and then starts again.
 
-You can also see the period in the shape. The thin line above the bulb is its **antenna**. It first splits at the gold circle labelled *first fork*. Count the branches there, including the one that goes back down to the bulb: there are three. Three branches, period 3. Bulbs further round the heart have 4, 5, 6, … branches, and that period.
+You can also see the period in the shape. The thin line above the bulb is its **antenna**. It first splits at the gold circle labelled *first fork*. Count the branches there, including the one that goes back down to the bulb: there are three. Three branches, period 3. Bulbs further round the heart have 4, 5, 6, … branches at their first fork. A bulb with 4 branches has period 4, with 5 branches period 5, and so on.
 
 ## A copy of the whole set
 center: -1.762, 0
@@ -59,7 +61,7 @@ center: -1.674312445949552832839810755913428373148, 0
 span: 0.00125
 probe: -1.674066091474787971565296029172325596206, 0
 
-From the minibrot of the last card, **Seek a minibrot** (**N**) goes on to the next smaller copy near it. That is this minibrot: it has **period 7**, and it is 40 times smaller.
+From the minibrot of the last card, **Seek a minibrot** (**N**) goes on to the next smaller copy near it. That is this minibrot: it has **period 7**. The view is magnified 32 times more than before (the box at the top left says 2700× instead of 84×).
 
 The marker is at its nucleus. Its z takes **seven steps** to come back to 0. On the mini-map the dots land on seven places.
 
@@ -70,7 +72,7 @@ probe: -1.668339878897302863730079449910646071093, 2.315625838208075433203679764
 
 Press **N** again and again, and the copies get smaller and their loops get longer: periods **16, 48, 80**, and here **128**. This view is magnified about 70 billion times (the box at the top left says 7.0e10×).
 
-The marker is at the nucleus of this minibrot, in its heart. From there, the dots visit 128 places along the middle line of the set before z is exactly 0 again. The mini-map shows them.
+The marker is at the nucleus of this minibrot, in its heart. From there, z visits 128 places before it is exactly 0 again. All of them lie on the middle line of the set: on the mini-map they form one white line along the middle.
 
 ## Period 2688
 center: -1.668339878870128466154007021521551527867, 2.316257816636023822388578982325180068007e-9
@@ -81,13 +83,13 @@ probe: pointer
 
 Four more presses of **N** (periods 384, 640, 896) bring you here, magnified 5·10¹⁵ times (a 5 with 15 zeros): a **period-2688 minibrot**. Every point in its heart goes round a loop of 2688 places. From its nucleus, z comes back to exactly 0 after step 2688, and not one step earlier. The round bulb to the right of its heart has period 5376, twice as long.
 
-That is all a name like "period-2600 minibrot" means: the length of the loop. Points here go round the loop many times before Almondbread can prove that they are in the set. So this step raises the iteration limit to 300 000, and the picture takes half a minute or more to fill in. The box at the top left shows how long it will still take.
+That is all a name like "period-2688 minibrot" means: the length of the loop. Points here go round the loop many times before Almondbread can prove that they are in the set. So this step raises the iteration limit to 300 000, and the picture takes half a minute or more to fill in. The box at the top left shows how long it will still take.
 
 ## Why deeper means longer
 
-Why do the small copies have such long loops? Near a minibrot, the dots of a point follow the loop of the minibrot. At each step, the formula moves values of z that are close together further apart: it stretches the distances between them. Over one round of the loop, these stretches multiply. The more they multiply, the smaller the copy.
+Why do the small copies have such long loops? Near a minibrot, the dots of a point follow the loop of the minibrot. Each step of the formula moves two nearby values of z further apart, by at most 4 times. Over one round of the loop these factors multiply. The bigger the product, the smaller the copy.
 
-One step stretches by at most about 4 times. So a very small copy needs many steps: a long loop. Each time a copy is ten times smaller, its loop needs at least almost one more step. Here, near the spike, the periods grow much faster: period 2688 already at a magnification of about 5·10¹⁵.
+So a very small copy needs many steps: a long loop. Each time a copy is ten times smaller, its loop needs at least about 1.7 more steps. Here, near the spike, the loops grow much faster than that: period 2688 at a magnification of only 5·10¹⁵.
 
 ## Your turn
 center: -0.6, 0

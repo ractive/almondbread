@@ -14,7 +14,7 @@ marker: off
 
 The big heart-shaped part of the set is called the **heart**. On its left, it touches a big round part at one point, the **neck**. In this view, magnified 87 times, the black area on the right is the heart, and the black area on the left is the big round part. The neck is below this view. The gap between them, just above the neck, is **seahorse valley**.
 
-Both walls of the valley are lined with curled shapes that people call seahorses. They are made of small **bulbs**, round parts like the black circles along the walls, on long chains. Every chain ends in a **spiral**.
+Both walls of the valley are lined with curled shapes that people call seahorses. Each seahorse is a long chain of small **bulbs** (round parts, like the black circles along the walls) and thin branches. Every chain ends in a **spiral**.
 
 ## A seahorse
 place: seahorse
@@ -28,7 +28,7 @@ place: seahorse-tail
 
 A seahorse tail, close up. It spirals in, turn after turn, towards one point a little to the right of and below the middle of this view. This point is a **Misiurewicz point** (named after the mathematician Michał Misiurewicz).
 
-Remember the formula: start with z = 0 and use z → z² + c again and again. For most points c, z either escapes or comes closer and closer to a loop of a few places. At a Misiurewicz point it does neither. After some steps z lands **exactly** on a **loop**: a few values that repeat always. But if z is a little away from the loop, the next steps push it further away.
+Remember the formula: start with z = 0 and use z → z² + c again and again. At a Misiurewicz point, after some steps z lands **exactly** on a **loop**: a few values that repeat again and again. The tour *Misiurewicz points* explains more.
 
 ## A double spiral
 place: two-arm-spiral

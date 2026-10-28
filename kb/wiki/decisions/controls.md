@@ -2212,7 +2212,7 @@ any tour.
 | The round buttons / The toolbar | `toolbar` | orbit, mini-map, (Mac: Julia set,) size scale, fly to, control center, each with its icon inline |
 | The control center | `section-places` (opens it) | places: Go or Fly; search |
 | Tours | `section-tours` | the maths tours; the walkthrough is here and in Help |
-| Off you go! | — (closes it) | lost: Reset / R |
+| Now explore | — (closes it) | lost: Reset / R |
 
 Nine steps on each platform, short sentences a child can follow. The touch steering words are the
 approved design ("rest a finger to steer towards it, swipe to move the picture"); when the steering
