@@ -108,7 +108,9 @@ public enum SelfTest {
 /// and Fly; with `--ui-demo-search=` on a search result, see `placeDetailsCheck`); `failing` (the
 /// default scene, then every refresh panics: the HUD's "Rendering failed" line); `search-toggle` (search
 /// "limit", Tours closed by a header click during it); `search-esc` (Esc in the search field, see
-/// `searchEscapeCheck`). `--ui-demo-search=text` starts any scene with that search;
+/// `searchEscapeCheck`); `overlays` / `overlays-off` (Interior, Overlays and Quality with their
+/// Mores open; off: the rows other settings disable shown disabled), `orbit-dots` (the toolbar's
+/// Orbit popover, `help-orbit-dots.png`). `--ui-demo-search=text` starts any scene with that search;
 /// `perf` runs the scripted control-center measurement instead (UIPerf).
 public enum UIDemo {
     /// `--ui-demo-out=dir`: where the screenshots go (default build/screens).
@@ -256,6 +258,13 @@ public enum UIDemo {
             // Navigation, Look and Lighting open; `more-open`: their Mores open too.
             d.set("controls,interior,journey,overlays,places,quality,tours", forKey: "controlCenter.collapsed")
             if scene == "more-open" { d.set("lighting,look,view", forKey: ControlMore.openKey) }
+        } else if scene == "overlays" || scene == "overlays-off" || scene == "orbit-dots" {
+            // Interior, Overlays and Iterations & quality open with their Mores: the rows that
+            // another setting disables (kb: decisions/controls "Disabled, not hidden").
+            // (`overlays-off`: Interior closed, so the mini-map rows and Quality fit the window.)
+            d.set("controls,journey,lighting,look,places,tours,view" + (scene == "overlays-off" ? ",interior" : ""),
+                  forKey: "controlCenter.collapsed")
+            d.set("interior,overlays,quality", forKey: ControlMore.openKey)
         } else if scene == "sidebar" || scene == "sidebar-2" {
             // The settings rows: View, Look (or, scrolled past it, Overlays and Quality) open.
             d.set(scene == "sidebar" ? "controls,interior,journey,lighting,places,overlays,quality"
@@ -339,6 +348,20 @@ public enum UIDemo {
             model.lightAngle = 60
             model.glowWidth = 20
             model.depthTint = 0.05
+        case "overlays", "orbit-dots", "overlays-off":
+            // `overlays`: orbit and mini-map on, the angle colouring, automatic iterations;
+            // `overlays-off`: both off, the bubbles colouring, manual iterations: the orbit's dot
+            // count, the mini-map rows, Stripes, Colour and the Upper limit shown disabled.
+            // `orbit-dots`: `overlays` with the toolbar's Orbit popover open.
+            try? explorer.setViewport(re: "-0.743643887037151", im: "0.13182590420533", scale: 1.25e-6)
+            let on = scene != "overlays-off"
+            model.interiorColoring = on ? .angle : .bubbles
+            model.orbitEnabled = on
+            model.orbitLength = 120
+            model.mapEnabled = on
+            model.mapLevels = 3
+            model.autoIterations = on
+            _ = explorer.input(event: .pointer(x: 150, y: -80))
         case "interior":
             try? explorer.setViewport(re: "-0.1225", im: "0.7445", scale: 0.0004)
             model.interiorColoring = .bubbles
@@ -649,7 +672,7 @@ public enum UIDemo {
                     if scene == "tile-focus" { tileFocusCheck(window: w, model: model) }
                     if scene == "place-details" { placeDetailsCheck(window: w, model: model, explorer: explorer) }
                     if scene == "search-esc" { searchEscapeCheck(window: w, model: model, explorer: explorer) }
-                    if scene.hasPrefix("help") { captureWithPopovers(window: w, scene: scene) }
+                    if scene.hasPrefix("help") || scene == "orbit-dots" { captureWithPopovers(window: w, scene: scene) }
                     if let h = helpWindow { captureWithPopovers(window: h, scene: scene + "-help") }
                     // The View menu as built (AppKit adds "Enter Full Screen", ⌃⌘F).
                     if let view = NSApplication.shared.mainMenu?.items.first(where: { $0.title == "View" })?.submenu {

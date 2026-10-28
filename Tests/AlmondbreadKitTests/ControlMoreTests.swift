@@ -57,14 +57,46 @@ final class ControlMoreTests: XCTestCase {
         }
     }
 
-    /// A conditional row counts only while it is there (Stripes: the angle colouring).
-    func testHiddenConditionalRowsDoNotCount() {
+    /// A row another setting disables is shown (disabled) and counts (kb: decisions/controls
+    /// "Disabled, not hidden"): Stripes outside the angle colouring, the Upper limit with manual
+    /// iterations; the ↺ puts them back too.
+    func testDisabledRowsCount() {
         let m = model(look: "aurora")
         m.interiorColoring = .flat
         m.interiorStripes += 4
-        XCTAssertEqual(ControlMore.changed(.interior, model: m), [])
+        XCTAssertEqual(ControlMore.changed(.interior, model: m), ["Stripes"])
         m.interiorColoring = .angle
         XCTAssertEqual(ControlMore.changed(.interior, model: m), ["Stripes"])
+        let cap = m.maxIterationsCap
+        m.autoIterations = false
+        m.maxIterationsCap = cap == 1_000_000 ? 10_000_000 : 1_000_000
+        XCTAssertEqual(ControlMore.changed(.quality, model: m), ["Upper limit"])
+        ControlMore.reset(.quality, model: m)
+        XCTAssertEqual(m.maxIterationsCap, cap)
+        // Every setting row is there whatever the switches say: only the fractal hides rows.
+        for s in ControlMore.settings {
+            XCTAssertTrue(s.shown(m), s.name)
+        }
+    }
+
+    /// "Orbit iterations shown" is an essential row under the Orbit switch (not behind More),
+    /// found by the search words the user named.
+    func testOrbitDotsRow() {
+        XCTAssertFalse(ControlMore.settings.contains { $0.name == OrbitDotsRow.title || $0.name == "Iterates" })
+        for q in ["dots", "points", "orbit length", "iterates", "Orbit iterations"] {
+            XCTAssertTrue(ControlSection.overlays.matches(q), q)
+            XCTAssertFalse(ControlSection.overlays.moreMatches(q), "\(q) opens Overlays' More")
+        }
+        // The small map's size (no "Large mini-map" row: the map's arrow button enlarges it).
+        XCTAssertFalse(ControlMore.settings.contains { $0.name == "Large mini-map" })
+        XCTAssertTrue(ControlMore.settings.contains { $0.name == "Mini-map size (small)" })
+        for q in ["large", "enlarge", "bigger"] {
+            XCTAssertTrue(ControlSection.overlays.moreMatches(q), q)
+        }
+        XCTAssertEqual(OrbitDotsRow.text(50), "50 dots")
+        XCTAssertEqual(OrbitDotsRow.text(1), "1 dot")
+        XCTAssertTrue(OrbitDotsRow.presets.contains(50))
+        XCTAssertLessThanOrEqual(OrbitDotsRow.presets.max() ?? 0, 1000)
     }
 
     /// The essential rows stay out of More (the decided split).
@@ -72,7 +104,7 @@ final class ControlMoreTests: XCTestCase {
         let hidden = Set(ControlMore.settings.map(\.name))
         for essential in ["Shading", "Outline", "Glow", "Density", "Look", "Palette", "Colouring", "Colour",
                           "Pattern density", "Automatic iterations", "Cinematic effects", "Mini-map",
-                          "Orbit of the point under the pointer", "Two-finger scroll"] {
+                          "Orbit of the point under the pointer", "Orbit iterations shown", "Two-finger scroll", "Maximum"] {
             XCTAssertFalse(hidden.contains(essential), essential)
         }
         for name in ["Light angle", "Glow colour", "Offset", "Stripes", "Anti-aliasing", "Edge panning",

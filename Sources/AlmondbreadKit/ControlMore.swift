@@ -9,7 +9,9 @@ import SwiftUI
 struct MoreSetting {
     let name: String
     let section: ControlSection
-    /// Whether its row is there now (a conditional row that is hidden is not counted).
+    /// Whether its row is there now: the current fractal or view has it. A row that another
+    /// setting disables (the mini-map rows with the map off, Stripes outside the angle colouring)
+    /// is there, shown disabled, and counts (kb: decisions/controls "Disabled, not hidden").
     let shown: @MainActor (ExplorerModel) -> Bool
     /// Whether the model's value differs from the reference.
     let differs: @MainActor (ExplorerModel, ExplorerSettings) -> Bool
@@ -33,9 +35,8 @@ enum ControlMore {
                         reset: { m, r in m[keyPath: path] = ref(r) })
         }
         func number(_ name: String, _ section: ControlSection, _ path: ReferenceWritableKeyPath<ExplorerModel, Double>,
-                    shown: @escaping @MainActor (ExplorerModel) -> Bool = { _ in true },
                     ref: @escaping (ExplorerSettings) -> Double) -> MoreSetting {
-            entry(name, section, path, same: near, shown: shown, ref: ref)
+            entry(name, section, path, same: near, ref: ref)
         }
         func flag(_ name: String, _ section: ControlSection, _ path: ReferenceWritableKeyPath<ExplorerModel, Bool>,
                   ref: @escaping (ExplorerSettings) -> Bool) -> MoreSetting {
@@ -73,22 +74,20 @@ enum ControlMore {
             number("Glow width", .lighting, \.glowWidth) { $0.glowWidth },
             colour("Glow colour", .lighting, \.glowColor) { SIMD3($0.glowRed, $0.glowGreen, $0.glowBlue) },
             // Interior
-            number("Stripes", .interior, \.interiorStripes, shown: { $0.interiorColoring == .angle }) { $0.interiorStripes },
+            number("Stripes", .interior, \.interiorStripes) { $0.interiorStripes },
             flag("Interior detection", .interior, \.interiorDetection) { $0.interiorDetection },
-            // Overlays (Swift-side defaults, as `reset(.overlays)` sets them)
-            entry("Iterates", .overlays, \.orbitLength, same: ==,
-                  shown: { $0.orbitEnabled && $0.has(\.orbitOverlay) }) { _ in 50 },
-            entry("Mini-map levels", .overlays, \.mapLevels, same: ==, shown: { $0.mapEnabled }) { _ in 3 },
-            entry("Mini-map size", .overlays, \.mapSize, same: near, shown: { $0.mapEnabled }) { _ in 180 },
-            entry("Large mini-map", .overlays, \.mapLarge, same: ==, shown: { $0.mapEnabled }) { _ in false },
-            entry("Mini-map corner", .overlays, \.mapPlacement, same: ==, shown: { $0.mapEnabled }) { _ in .bottomLeft },
+            // Overlays (Swift-side defaults, as `reset(.overlays)` sets them; "Orbit iterations
+            // shown" is essential, under the Orbit switch)
+            entry("Mini-map levels", .overlays, \.mapLevels, same: ==) { _ in 3 },
+            entry("Mini-map size (small)", .overlays, \.mapSize, same: near) { _ in 180 },
+            entry("Mini-map corner", .overlays, \.mapPlacement, same: ==) { _ in .bottomLeft },
             entry("Cosmic size scale", .overlays, \.cosmicScale, same: ==) { _ in false },
             entry("Always show compass", .overlays, \.compassAlways, same: ==) { _ in false },
             entry("Autopilot target marker", .overlays, \.targetMarker, same: ==) { _ in true },
             entry("Status (HUD)", .overlays, \.showHUD, same: ==) { _ in true },
             entry("Developer details in the HUD", .overlays, \.hudDetails, same: ==) { _ in false },
             // Iterations & quality
-            entry("Upper limit", .quality, \.maxIterationsCap, same: ==, shown: { $0.autoIterations }) { Int($0.maxIterationsCap) },
+            entry("Upper limit", .quality, \.maxIterationsCap, same: ==) { Int($0.maxIterationsCap) },
             entry("Anti-aliasing", .quality, \.supersampling, same: ==) { Supersampling(rawValue: Int($0.supersampling)) ?? .x9 },
             flag("Interactive preview", .quality, \.interactivePreview) { $0.interactivePreview },
         ]
@@ -119,12 +118,12 @@ enum ControlMore {
 
     /// How many rows the section's More holds now (the accessibility label's "More, 6 settings"):
     /// its settings whose row is there plus the rows that are no setting of their own (buttons,
-    /// the cycle speed under its switch, the palette import).
+    /// the cycle speed under its switch (disabled while cycling is off), the palette import).
     @MainActor static func rowCount(_ section: ControlSection, model: ExplorerModel) -> Int {
         let extra: Int = switch section {
         // Autopilot / fly-to buttons, Rotation's Straighten; iOS: Seek minibrot.
         case .view: 2 + (isIOS && model.has(\.seek) ? 1 : 0)
-        case .look: (model.cycleSpeed != 0 ? 1 : 0) + 1
+        case .look: 2
         default: 0
         }
         return settings.filter { $0.section == section && $0.shown(model) }.count + extra
