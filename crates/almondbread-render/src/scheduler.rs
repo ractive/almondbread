@@ -2919,6 +2919,13 @@ impl<B: GpuBackend> Renderer<B> {
         // frame (M5 fix).
         // A formula change (F2) is a jump too, and the old formula's references go.
         let formula_changed = self.settings.formula != self.last_key_formula;
+        // F9 (kb: plans/f9-turn): a step of the turn slider (to, from or between turned planes)
+        // is a new formula at the same view: its references go, but what the renderer learned
+        // (gesture cost, resolution, iterations) carries over, or every slider frame would start
+        // at the coarsest preview (measured: 1/8 scale throughout a drag on the whole set).
+        let plane_step = formula_changed
+            && (matches!(self.settings.formula, almondbread_core::Formula::Turn(_))
+                || matches!(self.last_key_formula, almondbread_core::Formula::Turn(_)));
         if formula_changed {
             self.last_key_formula = self.settings.formula;
             self.reference = None;
@@ -2935,7 +2942,7 @@ impl<B: GpuBackend> Renderer<B> {
             let view = self.viewport.scale * (width.max(height) as f64 * points_per_pixel);
             let ratio = prev.scale.ratio(self.viewport.scale);
             let far = prev.center.distance_in(&self.viewport.center, view);
-            if formula_changed || !(ratio < 8.0 && ratio > 1.0 / 8.0 && far < 2.0) {
+            if (formula_changed && !plane_step) || !(ratio < 8.0 && ratio > 1.0 / 8.0 && far < 2.0) {
                 if self.config.trace {
                     println!("jump: learned iteration state reset");
                 }

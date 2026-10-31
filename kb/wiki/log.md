@@ -5,6 +5,8 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-31
 
+- **Decision:** F9 turn controls: turn slider 0–90° and start value z0 in the pinned fractal row, turning around the view centre's point, ends canonical (Mandelbrot, Julia); hidden for other fractals, reset disabled when plain (decisions/controls, plans/f9-turn)
+- **Research:** F9 turn gate: perturbation with critical-orbit rebasing (+dc) and Mandelbrot's BLA hold on turned planes of the (c, z0) space at 0°–90° to 1e-300 against direct BigFloat (turn_gate); GPU vs oracle ≤ 0.012 % class to 1e-1000. Found and fixed for Julia views too: twice the reference bits near the critical point, the deep rescale flushing deltas near 0, the interior derivative counting 2 z0 (plans/f9-turn, formulas/turn, formulas/julia, synthesis/benchmarks)
 - **Decision:** Formula track reviewed: F2 to F6 (pluggable formulas, Multibrot, deep Julia, Mandelbar, Burning Ship) and the Buddhabrot look marked done after the user's review; plans and roadmap updated
 
 ## 2026-10-28

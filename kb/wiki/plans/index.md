@@ -15,5 +15,6 @@
 * [F6: Burning Ship family](f6-burning-ship.md)
 * [F7: Hybrid formulas via an opcode model](f7-hybrids.md)
 * [F8: Nova, Newton and Magnet research spike](f8-convergent-spike.md)
+* [F9: The turn between the Mandelbrot and the Julia plane](f9-turn.md)
 
 <!-- okf:index:end -->
