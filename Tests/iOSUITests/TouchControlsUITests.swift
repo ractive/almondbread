@@ -242,18 +242,28 @@ final class TouchControlsUITests: XCTestCase {
     /// calls a row under it hittable: on a phone's half-height sheet the search's last row sits
     /// there (since "Orbit iterations shown" joined Overlays, the Julia twin; Lighting's More),
     /// and a tap on it opened "Reset all settings?" or nothing. The sheet goes to full height
-    /// (its grabber), as a user would raise it.
+    /// (its grabber), as a user would raise it. Since F9's turn rows joined the pinned fractal
+    /// row, a search's first hit can lie wholly below the half sheet's fold (not yet in the
+    /// accessibility tree): an element that does not exist raises the sheet too, and is waited for.
     private func reveal(_ element: XCUIElement) {
         let bar = app.buttons["Reset all…"]
         // (The bar: the button and 8 points of padding above it.)
         let clear = { element.isHittable && (!bar.exists || element.frame.maxY <= bar.frame.minY - 10) }
-        guard element.exists, !clear() else { return }
+        if element.exists && clear() { return }
+        raiseSheet()
+        // (Not there at all, e.g. on the iPad's side pane: the caller's assertion says so.)
+        guard element.waitForExistence(timeout: 3) else { return }
+        XCTAssertTrue(clear(), "\(element.identifier) under the Reset all bar: \(element.frame) vs \(bar.frame)")
+    }
+
+    /// The phone's control-center sheet at full height (its grabber), as a user raises it; no-op
+    /// on the iPad's side pane and on a sheet already up.
+    private func raiseSheet() {
         let grabber = app.buttons["Sheet Grabber"]
         if grabber.exists, (grabber.value as? String)?.contains("Half") == true {
             grabber.tap()
             settle(1)
         }
-        XCTAssertTrue(clear(), "\(element.identifier) under the Reset all bar: \(element.frame) vs \(bar.frame)")
     }
 
     private func launchSettled() throws {
@@ -282,6 +292,7 @@ final class TouchControlsUITests: XCTestCase {
         search.typeText("shading\n")  // Lighting alone; an essential row, so its More stays closed
         settle(1.5)
         let more = app.buttons["more-lighting"]
+        reveal(more)  // (below the phone's half sheet since the turn rows: the sheet goes up)
         XCTAssertTrue(more.waitForExistence(timeout: 5), "no More line in Lighting")
         XCTAssertTrue(app.sliders["Shading"].exists, "Shading is not visible")
         XCTAssertFalse(app.sliders["Light angle"].exists, "Light angle shown with More closed")
@@ -527,7 +538,8 @@ final class TouchControlsUITests: XCTestCase {
     /// F9 (kb: plans/f9-turn): the pinned fractal row's turn slider turns the view to a plane
     /// between the Mandelbrot and the Julia set (the canvas value names the formula "turn"), all
     /// the way it is the Julia set of the centre's c, the start value field gives the Mandelbrot
-    /// plane with that z₀, and ↺ goes back to the Mandelbrot set at the same centre.
+    /// plane with that z₀, and ↺ goes back to the Mandelbrot set at the same centre. A drag lands
+    /// where the finger lifts: 45° in the middle, exactly 90° at the end.
     func testTurnSlider() throws {
         try launchSettled()
         let control = app.buttons["Control center"]
@@ -541,14 +553,27 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertTrue(slider.waitForExistence(timeout: 5), "no turn slider")
         let reset = app.buttons["turn-reset"]
         XCTAssertTrue(reset.exists && !reset.isEnabled, "the reset is enabled for the Mandelbrot set")
-        slider.adjust(toNormalizedSliderPosition: 0.5)
+        // Dragged as a finger does, from the thumb at 0° and held still before the lift (the
+        // thumb eases after the finger): the first step off the Mandelbrot set lands too (it
+        // once stalled the main thread for 0.6 s on the iPad mini, and the slider came to rest
+        // at 25° to 32° for a drag to the end). Not XCTest's adjust: its 1.0 lifts the finger
+        // 7 points inside the track's end, about 87° (and its drag ends without a rest).
+        let degrees = { Double((slider.value as? String ?? "").dropLast()) ?? .nan }
+        let at = { (x: CGFloat) in slider.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)) }
+        at(0.02).press(forDuration: 0.1, thenDragTo: at(0.5), withVelocity: 300, thenHoldForDuration: 0.6)
         settle(2)
         shot("turn-45")
+        XCTAssertEqual(degrees(), 45, accuracy: 3, "the middle of the track is not 45°")
         XCTAssertEqual(fields()["formula"], "turn")
         XCTAssertTrue(reset.isEnabled, "the reset stays disabled in a turned view")
-        slider.adjust(toNormalizedSliderPosition: 1.0)
+        // Its end: 90°, the Julia set. (The slider's value eases off towards its ends: a finger
+        // lifted on the track's last point gave 88.2°, so this one, as fingers do, goes on past
+        // it, 12 points, still on the iPad mini's screen.)
+        let beyond = at(1).withOffset(CGVector(dx: 12, dy: 0))
+        at(0.5).press(forDuration: 0.1, thenDragTo: beyond, withVelocity: 300, thenHoldForDuration: 0.6)
         settle(2)
         shot("turn-90")
+        XCTAssertEqual(slider.value as? String, "90°", "the end of the track is not 90°")
         XCTAssertEqual(fields()["formula"], "julia")
         reset.tap()
         settle(2)
@@ -676,6 +701,10 @@ final class TouchControlsUITests: XCTestCase {
             XCTAssertTrue(search.waitForExistence(timeout: 10), "no search field")
             search.clearAndType(text + "\n")
             settle(1.5)
+            // The whole result in the tree: on the phone's half sheet the pinned fractal row
+            // (with F9's turn rows) leaves the twin below the fold, where it is not in the tree,
+            // shown or not, so the Multibrot check would prove nothing either.
+            raiseSheet()
         }
         func pick(_ family: String) {
             find("fractal")
@@ -981,8 +1010,13 @@ final class TouchControlsUITests: XCTestCase {
         shot("finger-autopilot-line-gone")
         // A: a quick swipe moves the picture with the finger (right and up: the centre moves
         // left and down), draws no wish line and stays in A.
+        // (Quick, as a swipe is: the autopilot keeps zooming meanwhile, towards a heading that
+        // eases to straight ahead only over MANUAL_HOLD, and that heading still points at the
+        // wish's target up and right, against the swipe. At 300 points/s the 1.3 s swipe let
+        // that drift, measured in the end scale, outweigh the swipe's 0.2 heights upwards
+        // (iPad mini, 2026-10-31: 353 / -93 points); a real swipe takes a fraction of that.)
         let a0 = fields()
-        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 300, thenHoldForDuration: 0.2)
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 1500, thenHoldForDuration: 0.2)
         let a1 = fields()
         shot("finger-autopilot-swiped")
         let are = (num(a0, "re") - num(a1, "re")) / num(a1, "scale")

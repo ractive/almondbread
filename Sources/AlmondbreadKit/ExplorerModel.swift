@@ -239,6 +239,9 @@ public final class ExplorerModel {
     /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
     /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
     public internal(set) var capabilities: FormulaCapabilities?
+    /// F9: until when a turn drag keeps the capabilities as they were (`setTurn`).
+    @ObservationIgnored private var capabilitiesHeld = Date.distantPast
+    @ObservationIgnored private var capabilitiesDue: Task<Void, Never>?
 
     // MARK: Parameter lab (F10, kb: plans/f10-parameter-lab; ParameterLab.swift)
 
@@ -685,7 +688,8 @@ public final class ExplorerModel {
         turnDegrees = s.turnDegrees
         turnPivot = s.turnPivot
         formula = s.formula
-        if let c = explorer?.capabilities(), c != capabilities { capabilities = c }
+        // (Held while the turn slider moves; `setTurn` takes them over once it rests.)
+        if Date() >= capabilitiesHeld, let c = explorer?.capabilities(), c != capabilities { capabilities = c }
         if let t = explorer?.turnInfo(), t != turn { turn = t }
         autoIterations = s.autoIterations
         manualIterations = Int(s.manualIterations)
@@ -1591,11 +1595,27 @@ public final class ExplorerModel {
 
     // MARK: Turn (F9, kb: plans/f9-turn)
 
+    /// How long the slider rests before the capabilities follow a turn.
+    private static let capabilitiesHold = 0.5
+
     /// The turn slider: the view's plane turned to `degrees` (0 the Mandelbrot plane, 90 the Julia
     /// set of the centre's c) around the view centre's point. Each value is a new plane (Rust
     /// renders it with gesture frames, so a drag stays fluid).
+    ///
+    /// The capabilities (which sections the control center shows) follow only once the slider has
+    /// rested for a moment: on the first step off the Mandelbrot set they hide its content
+    /// sections, a re-layout that blocked the main thread for about 0.6 s mid-drag (iPad mini
+    /// simulator), after which the slider, whose thumb eases after the finger, came to rest far
+    /// from it (25° to 32° for a drag to the end).
     public func setTurn(_ degrees: Double) {
         guard let explorer else { return }
+        capabilitiesHeld = Date().addingTimeInterval(Self.capabilitiesHold)
+        capabilitiesDue?.cancel()
+        capabilitiesDue = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.capabilitiesHold))
+            guard !Task.isCancelled, let self, let c = self.explorer?.capabilities(), c != self.capabilities else { return }
+            self.capabilities = c
+        }
         pull(explorer.setTurn(degrees: degrees))
         host?.requestFrames()
     }

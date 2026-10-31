@@ -441,9 +441,18 @@ final class FirstUseUITests: XCTestCase {
         settle(3)
         app.buttons["Control center"].tap()
         settle(3)
+        // The phone's sheet raised, as a user does to browse the places: at half height the
+        // pinned fractal row (with F9's turn rows) leaves room for the Category row alone, and
+        // the selected place's details bar then covers the tile with its Go and Fly.
+        let grabber = app.buttons["Sheet Grabber"]
+        if grabber.exists, (grabber.value as? String)?.contains("Half") == true {
+            grabber.tap()
+            settle(1)
+        }
         let first = app.buttons["Head and Shoulders"].firstMatch
         let second = app.buttons["π at the Neck"].firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 10), "no Head and Shoulders tile")
+        XCTAssertTrue(first.isHittable, "the Head and Shoulders tile is not on screen")
         XCTAssertTrue(second.exists, "no π at the Neck tile")
         XCTAssertFalse(app.buttons["placeTileGo"].exists, "Go on a picture before any tap")
 
