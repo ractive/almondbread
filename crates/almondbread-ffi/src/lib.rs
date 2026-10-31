@@ -30,6 +30,8 @@ mod cosmic;
 mod explorer;
 mod flight_bench;
 mod help;
+#[cfg(target_vendor = "apple")]
+mod lab;
 mod panic_log;
 mod tour;
 

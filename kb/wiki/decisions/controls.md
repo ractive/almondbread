@@ -3275,6 +3275,43 @@ back. Menus disable rather than hide, as for tours and journeys. iOS UI test
 `TouchControlsUITests/testJuliaControlsFollowFormula` (iPad: round button and twin in
 Mandelbrot, neither in a Multibrot view, the round button and Back in a Julia view).
 
+### Parameter lab (as built 2026-10-31, awaiting review)
+
+The parameter lab ([F10: Parameter lab (z → zᵖ + c with three knobs, shallow)](../plans/f10-parameter-lab.md))
+is the Fractal picker's last family, "Parameter lab": a mode, not a formula (the settings'
+formula stays what it was; `Explorer::capabilities()` answers with formula `lab`). Choosing it
+enters the lab at its last plane and knobs (persisted, Reset's the first time); choosing any
+other family leaves it for the view it was entered from (Rust's `set_formula` leaves it first,
+also for the same formula), and so does a place. Its controls sit in the pinned Fractal row
+under the picker: a segmented control for the plane the main view shows (c, z₀, p), a slider and
+a number field for the real and imaginary part of each knob (z₀, p, c, in the order of
+z → zᵖ + c), Random and Reset, and one line saying it is shallow and why a non-integer p shows a
+seam. On the canvas:
+
+- **Panels.** The map row holds one panel per plane (the planes not shown first, the main
+  plane's panel last, so a phone's narrower row drops it first; fitted by the map row's rules,
+  [Mini-map on small screens](#mini-map-on-small-screens-as-built-2026-10-19)). Each shows its
+  plane with the other two knobs fixed, a crosshair at its own knob's value, its title and value;
+  the main plane's panel has a gold frame and the main view's rectangle. A press in a panel sets
+  that knob to the value under it and a drag moves it (also beyond the panel, within the knob's
+  range); a press on a panel's "show" button (top right) makes its plane the main view on release.
+  Presses go the compass's way (`Host::compass_press` / `_drag` / `_release`), so the Mac's mouse,
+  iOS's pan, tap and double tap all reach the panels with no new platform code; a finger there is
+  `TouchSpot::Compass` (no steering, no long-press menu).
+- **Main view.** Pan and zoom as anywhere, within the plane's view limits
+  (`Navigator::set_lab_plane`: the plane's box and home view; R goes home). Zoom stops at the
+  precision limit (8 float32 steps per pixel) about the point it was heading for, with a note at
+  the bottom for 3 s ("Zoom ends here: the lab computes with 7-digit numbers"). A click (or tap)
+  sets the shown plane's knob to the clicked value (⌘ too: no ⌘-click Julia set in the lab). Each
+  plane keeps its own view while another is shown.
+- **Hidden in the lab** (capabilities, never faked): places, tours, journeys (J, ⇧J, X do
+  nothing), the autopilot (Z does nothing; one started otherwise is stopped), seek (N), the
+  π meter (off on entry, refused while on), the Buddhabrot looks, interior proofs and colourings
+  other than flat, the Julia panel, the mini-map and the escape-time orbit probe (the orbit
+  switch draws the orbit of the current knobs instead: in the z₀ panel, and over the main view in
+  the c and z₀ planes), the ⌘-click Julia set and the twin, the travel journal's steps (the
+  journal from before is restored on leaving).
+
 ### Mini-map on small screens (as built, 2026-10-19)
 
 Two clashes on the iPhone 17e (390 × 844 points): in portrait the second of two 180-point maps

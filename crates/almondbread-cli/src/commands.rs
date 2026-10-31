@@ -59,6 +59,8 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let (width, height) = o.size("size", (1600, 1000))?;
     let mut r = new_renderer(backend, o)?;
     r.viewport = o.viewport(width, height)?;
+    // F10: `--lab-plane c|z0|p` renders the parameter lab (`lab.rs`).
+    crate::lab::enter(&mut r, o, width, height)?;
     let repeats = o.usize("repeat").unwrap_or(1).max(1);
     let mut times = Vec::new();
     let mut walls = Vec::new();
@@ -225,7 +227,9 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     let compass = o.get("compass").is_some_and(|v| v != "0");
     // `--julia 1`: the Julia panel of the orbit's point (`--orbit x,y`; else the view centre).
     let julia = o.get("julia").is_some_and(|v| v != "0");
-    if orbit.is_none() && !map && !pi && !cosmic && !compass && !julia {
+    // F10: `--lab-panels 1`: the parameter lab's plane panels (`lab.rs`).
+    let lab_panels = r.lab_on() && o.get("lab-panels").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map && !pi && !cosmic && !compass && !julia && !lab_panels {
         return Ok(None);
     }
     let mut ov = almondbread_render::overlay::Overlay::<B>::default();
@@ -301,7 +305,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     while r.clock() < deadline {
         ov.step_probe(0.05);
         ov.step_maps(&r.settings, r.clock());
-        if julia {
+        if julia || lab_panels {
             // (The Julia picture's bands are drawn one per prepare.)
             ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), r.clock());
         }

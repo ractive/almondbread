@@ -34,6 +34,7 @@ pub mod journey;
 pub mod julia;
 pub mod julia_reference;
 pub mod la;
+pub mod lab;
 pub mod locations;
 pub mod oracle;
 pub mod orbit;

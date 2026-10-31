@@ -45,8 +45,10 @@ use crate::memory::{MemoryBudget, Thermal};
 
 mod buddha_frame;
 mod device;
+mod lab_frame;
 mod reference_gpu;
 pub use buddha_frame::{BuddhaShown, LIVE_DIV, OrbitProgress, REST_TARGET_HITS};
+pub use lab_frame::LabState;
 use reference_gpu::TableBuild;
 #[cfg(all(test, target_vendor = "apple"))]
 mod extreme_reproject_tests;
@@ -1515,6 +1517,8 @@ pub struct Renderer<B: GpuBackend> {
     suspended: bool,
     /// BB: the Buddhabrot / Nebulabrot look (`buddha_frame.rs`).
     buddha: buddha_frame::BuddhaState<B>,
+    /// F10: the parameter lab replaces the escape-time view while on (`lab_frame.rs`).
+    pub lab: Option<Box<lab_frame::LabState<B>>>,
 }
 
 /// Pipelines compiling on the warm-up threads: their keys and where they arrive.
@@ -1764,6 +1768,7 @@ impl<B: GpuBackend> Renderer<B> {
             thermal_base: None,
             suspended: false,
             buddha: buddha_frame::BuddhaState::default(),
+            lab: None,
         })
     }
 
@@ -2611,6 +2616,10 @@ impl<B: GpuBackend> Renderer<B> {
         self.poll_pivot();
         self.poll_longer_reference();
         self.poll_further();
+        // F10: the parameter lab replaces the escape-time frame while it is on.
+        if let Some(o) = self.lab_frame(now, width, height, points_per_pixel, interacting, keep_going, acquire) {
+            return o;
+        }
         // BB: the Buddhabrot look replaces the escape-time frame while it can show the view.
         if let Some(o) = self.buddha_frame(now, width, height, points_per_pixel, interacting, keep_going, acquire) {
             return o;
@@ -6856,6 +6865,9 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     pub fn is_settled(&self) -> bool {
+        if let Some(l) = &self.lab {
+            return l.settled;
+        }
         if self.buddha.active {
             return self.buddha.settled;
         }
@@ -7017,6 +7029,10 @@ impl<B: GpuBackend> Renderer<B> {
         height: usize,
         readback: bool,
     ) -> Result<OffscreenResult, GpuError> {
+        // F10: the parameter lab's picture.
+        if self.lab.is_some() {
+            return self.render_lab_offscreen(width, height, readback);
+        }
         let start = Instant::now();
         // BB: the Buddhabrot look's image (shallow views; deeper ones are coloured by escape time).
         if self.buddha_mode().is_on()

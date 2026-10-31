@@ -240,6 +240,7 @@ One page per planned milestone (type `plan`; `hyalo find --view plans` lists the
 - [F6: Burning Ship family](plans/f6-burning-ship.md) — F6: Burning Ship family: diffabs, fold-capped BLA, needle heuristic, places and journeys (planned; L)
 - [F7: Hybrid formulas via an opcode model](plans/f7-hybrids.md) — F7: hybrids via an opcode model (old M8): per-phase references and BLA, runtime MSL (planned; XL)
 - [F8: Nova, Newton and Magnet research spike](plans/f8-convergent-spike.md) — F8: one-week spike on perturbation for Nova / Newton / Magnet (planned; M)
+- [F10: Parameter lab (z → zᵖ + c with three knobs, shallow)](plans/f10-parameter-lab.md) — F10: z₀, c and p as knobs, one plane large and three panels, float32 with a measured zoom limit (in progress; S)
 - [Buddhabrot and Nebulabrot as a look](plans/buddhabrot.md) — BB: Buddhabrot / Nebulabrot as an optional shallow look, any time (planned; M)
 - [3D worlds (Mandelbox first): not recommended now](plans/3d-worlds.md) — 3D worlds (Mandelbox first) as a separate mode: not recommended now (proposed, last; XL)
 - [A11Y: Accessibility of the canvas and the Rust-drawn controls](plans/a11y-canvas-controls.md) — A11Y: cockpit, help badges, compass, mini-maps, Julia panel, π meter and cosmic scale as accessibility elements with labels, values and actions; the canvas as one sentence (built, awaiting review; S)

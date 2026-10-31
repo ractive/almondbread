@@ -392,6 +392,9 @@ public enum UIDemo {
             model.orbitLength = 120
             model.mapEnabled = false
             _ = explorer.input(event: .pointer(x: 0, y: 0))
+        case _ where scene.hasPrefix("lab"):
+            // `lab`, `lab-z0`, `lab-p`, `lab-reset`: the parameter lab (F10, ParameterLab.swift).
+            LabDemo.configure(model, explorer: explorer, scene: scene)
         case "places":
             // (After the first layout: a place is fitted to the view size.)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.goToPlace("elephants") }

@@ -27,6 +27,9 @@ use bytemuck::{Pod, Zeroable};
 use crate::backend::{GpuBackend, GpuError, Storage, TextureFormat};
 use crate::scheduler::{Renderer, SchedulerConfig};
 
+mod lab_panels;
+pub use lab_panels::{LIMIT_NOTE as LAB_LIMIT_NOTE, LIMIT_TEXT as LAB_LIMIT_TEXT, LabDrag};
+
 pub const TILE: usize = 16;
 
 /// One primitive (`OverlayPrim` in MSL), 96 bytes.
@@ -851,6 +854,9 @@ enum ProbeTarget {
     Offset([u64; 2]),
 }
 
+/// F10: the lab panels' row: each plane with its panel's top-left pixel, and the panel size.
+type LabRow = (Vec<(almondbread_core::lab::Plane, [f32; 2])>, (usize, usize));
+
 /// Overlay state of one view: settings, the orbit probe, the maps, the uploaded scene.
 pub struct Overlay<B: GpuBackend> {
     pub settings: OverlaySettings,
@@ -923,6 +929,14 @@ pub struct Overlay<B: GpuBackend> {
     pub go_back: bool,
     /// The row's companion panel as drawn: `julia` or `mandelbrot-panel`.
     drawn_companion: Cell<&'static str>,
+    /// F10 (kb: plans/f10-parameter-lab): the parameter lab's plane panels while the lab is on,
+    /// where they sit (plane and top-left pixel, in row order; panel pixels), the plane the main
+    /// view shows, and a press on a panel being dragged.
+    pub lab: crate::lab::LabPanels<B>,
+    lab_at: Option<LabRow>,
+    lab_main: Option<almondbread_core::lab::Plane>,
+    pub lab_drag: Option<LabDrag>,
+    drawn_lab: Cell<Option<[f32; 4]>>,
 }
 
 impl<B: GpuBackend> Default for Overlay<B> {
@@ -966,6 +980,11 @@ impl<B: GpuBackend> Default for Overlay<B> {
             way_back_reference: None,
             go_back: false,
             drawn_companion: Cell::new("julia"),
+            lab: Default::default(),
+            lab_at: None,
+            lab_main: None,
+            lab_drag: None,
+            drawn_lab: Cell::new(None),
         }
     }
 }
@@ -1200,6 +1219,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         self.pi.busy()
             || (self.julia_at.is_some() && self.julia.busy())
             || (self.julia_at.is_some() && self.mandelbrot.busy())
+            || (self.lab_at.is_some() && self.lab.busy())
             || self.probe.as_ref().is_some_and(|p| !p.done())
             || self.snap.is_some()
             || self
@@ -1217,6 +1237,18 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         // the Julia panel; the settings stay for the way back).
         let caps = almondbread_core::FormulaCapabilities::of(renderer.settings.formula);
         s.orbit &= caps.orbit_overlay;
+        // F10: in the parameter lab its three panels take the map row (no mini-map, Julia panel
+        // or escape-time orbit probe; the lab draws the orbit of its knobs itself).
+        let lab_on = renderer.lab.is_some();
+        if lab_on {
+            s.map = false;
+            s.julia = false;
+            s.orbit = false;
+        } else if self.lab_at.take().is_some() {
+            self.lab.clear();
+            self.lab_main = None;
+            self.lab_drag = None;
+        }
         // In a Julia view the Julia panel's place shows the Mandelbrot panel instead (the way
         // back, kb: decisions/controls "Mandelbrot panel"), by its own toggle.
         let julia_view = renderer.settings.formula.is_julia();
@@ -1260,10 +1292,11 @@ impl<B: GpuBackend + Clone> Overlay<B> {
         if !(s.julia && julia_view) || empty {
             self.mandelbrot.clear();
         }
-        if !s.any() || empty {
+        if (!s.any() && !lab_on) || empty {
             self.maps = None;
             self.probe = None;
             self.probe_key = None;
+            self.lab_at = None;
             let line = renderer.progress.current().alpha > 0.0;
             if !(self.cosmic.enabled()
                 || self.pi.enabled
@@ -1330,6 +1363,9 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             self.maps = None;
         }
         self.update_cloud(renderer, &s);
+        if lab_on && !empty {
+            self.prepare_lab(renderer, size, ppp, now, &s);
+        }
         if s.julia && !empty {
             let n = self.maps.as_ref().map_or(0, |m| m.levels.len());
             let origin = row_origins(
@@ -1422,6 +1458,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 && let Some(t) = companion
             {
                 maps.push(t.clone());
+            }
+            // F10: the lab panels' pictures (the lab has no maps or Julia panel).
+            if self.lab_at.is_some() {
+                maps.extend(self.lab_textures());
             }
             let trail = self.trail.as_ref().map(|(_, t)| t.clone());
             match OverlayDraw::upload(renderer.backend(), &scene, size, maps, trail, self.version) {
@@ -1980,6 +2020,7 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             ("cockpit", self.drawn_cockpit.get()),
             ("maps", self.drawn_maps.get()),
             (self.drawn_companion.get(), self.drawn_julia.get()),
+            ("lab", self.drawn_lab.get()),
             ("pi", pi),
             ("pi-trail", trail),
         ]
@@ -2284,12 +2325,34 @@ impl<B: GpuBackend + Clone> Overlay<B> {
                 self.draw_julia(scene, help, o, (jw as f32, jh as f32), px as f32, &mut key);
             }
         }
+        // ---- F10: the parameter lab's panels, its orbit and the precision limit's note.
+        let lab_drawn = if renderer.lab.is_some() {
+            self.draw_lab(
+                scene,
+                renderer,
+                view,
+                size,
+                ppp,
+                self.settings.orbit,
+                self.settings.orbit_length,
+                now,
+                &mut key,
+            )
+        } else {
+            self.drawn_lab.set(None);
+            None
+        };
         // ---- Info under (or above) the row's first panel: the orbit's fate and a click note.
         let first = self
             .maps
             .as_ref()
             .and_then(|m| m.panels.first().map(|o| (*o, m.panel.1 as f32)))
-            .or(self.julia_at.map(|(o, (_, jh))| (o, jh as f32)));
+            .or(self.julia_at.map(|(o, (_, jh))| (o, jh as f32)))
+            .or(self
+                .lab_at
+                .as_ref()
+                .filter(|_| lab_drawn.is_some())
+                .and_then(|(at, (_, ph))| at.first().map(|(_, o)| (*o, *ph as f32))));
         if let Some((o0, ph)) = first {
             let size = (13.0 * px).max(11.0) as f32;
             let line = 1.35 * size;
@@ -2354,6 +2417,10 @@ impl<B: GpuBackend + Clone> Overlay<B> {
             .map(|(o, (jw, jh))| [o[0], o[1], o[0] + jw as f32, o[1] + jh as f32]);
         let map_row = match (maps_drawn, julia_drawn) {
             (r, Some(j)) => union(r, j),
+            (r, None) => r,
+        };
+        let map_row = match (map_row, lab_drawn) {
+            (r, Some(l)) => union(r, l),
             (r, None) => r,
         };
         self.drawn_maps.set(maps_drawn);
