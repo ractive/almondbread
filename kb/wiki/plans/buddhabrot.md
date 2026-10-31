@@ -2,7 +2,7 @@
 title: "Buddhabrot and Nebulabrot as a look"
 type: plan
 milestone: BB
-status: in-progress
+status: done
 priority: 9
 effort: M
 appeal: high
@@ -18,12 +18,12 @@ risks:
 sources: ["synthesis/other-fractal-types", "sources/superliminal-buddhabrot", "decisions/controls", "techniques/frame-reuse-and-progressive"]
 tags: [buddhabrot, nebulabrot, look, accumulation, optional]
 created: 2026-10-19
-updated: 2026-10-23
+updated: 2026-10-31
 ---
 
 # Buddhabrot and Nebulabrot as a look
 
-Status: built 2026-10-22, awaiting the user's review (in-progress); see [As built](#as-built)
+Status: done (2026-10-31, reviewed by the user; built 2026-10-22); see [As built](#as-built)
 and [Live mode](#live-mode-measured-2026-10-22). Planned as an optional look, independent of the
 formula track ([Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §5, item 3).
 

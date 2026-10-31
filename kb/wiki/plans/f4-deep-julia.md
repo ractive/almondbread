@@ -2,7 +2,7 @@
 title: "F4: Deep Julia sets"
 type: plan
 milestone: F4
-status: in-progress
+status: done
 priority: 4
 effort: M
 appeal: medium
@@ -18,12 +18,12 @@ risks:
 sources: ["synthesis/other-fractal-types", "formulas/julia", "sources/fractalforums-zhuoran-rebasing-bla", "techniques/rebasing", "techniques/bla"]
 tags: [formulas, julia, perturbation, rebasing]
 created: 2026-10-19
-updated: 2026-10-22
+updated: 2026-10-31
 ---
 
 # F4: Deep Julia sets
 
-Status: built, awaiting the user's review ("Step 1 results", "As built" below); planned after [F3: Multibrot z^p + c](f3-multibrot.md), built beside it.
+Status: done (2026-10-31, reviewed by the user; "Step 1 results", "As built" below); planned after [F3: Multibrot z^p + c](f3-multibrot.md), built beside it.
 
 ## Goal
 

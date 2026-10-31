@@ -2,7 +2,7 @@
 title: "F2: Pluggable-formula refactor"
 type: plan
 milestone: F2
-status: in-progress
+status: done
 priority: 2
 effort: M
 appeal: low
@@ -18,13 +18,12 @@ risks:
 sources: ["synthesis/other-fractal-types", "platform/metal-compute", "techniques/bla", "techniques/double-float", "synthesis/benchmarks"]
 tags: [formulas, architecture, refactor, metal, kernels]
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-10-31
 ---
 
 # F2: Pluggable-formula refactor
 
-Status: built on branch `worktree-agent-a6270c6cca3092d81` (2026-10-19, merged with main after
-F1), awaiting the driver's review of the A/B table ("As built" below). Enables
+Status: done (2026-10-31; built 2026-10-19, merged with main after F1; "As built" below). Enables
 [F3: Multibrot z^p + c](f3-multibrot.md) and every milestone after it. Design from [Other fractal types: what almondbread could support, at what cost](../synthesis/other-fractal-types.md) §6.
 
 ## Goal

@@ -2,7 +2,7 @@
 title: "F5: Mandelbar (Tricorn) and the non-conformal path"
 type: plan
 milestone: F5
-status: in-progress
+status: done
 priority: 5
 effort: M
 appeal: medium
@@ -17,12 +17,12 @@ risks:
 sources: ["synthesis/other-fractal-types", "formulas/mandelbar", "sources/mathr-deep-zoom-page", "techniques/bla", "techniques/interior-detection", "synthesis/benchmarks"]
 tags: [formulas, mandelbar, tricorn, non-conformal, bla]
 created: 2026-10-19
-updated: 2026-10-22
+updated: 2026-10-31
 ---
 
 # F5: Mandelbar (Tricorn) and the non-conformal path
 
-Status: built, awaiting the user's review (in-progress); see "As built". After [F4: Deep Julia sets](f4-deep-julia.md).
+Status: done (2026-10-31, reviewed by the user); see "As built". After [F4: Deep Julia sets](f4-deep-julia.md).
 
 ## Goal
 

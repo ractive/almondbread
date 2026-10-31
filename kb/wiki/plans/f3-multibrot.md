@@ -2,7 +2,7 @@
 title: "F3: Multibrot z^p + c"
 type: plan
 milestone: F3
-status: in-progress
+status: done
 priority: 3
 effort: M
 appeal: medium
@@ -18,13 +18,13 @@ risks:
 sources: ["synthesis/other-fractal-types", "formulas/multibrot", "sources/kf-page", "sources/fraktaler-3-site", "techniques/bla"]
 tags: [formulas, multibrot, perturbation, bla]
 created: 2026-10-19
-updated: 2026-10-22
+updated: 2026-10-31
 ---
 
 # F3: Multibrot z^p + c
 
-Status: built (2026-10-22, branch `worktree-agent-a1fc8ed548ebe2577`), awaiting the review gate
-below (the user decides whether Multibrot ships visible); "As built" below. After
+Status: done (2026-10-31: reviewed by the user; Multibrot ships visible as built, powers 3 to 8). Built
+2026-10-22; "As built" below. After
 [F2: Pluggable-formula refactor](f2-pluggable-formulas.md).
 
 ## Goal

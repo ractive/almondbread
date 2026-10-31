@@ -2,7 +2,7 @@
 title: "F6: Burning Ship family"
 type: plan
 milestone: F6
-status: in-progress
+status: done
 priority: 6
 effort: L
 appeal: high
@@ -19,12 +19,12 @@ risks:
 sources: ["synthesis/other-fractal-types", "formulas/burning-ship", "sources/mathr-deep-zoom-page", "sources/mathr-deep-zoom-theory", "sources/kf-manual", "sources/fractalshades-readme", "sources/hpdz-animations", "sources/fraktaler-3-site"]
 tags: [formulas, burning-ship, non-conformal, bla, needle]
 created: 2026-10-19
-updated: 2026-10-23
+updated: 2026-10-31
 ---
 
 # F6: Burning Ship family
 
-Status: built, awaiting the user's review (in-progress); see "As built". After [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md). The payoff of the formula track.
+Status: done (2026-10-31, reviewed by the user); see "As built". After [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md). The payoff of the formula track.
 
 ## Goal
 

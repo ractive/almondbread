@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-10-31
+
+- **Decision:** Formula track reviewed: F2 to F6 (pluggable formulas, Multibrot, deep Julia, Mandelbar, Burning Ship) and the Buddhabrot look marked done after the user's review; plans and roadmap updated
+
 ## 2026-10-28
 
 - **Decision:** Control center: disabled, not hidden: rows that depend on another setting are shown disabled (orbit dot count, mini-map rows, Stripes, interior Colour / Pattern density, Cycle speed, Maximum, Upper limit) and count in More's N changed; 'Orbit iterations shown' moved under the Orbit switch, reachable from the Mac toolbar's chevron popover and the iOS Orbit button's long press; the Large mini-map row removed, 'Mini-map size (small)'
