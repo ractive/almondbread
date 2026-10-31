@@ -7,6 +7,7 @@
 * [3D worlds (Mandelbox first): not recommended now](3d-worlds.md)
 * [A11Y: Accessibility of the canvas and the Rust-drawn controls](a11y-canvas-controls.md)
 * [Buddhabrot and Nebulabrot as a look](buddhabrot.md)
+* [F10: Parameter lab (z → zᵖ + c with three knobs, shallow)](f10-parameter-lab.md)
 * [F1: Julia view (companion inset)](f1-julia-view.md)
 * [F2: Pluggable-formula refactor](f2-pluggable-formulas.md)
 * [F3: Multibrot z^p + c](f3-multibrot.md)

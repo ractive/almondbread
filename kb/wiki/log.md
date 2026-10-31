@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-31
 
+- **Decision:** F10 parameter lab built: z → zᵖ + c with knobs z₀, c, p (p complex, principal branch); main view of one plane through the main colour pass, three plane panels; smooth count with base Re p fading towards Re p = 1; zoom limit 8 float32 steps per pixel (measured against f64 and a quarter-pixel shift); knob drags 96 fps at 2560×1640 on M1 Pro; awaiting review
 - **Decision:** Formula track reviewed: F2 to F6 (pluggable formulas, Multibrot, deep Julia, Mandelbar, Burning Ship) and the Buddhabrot look marked done after the user's review; plans and roadmap updated
 
 ## 2026-10-28

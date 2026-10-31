@@ -51,6 +51,9 @@ final class InteractionTest: NSObject {
         /// A Julia view's Mandelbrot panel (kb: decisions/controls "Mandelbrot panel"): on at
         /// every entry; false turns it off before the settling phase.
         var mandelbrotPanel = true
+        /// F10 (kb: plans/f10-parameter-lab): the parameter lab showing this plane ("c", "z0",
+        /// "p") with Reset's knobs, at its home view; nil: not in the lab.
+        var lab: String? = nil
     }
     private let settleSeconds = 1.0
     private var startLook: String?
@@ -79,6 +82,13 @@ final class InteractionTest: NSObject {
         let dendrite100 = View(re: "0", im: "1", scale: 1e-100)
         let dendrite300 = View(re: "0", im: "1", scale: 1e-300)
         let deep: (FractalNSView, Int, Double) -> Void = { v, _, _ in v.send(.magnify(magnification: 0.05, x: 200, y: 100)) }
+        // F10: c on a circle of radius 0.12 around −0.4 + 0.6i, one turn per 3 s, every refresh.
+        let labDrag: (FractalNSView, Int, Double) -> Void = { v, _, t in
+            let a = t * 2 * Double.pi / 3
+            let k = labDefaultKnobs().with("c", re: -0.4 + 0.12 * cos(a), im: 0.6 + 0.12 * sin(a))
+            _ = v.explorer?.setLabKnobs(knobs: k)
+            v.requestFrames()
+        }
         // Keyboard, scheduled in seconds (tick counts depend on the achieved frame rate): hold
         // D, add W at 1 s (diagonal), release both at 2.5 s; Space zoom with one E press at
         // 1.25 s, released at 2.5 s.
@@ -1002,7 +1012,15 @@ final class InteractionTest: NSObject {
                 // itself at 1e-100 (every step folds; no BLA block).
                 Scenario(name: "ship pan", viewport: shipArmada, input: pan),
                 Scenario(name: "ship deep zoom", viewport: ship1209, input: zoom),
-                Scenario(name: "needle zoom", viewport: shipNeedle, input: zoom)]
+                Scenario(name: "needle zoom", viewport: shipNeedle, input: zoom),
+                // F10 (kb: plans/f10-parameter-lab): the parameter lab with a knob dragged live (c
+                // on a circle, set every refresh as a slider or panel drag does) over the z0 plane
+                // (a Julia-like set) and over the p plane (the X-set, the general power per
+                // pixel); a pan and a zoom into the precision limit in the c plane.
+                Scenario(name: "lab drag c z0 plane", viewport: home, input: labDrag, lab: "z0"),
+                Scenario(name: "lab drag c p plane", viewport: home, input: labDrag, lab: "p"),
+                Scenario(name: "lab pan c plane", viewport: home, input: pan, lab: "c"),
+                Scenario(name: "lab zoom c plane", viewport: home, input: deep, lab: "c")]
     }()
 
     /// The complex coordinate at (x, y) view points from the centre.
@@ -1118,6 +1136,11 @@ final class InteractionTest: NSObject {
         if scenarios[scenario].julia != nil, !scenarios[scenario].mandelbrotPanel {
             _ = explorer.toggleMandelbrotPanel()
         }
+        // F10: the parameter lab (`setFormula` above left it if it was on).
+        if let plane = scenarios[scenario].lab {
+            _ = explorer.enterLab(plane: plane, knobs: labDefaultKnobs())
+        }
+        view.model.syncLab()
         view.model.refreshStats()
         // Every scenario starts in pointer mode with the pointer off the canvas (the real
         // pointer is ignored during the test): zooms go to the centre unless a scenario

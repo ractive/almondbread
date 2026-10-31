@@ -228,7 +228,16 @@ public final class ExplorerModel {
 
     /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
     /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
-    public private(set) var capabilities: FormulaCapabilities?
+    public internal(set) var capabilities: FormulaCapabilities?
+
+    // MARK: Parameter lab (F10, kb: plans/f10-parameter-lab; ParameterLab.swift)
+
+    /// The parameter lab is the main view (Rust's `lab().on`, mirrored).
+    public internal(set) var isLab = false
+    /// The plane the lab's main view shows: "c", "z0" or "p".
+    public internal(set) var labPlane = "c"
+    /// The lab's knobs as Rust has them (the panels' drags change them too).
+    public internal(set) var labKnobs = labDefaultKnobs()
 
     /// Whether the current formula has a feature (true before the renderer exists).
     public func has(_ feature: KeyPath<FormulaCapabilities, Bool>) -> Bool {
@@ -247,6 +256,8 @@ public final class ExplorerModel {
         for o in formulaOptions where !out.contains(where: { $0.id == o.family }) {
             out.append((o.family, o.familyTitle))
         }
+        // F10: the parameter lab, a mode of its own (no formula of the list).
+        out.append((ExplorerModel.labFamily, "Parameter lab"))
         return out
     }()
 
@@ -257,7 +268,8 @@ public final class ExplorerModel {
 
     /// The current formula's family ("mandelbrot", "multibrot"; a Julia view, F4, is "mandelbrot").
     public var formulaFamily: String {
-        Self.formulaOptions.first { $0.formula == formula }?.family ?? "mandelbrot"
+        if isLab { return Self.labFamily }
+        return Self.formulaOptions.first { $0.formula == formula }?.family ?? "mandelbrot"
     }
 
     /// The last formula picked in each family (the family choice comes back to it).
@@ -266,7 +278,10 @@ public final class ExplorerModel {
     /// Switches the fractal (the picker): Rust sets it, goes to its whole set and turns off
     /// what it lacks; the settings come back. The same formula changes nothing.
     public func selectFormula(_ name: String) {
-        guard name != formula, let explorer, let s = try? explorer.setFormula(formula: name) else { return }
+        // (From the parameter lab, F10, Rust leaves it first, also for the same formula.)
+        let lab = isLab
+        guard name != formula || lab, let explorer, let s = try? explorer.setFormula(formula: name) else { return }
+        if lab { syncLab() }
         // (From a Julia view, F4, Rust leaves it first; "julia" is in no family.)
         if !isJulia { lastInFamily[formulaFamily] = formula }
         pull(s)
@@ -277,6 +292,10 @@ public final class ExplorerModel {
     /// Switches to a family: its last picked formula, else its first.
     public func selectFormulaFamily(_ family: String) {
         guard family != formulaFamily else { return }
+        if family == Self.labFamily {
+            enterLab()
+            return
+        }
         let name = lastInFamily[family] ?? Self.formulaOptions(family: family).first?.formula
         if let name { selectFormula(name) }
     }
@@ -579,7 +598,7 @@ public final class ExplorerModel {
     public static let looks: [LookInfo] = AlmondbreadCore.looks()
 
     @ObservationIgnored private(set) var explorer: Explorer?
-    @ObservationIgnored private weak var host: ExplorerHost?
+    @ObservationIgnored weak var host: ExplorerHost?
     @ObservationIgnored private var pulling = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var journalSaveTask: Task<Void, Never>?
@@ -601,7 +620,10 @@ public final class ExplorerModel {
         explorer.setScrollZooms(on: scrollZooms)
         if !TestLaunch.ephemeral { restoreUserPalettes() }
         pull(explorer.settings())
-        if Preferences.restoreSettings && !TestLaunch.ephemeral { restore() }
+        if Preferences.restoreSettings && !TestLaunch.ephemeral {
+            restore()
+            restoreLab()
+        }
         if !TestLaunch.ephemeral {
             restoreJournal()
             let nc = NotificationCenter.default
@@ -1661,6 +1683,7 @@ public final class ExplorerModel {
     /// Reads the renderer's stats (called by the view at ~10 Hz while animating, and once
     /// when it stops). Assigns only on change, so idle views do not re-render.
     func refreshStats() {
+        syncLab()
         if let t = tour, !t.goal.isEmpty, !tourGoalMet, explorer?.tourGoalMet() == true { tourGoalMet = true }
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }

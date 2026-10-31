@@ -1970,6 +1970,8 @@ impl Explorer {
             .filter(|f| almondbread_core::formula::selectable().contains(f))
             .ok_or_else(|| invalid(format!("unknown formula {formula}")))?;
         let mut g = self.lock();
+        // (F10: another formula leaves the parameter lab, back to the view it was entered from.)
+        g.host.leave_lab();
         if g.host.leave_julia() {
             let back = g.host.renderer.settings.formula;
             g.host.renderer.navigator.set_formula(back);
@@ -1994,9 +1996,14 @@ impl Explorer {
         self.lock().host.renderer.density_pivot()
     }
 
-    /// What the current formula supports (F2): the UI hides the rest.
+    /// What the current formula supports (F2): the UI hides the rest. In the parameter lab
+    /// (F10) the lab's (`FormulaCapabilities::lab`, formula "lab").
     pub fn capabilities(&self) -> FormulaCapabilities {
-        FormulaCapabilities::of(self.lock().host.renderer.settings.formula)
+        let g = self.lock();
+        if g.host.lab_on() {
+            return FormulaCapabilities::lab();
+        }
+        FormulaCapabilities::of(g.host.renderer.settings.formula)
     }
 
     /// The formulas a user can pick, by name ("mandelbrot", "multibrot3" ... "multibrot8").
@@ -2078,7 +2085,9 @@ impl Explorer {
     /// A frame follows: resume the display link.
     pub fn set_pi_meter(&self, on: bool, inset_right: f64, inset_bottom: f64, inset_top: f64) {
         let mut g = self.lock();
-        let on = on && almondbread_core::FormulaCapabilities::of(g.host.renderer.settings.formula).pi_meter;
+        let on = on
+            && almondbread_core::FormulaCapabilities::of(g.host.renderer.settings.formula).pi_meter
+            && !g.host.lab_on();
         let m = &mut g.host.overlay.pi;
         m.enabled = on;
         // (NaN clamps to NaN: 0 instead.)
@@ -2477,8 +2486,8 @@ impl Explorer {
     pub fn start_journey(&self, seed: u64) {
         let mut g = self.lock();
         let r = &mut g.host.renderer;
-        // (Journeys are Mandelbrot content, F2: none in a formula without it.)
-        if !almondbread_core::FormulaCapabilities::of(r.settings.formula).content {
+        // (Journeys are Mandelbrot content, F2: none in a formula without it, nor in the lab.)
+        if !almondbread_core::FormulaCapabilities::of(r.settings.formula).content || r.lab.is_some() {
             return;
         }
         let v = r.viewport.clone();
@@ -2490,7 +2499,7 @@ impl Explorer {
         let seed = almondbread_core::journey::daily_seed(year, month, day);
         let mut g = self.lock();
         let r = &mut g.host.renderer;
-        if !almondbread_core::FormulaCapabilities::of(r.settings.formula).content {
+        if !almondbread_core::FormulaCapabilities::of(r.settings.formula).content || r.lab.is_some() {
             return;
         }
         let v = r.viewport.clone();
@@ -2557,6 +2566,8 @@ impl Explorer {
     pub fn go_to_place(&self, id: String) -> Result<ExplorerSettings, CoreError> {
         let place = almondbread_core::places::place_named(&id).ok_or_else(|| invalid(format!("unknown place {id}")))?;
         let mut g = self.lock();
+        // (F10: a place leaves the parameter lab.)
+        g.host.leave_lab();
         let (w, h) = g.host.view_points();
         let mut v = Viewport::with_center(place.center(), place.span_scale() / w.min(h).max(1.0));
         v.scale = v
@@ -2592,8 +2603,12 @@ impl Explorer {
     /// takes its look and iteration limit at once. Returns the new settings.
     pub fn fly_to_place(&self, id: String) -> Result<ExplorerSettings, CoreError> {
         let place = almondbread_core::places::place_named(&id).ok_or_else(|| invalid(format!("unknown place {id}")))?;
-        // F4: no flight out of a Julia view (another plane): a jump.
-        if self.lock().host.renderer.settings.formula.is_julia() {
+        // F4: no flight out of a Julia view (another plane): a jump; nor out of the lab (F10).
+        let jump = {
+            let g = self.lock();
+            g.host.renderer.settings.formula.is_julia() || g.host.lab_on()
+        };
+        if jump {
             return self.go_to_place(id);
         }
         let mut g = self.lock();
@@ -2651,7 +2666,7 @@ impl Explorer {
         if width == 0 || height == 0 || width > 16384 || height > 16384 {
             return Err(invalid("size must be in 1...16384"));
         }
-        let (backend, settings, mut viewport, view_width) = {
+        let (backend, settings, mut viewport, view_width, lab) = {
             let g = self.lock();
             let r = &g.host.renderer;
             (
@@ -2659,6 +2674,7 @@ impl Explorer {
                 r.settings.clone(),
                 r.viewport.clone(),
                 g.host.view_points().0,
+                g.host.lab_state(),
             )
         };
         if view_width > 0.0 {
@@ -2670,6 +2686,10 @@ impl Explorer {
             // default to none, so verify diffs at one limit).
             r.config.offscreen_extension = r.config.extension_factor;
             r.settings = settings;
+            // F10: the parameter lab's picture.
+            if let Some((values, plane)) = lab {
+                r.enter_lab(values, plane, (width as f64, height as f64));
+            }
             r.viewport = viewport;
             let res = r
                 .render_offscreen(width as usize, height as usize, false)

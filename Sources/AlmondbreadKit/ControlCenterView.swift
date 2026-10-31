@@ -596,8 +596,10 @@ struct FractalRow: View {
 
     var body: some View {
         let _ = UIPerf.body("FractalRow")
-        Group {
+        VStack(alignment: .leading, spacing: 8) {
             if model.isJulia { julia } else { pickers }
+            // F10: the parameter lab's knobs (ParameterLab.swift).
+            if model.isLab { LabControls(model: model) }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -1383,7 +1385,8 @@ enum ControlSection: String, CaseIterable, Identifiable {
     @MainActor func offered(by model: ExplorerModel) -> Bool {
         switch self {
         // (F3: a Multibrot power has a few places of its own, but no tours.)
-        case .places: model.has(\.content) || !model.currentPlaces.isEmpty
+        // (F10: no places in the parameter lab.)
+        case .places: !model.isLab && (model.has(\.content) || !model.currentPlaces.isEmpty)
         case .tours: model.has(\.content)
         default: true
         }
