@@ -186,6 +186,7 @@ Catalogue of every wiki page, one line each. Updated on every ingest.
 - [Mandelbrot set (power 2)](formulas/mandelbrot.md) — power-2 baseline: perturbed step, rebasing, BLA coefficients and radius, derivatives, rescaling
 - [Multibrot (integer power p)](formulas/multibrot.md) — integer power p: binomial delta, BLA Jacobian pZ^(p−1), depth limits
 - [Other formulas: feasibility of deep zoom](formulas/others-feasibility.md) — non-integer powers, Nova/Newton/magnet/lambda, multiple critical points, Mandelbulb, Lyapunov; contradictions
+- [Turned planes of the (c, z0) space (Mandelbrot ↔ Julia)](formulas/turn.md) — planes between the Mandelbrot and the Julia plane: dz0 = sin t dp, dc = cos t dp, critical-orbit rebasing with +dc, Mandelbrot BLA, twice the bits near the critical point
 
 ## Implementations
 
@@ -240,6 +241,7 @@ One page per planned milestone (type `plan`; `hyalo find --view plans` lists the
 - [F6: Burning Ship family](plans/f6-burning-ship.md) — F6: Burning Ship family: diffabs, fold-capped BLA, needle heuristic, places and journeys (planned; L)
 - [F7: Hybrid formulas via an opcode model](plans/f7-hybrids.md) — F7: hybrids via an opcode model (old M8): per-phase references and BLA, runtime MSL (planned; XL)
 - [F8: Nova, Newton and Magnet research spike](plans/f8-convergent-spike.md) — F8: one-week spike on perturbation for Nova / Newton / Magnet (planned; M)
+- [F9: The turn between the Mandelbrot and the Julia plane](plans/f9-turn.md) — F9: turn slider 0–90° and start value z0 at any depth; gate passed to 1e-300, GPU to 1e-1000; near-critical fixes for Julia views (built, awaiting review; M)
 - [F10: Parameter lab (z → zᵖ + c with three knobs, shallow)](plans/f10-parameter-lab.md) — F10: z₀, c and p as knobs, one plane large and three panels, float32 with a measured zoom limit (in progress; S)
 - [Buddhabrot and Nebulabrot as a look](plans/buddhabrot.md) — BB: Buddhabrot / Nebulabrot as an optional shallow look, any time (planned; M)
 - [3D worlds (Mandelbox first): not recommended now](plans/3d-worlds.md) — 3D worlds (Mandelbox first) as a separate mode: not recommended now (proposed, last; XL)

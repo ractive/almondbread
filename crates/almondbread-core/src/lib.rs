@@ -47,6 +47,7 @@ pub mod reference;
 pub mod seek;
 pub mod settings;
 pub mod tour;
+pub mod turn;
 pub mod viewport;
 
 #[cfg(test)]

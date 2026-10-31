@@ -174,7 +174,20 @@ pub fn cpu_render_for(
                 };
                 let (mut zr, mut zi, mut r2) = (0.0f64, 0.0f64, 0.0f64);
                 let mut i = 0usize;
-                if let Formula::Julia(k) = formula {
+                if let Formula::Turn(t) = formula {
+                    // F9: the pixel's (c, z_0) on the turned plane; tested before the first
+                    // step, as the kernels do (kb: plans/f9-turn).
+                    let ((pr, pi), z0) = t.point_f64((cr, ci));
+                    (zr, zi) = z0;
+                    r2 = zr * zr + zi * zi;
+                    while i < max_iter && r2 <= b2 {
+                        let t = zr * zr - zi * zi + pr;
+                        zi = 2.0 * zr * zi + pi;
+                        zr = t;
+                        i += 1;
+                        r2 = zr * zr + zi * zi;
+                    }
+                } else if let Formula::Julia(k) = formula {
                     // F4: the pixel is z_0, k is fixed (tested before the first step too, as
                     // the kernels do); a pixel at k's attracting cycle is interior.
                     let (kr, ki) = k.approx();
@@ -315,25 +328,63 @@ impl OracleReference {
     ) -> Self {
         let t0 = std::time::Instant::now();
         let bits = crate::reference::needed_bits(center, texel, size, ORACLE_GUARD_BITS) + 64;
-        if let Formula::Julia(k) = formula {
-            let kv = k.value();
-            let crit = ReferenceOrbitComputer::new(&kv, bits);
-            let (ce, _) =
-                almondbread_math::with_no_control(4096, |ctl| crit.compute_double_exp(max_iter, bailout, ctl));
-            let comp = ReferenceOrbitComputer::new(&kv, bits).with_start(center.big());
-            let (ze, _) =
-                almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
+        // F4 Julia and F9 turned planes: the critical orbit of the reference's c and its orbit
+        // from its z_0, laid out as the GPU's ([`crate::julia_reference`]), with the bits pixels
+        // passing the critical point need (`near_critical_bits`, kb: plans/f9-turn).
+        let plane = match formula {
+            Formula::Turn(t) => {
+                let (cos, sin) = t.cos_sin();
+                Some((cos, sin, crate::turn::extra_bits(t)))
+            }
+            Formula::Julia(_) => Some((0.0, 1.0, 0)),
+            _ => None,
+        };
+        if let Some((cos, sin, extra)) = plane {
+            let orbits = |bits: usize| {
+                let (c, z0) = match formula {
+                    Formula::Turn(t) => crate::turn::reference_point(t, center.big(), bits),
+                    Formula::Julia(k) => (
+                        k.value().with_precision(bits.max(k.value().precision_bits())),
+                        center.big().clone(),
+                    ),
+                    _ => unreachable!(),
+                };
+                let crit = ReferenceOrbitComputer::new(&c, bits);
+                let (ce, _) =
+                    almondbread_math::with_no_control(4096, |ctl| crit.compute_double_exp(max_iter, bailout, ctl));
+                let comp = ReferenceOrbitComputer::new(&c, bits).with_start(&z0);
+                let (ze, _) =
+                    almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
+                (ce, ze)
+            };
+            let mut bits = bits + extra;
+            let (mut ce, mut ze) = orbits(bits);
+            let (tm, te) = texel.parts();
+            let tx = DoubleExp::from_f64(tm).times_power_of_two(te);
+            let radius = tx * DoubleExp::from_f64(size as f64);
+            let near = crate::julia_reference::near_critical_bits(
+                ze.iter().copied(),
+                cos,
+                sin,
+                radius,
+                tx * DoubleExp::from_f64(0.5),
+            );
+            if near > 0 {
+                bits += (near + 8).div_ceil(64) * 64;
+                (ce, ze) = orbits(bits);
+            }
             let layout = JuliaLayout {
                 crit_last: ce.len() - 1,
                 center_start: crate::julia_reference::center_start(ce.len()),
                 crit_escaped: false,
+                near_critical_bits: 0,
             };
             let extended = crate::julia_reference::assemble(&ce, &ze, DoubleExpComplex::ZERO);
             let points = extended.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect();
             return Self {
                 formula,
                 julia: Some(layout),
-                cycle: julia_cycle(k),
+                cycle: formula.julia_k().map(julia_cycle).unwrap_or_default(),
                 points,
                 extended,
                 precision_bits: bits,
@@ -434,7 +485,13 @@ pub fn cpu_render_deep_with(
                 };
                 let px = (ox + offset.0) * tm;
                 let py = (oy + offset.1) * tm;
-                let (it, sm) = if reference.julia.is_some() {
+                let (it, sm) = if let Formula::Turn(t) = reference.formula {
+                    let (cos, sin) = t.cos_sin();
+                    let d = dx(px, py, te);
+                    let (d0, dc) = turn_split(d, cos, sin);
+                    let r = turn_pixel(reference, d0, dc, max_iter, bailout * bailout, None);
+                    (r.n, r.s)
+                } else if reference.julia.is_some() {
                     julia_deep_pixel(reference, dx(px, py, te), max_iter, bailout * bailout)
                 } else {
                     deep_pixel(reference, (px, py), te, max_iter, bailout * bailout)
@@ -504,6 +561,102 @@ fn julia_deep_pixel(r: &OracleReference, d0: DoubleExpComplex, max_iter: usize, 
             return (ITER_INTERIOR, 0.0);
         }
         z = (zr.times_two() + z) * z;
+        m += 1;
+        n += 1;
+    }
+}
+
+/// F9: a pixel's offset `d` (view units) as its start offset `sin t d` and parameter offset
+/// `cos t d` (kb: plans/f9-turn).
+pub fn turn_split(d: DoubleExpComplex, cos: f64, sin: f64) -> (DoubleExpComplex, DoubleExpComplex) {
+    let (c, s) = (DoubleExp::from_f64(cos), DoubleExp::from_f64(sin));
+    (
+        DoubleExpComplex::new(d.re * s, d.im * s),
+        DoubleExpComplex::new(d.re * c, d.im * c),
+    )
+}
+
+/// Outcome of [`turn_pixel`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TurnPixel {
+    /// The field's n and s.
+    pub n: f32,
+    pub s: f32,
+    /// Rebases and BLA blocks taken.
+    pub rebases: u32,
+    pub blocks: u32,
+    /// Iterations skipped in BLA blocks.
+    pub skipped: usize,
+}
+
+/// One pixel of a turned view (F9, kb: plans/f9-turn), the CPU model of the kernel: its start
+/// offset `d0` and parameter offset `dc` against a turned reference (critical orbit, zeros,
+/// centre orbit; [`crate::julia_reference`]), in extended-range f64 throughout. The pixel starts
+/// at the centre orbit's index with `z = d0` and `n = 0`, steps `z' = (2Z + z) z + dc`, and
+/// rebases onto the critical orbit's index 0 (`Z = 0` there, same `c`) when `|Z_m + z| < |z|`
+/// or an orbit ends (Zhuoran). With `bla` (the deep table of the same reference, built for
+/// `Formula::Turn`: Mandelbrot's single steps `A = 2Z`, `B = 1`), the longest valid block is
+/// taken at every `m != 0`: `z <- A z + B dc` (the strictest use of the table: the kernel looks
+/// only at aligned indices). Without it this is the oracle (no BLA, no interior test: interior
+/// pixels run to `max_iter`). Validated against direct BigFloat iteration (`turn_gate`).
+pub fn turn_pixel(
+    r: &OracleReference,
+    d0: DoubleExpComplex,
+    dc: DoubleExpComplex,
+    max_iter: usize,
+    b2: f64,
+    bla: Option<&crate::bla::BlaTableX>,
+) -> TurnPixel {
+    let j = r.julia.expect("a turned reference");
+    let ext = &r.extended;
+    let (mut m, mut last, mut n) = (j.center_start, ext.len() - 1, 0usize);
+    let mut z = d0;
+    let cn = dc.magnitude();
+    let mut out = TurnPixel {
+        n: ITER_INTERIOR,
+        s: 0.0,
+        rebases: 0,
+        blocks: 0,
+        skipped: 0,
+    };
+    loop {
+        let mut zr = ext[m];
+        let zf = zr + z;
+        let r2 = zf.magnitude_squared().to_f64();
+        if r2 > b2 {
+            out.n = n as f32;
+            out.s = (1.0 - (0.5 * r2.ln()).log2()) as f32;
+            return out;
+        }
+        if m == last || (m != 0 && zf.magnitude_squared() < z.magnitude_squared()) {
+            z = zf;
+            zr = DoubleExpComplex::ZERO;
+            m = 0;
+            last = j.crit_last;
+            out.rebases += 1;
+        }
+        if n >= max_iter {
+            return out;
+        }
+        if let Some(t) = bla
+            && m != 0
+            && let Some((e, len)) = t.longest_at(m, n, max_iter, z.magnitude(), cn)
+            && m + len <= last
+        {
+            let x = |v: [f32; 2], ex: i32| {
+                DoubleExpComplex::new(
+                    DoubleExp::from_f64(f64::from(v[0])).times_power_of_two(i64::from(ex)),
+                    DoubleExp::from_f64(f64::from(v[1])).times_power_of_two(i64::from(ex)),
+                )
+            };
+            z = x(e.a, e.ae) * z + x(e.b, e.be) * dc;
+            m += len;
+            n += len;
+            out.blocks += 1;
+            out.skipped += len;
+            continue;
+        }
+        z = (zr.times_two() + z) * z + dc;
         m += 1;
         n += 1;
     }

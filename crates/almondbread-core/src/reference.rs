@@ -38,6 +38,21 @@ use crate::viewport::{Center, Scale, Viewport};
 /// f64 limit (~4e-16 |c|); 1e-12 leaves room for long orbits.
 pub const DEEP_SCALE: f64 = 1e-12;
 
+/// The scale per point below which views of `formula` use big references: [`DEEP_SCALE`],
+/// except where a pixel can pass the critical point within its own spread (F9, kb:
+/// plans/f9-turn "Near the critical point"): a Julia view near 0 needs about twice the view's
+/// bits (its differences shrink to the texel squared), beyond f64 from about 1e-7, so Julia
+/// views use big references from 1e-6; a turned plane loses at most `-log2 cos t` bits, so the
+/// threshold rises by `1 / cos t` (capped at Julia's).
+pub fn deep_scale_for(formula: Formula) -> f64 {
+    const JULIA_DEEP_SCALE: f64 = 1e-6;
+    match formula {
+        Formula::Julia(_) => JULIA_DEEP_SCALE,
+        Formula::Turn(t) => (DEEP_SCALE / t.cos_sin().0.max(1e-9)).min(JULIA_DEEP_SCALE),
+        _ => DEEP_SCALE,
+    }
+}
+
 /// Big references made for views below this scale per point run the deep (rescaled,
 /// extended-range) kernel; above it the plain float32 kernel, which is ~30 % faster per
 /// iteration and safe while deltas stay far above float32's squared-norm floor (~1e-19).
@@ -185,6 +200,46 @@ impl Reference {
                 crit_last: crit.len() - 1,
                 center_start: julia_reference::center_start(crit.len()),
                 crit_escaped,
+                near_critical_bits: 0,
+            };
+            return Some(Self {
+                formula,
+                point: Center::new(cr, ci),
+                scale: viewport.scale,
+                precision_bits: 53,
+                max_iter,
+                points: Arc::new(julia_reference::assemble(&crit, &center, [0.0; 2])),
+                extended: Arc::default(),
+                split: Arc::default(),
+                period: None,
+                detected_period: None,
+                escaped,
+                big: false,
+                deep_kernel: false,
+                select_time: 0.0,
+                orbit_time: start.elapsed().as_secs_f64(),
+                prepared: None,
+                julia: Some(layout),
+            });
+        }
+        if let Formula::Turn(t) = formula {
+            // F9: the critical orbit of the reference's c, then its own orbit from its z_0 (as
+            // a Julia reference; kb: plans/f9-turn).
+            let (c, z0) = t.point_f64((cr, ci));
+            let (crit, crit_escaped) = julia_reference::orbit_f64(c, (0.0, 0.0), max_iter, bailout, cancel)?;
+            let (center, escaped) = if z0 == (0.0, 0.0) {
+                (crit.clone(), crit_escaped)
+            } else {
+                julia_reference::orbit_f64(c, z0, max_iter, bailout, cancel)?
+            };
+            if let Some(p) = progress {
+                p.store(center.len() - 1, Ordering::Relaxed);
+            }
+            let layout = JuliaLayout {
+                crit_last: crit.len() - 1,
+                center_start: julia_reference::center_start(crit.len()),
+                crit_escaped,
+                near_critical_bits: 0,
             };
             return Some(Self {
                 formula,
@@ -294,6 +349,9 @@ impl Reference {
         let center = request.center.with_min_precision(bits);
         if let Formula::Julia(k) = request.formula {
             return Self::compute_julia_big(request, k, &center, bits, cancel, progress);
+        }
+        if let Formula::Turn(t) = request.formula {
+            return Self::compute_turn_big(request, t, &center, bits, cancel, progress);
         }
         let t0 = Instant::now();
         let mut is_cancelled = || cancel.load(Ordering::Relaxed);
@@ -477,13 +535,22 @@ impl Reference {
     ) -> Option<Self> {
         let t1 = Instant::now();
         let iters = request.max_iter.max(1);
+        let (mut cp, mut ce, mut escaped) =
+            julia_reference::center_orbit(k, center.big(), bits, iters, request.bailout, cancel)?;
+        // Pixels that pass 0 within their spread need more bits (F9, kb: plans/f9-turn "Near
+        // the critical point"): the centre orbit again at those.
+        let extra = request.near_critical_bits(&ce, 0.0, 1.0);
+        let bits = bits + extra;
+        if extra > 0 {
+            (cp, ce, escaped) = julia_reference::center_orbit(k, center.big(), bits, iters, request.bailout, cancel)?;
+        }
         let crit = julia_reference::critical_orbit(k, bits, iters, request.bailout, cancel)?;
-        let (cp, ce, escaped) = julia_reference::center_orbit(k, center.big(), bits, iters, request.bailout, cancel)?;
         progress.store(cp.len() - 1, Ordering::Relaxed);
         let layout = JuliaLayout {
             crit_last: crit.points.len() - 1,
             center_start: julia_reference::center_start(crit.points.len()),
             crit_escaped: crit.escaped,
+            near_critical_bits: extra,
         };
         Some(Self {
             formula: request.formula,
@@ -493,6 +560,63 @@ impl Reference {
             max_iter: request.max_iter,
             points: Arc::new(julia_reference::assemble(&crit.points, &cp, [0.0; 2])),
             extended: Arc::new(julia_reference::assemble(&crit.extended, &ce, FloatExpComplex::ZERO)),
+            split: Arc::default(),
+            period: None,
+            detected_period: None,
+            escaped,
+            big: true,
+            deep_kernel: request.scale.to_f64() < DEEP_KERNEL_SCALE,
+            select_time: 0.0,
+            orbit_time: t1.elapsed().as_secs_f64(),
+            prepared: None,
+            julia: Some(layout),
+        })
+    }
+
+    /// F9: a big turned reference (kb: plans/f9-turn): the critical orbit of the reference
+    /// point's `c` and its own orbit from its `z_0`, laid out as a Julia reference. No nucleus
+    /// search and no prefixes: both orbits whole.
+    fn compute_turn_big(
+        request: &ReferenceRequest,
+        plane: almondbread_math::TurnPlane,
+        center: &Center,
+        bits: usize,
+        cancel: &AtomicBool,
+        progress: &AtomicUsize,
+    ) -> Option<Self> {
+        let t1 = Instant::now();
+        let iters = request.max_iter.max(1);
+        // The pixel spacing in c is cos t texel and in z_0 sin t texel: near the ends the
+        // smaller one needs that many bits more than the view (kb: plans/f9-turn).
+        let bits = bits + crate::turn::extra_bits(plane);
+        let (c, z0) = crate::turn::reference_point(plane, center.big(), bits);
+        let ((mut kp, mut ke, mut crit_escaped), (mut cp, mut ce, mut escaped)) =
+            julia_reference::turn_orbits(&c, &z0, bits, iters, request.bailout, cancel)?;
+        // Pixels that pass 0 within their spread need more bits near 90° (kb: plans/f9-turn
+        // "Near the critical point"): both orbits again at those.
+        let (cos, sin) = plane.cos_sin();
+        let extra = request.near_critical_bits(&ce, cos, sin);
+        let bits = bits + extra;
+        if extra > 0 {
+            let (c, z0) = crate::turn::reference_point(plane, center.big(), bits);
+            ((kp, ke, crit_escaped), (cp, ce, escaped)) =
+                julia_reference::turn_orbits(&c, &z0, bits, iters, request.bailout, cancel)?;
+        }
+        progress.store(cp.len() - 1, Ordering::Relaxed);
+        let layout = JuliaLayout {
+            crit_last: kp.len() - 1,
+            center_start: julia_reference::center_start(kp.len()),
+            crit_escaped,
+            near_critical_bits: extra,
+        };
+        Some(Self {
+            formula: request.formula,
+            point: center.clone(),
+            scale: request.scale,
+            precision_bits: bits,
+            max_iter: request.max_iter,
+            points: Arc::new(julia_reference::assemble(&kp, &cp, [0.0; 2])),
+            extended: Arc::new(julia_reference::assemble(&ke, &ce, FloatExpComplex::ZERO)),
             split: Arc::default(),
             period: None,
             detected_period: None,
@@ -562,7 +686,7 @@ impl Reference {
     /// How well this reference serves `viewport` rendered with texels of `texel` complex units,
     /// `size` texels across (largest side) and `max_iter` iterations.
     pub fn fit(&self, viewport: &Viewport, texel: Scale, size: usize, max_iter: usize) -> Fit {
-        let deep = viewport.scale.to_f64() < DEEP_SCALE;
+        let deep = viewport.scale.to_f64() < deep_scale_for(self.formula);
         if !self.big {
             // The f64 reference: as in M1–M4 (within the view, made at a scale within 4x,
             // long enough).
@@ -576,7 +700,16 @@ impl Reference {
             // Shallow views keep the f64 path (bit-identical with earlier milestones).
             return Fit::No;
         }
-        if self.precision_bits < needed_bits(&self.point, texel, size, MIN_GUARD_BITS) {
+        // (F9: a reference whose pixels pass the critical point within their spread needs the
+        // extra bits it was made with, and one more per halving of the scale since.)
+        let near = self.julia.map_or(0, |j| {
+            if j.near_critical_bits == 0 {
+                0
+            } else {
+                j.near_critical_bits + self.scale.ratio(viewport.scale).log2().max(0.0).ceil() as usize
+            }
+        });
+        if self.precision_bits < needed_bits(&self.point, texel, size, MIN_GUARD_BITS) + near {
             return Fit::No;
         }
         let offset = self.point.distance_in(&viewport.center, texel);
@@ -590,7 +723,10 @@ impl Reference {
         let kernel_stale = !self.deep_kernel && vs < DEEP_KERNEL_SCALE;
         let short = self.truncated_before(max_iter);
         let far = offset > 2.0 * size as f64;
-        if self.precision_bits < needed_bits(&self.point, texel, size, GOOD_GUARD_BITS) || short || far || kernel_stale
+        if self.precision_bits < needed_bits(&self.point, texel, size, GOOD_GUARD_BITS) + near
+            || short
+            || far
+            || kernel_stale
         {
             return Fit::Stale;
         }
@@ -660,6 +796,18 @@ impl ReferenceRequest {
             bailout,
             nucleus: true,
         }
+    }
+
+    /// Bits beyond `precision_bits` a Julia or turned reference with this centre orbit needs
+    /// ([`julia_reference::near_critical_bits`]) for views within 4x the request's radius
+    /// (pans keep a reference that long) at half a point per texel, plus 8 bits of margin;
+    /// whole limbs, 0 when none are missing.
+    pub fn near_critical_bits(&self, center_orbit: &[FloatExpComplex], cos: f64, sin: f64) -> usize {
+        let scale = self.scale.double_exp();
+        let radius = scale * almondbread_math::DoubleExp::from_f64(4.0 * self.radius_points.max(1.0));
+        let texel = scale * almondbread_math::DoubleExp::from_f64(0.5);
+        let extra = julia_reference::near_critical_bits_x(center_orbit, cos, sin, radius, texel);
+        if extra == 0 { 0 } else { (extra + 8).div_ceil(64) * 64 }
     }
 
     /// The f64 orbit of `formula` at `viewport`'s centre, `max_iter` steps long.

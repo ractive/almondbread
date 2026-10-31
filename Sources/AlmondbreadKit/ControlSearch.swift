@@ -19,6 +19,8 @@ enum ControlSearch {
     /// it when the query is part of one of these (as a section's keywords match).
     static let fractalKeywords = ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn",
                                   "burning", "ship", "power", "exponent",
+                                  // F9: the turn and the start value under the pickers.
+                                  "turn mandelbrot julia", "start value", "z0", "z₀", "evil twin",
                                   // F10: the parameter lab.
                                   "parameter", "lab", "knob"]
 

@@ -832,6 +832,13 @@ pub struct ExplorerSettings {
     /// (set by the looks of that name; shown for the Mandelbrot set only,
     /// `FormulaCapabilities::buddhabrot`).
     pub buddha: String,
+    /// F9 (kb: plans/f9-turn): with `formula` "turn", the plane's angle in degrees and its pivot
+    /// `bits c_re c_im z0_re z0_im` (exact at `bits`); empty otherwise. The turn is set with
+    /// `Explorer::set_turn` / `set_start`, these only carry it (a restored session).
+    #[uniffi(default = 0.0)]
+    pub turn_degrees: f64,
+    #[uniffi(default = "")]
+    pub turn_pivot: String,
 }
 
 /// How the inside of the set is coloured.
@@ -1052,8 +1059,64 @@ impl From<&RenderSettings> for ExplorerSettings {
             cinematic_phase_drift: s.cinematic.phase_drift,
             cinematic_fly_cycle: s.cinematic.fly_cycle,
             buddha: s.buddha.name().into(),
+            turn_degrees: s.formula.turn().map_or(0.0, |t| t.degrees()),
+            turn_pivot: s.formula.turn().map(pivot_text).unwrap_or_default(),
         }
     }
+}
+
+/// F9: a turned plane's pivot as `bits c_re c_im z0_re z0_im` (round-trip digits at `bits`).
+fn pivot_text(t: almondbread_core::formula::TurnPlane) -> String {
+    let pv = t.pivot();
+    let bits = pv.0.precision_bits().max(pv.1.precision_bits());
+    let (c, z) = (pv.0.with_precision(bits), pv.1.with_precision(bits));
+    format!(
+        "{bits} {} {} {} {}",
+        c.re.to_decimal_string(None),
+        c.im.to_decimal_string(None),
+        z.re.to_decimal_string(None),
+        z.im.to_decimal_string(None)
+    )
+}
+
+/// The plane [`pivot_text`] wrote, at `degrees`.
+fn parse_pivot(text: &str, degrees: f64) -> Option<almondbread_core::Formula> {
+    let p: Vec<&str> = text.split_whitespace().collect();
+    if p.len() != 5 || !(0.0..=90.0).contains(&degrees) {
+        return None;
+    }
+    let bits: usize = p[0]
+        .parse()
+        .ok()
+        .filter(|b| (64..=4 * almondbread_core::viewport::MAX_CENTER_BITS).contains(b))?;
+    let c = almondbread_core::math::BigComplex::parse(p[1], p[2], bits)?;
+    let z = almondbread_core::math::BigComplex::parse(p[3], p[4], bits)?;
+    let ok = |v: [f64; 2]| v[0].is_finite() && v[1].is_finite();
+    (ok(c.to_f64()) && ok(z.to_f64())).then(|| {
+        almondbread_core::Formula::Turn(almondbread_core::formula::TurnPlane::new(
+            &c,
+            &z,
+            (degrees * 100.0).round() as u16,
+        ))
+    })
+}
+
+/// F9 (kb: plans/f9-turn): the turn between the Mandelbrot and the Julia plane and the start
+/// value, for the control center.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TurnInfo {
+    /// The turn and the start value apply (the z² + c views: Mandelbrot, its Julia sets and the
+    /// planes between); else the rows are disabled.
+    pub available: bool,
+    /// 0 (the Mandelbrot plane) ... 90 (the Julia plane).
+    pub degrees: f64,
+    /// The view centre's start value z_0 and parameter c, 17 significant digits.
+    pub start_re: String,
+    pub start_im: String,
+    pub param_re: String,
+    pub param_im: String,
+    /// The ordinary Mandelbrot set (0° and z_0 = 0): nothing to reset.
+    pub plain: bool,
 }
 
 /// Upper bound on iteration limits accepted over the FFI. The renderer uses at most
@@ -1120,7 +1183,11 @@ impl ExplorerSettings {
         }
         let ss = Supersampling::from_factor(self.supersampling as usize)
             .ok_or_else(|| invalid("supersampling must be 1 to 4"))?;
-        let formula = if self.formula == "julia" {
+        let formula = if self.formula == "turn" {
+            // F9: the plane the pivot names (the current one when the same: interned by value).
+            parse_pivot(&self.turn_pivot, self.turn_degrees)
+                .ok_or_else(|| invalid(format!("turn {} {}", self.turn_degrees, self.turn_pivot)))?
+        } else if self.formula == "julia" {
             // F4: the k it names (the current one when the value is the same: interned).
             let k = Center::parse(&self.julia_re, &self.julia_im)
                 .filter(|k| k.re().is_finite() && k.im().is_finite())
@@ -1996,6 +2063,80 @@ impl Explorer {
         self.lock().host.renderer.density_pivot()
     }
 
+    /// F9 (kb: plans/f9-turn): the turn and the start value of the view (the control center's
+    /// rows).
+    pub fn turn_info(&self) -> TurnInfo {
+        let g = self.lock();
+        let r = &g.host.renderer;
+        let f = r.settings.formula;
+        let deg = almondbread_core::turn::centidegrees(f).map_or(0.0, |t| f64::from(t) / 100.0);
+        let point = almondbread_core::turn::point_of(f, r.viewport.center.big(), r.viewport.center.precision_bits());
+        let s = |x: &almondbread_core::math::BigFloat| x.to_decimal_string(Some(17));
+        match point {
+            Some((c, z)) => TurnInfo {
+                available: true,
+                degrees: deg,
+                start_re: s(&z.re),
+                start_im: s(&z.im),
+                param_re: s(&c.re),
+                param_im: s(&c.im),
+                plain: f.is_mandelbrot(),
+            },
+            None => TurnInfo {
+                available: false,
+                degrees: 0.0,
+                start_re: "0".into(),
+                start_im: "0".into(),
+                param_re: String::new(),
+                param_im: String::new(),
+                plain: true,
+            },
+        }
+    }
+
+    /// F9: turns the view's plane to `degrees` (0 the Mandelbrot plane, 90 the Julia set of the
+    /// centre's c; hundredths of a degree) around the view centre's point: the slider. Each
+    /// angle is another formula (a jump) shown with gesture frames. Returns the settings (the
+    /// formula changes). A frame follows: resume the display link.
+    pub fn set_turn(&self, degrees: f64) -> ExplorerSettings {
+        let mut g = self.lock();
+        if degrees.is_finite() {
+            let t = (degrees.clamp(0.0, 90.0) * 100.0).round() as u16;
+            if g.host.set_turn(t, media_time()) {
+                g.sync_formula();
+            }
+        }
+        ExplorerSettings::from(&g.host.renderer.settings)
+    }
+
+    /// F9: the start value z_0 of the view centre (decimal strings, any digits): its c and the
+    /// angle stay. At 0° a non-zero z_0 is the Mandelbrot plane with that start; at 90° (a Julia
+    /// view) the view moves to z_0. Returns the settings. A frame follows.
+    pub fn set_start(&self, re: String, im: String) -> Result<ExplorerSettings, CoreError> {
+        let z = Center::parse(&re, &im)
+            .filter(|z| z.re().is_finite() && z.im().is_finite())
+            .ok_or_else(|| invalid(format!("start {re}, {im}")))?;
+        let mut g = self.lock();
+        if g.host.set_start(z.big(), media_time()) {
+            g.sync_formula();
+        }
+        Ok(ExplorerSettings::from(&g.host.renderer.settings))
+    }
+
+    /// F9: back to the ordinary Mandelbrot set at the view centre's c (0°, z_0 = 0). Returns the
+    /// settings. A frame follows.
+    pub fn reset_turn(&self) -> ExplorerSettings {
+        let mut g = self.lock();
+        let now = media_time();
+        let zero = almondbread_core::math::BigComplex::zero(64);
+        let a = g.host.set_turn(0, now);
+        let b = g.host.set_start(&zero, now);
+        if a || b {
+            g.sync_formula();
+        }
+        ExplorerSettings::from(&g.host.renderer.settings)
+    }
+
     /// What the current formula supports (F2): the UI hides the rest. In the parameter lab
     /// (F10) the lab's (`FormulaCapabilities::lab`, formula "lab").
     pub fn capabilities(&self) -> FormulaCapabilities {
@@ -2415,6 +2556,17 @@ impl Explorer {
             // view is left (to the view it came from, then the pasted view) and the `formula`
             // line (F3) picks the set: Mandelbrot for labelled text without one, else unchanged.
             let view = g.host.renderer.viewport.clone();
+            // F9: a `turn` line names the turned plane (the centre's point and the angle).
+            if let Some((t, c, z)) = almondbread_core::turn::parse_turn_line(&text) {
+                if g.host.renderer.settings.formula.is_julia() {
+                    g.host.leave_julia();
+                }
+                let (f, v) = almondbread_core::turn::from_turn_line(t, &c, &z, &view);
+                g.host.renderer.settings.formula = f;
+                g.host.renderer.viewport = v;
+                g.sync_formula();
+                return ok;
+            }
             match almondbread_core::julia::parse_k_line(&text) {
                 Some(k) => {
                     let f = almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big()));
@@ -3143,5 +3295,87 @@ mod failing_frame_tests {
         // The hook is used up: the next frame completes and the line goes.
         frame(&e);
         assert!(e.stats().failing.is_empty());
+    }
+}
+
+/// F9 (kb: plans/f9-turn) through the FFI: the slider turns around the view centre's point and
+/// back exactly, the start value and the reset, the settings round trip (a restored session) and
+/// the copied text.
+#[cfg(all(test, target_vendor = "apple"))]
+mod turn_tests {
+    use super::*;
+    use almondbread_core::formula::Formula;
+
+    fn explorer() -> (Arc<Explorer>, objc2::rc::Retained<objc2_quartz_core::CAMetalLayer>) {
+        let layer = objc2_quartz_core::CAMetalLayer::new();
+        let ptr = objc2::rc::Retained::as_ptr(&layer) as usize as u64;
+        let e = Explorer::new(ptr, 2.0).expect("explorer");
+        e.resize(400.0, 250.0, 2.0);
+        (e, layer)
+    }
+
+    fn formula(e: &Explorer) -> Formula {
+        e.lock().host.renderer.settings.formula
+    }
+
+    #[test]
+    fn the_slider_turns_and_returns_exactly() {
+        let (e, _layer) = explorer();
+        e.set_viewport("-0.7453".into(), "0.1127".into(), 6e-5).unwrap();
+        let before = e.lock().host.renderer.viewport.clone();
+        let t = e.turn_info();
+        assert!(t.available && t.plain && t.degrees == 0.0);
+        let s = e.set_turn(37.5);
+        assert_eq!(s.formula, "turn");
+        assert_eq!(s.turn_degrees, 37.5);
+        let t = e.turn_info();
+        assert_eq!((t.degrees, t.plain), (37.5, false));
+        assert_eq!(
+            (t.param_re.parse::<f64>().unwrap(), t.start_re.parse::<f64>().unwrap()),
+            (-0.7453, 0.0)
+        );
+        let caps = e.capabilities();
+        assert!(!caps.seek && !caps.content && !caps.pi_meter && !caps.closed_form_components && !caps.la);
+        assert!(caps.de && caps.interior_derivative);
+        // A restored session: the settings name the same plane.
+        let f = formula(&e);
+        e.set_settings(s.clone()).unwrap();
+        assert_eq!(formula(&e), f);
+        // 90°: the Julia set of the centre's c; back to 0°: the view it started from.
+        assert_eq!(e.set_turn(90.0).formula, "julia");
+        assert_eq!(formula(&e).julia_k().unwrap().approx(), (-0.7453, 0.1127));
+        assert_eq!(e.set_turn(0.0).formula, "mandelbrot");
+        let after = e.lock().host.renderer.viewport.clone();
+        assert_eq!(after.center.big(), before.center.big());
+        assert_eq!(after.scale, before.scale);
+    }
+
+    #[test]
+    fn start_values_reset_and_text() {
+        let (e, _layer) = explorer();
+        e.set_viewport("-0.5".into(), "0.25".into(), 0.004).unwrap();
+        let s = e.set_start("0.125".into(), "-0.25".into()).unwrap();
+        assert_eq!((s.formula.as_str(), s.turn_degrees), ("turn", 0.0));
+        let t = e.turn_info();
+        assert_eq!((t.start_re.as_str(), t.start_im.as_str()), ("0.125", "-0.25"));
+        e.set_turn(20.0);
+        let text = e.coordinates_text();
+        assert!(text.contains("\nturn 20 "), "{text}");
+        let v = e.lock().host.renderer.viewport.clone();
+        // Pasted from elsewhere, the text comes back to the plane and the view.
+        e.reset_turn();
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        assert!(e.paste_coordinates(text));
+        assert_eq!(formula(&e).turn().unwrap().centidegrees(), 2000);
+        let pv = e.lock().host.renderer.viewport.clone();
+        assert!((pv.center.re() - v.center.re()).abs() < 1e-12 && (pv.center.im() - v.center.im()).abs() < 1e-12);
+        // Reset: the Mandelbrot set at the centre's c.
+        let s = e.reset_turn();
+        assert_eq!(s.formula, "mandelbrot");
+        assert!(e.turn_info().plain);
+        // The other formulas: the rows are disabled and the slider does nothing.
+        e.set_formula("burningship".into()).unwrap();
+        assert!(!e.turn_info().available);
+        assert_eq!(e.set_turn(30.0).formula, "burningship");
     }
 }

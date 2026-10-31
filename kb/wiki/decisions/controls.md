@@ -4166,6 +4166,35 @@ journal step and forward / ⌘Z through the Julia set with the way back kept, ev
 step that moves is an entry, a 4 s finger pause mid-scroll is no entry). Headless:
 `scripts/flights/journal.json` (whole set, the place elephants, N, back, back, forward).
 
+## Turn: Mandelbrot ↔ Julia (as built, 2026-10-31, awaiting review)
+
+[F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md): the view's plane of the (c, z₀) space turned between the
+Mandelbrot set (0°) and the Julia set of the view centre's c (90°), and the start value z₀.
+Controls live in the pinned [Fractal row](#fractal-row-as-built-2026-10-26), under the pickers
+(or under a Julia view's "Julia set of Mandelbrot · Back"), on the Mac, the iPad and the iPhone
+sheet alike (`TurnRows` in `ControlCenterView.swift`):
+
+| Row | What it does |
+|---|---|
+| "Turn: Mandelbrot ↔ Julia" · degrees, slider 0–90° | turns around the point in the middle of the view (it stays there; scale and rotation stay); 0.1° steps, live: each value is a new plane, rendered with gesture frames; id `turn-slider` |
+| "Start z₀" re + im i | the centre's start value; Return applies it (at 0° the plane's z₀, at 90° the centre itself); ids `turn-start-re`, `turn-start-im`; the fields follow the view while not edited (10 significant digits shown) |
+| ↺ | back to the ordinary Mandelbrot set at the centre's c (0°, z₀ = 0); disabled when already there ("Disabled, not hidden": it depends on the setting); id `turn-reset` |
+
+The rows exist for the z² + c views only (Mandelbrot, its Julia sets, the planes between);
+another fractal does not have them, so they are hidden there (a fractal capability, not a
+setting). No key or menu item yet. Picking a fractal in a turned view switches to that fractal's
+whole set as from any view. Search: "turn", "start value", "z0", "z₀", "evil twin" tint the row.
+In a turned view the capabilities hide what assumes z₀ = 0: seek (N), the π meter, places, tours,
+journeys and the target lock, the Julia panel and twin, the orbit overlay, the Buddhabrot looks
+(the plan's "As built" lists all). Turning into 90° keeps no way back (the slider is it; the
+Mandelbrot panel then shows the whole set with k marked); turning out of a Julia view drops the
+way back it had. The twin and the turn both reach the Julia set of the centre's c: the twin
+framed like the view (around z₀ = c), the turn around z₀ = 0.
+
+Checked by `--ui-demo=turn` and `turn-julia`, `ControlSearchTests`, the FFI tests
+`explorer::turn_tests`, the iOS UI test `TouchControlsUITests.testTurnSlider`, and the
+interaction test scenarios "turn slider home", "turn slider 1e-20" and "turned 1e-100 pan".
+
 ## Test switches (temporary)
 
 A/B switches for the user's foreground comparison. Each goes, with its losing path, once the
@@ -4190,3 +4219,4 @@ kept 50 ms after comparing both in a real window, and the switch and the 12 ms p
 - [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
 - [mathr blog: automated Julia morphing (2016-2021)](../sources/mathr-julia-morphing-posts.md)
 - [Deep-zoom videos: record and landmark YouTube descriptions](../sources/deep-zoom-videos.md)
+- [F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md)

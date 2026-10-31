@@ -23,7 +23,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use almondbread_math::{BigComplex, FloatExpComplex, JuliaK, ReferenceOrbitComputer, Threads};
+use almondbread_math::{
+    BigComplex, DoubleExp, DoubleExpComplex, FloatExpComplex, JuliaK, ReferenceOrbitComputer, Threads,
+};
 
 /// The centre orbit starts at a multiple of this (>= the BLA's lookup interval; blocks of the
 /// centre orbit up to this length line up with the table's levels).
@@ -38,6 +40,9 @@ pub struct JuliaLayout {
     pub center_start: usize,
     /// The critical orbit escaped (its end is an exact rebase point).
     pub crit_escaped: bool,
+    /// Bits the reference carries beyond the view's because pixels pass the critical point
+    /// within their own spread ([`near_critical_bits`]; F9). 0 for f64 references.
+    pub near_critical_bits: usize,
 }
 
 impl JuliaLayout {
@@ -172,9 +177,122 @@ pub fn center_orbit(
     Some((points, extended, escaped))
 }
 
+/// Bits a Julia or turned reference needs beyond the view's where its pixels pass the critical
+/// point 0 within their own spread (F9's gate found it, kb: plans/f9-turn "Near the critical
+/// point"). A Julia step has no `+c`: neighbouring pixels `Δ` apart at `z ≈ 0` are `2|z| Δ +
+/// Δ^2` apart after it, so near 0 their differences shrink to `Δ^2` and the reference must
+/// resolve that, not the texel (a view centred on 0 needs twice the bits: the picture there is
+/// the one near `k` at the squared scale). A turned plane adds `cos t texel` per step, which
+/// bounds the loss.
+///
+/// Along the centre orbit `Z_m` (`orbit`), with the plane derivative `D_0 = sin t`, `D_{m+1} =
+/// 2 Z_m D_m + cos t`: the view's image at step m has radius `I_m = radius |D_m|`; where it
+/// reaches 0 (`|Z_m| < 4 I_m`) neighbours end up `rho texel` apart with `rho = max(2 max(|Z_m| -
+/// I_m, 0) |D_m|, |D_m|^2 texel, cos t)`, and `-log2 rho` bits are missing. Scanned until the
+/// image is large (`I_m >= 1`: the pixels spread over the whole set). Capped at the bits of a
+/// view at 0 (`-log2(radius)`) plus 16. 0 for Mandelbrot-like planes (`cos t ≈ 1`).
+pub fn near_critical_bits(
+    orbit: impl Iterator<Item = DoubleExpComplex>,
+    cos: f64,
+    sin: f64,
+    radius: DoubleExp,
+    texel: DoubleExp,
+) -> usize {
+    if cos >= 0.5 || radius.is_zero() || texel.is_zero() {
+        return 0;
+    }
+    let cap = (-radius.log2_magnitude()).max(0.0) + 16.0;
+    let (c, two) = (DoubleExp::from_f64(cos), DoubleExp::from_f64(2.0));
+    let one = DoubleExp::from_f64(1.0);
+    let mut d = DoubleExpComplex::new(DoubleExp::from_f64(sin), DoubleExp::ZERO);
+    let mut extra = 0.0f64;
+    for (m, z) in orbit.enumerate() {
+        let dn = d.magnitude();
+        let image = radius * dn;
+        if image >= one || m > 1 << 20 {
+            break;
+        }
+        let zn = z.magnitude();
+        if zn < image * DoubleExp::from_f64(4.0) {
+            let gap = if zn > image { zn - image } else { DoubleExp::ZERO };
+            let mut rho = two * gap * dn;
+            let sq = dn * dn * texel;
+            if sq > rho {
+                rho = sq;
+            }
+            if c > rho {
+                rho = c;
+            }
+            if !rho.is_zero() && rho < one {
+                extra = extra.max(-rho.log2_magnitude());
+            } else if rho.is_zero() {
+                extra = cap;
+            }
+        }
+        d = z.times_two() * d + DoubleExpComplex::new(c, DoubleExp::ZERO);
+    }
+    extra.min(cap).ceil() as usize
+}
+
+/// [`near_critical_bits`] of a floatexp orbit.
+pub fn near_critical_bits_x(
+    orbit: &[FloatExpComplex],
+    cos: f64,
+    sin: f64,
+    radius: DoubleExp,
+    texel: DoubleExp,
+) -> usize {
+    let x = |z: &FloatExpComplex| {
+        DoubleExpComplex::new(
+            DoubleExp::from_f64(f64::from(z.mantissa[0])).times_power_of_two(i64::from(z.exponent)),
+            DoubleExp::from_f64(f64::from(z.mantissa[1])).times_power_of_two(i64::from(z.exponent)),
+        )
+    };
+    near_critical_bits(orbit.iter().map(x), cos, sin, radius, texel)
+}
+
+/// F9 (kb: plans/f9-turn): the two orbits of a turned reference with parameter `c` and start
+/// `z0`, in high precision: the critical orbit (from 0) and the centre orbit (from `z0`; the
+/// critical one itself when `z0 = 0`), each `(points, extended, escaped)`. Not cached: `c`
+/// changes with every reference point (unlike a Julia set's `k`). The two run side by side.
+#[allow(clippy::type_complexity)]
+pub fn turn_orbits(
+    c: &BigComplex,
+    z0: &BigComplex,
+    bits: usize,
+    max_iter: usize,
+    bailout: f64,
+    cancel: &AtomicBool,
+) -> Option<(
+    (Vec<[f32; 2]>, Vec<FloatExpComplex>, bool),
+    (Vec<[f32; 2]>, Vec<FloatExpComplex>, bool),
+)> {
+    let pad = |(mut p, mut e, esc): (Vec<[f32; 2]>, Vec<FloatExpComplex>, bool)| {
+        if p.len() < 2 {
+            p.push(p[0]);
+            e.push(e[0]);
+        }
+        (p, e, esc)
+    };
+    let crit_comp = ReferenceOrbitComputer::new(c, bits).with_threads(Threads::Automatic);
+    if z0.re.is_zero() && z0.im.is_zero() {
+        let crit = pad(staged(&crit_comp, max_iter, bailout, cancel)?);
+        return Some((crit.clone(), crit));
+    }
+    let center_comp = ReferenceOrbitComputer::new(c, bits)
+        .with_start(z0)
+        .with_threads(Threads::Automatic);
+    let (crit, center) = std::thread::scope(|s| {
+        let h = s.spawn(|| staged(&crit_comp, max_iter, bailout, cancel));
+        let center = staged(&center_comp, max_iter, bailout, cancel);
+        (h.join().ok().flatten(), center)
+    });
+    Some((pad(crit?), pad(center?)))
+}
+
 /// Runs `comp` to `max_iter` (or escape) with storage that grows stage by stage (an orbit
 /// usually escapes long before a high limit: no reservation of the whole request).
-fn staged(
+pub(crate) fn staged(
     comp: &ReferenceOrbitComputer,
     max_iter: usize,
     bailout: f64,

@@ -538,6 +538,10 @@ impl Viewport {
         if formula.is_julia() {
             return crate::julia::home_view(width, height);
         }
+        if let crate::formula::Formula::Turn(t) = formula {
+            // F9: the turned plane's own middle (kb: plans/f9-turn).
+            return crate::turn::home_view(t, width, height);
+        }
         if formula.is_mandelbrot() || width <= 0.0 || height <= 0.0 {
             return Self::fitting(width, height);
         }
@@ -638,6 +642,7 @@ pub fn set_box(formula: crate::formula::Formula) -> SetBox {
         // Ours with the imaginary axis flipped (ships upright; kb: formulas/burning-ship).
         Formula::BurningShip => SetBox::new(-2.0, 1.159, -0.456, 1.733),
         Formula::Julia(k) => crate::julia::set_box(k.approx()),
+        Formula::Turn(t) => crate::turn::set_box(t),
     }
 }
 

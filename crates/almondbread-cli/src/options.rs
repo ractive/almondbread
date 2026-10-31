@@ -188,6 +188,46 @@ impl Options {
         Ok(Viewport::with_center(center, scale))
     }
 
+    /// F9 (kb: plans/f9-turn): `--turn degrees` (0..90) and `--z0 re,im` turn the view's plane
+    /// of the (c, z_0) space around the point `(c, z_0)` = (`--center`, `--z0`, default 0): `--turn
+    /// 0 --z0 a,b` is the Mandelbrot plane with start `z_0 = a + bi`, `--turn 90` the Julia set
+    /// of `k = --center` (its view at `--z0`), between them the turned plane through that point.
+    /// Nothing without either option. (Mandelbrot views only: the turn is a `z^2 + c` plane.)
+    pub fn apply_turn(&self, formula: &mut almondbread_core::formula::Formula, view: &mut Viewport) -> Result<()> {
+        let turn = self.get("turn");
+        let z0 = self.get("z0");
+        if turn.is_none() && z0.is_none() {
+            return Ok(());
+        }
+        if !formula.is_mandelbrot() {
+            return err("--turn and --z0 apply to the Mandelbrot formula (z^2 + c)");
+        }
+        let degrees: f64 = match turn {
+            Some(t) => match t.parse::<f64>() {
+                Ok(d) if (0.0..=90.0).contains(&d) => d,
+                _ => return err(format!("bad --turn {t}: expected degrees 0..90")),
+            },
+            None => 0.0,
+        };
+        let start = match z0 {
+            Some(v) => match v
+                .split_once(',')
+                .and_then(|(re, im)| Center::parse(re.trim(), im.trim()))
+            {
+                Some(c) => c,
+                None => return err(format!("bad --z0 {v}: expected re,im")),
+            },
+            None => Center::new(0.0, 0.0),
+        };
+        view.ensure_precision();
+        let (f, p) =
+            almondbread_core::turn::plane_through((degrees * 100.0).round() as u16, view.center.big(), start.big());
+        *formula = f;
+        view.center = Center::from_big(p);
+        view.ensure_precision();
+        Ok(())
+    }
+
     /// The rendering settings shared by all commands. Headless tools render one sample per
     /// pixel unless `--ss` asks for a grid (the app's default anti-aliasing is progressive).
     pub fn apply_settings(&self, s: &mut RenderSettings) {

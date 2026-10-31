@@ -200,6 +200,9 @@ struct SavedSettings: Codable {
     var juliaIm: String?
     /// The orbit-density look (BB): "off", "buddhabrot", "nebulabrot".
     var buddha: String?
+    /// F9: a turned plane's angle and pivot (with `formula` "turn").
+    var turnDegrees: Double?
+    var turnPivot: String?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -225,6 +228,13 @@ public final class ExplorerModel {
     public private(set) var juliaIm = ""
     /// A Julia set is the main view (F4).
     public var isJulia: Bool { formula == "julia" }
+    /// F9 (kb: plans/f9-turn): a turned plane's angle and pivot when `formula` is "turn" (Rust
+    /// turns and sets the start value, the model mirrors it for the settings round trip).
+    public private(set) var turnDegrees = 0.0
+    public private(set) var turnPivot = ""
+    /// F9: the turn between the Mandelbrot and the Julia plane and the view centre's start value
+    /// (the control center's rows; refreshed with the stats). Nil before the renderer exists.
+    public private(set) var turn: TurnInfo?
 
     /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
     /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
@@ -672,8 +682,11 @@ public final class ExplorerModel {
         defer { pulling = false }
         juliaRe = s.juliaRe
         juliaIm = s.juliaIm
+        turnDegrees = s.turnDegrees
+        turnPivot = s.turnPivot
         formula = s.formula
         if let c = explorer?.capabilities(), c != capabilities { capabilities = c }
+        if let t = explorer?.turnInfo(), t != turn { turn = t }
         autoIterations = s.autoIterations
         manualIterations = Int(s.manualIterations)
         maxIterationsCap = Int(s.maxIterationsCap)
@@ -729,7 +742,8 @@ public final class ExplorerModel {
             interiorMode: interiorColoring.ffi, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, cinematic: cinematic, cinematicSpin: cinematicSpin,
             cinematicHueDrift: cinematicHueDrift, cinematicPhaseDrift: cinematicPhaseDrift,
-            cinematicFlyCycle: cinematicFlyCycle, buddha: buddha)
+            cinematicFlyCycle: cinematicFlyCycle, buddha: buddha,
+            turnDegrees: turnDegrees, turnPivot: turnPivot)
     }
 
     private var overlaySettings: OverlaySettings {
@@ -875,7 +889,8 @@ public final class ExplorerModel {
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapLarge: mapLarge, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker,
-            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm, buddha: buddha)
+            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm, buddha: buddha,
+            turnDegrees: turnDegrees, turnPivot: turnPivot)
     }
 
     private func writeSaved() {
@@ -935,6 +950,8 @@ public final class ExplorerModel {
         buddha = s.buddha ?? buddha
         juliaRe = s.juliaRe ?? juliaRe
         juliaIm = s.juliaIm ?? juliaIm
+        turnDegrees = s.turnDegrees ?? turnDegrees
+        turnPivot = s.turnPivot ?? turnPivot
         formula = s.formula ?? formula
         orbitEnabled = s.orbitEnabled ?? orbitEnabled
         orbitLength = s.orbitLength ?? orbitLength
@@ -1572,6 +1589,33 @@ public final class ExplorerModel {
         host?.requestFrames()
     }
 
+    // MARK: Turn (F9, kb: plans/f9-turn)
+
+    /// The turn slider: the view's plane turned to `degrees` (0 the Mandelbrot plane, 90 the Julia
+    /// set of the centre's c) around the view centre's point. Each value is a new plane (Rust
+    /// renders it with gesture frames, so a drag stays fluid).
+    public func setTurn(_ degrees: Double) {
+        guard let explorer else { return }
+        pull(explorer.setTurn(degrees: degrees))
+        host?.requestFrames()
+    }
+
+    /// The view centre's start value z₀ (decimal strings); false if they do not parse.
+    @discardableResult
+    public func setStart(re: String, im: String) -> Bool {
+        guard let explorer, let s = try? explorer.setStart(re: re, im: im) else { return false }
+        pull(s)
+        host?.requestFrames()
+        return true
+    }
+
+    /// Back to the ordinary Mandelbrot set at the view centre's c (0°, z₀ = 0).
+    public func resetTurn() {
+        guard let explorer else { return }
+        pull(explorer.resetTurn())
+        host?.requestFrames()
+    }
+
     /// Opens the Julia set of k (decimal strings) whole, as a click on the Julia panel does
     /// (ui-demo scenes).
     public func openJulia(re: String, im: String) {
@@ -1687,6 +1731,16 @@ public final class ExplorerModel {
         if let t = tour, !t.goal.isEmpty, !tourGoalMet, explorer?.tourGoalMet() == true { tourGoalMet = true }
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
+        // F9: the centre's start value moves with a turned view; a journal step or a link may
+        // name another plane (the mirror takes the settings over).
+        if let explorer {
+            let t = explorer.turnInfo()
+            if t != turn {
+                turn = t
+                let s = explorer.settings()
+                if s.turnPivot != turnPivot || s.turnDegrees != turnDegrees { pull(s) }
+            }
+        }
         guard let new = explorer?.stats(), new != stats else { return }
         // Rust changed the fractal (F4: a Julia set opened or left, a tour, a pasted link): the
         // mirror takes the settings over.
