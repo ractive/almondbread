@@ -343,6 +343,8 @@ impl<B: GpuBackend> Renderer<B> {
             size,
             max_iter: lab::iterations(self.settings.auto_iterations, self.settings.manual_iterations, pixel),
         };
+        // (The HUD reads the shown view and limit from the stats.)
+        self.stats.max_iterations = key.max_iter;
         if lab.changed.as_ref().is_none_or(|(k, _)| *k != key) {
             lab.changed = Some((key.clone(), now));
             lab.job = None;
@@ -550,6 +552,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.last_frame_commit = now;
         self.has_presented = true;
         self.history_ping = 1 - self.history_ping;
+        self.stats.viewport = Some(self.viewport.clone());
         self.history_view = Some(HistoryView {
             viewport: self.viewport.clone(),
             scale: self.viewport.scale * ppp,
