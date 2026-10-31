@@ -137,20 +137,22 @@ extension LabKnobs {
     }
 }
 
-/// A knob of the lab: its id ("z0", "c", "p"), symbol and what its plane shows.
+/// A knob of the lab: its id ("z0", "c", "p"), symbol, its role in the formula (the rows'
+/// header) and what its plane shows.
 struct LabKnob: Identifiable {
     let id: String
     let symbol: String
+    let role: String
     let plane: String
     let help: String
 
     /// In the order of the formula z → zᵖ + c: the start, the exponent, the constant.
     static let all = [
-        LabKnob(id: "z0", symbol: "z₀", plane: "z₀ plane",
+        LabKnob(id: "z0", symbol: "z₀", role: "where z starts", plane: "z₀ plane",
                 help: "z₀: where z starts. Its plane is a Julia-like set: each point is one start"),
-        LabKnob(id: "p", symbol: "p", plane: "p plane",
+        LabKnob(id: "p", symbol: "p", role: "the exponent in zᵖ", plane: "p plane",
                 help: "p: the exponent in zᵖ. Its plane is the X-set: each point is one exponent"),
-        LabKnob(id: "c", symbol: "c", plane: "c plane",
+        LabKnob(id: "c", symbol: "c", role: "added at each step", plane: "c plane",
                 help: "c: the number added at each step. Its plane is a Mandelbrot-like set: each point is one c"),
     ]
 
@@ -201,7 +203,8 @@ struct LabControls: View {
     }
 }
 
-/// One knob: its symbol, then a slider and a number field for the real and the imaginary part.
+/// One knob: a header (symbol and role), then a row each for the real and the imaginary part,
+/// labelled re and im, with a slider and a number field; the fields read "a + b i".
 struct LabKnobRows: View {
     let model: ExplorerModel
     let knob: LabKnob
@@ -209,15 +212,14 @@ struct LabKnobRows: View {
     var body: some View {
         let v = model.labKnobs.value(knob.id)
         let range = knob.range
-        HStack(alignment: .center, spacing: 6) {
-            Text(knob.symbol)
-                .font(.body.monospaced())
-                .frame(width: 24, alignment: .leading)
-                .help(knob.help)
-            VStack(spacing: 2) {
-                part("re", value: v.re, range: range.re) { model.setLabKnobs(model.labKnobs.with(knob.id, re: $0)) }
-                part("im", value: v.im, range: range.im) { model.setLabKnobs(model.labKnobs.with(knob.id, im: $0)) }
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(knob.symbol).bold()
+                Text(knob.role).foregroundStyle(.secondary)
             }
+            .help(knob.help)
+            part("re", value: v.re, range: range.re) { model.setLabKnobs(model.labKnobs.with(knob.id, re: $0)) }
+            part("im", value: v.im, range: range.im) { model.setLabKnobs(model.labKnobs.with(knob.id, im: $0)) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lab-knob-\(knob.id)")
@@ -226,9 +228,17 @@ struct LabKnobRows: View {
     private func part(_ name: String, value: Double, range: ClosedRange<Double>,
                       set: @escaping (Double) -> Void) -> some View {
         HStack(spacing: 6) {
+            Text(name)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .frame(width: 16, alignment: .leading)
+                .accessibilityHidden(true)
             Slider(value: Binding(get: { min(max(value, range.lowerBound), range.upperBound) }, set: set), in: range)
                 .accessibilityLabel("\(knob.symbol) \(name == "re" ? "real part" : "imaginary part")")
                 .accessibilityIdentifier("lab-\(knob.id)-\(name)")
+            // "+" before the imaginary part's field and "i" after it; the real part's row keeps
+            // the same room empty, so both fields line up.
+            Text(name == "im" ? "+" : " ").foregroundStyle(.secondary).frame(width: 8)
             TextField(name, value: Binding(get: { value }, set: set),
                       format: .number.precision(.fractionLength(4)))
                 .multilineTextAlignment(.trailing)
@@ -238,6 +248,7 @@ struct LabKnobRows: View {
                 .keyboardType(.numbersAndPunctuation)
                 #endif
                 .accessibilityIdentifier("lab-\(knob.id)-\(name)-field")
+            Text(name == "im" ? "i" : " ").foregroundStyle(.secondary).frame(width: 6)
         }
     }
 }
