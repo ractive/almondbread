@@ -238,6 +238,7 @@ One page per planned milestone (type `plan`; `hyalo find --view plans` lists the
 - [F4: Deep Julia sets](plans/f4-deep-julia.md) — F4: deep Julia sets via critical-orbit rebasing (the Mandelbrot orbit of k; untested), Julia twin (planned; M)
 - [F5: Mandelbar (Tricorn) and the non-conformal path](plans/f5-mandelbar.md) — F5: Mandelbar / Tricorn, the non-conformal path: 2×2 BLA, dual numbers, Jacobian Newton (planned; M)
 - [F6: Burning Ship family](plans/f6-burning-ship.md) — F6: Burning Ship family: diffabs, fold-capped BLA, needle heuristic, places and journeys (planned; L)
+- [F6b: the Burning Ship's variants (Celtic, Buffalo, Perpendicular)](plans/f6b-burning-ship-variants.md) — F6b: Celtic, Buffalo, Perpendicular with exact R = X² − Y² per reference point, sign-pattern Jacobians, fold caps, 17 places (built, awaiting review; M)
 - [F7: Hybrid formulas via an opcode model](plans/f7-hybrids.md) — F7: hybrids via an opcode model (old M8): per-phase references and BLA, runtime MSL (planned; XL)
 - [F8: Nova, Newton and Magnet research spike](plans/f8-convergent-spike.md) — F8: one-week spike on perturbation for Nova / Newton / Magnet (planned; M)
 - [Buddhabrot and Nebulabrot as a look](plans/buddhabrot.md) — BB: Buddhabrot / Nebulabrot as an optional shallow look, any time (planned; M)

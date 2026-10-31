@@ -5,6 +5,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 
 ## 2026-10-31
 
+- **Decision:** F6b built: the Burning Ship's variants Celtic, Buffalo and Perpendicular (KF's definitions, shown upright), exact R = X^2 - Y^2 per reference point for the real fold, sign-pattern Jacobians, fold caps, 17 places; gate passed (oracle 384/384 vs BigFloat to 1e-300, across Buffalo's diagonal fold), GPU 0 % class mismatch on the needle to 1e-1000; plans/f6b-burning-ship-variants, formulas/burning-ship Variants, synthesis/benchmarks F6b
 - **Decision:** Formula track reviewed: F2 to F6 (pluggable formulas, Multibrot, deep Julia, Mandelbar, Burning Ship) and the Buddhabrot look marked done after the user's review; plans and roadmap updated
 
 ## 2026-10-28

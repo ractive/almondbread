@@ -18,8 +18,10 @@ The full KF2+ manual (about 160 KB of text): limits, known bugs, a change log fr
 kf-2.15.5.2 (2022), TODO, build notes, a menu-by-menu user manual, the GLSL colouring API, formula
 list and the EXR channel spec. Skimmed: read Limits, Known Bugs, Differences, the 2.15.x change
 logs and keyword hits in older ones, TODO, and the user-manual sections on View, Navigation,
-Advanced, Formula, Bailout, colouring DE, GLSL pixel API, command line and EXR channels. The formula
-list and build sections were not read.
+Advanced, Formula, Bailout, colouring DE, GLSL pixel API, command line and EXR channels. The build
+section was not read; the formula list's Burning Ship family (Burning Ship, Buffalo, Celtic,
+the perpendicular ones) was read for F6b (2026-10-31; their definitions on
+[Burning Ship and abs variations](../formulas/burning-ship.md) "Variants").
 
 ## What it covers
 

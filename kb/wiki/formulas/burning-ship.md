@@ -2,7 +2,7 @@
 title: "Burning Ship and abs variations"
 type: formula
 status: draft
-sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/fraktaler-3-site", "sources/kf-page", "sources/fractalshades-readme"]
+sources: ["sources/mathr-deep-zoom-theory", "sources/mathr-deep-zoom-theory-again", "sources/mathr-deep-zoom-page", "sources/fraktaler-3-site", "sources/kf-page", "sources/fractalshades-readme", sources/kf-manual]
 tags: [burning-ship, formula, abs-variation, perturbation, bla]
 ---
 
@@ -173,6 +173,63 @@ unless cited.
   At the supernova the GPU differs from the oracle in 31 % of escape counts and a 0.001 px grid
   shift of the oracle in 40 %: chaos, not error; at the spiderweb 4.5 % and 6.8 %.
 
+## Variants (F6b: Celtic, Buffalo, Perpendicular)
+
+Built 2026-10-31 ([F6b: the Burning Ship's variants (Celtic, Buffalo, Perpendicular)](../plans/f6b-burning-ship-variants.md);
+numbers in [almondbread benchmarks and verification record](../synthesis/benchmarks.md) "F6b").
+
+**Definitions.** Kalles Fraktaler's formula list, with `z = x + iy`, `w = u + iv` a temporary
+(src: [Kalles Fraktaler 2 + manual](../sources/kf-manual.md) §Formulas, power 2):
+
+- Celtic: `w = z^2`, `z <- |u| + i v + c`, i.e. `x' = |x^2 - y^2| + a`, `y' = 2xy + b`.
+- Buffalo: `w = z^2`, `z <- |u| + i|v| + c`, i.e. `x' = |x^2 - y^2| + a`, `y' = 2|xy| + b`. (KF
+  2.15.1 flipped the imaginary part of power-2 Buffalo "to match other powers", so older
+  parameter files show it mirrored; src: the same manual, change log kf-2.15.1.)
+- Perpendicular Burning Ship: `z <- (x - i|y|)^2 + c`, i.e. `x' = x^2 - y^2 + a`,
+  `y' = -2x|y| + b`. KF lists separately a "Perpendicular Mandelbrot" `(|x| - iy)^2 + c` and
+  perpendicular Celtic and Buffalo; "Perpendicular" in almondbread is the Burning Ship one.
+
+**Our orientation.** As for the ship, our `c` and `z` are the conjugates of KF's (the
+imaginary axis flipped, so the family is drawn the way KF draws it): Celtic is unchanged (it
+commutes with conjugation: symmetric in the real axis); Buffalo becomes `x' = |x^2 - y^2| +
+cx`, `y' = cy - 2|xy|`; Perpendicular becomes `(x + i|y|)^2 + c`: `y' = 2x|y| + cy`. Coordinates
+from KF parameter files or the literature: negate the imaginary part (Celtic: either).
+
+**Perturbed steps** (our derivation; `diffabs` and the delta's scale as for the ship). With
+`P = (2Z + z) z` (its real part the perturbation of `x^2 - y^2`, its imaginary part `2d`,
+`d = X y + x Y + x y`) and `R = X^2 - Y^2`:
+
+- Celtic: `x' = diffabs(R, Re P) + cx`, `y' = Im P + cy`.
+- Buffalo: `x' = diffabs(R, Re P) + cx`, `y' = cy - 2 diffabs(X Y, d)`.
+- Perpendicular: `x' = Re P + cx`, `y' = 2 (x|Y| + (X + x) diffabs(Y, y)) + cy`, from
+  `(X + x)|Y + y| - X|Y| = x|Y| + (X + x)(|Y + y| - |Y|)`.
+
+**R must be exact.** Unlike `X Y` or `Y`, whose rounding is relative, `R` rounded from rounded
+`X` and `Y` carries an absolute error `2^-53 |Z|^2` (float32 `2^-24 |Z|^2`) wherever `|X|` and
+`|Y|` are close. A fold decision compares `R` with a perturbation of the delta's size, so a deep
+view crossed by a fold line `|x| = |y|` folds pixels the wrong way: at Buffalo's diagonal at
+1e-30 per pixel (the centre 3.7 pixels off the fold) only 327 of 384 escape counts were right
+with the rounded `R` (measured 2026-10-31, M1 Pro, release). almondbread computes `R` per
+reference point as the high-precision `(X + Y)(X - Y)`, rounded once, and carries it to the
+oracle and the GPU; then 384 of 384.
+
+**Jacobians.** Each variant's step is linear between its folds, `diag(s_r, s_i)` times
+multiplication by `2z`: Celtic `s_r = sign(x^2 - y^2)`, `s_i = 1`; Buffalo `s_r` as Celtic,
+`s_i = -sign(xy)`; Perpendicular `s_r = 1`, `s_i = sign(y)`. Equal signs give `±2z` (conformal),
+different ones `±` Mandelbar's reflection `δ -> conj(2zδ)`. As for the ship, the signs must be
+the ones the perturbed step decides (at the delta's scale), not those of a float32 sum.
+
+**BLA fold caps** (our derivation): the step stays linear while no fold sign changes: `|y| <
+|Y|` (Perpendicular; Buffalo also `|x| < |X|`), and for the real fold `|x| + |y| < ||X| - |Y||`,
+which `|z| < ||X| - |Y|| / sqrt 2` guarantees; halved as for the ship, and the real-fold cap
+keeps a margin `2^-20 (|X| + |Y|)` for the table's float32 rounding.
+
+**Bounded orbits.** As the ship, each has large bounded regions no derivative test proves: of
+the pixels unresolved at the whole sets' auto limit (~300), 96 % (Celtic), 94 % (Buffalo) and
+98 % (Perpendicular) never escape within 1e5 iterations (direct BigFloat, `fold_truth`;
+measured 2026-10-31). Buffalo has a thick bounded shelf just above the needle: there `y' =
+cy - 2|x|y` keeps a small positive `y` small, so the orbit follows Mandelbrot's real line.
+
 # Citations
 
 - [mathr: Deep zoom theory and practice (2021)](../sources/mathr-deep-zoom-theory.md)
@@ -181,6 +238,7 @@ unless cited.
 - [Fraktaler 3 (documentation site, v3.1)](../sources/fraktaler-3-site.md)
 - [Kalles Fraktaler 2 + (home page)](../sources/kf-page.md)
 - [Fractalshades README](../sources/fractalshades-readme.md)
+- [Kalles Fraktaler 2 + manual](../sources/kf-manual.md)
 - <https://paulbourke.net/fractals/burnship/>
 - <https://robotmoon.com/burning-ship-fractal/>
 - <https://mathr.co.uk/web/a-burning-ship-fractal-zoom.html>

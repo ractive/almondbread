@@ -13,6 +13,7 @@
 * [F4: Deep Julia sets](f4-deep-julia.md)
 * [F5: Mandelbar (Tricorn) and the non-conformal path](f5-mandelbar.md)
 * [F6: Burning Ship family](f6-burning-ship.md)
+* [F6b: the Burning Ship's variants (Celtic, Buffalo, Perpendicular)](f6b-burning-ship-variants.md)
 * [F7: Hybrid formulas via an opcode model](f7-hybrids.md)
 * [F8: Nova, Newton and Magnet research spike](f8-convergent-spike.md)
 
