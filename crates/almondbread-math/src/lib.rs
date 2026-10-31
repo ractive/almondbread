@@ -37,7 +37,9 @@ mod extreme_tests;
 pub use bigfloat::BigFloat;
 pub use complex::BigComplex;
 pub use floatexp::{DoubleExp, DoubleExpComplex, FloatExp, FloatExpComplex, FloatExpSplit};
-pub use formula::{Formula, JuliaK, MULTIBROT_MAX_POWER, diffabs, diffabs_x};
+pub use formula::{
+    Formula, JuliaK, MULTIBROT_MAX_POWER, TURN_MAX_CENTIDEGREES, TurnPlane, diffabs, diffabs_x, turn_cos_sin,
+};
 pub use linear::{Linear, LinearX};
 pub use orbit::{
     AUTOMATIC_MULTIPLICATION_LIMIT, Control, OrbitResult, ReferenceOrbitComputer, Threads, Variant,

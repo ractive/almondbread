@@ -3275,6 +3275,43 @@ back. Menus disable rather than hide, as for tours and journeys. iOS UI test
 `TouchControlsUITests/testJuliaControlsFollowFormula` (iPad: round button and twin in
 Mandelbrot, neither in a Multibrot view, the round button and Back in a Julia view).
 
+### Parameter lab (as built 2026-10-31, awaiting review)
+
+The parameter lab ([F10: Parameter lab (z → zᵖ + c with three knobs, shallow)](../plans/f10-parameter-lab.md))
+is the Fractal picker's last family, "Parameter lab": a mode, not a formula (the settings'
+formula stays what it was; `Explorer::capabilities()` answers with formula `lab`). Choosing it
+enters the lab at its last plane and knobs (persisted, Reset's the first time); choosing any
+other family leaves it for the view it was entered from (Rust's `set_formula` leaves it first,
+also for the same formula), and so does a place. Its controls sit in the pinned Fractal row
+under the picker: a segmented control for the plane the main view shows (c, z₀, p), a slider and
+a number field for the real and imaginary part of each knob (z₀, p, c, in the order of
+z → zᵖ + c), Random and Reset, and one line saying it is shallow and why a non-integer p shows a
+seam. On the canvas:
+
+- **Panels.** The map row holds one panel per plane (the planes not shown first, the main
+  plane's panel last, so a phone's narrower row drops it first; fitted by the map row's rules,
+  [Mini-map on small screens](#mini-map-on-small-screens-as-built-2026-10-19)). Each shows its
+  plane with the other two knobs fixed, a crosshair at its own knob's value, its title and value;
+  the main plane's panel has a gold frame and the main view's rectangle. A press in a panel sets
+  that knob to the value under it and a drag moves it (also beyond the panel, within the knob's
+  range); a press on a panel's "show" button (top right) makes its plane the main view on release.
+  Presses go the compass's way (`Host::compass_press` / `_drag` / `_release`), so the Mac's mouse,
+  iOS's pan, tap and double tap all reach the panels with no new platform code; a finger there is
+  `TouchSpot::Compass` (no steering, no long-press menu).
+- **Main view.** Pan and zoom as anywhere, within the plane's view limits
+  (`Navigator::set_lab_plane`: the plane's box and home view; R goes home). Zoom stops at the
+  precision limit (8 float32 steps per pixel) about the point it was heading for, with a note at
+  the bottom for 3 s ("Zoom ends here: the lab computes with 7-digit numbers"). A click (or tap)
+  sets the shown plane's knob to the clicked value (⌘ too: no ⌘-click Julia set in the lab). Each
+  plane keeps its own view while another is shown.
+- **Hidden in the lab** (capabilities, never faked): places, tours, journeys (J, ⇧J, X do
+  nothing), the autopilot (Z does nothing; one started otherwise is stopped), seek (N), the
+  π meter (off on entry, refused while on), the Buddhabrot looks, interior proofs and colourings
+  other than flat, the Julia panel, the mini-map and the escape-time orbit probe (the orbit
+  switch draws the orbit of the current knobs instead: in the z₀ panel, and over the main view in
+  the c and z₀ planes), the ⌘-click Julia set and the twin, the travel journal's steps (the
+  journal from before is restored on leaving).
+
 ### Mini-map on small screens (as built, 2026-10-19)
 
 Two clashes on the iPhone 17e (390 × 844 points): in portrait the second of two 180-point maps
@@ -4129,6 +4166,35 @@ journal step and forward / ⌘Z through the Julia set with the way back kept, ev
 step that moves is an entry, a 4 s finger pause mid-scroll is no entry). Headless:
 `scripts/flights/journal.json` (whole set, the place elephants, N, back, back, forward).
 
+## Turn: Mandelbrot ↔ Julia (as built, 2026-10-31, awaiting review)
+
+[F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md): the view's plane of the (c, z₀) space turned between the
+Mandelbrot set (0°) and the Julia set of the view centre's c (90°), and the start value z₀.
+Controls live in the pinned [Fractal row](#fractal-row-as-built-2026-10-26), under the pickers
+(or under a Julia view's "Julia set of Mandelbrot · Back"), on the Mac, the iPad and the iPhone
+sheet alike (`TurnRows` in `ControlCenterView.swift`):
+
+| Row | What it does |
+|---|---|
+| "Turn: Mandelbrot ↔ Julia" · degrees, slider 0–90° | turns around the point in the middle of the view (it stays there; scale and rotation stay); 0.1° steps, live: each value is a new plane, rendered with gesture frames; id `turn-slider` |
+| "Start z₀" re + im i | the centre's start value; Return applies it (at 0° the plane's z₀, at 90° the centre itself); ids `turn-start-re`, `turn-start-im`; the fields follow the view while not edited (10 significant digits shown) |
+| ↺ | back to the ordinary Mandelbrot set at the centre's c (0°, z₀ = 0); disabled when already there ("Disabled, not hidden": it depends on the setting); id `turn-reset` |
+
+The rows exist for the z² + c views only (Mandelbrot, its Julia sets, the planes between);
+another fractal does not have them, so they are hidden there (a fractal capability, not a
+setting). No key or menu item yet. Picking a fractal in a turned view switches to that fractal's
+whole set as from any view. Search: "turn", "start value", "z0", "z₀", "evil twin" tint the row.
+In a turned view the capabilities hide what assumes z₀ = 0: seek (N), the π meter, places, tours,
+journeys and the target lock, the Julia panel and twin, the orbit overlay, the Buddhabrot looks
+(the plan's "As built" lists all). Turning into 90° keeps no way back (the slider is it; the
+Mandelbrot panel then shows the whole set with k marked); turning out of a Julia view drops the
+way back it had. The twin and the turn both reach the Julia set of the centre's c: the twin
+framed like the view (around z₀ = c), the turn around z₀ = 0.
+
+Checked by `--ui-demo=turn` and `turn-julia`, `ControlSearchTests`, the FFI tests
+`explorer::turn_tests`, the iOS UI test `TouchControlsUITests.testTurnSlider`, and the
+interaction test scenarios "turn slider home", "turn slider 1e-20" and "turned 1e-100 pan".
+
 ## Test switches (temporary)
 
 A/B switches for the user's foreground comparison. Each goes, with its losing path, once the
@@ -4153,3 +4219,4 @@ kept 50 ms after comparing both in a real window, and the switch and the 12 ms p
 - [Mu-Ency: Atom Domain](../sources/muency-atom-domain.md)
 - [mathr blog: automated Julia morphing (2016-2021)](../sources/mathr-julia-morphing-posts.md)
 - [Deep-zoom videos: record and landmark YouTube descriptions](../sources/deep-zoom-videos.md)
+- [F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md)

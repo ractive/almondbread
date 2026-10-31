@@ -1185,6 +1185,8 @@ final class FractalUIView: UIView, ExplorerHost, FractalHostView, CanvasAccessib
                 + "seek \(s.seek.phase.isEmpty ? "idle" : s.seek.phase.replacingOccurrences(of: " ", with: "-")) assist \(s.cruise.assist ? "on" : "off") "
                 + "wish \(explorer.wishLineShown() ? "on" : "off") settled \(s.settled ? "yes" : "no") "
                 + "formula \(base.model.formula) buddha \(base.model.buddha)"
+                + " lab \(base.model.isLab ? base.model.labPlane : "off")"
+                + " labc \(base.model.labKnobs.cRe),\(base.model.labKnobs.cIm)"
                 + uiTestTargets(explorer)
         }
     }

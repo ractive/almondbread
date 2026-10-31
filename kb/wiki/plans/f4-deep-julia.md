@@ -325,6 +325,19 @@ back on the canvas"). On at every entry, also with the Julia panel off; U hides 
   fps (8.3 / 8.3 / 58.3); draw CPU p50 0.16–0.17 ms in all three; "julia twin deep zoom" (now with
   the panel) 117.3 fps. No cost above the noise.
 
+## Addendum: views at the critical point (F9, 2026-10-31)
+
+The step-1 gate's views sat near deep preimages of 0 sized to a quarter of the view, never on 0
+itself. F9's gate ([F9: The turn between the Mandelbrot and the Julia plane](f9-turn.md) "Near the critical point") put Julia views at
+`z₀ ≈ 0` (where turning a Mandelbrot view to 90° lands) and found three bugs on that path, all
+fixed there for Julia views too: the reference needs about twice the view's bits (neighbours end
+up `texel²` apart; big references now from 1e-6 per point, extra bits from a scan of the centre
+orbit), the deep kernel's rescale flushed deltas near 0 to zero, and the derivative interior test
+counted the first step's tiny `2 z₀` (every pixel of such a view was "interior"). Measured after
+the fix: a Julia view of `k = i` centred near 0 at 1e-100, 1e-300 and 1e-1000 matches the oracle
+with 0 % class mismatch and ≤ 0.012 % escape counts differing (before: 61 % / 36 % unresolved at
+1e-100).
+
 ## Effort breakdown
 
 M overall (1–2 weeks).
@@ -343,3 +356,4 @@ M overall (1–2 weeks).
 - [Bivariate linear approximation (BLA)](../techniques/bla.md)
 - [Controls: keyboard, pointer and touch](../decisions/controls.md)
 - [almondbread benchmarks and verification record](../synthesis/benchmarks.md)
+- [F9: The turn between the Mandelbrot and the Julia plane](f9-turn.md)

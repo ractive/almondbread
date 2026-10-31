@@ -13,7 +13,7 @@
 //! kb: plans/f5-mandelbar) is the first non-conformal formula: BLA with 2x2 coefficients.
 
 pub use almondbread_math::{
-    DoubleExp, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, JuliaK, MULTIBROT_MAX_POWER,
+    DoubleExp, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, JuliaK, MULTIBROT_MAX_POWER, TurnPlane,
 };
 
 /// How a formula's references rebase (kb: techniques/rebasing).
@@ -186,12 +186,23 @@ impl FormulaCapabilities {
     /// no content beyond their places; unresolved pixels draw as the set (each has bounded
     /// orbits no test proves; measured per variant on the plan page).
     pub const SHIP_VARIANT: Self = Self::BURNING_SHIP;
+    /// A turned plane or a start value (F9, kb: plans/f9-turn): Julia's two-orbit perturbation
+    /// (the centre orbit from its own `z_0`, the critical orbit of the same `c` as the rebase
+    /// target) with Mandelbrot's `+dc` and BLA (`B = 1`, applied to `dz` and `dc = cos t dp`),
+    /// DE by `dz/dp` (starts at `sin t`, gains `cos t` per step), the derivative interior test.
+    /// Everything that assumes `z_0 = 0` in the `c` plane (or `c` fixed) is off: LA and SA seeds
+    /// (expansions from `z_0 = 0` in `c`), the attracting-cycle probe and the interior cycle
+    /// analysis (they restart orbits at the critical point, which is not this view's start),
+    /// closed-form components, seek, the π meter, rays, the orbit overlay, content, the Julia
+    /// panel and the Buddhabrot.
+    pub const TURN: Self = Self::JULIA;
 
     pub fn of(formula: Formula) -> Self {
         match formula {
             Formula::Mandelbrot => Self::MANDELBROT,
             Formula::Multibrot(_) => Self::MULTIBROT,
             Formula::Julia(_) => Self::JULIA,
+            Formula::Turn(_) => Self::TURN,
             Formula::Mandelbar => Self::MANDELBAR,
             Formula::BurningShip => Self::BURNING_SHIP,
             Formula::Celtic | Formula::Buffalo | Formula::Perpendicular => Self::SHIP_VARIANT,
@@ -222,7 +233,7 @@ pub fn selectable() -> Vec<Formula> {
 /// shows that while a Julia view is open (disabled; kb: decisions/controls).
 pub fn family(formula: Formula) -> &'static str {
     match formula {
-        Formula::Mandelbrot | Formula::Julia(_) => "mandelbrot",
+        Formula::Mandelbrot | Formula::Julia(_) | Formula::Turn(_) => "mandelbrot",
         Formula::Multibrot(_) => "multibrot",
         Formula::Mandelbar => "mandelbar",
         Formula::BurningShip | Formula::Celtic | Formula::Buffalo | Formula::Perpendicular => "burningship",
@@ -232,7 +243,7 @@ pub fn family(formula: Formula) -> &'static str {
 /// The family's name in menus.
 pub fn family_title(formula: Formula) -> &'static str {
     match formula {
-        Formula::Mandelbrot | Formula::Julia(_) => "Mandelbrot",
+        Formula::Mandelbrot | Formula::Julia(_) | Formula::Turn(_) => "Mandelbrot",
         Formula::Multibrot(_) => "Multibrot",
         Formula::Mandelbar => "Mandelbar",
         Formula::BurningShip | Formula::Celtic | Formula::Buffalo | Formula::Perpendicular => "Burning Ship",

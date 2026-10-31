@@ -707,6 +707,9 @@ pub struct Navigator {
     /// The travel journal (kb: decisions/controls "Travel journal"): fed once per frame from
     /// [`Navigator::advance`], travel marked by `jumped`, `fly_to` and `note_travel`.
     journal: Journal,
+    /// F10 (kb: plans/f10-parameter-lab): the parameter lab's plane while the lab is the main
+    /// view: its home view and view limits replace the formula's.
+    lab_plane: Option<crate::lab::Plane>,
 }
 
 /// While direct manipulation without an end event (wheel zoom, trackpad rotation) arrived this
@@ -841,6 +844,7 @@ impl Default for Navigator {
             scroll_at: f64::NEG_INFINITY,
             flight_cap: Scale::from_f64(crate::viewport::MAX_SCALE),
             journal: Journal::default(),
+            lab_plane: None,
         }
     }
 }
@@ -1643,8 +1647,18 @@ impl Navigator {
         self.seek.formula = formula;
     }
 
-    /// The home view fitted to the window (the current formula's whole set).
+    /// The parameter lab's plane while the lab is the main view (F10), else None: home view and
+    /// view limits are the plane's.
+    pub fn set_lab_plane(&mut self, plane: Option<crate::lab::Plane>) {
+        self.lab_plane = plane;
+    }
+
+    /// The home view fitted to the window (the current formula's whole set; in the lab the
+    /// plane's framing).
     fn home(&self) -> Viewport {
+        if let Some(p) = self.lab_plane {
+            return crate::lab::home_view(p, self.view_size.0, self.view_size.1);
+        }
         Viewport::fitting_for(self.seek.formula, self.view_size.0, self.view_size.1)
     }
 
@@ -1738,6 +1752,9 @@ impl Navigator {
 
     /// Where navigation may take the view: the current formula's home at the current size.
     pub fn limits(&self) -> ViewLimits {
+        if let Some(p) = self.lab_plane {
+            return crate::lab::limits(p, self.view_size.0, self.view_size.1);
+        }
         ViewLimits::new(self.seek.formula, self.view_size.0, self.view_size.1)
     }
 

@@ -1943,6 +1943,28 @@ capabilities matter (closed-form components: cusp-1e5 107 vs 14 ms; LA: needles 
 ms at 1600 px): F3's concern. A render test (`scheduler/formula_tests.rs`) checks p = 2 against
 Mandelbrot (shallow and 4e-20) and z³ + c against its own oracle.
 
+## F9: turned planes, gate, verify and Mandelbrot A/B, 2026-10-31
+
+[F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md) (measured 2026-10-31, M1 Pro, release, a shared
+machine). Gate (`turn_gate`, 128 × 80, three pivots × 0°/30°/60°/90° × 1e-30/1e-100/1e-300): the
+oracle agrees with direct BigFloat iteration in every pixel's class and escape count; the BLA
+model ≤ 0.02 % class, ≤ 0.05 % escape counts, skipping 67–99 % of the iterations. GPU vs oracle
+(`verify`, 200 × 125, the same views plus 1e-1000, 48 views): class mismatch ≤ 0.012 %,
+escape-n ≤ 0.072 %, median |Δμ| ≤ 3.6e-5. Julia views at the critical point (F4's formula, the
+90° end) failed before the near-critical fixes (61 % escape counts, 36 % unresolved at 1e-100)
+and pass after (0 % class, ≤ 0.012 %).
+
+Mandelbrot unaffected: `bench --no-verify 1 --repeat 1 --out` 84 of 84 files byte-identical to
+main 4d846fa. GPU ms F9 / main, medians of three alternating `bench --repeat 5` runs per side:
+sea-1e20 1.000 (1600) / 0.998 (3456), needle-1e305 1.000 / 1.003, dendrite-1e300 0.966 / 1.000;
+geomean 0.994. Shaded with period interior (`--shading 0.7 --inside period`) 80 of 84 identical;
+`elephant-1600` and `home-100k-3456` differ between two runs of main too.
+
+Interaction test (background window, 120 Hz, release): "turn slider home" 102.3 fps with previews
+at 0.91 scale (0.12 before a slider step kept the learned gesture state), "turned 1e-100 pan"
+109.0 fps, "turn slider 1e-20" 100.2 fps with no new picture until the slider rests (0.87 s);
+shown frames equal to fresh renders.
+
 ## BB: Buddhabrot and Nebulabrot, 2026-10-22
 
 Measured 2026-10-22, M1 Pro, release, macOS; load average 6–11 (other sessions, Spotify on the
@@ -2806,3 +2828,4 @@ PNGs of both are byte-identical.
 - [fractalforums.org: Interior detection for deep Mandelbrot set zooms (topic 4802)](../sources/fractalforums-interior-detection.md)
 - [metal-benchmarks README (Apple GPU microarchitecture)](../sources/metal-benchmarks-readme.md)
 - [Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md)
+- [F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md)

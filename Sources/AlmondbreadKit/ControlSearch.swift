@@ -20,7 +20,11 @@ enum ControlSearch {
     static let fractalKeywords = ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn",
                                   "burning", "ship", "power", "exponent",
                                   // F6b: the Burning Ship family's variants.
-                                  "celtic", "buffalo", "perpendicular", "variant"]
+                                  "celtic", "buffalo", "perpendicular", "variant",
+                                  // F9: the turn and the start value under the pickers.
+                                  "turn mandelbrot julia", "start value", "z0", "z₀", "evil twin",
+                                  // F10: the parameter lab.
+                                  "parameter", "lab", "knob"]
 
     /// Whether the query finds the fractal row (trimmed, case-insensitive; empty: no).
     static func fractalMatches(_ query: String) -> Bool {

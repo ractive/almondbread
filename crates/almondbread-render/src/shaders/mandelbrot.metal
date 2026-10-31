@@ -121,6 +121,7 @@ struct IterateParams {
                           // provisional interior when it finds an attracting cycle, else
                           // unresolved), and the analysis may run this many steps past the
                           // chunk's K, so the frame completes (0: off)
+    float2 turn;          // F9 turned planes: (cos t, sin t); see kTurn
 };
 
 // Morton (Z) order inside a 16 x 16 tile: index bits x0 y0 x1 y1 x2 y2 x3 y3 (low to high), so
@@ -745,7 +746,7 @@ static inline float2 foldValuesOf(float2 Z) {
 // The perturbation step: z' = S w + dd for the delta z = s w (s = 1: w = sw = z), W = Z + sw.
 // F5 Mandelbar (formula 3): conj(Z + z)^2 - conj(Z)^2 = conj((2Z + z) z), conjugated before +c.
 static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
-    if (kFormula == 0u) return cmul(2.0f * Z + sw, w) + dd;
+    if (kFormula == 0u || kFormula == 9u) return cmul(2.0f * Z + sw, w) + dd;
     if (kFormula == 2u) return cmul(2.0f * Z + sw, w);   // F4 Julia: no +c
     if (kFormula == 3u) return conjf(cmul(2.0f * Z + sw, w)) + dd;
     if (kFormula == 4u) return fStepFold(Z, sw, w, dd, Z.x * Z.y);   // (s = 1 callers only)
@@ -830,7 +831,7 @@ static inline bool2 foldSignsX(FE Zx, FE zx, FE fr, FE fi) {
 // The floatexp perturbation step z' = S z + C, S from W = Z + z ((2Z + z) for Mandelbrot,
 // with 2Z as FE{Z.m, Z.e + 1}).
 static inline FE fStepX(FE Zx, FE zx, FE C) {
-    if (kFormula == 0u) return feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
+    if (kFormula == 0u || kFormula == 9u) return feAdd(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx), C);
     if (kFormula == 2u) return feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx);   // F4 Julia: no +c
     if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx)), C);
     if (kFormula == 4u) return fStepXFold(Zx, zx, C, feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e));
@@ -850,7 +851,7 @@ static inline FE fStepX(FE Zx, FE zx, FE C) {
 
 // As fStepX, 2Z by feTwice (the probe and the cycle analysis).
 static inline FE fStepXT(FE Zx, FE zx, FE C) {
-    if (kFormula == 0u) return feAdd(feMul(feAdd(feTwice(Zx), zx), zx), C);
+    if (kFormula == 0u || kFormula == 9u) return feAdd(feMul(feAdd(feTwice(Zx), zx), zx), C);
     if (kFormula == 2u) return feMul(feAdd(feTwice(Zx), zx), zx);
     if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(feTwice(Zx), zx), zx)), C);
     if (kFormula == 4u) return fStepXFold(Zx, zx, C, feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e));
@@ -1087,14 +1088,34 @@ struct BlaEntryMX {
 // index (segLast). Formula 0 folds all of this away.
 constant bool kJulia = kFormula == 2u;
 
+// F9: turned planes of the (c, z_0) space (kFormula 9; kb: plans/f9-turn, formulas/turn). A
+// pixel's offset dp from the reference's view coordinate is dz_0 = sin t dp (its delta at the
+// centre orbit's start, n = 0, as a Julia pixel) and dc = cos t dp (Mandelbrot's +dc in every
+// step; p.turn = (cos t, sin t)). The reference is laid out as a Julia reference (the critical
+// orbit of the reference's c, zeros, its orbit from its z_0), so rebasing and the per-orbit
+// ends are Julia's; the step, the BLA and the derivative hooks are Mandelbrot's; the DE
+// derivative dz/dp starts at sin t texel and gains cos t texel per step. Formulas 0 and 2 fold
+// all of this away.
+constant bool kTurn = kFormula == 9u;
+// The reference holds two orbits (F4 Julia, F9).
+constant bool kTwoOrbits = kJulia || kTurn;
+
 static inline uint segLast(uint m, uint last, uint critLast, uint centerStart) {
-    return kJulia && m < centerStart ? critLast : last;
+    return kTwoOrbits && m < centerStart ? critLast : last;
 }
 
-// n^2 for the derivative interior test (a Julia pixel starts at n = 0, where |w| n^2 = 0 would
-// pass the test at once).
+// n^2 for the derivative interior test (a Julia or turned pixel starts at n = 0, where
+// |w| n^2 = 0 would pass the test at once).
 static inline float nSquared(uint n) {
-    return kJulia && n == 0u ? 1e30f : float(n) * float(n);
+    return kTwoOrbits && n == 0u ? 1e30f : float(n) * float(n);
+}
+
+// The interior test's derivative is dz_n/dz_1 (Mandelbrot's: its pixels start at n = 1). A
+// Julia or turned pixel starts at n = 0 and its first step is not multiplied in: near the
+// critical point (a view at z_0 ~ 0, where turning a Mandelbrot view lands) 2 z_0 is tiny and
+// the test would call every pixel interior (found by F9's verify).
+static inline bool firstOfTwo(uint n) {
+    return kTwoOrbits && n == 0u;
 }
 
 // F5: the attracting-cycle probe of a non-conformal formula (Mandelbar). Its step z -> conj(z)^2
@@ -1113,9 +1134,12 @@ static inline float2 tsdOf(FE TS, int dExp) {
 
 // After the delta's exponent e changed: s = 2^e and dd = c 2^-e for the scaled step. A delta
 // far below |c| (2^-60) is re-expressed relative to c's exponent `ce`, so dd stays in range.
+// (Not for F4 Julia: its step has no +c, and a delta near the critical point falls far below
+// the pixel's offset, z_1 = z_0^2: rescaled to the offset's exponent it flushed to 0. Found by
+// F9's verify at a Julia view centred on 0.)
 static inline void deepRescale(thread float2& w, thread int& e, thread float& s, thread float2& dd,
                                float2 dc, int scaleExp, int ce) {
-    if (e != 0 && e < ce - 60) {
+    if (!kJulia && e != 0 && e < ce - 60) {
         w = scale2(w, e - ce);
         e = ce;
     }
@@ -1814,8 +1838,10 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     const uint freshStart = level.freshStart, freshCount = level.freshCount;
     const uint last = p.refLen - 1;
     const float2 tsDelta = float2(p.texelScale, 0.0f);
+    // (F9: the texel term of dz/dp per step and in a BLA block is cos t texel.)
+    const float tsC = kTurn ? p.texelScale * p.turn.x : p.texelScale;
     // (F4 Julia: the DE derivative dz/dz_0 gains no texel per step.)
-    const float2 tsAddP = kJulia ? float2(0.0f) : tsDelta;
+    const float2 tsAddP = kJulia ? float2(0.0f) : float2(tsC, 0.0f);
     // The last index of the orbit m is on (F4 Julia: the critical or the centre orbit; else
     // the one orbit, `last`).
 #define LAST(mv) segLast((mv), last, p.critLast, p.centerStart)
@@ -1853,6 +1879,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
     float2 off = float2(pix.x, -pix.y);
     off = float2(off.x * p.rot.x - off.y * p.rot.y, off.x * p.rot.y + off.y * p.rot.x);
     float2 dc = off * p.texelScale + p.refOffset;
+    // F9: the pixel's offset is dz_0 = sin t dp and dc = cos t dp.
+    float2 dz0 = 0.0f;
+    if (kTurn) {
+        dz0 = dc * p.turn.y;
+        dc = dc * p.turn.x;
+    }
 
     bool escaped = false, interior = false;
     // M5 interior fill: an inside texel of a whole tile whose border is all proven interior.
@@ -1960,7 +1992,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
         // Test, then step: a resumed pixel repeats its last test, which is idempotent.
         // Derivatives carry exponents: d = dz/dc * texel = dm 2^dExp, w' = dz/dz1 = zw 2^wExp.
         const FE C = feNorm(dc, p.scaleExp);
-        const FE TS = feNorm(float2(p.texelScale, 0.0f), p.scaleExp);
+        // (F9: the texel term per step is cos t texel; dz/dp starts at sin t texel.)
+        const FE TS = feNorm(float2(tsC, 0.0f), p.scaleExp);
         const float cAbsM = length(C.m);      // |c| = cAbsM 2^C.e
         float2 w, dm, zw;
         int e, dExp, wExp;
@@ -1983,11 +2016,19 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             st.n = n;
         } else if (fresh) {
             // z_1 = c, d_1 = texel, w_1 = 1. (F4 Julia: z_0 = the pixel's offset from the centre
-            // orbit's start, d_0 = texel, w_0 = 1, n = 0.)
-            if (C.e >= DEEP_PLAIN_EXP) { w = feFloat(C); e = 0; } else { w = C.m; e = C.e; }
+            // orbit's start, d_0 = texel, w_0 = 1, n = 0. F9: z_0 = sin t dp, d_0 = sin t texel,
+            // a zero start carried at c's exponent.)
+            const FE W0 = kTurn ? feNorm(dz0, p.scaleExp) : C;
+            if (W0.e >= DEEP_PLAIN_EXP) { w = feFloat(W0); e = 0; } else { w = W0.m; e = W0.e; }
+            if (kTurn && W0.e == FE_ZERO) e = C.e;
             dm = TS.m; dExp = TS.e;
+            if (kTurn) {
+                const FE D0 = feNorm(float2(p.texelScale * p.turn.y, 0.0f), p.scaleExp);
+                dm = D0.m;
+                dExp = D0.e == FE_ZERO ? TS.e : D0.e;
+            }
             zw = float2(1.0f, 0.0f); wExp = 0;
-            if (kJulia) {
+            if (kTwoOrbits) {
                 m = p.centerStart; n = 0;
                 st.n = 0;
             } else {
@@ -2227,7 +2268,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kDE) {
                         if (kNonConformal) { ncMul(z, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
                     }
-                    if (kInterior) {
+                    if (kInterior && !firstOfTwo(n)) {
                         if (kNonConformal) ncMul(z, zw, zwQ); else zw = fMulPrime(z, zw);
                     }
                     }
@@ -2361,7 +2402,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             dm = dx.m; dExp = dx.e;
                             tsd = tsdOf(TS, dExp);
                         }
-                        if (kInterior) {
+                        if (kInterior && !firstOfTwo(n)) {
                             FE wx = feMul(fPrimeX(zf), feNorm(zw, wExp));
                             zw = wx.m; wExp = wx.e;
                         }
@@ -2428,7 +2469,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     if (kDE) {
                         if (kNonConformal) { ncMul(zf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
                     }
-                    if (kInterior) {
+                    if (kInterior && !firstOfTwo(n)) {
                         if (kNonConformal) ncMul(zf, zw, zwQ); else zw = fMulPrime(zf, zw);
                     }
                     }
@@ -2524,11 +2565,12 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 st.dz = z;
                 st.m = 0;
             }
-        } else if (fresh && kJulia) {
+        } else if (fresh && kTwoOrbits) {
             // F4 Julia: z_0 = the pixel, its delta to the centre orbit's start dc, d_0 = texel,
             // w_0 = 1, n = 0; tested at once (it may lie outside, or nearer 0 than the centre).
-            st.dz = dc;
-            st.d = tsDelta;
+            // F9: the delta is dz_0 = sin t dp, d_0 = sin t texel.
+            st.dz = kTurn ? dz0 : dc;
+            st.d = kTurn ? tsDelta * p.turn.y : tsDelta;
             st.w = float2(1.0f, 0.0f);
             st.wExp = 0;
             st.m = p.centerStart;
@@ -2594,7 +2636,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     const float2 A = x.a, B = x.b;
                     const uint len = x.len;
                     budget--;
-                    if (kDE) d = cmul(A, d) + B * p.texelScale;
+                    if (kDE) d = cmul(A, d) + B * tsC;
                     if (kInterior) {
                         // |A| <= 2^40 (table build), as for BLA.
                         float a = max(abs(w.x), abs(w.y));
@@ -2656,7 +2698,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 }
                 if (len != 0) {
                     budget--;
-                    if (kDE) d = cmul(A, d) + B * p.texelScale;
+                    if (kDE) d = cmul(A, d) + B * tsC;
                     if (kInterior) {
                         // |A| <= 2^40 (table build): rescale first so |w A| stays in range,
                         // then the usual test.
@@ -2774,7 +2816,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                 if (kDE) {
                     if (kNonConformal) { ncMul(z, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
                 }
-                if (kInterior) {
+                if (kInterior && !firstOfTwo(n)) {
                     if (kNonConformal) ncMul(z, w, wQ); else w = fMulPrime(z, w);
                 }
                 }

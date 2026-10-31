@@ -14,7 +14,7 @@ use almondbread_core::oracle::{
     ITER_INTERIOR, IterationField, VerifyReport, compare, cpu_render_deep_for, cpu_render_for,
 };
 use almondbread_core::pi_moment::PiPoint;
-use almondbread_core::reference::DEEP_SCALE;
+use almondbread_core::reference::deep_scale_for;
 use almondbread_core::settings::Supersampling;
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use almondbread_render::{GpuBackend, OffscreenResult, Renderer, SimulationResult};
@@ -59,6 +59,12 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let (width, height) = o.size("size", (1600, 1000))?;
     let mut r = new_renderer(backend, o)?;
     r.viewport = o.viewport(width, height)?;
+    // F10: `--lab-plane c|z0|p` renders the parameter lab (`lab.rs`); there `--z0` is the lab's
+    // knob, not F9's start value.
+    if o.get("lab-plane").is_none() {
+        o.apply_turn(&mut r.settings.formula, &mut r.viewport)?;
+    }
+    crate::lab::enter(&mut r, o, width, height)?;
     let repeats = o.usize("repeat").unwrap_or(1).max(1);
     let mut times = Vec::new();
     let mut walls = Vec::new();
@@ -225,7 +231,9 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     let compass = o.get("compass").is_some_and(|v| v != "0");
     // `--julia 1`: the Julia panel of the orbit's point (`--orbit x,y`; else the view centre).
     let julia = o.get("julia").is_some_and(|v| v != "0");
-    if orbit.is_none() && !map && !pi && !cosmic && !compass && !julia {
+    // F10: `--lab-panels 1`: the parameter lab's plane panels (`lab.rs`).
+    let lab_panels = r.lab_on() && o.get("lab-panels").is_some_and(|v| v != "0");
+    if orbit.is_none() && !map && !pi && !cosmic && !compass && !julia && !lab_panels {
         return Ok(None);
     }
     let mut ov = almondbread_render::overlay::Overlay::<B>::default();
@@ -301,7 +309,7 @@ fn overlay_for_still<B: GpuBackend + Clone>(
     while r.clock() < deadline {
         ov.step_probe(0.05);
         ov.step_maps(&r.settings, r.clock());
-        if julia {
+        if julia || lab_panels {
             // (The Julia picture's bands are drawn one per prepare.)
             ov.prepare(r, (width, height), o.f64("ppp").unwrap_or(1.0), r.clock());
         }
@@ -441,7 +449,7 @@ pub fn oracle(
     max_iter: usize,
     angle: f64,
 ) -> IterationField {
-    if texel.to_f64() >= DEEP_SCALE {
+    if texel.to_f64() >= deep_scale_for(formula) {
         cpu_render_for(
             formula,
             center.re(),
@@ -536,6 +544,7 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let (width, height) = o.size("size", (400, 260))?;
     let mut r = new_renderer(backend, o)?;
     r.viewport = o.viewport(width, height)?;
+    o.apply_turn(&mut r.settings.formula, &mut r.viewport)?;
     if let Some((dx, dy)) = o.pair("ref-offset")? {
         // Reference reuse: the orbit of a point dx,dy pixels from the centre, made at
         // `--ref-scale` times the scale (default 1).
@@ -612,6 +621,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let mut end = o.viewport(width, height)?;
     end.scale = end.scale / ppp;
     let mut r = new_renderer(backend, o)?;
+    o.apply_turn(&mut r.settings.formula, &mut end)?;
     // Deterministic for the diff: let the extension run to its limit.
     r.config.extension_budget = o.f64("extension-budget").unwrap_or(120.0);
     // Compute further runs for up to a minute per view: off unless asked for (`--further-budget s`),

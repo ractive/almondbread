@@ -60,6 +60,19 @@ fixed binary value carried at its own precision; a decimal `k` names the binary 
 digits imply (measured: the same 16-digit decimal at 128 and 400 bits gives different pictures at
 1e-100; same page).
 
+**Near the critical point: twice the bits (found 2026-10-31).** One step maps a neighbourhood
+of 0 to the squared scale (`z_1 = z_0^2 + k`), and the step has no `+c` to keep neighbouring
+pixels apart: a view at `z_0 ≈ 0` (the middle of every Julia set, and where turning a Mandelbrot
+view to 90° lands) needs the reference to resolve `texel^2`, about twice the view's bits; f64
+references fail there from about 1e-7. F9's gate found it, with two kernel bugs on the same path
+(the deep rescale flushed such deltas to 0, the derivative interior test counted the tiny
+`2 z_0`); fixed for Julia views too: extra reference bits from a scan of the centre orbit, big
+references from 1e-6 per point
+([F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md) "Near the critical point"; measured).
+
+**Turned planes.** A Julia set is the 90° end of the planes between the Mandelbrot and the
+Julia plane: [Turned planes of the (c, z0) space (Mandelbrot ↔ Julia)](turn.md).
+
 ## Support
 
 Fractal Zoomer lists Julia sets and a Julia map
@@ -80,3 +93,5 @@ attracting cycle to converge to).
 - [swift-mandelbrot README (drquicksilver)](../sources/swift-mandelbrot-readme.md)
 - [Fractal Zoomer README](../sources/fractalzoomer-readme.md)
 - [F4: Deep Julia sets](../plans/f4-deep-julia.md) (our measurements)
+- [F9: The turn between the Mandelbrot and the Julia plane](../plans/f9-turn.md) (our measurements)
+- [Turned planes of the (c, z0) space (Mandelbrot ↔ Julia)](turn.md)

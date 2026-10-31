@@ -200,6 +200,9 @@ struct SavedSettings: Codable {
     var juliaIm: String?
     /// The orbit-density look (BB): "off", "buddhabrot", "nebulabrot".
     var buddha: String?
+    /// F9: a turned plane's angle and pivot (with `formula` "turn").
+    var turnDegrees: Double?
+    var turnPivot: String?
 }
 
 /// The UI's view of one window's explorer: a mirror of the Rust settings that SwiftUI binds
@@ -225,10 +228,26 @@ public final class ExplorerModel {
     public private(set) var juliaIm = ""
     /// A Julia set is the main view (F4).
     public var isJulia: Bool { formula == "julia" }
+    /// F9 (kb: plans/f9-turn): a turned plane's angle and pivot when `formula` is "turn" (Rust
+    /// turns and sets the start value, the model mirrors it for the settings round trip).
+    public private(set) var turnDegrees = 0.0
+    public private(set) var turnPivot = ""
+    /// F9: the turn between the Mandelbrot and the Julia plane and the view centre's start value
+    /// (the control center's rows; refreshed with the stats). Nil before the renderer exists.
+    public private(set) var turn: TurnInfo?
 
     /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
     /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
-    public private(set) var capabilities: FormulaCapabilities?
+    public internal(set) var capabilities: FormulaCapabilities?
+
+    // MARK: Parameter lab (F10, kb: plans/f10-parameter-lab; ParameterLab.swift)
+
+    /// The parameter lab is the main view (Rust's `lab().on`, mirrored).
+    public internal(set) var isLab = false
+    /// The plane the lab's main view shows: "c", "z0" or "p".
+    public internal(set) var labPlane = "c"
+    /// The lab's knobs as Rust has them (the panels' drags change them too).
+    public internal(set) var labKnobs = labDefaultKnobs()
 
     /// Whether the current formula has a feature (true before the renderer exists).
     public func has(_ feature: KeyPath<FormulaCapabilities, Bool>) -> Bool {
@@ -247,6 +266,8 @@ public final class ExplorerModel {
         for o in formulaOptions where !out.contains(where: { $0.id == o.family }) {
             out.append((o.family, o.familyTitle))
         }
+        // F10: the parameter lab, a mode of its own (no formula of the list).
+        out.append((ExplorerModel.labFamily, "Parameter lab"))
         return out
     }()
 
@@ -257,7 +278,8 @@ public final class ExplorerModel {
 
     /// The current formula's family ("mandelbrot", "multibrot"; a Julia view, F4, is "mandelbrot").
     public var formulaFamily: String {
-        Self.formulaOptions.first { $0.formula == formula }?.family ?? "mandelbrot"
+        if isLab { return Self.labFamily }
+        return Self.formulaOptions.first { $0.formula == formula }?.family ?? "mandelbrot"
     }
 
     /// The last formula picked in each family (the family choice comes back to it).
@@ -266,7 +288,10 @@ public final class ExplorerModel {
     /// Switches the fractal (the picker): Rust sets it, goes to its whole set and turns off
     /// what it lacks; the settings come back. The same formula changes nothing.
     public func selectFormula(_ name: String) {
-        guard name != formula, let explorer, let s = try? explorer.setFormula(formula: name) else { return }
+        // (From the parameter lab, F10, Rust leaves it first, also for the same formula.)
+        let lab = isLab
+        guard name != formula || lab, let explorer, let s = try? explorer.setFormula(formula: name) else { return }
+        if lab { syncLab() }
         // (From a Julia view, F4, Rust leaves it first; "julia" is in no family.)
         if !isJulia { lastInFamily[formulaFamily] = formula }
         pull(s)
@@ -277,6 +302,10 @@ public final class ExplorerModel {
     /// Switches to a family: its last picked formula, else its first.
     public func selectFormulaFamily(_ family: String) {
         guard family != formulaFamily else { return }
+        if family == Self.labFamily {
+            enterLab()
+            return
+        }
         let name = lastInFamily[family] ?? Self.formulaOptions(family: family).first?.formula
         if let name { selectFormula(name) }
     }
@@ -579,7 +608,7 @@ public final class ExplorerModel {
     public static let looks: [LookInfo] = AlmondbreadCore.looks()
 
     @ObservationIgnored private(set) var explorer: Explorer?
-    @ObservationIgnored private weak var host: ExplorerHost?
+    @ObservationIgnored weak var host: ExplorerHost?
     @ObservationIgnored private var pulling = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var journalSaveTask: Task<Void, Never>?
@@ -601,7 +630,10 @@ public final class ExplorerModel {
         explorer.setScrollZooms(on: scrollZooms)
         if !TestLaunch.ephemeral { restoreUserPalettes() }
         pull(explorer.settings())
-        if Preferences.restoreSettings && !TestLaunch.ephemeral { restore() }
+        if Preferences.restoreSettings && !TestLaunch.ephemeral {
+            restore()
+            restoreLab()
+        }
         if !TestLaunch.ephemeral {
             restoreJournal()
             let nc = NotificationCenter.default
@@ -650,8 +682,11 @@ public final class ExplorerModel {
         defer { pulling = false }
         juliaRe = s.juliaRe
         juliaIm = s.juliaIm
+        turnDegrees = s.turnDegrees
+        turnPivot = s.turnPivot
         formula = s.formula
         if let c = explorer?.capabilities(), c != capabilities { capabilities = c }
+        if let t = explorer?.turnInfo(), t != turn { turn = t }
         autoIterations = s.autoIterations
         manualIterations = Int(s.manualIterations)
         maxIterationsCap = Int(s.maxIterationsCap)
@@ -707,7 +742,8 @@ public final class ExplorerModel {
             interiorMode: interiorColoring.ffi, interiorDensity: interiorDensity, interiorStripes: interiorStripes,
             denseCalm: denseCalm, cinematic: cinematic, cinematicSpin: cinematicSpin,
             cinematicHueDrift: cinematicHueDrift, cinematicPhaseDrift: cinematicPhaseDrift,
-            cinematicFlyCycle: cinematicFlyCycle, buddha: buddha)
+            cinematicFlyCycle: cinematicFlyCycle, buddha: buddha,
+            turnDegrees: turnDegrees, turnPivot: turnPivot)
     }
 
     private var overlaySettings: OverlaySettings {
@@ -853,7 +889,8 @@ public final class ExplorerModel {
             denseCalm: denseCalm, orbitEnabled: orbitEnabled, orbitLength: orbitLength, mapEnabled: mapEnabled,
             mapLevels: mapLevels, mapSize: mapSize, mapLarge: mapLarge, mapPlacement: mapPlacement, juliaEnabled: juliaEnabled,
             cosmicScale: cosmicScale, compassAlways: compassAlways, targetMarker: targetMarker,
-            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm, buddha: buddha)
+            formula: formula, juliaRe: juliaRe, juliaIm: juliaIm, buddha: buddha,
+            turnDegrees: turnDegrees, turnPivot: turnPivot)
     }
 
     private func writeSaved() {
@@ -913,6 +950,8 @@ public final class ExplorerModel {
         buddha = s.buddha ?? buddha
         juliaRe = s.juliaRe ?? juliaRe
         juliaIm = s.juliaIm ?? juliaIm
+        turnDegrees = s.turnDegrees ?? turnDegrees
+        turnPivot = s.turnPivot ?? turnPivot
         formula = s.formula ?? formula
         orbitEnabled = s.orbitEnabled ?? orbitEnabled
         orbitLength = s.orbitLength ?? orbitLength
@@ -1550,6 +1589,33 @@ public final class ExplorerModel {
         host?.requestFrames()
     }
 
+    // MARK: Turn (F9, kb: plans/f9-turn)
+
+    /// The turn slider: the view's plane turned to `degrees` (0 the Mandelbrot plane, 90 the Julia
+    /// set of the centre's c) around the view centre's point. Each value is a new plane (Rust
+    /// renders it with gesture frames, so a drag stays fluid).
+    public func setTurn(_ degrees: Double) {
+        guard let explorer else { return }
+        pull(explorer.setTurn(degrees: degrees))
+        host?.requestFrames()
+    }
+
+    /// The view centre's start value z₀ (decimal strings); false if they do not parse.
+    @discardableResult
+    public func setStart(re: String, im: String) -> Bool {
+        guard let explorer, let s = try? explorer.setStart(re: re, im: im) else { return false }
+        pull(s)
+        host?.requestFrames()
+        return true
+    }
+
+    /// Back to the ordinary Mandelbrot set at the view centre's c (0°, z₀ = 0).
+    public func resetTurn() {
+        guard let explorer else { return }
+        pull(explorer.resetTurn())
+        host?.requestFrames()
+    }
+
     /// Opens the Julia set of k (decimal strings) whole, as a click on the Julia panel does
     /// (ui-demo scenes).
     public func openJulia(re: String, im: String) {
@@ -1661,9 +1727,20 @@ public final class ExplorerModel {
     /// Reads the renderer's stats (called by the view at ~10 Hz while animating, and once
     /// when it stops). Assigns only on change, so idle views do not re-render.
     func refreshStats() {
+        syncLab()
         if let t = tour, !t.goal.isEmpty, !tourGoalMet, explorer?.tourGoalMet() == true { tourGoalMet = true }
         if orbitEnabled || mapEnabled, let o = explorer?.orbitInfo(), o != orbit { orbit = o }
         if piMeterEnabled, let m = explorer?.piMeter(), m != piMeter { piMeter = m }
+        // F9: the centre's start value moves with a turned view; a journal step or a link may
+        // name another plane (the mirror takes the settings over).
+        if let explorer {
+            let t = explorer.turnInfo()
+            if t != turn {
+                turn = t
+                let s = explorer.settings()
+                if s.turnPivot != turnPivot || s.turnDegrees != turnDegrees { pull(s) }
+            }
+        }
         guard let new = explorer?.stats(), new != stats else { return }
         // Rust changed the fractal (F4: a Julia set opened or left, a tour, a pasted link): the
         // mirror takes the settings over.

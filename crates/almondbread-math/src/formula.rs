@@ -14,6 +14,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::bigfloat::BigFloat;
 use crate::complex::BigComplex;
 use crate::floatexp::{DoubleExp, DoubleExpComplex};
 use crate::linear::{Linear, LinearX};
@@ -62,6 +63,17 @@ pub enum Formula {
     /// `z <- (x - i|y|)^2 + c` with the imaginary axis flipped as the ship's: `x' = x^2 - y^2 +
     /// cx`, `y' = 2x|y| + cy`, i.e. `(x + i|y|)^2 + c`. Folds at the real axis (the sign of y).
     Perpendicular,
+    /// F9, the turn (kb: plans/f9-turn): `z^2 + c` on a plane of the 4-dimensional space of
+    /// start `z_0` and parameter `c`, turned by an angle `t` between the Mandelbrot plane (the
+    /// pixel is `c`, `z_0` fixed) and the Julia plane (the pixel is `z_0`, `c` fixed). A pixel
+    /// at view coordinate `p` is `c = c* + cos t (p - P)`, `z_0 = z* + sin t (p - P)` with the
+    /// pivot `(c*, z*)` and its view coordinate `P = cos t c* + sin t z*` ([`TurnPlane`]). The
+    /// ends are other formulas where they can be: `t = 0` with `z* = 0` is
+    /// [`Formula::Mandelbrot`], `t = 90°` is [`Formula::Julia`] of `k = c*`. Its orbits are
+    /// Mandelbrot orbits (the step hooks are Mandelbrot's); the view-centre orbit starts at its
+    /// `z_0` and the rebase target is the critical orbit (from 0) of the same `c` (kernel
+    /// formula 9).
+    Turn(TurnPlane),
 }
 
 /// `|a + d| - |a|` without cancellation (the Burning Ship's perturbed `|XY|`, kb:
@@ -135,6 +147,136 @@ impl core::fmt::Debug for JuliaK {
     }
 }
 
+/// The plane of a [`Formula::Turn`] view (F9, kb: plans/f9-turn): the turn angle in hundredths
+/// of a degree (`0 ..= 9000`) and a pivot `(c*, z*)` on the plane in high precision, interned by
+/// value like [`JuliaK`] (so the formula stays `Copy + Eq + Hash`). Turning keeps the view
+/// centre's point of the 4-space: the new plane's pivot is that point, so a gesture of the turn
+/// slider interns one pivot.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TurnPlane {
+    pivot: u32,
+    centidegrees: u16,
+}
+
+/// Interned turn pivots `(c*, z*)`.
+static TURN_PIVOTS: Mutex<Vec<Arc<(BigComplex, BigComplex)>>> = Mutex::new(Vec::new());
+
+/// The largest turn angle in hundredths of a degree (90°: the Julia plane).
+pub const TURN_MAX_CENTIDEGREES: u16 = 9000;
+
+/// `(cos t, sin t)` of a turn angle in hundredths of a degree: exact at 0 and 90°, else f64's
+/// (every path that maps pixels of a turned view calls this, so they agree bit for bit).
+pub fn turn_cos_sin(centidegrees: u16) -> (f64, f64) {
+    match centidegrees {
+        0 => (1.0, 0.0),
+        TURN_MAX_CENTIDEGREES => (0.0, 1.0),
+        t => {
+            let (s, c) = (f64::from(t) * (std::f64::consts::PI / 18000.0)).sin_cos();
+            (c, s)
+        }
+    }
+}
+
+impl TurnPlane {
+    /// The plane at `centidegrees` (clamped to `0 ..= 9000`) through the pivot `(c, z0)`.
+    pub fn new(c: &BigComplex, z0: &BigComplex, centidegrees: u16) -> Self {
+        let mut ps = TURN_PIVOTS.lock().unwrap_or_else(|e| e.into_inner());
+        let i = match ps
+            .iter()
+            .position(|v| v.0.re == c.re && v.0.im == c.im && v.1.re == z0.re && v.1.im == z0.im)
+        {
+            Some(i) => i,
+            None => {
+                ps.push(Arc::new((c.clone(), z0.clone())));
+                ps.len() - 1
+            }
+        };
+        Self {
+            pivot: i as u32,
+            centidegrees: centidegrees.min(TURN_MAX_CENTIDEGREES),
+        }
+    }
+
+    /// The pivot `(c*, z*)` at the precision it was given with.
+    pub fn pivot(self) -> Arc<(BigComplex, BigComplex)> {
+        let ps = TURN_PIVOTS.lock().unwrap_or_else(|e| e.into_inner());
+        ps[self.pivot as usize].clone()
+    }
+
+    pub fn centidegrees(self) -> u16 {
+        self.centidegrees
+    }
+
+    pub fn degrees(self) -> f64 {
+        f64::from(self.centidegrees) / 100.0
+    }
+
+    /// `(cos t, sin t)`, [`turn_cos_sin`].
+    pub fn cos_sin(self) -> (f64, f64) {
+        turn_cos_sin(self.centidegrees)
+    }
+
+    /// The precision [`TurnPlane::pivot_view`] is computed at: the pivot's own plus 64 bits
+    /// (the products with the 53-bit cosine and sine are exact), whatever the caller's, so `P`
+    /// is one fixed value and [`TurnPlane::point`] at `p = P` gives the pivot exactly.
+    pub fn pivot_bits(self) -> usize {
+        let pv = self.pivot();
+        pv.0.precision_bits().max(pv.1.precision_bits()) + 64
+    }
+
+    /// The pivot's view coordinate `P = cos t c* + sin t z*` (at [`TurnPlane::pivot_bits`]).
+    pub fn pivot_view(self) -> BigComplex {
+        let bits = self.pivot_bits();
+        let pv = self.pivot();
+        let (cos, sin) = self.cos_sin();
+        let (cb, sb) = (BigFloat::from_f64(cos, bits), BigFloat::from_f64(sin, bits));
+        let c = pv.0.with_precision(bits);
+        let z = pv.1.with_precision(bits);
+        &c.scaled(&cb) + &z.scaled(&sb)
+    }
+
+    /// The point `(c, z_0)` of the 4-space at view coordinate `p`, at least at `bits`:
+    /// `c = c* + cos t (p - P)`, `z_0 = z* + sin t (p - P)` (the pivot itself at `p = P`).
+    pub fn point(self, p: &BigComplex, bits: usize) -> (BigComplex, BigComplex) {
+        let bits = bits.max(self.pivot_bits());
+        let pv = self.pivot();
+        let (cos, sin) = self.cos_sin();
+        let w = &p.with_precision(bits) - &self.pivot_view();
+        let c = &pv.0.with_precision(bits) + &w.scaled(&BigFloat::from_f64(cos, bits));
+        let z = &pv.1.with_precision(bits) + &w.scaled(&BigFloat::from_f64(sin, bits));
+        (c, z)
+    }
+
+    /// [`TurnPlane::point`] in f64 (overlays, shallow CPU renders).
+    pub fn point_f64(self, p: (f64, f64)) -> ((f64, f64), (f64, f64)) {
+        let pv = self.pivot();
+        let (cos, sin) = self.cos_sin();
+        let (c, z) = (pv.0.to_f64(), pv.1.to_f64());
+        let pp = (cos * c[0] + sin * z[0], cos * c[1] + sin * z[1]);
+        let w = (p.0 - pp.0, p.1 - pp.1);
+        (
+            (c[0] + cos * w.0, c[1] + cos * w.1),
+            (z[0] + sin * w.0, z[1] + sin * w.1),
+        )
+    }
+}
+
+impl core::fmt::Debug for TurnPlane {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let pv = self.pivot();
+        let (c, z) = (pv.0.to_f64(), pv.1.to_f64());
+        write!(
+            f,
+            "TurnPlane({}°, c* = ({:e}, {:e}), z* = ({:e}, {:e}))",
+            self.degrees(),
+            c[0],
+            c[1],
+            z[0],
+            z[1]
+        )
+    }
+}
+
 type C64 = (f64, f64);
 
 #[inline(always)]
@@ -159,7 +301,8 @@ impl Formula {
             | Self::BurningShip
             | Self::Celtic
             | Self::Buffalo
-            | Self::Perpendicular => 2,
+            | Self::Perpendicular
+            | Self::Turn(_) => 2,
             Self::Multibrot(p) => p,
         }
     }
@@ -258,6 +401,8 @@ impl Formula {
             Self::Celtic => 5,
             Self::Buffalo => 6,
             Self::Perpendicular => 7,
+            // (9, not the next free code: clear of the codes other formula work takes.)
+            Self::Turn(_) => 9,
         }
     }
 
@@ -273,10 +418,19 @@ impl Formula {
             Self::Celtic => "celtic".into(),
             Self::Buffalo => "buffalo".into(),
             Self::Perpendicular => "perpendicular".into(),
+            Self::Turn(_) => "turn".into(),
         }
     }
 
-    /// Parses a name; `julia` needs its `k` and is not parsed here.
+    /// The turned plane (F9; None for the other formulas).
+    pub fn turn(self) -> Option<TurnPlane> {
+        match self {
+            Self::Turn(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Parses a name; `julia` needs its `k` and `turn` its plane: neither is parsed here.
     pub fn parse(v: &str) -> Option<Self> {
         if v == "mandelbrot" {
             return Some(Self::Mandelbrot);
@@ -310,7 +464,8 @@ impl Formula {
             | Self::BurningShip
             | Self::Celtic
             | Self::Buffalo
-            | Self::Perpendicular => 65536.0,
+            | Self::Perpendicular
+            | Self::Turn(_) => 65536.0,
             Self::Multibrot(p) => 2f64.powi((60 / p.max(1)).min(16) as i32),
         }
     }
@@ -326,7 +481,8 @@ impl Formula {
             | Self::BurningShip
             | Self::Celtic
             | Self::Buffalo
-            | Self::Perpendicular => 1.0 - (0.5 * r2.ln()).log2(),
+            | Self::Perpendicular
+            | Self::Turn(_) => 1.0 - (0.5 * r2.ln()).log2(),
             Self::Multibrot(p) => 1.0 - (0.5 * r2.ln()).log2() / f64::from(p).log2(),
         }
     }
@@ -349,7 +505,7 @@ impl Formula {
     #[inline]
     pub fn step(self, z: C64, c: C64) -> C64 {
         let w = match self {
-            Self::Mandelbrot | Self::Julia(_) => cmul(z, z),
+            Self::Mandelbrot | Self::Julia(_) | Self::Turn(_) => cmul(z, z),
             Self::Multibrot(p) => Self::cpow(z, p),
             // conj(z)^2 = conj(z^2).
             Self::Mandelbar => {

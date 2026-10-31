@@ -363,6 +363,19 @@ impl Journal {
                     kv.precision_bits()
                 ));
             }
+            if let Some(t) = e.formula.turn() {
+                // F9: the angle (hundredths of a degree) and the pivot exactly, as k above.
+                let pv = t.pivot();
+                out.push_str(&format!(
+                    " {} {} {} {} {} {}",
+                    t.centidegrees(),
+                    pv.0.re.to_decimal_string(None),
+                    pv.0.im.to_decimal_string(None),
+                    pv.1.re.to_decimal_string(None),
+                    pv.1.im.to_decimal_string(None),
+                    pv.0.precision_bits().max(pv.1.precision_bits())
+                ));
+            }
             out.push('\n');
         }
         out
@@ -430,7 +443,7 @@ fn coordinate_digits(v: &Viewport) -> usize {
 }
 
 fn parse_entry(p: &[&str]) -> Option<Entry> {
-    if p.len() != 5 && p.len() != 8 {
+    if p.len() != 5 && p.len() != 8 && p.len() != 11 {
         return None;
     }
     let center = Center::parse(p[0], p[1]).filter(|c| c.re().is_finite() && c.im().is_finite())?;
@@ -448,6 +461,25 @@ fn parse_entry(p: &[&str]) -> Option<Entry> {
             return None;
         }
         Formula::Julia(JuliaK::new(&k))
+    } else if p[4] == "turn" {
+        // F9: `turn centidegrees c_re c_im z_re z_im bits` (the pivot exactly).
+        let t: u16 = p
+            .get(5)?
+            .parse()
+            .ok()
+            .filter(|t| *t <= crate::math::TURN_MAX_CENTIDEGREES)?;
+        let bits: usize = p
+            .get(10)?
+            .parse()
+            .ok()
+            .filter(|b| (64..=crate::viewport::MAX_CENTER_BITS + 64).contains(b))?;
+        let c = crate::math::BigComplex::parse(p.get(6)?, p.get(7)?, bits)?;
+        let z = crate::math::BigComplex::parse(p.get(8)?, p.get(9)?, bits)?;
+        let ok = |v: [f64; 2]| v[0].is_finite() && v[1].is_finite();
+        if !(ok(c.to_f64()) && ok(z.to_f64())) {
+            return None;
+        }
+        Formula::Turn(crate::math::TurnPlane::new(&c, &z, t))
     } else {
         Formula::parse(p[4])?
     };

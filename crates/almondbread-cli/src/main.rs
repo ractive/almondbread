@@ -28,6 +28,9 @@
 //! `--buddha-seconds s`: how long the export accumulates).
 //!
 //! `render`, `verify` and `fly` views take `--place id` (the places catalogue).
+//!
+//! `render out.png --lab-plane c|z0|p [--z0 re,im] [--c re,im] [--p re,im] [--lab-seed n]
+//! [--lab-panels 1]`: the parameter lab (F10, `lab.rs`).
 
 // The commands are generic over the backend; only Apple targets have one yet.
 #![cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
@@ -37,6 +40,7 @@ mod benchmark;
 mod buddha;
 mod commands;
 mod fly;
+mod lab;
 mod options;
 mod palettes;
 mod places;

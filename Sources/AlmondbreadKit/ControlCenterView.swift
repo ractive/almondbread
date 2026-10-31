@@ -597,8 +597,15 @@ struct FractalRow: View {
 
     var body: some View {
         let _ = UIPerf.body("FractalRow")
-        Group {
+        VStack(alignment: .leading, spacing: 6) {
             if model.isJulia { julia } else { pickers }
+            // F9: the turn and the start value, for the z² + c views (Mandelbrot, its Julia sets
+            // and the planes between); another fractal does not have them (hidden, not disabled).
+            if !model.isLab && (model.turn?.available ?? (model.formulaFamily == "mandelbrot")) {
+                TurnRows(model: model)
+            }
+            // F10: the parameter lab's knobs (ParameterLab.swift).
+            if model.isLab { LabControls(model: model) }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -684,6 +691,93 @@ struct FractalRow: View {
                 back
             }
         }
+    }
+}
+
+/// F9 (kb: plans/f9-turn, decisions/controls "Turn: Mandelbrot ↔ Julia"): `z ↦ z² + c` has two
+/// inputs, the start z₀ and c, a 4-dimensional space; the Mandelbrot set is the plane where the
+/// pixel is c (z₀ fixed, 0), a Julia set the plane where the pixel is z₀ (c fixed). The slider
+/// turns the view's plane between them around the point in the middle of the view (0°: the
+/// Mandelbrot set, 90°: the Julia set of the centre's c, the twin's set centred on z₀), live: each
+/// value is a new plane, rendered with gesture frames. The start value is the centre's z₀ (at 0°
+/// the whole plane's; Return applies it). ↺ goes back to the ordinary Mandelbrot set at the
+/// centre's c; disabled when there is nothing to reset (a row depending on a setting).
+struct TurnRows: View {
+    let model: ExplorerModel
+    @State private var startRe = "0"
+    @State private var startIm = "0"
+    private enum Field { case re, im }
+    @FocusState private var field: Field?
+    private var editing: Bool { field != nil }
+
+    var body: some View {
+        let t = model.turn
+        let degrees = t?.degrees ?? 0
+        let text = degrees.truncatingRemainder(dividingBy: 1) == 0
+            ? "\(Int(degrees))°" : String(format: "%.1f°", degrees)
+        VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Turn: Mandelbrot ↔ Julia")
+                    Spacer()
+                    Text(text).monospacedDigit().foregroundStyle(.secondary)
+                }
+                Slider(value: Binding(get: { degrees }, set: { model.setTurn(($0 * 10).rounded() / 10) }),
+                       in: 0...90)
+                    .labelsHidden()
+                    .accessibilityLabel("Turn: Mandelbrot to Julia")
+                    .accessibilityValue(text)
+                    .accessibilityIdentifier("turn-slider")
+            }
+            .help("Turns the picture from the Mandelbrot set (0°: each point is c, the start z₀ fixed) to the Julia set of the centre's c (90°: each point is z₀, c fixed), around the point in the middle")
+            HStack(spacing: 6) {
+                Text("Start z₀").fixedSize()
+                    .modifier(DimmedWhenDisabled())
+                TextField("re", text: $startRe)
+                    .focused($field, equals: .re)
+                    .accessibilityIdentifier("turn-start-re")
+                    .accessibilityLabel("Start z₀ real part")
+                Text("+").foregroundStyle(.secondary)
+                TextField("im", text: $startIm)
+                    .focused($field, equals: .im)
+                    .accessibilityIdentifier("turn-start-im")
+                    .accessibilityLabel("Start z₀ imaginary part")
+                Text("i").foregroundStyle(.secondary)
+                Button {
+                    model.resetTurn()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Back to the Mandelbrot set")
+                .accessibilityIdentifier("turn-reset")
+                .enabled(!(t?.plain ?? true), why: "Already the Mandelbrot set: 0° and z₀ = 0",
+                         help: "Back to the Mandelbrot set at the centre: 0° and z₀ = 0")
+            }
+            .textFieldStyle(.roundedBorder)
+            #if os(iOS)
+            .keyboardType(.numbersAndPunctuation)
+            #endif
+            .onSubmit { model.setStart(re: startRe, im: startIm) }
+            .help("Where every orbit starts at the view's centre: 0 for the Mandelbrot set; Return applies it (in a Julia view, 90°, it is the centre itself)")
+        }
+        .onAppear { follow(t) }
+        .onChange(of: t) { _, new in if !editing { follow(new) } }
+        .onChange(of: field) { _, now in if now == nil { follow(model.turn) } }
+    }
+
+    /// The fields show the centre's start value while not being edited.
+    private func follow(_ t: TurnInfo?) {
+        guard let t else { return }
+        startRe = Self.short(t.startRe)
+        startIm = Self.short(t.startIm)
+    }
+
+    /// Up to 10 significant digits for the field (the exact value is Rust's).
+    static func short(_ s: String) -> String {
+        guard let v = Double(s), v.isFinite else { return s }
+        if v == 0 { return "0" }
+        return String(format: "%.10g", v)
     }
 }
 
@@ -1389,7 +1483,8 @@ enum ControlSection: String, CaseIterable, Identifiable {
     @MainActor func offered(by model: ExplorerModel) -> Bool {
         switch self {
         // (F3: a Multibrot power has a few places of its own, but no tours.)
-        case .places: model.has(\.content) || !model.currentPlaces.isEmpty
+        // (F10: no places in the parameter lab.)
+        case .places: !model.isLab && (model.has(\.content) || !model.currentPlaces.isEmpty)
         case .tours: model.has(\.content)
         default: true
         }

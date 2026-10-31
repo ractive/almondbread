@@ -21,6 +21,8 @@ use crate::backend::GpuBackend;
 use crate::overlay::Overlay;
 use crate::scheduler::{FrameOutcome, FrameStats, FrameTarget, Renderer};
 
+mod lab_host;
+
 /// What an input event did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputOutcome {
@@ -109,6 +111,9 @@ pub struct Host<B: GpuBackend> {
     /// The last click was a ⌘-click that opened a Julia set: the rest of its click stream (⌘
     /// double clicks) does not zoom the new view.
     command_click_opened: bool,
+    /// F10 (kb: plans/f10-parameter-lab): the view and travel journal the parameter lab was
+    /// entered from (the way back).
+    pub lab_return: Option<(Viewport, almondbread_core::journal::Journal)>,
 }
 
 impl<B: GpuBackend + Clone> Host<B> {
@@ -130,6 +135,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             julia_return: None,
             overlay_way_back_k: None,
             command_click_opened: false,
+            lab_return: None,
         }
     }
 
@@ -208,6 +214,11 @@ impl<B: GpuBackend + Clone> Host<B> {
             },
             e => e,
         };
+        // F10: in the parameter lab a click sets the shown plane's knob; what the lab lacks does
+        // nothing.
+        if let Some(o) = self.lab_input(&event) {
+            return o;
+        }
         // ⌘-click (kb: decisions/controls "⌘-click: open a point's Julia set"): the clicked
         // point's Julia set, where the formula offers the Julia panel; the navigator never sees
         // that click (no autopilot pause), and the further clicks of its stream do not zoom.
@@ -235,6 +246,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         // Seek and the home view follow the current formula (F3).
         self.renderer.navigator.set_formula(self.renderer.settings.formula);
         let handled = self.renderer.handle_input(event, now);
+        self.lab_after_input(now);
         // Focus lost (kb: decisions/controls "Held input"): a compass press lets go without its
         // click (no turn to north), as the navigator lets go of keys, pedals and fingers.
         if event == InputEvent::FocusLost {
@@ -297,7 +309,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// Mandelbar view, a Julia view) or before the first resize.
     pub fn open_julia_at(&mut self, x: f64, y: f64) -> bool {
         let f = self.renderer.settings.formula;
-        if f.is_julia() || !almondbread_core::FormulaCapabilities::of(f).julia_panel {
+        if f.is_julia() || !almondbread_core::FormulaCapabilities::of(f).julia_panel || self.lab_on() {
             return false;
         }
         let (w, h) = self.view_points;
@@ -329,11 +341,57 @@ impl<B: GpuBackend + Clone> Host<B> {
         r.viewport = view;
     }
 
+    /// F9 (kb: plans/f9-turn): turns the view's plane of the (c, z_0) space to `centidegrees`
+    /// (0: the Mandelbrot plane, 9000: the Julia plane) around the view centre's point, which
+    /// stays in the middle; scale and rotation stay. Turning back returns exactly. A jump (each
+    /// angle is another formula) shown with gesture frames, so a slider drag stays fluid. False
+    /// where the turn does not apply (`turn::applies`) or nothing changes.
+    pub fn set_turn(&mut self, centidegrees: u16, now: f64) -> bool {
+        let r = &self.renderer;
+        match almondbread_core::turn::turned(r.settings.formula, &r.viewport, centidegrees) {
+            Some((f, view)) => self.apply_plane(f, view, now),
+            None => false,
+        }
+    }
+
+    /// F9: the view centre's start value set to `z0` (its `c` and the angle stay; at 90°, where
+    /// the pixel is `z_0`, that moves the view there). False where the turn does not apply or
+    /// nothing changes.
+    pub fn set_start(&mut self, z0: &almondbread_core::math::BigComplex, now: f64) -> bool {
+        let r = &self.renderer;
+        match almondbread_core::turn::with_start(r.settings.formula, &r.viewport, z0) {
+            Some((f, view)) => self.apply_plane(f, view, now),
+            None => false,
+        }
+    }
+
+    /// Shows the plane `formula` at `view` (F9's turn and start value): a Julia view left this
+    /// way has no way back to keep (the slider is it); one entered this way has none either
+    /// (the Mandelbrot panel then shows the whole set with k marked).
+    fn apply_plane(&mut self, formula: almondbread_core::Formula, mut view: Viewport, now: f64) -> bool {
+        let r = &mut self.renderer;
+        if formula == r.settings.formula && view == r.viewport {
+            return false;
+        }
+        if r.settings.formula.is_julia() && !formula.is_julia() {
+            self.julia_return = None;
+            self.overlay.way_back_reference = None;
+        }
+        r.navigator.cancel_flight();
+        r.navigator.jumped();
+        view.ensure_precision();
+        r.settings.formula = formula;
+        r.viewport = view;
+        r.navigator.set_formula(formula);
+        r.note_interaction(now);
+        true
+    }
+
     /// The Julia twin (F4): the Julia set of the view's centre at the same framing. False in a
     /// Julia view (its twin is the way back) or for a formula without the Julia panel's `z^2+k`.
     pub fn julia_twin(&mut self) -> bool {
         let f = self.renderer.settings.formula;
-        if f.is_julia() || !almondbread_core::FormulaCapabilities::of(f).julia_panel {
+        if f.is_julia() || !almondbread_core::FormulaCapabilities::of(f).julia_panel || self.lab_on() {
             return false;
         }
         let (formula, view) = almondbread_core::julia::twin(&self.renderer.viewport);
@@ -478,7 +536,7 @@ impl<B: GpuBackend + Clone> Host<B> {
             TouchSpot::Canvas
         } else if self.help_hit(x, y).is_some() || self.cockpit_hit(x, y).is_some() {
             TouchSpot::Control
-        } else if self.overlay.compass.hits(x, y, now) {
+        } else if self.overlay.compass.hits(x, y, now) || self.lab_panel_hit(x, y) {
             TouchSpot::Compass
         } else if self.overlay.map_hit(
             self.width as f64 / 2.0 + x / ppp,
@@ -552,11 +610,16 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// returns true (the platform then gives the press, its drag and its release to the
     /// compass, and no double-click zoom; kb: decisions/controls "Compass").
     pub fn compass_press(&mut self, x: f64, y: f64, now: f64) -> bool {
-        self.overlay.compass.press(x, y, now)
+        // (F10: the parameter lab's panels take presses the same way.)
+        self.lab_press(x, y) || self.overlay.compass.press(x, y, now)
     }
 
     /// The pointer moved to (x, y) during a compass press: the needle follows it.
     pub fn compass_drag(&mut self, x: f64, y: f64, now: f64) {
+        if self.overlay.lab_drag.is_some() {
+            self.lab_drag(x, y);
+            return;
+        }
         let turn = self.overlay.compass.drag_to(x, y);
         if turn != 0.0 {
             let r = &mut self.renderer;
@@ -566,6 +629,9 @@ impl<B: GpuBackend + Clone> Host<B> {
 
     /// The compass press ended: a click turns the view to north (eased).
     pub fn compass_release(&mut self, now: f64) {
+        if self.lab_release() {
+            return;
+        }
         if self.overlay.compass.release() {
             self.renderer.navigator.turn_north(now);
         }
@@ -612,6 +678,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         self.update_way_back();
         if self.overlay.active()
+            || self.renderer.lab.is_some()
             || self.overlay.compass.shown(now)
             || self.overlay.marker.visible()
             || self.overlay.tour.shown()
@@ -790,7 +857,10 @@ impl<B: GpuBackend + Clone> Host<B> {
         let (w, h) = self.view_points;
         self.renderer.navigator.cancel_flight();
         self.renderer.navigator.note_travel();
-        self.renderer.viewport = Viewport::fitting_for(self.renderer.settings.formula, w, h);
+        self.renderer.viewport = self
+            .renderer
+            .lab_home((w, h))
+            .unwrap_or_else(|| Viewport::fitting_for(self.renderer.settings.formula, w, h));
     }
 
     /// The travel journal (kb: decisions/controls "Travel journal"): back (⌘Z) or forward (⇧⌘Z,
@@ -799,6 +869,10 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// way back, as `open_julia` keeps it). False when there is nothing to go to. The settings'
     /// formula may change: the platform pulls the settings.
     pub fn journal_step(&mut self, step: almondbread_core::journal::Step, now: f64) -> bool {
+        // (Not in the parameter lab: the journal holds the views it was entered from.)
+        if self.lab_on() {
+            return false;
+        }
         let r = &mut self.renderer;
         r.navigator.set_formula(r.settings.formula);
         let before = (r.viewport.clone(), r.settings.formula);
@@ -829,7 +903,7 @@ impl<B: GpuBackend + Clone> Host<B> {
     /// The journal can step from the current view (menu items and buttons).
     pub fn journal_can(&self, step: almondbread_core::journal::Step) -> bool {
         let r = &self.renderer;
-        r.navigator.journal_can(step, &r.viewport, r.settings.formula)
+        !self.lab_on() && r.navigator.journal_can(step, &r.viewport, r.settings.formula)
     }
 
     /// One display refresh. `now` is the refresh's timestamp, `clock` reads the same clock
@@ -1030,6 +1104,10 @@ pub fn coordinates_text_for(v: &Viewport, formula: almondbread_core::formula::Fo
             kv.re.to_decimal_string(Some(d)),
             kv.im.to_decimal_string(Some(d))
         ));
+    } else if let Some(line) = almondbread_core::turn::turn_line(formula, v, coordinate_digits(v) + 2) {
+        // F9: the turned plane as the centre's point (c, z_0) and the angle.
+        text.push('\n');
+        text.push_str(&line);
     } else if !formula.is_mandelbrot() {
         text.push_str(&format!("\nformula {}", formula.name()));
     }
