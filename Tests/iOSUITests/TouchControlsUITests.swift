@@ -590,6 +590,14 @@ final class TouchControlsUITests: XCTestCase {
         reset.tap()
         settle(2)
         XCTAssertEqual(fields()["formula"], "mandelbrot")
+        // Typed but not applied (no Return): ↺ is enabled and clears the field.
+        start.tap()
+        start.typeText("0.03")
+        XCTAssertTrue(reset.isEnabled, "the reset is disabled while the field holds an unapplied value")
+        reset.tap()
+        settle(1)
+        XCTAssertEqual(start.value as? String, "0", "the reset left the typed start value")
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
         for _ in 0..<3 where control.value as? String == "shown" {
             app.buttons["control-center-close"].tap()
             settle(1)

@@ -700,8 +700,9 @@ struct FractalRow: View {
 /// turns the view's plane between them around the point in the middle of the view (0°: the
 /// Mandelbrot set, 90°: the Julia set of the centre's c, the twin's set centred on z₀), live: each
 /// value is a new plane, rendered with gesture frames. The start value is the centre's z₀ (at 0°
-/// the whole plane's; Return applies it). ↺ goes back to the ordinary Mandelbrot set at the
-/// centre's c; disabled when there is nothing to reset (a row depending on a setting).
+/// the whole plane's; Return applies it, Escape drops an edit). ↺ goes back to the ordinary
+/// Mandelbrot set at the centre's c and drops an unapplied edit; disabled when there is nothing to
+/// reset (a row depending on a setting).
 struct TurnRows: View {
     let model: ExplorerModel
     @State private var startRe = "0"
@@ -709,6 +710,12 @@ struct TurnRows: View {
     private enum Field { case re, im }
     @FocusState private var field: Field?
     private var editing: Bool { field != nil }
+    /// The fields hold text that is not the applied start value (typed, no Return yet). A focused
+    /// field takes no updates, and on the Mac a click on the canvas does not end the editing.
+    private var edited: Bool {
+        guard let t = model.turn else { return false }
+        return startRe != Self.short(t.startRe) || startIm != Self.short(t.startIm)
+    }
 
     var body: some View {
         let t = model.turn
@@ -744,14 +751,16 @@ struct TurnRows: View {
                     .accessibilityLabel("Start z₀ imaginary part")
                 Text("i").foregroundStyle(.secondary)
                 Button {
+                    field = nil
                     model.resetTurn()
+                    follow(model.turn)
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Back to the Mandelbrot set")
                 .accessibilityIdentifier("turn-reset")
-                .enabled(!(t?.plain ?? true), why: "Already the Mandelbrot set: 0° and z₀ = 0",
+                .enabled(!(t?.plain ?? true) || edited, why: "Already the Mandelbrot set: 0° and z₀ = 0",
                          help: "Back to the Mandelbrot set at the centre: 0° and z₀ = 0")
             }
             .textFieldStyle(.roundedBorder)
@@ -759,6 +768,9 @@ struct TurnRows: View {
             .keyboardType(.numbersAndPunctuation)
             #endif
             .onSubmit { model.setStart(re: startRe, im: startIm) }
+            #if os(macOS)
+            .onExitCommand { field = nil }
+            #endif
             .help("Where every orbit starts at the view's centre: 0 for the Mandelbrot set; Return applies it (in a Julia view, 90°, it is the centre itself)")
         }
         .onAppear { follow(t) }
