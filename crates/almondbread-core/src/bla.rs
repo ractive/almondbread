@@ -95,11 +95,37 @@ pub type BlaEntryM = [f32; 10];
 /// form"). A component that is 0 (or flushed in the reference's float form) allows no block.
 pub fn single_radius(formula: Formula, z: (f64, f64), eps: f64) -> f64 {
     let r = eps * formula.jacobian(z).inf();
-    if formula.folds() {
+    if formula.is_ship_variant() {
+        r.min(variant_fold_cap(formula, z))
+    } else if formula.folds() {
         r.min(0.5 * z.0.abs().min(z.1.abs()))
     } else {
         r
     }
+}
+
+/// Relative rounding margin of a table's reference point (float32 or floatexp with a float32
+/// mantissa: 2^-24 per part) for the diagonal fold cap: `||X| - |Y||` is known only to
+/// `2^-24 (|X| + |Y|)`, so the cap keeps 2^-20 of that clear.
+const DIAGONAL_MARGIN_LOG2: i64 = -20;
+
+/// F6b: the fold cap of the ship's variants, half the distance of a delta from changing a fold
+/// sign: `min(|X|, |Y|)` (Buffalo's `|X Y|`, as the ship), `|Y|` (Perpendicular), and for the
+/// real fold `|x^2 - y^2|` (Celtic, Buffalo) `(||X| - |Y|| - margin) / sqrt 2`, since `|x| + |y|
+/// <= sqrt 2 |z|` keeps `|X + x| - |Y + y|` on its side (our derivation, kb:
+/// plans/f6b-burning-ship-variants).
+fn variant_fold_cap(formula: Formula, z: (f64, f64)) -> f64 {
+    let (ax, ay) = (z.0.abs(), z.1.abs());
+    let mut cap = match formula {
+        Formula::Buffalo => ax.min(ay),
+        Formula::Perpendicular => ay,
+        _ => f64::INFINITY,
+    };
+    if formula.folds_re() {
+        let margin = (ax + ay) * pow2(DIAGONAL_MARGIN_LOG2);
+        cap = cap.min(((ax - ay).abs() - margin).max(0.0) * std::f64::consts::FRAC_1_SQRT_2);
+    }
+    0.5 * cap
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -893,7 +919,28 @@ impl MergedMX {
             q: Xc::from_double_exp(j.q),
         };
         let mut r = Xr::from_f64(eps).mul(a.inf());
-        if formula.folds() {
+        if formula.is_ship_variant() {
+            // F6b: [`variant_fold_cap`] in extended range.
+            let (ax, ay) = (zd.re.abs(), zd.im.abs());
+            let less = |a: DoubleExp, b: DoubleExp| if a < b { a } else { b };
+            let mut cap = match formula {
+                Formula::Buffalo => Some(less(ax, ay)),
+                Formula::Perpendicular => Some(ay),
+                _ => None,
+            };
+            if formula.folds_re() {
+                let diff = if ax > ay { ax - ay } else { ay - ax };
+                let margin = (ax + ay).times_power_of_two(DIAGONAL_MARGIN_LOG2);
+                let diag = if diff > margin {
+                    (diff - margin) * DoubleExp::from_f64(std::f64::consts::FRAC_1_SQRT_2)
+                } else {
+                    DoubleExp::ZERO
+                };
+                cap = Some(cap.map_or(diag, |c| less(c, diag)));
+            }
+            let c = cap.unwrap_or(DoubleExp::ZERO);
+            r = r.min(Xr::new(0.5 * c.mantissa, c.exponent));
+        } else if formula.folds() {
             // F6: the fold cap min(|X|, |Y|) / 2 ([`single_radius`]).
             let small = if zd.re.abs() < zd.im.abs() { zd.re } else { zd.im };
             r = r.min(Xr::new(0.5 * small.mantissa.abs(), small.exponent));

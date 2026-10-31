@@ -498,6 +498,16 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(fields()["formula"], "burningship")
         XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, -0.45, accuracy: 1e-9, "not at the Burning Ship's home")
         XCTAssertFalse(app.buttons["formula-power"].exists, "a power picker for the Burning Ship")
+        // F6b: its variants in a second menu; Celtic's home at -0.84.
+        let variant = app.buttons["formula-variant"]
+        XCTAssertTrue(variant.waitForExistence(timeout: 5), "no variant picker")
+        variant.tap()
+        settle(1)
+        app.buttons["Celtic"].firstMatch.tap()
+        settle(2.5)
+        shot("formula-celtic")
+        XCTAssertEqual(fields()["formula"], "celtic")
+        XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, -0.84, accuracy: 1e-9, "not at the Celtic set's home")
         family.tap()
         settle(1)
         app.buttons["Mandelbrot"].firstMatch.tap()
@@ -505,6 +515,7 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(fields()["formula"], "mandelbrot")
         XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, -0.75, accuracy: 1e-9, "not at the Mandelbrot home")
         XCTAssertFalse(app.buttons["formula-power"].exists, "the power picker stays for Mandelbrot")
+        XCTAssertFalse(app.buttons["formula-variant"].exists, "the variant picker stays for Mandelbrot")
         // The ✕ closes the pane (the first tap may only end the search field's editing).
         for _ in 0..<3 where control.value as? String == "shown" {
             app.buttons["control-center-close"].tap()

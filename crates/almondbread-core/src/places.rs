@@ -148,6 +148,7 @@ pub fn place_named(id: &str) -> Option<&'static Place> {
         .chain(MULTIBROT_PLACES)
         .chain(MANDELBAR_PLACES)
         .chain(BURNING_SHIP_PLACES)
+        .chain(SHIP_VARIANT_PLACES)
         .find(|p| p.id == id)
 }
 
@@ -161,6 +162,7 @@ pub fn places_for(formula: Formula) -> Vec<&'static Place> {
         .iter()
         .chain(MANDELBAR_PLACES)
         .chain(BURNING_SHIP_PLACES)
+        .chain(SHIP_VARIANT_PLACES)
         .filter(|p| p.formula == formula)
         .collect()
 }
@@ -172,6 +174,7 @@ pub fn all_places() -> impl Iterator<Item = &'static Place> {
         .chain(MULTIBROT_PLACES)
         .chain(MANDELBAR_PLACES)
         .chain(BURNING_SHIP_PLACES)
+        .chain(SHIP_VARIANT_PLACES)
 }
 
 /// A random place: `seed` picks it (any u64, e.g. a time or a random number), so the caller
@@ -313,6 +316,28 @@ mod tests {
             assert_eq!(p.generated, p.source_url.is_empty(), "{}", p.id);
             assert_eq!(place_named(p.id).map(|q| q.formula), Some(Formula::BurningShip));
             assert!(p.id.starts_with("burningship-"));
+        }
+    }
+
+    /// F6b: each of the ship's variants has its own handful, the whole set first, by category,
+    /// ids prefixed with the formula's name, all ours (no literature links).
+    #[test]
+    fn ship_variant_places() {
+        for (f, count) in [(Formula::Celtic, 6), (Formula::Buffalo, 5), (Formula::Perpendicular, 6)] {
+            let list = places_for(f);
+            assert_eq!(list.len(), count, "{f:?}");
+            assert_eq!(list[0].id, format!("{}-whole-set", f.name()));
+            let order: Vec<usize> = list
+                .iter()
+                .map(|p| PlaceCategory::ALL.iter().position(|&c| c == p.category).unwrap())
+                .collect();
+            assert!(order.windows(2).all(|w| w[0] <= w[1]), "{f:?}");
+            for p in &list {
+                assert!(p.id.starts_with(&format!("{}-", f.name())) && p.generated && p.source_url.is_empty());
+                assert_eq!(place_named(p.id).map(|q| q.formula), Some(f));
+                let (re, im) = (p.center().re(), p.center().im());
+                assert!(crate::viewport::set_box(f).clamp(re, im) == (re, im), "{}", p.id);
+            }
         }
     }
 

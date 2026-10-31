@@ -308,6 +308,8 @@ pub struct OracleReference {
     pub cycle: Vec<(f64, f64)>,
     pub points: Vec<[f64; 2]>,
     pub extended: Vec<DoubleExpComplex>,
+    /// F6b: each point's exact `R = X^2 - Y^2` (Celtic, Buffalo; else empty).
+    pub fold: Vec<DoubleExp>,
     pub precision_bits: usize,
     pub time: f64,
 }
@@ -387,13 +389,16 @@ impl OracleReference {
                 cycle: formula.julia_k().map(julia_cycle).unwrap_or_default(),
                 points,
                 extended,
+                fold: Vec::new(),
                 precision_bits: bits,
                 time: t0.elapsed().as_secs_f64(),
             };
         }
         let comp = ReferenceOrbitComputer::new(center.big(), bits).with_formula(formula);
-        let (extended, _) =
-            almondbread_math::with_no_control(4096, |ctl| comp.compute_double_exp(max_iter, bailout, ctl));
+        // (F6b: Celtic's and Buffalo's exact fold values with the orbit.)
+        let (extended, fold, _) = almondbread_math::with_no_control(4096, |ctl| {
+            comp.compute_double_exp_fold(max_iter, bailout, formula.folds_re(), ctl)
+        });
         let points = extended.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect();
         Self {
             formula,
@@ -401,6 +406,7 @@ impl OracleReference {
             cycle: Vec::new(),
             points,
             extended,
+            fold,
             precision_bits: bits,
             time: t0.elapsed().as_secs_f64(),
         }
@@ -674,6 +680,27 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
     let generic = !formula.is_mandelbrot();
     // F5: a non-conformal formula (Mandelbar) steps through its own delta hooks.
     let conformal = formula.is_conformal();
+    // F6b: a ship variant's exact fold values at reference point m, `[R, Q]` (R = X^2 - Y^2 from
+    // the orbit for Celtic and Buffalo; Q = X Y or Y, exact products of the extended parts).
+    let variant = formula.is_ship_variant();
+    let fold_x = |m: usize| -> [DoubleExp; 2] {
+        let z = ext[m];
+        let rr = if formula.folds_re() && m < r.fold.len() {
+            r.fold[m]
+        } else {
+            (z.re - z.im) * (z.re + z.im)
+        };
+        let q = if formula == Formula::Perpendicular {
+            z.im
+        } else {
+            z.re * z.im
+        };
+        [rr, q]
+    };
+    let fold_scaled = |m: usize, e: i64| -> [f64; 2] {
+        let [rr, q] = fold_x(m);
+        [rr.times_power_of_two(-e).to_f64(), q.times_power_of_two(-e).to_f64()]
+    };
     let c64 = (cm.0 * pow2(ce), cm.1 * pow2(ce));
     let cx = dx(cm.0, cm.1, ce);
     let c_exp = dx_exponent(cx);
@@ -757,6 +784,9 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                         let zx0 = dx(z.0, z.1, 0);
                         let zx = if conformal {
                             zx0 * formula.delta_factor_x(zrx, zrx + zx0) + cx
+                        } else if variant {
+                            let rr = if m == 0 { DoubleExp::ZERO } else { fold_x(m)[0] };
+                            formula.delta_step_x_with(zrx, zx0, cx, rr)
                         } else {
                             formula.delta_step_x(zrx, zx0, cx)
                         };
@@ -772,6 +802,13 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                         (sc, dd) = rescale(&mut w, &mut ee);
                         e = Some(ee);
                         break;
+                    }
+                    if variant {
+                        let fv = if m == 0 { [0.0; 2] } else { fold_scaled(m, 0) };
+                        z = formula.delta_step_scaled((zr[0], zr[1]), z, z, c64, fv);
+                        m += 1;
+                        n += 1;
+                        continue;
                     }
                     if !conformal {
                         z = formula.delta_step((zr[0], zr[1]), z, c64);
@@ -817,7 +854,10 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                     if n >= max_iter {
                         return (ITER_INTERIOR, 0.0);
                     }
-                    zx = if !conformal {
+                    zx = if variant {
+                        let rr = if m == 0 { DoubleExp::ZERO } else { fold_x(m)[0] };
+                        formula.delta_step_x_with(zrx, zx, cx, rr)
+                    } else if !conformal {
                         formula.delta_step_x(zrx, zx, cx)
                     } else if generic {
                         zx * formula.delta_factor_x(zrx, zrx + zx) + cx
@@ -852,12 +892,15 @@ fn deep_pixel(r: &OracleReference, cm: (f64, f64), ce: i64, max_iter: usize, b2:
                 } else {
                     // (F6: the Burning Ship's fold compares X Y / s with the scaled perturbation;
                     // X Y from the extended reference, exact where a part is below f64's range.)
-                    let xy_s = if formula.folds() {
-                        (ext[m].re * ext[m].im).times_power_of_two(-ee).to_f64()
+                    // (F6b: the variants' fold values at the delta's scale, R exact.)
+                    let fold = if variant {
+                        fold_scaled(m, ee)
+                    } else if formula.folds() {
+                        [0.0, (ext[m].re * ext[m].im).times_power_of_two(-ee).to_f64()]
                     } else {
-                        0.0
+                        [0.0; 2]
                     };
-                    formula.delta_step_scaled((zm[0], zm[1]), sw, w, dd, xy_s)
+                    formula.delta_step_scaled((zm[0], zm[1]), sw, w, dd, fold)
                 };
                 m += 1;
                 n += 1;
@@ -1351,6 +1394,145 @@ mod tests {
             // rounding.)
             let bound = if sc == "2e-3" || sc == "3e-3" { 2e-2 } else { 1e-4 };
             assert!(worst < bound, "{sc}: |dmu| {worst}");
+        }
+    }
+
+    /// The deep oracle of `f` at a 24 x 16 view against direct BigFloat iteration per pixel:
+    /// (same escape counts, pixels, max |dmu| where both escape, distinct escape counts, and the
+    /// chaos control: max |dmu| of direct f64 iteration against BigFloat, 0 below f64's reach).
+    fn oracle_against_direct(f: Formula, center: &Center, texel: Scale, it: usize) -> (usize, usize, f64, usize, f64) {
+        use almondbread_math::{BigComplex, ReferenceOrbitComputer, with_no_control};
+        let (w, h) = (24usize, 16usize);
+        let (field, r) = cpu_render_deep_for(f, center, texel, w, h, it, 65536.0, 0.0);
+        assert_eq!(r.formula, f);
+        let bits = crate::reference::needed_bits(center, texel, w, 64) + 64;
+        let (tm, te) = texel.parts();
+        let (mut same, mut worst, mut f64_worst) = (0usize, 0.0f64, 0.0f64);
+        let mut levels = std::collections::BTreeSet::new();
+        for y in 0..h {
+            for x in 0..w {
+                let k = y * w + x;
+                let dx = (x as f64 + 0.5 - w as f64 / 2.0) * tm;
+                let dy = -(y as f64 + 0.5 - h as f64 / 2.0) * tm;
+                let c = BigComplex::new(
+                    center.big().re.with_precision(bits) + BigFloat::from_f64(dx, 64).times_power_of_two(te),
+                    center.big().im.with_precision(bits) + BigFloat::from_f64(dy, 64).times_power_of_two(te),
+                );
+                let comp = ReferenceOrbitComputer::new(&c, bits).with_formula(f);
+                let o = with_no_control(4096, |ctl| comp.compute(it, 65536.0, None, None, ctl));
+                let (n, mu) = if o.escaped {
+                    let r2 = o.final_z.magnitude_squared().to_f64();
+                    (o.iterations() as f32, o.iterations() as f64 + f.smooth_offset(r2))
+                } else {
+                    (ITER_INTERIOR, 0.0)
+                };
+                levels.insert(field.n[k] as i64);
+                if n == field.n[k] {
+                    same += 1;
+                    if n >= 0.0 {
+                        worst = worst.max((mu - (field.n[k] as f64 + field.s[k] as f64)).abs());
+                    }
+                }
+                if texel.to_f64() > 1e-13 && n >= 0.0 {
+                    let [cr, ci] = c.to_f64();
+                    let (mut z, mut i) = ((0.0f64, 0.0f64), 0usize);
+                    while i < it && z.0 * z.0 + z.1 * z.1 <= 65536.0f64 * 65536.0 {
+                        z = f.step(z, (cr, ci));
+                        i += 1;
+                    }
+                    if i as f32 == n {
+                        let m64 = i as f64 + f.smooth_offset(z.0 * z.0 + z.1 * z.1);
+                        f64_worst = f64_worst.max((mu - m64).abs());
+                    }
+                }
+            }
+        }
+        (same, w * h, worst, levels.len(), f64_worst)
+    }
+
+    /// F6b, the gate before the GPU: the ship's variants' deep oracle (their fold cases in the
+    /// plain, rescaled and extended-range steps, R = X^2 - Y^2 exact from the orbit) against
+    /// direct BigFloat iteration per pixel, at 1e-30, 1e-100 and 1e-300 per pixel on the needle
+    /// (the real axis: Perpendicular's and Buffalo's fold, Celtic's mirror line), beside it at
+    /// 1e-100 (the axis across the view), across the diagonal fold |x| = |y| of Buffalo's first
+    /// step at a boundary point found by bisection (the centre 3.7 pixels off it: R_1 ~ 1e-100,
+    /// lost if rounded from X and Y), and across Celtic's folds at a minibrot (its orbit passes
+    /// through 0, where both fold lines cross).
+    #[test]
+    fn ship_variant_oracles_match_direct_iteration() {
+        use almondbread_math::{BigComplex, ReferenceOrbitComputer, with_no_control};
+        let mut cases: Vec<(Formula, Center, &str, usize, &str)> = Vec::new();
+        for f in [Formula::Celtic, Formula::Buffalo, Formula::Perpendicular] {
+            for (sc, it) in [("1e-30", 3000usize), ("1e-100", 4000), ("1e-300", 6000)] {
+                cases.push((f, Center::parse("-1.9", "0").unwrap(), sc, it, "needle"));
+            }
+            cases.push((
+                f,
+                Center::parse("-1.9", "3e-101").unwrap(),
+                "1e-100",
+                4000,
+                "beside the needle",
+            ));
+        }
+        // Buffalo's diagonal c = -t (1 + i): bisection on "escapes within 4000" between 0.386
+        // (bounded) and 0.3862 (escapes at 19), a boundary point whose neighbours escape after
+        // about 4 more iterations per decade (f64 probe, 2026-10-31).
+        let bits = 1200;
+        let (mut lo, mut hi) = (BigFloat::from_f64(0.386, bits), BigFloat::from_f64(0.3862, bits));
+        let escapes = |t: &BigFloat| {
+            let c = BigComplex::new(-t, -t);
+            let comp = ReferenceOrbitComputer::new(&c, bits).with_formula(Formula::Buffalo);
+            with_no_control(4096, |ctl| comp.compute(4000, 65536.0, None, None, ctl)).escaped
+        };
+        assert!(!escapes(&lo) && escapes(&hi));
+        for _ in 0..1100 {
+            let mid = (&lo + &hi).times_power_of_two(-1);
+            if escapes(&mid) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        for (sc, it) in [("1e-30", 3000usize), ("1e-100", 4000), ("1e-300", 6000)] {
+            let (tm, te) = Scale::parse(sc).unwrap().parts();
+            let off = BigFloat::from_f64(3.7 * tm, bits).times_power_of_two(te);
+            let c = Center::from_big(BigComplex::new(&(-&hi) + &off, -&hi));
+            cases.push((Formula::Buffalo, c, sc, it, "across the diagonal"));
+        }
+        // A Celtic minibrot (period 10 near -1.555 + 0.204i) at a sixth of its size per pixel.
+        let opts = almondbread_math::NewtonOptions {
+            precision_bits: Some(256),
+            max_steps: 200,
+            ..Default::default()
+        };
+        let start = BigComplex::from_f64(-1.6, 0.2, 256);
+        let nuc = almondbread_math::find_nucleus_for(Formula::Celtic, &start, 10, &opts, &mut || false)
+            .expect("Celtic period 10");
+        let size = almondbread_math::minibrot_size_complex_for(Formula::Celtic, &nuc.nucleus, 10)
+            .magnitude()
+            .to_f64();
+        let mini = format!("{:e}", size / 6.0);
+        cases.push((
+            Formula::Celtic,
+            Center::from_big(nuc.nucleus.clone()),
+            mini.as_str(),
+            3000,
+            "minibrot",
+        ));
+        for (f, center, sc, it, what) in &cases {
+            let texel = Scale::parse(sc).unwrap();
+            let (same, n, worst, levels, f64_worst) = oracle_against_direct(*f, center, texel, *it);
+            println!(
+                "{f:?} {what} @ {sc}: {same}/{n} same n, max |dmu| {worst:.2e} (direct f64 {f64_worst:.2e}), {levels} levels"
+            );
+            assert!(
+                levels > 3,
+                "{f:?} {what} {sc}: a picture, not a flat view ({levels} levels)"
+            );
+            assert!(same * 100 >= n * 98, "{f:?} {what} {sc}: only {same} of {n} agree");
+            // (Where direct f64 iteration, which resolves the view, differs from BigFloat by more,
+            // the pixel's orbit amplifies rounding: sensitivity, not an oracle error.)
+            assert!(worst < 1e-4 || worst <= f64_worst, "{f:?} {what} {sc}: |dmu| {worst}");
         }
     }
 

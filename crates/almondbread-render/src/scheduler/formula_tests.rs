@@ -464,3 +464,129 @@ fn burning_ship_lighting_seams_are_creases_of_the_smooth_count() {
     );
     assert!(wrong_calm * 200 < smooth, "{wrong_calm} of {smooth}");
 }
+
+/// F6b (kb: plans/f6b-burning-ship-variants): the ship's variants through their fold steps agree
+/// with their oracles at every place (plain kernel; f64 and big references; the fold-capped
+/// matrix BLA where the table pays) and on the needle at 1e-100 (deep kernel), and the BLA
+/// changes the field no more than float32 does. Their views are chaotic where orbits stay
+/// bounded without a cycle: the bounds are on class errors, the needle's escape counts, and the
+/// BLA diff relative to the GPU's own difference from the oracle (as for the ship).
+#[test]
+fn ship_variants_match_their_oracles_with_and_without_bla() {
+    for f in [Formula::Celtic, Formula::Buffalo, Formula::Perpendicular] {
+        let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+        r.settings = almondbread_core::settings::RenderSettings::plain();
+        r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+        let mut views: Vec<(String, Viewport)> = almondbread_core::places::places_for(f)
+            .into_iter()
+            .map(|p| (p.id.to_string(), p.viewport(W, H)))
+            .collect();
+        views.push((
+            "needle-1e-100".into(),
+            Viewport::with_center(Center::parse("-1.9", "3e-99").unwrap(), Scale::parse("1e-100").unwrap()),
+        ));
+        for (id, view) in views {
+            let it = if view.scale.to_f64() > 1e-6 { 2000 } else { 8000 };
+            let g = field(&mut r, f, &view, it);
+            let bla_used = r.bla_info().1 > 0;
+            let cpu = if view.scale.to_f64() >= 1e-13 {
+                cpu_render_for(
+                    f,
+                    view.center.re(),
+                    view.center.im(),
+                    view.scale.to_f64(),
+                    W,
+                    H,
+                    it,
+                    f.bailout(),
+                    0.0,
+                )
+            } else {
+                cpu_render_deep_for(f, &view.center, view.scale, W, H, it, f.bailout(), 0.0).0
+            };
+            let (rep, _) = compare(&g, &cpu);
+            println!("{f:?} {id} vs oracle (BLA table {bla_used}): {}", rep.summary());
+            assert!(rep.false_interior_pct() < 0.1, "{id}: {}", rep.summary());
+            if id == "needle-1e-100" {
+                assert!(
+                    rep.escape_differs_pct() < 2.0 && rep.mismatch_pct() < 0.05,
+                    "{}",
+                    rep.summary()
+                );
+            }
+            let mut off = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+            off.settings = r.settings.clone();
+            off.config.bla = false;
+            let h = field(&mut off, f, &view, it);
+            assert_eq!(off.bla_info().1, 0);
+            let (d, _) = compare(&g, &h);
+            println!("  BLA on vs off: {}", d.summary());
+            assert!(
+                d.mismatch_pct() <= rep.mismatch_pct() + 0.1
+                    && d.escape_differs_pct() <= rep.escape_differs_pct() + 0.5,
+                "{id}: {}",
+                d.summary()
+            );
+        }
+    }
+}
+
+/// F6b: the variants' lighting normals (their Jacobians diag(+-1, +-1) 2z with the fold signs of
+/// the step) follow the smooth count wherever neighbouring normals agree (seams are creases, as
+/// for the ship): at a place in the plain kernel and beside the needle at 1.5e-97 per pixel in
+/// the deep kernel.
+#[test]
+fn ship_variant_normals_follow_the_smooth_count() {
+    for f in [Formula::Celtic, Formula::Buffalo, Formula::Perpendicular] {
+        let views = [
+            almondbread_core::places::places_for(f)[1].viewport(W, H),
+            Viewport::with_center(
+                Center::parse("-1.9", "4.3e-96").unwrap(),
+                Scale::parse("1.5e-97").unwrap(),
+            ),
+        ];
+        for view in views {
+            let mut r = Renderer::new(MetalBackend::new().expect("Metal")).expect("renderer");
+            r.settings = almondbread_core::settings::RenderSettings::plain();
+            r.settings.supersampling = almondbread_core::settings::Supersampling::Off;
+            r.settings.shading = 0.5;
+            let g = field(&mut r, f, &view, 20_000);
+            let de = r.read_distance_estimates().expect("de");
+            let mu = |x: usize, y: usize| {
+                let k = y * W + x;
+                (g.n[k] >= 0.0).then(|| f64::from(g.n[k]) + f64::from(g.s[k]))
+            };
+            let ang = |x: usize, y: usize| f64::from(half(de[y * W + x][1]));
+            let (mut smooth, mut wrong) = (0, 0);
+            for y in 1..H - 1 {
+                for x in 1..W - 1 {
+                    let [Some(l), Some(rt), Some(up), Some(dn)] =
+                        [mu(x - 1, y), mu(x + 1, y), mu(x, y - 1), mu(x, y + 1)]
+                    else {
+                        continue;
+                    };
+                    let (gx, gy) = (0.5 * (rt - l), -0.5 * (dn - up));
+                    if !(half(de[y * W + x][0]) > 8.0 && gx.hypot(gy) > 1e-5) {
+                        continue;
+                    }
+                    let a = ang(x, y);
+                    let calm = [ang(x - 1, y), ang(x + 1, y), ang(x, y - 1), ang(x, y + 1)]
+                        .iter()
+                        .all(|b| (a - b).cos() > 0.8);
+                    if !calm {
+                        continue;
+                    }
+                    smooth += 1;
+                    if -(gx * a.cos() + gy * a.sin()) / gx.hypot(gy) < 0.7 {
+                        wrong += 1;
+                    }
+                }
+            }
+            println!(
+                "{f:?} at {}: {wrong} of {smooth} calm normals point away from -grad mu",
+                view.scale
+            );
+            assert!(smooth > 2_000 && wrong * 100 < smooth, "{f:?}: {wrong} of {smooth}");
+        }
+    }
+}

@@ -124,7 +124,9 @@ almondbread (F6)". Differences from the sketch above:
   "Burning Ship", name `burningship`). Celtic, Buffalo and Perpendicular were not built: each
   needs its own fold cases (Celtic folds the real part `|x^2 - y^2|`, Buffalo both parts),
   Jacobian rule, places and checks; the code below makes them mostly mechanical, so they are a
-  follow-up once the user has seen the ship.
+  follow-up once the user has seen the ship. Built 2026-10-31 as
+  [F6b: the Burning Ship's variants (Celtic, Buffalo, Perpendicular)](f6b-burning-ship-variants.md); not quite mechanical: the real fold
+  needs `X^2 - Y^2` exact from the orbit.
 - **Orientation.** `z <- (|x| - i|y|)^2 + c`: the literature's ship mirrored in the real axis, so
   it stands upright with the imaginary axis pointing up (the usual pictures flip the axis
   instead; we cannot flip a view). Coordinates are the literature's with `im` negated;

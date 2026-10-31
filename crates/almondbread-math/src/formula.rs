@@ -49,6 +49,20 @@ pub enum Formula {
     /// perturbation step needs `diffabs` ([`diffabs`]); its Jacobian is `2z` or Mandelbar's
     /// reflection `δ ↦ conj(2 z δ)` by the sign of `x y` ([`Formula::jacobian`]).
     BurningShip,
+    /// The Celtic set (the Burning Ship family's variants, kb: plans/f6b-burning-ship-variants,
+    /// formulas/burning-ship "Variants"; kernel formula 5): Kalles Fraktaler's "Celtic"
+    /// `w = z^2, z <- |Re w| + i Im w + c`, i.e. `x' = |x^2 - y^2| + cx`, `y' = 2xy + cy`. It
+    /// commutes with conjugation (symmetric in the real axis), so the ship's flip changes
+    /// nothing: our coordinates are KF's. Folds the real part.
+    Celtic,
+    /// The Buffalo (kernel formula 6): KF's "Buffalo" `w = z^2, z <- |Re w| + i|Im w| + c` with
+    /// the imaginary axis flipped as the ship's: `x' = |x^2 - y^2| + cx`, `y' = cy - 2|xy|`.
+    /// Folds both parts.
+    Buffalo,
+    /// The perpendicular Burning Ship (kernel formula 7): KF's "Perpendicular Burning Ship"
+    /// `z <- (x - i|y|)^2 + c` with the imaginary axis flipped as the ship's: `x' = x^2 - y^2 +
+    /// cx`, `y' = 2x|y| + cy`, i.e. `(x + i|y|)^2 + c`. Folds at the real axis (the sign of y).
+    Perpendicular,
     /// F9, the turn (kb: plans/f9-turn): `z^2 + c` on a plane of the 4-dimensional space of
     /// start `z_0` and parameter `c`, turned by an angle `t` between the Mandelbrot plane (the
     /// pixel is `c`, `z_0` fixed) and the Julia plane (the pixel is `z_0`, `c` fixed). A pixel
@@ -281,7 +295,14 @@ impl Formula {
     /// The degree of the polynomial `f`.
     pub fn power(self) -> u32 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip | Self::Turn(_) => 2,
+            Self::Mandelbrot
+            | Self::Julia(_)
+            | Self::Mandelbar
+            | Self::BurningShip
+            | Self::Celtic
+            | Self::Buffalo
+            | Self::Perpendicular
+            | Self::Turn(_) => 2,
             Self::Multibrot(p) => p,
         }
     }
@@ -291,14 +312,66 @@ impl Formula {
     /// Newton steps are real-linear maps ([`Formula::jacobian`]); the kernels keep a second
     /// complex part per derivative (kb: plans/f5-mandelbar "As built").
     pub fn is_conformal(self) -> bool {
-        !matches!(self, Self::Mandelbar | Self::BurningShip)
+        !matches!(self, Self::Mandelbar) && !self.folds()
     }
 
     /// Whether the step folds the plane (`|x|`, `|y|`; F6, the Burning Ship family): its
     /// perturbation step needs the reference's `X Y` in extended range, its BLA blocks stop at
     /// the fold lines (kb: plans/f6-burning-ship "As built").
     pub fn folds(self) -> bool {
-        matches!(self, Self::BurningShip)
+        matches!(
+            self,
+            Self::BurningShip | Self::Celtic | Self::Buffalo | Self::Perpendicular
+        )
+    }
+
+    /// Whether the step folds the real part, `|x^2 - y^2|` (Celtic, Buffalo): the fold value
+    /// `R = X^2 - Y^2` must come exact from the high-precision orbit (its rounding from rounded
+    /// `X`, `Y` is absolute, `2^-53 |Z|^2`, far above the deltas of a deep view), so the
+    /// references carry it per point (kb: plans/f6b-burning-ship-variants "As built").
+    pub fn folds_re(self) -> bool {
+        matches!(self, Self::Celtic | Self::Buffalo)
+    }
+
+    /// The Burning Ship family's variants (Celtic, Buffalo, Perpendicular; F6b): the ship's
+    /// machinery with their own fold cases (kernel formulas 5-7).
+    pub fn is_ship_variant(self) -> bool {
+        matches!(self, Self::Celtic | Self::Buffalo | Self::Perpendicular)
+    }
+
+    /// The signs of a variant's Jacobian at `z` (one-sided on a fold line): the step's Jacobian
+    /// is `diag(-1 if neg_re, -1 if neg_im)` times multiplication by `2z`. Celtic and Buffalo
+    /// negate the real row where `|x| < |y|`, Buffalo the imaginary one where `x y >= 0` (as the
+    /// ship), Perpendicular where `y < 0`.
+    pub fn fold_signs(self, z: C64) -> (bool, bool) {
+        let neg_re = self.folds_re() && z.0.abs() < z.1.abs();
+        let neg_im = match self {
+            Self::Buffalo => z.0 * z.1 >= 0.0,
+            Self::Perpendicular => z.1 < 0.0,
+            _ => false,
+        };
+        (neg_re, neg_im)
+    }
+
+    /// [`Formula::fold_signs`] in extended range.
+    pub fn fold_signs_x(self, z: DoubleExpComplex) -> (bool, bool) {
+        let neg_re = self.folds_re() && z.re.abs() < z.im.abs();
+        let neg_im = match self {
+            Self::Buffalo => (z.re.mantissa >= 0.0) == (z.im.mantissa >= 0.0) || z.re.is_zero() || z.im.is_zero(),
+            Self::Perpendicular => z.im.mantissa < 0.0,
+            _ => false,
+        };
+        (neg_re, neg_im)
+    }
+
+    /// A folding formula's fold values at the reference point `Z`, from `Z` itself (f64):
+    /// `[X^2 - Y^2, Q]` with `Q = X Y` (the ship, Buffalo) or `Y` (Perpendicular). The first is
+    /// only as good as `Z`'s rounding allows (absolute error `2^-53 |Z|^2`); the deep paths take
+    /// it from the orbit ([`Formula::folds_re`]).
+    #[inline]
+    pub fn fold_values(self, z: C64) -> [f64; 2] {
+        let q = if self == Self::Perpendicular { z.1 } else { z.0 * z.1 };
+        [(z.0 - z.1) * (z.0 + z.1), q]
     }
 
     /// The Julia set's `k` (None for the parameter-plane formulas).
@@ -325,6 +398,9 @@ impl Formula {
             Self::Julia(_) => 2,
             Self::Mandelbar => 3,
             Self::BurningShip => 4,
+            Self::Celtic => 5,
+            Self::Buffalo => 6,
+            Self::Perpendicular => 7,
             // (9, not the next free code: clear of the codes other formula work takes.)
             Self::Turn(_) => 9,
         }
@@ -339,6 +415,9 @@ impl Formula {
             Self::Julia(_) => "julia".into(),
             Self::Mandelbar => "mandelbar".into(),
             Self::BurningShip => "burningship".into(),
+            Self::Celtic => "celtic".into(),
+            Self::Buffalo => "buffalo".into(),
+            Self::Perpendicular => "perpendicular".into(),
             Self::Turn(_) => "turn".into(),
         }
     }
@@ -362,6 +441,12 @@ impl Formula {
         if v == "burningship" {
             return Some(Self::BurningShip);
         }
+        match v {
+            "celtic" => return Some(Self::Celtic),
+            "buffalo" => return Some(Self::Buffalo),
+            "perpendicular" => return Some(Self::Perpendicular),
+            _ => {}
+        }
         v.strip_prefix("multibrot")?.parse().ok().and_then(Self::multibrot)
     }
 
@@ -373,7 +458,14 @@ impl Formula {
     /// (kb: formulas/multibrot "As built").
     pub fn bailout(self) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip | Self::Turn(_) => 65536.0,
+            Self::Mandelbrot
+            | Self::Julia(_)
+            | Self::Mandelbar
+            | Self::BurningShip
+            | Self::Celtic
+            | Self::Buffalo
+            | Self::Perpendicular
+            | Self::Turn(_) => 65536.0,
             Self::Multibrot(p) => 2f64.powi((60 / p.max(1)).min(16) as i32),
         }
     }
@@ -383,9 +475,14 @@ impl Formula {
     /// `1 - log2(ln|z|)` exactly as before).
     pub fn smooth_offset(self, r2: f64) -> f64 {
         match self {
-            Self::Mandelbrot | Self::Julia(_) | Self::Mandelbar | Self::BurningShip | Self::Turn(_) => {
-                1.0 - (0.5 * r2.ln()).log2()
-            }
+            Self::Mandelbrot
+            | Self::Julia(_)
+            | Self::Mandelbar
+            | Self::BurningShip
+            | Self::Celtic
+            | Self::Buffalo
+            | Self::Perpendicular
+            | Self::Turn(_) => 1.0 - (0.5 * r2.ln()).log2(),
             Self::Multibrot(p) => 1.0 - (0.5 * r2.ln()).log2() / f64::from(p).log2(),
         }
     }
@@ -417,6 +514,12 @@ impl Formula {
             }
             // (|x| - i|y|)^2 = x^2 - y^2 - 2i|xy|.
             Self::BurningShip => (z.0 * z.0 - z.1 * z.1, -2.0 * (z.0 * z.1).abs()),
+            // F6b: |Re z^2| + i Im z^2.
+            Self::Celtic => ((z.0 * z.0 - z.1 * z.1).abs(), 2.0 * z.0 * z.1),
+            // |Re z^2| - i|Im z^2|.
+            Self::Buffalo => ((z.0 * z.0 - z.1 * z.1).abs(), -2.0 * (z.0 * z.1).abs()),
+            // (x + i|y|)^2.
+            Self::Perpendicular => (z.0 * z.0 - z.1 * z.1, 2.0 * z.0 * z.1.abs()),
         };
         (w.0 + c.0, w.1 + c.1)
     }
@@ -439,6 +542,21 @@ impl Formula {
                 p: (0.0, 0.0),
                 q: (2.0 * z.0, -2.0 * z.1),
             },
+            // F6b: diag(+-1, +-1) times 2z ([`Formula::fold_signs`]): 2z, Mandelbar's reflection,
+            // -2z or the negated reflection.
+            Self::Celtic | Self::Buffalo | Self::Perpendicular => {
+                let (neg_re, neg_im) = self.fold_signs(z);
+                let z2 = (2.0 * z.0, 2.0 * z.1);
+                let l = if neg_re == neg_im {
+                    Linear::conformal(z2)
+                } else {
+                    Linear {
+                        p: (0.0, 0.0),
+                        q: (z2.0, -z2.1),
+                    }
+                };
+                if neg_re { l.scale(-1.0) } else { l }
+            }
             _ => Linear::conformal(self.prime(z)),
         }
     }
@@ -458,6 +576,19 @@ impl Formula {
                     q: z.conj().times_two(),
                 }
             }
+            Self::Celtic | Self::Buffalo | Self::Perpendicular => {
+                let (neg_re, neg_im) = self.fold_signs_x(z);
+                let t = z.times_two();
+                let z2 = if neg_re { DoubleExpComplex::new(-t.re, -t.im) } else { t };
+                if neg_re == neg_im {
+                    LinearX::conformal(z2)
+                } else {
+                    LinearX {
+                        p: DoubleExpComplex::ZERO,
+                        q: z2.conj(),
+                    }
+                }
+            }
             _ => LinearX::conformal(self.prime_x(z)),
         }
     }
@@ -466,7 +597,7 @@ impl Formula {
     /// are `z S + c` with [`Formula::delta_factor`], Mandelbar `conj((2Z + z) z) + c`).
     #[inline]
     pub fn delta_step(self, big_z: C64, z: C64, c: C64) -> C64 {
-        self.delta_step_scaled(big_z, z, z, c, big_z.0 * big_z.1)
+        self.delta_step_scaled(big_z, z, z, c, self.fold_values(big_z))
     }
 
     /// The rescaled perturbation step (the deep loops' `z = w 2^e`, as the kernels' `fStep`):
@@ -474,12 +605,26 @@ impl Formula {
     /// (exact in extended range: it can overflow to inf, which reads as "no fold"), read by the
     /// Burning Ship only (F6): its imaginary part is `-2 diffabs(X Y, d) / s + dd.y` with the
     /// perturbation `d = X y + x Y + x y`, i.e. `-2 diffabs(xy_s, X w.y + w.x Y + sw.x w.y)`.
+    /// `fold = [R / s, Q / s]`, [`Formula::fold_values`] over s: the ship reads `Q = X Y`
+    /// (`xy_s` above). Its variants (F6b): Celtic and Buffalo fold `Re((2Z + z) z)` against
+    /// `R = X^2 - Y^2`, Buffalo the imaginary part against `X Y` as the ship, Perpendicular
+    /// against `Q = Y` (`x|Y + y| - X|Y| = x|Y| + (X + x) diffabs(Y, y)`).
     #[inline]
-    pub fn delta_step_scaled(self, big_z: C64, sw: C64, w: C64, dd: C64, xy_s: f64) -> C64 {
+    pub fn delta_step_scaled(self, big_z: C64, sw: C64, w: C64, dd: C64, fold: [f64; 2]) -> C64 {
         if self == Self::BurningShip {
             let re = (2.0 * big_z.0 + sw.0) * w.0 - (2.0 * big_z.1 + sw.1) * w.1 + dd.0;
             let d = big_z.0 * w.1 + w.0 * big_z.1 + sw.0 * w.1;
-            return (re, -2.0 * diffabs(xy_s, d) + dd.1);
+            return (re, -2.0 * diffabs(fold[1], d) + dd.1);
+        }
+        if self.is_ship_variant() {
+            let re = (2.0 * big_z.0 + sw.0) * w.0 - (2.0 * big_z.1 + sw.1) * w.1;
+            let re = if self.folds_re() { diffabs(fold[0], re) } else { re };
+            let im = match self {
+                Self::Celtic => 2.0 * (big_z.0 * w.1 + w.0 * big_z.1 + sw.0 * w.1),
+                Self::Buffalo => -2.0 * diffabs(fold[1], big_z.0 * w.1 + w.0 * big_z.1 + sw.0 * w.1),
+                _ => 2.0 * (w.0 * big_z.1.abs() + (big_z.0 + sw.0) * diffabs(fold[1], w.1)),
+            };
+            return (re + dd.0, im + dd.1);
         }
         let s = self.delta_factor(big_z, (big_z.0 + sw.0, big_z.1 + sw.1));
         let t = (s.0 * w.0 - s.1 * w.1, s.0 * w.1 + s.1 * w.0);
@@ -491,6 +636,37 @@ impl Formula {
 
     /// [`Formula::delta_step`] in extended range.
     pub fn delta_step_x(self, big_z: DoubleExpComplex, z: DoubleExpComplex, c: DoubleExpComplex) -> DoubleExpComplex {
+        let r = if self.folds_re() {
+            (big_z.re - big_z.im) * (big_z.re + big_z.im)
+        } else {
+            DoubleExp::ZERO
+        };
+        self.delta_step_x_with(big_z, z, c, r)
+    }
+
+    /// [`Formula::delta_step_x`] with the fold value `R = X^2 - Y^2` given (exact, from the
+    /// orbit: [`Formula::folds_re`]); the other formulas ignore it.
+    pub fn delta_step_x_with(
+        self,
+        big_z: DoubleExpComplex,
+        z: DoubleExpComplex,
+        c: DoubleExpComplex,
+        r: DoubleExp,
+    ) -> DoubleExpComplex {
+        if self.is_ship_variant() {
+            // P = (2Z + z) z: Re P the perturbation of x^2 - y^2, Im P = 2 (X y + x Y + x y).
+            let p = (big_z.times_two() + z) * z;
+            let re = if self.folds_re() { diffabs_x(r, p.re) } else { p.re };
+            let im = match self {
+                Self::Celtic => p.im,
+                Self::Buffalo => {
+                    let d = big_z.re * z.im + z.re * big_z.im + z.re * z.im;
+                    -diffabs_x(big_z.re * big_z.im, d).times_power_of_two(1)
+                }
+                _ => (z.re * big_z.im.abs() + (big_z.re + z.re) * diffabs_x(big_z.im, z.im)).times_power_of_two(1),
+            };
+            return DoubleExpComplex::new(re, im) + c;
+        }
         if self == Self::BurningShip {
             // Re((2Z + z) z) and -2 diffabs(XY, Xy + xY + xy), each part its own exponent.
             let re = ((big_z.times_two() + z) * z).re;
@@ -561,6 +737,16 @@ impl Formula {
                 let im = -(z.re * z.im).abs().times_power_of_two(1);
                 DoubleExpComplex::new(re, im) + c
             }
+            Self::Celtic | Self::Buffalo | Self::Perpendicular => {
+                let re = z.re * z.re - z.im * z.im;
+                let xy2 = (z.re * z.im).times_power_of_two(1);
+                let (re, im) = match self {
+                    Self::Celtic => (re.abs(), xy2),
+                    Self::Buffalo => (re.abs(), -xy2.abs()),
+                    _ => (re, (z.re * z.im.abs()).times_power_of_two(1)),
+                };
+                DoubleExpComplex::new(re, im) + c
+            }
             _ => Self::cpow_x(z, self.power()) + c,
         }
     }
@@ -596,7 +782,13 @@ mod tests {
         assert_eq!(Formula::parse("multibrot1"), None);
         assert_eq!(Formula::parse("multibrot9"), None);
         assert_eq!(Formula::parse("burningship"), Some(Formula::BurningShip));
-        assert_eq!(Formula::parse("celtic"), None);
+        for f in [Formula::Celtic, Formula::Buffalo, Formula::Perpendicular] {
+            assert_eq!(Formula::parse(&f.name()), Some(f));
+            assert!(f.folds() && !f.is_conformal() && f.is_ship_variant());
+        }
+        assert!(Formula::Celtic.folds_re() && Formula::Buffalo.folds_re());
+        assert!(!Formula::Perpendicular.folds_re() && !Formula::BurningShip.folds_re());
+        assert_eq!(Formula::parse("celtic2"), None);
         assert_eq!(Formula::default(), Formula::Mandelbrot);
     }
 
@@ -654,6 +846,85 @@ mod tests {
             let got = cmul(d, s);
             assert!(((got.0 - exact.0).hypot(got.1 - exact.1)) < 1e-15, "p = {p}");
         }
+    }
+
+    /// F6b: each variant's perturbation step (f64, rescaled, extended range) is the difference
+    /// of two steps, also where `Z` and `Z + z` lie on different sides of a fold, and its
+    /// Jacobian is the step's derivative away from the folds.
+    #[test]
+    fn ship_variants_perturb_and_differentiate() {
+        let x = |v: f64| DoubleExp::from_f64(v);
+        let xc = |z: C64| DoubleExpComplex::new(x(z.0), x(z.1));
+        for f in [
+            Formula::BurningShip,
+            Formula::Celtic,
+            Formula::Buffalo,
+            Formula::Perpendicular,
+        ] {
+            let c = (-0.31, 0.47);
+            let mut crossed = 0;
+            for (big, d) in [
+                ((0.4, -0.3), (1e-4, 3e-5)),
+                ((0.3, 0.29995), (-2e-4, 1e-4)), // |x| = |y| crossed
+                ((-0.5, 0.5), (1e-3, 1e-3)),     // on the diagonal
+                ((0.2, 1e-5), (3e-5, -2e-5)),    // y = 0 crossed
+                ((1e-5, -0.7), (-3e-5, 1e-4)),   // x = 0 crossed
+                ((-1.1, 0.02), (0.01, -0.03)),
+            ] {
+                let w = (big.0 + d.0, big.1 + d.1);
+                let exact = {
+                    let a = f.step(w, c);
+                    let b = f.step(big, (0.0, 0.0));
+                    (a.0 - b.0, a.1 - b.1)
+                };
+                let got = f.delta_step(big, d, c);
+                assert!(
+                    (got.0 - exact.0).hypot(got.1 - exact.1) < 1e-15,
+                    "{f:?} {big:?}: {got:?} {exact:?}"
+                );
+                // Rescaled by s = 2^-10.
+                let s = 2f64.powi(-10);
+                let fv = f.fold_values(big);
+                let ws = f.delta_step_scaled(big, d, (d.0 / s, d.1 / s), (c.0 / s, c.1 / s), [fv[0] / s, fv[1] / s]);
+                assert!((ws.0 * s - exact.0).hypot(ws.1 * s - exact.1) < 1e-14, "{f:?} scaled");
+                let gx = f.delta_step_x(xc(big), xc(d), xc(c));
+                assert!(
+                    (gx.re.to_f64() - exact.0).hypot(gx.im.to_f64() - exact.1) < 1e-15,
+                    "{f:?} x"
+                );
+                let gs = f.step_x(xc(w), xc(c));
+                let sw = f.step(w, c);
+                assert!((gs.re.to_f64() - sw.0).hypot(gs.im.to_f64() - sw.1) < 1e-15);
+                if f.fold_signs(big) != f.fold_signs(w) || (f.folds() && (big.0 * big.1 > 0.0) != (w.0 * w.1 > 0.0)) {
+                    crossed += 1;
+                }
+                // The Jacobian against central differences (far from the folds only).
+                let (neg_re, neg_im) = f.fold_signs(big);
+                let h = 1e-7;
+                if big.0.abs().min(big.1.abs()).min((big.0.abs() - big.1.abs()).abs()) > 1e-3 {
+                    let j = f.jacobian(big).matrix();
+                    let jx = f.jacobian_x(xc(big)).to_f64().matrix();
+                    for (k, e) in [(1.0, 0.0), (0.0, 1.0)].into_iter().enumerate() {
+                        let a = f.step((big.0 + h * e.0, big.1 + h * e.1), c);
+                        let b = f.step((big.0 - h * e.0, big.1 - h * e.1), c);
+                        let col = ((a.0 - b.0) / (2.0 * h), (a.1 - b.1) / (2.0 * h));
+                        assert!(
+                            (j[0][k] - col.0).abs() < 1e-6 && (j[1][k] - col.1).abs() < 1e-6,
+                            "{f:?} {big:?} {neg_re} {neg_im}"
+                        );
+                        assert!((jx[0][k] - j[0][k]).abs() < 1e-12 && (jx[1][k] - j[1][k]).abs() < 1e-12);
+                    }
+                }
+            }
+            assert!(crossed >= 2, "{f:?}: the cases cross a fold");
+        }
+        // Celtic is symmetric in the real axis; Buffalo and Perpendicular are not.
+        let (c, cc) = ((-1.3, 0.2), (-1.3, -0.2));
+        let mut z = [(0.0, 0.0); 2];
+        for _ in 0..5 {
+            z = [Formula::Celtic.step(z[0], c), Formula::Celtic.step(z[1], cc)];
+        }
+        assert!((z[0].0 - z[1].0).abs() < 1e-12 && (z[0].1 + z[1].1).abs() < 1e-12);
     }
 
     /// F4: `k` is interned by value (precision aside) and the Julia formula steps like

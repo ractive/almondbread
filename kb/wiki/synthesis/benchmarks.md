@@ -2759,6 +2759,68 @@ numbers that are recorded or compared with earlier records come from dist (`make
 `flight-bench`, `make rust` without PROFILE before an interaction test); an A/B may use either
 profile when both sides use the same one; say which.
 
+## F6b: the Burning Ship's variants, 2026-10-31
+
+Measured 2026-10-31, M1 Pro, release, on a machine shared with other agents (load average
+15–24); plan in [F6b: the Burning Ship's variants (Celtic, Buffalo, Perpendicular)](../plans/f6b-burning-ship-variants.md), maths in
+[Burning Ship and abs variations](../formulas/burning-ship.md) "Variants". Coordinates are ours (the
+literature's with `im` negated).
+
+**Gate (CPU oracle against direct BigFloat per pixel, 24 x 16,
+`oracle::tests::ship_variant_oracles_match_direct_iteration`).**
+
+| view | Celtic | Buffalo | Perpendicular |
+|---|---|---|---|
+| needle -1.9, 1e-30 | 384/384, 1.19e-7 | 384/384, 1.19e-7 | 384/384, 1.19e-7 |
+| needle, 1e-100 | 384/384, 1.18e-7 | 384/384, 1.19e-7 | 384/384, 1.19e-7 |
+| needle, 1e-300 | 384/384, 1.12e-6 | 384/384, 8.70e-7 | 384/384, 1.19e-7 |
+| beside it (im 3e-101), 1e-100 | 384/384, 1.19e-7 | 384/384, 1.19e-7 | 384/384, 1.19e-7 |
+| across the diagonal, 1e-30 / 1e-100 / 1e-300 | — | 384/384 each, ≤ 1.18e-7 | — |
+| minibrot p10 (-1.555 + 0.204i), 2.2e-9 | 383/384, 2.8e-4 | — | — |
+
+(Same escape counts, max |Δμ|.) Across the diagonal: Buffalo's `c = -t(1 + i)` at a boundary
+point found by 1100 bisection steps on "escapes within 4000" between t = 0.386 and 0.3862, the
+centre 3.7 pixels off the fold `|a| = |b|`. Negative control, `R` rounded from `X` and `Y`:
+327/384 at 1e-30, |Δμ| 0.62 (the test fails). The Celtic minibrot's odd pixel is a sensitive
+orbit: direct f64 iteration is off by 0.44 there.
+
+**GPU `verify` (320 x 200, 8000 iterations).** Class mismatch 0.000 % on every needle view.
+
+| view | Celtic escape-n differs | Buffalo | Perpendicular |
+|---|---|---|---|
+| needle 1e-30 | 0.550 % | 0.570 % | 0.000 % |
+| needle 1e-100 | 0.425 % | 0.545 % | 0.000 % |
+| needle 1e-300 | 0.475 % | 0.733 % | 0.000 % |
+| needle 1e-1000 | 0.481 % | 0.970 % | 0.006 % |
+| beside, 1e-100 | 0.448 % | 0.492 % | 0.000 % |
+
+`precision` (0.001 px grid shift of the oracle): Celtic needle 1e-30 2.306 %, Buffalo needle
+1e-1000 2.587 %: chaos, the GPU's error at most a 0.001 px shift. Buffalo across the diagonal:
+0.000 / 0.013 / 0.017 % (class mismatch ≤ 0.003 %) at 1e-30 / 1e-100 / 1e-300. Seek views
+(chaotic): Buffalo p12 on the needle 15.7 % (shift 25.3 %), Celtic p261 at 5.8e-20 30.6 % (shift
+43.1 %), Perpendicular p620 at 1e-21 5.1 % (shift 21.9 %).
+
+**GPU test at every place, BLA on and off** (`ship_variants_match_their_oracles_with_and_without_bla`,
+240 x 160): false interior 0.000 % everywhere; class mismatch ≤ 0.20 % (the GPU's interior
+proofs and bounded orbits against the oracle's limit); BLA on vs off bit-identical but on
+Celtic's needle (0.59 % escape counts, within the GPU-vs-oracle 0.42 %, so chaos). The
+variants' fold caps leave few blocks: none where `Y = 0`.
+
+**Normals** (`ship_variant_normals_follow_the_smooth_count`): 0 calm normals of 13 174–33 848 per
+view (a place, and beside the needle at 1.5e-97 per pixel) point away from `-grad mu`.
+
+**Bounded orbits** (`fold_truth`, whole sets, 1e5 iterations): not escaped 11.1 % (Celtic),
+28.9 % (Buffalo), 14.5 % (Perpendicular); of the pixels unresolved at the auto limit (~300),
+96 / 94 / 98 % never escape.
+
+**Autopilot** (`almondbread autopilot`, 90 s from each whole set): lock, 0 % uniform frames,
+1e34.9; 15 / 11 / 14 targets.
+
+**Mandelbrot unchanged.** `bench --only sea-8007,dendrite-1e300 --sizes 1600x1000 --repeat 5`,
+main 4d846fa against F6b, both release, alternating twice: sea-8007 GPU 350.9 / 348.2 ms
+against 345.2 / 346.2 ms (0.99), dendrite-1e300 2.1 / 2.1 against 2.7 / 2.1 ms; the fields and
+PNGs of both are byte-identical.
+
 # Citations
 
 - [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)
