@@ -1140,6 +1140,20 @@ impl BlaTableX {
         zn.add(k.mul(cn)).lt(r)
     }
 
+    /// The longest valid block at `m` (iteration `n`) for `|dz| = zn`, `|dc| = cn` in extended
+    /// range: the deep kernel's lookup (CPU models, F9's gate).
+    pub fn longest_at(
+        &self,
+        m: usize,
+        n: usize,
+        max_iter: usize,
+        zn: almondbread_math::DoubleExp,
+        cn: almondbread_math::DoubleExp,
+    ) -> Option<(&BlaEntryX, usize)> {
+        let x = |d: almondbread_math::DoubleExp| Xr::new(d.mantissa, d.exponent);
+        self.longest(m, n, max_iter, x(zn), x(cn))
+    }
+
     /// The longest valid block at `m` for `|dz| = 2^zn_log2`, `|dc| = 2^cn_log2`.
     pub(crate) fn longest_pub(
         &self,

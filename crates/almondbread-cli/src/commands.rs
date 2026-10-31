@@ -14,7 +14,7 @@ use almondbread_core::oracle::{
     ITER_INTERIOR, IterationField, VerifyReport, compare, cpu_render_deep_for, cpu_render_for,
 };
 use almondbread_core::pi_moment::PiPoint;
-use almondbread_core::reference::DEEP_SCALE;
+use almondbread_core::reference::deep_scale_for;
 use almondbread_core::settings::Supersampling;
 use almondbread_core::viewport::{Center, Scale, Viewport};
 use almondbread_render::{GpuBackend, OffscreenResult, Renderer, SimulationResult};
@@ -59,6 +59,7 @@ pub fn render_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let (width, height) = o.size("size", (1600, 1000))?;
     let mut r = new_renderer(backend, o)?;
     r.viewport = o.viewport(width, height)?;
+    o.apply_turn(&mut r.settings.formula, &mut r.viewport)?;
     let repeats = o.usize("repeat").unwrap_or(1).max(1);
     let mut times = Vec::new();
     let mut walls = Vec::new();
@@ -441,7 +442,7 @@ pub fn oracle(
     max_iter: usize,
     angle: f64,
 ) -> IterationField {
-    if texel.to_f64() >= DEEP_SCALE {
+    if texel.to_f64() >= deep_scale_for(formula) {
         cpu_render_for(
             formula,
             center.re(),
@@ -536,6 +537,7 @@ pub fn verify_command<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result
     let (width, height) = o.size("size", (400, 260))?;
     let mut r = new_renderer(backend, o)?;
     r.viewport = o.viewport(width, height)?;
+    o.apply_turn(&mut r.settings.formula, &mut r.viewport)?;
     if let Some((dx, dy)) = o.pair("ref-offset")? {
         // Reference reuse: the orbit of a point dx,dy pixels from the centre, made at
         // `--ref-scale` times the scale (default 1).
@@ -612,6 +614,7 @@ pub fn history<B: GpuBackend + Clone>(backend: &B, o: &Options) -> Result<i32> {
     let mut end = o.viewport(width, height)?;
     end.scale = end.scale / ppp;
     let mut r = new_renderer(backend, o)?;
+    o.apply_turn(&mut r.settings.formula, &mut end)?;
     // Deterministic for the diff: let the extension run to its limit.
     r.config.extension_budget = o.f64("extension-budget").unwrap_or(120.0);
     // Compute further runs for up to a minute per view: off unless asked for (`--further-budget s`),

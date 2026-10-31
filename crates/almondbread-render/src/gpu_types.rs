@@ -71,6 +71,9 @@ pub struct IterateParams {
     /// may also run this many steps past the chunk's K. 0: off (kb: techniques/coloring-methods
     /// "Gesture frames").
     pub ic_limit: u32,
+    /// F9 turned planes (kb: plans/f9-turn): `(cos t, sin t)` of the turn angle; a pixel's offset
+    /// `dp` is `dc = cos t dp` and its start offset `dz_0 = sin t dp`. Read by formula 9 only.
+    pub turn: [f32; 2],
 }
 
 /// Closed-form interior test of the main cardioid and the period-2 bulb for one level
@@ -355,7 +358,7 @@ const _: () = {
     assert!(size_of::<SurveyParams>() == 16);
     assert!(size_of::<AaListParams>() == 32);
     assert!(size_of::<UnresolvedListParams>() == 32);
-    assert!(size_of::<IterateParams>() == 144);
+    assert!(size_of::<IterateParams>() == 152);
     assert!(size_of::<ComponentParams>() == 192);
     assert!(offset_of!(ComponentParams, cardioid) == 24);
     assert!(offset_of!(ComponentParams, slack) == 144);

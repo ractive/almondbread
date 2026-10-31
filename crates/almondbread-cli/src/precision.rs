@@ -36,7 +36,7 @@ use almondbread_core::oracle::{
     IterationField, OracleReference, VerifyReport, compare, cpu_render_deep_with, cpu_render_for,
 };
 use almondbread_core::palette::Palette;
-use almondbread_core::reference::DEEP_SCALE;
+use almondbread_core::reference::deep_scale_for;
 use almondbread_core::settings::RenderSettings;
 use almondbread_core::viewport::Viewport;
 use almondbread_render::floatfloat::{BenchKind, FloatFloat};
@@ -57,7 +57,7 @@ pub fn shifted_oracle(
 ) -> IterationField {
     let texel = view.scale;
     let bailout = formula.bailout();
-    if texel.to_f64() >= DEEP_SCALE {
+    if texel.to_f64() >= deep_scale_for(formula) {
         let s = texel.to_f64();
         let (sn, cs) = view.angle.sin_cos();
         let (dx, dy) = (shift.0 * cs - shift.1 * sn, shift.0 * sn + shift.1 * cs);

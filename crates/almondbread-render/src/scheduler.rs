@@ -28,7 +28,8 @@ use almondbread_core::input::{InputEvent, Navigator};
 use almondbread_core::math::{DoubleExp, DoubleExpComplex};
 use almondbread_core::oracle::ITER_UNRESOLVED;
 use almondbread_core::reference::{
-    DEEP_SCALE, F64_SYNC_POINTS, Fit, Reference, ReferenceKind, ReferenceRequest, ReferenceWorker, f64_reference_near,
+    F64_SYNC_POINTS, Fit, Reference, ReferenceKind, ReferenceRequest, ReferenceWorker, deep_scale_for,
+    f64_reference_near,
 };
 use almondbread_core::settings::{MAX_ITERATION_LIMIT, RenderSettings};
 use almondbread_core::viewport::{Center, Scale, Viewport};
@@ -3169,6 +3170,11 @@ impl<B: GpuBackend> Renderer<B> {
             .map_or((0, 0), |j| (j.crit_last as u32, j.center_start as u32));
         let (rc, rs) = viewport.rotation();
         let rot = [rc as f32, rs as f32];
+        // F9: the turn's (cos t, sin t) (kb: plans/f9-turn).
+        let turn = key.formula.turn().map_or([1.0, 0.0], |t| {
+            let (c, s) = t.cos_sin();
+            [c as f32, s as f32]
+        });
         let params = |ratio: f64, w: usize, h: usize| {
             let texel = viewport.scale * key.points_per_pixel / ratio;
             let (texel_scale, ref_offset, scale_exp) = if deep {
@@ -3198,6 +3204,7 @@ impl<B: GpuBackend> Renderer<B> {
                 probe,
                 crit_last,
                 center_start,
+                turn,
                 ..IterateParams::default()
             }
         };
@@ -6394,7 +6401,7 @@ impl<B: GpuBackend> Renderer<B> {
     /// `texel` needs.
     pub fn prime_reference(&mut self, viewport: &Viewport, max_iter: usize, texel: Scale, size: usize) {
         self.reference = None;
-        if viewport.scale.to_f64() >= DEEP_SCALE {
+        if viewport.scale.to_f64() >= deep_scale_for(self.settings.formula) {
             let r = Reference::compute_f64_with(
                 viewport,
                 self.settings.formula,
@@ -6511,7 +6518,7 @@ impl<B: GpuBackend> Renderer<B> {
         let Some(t) = self.navigator.prefetch_target() else {
             return;
         };
-        if t.scale.to_f64() >= DEEP_SCALE {
+        if t.scale.to_f64() >= deep_scale_for(self.settings.formula) {
             return;
         }
         let t_texel = t.scale * texel.ratio(viewport.scale);
@@ -6582,7 +6589,7 @@ impl<B: GpuBackend> Renderer<B> {
                 self.spare_reference = Some(spare);
             }
         }
-        if viewport.scale.to_f64() >= DEEP_SCALE {
+        if viewport.scale.to_f64() >= deep_scale_for(self.settings.formula) {
             // The f64 orbit is made as long as the extension passes may iterate, so a centre
             // that has not escaped at the limit does not stop them at its cut (`exact_reach`).
             // Near the -3/4 neck the centre escapes long after the limit, and the passes are
