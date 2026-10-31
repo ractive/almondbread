@@ -18,7 +18,7 @@
 
 use crate::bigfloat::{BigFloat, raw_double_exp, with_scratch};
 use crate::complex::{BigComplex, make_float_exp_complex};
-use crate::floatexp::{DoubleExpComplex, FloatExpComplex, FloatExpSplit};
+use crate::floatexp::{DoubleExp, DoubleExpComplex, FloatExpComplex, FloatExpSplit};
 use crate::formula::Formula;
 use crate::parallel::{self, HelperStart, PARALLEL_MIN_ITERATIONS, PARALLEL_MIN_LIMBS, Shared, StepRegs, StopGuard};
 use crate::raw::{self, Raw, Storage};
@@ -176,8 +176,12 @@ impl ReferenceOrbitComputer {
 
     /// Whether a computation of `max_iterations` runs on three threads.
     pub fn uses_helpers(&self, max_iterations: usize) -> bool {
-        // (The three-thread split is Mandelbrot's X^2, Y^2, (X+Y)^2.)
-        if self.resolved_variant() != Variant::Squarings || matches!(self.formula, Formula::Multibrot(_)) {
+        // (The three-thread split is Mandelbrot's X^2, Y^2, (X+Y)^2. F6b: the Burning Ship's
+        // variants run their own multiplication loop.)
+        if self.resolved_variant() != Variant::Squarings
+            || matches!(self.formula, Formula::Multibrot(_))
+            || self.formula.is_ship_variant()
+        {
             return false;
         }
         match self.threads {
@@ -226,7 +230,7 @@ impl ReferenceOrbitComputer {
         extended: Option<&mut [FloatExpComplex]>,
         control: &mut Control<'_>,
     ) -> OrbitResult {
-        self.compute_from(None, max_iterations, bailout, points, extended, None, control)
+        self.compute_from(None, max_iterations, bailout, points, extended, None, None, control)
     }
 
     /// [`ReferenceOrbitComputer::compute`] (`from` None) or [`ReferenceOrbitComputer::resume`]
@@ -248,7 +252,50 @@ impl ReferenceOrbitComputer {
         {
             return f.clone();
         }
-        self.compute_from(from, max_iterations, bailout, points, extended, Some(split), control)
+        self.compute_from(
+            from,
+            max_iterations,
+            bailout,
+            points,
+            extended,
+            Some(split),
+            None,
+            control,
+        )
+    }
+
+    /// [`ReferenceOrbitComputer::compute_with_split`] that also writes the fold value
+    /// `R = X^2 - Y^2` of each point into `fold_re` (F6b: Celtic and Buffalo, whose real part
+    /// folds, [`Formula::folds_re`]): from the high-precision `X - Y` and `X + Y`, so exact to
+    /// f64's relative precision however close `|X|` and `|Y|` are. `split` may be None (an f64
+    /// view's reference has none). Same buffer rules.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_with_fold(
+        &self,
+        from: Option<&OrbitResult>,
+        max_iterations: usize,
+        bailout: f64,
+        points: Option<&mut [[f32; 2]]>,
+        extended: Option<&mut [FloatExpComplex]>,
+        split: Option<&mut [FloatExpSplit]>,
+        fold_re: &mut [DoubleExp],
+        control: &mut Control<'_>,
+    ) -> OrbitResult {
+        if let Some(f) = from
+            && (f.escaped || f.iterations() >= max_iterations)
+        {
+            return f.clone();
+        }
+        self.compute_from(
+            from,
+            max_iterations,
+            bailout,
+            points,
+            extended,
+            split,
+            Some(fold_re),
+            control,
+        )
     }
 
     /// Continues a computation that stopped at `from.count - 1` iterations (a shorter
@@ -270,7 +317,16 @@ impl ReferenceOrbitComputer {
         if from.escaped || from.iterations() >= max_iterations {
             return from.clone();
         }
-        self.compute_from(Some(from), max_iterations, bailout, points, extended, None, control)
+        self.compute_from(
+            Some(from),
+            max_iterations,
+            bailout,
+            points,
+            extended,
+            None,
+            None,
+            control,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -282,9 +338,17 @@ impl ReferenceOrbitComputer {
         mut points: Option<&mut [[f32; 2]]>,
         mut extended: Option<&mut [FloatExpComplex]>,
         mut split: Option<&mut [FloatExpSplit]>,
+        mut fold_re: Option<&mut [DoubleExp]>,
         control: &mut Control<'_>,
     ) -> OrbitResult {
         let need = max_iterations + 1;
+        if let Some(f) = fold_re.as_deref_mut() {
+            assert!(f.len() >= need, "orbit fold buffer too small");
+            f[0] = self.start.as_ref().map_or(DoubleExp::ZERO, |z| {
+                let (a, b) = (z.re.double_exp(), z.im.double_exp());
+                (a - b) * (a + b)
+            });
+        }
         if let Some(e) = split.as_deref_mut() {
             assert!(e.len() >= need, "orbit split buffer too small");
             e[0] = self.start.as_ref().map_or(FloatExpSplit::ZERO, |z| {
@@ -320,6 +384,7 @@ impl ReferenceOrbitComputer {
             extended,
             doubles: None,
             split,
+            fold_re,
         };
         self.dispatch(job, n, out, control)
     }
@@ -345,6 +410,29 @@ impl ReferenceOrbitComputer {
         bailout: f64,
         control: &mut Control<'_>,
     ) -> (Vec<DoubleExpComplex>, OrbitResult) {
+        let (d, _, r) = self.compute_double_exp_fold(max_iterations, bailout, false, control);
+        (d, r)
+    }
+
+    /// [`ReferenceOrbitComputer::compute_double_exp`] with, when `fold` is set, each point's
+    /// exact fold value `R = X^2 - Y^2` (F6b, [`ReferenceOrbitComputer::compute_with_fold`];
+    /// empty otherwise).
+    pub fn compute_double_exp_fold(
+        &self,
+        max_iterations: usize,
+        bailout: f64,
+        fold: bool,
+        control: &mut Control<'_>,
+    ) -> (Vec<DoubleExpComplex>, Vec<DoubleExp>, OrbitResult) {
+        let mut f = if fold {
+            vec![DoubleExp::ZERO; max_iterations + 1]
+        } else {
+            Vec::new()
+        };
+        if let (Some(z), Some(f0)) = (&self.start, f.first_mut()) {
+            let (a, b) = (z.re.double_exp(), z.im.double_exp());
+            *f0 = (a - b) * (a + b);
+        }
         let mut d = vec![DoubleExpComplex::ZERO; max_iterations + 1];
         if let Some(z) = &self.start {
             d[0] = DoubleExpComplex::new(z.re.double_exp(), z.im.double_exp());
@@ -363,10 +451,12 @@ impl ReferenceOrbitComputer {
             extended: None,
             doubles: Some(&mut d),
             split: None,
+            fold_re: fold.then_some(&mut f[..]),
         };
         let r = self.dispatch(job, self.limb_count(), out, control);
         d.truncate(r.count);
-        (d, r)
+        f.truncate(r.count);
+        (d, f, r)
     }
 
     /// Convenience: the orbit as vectors (points, extended, result).
@@ -391,6 +481,8 @@ struct Outputs<'a> {
     extended: Option<&'a mut [FloatExpComplex]>,
     doubles: Option<&'a mut [DoubleExpComplex]>,
     split: Option<&'a mut [FloatExpSplit]>,
+    /// F6b: `R = X^2 - Y^2` per point (exact where the loop computes it; [`orbit_loop_fold`]).
+    fold_re: Option<&'a mut [DoubleExp]>,
 }
 
 struct Job<'a> {
@@ -474,7 +566,21 @@ impl Job<'_> {
                 // (F6: the Burning Ship is the conjugated step with |XY|.)
                 let conj = matches!(self.formula, Formula::Mandelbar | Formula::BurningShip);
                 let abs = self.formula == Formula::BurningShip;
-                let (reached, esc) = if let Formula::Multibrot(p) = self.formula {
+                let (reached, esc) = if self.formula.is_ship_variant() {
+                    orbit_loop_fold(
+                        &mut x,
+                        &mut y,
+                        &cx,
+                        &cy,
+                        &mut t,
+                        s,
+                        done,
+                        end,
+                        self.bailout2,
+                        &mut out,
+                        self.formula,
+                    )
+                } else if let Formula::Multibrot(p) = self.formula {
                     orbit_loop_power(
                         &mut x,
                         &mut y,
@@ -625,7 +731,74 @@ fn emit_point<S: AsRef<[u64]>>(x: &Raw<S>, y: &Raw<S>, i: usize, bailout2: f64, 
             raw_double_exp(y.view()),
         ));
     }
+    if let Some(f) = out.fold_re.as_deref_mut() {
+        // (A stand-in from the rounded parts: the next step of [`orbit_loop_fold`] overwrites
+        // it with the exact value; only the orbit's last point keeps it, and no step uses it.)
+        let (a, b) = (raw_double_exp(x.view()), raw_double_exp(y.view()));
+        f[i] = (a - b) * (a + b);
+    }
     xd * xd + yd * yd > bailout2
+}
+
+/// The Burning Ship's variants (F6b, kb: plans/f6b-burning-ship-variants): the multiplication
+/// form on one thread. `P1 = (X + Y)(X - Y)` is the fold value `R = X^2 - Y^2` of the current
+/// point, rounded once from the exact sum and difference (relative error ~2^-53 however close
+/// `|X|` and `|Y|` are), written to `fold_re`; `P2 = X Y`. Celtic `X' = |P1| + Cx`,
+/// `Y' = 2 P2 + Cy`; Buffalo `X' = |P1| + Cx`, `Y' = Cy - 2|P2|`; Perpendicular `X' = P1 + Cx`,
+/// `Y' = 2X|Y| + Cy` (`2 P2` with the sign of X).
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn orbit_loop_fold<S: Storage>(
+    x: &mut Raw<S>,
+    y: &mut Raw<S>,
+    cx: &Raw<S>,
+    cy: &Raw<S>,
+    t: &mut [Raw<S>; 6],
+    s: &mut [u64],
+    start: usize,
+    end: usize,
+    bailout2: f64,
+    out: &mut Outputs<'_>,
+    formula: Formula,
+) -> (usize, bool) {
+    let [sum, d, p1, p2, _, _] = t;
+    let re_abs = formula.folds_re();
+    let mut i = start;
+    while i < end {
+        raw::add(sum, x.view(), y.view(), false, s);
+        raw::add(d, x.view(), y.view(), true, s);
+        raw::mul(p1, sum.view(), d.view(), s);
+        if let Some(f) = out.fold_re.as_deref_mut() {
+            f[i] = raw_double_exp(p1.view());
+        }
+        raw::mul(p2, x.view(), y.view(), s);
+        let x_neg = x.neg && !x.zero;
+        if re_abs {
+            p1.neg = false;
+        }
+        raw::add(x, p1.view(), cx.view(), false, s);
+        if !p2.zero {
+            p2.exp += 1;
+        }
+        match formula {
+            Formula::Buffalo => {
+                p2.neg = false;
+                raw::add(y, cy.view(), p2.view(), true, s);
+            }
+            Formula::Perpendicular => {
+                if !p2.zero {
+                    p2.neg = x_neg;
+                }
+                raw::add(y, p2.view(), cy.view(), false, s);
+            }
+            _ => raw::add(y, p2.view(), cy.view(), false, s),
+        }
+        i += 1;
+        if emit_point(x, y, i, bailout2, out) {
+            return (i, true);
+        }
+    }
+    (i, false)
 }
 
 #[inline(always)]
@@ -986,6 +1159,61 @@ mod tests {
                     assert!(y.mantissa < 0.0 && (y.log2_magnitude() + 660.0).abs() < 20.0, "{y:?}");
                 }
             }
+        }
+    }
+
+    /// F6b: the variants' orbits agree with f64 iteration (any variant setting: one loop), and
+    /// the fold output is `X^2 - Y^2` to f64 precision relative to itself, also where the orbit
+    /// lies 1e-200 from the fold `|x| = |y|` (c on the diagonal: `R_1 = a^2 - b^2`).
+    #[test]
+    fn ship_variant_orbits_and_fold_values() {
+        for f in [Formula::Celtic, Formula::Buffalo, Formula::Perpendicular] {
+            for (re, im) in [("-1.62", "0.03"), ("0.3", "0.6"), ("-0.7", "0.7000000001")] {
+                let c = BigComplex::parse(re, im, 1088).unwrap();
+                let base = ReferenceOrbitComputer::new(&c, 1088).with_formula(f);
+                let a = base
+                    .clone()
+                    .with_variant(Variant::Multiplications)
+                    .compute_vec(3000, 1e10);
+                let b = base
+                    .clone()
+                    .with_variant(Variant::Squarings)
+                    .with_threads(Threads::Three)
+                    .compute_vec(3000, 1e10);
+                same(&a, &b);
+                let cf = (re.parse::<f64>().unwrap(), im.parse::<f64>().unwrap());
+                let mut z = (0.0f64, 0.0f64);
+                for p in &a.0[1..a.0.len().min(12)] {
+                    z = f.step(z, cf);
+                    let tol = 1e-6 * z.0.abs().max(z.1.abs()).max(1.0);
+                    assert!(
+                        (f64::from(p[0]) - z.0).abs() < tol && (f64::from(p[1]) - z.1).abs() < tol,
+                        "{f:?} {re} {im}: {p:?} {z:?}"
+                    );
+                }
+                let (d, fold, r) = with_no_control(64, |ctl| base.compute_double_exp_fold(40, 1e10, true, ctl));
+                assert_eq!((d.len(), fold.len()), (r.count, r.count));
+                for k in 0..r.count.min(30) {
+                    let (x, y) = (d[k].re, d[k].im);
+                    let approx = (x - y) * (x + y);
+                    let scale = (x * x + y * y).to_f64();
+                    assert!((fold[k] - approx).abs().to_f64() <= 1e-15 * scale, "{f:?} {k}");
+                }
+            }
+            // c = -1/4 + (1/4 + 1e-200) i, 1e-200 off the diagonal: R_1 = (a - b)(a + b) =
+            // -0.5e-200.
+            let im = format!("0.25{}1", "0".repeat(197));
+            let c = BigComplex::parse("-0.25", &im, 1088).unwrap();
+            let (_, fold, _) = with_no_control(64, |ctl| {
+                ReferenceOrbitComputer::new(&c, 1088)
+                    .with_formula(f)
+                    .compute_double_exp_fold(5, 1e10, true, ctl)
+            });
+            let r1 = fold[1];
+            assert!(
+                r1.mantissa < 0.0 && (r1.log2_magnitude() - (-200.0 * 10f64.log2() - 1.0)).abs() < 0.01,
+                "{f:?} {r1:?}"
+            );
         }
     }
 

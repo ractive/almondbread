@@ -26,8 +26,8 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use almondbread_math::{
-    BigFloat, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, PeriodMethod, ReferenceOrbitComputer, Threads,
-    recommended_precision_bits_with,
+    BigFloat, DoubleExp, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula, PeriodMethod,
+    ReferenceOrbitComputer, Threads, recommended_precision_bits_with,
 };
 
 use crate::julia_reference::{self, JuliaLayout};
@@ -107,6 +107,11 @@ pub struct Reference {
     /// else empty): the GPU's floatexp reference for the Burning Ship, whose fold needs `X Y`
     /// where one part is far below the other ([`FloatExpSplit`]).
     pub split: Arc<Vec<FloatExpSplit>>,
+    /// F6b: each point's fold value `R = X^2 - Y^2` for a formula whose real part folds
+    /// (Celtic, Buffalo; [`Formula::folds_re`]), from the orbit's own precision (big) or f64
+    /// (f64 references), else empty: its rounding from rounded `X`, `Y` would be absolute and
+    /// misplace the fold lines of a deep view (kb: plans/f6b-burning-ship-variants).
+    pub fold: Arc<Vec<DoubleExp>>,
     /// Nucleus period (then `points.len() == period + 1` and `Z_period ~ 0`).
     pub period: Option<usize>,
     /// The period the detector reported (also when Newton was not used).
@@ -195,6 +200,7 @@ impl Reference {
                 points: Arc::new(julia_reference::assemble(&crit, &center, [0.0; 2])),
                 extended: Arc::default(),
                 split: Arc::default(),
+                fold: Arc::default(),
                 period: None,
                 detected_period: None,
                 escaped,
@@ -210,6 +216,10 @@ impl Reference {
         let (mut x, mut y) = (0.0f64, 0.0f64);
         let b2 = bailout * bailout;
         pts.push([0.0f32, 0.0]);
+        // F6b: the fold values of Celtic and Buffalo (f64 rounding is far below an f64 view's
+        // deltas).
+        let folds_re = formula.folds_re();
+        let mut fold = if folds_re { vec![DoubleExp::ZERO] } else { Vec::new() };
         let mut escaped = false;
         let mut done = 0usize;
         while done < max_iter && !escaped {
@@ -232,6 +242,9 @@ impl Reference {
                 for _ in 0..n {
                     (x, y) = formula.step((x, y), (cr, ci));
                     pts.push([x as f32, y as f32]);
+                    if folds_re {
+                        fold.push(DoubleExp::from_f64((x - y) * (x + y)));
+                    }
                     if x * x + y * y > b2 {
                         escaped = true;
                         break;
@@ -245,6 +258,9 @@ impl Reference {
         }
         if pts.len() < 2 {
             pts.push([cr as f32, ci as f32]);
+            if folds_re {
+                fold.push(DoubleExp::from_f64((cr - ci) * (cr + ci)));
+            }
         }
         Some(Self {
             formula,
@@ -256,6 +272,7 @@ impl Reference {
             points: Arc::new(pts),
             extended: Arc::default(),
             split: Arc::default(),
+            fold: Arc::new(fold),
             period: None,
             detected_period: None,
             escaped,
@@ -328,6 +345,9 @@ impl Reference {
         // F6: a folding formula's orbit also with each part its own exponent.
         let folds = request.formula.folds();
         let mut split: Vec<FloatExpSplit> = Vec::new();
+        // F6b: and Celtic's and Buffalo's exact fold values R = X^2 - Y^2.
+        let folds_re = request.formula.folds_re();
+        let mut fold: Vec<DoubleExp> = Vec::new();
         let mut never_progress = |n: usize| progress.store(n, Ordering::Relaxed);
         let mut ctl = almondbread_math::Control {
             check_interval: 4096,
@@ -363,7 +383,20 @@ impl Reference {
         for &stage in &stages {
             points.resize(stage + 1, [0.0; 2]);
             extended.resize(stage + 1, FloatExpComplex::ZERO);
-            let next = if folds {
+            let next = if folds_re {
+                split.resize(stage + 1, FloatExpSplit::ZERO);
+                fold.resize(stage + 1, DoubleExp::ZERO);
+                comp.compute_with_fold(
+                    r.as_ref(),
+                    stage,
+                    request.bailout,
+                    Some(&mut points),
+                    Some(&mut extended),
+                    Some(&mut split),
+                    &mut fold,
+                    &mut ctl,
+                )
+            } else if folds {
                 split.resize(stage + 1, FloatExpSplit::ZERO);
                 comp.compute_with_split(
                     r.as_ref(),
@@ -401,6 +434,7 @@ impl Reference {
                     points: Arc::new(points[..next.count].to_vec()),
                     extended: Arc::new(extended[..next.count].to_vec()),
                     split: Arc::new(split[..split.len().min(next.count)].to_vec()),
+                    fold: Arc::new(fold[..fold.len().min(next.count)].to_vec()),
                     period: None,
                     detected_period: detected,
                     escaped: false,
@@ -421,6 +455,7 @@ impl Reference {
         points.truncate(r.count);
         extended.truncate(r.count);
         split.truncate(r.count);
+        fold.truncate(r.count);
         if points.len() < 2 {
             // C itself escaped at once: still give the kernel one valid step.
             let c = point.big().to_f32();
@@ -433,6 +468,10 @@ impl Reference {
                     b.im.double_exp(),
                 )));
             }
+            if folds_re {
+                let (a, b) = (point.big().re.double_exp(), point.big().im.double_exp());
+                fold.push((a - b) * (a + b));
+            }
         }
         if period.is_some() {
             // Z_p is 0 up to rounding at this precision: make the wrap exact.
@@ -441,6 +480,9 @@ impl Reference {
             extended[p] = FloatExpComplex::ZERO;
             if folds {
                 split[p] = FloatExpSplit::ZERO;
+            }
+            if folds_re {
+                fold[p] = DoubleExp::ZERO;
             }
         }
         Some(Self {
@@ -452,6 +494,7 @@ impl Reference {
             points: Arc::new(points),
             extended: Arc::new(extended),
             split: Arc::new(split),
+            fold: Arc::new(fold),
             period,
             detected_period: detected,
             escaped: r.escaped,
@@ -494,6 +537,7 @@ impl Reference {
             points: Arc::new(julia_reference::assemble(&crit.points, &cp, [0.0; 2])),
             extended: Arc::new(julia_reference::assemble(&crit.extended, &ce, FloatExpComplex::ZERO)),
             split: Arc::default(),
+            fold: Arc::default(),
             period: None,
             detected_period: None,
             escaped,

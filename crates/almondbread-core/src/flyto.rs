@@ -663,7 +663,12 @@ mod tests {
         // Bare numbers keep the view's formula; unknown or test-only formulas are ignored.
         assert_eq!(parse_formula("0.1 0.2 1e-5"), None);
         assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula multibrot2"), None);
-        assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula celtic"), None);
+        assert_eq!(parse_formula("re 0\nim 0\nscale 1\nformula celtic2"), None);
+        // F6b: the Burning Ship's variants are picker formulas too.
+        assert_eq!(
+            parse_formula("re 0\nim 0\nscale 1\nformula celtic"),
+            Some(Formula::Celtic)
+        );
         // F6: the Burning Ship is a picker formula.
         assert_eq!(
             parse_formula("re 0\nim 0\nscale 1\nformula burningship"),

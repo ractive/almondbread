@@ -2977,7 +2977,22 @@ mod formula_integration_tests {
             (o.family.as_str(), o.family_title.as_str(), o.power),
             ("burningship", "Burning Ship", 2)
         );
-        assert_eq!(opts.last().map(|o| o.formula.as_str()), Some("burningship"));
+        // F6b: the family's second menu, by name.
+        let family: Vec<(&str, &str)> = opts
+            .iter()
+            .filter(|o| o.family == "burningship")
+            .map(|o| (o.formula.as_str(), o.title.as_str()))
+            .collect();
+        assert_eq!(
+            family,
+            [
+                ("burningship", "Burning Ship"),
+                ("celtic", "Celtic"),
+                ("buffalo", "Buffalo"),
+                ("perpendicular", "Perpendicular")
+            ]
+        );
+        assert_eq!(opts.last().map(|o| o.formula.as_str()), Some("perpendicular"));
         let s = e.set_formula("burningship".into()).unwrap();
         assert_eq!(s.formula, "burningship");
         assert_eq!(view(&e), Viewport::fitting_for(Formula::BurningShip, W, H));
@@ -2999,6 +3014,36 @@ mod formula_integration_tests {
         assert!(places.iter().all(|p| p.formula == "burningship"));
         let c = e.capabilities();
         assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
+    }
+
+    /// F6b: each of the ship's variants goes to its own whole set, copies its own name (which
+    /// pastes back into it), has its own places and the ship's capabilities.
+    #[test]
+    fn ship_variants_picker_text_and_places() {
+        let (e, _layer) = explorer();
+        for (name, f) in [
+            ("celtic", Formula::Celtic),
+            ("buffalo", Formula::Buffalo),
+            ("perpendicular", Formula::Perpendicular),
+        ] {
+            let s = e.set_formula(name.into()).unwrap();
+            assert_eq!(s.formula, name);
+            assert_eq!(view(&e), Viewport::fitting_for(f, W, H));
+            e.set_viewport("-1.6".into(), "0.1".into(), 1e-7).unwrap();
+            let (mv, text) = (view(&e), e.coordinates_text());
+            assert!(text.ends_with(&format!("\nformula {name}")), "{text}");
+            e.set_formula("mandelbrot".into()).unwrap();
+            assert!(e.paste_coordinates(text));
+            assert_eq!(formula(&e), f);
+            assert_eq!(view(&e).center, mv.center);
+            let places = crate::places_for(name.into());
+            assert!(places.len() >= 5, "{name}: {} places", places.len());
+            assert!(places.iter().all(|p| p.formula == name));
+            let s = e.go_to_place(places[1].id.clone()).unwrap();
+            assert_eq!(s.formula, name);
+            let c = e.capabilities();
+            assert!(c.seek && c.de && c.orbit_overlay && !c.content && !c.julia_panel && !c.pi_meter);
+        }
     }
 
     /// The control center's search lists every fractal's places (kb: decisions/controls
@@ -3065,7 +3110,16 @@ mod formula_integration_tests {
     #[test]
     fn reset_in_each_formula() {
         let (e, _layer) = explorer();
-        for f in ["mandelbrot", "multibrot3", "multibrot8", "mandelbar", "burningship"] {
+        for f in [
+            "mandelbrot",
+            "multibrot3",
+            "multibrot8",
+            "mandelbar",
+            "burningship",
+            "celtic",
+            "buffalo",
+            "perpendicular",
+        ] {
             e.set_formula(f.into()).unwrap();
             e.set_viewport("0.3".into(), "0.01".into(), 1e-9).unwrap();
             e.reset_viewport();

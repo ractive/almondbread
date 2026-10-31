@@ -3126,7 +3126,12 @@ impl<B: GpuBackend> Renderer<B> {
         // long enough for the passes; this keeps any other reference honest.
         let extension_cap = reference.exact_reach();
         let deep = reference.deep_kernel;
-        let refx_buffer = if deep { self.refx_buffer.clone() } else { None };
+        // (F6b: Celtic's and Buffalo's plain kernel reads its fold values there too.)
+        let refx_buffer = if deep || reference.formula.folds_re() {
+            self.refx_buffer.clone()
+        } else {
+            None
+        };
         let big = reference.big;
         let ref_len = reference.points.len() as u32;
         let reference_serial = self.reference_serial;

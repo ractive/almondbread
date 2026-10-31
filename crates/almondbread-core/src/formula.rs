@@ -180,6 +180,13 @@ impl FormulaCapabilities {
         ..Self::MANDELBAR
     };
 
+    /// The Burning Ship's variants (F6b, kb: plans/f6b-burning-ship-variants): Celtic, Buffalo
+    /// and the perpendicular ship carry the ship's whole path (their own fold cases, Jacobians
+    /// and fold caps), so the same capabilities: no probe, no LA or SA seeds, no atom domains,
+    /// no content beyond their places; unresolved pixels draw as the set (each has bounded
+    /// orbits no test proves; measured per variant on the plan page).
+    pub const SHIP_VARIANT: Self = Self::BURNING_SHIP;
+
     pub fn of(formula: Formula) -> Self {
         match formula {
             Formula::Mandelbrot => Self::MANDELBROT,
@@ -187,18 +194,25 @@ impl FormulaCapabilities {
             Formula::Julia(_) => Self::JULIA,
             Formula::Mandelbar => Self::MANDELBAR,
             Formula::BurningShip => Self::BURNING_SHIP,
+            Formula::Celtic | Formula::Buffalo | Formula::Perpendicular => Self::SHIP_VARIANT,
         }
     }
 }
 
 /// The formulas a user can pick, in menu order: Mandelbrot, then Multibrot `z^3 + c` ...
 /// `z^8 + c` (F3; `Multibrot(2)` is the tests' generic Mandelbrot and not offered), then
-/// Mandelbar (F5) and the Burning Ship (F6).
+/// Mandelbar (F5) and the Burning Ship family (F6: the ship; F6b: Celtic, Buffalo,
+/// Perpendicular).
 pub fn selectable() -> Vec<Formula> {
     let mut v = vec![Formula::Mandelbrot];
     v.extend((3..=MULTIBROT_MAX_POWER).map(Formula::Multibrot));
     v.push(Formula::Mandelbar);
-    v.push(Formula::BurningShip);
+    v.extend([
+        Formula::BurningShip,
+        Formula::Celtic,
+        Formula::Buffalo,
+        Formula::Perpendicular,
+    ]);
     v
 }
 
@@ -211,7 +225,7 @@ pub fn family(formula: Formula) -> &'static str {
         Formula::Mandelbrot | Formula::Julia(_) => "mandelbrot",
         Formula::Multibrot(_) => "multibrot",
         Formula::Mandelbar => "mandelbar",
-        Formula::BurningShip => "burningship",
+        Formula::BurningShip | Formula::Celtic | Formula::Buffalo | Formula::Perpendicular => "burningship",
     }
 }
 
@@ -221,7 +235,7 @@ pub fn family_title(formula: Formula) -> &'static str {
         Formula::Mandelbrot | Formula::Julia(_) => "Mandelbrot",
         Formula::Multibrot(_) => "Multibrot",
         Formula::Mandelbar => "Mandelbar",
-        Formula::BurningShip => "Burning Ship",
+        Formula::BurningShip | Formula::Celtic | Formula::Buffalo | Formula::Perpendicular => "Burning Ship",
     }
 }
 
@@ -235,10 +249,14 @@ pub fn title(formula: Formula) -> String {
         // (z with a combining macron: the conjugate.)
         return "z\u{304}² + c".into();
     }
-    if formula == Formula::BurningShip {
-        // F6: the literature's (|x| + i|y|)² + c shown with the imaginary axis flipped (ships
-        // upright), which as a formula in our coordinates is this one.
-        return "(|x| − i|y|)² + c".into();
+    // F6b: the Burning Ship family's members by name in its second menu (as Multibrot's
+    // powers); their formulas are on `formula_text`.
+    match formula {
+        Formula::BurningShip => return "Burning Ship".into(),
+        Formula::Celtic => return "Celtic".into(),
+        Formula::Buffalo => return "Buffalo".into(),
+        Formula::Perpendicular => return "Perpendicular".into(),
+        _ => {}
     }
     const SUPERSCRIPTS: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
     let p = formula.power();
@@ -248,6 +266,23 @@ pub fn title(formula: Formula) -> String {
         .map(|b| SUPERSCRIPTS[usize::from(b - b'0')])
         .collect();
     format!("z{exp} + c")
+}
+
+/// The formula as maths in our coordinates (the Burning Ship family's iterations, shown with the
+/// imaginary axis flipped against the literature so the ships stand upright; kb:
+/// formulas/burning-ship "Variants"); [`title`] for the others.
+pub fn formula_text(formula: Formula) -> String {
+    match formula {
+        // F6: the literature's (|x| + i|y|)² + c with the imaginary axis flipped.
+        Formula::BurningShip => "(|x| − i|y|)² + c".into(),
+        // F6b: KF's Celtic |Re z²| + i Im z² + c (unchanged by the flip).
+        Formula::Celtic => "|x² − y²| + 2ixy + c".into(),
+        // KF's Buffalo |Re z²| + i|Im z²| + c, flipped.
+        Formula::Buffalo => "|x² − y²| − 2i|xy| + c".into(),
+        // KF's perpendicular Burning Ship (x − i|y|)² + c, flipped.
+        Formula::Perpendicular => "(x + i|y|)² + c".into(),
+        f => title(f),
+    }
 }
 
 #[cfg(test)]
@@ -266,7 +301,23 @@ mod tests {
         let all = selectable();
         assert_eq!(all[0], Formula::Mandelbrot);
         assert_eq!(&all[1..7], &(3..=8).map(Formula::Multibrot).collect::<Vec<_>>()[..]);
-        assert_eq!(all[7..], [Formula::Mandelbar, Formula::BurningShip]);
+        assert_eq!(
+            all[7..],
+            [
+                Formula::Mandelbar,
+                Formula::BurningShip,
+                Formula::Celtic,
+                Formula::Buffalo,
+                Formula::Perpendicular
+            ]
+        );
+        // F6b: the variants carry the ship's capabilities.
+        for f in [Formula::Celtic, Formula::Buffalo, Formula::Perpendicular] {
+            assert_eq!(
+                FormulaCapabilities::of(f),
+                FormulaCapabilities::of(Formula::BurningShip)
+            );
+        }
         // F6: Mandelbar's path without the probe.
         let s = FormulaCapabilities::of(Formula::BurningShip);
         assert_eq!(s.bla, BlaForm::Matrix);
@@ -291,6 +342,21 @@ mod tests {
         assert_eq!(title(Formula::Mandelbar), "z\u{304}² + c");
         assert_eq!(family(Formula::BurningShip), "burningship");
         assert_eq!(family_title(Formula::BurningShip), "Burning Ship");
+        // F6b: one family, the members by name, their formulas in our coordinates.
+        for (f, t) in [
+            (Formula::BurningShip, "Burning Ship"),
+            (Formula::Celtic, "Celtic"),
+            (Formula::Buffalo, "Buffalo"),
+            (Formula::Perpendicular, "Perpendicular"),
+        ] {
+            assert_eq!(
+                (family(f), family_title(f), title(f).as_str()),
+                ("burningship", "Burning Ship", t)
+            );
+        }
+        assert_eq!(formula_text(Formula::BurningShip), "(|x| − i|y|)² + c");
+        assert_eq!(formula_text(Formula::Perpendicular), "(x + i|y|)² + c");
+        assert_eq!(formula_text(Formula::Multibrot(3)), "z³ + c");
         // F4: a Julia set is no picker entry; it belongs to the Mandelbrot family.
         let j = Formula::Julia(almondbread_math::JuliaK::new(
             &almondbread_math::BigComplex::parse("-0.12", "0.74", 128).unwrap(),

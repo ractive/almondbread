@@ -71,6 +71,38 @@ fn conj_square_add_abs(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Re
     raw::add(y, cy.view(), t3.view(), true, s);
 }
 
+/// The Burning Ship's variants (F6b): Celtic `x <- |x^2 - y^2| + cx, y <- 2xy + cy`, Buffalo
+/// `x <- |x^2 - y^2| + cx, y <- cy - 2|xy|`, Perpendicular `x <- x^2 - y^2 + cx, y <- 2x|y| + cy`
+/// ([`complex_square_add`] with the signs of the products set).
+fn fold_square_add(x: &mut Reg, y: &mut Reg, cx: &Reg, cy: &Reg, t: &mut [Reg; 4], s: &mut [u64], f: Formula) {
+    let [t0, t1, t2, t3] = t;
+    raw::add(t0, x.view(), y.view(), false, s);
+    raw::add(t1, x.view(), y.view(), true, s);
+    raw::mul(t2, t0.view(), t1.view(), s);
+    raw::mul(t3, x.view(), y.view(), s);
+    if !t3.zero {
+        t3.exp += 1;
+    }
+    let x_neg = x.neg && !x.zero;
+    if f.folds_re() {
+        t2.neg = false;
+    }
+    raw::add(x, t2.view(), cx.view(), false, s);
+    match f {
+        Formula::Buffalo => {
+            t3.neg = false;
+            raw::add(y, cy.view(), t3.view(), true, s);
+        }
+        Formula::Perpendicular => {
+            if !t3.zero {
+                t3.neg = x_neg;
+            }
+            raw::add(y, t3.view(), cy.view(), false, s);
+        }
+        _ => raw::add(y, t3.view(), cy.view(), false, s),
+    }
+}
+
 fn temps(n: usize) -> [Reg; 4] {
     [reg(n), reg(n), reg(n), reg(n)]
 }
@@ -116,6 +148,7 @@ impl Stepper {
             Some(g) => complex_power_add(x, y, cx, cy, g, self.formula.power(), s),
             None if self.formula == Formula::Mandelbar => conj_square_add(x, y, cx, cy, &mut self.t, s),
             None if self.formula == Formula::BurningShip => conj_square_add_abs(x, y, cx, cy, &mut self.t, s, true),
+            None if self.formula.is_ship_variant() => fold_square_add(x, y, cx, cy, &mut self.t, s, self.formula),
             None => complex_square_add(x, y, cx, cy, &mut self.t, s),
         }
     }
@@ -724,8 +757,8 @@ struct JacobianNewton {
 impl JacobianNewton {
     fn new(formula: Formula, n: usize) -> Self {
         assert!(
-            matches!(formula, Formula::Mandelbar | Formula::BurningShip),
-            "the register Jacobian is Mandelbar's and the Burning Ship's"
+            matches!(formula, Formula::Mandelbar) || formula.folds(),
+            "the register Jacobian is Mandelbar's and the Burning Ship family's"
         );
         JacobianNewton {
             stepper: Stepper::new(formula, n),
@@ -783,6 +816,45 @@ impl JacobianNewton {
                     raw::copy(py, zp_im.view());
                     raw::copy(qx, zq_re.view());
                     raw::copy(qy, zq_im.view());
+                    self.stepper.step(zx, zy, cx, cy, s);
+                    continue;
+                }
+                // F6b, the ship's variants: diag(+-1, +-1) times 2z (`Formula::fold_signs`):
+                // 2z or the reflection by whether the signs agree, negated where the real row
+                // folds. The signs from the registers (exact).
+                let f = self.stepper.formula;
+                if f.is_ship_variant() {
+                    let neg_re = f.folds_re() && raw::compare_magnitude(zx.view(), zy.view()).is_lt();
+                    let neg_im = match f {
+                        Formula::Buffalo => zx.zero || zy.zero || zx.neg == zy.neg,
+                        Formula::Perpendicular => zy.neg && !zy.zero,
+                        _ => false,
+                    };
+                    let flip = |r: &mut Reg| {
+                        if !r.zero {
+                            r.neg = !r.neg;
+                        }
+                    };
+                    if neg_re == neg_im {
+                        raw::copy(px, zp_re.view());
+                        raw::copy(py, zp_im.view());
+                        raw::copy(qx, zq_re.view());
+                        raw::copy(qy, zq_im.view());
+                    } else {
+                        raw::copy(px, zq_re.view());
+                        raw::copy(py, zq_im.view());
+                        flip(py);
+                        raw::copy(qx, zp_re.view());
+                        raw::copy(qy, zp_im.view());
+                        flip(qy);
+                    }
+                    if neg_re {
+                        for r in [&mut *px, &mut *py, &mut *qx, &mut *qy] {
+                            flip(r);
+                        }
+                    }
+                    raw::add(a, px.view(), one.view(), false, s);
+                    raw::copy(px, a.view());
                     self.stepper.step(zx, zy, cx, cy, s);
                     continue;
                 }
@@ -1427,6 +1499,88 @@ mod burning_ship_tests {
             println!("burning ship nucleus near {re} {im}: period {p}, size {size:.3e}");
         }
         assert!(found >= 2, "{found} nuclei");
+    }
+
+    /// `z_p(c)` of a variant by direct BigComplex iteration (not the register steps).
+    fn variant_after(f: Formula, c: &BigComplex, p: usize) -> BigComplex {
+        let mut z = BigComplex::zero(c.precision_bits());
+        for _ in 0..p {
+            let (x, y) = (&z.re, &z.im);
+            let r = &(x * x) - &(y * y);
+            let xy = x * y;
+            let (re, im) = match f {
+                Formula::Celtic => (r.abs(), &xy + &xy),
+                Formula::Buffalo => (r.abs(), -&(&xy.abs() + &xy.abs())),
+                _ => {
+                    let t = x * &y.abs();
+                    (r, &t + &t)
+                }
+            };
+            z = &BigComplex::new(re, im) + c;
+        }
+        z
+    }
+
+    /// F6b: nuclei of the ship's variants by Jacobian Newton (period 2 at -1 for each, on the
+    /// real axis where all three are Mandelbrot's real line) and off-axis minibrots found by a
+    /// period search, whose exact finish lands on `z_p = 0` by direct iteration.
+    #[test]
+    fn ship_variant_nuclei() {
+        let mut never = || false;
+        // (Starts whose period search and Newton land on an off-axis nucleus; others find a
+        // multiple of a smaller period, or Newton runs to the fixed point c = 0, which seek
+        // handles by trying other candidates.)
+        let starts: [(Formula, &[(f64, f64)]); 3] = [
+            (Formula::Celtic, &[(-1.6, 0.2), (-1.0, 0.25)]),
+            (Formula::Buffalo, &[(-0.2, 0.9), (-1.6, 0.2)]),
+            (Formula::Perpendicular, &[(-1.2, 0.3), (-0.2, 0.9), (-1.0, 0.25)]),
+        ];
+        for (f, list) in starts {
+            let opts = NewtonOptions {
+                precision_bits: Some(256),
+                ..NewtonOptions::default()
+            };
+            let r = find_nucleus_for(f, &BigComplex::from_f64(-0.95, 0.03, 64), 2, &opts, &mut never).unwrap();
+            assert!((r.nucleus.re.to_f64() + 1.0).abs() < 1e-60, "{f:?}");
+            let mut off_axis = 0;
+            for &(re, im) in list {
+                let start = BigComplex::from_f64(re, im, 1024);
+                let Some(p) = find_period_for(
+                    f,
+                    &start,
+                    &BigFloat::from_f64(1e-3, 1024),
+                    2000,
+                    PeriodMethod::Ball,
+                    64,
+                    &mut never,
+                ) else {
+                    println!("{f:?}: no period at {re} {im}");
+                    continue;
+                };
+                let opts = NewtonOptions {
+                    precision_bits: Some(1024),
+                    max_steps: 200,
+                    ..NewtonOptions::default()
+                };
+                let Some(r) = find_nucleus_for(f, &start, p, &opts, &mut never) else {
+                    println!("{f:?}: no nucleus from {re} {im} (period {p})");
+                    continue;
+                };
+                let z = variant_after(f, &r.nucleus, p);
+                assert!(
+                    z.re.log2_magnitude() < -900.0 && z.im.log2_magnitude() < -900.0,
+                    "{f:?} period {p} at {re} {im}: {z}"
+                );
+                let size = minibrot_size_complex_for(f, &r.nucleus, p).magnitude().to_f64();
+                assert!(size > 0.0 && size < 1.0, "{f:?} {re} {im}: size {size}");
+                let [x, y] = r.nucleus.to_f64();
+                println!("{f:?} nucleus from {re} {im}: period {p} at {x} {y}, size {size:.3e}");
+                if y.abs() > 1e-3 {
+                    off_axis += 1;
+                }
+            }
+            assert_eq!(off_axis, list.len(), "{f:?}: off-axis nuclei");
+        }
     }
 }
 

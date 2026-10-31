@@ -585,7 +585,8 @@ struct ViewSectionRows: View {
 /// Fractal row): the fractal decides which places, tours and settings exist, so it is no row of
 /// a section. Its family (Mandelbrot, Multibrot (F3, kb: plans/f3-multibrot), Mandelbar (F5),
 /// Burning Ship (F6); a later family is one more entry of Rust's `formula_options()`) and, for a
-/// family of several formulas, which one (Multibrot's power 3 ... 8). A switch goes to the new
+/// family of several formulas, which one (Multibrot's power 3 ... 8; F6b: the Burning Ship's
+/// variants Celtic, Buffalo, Perpendicular). A switch goes to the new
 /// set's whole view. In a Julia view (F4) it names the set the Julia set belongs to and offers
 /// the way back instead of the pickers (as before: no fractal is picked in a Julia view; Julia
 /// sets are opened and left through the twin / Julia panel).
@@ -642,16 +643,21 @@ struct FractalRow: View {
         }
         .labelsHidden()
         .fixedSize()
-        .help("The set to explore: the Mandelbrot set (z² + c), a Multibrot set (zᵖ + c), the Mandelbar set (the Tricorn, z̄² + c) or the Burning Ship ((|x| − i|y|)² + c, shown upright)")
+        .help("The set to explore: the Mandelbrot set (z² + c), a Multibrot set (zᵖ + c), the Mandelbar set (the Tricorn, z̄² + c) or the Burning Ship family ((|x| − i|y|)² + c and its variants, shown upright)")
         .accessibilityIdentifier("formula-family")
         if options.count > 1 {
-            Picker("Power", selection: formula) {
+            // F6b: the Burning Ship family's second menu names its variants (kb:
+            // plans/f6b-burning-ship-variants); Multibrot's picks the power.
+            let variants = family.wrappedValue == "burningship"
+            Picker(variants ? "Variant" : "Power", selection: formula) {
                 ForEach(options, id: \.formula) { o in Text(o.title).tag(o.formula) }
             }
             .labelsHidden()
             .fixedSize()
-            .help("The power p of zᵖ + c: a (p − 1)-fold symmetric set")
-            .accessibilityIdentifier("formula-power")
+            .help(variants
+                ? "Burning Ship (|x| − i|y|)² + c, Celtic |x² − y²| + 2ixy + c, Buffalo |x² − y²| − 2i|xy| + c, Perpendicular (x + i|y|)² + c: the folds of Kalles Fraktaler's formulas, the imaginary axis flipped so the ships stand upright"
+                : "The power p of zᵖ + c: a (p − 1)-fold symmetric set")
+            .accessibilityIdentifier(variants ? "formula-variant" : "formula-power")
         }
     }
 

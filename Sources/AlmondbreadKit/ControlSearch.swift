@@ -18,7 +18,9 @@ enum ControlSearch {
     /// What finds the pinned fractal row (`FractalRow`): it is in no section, so the search marks
     /// it when the query is part of one of these (as a section's keywords match).
     static let fractalKeywords = ["fractal", "formula", "mandelbrot", "multibrot", "mandelbar", "tricorn",
-                                  "burning", "ship", "power", "exponent"]
+                                  "burning", "ship", "power", "exponent",
+                                  // F6b: the Burning Ship family's variants.
+                                  "celtic", "buffalo", "perpendicular", "variant"]
 
     /// Whether the query finds the fractal row (trimmed, case-insensitive; empty: no).
     static func fractalMatches(_ query: String) -> Bool {

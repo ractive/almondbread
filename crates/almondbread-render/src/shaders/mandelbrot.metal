@@ -52,7 +52,13 @@ constant uint kPower = is_function_constant_defined(kPowerFC) ? kPowerFC : 2u;
 // F5 (kb: plans/f5-mandelbar): formulas whose step is not complex-analytic carry their
 // derivatives as real-linear maps (see "Non-conformal derivatives"). Derived from kFormula, so
 // every conformal pipeline (and every pre-F5 one) folds the non-conformal code away.
-constant bool kConformal = kFormula != 3u && kFormula != 4u;
+// F6b (kb: plans/f6b-burning-ship-variants): the Burning Ship's variants, 5 Celtic, 6 Buffalo,
+// 7 Perpendicular; with the ship (4) the folding formulas. Celtic and Buffalo fold the real part
+// against R = X^2 - Y^2, which their references carry per point (foldR).
+constant bool kShipVariant = kFormula >= 5u && kFormula <= 7u;
+constant bool kFoldRe = kFormula == 5u || kFormula == 6u;
+constant bool kFold = kFormula == 4u || kShipVariant;
+constant bool kConformal = kFormula != 3u && !kFold;
 constant bool kNonConformal = !kConformal;
 
 // Iteration-texture codes in .x besides n >= 0.
@@ -702,6 +708,40 @@ static inline float foldScaled(float m, int k, int e) {
     return scale2(float2(m, 0.0f), k - e).x;
 }
 
+// F6b, the ship's variants (kb: plans/f6b-burning-ship-variants, formulas/burning-ship
+// "Variants"), in our coordinates (the literature's imaginary axis flipped as for the ship):
+// Celtic x' = |x^2 - y^2| + cx, y' = 2xy + cy; Buffalo x' = |x^2 - y^2| + cx, y' = cy - 2|xy|;
+// Perpendicular x' = x^2 - y^2 + cx, y' = 2x|y| + cy. The rescaled step with the fold values at
+// the delta's scale fv = (R / s, Q / s): R = X^2 - Y^2 (Celtic, Buffalo), Q = X Y (Buffalo) or Y
+// (Perpendicular, whose x|Y + y| - X|Y| = x|Y| + (X + x) diffabs(Y, y)).
+static inline float2 fStepFoldV(float2 Z, float2 sw, float2 w, float2 dd, float2 fv) {
+    float re = (2.0f * Z.x + sw.x) * w.x - (2.0f * Z.y + sw.y) * w.y;
+    if (kFoldRe) re = diffabsf(fv.x, re);
+    const float d = Z.x * w.y + w.x * Z.y + sw.x * w.y;
+    float im;
+    if (kFormula == 5u) im = 2.0f * d;
+    else if (kFormula == 6u) im = -2.0f * diffabsf(fv.y, d);
+    else im = 2.0f * (w.x * abs(Z.y) + (Z.x + sw.x) * diffabsf(fv.y, w.y));
+    return float2(re + dd.x, im + dd.y);
+}
+
+// The signs of the variant step's Jacobian diag(+-1, +-1) 2z (as `Formula::fold_signs`),
+// decided as the step decides its folds: (real row negated, imaginary row negated).
+static inline bool2 foldSigns(float2 Z, float2 sw, float2 w, float2 fv) {
+    const float re = (2.0f * Z.x + sw.x) * w.x - (2.0f * Z.y + sw.y) * w.y;
+    const bool negRe = kFoldRe && fv.x + re < 0.0f;
+    bool negIm = false;
+    if (kFormula == 6u) negIm = !(fv.y + (Z.x * w.y + w.x * Z.y + sw.x * w.y) < 0.0f);
+    else if (kFormula == 7u) negIm = fv.y + w.y < 0.0f;
+    return bool2(negRe, negIm);
+}
+
+// The variants' fold values of Z itself (sites without the reference index: the cycle
+// analysis; R only as good as Z's float32 rounding).
+static inline float2 foldValuesOf(float2 Z) {
+    return float2((Z.x - Z.y) * (Z.x + Z.y), kFormula == 7u ? Z.y : Z.x * Z.y);
+}
+
 // The perturbation step: z' = S w + dd for the delta z = s w (s = 1: w = sw = z), W = Z + sw.
 // F5 Mandelbar (formula 3): conj(Z + z)^2 - conj(Z)^2 = conj((2Z + z) z), conjugated before +c.
 static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
@@ -709,6 +749,7 @@ static inline float2 fStep(float2 Z, float2 sw, float2 w, float2 dd) {
     if (kFormula == 2u) return cmul(2.0f * Z + sw, w);   // F4 Julia: no +c
     if (kFormula == 3u) return conjf(cmul(2.0f * Z + sw, w)) + dd;
     if (kFormula == 4u) return fStepFold(Z, sw, w, dd, Z.x * Z.y);   // (s = 1 callers only)
+    if (kShipVariant) return fStepFoldV(Z, sw, w, dd, foldValuesOf(Z));   // (s = 1 callers only)
     const float2 W = Z + sw;
     float2 S = float2(1.0f, 0.0f), Zk = float2(1.0f, 0.0f);
     for (uint i = 1; i < kPower; i++) {
@@ -744,6 +785,48 @@ static inline FE fStepXFold(FE Zx, FE zx, FE C, FE xy) {
     return feAdd(feNorm(float2(P.m.x, -diffabsf(u, P.m.y)), P.e), C);
 }
 
+// F6b: the variants' floatexp step with the fold values given: fr = R = X^2 - Y^2 (Celtic,
+// Buffalo; exact, foldR), fi = X Y (Buffalo) or Y (Perpendicular), each in .m.x, .e. P = (2Z +
+// z) z = (the perturbation of x^2 - y^2, 2d).
+static inline FE fStepXFoldV(FE Zx, FE zx, FE C, FE fr, FE fi) {
+    const FE P = feMul(feAdd(feTwice(Zx), zx), zx);
+    if (P.e == FE_ZERO) return C;
+    float re = P.m.x;
+    if (kFoldRe) re = diffabsf(fr.e == FE_ZERO ? 0.0f : foldScaled(fr.m.x, fr.e, P.e), re);
+    if (kFormula != 7u) {
+        float im = P.m.y;
+        if (kFormula == 6u) im = -diffabsf(fi.e == FE_ZERO ? 0.0f : foldScaled(fi.m.x, fi.e + 1, P.e), P.m.y);
+        return feAdd(feNorm(float2(re, im), P.e), C);
+    }
+    // Perpendicular: 2 (x|Y| + (X + x) diffabs(Y, y)), diffabs at the delta's exponent.
+    if (zx.e == FE_ZERO) return feAdd(feNorm(float2(re, 0.0f), P.e), C);
+    const float D = diffabsf(fi.e == FE_ZERO ? 0.0f : foldScaled(fi.m.x, fi.e, zx.e), zx.m.y);
+    const FE t1 = feMul(FE{float2(zx.m.x, 0.0f), zx.e}, FE{float2(abs(fi.m.x), 0.0f), fi.e});
+    const FE t2 = feMul(feAdd(FE{float2(Zx.m.x, 0.0f), Zx.e}, FE{float2(zx.m.x, 0.0f), zx.e}),
+                        FE{float2(D, 0.0f), zx.e});
+    const FE im = feTwice(feAdd(t1, t2));
+    return feAdd(feAdd(feNorm(float2(re, 0.0f), P.e), FE{float2(0.0f, im.m.x), im.e}), C);
+}
+
+// The fold values of a floatexp Z itself (sites without the reference index).
+static inline void foldValuesOfX(FE Zx, thread FE& fr, thread FE& fi) {
+    fr = feNorm(float2((Zx.m.x - Zx.m.y) * (Zx.m.x + Zx.m.y), 0.0f), 2 * Zx.e);
+    fi = kFormula == 7u ? feNorm(float2(Zx.m.y, 0.0f), Zx.e) : feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e);
+}
+
+// foldSigns in floatexp (fold values given as fStepXFoldV's).
+static inline bool2 foldSignsX(FE Zx, FE zx, FE fr, FE fi) {
+    const FE P = feMul(feAdd(feTwice(Zx), zx), zx);
+    bool negRe = false, negIm = false;
+    if (kFoldRe) negRe = P.e == FE_ZERO ? fr.m.x < 0.0f : (fr.e == FE_ZERO ? 0.0f : foldScaled(fr.m.x, fr.e, P.e)) + P.m.x < 0.0f;
+    if (kFormula == 6u) {
+        negIm = !(P.e == FE_ZERO ? fi.m.x < 0.0f : (fi.e == FE_ZERO ? 0.0f : foldScaled(fi.m.x, fi.e + 1, P.e)) + P.m.y < 0.0f);
+    } else if (kFormula == 7u) {
+        negIm = zx.e == FE_ZERO ? fi.m.x < 0.0f : (fi.e == FE_ZERO ? 0.0f : foldScaled(fi.m.x, fi.e, zx.e)) + zx.m.y < 0.0f;
+    }
+    return bool2(negRe, negIm);
+}
+
 // The floatexp perturbation step z' = S z + C, S from W = Z + z ((2Z + z) for Mandelbrot,
 // with 2Z as FE{Z.m, Z.e + 1}).
 static inline FE fStepX(FE Zx, FE zx, FE C) {
@@ -751,6 +834,11 @@ static inline FE fStepX(FE Zx, FE zx, FE C) {
     if (kFormula == 2u) return feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx);   // F4 Julia: no +c
     if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(FE{Zx.m, Zx.e + 1}, zx), zx)), C);
     if (kFormula == 4u) return fStepXFold(Zx, zx, C, feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e));
+    if (kShipVariant) {
+        FE fr, fi;
+        foldValuesOfX(Zx, fr, fi);
+        return fStepXFoldV(Zx, zx, C, fr, fi);
+    }
     const FE W = feAdd(Zx, zx);
     FE S = FE{float2(0.5f, 0.0f), 1}, Zk = S;
     for (uint i = 1; i < kPower; i++) {
@@ -766,7 +854,7 @@ static inline FE fStepXT(FE Zx, FE zx, FE C) {
     if (kFormula == 2u) return feMul(feAdd(feTwice(Zx), zx), zx);
     if (kFormula == 3u) return feAdd(feConj(feMul(feAdd(feTwice(Zx), zx), zx)), C);
     if (kFormula == 4u) return fStepXFold(Zx, zx, C, feNorm(float2(Zx.m.x * Zx.m.y, 0.0f), 2 * Zx.e));
-    return fStepX(Zx, zx, C);
+    return fStepX(Zx, zx, C);   // (F6b: the variants' fStepX takes 2Z by feTwice already)
 }
 
 // Seeds (local SA, kb: techniques/local-series-approximation): b' = f''(z) a^2 / ts + f'(z) b
@@ -876,6 +964,36 @@ static inline void ncMulFoldX(FE z, bool conf, thread FE& p, thread FE& q) {
         return;
     }
     ncMulX(z, p, q);
+}
+
+// F6b: a variant's Jacobian diag(+-1, +-1) 2z (neg from foldSigns): 2z where the signs agree,
+// Mandelbar's reflection where they differ, negated where the real row is.
+static inline void ncMulSigns(float2 z, bool2 neg, thread float2& p, thread float2& q) {
+    if (neg.x == neg.y) {
+        const float2 z2 = 2.0f * z;
+        p = cmul(z2, p);
+        q = cmul(z2, q);
+    } else {
+        ncMul(z, p, q);
+    }
+    if (neg.x) {
+        p = -p;
+        q = -q;
+    }
+}
+
+static inline void ncMulSignsX(FE z, bool2 neg, thread FE& p, thread FE& q) {
+    if (neg.x == neg.y) {
+        const FE z2 = feTwice(z);
+        p = feMul(z2, p);
+        q = feMul(z2, q);
+    } else {
+        ncMulX(z, p, q);
+    }
+    if (neg.x) {
+        p = FE{-p.m, p.e};
+        q = FE{-q.m, q.e};
+    }
 }
 
 // (p, q) <- (ap, aq) o (p, q): a real-linear map A after the map (p, q).
@@ -1015,15 +1133,73 @@ struct RefXS {
 };
 
 // X Y of a folding formula's reference point m as (mantissa, exponent) in .m.x, .e.
+// F6b: Celtic's and Buffalo's slots hold two entries per point: the point (RefXS), then its fold
+// value R = X^2 - Y^2 as {m.x, e} (exact from the orbit: rounding X and Y loses it near |X| =
+// |Y|). Every reference of theirs has these slots, the f64 ones too.
+static inline uint refSlot(uint m) {
+    return kFoldRe ? 2u * m : m;
+}
+
 static inline FE foldXY(device const RefX* refx, uint m) {
-    const RefXS r = ((device const RefXS*)refx)[m];
+    const RefXS r = ((device const RefXS*)refx)[refSlot(m)];
     const float xy = r.m.x * r.m.y;
     return xy == 0.0f ? FE{float2(0.0f), FE_ZERO} : feNorm(float2(xy, 0.0f), r.e + r.e2);
 }
 
+// F6b: R of point m (Celtic, Buffalo) in .m.x, .e.
+static inline FE foldR(device const RefX* refx, uint m) {
+    const RefXS r = ((device const RefXS*)refx)[2u * m + 1u];
+    return r.m.x == 0.0f ? FE{float2(0.0f), FE_ZERO} : FE{float2(r.m.x, 0.0f), r.e};
+}
+
+// F6b: Y of point m (Perpendicular) from the split reference, in .m.x, .e.
+static inline FE foldY(device const RefX* refx, uint m) {
+    const RefXS r = ((device const RefXS*)refx)[refSlot(m)];
+    return r.m.y == 0.0f ? FE{float2(0.0f), FE_ZERO} : FE{float2(r.m.y, 0.0f), r.e2};
+}
+
+// F6b: a variant's fold values of point m at the delta's scale 2^e (e = 0: plain steps), for
+// fStepFoldV / foldSigns: R from the reference's slots; X Y (Buffalo) or Y (Perpendicular) from
+// the float32 point while it holds them, else from the split reference (deep kernels, and
+// Buffalo's slots everywhere).
+static inline float2 foldValuesAt(device const RefX* refx, float2 Z, uint m, int e) {
+    if (m == 0u) return float2(0.0f);
+    float fr = 0.0f, fi = 0.0f;
+    if (kFoldRe) {
+        const FE r = foldR(refx, m);
+        fr = r.e == FE_ZERO ? 0.0f : foldScaled(r.m.x, r.e, e);
+    }
+    if (kFormula == 6u) {
+        if (min(abs(Z.x), abs(Z.y)) >= 0x1p-60f) {
+            fi = foldScaled(Z.x * Z.y, 0, e);
+        } else {
+            const FE xy = foldXY(refx, m);
+            fi = xy.e == FE_ZERO ? 0.0f : foldScaled(xy.m.x, xy.e, e);
+        }
+    } else if (kFormula == 7u) {
+        if (!kDeep || abs(Z.y) >= 0x1p-60f) {
+            fi = foldScaled(Z.y, 0, e);
+        } else {
+            const FE y = foldY(refx, m);
+            fi = y.e == FE_ZERO ? 0.0f : foldScaled(y.m.x, y.e, e);
+        }
+    }
+    return float2(fr, fi);
+}
+
+// The same as floatexp values (fStepXFoldV, foldSignsX): fr = R, fi = X Y or Y.
+static inline void foldValuesX(device const RefX* refx, uint m, thread FE& fr, thread FE& fi) {
+    fr = FE{float2(0.0f), FE_ZERO};
+    fi = fr;
+    if (m == 0u) return;
+    if (kFoldRe) fr = foldR(refx, m);
+    if (kFormula == 6u) fi = foldXY(refx, m);
+    else if (kFormula == 7u) fi = foldY(refx, m);
+}
+
 static inline FE refAt(device const RefX* refx, uint m) {
-    if (kFormula == 4u) {
-        const RefXS r = ((device const RefXS*)refx)[m];
+    if (kFold) {
+        const RefXS r = ((device const RefXS*)refx)[refSlot(m)];
         const bool zx = r.m.x == 0.0f, zy = r.m.y == 0.0f;
         if (zx && zy) return FE{float2(0.0f), FE_ZERO};
         const int e = zx ? r.e2 : (zy ? r.e : max(r.e, r.e2));
@@ -2037,10 +2213,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         if (e != 0) break;
                         continue;
                     }
+                    // (F6b: the variants' fold values, R exact from the slots.)
+                    const float2 fvP = kShipVariant ? foldValuesAt(refx, Z, m, 0) : float2(0.0f);
                     if (kFormula == 4u) {
                         const bool conf = foldConformalAt(Z, w, w, Z.x * Z.y);
                         if (kDE) { ncMulFold(z, conf, dm, dmQ); dm += tsd; }
                         if (kInterior) ncMulFold(z, conf, zw, zwQ);
+                    } else if (kShipVariant) {
+                        const bool2 neg = foldSigns(Z, w, w, fvP);
+                        if (kDE) { ncMulSigns(z, neg, dm, dmQ); dm += tsd; }
+                        if (kInterior) ncMulSigns(z, neg, zw, zwQ);
                     } else {
                     if (kDE) {
                         if (kNonConformal) { ncMul(z, dm, dmQ); dm += tsd; } else dm = fMulPrime(z, dm) + tsd;
@@ -2085,7 +2267,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             }
                         }
                     }
-                    w = fStep(Z, w, w, dd);
+                    w = kShipVariant ? fStepFoldV(Z, w, w, dd, fvP) : fStep(Z, w, w, dd);
                     m++;
                     n++;
                     budget--;
@@ -2131,7 +2313,23 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                             break;
                         }
                         // Derivatives with the full orbit value zf = Z + z (floatexp).
-                        if (kFormula == 4u) {
+                        // (F6b: the variants' fold values; m == 0 after a rebase: none.)
+                        FE fvR = FE{float2(0.0f), FE_ZERO}, fvI = fvR;
+                        if (kShipVariant) foldValuesX(refx, m, fvR, fvI);
+                        if (kShipVariant) {
+                            const bool2 neg = foldSignsX(Zx, zx, fvR, fvI);
+                            if (kDE) {
+                                FE dp = feNorm(dm, dExp), dq = feNorm(dmQ, dExp);
+                                ncMulSignsX(zf, neg, dp, dq);
+                                feJoin(feAdd(dp, TS), dq, dm, dmQ, dExp);
+                                tsd = tsdOf(TS, dExp);
+                            }
+                            if (kInterior) {
+                                FE wp = feNorm(zw, wExp), wq = feNorm(zwQ, wExp);
+                                ncMulSignsX(zf, neg, wp, wq);
+                                feJoin(wp, wq, zw, zwQ, wExp);
+                            }
+                        } else if (kFormula == 4u) {
                             const FE fxy = m != 0 ? foldXY(refx, m) : FE{float2(0.0f), FE_ZERO};
                             const bool conf = foldConformalX(Zx, zx, fxy);
                             if (kDE) {
@@ -2172,6 +2370,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         // the split reference's exact X Y).
                         if (kFormula == 4u) {
                             zx = fStepXFold(Zx, zx, C, m == 0 ? FE{float2(0.0f), FE_ZERO} : foldXY(refx, m));
+                        } else if (kShipVariant) {
+                            zx = fStepXFoldV(Zx, zx, C, fvR, fvI);
                         } else {
                             zx = fStepX(Zx, zx, C);
                         }
@@ -2217,7 +2417,14 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         const bool conf = foldConformalAt(Z, sw, w, xys);
                         if (kDE) { ncMulFold(zf, conf, dm, dmQ); dm += tsd; }
                         if (kInterior) ncMulFold(zf, conf, zw, zwQ);
-                    } else {
+                    }
+                    // F6b: the variants' fold values at the delta's scale (R exact).
+                    const float2 fvS = kShipVariant ? foldValuesAt(refx, Z, m, e) : float2(0.0f);
+                    if (kShipVariant) {
+                        const bool2 neg = foldSigns(Z, sw, w, fvS);
+                        if (kDE) { ncMulSigns(zf, neg, dm, dmQ); dm += tsd; }
+                        if (kInterior) ncMulSigns(zf, neg, zw, zwQ);
+                    } else if (kFormula != 4u) {
                     if (kDE) {
                         if (kNonConformal) { ncMul(zf, dm, dmQ); dm += tsd; } else dm = fMulPrime(zf, dm) + tsd;
                     }
@@ -2259,6 +2466,8 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                     }
                     if (kFormula == 4u) {
                         w = fStepFold(Z, sw, w, dd, xys);
+                    } else if (kShipVariant) {
+                        w = fStepFoldV(Z, sw, w, dd, fvS);
                     } else {
                         w = fStep(Z, sw, w, dd);
                     }
@@ -2551,10 +2760,16 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
             const uint stop = min(p.maxIter, n + run);
             const uint n0 = n;
             while (n < stop) {
+                // (F6b: the variants' fold values, R exact from the slots.)
+                const float2 fvQ = kShipVariant ? foldValuesAt(refx, ref[m], m, 0) : float2(0.0f);
                 if (kFormula == 4u) {
                     const bool conf = foldConformalAt(ref[m], dz, dz, ref[m].x * ref[m].y);
                     if (kDE) { ncMulFold(z, conf, d, dQ); d += tsAddP; }
                     if (kInterior) ncMulFold(z, conf, w, wQ);
+                } else if (kShipVariant) {
+                    const bool2 neg = foldSigns(ref[m], dz, dz, fvQ);
+                    if (kDE) { ncMulSigns(z, neg, d, dQ); d += tsAddP; }
+                    if (kInterior) ncMulSigns(z, neg, w, wQ);
                 } else {
                 if (kDE) {
                     if (kNonConformal) { ncMul(z, d, dQ); d += tsAddP; } else d = fMulPrime(z, d) + tsAddP;
@@ -2583,7 +2798,7 @@ kernel void iterate(texture2d<float, access::write> iterOut [[texture(0)]],
                         break;
                     }
                 }
-                dz = fStep(ref[m], dz, dz, dc);
+                dz = kShipVariant ? fStepFoldV(ref[m], dz, dz, dc, fvQ) : fStep(ref[m], dz, dz, dc);
                 m++;
                 n++;
                 z = ref[m] + dz;

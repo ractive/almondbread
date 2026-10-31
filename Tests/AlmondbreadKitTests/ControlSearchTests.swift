@@ -42,6 +42,10 @@ final class ControlSearchTests: XCTestCase {
         XCTAssertEqual(ControlSearch.formulaLabel(cubic.formula, current: "mandelbrot", options: options), "z³")
         // Search covers every formula's places, not only the current one's.
         XCTAssertFalse(ControlSearch.places(all, query: "ship").filter { $0.formula == "burningship" }.isEmpty)
+        // F6b: a variant's place is labelled with the variant, the family's second menu.
+        let calf = try XCTUnwrap(ControlSearch.places(all, query: "calf").first)
+        XCTAssertEqual(calf.formula, "buffalo")
+        XCTAssertEqual(ControlSearch.formulaLabel(calf.formula, current: "burningship", options: options), "Buffalo")
     }
 
     func testEmptyQueryMatchesNothing() {
@@ -66,7 +70,7 @@ final class ControlSearchTests: XCTestCase {
     /// The pinned fractal row is found by its words and by every family's name; no section
     /// keeps the words (they would open a section without the picker).
     func testFractalRowSearch() {
-        for q in ["multibrot", "Fractal", " power ", "burning", "tricorn"] {
+        for q in ["multibrot", "Fractal", " power ", "burning", "tricorn", "Celtic", "buffalo", "perpendicular"] {
             XCTAssertTrue(ControlSearch.fractalMatches(q), q)
         }
         for f in ExplorerModel.formulaFamilies {

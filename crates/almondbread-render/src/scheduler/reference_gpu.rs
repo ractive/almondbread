@@ -28,6 +28,44 @@ pub(super) fn gpu_reference<Buf>(
     upload: &dyn Fn(&[u8]) -> Result<Buf, GpuError>,
 ) -> Result<GpuReference<Buf>, GpuError> {
     let points = upload(bytemuck::cast_slice(&r.points[..]))?;
+    if r.formula.folds_re() {
+        // F6b, Celtic and Buffalo: the floatexp slots hold two entries per point, every
+        // reference (f64 ones too: the plain kernel reads the fold value): the point with each
+        // part its own exponent (MSL `RefXS`), then its exact fold value R = X^2 - Y^2 as
+        // {mantissa, 0, exponent, 0} (MSL `foldRe`; kb: plans/f6b-burning-ship-variants).
+        use almondbread_core::formula::{DoubleExp, DoubleExpComplex, FloatExpSplit};
+        let pack = |s: FloatExpSplit| {
+            [
+                s.mantissa[0].to_bits(),
+                s.mantissa[1].to_bits(),
+                s.exponent[0] as u32,
+                s.exponent[1] as u32,
+            ]
+        };
+        let mut gpu: Vec<[u32; 4]> = Vec::with_capacity(2 * r.points.len());
+        for k in 0..r.points.len() {
+            let z = if r.split.len() == r.points.len() {
+                r.split[k]
+            } else if r.extended.len() == r.points.len() {
+                FloatExpSplit::from_double_exp(shared_to_double(&r.extended[k]))
+            } else {
+                let p = r.points[k];
+                FloatExpSplit::from_double_exp(DoubleExpComplex::new(
+                    DoubleExp::from_f64(f64::from(p[0])),
+                    DoubleExp::from_f64(f64::from(p[1])),
+                ))
+            };
+            let fr = r.fold.get(k).copied().unwrap_or(DoubleExp::ZERO);
+            let f = FloatExpSplit::from_double_exp(DoubleExpComplex::new(fr, DoubleExp::ZERO));
+            gpu.push(pack(z));
+            gpu.push([f.mantissa[0].to_bits(), 0, f.exponent[0] as u32, 0]);
+        }
+        return Ok(GpuReference {
+            points,
+            extended: Some(upload(bytemuck::cast_slice(&gpu))?),
+            bla_reach_log2: bla_reach_log2(r),
+        });
+    }
     let extended = if r.extended.is_empty() {
         None
     } else {
