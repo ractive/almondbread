@@ -437,6 +437,20 @@ public enum UIDemo {
             w.orderBack(nil)
             helpWindow = w
             #endif
+        case "turn", "turn-julia":
+            // F9 (kb: plans/f9-turn): the pinned fractal row's turn slider and start value, the
+            // view turned 40° from the whole set with z₀ = 0.2 + 0.1i ("turn-julia": 90°, the
+            // Julia set of the centre's c, from the seahorse valley at 1e-4).
+            if scene == "turn" {
+                try? explorer.setViewport(re: "-0.6", im: "0", scale: 0.0035)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    model.setStart(re: "0.2", im: "0.1")
+                    model.setTurn(40)
+                }
+            } else {
+                try? explorer.setViewport(re: "-0.7436", im: "0.1318", scale: 2.5e-4)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.setTurn(90) }
+            }
         case "multibrot":
             // The pinned fractal row with its power picker (z⁴ + c).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.selectFormula("multibrot4") }

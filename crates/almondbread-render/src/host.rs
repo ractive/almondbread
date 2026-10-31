@@ -329,6 +329,52 @@ impl<B: GpuBackend + Clone> Host<B> {
         r.viewport = view;
     }
 
+    /// F9 (kb: plans/f9-turn): turns the view's plane of the (c, z_0) space to `centidegrees`
+    /// (0: the Mandelbrot plane, 9000: the Julia plane) around the view centre's point, which
+    /// stays in the middle; scale and rotation stay. Turning back returns exactly. A jump (each
+    /// angle is another formula) shown with gesture frames, so a slider drag stays fluid. False
+    /// where the turn does not apply (`turn::applies`) or nothing changes.
+    pub fn set_turn(&mut self, centidegrees: u16, now: f64) -> bool {
+        let r = &self.renderer;
+        match almondbread_core::turn::turned(r.settings.formula, &r.viewport, centidegrees) {
+            Some((f, view)) => self.apply_plane(f, view, now),
+            None => false,
+        }
+    }
+
+    /// F9: the view centre's start value set to `z0` (its `c` and the angle stay; at 90°, where
+    /// the pixel is `z_0`, that moves the view there). False where the turn does not apply or
+    /// nothing changes.
+    pub fn set_start(&mut self, z0: &almondbread_core::math::BigComplex, now: f64) -> bool {
+        let r = &self.renderer;
+        match almondbread_core::turn::with_start(r.settings.formula, &r.viewport, z0) {
+            Some((f, view)) => self.apply_plane(f, view, now),
+            None => false,
+        }
+    }
+
+    /// Shows the plane `formula` at `view` (F9's turn and start value): a Julia view left this
+    /// way has no way back to keep (the slider is it); one entered this way has none either
+    /// (the Mandelbrot panel then shows the whole set with k marked).
+    fn apply_plane(&mut self, formula: almondbread_core::Formula, mut view: Viewport, now: f64) -> bool {
+        let r = &mut self.renderer;
+        if formula == r.settings.formula && view == r.viewport {
+            return false;
+        }
+        if r.settings.formula.is_julia() && !formula.is_julia() {
+            self.julia_return = None;
+            self.overlay.way_back_reference = None;
+        }
+        r.navigator.cancel_flight();
+        r.navigator.jumped();
+        view.ensure_precision();
+        r.settings.formula = formula;
+        r.viewport = view;
+        r.navigator.set_formula(formula);
+        r.note_interaction(now);
+        true
+    }
+
     /// The Julia twin (F4): the Julia set of the view's centre at the same framing. False in a
     /// Julia view (its twin is the way back) or for a formula without the Julia panel's `z^2+k`.
     pub fn julia_twin(&mut self) -> bool {
@@ -1030,6 +1076,10 @@ pub fn coordinates_text_for(v: &Viewport, formula: almondbread_core::formula::Fo
             kv.re.to_decimal_string(Some(d)),
             kv.im.to_decimal_string(Some(d))
         ));
+    } else if let Some(line) = almondbread_core::turn::turn_line(formula, v, coordinate_digits(v) + 2) {
+        // F9: the turned plane as the centre's point (c, z_0) and the angle.
+        text.push('\n');
+        text.push_str(&line);
     } else if !formula.is_mandelbrot() {
         text.push_str(&format!("\nformula {}", formula.name()));
     }

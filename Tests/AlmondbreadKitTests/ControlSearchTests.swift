@@ -77,6 +77,20 @@ final class ControlSearchTests: XCTestCase {
         for s in ControlSection.allCases {
             XCTAssertFalse(s.matches("multibrot"), "\(s) still claims the fractal picker")
         }
+        // F9: the turn and the start value sit in the pinned row.
+        for q in ["turn", "z0", "z₀", "start value", "evil twin"] {
+            XCTAssertTrue(ControlSearch.fractalMatches(q), q)
+        }
+    }
+
+    /// F9: the start value's fields show up to 10 significant digits of Rust's exact value.
+    func testTurnStartFieldDigits() {
+        XCTAssertEqual(TurnRows.short("0"), "0")
+        XCTAssertEqual(TurnRows.short("-0.0000000000"), "0")
+        XCTAssertEqual(TurnRows.short("0.125"), "0.125")
+        XCTAssertEqual(TurnRows.short("-0.74364388703715100"), "-0.743643887")
+        XCTAssertEqual(TurnRows.short("1.2e-30"), "1.2e-30")
+        XCTAssertEqual(TurnRows.short("abc"), "abc")
     }
 
     func testArrowMoves() {

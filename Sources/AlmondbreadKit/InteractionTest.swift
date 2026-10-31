@@ -880,6 +880,17 @@ final class InteractionTest: NSObject {
                                 im: "0.6785478674150520237952461553430622991323380058277815194421221054868252650933002485440546541350165849932149350420951796822304685241394963385899335024961001636274825482729138595485370773903166706946136063947425419828687390342905631095799823421179334798563580045190217945069289191899700554854070505266217696214286174348262202054",
                                 scale: 2e-300)
         let rabbitK = (re: "-0.1225611668766536", im: "0.7448617666197442")
+        // F9 (kb: plans/f9-turn): the turn slider dragged 0° -> 90° -> 0° in 3 s (one new plane
+        // per frame) at the whole set and at 1e-20 per point in seahorse valley; and a pan of a
+        // view turned 45° at c = i, 1e-100 per point.
+        let turnSweep: (FractalNSView, Int, Double) -> Void = { v, _, t in
+            let d = t < 1.5 ? t / 1.5 * 90 : max(0, (3 - t) / 1.5 * 90)
+            v.model.setTurn((d * 10).rounded() / 10)
+        }
+        let turnedPan: (FractalNSView, Int, Double) -> Void = { v, i, t in
+            if i == 0 { v.model.setTurn(45) }
+            pan(v, i, t)
+        }
         // The Mandelbrot panel of a deep twin (2e-32 per point at the Misiurewicz point c = i,
         // where the twin shows the dendrite): the twin zooms in; "panel late" switches the panel on as the zoom starts, so the panel's deep picture
         // (its own reference and chunks) renders during the measured frames; "no panel" is the
@@ -978,6 +989,9 @@ final class InteractionTest: NSObject {
                          julia: (re: "twin", im: ""), mandelbrotPanel: false),
                 Scenario(name: "julia twin 1e-32 zoom no panel", viewport: dendrite32, input: zoom,
                          julia: (re: "twin", im: ""), mandelbrotPanel: false),
+                Scenario(name: "turn slider home", viewport: home, input: turnSweep),
+                Scenario(name: "turn slider 1e-20", viewport: seaDeep20, input: turnSweep),
+                Scenario(name: "turned 1e-100 pan", viewport: dendrite100, input: turnedPan),
                 // F3 (kb: plans/f3-multibrot): z^5 + c at its seek-found period-11 minibrot, and
                 // z^8 + c at its period-19 minibrot beside a Misiurewicz point (1e-24 per point).
                 Scenario(name: "multibrot5 pan", viewport: multibrot5, input: pan),

@@ -98,17 +98,22 @@ fn is_zero(z: &BigComplex) -> bool {
 /// start value whatever `c`, view coordinate `c`).
 pub fn plane_through(centidegrees: u16, c: &BigComplex, z0: &BigComplex) -> (Formula, BigComplex) {
     let t = centidegrees.min(TURN_MAX_CENTIDEGREES);
+    // (The pivot's parts at one precision, so its text round-trips exactly: journal, links.)
+    let bits = c.precision_bits().max(z0.precision_bits());
     if t == 0 {
         if is_zero(z0) {
             return (Formula::Mandelbrot, c.clone());
         }
-        let zero = BigComplex::zero(64);
-        return (Formula::Turn(TurnPlane::new(&zero, z0, 0)), c.clone());
+        let zero = BigComplex::zero(bits);
+        return (
+            Formula::Turn(TurnPlane::new(&zero, &z0.with_precision(bits), 0)),
+            c.clone(),
+        );
     }
     if t == TURN_MAX_CENTIDEGREES {
         return (Formula::Julia(JuliaK::new(c)), z0.clone());
     }
-    let plane = TurnPlane::new(c, z0, t);
+    let plane = TurnPlane::new(&c.with_precision(bits), &z0.with_precision(bits), t);
     (Formula::Turn(plane), plane.pivot_view())
 }
 

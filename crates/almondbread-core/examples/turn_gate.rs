@@ -4,8 +4,8 @@
 //! A turned view is the plane through a pivot `(c*, z*)` at angle `t`: the pixel at view offset
 //! `dp` from the centre has `c = C + cos t dp`, `z_0 = Z_0 + sin t dp`, with `(C, Z_0)` the
 //! centre's point. Each view is rendered four ways and compared:
-//! - **direct**: every pixel iterated directly in high precision (`BigComplex`, the view's bits
-//!   + 128) from its own `(c, z_0)` until its spacing `|dz_n/dp| texel` reaches 2^-24 (or 4 x
+//! - **direct**: every pixel iterated directly in high precision (`BigComplex`, twice the view's
+//!   bits plus 128) from its own `(c, z_0)` until its spacing `|dz_n/dp| texel` reaches 2^-24 (or 4 x
 //!   the bits + 2000 steps: interior orbits contract), then in f64; no perturbation, no
 //!   rebasing. A second direct field on a grid shifted by (0.013, 0.007) texels measures chaos.
 //! - **oracle**: the CPU oracle (`oracle::cpu_render_deep_with`: f64 extended-range

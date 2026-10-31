@@ -209,7 +209,7 @@ pub fn near_critical_bits(
     for (m, z) in orbit.enumerate() {
         let dn = d.magnitude();
         let image = radius * dn;
-        if !(image < one) || m > 1 << 20 {
+        if image >= one || m > 1 << 20 {
             break;
         }
         let zn = z.magnitude();

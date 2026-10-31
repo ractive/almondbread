@@ -513,6 +513,54 @@ final class TouchControlsUITests: XCTestCase {
         XCTAssertEqual(control.value as? String, "hidden", "the control center stayed open")
     }
 
+    /// F9 (kb: plans/f9-turn): the pinned fractal row's turn slider turns the view to a plane
+    /// between the Mandelbrot and the Julia set (the canvas value names the formula "turn"), all
+    /// the way it is the Julia set of the centre's c, the start value field gives the Mandelbrot
+    /// plane with that z₀, and ↺ goes back to the Mandelbrot set at the same centre.
+    func testTurnSlider() throws {
+        try launchSettled()
+        let control = app.buttons["Control center"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        XCTAssertEqual(control.value as? String, "hidden", "the control center reads open at launch")
+        control.tap()
+        settle(2)
+        XCTAssertTrue(app.buttons["control-center-close"].waitForExistence(timeout: 5), "control center not open")
+        let re0 = Double(fields()["re"] ?? "") ?? .nan
+        let slider = app.sliders["turn-slider"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5), "no turn slider")
+        let reset = app.buttons["turn-reset"]
+        XCTAssertTrue(reset.exists && !reset.isEnabled, "the reset is enabled for the Mandelbrot set")
+        slider.adjust(toNormalizedSliderPosition: 0.5)
+        settle(2)
+        shot("turn-45")
+        XCTAssertEqual(fields()["formula"], "turn")
+        XCTAssertTrue(reset.isEnabled, "the reset stays disabled in a turned view")
+        slider.adjust(toNormalizedSliderPosition: 1.0)
+        settle(2)
+        shot("turn-90")
+        XCTAssertEqual(fields()["formula"], "julia")
+        reset.tap()
+        settle(2)
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        XCTAssertEqual(Double(fields()["re"] ?? "") ?? .nan, re0, accuracy: 1e-9, "the reset moved the centre")
+        let start = app.textFields["turn-start-re"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5), "no start value field")
+        start.tap()
+        // (The field reads "0"; typed after it, "00.3" is 0.3.)
+        start.typeText("0.3\n")
+        settle(2)
+        shot("turn-start")
+        XCTAssertEqual(fields()["formula"], "turn")
+        reset.tap()
+        settle(2)
+        XCTAssertEqual(fields()["formula"], "mandelbrot")
+        for _ in 0..<3 where control.value as? String == "shown" {
+            app.buttons["control-center-close"].tap()
+            settle(1)
+        }
+        XCTAssertEqual(control.value as? String, "hidden", "the control center stayed open")
+    }
+
     /// The orbit-density looks (BB, kb: plans/buddhabrot): the Look picker offers Buddhabrot and
     /// Nebulabrot for the Mandelbrot set and applies them (the canvas value names the look);
     /// for a Multibrot set the entries are hidden. Back to Aurora at the end.
