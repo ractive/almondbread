@@ -552,13 +552,13 @@ impl Viewport {
             return Self::new(-0.45, 0.62, (3.6 / width).max(2.6 / height));
         }
         // F6b: the variants (ours: the ship's flip; [`set_box`]). Celtic spans re -2 .. 0.33
-        // and im ±1.71, Buffalo re -2 .. 1 and im -0.45 .. 1.71, Perpendicular re -2 .. 1 and
-        // im -1.19 .. 1 (measured 2026-10-31: f64 grid, 400 iterations).
+        // and im ±1.71, Buffalo re -2 .. 0.37 and im -0.45 .. 1.71, Perpendicular re -2 .. 1.06
+        // and im -1.19 .. 1.
         match formula {
             crate::formula::Formula::Celtic => return Self::new(-0.84, 0.0, (2.8 / width).max(3.7 / height)),
-            crate::formula::Formula::Buffalo => return Self::new(-0.5, 0.62, (3.4 / width).max(2.5 / height)),
+            crate::formula::Formula::Buffalo => return Self::new(-0.82, 0.63, (2.7 / width).max(2.5 / height)),
             crate::formula::Formula::Perpendicular => {
-                return Self::new(-0.5, -0.09, (3.4 / width).max(2.5 / height));
+                return Self::new(-0.47, -0.095, (3.4 / width).max(2.5 / height));
             }
             _ => {}
         }
@@ -648,10 +648,11 @@ pub fn set_box(formula: crate::formula::Formula) -> SetBox {
         Formula::Mandelbar => SetBox::new(-2.0, 1.001, -1.733, 1.733),
         // Ours with the imaginary axis flipped (ships upright; kb: formulas/burning-ship).
         Formula::BurningShip => SetBox::new(-2.0, 1.159, -0.456, 1.733),
-        // F6b, the variants (f64 grid of 400 iterations, rounded out: the thin tips).
-        Formula::Celtic => SetBox::new(-2.0, 0.4, -1.78, 1.78),
-        Formula::Buffalo => SetBox::new(-2.0, 1.1, -0.5, 1.78),
-        Formula::Perpendicular => SetBox::new(-2.0, 1.1, -1.25, 1.1),
+        // F6b, the variants: the extreme points of 0.0005 grids (3000 iterations) near each
+        // edge, 0.0015 out (measured 2026-10-31).
+        Formula::Celtic => SetBox::new(-2.0, 0.3295, -1.7075, 1.7075),
+        Formula::Buffalo => SetBox::new(-2.0, 0.3715, -0.4555, 1.708),
+        Formula::Perpendicular => SetBox::new(-2.0, 1.0565, -1.1915, 1.0045),
         Formula::Julia(k) => crate::julia::set_box(k.approx()),
     }
 }

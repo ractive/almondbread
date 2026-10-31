@@ -164,8 +164,10 @@ measurements unless cited.
   comet 37, rainbow needle 48).
 - **Autopilot.** Flies all three from their whole sets (90 s simulations: target lock, 0 %
   uniform frames, 1e34.9).
-- **Home views and limits.** Celtic `-0.84`, span 2.8 x 3.7; Buffalo `-0.5 + 0.62i`, 3.4 x 2.5;
-  Perpendicular `-0.5 - 0.09i`, 3.4 x 2.5; set boxes from f64 grids.
+- **Home views and limits.** Celtic `-0.84`, span 2.8 x 3.7; Buffalo `-0.82 + 0.63i`, 2.7 x 2.5;
+  Perpendicular `-0.47 - 0.095i`, 3.4 x 2.5. Set boxes (the test holds every set tightly): Celtic
+  re -2 .. 0.3295, im ±1.7075; Buffalo re -2 .. 0.3715, im -0.4555 .. 1.708; Perpendicular re
+  -2 .. 1.0565, im -1.1915 .. 1.0045 (extreme points of 0.0005 grids, 3000 iterations).
 - **Buffalo's shelf.** Just above the real axis a Buffalo orbit stays near it (`y' = cy - 2|x|y`
   keeps a small positive `y` small) and follows Mandelbrot's real line, so the set has a thick
   bounded shelf above the needle wherever the real line is bounded (the dark rectangles at its
