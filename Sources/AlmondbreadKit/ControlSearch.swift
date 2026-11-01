@@ -33,6 +33,17 @@ enum ControlSearch {
         return fractalKeywords.contains { $0.contains(q) }
     }
 
+    /// What finds the turn rows (F9) in the fractal row: on the phone they are folded behind a
+    /// button while unused, and a search for them unfolds them.
+    static let turnKeywords = ["turn mandelbrot julia", "start value", "z0", "z₀", "evil twin"]
+
+    /// Whether the query finds the turn rows (trimmed, case-insensitive; empty: no).
+    static func turnMatches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return false }
+        return turnKeywords.contains { $0.contains(q) }
+    }
+
     /// The places whose name matches, in catalogue order (every formula's: `ExplorerModel.allPlaces`).
     static func places(_ all: [PlaceInfo], query: String) -> [PlaceInfo] {
         all.filter { nameMatches($0.name, query: query) }

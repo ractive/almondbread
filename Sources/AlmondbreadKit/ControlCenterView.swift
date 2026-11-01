@@ -83,7 +83,7 @@ struct ControlCenterView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ControlSearchField(model: model, query: $query, close: close)
-                FractalRow(model: model, highlighted: fractalHit)
+                FractalRow(model: model, highlighted: fractalHit, turnHit: searching && ControlSearch.turnMatches(query))
                 Divider()
             }
         }
@@ -594,6 +594,29 @@ struct FractalRow: View {
     let model: ExplorerModel
     /// The search matches the row (`ControlSearch.fractalMatches`).
     var highlighted = false
+    /// The search matches the turn rows (`ControlSearch.turnMatches`): unfolded on the phone.
+    var turnHit = false
+    /// The phone's Turn button was tapped, or the view was turned: the rows stay unfolded for this
+    /// control center (a drag back to 0° does not fold them under the finger).
+    @State private var turnOpen = false
+
+    /// F9 on the phone: the turn rows take about 70 pt of the pinned area, which left the half
+    /// sheet's list about 180 pt (Places showed its Category row and no tiles; user, 2026-10-31).
+    /// So while the view is the plain Mandelbrot set (0°, z₀ = 0) and nobody asked for them, a
+    /// Turn button on the fractal line stands for them. The Mac and the iPad show them always (by
+    /// the device: the iPad's control-center pane reports a compact width too).
+    private var turnFolded: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone && !turnOpen && !turnHit && (model.turn?.plain ?? true)
+        #else
+        false
+        #endif
+    }
+
+    /// The fractal has the turn rows (z² + c views; not the lab).
+    private var hasTurn: Bool {
+        !model.isLab && (model.turn?.available ?? (model.formulaFamily == "mandelbrot"))
+    }
 
     var body: some View {
         let _ = UIPerf.body("FractalRow")
@@ -601,7 +624,7 @@ struct FractalRow: View {
             if model.isJulia { julia } else { pickers }
             // F9: the turn and the start value, for the z² + c views (Mandelbrot, its Julia sets
             // and the planes between); another fractal does not have them (hidden, not disabled).
-            if !model.isLab && (model.turn?.available ?? (model.formulaFamily == "mandelbrot")) {
+            if hasTurn && !turnFolded {
                 TurnRows(model: model)
             }
             // F10: the parameter lab's knobs (ParameterLab.swift).
@@ -612,6 +635,22 @@ struct FractalRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(highlighted ? Color.accentColor.opacity(0.18) : Color.clear)
         .background(.bar)
+        .onChange(of: model.turn?.plain) { _, plain in if plain == false { turnOpen = true } }
+    }
+
+    /// The phone's stand-in for the folded turn rows (`turnFolded`).
+    @ViewBuilder
+    private var turnButton: some View {
+        if hasTurn && turnFolded {
+            Button {
+                turnOpen = true
+            } label: {
+                Label("Turn", systemImage: "rotate.3d")
+            }
+            .fixedSize()
+            .help("The turn from the Mandelbrot set to its Julia sets, and the start value z₀")
+            .accessibilityIdentifier("turn-open")
+        }
     }
 
     /// The current family's name ("Mandelbrot"; a Julia view's family is the Mandelbrot set's).
@@ -634,9 +673,11 @@ struct FractalRow: View {
             HStack(spacing: 8) {
                 title
                 Spacer(minLength: 4)
+                turnButton
                 menus(family: family, formula: formula, options: options)
             }
             HStack(spacing: 8) {
+                turnButton
                 Spacer(minLength: 0)
                 menus(family: family, formula: formula, options: options)
             }

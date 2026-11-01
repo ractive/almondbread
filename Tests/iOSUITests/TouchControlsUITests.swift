@@ -549,6 +549,16 @@ final class TouchControlsUITests: XCTestCase {
         settle(2)
         XCTAssertTrue(app.buttons["control-center-close"].waitForExistence(timeout: 5), "control center not open")
         let re0 = Double(fields()["re"] ?? "") ?? .nan
+        // On the phone the unused turn rows are folded behind a Turn button (the iPad shows them).
+        let open = app.buttons["turn-open"]
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCTAssertTrue(open.waitForExistence(timeout: 5), "no Turn button on the phone")
+            XCTAssertFalse(app.sliders["turn-slider"].exists, "the plain view's turn rows are not folded")
+            open.tap()
+            settle(1)
+        } else {
+            XCTAssertFalse(open.exists, "the turn rows are folded on the iPad")
+        }
         let slider = app.sliders["turn-slider"]
         XCTAssertTrue(slider.waitForExistence(timeout: 5), "no turn slider")
         let reset = app.buttons["turn-reset"]
