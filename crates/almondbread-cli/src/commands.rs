@@ -1187,6 +1187,9 @@ fn verify_session<B: GpuBackend + Clone>(
         println!("{tag}vs CPU oracle at {cpu_iter}:  {}", vs_cpu.summary());
         // Fresh headless render of the same texel grid, settings and limits.
         let mut fresh = new_renderer(backend, o)?;
+        // (The session's formula, not the options': `--turn` and `--z0` make a turned plane from
+        // the view after `new_renderer`, and its view is already on that plane.)
+        fresh.settings.formula = r.settings.formula;
         fresh.viewport = Viewport::with_center(v.center.clone(), sim.texel_scale).with_angle(v.angle);
         fresh.settings.supersampling = Supersampling::Off;
         fresh.settings.auto_iterations = false;
@@ -1225,6 +1228,7 @@ fn verify_session<B: GpuBackend + Clone>(
         // dive elsewhere) passed it. Fails when the shown frame leaves pixels unescaped that
         // escape from scratch.
         let mut scratch = new_renderer(backend, o)?;
+        scratch.settings.formula = r.settings.formula;
         scratch.viewport = Viewport::with_center(v.center.clone(), sim.texel_scale).with_angle(v.angle);
         scratch.settings.supersampling = Supersampling::Off;
         scratch.config.offscreen_extension = r.config.extension_factor;

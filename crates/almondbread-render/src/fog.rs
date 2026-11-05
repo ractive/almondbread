@@ -95,6 +95,11 @@ impl<B: GpuBackend> FogPyramid<B> {
         })
     }
 
+    /// Drops the textures (a memory warning); the next frame with fog makes them again.
+    pub fn release_textures(&mut self) {
+        self.textures = None;
+    }
+
     /// Encodes the pyramid of `src` and the fog colour it gives into `enc` and returns the fog
     /// texture (level `FOG_RES`: a texel per 4 x 4 iteration texels) the colour pass samples; sets
     /// the fog fields of `c` (the colour parameters of that pass; admission, sizes and colours

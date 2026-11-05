@@ -66,7 +66,11 @@ mod history_reuse_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod julia_tests;
 #[cfg(all(test, target_vendor = "apple"))]
+mod later_pass_tests;
+#[cfg(all(test, target_vendor = "apple"))]
 mod long_reference_tests;
+#[cfg(all(test, target_vendor = "apple"))]
+mod memory_warning_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 mod rate_tests;
 #[cfg(all(test, target_vendor = "apple"))]
@@ -148,13 +152,25 @@ fn preview_in_one_chunk(cost_per_texel: f64, texels: usize) -> bool {
     cost_per_texel * texels as f64 <= PREVIEW_ONE_CHUNK_MAX
 }
 
-/// Probe steps per pixel at limit `max_iter` (`IterateParams::probe`; 0 off).
-fn probe_limit(max_iter: usize, div: u32) -> u32 {
-    if div == 0 {
-        0
-    } else {
-        (max_iter / div as usize + 256).min(PROBE_MAX_STEPS) as u32
+/// Probe steps per pixel of a pass to `limit` (`IterateParams::probe`; 0 off): every level that
+/// can run the probe takes it from here, and so do the cost estimates of later passes. The first
+/// pass and the extension and compute-further passes once had their own rules, and the later
+/// ones forgot the formula's: a Julia set's probe proved `k`'s attracting cycle, not that the
+/// pixel falls into it, and painted 1.8 % of an exterior view interior.
+fn probe_steps(formula: Formula, period: Option<usize>, limit: usize) -> u32 {
+    // (The probe follows c-plane derivatives from the critical point: off for formulas without
+    // it, F4 Julia and F9 turned planes, and for the folds.)
+    if !FormulaCapabilities::of(formula).interior_probe {
+        return 0;
     }
+    let probe = (limit / INTERIOR_PROBE + 256).min(PROBE_MAX_STEPS);
+    // (A nucleus reference whose period needs more probe steps than the limit allows, about
+    // 4 periods: its minibrot and the bulbs and islands around it, of longer periods, cannot
+    // be proven; probing them only costs. sea-8007 at 3456 x 2234: +13 %, nothing proven.)
+    if period.is_some_and(|p| 4 * p > probe) {
+        return 0;
+    }
+    probe as u32
 }
 /// Cycle analysis steps of a preview or gesture-frame pixel unresolved at `max_iter`
 /// (`IterateParams::ic_limit`, interior colourings only; kb: techniques/coloring-methods
@@ -173,7 +189,7 @@ const PROBE_MAX_STEPS: usize = 2048;
 /// Interior probe for pixels still unresolved at the limit: Newton on the attracting cycle with
 /// a Kantorovich bound on its multiplier (kb: techniques/interior-detection "Attracting-cycle
 /// probe"). At most `max_iter / INTERIOR_PROBE + 256` extra steps per pixel.
-const INTERIOR_PROBE: u32 = 8;
+const INTERIOR_PROBE: usize = 8;
 /// Component Newton (kb: techniques/interior-detection "Component Newton"): sample grid per side,
 /// longest period searched, Newton passes per period try (`SEED_PASSES` in MSL), probe steps per
 /// pixel for all tries at most, and the CPU search's step budget (f64; DoubleExp 1/16).
@@ -673,11 +689,16 @@ pub struct FurtherInfo {
     pub stop: Option<FurtherStop>,
 }
 
-/// The adaptive AA list of a refined view: the GPU pass that builds it and its length.
+/// The adaptive AA list of a refined view: the GPU pass that builds it, its length, and the
+/// textures the samples go to. The pass marks the texels off the list there (`ITER_SKIP`) and
+/// no sample writes them, so a sample in any other textures shades uninitialised texels: a
+/// memory warning between two samples left the next one a new allocation, and every pixel off
+/// the list mixed up to half way towards a wrong colour.
 struct AaList<B: GpuBackend> {
     count_buffer: B::Buffer,
     submission: B::Submission,
     len: Option<usize>,
+    set: TextureSet<B>,
 }
 
 /// A priority order of a level's 16x16 tiles: `order[rank] = tile`, `rank[tile] = rank`.
@@ -843,12 +864,29 @@ struct FullLevelTemplate<B: GpuBackend> {
     extend_to: usize,
 }
 
+/// What a job iterates against, as one value from one place (`Renderer::job_reference`):
+/// `start_job` takes it and compute further swaps it whole when it extends the orbit. Updated
+/// field by field, the fold values stayed on the old, shorter buffer: Celtic and Buffalo read
+/// past its end at every step beyond it (11.9 % of a view wrong at 0.25 + 0i, 1e-6).
+struct JobReference<B: GpuBackend> {
+    buffer: B::Buffer,
+    /// Serial of the reference (its BLA table must match).
+    serial: u64,
+    /// Its floatexp points (deep kernel) and fold values (F6b: Celtic's and Buffalo's plain
+    /// kernel reads them too).
+    refx: Option<B::Buffer>,
+    /// How far pixels may be iterated against it (`Reference::exact_reach`).
+    exact_reach: usize,
+    /// The points of its buffer.
+    len: u32,
+    /// Its period, a nucleus reference's (the probe's rule, `probe_steps`).
+    period: Option<usize>,
+}
+
 struct Job<B: GpuBackend> {
     generation: u64,
     key: ComputeKey,
-    reference_buffer: B::Buffer,
-    /// Serial of the reference the job iterates against (its BLA table must match).
-    reference_serial: u64,
+    reference: JobReference<B>,
     /// That reference's point (the closed-form component test).
     ref_point: Center,
     /// That reference stops before the job's limit without escaping (a prefix still being
@@ -865,8 +903,6 @@ struct Job<B: GpuBackend> {
     max_dc_log2: f64,
     /// Iterates with the deep (rescaled, extended-range) kernel against a big reference (M3b).
     deep: bool,
-    /// The reference's floatexp points (deep kernel).
-    refx_buffer: Option<B::Buffer>,
     /// The table's forecast for this view, once decided.
     bla_forecast: Option<BlaForecast>,
     /// M6: the LA table of the reference, if this view uses it (levels started before stay
@@ -902,12 +938,11 @@ struct Job<B: GpuBackend> {
     aa_epoch: u64,
     /// Which pixels take AA samples (built once the view is refined).
     aa_list: Option<AaList<B>>,
+    /// A memory warning ended the AA samples of this view: the view stays as composed so far,
+    /// and its preview allocation goes (`release_view_memory`).
+    aa_stopped: bool,
     /// An offscreen render (no compute further: results at the asked limit).
     offscreen: bool,
-    /// How far pixels may be iterated against the job's reference (`Reference::exact_reach`),
-    /// and the points of its buffer.
-    exact_reach: usize,
-    ref_len: u32,
     /// "Compute further" once the levels and extension passes are done (kb:
     /// techniques/auto-iterations "Compute further").
     further: Option<Further<B>>,
@@ -1005,8 +1040,8 @@ impl<B: GpuBackend> Job<B> {
     fn aa_pending(&self) -> bool {
         self.levels.iter().any(|l| l.aa.is_some() && !l.done)
     }
-    /// Every AA sample the target asks for is composed, no pixel needs any, or the AA budget
-    /// is spent (`budget` GPU seconds over the composed samples).
+    /// Every AA sample the target asks for is composed, no pixel needs any, the AA budget
+    /// is spent (`budget` GPU seconds over the composed samples) or a memory warning ended them.
     fn aa_finished(&self, target: u32, budget: f64) -> bool {
         let spent: f64 = self
             .levels
@@ -1014,12 +1049,40 @@ impl<B: GpuBackend> Job<B> {
             .filter(|l| l.aa.is_some_and(|n| n <= self.aa_composed))
             .map(|l| l.gpu_time)
             .sum();
-        self.aa_composed + 1 >= target || self.aa_list.as_ref().is_some_and(|l| l.len == Some(0)) || spent > budget
+        self.aa_stopped
+            || self.aa_composed + 1 >= target
+            || self.aa_list.as_ref().is_some_and(|l| l.len == Some(0))
+            || spent > budget
     }
     fn drop_aa(&mut self) {
         self.levels.retain(|l| l.aa.is_none());
         self.aa_composed = 0;
         self.aa_epoch += 1;
+    }
+    /// A memory warning: no more AA samples for this view. Asking for them again would make
+    /// the allocation the warning drops. (A sample still running ends here: chunks of the old
+    /// epoch are ignored at harvest, and the level stays, since chunks of later levels index
+    /// the list.)
+    fn stop_aa(&mut self) {
+        for l in self.levels.iter_mut().filter(|l| l.aa.is_some()) {
+            l.done = true;
+        }
+        self.aa_epoch += 1;
+        self.aa_list = None;
+        self.aa_stopped = true;
+    }
+    /// Probe steps per pixel of a pass of this job to `limit`.
+    fn probe_steps(&self, limit: usize) -> u32 {
+        probe_steps(self.key.formula, self.reference.period, limit)
+    }
+    /// Takes a longer orbit of the same point (compute further). Its tables belong to the old
+    /// orbit: the job iterates on without them.
+    fn attach_reference(&mut self, reference: JobReference<B>) {
+        self.reference = reference;
+        self.bla = None;
+        self.bla_forecast = Some(BlaForecast::default());
+        self.la = None;
+        self.la_decided = true;
     }
 }
 
@@ -2280,8 +2343,8 @@ impl<B: GpuBackend> Renderer<B> {
         enc.dispatch_threads([1, 1, 1], [1, 1, 1]);
         enc.set_pipeline(&pipeline);
         enc.set_bytes(0, bytes_of(&level.params));
-        enc.set_buffer(1, &job.reference_buffer, 0);
-        enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        enc.set_buffer(1, &job.reference.buffer, 0);
+        enc.set_buffer(16, job.reference.refx.as_ref().unwrap_or(&self.dummy_buffer), 0);
         match (&job.bla, seeding.bla) {
             (Some(b), true) => {
                 enc.set_bytes(14, bytes_of(&b.params));
@@ -2692,6 +2755,7 @@ impl<B: GpuBackend> Renderer<B> {
             self.update_progress(now);
             return outcome;
         }
+        self.release_view_memory(now);
         if self.refinement_paused() {
             // Critical thermal state: the view's first full frame is shown; nothing more until
             // the device cools down (the platform then asks for frames again).
@@ -3130,7 +3194,7 @@ impl<B: GpuBackend> Renderer<B> {
             self.waiting_reference = true;
             return;
         }
-        let (Some(reference), Some(reference_buffer)) = (&self.reference, self.reference_buffer.clone()) else {
+        let (Some(job_reference), Some(reference)) = (self.job_reference(), &self.reference) else {
             return;
         };
         let short_reference = reference.truncated_before(key.max_iter);
@@ -3141,17 +3205,10 @@ impl<B: GpuBackend> Renderer<B> {
         // (centre escaping at 17 019, limit 4 533) passes to 18 132 against the 4 534-point cut
         // drew blocky noise and black wedges (2026-10-16). `prepare_reference` makes f64 orbits
         // long enough for the passes; this keeps any other reference honest.
-        let extension_cap = reference.exact_reach();
+        let extension_cap = job_reference.exact_reach;
         let deep = reference.deep_kernel;
-        // (F6b: Celtic's and Buffalo's plain kernel reads its fold values there too.)
-        let refx_buffer = if deep || reference.formula.folds_re() {
-            self.refx_buffer.clone()
-        } else {
-            None
-        };
         let big = reference.big;
-        let ref_len = reference.points.len() as u32;
-        let reference_serial = self.reference_serial;
+        let ref_len = job_reference.len;
         let half_diag = 0.5 * (key.width as f64).hypot(key.height as f64);
         // Plain kernel: f64 offsets and texel sizes. Deep kernel (M3b): mantissas in units of
         // 2^scaleExp, the texel's binary exponent (kb: techniques/extended-range-floats).
@@ -3174,17 +3231,7 @@ impl<B: GpuBackend> Renderer<B> {
         let ref_point = reference.point.clone();
         let ref_on_axis = reference.point.big().im.is_zero();
         let live_capacity = self.config.live_capacity as u32;
-        // (A nucleus reference whose period needs more probe steps than the limit allows, about
-        // 4 periods: its minibrot and the bulbs and islands around it, of longer periods, cannot
-        // be proven; probing them only costs. sea-8007 at 3456 x 2234: +13 %, nothing proven.)
-        let mut probe = probe_limit(key.max_iter, INTERIOR_PROBE);
-        if reference.period.is_some_and(|p| 4 * p > probe as usize) {
-            probe = 0;
-        }
-        // (The probe follows c-plane derivatives: off for formulas without it, F4 Julia.)
-        if !FormulaCapabilities::of(key.formula).interior_probe {
-            probe = 0;
-        }
+        let probe = probe_steps(key.formula, job_reference.period, key.max_iter);
         // F4: where a Julia reference's two orbits lie (kb: plans/f4-deep-julia).
         let (crit_last, center_start) = reference
             .julia
@@ -3343,8 +3390,7 @@ impl<B: GpuBackend> Renderer<B> {
         self.job = Some(Job {
             generation: self.generation,
             key,
-            reference_buffer,
-            reference_serial,
+            reference: job_reference,
             ref_point: ref_point.clone(),
             short_reference,
             ref_texel: full_texel,
@@ -3352,7 +3398,6 @@ impl<B: GpuBackend> Renderer<B> {
             bla: None,
             max_dc_log2,
             deep,
-            refx_buffer,
             bla_forecast: None,
             la: None,
             la_decided: false,
@@ -3373,9 +3418,8 @@ impl<B: GpuBackend> Renderer<B> {
             aa_composed: 0,
             aa_epoch: 0,
             aa_list: None,
+            aa_stopped: false,
             offscreen: mode == JobMode::Offscreen,
-            exact_reach: extension_cap,
-            ref_len,
             further: None,
         });
         // Offscreen renders always iterate with the table (deterministic results); views
@@ -3413,7 +3457,7 @@ impl<B: GpuBackend> Renderer<B> {
         if job.bla_forecast.is_some() {
             return BlaReady::Without;
         }
-        let serial = job.reference_serial;
+        let serial = job.reference.serial;
         let building = self.bla.as_ref().is_some_and(|t| t.serial == serial)
             || self.bla_build.as_ref().is_some_and(|b| b.serial == serial);
         if !building {
@@ -3586,7 +3630,7 @@ impl<B: GpuBackend> Renderer<B> {
         if job.la_decided {
             return BlaReady::Without;
         }
-        let serial = job.reference_serial;
+        let serial = job.reference.serial;
         let building = self.la.as_ref().is_some_and(|t| t.serial == serial)
             || self.la_build.as_ref().is_some_and(|b| b.serial == serial);
         if !building {
@@ -3868,6 +3912,7 @@ impl<B: GpuBackend> Renderer<B> {
             || job.interactive
             || !job.complete_presented
             || job.failed
+            || job.aa_stopped
             || !job.levels.iter().all(|l| l.done || l.aa.is_some())
             || job.further.as_ref().is_some_and(Further::active)
         {
@@ -3920,16 +3965,18 @@ impl<B: GpuBackend> Renderer<B> {
             count_buffer,
             submission,
             len: None,
+            set: aa_set,
         });
     }
 
     /// Queues the next idle anti-aliasing sample once everything else of the refined view is
     /// done (kb: techniques/anti-aliasing, FL): the pixels on the adaptive list again with a
-    /// Halton jitter, into the preview allocation (full size; previews are not needed while
-    /// idle), at the nominal limit. Input replaces the job, which drops the samples at once.
+    /// Halton jitter, into the textures the list marked (the preview allocation, full size;
+    /// previews are not needed while idle), at the nominal limit. Input replaces the job, which
+    /// drops the samples at once.
     fn queue_aa_sample(&mut self, target: u32) {
         let Some(job) = &self.job else { return };
-        let Some(len) = job.aa_list.as_ref().and_then(|l| l.len) else {
+        let Some((len, set)) = job.aa_list.as_ref().and_then(|l| Some((l.len?, l.set.clone()))) else {
             return;
         };
         if len == 0
@@ -3946,10 +3993,6 @@ impl<B: GpuBackend> Renderer<B> {
             return;
         }
         let Some(full_index) = job.levels.iter().position(|l| !l.preview && l.aa.is_none()) else {
-            return;
-        };
-        let (w, h) = (job.key.width, job.key.height);
-        let Ok(set) = self.preview_texture_set(w, h, w, h) else {
             return;
         };
         let list = self.aa_list_buffer.as_ref().map(|b| b.0.clone());
@@ -4268,7 +4311,7 @@ impl<B: GpuBackend> Renderer<B> {
         enc.set_pipeline(&pipeline);
         enc.set_texture(0, &level.set.iter);
         enc.set_texture(1, &level.set.de);
-        enc.set_buffer(1, &job.reference_buffer, 0);
+        enc.set_buffer(1, &job.reference.buffer, 0);
         enc.set_buffer(2, &self.state_buffers[src], 0);
         enc.set_buffer(3, &self.state_buffers[dst], 0);
         if interior_color && let (Some(ic), Some(aux)) = (&self.ic_buffers, &level.set.aux) {
@@ -4289,7 +4332,7 @@ impl<B: GpuBackend> Renderer<B> {
                 enc.set_buffer(17, &self.dummy_buffer, 0);
             }
         }
-        enc.set_buffer(16, job.refx_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
+        enc.set_buffer(16, job.reference.refx.as_ref().unwrap_or(&self.dummy_buffer), 0);
         enc.set_buffer(30, self.probe_buffer.as_ref().unwrap_or(&self.dummy_buffer), 0);
         // (Binding 8 is prepareChunk's threadgroup size, set above; iterate's is the q parts of a
         // non-conformal formula's derivatives, halves by probeHalf as the probe state.)
@@ -4350,7 +4393,7 @@ impl<B: GpuBackend> Renderer<B> {
         // Largest |pix.x|, |pix.y| of the level (jitter < 1).
         let extent =
             ((p.half_size[0].abs() + p.width as f32 + 1.0).max(p.half_size[1].abs() + p.height as f32 + 1.0)) as f64;
-        let serial = job.reference_serial;
+        let serial = job.reference.serial;
         let key = [
             serial as u32,
             (serial >> 32) as u32,
@@ -4395,7 +4438,7 @@ impl<B: GpuBackend> Renderer<B> {
         if !formula.is_conformal() {
             return (Vec::new(), 0);
         }
-        let serial = job.reference_serial;
+        let serial = job.reference.serial;
         let key = [
             serial as u32,
             (serial >> 32) as u32,
@@ -4820,9 +4863,9 @@ impl<B: GpuBackend> Renderer<B> {
         let budget = self.config.extension_budget;
         let list_capacity = self.list_capacity;
         let trace = self.config.trace;
-        let probe_div = INTERIOR_PROBE;
         let job = self.job.as_mut().expect("job");
         let deep = job.deep;
+        let (formula, period) = (job.key.formula, job.reference.period);
         let is_last = index + 1 == job.levels.len();
         let spent: f64 = job.levels.iter().filter(|l| l.is_extension()).map(|l| l.gpu_time).sum();
         let level = &mut job.levels[index];
@@ -4856,7 +4899,8 @@ impl<B: GpuBackend> Renderer<B> {
             // read the rate up to 70x high in a level's tail, which hid the difference).
             let probe_cost = if deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
             let per_step = iterations_per_step(level.iterations, level.steps);
-            let per_pixel = |n: usize| n as f64 / per_step + (probe_limit(n, probe_div) as usize * probe_cost) as f64;
+            let per_pixel =
+                |n: usize| n as f64 / per_step + (probe_steps(formula, period, n) as usize * probe_cost) as f64;
             let fits = |n: usize| spent + count as f64 * per_pixel(n) / rate <= budget;
             let mut next = level.extend_to.min(level.params.max_iter as usize * 4);
             if !fits(next) {
@@ -4865,7 +4909,7 @@ impl<B: GpuBackend> Renderer<B> {
             if fits(next) {
                 let mut p = level.params;
                 p.max_iter = next as u32;
-                p.probe = probe_limit(next, probe_div);
+                p.probe = probe_steps(formula, period, next);
                 p.list_mode = 2;
                 p.total = count as u32;
                 p.fill_border = 0;
@@ -4959,6 +5003,7 @@ impl<B: GpuBackend> Renderer<B> {
             return false;
         }
         let aa_done = aa_target <= 1
+            || job.aa_stopped
             || job.aa_list.as_ref().is_some_and(|l| l.len.is_some())
                 && !job.aa_pending()
                 && job.aa_finished(aa_target, aa_budget);
@@ -5026,7 +5071,7 @@ impl<B: GpuBackend> Renderer<B> {
         let period = self
             .reference
             .as_ref()
-            .filter(|_| self.reference_serial == job.reference_serial)
+            .filter(|_| self.reference_serial == job.reference.serial)
             .and_then(|r| r.period)
             .unwrap_or(0);
         // (A nucleus reference's memory is one period's at any limit: 10 M on iOS too.)
@@ -5165,7 +5210,6 @@ impl<B: GpuBackend> Renderer<B> {
         let cap = self.further_iteration_cap();
         let budget = self.further_budget_now();
         let min_share = self.config.further_min_share;
-        let probe_div = INTERIOR_PROBE;
         let rate = self.job_rate();
         let Some(job) = &self.job else { return };
         let Some(f) = &job.further else { return };
@@ -5186,11 +5230,11 @@ impl<B: GpuBackend> Renderer<B> {
             return self.stop_further(FurtherStop::Limit);
         }
         let mut next = f.reached.saturating_mul(4).min(ceiling);
-        if next > job.exact_reach {
+        if next > job.reference.exact_reach {
             // An f64 orbit that ended at its limit (the centre did not escape) is extended on a
             // thread; it is bit-identical up to its old end, so the frame stays exact.
             let want = next.min(FURTHER_REF_MAX);
-            let extendable = self.reference_serial == job.reference_serial
+            let extendable = self.reference_serial == job.reference.serial
                 && self.reference.as_ref().is_some_and(|r| {
                     // (F4: a Julia reference is whole at its limit; its layout does not extend.)
                     !r.big && !r.escaped && r.period.is_none() && r.julia.is_none() && r.points.len() - 1 < want
@@ -5233,10 +5277,10 @@ impl<B: GpuBackend> Renderer<B> {
                     return;
                 }
             }
-            if job.exact_reach <= f.reached {
+            if job.reference.exact_reach <= f.reached {
                 return self.stop_further(FurtherStop::Reach);
             }
-            next = job.exact_reach;
+            next = job.reference.exact_reach;
         }
         // Budget: measured, the GPU seconds the extension passes have taken (a pass is cut
         // between segments when they reach it, `further_segment_done`). The pessimistic
@@ -5249,7 +5293,7 @@ impl<B: GpuBackend> Renderer<B> {
         }
         let count = f.unresolved as f64;
         let probe_cost = if job.deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
-        let per_pixel = |n: usize| (n + probe_limit(n, probe_div) as usize * probe_cost) as f64;
+        let per_pixel = |n: usize| (n + job.probe_steps(n) as usize * probe_cost) as f64;
         let rate = Self::further_rate(job, rate);
         if spent + count * per_pixel(next) / rate > budget {
             next = next.min(f.reached.saturating_mul(2));
@@ -5281,7 +5325,6 @@ impl<B: GpuBackend> Renderer<B> {
         let list_capacity = self.list_capacity;
         let budget = self.further_budget_now();
         let segment_budget = self.config.further_budget / FURTHER_SEGMENTS_PER_BUDGET;
-        let probe_div = INTERIOR_PROBE;
         let rate = self.job_rate();
         let Some(job) = &self.job else { return };
         let Some(f) = &job.further else { return };
@@ -5305,7 +5348,7 @@ impl<B: GpuBackend> Renderer<B> {
             pass_gpu / done as f64
         } else {
             let probe_cost = if job.deep { PROBE_COST_DEEP } else { PROBE_COST_PLAIN };
-            (f.limit + probe_limit(f.limit, probe_div) as usize * probe_cost) as f64 / Self::further_rate(job, rate)
+            (f.limit + job.probe_steps(f.limit) as usize * probe_cost) as f64 / Self::further_rate(job, rate)
         };
         let slots_left = f.slots.saturating_sub(start).max(1);
         let density = f.unresolved.saturating_sub(done).max(1) as f64 / slots_left as f64;
@@ -5392,17 +5435,17 @@ impl<B: GpuBackend> Renderer<B> {
 
     /// The scanned segment's `count` texels as an extension level to the pass's limit.
     fn push_further_level(&mut self, count: usize) {
-        let probe_div = INTERIOR_PROBE;
         let list_capacity = self.list_capacity;
         let job = self.job.as_mut().expect("job");
         let limit = job.further.as_ref().map_or(0, |f| f.limit);
-        let ref_len = job.ref_len;
+        let ref_len = job.reference.len;
+        let probe = job.probe_steps(limit);
         let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
             return;
         };
         let mut p = full.params;
         p.max_iter = limit as u32;
-        p.probe = probe_limit(limit, probe_div);
+        p.probe = probe;
         p.list_mode = 2;
         p.total = count as u32;
         p.fill_border = 0;
@@ -5483,7 +5526,7 @@ impl<B: GpuBackend> Renderer<B> {
             && self
                 .job
                 .as_ref()
-                .is_some_and(|j| j.reference_serial == self.reference_serial)
+                .is_some_and(|j| j.reference.serial == self.reference_serial)
             && self
                 .reference
                 .as_ref()
@@ -5491,21 +5534,28 @@ impl<B: GpuBackend> Renderer<B> {
         if !same {
             return self.stop_further(FurtherStop::Reach);
         }
-        let reach = r.exact_reach();
-        let len = r.points.len() as u32;
-        self.set_reference(r);
-        let (Some(buffer), serial) = (self.reference_buffer.clone(), self.reference_serial) else {
+        if !self.set_reference(r) {
+            return self.stop_further(FurtherStop::Failed);
+        }
+        let Some(reference) = self.job_reference() else {
             return self.stop_further(FurtherStop::Failed);
         };
-        let job = self.job.as_mut().expect("job");
-        job.reference_buffer = buffer;
-        job.reference_serial = serial;
-        job.exact_reach = reach;
-        job.ref_len = len;
-        job.bla = None;
-        job.bla_forecast = Some(BlaForecast::default());
-        job.la = None;
-        job.la_decided = true;
+        self.job.as_mut().expect("job").attach_reference(reference);
+    }
+
+    /// The current reference as a job holds it (None: there is none yet).
+    fn job_reference(&self) -> Option<JobReference<B>> {
+        let r = self.reference.as_ref()?;
+        Some(JobReference {
+            buffer: self.reference_buffer.clone()?,
+            serial: self.reference_serial,
+            refx: (r.deep_kernel || r.formula.folds_re())
+                .then(|| self.refx_buffer.clone())
+                .flatten(),
+            exact_reach: r.exact_reach(),
+            len: r.points.len() as u32,
+            period: r.period,
+        })
     }
 
     /// What compute further is doing (None: not started for this view).

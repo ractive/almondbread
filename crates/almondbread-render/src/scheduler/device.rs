@@ -90,8 +90,9 @@ impl<B: GpuBackend> Renderer<B> {
     }
 
     /// Drops what can be rebuilt (a memory warning): the spare reference, cached cycle
-    /// searches, tables of older references, and the preview allocation (made again by the
-    /// next gesture). The current view's state stays.
+    /// searches, tables of older references, and what the view no longer needs
+    /// (`release_view_memory`). The view's image stays; it takes no more AA samples, which would
+    /// make the allocation again.
     pub fn release_caches(&mut self) {
         self.spare_reference = None;
         self.period_refs = None;
@@ -103,8 +104,51 @@ impl<B: GpuBackend> Renderer<B> {
         if self.la.as_ref().is_some_and(|t| t.serial != self.reference_serial) {
             self.la = None;
         }
-        if !self.job.as_ref().is_some_and(|j| j.interactive) {
-            self.preview_alloc = None;
+        match &mut self.job {
+            // (Gesture frames draw into the preview allocation every refresh.)
+            Some(j) if j.interactive => return,
+            Some(j) => j.stop_aa(),
+            None => {}
+        }
+        let now = self.clock();
+        self.release_view_memory(now);
+    }
+
+    /// After a memory warning: drops the preview allocation (made again by the next gesture)
+    /// and the adaptive AA list, then the working memory of a view with no level running, all
+    /// made again on first use. Called on the warning and per refresh, since a view still
+    /// refining shows its preview until the full level has faded in. Dropping only the
+    /// renderer's handle freed nothing: the job's preview and AA levels hold the textures, and
+    /// the next gesture then allocated a second set beside them.
+    pub(super) fn release_view_memory(&mut self, now: f64) {
+        if let Some(job) = &mut self.job {
+            let faded = job.complete_at.is_some_and(|t| now - t >= 4.0 * self.config.fade_tau);
+            if !job.aa_stopped
+                || self.preview_alloc.is_none()
+                || (job.levels.iter().any(|l| l.preview) && !(job.complete_presented && faded))
+            {
+                return;
+            }
+            let Some(full) = job.levels.iter().find(|l| !l.preview && l.aa.is_none()) else {
+                return;
+            };
+            // The levels stay (chunks in flight index them) on the full level's textures, which
+            // are there anyway. Nothing reads them again: a level with no colour texture is no
+            // preview to the compose pass, and the AA samples are over.
+            let set = full.set.clone();
+            for l in job.levels.iter_mut().filter(|l| l.preview || l.aa.is_some()) {
+                l.set = set.clone();
+                l.list_buffer = None;
+            }
+        }
+        self.preview_alloc = None;
+        self.aa_list_buffer = None;
+        if self.job.as_ref().is_none_or(|j| j.levels.iter().all(|l| l.done)) {
+            self.probe_buffer = None;
+            self.nc_buffer = None;
+            if let Some(fog) = &mut self.fog {
+                fog.release_textures();
+            }
         }
     }
 
@@ -134,7 +178,7 @@ impl<B: GpuBackend> Renderer<B> {
         let period = self
             .job
             .as_ref()
-            .filter(|j| j.reference_serial == self.reference_serial)
+            .filter(|j| j.reference.serial == self.reference_serial)
             .and(self.reference.as_ref())
             .and_then(|r| r.period);
         let points = self.memory_budget.max_reference_points();
