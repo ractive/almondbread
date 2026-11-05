@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-11-05
+
+- **Decision:** Review fixes in core: a jump, a journey or a formula change ends a minibrot seek (it clears in stop_motion and on a formula change); the orbit probe shares the reference's arrays and reads split and fold (no O(n) copy; of 64 escape counts against direct BigFloat beside the needle up to 37 were wrong, now at most 5, mostly its 24-bit Z, and 0 on the test views); Scale::parse has the coordinate digit cap and BigFloat::parse checks the exponent before converting digits.
+
 ## 2026-10-31
 
 - **Decision:** F6b built: the Burning Ship's variants Celtic, Buffalo and Perpendicular (KF's definitions, shown upright), exact R = X^2 - Y^2 per reference point for the real fold, sign-pattern Jacobians, fold caps, 17 places; gate passed (oracle 384/384 vs BigFloat to 1e-300, across Buffalo's diagonal fold), GPU 0 % class mismatch on the needle to 1e-1000; plans/f6b-burning-ship-variants, formulas/burning-ship Variants, synthesis/benchmarks F6b

@@ -56,6 +56,21 @@ fn extreme_coordinate_digits_are_bounded() {
 }
 
 #[test]
+fn extreme_scale_digits_are_bounded() {
+    // A pasted scale of a million digits: as whole digits no exponent stops it, and it took
+    // seconds to parse, synchronously inside the paste. 15 000 digits parse, as a coordinate's.
+    let t0 = std::time::Instant::now();
+    let long = "7".repeat(1_000_000);
+    assert!(Scale::parse(&long).is_none());
+    assert!(Scale::parse(&format!("0.{long}")).is_none());
+    assert!(view_from_text("-0.75", "0.1", &long).is_none());
+    let ok = format!("0.{}", "7".repeat(15_000));
+    let s = Scale::parse(&ok).expect("15 000 digits");
+    assert!((s.to_f64() - 7.0 / 9.0).abs() < 1e-12, "{s}");
+    assert!(t0.elapsed().as_secs_f64() < 0.5, "{:?}", t0.elapsed());
+}
+
+#[test]
 fn extreme_view_text_is_rejected_or_clamped() {
     // "1e-999999999" used to compute 10^999999999 exactly (a beach ball on paste).
     let t0 = std::time::Instant::now();

@@ -79,12 +79,14 @@ impl BigFloat {
             end -= 1;
             dec += 1;
         }
-        let d = bignat::from_decimal_digits(&digits[start..end]);
         // 10^|dec| is computed exactly: "1e-999999999" took minutes (a hang when pasted into
-        // the app). Far past any view (1e-3010) or coordinate; zero keeps any exponent.
-        if !d.is_empty() && dec.unsigned_abs() > MAX_DECIMAL_EXPONENT {
+        // the app). Far past any view (1e-3010) or coordinate; zero (its only first digit 0)
+        // keeps any exponent. Before the digits are converted, which is quadratic in their
+        // number: a long fraction is a large negative exponent.
+        if digits[start] != 0 && dec.unsigned_abs() > MAX_DECIMAL_EXPONENT {
             return None;
         }
+        let d = bignat::from_decimal_digits(&digits[start..end]);
         Some(Self::from_decimal_parts(&d, dec, negative, precision_bits))
     }
 

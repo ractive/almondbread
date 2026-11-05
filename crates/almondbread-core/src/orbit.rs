@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use almondbread_math::{DoubleExp, DoubleExpComplex, Formula};
+use almondbread_math::{DoubleExp, DoubleExpComplex, FloatExpComplex, FloatExpSplit, Formula};
 
 use crate::reference::Reference;
 
@@ -55,43 +55,69 @@ fn to_f64(z: DoubleExpComplex) -> [f64; 2] {
     [z.re.to_f64(), z.im.to_f64()]
 }
 
-/// A reference orbit in the probe's number format (made once per reference).
+/// A reference orbit for the probe: the reference's own arrays, shared and read point by point
+/// in the probe's number format (a copy cost 32 bytes a point and ran in the overlay's update).
 #[derive(Clone, Debug)]
 pub struct ProbeReference {
-    /// Z_0 ... Z_{len-1}.
-    pub points: Vec<DoubleExpComplex>,
+    /// Z_0 ... Z_{len-1} in float32: the orbit of an f64 reference.
+    points: Arc<Vec<[f32; 2]>>,
+    /// The same in floatexp (big references).
+    extended: Arc<Vec<FloatExpComplex>>,
+    /// F6: the same with each part its own exponent (a folding formula's big reference): the
+    /// shared exponent flushes Y far below X, and the fold needs its sign and size.
+    split: Arc<Vec<FloatExpSplit>>,
+    /// F6b: each point's `R = X^2 - Y^2` from the orbit (Celtic, Buffalo): rebuilt from the
+    /// 24-bit parts it would misplace the fold lines near the diagonal.
+    fold: Arc<Vec<DoubleExp>>,
 }
 
 impl ProbeReference {
     pub fn from_reference(r: &Reference) -> Self {
-        let points = if r.extended.is_empty() {
-            r.points.iter().map(|p| dx(f64::from(p[0]), f64::from(p[1]))).collect()
-        } else {
-            r.extended
-                .iter()
-                .map(|z| {
-                    let [re, im] = z.mantissa;
-                    if re == 0.0 && im == 0.0 {
-                        DoubleExpComplex::ZERO
-                    } else {
-                        let e = i64::from(z.exponent);
-                        DoubleExpComplex::new(
-                            DoubleExp::from_f64(f64::from(re)).times_power_of_two(e),
-                            DoubleExp::from_f64(f64::from(im)).times_power_of_two(e),
-                        )
-                    }
-                })
-                .collect()
-        };
-        Self { points }
+        Self {
+            points: r.points.clone(),
+            extended: r.extended.clone(),
+            split: r.split.clone(),
+            fold: r.fold.clone(),
+        }
     }
 
     fn z(&self, m: usize) -> DoubleExpComplex {
-        self.points[m]
+        if let Some(z) = self.split.get(m) {
+            return z.to_double_exp();
+        }
+        let Some(z) = self.extended.get(m) else {
+            let [re, im] = self.points[m];
+            return dx(f64::from(re), f64::from(im));
+        };
+        let [re, im] = z.mantissa;
+        if re == 0.0 && im == 0.0 {
+            return DoubleExpComplex::ZERO;
+        }
+        let e = i64::from(z.exponent);
+        DoubleExpComplex::new(
+            DoubleExp::from_f64(f64::from(re)).times_power_of_two(e),
+            DoubleExp::from_f64(f64::from(im)).times_power_of_two(e),
+        )
     }
 
     fn last(&self) -> usize {
         self.points.len() - 1
+    }
+
+    /// The perturbation step from point `m` (`zm`: its Z, 0 after a rebase, where `m` is 0 and
+    /// so is the fold value).
+    fn delta_step(
+        &self,
+        f: Formula,
+        m: usize,
+        zm: DoubleExpComplex,
+        delta: DoubleExpComplex,
+        dc: DoubleExpComplex,
+    ) -> DoubleExpComplex {
+        match self.fold.get(m) {
+            Some(&r) => f.delta_step_x_with(zm, delta, dc, r),
+            None => f.delta_step_x(zm, delta, dc),
+        }
     }
 }
 
@@ -382,11 +408,11 @@ impl OrbitProbe {
 
     fn advance(&mut self, zm: DoubleExpComplex) {
         let f = self.point.formula;
-        self.delta = match (self.point.reference.is_some(), f) {
-            (true, Formula::Mandelbrot) => (zm.times_two() + self.delta) * self.delta + self.point.dc,
-            (false, Formula::Mandelbrot) => self.delta * self.delta + self.point.dc,
-            (true, _) => f.delta_step_x(zm, self.delta, self.point.dc),
-            (false, _) => f.step_x(self.delta, self.point.dc),
+        self.delta = match (&self.point.reference, f) {
+            (Some(_), Formula::Mandelbrot) => (zm.times_two() + self.delta) * self.delta + self.point.dc,
+            (None, Formula::Mandelbrot) => self.delta * self.delta + self.point.dc,
+            (Some(r), _) => r.delta_step(f, self.m, zm, self.delta, self.point.dc),
+            (None, _) => f.step_x(self.delta, self.point.dc),
         };
         self.m += 1;
         self.n += 1;
@@ -476,6 +502,10 @@ impl OrbitProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::math::{ReferenceOrbitComputer, with_no_control};
+    use crate::reference::{ReferenceKind, ReferenceRequest};
+    use crate::viewport::{Center, Scale, Viewport};
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     fn probe(re: f64, im: f64) -> OrbitClass {
         let mut p = OrbitProbe::new(
@@ -599,6 +629,135 @@ mod tests {
         assert_eq!(p.cloud.stride, 1);
         assert_eq!(p.cloud.points.len(), iteration - 1);
         assert_eq!(p.cloud.points[0], [(0.25 + 1e-6) as f32, 0.0]);
+    }
+
+    const FOLD_TEST_BITS: usize = 512;
+
+    fn deep_reference(f: Formula, view: &Viewport, max_iter: usize) -> Reference {
+        let request = ReferenceRequest {
+            kind: ReferenceKind::Big,
+            formula: f,
+            center: view.center.clone(),
+            scale: view.scale,
+            radius_points: 0.0,
+            max_iter,
+            period_limit: 1,
+            precision_bits: FOLD_TEST_BITS,
+            bailout: f.bailout(),
+            nucleus: false,
+        };
+        Reference::compute_big(&request, &AtomicBool::new(false), &AtomicUsize::new(0)).expect("orbit")
+    }
+
+    /// The reference read through its shared exponent alone, as the probe did before F6's forms
+    /// reached it: Y flushed far below X, `R` rebuilt from the 24-bit parts.
+    fn shared_exponent_only(r: &Reference) -> Arc<ProbeReference> {
+        Arc::new(ProbeReference {
+            split: Arc::default(),
+            fold: Arc::default(),
+            ..ProbeReference::from_reference(r)
+        })
+    }
+
+    /// 64 points within 100 view points of the centre.
+    fn spots(view: &Viewport) -> Vec<Center> {
+        (0..64)
+            .map(|i| view.point_at_offset(((i * 37) % 200) as f64 - 100.0, ((i * 91) % 200) as f64 - 100.0))
+            .collect()
+    }
+
+    fn probe_at(f: Formula, r: &Reference, pr: &Arc<ProbeReference>, c: &Center, max_iter: usize) -> OrbitProbe {
+        let (re, im) = c.delta_double_exp(&r.point);
+        OrbitProbe::new(
+            ProbePoint {
+                formula: f,
+                reference: Some(pr.clone()),
+                dc: DoubleExpComplex::new(re, im),
+            },
+            max_iter,
+        )
+    }
+
+    /// How many of the [`spots`] the probe's escape count differs from direct BigFloat iteration.
+    fn wrong_counts(f: Formula, view: &Viewport, r: &Reference, pr: &Arc<ProbeReference>, max_iter: usize) -> usize {
+        let wrong = |c: &Center| {
+            let mut probe = probe_at(f, r, pr, c, max_iter);
+            while !probe.step(100_000) {}
+            let got = match probe.class {
+                OrbitClass::Escaped { iteration } => Some(iteration),
+                _ => None,
+            };
+            let comp =
+                ReferenceOrbitComputer::new(c.with_min_precision(FOLD_TEST_BITS).big(), FOLD_TEST_BITS).with_formula(f);
+            let truth = with_no_control(4096, |ctl| comp.compute(max_iter, f.bailout(), None, None, ctl));
+            got != truth.escaped.then(|| truth.iterations())
+        };
+        spots(view).iter().filter(|c| wrong(c)).count()
+    }
+
+    /// The folding formulas on deep views against direct BigFloat orbits: beside the needle, where
+    /// the shared exponent flushes Y (the ship read 32 of 64 counts wrong at 1e-60, Perpendicular
+    /// wrong once offsets reach Y; Celtic's fold does not read Y), and across Buffalo's diagonal,
+    /// where `R` rebuilt from the parts misplaces the fold line. Each view shows the difference:
+    /// the old reading must miss.
+    #[test]
+    fn deep_fold_views_escape_as_direct_orbits() {
+        let needle = ("-1.85", "3e-100", "1e-101");
+        let diagonal = ("-0.38314748633280021", "-0.38314748630280021", "1e-12");
+        for (f, (re, im, scale), flushed) in [
+            (Formula::BurningShip, needle, true),
+            (Formula::Buffalo, needle, true),
+            (Formula::Perpendicular, needle, true),
+            (Formula::Celtic, needle, false),
+            (Formula::Buffalo, diagonal, true),
+        ] {
+            let view = Viewport::with_center(Center::parse(re, im).unwrap(), Scale::parse(scale).unwrap());
+            let r = deep_reference(f, &view, 4000);
+            let pr = Arc::new(ProbeReference::from_reference(&r));
+            assert_eq!(wrong_counts(f, &view, &r, &pr, 4000), 0, "{f:?} {re} {im}");
+            let old = wrong_counts(f, &view, &r, &shared_exponent_only(&r), 4000);
+            assert_eq!(old > 0, flushed, "{f:?} {re} {im}: {old} wrong the old way");
+        }
+    }
+
+    /// Celtic and Buffalo near the diagonal, step by step: the deltas of a point 30 pixels off it
+    /// against differences of direct BigFloat orbits. (Celtic's diagonal meets its set's boundary
+    /// only in chaos, so its escape counts cannot show this; a wrong fold is a wrong sign here.)
+    #[test]
+    fn near_the_diagonal_the_fold_value_comes_from_the_orbit() {
+        let at = |f: Formula, c: &Center, n: usize| {
+            let comp =
+                ReferenceOrbitComputer::new(c.with_min_precision(FOLD_TEST_BITS).big(), FOLD_TEST_BITS).with_formula(f);
+            Center::from_big(with_no_control(4096, |ctl| comp.compute(n, f.bailout(), None, None, ctl)).final_z)
+        };
+        let worst_error = |f: Formula, view: &Viewport, r: &Reference, pr: &Arc<ProbeReference>| {
+            let mut worst = 0.0f64;
+            for c in spots(view) {
+                let mut probe = probe_at(f, r, pr, &c, 100);
+                for n in 2..=5 {
+                    let (_, zm) = probe.full_z();
+                    probe.advance(zm);
+                    assert_eq!(probe.m, n, "no rebase");
+                    let (re, im) = at(f, &c, n).delta_double_exp(&at(f, &r.point, n));
+                    let truth = DoubleExpComplex::new(re, im);
+                    let e = sub(probe.delta, truth).magnitude() / truth.magnitude();
+                    worst = worst.max(e.to_f64());
+                }
+            }
+            worst
+        };
+        let view = Viewport::with_center(
+            Center::parse("0.3", "0.30000000003").unwrap(),
+            Scale::parse("1e-12").unwrap(),
+        );
+        for f in [Formula::Celtic, Formula::Buffalo] {
+            let r = deep_reference(f, &view, 100);
+            let pr = Arc::new(ProbeReference::from_reference(&r));
+            let e = worst_error(f, &view, &r, &pr);
+            assert!(e < 1e-5, "{f:?}: {e}");
+            let old = worst_error(f, &view, &r, &shared_exponent_only(&r));
+            assert!(old > 0.1, "{f:?}: {old} the old way");
+        }
     }
 
     #[test]

@@ -51,8 +51,9 @@ they are.
 | `pi_meter.rs` ruler and plot ticks | f64 `while` over decades | integer range, at most 65 |
 | `pi_meter.rs` `set_layout` | `px = inf` → usize::MAX trail picture | positive finite only |
 | `viewport.rs` centre bits | 2^-1e9 scale before the caller clamps it | capped at `-MIN_SCALE_LOG2 + 1024 + guard` |
-| `decimal.rs` `BigFloat::parse` | exact 10^1e9 | decimal exponent ≤ 100 000, else `None` |
+| `decimal.rs` `BigFloat::parse` | exact 10^1e9; a million fraction digits converted (quadratic) only to fail that check | decimal exponent ≤ 100 000, else `None`, checked before the digits are converted (2026-11-05) |
 | `viewport.rs` `Center::parse` | a pasted million digits: 1.6 s quadratic parse, a 52 000-limb centre for the session | ≤ 20 000 digits (`MAX_COORDINATE_DIGITS`), else `None`; precision ≤ `MAX_CENTER_BITS` (2026-10-20, review M3) |
+| `viewport.rs` `Scale::parse` | a pasted scale of 4 million digits: 119 s inside the paste (a loaded machine); whole digits pass the exponent check | ≤ 20 000 digits, as a coordinate (2026-11-05) |
 | `viewport.rs` `Scale::big_times` | a pan by f64::MAX points: `x * mantissa` = inf, `BigFloat::from_f64` asserts | product saturates at ±f64::MAX, NaN is 0 (review M4) |
 | `floatexp.rs` `DoubleExp` `*`, `/`, `times_power_of_two` | Newton's derivative of a far-escaped orbit (bailout f64::MAX squares the exponent each step) wrapped i64 (debug panic; garbage steps in release) | exponent in i128, saturates to ±inf or zero; the finite check then stops Newton (review E1) |
 | `orbit.rs` `recommended_precision_bits_with` | inf → i64::MAX bits | saturating, ≤ 2^20 bits |
