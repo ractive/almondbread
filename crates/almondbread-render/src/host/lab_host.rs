@@ -270,20 +270,20 @@ mod tests {
             )
             .expect("target");
         let mut t = 0.0;
-        let mut settled_at = None;
-        for i in 0..240 {
+        let mut settled = false;
+        // (A deadline, not a count of refreshes: the bands take what the GPU gives them, and
+        // on a loaded machine that was more than 240 refreshes of 4 ms.)
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !settled && std::time::Instant::now() < deadline {
             // (Through the host, overlay and panels as in the app.)
             let mut acquire = |_: bool| Some(((target.clone(), None), 0));
             let clock = || 0.0;
             h.frame(t, &clock, true, &mut acquire);
             t += 1.0 / 60.0;
-            if h.renderer.is_settled() {
-                settled_at = Some(i);
-                break;
-            }
+            settled = h.renderer.is_settled();
             std::thread::sleep(std::time::Duration::from_millis(4));
         }
-        assert!(settled_at.is_some(), "the lab did not settle within 240 refreshes");
+        assert!(settled, "the lab did not settle within 30 s");
         h.set_lab_values(LabValues {
             c: (-0.1, 0.7),
             ..LabValues::default()

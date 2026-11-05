@@ -240,7 +240,10 @@ public final class ExplorerModel {
 
     /// What the formula supports (Rust's `capabilities()`, taken over with the settings); the
     /// UI hides what it lacks. Nil before the renderer exists: everything (Mandelbrot).
-    public internal(set) var capabilities: FormulaCapabilities?
+    public internal(set) var capabilities: FormulaCapabilities? {
+        // (Rust turned the π meter off with the formula or the lab: the switch follows.)
+        didSet { if capabilities?.piMeter == false, piMeterEnabled { piMeterEnabled = false; piMeter = nil } }
+    }
     /// F9: until when a turn drag keeps the capabilities as they were (`setTurn`).
     @ObservationIgnored private var capabilitiesHeld = Date.distantPast
     @ObservationIgnored private var capabilitiesDue: Task<Void, Never>?

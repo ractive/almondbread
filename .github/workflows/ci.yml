@@ -9,9 +9,10 @@ name: CI
 #   math and core must build for Linux and Windows (CLAUDE.md); render and cli build there
 #   without a GPU backend. `make rust-check` runs the same locally (plus the ffi crate).
 # - macOS: a clean-checkout build of the app (xcodegen, `make rust` with the iOS and macOS
-#   targets, the UniFFI bindings, the Release .app), unsigned. No GPU tests: hosted macOS
-#   runners are virtual machines without a representative Metal device, so the renderer's
-#   GPU checks (`make selftest`, `bench`, `verify`, `interaction-test`) stay local.
+#   targets, the UniFFI bindings, the Release .app), unsigned, and the Swift tests. No GPU tests:
+#   hosted macOS runners are virtual machines without a representative Metal device, so the
+#   renderer's GPU checks (`make selftest`, `bench`, `verify`, `interaction-test`) stay local,
+#   and the Swift restart tests skip there when the runner's GPU is below Apple7.
 
 on:
   pull_request:
@@ -128,7 +129,7 @@ jobs:
   # The app from a clean checkout, exactly as the release builds it, but unsigned.
   macos-app:
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -148,6 +149,8 @@ jobs:
         run: make rust
       - name: Swift package build (swift run target)
         run: make build
+      - name: Swift tests
+        run: make swift-test
       - name: Release .app via XcodeGen
         run: make app
       - name: Unsigned .dmg

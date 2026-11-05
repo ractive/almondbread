@@ -54,8 +54,9 @@ the same one and the report says which (kb: synthesis/benchmarks "Throughput mod
 UniFFI Swift bindings and `build/rust/AlmondbreadCoreFFI.xcframework` (incremental; `run`,
 `build`, `app`, `ios-sim` and `core-check` depend on it). `make run` (swift run),
 `make build`, `make app` (macOS .app via Xcode), `make ios-sim`.
-`make swift-test`: Swift unit tests of pure UI logic (`Tests/AlmondbreadKitTests`: the touch
-layout for screens no simulator has).
+`make swift-test`: Swift unit tests (`Tests/AlmondbreadKitTests`): pure UI logic (the touch
+layout for screens no simulator has) and `RestartTests`, the save and restore path through the
+real model on a windowless layer (needs a GPU the kernels run on; skips otherwise).
 `make rust-check` = `cargo test --workspace --release`, clippy with `-D warnings`,
 `cargo fmt --check`. Headless tools are the Rust CLI: `make render ARGS="--center re,im
 --scale s"`, `make bench` / `make rust-bench [ARGS=...]`, `make regress` / `make

@@ -50,7 +50,8 @@ final class RestartTests: XCTestCase {
     private var suite = ""
 
     override func setUp() async throws {
-        try XCTSkipIf(MTLCreateSystemDefaultDevice() == nil, "no GPU")
+        // (Not the hosted CI runners' virtual GPU: the renderer refuses anything below Apple7.)
+        try XCTSkipIf(MTLCreateSystemDefaultDevice()?.supportsFamily(.apple7) != true, "no GPU the kernels run on")
         suite = "almondbread.restart-test.\(UUID().uuidString)"
         Preferences.defaults = UserDefaults(suiteName: suite)!
     }
@@ -286,6 +287,17 @@ final class RestartTests: XCTestCase {
             XCTAssertFalse(l.model.isLab)
         }
         try await session { l in XCTAssertFalse(l.model.isLab, "the left lab came back") }
+    }
+
+    /// The lab has no π meter: Rust turns it off on the way in, and the switch follows.
+    func testThePiMeterSwitchFollowsTheLab() async throws {
+        try await session { l in
+            l.model.piMeterEnabled = true
+            XCTAssertTrue(l.model.piMeterEnabled)
+            l.model.enterLab()
+            XCTAssertFalse(l.model.piMeterEnabled, "the switch reads on with the meter off")
+            XCTAssertNil(l.model.piMeter)
+        }
     }
 
     /// The ⌘G sheet flies to all a pasted link says while its fields show that link.
