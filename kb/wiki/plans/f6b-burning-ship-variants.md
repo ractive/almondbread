@@ -150,8 +150,10 @@ measurements unless cited.
   (mixed Jacobians), LA, SA seeds, atom domains, closed-form components, π meter, rays, Julia
   panel, Buddhabrot or content; DE, interior derivative, seek, orbit overlay, unresolved drawn
   as the set (measured: of the pixels unresolved at the whole sets' auto limit, 94-98 % never
-  escape within 1e5 iterations). The orbit overlay takes `R` from its reference point's rounded
-  parts (a probe orbit within `2^-53 |Z|^2` of the diagonal could fold wrong; display only).
+  escape within 1e5 iterations). The orbit overlay reads `R` and each part's own exponent from
+  the reference, as the oracle does (2026-11-05: `R` rebuilt from the probe's 24-bit parts put 26
+  of 64 escape counts wrong across Buffalo's diagonal at 1e-12, the shared exponent 29 of 64 on
+  the ship beside the needle at 1e-101; measured against direct BigFloat, release).
 - **Gate, then GPU.** Oracle against direct BigFloat: 384 of 384 escape counts on the needle at
   1e-30, 1e-100 and 1e-300, beside it at 1e-100 and across Buffalo's diagonal at all three
   depths, max |Δμ| ≤ 1.1e-6; the Celtic minibrot 383 of 384 (the other a sensitive orbit:

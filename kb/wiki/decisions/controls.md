@@ -1186,6 +1186,7 @@ the pure bounded search; `Seeker`, its thread and HUD state, owned by the `Navig
 | N (free on the macOS and iOS key maps), View ▸ "Seek Minibrot (N)", iOS: control center (View) "Seek minibrot" and the long-press menu's "Seek Minibrot Here" (the plane button's menu went 2026-10-18) | search off the main thread ("Seeking a minibrot…"), then a normal fly-to to the minibrot's framing; HUD "Minibrot, period 4640 · 1.0e69× · 42 %", for 6 s after landing without the percentage |
 | N again from a minibrot's framing | the next smaller one around it |
 | Esc, any other key, click, scroll, any navigation | cancels the search (Esc is then handled); during the flight Q / E / scroll set its speed and the rest takes over as from any fly-to |
+| a jump (pasted view, place, formula picker), a journey started from a menu, any change of formula | cancels the search and ends the flight's label (2026-11-05: a search left running flew the view to the old place's minibrot) |
 | nothing found | "No minibrot found nearby" for 3 s; nothing moves |
 
 No toolbar button: the macOS toolbar already holds eight items, and N plus the menu item are
