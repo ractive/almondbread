@@ -60,9 +60,11 @@ struct ContentView: View {
             .overlay {
                 if let failure = model.failure {
                     ContentUnavailableView(
-                        "Metal Unavailable",
+                        "Almondbread Can't Start",
                         systemImage: "exclamationmark.triangle",
-                        description: Text("Almondbread needs a Metal GPU. The renderer could not be created: \(failure)"))
+                        description: Text(failure))
+                    // (The whole window: with no renderer nothing around it works.)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
                 }
             }

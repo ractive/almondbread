@@ -601,8 +601,15 @@ public final class ExplorerModel {
     /// The zoom speed (log of the factor per second), change-only like `autopilotActive`: views
     /// showing it (control center, controls help) do not depend on the 10 Hz `stats`.
     public private(set) var zoomSpeed = 1.6
-    /// Why the renderer could not be created, if it could not.
+    /// Why the renderer could not be created, if it could not, in the words the user reads.
     public internal(set) var failure: String?
+
+    /// `failure` for an error of `Explorer(layer:scale:)`. A GPU error's message is written for
+    /// the user (a GPU too old for the kernels); `"\(error)"` would show the enum case around it.
+    static func failureText(_ error: Error) -> String {
+        if case CoreError.Gpu(let message) = error { return message }
+        return "The renderer could not be created: \(error)"
+    }
 
     public static let palettes: [PaletteInfo] = AlmondbreadCore.palettes()
     /// The palette library (built-in by category, then imported ones; refreshed on import).

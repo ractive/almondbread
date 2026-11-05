@@ -17,8 +17,8 @@ use objc2_foundation::NSString;
 use objc2_metal::{
     MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
     MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDataType,
-    MTLDevice, MTLDrawable, MTLFunctionConstantValues, MTLLanguageVersion, MTLLibrary, MTLMathMode, MTLOrigin,
-    MTLPixelFormat, MTLRegion, MTLResource, MTLResourceOptions, MTLSize, MTLStorageMode, MTLTexture,
+    MTLDevice, MTLDrawable, MTLFunctionConstantValues, MTLGPUFamily, MTLLanguageVersion, MTLLibrary, MTLMathMode,
+    MTLOrigin, MTLPixelFormat, MTLRegion, MTLResource, MTLResourceOptions, MTLSize, MTLStorageMode, MTLTexture,
     MTLTextureDescriptor, MTLTextureUsage,
 };
 
@@ -97,6 +97,21 @@ fn tell_orbit_the_core_layout() {
     });
 }
 
+/// The GPU family the kernels need, as the app says it: `iterate`, `aaList` and `unresolvedList`
+/// compact with SIMD-scoped reductions (`simd_sum`, `simd_prefix_exclusive_sum`, `simd_max`), which
+/// Apple's Metal Feature Set Tables give from Apple7: A14 and M1. iOS 17 also installs on A12 and
+/// A13, and the compiler does not warn (kb: platform/ios-device "GPU floor"). The words reach the
+/// user as they are (`model.failure`).
+fn require_apple7(supported: bool) -> Result<(), GpuError> {
+    if supported {
+        Ok(())
+    } else {
+        Err(GpuError(
+            "This device's GPU is too old: Almondbread needs an A14 chip or newer".into(),
+        ))
+    }
+}
+
 impl MetalBackend {
     /// The system default GPU with the kernels compiled from [`KERNEL_SOURCE`].
     pub fn new() -> Result<Self, GpuError> {
@@ -122,6 +137,9 @@ impl MetalBackend {
         tell_orbit_the_core_layout();
         autoreleasepool(|_| {
             let device = MTLCreateSystemDefaultDevice().ok_or_else(|| GpuError("no Metal device".into()))?;
+            // (Not in the simulator: its device reports about Apple2 whatever it runs on, the
+            // Mac's GPU, which runs the kernels.)
+            require_apple7(cfg!(target_env = "sim") || device.supportsFamily(MTLGPUFamily::Apple7))?;
             let queue = device
                 .newCommandQueue()
                 .ok_or_else(|| GpuError("no command queue".into()))?;
@@ -1192,6 +1210,23 @@ mod tests {
         );
         assert_eq!(false_interior, 0);
         assert!(interior * 100 >= 84 * w * h, "{interior}");
+    }
+}
+
+#[cfg(test)]
+mod gpu_family_tests {
+    use super::*;
+
+    /// A GPU below Apple7 is refused with the sentence the user reads. (Every Metal test here
+    /// goes through the check on a GPU that passes.)
+    #[test]
+    fn a_gpu_below_apple7_is_refused_in_plain_words() {
+        assert!(require_apple7(true).is_ok());
+        let e = require_apple7(false).expect_err("refused");
+        assert_eq!(
+            e.0,
+            "This device's GPU is too old: Almondbread needs an A14 chip or newer"
+        );
     }
 }
 
