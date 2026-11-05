@@ -171,9 +171,23 @@ struct LabKnob: Identifiable {
 // MARK: Controls
 
 /// The lab's rows under the formula picker: which plane the main view shows, the three knobs
-/// (a slider and a number field for each part), Random and Reset, and what the lab cannot do.
+/// (a slider and a number field for each part), Random and Reset, and what the lab cannot do. On
+/// the phone only the plane's row is here, the others lead the list (`LabListSection`).
 struct LabControls: View {
     let model: ExplorerModel
+
+    /// Pinned, all the rows took about 500 pt of a phone, more than its half sheet has: the
+    /// search and the close button went off the top and the list had no room left. By the device,
+    /// as `FractalRow.turnFolded`: the iPad's control-center pane reports a compact width too.
+    static var inList: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
+    static let note = "Shallow: zooming stops after about ×1000. If p is not a whole number, zᵖ jumps along the negative real axis, and the picture shows that line."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -186,24 +200,52 @@ struct LabControls: View {
             .labelsHidden()
             .help("The plane the big picture shows: each of its points is one value of that knob, the other two stay fixed")
             .accessibilityIdentifier("lab-plane")
+            if !Self.inList {
+                ForEach(LabKnob.all) { k in
+                    LabKnobRows(model: model, knob: k)
+                }
+                LabButtons(model: model)
+                Text(Self.note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.bottom, 2)
+    }
+}
+
+/// The phone's lab rows: the first section of the control center's list.
+struct LabListSection: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        Section {
             ForEach(LabKnob.all) { k in
                 LabKnobRows(model: model, knob: k)
             }
-            HStack(spacing: 8) {
-                Button("Random") { model.labRandom() }
-                    .help("New values: p between 1.5 and 5, z₀ near 0, c near the edge of the set")
-                    .accessibilityIdentifier("lab-random")
-                Button("Reset") { model.labReset() }
-                    .help("z₀ = 0, c = −0.75, p = 2: the Mandelbrot set")
-                    .accessibilityIdentifier("lab-reset")
-                Spacer(minLength: 0)
-            }
-            Text("Shallow: zooming stops after about ×1000. If p is not a whole number, zᵖ jumps along the negative real axis, and the picture shows that line.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // (A style of their own: in a list row a default button takes the whole row's touches.)
+            LabButtons(model: model).buttonStyle(.bordered)
+        } footer: {
+            Text(LabControls.note)
         }
-        .padding(.bottom, 2)
+    }
+}
+
+/// Random and Reset.
+struct LabButtons: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button("Random") { model.labRandom() }
+                .help("New values: p between 1.5 and 5, z₀ near 0, c near the edge of the set")
+                .accessibilityIdentifier("lab-random")
+            Button("Reset") { model.labReset() }
+                .help("z₀ = 0, c = −0.75, p = 2: the Mandelbrot set")
+                .accessibilityIdentifier("lab-reset")
+            Spacer(minLength: 0)
+        }
     }
 }
 

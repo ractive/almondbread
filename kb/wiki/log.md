@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-11-05
+
+- **Decision:** Save and restore repaired (review findings 1-8, 10, 15): saved state comes back with the view's first size (viewSized; journal before lab), every pull saves (500 ms coalescing, flushed at quit and in the background), capabilities follow a restored formula, a restored fractal gets its own fitted home view, k comes back bit for bit, lab views never reach the persisted journal (Host::user_journal), a tour ends at once on the way into the lab; paste, fly-to and tours leave the lab; a link's turn line and the Cmd-G sheet fly to all the text says; on the iPhone the lab's knobs lead the list, the plane picker stays pinned; RestartTests (make swift-test) runs the path on a windowless layer (decisions/controls, plans/f10-parameter-lab, platform/rust-swift-ffi)
+
 ## 2026-10-31
 
 - **Decision:** F6b built: the Burning Ship's variants Celtic, Buffalo and Perpendicular (KF's definitions, shown upright), exact R = X^2 - Y^2 per reference point for the real fold, sign-pattern Jacobians, fold caps, 17 places; gate passed (oracle 384/384 vs BigFloat to 1e-300, across Buffalo's diagonal fold), GPU 0 % class mismatch on the needle to 1e-1000; plans/f6b-burning-ship-variants, formulas/burning-ship Variants, synthesis/benchmarks F6b
