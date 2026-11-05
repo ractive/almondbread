@@ -182,6 +182,11 @@ saturate instead.
   main thread and ignores its own failures.
 - Off during window tests (`--selftest`, `--interaction-test`, ...) unless `--hang-test`.
   (The env switch `ALMONDBREAD_HANG_WATCHDOG` was removed 2026-10-17; the watchdog is always on in the app.)
+- Stalls under the 2 s threshold leave no report. To see one, set `interval` to 0.1 and `threshold` to
+  0.25 for a run and do not commit it; the reports land in the app's container. On the iPad mini simulator
+  (2026-11-05, debug build, machine under load) this named the turn slider's re-layout, open since F9: 0.51 s
+  in `-[UIPasteControl layoutSubviews]`, a synchronous XPC reply for SwiftUI's `PasteButton`, in the
+  control center's layout. One report, not measured on a device.
 - `--hang-test`: a background window blocks its main thread for 3 s, then prints the report and
   quits (exit 0 when the report and the recovery line were written).
 - MetricKit: `MXMetricManager` hang diagnostics (`MXHangDiagnostic`, iOS 14+, macOS 12+) are
