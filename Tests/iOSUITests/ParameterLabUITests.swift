@@ -5,7 +5,10 @@ import XCTest
 /// "lab c"), its panels (one Rust rect "panel-lab", the row) keep clear of the round buttons
 /// and the HUD, a tap on a panel's "show" button makes that plane the main view, a drag on a
 /// panel moves its knob ("labc re,im"), and the picker's Mandelbrot leaves it for the view it was
-/// entered from. Screenshots `lab-*` as in `TouchUITests`.
+/// entered from. The lab's controls can be touched, not only found: the iPad's in the pinned area
+/// without scrolling, the phone's in the list, and what is pinned leaves the search, the close
+/// button and the bottom bar on the sheet. Screenshots `lab-*` as in `TouchUITests`, the controls'
+/// frames in `<idiom>-lab-frames.txt` beside them.
 final class ParameterLabUITests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -87,6 +90,60 @@ final class ParameterLabUITests: XCTestCase {
         return out
     }
 
+    private func control(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+
+    /// The lab's controls from the top down.
+    private static let labControls = ["lab-z0-re", "lab-z0-im", "lab-z0-re-field", "lab-z0-im-field",
+                                      "lab-p-re", "lab-p-im", "lab-p-re-field", "lab-p-im-field",
+                                      "lab-c-re", "lab-c-im", "lab-c-re-field", "lab-c-im-field",
+                                      "lab-random", "lab-reset"]
+
+    /// Drags the control center's list at the rows' left end (the sliders' thumbs are further in).
+    private func dragList(up: Bool) {
+        let list = app.collectionViews.firstMatch
+        let (from, to) = up ? (0.8, 0.5) : (0.5, 0.8)
+        list.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: from))
+            .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: to)))
+        settle(0.7)
+    }
+
+    /// Scrolls the list until `id` is between the pinned rows (asking an element clipped by the
+    /// list for `isHittable` fails the test by itself).
+    private func reach(_ id: String) -> XCUIElement {
+        var e = control(id)
+        for _ in 0..<6 {
+            let top = control("lab-plane").frame.maxY, bottom = app.buttons["Reset all…"].frame.minY
+            if e.exists, e.frame.midY > top, e.frame.midY < bottom { break }
+            dragList(up: !e.exists || e.frame.midY >= bottom)
+            e = control(id)
+        }
+        return e
+    }
+
+    /// Each control of the lab can be touched: on the iPad at once (pinned), on the phone the
+    /// plane picker at once and the rest by scrolling the list to it. All of them pinned, a phone's
+    /// sheet showed them but lost the search and the close button above and the list below.
+    private func checkControlsCanBeTouched(_ phone: Bool) {
+        for e in [app.textFields["Search settings"], app.buttons["control-center-close"], app.buttons["Reset all…"]] {
+            XCTAssertTrue(e.exists && e.frame.minY >= 0 && e.frame.maxY <= app.frame.maxY && e.isHittable,
+                          "\(e.identifier) \(e.frame) is off the sheet")
+        }
+        XCTAssertTrue(control("lab-plane").isHittable, "the plane picker cannot be touched")
+        for id in Self.labControls {
+            let e = phone ? reach(id) : control(id)
+            XCTAssertTrue(e.exists && e.isHittable, "\(id) cannot be touched")
+        }
+        let inList = app.collectionViews.firstMatch.descendants(matching: .any)["lab-reset"].exists
+        XCTAssertEqual(inList, phone, "Reset in the list: \(inList)")
+        XCTAssertTrue(control("lab-plane").isHittable, "the plane picker scrolled away")
+    }
+
+    private func writeFrames(_ device: String) {
+        guard let dir = ProcessInfo.processInfo.environment["ALMONDBREAD_UITEST_SHOTS"] else { return }
+        let lines = (["lab-plane"] + Self.labControls).map { "\($0) \(control($0).frame)" }
+        try? lines.joined(separator: "\n").write(toFile: "\(dir)/\(device)-lab-frames.txt", atomically: true, encoding: .utf8)
+    }
+
     private func openPicker() {
         let control = app.buttons["Control center"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
@@ -122,9 +179,37 @@ final class ParameterLabUITests: XCTestCase {
         app.buttons["Parameter lab"].firstMatch.tap()
         settle(2.5)
         XCTAssertEqual(fields()["lab"], "c", "not in the lab's c plane: \(fields())")
-        XCTAssertTrue(app.descendants(matching: .any)["lab-plane"].firstMatch.exists, "no plane picker")
-        XCTAssertTrue(app.descendants(matching: .any)["lab-random"].firstMatch.exists, "no Random button")
         shot("lab-control-center")
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        writeFrames(phone ? "iphone" : "ipad")
+        // As the control center opens, half height on a phone: no search, no keyboard.
+        closeControlCenter()
+        app.buttons["Control center"].tap()
+        settle(2)
+        app.buttons["Clear search"].firstMatch.tap()
+        settle(1)
+        shot("lab-control-center-open")
+        checkControlsCanBeTouched(phone)
+        shot("lab-control-center-end")
+        // Random and Reset work where they are.
+        let c = control("lab-c-re-field")
+        let reset = c.value as? String
+        control("lab-random").tap()
+        settle(1)
+        XCTAssertNotEqual(c.value as? String, reset, "Random did not change c")
+        control("lab-reset").tap()
+        settle(1)
+        XCTAssertEqual(c.value as? String, reset, "Reset did not bring c back")
+        if phone {
+            // Landscape: less height still, the controls stay in reach.
+            XCUIDevice.shared.orientation = .landscapeLeft
+            settle(2.5)
+            shot("lab-control-center-landscape")
+            checkControlsCanBeTouched(phone)
+            shot("lab-control-center-landscape-end")
+            XCUIDevice.shared.orientation = .portrait
+            settle(2.5)
+        }
         closeControlCenter()
         settle(3)
         shot("lab-c")

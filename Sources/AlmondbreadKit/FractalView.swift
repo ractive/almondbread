@@ -172,6 +172,7 @@ class FractalHostBase {
         // Cached for the place pills: a view body never calls into Rust (kb:
         // platform/swiftui-performance).
         model.placeZoomOffset = explorer?.placeZoomOffset() ?? 0
+        if width > 0 && height > 0 { model.viewSized() }
         host.requestFrames()
     }
 

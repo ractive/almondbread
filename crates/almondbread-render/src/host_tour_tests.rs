@@ -106,7 +106,7 @@ fn fog_link_tour_from_far_below_jumps_there_and_back() {
     assert_eq!(rig.host.renderer.viewport, v);
     // The end: back down to 1e-337 is a jump too, to the exact saved view.
     let t = rig.now();
-    assert!(rig.host.end_tour(t));
+    assert!(rig.host.end_tour(true, t));
     assert!(rig.host.renderer.navigator.flight().is_none());
     assert_eq!(rig.host.renderer.viewport, deep);
     let before = rig.presented;

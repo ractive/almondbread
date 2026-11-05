@@ -144,7 +144,7 @@ Apple targets; it wraps the platform-neutral `Host` of [Render architecture: GPU
 | Export | Purpose |
 | --- | --- |
 | `Explorer(layer: u64, scale)` | the `CAMetalLayer`'s address, passed once (`Unmanaged.passUnretained(layer).toOpaque()`); Rust retains and configures it, creates device, queue, pipelines |
-| `resize(width, height, scale)` | view size in points, backing scale; sets `contentsScale` and the drawable size; the first size fits the home view |
+| `resize(width, height, scale)` | view size in points, backing scale; sets `contentsScale` and the drawable size; the first size fits the home view, and the model restores what was saved only then (`ExplorerModel.viewSized`: a home view set at frame zero fits no view; `RestartTests`) |
 | `frame(timestamp) -> UInt8` | one per display refresh (the display link's timestamp); bit 1 clear: pause the link; bit 2: keyboard mode (M2.5, [Controls: keyboard, pointer and touch](../decisions/controls.md)). Bits, not a record: a record is serialised through a heap buffer per call (11–18 µs per frame in the window vs 2–3 µs, [almondbread benchmarks and verification record](../synthesis/benchmarks.md) M2.5) |
 | `crosshairX()`, `crosshairY()` | the keyboard crosshair after the last `frame` (points from the centre, y up); called only in keyboard mode |
 | `input(InputEvent) -> InputResult {handled, redraw, mode}` | decoded events (`KeyDown/KeyUp(NavKey)`, `Shift`, `FocusLost`, `Insets`, `Pointer`, `PointerExited`, `Pan`, `WheelZoom`, `Magnify`, `Pinch`, `DoubleTap`, `ZoomBy`); `handled`: swallow it, `redraw`: resume the link, `mode`: pointer or keyboard after the event. Non-finite coordinates are rejected |

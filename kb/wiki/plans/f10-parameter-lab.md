@@ -55,7 +55,8 @@ deep-zoom mode.
 - Real time while a knob moves, on the GPU.
 - Colouring through the main colour pass (looks, lighting, outlines), a smooth count for any `p`.
 - The orbit overlay: the orbit of the current knobs.
-- iPhone and iPad: the same controls in the control center; the panels follow the map-row rules.
+- iPhone and iPad: the same controls in the control center (on the iPhone the knobs lead the
+  list, only the plane picker is pinned); the panels follow the map-row rules.
 
 ## Non-goals
 
@@ -139,7 +140,9 @@ CLI `commands.rs`, Swift `ExplorerModel.swift` (mirror, picker family), `Control
   `Renderer::lab` is None).
 - Frame rate while a knob is dragged: `make interaction-test` scenarios `lab drag c z0 plane`,
   `lab drag c p plane`, `lab pan c plane`, `lab zoom c plane`.
-- iOS: `ParameterLabUITests.testLabFromThePickerAndThePanels` on the iPhone 17e and the iPad mini.
+- iOS: `ParameterLabUITests.testLabFromThePickerAndThePanels` on the iPhone 17e and the iPad mini
+  (the controls hittable, not only present).
+- Quit in the lab and relaunch: `RestartTests` (`make swift-test`), a session on a windowless layer.
 
 ## Review gate
 

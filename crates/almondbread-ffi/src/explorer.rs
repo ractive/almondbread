@@ -1119,6 +1119,18 @@ pub struct TurnInfo {
     pub plain: bool,
 }
 
+/// `k` at the precision its round-trip digits `re`, `im` were written from: a limb or two below
+/// the one `Center::parse` takes from their number. Digits of any other origin: `k` as parsed.
+fn k_as_written(k: &Center, re: &str, im: &str) -> almondbread_core::math::BigComplex {
+    (64..k.precision_bits())
+        .step_by(64)
+        .rev()
+        .take(3)
+        .map(|bits| k.big().with_precision(bits))
+        .find(|c| c.re.to_decimal_string(None) == re && c.im.to_decimal_string(None) == im)
+        .unwrap_or_else(|| k.big().clone())
+}
+
 /// Upper bound on iteration limits accepted over the FFI. The renderer uses at most
 /// [`max_iteration_limit`] (2^24); larger values are accepted and clamped.
 const MAX_ITERATIONS: u64 = 1 << 31;
@@ -1194,10 +1206,15 @@ impl ExplorerSettings {
                 .ok_or_else(|| invalid(format!("julia k {}, {}", self.julia_re, self.julia_im)))?;
             // A settings round trip writes k with the round-trip digits of its precision; parsed
             // at the precision the digits imply it would differ in its last bits (a new k: new
-            // references, a moved set at depth). The same value at k's own precision is k.
+            // references, a moved set at depth). The same value at k's own precision is k; with
+            // no k to compare (restored at launch), the precision that writes these digits.
             match s.formula.julia_k() {
                 Some(cur) if k.big().with_precision(cur.value().precision_bits()) == *cur.value() => s.formula,
-                _ => almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(k.big())),
+                _ => almondbread_core::Formula::Julia(almondbread_core::formula::JuliaK::new(&k_as_written(
+                    &k,
+                    &self.julia_re,
+                    &self.julia_im,
+                ))),
             }
         } else {
             almondbread_core::Formula::parse(&self.formula)
@@ -1971,17 +1988,20 @@ impl Explorer {
         let mut s = g.host.renderer.settings.clone();
         settings.apply(&mut s)?;
         let before = g.host.renderer.settings.formula;
+        let (w, h) = g.host.view_points();
+        let home = s.formula != before && g.host.renderer.viewport == Viewport::fitting_for(before, w, h);
         // F4: a Julia set named by the settings (restored at launch, a test) opens like one
         // from the panel: the way back is kept, the untouched home view becomes the set's.
         if s.formula.is_julia() && s.formula != before {
-            let (w, h) = g.host.view_points();
-            let home = g.host.renderer.viewport == Viewport::fitting_for(before, w, h);
             let view = if home {
                 almondbread_core::julia::home_view(w, h)
             } else {
                 g.host.renderer.viewport.clone()
             };
             g.host.open_julia(s.formula, view);
+        } else if home {
+            // (Any other fractal restored at launch: its own whole set too.)
+            g.host.renderer.viewport = Viewport::fitting_for(s.formula, w, h);
         }
         // (Left through the settings, not the way back: nothing to go back to.)
         if before.is_julia() && !s.formula.is_julia() {
@@ -2478,11 +2498,12 @@ impl Explorer {
     }
 
     /// The journal's entries (the last 100 places, locations only: no settings) as text for the
-    /// platform to persist (user defaults); a view at rest long enough is recorded first.
+    /// platform to persist (user defaults); a view at rest long enough is recorded first. In the
+    /// parameter lab (F10) the journal it was entered from: the lab's views are never entries.
     pub fn journal_export(&self) -> String {
         let mut g = self.lock();
         g.host.renderer.navigator.journal_flush(media_time());
-        g.host.renderer.navigator.journal().export()
+        g.host.user_journal().export()
     }
 
     /// Restores a persisted journal (`journal_export`'s text) before the entries recorded since
@@ -2490,7 +2511,7 @@ impl Explorer {
     pub fn journal_import(&self, text: String) -> u32 {
         let mut g = self.lock();
         let (w, _) = g.host.view_points();
-        g.host.renderer.navigator.journal_mut().import(&text, w) as u32
+        g.host.user_journal_mut().import(&text, w) as u32
     }
 
     /// The current view (it may be ahead of the shown frame).
@@ -2518,33 +2539,22 @@ impl Explorer {
         Ok(())
     }
 
-    /// Parses coordinates as copied by `coordinates_text` (or `re im scale` lines) and jumps
-    /// there. Returns false if the text is not a view.
+    /// Parses coordinates as copied by `coordinates_text` (or three numbers) and jumps there,
+    /// leaving the parameter lab (F10). Returns false if the text is not a view.
     pub fn paste_coordinates(&self, text: String) -> bool {
-        let mut re = None;
-        let mut im = None;
-        let mut scale = None;
-        for line in text.lines() {
-            let mut parts = line.split_whitespace();
-            match (parts.next(), parts.next()) {
-                (Some("re"), Some(v)) => re = Some(v.to_string()),
-                (Some("im"), Some(v)) => im = Some(v.to_string()),
-                (Some("scale"), Some(v)) => scale = Some(v.to_string()),
-                _ => {}
-            }
-        }
-        let ok = match (re, im, scale) {
+        let ok = match almondbread_core::flyto::parse_coordinates(&text) {
             // The view limits are the pasted fractal's: clamped below once it is set.
-            (Some(re), Some(im), Some(scale)) => match view_from_strings(&re, &im, &scale) {
+            Some((re, im, scale)) => match view_from_strings(&re, &im, &scale) {
                 Ok(v) => {
                     let mut g = self.lock();
+                    g.host.leave_lab();
                     g.host.renderer.navigator.jumped();
                     g.host.renderer.viewport = v;
                     true
                 }
                 Err(_) => false,
             },
-            _ => false,
+            None => false,
         };
         // The optional `angle` line (degrees); without it the view comes upright. The fractal
         // (F3): the `formula` line, Mandelbrot for labelled text without one, else unchanged.
@@ -2589,12 +2599,14 @@ impl Explorer {
 
     /// Flies to a view given as text (any depth): an animated zoom-out / pan / zoom-in path
     /// that lands exactly on it. Navigation input cancels, Esc eases to a stop, Q / E set the
-    /// speed. Resume the display link after this.
+    /// speed. From the parameter lab (F10) it starts at the view the lab was entered from.
+    /// Resume the display link after this.
     pub fn fly_to(&self, re: String, im: String, scale: String) -> Result<(), CoreError> {
         let target = almondbread_core::flyto::view_from_text(&re, &im, &scale).ok_or_else(|| CoreError::Malformed {
             text: format!("{re}, {im}, {scale}"),
         })?;
         let mut g = self.lock();
+        g.host.leave_lab();
         let r = &mut g.host.renderer;
         let target = target.with_angle(r.viewport.angle);
         let start = r.viewport.clone();
@@ -2605,10 +2617,16 @@ impl Explorer {
     /// Flies to coordinates as copied by `coordinates_text` (or "re im scale"). Returns false
     /// if the text is not a view.
     pub fn fly_to_coordinates(&self, text: String) -> bool {
-        // F4: no flight between two fractals (a Julia view's text, or any text from a Julia
-        // view): a jump.
-        if almondbread_core::julia::parse_k_line(&text).is_some()
-            || self.lock().host.renderer.settings.formula.is_julia()
+        // F4, F9: no flight between two planes (a Julia or a turned view's text, or any text
+        // from such a view): a jump; nor out of the lab (F10).
+        let jump = {
+            let g = self.lock();
+            let f = g.host.renderer.settings.formula;
+            f.is_julia() || almondbread_core::turn::is_turned(f) || g.host.lab_on()
+        };
+        if jump
+            || almondbread_core::julia::parse_k_line(&text).is_some()
+            || almondbread_core::turn::parse_turn_line(&text).is_some()
         {
             return self.paste_coordinates(text);
         }
@@ -2988,6 +3006,7 @@ mod julia_settings_tests {
         let mut u = RenderSettings::default();
         e.apply(&mut u).unwrap();
         assert!(u.formula.is_julia());
+        assert_eq!(u.formula, s.formula, "k restored at launch is k, bit for bit");
         // A malformed k is refused.
         let bad = ExplorerSettings {
             julia_re: "x".into(),
@@ -3106,6 +3125,78 @@ mod formula_integration_tests {
         assert!(e.paste_coordinates(mt));
         assert_eq!(formula(&e), Formula::Mandelbrot);
         assert_eq!(view(&e).center, Center::parse("-0.75", "0.1").unwrap());
+    }
+
+    /// Settings that name another fractal (restored at launch): an untouched home view becomes
+    /// that set's whole view, a view moved elsewhere stays.
+    #[test]
+    fn settings_naming_a_fractal_go_to_its_home_view() {
+        let (e, _layer) = explorer();
+        let named = |formula: &str, re: &str, im: &str| {
+            let mut s = e.settings();
+            s.formula = formula.into();
+            s.julia_re = re.into();
+            s.julia_im = im.into();
+            e.set_settings(s).unwrap();
+        };
+        named("burningship", "", "");
+        assert_eq!(view(&e), Viewport::fitting_for(formula(&e), W, H));
+        assert_ne!(view(&e), Viewport::fitting(W, H));
+        named("julia", "-0.4", "0.6");
+        assert!(formula(&e).is_julia());
+        assert_eq!(view(&e), Viewport::fitting_for(formula(&e), W, H));
+        named("mandelbrot", "", "");
+        assert_eq!(view(&e), Viewport::fitting(W, H));
+        e.set_viewport("-0.1".into(), "0.8".into(), 1e-5).unwrap();
+        let moved = view(&e);
+        named("burningship", "", "");
+        assert_eq!(view(&e), moved);
+    }
+
+    /// What names a view leaves the parameter lab (F10) before it goes there: a paste, a flight,
+    /// a tour; a pasted Julia set's way back is then no lab view. Text that is no view changes
+    /// nothing.
+    #[test]
+    fn views_leave_the_lab_first() {
+        let (e, _layer) = explorer();
+        let lab = |e: &Explorer| assert!(e.enter_lab("c".into(), crate::lab::lab_default_knobs()));
+        e.set_viewport("-0.75".into(), "0.1".into(), 1e-3).unwrap();
+        let before = view(&e);
+
+        lab(&e);
+        assert!(!e.paste_coordinates("nonsense".into()));
+        assert!(!e.fly_to_coordinates("nonsense".into()));
+        assert!(e.lab().on);
+        assert!(e.paste_coordinates("re 0.3\nim 0.5\nscale 1e-4\nformula multibrot3".into()));
+        assert!(!e.lab().on);
+        assert_eq!(formula(&e), Formula::Multibrot(3));
+        assert_eq!(view(&e).center, Center::parse("0.3", "0.5").unwrap());
+
+        e.set_formula("mandelbrot".into()).unwrap();
+        e.set_viewport("-0.75".into(), "0.1".into(), 1e-3).unwrap();
+        lab(&e);
+        assert!(e.paste_coordinates("re 0.1\nim 0.1\nscale 1e-3\njulia -0.4 0.6".into()));
+        assert!(!e.lab().on && formula(&e).is_julia());
+        assert!(e.back_from_julia());
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        assert_eq!(view(&e).center, Center::parse("0.1", "0.1").unwrap());
+
+        lab(&e);
+        assert!(e.fly_to_coordinates("re -0.75\nim 0.2\nscale 1e-4".into()));
+        assert!(!e.lab().on && !e.stats().flight.active, "no flight out of the lab");
+        assert_eq!(view(&e).center, Center::parse("-0.75", "0.2").unwrap());
+
+        e.set_viewport("-0.75".into(), "0.1".into(), 1e-3).unwrap();
+        lab(&e);
+        e.fly_to("-0.75".into(), "0.2".into(), "1e-4".into()).unwrap();
+        assert!(!e.lab().on && e.stats().flight.active);
+        assert_eq!(view(&e), before, "the flight starts at the view from before the lab");
+
+        lab(&e);
+        e.start_tour("feigenbaum".into()).unwrap();
+        assert!(!e.lab().on);
+        assert!(e.end_tour(false).is_some());
+        assert_eq!(view(&e), before);
     }
 
     /// F5: Mandelbar is a picker entry of its own family; its views copy `formula mandelbar`,
@@ -3370,6 +3461,33 @@ mod turn_tests {
 
     fn formula(e: &Explorer) -> Formula {
         e.lock().host.renderer.settings.formula
+    }
+
+    /// A turned view's text is flown to as it says: a jump into that plane (no flight between
+    /// planes), from any fractal; from a turned view any text is a jump too, three numbers
+    /// included (they keep the fractal).
+    #[test]
+    fn flying_to_a_turned_view_jumps_to_its_plane() {
+        let (e, _layer) = explorer();
+        e.set_viewport("-0.75".into(), "0.1".into(), 1e-3).unwrap();
+        e.set_turn(30.0);
+        let (plane, text) = (formula(&e), e.coordinates_text());
+        assert!(
+            matches!(plane, Formula::Turn(_)) && text.contains("\nturn 30 "),
+            "{text}"
+        );
+        let centre = e.lock().host.renderer.viewport.center.clone();
+        e.set_formula("multibrot3".into()).unwrap();
+        assert!(e.fly_to_coordinates(text));
+        assert!(matches!(formula(&e), Formula::Turn(t) if t.centidegrees() == 3000));
+        assert!(!e.stats().flight.active);
+        let v = e.lock().host.renderer.viewport.clone();
+        assert!((v.center.re() - centre.re()).abs() < 1e-9 && (v.center.im() - centre.im()).abs() < 1e-9);
+        assert!(e.fly_to_coordinates("0.1, 0.2, 1e-4".into()));
+        assert!(matches!(formula(&e), Formula::Turn(_)) && !e.stats().flight.active);
+        assert!(e.fly_to_coordinates("re -0.75\nim 0.1\nscale 1e-6".into()));
+        assert_eq!(formula(&e), Formula::Mandelbrot);
+        assert!(!e.stats().flight.active);
     }
 
     #[test]

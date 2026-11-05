@@ -22,12 +22,15 @@ extension ExplorerModel {
         var knobs: [Double]
     }
 
-    /// Enters the lab with the knobs and plane it had last (Reset's values the first time).
+    /// Enters the lab with the knobs and plane it had last (Reset's values the first time). A
+    /// tour ends first, here and not in Rust alone: the mirror takes the settings before the tour
+    /// back from `endTour`; at once, the lab's way back is the view before the tour.
     public func enterLab() {
         guard let explorer, !isLab else { return }
+        if tour != nil { endTour(fly: false) }
         if explorer.enterLab(plane: labPlane, knobs: labKnobs) {
-            syncLab()
-            saveLab()
+            // (Rust left a Julia view first: the mirror follows, the lab with it.)
+            pull(explorer.settings())
             host?.requestFrames()
         }
     }
@@ -37,7 +40,6 @@ extension ExplorerModel {
         guard let explorer, isLab else { return }
         _ = explorer.leaveLab()
         syncLab()
-        saveLab()
         host?.requestFrames()
     }
 
@@ -74,26 +76,28 @@ extension ExplorerModel {
     }
 
     /// Takes over Rust's lab state (on or off, plane, knobs: a panel drag changes them; another
-    /// formula or a place leaves the lab). Assigns only on change.
+    /// formula, a place, a paste or a tour leaves the lab) and saves a change. Assigns only on
+    /// change.
     func syncLab() {
         guard let explorer else { return }
         let l = explorer.lab()
+        let changed = l.on != isLab || (l.on && (l.plane != labPlane || l.knobs != labKnobs))
+        guard changed else { return }
         if l.on != isLab {
             isLab = l.on
             let c = explorer.capabilities()
             if c != capabilities { capabilities = c }
         }
-        guard l.on else { return }
-        if l.plane != labPlane { labPlane = l.plane }
-        if l.knobs != labKnobs {
-            labKnobs = l.knobs
-            saveLab()
+        if l.on {
+            if l.plane != labPlane { labPlane = l.plane }
+            if l.knobs != labKnobs { labKnobs = l.knobs }
         }
+        saveLab()
     }
 
     /// The lab as the last launch left it (on: entered again, at its plane's home view).
     func restoreLab() {
-        guard let data = UserDefaults.standard.data(forKey: Self.labStateKey),
+        guard let data = Preferences.defaults.data(forKey: Self.labStateKey),
               let s = try? JSONDecoder().decode(SavedLab.self, from: data), s.knobs.count == 6 else { return }
         labPlane = ["c", "z0", "p"].contains(s.plane) ? s.plane : "c"
         let k = s.knobs
@@ -102,10 +106,10 @@ extension ExplorerModel {
     }
 
     func saveLab() {
-        guard !TestLaunch.ephemeral else { return }
+        guard labSaves else { return }
         let k = labKnobs
         let s = SavedLab(on: isLab, plane: labPlane, knobs: [k.z0Re, k.z0Im, k.cRe, k.cIm, k.pRe, k.pIm])
-        if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: Self.labStateKey) }
+        if let data = try? JSONEncoder().encode(s) { Preferences.defaults.set(data, forKey: Self.labStateKey) }
     }
 }
 
@@ -167,9 +171,23 @@ struct LabKnob: Identifiable {
 // MARK: Controls
 
 /// The lab's rows under the formula picker: which plane the main view shows, the three knobs
-/// (a slider and a number field for each part), Random and Reset, and what the lab cannot do.
+/// (a slider and a number field for each part), Random and Reset, and what the lab cannot do. On
+/// the phone only the plane's row is here, the others lead the list (`LabListSection`).
 struct LabControls: View {
     let model: ExplorerModel
+
+    /// Pinned, all the rows took about 500 pt of a phone, more than its half sheet has: the
+    /// search and the close button went off the top and the list had no room left. By the device,
+    /// as `FractalRow.turnFolded`: the iPad's control-center pane reports a compact width too.
+    static var inList: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
+    static let note = "Shallow: zooming stops after about ×1000. If p is not a whole number, zᵖ jumps along the negative real axis, and the picture shows that line."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -182,24 +200,52 @@ struct LabControls: View {
             .labelsHidden()
             .help("The plane the big picture shows: each of its points is one value of that knob, the other two stay fixed")
             .accessibilityIdentifier("lab-plane")
+            if !Self.inList {
+                ForEach(LabKnob.all) { k in
+                    LabKnobRows(model: model, knob: k)
+                }
+                LabButtons(model: model)
+                Text(Self.note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.bottom, 2)
+    }
+}
+
+/// The phone's lab rows: the first section of the control center's list.
+struct LabListSection: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        Section {
             ForEach(LabKnob.all) { k in
                 LabKnobRows(model: model, knob: k)
             }
-            HStack(spacing: 8) {
-                Button("Random") { model.labRandom() }
-                    .help("New values: p between 1.5 and 5, z₀ near 0, c near the edge of the set")
-                    .accessibilityIdentifier("lab-random")
-                Button("Reset") { model.labReset() }
-                    .help("z₀ = 0, c = −0.75, p = 2: the Mandelbrot set")
-                    .accessibilityIdentifier("lab-reset")
-                Spacer(minLength: 0)
-            }
-            Text("Shallow: zooming stops after about ×1000. If p is not a whole number, zᵖ jumps along the negative real axis, and the picture shows that line.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // (A style of their own: in a list row a default button takes the whole row's touches.)
+            LabButtons(model: model).buttonStyle(.bordered)
+        } footer: {
+            Text(LabControls.note)
         }
-        .padding(.bottom, 2)
+    }
+}
+
+/// Random and Reset.
+struct LabButtons: View {
+    let model: ExplorerModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button("Random") { model.labRandom() }
+                .help("New values: p between 1.5 and 5, z₀ near 0, c near the edge of the set")
+                .accessibilityIdentifier("lab-random")
+            Button("Reset") { model.labReset() }
+                .help("z₀ = 0, c = −0.75, p = 2: the Mandelbrot set")
+                .accessibilityIdentifier("lab-reset")
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -267,7 +313,7 @@ enum LabDemo {
         model.labPlane = scene == "lab-z0" ? "z0" : scene == "lab-p" ? "p" : "c"
         model.labKnobs = scene == "lab-reset" ? labDefaultKnobs()
             : LabKnobs(z0Re: 0.0555, z0Im: -0.0739, cRe: -0.0347, cIm: 0.8060, pRe: 2.0731, pIm: -0.1961)
-        // (After the first layout: the plane's home view is fitted to the view.)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.enterLab() }
+        // (With the view's size: the plane's home view is fitted to the view.)
+        model.afterViewSized { model.enterLab() }
     }
 }

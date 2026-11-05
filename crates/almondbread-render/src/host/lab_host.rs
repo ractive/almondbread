@@ -1,11 +1,13 @@
 //! The parameter lab through the host (F10, kb: plans/f10-parameter-lab): entering and leaving
-//! it (the view and the travel journal from before come back), the plane switch, presses on the
-//! plane panels (the platform routes them as it routes the compass's: press, drag, release), a
+//! it (the view and the travel journal from before come back; the live journal meanwhile sees
+//! the lab's views and goes with them, so what persists is `user_journal`), the plane switch,
+//! presses on the plane panels (the platform routes them as it routes the compass's: press, drag, release), a
 //! click in the main view setting the shown plane's knob, and what the lab does not have (the
 //! autopilot, journeys, seek, the ⌘-click Julia set, the journal's steps).
 
 use almondbread_core::cruise::Level;
 use almondbread_core::input::{InputEvent, NavKey};
+use almondbread_core::journal::Journal;
 use almondbread_core::lab::{LabValues, Plane};
 use almondbread_core::viewport::Viewport;
 
@@ -26,10 +28,11 @@ impl<B: GpuBackend + Clone> Host<B> {
         if self.lab_on() {
             return false;
         }
-        self.end_tour(now);
+        self.end_tour(false, now);
         self.leave_julia();
         self.stop_motion(now);
         let r = &mut self.renderer;
+        r.navigator.journal_flush(now);
         self.lab_return = Some((r.viewport.clone(), r.navigator.journal().clone()));
         r.enter_lab(values, plane, self.view_points);
         self.overlay.lab_drag = None;
@@ -51,6 +54,22 @@ impl<B: GpuBackend + Clone> Host<B> {
         }
         self.overlay.lab_drag = None;
         Some(out)
+    }
+
+    /// The user's travel journal (what persists): in the lab the one it was entered from.
+    pub fn user_journal(&self) -> &Journal {
+        match &self.lab_return {
+            Some((_, journal)) => journal,
+            None => self.renderer.navigator.journal(),
+        }
+    }
+
+    /// The user's travel journal to change (a restored one).
+    pub fn user_journal_mut(&mut self) -> &mut Journal {
+        match &mut self.lab_return {
+            Some((_, journal)) => journal,
+            None => self.renderer.navigator.journal_mut(),
+        }
     }
 
     /// Shows `plane` in the main view (its last view there, else its home view).
@@ -271,6 +290,58 @@ mod tests {
         });
         frames(&mut h, t, 1);
         assert!(!h.renderer.is_settled());
+    }
+
+    /// Into the lab from a tour: the tour ends at once, and the way back is the view before the
+    /// tour, not the step's. A tour started in the lab leaves it first.
+    #[test]
+    fn a_tour_and_the_lab_end_each_other() {
+        let mut h = host();
+        let before = h.renderer.viewport.clone();
+        let tour = almondbread_core::tour::named("feigenbaum").expect("tour");
+        h.start_tour(tour.clone(), 0.0);
+        h.tour_go(1, 0.5);
+        h.renderer.viewport.zoom_by(16.0, 0.0, 0.0);
+        assert_ne!(h.renderer.viewport, before);
+        assert!(h.enter_lab(LabValues::default(), Plane::C, 1.0));
+        assert!(h.tour.is_none());
+        h.leave_lab();
+        assert_eq!(h.renderer.viewport, before);
+        assert!(h.enter_lab(LabValues::default(), Plane::C, 2.0));
+        h.start_tour(tour, 2.5);
+        assert!(!h.lab_on() && h.tour.is_some());
+        assert!(h.end_tour(false, 3.0));
+        assert_eq!(h.renderer.viewport, before);
+    }
+
+    /// The live journal sees the lab's views; what persists does not (`user_journal`), and a
+    /// journal restored while the lab is on is the one that comes back.
+    #[test]
+    fn the_labs_views_stay_out_of_the_users_journal() {
+        const TEXT: &str = "almondbread-journal 1\nat 1\n-0.75 0 0.004 0.0 mandelbrot\n-0.1 0.8 1e-5 0.0 mandelbrot\n";
+        let mut h = host();
+        assert_eq!(h.user_journal_mut().import(TEXT, 800.0), 2);
+        let before = h.user_journal().export();
+        assert!(h.enter_lab(LabValues::default(), Plane::C, 0.0));
+        let mut t = frames(&mut h, 0.0, 2);
+        for scale in [16.0, 16.0] {
+            h.renderer.viewport.zoom_by(scale, 0.0, 0.0);
+            t = frames(&mut h, t, 2);
+            t = frames(&mut h, t + 3.0, 2);
+        }
+        assert!(
+            h.renderer.navigator.journal().entries().len() > 2,
+            "no lab view recorded"
+        );
+        assert_eq!(h.user_journal().export(), before);
+        h.leave_lab();
+        assert_eq!(h.renderer.navigator.journal().export(), before);
+
+        let mut h = host();
+        assert!(h.enter_lab(LabValues::default(), Plane::C, 0.0));
+        assert_eq!(h.user_journal_mut().import(TEXT, 800.0), 2);
+        h.leave_lab();
+        assert_eq!(h.renderer.navigator.journal().entries().len(), 2);
     }
 
     /// Entering and leaving: the lab's home view, the view from before back, the plane switch

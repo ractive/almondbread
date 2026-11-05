@@ -191,6 +191,10 @@ struct ControlCenterView: View {
     private func sections(shown: [ControlSection], collapsed: Set<String>, fractalHit: Bool) -> some View {
         ScrollViewReader { proxy in
             Form {
+                // F10: the lab's rows on the phone (not during a search for something else).
+                if model.isLab && LabControls.inList && (query.isEmpty || fractalHit) {
+                    LabListSection(model: model)
+                }
                 ForEach(shown) { section in
                     let open = !collapsed.contains(section.rawValue)
                     Section {
@@ -627,7 +631,7 @@ struct FractalRow: View {
             if hasTurn && !turnFolded {
                 TurnRows(model: model)
             }
-            // F10: the parameter lab's knobs (ParameterLab.swift).
+            // F10: the parameter lab's rows (ParameterLab.swift).
             if model.isLab { LabControls(model: model) }
         }
         .padding(.horizontal, 14)

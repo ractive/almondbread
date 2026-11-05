@@ -695,7 +695,7 @@ speed with Q and E"). Core: `crates/almondbread-core/src/flyto.rs` (path and fli
 
 | Input | Action |
 | --- | --- |
-| ⌘G "Fly to Coordinates…" | sheet with re, im, scale (decimal strings, any depth); pasting the copied-coordinates text into a field fills all three; prefilled from the clipboard |
+| ⌘G "Fly to Coordinates…" | sheet with re, im, scale (decimal strings, any depth); pasting the copied-coordinates text into a field fills all three; prefilled from the clipboard. The flight then goes to all the text says (fractal, Julia set, turn, angle) until a field is edited |
 | ⇧⌘G "Fly to Copied Coordinates" | flies to the clipboard's view (⇧⌘V still jumps) |
 | Q / E, wheel notch, trackpad scroll | flight speed ×0.8 / ×1.25 live, 0.1–16 e-folds/s at the zoom ends, default 2 |
 | Esc | eased stop on the path (ω = 4 /s), the view stays there |
@@ -3283,11 +3283,16 @@ is the Fractal picker's last family, "Parameter lab": a mode, not a formula (the
 formula stays what it was; `Explorer::capabilities()` answers with formula `lab`). Choosing it
 enters the lab at its last plane and knobs (persisted, Reset's the first time); choosing any
 other family leaves it for the view it was entered from (Rust's `set_formula` leaves it first,
-also for the same formula), and so does a place. Its controls sit in the pinned Fractal row
-under the picker: a segmented control for the plane the main view shows (c, z₀, p), a slider and
-a number field for the real and imaginary part of each knob (z₀, p, c, in the order of
+also for the same formula), and so do a place, a paste, a fly-to and a tour (a jump: no flight out
+of the lab, except the ⌘G sheet's typed numbers, which fly from the view before the lab). Entering
+it ends a tour, at once: its way back is the view before the tour. Its controls sit in the pinned
+Fractal row under the picker: a segmented control for the plane the main view shows (c, z₀, p), a
+slider and a number field for the real and imaginary part of each knob (z₀, p, c, in the order of
 z → zᵖ + c), Random and Reset, and one line saying it is shallow and why a non-integer p shows a
-seam. On the canvas:
+seam. On the phone only the plane's control is pinned, the rest is the list's first section: all
+of it took about 500 pt, more than the half sheet has, which pushed the search and the close button
+off its top, the bottom bar off its end, and left the list no room (decided by the device like the
+folded turn rows: the iPad's pane reports a compact width too). On the canvas:
 
 - **Panels.** The map row holds one panel per plane (the planes not shown first, the main
   plane's panel last, so a phone's narrower row drops it first; fitted by the map row's rules,
@@ -3311,7 +3316,8 @@ seam. On the canvas:
   other than flat, the Julia panel, the mini-map and the escape-time orbit probe (the orbit
   switch draws the orbit of the current knobs instead: in the z₀ panel, and over the main view in
   the c and z₀ planes), the ⌘-click Julia set and the twin, the travel journal's steps (the
-  journal from before is restored on leaving).
+  journal from before is restored on leaving; the live journal sees the lab's views meanwhile and
+  is dropped with them, so what persists is always the journal from before, `Host::user_journal`).
 
 ### Mini-map on small screens (as built, 2026-10-19)
 

@@ -772,8 +772,10 @@ impl<B: GpuBackend + Clone> Host<B> {
     }
 
     /// Starts `tour` at its first step. Like a jump it stops other motion (autopilot, cruise,
-    /// flight, journey, the π hunt); the current settings and view are saved for the end.
+    /// flight, journey, the π hunt); the current settings and view are saved for the end. The
+    /// parameter lab is left first (F10: a tour runs in the fractal view).
     pub fn start_tour(&mut self, tour: Tour, now: f64) {
+        self.leave_lab();
         // A tour started during another ("Next tour" on the last step): the first one's saved
         // settings and view are the user's, and the end goes back to them; the view stays where
         // it is, so the next tour flies on from here (kb: decisions/controls "Finding the tours").
@@ -823,8 +825,9 @@ impl<B: GpuBackend + Clone> Host<B> {
     }
 
     /// Ends the tour: the saved settings come back and the view flies back to where it was
-    /// (jumps when the flight would take over ~5 s). False without a tour.
-    pub fn end_tour(&mut self, now: f64) -> bool {
+    /// (jumps when the flight would take over ~5 s, or at once without `fly`: the parameter lab
+    /// keeps the view as its way back). False without a tour.
+    pub fn end_tour(&mut self, fly: bool, now: f64) -> bool {
         let Some(t) = self.tour.take() else { return false };
         if self.overlay.pi.flying() {
             self.overlay.pi.stop_flight();
@@ -836,7 +839,7 @@ impl<B: GpuBackend + Clone> Host<B> {
         let start = r.viewport.clone();
         r.navigator.jumped();
         // Back by air when that takes at most ~5 s, else a jump.
-        if !r.navigator.travel_to(&view, &start, now) {
+        if !(fly && r.navigator.travel_to(&view, &start, now)) {
             r.viewport = view;
             r.note_interaction(now);
         }

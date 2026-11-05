@@ -260,7 +260,7 @@ fn info(
 #[uniffi::export]
 impl Explorer {
     /// Starts the bundled tour `id` at its first step (other motion stops, like a jump; the
-    /// settings and view are saved for the end).
+    /// settings and view are saved for the end; the parameter lab is left first).
     pub fn start_tour(&self, id: String) -> Result<TourStepInfo, CoreError> {
         self.start_tour_on(id, String::new())
     }
@@ -300,12 +300,12 @@ impl Explorer {
     }
 
     /// Ends the tour: the saved settings come back (returned, `active` false) and the view
-    /// flies back to where the tour started (jumps when the flight would take over ~5 s). None
-    /// without a running tour.
-    pub fn end_tour(&self) -> Option<TourStepInfo> {
+    /// flies back to where the tour started (jumps when the flight would take over ~5 s, or at
+    /// once without `fly`: on the way into the parameter lab). None without a running tour.
+    pub fn end_tour(&self, fly: bool) -> Option<TourStepInfo> {
         self.with_host(|h| {
             let ended = h.tour.as_ref().map(|t| (t.tour.id.clone(), t.tour.title.clone()))?;
-            h.end_tour(media_time());
+            h.end_tour(fly, media_time());
             Some(info(h, Some(ended)))
         })
     }
