@@ -2,7 +2,7 @@
 title: "iOS and iPadOS on a device: first run, signing, memory, thermal, background"
 type: platform
 status: draft
-sources: ["sources/apple-device-tooling", "sources/apple-simulator-tooling"]
+sources: ["sources/apple-device-tooling", "sources/apple-simulator-tooling", sources/apple-metal-feature-set-tables, sources/apple-required-device-capabilities]
 tags: [ios, ipad, device, signing, memory, thermal, testing]
 ---
 
@@ -131,8 +131,17 @@ lowers it) and derives:
   10 M on a device (2026-10-26, [Automatic maximum-iteration control](../techniques/auto-iterations.md)
   "Raise the upper limit");
 - on a **memory warning** first `release_caches` (spare reference, period caches, tables of
-  older references, the preview allocation outside a gesture) and the thumbnails' bitmaps
-  (`PlaceThumbnails.purge`).
+  older references) and the thumbnails' bitmaps (`PlaceThumbnails.purge`). Outside a gesture the
+  view also takes no more AA samples and gives up what it no longer needs
+  (`release_view_memory`): the preview allocation and the AA list, once its preview is no longer
+  shown, then, with no level running, the probe and derivative state and the fog textures. All
+  are made again on first use. Measured 2026-11-05 (M1 Pro, release, tests): the allocation
+  really goes. Two things to keep: the samples must stop, because they would make it again; and
+  the job's own levels hold the textures, so dropping the renderer's handle alone frees nothing.
+  The AA list marks skipped texels in that allocation only (`AaList::set`): a sample in a new
+  texture moved all 47 825 off-list pixels of a test view. The view keeps the samples composed so
+  far, until the next view. Left alone: `ic_buffers` (made only at job start) and the seed nodes
+  (later passes of the view branch from them).
 - 0 from `os_proc_available_memory()` on a device means "at or over the limit"
   (src: [Apple device tooling and iOS process APIs (devicectl, xcodebuild provisioning, os/proc.h)](../sources/apple-device-tooling.md)): Swift passes 1 byte, so the budget drops to its
   floors.
@@ -142,6 +151,39 @@ keeps native resolution up to ~6.5 Mpx and limits of ~1 M; an 8 GB iPad caps not
 practice; 800 MB in all would render an iPad Pro 13" below native. No increased-memory-limit
 entitlement: it is not needed at these numbers and every entitlement is one more thing the
 first automatic provisioning has to get right.
+
+## GPU floor
+
+The kernels need GPU family Apple7: A14 and M1. `iterate`, `aaList` and `unresolvedList` compact
+with `simd_sum`, `simd_prefix_exclusive_sum` and `simd_max`, and SIMD-scoped reductions start at
+Apple7, with A12 = Apple5 and A13 = Apple6
+(src: [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)).
+The iOS 17 target also installs on those chips, and the compiler does not warn. What they would
+do with the kernels was never tested, so the app refuses them before compiling anything:
+`MetalBackend::with_source` checks `supportsFamily(.apple7)`, `Explorer::new` fails, and the
+failure screen says "This device's GPU is too old: Almondbread needs an A14 chip or newer"
+(`ExplorerModel.failureText`; a plain `"\(error)"` would show the enum case around it).
+
+The simulator skips the check at compile time: its device reports about Apple2 whatever Mac it
+runs on (unverified: Apple's forum and WWDC19 statements as a web search reported them), and the
+Mac's GPU runs the kernels.
+
+**The store cannot express this floor.** No `UIRequiredDeviceCapabilities` key maps to A14 or a
+GPU family
+(src: [Apple required device capabilities (UIRequiredDeviceCapabilities)](../sources/apple-required-device-capabilities.md)):
+
+| Key | Effect | Fit |
+|---|---|---|
+| `metal` (now) | any Metal device | also A12, A13 and older |
+| `iphone-ipad-minimum-performance-a12` | A12 and later | drops A10 and A11; A12 and A13 still install |
+| `iphone-performance-gaming-tier` | iPhone 15 Pro class | drops every capable iPhone before it; a forum post reports Game Mode on iPad (unverified) |
+| `ipad-minimum-performance-m1` | iPad only; not described on the reference page | no iPhone rule |
+
+A later deployment target does not reach it either: iOS 27 keeps the iPhone 11, an A13
+(unverified: press reports of Apple's list). So A12 and A13 owners can buy the app and meet the
+failure screen, unless the store text says so. Decide before the first release: Apple allows an
+update to keep or relax requirements, not add them (unverified: WWDC20 session 10621 as WWDC Notes
+summarises it).
 
 ## Thermal
 
@@ -201,4 +243,9 @@ suspended renderer commits nothing and settles after resume.
 
 - [Apple device tooling and iOS process APIs (devicectl, xcodebuild provisioning, os/proc.h)](../sources/apple-device-tooling.md)
 - [Apple simulator and UI-test tooling (simctl, xcodebuild, XCTest)](../sources/apple-simulator-tooling.md)
+- [Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md)
+- [Apple required device capabilities (UIRequiredDeviceCapabilities)](../sources/apple-required-device-capabilities.md)
+- <https://appleinsider.com/articles/26/06/08/ios-27-keeps-iphone-11-and-newer-compatibility>
+- <https://wwdcnotes.com/notes/wwdc20/10621>
+- <https://developer.apple.com/forums/thread/797023>
 - [Buddhabrot and Nebulabrot as a look](../plans/buddhabrot.md)

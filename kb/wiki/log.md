@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-11-05
+
+- **Decision:** Render review fixes: extension and compute-further passes take the probe rules from one probe_steps (Julia, turned planes and folds no longer probe: 1.816 % false interior gone; Mandelbrot's 80 places byte-identical), Job holds one JobReference (Celtic and Buffalo read past the old fold buffer after an extended orbit), a memory warning ends the view's AA samples and really frees the preview allocation, and GPUs below Apple7 get a plain full-window refusal, which the App Store cannot express (techniques/interior-detection, platform/ios-device)
+
 ## 2026-10-31
 
 - **Decision:** F6b built: the Burning Ship's variants Celtic, Buffalo and Perpendicular (KF's definitions, shown upright), exact R = X^2 - Y^2 per reference point for the real fold, sign-pattern Jacobians, fold caps, 17 places; gate passed (oracle 384/384 vs BigFloat to 1e-300, across Buffalo's diagonal fold), GPU 0 % class mismatch on the needle to 1e-1000; plans/f6b-burning-ship-variants, formulas/burning-ship Variants, synthesis/benchmarks F6b

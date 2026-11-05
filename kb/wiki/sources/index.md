@@ -10,6 +10,7 @@
 * [Apple docs and SDK headers: MetalFX framework](apple-metalfx-docs.md)
 * [Apple docs: MTLCompileOptions mathMode](apple-metal-compile-options.md)
 * [Apple Metal Feature Set Tables (May 2026)](apple-metal-feature-set-tables.md)
+* [Apple required device capabilities (UIRequiredDeviceCapabilities)](apple-required-device-capabilities.md)
 * [Apple sample: Applying temporal antialiasing and upscaling using MetalFX](apple-metalfx-taa-sample.md)
 * [Apple simulator and UI-test tooling (simctl, xcodebuild, XCTest)](apple-simulator-tooling.md)
 * [Apple SwiftUI and Observation documentation, and the macOS 26 SwiftUI call stacks](apple-swiftui-observation.md)
