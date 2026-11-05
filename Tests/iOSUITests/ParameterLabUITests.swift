@@ -99,12 +99,24 @@ final class ParameterLabUITests: XCTestCase {
                                       "lab-random", "lab-reset"]
 
     /// Drags the control center's list at the rows' left end (the sliders' thumbs are further in).
+    /// It holds at the end: without a fling the list moves by the drag, not past the row looked for.
     private func dragList(up: Bool) {
         let list = app.collectionViews.firstMatch
         let (from, to) = up ? (0.8, 0.5) : (0.5, 0.8)
         list.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: from))
-            .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: to)))
+            .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: to)),
+                   withVelocity: 300, thenHoldForDuration: 0.2)
         settle(0.7)
+    }
+
+    /// The phone's sheet at full height (its grabber), as a user raises it: a half sheet takes a
+    /// drag for itself and falls back, the list only scrolls once it is up. No-op in landscape.
+    private func raiseSheet() {
+        let grabber = app.buttons["Sheet Grabber"]
+        if grabber.exists, (grabber.value as? String)?.contains("Half") == true {
+            grabber.tap()
+            settle(1)
+        }
     }
 
     /// Scrolls the list until `id` is between the pinned rows (asking an element clipped by the
@@ -129,6 +141,7 @@ final class ParameterLabUITests: XCTestCase {
                           "\(e.identifier) \(e.frame) is off the sheet")
         }
         XCTAssertTrue(control("lab-plane").isHittable, "the plane picker cannot be touched")
+        if phone { raiseSheet() }
         for id in Self.labControls {
             let e = phone ? reach(id) : control(id)
             XCTAssertTrue(e.exists && e.isHittable, "\(id) cannot be touched")
