@@ -1520,7 +1520,6 @@ impl Navigator {
     /// spin ends); otherwise it turns to the target's angle the short way round.
     pub fn fly_to(&mut self, target: &Viewport, viewport: &Viewport, now: f64) {
         self.journal.travel_started();
-        self.seek.clear();
         let was = self.is_animating();
         self.stop_motion();
         self.journey.stop();
@@ -1642,8 +1641,12 @@ impl Navigator {
     }
 
     /// The fractal the navigator is in (F3, kept in step with the settings by the host): seek
-    /// searches its set and the home view (Reset, the autopilot's way out) is its whole set.
+    /// searches its set and the home view (Reset, the autopilot's way out) is its whole set. A
+    /// seek under way ends: what it finds is a minibrot of the set it left.
     pub fn set_formula(&mut self, formula: crate::formula::Formula) {
+        if formula != self.seek.formula {
+            self.seek.clear();
+        }
         self.seek.formula = formula;
     }
 
@@ -2248,8 +2251,11 @@ impl Navigator {
         self.release_holds();
     }
 
-    /// Stops all motion at once (Reset, a new flight).
+    /// Stops all motion at once (Reset, a jump, a journey, a new flight). A minibrot seek ends
+    /// with it: its result would start a flight from wherever the view is by then, and its label
+    /// belongs to a flight that is gone.
     fn stop_motion(&mut self) {
+        self.seek.clear();
         self.autopilot.halt();
         self.cruise.halt();
         self.flight = None;
@@ -6462,6 +6468,80 @@ mod tests {
             assert!(!n.is_animating(), "a search is not motion");
         }
         assert!(n.wants_frames(), "but it needs frames to be polled");
+    }
+
+    /// A navigator whose minibrot search has finished and waits to be polled, as when the search
+    /// thread ends between two frames (from the whole set: the period-3 minibrot, at once).
+    fn seek_result_waiting() -> (Navigator, Viewport) {
+        let mut v = Viewport::fitting(W, 600.0);
+        let mut n = Navigator::default();
+        n.handle(
+            InputEvent::Resize {
+                width: W,
+                height: 600.0,
+            },
+            &mut v,
+            0.0,
+        );
+        n.seek_mut().synchronous = true;
+        let side = n.min_side();
+        n.seek_mut().start(&v, side, 0.0);
+        assert_eq!(n.seek_status(0.0).0, SeekPhase::Searching);
+        (n, v)
+    }
+
+    /// A jump ends a minibrot seek: its result must not fly the view away from where the jump
+    /// went (N at one place, then a pasted view: the next frame flew to the first place's
+    /// minibrot).
+    #[test]
+    fn a_jump_ends_a_minibrot_search() {
+        let (mut n, _) = seek_result_waiting();
+        n.jumped();
+        let mut v = Viewport::new(0.3, 0.5, 1e-4);
+        n.advance(&mut v, 0.1);
+        assert!(n.flight().is_none());
+        assert_eq!(n.seek_status(0.1).0, SeekPhase::Idle);
+    }
+
+    /// A jump during the seek's flight takes its label too: no flight will ever land it.
+    #[test]
+    fn a_jump_ends_a_seek_flight_and_its_label() {
+        let (mut n, mut v) = seek_result_waiting();
+        n.advance(&mut v, 0.1);
+        assert!(n.flight().is_some());
+        assert_eq!(n.seek_status(0.1).0, SeekPhase::Flying);
+        n.jumped();
+        assert!(n.flight().is_none());
+        assert_eq!(n.seek_status(0.1).0, SeekPhase::Idle);
+    }
+
+    /// A journey started from outside (the FFI: no key through `handle`) ends a seek: the
+    /// search's flight would stop the journey.
+    #[test]
+    fn a_journey_ends_a_minibrot_search() {
+        let (mut n, mut v) = seek_result_waiting();
+        n.start_journey(7, false, &v, 0.0);
+        n.advance(&mut v, 0.1);
+        assert!(n.journey().is_active(), "still on the journey");
+        assert_eq!(n.seek_status(0.1).0, SeekPhase::Idle);
+        n.journey_mut().stop();
+    }
+
+    /// The minibrot of another fractal is nowhere: a formula change ends a seek, also one that
+    /// comes without a jump (the settings, a tour's step). The host sets the formula every
+    /// frame: the same one changes nothing.
+    #[test]
+    fn a_formula_change_ends_a_minibrot_search() {
+        use crate::formula::Formula;
+        let (mut n, mut v) = seek_result_waiting();
+        n.set_formula(Formula::BurningShip);
+        n.advance(&mut v, 0.1);
+        assert!(n.flight().is_none());
+        assert_eq!(n.seek_status(0.1).0, SeekPhase::Idle);
+        let (mut n, mut v) = seek_result_waiting();
+        n.set_formula(Formula::Mandelbrot);
+        n.advance(&mut v, 0.1);
+        assert_eq!(n.seek_status(0.1).0, SeekPhase::Flying);
     }
 
     // Held input whose release never arrives (kb: decisions/controls "Held input"): a key-up
