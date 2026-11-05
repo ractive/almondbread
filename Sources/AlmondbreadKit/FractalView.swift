@@ -140,7 +140,7 @@ class FractalHostBase {
             explorer = try Explorer(layer: address, scale: Double(scale))
         } catch {
             NSLog("Almondbread: renderer could not be created: \(error)")
-            model.failure = "\(error)"
+            model.failure = ExplorerModel.failureText(error)
             if SelfTest.enabled { SelfTest.finish(ok: false, "renderer FAILED: \(error)") }
         }
     }

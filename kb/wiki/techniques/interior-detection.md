@@ -275,6 +275,24 @@ float32 and stay unresolved.
   (Previews and gesture frames with an interior colouring run a capped, unproven cycle
   analysis instead, so their bulbs match the rest frame: [Colouring methods](coloring-methods.md)
   "Gesture frames".)
+- Every pass takes its steps from `probe_steps` (formula, nucleus period, the pass's limit), its
+  cost estimates too. Until 2026-11 only the first pass did: extension and compute-further passes
+  set the steps themselves, which turned the probe on for Julia, turned planes and the folds.
+  Component Newton then proved the attracting cycle of the view's parameter, not that the pixel
+  falls into it: `verify --history jump --julia-k 0.2499,0 --center 0.51,0 --scale 1e-9 --size
+  320x200 --ppp 1 --iterations 200 --cap 3200 --cpu-iterations 20000` painted 1.816 % false
+  interior, and a turned plane 0.569 % (`--turn 40 --center 0.24999,0 --z0 -0.50316227766,0`:
+  `z_0` on the far side of the repelling fixed point puts the view coordinate in the main
+  cardioid, where the cycle search finds a period). The offscreen tests could not see it, and
+  neither could an oracle at the session's own limit: those pixels escape later.
+  What it costs: near-parabolic Julia and turned-plane interior now needs `|w| n²`, so at a manual
+  limit too low for that the view stays unresolved, and a Julia reference does not extend
+  (at that view limit 200: 100 % unresolved, stopped at its reach). The automatic limit there is
+  5048, and the view resolves as before (measured 2026-11-05, M1 Pro, release).
+  The period rule in later passes costs Mandelbrot nothing measured (same day and build): all 80
+  places, 19 with nucleus references, have byte-identical fields through the live scheduler with
+  compute further, and where it turns a probe off, sea-8007 and needles at low manual limits, the
+  counts are unchanged.
 - Always on, divisor 8 (the switch `ALMONDBREAD_PROBE` was removed 2026-10-17).
 
 **Results** (measured 2026-10-17, M1 Pro, release; `verify`, GPU at the view's limit vs the

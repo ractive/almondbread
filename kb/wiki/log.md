@@ -6,6 +6,7 @@ Add entries with `hyalo okf log`; never rewrite old ones.
 ## 2026-11-05
 
 - **Decision:** Review fixes in core: a jump, a journey or a formula change ends a minibrot seek (it clears in stop_motion and on a formula change); the orbit probe shares the reference's arrays and reads split and fold (no O(n) copy; of 64 escape counts against direct BigFloat beside the needle up to 37 were wrong, now at most 5, mostly its 24-bit Z, and 0 on the test views); Scale::parse has the coordinate digit cap and BigFloat::parse checks the exponent before converting digits.
+- **Decision:** Render review fixes: extension and compute-further passes take the probe rules from one probe_steps (Julia, turned planes and folds no longer probe: 1.816 % false interior gone; Mandelbrot's 80 places byte-identical), Job holds one JobReference (Celtic and Buffalo read past the old fold buffer after an extended orbit), a memory warning ends the view's AA samples and really frees the preview allocation, and GPUs below Apple7 get a plain full-window refusal, which the App Store cannot express (techniques/interior-detection, platform/ios-device)
 
 ## 2026-10-31
 
