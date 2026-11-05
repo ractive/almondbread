@@ -22,12 +22,15 @@ extension ExplorerModel {
         var knobs: [Double]
     }
 
-    /// Enters the lab with the knobs and plane it had last (Reset's values the first time).
+    /// Enters the lab with the knobs and plane it had last (Reset's values the first time). A
+    /// tour ends first, here and not in Rust alone: the mirror takes the settings before the tour
+    /// back from `endTour`; at once, the lab's way back is the view before the tour.
     public func enterLab() {
         guard let explorer, !isLab else { return }
+        if tour != nil { endTour(fly: false) }
         if explorer.enterLab(plane: labPlane, knobs: labKnobs) {
-            syncLab()
-            saveLab()
+            // (Rust left a Julia view first: the mirror follows, the lab with it.)
+            pull(explorer.settings())
             host?.requestFrames()
         }
     }
@@ -37,7 +40,6 @@ extension ExplorerModel {
         guard let explorer, isLab else { return }
         _ = explorer.leaveLab()
         syncLab()
-        saveLab()
         host?.requestFrames()
     }
 
@@ -74,26 +76,28 @@ extension ExplorerModel {
     }
 
     /// Takes over Rust's lab state (on or off, plane, knobs: a panel drag changes them; another
-    /// formula or a place leaves the lab). Assigns only on change.
+    /// formula, a place, a paste or a tour leaves the lab) and saves a change. Assigns only on
+    /// change.
     func syncLab() {
         guard let explorer else { return }
         let l = explorer.lab()
+        let changed = l.on != isLab || (l.on && (l.plane != labPlane || l.knobs != labKnobs))
+        guard changed else { return }
         if l.on != isLab {
             isLab = l.on
             let c = explorer.capabilities()
             if c != capabilities { capabilities = c }
         }
-        guard l.on else { return }
-        if l.plane != labPlane { labPlane = l.plane }
-        if l.knobs != labKnobs {
-            labKnobs = l.knobs
-            saveLab()
+        if l.on {
+            if l.plane != labPlane { labPlane = l.plane }
+            if l.knobs != labKnobs { labKnobs = l.knobs }
         }
+        saveLab()
     }
 
     /// The lab as the last launch left it (on: entered again, at its plane's home view).
     func restoreLab() {
-        guard let data = UserDefaults.standard.data(forKey: Self.labStateKey),
+        guard let data = Preferences.defaults.data(forKey: Self.labStateKey),
               let s = try? JSONDecoder().decode(SavedLab.self, from: data), s.knobs.count == 6 else { return }
         labPlane = ["c", "z0", "p"].contains(s.plane) ? s.plane : "c"
         let k = s.knobs
@@ -102,10 +106,10 @@ extension ExplorerModel {
     }
 
     func saveLab() {
-        guard !TestLaunch.ephemeral else { return }
+        guard labSaves else { return }
         let k = labKnobs
         let s = SavedLab(on: isLab, plane: labPlane, knobs: [k.z0Re, k.z0Im, k.cRe, k.cIm, k.pRe, k.pIm])
-        if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: Self.labStateKey) }
+        if let data = try? JSONEncoder().encode(s) { Preferences.defaults.set(data, forKey: Self.labStateKey) }
     }
 }
 
@@ -267,7 +271,7 @@ enum LabDemo {
         model.labPlane = scene == "lab-z0" ? "z0" : scene == "lab-p" ? "p" : "c"
         model.labKnobs = scene == "lab-reset" ? labDefaultKnobs()
             : LabKnobs(z0Re: 0.0555, z0Im: -0.0739, cRe: -0.0347, cIm: 0.8060, pRe: 2.0731, pIm: -0.1961)
-        // (After the first layout: the plane's home view is fitted to the view.)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.enterLab() }
+        // (With the view's size: the plane's home view is fitted to the view.)
+        model.afterViewSized { model.enterLab() }
     }
 }

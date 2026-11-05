@@ -2,13 +2,16 @@ import SwiftUI
 
 /// "Fly to Coordinates…": re, im and scale (decimal strings, any depth) for an animated flight
 /// (kb: decisions/controls, fly to). Pasting the app's copied-coordinates text into any field
-/// fills all three. The flight itself (path, speed, landing) is Rust's.
+/// fills all three, and the flight then goes to all the text says (its fractal, Julia set, turn
+/// and angle), unless a field is edited. The flight itself (path, speed, landing) is Rust's.
 struct FlyToSheet: View {
     let model: ExplorerModel
     @Binding var isPresented: Bool
     @State private var re = ""
     @State private var im = ""
     @State private var scale = ""
+    /// The pasted text the fields were filled from.
+    @State private var pasted: String?
     @State private var error: String?
 
     var body: some View {
@@ -27,7 +30,7 @@ struct FlyToSheet: View {
             HStack {
                 #if os(iOS)
                 PasteButton(payloadType: String.self) { strings in
-                    if let text = strings.first, let c = Self.parse(text) { (re, im, scale) = c }
+                    if let text = strings.first { fill(text) }
                 }
                 .labelStyle(.iconOnly)
                 #endif
@@ -60,7 +63,7 @@ struct FlyToSheet: View {
             // app's clipboard asks "Allow Paste?" every time the sheet opens (seen 2026-10-18);
             // the Paste button there reads it on request without asking.
             #if os(macOS)
-            if let text = Clipboard.text(), let c = Self.parse(text) { (re, im, scale) = c }
+            if let text = Clipboard.text() { fill(text) }
             #endif
         }
     }
@@ -81,18 +84,35 @@ struct FlyToSheet: View {
                 .font(.body.monospaced())
                 .onChange(of: value.wrappedValue) { _, new in
                     // A pasted block ("re …\nim …\nscale …") fills all three fields.
-                    if new.contains("\n") || new.contains(" "), let c = Self.parse(new) { (re, im, scale) = c }
+                    if new.contains("\n") || new.contains(" ") { fill(new) }
                 }
         }
     }
 
+    /// Fills the fields from pasted text if it is a view.
+    private func fill(_ text: String) {
+        guard let c = Self.parse(text) else { return }
+        (re, im, scale) = c
+        pasted = text
+    }
+
     private func fly() {
+        if let text = Self.link(pasted, re: re, im: im, scale: scale) {
+            if model.flyTo(text: text) { isPresented = false } else { error = "Not a view" }
+            return
+        }
         do {
             try model.flyTo(re: re, im: im, scale: scale)
             isPresented = false
         } catch {
             self.error = "Not a view: \(error)"
         }
+    }
+
+    /// The pasted text, while the fields still show what it says.
+    static func link(_ pasted: String?, re: String, im: String, scale: String) -> String? {
+        guard let pasted, let c = parse(pasted), c == (re, im, scale) else { return nil }
+        return pasted
     }
 
     /// "re …", "im …", "scale … (zoom …)" lines, or three numbers.

@@ -184,7 +184,8 @@ core-check: rust
 	@mkdir -p build
 	swift run -c release almondbread-core-check $(abspath build/core-check.png)
 
-## Swift unit tests (pure UI logic: the touch layout; Tests/AlmondbreadKitTests)
+## Swift unit tests (Tests/AlmondbreadKitTests): pure UI logic such as the touch layout, and
+## RestartTests: save and restore through the real model on a windowless layer (needs a GPU)
 swift-test: rust
 	swift test
 

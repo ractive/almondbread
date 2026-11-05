@@ -137,11 +137,13 @@ public enum Preferences {
     public static let hudKey = "showHUD"
     public static let hudDetailsKey = "hudDeveloperDetails"
     static let savedSettingsKey = "almondbread.settings.v1"
+    /// Where the model persists (`RestartTests`: a suite of its own).
+    static var defaults = UserDefaults.standard
 
-    static var gamepadEnabled: Bool { UserDefaults.standard.object(forKey: gamepadKey) as? Bool ?? true }
-    static var restoreSettings: Bool { UserDefaults.standard.object(forKey: restoreKey) as? Bool ?? true }
+    static var gamepadEnabled: Bool { Preferences.defaults.object(forKey: gamepadKey) as? Bool ?? true }
+    static var restoreSettings: Bool { Preferences.defaults.object(forKey: restoreKey) as? Bool ?? true }
     static var zoomUnits: ZoomUnits {
-        ZoomUnits(rawValue: UserDefaults.standard.string(forKey: zoomUnitsKey) ?? "") ?? .magnification
+        ZoomUnits(rawValue: Preferences.defaults.string(forKey: zoomUnitsKey) ?? "") ?? .magnification
     }
 }
 
@@ -295,11 +297,18 @@ public final class ExplorerModel {
         let lab = isLab
         guard name != formula || lab, let explorer, let s = try? explorer.setFormula(formula: name) else { return }
         if lab { syncLab() }
-        // (From a Julia view, F4, Rust leaves it first; "julia" is in no family.)
-        if !isJulia { lastInFamily[formulaFamily] = formula }
+        // (From a Julia view, F4, Rust leaves it first.)
+        rememberInFamily()
         pull(s)
-        lastInFamily[formulaFamily] = formula
+        rememberInFamily()
         host?.requestFrames()
+    }
+
+    /// Notes the formula as its family's last pick: the picker's entries only ("julia" and
+    /// "turn" are none, and Rust's `set_formula` refuses them: the family's choice would do
+    /// nothing).
+    private func rememberInFamily() {
+        if let o = Self.formulaOptions.first(where: { $0.formula == formula }) { lastInFamily[o.family] = formula }
     }
 
     /// Switches to a family: its last picked formula, else its first.
@@ -438,9 +447,9 @@ public final class ExplorerModel {
     /// Physical size of a view point (the platform view measures its screen; 0: unknown).
     var metresPerPoint = 0.0 { didSet { if metresPerPoint != oldValue { pushCosmic() } } }
     /// The status overlay (zoom, centre, speed) in the top-left corner.
-    public var showHUD: Bool = TestLaunch.ephemeral || UserDefaults.standard.object(forKey: Preferences.hudKey) as? Bool ?? true {
+    public var showHUD: Bool = TestLaunch.ephemeral || Preferences.defaults.object(forKey: Preferences.hudKey) as? Bool ?? true {
         didSet {
-            if !TestLaunch.ephemeral { UserDefaults.standard.set(showHUD, forKey: Preferences.hudKey) }
+            if !TestLaunch.ephemeral { Preferences.defaults.set(showHUD, forKey: Preferences.hudKey) }
             if showHUD != oldValue { pushCockpit() }
         }
     }
@@ -449,15 +458,15 @@ public final class ExplorerModel {
     public var cockpitInsetRight = 0.0 { didSet { if cockpitInsetRight != oldValue { pushCockpit() } } }
     /// The HUD's developer details (iterations, GPU, reference, kernel, state): off by default.
     /// A demo window does not store it (it would change the user's preference).
-    public var hudDetails: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: Preferences.hudDetailsKey) {
-        didSet { if !TestLaunch.ephemeral { UserDefaults.standard.set(hudDetails, forKey: Preferences.hudDetailsKey) } }
+    public var hudDetails: Bool = !TestLaunch.ephemeral && Preferences.defaults.bool(forKey: Preferences.hudDetailsKey) {
+        didSet { if !TestLaunch.ephemeral { Preferences.defaults.set(hudDetails, forKey: Preferences.hudDetailsKey) } }
     }
 
     // Navigation (an app-wide preference; the navigator in Rust applies it)
-    public var edgePanning: EdgePanning = EdgePanning(rawValue: UserDefaults.standard.string(forKey: Preferences.edgePanKey) ?? "")
+    public var edgePanning: EdgePanning = EdgePanning(rawValue: Preferences.defaults.string(forKey: Preferences.edgePanKey) ?? "")
         ?? .whileZooming {
         didSet {
-            if !TestLaunch.ephemeral { UserDefaults.standard.set(edgePanning.rawValue, forKey: Preferences.edgePanKey) }
+            if !TestLaunch.ephemeral { Preferences.defaults.set(edgePanning.rawValue, forKey: Preferences.edgePanKey) }
             explorer?.setEdgePan(mode: edgePanning.ffi)
         }
     }
@@ -465,9 +474,9 @@ public final class ExplorerModel {
     /// Autopilot target lock: while the pointer rests the autopilot aims at boundary targets
     /// and backs out of voids (persisted; on by default; off: a pure joystick; kb:
     /// decisions/controls, autopilot).
-    public var autopilotLock: Bool = UserDefaults.standard.object(forKey: ExplorerModel.lockKey) as? Bool ?? true {
+    public var autopilotLock: Bool = Preferences.defaults.object(forKey: ExplorerModel.lockKey) as? Bool ?? true {
         didSet {
-            if !TestLaunch.ephemeral { UserDefaults.standard.set(autopilotLock, forKey: Self.lockKey) }
+            if !TestLaunch.ephemeral { Preferences.defaults.set(autopilotLock, forKey: Self.lockKey) }
             explorer?.setAutopilotLock(on: autopilotLock)
         }
     }
@@ -476,9 +485,9 @@ public final class ExplorerModel {
     /// Lane assist (key L; persisted, off by default; active in cruise only; kb:
     /// decisions/controls "Driving levels"): keeps a cruise out of featureless areas.
     /// Window tests start from (and never store) the default.
-    public var laneAssist: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.assistKey) {
+    public var laneAssist: Bool = !TestLaunch.ephemeral && Preferences.defaults.bool(forKey: ExplorerModel.assistKey) {
         didSet {
-            if !TestLaunch.ephemeral { UserDefaults.standard.set(laneAssist, forKey: Self.assistKey) }
+            if !TestLaunch.ephemeral { Preferences.defaults.set(laneAssist, forKey: Self.assistKey) }
             explorer?.setAssist(on: laneAssist)
             host?.requestFrames()
         }
@@ -487,9 +496,9 @@ public final class ExplorerModel {
 
     /// Two-finger scroll on a trackpad: false pans (default), true zooms (up and down; click
     /// and drag pans). Persisted; window tests start from (and never store) the default.
-    public var scrollZooms: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.scrollZoomsKey) {
+    public var scrollZooms: Bool = !TestLaunch.ephemeral && Preferences.defaults.bool(forKey: ExplorerModel.scrollZoomsKey) {
         didSet {
-            if !TestLaunch.ephemeral { UserDefaults.standard.set(scrollZooms, forKey: Self.scrollZoomsKey) }
+            if !TestLaunch.ephemeral { Preferences.defaults.set(scrollZooms, forKey: Self.scrollZoomsKey) }
             explorer?.setScrollZooms(on: scrollZooms)
         }
     }
@@ -516,9 +525,9 @@ public final class ExplorerModel {
     /// decisions/controls "Journey with stops"): J and the cockpit's journey icon start this mode, ⇧J
     /// the other.
     /// Window tests start from (and never store) the default.
-    public var journeyStops: Bool = !TestLaunch.ephemeral && UserDefaults.standard.bool(forKey: ExplorerModel.journeyStopsKey) {
+    public var journeyStops: Bool = !TestLaunch.ephemeral && Preferences.defaults.bool(forKey: ExplorerModel.journeyStopsKey) {
         didSet {
-            if !TestLaunch.ephemeral { UserDefaults.standard.set(journeyStops, forKey: Self.journeyStopsKey) }
+            if !TestLaunch.ephemeral { Preferences.defaults.set(journeyStops, forKey: Self.journeyStopsKey) }
             explorer?.setJourneyStops(on: journeyStops)
         }
     }
@@ -614,6 +623,10 @@ public final class ExplorerModel {
     @ObservationIgnored weak var host: ExplorerHost?
     @ObservationIgnored private var pulling = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The view has its first size and the saved state is back (`viewSized`): until then nothing
+    /// may be written over it.
+    @ObservationIgnored private var sized = false
+    @ObservationIgnored private var afterSized: [() -> Void] = []
     @ObservationIgnored private var journalSaveTask: Task<Void, Never>?
     @ObservationIgnored private var journalRevision: UInt64?
     @ObservationIgnored private var journalObservers: [NSObjectProtocol] = []
@@ -621,8 +634,8 @@ public final class ExplorerModel {
 
     public init() {}
 
-    /// Connects the view's explorer; the model takes over Rust's settings, then restores the
-    /// saved ones (window tests start from the defaults).
+    /// Connects the view's explorer; the model takes over Rust's settings. The saved ones come
+    /// back with the view's first size (`viewSized`).
     func attach(_ explorer: Explorer, host: ExplorerHost) {
         self.explorer = explorer
         self.host = host
@@ -633,12 +646,7 @@ public final class ExplorerModel {
         explorer.setScrollZooms(on: scrollZooms)
         if !TestLaunch.ephemeral { restoreUserPalettes() }
         pull(explorer.settings())
-        if Preferences.restoreSettings && !TestLaunch.ephemeral {
-            restore()
-            restoreLab()
-        }
         if !TestLaunch.ephemeral {
-            restoreJournal()
             let nc = NotificationCenter.default
             #if os(macOS)
             let leaving: [Notification.Name] = [NSApplication.willTerminateNotification, NSApplication.didResignActiveNotification]
@@ -647,7 +655,7 @@ public final class ExplorerModel {
             #endif
             journalObservers = leaving.map { name in
                 nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.saveJournal(now: true) }
+                    MainActor.assumeIsolated { self?.flushSaves() }
                 }
             }
         }
@@ -667,8 +675,35 @@ public final class ExplorerModel {
         }
     }
 
+    /// The view has a size: what was saved comes back now (window tests start from the defaults).
+    /// Not at `attach`, where the view is (0, 0): a home view is fitted to the view when it is
+    /// set (the lab's, a Julia set's, any other fractal's) and only Mandelbrot's is fitted again
+    /// by the first resize. The journal first: the lab keeps it for the way back.
+    func viewSized() {
+        guard !sized, explorer != nil else { return }
+        sized = true
+        if !TestLaunch.ephemeral {
+            restoreJournal()
+            if Preferences.restoreSettings {
+                restore()
+                restoreLab()
+            }
+        }
+        for action in afterSized { action() }
+        afterSized = []
+        refreshStats()
+    }
+
+    /// The lab's state is written (not before the saved one is back, nor in window tests).
+    var labSaves: Bool { sized && !TestLaunch.ephemeral }
+
+    /// Runs `action` once the view has its size (UI demo scenes that enter the lab).
+    func afterViewSized(_ action: @escaping () -> Void) {
+        if sized { action() } else { afterSized.append(action) }
+    }
+
     private func followPreferences() {
-        let d = UserDefaults.standard
+        let d = Preferences.defaults
         if let e = EdgePanning(rawValue: d.string(forKey: Preferences.edgePanKey) ?? ""), e != edgePanning {
             edgePanning = e
         }
@@ -680,9 +715,19 @@ public final class ExplorerModel {
 
     // MARK: Settings
 
-    private func pull(_ s: ExplorerSettings) {
+    /// Takes over Rust's settings. They persist like a control's change: a formula, a Julia set,
+    /// a turn, a paste or a step of the journal comes this way. (Not when nested in a batch of
+    /// changes, which saves itself.)
+    func pull(_ s: ExplorerSettings) {
+        let nested = pulling
         pulling = true
-        defer { pulling = false }
+        defer {
+            pulling = nested
+            if !nested {
+                syncLab()
+                save()
+            }
+        }
         juliaRe = s.juliaRe
         juliaIm = s.juliaIm
         turnDegrees = s.turnDegrees
@@ -866,13 +911,24 @@ public final class ExplorerModel {
 
     /// Writes the settings to user defaults (coalesced: at most every half second).
     private func save() {
-        guard !pulling, explorer != nil, !TestLaunch.ephemeral else { return }
+        guard !pulling, sized, explorer != nil, !TestLaunch.ephemeral else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let self else { return }
+            self.saveTask = nil
             self.writeSaved()
         }
+    }
+
+    /// At quit and when the app goes to the background: what is still waiting to be written.
+    private func flushSaves() {
+        if let task = saveTask {
+            task.cancel()
+            saveTask = nil
+            writeSaved()
+        }
+        saveJournal(now: true)
     }
 
     /// Everything that persists, as a record (also the undo state of the resets).
@@ -900,13 +956,13 @@ public final class ExplorerModel {
     private func writeSaved() {
         // During a tour the user's own settings persist, not the tour's.
         if let data = try? JSONEncoder().encode(tourSaved ?? snapshot()) {
-            UserDefaults.standard.set(data, forKey: Preferences.savedSettingsKey)
+            Preferences.defaults.set(data, forKey: Preferences.savedSettingsKey)
         }
     }
 
     /// Takes over the saved settings (missing keys keep the current values) and forwards them.
     private func restore() {
-        guard let data = UserDefaults.standard.data(forKey: Preferences.savedSettingsKey),
+        guard let data = Preferences.defaults.data(forKey: Preferences.savedSettingsKey),
               let s = try? JSONDecoder().decode(SavedSettings.self, from: data) else { return }
         apply(s)
     }
@@ -974,6 +1030,8 @@ public final class ExplorerModel {
         pushCosmic()
         pushPiMeter()
         pushCompass()
+        // (`formula` was set under `pulling`, where its didSet leaves them.)
+        if let c = explorer?.capabilities(), c != capabilities { capabilities = c }
     }
 
     // MARK: Reset (control center: "Reset all" and per section)
@@ -1082,7 +1140,7 @@ public final class ExplorerModel {
 
     /// Back to the defaults (the default look, overlays off) and forgets the saved settings.
     public func resetSettings() {
-        UserDefaults.standard.removeObject(forKey: Preferences.savedSettingsKey)
+        Preferences.defaults.removeObject(forKey: Preferences.savedSettingsKey)
         pulling = true
         autoIterations = true
         manualIterations = 1000
@@ -1271,18 +1329,27 @@ public final class ExplorerModel {
     public func flyTo(re: String, im: String, scale: String) throws {
         guard let explorer else { return }
         try explorer.flyTo(re: re, im: im, scale: scale)
+        // (From the parameter lab, F10: Rust leaves it first.)
+        syncLab()
         host?.requestFrames()
     }
 
-    /// Flies to coordinates on the clipboard (the text Copy Coordinates writes). Returns false
-    /// if the clipboard holds no view.
+    /// Flies to `text` (what Copy Coordinates writes) and all it says: the fractal, a Julia set's
+    /// k, a turned plane, the angle. Returns false if it is not a view.
     @discardableResult
-    public func flyToCopiedCoordinates() -> Bool {
-        guard let text = Clipboard.text(), let explorer, explorer.flyToCoordinates(text: text) else { return false }
+    public func flyTo(text: String) -> Bool {
+        guard let explorer, explorer.flyToCoordinates(text: text) else { return false }
         // (The text may name another fractal, F3: its settings come back.)
         pull(explorer.settings())
         host?.requestFrames()
         return true
+    }
+
+    /// Flies to coordinates on the clipboard. Returns false if the clipboard holds no view.
+    @discardableResult
+    public func flyToCopiedCoordinates() -> Bool {
+        guard let text = Clipboard.text() else { return false }
+        return flyTo(text: text)
     }
 
     public func reset() {
@@ -1314,23 +1381,23 @@ public final class ExplorerModel {
     /// The persisted journal (the last 100 places, locations only) back into Rust, before the
     /// places of this session.
     private func restoreJournal() {
-        guard let explorer, let text = UserDefaults.standard.string(forKey: Self.journalKey) else { return }
+        guard let explorer, let text = Preferences.defaults.string(forKey: Self.journalKey) else { return }
         _ = explorer.journalImport(text: text)
     }
 
     /// Writes the journal (coalesced like the settings); also at quit and when the app goes to
     /// the background, where a view at rest long enough is recorded first.
     func saveJournal(now: Bool = false) {
-        guard explorer != nil, !TestLaunch.ephemeral else { return }
+        guard sized, explorer != nil, !TestLaunch.ephemeral else { return }
         journalSaveTask?.cancel()
         if now {
-            if let text = explorer?.journalExport() { UserDefaults.standard.set(text, forKey: Self.journalKey) }
+            if let text = explorer?.journalExport() { Preferences.defaults.set(text, forKey: Self.journalKey) }
             return
         }
         journalSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let self, let text = self.explorer?.journalExport() else { return }
-            UserDefaults.standard.set(text, forKey: Self.journalKey)
+            Preferences.defaults.set(text, forKey: Self.journalKey)
         }
     }
 
@@ -1440,12 +1507,12 @@ public final class ExplorerModel {
     /// The tours that reached their last step once (a checkmark in the lists). In user defaults,
     /// except in tests and demos (`TestLaunch.ephemeral`), which start empty.
     public private(set) var toursDone: Set<String> = TestLaunch.ephemeral ? []
-        : Set(UserDefaults.standard.stringArray(forKey: ExplorerModel.toursDoneKey) ?? [])
+        : Set(Preferences.defaults.stringArray(forKey: ExplorerModel.toursDoneKey) ?? [])
 
     func markTourDone(_ id: String) {
         guard !toursDone.contains(id) else { return }
         toursDone.insert(id)
-        if !TestLaunch.ephemeral { UserDefaults.standard.set(toursDone.sorted(), forKey: Self.toursDoneKey) }
+        if !TestLaunch.ephemeral { Preferences.defaults.set(toursDone.sorted(), forKey: Self.toursDoneKey) }
     }
 
     /// The running step's goal (`goal:`) is done: the card says so. Polled with the stats.
@@ -1516,13 +1583,14 @@ public final class ExplorerModel {
         takeTour(info)
     }
 
-    /// "End tour" (Esc twice): the settings before the tour come back and the view flies back.
-    public func endTour() {
+    /// "End tour" (Esc twice): the settings before the tour come back and the view flies back
+    /// (`fly` false: jumps back at once).
+    public func endTour(fly: Bool = true) {
         disarmTourEscape()
         guard let explorer else { return }
         let saved = tourSaved
         tourSaved = nil
-        if let info = explorer.endTour() { takeTour(info) }
+        if let info = explorer.endTour(fly: fly) { takeTour(info) }
         tour = nil
         if let look = saved?.lookID { lookID = look }
         save()
@@ -1871,16 +1939,16 @@ public final class ExplorerModel {
         let data = try Data(contentsOf: url)
         let text = String(decoding: data, as: UTF8.self)
         let jsons = try AlmondbreadCore.importPalettes(text: text, fileName: url.lastPathComponent)
-        var saved = UserDefaults.standard.stringArray(forKey: Self.userPalettesKey) ?? []
+        var saved = Preferences.defaults.stringArray(forKey: Self.userPalettesKey) ?? []
         saved.append(contentsOf: jsons)
-        UserDefaults.standard.set(saved, forKey: Self.userPalettesKey)
+        Preferences.defaults.set(saved, forKey: Self.userPalettesKey)
         library = AlmondbreadCore.paletteLibrary()
         return jsons.count
     }
 
     /// Registers the palettes imported in earlier sessions.
     private func restoreUserPalettes() {
-        for json in UserDefaults.standard.stringArray(forKey: Self.userPalettesKey) ?? [] {
+        for json in Preferences.defaults.stringArray(forKey: Self.userPalettesKey) ?? [] {
             _ = try? AlmondbreadCore.registerPaletteJson(json: json)
         }
         library = AlmondbreadCore.paletteLibrary()

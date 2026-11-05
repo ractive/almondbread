@@ -49,7 +49,8 @@ let package = Package(
             dependencies: ["AlmondbreadCore"]
         ),
         // `swift test` (make swift-test): pure UI logic, such as the touch layout for screens no
-        // simulator has (kb: decisions/controls "Round buttons").
+        // simulator has (kb: decisions/controls "Round buttons"), and `RestartTests`: save and
+        // restore through the real model on a windowless layer.
         .testTarget(
             name: "AlmondbreadKitTests",
             dependencies: ["AlmondbreadKit"],
