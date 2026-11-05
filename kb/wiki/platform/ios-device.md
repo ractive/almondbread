@@ -174,16 +174,42 @@ GPU family
 
 | Key | Effect | Fit |
 |---|---|---|
-| `metal` (now) | any Metal device | also A12, A13 and older |
-| `iphone-ipad-minimum-performance-a12` | A12 and later | drops A10 and A11; A12 and A13 still install |
+| `metal` | any Metal device | also A12, A13 and older |
+| `iphone-ipad-minimum-performance-a12` (ours) | A12 and later | drops A10 and A11; A12 and A13 still install |
 | `iphone-performance-gaming-tier` | iPhone 15 Pro class | drops every capable iPhone before it; a forum post reports Game Mode on iPad (unverified) |
 | `ipad-minimum-performance-m1` | iPad only; not described on the reference page | no iPhone rule |
 
 A later deployment target does not reach it either: iOS 27 keeps the iPhone 11, an A13
 (unverified: press reports of Apple's list). So A12 and A13 owners can buy the app and meet the
-failure screen, unless the store text says so. Decide before the first release: Apple allows an
-update to keep or relax requirements, not add them (unverified: WWDC20 session 10621 as WWDC Notes
-summarises it).
+failure screen, unless the store text says so.
+
+**Decided (user, 2026-11-05): the A12 key, and the store text names the real floor.** The key is
+the nearest the store offers, available since iOS 12, and it has to be in the first release: an
+update can "only maintain or relax capability requirements"
+(src: [Apple required device capabilities (UIRequiredDeviceCapabilities)](../sources/apple-required-device-capabilities.md)).
+No listing exists yet, so this line goes into the App Store description when one is written:
+
+> Requires an A14 or M1 chip or later: iPhone 12 or later, iPhone SE (3rd generation), iPad (10th
+> generation), iPad Air (4th generation), iPad mini (6th generation), iPad Pro 11-inch (3rd
+> generation), iPad Pro 12.9-inch (5th generation) or later.
+
+The models come from Xcode 26.6's `Platforms/iPhoneOS.platform/usr/standalone/device_traits.db`
+(`GraphicsFeatureSetClass` per `ProductType`), and they match the chip table in
+[Apple Metal Feature Set Tables (May 2026)](../sources/apple-metal-feature-set-tables.md):
+
+| Family | Models | What the app does |
+|---|---|---|
+| Apple5 | iPad mini 5, iPad Air 3, the A12X and A12Z iPad Pros | failure screen |
+| Apple6 | iPhone 11 family, iPhone SE 2, iPad 9 | failure screen |
+| Apple7 | iPhone 12 family, iPad Air 4 and 5, iPad 10, the M1 iPad Pros | runs |
+| Apple8 | iPhone SE 3, iPad mini 6 and newer | runs |
+
+Pitfall: 84 rows of that table read `APPLE8` with `applegpu_g14g` as a default, among them the
+iPhone 4S, the iPod touch, the iPhone XS and the iPad 8. Those rows say nothing about the GPU.
+
+With the key, `ios-device-check` and `ios-selftest` pass (2026-11-05, iPad mini simulator). That
+says nothing about a device's own check: no real device has installed this build yet, the iPad was
+locked (`kAMDMobileImageMounterDeviceLocked`, for `devicectl device install` as well).
 
 ## Thermal
 

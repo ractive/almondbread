@@ -288,7 +288,8 @@ float32 and stay unresolved.
   What it costs: near-parabolic Julia and turned-plane interior now needs `|w| n²`, so at a manual
   limit too low for that the view stays unresolved, and a Julia reference does not extend
   (at that view limit 200: 100 % unresolved, stopped at its reach). The automatic limit there is
-  5048, and the view resolves as before (measured 2026-11-05, M1 Pro, release).
+  5048, and the view resolves as before (measured 2026-11-05, M1 Pro, release). Accepted (user,
+  2026-11-05): fog at a limit set too low by hand, rather than false interior.
   The period rule in later passes costs Mandelbrot nothing measured (same day and build): all 80
   places, 19 with nucleus references, have byte-identical fields through the live scheduler with
   compute further, and where it turns a probe off, sea-8007 and needles at low manual limits, the

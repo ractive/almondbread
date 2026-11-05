@@ -2755,6 +2755,10 @@ mode, edge panning, target lock and sidebar state are neither read nor written. 
 `--ui-demo` and the UI tests were not window tests, so "Orbit Here" turned the orbit and the
 mini-map on for the next normal launch.
 
+**The view does not persist.** Settings come back, the view does not (`SavedSettings`), so a
+restored Julia set or turned plane opens at its own home view, fitted to the window
+(`ExplorerModel.viewSized`). Kept (user, 2026-11-05).
+
 **iPad menu bar.** View ▸ Tours (every tour, End Tour) and Help ▸ Almondbread Help (⌘?) and
 Show Touch Hints.
 

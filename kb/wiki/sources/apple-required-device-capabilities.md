@@ -19,10 +19,11 @@ Apple's list of the keys an app can require so the App Store does not offer it t
 ## What it covers
 
 - `metal`: "Support for graphics processing with Metal." Says nothing of a GPU family.
-- `iphone-ipad-minimum-performance-a12`: "Performance and capabilities of the A12 Bionic and later chips."
+- `iphone-ipad-minimum-performance-a12`: "Performance and capabilities of the A12 Bionic and later chips." "Available in iOS 12.0 and later".
 - `iphone-performance-gaming-tier`: "the graphics performance and gaming features equivalent to the iPhone 15 Pro and iPhone 15 Pro Max."
 - `ipad-minimum-performance-m1`: in the support page's key selector only; the reference page does not describe it.
 - No key names A14 or a Metal GPU family.
+- Updates: "For app updates, you can only maintain or relax capability requirements."
 
 ## Reliability
 

@@ -85,7 +85,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        UIRequiredDeviceCapabilities: [metal]
+        UIRequiredDeviceCapabilities: [iphone-ipad-minimum-performance-a12]   # no key names A14: the app refuses below it (kb: platform/ios-device)
         CADisableMinimumFrameDurationOnPhone: true   # allow 120 Hz on ProMotion iPhones
     settings:
       base:
