@@ -21,6 +21,21 @@ fn extreme_parse_rejects_absurd_exponents_quickly() {
 }
 
 #[test]
+fn extreme_parse_checks_the_exponent_before_converting_digits() {
+    let t0 = std::time::Instant::now();
+    // A million fraction digits are an exponent of -1e6: refused without the quadratic
+    // conversion of the digits, which took seconds.
+    assert!(BigFloat::parse(&format!("0.{}", "7".repeat(1_000_000)), 128).is_none());
+    // Zero keeps any exponent, however it is written.
+    assert!(
+        BigFloat::parse(&format!("0.{}", "0".repeat(1_000_000)), 128)
+            .unwrap()
+            .is_zero()
+    );
+    assert!(t0.elapsed().as_secs_f64() < 0.5, "{:?}", t0.elapsed());
+}
+
+#[test]
 fn extreme_precision_bits_are_bounded() {
     for s in [f64::NEG_INFINITY, f64::INFINITY, f64::NAN, -1e300, 1e300, -1e18] {
         for c in [f64::NAN, f64::INFINITY, 0.0, -1.0, 1e300] {

@@ -136,8 +136,13 @@ impl Scale {
         if b > self { b } else { self }
     }
 
-    /// Parses a positive decimal (`3.2e-1000`).
+    /// Parses a positive decimal (`3.2e-1000`). `None` for more than [`MAX_COORDINATE_DIGITS`]
+    /// digits, as [`Center::parse`] (4 million pasted digits took two minutes; kb:
+    /// techniques/hang-prevention).
     pub fn parse(text: &str) -> Option<Self> {
+        if decimal_digits(text) > MAX_COORDINATE_DIGITS {
+            return None;
+        }
         let b = BigFloat::parse(text, 128)?;
         if b.is_zero() || b.is_negative() {
             return None;
@@ -204,10 +209,15 @@ pub const MIN_CENTER_BITS: usize = 64;
 /// Largest centre precision: a little past the deepest scale ([`MIN_SCALE_LOG2`]) plus the
 /// guard bits, whole limbs. Neither the view nor a pasted coordinate takes more.
 pub const MAX_CENTER_BITS: usize = ((-MIN_SCALE_LOG2 + 1024 + CENTER_GUARD_BITS) as usize).div_ceil(64) * 64;
-/// Most digits a coordinate may have ([`Center::parse`]): about 6x the ~3 350 digits that
-/// [`MAX_CENTER_BITS`] holds, so any coordinate another program writes at our depths is
-/// accepted (then rounded), and parsing stays around a millisecond.
+/// Most digits a coordinate or a scale may have ([`Center::parse`], [`Scale::parse`]): about 6x
+/// the ~3 350 digits that [`MAX_CENTER_BITS`] holds, so any coordinate another program writes at
+/// our depths is accepted (then rounded), and parsing stays around a millisecond.
 pub const MAX_COORDINATE_DIGITS: usize = 20_000;
+
+/// The digits of decimal text, for [`MAX_COORDINATE_DIGITS`].
+fn decimal_digits(text: &str) -> usize {
+    text.bytes().filter(u8::is_ascii_digit).count()
+}
 
 impl Center {
     /// From f64 coordinates (exact).
@@ -232,8 +242,7 @@ impl Center {
     /// the digit count (a pasted million digits took 1.6 s and left a 52 000-limb centre;
     /// kb: techniques/hang-prevention).
     pub fn parse(re: &str, im: &str) -> Option<Self> {
-        let digits = |s: &str| s.bytes().filter(u8::is_ascii_digit).count();
-        let n = digits(re).max(digits(im));
+        let n = decimal_digits(re).max(decimal_digits(im));
         if n > MAX_COORDINATE_DIGITS {
             return None;
         }
