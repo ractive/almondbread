@@ -2821,6 +2821,67 @@ main 4d846fa against F6b, both release, alternating twice: sea-8007 GPU 350.9 / 
 against 345.2 / 346.2 ms (0.99), dendrite-1e300 2.1 / 2.1 against 2.7 / 2.1 ms; the fields and
 PNGs of both are byte-identical.
 
+## Allocation, repeated stages and PGO: nothing to gain, 2026-11-07
+
+Leads from an audit of another project (allocation hotspots, arenas, stages that run too often,
+PGO). Rules fixed before measuring: a stage is worth touching at 5 % or more of its CPU in the
+allocator, if a user waits for it; a change stays at 10 % or more on that stage with identical
+output; PGO stays at 10 % or more across precisions. All measured on an M1 Pro with other work on
+the machine: counts on release, timings on dist. Result: no change made, none of the three pays.
+
+**Allocation.** An inserted library (`DYLD_INSERT_LIBRARIES`, wrapping `malloc`, `calloc`,
+`realloc`, `posix_memalign`, `free`) counts every call and the time inside, so the shares are
+upper bounds (the clock reads count):
+
+| Path | Allocations | In the allocator |
+|---|---|---|
+| Reference orbit, 256 / 1024 / 3392 bits (`math_check bench`) | 1 106 / 1 057 / 1 600 in the whole run | 0.26 / 0.05 / 0.01 % |
+| LA and BLA tables, all 21 locations (`la_check`) | 153 k in all; builds 0.1–54 ms | not a cost |
+| `fly` gestures, 1 320 refreshes | 236 k; about 118 per refresh after start-up | 7 % of a process using 0.75 s of CPU: 42 µs per refresh |
+| `journey --seed 4711 --legs 6` | 2.8 M | 6.2 % of 1.55 s |
+| `autopilot`, 20 s | 5.75 M | 5.7 % of 3.3 s |
+
+Frame CPU is 0.14 ms median, 0.6 ms p99 (gestures), 0.14 / 0.28 ms (deep-zoom), against 8.3 ms at
+120 Hz. The orbit's registers already avoid allocation. Allocations per refresh are mostly Metal
+encoding and `ComponentTest::new`, which is needed: a gesture's every preview is a new grid.
+
+Journey and autopilot pass the 5 %, nearly all in `find_misiurewicz`, `find_candidates` and
+BigFloat `div`, `mul`, `square`. So the best any allocator could do was measured on the same dist
+binary, 7 interleaved runs, output identical in every run:
+
+| Allocator | journey CPU / wall | autopilot CPU / wall |
+|---|---|---|
+| Bump, marker rolled back on a LIFO free | 0.0 / −1.2 % | 0.0 / +1.6 % |
+| Lock-free per-thread free lists | +2.3 / +8.8 % | +1.3 / +5.1 % |
+
+Below the bar on background work. A marker reset would not even reclaim these: 0.5 % of frees are
+last-in-first-out, because a BigFloat result outlives its operands.
+
+**Repeated stages.** One settled view runs reference, table and component test once each.
+deep-zoom: 1 reference and 1 table in 600 refreshes; gestures: 8 and 6 in 1 320, about 0 ms each.
+
+**PGO** on `math_check`, trained at 256, 1024 and 3392 bits, against plain dist, no other flags,
+orbit digests identical. Best of 6 interleaved runs (nearly all baseline runs within 2 % of their
+best; medians under load spread 8–115 % and said nothing):
+
+| Bits | sqr+out | mul+out | sqr | mul |
+|---|---|---|---|---|
+| 512 (not trained) | −2.2 % | −2.7 % | −2.3 % | −2.6 % |
+| 1024 | −2.5 % | −7.3 % | −2.1 % | −7.4 % |
+| 3392 | −12.2 % | −16.3 % | −11.9 % | −16.0 % |
+
+Slower everywhere. Why was not looked into. `llvm-profdata` must match rustc's LLVM (`llvm-tools`):
+Xcode's refuses the profile.
+
+**Open, not measured:** `plan_frame` composes every refresh during compute further, whether or not
+new texels arrived. Four views gave no run to test it on (0, 0, 0.1 and 0.2 GPU s), so it can only
+matter on a rare long run.
+
+**Pitfalls of the tools.** `fly` starts a child that inherits the inserted library: write one
+trace per process. With an inserted library, image 0 is not the executable. The library sees
+`malloc` before its constructor runs. Objective-C calls `malloc_size` on what it gets, so a
+replacement allocator has to answer it.
+
 # Citations
 
 - [MLX issue 3302: GPU watchdog kills long SDPA dispatch](../sources/mlx-watchdog-issue.md)

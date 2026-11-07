@@ -3,6 +3,10 @@
 One entry per operation, grouped under `## YYYY-MM-DD` date headings, newest first (OKF §7).
 Add entries with `hyalo okf log`; never rewrite old ones.
 
+## 2026-11-07
+
+- **Research:** Allocation, repeated stages and PGO audit: nothing to gain. The orbit does not allocate (0.01-0.26 % in the allocator), frame CPU is 0.14 ms of 8.3 ms, reference and tables are not repeated; a near-ideal allocator gives journey and autopilot 1-2 % CPU and 5-9 % wall; PGO makes the orbit 2-16 % slower, output identical. Compose on every refresh during compute further stays open, unmeasured (synthesis/benchmarks)
+
 ## 2026-11-05
 
 - **Decision:** App Store floor and two accepted behaviours: UIRequiredDeviceCapabilities is iphone-ipad-minimum-performance-a12 (the nearest key to the kernels' A14; an update cannot add it later), the store text names A14 and M1 when a listing is written (line in platform/ios-device; models from Xcode's device_traits.db, whose APPLE8 / applegpu_g14g rows are a default); not yet installed on a real device. Fog at a manual limit set too low on Julia sets and turned planes accepted (techniques/interior-detection); restored Julia sets and turned planes keep opening at their home view (decisions/controls)
