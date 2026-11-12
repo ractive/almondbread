@@ -9,9 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 almondbread-math.workspace = true
-rayon = "1.10"
+rayon = "1.12"
 png = "0.18"
-bytemuck = { version = "1.16", features = ["derive"] }
+bytemuck = { version = "1.25", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

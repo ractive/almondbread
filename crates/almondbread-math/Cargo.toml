@@ -16,7 +16,7 @@ num-rational = { version = "0.4", default-features = false, features = ["num-big
 num-traits = "0.2"
 num-integer = "0.1"
 proptest = "1"
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]
 name = "math"
