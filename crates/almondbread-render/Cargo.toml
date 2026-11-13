@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 almondbread-core.workspace = true
-bytemuck = { version = "1.16", features = ["derive"] }
+bytemuck = { version = "1.25", features = ["derive"] }
 
 # The Metal backend (kb: platform/render-architecture). Other targets build without a backend.
 [target.'cfg(target_vendor = "apple")'.dependencies]
