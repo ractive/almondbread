@@ -1,0 +1,33 @@
+# Dependabot version updates.
+#
+# Every update PR goes through ci.yml, so the quality gates judge it like
+# any other PR. Majors arrive as individual PRs; minor/patch updates are
+# grouped per ecosystem to keep the PR count low.
+#
+# - github-actions: third-party actions are SHA-pinned with a `# vX.Y.Z`
+#   comment; Dependabot updates both.
+# - cargo: one workspace at the root. A uniffi bump changes the generated
+#   Swift bindings, so check the xcframework build before merging one.
+# - Package.swift has no external dependencies, so there is no swift entry.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # num-rational 0.4 (almondbread-math's dev-dependency) is built on
+      # num-bigint 0.4, so num-bigint can only move together with it.
+      - dependency-name: num-bigint
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      cargo-minor-patch:
+        update-types: [minor, patch]
